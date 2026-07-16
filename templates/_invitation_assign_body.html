@@ -31,12 +31,12 @@
                 <span class="assign-src-name">{{ src.name }}</span>
                 <span class="assign-src-tags">
                   {% if src.pending_approval %}<span class="assignment-source-flag"><i class="fa fa-clock me-1"></i>Pendiente de aprobar</span>{% endif %}
-                  <span class="badge inv-qty-badge assign-src-qty"><i class="fa fa-ticket me-1"></i>{{ src.qty_total }}</span>
+                  <span class="badge inv-qty-badge assign-src-qty"><i class="fa fa-ticket me-1"></i>{{ (src.qty_total)|k }}</span>
                   {# Etiqueta «Asignadas X/X» SIEMPRE visible (gris a 0, amarilla parcial, verde completa);
                      la ✕ desasigna todo (lo del proceso y lo ya guardado sin enviar). #}
                   <span class="assign-src-progress-row">
                     <span class="assign-src-progress" data-assigned-badge>
-                      <span class="assign-src-progress-txt">Asignadas <span data-assigned-count>{{ src.assigned }}</span>/<span data-qty-target>{{ src.qty_total }}</span></span>
+                      <span class="assign-src-progress-txt">Asignadas <span data-assigned-count>{{ src.assigned }}</span>/<span data-qty-target>{{ (src.qty_total)|k }}</span></span>
                       <button type="button" class="assign-src-cancel" data-cancel-assign title="Desasignar todas las invitaciones de esta solicitud"><i class="fa fa-xmark"></i></button>
                     </span>
                     <button type="button" class="assign-src-auto" data-auto-source title="Asignar automáticamente (aprovechando huecos, sin separar al grupo si es posible)"><i class="fa fa-wand-magic-sparkles"></i></button>

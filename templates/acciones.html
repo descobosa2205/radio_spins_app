@@ -9,15 +9,15 @@
 
 <ul class="nav nav-tabs mb-3">
   <li class="nav-item"><a class="nav-link {% if tab == 'inicio' %}active{% endif %}" href="{{ url_for('acciones_view', tab='inicio') }}">Inicio</a></li>
-  <li class="nav-item"><a class="nav-link {% if tab == 'acciones' %}active{% endif %}" href="{{ url_for('acciones_view', tab='acciones', subtab='activas') }}">Acciones <span class="badge text-bg-warning ms-1">{{ active_count }}</span></a></li>
-  <li class="nav-item"><a class="nav-link {% if tab == 'solicitudes' %}active{% endif %}" href="{{ url_for('acciones_view', tab='solicitudes') }}">Solicitudes <span class="badge text-bg-warning ms-1">{{ request_count }}</span></a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'acciones' %}active{% endif %}" href="{{ url_for('acciones_view', tab='acciones', subtab='activas') }}">Acciones <span class="badge text-bg-warning ms-1">{{ (active_count)|k }}</span></a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'solicitudes' %}active{% endif %}" href="{{ url_for('acciones_view', tab='solicitudes') }}">Solicitudes <span class="badge text-bg-warning ms-1">{{ (request_count)|k }}</span></a></li>
 </ul>
 
 {% if tab == 'inicio' %}
   <div class="row g-3">
     <div class="col-12 col-xl-5">
       <div class="card h-100">
-        <div class="card-header bg-white d-flex justify-content-between"><strong>Acciones solicitadas</strong><span class="badge text-bg-warning">{{ request_count }}</span></div>
+        <div class="card-header bg-white d-flex justify-content-between"><strong>Acciones solicitadas</strong><span class="badge text-bg-warning">{{ (request_count)|k }}</span></div>
         <div class="card-body p-0">
           {% for artist_label, rows in requests_by_artist.items() %}
             <div class="p-3 border-bottom bg-light fw-semibold">{{ artist_label }}</div>
@@ -81,8 +81,8 @@
   </div>
 {% elif tab == 'acciones' %}
   <ul class="nav nav-pills mb-3">
-    <li class="nav-item"><a class="nav-link {% if subtab == 'activas' %}active{% endif %}" href="{{ url_for('acciones_view', tab='acciones', subtab='activas') }}">Activas <span class="badge text-bg-warning ms-1">{{ active_count }}</span></a></li>
-    <li class="nav-item"><a class="nav-link {% if subtab == 'archivadas' %}active{% endif %}" href="{{ url_for('acciones_view', tab='acciones', subtab='archivadas') }}">Archivadas <span class="badge text-bg-secondary ms-1">{{ archived_count }}</span></a></li>
+    <li class="nav-item"><a class="nav-link {% if subtab == 'activas' %}active{% endif %}" href="{{ url_for('acciones_view', tab='acciones', subtab='activas') }}">Activas <span class="badge text-bg-warning ms-1">{{ (active_count)|k }}</span></a></li>
+    <li class="nav-item"><a class="nav-link {% if subtab == 'archivadas' %}active{% endif %}" href="{{ url_for('acciones_view', tab='acciones', subtab='archivadas') }}">Archivadas <span class="badge text-bg-secondary ms-1">{{ (archived_count)|k }}</span></a></li>
   </ul>
   {% set list_rows = active_actions if subtab == 'activas' else archived_actions %}
   <div class="card">

@@ -23,7 +23,7 @@
     {% for key,label in pending_tabs %}
       <li class="nav-item">
         <a class="nav-link {% if pending_subtab == key %}active{% endif %}" href="{{ url_for('administracion_view', tab='pendiente', subtab=key) }}">
-          {{ label }}{% if pending_counts.get(key, 0) %}<span class="badge text-bg-warning ms-1">{{ pending_counts.get(key) }}</span>{% endif %}
+          {{ label }}{% if pending_counts.get(key, 0) %}<span class="badge text-bg-warning ms-1">{{ (pending_counts.get(key))|k }}</span>{% endif %}
         </a>
       </li>
     {% endfor %}

@@ -19,10 +19,10 @@
     <div class="d-flex align-items-center gap-2 flex-wrap mt-3">
       {% if show_inactive %}
         <a href="{{ url_for('artists_view') }}" class="btn btn-sm btn-primary"><i class="fa fa-bolt me-1"></i>Ver solo activos</a>
-        <span class="small text-muted">Mostrando <strong>todos</strong> ({{ active_count }} activos · {{ inactive_count }} inactivos)</span>
+        <span class="small text-muted">Mostrando <strong>todos</strong> ({{ (active_count)|k }} activos · {{ (inactive_count)|k }} inactivos)</span>
       {% else %}
-        <a href="{{ url_for('artists_view', show_inactive=1) }}" class="btn btn-sm btn-outline-secondary"><i class="fa fa-eye me-1"></i>Ver también inactivos{% if inactive_count %} ({{ inactive_count }}){% endif %}</a>
-        <span class="small text-muted">Mostrando solo <strong>activos</strong> ({{ active_count }}) · con actividad reciente o próxima</span>
+        <a href="{{ url_for('artists_view', show_inactive=1) }}" class="btn btn-sm btn-outline-secondary"><i class="fa fa-eye me-1"></i>Ver también inactivos{% if inactive_count %} ({{ (inactive_count)|k }}){% endif %}</a>
+        <span class="small text-muted">Mostrando solo <strong>activos</strong> ({{ (active_count)|k }}) · con actividad reciente o próxima</span>
       {% endif %}
     </div>
   </div>

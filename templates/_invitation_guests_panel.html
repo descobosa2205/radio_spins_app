@@ -31,16 +31,16 @@
             <div class="inv-request-list mt-2">
               {% for cs in row.category_status %}
                 <div class="inv-cat-group">
-                  <div class="inv-cat-group-header"><span class="inv-cat-swatch" style="background: {{ cs.color }}"></span>{{ cs.name }}{% if cs.zone == 'PALCO' and cs.configured %} <span class="text-muted">(Aforo: {{ cs.configured }})</span>{% endif %}<span class="badge inv-qty-badge ms-1"><i class="fa fa-ticket me-1"></i>{{ cs.qty }}</span></div>
+                  <div class="inv-cat-group-header"><span class="inv-cat-swatch" style="background: {{ cs.color }}"></span>{{ cs.name }}{% if cs.zone == 'PALCO' and cs.configured %} <span class="text-muted">(Aforo: {{ cs.configured }})</span>{% endif %}<span class="badge inv-qty-badge ms-1"><i class="fa fa-ticket me-1"></i>{{ (cs.qty)|k }}</span></div>
                   <div class="list-group inv-cat-dropzone">
                     <div class="list-group-item inv-cat-row" style="border-left:5px solid {{ cs.color }};">
                       <div class="d-flex justify-content-between gap-3 flex-wrap align-items-center">
                         <div class="d-flex align-items-center gap-2 flex-wrap inv-name-line">
-                          <span class="badge inv-qty-badge" title="Entradas asignadas / totales"><i class="fa fa-ticket me-1"></i>{{ cs.assigned }}/{{ cs.qty }} entrada{{ '' if cs.qty == 1 else 's' }}</span>
+                          <span class="badge inv-qty-badge" title="Entradas asignadas / totales"><i class="fa fa-ticket me-1"></i>{{ cs.assigned }}/{{ (cs.qty)|k }} entrada{{ '' if cs.qty == 1 else 's' }}</span>
                           <span class="badge text-bg-light border" title="Ubicación / categoría"><i class="fa fa-location-dot me-1"></i>{{ cs.name }}</span>
                           {% if cs.downloaded %}<i class="fa fa-circle-down inv-dl-done" title="Descargada"></i>{% endif %}
                         </div>
-                        <span class="badge text-bg-{{ cs.status_badge }} align-self-center inv-status-pill" title="{{ cs.assigned }} de {{ cs.qty }}">{% if cs.done and cs.assigned %}<i class="fa fa-check me-1"></i>{% endif %}{{ cs.status_label }}</span>
+                        <span class="badge text-bg-{{ cs.status_badge }} align-self-center inv-status-pill" title="{{ cs.assigned }} de {{ (cs.qty)|k }}">{% if cs.done and cs.assigned %}<i class="fa fa-check me-1"></i>{% endif %}{{ cs.status_label }}</span>
                       </div>
                     </div>
                   </div>
@@ -81,7 +81,7 @@
                       </span>
                       {% if row.guest_title %}<span class="text-muted small">· {{ row.guest_title }}</span>{% endif %}
                       {% if row.link_summary_text %}<span class="invitation-linked-mini">{% if row.link_summary.logo_url %}<img class="{{ 'is-photo' if row.link_summary.type in ['artist','venue'] else 'is-logo' }}" src="{{ row.link_summary.logo_url }}" alt="">{% endif %}<span>{{ row.link_summary_text }}</span></span>{% endif %}
-                      <span class="badge inv-qty-badge" title="Entradas solicitadas"><i class="fa fa-ticket me-1"></i>{{ row.qty_total }} entrada{{ '' if row.qty_total == 1 else 's' }}</span>
+                      <span class="badge inv-qty-badge" title="Entradas solicitadas"><i class="fa fa-ticket me-1"></i>{{ (row.qty_total)|k }} entrada{{ '' if row.qty_total == 1 else 's' }}</span>
                       {% if row.categories_label %}<span class="badge text-bg-light border" title="Ubicación / categorías"><i class="fa fa-location-dot me-1"></i>{{ row.categories_label }}</span>{% endif %}
                       {% if row.downloaded_at_label %}<i class="fa fa-circle-down inv-dl-done" title="Descargada · {{ row.downloaded_at_label }}"></i>{% endif %}
                     </div>

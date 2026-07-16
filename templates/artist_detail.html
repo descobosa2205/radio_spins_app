@@ -176,8 +176,8 @@
           <div class="d-flex align-items-center gap-2 flex-wrap">
             <i class="fa {{ g.type_icon or 'fa-images' }} text-muted"></i>
             <span class="fw-semibold">{{ parts|select|join(' · ') }}</span>
-            {% if g.photo_count %}<span class="badge text-bg-light border"><i class="fa fa-image me-1"></i>{{ g.photo_count }} foto{{ '' if g.photo_count == 1 else 's' }}</span>{% endif %}
-            {% if g.video_count %}<span class="badge text-bg-light border"><i class="fa fa-video me-1"></i>{{ g.video_count }} vídeo{{ '' if g.video_count == 1 else 's' }}</span>{% endif %}
+            {% if g.photo_count %}<span class="badge text-bg-light border"><i class="fa fa-image me-1"></i>{{ (g.photo_count)|k }} foto{{ '' if g.photo_count == 1 else 's' }}</span>{% endif %}
+            {% if g.video_count %}<span class="badge text-bg-light border"><i class="fa fa-video me-1"></i>{{ (g.video_count)|k }} vídeo{{ '' if g.video_count == 1 else 's' }}</span>{% endif %}
           </div>
           {% if g.artist and g.artist.name %}<div class="mt-1">{{ artist_chip(g.artist.name, g.artist.photo_url) }}</div>{% endif %}
           {% if g.albums %}
@@ -799,7 +799,7 @@
                         {% endif %}
 
                         {% if c.capacity is not none %}
-                          <span class="badge text-bg-light border">Aforo a la venta: <strong>{{ c.capacity }}</strong></span>
+                          <span class="badge text-bg-light border">Aforo a la venta: <strong>{{ (c.capacity)|k }}</strong></span>
                         {% endif %}
 
                         {% if c.break_even_ticket and c.sale_type not in ['VENDIDO','GRATUITO'] %}

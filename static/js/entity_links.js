@@ -111,7 +111,11 @@
       if (!type) { if (results) results.innerHTML = '<div class="text-muted small p-3">Elige primero qué quieres vincular.</div>'; return; }
       var q = search ? search.value.trim() : '';
       if (results) results.innerHTML = '<div class="text-muted small p-2">Buscando…</div>';
-      fetch(SEARCH_URL + '?type=' + encodeURIComponent(type) + '&q=' + encodeURIComponent(q), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      // Excluir la propia ficha de los resultados (no tiene sentido vincularse consigo misma).
+      var srcT = form.querySelector('[name="source_type"]'), srcI = form.querySelector('[name="source_id"]');
+      var url = SEARCH_URL + '?type=' + encodeURIComponent(type) + '&q=' + encodeURIComponent(q);
+      if (srcT && srcT.value && srcI && srcI.value) url += '&exclude_type=' + encodeURIComponent(srcT.value) + '&exclude_id=' + encodeURIComponent(srcI.value);
+      fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
         .then(function (r) { return r.json(); })
         .then(function (data) { renderResults(Array.isArray(data) ? data : []); })
         .catch(function () { if (results) results.innerHTML = '<div class="text-danger small p-2">Error al buscar.</div>'; });

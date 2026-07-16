@@ -96,10 +96,10 @@
       <div class="modal-body">
         <div class="form-label">1. ¿Qué quieres vincular?</div>
         <div class="entity-link-type-row mb-3" data-link-type-row>
+          {# Se muestran TODAS las categorías, incluida la del propio tipo (p. ej. un tercero puede
+             vincularse con otro tercero). El buscador excluye la propia ficha para no autovincular. #}
           {% for key, meta in (entity_link_types or {}).items() %}
-            {% if key != source_type %}
-              <button type="button" class="entity-link-type-btn" data-link-type="{{ key }}"><i class="fa {{ meta.icon }}"></i><span>{{ meta.label }}</span></button>
-            {% endif %}
+            <button type="button" class="entity-link-type-btn" data-link-type="{{ key }}"><i class="fa {{ meta.icon }}"></i><span>{{ meta.label }}</span></button>
           {% endfor %}
         </div>
 

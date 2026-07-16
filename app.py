@@ -28245,6 +28245,13 @@ def api_entity_link_search():
         if not entity_type:
             return jsonify([])
         rows = []
+        # Excluir la propia ficha de los resultados (no autovincularse) cuando se busca en su misma
+        # «familia» de modelo (p. ej. tercero/empresa/institución comparten la tabla de terceros).
+        _fam = {"promoter": "P", "empresa": "P", "institucion": "P", "artist": "A", "media": "M",
+                "venue": "V", "ticketer": "T", "publishing": "PUB", "personal": "U"}
+        _ex_id = _safe_uuid(request.args.get("exclude_id"))
+        _ex_type = _entity_link_type(request.args.get("exclude_type"))
+        _same_fam = bool(_ex_id) and _fam.get(entity_type) and _fam.get(entity_type) == _fam.get(_ex_type)
         if entity_type in ("promoter", "empresa", "institucion"):
             query = session_db.query(Promoter).options(joinedload(Promoter.publishing_company), selectinload(Promoter.companies))
             # "Tercero" muestra los terceros genéricos (sin clasificar); "Empresa"/"Institución"
@@ -28256,6 +28263,8 @@ def api_entity_link_search():
             _clause = _promoter_search_clause(session_db, q)
             if _clause is not None:
                 query = query.filter(_clause)
+            if _same_fam:
+                query = query.filter(Promoter.id != _ex_id)
             for item in query.order_by(Promoter.nick.asc()).limit(30).all():
                 payload = _entity_link_payload(session_db, entity_type, item.id)
                 if payload:
@@ -28265,6 +28274,8 @@ def api_entity_link_search():
             query = session_db.query(Artist)
             if q:
                 query = query.filter(_sa_contains_text(Artist.name, q))
+            if _same_fam:
+                query = query.filter(Artist.id != _ex_id)
             for item in query.order_by(Artist.name.asc()).limit(30).all():
                 payload = _entity_link_payload(session_db, "artist", item.id)
                 if payload:
@@ -28273,6 +28284,8 @@ def api_entity_link_search():
             query = session_db.query(MediaOutlet)
             if q:
                 query = query.filter(_sa_contains_text(MediaOutlet.name, q) | _sa_contains_text(MediaOutlet.media_type, q) | _sa_contains_text(MediaOutlet.address, q) | _sa_contains_text(MediaOutlet.country_name, q))
+            if _same_fam:
+                query = query.filter(MediaOutlet.id != _ex_id)
             for item in query.order_by(MediaOutlet.name.asc()).limit(30).all():
                 payload = _entity_link_payload(session_db, "media", item.id)
                 if payload:
@@ -28281,6 +28294,8 @@ def api_entity_link_search():
             query = session_db.query(Venue)
             if q:
                 query = query.filter(_sa_contains_text(Venue.name, q) | _sa_contains_text(Venue.address, q) | _sa_contains_text(Venue.municipality, q) | _sa_contains_text(Venue.province, q))
+            if _same_fam:
+                query = query.filter(Venue.id != _ex_id)
             for item in query.order_by(Venue.name.asc()).limit(30).all():
                 payload = _entity_link_payload(session_db, "venue", item.id)
                 if payload:
@@ -28289,6 +28304,8 @@ def api_entity_link_search():
             query = session_db.query(Ticketer)
             if q:
                 query = query.filter(_sa_contains_text(Ticketer.name, q) | _sa_contains_text(Ticketer.link_url, q))
+            if _same_fam:
+                query = query.filter(Ticketer.id != _ex_id)
             for item in query.order_by(Ticketer.name.asc()).limit(30).all():
                 payload = _entity_link_payload(session_db, "ticketer", item.id)
                 if payload:
@@ -28297,6 +28314,8 @@ def api_entity_link_search():
             query = session_db.query(PublishingCompany)
             if q:
                 query = query.filter(_sa_contains_text(PublishingCompany.name, q))
+            if _same_fam:
+                query = query.filter(PublishingCompany.id != _ex_id)
             for item in query.order_by(PublishingCompany.name.asc()).limit(30).all():
                 payload = _entity_link_payload(session_db, "publishing", item.id)
                 if payload:
@@ -28311,6 +28330,8 @@ def api_entity_link_search():
                     _sa_contains_text(UserProfile.first_name, q),
                     _sa_contains_text(UserProfile.last_name, q),
                 ))
+            if _same_fam:
+                query = query.filter(User.id != _ex_id)
             for user, _profile in query.order_by(User.email.asc()).limit(30).all():
                 payload = _entity_link_payload(session_db, "personal", user.id)
                 if payload:

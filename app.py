@@ -22552,6 +22552,42 @@ def public_simulation_og_image(token):
     return resp
 
 
+# Miniaturas og:image de CONCIERTOS ya procesadas, por id: {cid: (src, bytes)}.
+_CONCERT_OG_IMAGE_CACHE: dict = {}
+
+
+@app.get("/og/concierto/<cid>.jpg", endpoint="public_concert_og_image")
+def public_concert_og_image(cid):
+    """Imagen de previsualización (og:image) de los enlaces públicos de un concierto: invitaciones
+    por WhatsApp/SMS/correo, planos, hoja de ruta… Cartel principal → foto del artista → logo,
+    normalizada a JPEG 1200×630 y servida desde nuestro dominio (mismo tratamiento que
+    public_simulation_og_image: WhatsApp descarta imágenes grandes o sin dimensiones)."""
+    s = db()
+    try:
+        concert = s.get(Concert, _safe_uuid(cid))
+        if not concert:
+            abort(404)
+        src = _public_share_og_source(s, concert, logo=_invitation_event_logo_url(s, concert, external=True))
+    finally:
+        s.close()
+    if not src:
+        abort(404)
+    key = str(cid)
+    cached = _CONCERT_OG_IMAGE_CACHE.get(key)
+    data = cached[1] if (cached and cached[0] == src) else None
+    if data is None:
+        data = _og_image_jpeg_bytes(src)
+        if data:
+            if len(_CONCERT_OG_IMAGE_CACHE) > 200:
+                _CONCERT_OG_IMAGE_CACHE.clear()
+            _CONCERT_OG_IMAGE_CACHE[key] = (src, data)
+    if not data:
+        return redirect(src)
+    resp = send_file(BytesIO(data), mimetype="image/jpeg")
+    resp.headers["Cache-Control"] = "public, max-age=21600"
+    return resp
+
+
 @app.post("/contratacion/simulaciones/<sid>/compartir", endpoint="simulation_share")
 @admin_required
 def simulation_share(sid):
@@ -32929,7 +32965,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -41982,7 +42018,21 @@ def _public_share_card(session_db, owner_type, owner, artist_id=None) -> dict:
 
 
 def _public_share_og_image(session_db, concert, event_payload=None, card=None, logo=None) -> str:
-    """Imagen de previsualización (og:image) para enlaces públicos de un concierto/evento.
+    """URL de og:image para los enlaces públicos de un concierto: si hay imagen (cartel / foto del
+    artista / logo), devuelve la versión PROCESADA servida por `public_concert_og_image` (JPEG
+    1200×630 desde nuestro dominio: WhatsApp descarta imágenes grandes, sin content-type de imagen
+    o sin dimensiones y la previsualización salía sin foto). Sin imagen, cadena vacía."""
+    src = _public_share_og_source(session_db, concert, event_payload=event_payload, card=card, logo=logo)
+    if not src:
+        return ""
+    _cid = getattr(concert, "id", None)
+    if _cid is None:
+        return src
+    return _external_url_for("public_concert_og_image", cid=str(_cid))
+
+
+def _public_share_og_source(session_db, concert, event_payload=None, card=None, logo=None) -> str:
+    """Imagen ORIGEN de previsualización para enlaces públicos de un concierto/evento.
     Orden (SIEMPRE, sin depender de lo que llegue en card/event_payload): cartel principal del
     concierto → foto del artista principal → foto de CUALQUIER artista del evento → logo. Devuelve
     una URL ABSOLUTA (si no, WhatsApp/SMS no la previsualizan)."""

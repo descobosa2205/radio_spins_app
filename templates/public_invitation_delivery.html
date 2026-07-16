@@ -6,10 +6,14 @@
   <title>{{ (og.title if og else '') or 'Invitaciones' }}</title>
   {% if og %}
   <meta property="og:type" content="website">
+  <meta property="og:site_name" content="33 Producciones">
+  <meta property="og:locale" content="es_ES">
   <meta property="og:title" content="{{ og.title }}">
-  {% if og.description %}<meta property="og:description" content="{{ og.description }}">{% endif %}
-  {% if og.image %}<meta property="og:image" content="{{ og.image }}">{% endif %}
-  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ og.title }}">
+  {% if og.description %}<meta property="og:description" content="{{ og.description }}"><meta name="description" content="{{ og.description }}"><meta name="twitter:description" content="{{ og.description }}">{% endif %}
+  {# La imagen llega PROCESADA (public_concert_og_image, JPEG 1200×630): sin las dimensiones y el
+     content-type, WhatsApp descartaba la foto y la tarjeta salía sin cartel/artista. #}
+  {% if og.image %}<meta property="og:image" content="{{ og.image }}"><meta property="og:image:secure_url" content="{{ og.image }}"><meta property="og:image:type" content="image/jpeg"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="{{ og.title }}"><meta name="twitter:image" content="{{ og.image }}"><meta name="twitter:card" content="summary_large_image">{% else %}<meta name="twitter:card" content="summary">{% endif %}
   {% endif %}
   <link href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" rel="stylesheet">

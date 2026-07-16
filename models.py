@@ -3383,10 +3383,15 @@ class SimulationProductionItem(Base):
 # ----- Ticketing vinculado al RECINTO (plantilla que se autocarga en simulaciones) -----
 
 class VenueTicketCategory(Base):
-    """Plantilla de categorías por recinto (sin precio; se rellena en cada simulación)."""
+    """Plantilla de categorías por recinto (sin precio; se rellena en cada simulación).
+
+    `seat_map_id` liga la categoría a un FORMATO del recinto (venue_seat_maps: «Formato 360»,
+    «Medio aforo»…, subpestañas de la pestaña Ticketing). NULL = legado sin formato: se trata
+    como parte del formato PRINCIPAL (is_default)."""
     __tablename__ = "venue_ticket_categories"
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     venue_id = Column(PGUUID(as_uuid=True), ForeignKey("venues.id", ondelete="CASCADE"), nullable=False, index=True)
+    seat_map_id = Column(PGUUID(as_uuid=True), ForeignKey("venue_seat_maps.id", ondelete="CASCADE"), index=True)
     zone = Column(Text, nullable=False, server_default=text("'PISTA'"))
     name = Column(Text, nullable=False, server_default=text("''"))
     quantity = Column(Integer, nullable=False, server_default=text("0"))
@@ -6774,6 +6779,9 @@ def ensure_venue_seatmap_schema():
         );
         """,
         "CREATE INDEX IF NOT EXISTS idx_venue_seat_maps_venue ON venue_seat_maps(venue_id, is_default);",
+        # Formatos: cada categoría clásica puede pertenecer a un formato (mapa) del recinto.
+        "ALTER TABLE venue_ticket_categories ADD COLUMN IF NOT EXISTS seat_map_id uuid REFERENCES venue_seat_maps(id) ON DELETE CASCADE;",
+        "CREATE INDEX IF NOT EXISTS idx_venue_ticket_categories_map ON venue_ticket_categories(seat_map_id);",
     ], "venue_seatmap")
 
 

@@ -17916,7 +17916,9 @@ def venue_ticketing_save(vid):
             data = []
         if not isinstance(data, list):
             data = []
-        for c in s.query(VenueTicketCategory).filter(VenueTicketCategory.venue_id == venue.id).all():
+        # FORMATO al que pertenece este ticketing (subpestaña): se reemplazan SOLO sus categorías.
+        sm = _venue_seatmap_resolve(s, venue.id, request.form.get("map_id"))
+        for c in _venue_ticket_categories_for(s, venue.id, sm):
             s.delete(c)
         s.flush()
         for i, row in enumerate(data):
@@ -17926,7 +17928,7 @@ def venue_ticketing_save(vid):
             if zone not in ("PISTA", "GRADA", "PALCO"):
                 zone = "PISTA"
             cat = VenueTicketCategory(
-                venue_id=venue.id, zone=zone,
+                venue_id=venue.id, seat_map_id=(sm.id if sm is not None else None), zone=zone,
                 name=str(row.get("name") or "").strip(),
                 quantity=_sim_int(row.get("qty")), invitations=_sim_int(row.get("inv")),
                 sort_order=i,
@@ -17947,17 +17949,55 @@ def venue_ticketing_save(vid):
         flash(f"Error guardando el ticketing del recinto: {e}", "danger")
     finally:
         s.close()
-    return redirect(url_for("venue_detail_view", vid=vid, tab="ticketing"))
+    return redirect(url_for("venue_detail_view", vid=vid, tab="ticketing", map=(request.form.get("map_id") or None)))
 
 
 def _venue_seatmap_default(session_db, venue_id):
-    """Mapa de butacas por defecto del recinto (o None). La UI del lote 1 trabaja con uno solo."""
+    """FORMATO principal del recinto (mapa por defecto, o None): el que se ofrece en simulaciones,
+    conciertos e invitaciones."""
     return (
         session_db.query(VenueSeatMap)
         .filter(VenueSeatMap.venue_id == venue_id)
         .order_by(VenueSeatMap.is_default.desc(), VenueSeatMap.created_at.asc())
         .first()
     )
+
+
+def _venue_seatmap_all(session_db, venue_id):
+    """Todos los FORMATOS de ticketing del recinto (subpestañas): el principal primero."""
+    return (
+        session_db.query(VenueSeatMap)
+        .filter(VenueSeatMap.venue_id == venue_id)
+        .order_by(VenueSeatMap.is_default.desc(), VenueSeatMap.created_at.asc())
+        .all()
+    )
+
+
+def _venue_seatmap_resolve(session_db, venue_id, map_id):
+    """Formato pedido (?map=… / map_id) si pertenece al recinto; si no, el principal."""
+    if map_id:
+        sm = session_db.get(VenueSeatMap, _safe_uuid(map_id))
+        if sm is not None and str(sm.venue_id) == str(venue_id):
+            return sm
+    return _venue_seatmap_default(session_db, venue_id)
+
+
+def _venue_ticket_categories_for(session_db, venue_id, sm):
+    """Categorías clásicas (plantilla de aforos) del recinto PARA UN FORMATO: las ligadas a ese
+    mapa y, si el formato es el principal (o el recinto no tiene mapas), también las legado sin
+    formato (seat_map_id NULL)."""
+    q = (
+        session_db.query(VenueTicketCategory)
+        .options(selectinload(VenueTicketCategory.extras))
+        .filter(VenueTicketCategory.venue_id == venue_id)
+    )
+    if sm is None:
+        q = q.filter(VenueTicketCategory.seat_map_id.is_(None))
+    elif sm.is_default:
+        q = q.filter(or_(VenueTicketCategory.seat_map_id == sm.id, VenueTicketCategory.seat_map_id.is_(None)))
+    else:
+        q = q.filter(VenueTicketCategory.seat_map_id == sm.id)
+    return q.order_by(VenueTicketCategory.zone.asc(), VenueTicketCategory.sort_order.asc()).all()
 
 
 def _venue_seatmap_payload(sm) -> dict:
@@ -18041,7 +18081,14 @@ def venue_seatmap_save(vid):
         if not isinstance(layout, dict):
             return jsonify({"ok": False, "error": "Layout inválido."}), 400
         client_version = _safe_int(data.get("version"))
-        sm = _venue_seatmap_default(s, venue.id)
+        # Con map_id se guarda ESE formato (subpestaña); sin él, el principal (compatibilidad).
+        _map_id = str(data.get("map_id") or "").strip()
+        if _map_id:
+            sm = s.get(VenueSeatMap, _safe_uuid(_map_id))
+            if sm is None or str(sm.venue_id) != str(venue.id):
+                return jsonify({"ok": False, "error": "Formato no encontrado."}), 404
+        else:
+            sm = _venue_seatmap_default(s, venue.id)
         if sm is None:
             sm = VenueSeatMap(
                 venue_id=venue.id,
@@ -18102,6 +18149,158 @@ def venue_seatmap_bg_upload(vid):
         return jsonify({"ok": False, "error": str(exc)}), 400
     finally:
         s.close()
+
+
+# ----------- FORMATOS de ticketing del recinto (subpestañas: plano + aforos por formato) -----------
+
+
+@app.post("/recintos/<vid>/ticketing/formatos", endpoint="venue_ticket_format_create")
+@admin_required
+def venue_ticket_format_create(vid):
+    """Crea un FORMATO de ticketing del recinto (subpestaña con nombre): un mapa nuevo,
+    opcionalmente PRECARGADO con el plano y las categorías/aforos de otro formato (copy_from)."""
+    if not can_edit_catalogs():
+        flash("No tienes permisos para editar el recinto.", "warning")
+        return redirect(url_for("venue_detail_view", vid=vid, tab="ticketing"))
+    s = db()
+    try:
+        venue = s.get(Venue, to_uuid(vid))
+        if not venue:
+            abort(404)
+        name = (request.form.get("name") or "").strip()
+        if not name:
+            raise ValueError("Ponle un nombre al formato.")
+        if s.query(VenueSeatMap.id).filter(VenueSeatMap.venue_id == venue.id, VenueSeatMap.name == name).first():
+            raise ValueError("Ya hay un formato con ese nombre.")
+        src = None
+        copy_from = (request.form.get("copy_from") or "").strip()
+        if copy_from:
+            src = s.get(VenueSeatMap, _safe_uuid(copy_from))
+            if src is None or str(src.venue_id) != str(venue.id):
+                src = None
+        has_any = s.query(VenueSeatMap.id).filter(VenueSeatMap.venue_id == venue.id).first() is not None
+        sm = VenueSeatMap(
+            venue_id=venue.id, name=name, is_default=not has_any,
+            layout_json=(json.loads(json.dumps(src.layout_json or {})) if src is not None else {}),
+            assignments_json=(json.loads(json.dumps(src.assignments_json or {})) if src is not None else {}),
+            created_by_user_id=_safe_uuid(session.get("user_id")),
+            created_by_nick=_current_user_email(),
+        )
+        s.add(sm)
+        s.flush()
+        # Precarga también las categorías/aforos clásicos del formato de origen.
+        if src is not None:
+            for c in _venue_ticket_categories_for(s, venue.id, src):
+                nc = VenueTicketCategory(
+                    venue_id=venue.id, seat_map_id=sm.id, zone=c.zone, name=c.name,
+                    quantity=c.quantity, invitations=c.invitations, sort_order=c.sort_order,
+                )
+                s.add(nc)
+                s.flush()
+                for ex in (c.extras or []):
+                    s.add(VenueTicketExtra(category_id=nc.id, name=ex.name, amount_gross=ex.amount_gross, sort_order=ex.sort_order))
+        s.commit()
+        flash(f"Formato «{name}» creado" + (f" precargado desde «{src.name or 'Principal'}»" if src is not None else "") + ".", "success")
+        return redirect(url_for("venue_detail_view", vid=vid, tab="ticketing", map=str(sm.id)))
+    except Exception as e:
+        s.rollback()
+        flash(f"No se pudo crear el formato: {e}", "danger")
+        return redirect(url_for("venue_detail_view", vid=vid, tab="ticketing"))
+    finally:
+        s.close()
+
+
+@app.post("/recintos/<vid>/ticketing/formatos/<mid>/renombrar", endpoint="venue_ticket_format_rename")
+@admin_required
+def venue_ticket_format_rename(vid, mid):
+    """Renombra un formato (nombre único por recinto)."""
+    if not can_edit_catalogs():
+        flash("No tienes permisos para editar el recinto.", "warning")
+        return redirect(url_for("venue_detail_view", vid=vid, tab="ticketing"))
+    s = db()
+    try:
+        venue = s.get(Venue, to_uuid(vid))
+        sm = s.get(VenueSeatMap, _safe_uuid(mid))
+        if not venue or sm is None or str(sm.venue_id) != str(venue.id):
+            abort(404)
+        name = (request.form.get("name") or "").strip()
+        if not name:
+            raise ValueError("Ponle un nombre al formato.")
+        dup = s.query(VenueSeatMap.id).filter(VenueSeatMap.venue_id == venue.id, VenueSeatMap.name == name, VenueSeatMap.id != sm.id).first()
+        if dup:
+            raise ValueError("Ya hay un formato con ese nombre.")
+        sm.name = name
+        sm.updated_at = _now_madrid()
+        s.commit()
+        flash("Formato renombrado.", "success")
+    except Exception as e:
+        s.rollback()
+        flash(f"No se pudo renombrar el formato: {e}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("venue_detail_view", vid=vid, tab="ticketing", map=mid))
+
+
+@app.post("/recintos/<vid>/ticketing/formatos/<mid>/principal", endpoint="venue_ticket_format_set_default")
+@admin_required
+def venue_ticket_format_set_default(vid, mid):
+    """Marca un formato como PRINCIPAL: es el que se ofrece en simulaciones/conciertos/invitaciones.
+    Las categorías legado sin formato (seat_map_id NULL) se ligan antes al principal saliente para
+    que no cambien de formato en silencio."""
+    if not can_edit_catalogs():
+        flash("No tienes permisos para editar el recinto.", "warning")
+        return redirect(url_for("venue_detail_view", vid=vid, tab="ticketing"))
+    s = db()
+    try:
+        venue = s.get(Venue, to_uuid(vid))
+        sm = s.get(VenueSeatMap, _safe_uuid(mid))
+        if not venue or sm is None or str(sm.venue_id) != str(venue.id):
+            abort(404)
+        old = _venue_seatmap_default(s, venue.id)
+        if old is not None and str(old.id) != str(sm.id):
+            s.query(VenueTicketCategory).filter(
+                VenueTicketCategory.venue_id == venue.id,
+                VenueTicketCategory.seat_map_id.is_(None),
+            ).update({VenueTicketCategory.seat_map_id: old.id}, synchronize_session=False)
+        for m in _venue_seatmap_all(s, venue.id):
+            m.is_default = (str(m.id) == str(sm.id))
+        s.commit()
+        flash(f"«{sm.name or 'Formato'}» es ahora el formato principal.", "success")
+    except Exception as e:
+        s.rollback()
+        flash(f"No se pudo cambiar el formato principal: {e}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("venue_detail_view", vid=vid, tab="ticketing", map=mid))
+
+
+@app.post("/recintos/<vid>/ticketing/formatos/<mid>/eliminar", endpoint="venue_ticket_format_delete")
+@admin_required
+def venue_ticket_format_delete(vid, mid):
+    """Elimina un formato (su plano y sus categorías ligadas, en cascada). El PRINCIPAL no se puede
+    eliminar mientras haya otros: primero marca otro como principal."""
+    if not can_edit_catalogs():
+        flash("No tienes permisos para editar el recinto.", "warning")
+        return redirect(url_for("venue_detail_view", vid=vid, tab="ticketing"))
+    s = db()
+    try:
+        venue = s.get(Venue, to_uuid(vid))
+        sm = s.get(VenueSeatMap, _safe_uuid(mid))
+        if not venue or sm is None or str(sm.venue_id) != str(venue.id):
+            abort(404)
+        others = [m for m in _venue_seatmap_all(s, venue.id) if str(m.id) != str(sm.id)]
+        if bool(sm.is_default) and others:
+            raise ValueError("Es el formato principal: marca antes otro como principal.")
+        nm = sm.name or "Formato"
+        s.delete(sm)
+        s.commit()
+        flash(f"Formato «{nm}» eliminado.", "success")
+    except Exception as e:
+        s.rollback()
+        flash(f"No se pudo eliminar el formato: {e}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("venue_detail_view", vid=vid, tab="ticketing"))
 
 
 # ----------- TICKETERAS ---------------
@@ -21844,13 +22043,8 @@ def _simulation_detail_response(s, sim, public=False, public_token=""):
         except Exception:
             venue_tpl = []
         if not venue_tpl:
-            _vtc = (
-                s.query(VenueTicketCategory)
-                .options(selectinload(VenueTicketCategory.extras))
-                .filter(VenueTicketCategory.venue_id == active_activity.venue_id)
-                .order_by(VenueTicketCategory.zone.asc(), VenueTicketCategory.sort_order.asc())
-                .all()
-            )
+            # Ticketing clásico del FORMATO PRINCIPAL del recinto (subpestañas de la ficha).
+            _vtc = _venue_ticket_categories_for(s, active_activity.venue_id, _venue_seatmap_default(s, active_activity.venue_id))
             venue_tpl = _venue_ticketing_payload(_vtc)
     expenses_payload = _sim_expenses_payload(active_activity)
 
@@ -22755,8 +22949,10 @@ def simulation_ticketing_save(sid):
                     amount_gross=_sim_d(ex.get("amount")), sort_order=j,
                 ))
         # Sincronización opcional con el recinto: actualizar su plantilla (de aquí en adelante).
+        # Solo toca el FORMATO PRINCIPAL del recinto (los demás formatos no se pisan).
         if _truthy(request.form.get("apply_to_venue")) and act.venue_id:
-            for vc in s.query(VenueTicketCategory).filter(VenueTicketCategory.venue_id == act.venue_id).all():
+            _sm_v = _venue_seatmap_default(s, act.venue_id)
+            for vc in _venue_ticket_categories_for(s, act.venue_id, _sm_v):
                 s.delete(vc)
             s.flush()
             for i, row in enumerate(data):
@@ -22766,7 +22962,7 @@ def simulation_ticketing_save(sid):
                 if zone not in ("PISTA", "GRADA", "PALCO"):
                     zone = "PISTA"
                 vcat = VenueTicketCategory(
-                    venue_id=act.venue_id, zone=zone,
+                    venue_id=act.venue_id, seat_map_id=(_sm_v.id if _sm_v is not None else None), zone=zone,
                     name=str(row.get("name") or "").strip(),
                     quantity=_sim_int(row.get("qty")), invitations=_sim_int(row.get("inv")),
                     sort_order=i,
@@ -40183,10 +40379,10 @@ def concert_ticketing_load_venue(cid):
         if not c.venue_id:
             flash('Este concierto no tiene recinto asignado.', 'warning')
             return redirect(url_for('concert_detail_view', cid=cid, tab='ticketing'))
-        cats = (
-            session_db.query(VenueTicketCategory)
-            .filter(VenueTicketCategory.venue_id == c.venue_id)
-            .order_by(VenueTicketCategory.sort_order.asc()).all()
+        # Solo el FORMATO PRINCIPAL del recinto (subpestañas de la ficha del recinto).
+        cats = sorted(
+            _venue_ticket_categories_for(session_db, c.venue_id, _venue_seatmap_default(session_db, c.venue_id)),
+            key=lambda x: x.sort_order or 0,
         )
         existing = {(x.name or '').strip().lower() for x in session_db.query(InvitationCategory).filter(InvitationCategory.concert_id == c.id).all()}
         n = 0
@@ -40304,14 +40500,11 @@ def venue_detail_view(vid):
             key=lambda item: (item.get('date') or date.min),
         )
         activities_past = [a for a in activities if (a.get('date') or date.min) < _today]
-        venue_cats = (
-            session_db.query(VenueTicketCategory)
-            .options(selectinload(VenueTicketCategory.extras))
-            .filter(VenueTicketCategory.venue_id == venue.id)
-            .order_by(VenueTicketCategory.zone.asc(), VenueTicketCategory.sort_order.asc())
-            .all()
-        )
         _tab = (request.args.get('tab') or 'actividad').strip().lower()
+        # FORMATO activo (subpestaña de Ticketing): ?map=<id> o el principal. Las categorías
+        # clásicas y el mapa que se muestran/editan son SIEMPRE los del formato activo.
+        _active_map = _venue_seatmap_resolve(session_db, venue.id, request.args.get('map'))
+        venue_cats = _venue_ticket_categories_for(session_db, venue.id, _active_map)
         return render_template(
             'venue_detail.html',
             venue=venue,
@@ -40323,7 +40516,9 @@ def venue_detail_view(vid):
             tab=_tab,
             venue_ticketing_payload=_venue_ticketing_payload(venue_cats),
             venue_tk_summary=_venue_ticketing_summary(venue_cats),
-            venue_seatmap_payload=(_venue_seatmap_payload(_venue_seatmap_default(session_db, venue.id)) if _tab == 'ticketing' else None),
+            venue_seatmap_payload=(_venue_seatmap_payload(_active_map) if _tab == 'ticketing' else None),
+            venue_seatmaps=([{'id': str(m.id), 'name': m.name or 'Principal', 'is_default': bool(m.is_default)} for m in _venue_seatmap_all(session_db, venue.id)] if _tab == 'ticketing' else []),
+            venue_active_map=({'id': str(_active_map.id), 'name': _active_map.name or 'Principal', 'is_default': bool(_active_map.is_default)} if (_tab == 'ticketing' and _active_map is not None) else None),
             expense_templates=_expense_templates_for(session_db, "VENUE", venue.id),
             entity_links=_entity_link_rows(session_db, 'venue', venue.id),
             entity_link_context={'type': 'venue', 'id': str(venue.id), 'label': venue.name or 'recinto'},

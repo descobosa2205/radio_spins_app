@@ -132,9 +132,60 @@
       <div class="text-muted small">Categorías y aforos que se <strong>ofrecen como plantilla</strong> al configurar el ticketing de una simulación en este recinto (los precios se ponen en cada simulación).</div>
     </div>
   </div>
+
+  {# ===== FORMATOS (subpestañas): cada formato tiene su nombre, su plano y sus categorías/aforos.
+     El marcado con estrella es el PRINCIPAL: el que se ofrece en simulaciones/conciertos/invitaciones. #}
+  <div class="d-flex align-items-center gap-1 flex-wrap mb-3">
+    <ul class="nav nav-pills gap-1 flex-wrap align-items-center mb-0">
+      {% for m in venue_seatmaps %}
+        <li class="nav-item"><a class="nav-link py-1 {% if venue_active_map and venue_active_map.id == m.id %}active{% endif %}" href="{{ url_for('venue_detail_view', vid=venue.id, tab='ticketing', map=m.id) }}">{% if m.is_default %}<i class="fa fa-star me-1" title="Formato principal: el que se ofrece en simulaciones, conciertos e invitaciones"></i>{% endif %}{{ m.name }}</a></li>
+      {% endfor %}
+      {% if CAN_EDIT_CATALOGS %}
+      <li class="nav-item"><button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#vtkFormatModal"><i class="fa fa-plus me-1"></i>Nuevo formato</button></li>
+      {% endif %}
+    </ul>
+    {% if CAN_EDIT_CATALOGS and venue_active_map %}
+    <div class="dropdown ms-auto">
+      <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-label="Acciones del formato"><i class="fa fa-ellipsis-vertical"></i></button>
+      <ul class="dropdown-menu dropdown-menu-end">
+        <li><button class="dropdown-item" type="button" data-vtk-rename><i class="fa fa-pen fa-fw me-2"></i>Renombrar formato</button></li>
+        {% if not venue_active_map.is_default %}
+        <li><form method="post" action="{{ url_for('venue_ticket_format_set_default', vid=venue.id, mid=venue_active_map.id) }}"><button class="dropdown-item" type="submit"><i class="fa fa-star fa-fw me-2"></i>Marcar como principal</button></form></li>
+        <li><hr class="dropdown-divider"></li>
+        <li><form method="post" action="{{ url_for('venue_ticket_format_delete', vid=venue.id, mid=venue_active_map.id) }}" onsubmit="return confirm('¿Eliminar el formato «{{ venue_active_map.name }}» (su plano y sus categorías)? No se puede deshacer.');"><button class="dropdown-item text-danger" type="submit"><i class="fa fa-trash fa-fw me-2"></i>Eliminar formato</button></form></li>
+        {% endif %}
+      </ul>
+    </div>
+    <form method="post" id="vtkRenameForm" action="{{ url_for('venue_ticket_format_rename', vid=venue.id, mid=venue_active_map.id) }}" class="d-none"><input type="hidden" name="name" id="vtkRenameName"></form>
+    {% endif %}
+  </div>
+
   {% if CAN_EDIT_CATALOGS %}
+  {# Modal: crear formato nuevo (con nombre), en blanco o PRECARGADO desde otro formato #}
+  <div class="modal fade" id="vtkFormatModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+      <form method="post" action="{{ url_for('venue_ticket_format_create', vid=venue.id) }}">
+        <div class="modal-header"><h5 class="modal-title"><i class="fa fa-layer-group me-2 text-danger"></i>Nuevo formato de ticketing</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <p class="small text-muted mb-3">Cada formato es una subpestaña con su propio plano y sus categorías/aforos (p. ej. «Concierto pista», «Formato teatro», «Medio aforo», «360»).</p>
+          <div class="mb-3"><label class="form-label">Nombre del formato *</label><input type="text" class="form-control" name="name" required placeholder="Ej: Formato teatro"></div>
+          <div><label class="form-label">Empezar</label>
+            <select class="form-select" name="copy_from">
+              <option value="">En blanco</option>
+              {% for m in venue_seatmaps %}
+                <option value="{{ m.id }}" {% if venue_active_map and venue_active_map.id == m.id %}selected{% endif %}>Precargando el plano y los datos de «{{ m.name }}»</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary" type="submit"><i class="fa fa-plus me-1"></i>Crear formato</button></div>
+      </form>
+    </div></div>
+  </div>
+
   <form id="venueTkForm" method="post" action="{{ url_for('venue_ticketing_save', vid=venue.id) }}">
     <input type="hidden" name="ticketing_json" id="venueTkJson">
+    <input type="hidden" name="map_id" value="{{ venue_active_map.id if venue_active_map else '' }}">
     <div class="d-flex flex-wrap gap-3 mb-3">
       <div class="sim-stat"><div class="sim-stat__n" id="vtkAforo">0</div><div class="sim-stat__l">Aforo total</div></div>
       <div class="sim-stat"><div class="sim-stat__n" id="vtkSell">0</div><div class="sim-stat__l">A la venta</div></div>
@@ -171,14 +222,31 @@
   <hr class="my-4">
   <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
     <div>
-      <h5 class="mb-0"><i class="fa fa-map me-1"></i>Mapa de butacas</h5>
-      <div class="text-muted small">Plano completo del recinto por sectores: se diseña una vez aquí y se reutiliza en simulaciones, conciertos e invitaciones. Acércate con el zoom para ver cada butaca con su número.</div>
+      <h5 class="mb-0"><i class="fa fa-map me-1"></i>Mapa de butacas{% if venue_active_map %} <span class="text-muted fw-normal">· {{ venue_active_map.name }}</span>{% endif %}</h5>
+      <div class="text-muted small">Plano del formato activo{% if venue_active_map and venue_active_map.is_default %} (el principal se reutiliza en simulaciones, conciertos e invitaciones){% endif %}. Acércate con el zoom para ver cada butaca con su número.</div>
     </div>
   </div>
   <div data-venue-map
        data-can-edit="{{ '1' if CAN_EDIT_CATALOGS else '' }}"
+       data-map-id="{{ venue_active_map.id if venue_active_map else '' }}"
        data-save-url="{{ url_for('venue_seatmap_save', vid=venue.id) }}"
        data-bg-upload-url="{{ url_for('venue_seatmap_bg_upload', vid=venue.id) }}"></div>
+  {% if CAN_EDIT_CATALOGS %}
+  <script>
+    // Renombrar el formato activo (prompt sencillo; el form oculto hace el POST).
+    (function(){
+      var b = document.querySelector('[data-vtk-rename]');
+      if (!b) return;
+      b.addEventListener('click', function(){
+        var n = prompt('Nuevo nombre del formato:', {{ (venue_active_map.name if venue_active_map else '')|tojson }});
+        if (n && n.trim()) {
+          document.getElementById('vtkRenameName').value = n.trim();
+          document.getElementById('vtkRenameForm').submit();
+        }
+      });
+    })();
+  </script>
+  {% endif %}
   <script type="application/json" id="venueMapData">{{ (venue_seatmap_payload or {})|tojson }}</script>
 {% else %}
   {% macro activity_list(rows) %}

@@ -2422,6 +2422,8 @@
     var saveBtn = host.querySelector('[data-vm-save]');
     if(saveBtn) saveBtn.addEventListener('click', function(){
       var body = { version: mapVersion,
+                   // Formato activo (subpestañas de la ficha del recinto); vacío = el principal.
+                   map_id: host.dataset.mapId || '',
                    layout: { version:1, next: nextId, sections: sections, elements: elements, categories: cats },
                    assignments: compressAssignments() };
       saveBtn.disabled = true;
@@ -2432,6 +2434,7 @@
         .then(function(r){
           if(r.ok && r.j.ok){
             mapVersion = r.j.version;
+            if(r.j.id && !host.dataset.mapId) host.dataset.mapId = r.j.id;   // primer guardado: fija el formato
             saveBtn.innerHTML = '<i class="fa fa-check me-1"></i>Guardado';
             setTimeout(function(){ saveBtn.innerHTML = orig; saveBtn.disabled=false; }, 1600);
           } else {

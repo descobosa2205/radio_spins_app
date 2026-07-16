@@ -81,7 +81,7 @@
                       <div>
                         <div><strong>{{ row.guest_name }}</strong>{% if row.guest_title %}<span class="text-muted"> · {{ row.guest_title }}</span>{% endif %}</div>
                         {% if row.for_office %}<div class="small mt-1"><span class="badge text-bg-info"><i class="fa fa-user-group me-1"></i>Para {{ row.requester_nick }} · de la oficina</span></div>{% endif %}
-                        <div class="mt-1">{{ row.quantities_label }}{% if row.downloaded_at_label %} <i class="fa fa-circle-down inv-dl-done" title="Descargadas · {{ row.downloaded_at_label }}"></i>{% endif %}</div>
+                        <div class="mt-1">{{ row.quantities_label }}{% if row.downloaded_at_label %} <i class="fa fa-circle-down {{ 'inv-dl-partial' if row.downloaded_partial else 'inv-dl-done' }}" title="{% if row.downloaded_partial %}Descarga PARCIAL: hay invitaciones nuevas desde la última descarga ({{ row.downloaded_at_label }}){% else %}Descargadas · {{ row.downloaded_at_label }}{% endif %}"></i>{% endif %}</div>
                         {% if row.link_summary_text %}<div class="invitation-linked-mini">{% if row.link_summary.logo_url %}<img class="{{ 'is-photo' if row.link_summary.type in ['artist','venue'] else 'is-logo' }}" src="{{ row.link_summary.logo_url }}" alt="">{% endif %}<span>{{ row.link_summary_text }}</span></div>{% endif %}
                         {% if row.registered_by_other and not row.for_office %}<div class="small text-muted mt-1"><i class="fa fa-user-pen me-1"></i>Registrada por {{ row.created_by_nick }}</div>{% endif %}
                       </div>
@@ -457,7 +457,11 @@
                                 {% if cs.downloaded %}<i class="fa fa-circle-down inv-dl-done" title="Descargada"></i>{% endif %}
                               </div>
                               <div class="d-flex align-items-center gap-2">
+                                {% if cs.split %}
+                                  <span class="inv-split-badge align-self-center" title="{{ cs.split.title }}"><span class="badge text-bg-{{ cs.split.left_badge }}">{{ cs.split.left_text }}</span><span class="badge text-bg-{{ cs.split.right_badge }}">{{ cs.split.right_text }}</span></span>
+                                {% else %}
                                 <span class="badge text-bg-{{ cs.status_badge }} align-self-center inv-status-pill" title="{{ cs.assigned }} de {{ cs.qty }}{% if cs.status_label == 'Enviadas' and row.sent_via %} · Enviada{% if row.sent_via %} · {{ row.sent_via }}{% endif %}{% if row.sent_to %}: {{ row.sent_to }}{% endif %}{% endif %}">{% if cs.done and cs.assigned %}<i class="fa fa-check me-1"></i>{% endif %}{{ cs.status_label }}</span>
+                                {% endif %}
                                 <div class="dropdown dropdown-menu-end">
                                   <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
                                   <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
@@ -544,8 +548,8 @@
                           {% if row.link_summary_text %}<span class="invitation-linked-mini">{% if row.link_summary.logo_url %}<img class="{{ 'is-photo' if row.link_summary.type in ['artist','venue'] else 'is-logo' }}" src="{{ row.link_summary.logo_url }}" alt="">{% endif %}<span>{{ row.link_summary_text }}</span></span>{% endif %}
                           <span class="badge inv-qty-badge" title="Entradas solicitadas"><i class="fa fa-ticket me-1"></i>{{ row.qty_total }} entrada{{ '' if row.qty_total == 1 else 's' }}</span>
                           {% if row.categories_label %}<span class="badge text-bg-light border" title="Ubicación / categorías"><i class="fa fa-location-dot me-1"></i>{{ row.categories_label }}</span>{% endif %}
-                          {% if row.reforwarded %}<i class="fa fa-share-from-square inv-reforwarded" title="El invitado reenvió sus invitaciones{% if row.reforwarded_at_label %} · {{ row.reforwarded_at_label }}{% endif %}"></i>{% endif %}
-                          {% if row.downloaded_at_label %}<i class="fa fa-circle-down inv-dl-done" title="Descargada · {{ row.downloaded_at_label }}"></i>{% endif %}
+                          {% if row.reforwarded %}<i class="fa fa-share-from-square {{ 'inv-dl-partial' if row.reforwarded_partial else 'inv-reforwarded' }}" title="{% if row.reforwarded_partial %}Reenvío PARCIAL: hay invitaciones nuevas desde que el invitado reenvió{% if row.reforwarded_at_label %} ({{ row.reforwarded_at_label }}){% endif %}{% else %}El invitado reenvió sus invitaciones{% if row.reforwarded_at_label %} · {{ row.reforwarded_at_label }}{% endif %}{% endif %}"></i>{% endif %}
+                          {% if row.downloaded_at_label %}<i class="fa fa-circle-down {{ 'inv-dl-partial' if row.downloaded_partial else 'inv-dl-done' }}" title="{% if row.downloaded_partial %}Descarga PARCIAL: hay invitaciones nuevas desde la última descarga ({{ row.downloaded_at_label }}){% else %}Descargada · {{ row.downloaded_at_label }}{% endif %}"></i>{% endif %}
                         </div>
                         {# Línea 2 (pequeña): a quién se envía | pedidas por (foto+nombre). #}
                         <div class="d-flex align-items-center gap-2 flex-wrap small text-muted mt-1">
@@ -557,7 +561,11 @@
                       </div>
                     </div>
                     <div class="d-flex align-items-center gap-2">
+                      {% if row.status_split %}
+                        <span class="inv-split-badge align-self-center" title="{{ row.status_split.title }}"><span class="badge text-bg-{{ row.status_split.left_badge }}">{{ row.status_split.left_text }}</span><span class="badge text-bg-{{ row.status_split.right_badge }}">{{ row.status_split.right_text }}</span></span>
+                      {% else %}
                       <span class="badge text-bg-{{ row.status_badge }} align-self-center inv-status-pill"{% if row.sent_at_label %} title="Enviada el {{ row.sent_at_label }}{% if row.sent_via %} · {{ row.sent_via }}{% endif %}{% if row.sent_to %}: {{ row.sent_to }}{% endif %}"{% endif %}>{{ row.status_label }}</span>
+                      {% endif %}
                     <div class="dropdown dropdown-menu-end">
                       <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
                       <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
@@ -822,7 +830,7 @@
                             <div class="invitation-seat-block-line"></div>
                             <div class="invitation-seat-block-seats">
                               {% for t in group %}
-                                <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }} invitation-seat--owned{% if g0.assignee_photo %} invitation-seat--photo{% endif %}" style="--asg:{{ g0.assignee_color or '#999' }}" data-ticket-id="{{ t.id }}" title="{{ t.code }} · {{ g0.assignee_name }}{% if g0.assignee_link %} · {{ g0.assignee_link }}{% endif %}{% if t.assignee_total %} · {{ t.assignee_total }} invitación{{ '' if t.assignee_total == 1 else 'es' }}{% endif %}{% if t.warning %} · {{ t.warning }}{% endif %}">{% if g0.assignee_photo %}<img class="invitation-seat-photo" loading="lazy" decoding="async" src="{{ g0.assignee_photo }}" alt="">{% else %}<i class="fa fa-ticket-alt"></i>{% endif %}<span class="invitation-seat-num">{{ loop.index }}</span></button>
+                                <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }} invitation-seat--owned{% if g0.assignee_photo %} invitation-seat--photo{% endif %}{% if t.added_after_send %} invitation-seat--added{% endif %}" style="--asg:{{ g0.assignee_color or '#999' }}" data-ticket-id="{{ t.id }}" title="{{ t.code }} · {{ g0.assignee_name }}{% if g0.assignee_link %} · {{ g0.assignee_link }}{% endif %}{% if t.assignee_total %} · {{ t.assignee_total }} invitación{{ '' if t.assignee_total == 1 else 'es' }}{% endif %}{% if t.added_after_send %} · AÑADIDA en el último envío{% endif %}{% if t.warning %} · {{ t.warning }}{% endif %}">{% if g0.assignee_photo %}<img class="invitation-seat-photo" loading="lazy" decoding="async" src="{{ g0.assignee_photo }}" alt="">{% else %}<i class="fa fa-ticket-alt"></i>{% endif %}<span class="invitation-seat-num">{{ loop.index }}</span></button>
                               {% endfor %}
                             </div>
                           </div>
@@ -932,7 +940,7 @@
                       <td>{{ row.guest_title }}</td>
                       <td>{{ row.quantities_label }}</td>
                       <td>{% if row.download_url and row.can_download_pdf %}<a class="btn btn-sm btn-outline-danger" href="{{ row.download_url }}" title="Descargar invitaciones"><i class="fa fa-file-pdf"></i></a>{% endif %}</td>
-                      <td>{% if row.status != 'APROBADAS' %}<span class="badge text-bg-{{ row.status_badge }} inv-status-pill">{{ row.status_label }}</span>{% endif %}</td>
+                      <td>{% if row.status_split %}<span class="inv-split-badge" title="{{ row.status_split.title }}"><span class="badge text-bg-{{ row.status_split.left_badge }}">{{ row.status_split.left_text }}</span><span class="badge text-bg-{{ row.status_split.right_badge }}">{{ row.status_split.right_text }}</span></span>{% elif row.status != 'APROBADAS' %}<span class="badge text-bg-{{ row.status_badge }} inv-status-pill">{{ row.status_label }}</span>{% endif %}</td>
                       <td>{% if row.show_check %}<span class="guest-list-check-box"></span>{% endif %}</td>
                     </tr>
                   {% endfor %}

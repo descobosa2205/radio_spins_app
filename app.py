@@ -43494,6 +43494,8 @@ def _invitation_ticket_payload(t: InvitationTicket, name_map: dict[str, str] | N
         "status": status,
         "status_label": _invitation_ticket_status_label(t.status),
         "status_class": _invitation_ticket_status_class(t.status),
+        # AÑADIDA en el último envío (ampliación): etiqueta azul junto a la entrada.
+        "added_after_send": bool(getattr(t, "added_after_send", False)),
         "code": t.ticket_code or t.pdf_name or "—",
         "pdf_url": t.pdf_url,
         "pdf_name": t.pdf_name or "",
@@ -44175,11 +44177,15 @@ def _invitation_pending_assignment_payloads(session_db, concert: Concert, catego
                 "category_id": str(cat.id),
                 "category_name": name_map.get(str(cat.id), "Categoría"),
             })
-    # Peticiones aprobadas/asignadas (asignables) y pendientes de aprobar (se muestran para poder
-    # aprobarlas y asignarlas directamente desde aquí: al asignarles entradas pasan a ASIGNADAS).
-    source_statuses = {"APROBADAS", "ASIGNADAS", "SOLICITADAS"}
+    # Peticiones aprobadas/asignadas (asignables), pendientes de aprobar (se muestran para poder
+    # aprobarlas y asignarlas directamente desde aquí) y AMPLIADAS tras el envío (enviadas o
+    # entregadas a las que se les añadieron invitaciones: lo pendiente vuelve al asignador para
+    # que no se olvide).
+    _sent_ish = {"ENVIADAS", "ENTREGADAS_MANO", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA"}
+    source_statuses = {"APROBADAS", "ASIGNADAS", "SOLICITADAS"} | _sent_ish
     for row in session_db.query(InvitationRequest).filter(InvitationRequest.concert_id == concert.id, InvitationRequest.status.in_(source_statuses)).order_by(InvitationRequest.created_at.asc()).all():
         is_pending_approval = (row.status or "") == "SOLICITADAS"
+        row_sent_ish = (row.status or "") in _sent_ish
         quantities = _json_dict(row.quantities_json)
         vis = _invitation_assignee_visual(session_db, row, link_photo_fallback=False)
         guest_name = vis["name"] or row.guest_name
@@ -44187,6 +44193,9 @@ def _invitation_pending_assignment_payloads(session_db, concert: Concert, catego
         for cid, qty in quantities.items():
             cat = next((c for c in categories if str(c.id) == str(cid)), None)
             if not cat:
+                continue
+            # Las categorías de LISTADO no asignan PDFs: una lista ya enviada no vuelve como pendiente.
+            if row_sent_ish and (cat.ticket_kind or "").upper() == "GUEST_LIST":
                 continue
             assigned = assigned_counts.get((str(cat.id), "request", str(row.id)), 0)
             pending = max(_safe_int(qty) - assigned, 0)
@@ -44197,7 +44206,7 @@ def _invitation_pending_assignment_payloads(session_db, concert: Concert, catego
                 "source_type": "request",
                 "source_id": str(row.id),
                 "name": guest_name,
-                "company": row.guest_company or ("Pendiente de aprobar" if is_pending_approval else "Petición aprobada"),
+                "company": row.guest_company or ("Pendiente de aprobar" if is_pending_approval else ("Ampliada tras el envío" if row_sent_ish else "Petición aprobada")),
                 "photo_url": vis["photo"] or row.requester_photo_url or placeholder_photo,
                 # Visual del invitado (foto/logo + vínculo) para la tarjeta del asignador.
                 "guest_photo": vis["photo"] or "",
@@ -44478,20 +44487,53 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
     _needs_assign = False
     _needs_send = False
     _needs_download = False
+    _status_split = None
+    _downloaded_partial = False
+    _reforwarded_partial = False
     if _sess is not None and _display_status not in _INVITATION_MANUAL_REQUEST_STATUSES:
         _qty_total = _invitation_total_qty(quantities)
         _asg_total = _invitation_request_assigned_total(_sess, row)
         _sent_total = _invitation_request_sent_total(_sess, row)
+        _pend = max(_qty_total - _asg_total, 0)
         if _qty_total > 0 and 0 < _asg_total < _qty_total:
             _display_status = "PARCIAL"
         elif _display_status == "ASIGNADAS" and _qty_total > 0 and _asg_total < _qty_total:
             _display_status = "APROBADAS"
+        # ETIQUETA PARTIDA (ampliaciones): mitad del color de lo logrado + mitad de lo que falta.
+        #  · quedan por asignar y ya hay asignadas/enviadas → verde|azul (si hubo envío) o
+        #    amarillo|azul, con «X/X pendientes».
+        #  · todo asignado pero envío parcial (ampliada ya asignada) → amarillo|verde con
+        #    «X/X enviadas»; al enviar de nuevo, todo verde.
+        if _qty_total > 0 and _pend > 0 and _asg_total > 0:
+            _status_split = {
+                "left_badge": ("success" if _sent_total > 0 else "warning text-dark"),
+                "left_text": ("%d env." % _sent_total) if _sent_total > 0 else ("%d asig." % _asg_total),
+                "right_badge": "info text-dark",
+                "right_text": "%d/%d pendientes" % (_pend, _qty_total),
+                "title": "Asignadas %d · Enviadas %d · Pendientes de asignar %d (de %d): la ampliación espera en el asignador." % (_asg_total, _sent_total, _pend, _qty_total),
+            }
+        elif _qty_total > 0 and _pend == 0 and 0 < _sent_total < _asg_total:
+            _status_split = {
+                "left_badge": "warning text-dark",
+                "left_text": "%d sin enviar" % (_asg_total - _sent_total),
+                "right_badge": "success",
+                "right_text": "%d/%d enviadas" % (_sent_total, _qty_total),
+                "title": "Asignadas %d · Enviadas %d: al enviar de nuevo se manda todo y las nuevas van marcadas como «Añadida»." % (_asg_total, _sent_total),
+            }
         # Para los filtros «Sin asignar» / «Sin enviar» / «Sin descargar» del listado de invitados.
         _needs_assign = bool(_qty_total > 0 and _asg_total < _qty_total)
         _needs_send = bool(_asg_total > 0 and _sent_total < _asg_total)
         _needs_download = bool(_sent_total > 0) and not (
             bool(getattr(row, "downloaded_at", None)) or _safe_int(getattr(row, "downloaded_count", 0)) > 0
         )
+        # Descarga / reenvío PARCIALES: se hicieron ANTES de asignar entradas nuevas (ampliación)
+        # → la marca se muestra a medias (verde|amarillo) hasta que se repitan con todo.
+        _last_added = _invitation_request_last_added_at(_sess, row)
+        if _last_added is not None:
+            if getattr(row, "downloaded_at", None) and row.downloaded_at < _last_added:
+                _downloaded_partial = True
+            if getattr(row, "reforwarded_at", None) and row.reforwarded_at < _last_added:
+                _reforwarded_partial = True
     # Correo EFECTIVO del destinatario (para el botón «Enviar por email»): según el modo de recepción.
     # Para EMPLOYEE (miembro de la oficina) el snapshot del payload puede estar vacío -> se resuelve
     # EN VIVO por el id del usuario (así no falla «no tiene correo» con gente que sí tiene email).
@@ -44536,6 +44578,9 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
         "status": row.status or "SOLICITADAS",
         "status_label": INVITATION_STATUS_LABELS.get(_display_status, _display_status or "Solicitadas"),
         "status_badge": _invitation_status_badge(_display_status),
+        "status_split": _status_split,
+        "downloaded_partial": _downloaded_partial,
+        "reforwarded_partial": _reforwarded_partial,
         "needs_assign": _needs_assign,
         "needs_send": _needs_send,
         "needs_download": _needs_download,
@@ -44933,11 +44978,9 @@ def _invitation_sync_request_status(session_db, row) -> None:
     tickets = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all()
     assigned = len(tickets)
     sent = sum(1 for t in tickets if (t.status or "").upper() in _INVITATION_TICKET_SENT_STATUSES)
-    if qty_total > 0 and assigned < qty_total:
-        # Ampliada / parcial: quedan invitaciones por asignar -> vuelve a PENDIENTE (aparece en el
-        # asignador), aunque algunas ya esten asignadas o enviadas (se conservan como tales).
-        row.status = "APROBADAS"
-    elif sent > 0:
+    # OJO ampliaciones: el estado guardado CONSERVA lo logrado (ENVIADAS/ASIGNADAS); lo que falte
+    # por asignar se refleja aparte (etiqueta partida X/X pendientes + asignador), no degradando.
+    if sent > 0:
         if cur not in INVITATION_SENT_STATUSES:
             row.status = "ENVIADAS"
             if not row.sent_at:
@@ -44962,15 +45005,41 @@ def _invitation_sync_commitment_status(session_db, row) -> None:
     tickets = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_commitment_id == row.id).all()
     assigned = len(tickets)
     sent = sum(1 for t in tickets if (t.status or "").upper() in _INVITATION_TICKET_SENT_STATUSES)
-    if qty_total > 0 and assigned < qty_total:
-        row.status = "COMPROMETIDAS"
-    elif sent > 0:
+    # Igual que en solicitudes: la ampliación NO degrada el estado guardado; lo pendiente se ve en
+    # las etiquetas por categoría y en el asignador (por métricas).
+    if sent > 0:
         row.status = "ENVIADAS"
     elif assigned > 0:
         row.status = "ASIGNADAS"
     else:
         if cur in ("ASIGNADAS", "ENVIADAS"):
             row.status = "COMPROMETIDAS"
+
+
+def _invitation_request_last_added_at(session_db, row):
+    """Última entrada ASIGNADA a la solicitud (max assigned_at), con caché por concierto en g.
+    Sirve para detectar descargas/reenvíos PARCIALES: el invitado descargó/reenvió y DESPUÉS se le
+    asignaron entradas nuevas (ampliación) → la marca queda a medias hasta repetirse."""
+    cid = str(getattr(row, "concert_id", "") or "")
+    cache = getattr(g, "_inv_req_last_added", None)
+    if cache is None:
+        cache = {}
+        try:
+            g._inv_req_last_added = cache
+        except Exception:
+            pass
+    m = cache.get(cid)
+    if m is None:
+        m = {}
+        try:
+            for _rq, _mx in session_db.query(InvitationTicket.assigned_request_id, func.max(InvitationTicket.assigned_at)).filter(
+                    InvitationTicket.concert_id == row.concert_id,
+                    InvitationTicket.assigned_request_id.isnot(None)).group_by(InvitationTicket.assigned_request_id).all():
+                m[str(_rq)] = _mx
+        except Exception:
+            m = {}
+        cache[cid] = m
+    return m.get(str(row.id))
 
 
 def _invitation_request_sent_total(session_db, row) -> int:
@@ -45014,11 +45083,14 @@ def _invitation_request_kind_flags(session_db, row: InvitationRequest, categorie
     status = (getattr(row, "status", None) or "")
     assigned_or_sent = status in {"ASIGNADAS", "ENVIADAS", "ENTREGADAS_MANO", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA"}
     # Solo se puede ENVIAR con el cupo COMPLETO asignado: una solicitud parcialmente asignada
-    # no ofrece envío (ni etiqueta «Asignadas») hasta completarla.
+    # no ofrece envío hasta completarla — también las AMPLIADAS tras el envío (primero se asigna
+    # lo nuevo en el asignador; al reenviar se manda todo, con «Añadida» en las nuevas).
     fully_assigned = True
-    if status == "ASIGNADAS" and not uses_guest_list:
+    pending_qty = 0
+    if assigned_or_sent and not uses_guest_list:
         qty_total = sum(_safe_int(v) for k, v in quantities.items() if str(k) != "TOTAL")
         assigned_total = _invitation_request_assigned_total(session_db, row)
+        pending_qty = max(qty_total - assigned_total, 0)
         fully_assigned = qty_total <= 0 or assigned_total >= qty_total
     return {
         "uses_guest_list": uses_guest_list,
@@ -45026,7 +45098,10 @@ def _invitation_request_kind_flags(session_db, row: InvitationRequest, categorie
         "fully_assigned": fully_assigned,
         "can_send": uses_guest_list or (assigned_or_sent and fully_assigned),
         "can_download_pdf": assigned_or_sent and not uses_guest_list,
-        "can_auto_assign": not requires_numbered_assignment and status in {"SOLICITADAS", "APROBADAS"},
+        # «Asignar» disponible también para las AMPLIADAS (enviadas/asignadas con pendientes).
+        "can_auto_assign": not requires_numbered_assignment and (
+            status in {"SOLICITADAS", "APROBADAS"} or (pending_qty > 0 and status not in {"RECHAZADAS", "ANULADAS"})
+        ),
     }
 
 
@@ -46141,6 +46216,10 @@ def _invitation_tickets_grouped_html(session_db, concert, tickets, zip_all, *, c
                         detail = ""
                     dl = _dlicon(t.pdf_url, f"Descargar invitación {n}") if (t.pdf_url or "").strip() else ""
                     detail_html = f'<span style="color:#667085"> · {esc(detail)}</span>' if detail else ""
+                    # AÑADIDA respecto al último envío (ampliación): etiqueta azul junto a la entrada.
+                    if getattr(t, "added_after_send", False):
+                        detail_html += ('<span style="display:inline-block;background:#0dcaf0;color:#062a30;font-size:10px;'
+                                        'font-weight:700;border-radius:6px;padding:1px 6px;margin-left:8px;vertical-align:middle">A&Ntilde;ADIDA</span>')
                     # Numeradas: nº + fila/asiento delante y la flecha JUSTO tras el texto. La tabla se
                     # ajusta al contenido (sin width:100%) → la columna del texto toma el ancho del texto
                     # MÁS LARGO de esa categoría, así todas las flechas quedan en la misma vertical.
@@ -47187,10 +47266,20 @@ def invitation_event_detail(concert_id):
                 _asg = len(_sts)
                 _lbl, _bdg = _invitation_commitment_state_from_statuses(_sts)
                 # Cupo COMPLETO → Asignadas/Enviadas. Parcial con algo hecho (p. ej. ampliado tras
-                # asignar/enviar) → «Sin asignar parcialmente» (naranja). Nada asignado → «Sin asignar».
+                # asignar/enviar) → etiqueta PARTIDA (verde|azul si hubo envío, amarillo|azul si solo
+                # asignadas) con lo pendiente. Nada asignado → «Sin asignar».
+                _split = None
                 if _asg < _qn:
                     if _asg > 0:
                         _lbl, _bdg = ("Sin asignar parcialmente", "warning text-dark")
+                        _sent_n = sum(1 for x in _sts if (x or '').upper() in {'SENT', 'DELIVERED', 'PICKED_UP', 'PRINTED'})
+                        _split = {
+                            "left_badge": ("success" if _sent_n > 0 else "warning text-dark"),
+                            "left_text": ("%d env." % _sent_n) if _sent_n > 0 else ("%d asig." % _asg),
+                            "right_badge": "info text-dark",
+                            "right_text": "%d/%d pendientes" % (_qn - _asg, _qn),
+                            "title": "Asignadas %d · Enviadas %d · Pendientes de asignar %d (de %d)." % (_asg, _sent_n, _qn - _asg, _qn),
+                        }
                     else:
                         _lbl, _bdg = ("Sin asignar", "secondary")
                 # Compromiso marcado como enviado de forma directa (sin entradas asignadas): la
@@ -47206,6 +47295,7 @@ def invitation_event_detail(concert_id):
                     "done": _asg >= _qn,
                     "status_label": _lbl,
                     "status_badge": _bdg,
+                    "split": _split,
                     "downloaded": str(_cid) in _dl_cats,
                     "color": _meta.get("color", "#9ca3af"),
                     "zone": _meta.get("zone", "PISTA"),
@@ -47290,13 +47380,18 @@ def invitation_event_detail(concert_id):
                                 .group_by(InvitationTicket.assigned_request_id, InvitationTicket.category_id).all()):
             _tk_by_req[str(_rid)][str(_cidt)] = int(_n or 0)
         _sent_set_pend = {'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}
+        _cat_kind_pend = {str(c.id): (c.ticket_kind or '').upper() for c in categories}
         _pending_by_cat: dict = defaultdict(lambda: {'requests': 0, 'qty': 0})
         for _r in _req_rows_all:
             _st = (_r.status or '').upper()
-            if _st in {'RECHAZADAS', 'ANULADAS'} or _st in _sent_set_pend:
+            if _st in {'RECHAZADAS', 'ANULADAS'}:
                 continue
             for _cid2, _qv in _json_dict(_r.quantities_json).items():
                 if str(_cid2).upper() == 'TOTAL':
+                    continue
+                # Listas ya enviadas no cuentan como pendientes (no asignan PDFs); las AMPLIADAS
+                # tras envío sí: su resto por asignar debe verse para que no se olvide.
+                if _st in _sent_set_pend and _cat_kind_pend.get(str(_cid2)) == 'GUEST_LIST':
                     continue
                 _pend = _safe_int(_qv) - _tk_by_req.get(str(_r.id), {}).get(str(_cid2), 0)
                 if _pend > 0:
@@ -47304,11 +47399,13 @@ def invitation_event_detail(concert_id):
                     _pending_by_cat[str(_cid2)]['qty'] += _pend
         for _c in _cmt_rows_all:
             _st = (_c.status or '').upper()
-            if _st == 'ANULADAS' or _st in _sent_set_pend:
+            if _st == 'ANULADAS':
                 continue
             _tkc = _tk_by_cmt.get(str(_c.id)) or {}
             for _cid2, _qv in _json_dict(_c.quantities_json).items():
                 if str(_cid2).upper() == 'TOTAL':
+                    continue
+                if _st in _sent_set_pend and _cat_kind_pend.get(str(_cid2)) == 'GUEST_LIST':
                     continue
                 _pend = _safe_int(_qv) - len(_tkc.get(str(_cid2)) or [])
                 if _pend > 0:
@@ -49056,6 +49153,23 @@ def _invitation_send_tickets_query(session_db, row, send_scope):
     return q.all()
 
 
+def _invitation_mark_sent_tickets(session_db, row, send_scope, sent_at):
+    """Marca SENT las entradas del envío y etiqueta las AÑADIDAS: si la solicitud YA tuvo un envío,
+    las que entran nuevas en este llevan added_after_send=True (etiqueta azul «Añadida» junto a la
+    entrada); las del envío anterior la pierden («con respecto al último envío»)."""
+    all_tk = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all()
+    had_sent = any(((t.status or '').upper() in _INVITATION_TICKET_SENT_STATUSES) or t.sent_at for t in all_tk)
+    for t in all_tk:
+        if getattr(t, 'added_after_send', False):
+            t.added_after_send = False
+    for ticket in _invitation_send_tickets_query(session_db, row, send_scope):
+        _is_new = (ticket.status or '').upper() not in _INVITATION_TICKET_SENT_STATUSES and not ticket.sent_at
+        ticket.added_after_send = bool(had_sent and _is_new)
+        ticket.status = 'SENT'
+        ticket.sent_at = sent_at
+        ticket.updated_at = sent_at
+
+
 def _invitation_send_request(session_db, row, channel, *, custom_text=None, extra_recipients=None, send_scope='all'):
     """Envía una SOLICITUD ya asignada por email/WhatsApp/SMS y la marca ENVIADAS (+ entradas SENT).
     ÚNICA lógica de envío, reutilizada por el envío individual y por el envío de una selección de
@@ -49084,10 +49198,7 @@ def _invitation_send_request(session_db, row, channel, *, custom_text=None, extr
         row.sent_at = _now_madrid()
         row.sent_via = 'WhatsApp' if channel == 'whatsapp' else 'SMS'
         row.sent_to = ('+' + phone) if phone else ''
-        for ticket in _invitation_send_tickets_query(session_db, row, send_scope):
-            ticket.status = 'SENT'
-            ticket.sent_at = row.sent_at
-            ticket.updated_at = row.sent_at
+        _invitation_mark_sent_tickets(session_db, row, send_scope, row.sent_at)
         session_db.commit()
         return {'ok': True, 'url': url, 'channel': channel}
     # Email
@@ -49106,10 +49217,7 @@ def _invitation_send_request(session_db, row, channel, *, custom_text=None, extr
         row.sent_at = _now_madrid()
         row.sent_via = 'Email'
         row.sent_to = ', '.join(recipients or [])
-        for ticket in _invitation_send_tickets_query(session_db, row, send_scope):
-            ticket.status = 'SENT'
-            ticket.sent_at = row.sent_at
-            ticket.updated_at = row.sent_at
+        _invitation_mark_sent_tickets(session_db, row, send_scope, row.sent_at)
         session_db.commit()
         return {'ok': True, 'channel': 'email', 'recipients': recipients}
     session_db.rollback()
@@ -49179,10 +49287,7 @@ def invitation_request_mark_sent(request_id):
         row.sent_via = 'Manual'
         row.sent_to = 'Marcada como enviada'
         row.delivery_token = row.delivery_token or _invitation_token()
-        for ticket in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
-            ticket.status = 'SENT'
-            ticket.sent_at = now
-            ticket.updated_at = now
+        _invitation_mark_sent_tickets(session_db, row, 'all', now)
         session_db.commit()
         flash('Invitaciones marcadas como enviadas.', 'success')
         return redirect(url_for('invitation_event_detail', concert_id=row.concert_id))
@@ -49339,10 +49444,7 @@ def invitation_category_send_all(concert_id, category_id):
                 row.sent_at = now
                 row.sent_via = 'Email'
                 row.sent_to = ', '.join(recipients or [])
-                for ticket in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
-                    ticket.status = 'SENT'
-                    ticket.sent_at = now
-                    ticket.updated_at = now
+                _invitation_mark_sent_tickets(session_db, row, 'all', now)
                 session_db.commit()
                 sent_n += 1
             else:

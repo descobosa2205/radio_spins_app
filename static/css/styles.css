@@ -1681,6 +1681,17 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 .agenda-cal__arrows{ display:flex; gap:.35rem; margin-left:auto; }
 .agenda-nav-btn{ width:32px; height:32px; border:1px solid #d7dbe1; border-radius:.5rem; background:#fff; color:#444; cursor:pointer; display:flex; align-items:center; justify-content:center; }
 .agenda-nav-btn--today{ width:auto; padding:0 .6rem; font-size:.8rem; font-weight:600; }
+/* Invitaciones · etiqueta de estado PARTIDA (ampliaciones): mitad color de lo logrado
+   (verde=enviadas, amarillo=asignadas) + mitad de lo que falta (azul=pendientes, verde=enviadas). */
+.inv-split-badge{ display:inline-flex; align-items:stretch; white-space:nowrap; }
+.inv-split-badge .badge{ border-radius:0; }
+.inv-split-badge .badge:first-child{ border-top-left-radius:.375rem; border-bottom-left-radius:.375rem; }
+.inv-split-badge .badge:last-child{ border-top-right-radius:.375rem; border-bottom-right-radius:.375rem; }
+/* Descarga/reenvío PARCIAL (hubo ampliación después): icono a dos tonos verde→amarillo. */
+.inv-dl-partial{ background:linear-gradient(90deg,#198754 50%,#e0a800 50%); -webkit-background-clip:text; background-clip:text; color:transparent; }
+/* Entrada AÑADIDA en el último envío (ampliación): anillo azul en el chip de la butaca. */
+.invitation-seat--added{ box-shadow:0 0 0 2px #0dcaf0; }
+
 /* Petición enlazada desde Inicio (#pet-<id>): resaltar la fila/tarjeta de destino. */
 [id^="pet-"]:target { scroll-margin-top: 90px; }
 [id^="pet-"]:target > .card, .list-group-item[id^="pet-"]:target { box-shadow: 0 0 0 .2rem rgba(227,61,72,.35); border-radius: .5rem; }

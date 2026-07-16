@@ -40,7 +40,11 @@
                           <span class="badge text-bg-light border" title="Ubicación / categoría"><i class="fa fa-location-dot me-1"></i>{{ cs.name }}</span>
                           {% if cs.downloaded %}<i class="fa fa-circle-down inv-dl-done" title="Descargada"></i>{% endif %}
                         </div>
+                        {% if cs.split %}
+                          <span class="inv-split-badge align-self-center" title="{{ cs.split.title }}"><span class="badge text-bg-{{ cs.split.left_badge }}">{{ cs.split.left_text }}</span><span class="badge text-bg-{{ cs.split.right_badge }}">{{ cs.split.right_text }}</span></span>
+                        {% else %}
                         <span class="badge text-bg-{{ cs.status_badge }} align-self-center inv-status-pill" title="{{ cs.assigned }} de {{ (cs.qty)|k }}">{% if cs.done and cs.assigned %}<i class="fa fa-check me-1"></i>{% endif %}{{ cs.status_label }}</span>
+                        {% endif %}
                       </div>
                     </div>
                   </div>
@@ -83,7 +87,7 @@
                       {% if row.link_summary_text %}<span class="invitation-linked-mini">{% if row.link_summary.logo_url %}<img class="{{ 'is-photo' if row.link_summary.type in ['artist','venue'] else 'is-logo' }}" src="{{ row.link_summary.logo_url }}" alt="">{% endif %}<span>{{ row.link_summary_text }}</span></span>{% endif %}
                       <span class="badge inv-qty-badge" title="Entradas solicitadas"><i class="fa fa-ticket me-1"></i>{{ (row.qty_total)|k }} entrada{{ '' if row.qty_total == 1 else 's' }}</span>
                       {% if row.categories_label %}<span class="badge text-bg-light border" title="Ubicación / categorías"><i class="fa fa-location-dot me-1"></i>{{ row.categories_label }}</span>{% endif %}
-                      {% if row.downloaded_at_label %}<i class="fa fa-circle-down inv-dl-done" title="Descargada · {{ row.downloaded_at_label }}"></i>{% endif %}
+                      {% if row.downloaded_at_label %}<i class="fa fa-circle-down {{ 'inv-dl-partial' if row.downloaded_partial else 'inv-dl-done' }}" title="{% if row.downloaded_partial %}Descarga PARCIAL: hay invitaciones nuevas desde la última descarga ({{ row.downloaded_at_label }}){% else %}Descargada · {{ row.downloaded_at_label }}{% endif %}"></i>{% endif %}
                     </div>
                     <div class="d-flex align-items-center gap-2 flex-wrap small text-muted mt-1">
                       <span class="inv-person"><i class="fa fa-paper-plane"></i>{% if row.receiver_mode == 'BOX_OFFICE' %}Taquilla{% elif row.receiver_mode == 'ME' %}<img loading="lazy" decoding="async" class="inv-person-ava is-photo" src="{{ row.requester_photo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">{{ row.requester_nick }}{% elif row.receiver_mode == 'EMPLOYEE' %}{{ (row.receiver_payload.name if row.receiver_payload else '') or 'Empresa' }}{% elif row.receiver_mode == 'OTHER' %}{{ (row.receiver_payload.name if row.receiver_payload else '') or '—' }}{% else %}Invitado{% endif %}</span>
@@ -94,7 +98,11 @@
                   </div>
                 </div>
                 <div class="d-flex align-items-center gap-2">
+                  {% if row.status_split %}
+                    <span class="inv-split-badge align-self-center" title="{{ row.status_split.title }}"><span class="badge text-bg-{{ row.status_split.left_badge }}">{{ row.status_split.left_text }}</span><span class="badge text-bg-{{ row.status_split.right_badge }}">{{ row.status_split.right_text }}</span></span>
+                  {% else %}
                   <span class="badge text-bg-{{ row.status_badge }} align-self-center inv-status-pill"{% if row.sent_at_label %} title="Enviada el {{ row.sent_at_label }}{% if row.sent_via %} · {{ row.sent_via }}{% endif %}{% if row.sent_to %}: {{ row.sent_to }}{% endif %}"{% endif %}>{{ row.status_label }}</span>
+                  {% endif %}
                 </div>
               </div>
             </div>

@@ -2372,6 +2372,9 @@ class InvitationTicket(Base):
     assigned_label = Column(Text)
     assigned_at = Column(DateTime(timezone=True))
     sent_at = Column(DateTime(timezone=True))
+    # AÑADIDA con respecto al último envío: la entrada entró en un envío POSTERIOR al primero
+    # (ampliación); se etiqueta en azul junto a la entrada hasta el siguiente envío.
+    added_after_send = Column(Boolean, nullable=False, server_default=text("false"))
     delivered_at = Column(DateTime(timezone=True))
     printed_at = Column(DateTime(timezone=True))  # impresa en bloque (funciona como enviada, color naranja)
     print_reason = Column(Text)  # motivo de la impresión en bloque
@@ -6513,6 +6516,7 @@ def ensure_invitation_schema():
         "ALTER TABLE invitation_tickets ALTER COLUMN category_id DROP NOT NULL;",
         "ALTER TABLE invitation_tickets ADD COLUMN IF NOT EXISTS printed_at timestamptz;",
         "ALTER TABLE invitation_tickets ADD COLUMN IF NOT EXISTS print_reason text;",
+        "ALTER TABLE invitation_tickets ADD COLUMN IF NOT EXISTS added_after_send boolean NOT NULL DEFAULT false;",
         "ALTER TABLE invitation_tickets ADD COLUMN IF NOT EXISTS companion_pdf_url text;",
         "ALTER TABLE invitation_tickets ADD COLUMN IF NOT EXISTS companion_pdf_name text;",
         """

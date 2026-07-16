@@ -1377,25 +1377,64 @@
           if(area>200000) break;
           if(x>0) stack.push(p-1); if(x<W-1) stack.push(p+1); if(y>0) stack.push(p-W); if(y<H-1) stack.push(p+W);
         }
-        return {area:area, cx:sx/Math.max(1,area), cy:sy/Math.max(1,area), w:maxx-minx+1, h:maxy-miny+1};
+        return {area:area, cx:sx/Math.max(1,area), cy:sy/Math.max(1,area), w:maxx-minx+1, h:maxy-miny+1, minx:minx, miny:miny};
+      }
+      // AGUJEROS interiores (topología): una butaca maciza no tiene; un 8/0/6 del plano sí. El
+      // número impreso DENTRO de una butaca es pequeño (≤22 % del recuadro) y no la descarta.
+      function holeRatio(b){
+        var w=b.w, h=b.h, x0=b.minx, y0=b.miny, n2=w*h;
+        if(n2>20000) return 0;   // blob enorme: ya lo filtra el tamaño, no perder tiempo aquí
+        function isBg(x,y){ return !match((y*W+x)*4); }
+        var vis=new Uint8Array(n2), st=[], x, y, i2;
+        for(x=x0;x<x0+w;x++){ st.push(x, y0, x, y0+h-1); }
+        for(y=y0;y<y0+h;y++){ st.push(x0, y, x0+w-1, y); }
+        var reach=0;
+        while(st.length){
+          y=st.pop(); x=st.pop();
+          if(x<x0 || y<y0 || x>=x0+w || y>=y0+h) continue;
+          i2=(y-y0)*w+(x-x0);
+          if(vis[i2]) continue; vis[i2]=1;
+          if(!isBg(x,y)) continue;
+          reach++;
+          st.push(x-1,y, x+1,y, x,y-1, x,y+1);
+        }
+        var bgN=0;
+        for(y=y0;y<y0+h;y++) for(x=x0;x<x0+w;x++){ if(isBg(x,y)) bgN++; }
+        return (bgN-reach)/n2;
       }
       var sample=bfs(sp.py*W+sp.px);
       if(sample.area<3) return {err:'nomatch'};
       if(sample.area > N*0.02) return {err:'toobig'};
-      var sArea=sample.area, sW=sample.w, sH=sample.h, loMax=Math.max(sW,sH)*2.6, guard=0;
+      // SOLO asientos: blobs CUADRADOS o REDONDOS (lados parecidos) y MACIZOS (relleno alto).
+      // Las letras, números y símbolos del plano son trazos finos, alargados o huecos: fuera.
+      function seatShape(b){
+        if(b.w<3 || b.h<3) return false;                                   // motas
+        if(Math.max(b.w,b.h) > Math.max(1,Math.min(b.w,b.h))*1.7) return false;  // alargado (rótulos)
+        if(b.area / Math.max(1, b.w*b.h) < 0.45) return false;             // trazo fino (glifos)
+        return holeRatio(b) <= 0.22;                                       // 8/0/6 huecos, fuera
+      }
+      if(!seatShape(sample)) return {err:'nomatch'};   // la muestra no parece una butaca
+      var sArea=sample.area, loMax=Math.max(sample.w,sample.h)*2.6, guard=0;
       // El asiento de la MUESTRA ya se marcó como visto al medir su tamaño: lo añadimos a mano para
       // que no falte (si no, se detectan todos MENOS el que pinchaste).
-      var pts=[ bgPxToWorld(bg, sample.cx, sample.cy, W, H) ];
+      var blobs=[sample];
       for(var p=0;p<N;p++){
         if(seen[p]) continue;
         if(!match(p*4)){ seen[p]=1; continue; }
         var b=bfs(p);
-        if(b.area < sArea*0.35 || b.area > sArea*3.5) continue;
-        if(b.w > loMax || b.h > loMax || b.w < sW*0.35 || b.h < sH*0.35) continue;
-        pts.push(bgPxToWorld(bg, b.cx, b.cy, W, H));
+        if(b.area < sArea*0.30 || b.area > sArea*3.5) continue;
+        if(b.w > loMax || b.h > loMax) continue;
+        if(!seatShape(b)) continue;
+        blobs.push(b);
         if(++guard>20000) break;
       }
-      var sizeWorld = Math.max(sW,sH) / (((W/bg.w) + (H/bg.h))/2);
+      // Banda de TAMAÑO alrededor de la MEDIANA: en un plano todas las butacas miden lo mismo;
+      // lo que se salga (números junto a las filas, adornos, mini-blobs entre butacas) no entra.
+      var sizes=blobs.map(function(b){ return Math.max(b.w,b.h); }).sort(function(a,b2){ return a-b2; });
+      var refS=sizes[Math.floor(sizes.length/2)];
+      var pts=blobs.filter(function(b){ var s2=Math.max(b.w,b.h); return s2>=refS*0.62 && s2<=refS*1.6; })
+                   .map(function(b){ return bgPxToWorld(bg, b.cx, b.cy, W, H); });
+      var sizeWorld = refS / (((W/bg.w) + (H/bg.h))/2);
       return { pts: dedupPoints(pts, sizeWorld*0.7), sizeWorld: sizeWorld };
     }
     function dedupPoints(pts, minDist){
@@ -1560,6 +1599,7 @@
             if(p.state!=='stair') markPlaced({x:p.x, y:p.y});
           }); });
         });
+        var domSizeW=null;   // tamaño de butaca del PRIMER color aceptado (el mayoritario = butacas)
         cands.forEach(function(cd){
           // Saturados: tolerancia normal. Neutros: corta, para que el blanco/gris de la butaca no
           // se funda con el fondo claro que la rodea (el borde/hueco hace de frontera).
@@ -1572,7 +1612,14 @@
           if(!res) return;
           var fresh=res.pts.filter(function(p){ return farFromPlaced(p, res.sizeWorld*0.8); });
           if(fresh.length<6) return;
+          // Coherencia de TAMAÑO entre colores: los rótulos (números de fila, letras, símbolos)
+          // forman su propio color con blobs más pequeños que las butacas ya aceptadas → fuera.
+          // Si son MUCHOS, puede ser una zona real con butacas de otro tamaño: se pregunta.
+          if(domSizeW && (res.sizeWorld < domSizeW*0.55 || res.sizeWorld > domSizeW*1.9)){
+            if(!(fresh.length>=20 && window.confirm('Se han detectado ' + fresh.length + ' elementos de un tamaño distinto al de las butacas (podrían ser números/letras del plano o una zona con butacas más pequeñas). ¿Añadirlos como butacas?'))) return;
+          }
           buildSectorsFromPoints(fresh, res.sizeWorld);
+          if(domSizeW==null) domSizeW=res.sizeWorld;
           fresh.forEach(markPlaced);
           madeTotal+=fresh.length;
         });

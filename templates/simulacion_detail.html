@@ -1694,8 +1694,8 @@
     }
     // Abrir/cerrar la configuración: por el menú ⋮ → Editar o pinchando el propio resumen.
     var cet=e.target.closest('.cost-edit-toggle') || e.target.closest('.cost-summary'); if(cet){ var cc0=cet.closest('.cost-card'); var ed=cc0.querySelector('.cost-edit'); var wasHidden=ed.classList.contains('d-none'); ed.classList.toggle('d-none'); if(!wasHidden){ var sm=cc0.querySelector('.cost-summary'); if(sm) sm.innerHTML=costSummaryFromCard(cc0); } return; }
-    var del=e.target.closest('.cost-del'); if(del){ del.closest('.cost-card').remove(); if(window.__simExpensesAutosave) window.__simExpensesAutosave(); return; }
-    var pdel=e.target.closest('.prod-del'); if(pdel){ pdel.closest('.prod-row').remove(); recompute(); if(window.__simExpensesAutosave) window.__simExpensesAutosave(); return; }
+    var del=e.target.closest('.cost-del'); if(del){ del.closest('.cost-card').remove(); recompute(); (window.__simExpensesSaveNow||window.__simExpensesAutosave||function(){})(); return; }
+    var pdel=e.target.closest('.prod-del'); if(pdel){ pdel.closest('.prod-row').remove(); recompute(); (window.__simExpensesSaveNow||window.__simExpensesAutosave||function(){})(); return; }
     var pv=e.target.closest('.pr-var-toggle'); if(pv){ var row=pv.closest('.prod-row'); var on=row.querySelector('.prod-var').classList.toggle('d-none'); pv.classList.toggle('btn-primary', !on); pv.classList.toggle('btn-outline-secondary', on); recompute(); return; }
     var pc=e.target.closest('.pr-cfg-toggle'); if(pc){ pc.closest('.prod-row').querySelector('.pr-cfg').classList.toggle('d-none'); return; }
     var ch=e.target.closest('.cost-art-chip'); if(ch){ ch.classList.toggle('btn-primary'); ch.classList.toggle('btn-outline-secondary'); var cc=ch.closest('.cost-card'); var nn=cc.querySelectorAll('.cost-art-chip.btn-primary').length; var note=cc.querySelector('.cost-art-note'); if(note) note.textContent = nn>1 ? ('· compartido entre '+nn+' (÷'+nn+')') : ''; if(window.__simExpensesAutosave) window.__simExpensesAutosave(); return; }
@@ -1865,7 +1865,9 @@
       .catch(function(){ setStatus('Error al guardar','triangle-exclamation text-danger'); return {ok:false}; });
   }
   function autosave(){ clearTimeout(saveTimer); saveTimer=setTimeout(function(){ doSave(false); }, 700); }
-  window.__simExpensesAutosave = autosave;  // para llamarlo desde los handlers de añadir/borrar/arrastrar
+  function saveNow(){ clearTimeout(saveTimer); return doSave(false); }  // sin debounce (borrados)
+  window.__simExpensesAutosave = autosave;  // para llamarlo desde los handlers de añadir/arrastrar
+  window.__simExpensesSaveNow = saveNow;    // para borrados: persiste al instante
   form.addEventListener('submit', function(e){ e.preventDefault(); doSave(false); });  // nunca envío clásico
   form.addEventListener('input', autosave);
   form.addEventListener('change', autosave);

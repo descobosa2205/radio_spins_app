@@ -44157,6 +44157,28 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
         _needs_download = bool(_sent_total > 0) and not (
             bool(getattr(row, "downloaded_at", None)) or _safe_int(getattr(row, "downloaded_count", 0)) > 0
         )
+    # Correo EFECTIVO del destinatario (para el botón «Enviar por email»): según el modo de recepción.
+    # Para EMPLOYEE (miembro de la oficina) el snapshot del payload puede estar vacío -> se resuelve
+    # EN VIVO por el id del usuario (así no falla «no tiene correo» con gente que sí tiene email).
+    _rp = _json_dict(row.receiver_payload)
+    _rmode = (row.receiver_mode or "GUEST").upper()
+    if _rmode in ("GUEST", "BOX_OFFICE", "DOOR"):
+        _recipient_email = _cur_email or (_rp.get("email") or "")
+    elif _rmode == "ME":
+        _recipient_email = (_rp.get("email") or row.requester_email or "")
+    elif _rmode == "EMPLOYEE":
+        _recipient_email = (_rp.get("email") or "").strip()
+        if not _recipient_email and _rp.get("user_id"):
+            _euid = _safe_uuid(_rp.get("user_id"))
+            if _euid:
+                _s2 = db()
+                try:
+                    _eu = _s2.get(User, _euid)
+                    _recipient_email = (getattr(_eu, "email", None) or "").strip()
+                finally:
+                    _s2.close()
+    else:  # OTHER
+        _recipient_email = (_rp.get("email") or row.guest_email or "")
     return {
         "id": str(row.id),
         "guest_name": guest_name,
@@ -44166,6 +44188,7 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
         "guest_company": row.guest_company or "",
         "guest_title": getattr(row, "guest_title", None) or row.guest_company or "",
         "guest_email": _cur_email or "",
+        "recipient_email": _recipient_email or "",
         "guest_phone": _cur_phone or "",
         "requester_nick": _req_nick or row.requester_email or "—",
         "requester_photo_url": _req_photo or url_for("static", filename="img/placeholder_photo.png"),
@@ -45106,6 +45129,13 @@ def _invitation_delivery_recipients(session_db, row: InvitationRequest) -> list[
     elif mode == "OTHER":
         values.extend([payload.get("email"), row.guest_email])
     elif mode == "EMPLOYEE":
+        # Resolver el correo EN VIVO por el id del miembro de la oficina (el snapshot del payload puede
+        # estar vacío si se guardó cuando aún no tenía email); se cae al snapshot como respaldo.
+        emp_uid = _safe_uuid(payload.get("user_id"))
+        if emp_uid:
+            emp = session_db.get(User, emp_uid)
+            if emp and (emp.email or "").strip():
+                values.append(emp.email)
         values.append(payload.get("email"))
     elif mode in {"BOX_OFFICE", "DOOR"}:
         values.extend(_invitation_guest_live_emails(session_db, row))

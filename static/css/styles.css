@@ -1984,6 +1984,10 @@ img[style*="width:"] { height: auto; }
 .vmap-canvas .vmap-ctrls { position: absolute; top: .55rem; left: .55rem; z-index: 6; display: flex; flex-direction: column; gap: .4rem; }
 .vmap-canvas .vmap-ctrl-group { display: flex; flex-direction: column; background: #fff; border: 1px solid #e2e7ee; border-radius: .55rem; overflow: hidden; box-shadow: 0 2px 8px rgba(16,24,40,.12); }
 .vmap-canvas .vmap-ctrls button { width: 2.15rem; height: 2.15rem; border: 0; background: #fff; color: #49515d; font-size: .95rem; line-height: 1; display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
+/* Modo MANO (desplazarse sin tocar piezas): botón activo en rojo + cursor de agarre. */
+.vmap-canvas .vmap-ctrls button.on { background: var(--brand-primary, #E33D48); color: #fff; }
+.vmap-canvas svg.vmap-hand { cursor: grab !important; }
+.vmap-canvas svg.vmap-hand:active { cursor: grabbing !important; }
 .vmap-canvas .vmap-ctrl-group button + button { border-top: 1px solid #eceff3; }
 .vmap-canvas .vmap-ctrls button:hover:not(:disabled) { background: #eef3f8; color: var(--brand-accent); }
 .vmap-canvas .vmap-ctrls button:disabled { opacity: .45; cursor: default; }

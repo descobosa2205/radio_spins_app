@@ -19,7 +19,8 @@
  * propio (se rechazan colores demasiado parecidos). Asignación por butaca en `assignments`
  * (comprimida a RANGOS por fila al guardar).
  *
- * Render en UN solo SVG con pan/zoom (rueda + pellizco iPad) y 3 niveles de detalle (LOD);
+ * Render en UN solo SVG con pan/zoom (rueda/dos dedos = pan; pellizco o Ctrl/Cmd+rueda = zoom;
+ * mano/espacio/botón central = arrastrar la vista) y 3 niveles de detalle (LOD);
  * solo se materializa lo visible. Guardado: POST JSON con bloqueo optimista por `version`.
  */
 (function(){
@@ -100,6 +101,9 @@
           '</div>' +
           '<div class="vmap-ctrl-group">' +
             '<button type="button" data-vm-fit title="Ver todo el recinto"><i class="fa fa-expand"></i></button>' +
+          '</div>' +
+          '<div class="vmap-ctrl-group">' +
+            '<button type="button" data-vm-hand title="Mano: arrastra para DESPLAZARTE por el plano sin mover ninguna pieza (también manteniendo la barra espaciadora o con el botón central del ratón). La rueda/los dos dedos desplazan; el zoom, con pellizco o Ctrl/Cmd + rueda."><i class="fa fa-hand"></i></button>' +
           '</div>' +
           (canEdit ? '<div class="vmap-ctrl-group"><button type="button" class="vmap-undo" data-vm-undo title="Deshacer lo último (Ctrl+Z)" disabled><i class="fa fa-rotate-left"></i></button></div>' : '') +
         '</div>' +
@@ -614,6 +618,54 @@
       sections.push(sec);
       return sec;
     }
+    // Reordena los SLOTS de una fila de una sección 'points' por su ORDEN GEOMÉTRICO a lo largo de
+    // la fila: así se pueden añadir butacas «entre medias» y la numeración sigue la fila. Remapea
+    // huecos/apagadas (mods), números manuales (numOverrides) y asignaciones de categoría.
+    function renumberRowSlots(sec, rowIdx){
+      var rowSeats=(sec.seats||[]).filter(function(t){ return (+t.row)===(+rowIdx); });
+      if(rowSeats.length<2) return;
+      var crC=Math.cos((sec.rot||0)*R), srC=Math.sin((sec.rot||0)*R);
+      function wpos(t){ return {x:sec.x+(+t.lx||0)*crC-(+t.ly||0)*srC, y:sec.y+(+t.lx||0)*srC+(+t.ly||0)*crC}; }
+      var pts2=rowSeats.map(function(t){ return {t:t, p:wpos(t)}; });
+      // Eje de la fila: entre los dos extremos (por x o por y, el que más se extienda — así
+      // también valen filas verticales); se ordena por la proyección sobre ese eje.
+      var minX=pts2[0], maxX=pts2[0], minY=pts2[0], maxY=pts2[0];
+      pts2.forEach(function(o){
+        if(o.p.x<minX.p.x) minX=o; if(o.p.x>maxX.p.x) maxX=o;
+        if(o.p.y<minY.p.y) minY=o; if(o.p.y>maxY.p.y) maxY=o;
+      });
+      var horiz=(maxX.p.x-minX.p.x) >= (maxY.p.y-minY.p.y);
+      var A0=horiz?minX:minY, B0=horiz?maxX:maxY;
+      var ax=B0.p.x-A0.p.x, ay=B0.p.y-A0.p.y, al=Math.hypot(ax,ay)||1; ax/=al; ay/=al;
+      pts2.sort(function(A,B){ return (A.p.x*ax+A.p.y*ay) - (B.p.x*ax+B.p.y*ay); });
+      var mapOld={}, changed=false;
+      pts2.forEach(function(o, i){ mapOld[+o.t.slot]=i+1; if((+o.t.slot)!==i+1) changed=true; });
+      if(!changed) return;
+      var m=(sec.mods||{})[String(+rowIdx)];
+      if(m){
+        if(Array.isArray(m.gaps)) m.gaps=m.gaps.map(function(sl){ return mapOld[sl]||sl; });
+        if(Array.isArray(m.off)) m.off=m.off.map(function(sl){ return mapOld[sl]||sl; });
+      }
+      if(sec.numOverrides){
+        var nov={};
+        Object.keys(sec.numOverrides).forEach(function(k){
+          var pp2=k.split('|');
+          if((+pp2[0])===(+rowIdx) && mapOld[+pp2[1]]) nov[pp2[0]+'|'+mapOld[+pp2[1]]]=sec.numOverrides[k];
+          else nov[k]=sec.numOverrides[k];
+        });
+        sec.numOverrides=nov;
+      }
+      var na={};
+      Object.keys(assign).forEach(function(k){
+        var pp2=k.split('|');
+        if(pp2[0]===sec.id && (+pp2[1])===(+rowIdx) && mapOld[+pp2[2]]) na[pp2[0]+'|'+pp2[1]+'|'+mapOld[+pp2[2]]]=assign[k];
+        else na[k]=assign[k];
+      });
+      assign=na;
+      pts2.forEach(function(o, i){ o.t.slot=i+1; });   // aplicar al final (tras leer los antiguos)
+      invalidate(sec.id);
+    }
+
     // Agrupar las butacas SUELTAS/detectadas seleccionadas: 'row' | 'box' | 'sector' (un solo bloque)
     // o 'auto' (un bloque por cada grupo CONTIGUO). opts: {name, rowStart} desde el popup de selección.
     function groupSelectedSeats(kindArg, opts){
@@ -1210,12 +1262,12 @@
     function setHint(){
       var h = host.querySelector('[data-vm-hint]');
       if(!h) return;
-      if(!canEdit){ h.innerHTML = 'Arrastra para desplazarte; rueda o pellizco para hacer zoom: de lejos verás los sectores y, al acercarte, cada butaca con su número.'; return; }
+      if(!canEdit){ h.innerHTML = 'Arrastra o usa la rueda/dos dedos para desplazarte; pellizco o Ctrl/Cmd + rueda para hacer zoom: de lejos verás los sectores y, al acercarte, cada butaca con su número.'; return; }
       if(detectArm){ h.innerHTML = '<b>Detectar asientos:</b> pincha en el CENTRO de un asiento de ejemplo del plano subido. Se detectarán todos los parecidos.'; return; }
-      if(seatArm){ h.innerHTML = '<b>Butaca suelta:</b> pincha en el plano para ir poniendo butacas. Luego pincha una para moverla (arrástrala) y gírala con el círculo; con Mayús seleccionas varias para mover/orientar en bloque.'; return; }
+      if(seatArm){ h.innerHTML = '<b>Butaca suelta:</b> pincha en el plano para ir poniendo butacas: junto a otras se ENCAJAN solas al patrón de su fila (mismo tamaño y orientación, sin montarse) y pinchando un HUECO lo rellenas. Luego puedes moverlas o girarlas; con Mayús seleccionas varias.'; return; }
       if(tool==='select'){ h.innerHTML = '<b>Seleccionar:</b> arrastra un recuadro por el plano para marcar varias butacas sueltas o varios elementos. Arrastra uno de ellos para mover el conjunto, pulsa Supr para eliminarlos, o agrúpalos (fila/palco/sector) desde el panel. Mayús para ir añadiendo.'; return; }
       h.innerHTML = mode==='design'
-        ? '<b>Diseñar:</b> pincha un sector para editar sus parámetros y arrástralo para moverlo. Con una herramienta de retoque activa (Hueco/Apagada/Escalera), acércate y pincha butacas para aplicarla. Rueda o pellizco para zoom.'
+        ? '<b>Diseñar:</b> pincha un sector para editar sus parámetros y arrástralo para moverlo. Con una herramienta de retoque activa (Hueco/Apagada/Escalera), acércate y pincha butacas para aplicarla. Rueda desplaza; pellizco o Ctrl/Cmd + rueda hace zoom.'
         : '<b>Categorías:</b> selecciona butacas (clic, barrido o el sector entero de lejos) y verás el total en una tarjeta flotante: arrástrala hasta una categoría (o pincha una) para asignarlas. «Pintar» aplica directo; «Contar» solo cuenta.';
     }
 
@@ -1293,22 +1345,75 @@
       return out;
     }
     function buildPointsSectionFrom(pts, size, name){
+      // El bloque se crea COMO UNA GRADA acorde al plano: filas por proximidad vertical; si la fila
+      // es RECTA se alinea su y (las curvas de teatro se conservan); si las separaciones son
+      // uniformes se ajusta a rejilla exacta; y donde FALTA un asiento se inserta un HUECO (mods
+      // gap) para que todo quede alineado y luego sea fácil retocar: huecos, escaleras, arrastrar
+      // asientos entre medias… La numeración salta los huecos según la política de la sección.
       var cx=0, cy=0;
       pts.forEach(function(p){ cx+=p.x; cy+=p.y; }); cx/=pts.length; cy/=pts.length;
       var sorted=pts.slice().sort(function(a,b){ return a.y-b.y; });
-      var rowThresh=Math.max(size*1.1, 6), rows=[], cur=null;
-      sorted.forEach(function(p){ if(!cur || p.y-cur.y0>rowThresh){ cur={y0:p.y, items:[]}; rows.push(cur); } cur.items.push(p); });
-      var seats=[], maxRow=0;
-      rows.forEach(function(row, ri){ var ridx=ri+1; maxRow=ridx;
-        row.items.sort(function(a,b){ return a.x-b.x; }).forEach(function(p, sidx){
-          seats.push({ row:ridx, slot:sidx+1, lx:Math.round(p.x-cx), ly:Math.round(p.y-cy) });
+      var rowThresh=Math.max(size*1.1, 6), rowsArr=[], cur=null;
+      sorted.forEach(function(p){ if(!cur || p.y-cur.y0>rowThresh){ cur={y0:p.y, items:[]}; rowsArr.push(cur); } cur.items.push(p); });
+      var seats=[], mods={}, maxRow=0, rowPitches=[];
+      rowsArr.forEach(function(row, ri){
+        var ridx=ri+1; maxRow=ridx;
+        var items=row.items.slice().sort(function(a,b){ return a.x-b.x; }).map(function(p){ return {x:p.x, y:p.y}; });
+        // Paso de la fila: mediana de las separaciones entre vecinos «normales».
+        var dists=[];
+        for(var i=1;i<items.length;i++) dists.push(Math.hypot(items[i].x-items[i-1].x, items[i].y-items[i-1].y));
+        var near=dists.filter(function(d){ return d<=size*1.6 && d>2; }).sort(function(a,b){ return a-b; });
+        var pitchRow=near.length ? near[Math.floor(near.length/2)] : size;
+        if(pitchRow>4) rowPitches.push(pitchRow);
+        // ¿Fila RECTA? → alinear la y de todas sus butacas.
+        var straight=false;
+        if(items.length>=4){
+          var my=0; items.forEach(function(p){ my+=p.y; }); my/=items.length;
+          var vy=0; items.forEach(function(p){ vy+=(p.y-my)*(p.y-my); }); vy=Math.sqrt(vy/items.length);
+          if(vy<=pitchRow*0.30){ straight=true; items.forEach(function(p){ p.y=my; }); }
+        }
+        // HUECOS donde falta asiento (escaleras/pasillos del plano): posiciones interpoladas
+        // marcadas como gap. Los huecos grandes (sectores separados) ya no llegan aquí.
+        var full=[];
+        for(var j=0;j<items.length;j++){
+          if(j>0){
+            var d=Math.hypot(items[j].x-items[j-1].x, items[j].y-items[j-1].y);
+            if(d>pitchRow*1.6 && d<pitchRow*4.9){
+              var k=Math.min(3, Math.round(d/pitchRow)-1);
+              for(var g2=1; g2<=k; g2++){
+                full.push({x:items[j-1].x+(items[j].x-items[j-1].x)*g2/(k+1),
+                           y:items[j-1].y+(items[j].y-items[j-1].y)*g2/(k+1), gap:true});
+              }
+            }
+          }
+          full.push(items[j]);
+        }
+        // ¿Recta y con separaciones uniformes? → rejilla exacta (como una grada nueva).
+        if(straight && full.length>=4){
+          var dd=[];
+          for(var u=1;u<full.length;u++) dd.push(full[u].x-full[u-1].x);
+          var mean=dd.reduce(function(a2,b2){ return a2+b2; }, 0)/dd.length;
+          var sd=Math.sqrt(dd.reduce(function(a2,v){ return a2+(v-mean)*(v-mean); }, 0)/dd.length);
+          if(mean>2 && sd<=pitchRow*0.22){
+            var x0=full[0].x;
+            full.forEach(function(p, u2){ p.x=x0+mean*u2; });
+          }
+        }
+        var gapSlots=[];
+        full.forEach(function(p, si){
+          seats.push({ row:ridx, slot:si+1, lx:Math.round(p.x-cx), ly:Math.round(p.y-cy) });
+          if(p.gap) gapSlots.push(si+1);
         });
+        if(gapSlots.length) mods[String(ridx)]={gaps:gapSlots};
       });
-      // El paso RESPETA el tamaño detectado (mínimo 8): así lo creado casa con el plano de la guía
-      // y se puede recrear/modificar encima (antes el mínimo 14 agrandaba los planos finos).
-      return { id:nid('s'), kind:'points', name:(name||'Asientos detectados'), x:Math.round(cx), y:Math.round(cy), rot:0,
-               pitch:Math.max(8, Math.min(60, Math.round(size))), rows:maxRow,
+      // El paso de la sección sale del ESPACIADO real entre butacas (mediana de filas); mínimo 8
+      // para que lo creado case con el plano de la guía y se pueda recrear/modificar encima.
+      var pit=rowPitches.length ? rowPitches.sort(function(a,b){ return a-b; })[Math.floor(rowPitches.length/2)] : size;
+      var sec={ id:nid('s'), kind:'points', name:(name||'Asientos detectados'), x:Math.round(cx), y:Math.round(cy), rot:0,
+               pitch:Math.max(8, Math.min(60, Math.round(pit))), rows:maxRow,
                num:{start:1, mode:'seq', step:1, dir:'ltr'}, rowScheme:'num', rowStart:1, gapPolicy:'skip', seats:seats };
+      if(Object.keys(mods).length) sec.mods=mods;
+      return sec;
     }
     // Puntos detectados → SECTORES por contigüidad: mucha separación = sectores distintos (cada uno
     // se mueve por separado); los huecos pequeños (escaleras/pasillos) se CONSERVAN dentro del
@@ -1688,6 +1793,9 @@
         if(!document.body.contains(host)) return;
         var a = document.activeElement;
         if(a && (a.tagName==='INPUT' || a.tagName==='TEXTAREA' || a.tagName==='SELECT' || a.isContentEditable)) return;
+        // Barra espaciadora mantenida = MANO (desplazarse sin tocar piezas); solo bloquea el
+        // scroll de la página cuando el puntero está sobre el plano.
+        if(e.key===' ' || e.code==='Space'){ spaceHeld=true; svg.classList.add('vmap-hand'); if(overCanvas) e.preventDefault(); return; }
         if((e.key==='z' || e.key==='Z') && (e.ctrlKey || e.metaKey)){ e.preventDefault(); undo(); return; }
         if((e.key==='c' || e.key==='C') && (e.ctrlKey || e.metaKey)){ if(mode==='design' && copySelected()) e.preventDefault(); return; }
         if((e.key==='v' || e.key==='V') && (e.ctrlKey || e.metaKey)){ if(mode==='design' && clipboard){ e.preventDefault(); pasteClipboard(); } return; }
@@ -2206,7 +2314,23 @@
     }
     // Girar el plano para verlo desde otra perspectiva (pivote = centro del contenido).
     function rotateBy(dd){ view.rot=(((view.rot||0)+dd)%360+360)%360; clampView(); queueRender(); }
-    svg.addEventListener('wheel', function(e){ e.preventDefault(); zoomAt(e.clientX, e.clientY, e.deltaY>0?1.13:1/1.13); }, {passive:false});
+    // Navegación tipo mapa (Mac incluido): la RUEDA / el scroll de dos dedos DESPLAZA el plano
+    // (antes hacía zoom y con el Magic Mouse/trackpad era imposible moverse); el ZOOM va con el
+    // PELLIZCO del trackpad (llega como wheel con ctrlKey) o con Ctrl/⌘ + rueda, además de los
+    // botones +/− y el pinch táctil de siempre.
+    svg.addEventListener('wheel', function(e){
+      e.preventDefault();
+      if(e.ctrlKey || e.metaKey){
+        var f=Math.exp(Math.max(-40, Math.min(40, e.deltaY)) * 0.0045);
+        zoomAt(e.clientX, e.clientY, f);
+        return;
+      }
+      var mult=(e.deltaMode===1 ? 16 : (e.deltaMode===2 ? svg.clientHeight : 1));
+      var s2=px();
+      view.x += (e.deltaX*mult)/s2;
+      view.y += (e.deltaY*mult)/s2;
+      clampView(); queueRender();
+    }, {passive:false});
     host.querySelector('[data-vm-zin]').addEventListener('click', function(){ var r=svg.getBoundingClientRect(); zoomAt(r.left+r.width/2,r.top+r.height/2,1/1.35); });
     host.querySelector('[data-vm-zout]').addEventListener('click', function(){ var r=svg.getBoundingClientRect(); zoomAt(r.left+r.width/2,r.top+r.height/2,1.35); });
     host.querySelector('[data-vm-fit]').addEventListener('click', fitAll);
@@ -2215,6 +2339,19 @@
     var _rn=host.querySelector('[data-vm-rotn]'); if(_rn) _rn.addEventListener('click', function(){ view.rot=0; clampView(); queueRender(); });
 
     var pointers={}, pinch0=null, drag=null;
+    // Modo MANO (desplazarse sin tocar piezas): botón ✋, barra espaciadora u botón central.
+    var panLock=false, spaceHeld=false, overCanvas=false;
+    var _handBtn=host.querySelector('[data-vm-hand]');
+    if(_handBtn) _handBtn.addEventListener('click', function(){
+      panLock=!panLock;
+      _handBtn.classList.toggle('on', panLock);
+      svg.classList.toggle('vmap-hand', panLock);
+    });
+    svg.addEventListener('pointerenter', function(){ overCanvas=true; });
+    svg.addEventListener('pointerleave', function(){ overCanvas=false; });
+    document.addEventListener('keyup', function(e){
+      if(e.key===' ' || e.code==='Space'){ spaceHeld=false; if(!panLock) svg.classList.remove('vmap-hand'); }
+    });
     function drawLasso(a,b){
       var l=svg.querySelector('#vmLasso');
       if(!l){ l=document.createElementNS('http://www.w3.org/2000/svg','rect'); l.id='vmLasso'; svg.appendChild(l); }
@@ -2235,6 +2372,12 @@
         pinch0={d:Math.hypot(a.x-b.x,a.y-b.y), view:JSON.parse(JSON.stringify(view)), cx:(a.x+b.x)/2, cy:(a.y+b.y)/2}; drag=null; return; }
       // Detección de asientos: el clic elige el asiento de MUESTRA del plano de fondo.
       if(detectArm && canEdit){ detectArm=false; drag={kind:'none'}; runDetect(e.clientX, e.clientY); setHint(); renderSide(); return; }
+      // MANO / barra espaciadora / botón central: SIEMPRE desplaza, sin tocar ninguna pieza.
+      if(panLock || spaceHeld || e.button===1){
+        if(e.button===1) e.preventDefault();
+        drag={kind:'pan', c0:{x:e.clientX, y:e.clientY}, v0:JSON.parse(JSON.stringify(view))};
+        return;
+      }
       var seatEl=e.target.closest('[data-seat]'), secEl=e.target.closest('[data-sec]'), elEl=e.target.closest('[data-el]'), stairEl=e.target.closest('[data-stairband]');
       var rzEl=e.target.closest('[data-resize]'), rotEl=e.target.closest('[data-rotate]');
       var w=client2world(e.clientX,e.clientY);
@@ -2263,25 +2406,63 @@
         if(rzObj2){ drag={kind:'resize', obj:rzObj2, w0:w, o0:{w:rzObj2.w, h:rzObj2.h, x:rzObj2.x, y:rzObj2.y}}; return; }
       }
       // BUTACA SUELTA: cada clic en el plano añade una butaca (movible/orientable). Si cae JUNTO a
-      // la última añadida se ENCADENA: se une a su grupo (misma fila, siguiente hueco) y HEREDA su
-      // orientación actual (aunque la hayas girado a mano); si cae lejos, empieza un grupo nuevo
-      // que se moverá por separado. Tamaño = paso predominante del plano (proporción).
+      // otra butaca (la última añadida o cualquiera de un bloque points), se ENCADENA a su fila:
+      // se coloca ALINEADA al patrón (a un paso exacto, en el eje de la fila y en el sentido del
+      // clic), NUNCA encima de otra (si el sitio está ocupado corre al siguiente hueco), hereda la
+      // orientación y el TAMAÑO del bloque. Lejos de todo = grupo nuevo independiente.
       if(mode==='design' && canEdit && seatArm){
         pushUndo('seat');
         var ppS=prevailingPitch();
-        var chain=null;
-        if(lastSeatAdd){
-          var scL=sections.find(function(x){return x.id===lastSeatAdd.secId && x.kind==='points';});
-          var stL=scL && (scL.seats||[]).find(function(t){return (+t.row)===lastSeatAdd.row && (+t.slot)===lastSeatAdd.slot;});
-          if(scL && stL){
-            var crL=Math.cos((scL.rot||0)*R), srL=Math.sin((scL.rot||0)*R);
-            var wxL=scL.x+(+stL.lx||0)*crL-(+stL.ly||0)*srL, wyL=scL.y+(+stL.lx||0)*srL+(+stL.ly||0)*crL;
-            if(Math.hypot(w.x-wxL, w.y-wyL) <= (scL.pitch||ppS)*1.9) chain={sc:scL, st:stL};
-          }
-        }
-        var lp, rowN=1, aInh=0;
+        // Objetivo de encadenado: la butaca 'points' MÁS CERCANA al clic (extiende bloques
+        // detectados y rellena huecos, no solo la última añadida).
+        var chain=null, bd=Infinity;
+        sections.forEach(function(sc){
+          if(sc.kind!=='points') return;
+          var crC=Math.cos((sc.rot||0)*R), srC=Math.sin((sc.rot||0)*R);
+          (sc.seats||[]).forEach(function(st){
+            var wx=sc.x+(+st.lx||0)*crC-(+st.ly||0)*srC, wy=sc.y+(+st.lx||0)*srC+(+st.ly||0)*crC;
+            var d=Math.hypot(w.x-wx, w.y-wy);
+            if(d<bd){ bd=d; chain={sc:sc, st:st, wx:wx, wy:wy, d:d}; }
+          });
+        });
+        if(!(chain && chain.d <= (chain.sc.pitch||ppS)*1.9)) chain=null;
+        var lp, rowN=1, aInh=0, target={x:w.x, y:w.y};
         if(chain){
           lp=chain.sc; rowN=(+chain.st.row)||1; aInh=(parseFloat(chain.st.a)||0);
+          var pit=(+lp.pitch)||ppS;
+          // Clic SOBRE un hueco = RELLENARLO: el hueco se convierte en butaca (queda alineado
+          // de serie, sin añadir nada nuevo).
+          var mCh=(lp.mods||{})[String(rowN)];
+          if(mCh && Array.isArray(mCh.gaps) && chain.d<=pit*0.6 && mCh.gaps.indexOf(+chain.st.slot)!==-1){
+            mCh.gaps=mCh.gaps.filter(function(sl){ return sl!==(+chain.st.slot); });
+            if(!mCh.gaps.length && !(mCh.off||[]).length) delete lp.mods[String(rowN)];
+            lastSeatAdd={secId:lp.id, row:rowN, slot:(+chain.st.slot)};
+            selId=lp.id; dsel={}; dsel[lp.id+'|'+rowN+'|'+(+chain.st.slot)]=1;
+            invalidate(lp.id); markSummary(); renderSide(); queueRender();
+            drag={kind:'none'}; return;
+          }
+          var crW=Math.cos((lp.rot||0)*R), srW=Math.sin((lp.rot||0)*R);
+          function _wp(t){ return {x:lp.x+(+t.lx||0)*crW-(+t.ly||0)*srW, y:lp.y+(+t.lx||0)*srW+(+t.ly||0)*crW}; }
+          // Eje de la fila: el de sus dos últimas butacas; con una sola, el de su orientación.
+          var rowSeats=(lp.seats||[]).filter(function(t){ return (+t.row)===rowN; });
+          var ax, ay;
+          if(rowSeats.length>=2){
+            var so=rowSeats.slice().sort(function(a,b){ return (+a.slot)-(+b.slot); });
+            var p1=_wp(so[so.length-2]), p2=_wp(so[so.length-1]);
+            var dl=Math.hypot(p2.x-p1.x, p2.y-p1.y)||1;
+            ax=(p2.x-p1.x)/dl; ay=(p2.y-p1.y)/dl;
+          } else {
+            var arard=((lp.rot||0)+aInh)*R;
+            ax=Math.cos(arard); ay=Math.sin(arard);
+          }
+          var dir=((w.x-chain.wx)*ax + (w.y-chain.wy)*ay) >= 0 ? 1 : -1;
+          target={x:chain.wx + dir*ax*pit, y:chain.wy + dir*ay*pit};
+          // Nunca ENCIMA de otra: si el sitio está ocupado, correr al siguiente hueco del patrón.
+          function _occupied(p){
+            return (lp.seats||[]).some(function(t){ var q=_wp(t); return Math.hypot(q.x-p.x, q.y-p.y) < pit*0.72; });
+          }
+          var guardO=0;
+          while(_occupied(target) && guardO++<24){ target={x:target.x + dir*ax*pit, y:target.y + dir*ay*pit}; }
         } else {
           lp={id:nid('s'), kind:'points', loose:true, name:'Butacas sueltas', x:w.x, y:w.y, rot:0, pitch:ppS, rows:1, num:{start:1,mode:'seq',step:1,dir:'ltr'}, rowScheme:'num', rowStart:1, gapPolicy:'skip', seats:[]};
           sections.push(lp);
@@ -2289,10 +2470,13 @@
         var nslot=1; (lp.seats||[]).forEach(function(t){ if((+t.row)===rowN && (+t.slot)>=nslot) nslot=(+t.slot)+1; });
         // Coordenadas locales deshaciendo la rotación de la sección de destino.
         var crN=Math.cos((lp.rot||0)*R), srN=Math.sin((lp.rot||0)*R);
-        var dxN=w.x-lp.x, dyN=w.y-lp.y;
-        lp.seats.push({row:rowN, slot:nslot, lx:Math.round(dxN*crN+dyN*srN), ly:Math.round(-dxN*srN+dyN*crN), a:aInh});
-        lastSeatAdd={secId:lp.id, row:rowN, slot:nslot};
-        selId=lp.id; dsel={}; dsel[lp.id+'|'+rowN+'|'+nslot]=1;
+        var dxN=target.x-lp.x, dyN=target.y-lp.y;
+        var newSeat={row:rowN, slot:nslot, lx:Math.round(dxN*crN+dyN*srN), ly:Math.round(-dxN*srN+dyN*crN), a:aInh};
+        lp.seats.push(newSeat);
+        // Insertar «entre medias» renumera la fila por orden geométrico (numeración = geometría).
+        if(chain) renumberRowSlots(lp, rowN);
+        lastSeatAdd={secId:lp.id, row:rowN, slot:(+newSeat.slot)};
+        selId=lp.id; dsel={}; dsel[lp.id+'|'+rowN+'|'+(+newSeat.slot)]=1;
         invalidate(lp.id); markSummary(); renderSide(); queueRender();
         drag={kind:'none'}; return;
       }

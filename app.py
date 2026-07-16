@@ -22980,12 +22980,16 @@ def simulation_expenses_save(sid):
                         ))
                     tpl_msg = f" Plantilla «{name}» guardada ({len(rows_tpl)} líneas)."
         s.commit()
-        flash("Gastos guardados." + tpl_msg, "success")
+        _ok, _msg = True, "Gastos guardados." + tpl_msg
     except Exception as e:
         s.rollback()
-        flash(f"Error guardando los gastos: {e}", "danger")
+        _ok, _msg = False, f"Error guardando los gastos: {e}"
     finally:
         s.close()
+    # Autoguardado / «Vincular presupuesto» van por fetch: responder JSON (sin recargar la página).
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": _ok, "message": _msg})
+    flash(_msg, "success" if _ok else "danger")
     return redirect(url_for("simulation_detail_view", sid=sid, tab="gastos", act=request.form.get("activity_id") or None))
 
 

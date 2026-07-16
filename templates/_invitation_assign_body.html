@@ -9,7 +9,9 @@
     <input type="hidden" name="assignments_json" value="[]" data-assignments-json>
     <input type="hidden" name="accept_warnings" value="1">
     {% set pend_appr = pending_assignments.get(cat.id, [])|selectattr('pending_approval')|list|length %}
-    <div class="fw-bold mb-2 pb-2 border-bottom"><i class="fa fa-layer-group me-1 text-danger"></i>{{ cat.name }}{% if pend_appr %}<span class="badge text-bg-warning text-dark ms-2"><i class="fa fa-clock me-1"></i>{{ pend_appr }} pendiente{{ '' if pend_appr == 1 else 's' }} de aprobar</span>{% endif %}</div>
+    {# Pendientes de ASIGNAR de la categoría: nº de peticiones con resto y total de invitaciones. #}
+    {% set _pend_items = pending_assignments.get(cat.id, [])|selectattr('qty', 'gt', 0)|list %}
+    <div class="fw-bold mb-2 pb-2 border-bottom"><i class="fa fa-layer-group me-1 text-danger"></i>{{ cat.name }}{% if _pend_items %}<span class="badge text-bg-danger ms-2" title="Peticiones con invitaciones aún sin asignar en esta categoría"><i class="fa fa-hourglass-half me-1"></i>{{ _pend_items|length }} {{ 'petición' if _pend_items|length == 1 else 'peticiones' }} · {{ _pend_items|sum(attribute='qty') }} pendientes de asignar</span>{% endif %}{% if pend_appr %}<span class="badge text-bg-warning text-dark ms-2"><i class="fa fa-clock me-1"></i>{{ pend_appr }} pendiente{{ '' if pend_appr == 1 else 's' }} de aprobar</span>{% endif %}</div>
     <div class="row g-3">
       <div class="col-12 col-lg-4">
         <h6>Compromisos y peticiones</h6>

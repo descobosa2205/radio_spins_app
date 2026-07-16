@@ -50147,10 +50147,16 @@ def invitation_ticket_release(ticket_id):
         cid = ticket.concert_id
         req = session_db.get(InvitationRequest, ticket.assigned_request_id) if getattr(ticket, 'assigned_request_id', None) else None
         sent_statuses = {'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}
-        # Una IMPRESA se recupera igual que una enviada (pide confirmación): ya "salió" y no es reutilizable.
-        was_sent = (ticket.status or '') in {'SENT', 'DELIVERED', 'PICKED_UP', 'PRINTED'} or bool(getattr(ticket, 'sent_at', None)) \
-            or (req is not None and (bool(req.sent_at) or (req.status or '') in sent_statuses))
-        was_downloaded = bool(req is not None and (bool(req.downloaded_at) or _safe_int(req.downloaded_count) > 0))
+        # El estado que manda es el de LA ENTRADA (una IMPRESA se recupera igual que una enviada):
+        # las AÑADIDAS al ampliar una solicitud ya enviada están solo ASIGNADAS y se desasignan/
+        # mueven como cualquier otra, sin confirmación, aunque la solicitud figure como enviada.
+        was_sent = (ticket.status or '') in {'SENT', 'DELIVERED', 'PICKED_UP', 'PRINTED'} or bool(getattr(ticket, 'sent_at', None))
+        if not was_sent and req is not None and (bool(req.sent_at) or (req.status or '') in sent_statuses):
+            # Compat con datos antiguos (solicitud enviada sin marcar sus entradas): solo cuenta como
+            # enviada si la entrada ya estaba asignada ANTES del envío de la solicitud.
+            if req.sent_at is None or ticket.assigned_at is None or ticket.assigned_at <= req.sent_at:
+                was_sent = True
+        was_downloaded = was_sent and bool(req is not None and (bool(req.downloaded_at) or _safe_int(req.downloaded_count) > 0))
         who = ticket.assigned_label or (req.guest_name if req else '') or 'el invitado'
         mode = (request.form.get('mode') or '').strip().lower()
 
@@ -50189,11 +50195,21 @@ def invitation_ticket_release(ticket_id):
                 ticket.previous_assignment_warning = f"Ya había sido asignada a {ticket.assigned_label}."
             ticket.status = 'AVAILABLE'
             msg = 'Invitación recuperada y de nuevo disponible.'
+        _cmt_rel = session_db.get(InvitationCommitment, ticket.assigned_commitment_id) if getattr(ticket, 'assigned_commitment_id', None) else None
         ticket.assigned_request_id = None
         ticket.assigned_commitment_id = None
         ticket.assigned_label = None
         ticket.sent_at = None
         ticket.updated_at = _now_madrid()
+        # Estado de la solicitud/compromiso desde sus entradas (p. ej. si se recuperan TODAS las
+        # enviadas, deja de figurar como enviada y vuelve a pendiente).
+        session_db.flush()
+        if req is not None:
+            _invitation_sync_request_status(session_db, req)
+            req.updated_at = _now_madrid()
+        if _cmt_rel is not None:
+            _invitation_sync_commitment_status(session_db, _cmt_rel)
+            _cmt_rel.updated_at = _now_madrid()
         session_db.commit()
         if _ajax:
             return jsonify({'ok': True, 'ticket_id': str(ticket.id), 'message': msg})

@@ -40786,31 +40786,64 @@ def media_gallery_view():
             og = g.get(ok)
             if og is None:
                 owner, _art, title = _photo_resolve_owner(s, p.owner_type, p.owner_id)
+                event_name = venue_name = city = ""
                 if p.owner_type == "CONCERT":
                     tl = _invitation_event_type_label(owner) if owner else "Concierto"; ti = _concert_activity_icon(owner) if owner else "fa-guitar"
                     dval = getattr(owner, "date", None) if owner else None
+                    if owner:
+                        event_name = (getattr(owner, "festival_name", None) or "").strip()
+                        _ven = getattr(owner, "venue", None)
+                        venue_name = (getattr(_ven, "name", None) or getattr(owner, "manual_venue_name", None) or "").strip()
+                        city = _concert_city(owner) or ""
                 elif p.owner_type == "ACTION":
                     ak = (getattr(owner, "action_type", None) or "").upper() if owner else ""
                     tl = ACTION_TYPE_LABELS.get(ak, "Acción"); ti = ACTION_TYPE_ICONS.get(ak, "fa-bullhorn")
                     dval = getattr(owner, "start_date", None) if owner else None
+                    if owner:
+                        event_name = (getattr(owner, "title", None) or "").strip()
+                        _ven = getattr(owner, "venue", None)
+                        _snap = _json_loads_safe(getattr(owner, "location_snapshot", None), {}) or {}
+                        venue_name = (getattr(_ven, "name", None) or _snap.get("venue") or "").strip()
+                        city = (getattr(_ven, "municipality", None) or _snap.get("city") or "").strip()
                 else:
                     tl = "Suelto"; ti = "fa-images"; dval = None
                 og = {"title": title or "—", "type_label": tl, "type_icon": ti,
+                      "event_name": event_name, "venue": venue_name, "city": city,
                       "url": _photo_owner_url(p.owner_type, str(p.owner_id)),
-                      "date": (dval.isoformat() if dval else ""), "photos": []}
+                      "date": (dval.isoformat() if dval else ""), "_raw": []}
                 g[ok] = og
-            og["photos"].append(_photo_payload(p, promo_map.get(p.photographer_promoter_id), appr_map.get(str(p.id))))
-        # Serializar en orden: artistas con más fotos primero.
+            og["_raw"].append(p)
+        # Serializar: un ÁLBUM por actividad (portada = una foto aprobada si la hay; muestra de pocas
+        # imágenes, no todas; contadores de fotos y vídeos). Artistas con más fotos primero.
+        def _is_video(ph):
+            return (getattr(ph, "kind", None) or "IMAGE").upper() == "VIDEO"
         gallery = []
         for akey, owners in groups.items():
             art = artists_by_id.get(akey)
-            total = sum(len(o["photos"]) for o in owners.values())
+            owner_list = []
+            for og in owners.values():
+                raws = og.pop("_raw")
+                approved = [ph for ph in raws if (appr_map.get(str(ph.id)) or {}).get("state") == "APPROVED"]
+                pool = approved or raws                      # portada/muestra: aprobadas si las hay
+                imgs = [ph for ph in pool if not _is_video(ph)] or pool
+                cover = imgs[0] if imgs else (pool[0] if pool else None)
+                n_videos = sum(1 for ph in raws if _is_video(ph))
+                og.update({
+                    "n_photos": len(raws) - n_videos,
+                    "n_videos": n_videos,
+                    "total": len(raws),
+                    "approved_count": len(approved),
+                    "cover": (cover.file_url if cover else ""),
+                    "sample": [{"file_url": ph.file_url, "is_video": _is_video(ph)} for ph in pool[:5]],
+                })
+                owner_list.append(og)
+            owner_list.sort(key=lambda o: o["date"], reverse=True)
             gallery.append({
                 "artist_id": (akey if akey != "__none__" else ""),
                 "artist_name": (getattr(art, "name", None) or "Sin artista") if art else "Sin artista",
                 "artist_photo": (getattr(art, "photo_url", None) or "") if art else "",
-                "total": total,
-                "owners": sorted(owners.values(), key=lambda o: o["date"], reverse=True),
+                "total": sum(o["total"] for o in owner_list),
+                "owners": owner_list,
             })
         gallery.sort(key=lambda gr: (-gr["total"], gr["artist_name"].lower()))
         # Chips de filtro por artista (con foto).

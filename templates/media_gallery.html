@@ -13,6 +13,16 @@
   .mg-filter-chip img{ width:22px; height:22px; border-radius:50%; object-fit:cover; margin-right:4px; }
   .mg-filter-chip.active{ background:var(--brand-primary,#E33D48); color:#fff; border-color:var(--brand-primary,#E33D48); }
   .mg-act-row{ border-left:4px solid #ced4da; }
+  /* Álbum por fila: portada (aprobada) + cabecera + contadores + tira de muestra. */
+  .mg-album{ display:flex; gap:.85rem; border-left:4px solid #E33D48; padding:.55rem .7rem; margin:.4rem 0 .8rem; background:#fff; border-radius:0 10px 10px 0; box-shadow:0 1px 4px rgba(0,0,0,.04); }
+  .mg-album__cover{ flex:0 0 auto; width:120px; height:88px; border-radius:10px; overflow:hidden; background:#f1f3f5; display:flex; align-items:center; justify-content:center; }
+  .mg-album__cover img{ width:100%; height:100%; object-fit:cover; }
+  .mg-album__ph{ color:#adb5bd; font-size:1.5rem; }
+  .mg-album__body{ flex:1 1 auto; min-width:0; }
+  .mg-album__head{ font-weight:600; font-size:.92rem; color:#343a40; }
+  .mg-album__strip{ display:flex; gap:.35rem; margin-top:.45rem; flex-wrap:wrap; }
+  .mg-album__strip .mg-thumb{ width:64px; height:64px; aspect-ratio:auto; }
+  @media (max-width:576px){ .mg-album{ flex-direction:column; } .mg-album__cover{ width:100%; height:150px; } }
 </style>
 
 <div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
@@ -47,15 +57,28 @@
         <span class="badge text-bg-light border">{{ g.total }}</span>
       </div>
       {% for o in g.owners %}
-        <div class="mg-owner" data-date="{{ o.date }}" data-text="{{ (g.artist_name ~ ' ' ~ o.title ~ ' ' ~ o.type_label)|lower }}">
-          <div class="mg-owner__head"><i class="fa {{ o.type_icon }}"></i>{{ o.type_label }} · <a href="{{ o.url }}" class="text-reset">{{ o.title }}</a>{% if o.date %} · <span class="text-muted">{{ o.date }}</span>{% endif %}</div>
-          <div class="mg-grid">
-            {% for p in o.photos %}
-              <a class="mg-thumb" href="{{ o.url }}" title="{{ p.title }}" data-ph="{{ (p.title ~ ' ' ~ (p.photographer.name if p.photographer else ''))|lower }}">
-                <img src="{{ p.file_url }}" alt="" data-default-photo="0" loading="lazy">
-                {% if p.is_video %}<span class="mg-vid"><i class="fa fa-play"></i></span>{% endif %}
-              </a>
-            {% endfor %}
+        <div class="mg-owner mg-album" data-date="{{ o.date }}" data-text="{{ (g.artist_name ~ ' ' ~ o.title ~ ' ' ~ o.event_name ~ ' ' ~ o.venue ~ ' ' ~ o.city ~ ' ' ~ o.type_label)|lower }}">
+          <a class="mg-album__cover" href="{{ o.url }}" title="{{ o.title }}">
+            {% if o.cover %}<img src="{{ o.cover }}" alt="" loading="lazy">{% else %}<span class="mg-album__ph"><i class="fa {{ o.type_icon }}"></i></span>{% endif %}
+          </a>
+          <div class="mg-album__body">
+            <div class="mg-album__head">
+              <i class="fa {{ o.type_icon }} me-1"></i>{{ o.type_label }}{% if o.event_name %} · <strong>{{ o.event_name }}</strong>{% endif %}{% if o.date %} · <span class="text-muted">{{ o.date }}</span>{% endif %}{% if o.venue %} · {{ o.venue }}{% endif %}{% if o.city %} · {{ o.city }}{% endif %}
+            </div>
+            <div class="small text-muted mt-1">
+              <span><i class="fa fa-image me-1"></i>{{ o.n_photos }} foto{{ '' if o.n_photos == 1 else 's' }}</span>
+              {% if o.n_videos %}<span class="ms-3"><i class="fa fa-video me-1"></i>{{ o.n_videos }} vídeo{{ '' if o.n_videos == 1 else 's' }}</span>{% endif %}
+              {% if o.approved_count %}<span class="ms-3 text-success"><i class="fa fa-circle-check me-1"></i>{{ o.approved_count }} aprobada{{ '' if o.approved_count == 1 else 's' }}</span>{% endif %}
+              <a href="{{ o.url }}" class="ms-3">Ver álbum →</a>
+            </div>
+            <div class="mg-album__strip">
+              {% for p in o.sample %}
+                <a class="mg-thumb" href="{{ o.url }}">
+                  <img src="{{ p.file_url }}" alt="" loading="lazy">
+                  {% if p.is_video %}<span class="mg-vid"><i class="fa fa-play"></i></span>{% endif %}
+                </a>
+              {% endfor %}
+            </div>
           </div>
         </div>
       {% endfor %}

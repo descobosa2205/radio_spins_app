@@ -17931,7 +17931,8 @@ def venue_ticketing_save(vid):
             if not isinstance(row, dict):
                 continue
             zone = str(row.get("zone") or "PISTA").upper()
-            if zone not in ("PISTA", "GRADA", "PALCO"):
+            # OTROS = categorías (p. ej. venidas del mapa) aún sin clasificar; se arrastran luego.
+            if zone not in ("PISTA", "GRADA", "PALCO", "OTROS"):
                 zone = "PISTA"
             cat = VenueTicketCategory(
                 venue_id=venue.id, seat_map_id=(sm.id if sm is not None else None), zone=zone,
@@ -18119,6 +18120,11 @@ def venue_seatmap_save(vid):
             sm.assignments_json = assignments
         sm.version = int(sm.version or 0) + 1
         sm.updated_at = _now_madrid()
+        s.flush()
+        # EL MAPA MANDA: si el plano tiene categorías con butacas asignadas (o zonas de pie), la
+        # tabla de ticketing de ESTE formato se reemplaza por lo configurado en el plano (el
+        # front avisa antes de guardar). Sin asignaciones no se toca lo escrito a mano.
+        _venue_sync_ticketing_from_map(s, venue, sm)
         s.commit()
         return jsonify({"ok": True, "id": str(sm.id), "version": int(sm.version)})
     except Exception as exc:
@@ -18126,6 +18132,80 @@ def venue_seatmap_save(vid):
         return jsonify({"ok": False, "error": str(exc)}), 400
     finally:
         s.close()
+
+
+def _venue_sync_ticketing_from_map(s, venue, sm) -> None:
+    """Vuelca las categorías del MAPA a la tabla de ticketing del formato (VenueTicketCategory).
+
+    Cantidades: butacas asignadas a cada categoría (rangos de assignments_json) + aforo de las
+    zonas DE PIE asignadas (__floor). Zona: por el nombre de la categoría o de sus secciones
+    (pista/grada/palco); si no se identifica, va a OTROS (en la tabla se arrastra a su tipo).
+    Las categorías de tipo invitaciones/bloqueo cuentan su cupo como invitaciones reservadas."""
+    layout = sm.layout_json if isinstance(sm.layout_json, dict) else {}
+    assignments = sm.assignments_json if isinstance(sm.assignments_json, dict) else {}
+    cats = [c for c in (layout.get("categories") or []) if isinstance(c, dict) and c.get("id")]
+    if not cats or not assignments:
+        return
+    sections = {str(sec.get("id")): sec for sec in (layout.get("sections") or []) if isinstance(sec, dict)}
+    counts: dict = {}      # cat_id -> nº butacas
+    sec_names: dict = {}   # cat_id -> [nombres de sección donde está]
+    sec_kinds: dict = {}   # cat_id -> set(kinds)
+    for sec_id, rows in assignments.items():
+        if not isinstance(rows, dict):
+            continue
+        sec = sections.get(str(sec_id)) or {}
+        for rkey, ranges in rows.items():
+            if rkey == "__floor":
+                cid = str(ranges)
+                counts[cid] = counts.get(cid, 0) + max(_safe_int(sec.get("cap")), 0)
+                sec_names.setdefault(cid, []).append(str(sec.get("name") or ""))
+                sec_kinds.setdefault(cid, set()).add("floor")
+                continue
+            if not isinstance(ranges, list):
+                continue
+            for rg in ranges:
+                if not (isinstance(rg, list) and len(rg) >= 3):
+                    continue
+                cid = str(rg[2])
+                counts[cid] = counts.get(cid, 0) + max(_safe_int(rg[1]) - _safe_int(rg[0]) + 1, 0)
+                sec_names.setdefault(cid, []).append(str(sec.get("name") or ""))
+                sec_kinds.setdefault(cid, set()).add(str(sec.get("kind") or ""))
+    if not counts:
+        return
+
+    def _zone_for(cat, cid):
+        blob = " ".join([str(cat.get("name") or "")] + sec_names.get(cid, [])).lower()
+        if "palco" in blob:
+            return "PALCO"
+        if "pista" in blob or "ruedo" in blob or "arena" in blob:
+            return "PISTA"
+        if "grada" in blob or "tendido" in blob or "anfiteatro" in blob or "tribuna" in blob:
+            return "GRADA"
+        kinds = sec_kinds.get(cid, set())
+        if kinds == {"floor"}:
+            return "PISTA"
+        if kinds == {"box"}:
+            return "PALCO"
+        return "OTROS"
+
+    # En el formato PRINCIPAL se reemplazan también las filas legado sin formato (seat_map_id NULL),
+    # que representan la misma tabla; si no, quedarían duplicadas al resolver el ticketing.
+    _flt = (or_(VenueTicketCategory.seat_map_id == sm.id, VenueTicketCategory.seat_map_id.is_(None))
+            if getattr(sm, "is_default", False) else (VenueTicketCategory.seat_map_id == sm.id))
+    s.query(VenueTicketCategory).filter(VenueTicketCategory.venue_id == venue.id, _flt).delete(synchronize_session=False)
+    order = 0
+    for cat in cats:
+        cid = str(cat.get("id"))
+        qty = counts.get(cid, 0)
+        if qty <= 0:
+            continue
+        is_inv = (str(cat.get("kind") or "").lower() in ("invitaciones", "bloqueo", "reserva"))
+        s.add(VenueTicketCategory(
+            venue_id=venue.id, seat_map_id=sm.id, zone=_zone_for(cat, cid),
+            name=str(cat.get("name") or "Categoría").strip(),
+            quantity=qty, invitations=(qty if is_inv else 0), sort_order=order,
+        ))
+        order += 1
 
 
 @app.post("/recintos/<vid>/mapa/fondo", endpoint="venue_seatmap_bg_upload")
@@ -21571,7 +21651,8 @@ def _venue_ticketing_summary(cats):
     """Aforo total / a la venta / invitaciones del recinto (desde su plantilla)."""
     zones = {"PISTA": {"label": "Pista", "qty": 0, "inv": 0, "sellable": 0},
              "GRADA": {"label": "Grada", "qty": 0, "inv": 0, "sellable": 0},
-             "PALCO": {"label": "Palcos", "qty": 0, "inv": 0, "sellable": 0}}
+             "PALCO": {"label": "Palcos", "qty": 0, "inv": 0, "sellable": 0},
+             "OTROS": {"label": "Otros", "qty": 0, "inv": 0, "sellable": 0}}
     tq = ti = ts = 0
     for c in (cats or []):
         zone = (c.zone or "PISTA").upper()

@@ -222,6 +222,11 @@ def _row_numbering(sec: dict, row_idx: int, states: list) -> dict:
     conservan su número; los cortes de escalera no consumen; los OVERRIDES por butaca —números
     puestos a mano con la herramienta №— sustituyen al calculado)."""
     num = sec.get("num") or {}
+    # Numeración POR FILA (paridad con numOfRow del JS): sec.rowNums["<fila>"] pisa el ajuste
+    # general campo a campo (hay planos donde cada fila empieza en un número distinto).
+    _ov = (sec.get("rowNums") or {}).get(str(row_idx)) or {}
+    if _ov:
+        num = {**num, **{k: v for k, v in _ov.items() if v not in (None, "")}}
     try:
         start = int(num.get("start"))
     except (TypeError, ValueError):

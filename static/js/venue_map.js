@@ -167,9 +167,9 @@
             '<div class="vmap-selpop-hint" data-dpop-blocks></div>' +
             '<div class="vmap-dpop-row"><label>Sector</label><input type="text" class="form-control form-control-sm" data-dpop-name placeholder="Grada, Palco 3…" title="Escribe para cambiar el sector de TODAS las seleccionadas"></div>' +
             '<div class="vmap-dpop-row"><label>Fila</label><input type="text" class="form-control form-control-sm" data-dpop-row placeholder="1, 2… o A, B…" title="Número O LETRA de fila: la fila de las seleccionadas pasa a llamarse así (el resto de la sección sigue en orden)"></div>' +
-            '<div class="vmap-dpop-row"><label>Nº inicial</label><input type="text" inputmode="numeric" class="form-control form-control-sm" data-dpop-numstart placeholder="1" title="Primer número de asiento de cada fila del sector"></div>' +
-            '<div class="vmap-dpop-row"><label>Sentido</label><select class="form-select form-select-sm" data-dpop-numdir title="Sentido de la numeración de asientos del sector"><option value="">—</option><option value="ltr">Izq → der</option><option value="rtl">Der → izq</option></select></div>' +
-            '<div class="vmap-dpop-row"><label>Números</label><select class="form-select form-select-sm" data-dpop-nummode title="Numeración consecutiva o solo pares/impares"><option value="">—</option><option value="seq">Consecutivos (1,2,3…)</option><option value="odd">Solo impares (1,3,5…)</option><option value="even">Solo pares (2,4,6…)</option></select></div>' +
+            '<div class="vmap-dpop-row"><label>Nº inicial</label><input type="text" inputmode="numeric" class="form-control form-control-sm" data-dpop-numstart placeholder="1" title="Primer número de asiento de LAS FILAS seleccionadas (cada fila puede empezar en un número distinto)"></div>' +
+            '<div class="vmap-dpop-row"><label>Sentido</label><select class="form-select form-select-sm" data-dpop-numdir title="Sentido de la numeración de LAS FILAS seleccionadas"><option value="">—</option><option value="ltr">Izq → der</option><option value="rtl">Der → izq</option></select></div>' +
+            '<div class="vmap-dpop-row"><label>Números</label><select class="form-select form-select-sm" data-dpop-nummode title="Consecutivos o solo pares/impares, en LAS FILAS seleccionadas"><option value="">—</option><option value="seq">Consecutivos (1,2,3…)</option><option value="odd">Solo impares (1,3,5…)</option><option value="even">Solo pares (2,4,6…)</option></select></div>' +
             '<div class="vmap-dpop-row d-none" data-dpop-seatrow><label>Nº asiento</label><input type="text" class="form-control form-control-sm" data-dpop-seatnum title="Número de ESTA butaca (vacío = volver al automático)"></div>' +
             '<div data-dpop-groupwrap>' +
               '<button type="button" class="btn btn-sm btn-danger w-100 mt-2" data-dpop-auto><i class="fa fa-object-group me-1"></i>Agrupar en bloques</button>' +
@@ -275,6 +275,20 @@
       else if(mode==='even'){ step=2; if(st%2!==0) st+=1; }
       return { start: st, step: step, mode: mode, dir: (n.dir==='rtl'?'rtl':'ltr') };
     }
+    function numOfRow(s, rowIdx){
+      // Numeración POR FILA: cada fila puede empezar en un número distinto y con su propio patrón
+      // (pares/impares, sentido) — hay planos donde una fila empieza en un número y la de atrás en
+      // otro. s.rowNums["<fila>"] pisa el ajuste general de la sección (s.num) campo a campo.
+      var ov = (s.rowNums || {})[String(rowIdx)];
+      if(!ov) return numOf(s);
+      var base = s.num || {};
+      return numOf({ num: {
+        start: (ov.start!=null && ov.start!=='' ? ov.start : base.start),
+        mode:  (ov.mode || base.mode),
+        dir:   (ov.dir  || base.dir),
+        step:  base.step
+      } });
+    }
     function rowLabelOf(s, rowIdx){
       // «Primera fila» configurable: rowStart 3 → las filas se etiquetan 3,4,5… (o C,D,E… por
       // letras). El 0 es un valor VÁLIDO (hay recintos con fila 0), no «ausente».
@@ -316,10 +330,11 @@
           // Ángulo por butaca (butacas sueltas orientables): s.rot + el giro propio de la butaca.
           return { slot:slot, frac:0, x:s.x+lx*crP-ly*srP, y:s.y+lx*srP+ly*crP, a:(s.rot||0)+(parseFloat(t.a)||0), state:state };
         });
-        var ordered = (nm.dir==='rtl') ? slots.slice().reverse() : slots, counter=nm.start;
+        var nmR = numOfRow(s, ri);   // numeración propia de ESTA fila (o la general si no tiene)
+        var ordered = (nmR.dir==='rtl') ? slots.slice().reverse() : slots, counter=nmR.start;
         ordered.forEach(function(sl){
-          if(sl.state==='gap'){ sl.n=null; if((s.gapPolicy||'skip')==='skip') counter+=nm.step; return; }
-          sl.n=counter; counter+=nm.step;
+          if(sl.state==='gap'){ sl.n=null; if((s.gapPolicy||'skip')==='skip') counter+=nmR.step; return; }
+          sl.n=counter; counter+=nmR.step;
         });
         slots.forEach(function(sl){ var ov=overrides[ri+'|'+sl.slot]; if(ov!=null&&ov!==''&&sl.state!=='gap') sl.n=ov; });
         slots.forEach(function(p){ xs.push(p.x); ys.push(p.y); if(p.state==='seat'){ nSeats++; valid[ri+'|'+p.slot]=1; } });
@@ -384,13 +399,14 @@
         slots.forEach(function(sl){
           sl.state = sl.inStair ? 'stair' : (mods.gaps.indexOf(sl.slot)!==-1 ? 'gap' : (mods.off.indexOf(sl.slot)!==-1 ? 'off' : 'seat'));
         });
-        var ordered = (nm.dir==='rtl') ? slots.slice().reverse() : slots;
-        var counter = nm.start;
+        var nmR = numOfRow(s, rowIdx);   // numeración propia de ESTA fila (o la general si no tiene)
+        var ordered = (nmR.dir==='rtl') ? slots.slice().reverse() : slots;
+        var counter = nmR.start;
         var overrides = s.numOverrides || {};
         ordered.forEach(function(sl){
           if(sl.state==='stair'){ sl.n=null; return; }
-          if(sl.state==='gap'){ sl.n=null; if((s.gapPolicy||'skip')==='skip') counter += nm.step; return; }
-          sl.n = counter; counter += nm.step;
+          if(sl.state==='gap'){ sl.n=null; if((s.gapPolicy||'skip')==='skip') counter += nmR.step; return; }
+          sl.n = counter; counter += nmR.step;
         });
         // Números CAMBIADOS a mano por butaca (herramienta №): sustituyen al calculado.
         slots.forEach(function(sl){
@@ -1174,8 +1190,7 @@
             '<div class="vmap-tools"><button type="button" class="btn btn-sm btn-danger" data-bg-auto><i class="fa fa-wand-magic-sparkles me-1"></i>Crear plano según la imagen</button></div>'+
             '<p class="text-muted small mb-0">Detecta los asientos de la imagen y crea los SECTORES automáticamente: lo que va junto se agrupa (los huecos de escaleras se conservan) y cada grupo se mueve por separado.</p>'+
             '<div class="vmap-tools mt-2"><button type="button" class="btn btn-sm '+(detectArm?'btn-primary':'btn-outline-secondary')+'" data-bg-detect title="Detección manual: pincha un asiento de EJEMPLO y se detectan todos los parecidos (color y tamaño).">'+(detectArm?'<i class="fa fa-crosshairs me-1"></i>Pincha un asiento…':'Detección manual')+'</button>'+
-              (lastSample?'<button type="button" class="btn btn-sm btn-outline-secondary" data-bg-redetect>Volver a detectar</button>':'')+'</div>'+
-            '<div class="vmap-param"><label>Sensibilidad</label><input type="range" class="form-range" min="20" max="140" step="5" value="'+detectTol+'" data-detect-tol></div>';
+              (lastSample?'<button type="button" class="btn btn-sm btn-outline-secondary" data-bg-redetect>Volver a detectar</button>':'')+'</div>';
         }
         // HERRAMIENTAS: seleccionar (recuadro) + retoques por butaca, en una sola fila de chips.
         html += '<h6 class="vmap-h"><i class="fa fa-wand-magic-sparkles me-1"></i>Herramientas <i class="fa fa-circle-info text-muted" title="Seleccionar: arrastra un recuadro (Mayús añade); Supr borra lo seleccionado. Hueco = no existe la butaca; Apagada = existe pero no se ofrece; Escalera = corte vertical; Pasillo = hueco horizontal entre filas; № = cambiar el número de una butaca (o varias, barriéndolas). Pincha un retoque ya puesto para quitarlo."></i></h6>'+
@@ -1314,7 +1329,7 @@
       if(!canEdit){ h.innerHTML = 'Arrastra o usa la rueda/dos dedos para desplazarte; pellizco o Ctrl/Cmd + rueda para hacer zoom: de lejos verás los sectores y, al acercarte, cada butaca con su número.'; return; }
       if(detectArm){ h.innerHTML = '<b>Detectar asientos:</b> pincha en el CENTRO de un asiento de ejemplo del plano subido. Se detectarán todos los parecidos.'; return; }
       if(seatArm){ h.innerHTML = '<b>Butaca suelta:</b> pincha en el plano para ir poniendo butacas: junto a otras se ENCAJAN solas al patrón de su fila (mismo tamaño y orientación, sin montarse) y pinchando un HUECO lo rellenas. Luego puedes moverlas o girarlas; con Mayús seleccionas varias.'; return; }
-      if(tool==='select'){ h.innerHTML = '<b>Seleccionar:</b> arrastra un recuadro para marcar butacas (sueltas o de una grada) o elementos; una grada envuelta ENTERA se marca como pieza (moverla), tocada en parte se marcan sus butacas (configurar fila y numeración en el panel). Mayús para ir añadiendo.'; return; }
+      if(tool==='select'){ h.innerHTML = '<b>Seleccionar:</b> pincha una butaca y, SIN SOLTAR, pasa por encima de las demás para ir seleccionándolas (aunque salgas a otro sector); o arrastra un recuadro por el vacío. Una butaca ya seleccionada se ARRASTRA para mover el conjunto. En el panel flotante configuras fila y numeración de LAS FILAS seleccionadas. Mayús añade/quita.'; return; }
       h.innerHTML = mode==='design'
         ? '<b>Diseñar:</b> pincha una BUTACA de una grada para configurarla (fila, numeración; Mayús añade) y ARRASTRA desde ella para mover el sector. Con una herramienta de retoque activa (Hueco/Apagada/Escalera), pincha butacas para aplicarla. Rueda desplaza; pellizco o Ctrl/Cmd + rueda hace zoom.'
         : '<b>Categorías:</b> selecciona butacas (clic, barrido o el sector entero de lejos) y verás el total en una tarjeta flotante: arrástrala hasta una categoría (o pincha una) para asignarlas. «Pintar» aplica directo; «Contar» solo cuenta.';
@@ -1538,6 +1553,13 @@
           }
           return true;
         }
+        // Sembrar con las butacas YA existentes: los sectores nuevos no se montan sobre ellas.
+        sections.forEach(function(sE){
+          if(sE.kind==='floor') return;
+          secRows(sE).rows.forEach(function(rw){ rw.seats.forEach(function(p){
+            if(p.state!=='stair') markPlaced({x:p.x, y:p.y});
+          }); });
+        });
         cands.forEach(function(cd){
           // Saturados: tolerancia normal. Neutros: corta, para que el blanco/gris de la butaca no
           // se funda con el fondo claro que la rodea (el borde/hueco hace de frontera).
@@ -1554,7 +1576,7 @@
           fresh.forEach(markPlaced);
           madeTotal+=fresh.length;
         });
-        if(!madeTotal){ undo(); alert('No se han podido detectar asientos automáticamente. Prueba la detección manual: pincha en el centro de un asiento de ejemplo y ajusta la sensibilidad.'); return; }
+        if(!madeTotal){ undo(); alert('No se han podido detectar asientos automáticamente. Prueba la detección manual: pincha en el CENTRO de un asiento de ejemplo del plano.'); return; }
         selId=null; dsel={}; dselO={};
         invalidate(); markSummary(); renderSide(); fitAll();
       });
@@ -1594,7 +1616,6 @@
         if(bg0){ bg0.opacity = Math.max(.1, Math.min(1, (parseInt(e.target.value,10)||60)/100)); queueRender(); }
         return;
       }
-      if(e.target.hasAttribute('data-detect-tol')){ detectTol = parseInt(e.target.value,10)||60; return; }
       var p = e.target.dataset.p; if(!p) return;
       var o = sections.find(function(x){return x.id===selId;}) || elements.find(function(x){return x.id===selId;});
       if(!o) return;
@@ -1949,6 +1970,22 @@
         var stairB = under.closest('[data-stairband]');
         var sepB = under.closest('[data-rowsep]');
         var seatB = under.closest('[data-seat]');
+        if(!seatB && !stairB && !sepB){
+          // Suelto ENTRE butacas o en el borde (principio/final de fila): aplicar a la butaca
+          // MÁS CERCANA del plano (dentro de ~1.3 pasos), como el editor de invitaciones.
+          var wD=client2world(cx, cy), bestK=null, bestD=Infinity, bestPit=26;
+          sections.forEach(function(s){
+            if(s.kind==='floor') return;
+            var bb=bboxOf(s), m=(s.pitch||26)*1.6;
+            if(wD.x<bb.x-m || wD.y<bb.y-m || wD.x>bb.x+bb.w+m || wD.y>bb.y+bb.h+m) return;
+            secRows(s).rows.forEach(function(rw){ rw.seats.forEach(function(p){
+              if(p.state==='stair') return;
+              var d=Math.hypot(p.x-wD.x, p.y-wD.y);
+              if(d<bestD){ bestD=d; bestK=s.id+'|'+rw.rowIdx+'|'+p.slot; bestPit=(s.pitch||26); }
+            }); });
+          });
+          if(bestK && bestD<=bestPit*1.3) seatB=svg.querySelector('[data-seat="'+bestK.replace(/"/g,'\\"')+'"]');
+        }
         if(toolKey==='stair' && stairB){ removeStairBand(stairB); }
         else if(toolKey==='rowsep' && sepB){ removeRowSep(sepB); }
         else if(seatB){
@@ -2247,11 +2284,13 @@
       }
       dpop.querySelector('[data-dpop-name]').value = info.commonName || '';
       dpop.querySelector('[data-dpop-row]').value = info.commonRowLabel || '';
-      // Numeración de asientos de las secciones implicadas (valor común o «—» si difieren).
-      var nvStart={}, nvDir={}, nvMode={};
-      info.secIds.forEach(function(sid){
-        var sN=sections.find(function(x){return x.id===sid;}); if(!sN) return;
-        var n0=numOf(sN); nvStart[n0.start]=1; nvDir[n0.dir]=1; nvMode[n0.mode]=1;
+      // Numeración de LAS FILAS seleccionadas (valor común o «—» si difieren entre filas).
+      var nvStart={}, nvDir={}, nvMode={}, _seenRow={};
+      dk.forEach(function(k){
+        var pp=k.split('|'), rk=pp[0]+'|'+pp[1];
+        if(_seenRow[rk]) return; _seenRow[rk]=1;
+        var sN=sections.find(function(x){return x.id===pp[0];}); if(!sN || sN.kind==='floor') return;
+        var n0=numOfRow(sN, +pp[1]); nvStart[n0.start]=1; nvDir[n0.dir]=1; nvMode[n0.mode]=1;
       });
       function _common(o){ var ks=Object.keys(o); return ks.length===1 ? ks[0] : ''; }
       dpop.querySelector('[data-dpop-numstart]').value = _common(nvStart);
@@ -2329,21 +2368,22 @@
         });
         dpopSig=''; markSummary(); renderSide(); queueRender();
       });
-      // Numeración de asientos del SECTOR (o sectores) de la selección: inicio, sentido y tipo
-      // (consecutivos / solo impares / solo pares). Mismo modelo que el panel lateral (s.num).
+      // Numeración de LAS FILAS de la selección: inicio, sentido y tipo (consecutivos / impares /
+      // pares) se aplican SOLO a las filas con butacas seleccionadas (hay planos donde una fila
+      // empieza en un número y la de atrás en otro). Se guarda como override por fila (s.rowNums);
+      // el panel lateral sigue editando el ajuste GENERAL de la sección (filas sin override).
       function applyNumCfg(fn){
-        var info=dselInfo(); if(!info.secIds.length) return;
+        var dk=dselKeys(); if(!dk.length) return;
         pushUndo('sel-numcfg');
-        info.secIds.forEach(function(sid){
+        var rowsBySec={};
+        dk.forEach(function(k){ var pp=k.split('|'); (rowsBySec[pp[0]]=rowsBySec[pp[0]]||{})[String(+pp[1])]=1; });
+        Object.keys(rowsBySec).forEach(function(sid){
           var s0=sections.find(function(x){return x.id===sid;}); if(!s0 || s0.kind==='floor') return;
-          // El inicio se conserva CRUDO (la paridad de impares/pares la ajusta numOf solo al
-          // leer): si se guardara normalizado, alternar consecutivos↔impares↔pares lo iría
-          // desplazando (2→3→4…) y divergiría del panel lateral.
-          var n0=numOf(s0);
-          var raw=parseInt((s0.num||{}).start,10); if(isNaN(raw)) raw=n0.start;
-          s0.num = { start:raw, mode:n0.mode, dir:n0.dir };
-          fn(s0.num);
-          s0.num.step = (s0.num.mode==='seq') ? 1 : 2;   // compat con mapas que solo miran step
+          s0.rowNums = s0.rowNums || {};
+          Object.keys(rowsBySec[sid]).forEach(function(ri){
+            var ov = s0.rowNums[ri] = s0.rowNums[ri] || {};
+            fn(ov);
+          });
           invalidate(s0.id);
         });
         dpopSig=''; markSummary(); renderSide(); queueRender();
@@ -2684,27 +2724,29 @@
       if(mode==='design' && canEdit && tool==='select'){
         var addSel=(e.shiftKey||e.metaKey||e.ctrlKey);
         if(seatEl){
-          var sk=seatEl.getAttribute('data-seat'), sc0=sections.find(function(x){return x.id===sk.split('|')[0] && x.kind==='points';});
-          if(sc0){
-            selId=sc0.id;
-            if(addSel){ if(dsel[sk]) delete dsel[sk]; else dsel[sk]=1; }
-            else if(!dsel[sk]){ dsel={}; dselO={}; dsel[sk]=1; }
-            startMultiMove(w); renderSide(); queueRender(); return;
-          }
-          // Butaca de una GRADA (grid/arc/palco): se selecciona para CONFIGURAR (fila, numeración),
-          // no se mueve individualmente. Si la grada ya está marcada como PIEZA (dselO), pinchar
-          // sus butacas sigue moviendo el conjunto (Mayús la desmarca), como siempre.
-          var scG=sections.find(function(x){return x.id===sk.split('|')[0];});
-          if(scG && scG.kind!=='floor'){
-            selId=scG.id;
-            if(dselO[scG.id]){
-              if(addSel){ delete dselO[scG.id]; drag={kind:'none'}; }
+          var sk=seatEl.getAttribute('data-seat'), scSel=sections.find(function(x){return x.id===sk.split('|')[0];});
+          if(scSel && scSel.kind!=='floor'){
+            // Grada marcada como PIEZA (dselO): pinchar sus butacas mueve el conjunto (Mayús desmarca).
+            if(scSel.kind!=='points' && dselO[scSel.id]){
+              selId=scSel.id;
+              if(addSel){ delete dselO[scSel.id]; drag={kind:'none'}; }
               else startMultiMove(w);
               renderSide(); queueRender(); return;
             }
-            if(addSel){ if(dsel[sk]) delete dsel[sk]; else dsel[sk]=1; }
-            else if(!dsel[sk]){ dsel={}; dselO={}; dsel[sk]=1; }
-            drag={kind:'none'}; renderSide(); queueRender(); return;
+            selId=scSel.id;
+            // Butaca YA seleccionada: arrastrarla mueve el conjunto (sueltas + piezas marcadas);
+            // con Mayús se quita de la selección.
+            if(dsel[sk]){
+              if(addSel){ delete dsel[sk]; drag={kind:'none'}; }
+              else startMultiMove(w);
+              renderSide(); queueRender(); return;
+            }
+            // Butaca nueva: se selecciona y, SIN SOLTAR, se van seleccionando las butacas por
+            // donde pases (vertical, horizontal o saliendo a OTRO sector).
+            if(!addSel){ dsel={}; dselO={}; }
+            dsel[sk]=1;
+            drag={kind:'selpaint', done:{}}; drag.done[sk]=1;
+            renderSide(); queueRender(); return;
           }
         }
         if(secEl || elEl){
@@ -2967,6 +3009,18 @@
         }
       } else if(drag.kind==='secmaybe'){
         if(Math.hypot(e.clientX-drag.c0.x, e.clientY-drag.c0.y) > 8){ drag={kind:'lasso', w0:drag.w0}; }
+      } else if(drag.kind==='selpaint'){
+        // Pintar-seleccionar: cada butaca por la que pasa el puntero se añade a la selección
+        // (da igual la dirección o que cruce a otro sector). El panel se refresca al soltar.
+        var underP=document.elementFromPoint(e.clientX, e.clientY);
+        var seatP=underP && underP.closest ? underP.closest('[data-seat]') : null;
+        if(seatP){
+          var kP=seatP.getAttribute('data-seat');
+          if(kP && !drag.done[kP] && seatP.getAttribute('data-kind')!=='gap'){
+            drag.done[kP]=1; dsel[kP]=1;
+            updateDPop(); queueRender();
+          }
+        }
       } else if(drag.kind==='gseatmaybe'){
         // Se empezó a ARRASTRAR desde una butaca de grada → mover el sector entero (el undo lo
         // apunta la propia rama 'move' en su primer tick).
@@ -3005,6 +3059,9 @@
         if(drag.w1) marqueeSelect(drag.w0, drag.w1, drag.add);
         else { if(!drag.add){ dsel={}; dselO={}; } }   // clic sin arrastre en vacío: vacía la selección
         drag=null; clearLasso(); renderSide(); queueRender(); return;
+      }
+      if(drag && drag.kind==='selpaint'){
+        drag=null; renderSide(); queueRender(); return;
       }
       if(drag && drag.kind==='gseatmaybe'){
         // Clic corto sobre una butaca de GRADA: seleccionarla para configurar (Mayús añade/quita
@@ -3066,6 +3123,10 @@
     }
     var saveBtn = host.querySelector('[data-vm-save]');
     if(saveBtn) saveBtn.addEventListener('click', function(){
+      // EL MAPA MANDA: si hay categorías asignadas sobre el plano, al guardar se REEMPLAZA la
+      // tabla de ticketing del recinto por lo configurado aquí. Avisar antes.
+      var hasAssign = Object.keys(assign).some(function(k){ return assign[k]; }) || Object.keys(floorCat).length > 0;
+      if(hasAssign && !window.confirm('El ticketing del recinto se reemplazará por lo configurado en el plano (categorías y aforos del mapa). ¿Guardar?')) return;
       var body = { version: mapVersion,
                    // Formato activo (subpestañas de la ficha del recinto); vacío = el principal.
                    map_id: host.dataset.mapId || '',

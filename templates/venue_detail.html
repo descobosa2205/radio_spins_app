@@ -191,10 +191,11 @@
       <div class="sim-stat"><div class="sim-stat__n" id="vtkSell">0</div><div class="sim-stat__l">A la venta</div></div>
       <div class="sim-stat"><div class="sim-stat__n" id="vtkInv">0</div><div class="sim-stat__l">Invitaciones reservadas</div></div>
     </div>
-    {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown')] %}
+    {# «OTROS»: categorías del mapa sin zona identificada; se ARRASTRAN a Pista/Grada/Palcos. #}
+    {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown'),('OTROS','Otros','fa-shapes')] %}
     <div class="card mb-3">
       <div class="card-header bg-white d-flex justify-content-between align-items-center">
-        <span><i class="fa {{ zicon }} me-1"></i>{{ zlabel }}</span>
+        <span><i class="fa {{ zicon }} me-1"></i>{{ zlabel }}{% if zkey == 'OTROS' %} <span class="small text-muted fw-normal">(arrastra cada categoría a su tipo)</span>{% endif %}</span>
         <span class="small text-muted">A la venta: <strong data-vzone-sellable="{{ zkey }}">0</strong> · Aforo: <strong data-vzone-qty="{{ zkey }}">0</strong></span>
       </div>
       <div class="card-body">
@@ -330,12 +331,32 @@
     '</div>';
   }
   function addCat(zone, c){
-    var wrap = form.querySelector('[data-vzone-rows="'+zone+'"]'); if(!wrap) return;
+    var wrap = form.querySelector('[data-vzone-rows="'+zone+'"]');
+    if(!wrap) wrap = form.querySelector('[data-vzone-rows="OTROS"]') || form.querySelector('[data-vzone-rows="PISTA"]');
+    if(!wrap) return;
     var h = document.createElement('div'); h.innerHTML = catHtml(c); var row = h.firstElementChild; wrap.appendChild(row);
+    // ARRASTRABLE entre zonas (Pista/Grada/Palcos/Otros): la zona real se lee del contenedor al guardar.
+    row.setAttribute('draggable', 'true');
+    row.addEventListener('dragstart', function(ev){ ev.dataTransfer.setData('text/plain', 'vtk'); window.__vtkDragRow = row; row.classList.add('opacity-50'); });
+    row.addEventListener('dragend', function(){ row.classList.remove('opacity-50'); window.__vtkDragRow = null; });
     var ew = row.querySelector('.vtk-extras');
     ((c && c.extras)||[]).forEach(function(ex){ var d=document.createElement('div'); d.innerHTML=extraHtml(ex); ew.appendChild(d.firstElementChild); });
     recompute();
   }
+  // Soltar una categoría en OTRA zona la mueve de tipo (Grada/Pista/Palcos/Otros).
+  form.querySelectorAll('[data-vzone-rows]').forEach(function(wrap){
+    wrap.addEventListener('dragover', function(ev){ if(window.__vtkDragRow){ ev.preventDefault(); wrap.classList.add('bg-light'); } });
+    wrap.addEventListener('dragleave', function(){ wrap.classList.remove('bg-light'); });
+    wrap.addEventListener('drop', function(ev){
+      wrap.classList.remove('bg-light');
+      if(!window.__vtkDragRow) return;
+      ev.preventDefault();
+      wrap.appendChild(window.__vtkDragRow);
+      recompute();
+    });
+    // Zona vacía: que tenga un mínimo de altura donde soltar.
+    wrap.style.minHeight = '2rem';
+  });
   form.addEventListener('click', function(e){
     var ac=e.target.closest('[data-vadd-cat]'); if(ac){ addCat(ac.getAttribute('data-vadd-cat'), null); return; }
     var dc=e.target.closest('.vtk-cat-del'); if(dc){ dc.closest('.vtk-cat-row').remove(); recompute(); return; }
@@ -361,7 +382,7 @@
   }
   function setText(id,v){ var e=document.getElementById(id); if(e) e.textContent=v; }
   function recompute(){
-    var data=collect(); var tot={qty:0,inv:0,sell:0}; var bz={PISTA:{qty:0,sell:0},GRADA:{qty:0,sell:0},PALCO:{qty:0,sell:0}};
+    var data=collect(); var tot={qty:0,inv:0,sell:0}; var bz={PISTA:{qty:0,sell:0},GRADA:{qty:0,sell:0},PALCO:{qty:0,sell:0},OTROS:{qty:0,sell:0}};
     data.forEach(function(r){ var s=Math.max(r.qty-r.inv,0); tot.qty+=r.qty; tot.inv+=r.inv; tot.sell+=s; if(bz[r.zone]){bz[r.zone].qty+=r.qty;bz[r.zone].sell+=s;} });
     setText('vtkAforo',tot.qty); setText('vtkSell',tot.sell); setText('vtkInv',tot.inv);
     Object.keys(bz).forEach(function(z){ var a=form.querySelector('[data-vzone-qty="'+z+'"]'); if(a)a.textContent=bz[z].qty; var b=form.querySelector('[data-vzone-sellable="'+z+'"]'); if(b)b.textContent=bz[z].sell; });

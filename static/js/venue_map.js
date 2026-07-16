@@ -383,7 +383,13 @@
       var ps = sections.filter(function(s){ return s.kind!=='floor' && s.pitch; })
                        .map(function(s){ return +s.pitch; })
                        .sort(function(a,b){ return a-b; });
-      return ps.length ? ps[Math.floor(ps.length/2)] : 26;
+      if(ps.length) return ps[Math.floor(ps.length/2)];
+      // Sin butacas aún pero con PLANO de fondo: butaca pequeña acorde al tamaño del plano, para
+      // ir colocándolas SOBRE la guía y que casen con su dibujo (luego se afina con «Tamaño butaca»
+      // y el zoom); sin plano, el 26 de siempre.
+      var bg=elements.find(function(x){ return x.type==='bgimage' && x.url; });
+      if(bg) return Math.max(9, Math.min(26, Math.round(Math.min(bg.w||0, bg.h||0)/70) || 26));
+      return 26;
     }
     function arcBandPath(s){
       var a0=(s.dir-s.span/2)*R, a1=(s.dir+s.span/2)*R, rIn=s.r0-s.pitch*.7, rOut=s.r0+(s.rows-1)*s.rowGap+totalSep(s)+s.pitch*.7;
@@ -1298,8 +1304,10 @@
           seats.push({ row:ridx, slot:sidx+1, lx:Math.round(p.x-cx), ly:Math.round(p.y-cy) });
         });
       });
+      // El paso RESPETA el tamaño detectado (mínimo 8): así lo creado casa con el plano de la guía
+      // y se puede recrear/modificar encima (antes el mínimo 14 agrandaba los planos finos).
       return { id:nid('s'), kind:'points', name:(name||'Asientos detectados'), x:Math.round(cx), y:Math.round(cy), rot:0,
-               pitch:Math.max(14, Math.min(60, Math.round(size))), rows:maxRow,
+               pitch:Math.max(8, Math.min(60, Math.round(size))), rows:maxRow,
                num:{start:1, mode:'seq', step:1, dir:'ltr'}, rowScheme:'num', rowStart:1, gapPolicy:'skip', seats:seats };
     }
     // Puntos detectados → SECTORES por contigüidad: mucha separación = sectores distintos (cada uno
@@ -1345,33 +1353,54 @@
           var i4=(y*W+x)*4, r=D[i4], g=D[i4+1], b=D[i4+2], a=D[i4+3];
           if(a<200) continue;
           var mx=Math.max(r,g,b), mn=Math.min(r,g,b);
-          if(mx>235 && mn>225) continue;   // fondo casi blanco
-          if(mx-mn<28) continue;           // grises/negro: líneas y textos
+          if(mx<50) continue;              // negro: líneas y textos
+          // Los NEUTROS (grises y blancos) también pueden ser butacas: puntitos grises de arena o
+          // celdas blancas con borde. Se prueban con tolerancia corta; los fondos/calles se
+          // descartan solos porque su blob de muestra sale gigante ('toobig').
+          var neutral = (mx-mn) < 28;
           var key=((r>>4)<<8)|((g>>4)<<4)|(b>>4);
-          var h0=(hist[key]=hist[key]||{n:0});
-          h0.n++; h0.x=x; h0.y=y;          // un píxel de muestra del color
+          var h0=(hist[key]=hist[key]||{n:0, neutral:neutral, s:[]});
+          h0.n++;
+          // Hasta 3 píxeles de muestra REPARTIDOS por la imagen: si uno cae en un borde o en el
+          // fondo del mismo color, se reintenta con el siguiente.
+          if(h0.s.length<1) h0.s.push({x:x, y:y});
+          else if(h0.s.length<2 && (h0.n%37)===0) h0.s.push({x:x, y:y});
+          else if(h0.s.length<3 && (h0.n%101)===0) h0.s.push({x:x, y:y});
         }}
-        var cands=Object.keys(hist).map(function(k){ return hist[k]; })
-                       .sort(function(p,q){ return q.n-p.n; }).slice(0, 8);
+        var all=Object.keys(hist).map(function(k){ return hist[k]; }).sort(function(p,q){ return q.n-p.n; });
+        var cands=all.filter(function(c){ return !c.neutral; }).slice(0, 8)
+                     .concat(all.filter(function(c){ return c.neutral; }).slice(0, 4));
         if(!cands.length){ alert('No se han encontrado colores de asiento en la imagen. Usa la detección manual (pincha un asiento de ejemplo).'); return; }
         pushUndo('autoplan');
-        var placed=[], madeTotal=0;
+        // Rejilla de lo ya creado (evita duplicar butacas entre pasadas de colores parecidos).
+        var placedGrid={}, PCELL=16, madeTotal=0;
+        function markPlaced(p){ var k=Math.round(p.x/PCELL)+','+Math.round(p.y/PCELL); (placedGrid[k]=placedGrid[k]||[]).push(p); }
         function farFromPlaced(p, d){
-          for(var i=0;i<placed.length;i++){ var q=placed[i]; if(Math.hypot(q.x-p.x, q.y-p.y) < d) return false; }
+          var gx=Math.round(p.x/PCELL), gy=Math.round(p.y/PCELL), r0=Math.max(1, Math.ceil(d/PCELL));
+          for(var dx=-r0;dx<=r0;dx++) for(var dy=-r0;dy<=r0;dy++){
+            var arr=placedGrid[(gx+dx)+','+(gy+dy)];
+            if(!arr) continue;
+            for(var i=0;i<arr.length;i++){ if(Math.hypot(arr[i].x-p.x, arr[i].y-p.y) < d) return false; }
+          }
           return true;
         }
         cands.forEach(function(cd){
-          var sample=bgPxToWorld(bg, cd.x, cd.y, W, H);
-          var res=detectFromPixels(rec, bg, sample, Math.max(detectTol, 60));
-          if(res.err || !res.pts || res.pts.length<8) return;
-          // Evita duplicar butacas ya creadas por un color parecido de una pasada anterior.
+          // Saturados: tolerancia normal. Neutros: corta, para que el blanco/gris de la butaca no
+          // se funda con el fondo claro que la rodea (el borde/hueco hace de frontera).
+          var tol = cd.neutral ? 40 : Math.max(detectTol, 60);
+          var res=null;
+          for(var siN=0; siN<cd.s.length && !res; siN++){
+            var rTry=detectFromPixels(rec, bg, bgPxToWorld(bg, cd.s[siN].x, cd.s[siN].y, W, H), tol);
+            if(!rTry.err && rTry.pts && rTry.pts.length>=6) res=rTry;
+          }
+          if(!res) return;
           var fresh=res.pts.filter(function(p){ return farFromPlaced(p, res.sizeWorld*0.8); });
-          if(fresh.length<8) return;
+          if(fresh.length<6) return;
           buildSectorsFromPoints(fresh, res.sizeWorld);
-          fresh.forEach(function(p){ placed.push(p); });
+          fresh.forEach(markPlaced);
           madeTotal+=fresh.length;
         });
-        if(!madeTotal){ undo(); alert('No se han podido detectar asientos automáticamente. Prueba la detección manual: pincha en el centro de un asiento de ejemplo.'); return; }
+        if(!madeTotal){ undo(); alert('No se han podido detectar asientos automáticamente. Prueba la detección manual: pincha en el centro de un asiento de ejemplo y ajusta la sensibilidad.'); return; }
         selId=null; dsel={}; dselO={};
         invalidate(); markSummary(); renderSide(); fitAll();
       });

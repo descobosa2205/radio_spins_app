@@ -56198,18 +56198,63 @@ def _et_venue_map_payload(s, concert: Concert, ev: EnterticketEvent) -> dict | N
     if not (layout.get("sections") or []):
         return None
     lookup = seatmap_calc.seat_lookup(layout)
+    # Categorías sintéticas del plano en vivo: la venta de ET (vendida / invitación emitida en ET)
+    # + las INVITACIONES SUBIDAS en la app con su ESTADO (disponible/asignada/enviada/impresa/
+    # bloqueada). Las nuestras van PRIMERO (mandan sobre el eco que ET pueda tener de esa butaca).
     cats = {
         "et_vendida": {"id": "et_vendida", "name": "Vendida", "color": "#E33D48", "kind": "venta"},
-        "et_inv": {"id": "et_inv", "name": "Invitación", "color": "#f59e0b", "kind": "invitaciones"},
+        "et_inv": {"id": "et_inv", "name": "Invitación ET", "color": "#f59e0b", "kind": "invitaciones"},
+        "inv_disp": {"id": "inv_disp", "name": "Inv. disponible", "color": "#16a34a", "kind": "invitaciones"},
+        "inv_asig": {"id": "inv_asig", "name": "Inv. asignada", "color": "#e0a800", "kind": "invitaciones"},
+        "inv_env": {"id": "inv_env", "name": "Inv. enviada", "color": "#007ca2", "kind": "invitaciones"},
+        "inv_imp": {"id": "inv_imp", "name": "Inv. impresa", "color": "#6f42c1", "kind": "invitaciones"},
+        "inv_bloq": {"id": "inv_bloq", "name": "Inv. bloqueada", "color": "#6b7280", "kind": "bloqueo"},
     }
+    counts = {k: 0 for k in cats}
+    assignments: dict = {}
+    seen = set()
+    matched = unmatched = 0
+
+    def _put(key, ckey):
+        nonlocal matched
+        seen.add(key)
+        matched += 1
+        counts[ckey] += 1
+        sec, rowi, slot = key.split("|")
+        assignments.setdefault(sec, {}).setdefault(rowi, []).append([int(slot), int(slot), ckey])
+
+    def _inv_state_cat(status):
+        st = (status or "").upper()
+        if st == "AVAILABLE":
+            return "inv_disp"
+        if st == "ASSIGNED":
+            return "inv_asig"
+        if st == "PRINTED":
+            return "inv_imp"
+        if st == "BLOCKED":
+            return "inv_bloq"
+        if st in ("SENT", "DELIVERED", "PICKED_UP", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA", "ENTREGADAS_MANO"):
+            return "inv_env"
+        return None   # LOST y demás: fuera del plano
+    inv_rows = (s.query(InvitationTicket.sector, InvitationTicket.row_label, InvitationTicket.seat_number, InvitationTicket.status)
+                .filter(InvitationTicket.concert_id == concert.id)
+                .filter(InvitationTicket.seat_number.isnot(None), InvitationTicket.seat_number != "").all())
+    for sector, row_label, seat_num, status in inv_rows:
+        ckey = _inv_state_cat(status)
+        if not ckey:
+            continue
+        key = seatmap_calc.match_ticket(lookup, sector, row_label, seat_num)
+        if not key:
+            unmatched += 1
+            continue
+        if key in seen:
+            continue
+        _put(key, ckey)
     rows = (s.query(EnterticketSale.sector, EnterticketSale.seat, EnterticketSale.is_invitation)
             .filter(EnterticketSale.event_id == ev.id,
                     EnterticketSale.cancelled.is_(False),
                     EnterticketSale.refunded.is_(False))
             .filter(EnterticketSale.seat.isnot(None), EnterticketSale.seat != "").all())
-    assignments: dict = {}
-    seen = set()
-    matched = unmatched = 0
     for sector, seat, is_inv in rows:
         row_label, seat_num = _et_split_seat(sector or "", seat or "")
         key = seatmap_calc.match_ticket(lookup, sector, row_label, seat_num)
@@ -56218,11 +56263,7 @@ def _et_venue_map_payload(s, concert: Concert, ev: EnterticketEvent) -> dict | N
             continue
         if key in seen:
             continue
-        seen.add(key)
-        matched += 1
-        sec, rowi, slot = key.split("|")
-        assignments.setdefault(sec, {}).setdefault(rowi, []).append(
-            [int(slot), int(slot), "et_inv" if is_inv else "et_vendida"])
+        _put(key, "et_inv" if is_inv else "et_vendida")
     if not matched:
         return None
     view_layout = dict(layout)
@@ -56232,6 +56273,7 @@ def _et_venue_map_payload(s, concert: Concert, ev: EnterticketEvent) -> dict | N
                     "layout": view_layout, "assignments": assignments},
         "matched": matched,
         "unmatched": unmatched,
+        "legend": [{"id": k, "name": c["name"], "color": c["color"], "count": counts[k]} for k, c in cats.items()],
     }
 
 

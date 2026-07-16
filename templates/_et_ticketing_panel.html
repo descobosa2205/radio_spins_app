@@ -86,29 +86,45 @@
       </div>
       {% endif %}
       {% if et_venue_map %}
-      {# Plano del recinto EN TIEMPO REAL: butacas vendidas (rojo) e invitaciones (naranja),
-         casadas por sector/fila/asiento con el mapa de butacas del recinto. #}
-      <details class="mt-3 border rounded p-2" data-vmap-et>
-        <summary class="fw-semibold" style="cursor:pointer"><i class="fa fa-map me-1 text-danger"></i>Plano del recinto en tiempo real
-          <span class="badge text-bg-light border ms-1">{{ et_venue_map.matched }} butaca(s) casada(s)</span>
-          {% if et_venue_map.unmatched %}<span class="badge text-bg-warning ms-1" title="Entradas numeradas cuyo sector/fila/asiento no casa con el mapa del recinto. Añade alias al sector en la ficha del recinto (Ticketing → Mapa de butacas).">{{ et_venue_map.unmatched }} sin casar</span>{% endif %}
-        </summary>
-        <div class="mt-2" data-venue-map data-can-edit="" data-save-url=""></div>
-        <script type="application/json" id="venueMapData">{{ et_venue_map.payload|tojson }}</script>
-        <script src="{{ url_for('static', filename='js/venue_map.js') }}"></script>
-        <script>
-        (function(){
-          // El visor nace dentro de un <details> cerrado (sin tamaño): reencuadrar al abrirlo.
-          var d = document.querySelector('[data-vmap-et]');
-          if(!d) return;
-          d.addEventListener('toggle', function(){
-            if(!d.open) return;
-            var fit = d.querySelector('[data-vm-fit]');
-            setTimeout(function(){ if(fit) fit.click(); }, 60);
-          });
-        })();
-        </script>
-      </details>
+      {# PLANO COMPLETO del recinto EN TIEMPO REAL, siempre visible: a la izquierda la leyenda con
+         los conteos (venta ET + invitaciones subidas con su ESTADO) y a la derecha el plano.
+         Las categorías de PISTA (sin butacas) se siguen en la tabla de arriba: total y vendido. #}
+      <div class="row g-3 mt-2" data-vmap-et>
+        <div class="col-lg-3">
+          <div class="card h-100">
+            <div class="card-header bg-white py-2 fw-semibold"><i class="fa fa-map me-1 text-danger"></i>Plano en tiempo real</div>
+            <ul class="list-group list-group-flush">
+              {% for it in et_venue_map.legend %}{% if it.count %}
+              <li class="list-group-item py-2 d-flex justify-content-between align-items-center gap-2">
+                <span class="d-inline-flex align-items-center gap-2"><span style="display:inline-block;width:11px;height:11px;border-radius:50%;flex:0 0 auto;background:{{ it.color }}"></span>{{ it.name }}</span>
+                <strong class="small">{{ it.count|k }}</strong>
+              </li>
+              {% endif %}{% endfor %}
+            </ul>
+            <div class="card-body py-2 small text-muted">
+              {{ et_venue_map.matched|k }} butaca(s) casada(s)
+              {% if et_venue_map.unmatched %} · <span class="fw-semibold" title="Entradas cuyo sector/fila/asiento no casa con el mapa del recinto. Añade alias al sector en la ficha del recinto (Ticketing → Mapa de butacas).">{{ et_venue_map.unmatched|k }} sin casar</span>{% endif %}
+              <div class="mt-1">Libres = butacas sin pintar. Pista y zonas sin numerar: en la tabla de tipos de arriba.</div>
+            </div>
+          </div>
+        </div>
+        <div class="col-lg-9">
+          <div data-venue-map data-can-edit="" data-save-url=""></div>
+          <script type="application/json" id="venueMapData">{{ et_venue_map.payload|tojson }}</script>
+        </div>
+      </div>
+      <script src="{{ url_for('static', filename='js/venue_map.js') }}"></script>
+      <script>
+      (function(){
+        // El plano puede nacer en una pestaña/pill oculta (sin tamaño): reencuadrar al mostrarse
+        // y también nada más cargar si ya es visible.
+        var wrap = document.querySelector('[data-vmap-et]');
+        if(!wrap) return;
+        function fitMap(){ var f = wrap.querySelector('[data-vm-fit]'); if(f) setTimeout(function(){ f.click(); }, 80); }
+        if(wrap.offsetWidth > 0) fitMap();
+        document.addEventListener('shown.bs.tab', function(){ if(wrap.offsetWidth > 0) fitMap(); });
+      })();
+      </script>
       {% endif %}
     </div>
 

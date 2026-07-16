@@ -16,7 +16,6 @@
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   }
   function mondayOf(d) { var x = new Date(d); var wd = (x.getDay() + 6) % 7; x.setDate(x.getDate() - wd); return x; }
-  function sundayOf(d) { var x = mondayOf(d); x.setDate(x.getDate() + 6); return x; }
   function el(tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
   function esc(s) { return (s || '').replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 
@@ -62,11 +61,25 @@
     var activeArtists = {}; artists.forEach(function (a) { activeArtists[a.id] = true; });
     var activeKinds = {}; kinds.forEach(function (k) { activeKinds[k.key] = true; });
 
+    // Colores ESTABLES por artista al navegar en Inicio: el servidor colorea cada ventana por
+    // separado (y el mismo artista podría cambiar de color entre ventanas), así que el cliente
+    // fija el color la primera vez que ve a cada artista. Misma paleta que AGENDA_PALETTE (app.py).
+    var PALETTE = ['#E33D48', '#007CA2', '#198754', '#6f42c1', '#fd7e14', '#d63384',
+                   '#20c997', '#0d6efd', '#b5179e', '#e07a5f', '#457b9d', '#9c6644'];
+    var KIND_ORDER = ['concierto', 'festival', 'evento', 'lanzamiento', 'accion', 'medios', 'cumple', 'otro', 'bloqueo'];
+    var artistColors = {};
+    artists.forEach(function (a) { artistColors[a.id] = a.color; });
+    function colorFor(id) {
+      if (!artistColors[id]) artistColors[id] = PALETTE[Object.keys(artistColors).length % PALETTE.length];
+      return artistColors[id];
+    }
+
     function colorOf(a) {
       // Bloqueos y cumpleaños llevan su color de tipo siempre (gris / rosa); el resto por artista
       // en Inicio y por tipo en la ficha del artista.
       if (a.kind === 'bloqueo' || a.kind === 'cumple') return a.kind_color;
-      return mode === 'home' ? a.artist_color : a.kind_color;
+      if (mode === 'home') return a.artist_id ? colorFor(a.artist_id) : (a.artist_color || '#6c757d');
+      return a.kind_color;
     }
     function passes(a) {
       if (!activeKinds[a.kind]) return false;
@@ -81,38 +94,43 @@
     container.innerHTML = '';
 
     // ---------- Barra superior de etiquetas ----------
+    // Re-renderizable: al navegar en Inicio pueden aparecer artistas/tipos nuevos en la ventana.
     var top = el('div', 'agenda-top');
-    if (mode === 'home') {
-      if (!artists.length) top.appendChild(el('span', 'text-muted small', 'Sin artistas con actividades próximas.'));
-      artists.forEach(function (a) {
-        var chip = el('button', 'agenda-chip is-on');
-        chip.type = 'button';
-        chip.style.setProperty('--c', a.color);
-        // Sin onerror propio: el gestor global de scripts.js REINTENTA la foto antes de caer al
-        // placeholder (el onerror antiguo la sustituía al primer fallo puntual y ya no volvía).
-        chip.innerHTML = '<span class="agenda-chip__dot"></span><img src="' + esc(a.photo_url || DEFAULT_PHOTO) + '"><span>' + esc(a.name) + '</span>';
-        chip.addEventListener('click', function () {
-          activeArtists[a.id] = !activeArtists[a.id];
-          chip.classList.toggle('is-on', activeArtists[a.id]);
-          render();
-        });
-        top.appendChild(chip);
-      });
-    } else {
-      kinds.forEach(function (k) {
-        var chip = el('button', 'agenda-chip agenda-chip--kind is-on');
-        chip.type = 'button';
-        chip.style.setProperty('--c', k.color);
-        chip.innerHTML = '<span class="agenda-chip__dot"></span><i class="fa ' + esc(k.icon) + '"></i><span>' + esc(k.label) + '</span>';
-        chip.addEventListener('click', function () {
-          activeKinds[k.key] = !activeKinds[k.key];
-          chip.classList.toggle('is-on', activeKinds[k.key]);
-          render();
-        });
-        top.appendChild(chip);
-      });
-    }
     container.appendChild(top);
+
+    function renderTop() {
+      top.innerHTML = '';
+      if (mode === 'home') {
+        if (!artists.length) top.appendChild(el('span', 'text-muted small', 'Sin artistas con actividades próximas.'));
+        artists.forEach(function (a) {
+          var chip = el('button', 'agenda-chip' + (activeArtists[a.id] ? ' is-on' : ''));
+          chip.type = 'button';
+          chip.style.setProperty('--c', colorFor(a.id));
+          // Sin onerror propio: el gestor global de scripts.js REINTENTA la foto antes de caer al
+          // placeholder (el onerror antiguo la sustituía al primer fallo puntual y ya no volvía).
+          chip.innerHTML = '<span class="agenda-chip__dot"></span><img src="' + esc(a.photo_url || DEFAULT_PHOTO) + '"><span>' + esc(a.name) + '</span>';
+          chip.addEventListener('click', function () {
+            activeArtists[a.id] = !activeArtists[a.id];
+            chip.classList.toggle('is-on', activeArtists[a.id]);
+            render();
+          });
+          top.appendChild(chip);
+        });
+      } else {
+        kinds.forEach(function (k) {
+          var chip = el('button', 'agenda-chip agenda-chip--kind' + (activeKinds[k.key] ? ' is-on' : ''));
+          chip.type = 'button';
+          chip.style.setProperty('--c', k.color);
+          chip.innerHTML = '<span class="agenda-chip__dot"></span><i class="fa ' + esc(k.icon) + '"></i><span>' + esc(k.label) + '</span>';
+          chip.addEventListener('click', function () {
+            activeKinds[k.key] = !activeKinds[k.key];
+            chip.classList.toggle('is-on', activeKinds[k.key]);
+            render();
+          });
+          top.appendChild(chip);
+        });
+      }
+    }
 
     // ---------- Cuerpo: lateral + calendario ----------
     var bodyWrap = el('div', 'agenda-body');
@@ -123,30 +141,88 @@
     container.appendChild(bodyWrap);
 
     // ---------- Calendario ----------
-    // Inicio: ventana fija de 2 semanas. Agenda del artista: 4 semanas navegables por meses.
+    // Inicio: 3 semanas navegables SIN límite temporal (las ventanas se cargan bajo demanda).
+    // Agenda del artista: 4 semanas navegables por meses dentro del rango cargado.
     var isArtist = (mode === 'artist');
+    var HOME_STEP = 21; // días que salta cada flecha en Inicio (la ventana completa)
     // En la agenda del artista se puede navegar también al pasado (hasta el inicio del rango cargado).
     var minStart = mondayOf(isArtist ? start : today);
     var maxStart = mondayOf(new Date(end.getTime() - 27 * 86400000));
     if (maxStart < minStart) maxStart = new Date(minStart);
     var winStart = mondayOf(today);
-    if (winStart < minStart) winStart = new Date(minStart);
-    if (winStart > maxStart) winStart = new Date(maxStart);
+    if (isArtist) {
+      if (winStart < minStart) winStart = new Date(minStart);
+      if (winStart > maxStart) winStart = new Date(maxStart);
+    }
 
     function curWin() {
-      if (!isArtist) return [mondayOf(today), sundayOf(end)];
       var s = new Date(winStart), e = new Date(winStart);
-      e.setDate(e.getDate() + 27);
+      e.setDate(e.getDate() + (isArtist ? 27 : HOME_STEP - 1));
       return [s, e];
     }
     function addMonths(d, n) { var x = new Date(d); x.setMonth(x.getMonth() + n); return x; }
+
+    // Ventanas del Inicio ya cargadas (clave = lunes ISO): la inicial viene embebida en la página;
+    // el resto se piden a /agenda/inicio.json al navegar y se cachean para volver sin recargar.
+    var winCache = {};
+    if (!isArtist) winCache[iso(winStart)] = { activities: acts, artists: artists.slice(), kinds: kinds.slice() };
+    var fetching = false;
+
+    function mergeLists(d) {
+      // Artistas/tipos nuevos de la ventana entran ACTIVOS y con color estable del cliente.
+      (d.artists || []).forEach(function (a) {
+        if (!artists.some(function (x) { return x.id === a.id; })) {
+          artists.push(a);
+          if (activeArtists[a.id] === undefined) activeArtists[a.id] = true;
+        }
+        colorFor(a.id);
+      });
+      artists.sort(function (x, y) { return (x.name || '').toLowerCase().localeCompare((y.name || '').toLowerCase()); });
+      (d.kinds || []).forEach(function (k) {
+        if (!kinds.some(function (x) { return x.key === k.key; })) {
+          kinds.push(k);
+          if (activeKinds[k.key] === undefined) activeKinds[k.key] = true;
+        }
+      });
+      kinds.sort(function (x, y) { return KIND_ORDER.indexOf(x.key) - KIND_ORDER.indexOf(y.key); });
+    }
+
+    function applyWindow(d) {
+      acts = d.activities || [];
+      mergeLists(d);
+      render();
+    }
+
+    function loadHomeWindow() {
+      var key = iso(winStart);
+      if (winCache[key]) { fetching = false; applyWindow(winCache[key]); return; }
+      fetching = true;
+      render(); // ventana con "Cargando…" y flechas desactivadas mientras llega
+      var until = iso(curWin()[1]);
+      fetch('/agenda/inicio.json?start=' + key + '&end=' + until, { noLoader: true, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function (r) { if (!r.ok) throw new Error('http'); return r.json(); })
+        .then(function (d) {
+          winCache[key] = d;
+          fetching = false;
+          if (iso(winStart) === key) applyWindow(d);
+        })
+        .catch(function () { fetching = false; render(); });
+    }
+
     function shift(dir) {
+      if (!isArtist) {
+        var h = new Date(winStart); h.setDate(h.getDate() + dir * HOME_STEP);
+        winStart = h;
+        loadHomeWindow();
+        return;
+      }
       var d = mondayOf(addMonths(winStart, dir));
       if (d < minStart) d = new Date(minStart);
       if (d > maxStart) d = new Date(maxStart);
       winStart = d;
       render();
     }
+    function goToday() { winStart = mondayOf(today); loadHomeWindow(); }
 
     function makeChip(a) {
       // Bloqueos y notas no navegan: se pintan como <span>; el resto (eventos, cumpleaños) enlazan.
@@ -179,11 +255,21 @@
       var label = s.getDate() + ' ' + MONTHS[s.getMonth()] + ' – ' + e.getDate() + ' ' + MONTHS[e.getMonth()] + ' ' + e.getFullYear();
       nav.appendChild(el('span', 'agenda-cal__range', label));
       var arrows = el('div', 'agenda-cal__arrows');
+      if (!isArtist && iso(winStart) !== iso(mondayOf(today))) {
+        var hoy = el('button', 'agenda-nav-btn agenda-nav-btn--today', 'Hoy');
+        hoy.type = 'button';
+        hoy.setAttribute('aria-label', 'Volver a la semana actual');
+        hoy.addEventListener('click', goToday);
+        arrows.appendChild(hoy);
+      }
       var prev = el('button', 'agenda-nav-btn', '<i class="fa fa-chevron-left"></i>');
       var next = el('button', 'agenda-nav-btn', '<i class="fa fa-chevron-right"></i>');
       prev.type = 'button'; next.type = 'button';
-      prev.setAttribute('aria-label', 'Mes anterior'); next.setAttribute('aria-label', 'Mes siguiente');
-      prev.disabled = (winStart <= minStart); next.disabled = (winStart >= maxStart);
+      prev.setAttribute('aria-label', isArtist ? 'Mes anterior' : 'Semanas anteriores');
+      next.setAttribute('aria-label', isArtist ? 'Mes siguiente' : 'Semanas siguientes');
+      // Inicio: SIN límite temporal (solo se bloquean mientras carga); ficha: dentro del rango cargado.
+      prev.disabled = isArtist ? (winStart <= minStart) : fetching;
+      next.disabled = isArtist ? (winStart >= maxStart) : fetching;
       prev.addEventListener('click', function () { shift(-1); });
       next.addEventListener('click', function () { shift(1); });
       arrows.appendChild(prev); arrows.appendChild(next);
@@ -193,7 +279,8 @@
 
     function renderCal() {
       calWrap.innerHTML = '';
-      if (isArtist) calWrap.appendChild(buildNav());
+      calWrap.appendChild(buildNav());
+      if (fetching) { calWrap.appendChild(el('div', 'text-muted small text-center py-4', 'Cargando agenda…')); return; }
       var win = curWin(), gStart = win[0], gEnd = win[1];
       var head = el('div', 'agenda-cal__head');
       DOW.forEach(function (d) { head.appendChild(el('div', 'agenda-cal__dow', d)); });
@@ -207,7 +294,9 @@
       while (cur <= gEnd) {
         var key = iso(cur);
         var cell = el('div', 'agenda-cal__day');
-        if (cur < (isArtist ? start : today) || cur > end) cell.classList.add('is-out');
+        // Solo la ficha del artista dimea fuera del rango cargado; en Inicio la ventana visible
+        // coincide siempre con la cargada (se pide exactamente al navegar).
+        if (isArtist && (cur < start || cur > end)) cell.classList.add('is-out');
         if (key === data.today) cell.classList.add('is-today');
         var label = cur.getDate() + ' ' + MONTHS[cur.getMonth()];
         cell.appendChild(el('div', 'agenda-cal__num', label));
@@ -284,7 +373,7 @@
       }
     }
 
-    function render() { renderSide(); renderCal(); }
+    function render() { renderTop(); renderSide(); renderCal(); }
     render();
   }
 

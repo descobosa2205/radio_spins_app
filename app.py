@@ -34345,6 +34345,8 @@ SUPPORT_READ_ENDPOINTS = {
     "fotos_list_json", "foto_detail_json", "fotos_approval_options",
     "foto_download", "api_fotos_owner_emails",
     "setlist_template_items", "setlist_pdf",
+    # Agenda de Inicio: cada usuario lee la ventana que navega (sus artistas asignados).
+    "home_agenda_data",
     # Web Push: preferencia por usuario (cualquier sesión gestiona SUS suscripciones).
     "push_public_key", "push_subscribe", "push_unsubscribe", "push_test",
 }
@@ -52072,25 +52074,53 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value) -> 
     }
 
 
-def _agenda_window(days_ahead: int = 13):
-    """Ventana de la agenda: desde hoy hasta hoy + days_ahead (2 semanas ≈ 13). Devuelve (today, start, end)."""
+def _agenda_window(days_ahead: int = 20):
+    """Ventana INICIAL de la agenda de Inicio: 3 semanas alineadas a lunes (la semana actual y las
+    dos siguientes). Las flechas del calendario cargan más ventanas bajo demanda (`home_agenda_data`),
+    sin límite temporal. Devuelve (today, start, end)."""
     today = today_local()
-    return today, today, today + timedelta(days=days_ahead)
+    start = today - timedelta(days=today.weekday())
+    return today, start, start + timedelta(days=days_ahead)
+
+
+def _home_agenda_target_ids() -> list[str] | None:
+    """Artistas cuya agenda ve el usuario en Inicio: sus asignados, o None (= todos) si no tiene
+    ninguno o es dirección."""
+    state = _current_user_state()
+    role = _safe_int(state.get("role"))
+    assigned = [str(x) for x in (state.get("assigned_artist_ids") or []) if x]
+    return None if (role == 10 or not assigned) else assigned
 
 
 def _home_agenda() -> dict | None:
     """Datos del calendario de Inicio para el usuario actual: actividades de SUS artistas asignados
     (o de todos si no tiene ninguno asignado o es dirección). Color por artista."""
-    state = _current_user_state()
-    role = _safe_int(state.get("role"))
-    assigned = [str(x) for x in (state.get("assigned_artist_ids") or []) if x]
-    target_ids = None if (role == 10 or not assigned) else assigned
     session_db = db()
     try:
         today, start, end = _agenda_window()
-        return _agenda_build(session_db, target_ids, start, end, today)
+        return _agenda_build(session_db, _home_agenda_target_ids(), start, end, today)
     except Exception:
         return None
+    finally:
+        session_db.close()
+
+
+@app.get("/agenda/inicio.json", endpoint="home_agenda_data")
+@admin_required
+def home_agenda_data():
+    """Ventana arbitraria de la agenda de Inicio (navegación con flechas SIN límite temporal):
+    mismas actividades que `_home_agenda` pero entre ?start y ?end (máx. ~6 semanas por petición;
+    el JS pide ventana a ventana y las cachea). Los colores por artista los estabiliza el cliente."""
+    try:
+        start = parse_date(request.args.get("start") or "")
+        end = parse_date(request.args.get("end") or "")
+    except Exception:
+        return jsonify({"error": "Rango inválido."}), 400
+    if end < start or (end - start).days > 42:
+        return jsonify({"error": "Rango inválido."}), 400
+    session_db = db()
+    try:
+        return jsonify(_agenda_build(session_db, _home_agenda_target_ids(), start, end, today_local()))
     finally:
         session_db.close()
 

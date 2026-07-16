@@ -1670,6 +1670,7 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 .agenda-cal__range{ font-weight:600; font-size:.9rem; color:#333; }
 .agenda-cal__arrows{ display:flex; gap:.35rem; margin-left:auto; }
 .agenda-nav-btn{ width:32px; height:32px; border:1px solid #d7dbe1; border-radius:.5rem; background:#fff; color:#444; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.agenda-nav-btn--today{ width:auto; padding:0 .6rem; font-size:.8rem; font-weight:600; }
 .agenda-nav-btn:hover:not(:disabled){ background:#f3f4f6; }
 .agenda-nav-btn:disabled{ opacity:.4; cursor:default; }
 

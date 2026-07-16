@@ -44520,7 +44520,7 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
                 "left_text": "%d sin enviar" % (_asg_total - _sent_total),
                 "right_badge": "success",
                 "right_text": "%d/%d enviadas" % (_sent_total, _qty_total),
-                "title": "Asignadas %d · Enviadas %d: al enviar de nuevo se manda todo y las nuevas van marcadas como «Añadida»." % (_asg_total, _sent_total),
+                "title": "Asignadas %d · Enviadas %d: al enviar TODO de nuevo, las nuevas van con la etiqueta azul «Nueva» (si envías solo las nuevas, sin etiqueta)." % (_asg_total, _sent_total),
             }
         # Para los filtros «Sin asignar» / «Sin enviar» / «Sin descargar» del listado de invitados.
         _needs_assign = bool(_qty_total > 0 and _asg_total < _qty_total)
@@ -46218,10 +46218,11 @@ def _invitation_tickets_grouped_html(session_db, concert, tickets, zip_all, *, c
                         detail = ""
                     dl = _dlicon(t.pdf_url, f"Descargar invitación {n}") if (t.pdf_url or "").strip() else ""
                     detail_html = f'<span style="color:#667085"> · {esc(detail)}</span>' if detail else ""
-                    # AÑADIDA respecto al último envío (ampliación): etiqueta azul junto a la entrada.
+                    # NUEVA respecto al último envío (ampliación): etiqueta azul junto a la entrada,
+                    # para distinguirla visualmente de las ya enviadas (solo en envíos de TODO).
                     if getattr(t, "added_after_send", False):
                         detail_html += ('<span style="display:inline-block;background:#0dcaf0;color:#062a30;font-size:10px;'
-                                        'font-weight:700;border-radius:6px;padding:1px 6px;margin-left:8px;vertical-align:middle">A&Ntilde;ADIDA</span>')
+                                        'font-weight:700;border-radius:6px;padding:1px 6px;margin-left:8px;vertical-align:middle">NUEVA</span>')
                     # Numeradas: nº + fila/asiento delante y la flecha JUSTO tras el texto. La tabla se
                     # ajusta al contenido (sin width:100%) → la columna del texto toma el ancho del texto
                     # MÁS LARGO de esa categoría, así todas las flechas quedan en la misma vertical.
@@ -46350,8 +46351,9 @@ def _invitation_email_compose(session_db, concert, tickets, zip_all, *, custom_t
     return subject, body, plain
 
 
-def _invitation_email_body(session_db, row: InvitationRequest, download_url: str | None = None, custom_text: str | None = None) -> tuple:
-    """Correo de una SOLICITUD (wrapper de _invitation_email_compose)."""
+def _invitation_email_body(session_db, row: InvitationRequest, download_url: str | None = None, custom_text: str | None = None, only_ticket_ids=None) -> tuple:
+    """Correo de una SOLICITUD (wrapper de _invitation_email_compose). Con only_ticket_ids
+    («enviar solo las nuevas») el listado se acota a las entradas de ese envío."""
     concert = row.concert or session_db.get(Concert, row.concert_id)
     only_gl = _invitation_request_uses_only_guest_list(session_db, row)
     if not row.delivery_token:
@@ -46361,6 +46363,8 @@ def _invitation_email_body(session_db, row: InvitationRequest, download_url: str
                .filter(InvitationTicket.assigned_request_id == row.id)
                .order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc())
                .all())
+    if only_ticket_ids is not None:
+        tickets = [t for t in tickets if t.id in only_ticket_ids]
     share_urls = None
     if not only_gl:
         share_urls = {
@@ -48322,6 +48326,7 @@ def invitation_commitment_deliver(commitment_id):
                 url = ('https://wa.me/' + phone + '?text=' + quote_plus(share)) if phone else ('https://wa.me/?text=' + quote_plus(share))
             else:
                 url = ('sms:' + ('+' + phone if phone else '') + '?&body=' + quote_plus(share))
+            _invitation_tag_new_tickets(tickets, tickets)   # «Nueva» en las añadidas (mezcla)
             for t in tickets:
                 t.status = 'SENT'
                 t.sent_at = now
@@ -48351,6 +48356,9 @@ def invitation_commitment_deliver(commitment_id):
             flash('Indica un email de destino o elige la recogida en taquilla.', 'warning')
             return redirect(url_for('invitation_event_detail', concert_id=cid))
         custom_text = request.form.get('custom_text') or None
+        # «Nueva» en las añadidas ANTES de componer (así salen etiquetadas en el listado del correo);
+        # si el SMTP falla, el rollback deshace las marcas.
+        _invitation_tag_new_tickets(tickets, tickets)
         subject, html_body, text_body = _invitation_commitment_email_body(session_db, row, custom_text=custom_text, category_id=_cat_id)
         reply_to = _invitation_commitment_reply_to(session_db, row) or _current_user_email()
         ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=reply_to)
@@ -48398,6 +48406,7 @@ def invitation_commitment_mark_sent(commitment_id):
             _tq = _tq.filter(InvitationTicket.category_id == _cat_id)
         tickets = _tq.all()
         now = _now_madrid()
+        _invitation_tag_new_tickets(tickets, tickets)   # «Nueva» en las añadidas (mezcla)
         for t in tickets:
             t.status = 'SENT'
             t.sent_at = now
@@ -49165,18 +49174,34 @@ def _invitation_send_tickets_query(session_db, row, send_scope):
     return q.all()
 
 
-def _invitation_mark_sent_tickets(session_db, row, send_scope, sent_at):
-    """Marca SENT las entradas del envío y etiqueta las AÑADIDAS: si la solicitud YA tuvo un envío,
-    las que entran nuevas en este llevan added_after_send=True (etiqueta azul «Añadida» junto a la
-    entrada); las del envío anterior la pierden («con respecto al último envío»)."""
-    all_tk = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all()
-    had_sent = any(((t.status or '').upper() in _INVITATION_TICKET_SENT_STATUSES) or t.sent_at for t in all_tk)
-    for t in all_tk:
+def _invitation_tag_new_tickets(all_tickets, sending):
+    """Etiqueta «Nueva» (added_after_send) SOLO cuando el envío MEZCLA entradas ya enviadas con
+    añadidas nuevas (reenvío de TODO tras una ampliación): así el invitado distingue visualmente
+    las nuevas respecto al ÚLTIMO envío, tanto en el correo como en la página del enlace. Si solo
+    se mandan las nuevas no hay mezcla y no se etiqueta nada. Limpia siempre las marcas del envío
+    anterior. Compartido por solicitudes y compromisos."""
+    for t in all_tickets:
         if getattr(t, 'added_after_send', False):
             t.added_after_send = False
-    for ticket in _invitation_send_tickets_query(session_db, row, send_scope):
-        _is_new = (ticket.status or '').upper() not in _INVITATION_TICKET_SENT_STATUSES and not ticket.sent_at
-        ticket.added_after_send = bool(had_sent and _is_new)
+
+    def _was_sent(t):
+        return ((t.status or '').upper() in _INVITATION_TICKET_SENT_STATUSES) or bool(t.sent_at)
+
+    mixed = any(_was_sent(t) for t in sending) and any(not _was_sent(t) for t in sending)
+    if not mixed:
+        return
+    for t in sending:
+        if not _was_sent(t):
+            t.added_after_send = True
+
+
+def _invitation_mark_sent_tickets(session_db, row, send_scope, sent_at):
+    """Marca SENT las entradas del envío de una SOLICITUD, etiquetando antes las «Nueva» que
+    procedan (ver _invitation_tag_new_tickets)."""
+    all_tk = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all()
+    sending = _invitation_send_tickets_query(session_db, row, send_scope)
+    _invitation_tag_new_tickets(all_tk, sending)
+    for ticket in sending:
         ticket.status = 'SENT'
         ticket.sent_at = sent_at
         ticket.updated_at = sent_at
@@ -49213,8 +49238,16 @@ def _invitation_send_request(session_db, row, channel, *, custom_text=None, extr
         _invitation_mark_sent_tickets(session_db, row, send_scope, row.sent_at)
         session_db.commit()
         return {'ok': True, 'url': url, 'channel': channel}
-    # Email
-    subject, html_body, text_body = _invitation_email_body(session_db, row, None, custom_text=custom_text)
+    # Email — las marcas «Nueva» y el estado SENT se ponen ANTES de componer el correo (así el
+    # listado del email ya distingue las nuevas); si el SMTP falla, el rollback lo deshace todo.
+    _sent_at = _now_madrid()
+    _scope_ids = {t.id for t in _invitation_send_tickets_query(session_db, row, send_scope)}
+    _invitation_mark_sent_tickets(session_db, row, send_scope, _sent_at)
+    # «Enviar solo las nuevas»: el correo lista únicamente las de este envío (sin mezcla no hay
+    # etiqueta); al enviar TODAS se listan todas y las nuevas van con su etiqueta «Nueva».
+    subject, html_body, text_body = _invitation_email_body(
+        session_db, row, None, custom_text=custom_text,
+        only_ticket_ids=(_scope_ids if (send_scope or 'all') == 'unsent' else None))
     recipients = _dedupe_valid_email_addresses(list(extra_recipients or []) + _invitation_delivery_recipients(session_db, row))
     # Sin ninguna dirección de destino NO se envía ni se marca: hay que escribir un correo
     # (el destinatario no tiene email configurado y no se ha añadido ninguno).
@@ -49226,10 +49259,9 @@ def _invitation_send_request(session_db, row, channel, *, custom_text=None, extr
     ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=reply_to)
     if ok:
         row.status = 'ENVIADAS'
-        row.sent_at = _now_madrid()
+        row.sent_at = _sent_at
         row.sent_via = 'Email'
         row.sent_to = ', '.join(recipients or [])
-        _invitation_mark_sent_tickets(session_db, row, send_scope, row.sent_at)
         session_db.commit()
         return {'ok': True, 'channel': 'email', 'recipients': recipients}
     session_db.rollback()

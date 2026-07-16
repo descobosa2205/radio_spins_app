@@ -199,15 +199,15 @@
 {% macro ingresos_tbl(c, overrides) %}
 {% set ing = c.at_100.ingresos %}
 {% set ov = overrides or {} %}
-{# El PDF es compartible: los ingresos con override (Omitido / No aplica) NO aparecen. #}
+{# El PDF/compartir: NO aparecen los ingresos con override (Omitido/No aplica) NI los que sean 0. #}
 <table>
-  {% if not ov.get('ticketing') %}<tr><td>Ticketing <span class="muted">(neto sin IVA y sin SGAE)</span></td><td class="text-end">{{ ing.ticketing|eur }}</td></tr>{% endif %}
+  {% if ing.ticketing and not ov.get('ticketing') %}<tr><td>Ticketing <span class="muted">(neto sin IVA y sin SGAE)</span></td><td class="text-end">{{ ing.ticketing|eur }}</td></tr>{% endif %}
   {% if ing.complementos and not ov.get('complementos') %}<tr><td>Complementos</td><td class="text-end">{{ ing.complementos|eur }}</td></tr>{% endif %}
-  {% if not ov.get('rebate') %}<tr><td>Rebate</td><td class="text-end">{{ ing.rebate|eur }}</td></tr>{% endif %}
-  {% if not ov.get('barras') %}<tr><td>Barras</td><td class="text-end">{{ ing.barras|eur }}</td></tr>{% endif %}
-  {% if not ov.get('incentivos') %}<tr><td>Incentivos fiscales</td><td class="text-end">{{ ing.incentivos|eur }}</td></tr>{% endif %}
-  {% if not ov.get('subvenciones') %}<tr><td>Subvenciones</td><td class="text-end">{{ ing.subvenciones|eur }}</td></tr>{% endif %}
-  {% if not ov.get('patrocinios') %}<tr><td>Patrocinios</td><td class="text-end">{{ ing.patrocinios|eur }}</td></tr>{% endif %}
+  {% if ing.rebate and not ov.get('rebate') %}<tr><td>Rebate</td><td class="text-end">{{ ing.rebate|eur }}</td></tr>{% endif %}
+  {% if ing.barras and not ov.get('barras') %}<tr><td>Barras</td><td class="text-end">{{ ing.barras|eur }}</td></tr>{% endif %}
+  {% if ing.incentivos and not ov.get('incentivos') %}<tr><td>Incentivos fiscales</td><td class="text-end">{{ ing.incentivos|eur }}</td></tr>{% endif %}
+  {% if ing.subvenciones and not ov.get('subvenciones') %}<tr><td>Subvenciones</td><td class="text-end">{{ ing.subvenciones|eur }}</td></tr>{% endif %}
+  {% if ing.patrocinios and not ov.get('patrocinios') %}<tr><td>Patrocinios</td><td class="text-end">{{ ing.patrocinios|eur }}</td></tr>{% endif %}
   <tr class="tot"><td>Total ingresos</td><td class="text-end">{{ ing.total|eur }}</td></tr>
 </table>
 {% endmacro %}
@@ -304,13 +304,13 @@
   {% set _sm = 'del ciclo' if is_cycle else 'de la gira' %}
   <div class="sec-title">Resumen de ingresos {{ _sm }} (al 100%)</div>
   <table>
-    <tr><td>Ticketing <span class="muted">(neto sin IVA y sin SGAE)</span></td><td class="text-end">{{ summary_income.ticketing|eur }}</td></tr>
+    {% if summary_income.ticketing %}<tr><td>Ticketing <span class="muted">(neto sin IVA y sin SGAE)</span></td><td class="text-end">{{ summary_income.ticketing|eur }}</td></tr>{% endif %}
     {% if summary_income.complementos %}<tr><td>Complementos</td><td class="text-end">{{ summary_income.complementos|eur }}</td></tr>{% endif %}
-    <tr><td>Rebate</td><td class="text-end">{{ summary_income.rebate|eur }}</td></tr>
-    <tr><td>Barras</td><td class="text-end">{{ summary_income.barras|eur }}</td></tr>
-    <tr><td>Incentivos fiscales</td><td class="text-end">{{ summary_income.incentivos|eur }}</td></tr>
-    <tr><td>Subvenciones</td><td class="text-end">{{ summary_income.subvenciones|eur }}</td></tr>
-    <tr><td>Patrocinios</td><td class="text-end">{{ summary_income.patrocinios|eur }}</td></tr>
+    {% if summary_income.rebate %}<tr><td>Rebate</td><td class="text-end">{{ summary_income.rebate|eur }}</td></tr>{% endif %}
+    {% if summary_income.barras %}<tr><td>Barras</td><td class="text-end">{{ summary_income.barras|eur }}</td></tr>{% endif %}
+    {% if summary_income.incentivos %}<tr><td>Incentivos fiscales</td><td class="text-end">{{ summary_income.incentivos|eur }}</td></tr>{% endif %}
+    {% if summary_income.subvenciones %}<tr><td>Subvenciones</td><td class="text-end">{{ summary_income.subvenciones|eur }}</td></tr>{% endif %}
+    {% if summary_income.patrocinios %}<tr><td>Patrocinios</td><td class="text-end">{{ summary_income.patrocinios|eur }}</td></tr>{% endif %}
     <tr class="tot"><td>Total ingresos</td><td class="text-end">{{ summary_income.total|eur }}</td></tr>
   </table>
   <div class="sec-title">Resumen de gastos {{ _sm }} (al 100%)</div>
@@ -324,6 +324,21 @@
     {% if summary_expense_cat.get('PRORRATEO') %}<tr><td style="padding-left:18px;">{{ SIM_EXPENSE_CATEGORY_LABELS.get('PRORRATEO', 'Prorrateo de gastos generales') }}</td><td class="text-end">{{ summary_expense_cat.get('PRORRATEO')|eur }}</td></tr>{% endif %}
     <tr class="tot"><td>Total gastos</td><td class="text-end">{{ summary_expense.total|eur }}</td></tr>
   </table>
+  {# Detalle de comisiones: quién (con logo/foto) y el desglose del importe. #}
+  {% set _gc = [] %}
+  {% for b in blocks %}{% for c in (b.activity.commissions or []) %}{% set _ = _gc.append((b, c)) %}{% endfor %}{% endfor %}
+  {% if _gc %}
+  <div class="sec-title">Detalle de comisiones</div>
+  <table><tbody>
+    {% for b, c in _gc %}
+    {% set _cl = (c.promoter.logo_url if c.promoter else None) or (c.media_outlet.logo_url if c.media_outlet else None) %}
+    <tr>
+      <td style="width:55%;">{% if _cl %}<img class="plogo" src="{{ _cl }}" alt="">{% endif %}{{ c.name or (c.promoter.nick if c.promoter else (c.media_outlet.name if c.media_outlet else 'Comisionista')) }}{% if is_multi %} <span class="muted">· {% if is_cycle and b.activity.artist %}{{ b.activity.artist.name }}{% else %}{{ b.activity.label or ('Fecha ' ~ loop.index) }}{% endif %}</span>{% endif %}</td>
+      <td class="text-end">{{ cost_desc(c) }}{% if c.exempt_amount %} · exento hasta {{ c.exempt_amount|eur }}{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody></table>
+  {% endif %}
   {% if tour_series %}
   <div class="sec-title">Resultado {{ 'del ciclo' if is_cycle else 'de la gira' }} por % de aforo (agregado)</div>
   {{ result_tbl(tour_series) }}
@@ -379,7 +394,8 @@
       <tr><td style="width:40%;">Caché{% if c.label %} · {{ c.label }}{% endif %}</td><td>{{ cost_desc(c) }}</td></tr>
       {% endfor %}
       {% for c in _comms %}
-      <tr><td style="width:40%;">Comisión · {{ c.name or (c.promoter.nick if c.promoter else (c.media_outlet.name if c.media_outlet else 'Comisionista')) }}</td><td>{{ cost_desc(c) }}{% if c.exempt_amount %} · exento hasta {{ c.exempt_amount|eur }}{% endif %}</td></tr>
+      {% set _cl = (c.promoter.logo_url if c.promoter else None) or (c.media_outlet.logo_url if c.media_outlet else None) %}
+      <tr><td style="width:40%;">Comisión · {% if _cl %}<img class="plogo" src="{{ _cl }}" alt="">{% endif %}{{ c.name or (c.promoter.nick if c.promoter else (c.media_outlet.name if c.media_outlet else 'Comisionista')) }}</td><td>{{ cost_desc(c) }}{% if c.exempt_amount %} · exento hasta {{ c.exempt_amount|eur }}{% endif %}</td></tr>
       {% endfor %}
     </tbody>
   </table>

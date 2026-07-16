@@ -44199,8 +44199,10 @@ def _invitation_pending_assignment_payloads(session_db, concert: Concert, catego
                 continue
             assigned = assigned_counts.get((str(cat.id), "request", str(row.id)), 0)
             pending = max(_safe_int(qty) - assigned, 0)
-            # Sin pendientes: sigue apareciendo si está ASIGNADA (no enviada) para poder modificarla.
-            if pending <= 0 and not (assigned > 0 and (row.status or "") == "ASIGNADAS"):
+            # Sin pendientes: sigue apareciendo mientras tenga entradas ASIGNADAS sin enviar — se
+            # pueden mover/desasignar hasta el envío, también las AMPLIACIONES ya asignadas de una
+            # solicitud enviada (igual que los compromisos).
+            if pending <= 0 and unsent_counts.get((str(cat.id), "request", str(row.id)), 0) <= 0:
                 continue
             payload[str(cat.id)].append({
                 "source_type": "request",
@@ -49094,11 +49096,18 @@ def invitation_request_auto_assign(request_id):
         cat_map = {str(c.id): c for c in categories}
         quantities = _json_dict(row.quantities_json)
         assigned_count = 0
+        # Ya asignadas por categoría de ESTA solicitud: solo se asigna el RESTO (clave en las
+        # AMPLIACIONES de una solicitud ya asignada/enviada; antes asignaba el total otra vez).
+        _asg_by_cat = {}
+        for _tcid, _tn in (session_db.query(InvitationTicket.category_id, func.count(InvitationTicket.id))
+                           .filter(InvitationTicket.assigned_request_id == row.id)
+                           .group_by(InvitationTicket.category_id).all()):
+            _asg_by_cat[str(_tcid)] = int(_tn or 0)
         # OJO: NO reutilizar `cid` aquí — es el id del CONCIERTO para el redirect de error. Antes el
         # bucle lo machacaba con ids de categoría y, al faltar disponibilidad, el redirect iba a una
         # URL inválida (404) y el aviso de «no hay invitaciones suficientes» se perdía en silencio.
         for cat_key, qty in quantities.items():
-            qty = _safe_int(qty)
+            qty = _safe_int(qty) - _asg_by_cat.get(str(cat_key), 0)
             if qty <= 0 or cat_key == 'TOTAL':
                 continue
             cat = cat_map.get(str(cat_key))
@@ -49127,7 +49136,10 @@ def invitation_request_auto_assign(request_id):
                 ticket.assigned_at = _now_madrid()
                 assigned_count += 1
         if assigned_count > 0:
-            row.status = 'ASIGNADAS'
+            # No degradar una ENVIADAS/entregada AMPLIADA: conserva su estado (la etiqueta partida
+            # y el asignador ya reflejan lo pendiente/sin enviar por métricas).
+            if (row.status or '') not in {'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}:
+                row.status = 'ASIGNADAS'
             row.assigned_at = _now_madrid()
         if assigned_count <= 0:
             raise ValueError('No se ha podido realizar la asignación por falta de invitaciones disponibles (no hay invitaciones subidas y disponibles en la categoría). Todo queda como estaba.')
@@ -49367,12 +49379,16 @@ def invitation_category_auto_assign(concert_id, category_id):
             _picked_ids = {t.id for t in picked}
             remaining = [t for t in remaining if t.id not in _picked_ids]
             assigned_total += len(picked)
+            # No degradar una ENVIADAS/entregada AMPLIADA (el resto pendiente ya se refleja aparte).
+            _sent_ish_keep = {'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}
             if request_row:
-                request_row.status = 'ASIGNADAS'
+                if (request_row.status or '') not in _sent_ish_keep:
+                    request_row.status = 'ASIGNADAS'
                 request_row.assigned_at = now
                 request_row.updated_at = now
             if commitment_row:
-                commitment_row.status = 'ASIGNADAS'
+                if (commitment_row.status or '') not in _sent_ish_keep:
+                    commitment_row.status = 'ASIGNADAS'
                 commitment_row.updated_at = now
         if assigned_total <= 0 and skipped:
             raise ValueError(f'No se ha podido realizar la asignación por falta de invitaciones disponibles en «{cat.name}» (faltaban {short}). Todo queda como estaba.')

@@ -659,12 +659,19 @@
     if (hint) hint.style.display = has ? 'none' : '';
   }
   (function(){
-    const sel = document.querySelector('select[name="artist_id"]');
-    if (sel){
-      sel.addEventListener('change', syncQuadButtons);
-      if (window.jQuery) window.jQuery(sel).on('change', syncQuadButtons);
+    // OJO: este script va en el CONTENIDO y jQuery se carga DESPUÉS (al final del layout): hay que
+    // diferir la vinculación a DOMContentLoaded o el cambio de select2 (evento jQuery) no se oye y
+    // los botones se quedaban en «ningún artista seleccionado» aunque eligieras uno.
+    function bindArtistSync(){
+      const sel = document.querySelector('select[name="artist_id"]');
+      if (sel){
+        sel.addEventListener('change', syncQuadButtons);
+        if (window.jQuery) window.jQuery(sel).on('change', syncQuadButtons);
+      }
+      syncQuadButtons();
     }
-    syncQuadButtons();
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bindArtistSync);
+    else bindArtistSync();
   })();
 
   /* ---- Columnas: mostrar/ocultar al instante ---- */

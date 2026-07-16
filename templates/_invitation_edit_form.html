@@ -54,8 +54,8 @@
               {% endfor %}
             </div>
           {% endif %}
-          <label class="form-label small mb-0">Añadir más <span class="text-muted">(disponibles: {{ c.available }})</span></label>
-          <input type="number" class="form-control form-control-sm mt-1" style="max-width:160px" name="cat_{{ c.id }}_add" min="0" max="{{ c.available }}" value="0">
+          <label class="form-label small mb-0">Añadir más <span class="text-muted">(disponibles: {{ c.available }} · las añadidas quedan pendientes de asignar)</span></label>
+          <input type="number" class="form-control form-control-sm mt-1" style="max-width:160px" name="cat_{{ c.id }}_add" min="0" value="0">
         </div>
       </div>
       {% else %}

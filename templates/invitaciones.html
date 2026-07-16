@@ -786,7 +786,7 @@
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                   <div>
                     <h5 class="mb-0">{{ cat.name }}</h5>
-                    <div class="small text-muted">Configuradas: {{ cat.configured }} · Subidas: {{ cat.uploaded }} · Disponibles: {{ cat.available_configured }}</div>
+                    <div class="small text-muted">Configuradas: {{ cat.configured }} · Subidas: {{ cat.uploaded }} · Disponibles: {{ cat.available_configured }}{% if cat.pending_requests %} · <span class="text-danger fw-semibold"><i class="fa fa-hourglass-half me-1"></i>{{ cat.pending_requests }} {{ 'petición' if cat.pending_requests == 1 else 'peticiones' }} · {{ cat.pending_qty }} {{ 'entrada' if cat.pending_qty == 1 else 'entradas' }} pendientes de asignar</span>{% endif %}</div>
                     {% if cat.ticket_kind != 'GUEST_LIST' and cat.uploaded %}
                     <div class="d-flex gap-2 mt-2 flex-wrap">
                       <form method="post" data-inv-refresh action="{{ url_for('invitation_category_auto_assign', concert_id=event.id, category_id=cat.id) }}" onsubmit="return confirm('¿Asignar automáticamente todas las PENDIENTES de «{{ cat.name }}»? Las ya asignadas o enviadas no se tocan.');">

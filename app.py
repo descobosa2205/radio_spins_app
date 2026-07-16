@@ -21992,23 +21992,28 @@ def _simulation_share_meta(sim):
     else:
         image, image_processed, share_url = image_raw, False, ""
     activities = [a for a in (sim.activities or []) if not a.is_shared]
+    # Descripción (línea bajo el título): nº de fechas si hay varias; con UNA sola, el municipio
+    # (o el nombre del festival, si lo hay) y la fecha.
     if len(activities) > 1:
-        desc = f"{kind_label} · {len(activities)} eventos"
+        desc = f"{len(activities)} fechas"
     elif activities:
         a0 = activities[0]
         parts = []
+        is_festival = (sim.kind or "").upper() == "FESTIVAL"
+        v0 = a0.venue
+        place = ""
+        if is_festival and (sim.title or "").strip():
+            place = sim.title.strip()
+        elif v0 and not a0.venue_unknown:
+            place = (v0.municipality or "").strip() or (v0.name or "").strip()
+        if place:
+            parts.append(place)
         if a0.event_date and not a0.date_unknown:
             parts.append(a0.event_date.strftime("%d/%m/%Y"))
-        v0 = a0.venue
-        if v0 and not a0.venue_unknown and (v0.name or "").strip():
-            loc = (v0.name or "").strip()
-            if (v0.municipality or "").strip():
-                loc += f" ({v0.municipality.strip()})"
-            parts.append(loc)
         desc = " · ".join(parts) or kind_label
     else:
         desc = kind_label
-    return {"title": (sim.title or subject["name"] or "Simulación"), "description": desc,
+    return {"title": f"Simulación - {sim.title or subject['name'] or 'Sin título'}", "description": desc,
             "image": image, "image_raw": image_raw, "image_processed": image_processed,
             "url": share_url, "kind_label": kind_label, "subject": subject}
 
@@ -47047,6 +47052,43 @@ def invitation_event_detail(concert_id):
         # Agrupación del listado por TIPO de invitación (categoría) con franja de color + orden
         # alfabético (helper reutilizado también por la página pública del enlace).
         _invitation_group_requests(requests, categories)
+        # PENDIENTES DE ASIGNAR por categoría (contador rojo de cada tarjeta): nº de peticiones
+        # (solicitudes + compromisos vivos, no enviados/cerrados) con entradas aún sin asignar en
+        # esa categoría, y total de entradas pendientes (pedido − ya asignado por esa petición).
+        _tk_by_req: dict = defaultdict(lambda: defaultdict(int))
+        for _rid, _cidt, _n in (session_db.query(InvitationTicket.assigned_request_id, InvitationTicket.category_id, func.count(InvitationTicket.id))
+                                .filter(InvitationTicket.concert_id == concert.id, InvitationTicket.assigned_request_id.isnot(None))
+                                .group_by(InvitationTicket.assigned_request_id, InvitationTicket.category_id).all()):
+            _tk_by_req[str(_rid)][str(_cidt)] = int(_n or 0)
+        _sent_set_pend = {'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}
+        _pending_by_cat: dict = defaultdict(lambda: {'requests': 0, 'qty': 0})
+        for _r in _req_rows_all:
+            _st = (_r.status or '').upper()
+            if _st in {'RECHAZADAS', 'ANULADAS'} or _st in _sent_set_pend:
+                continue
+            for _cid2, _qv in _json_dict(_r.quantities_json).items():
+                if str(_cid2).upper() == 'TOTAL':
+                    continue
+                _pend = _safe_int(_qv) - _tk_by_req.get(str(_r.id), {}).get(str(_cid2), 0)
+                if _pend > 0:
+                    _pending_by_cat[str(_cid2)]['requests'] += 1
+                    _pending_by_cat[str(_cid2)]['qty'] += _pend
+        for _c in _cmt_rows_all:
+            _st = (_c.status or '').upper()
+            if _st == 'ANULADAS' or _st in _sent_set_pend:
+                continue
+            _tkc = _tk_by_cmt.get(str(_c.id)) or {}
+            for _cid2, _qv in _json_dict(_c.quantities_json).items():
+                if str(_cid2).upper() == 'TOTAL':
+                    continue
+                _pend = _safe_int(_qv) - len(_tkc.get(str(_cid2)) or [])
+                if _pend > 0:
+                    _pending_by_cat[str(_cid2)]['requests'] += 1
+                    _pending_by_cat[str(_cid2)]['qty'] += _pend
+        for _cp in cat_payloads:
+            _pd = _pending_by_cat.get(_cp['id']) or {'requests': 0, 'qty': 0}
+            _cp['pending_requests'] = _pd['requests']
+            _cp['pending_qty'] = _pd['qty']
         # Palcos ya comprometidos a alguien: {cat_id: "Asignado a …"} para bloquear su zona de drop.
         committed_palco_labels = _invitation_committed_palco_labels(session_db, concert, categories)
         # Palcos COMPLETOS (todas sus entradas asignadas/enviadas): también bloqueados en el listado
@@ -48443,8 +48485,10 @@ def invitation_request_edit_form(request_id):
 def invitation_request_update(request_id):
     """Edita una solicitud con el formulario completo. El peticionario solo puede editar mientras NO
     esté asignada; quien gestiona puede editar siempre y reconcilia las entradas: las desmarcadas se
-    recuperan (o se BLOQUEAN como LOST si ya se enviaron/descargaron y no se podrán reutilizar) y se
-    asignan tantas nuevas como se pidan. Cambiar de categoría = desmarcar en una y añadir en otra."""
+    recuperan (o se BLOQUEAN como LOST si ya se enviaron/descargaron y no se podrán reutilizar) y las
+    AÑADIDAS quedan pendientes: la solicitud vuelve a «pendiente de asignar» (APROBADAS) aunque
+    estuviera asignada o enviada, para continuar el proceso (asignar → enviar). Cambiar de categoría
+    = desmarcar en una y añadir en otra."""
     session_db = db()
     try:
         row = session_db.get(InvitationRequest, to_uuid(request_id))
@@ -48462,6 +48506,7 @@ def invitation_request_update(request_id):
         is_assigned = bool(all_tickets) or (row.status or '') in sent_statuses or (row.status or '') == 'ASIGNADAS'
         # Modo "gestionar asignación": solo quien gestiona y sobre una solicitud ya asignada.
         assign_mode = bool(can_manage and is_assigned)
+        _prior_total = _invitation_total_qty(_json_dict(row.quantities_json))
         _fb = request.referrer if (request.referrer or '').startswith(request.host_url) else None
         # El peticionario NO puede editar una solicitud ya asignada (solo quien gestiona).
         if is_assigned and not can_manage:
@@ -48517,24 +48562,9 @@ def invitation_request_update(request_id):
                         t.sent_at = None
                         t.updated_at = _now_madrid()
                     add_n = _safe_int(request.form.get(f'cat_{cid}_add'))
-                    if add_n > 0:
-                        available_all = (
-                            session_db.query(InvitationTicket)
-                            .filter(InvitationTicket.category_id == cat.id, InvitationTicket.status == 'AVAILABLE')
-                            .order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc())
-                            .all()
-                        )
-                        if len(available_all) < add_n:
-                            raise ValueError(f'No hay suficientes invitaciones disponibles en {cat.name}: faltan {add_n - len(available_all)}.')
-                        # Butacas contiguas para no dividir al grupo (mismo tramo de fila; si no, filas seguidas).
-                        available = _invitation_pick_grouped_seats(available_all, add_n, category=cat, concert=row.concert)
-                        for t in available:
-                            t.assigned_request_id = row.id
-                            t.assigned_commitment_id = None
-                            t.assigned_label = row.guest_name
-                            t.status = 'ASSIGNED'
-                            t.assigned_at = _now_madrid()
-                            t.updated_at = _now_madrid()
+                    # Las AÑADIDAS ya NO se asignan aquí en automático: quedan PENDIENTES y la
+                    # solicitud vuelve a «pendiente de asignar» (APROBADAS, la recalcula el sync de
+                    # abajo) para continuar el proceso normal: asignar en el asignador → enviar.
                     # Preserva lo que ya estaba pedido pero sin asignar (no se pierde ni se asigna solo).
                     pending_kept = max(0, _safe_int(prior_quantities.get(cid)) - len(assigned))
                     qty = len(kept) + add_n + pending_kept
@@ -48575,6 +48605,11 @@ def invitation_request_update(request_id):
         # se conservan como tales. Luego «enviar» preguntará todas / solo las nuevas.
         session_db.flush()
         _invitation_sync_request_status(session_db, row)
+        # Ampliación sobre estados de ENTREGA manual (en mano / taquilla): el sync no los toca, pero
+        # si el total CRECE también deben volver a «pendiente de asignar» para seguir el proceso.
+        _new_total = _invitation_total_qty(_json_dict(row.quantities_json))
+        if _new_total > _prior_total and (row.status or '') in {'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}:
+            row.status = 'APROBADAS'
         row.updated_at = _now_madrid()
         session_db.commit()
         flash('Solicitud actualizada.', 'success')

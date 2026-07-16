@@ -27629,10 +27629,25 @@ def sales_event_report_view(cid):
         sgae_amount = float(br.get("sgae_amount") or 0.0)
         base_no_vat = float(br.get("base_no_vat") or 0.0)
 
+        # Documento «Reporte de ventas»: fecha de emisión (hoy), logo de la empresa y si los datos
+        # están actualizados hoy (para sombrear en amarillo lo que esté sin actualizar).
+        emit_date = today_local()
+        _last_data_day = max((d for (d, _q, _g) in (daily_totals or [])), default=None)
+        report_updated_today = bool(_last_data_day and _last_data_day == emit_date)
+        _rc = c.billing_company or c.group_company
+        report_company_logo = (
+            (getattr(_rc, "logo_url", None) if _rc else None)
+            or (getattr(c.promoter, "logo_url", None) if c.promoter else None)
+            or url_for("static", filename="img/logo_33_producciones.png")
+        )
+
         return render_template(
             "sales_event_report.html",
             day=day,
             concert=c,
+            emit_date=emit_date,
+            report_updated_today=report_updated_today,
+            report_company_logo=report_company_logo,
             has_v2=has_v2,
             vat_pct=vat,
             sgae_pct=sgae,
@@ -27813,17 +27828,31 @@ def sales_event_report_pdf(cid):
             rightMargin=24,
             topMargin=24,
             bottomMargin=24,
-            title="Informe de ventas",
+            title="Reporte de ventas",
         )
         styles = getSampleStyleSheet()
         story = []
 
-        title = f"Informe de ventas — {c.artist.name if c.artist else 'Evento'}"
-        story.append(Paragraph(title, styles["Title"]))
+        # Cabecera: título "Reporte de ventas" + logo de la empresa arriba a la derecha.
+        title = f"Reporte de ventas — {c.artist.name if c.artist else 'Evento'}"
+        title_p = Paragraph(title, styles["Title"])
+        logo_cell = ""
+        try:
+            from reportlab.platypus import Image as _RLImage
+            _logo_path = os.path.join(app.static_folder, "img", "logo_33_producciones.png")
+            if os.path.exists(_logo_path):
+                logo_cell = _RLImage(_logo_path, width=130, height=42, kind="proportional")
+                logo_cell.hAlign = "RIGHT"
+        except Exception:
+            logo_cell = ""
+        head_tbl = Table([[title_p, logo_cell]], colWidths=[None, 140])
+        head_tbl.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("ALIGN", (1, 0), (1, 0), "RIGHT")]))
+        story.append(head_tbl)
 
         v = c.venue
         sub = f"{(v.municipality or '')} · {(v.province or '')} · {(v.name or '')} · {c.date.strftime('%d/%m/%Y') if c.date else ''}"
         story.append(Paragraph(sub, styles["Normal"]))
+        story.append(Paragraph(f"Emitido el {today_local().strftime('%d/%m/%Y')}", styles["Normal"]))
         story.append(Spacer(1, 10))
 
         summary_data = [

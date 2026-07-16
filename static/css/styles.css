@@ -2051,6 +2051,9 @@ img[style*="width:"] { height: auto; }
 /* Marcador del punto de empate sobre la barra de venta. */
 .et-bar__mark { position:absolute; top:-2px; bottom:-2px; width:2px; background:#111827; opacity:.6; z-index:2; }
 
+/* Reporte de ventas: sombreado amarillo claro de lo que está SIN ACTUALIZAR. */
+.sales-report-stale { background:#fff9e6 !important; border-color:#f6e05e !important; }
+
 /* ===== Asistente por pasos reutilizable (step_wizard.js) ===== */
 .sw-step { display:none; }
 .sw-step.active { display:block; animation:sw-in .2s ease; }

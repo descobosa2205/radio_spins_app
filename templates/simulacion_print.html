@@ -94,7 +94,8 @@
 </head>
 <body>
 <div class="toolbar">
-  <a href="{{ url_for('simulation_detail_view', sid=sim.id) }}">← Volver</a>
+  {# En el enlace público NO hay «Volver»: llevaría al back office (login). Solo imprimir. #}
+  {% if not public %}<a href="{{ url_for('simulation_detail_view', sid=sim.id) }}">← Volver</a>{% endif %}
   <button class="primary" onclick="window.print()">🖨️ Imprimir / Guardar PDF</button>
 </div>
 
@@ -302,6 +303,8 @@
   </table>
   {# Desglose AGREGADO de ingresos y gastos de todas las fechas (mismos conceptos que las hojas). #}
   {% set _sm = 'del ciclo' if is_cycle else 'de la gira' %}
+  {# Solo si hay alguna línea con importe (los omitidos/no aplican ya vienen filtrados del contexto). #}
+  {% if summary_income.ticketing or summary_income.complementos or summary_income.rebate or summary_income.barras or summary_income.incentivos or summary_income.subvenciones or summary_income.patrocinios %}
   <div class="sec-title">Resumen de ingresos {{ _sm }} (al 100%)</div>
   <table>
     {% if summary_income.ticketing %}<tr><td>Ticketing <span class="muted">(neto sin IVA y sin SGAE)</span></td><td class="text-end">{{ summary_income.ticketing|eur }}</td></tr>{% endif %}
@@ -313,6 +316,8 @@
     {% if summary_income.patrocinios %}<tr><td>Patrocinios</td><td class="text-end">{{ summary_income.patrocinios|eur }}</td></tr>{% endif %}
     <tr class="tot"><td>Total ingresos</td><td class="text-end">{{ summary_income.total|eur }}</td></tr>
   </table>
+  {% endif %}
+  {% if summary_expense.total %}
   <div class="sec-title">Resumen de gastos {{ _sm }} (al 100%)</div>
   <table>
     {% if summary_expense.caches %}<tr><td>Cachés</td><td class="text-end">{{ summary_expense.caches|eur }}</td></tr>{% endif %}
@@ -324,6 +329,7 @@
     {% if summary_expense_cat.get('PRORRATEO') %}<tr><td style="padding-left:18px;">{{ SIM_EXPENSE_CATEGORY_LABELS.get('PRORRATEO', 'Prorrateo de gastos generales') }}</td><td class="text-end">{{ summary_expense_cat.get('PRORRATEO')|eur }}</td></tr>{% endif %}
     <tr class="tot"><td>Total gastos</td><td class="text-end">{{ summary_expense.total|eur }}</td></tr>
   </table>
+  {% endif %}
   {# Detalle de comisiones: quién (con logo/foto) y el desglose del importe. #}
   {% set _gc = [] %}
   {% for b in blocks %}{% for c in (b.activity.commissions or []) %}{% set _ = _gc.append((b, c)) %}{% endfor %}{% endfor %}
@@ -372,18 +378,39 @@
 <div class="sheet">
   {% set _sec %}{% if is_multi %}{% if is_cycle and b.activity.artist %}{{ b.activity.artist.name }}{% else %}{{ b.activity.label or ('Fecha ' ~ loop.index) }}{% endif %}{% if b.activity.event_date and not b.activity.date_unknown %} · {{ b.activity.event_date.strftime('%d/%m/%Y') }}{% endif %}{% if b.activity.venue %} · {{ b.activity.venue.name }}{% endif %}{% else %}Detalle económico{% endif %}{% endset %}
   {{ hdr(_sec) }}
+  {# Solo lo CONFIGURADO: sin ticketing no se pinta la sección (nada de ceros). #}
+  {% if b.calc.ticketing.qty or b.activity.ticket_categories %}
   <div class="sec-title">Ticketing</div>
   {{ ticketing_tbl(b.calc, b.activity) }}
+  {% endif %}
+  {# Ingresos: mismas líneas visibles que la tabla (ni omitidos/no aplican, ni a 0). Si no queda
+     ninguna, la sección entera desaparece. #}
+  {% set _ovb = b.income_overrides or {} %}
+  {% set _ingb = b.calc.at_100.ingresos %}
+  {% set _ing_vis = [] %}
+  {% for k in ['ticketing','complementos','rebate','barras','incentivos','subvenciones','patrocinios'] %}
+    {% if _ingb.get(k) and not _ovb.get(k) %}{% set _ = _ing_vis.append(k) %}{% endif %}
+  {% endfor %}
+  {% if _ing_vis %}
   <div class="sec-title">Ingresos (al 100%)</div>
   {{ ingresos_tbl(b.calc, b.income_overrides) }}
-  {% set _subv = (b.activity.income_items or [])|list %}
+  {# Nota de subvenciones/patrocinios: SOLO las activas y con importe (las omitidas/no aplican y
+     las líneas con override no salen en lo compartido ni en el PDF). #}
+  {% set _subv = [] %}
+  {% for it in (b.activity.income_items or []) %}
+    {% set _pk = 'subvenciones' if (it.kind or 'SUBVENCION')|upper == 'SUBVENCION' else 'patrocinios' %}
+    {% if (it.status or 'ACTIVE')|upper not in ['OMIT','NA'] and it.amount_net and not _ovb.get(_pk) %}{% set _ = _subv.append(it) %}{% endif %}
+  {% endfor %}
   {% if _subv %}
   <div class="muted" style="font-size:.74rem;margin-top:4px;">
-    {% for it in _subv %}{{ 'Subvención' if (it.kind or 'SUBVENCION')|upper == 'SUBVENCION' else 'Patrocinio' }} «{{ it.name or '—' }}»: {{ it.amount_net|eur }}{% if (it.status or 'ACTIVE')|upper in ['OMIT','NA'] %} ({{ 'omitida' if (it.status)|upper == 'OMIT' else 'no aplica' }}){% endif %}{% if not loop.last %} · {% endif %}{% endfor %}
+    {% for it in _subv %}{{ 'Subvención' if (it.kind or 'SUBVENCION')|upper == 'SUBVENCION' else 'Patrocinio' }} «{{ it.name or '—' }}»: {{ it.amount_net|eur }}{% if not loop.last %} · {% endif %}{% endfor %}
   </div>
   {% endif %}
+  {% endif %}
+  {% if b.calc.at_100.gastos.total or (is_cycle and general_share) %}
   <div class="sec-title">Gastos (al 100%)</div>
   {{ gastos_tbl(b.calc, (general_share if is_cycle else 0)) }}
+  {% endif %}
   {% set _caches = (b.activity.caches or [])|list %}
   {% set _comms = (b.activity.commissions or [])|list %}
   {% if _caches or _comms %}

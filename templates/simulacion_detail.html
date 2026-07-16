@@ -977,12 +977,25 @@
       <div class="ficha-section">
         <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-user-tie"></i>Comisiones</h6></div>
         <div class="ficha-section__body">
-          <div class="row g-2 align-items-end mb-2">
-            <div class="col"><label class="form-label small mb-0">Añadir comisionista (tercero o medio)</label><select id="commissionSearch" class="form-select"></select></div>
-            <div class="col-auto"><button type="button" class="btn btn-outline-secondary" data-quick-create="promoter" data-target="commissionSearch" title="Crear tercero"><i class="fa fa-plus"></i></button></div>
-          </div>
           <div id="commissionsList"></div>
+          <button type="button" class="btn btn-sm btn-outline-primary mt-2" data-bs-toggle="modal" data-bs-target="#commissionAddModal"><i class="fa fa-plus me-1"></i>Añadir comisionista</button>
         </div>
+      </div>
+
+      {# Popup para añadir comisionista: buscar un tercero/medio (con logo) o crear uno nuevo. La barra
+         de búsqueda ya NO va inline: solo se muestran los comisionistas y el botón «Añadir». #}
+      <div class="modal fade" id="commissionAddModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+          <div class="modal-header"><h6 class="modal-title"><i class="fa fa-user-tie me-2 text-primary"></i>Añadir comisionista</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+          <div class="modal-body">
+            <label class="form-label small mb-1">Buscar tercero o medio</label>
+            <div class="input-group">
+              <select id="commissionSearch" class="form-select"></select>
+              <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter" data-target="commissionSearch" title="Crear un tercero nuevo"><i class="fa fa-plus"></i></button>
+            </div>
+            <div class="form-text">Elígelo de la lista (con logo) o crea un tercero nuevo con el botón <i class="fa fa-plus"></i>.</div>
+          </div>
+        </div></div>
       </div>
 
       {# --- Gastos por categorías (bocadillos) --- #}
@@ -1973,7 +1986,7 @@
     // El comisionista puede ser cualquier TERCERO o un MEDIO: buscador mixto con `kind` para
     // guardar el id en el campo correcto (promoter_id o media_outlet_id).
     $('#commissionSearch').select2({
-      width:'100%', placeholder:'Buscar tercero o medio…', allowClear:true, minimumInputLength:1,
+      width:'100%', dropdownParent:$('#commissionAddModal'), placeholder:'Buscar tercero o medio…', allowClear:true, minimumInputLength:1,
       ajax:{ url:"{{ url_for('api_search_commission_entities') }}", dataType:'json', delay:200, data:function(p){return {q:p.term||''};},
         processResults:function(d){ return { results:(d||[]).map(function(it){return {id:it.id, text:it.label||it.nick||it.text, photo:it.logo_url||it.photo_url||'', kind:it.kind||'promoter'};}) }; } },
       templateResult:entityFmt, templateSelection:entityFmt, escapeMarkup:function(m){return m;}
@@ -1991,6 +2004,8 @@
       }, true));
       $(this).val(null).trigger('change');
       if(window.__simExpensesAutosave) window.__simExpensesAutosave();
+      // Cerrar el popup tras elegir (el comisionista ya aparece en la lista).
+      var _cm=document.getElementById('commissionAddModal'); if(_cm && window.bootstrap) bootstrap.Modal.getOrCreateInstance(_cm).hide();
     });
   }
 

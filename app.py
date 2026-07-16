@@ -41698,17 +41698,35 @@ def _public_share_card(session_db, owner_type, owner, artist_id=None) -> dict:
 
 def _public_share_og_image(session_db, concert, event_payload=None, card=None, logo=None) -> str:
     """Imagen de previsualización (og:image) para enlaces públicos de un concierto/evento.
-    Orden: cartel principal → foto del artista principal (card) → foto de CUALQUIER artista del
-    evento → logo. Siempre devuelve una URL ABSOLUTA (si no, WhatsApp/SMS no la previsualizan)."""
+    Orden (SIEMPRE, sin depender de lo que llegue en card/event_payload): cartel principal del
+    concierto → foto del artista principal → foto de CUALQUIER artista del evento → logo. Devuelve
+    una URL ABSOLUTA (si no, WhatsApp/SMS no la previsualizan)."""
     ev = event_payload
     if ev is None:
         try:
             ev = _invitation_event_payload(session_db, concert) if concert else {}
         except Exception:
             ev = {}
-    candidates = [(ev or {}).get("poster_url")]
+    candidates = []
+    # 1) Cartel principal (imagen) del concierto, recalculado directamente (no solo desde el payload).
+    try:
+        if concert is not None:
+            candidates.append(_concert_poster_url(concert))
+    except Exception:
+        pass
+    candidates.append((ev or {}).get("poster_url"))
+    # 2) Foto del artista principal del concierto (directa) + la del card.
+    try:
+        _aid = getattr(concert, "artist_id", None)
+        if _aid:
+            _art = session_db.get(Artist, _aid)
+            if _art:
+                candidates.append(getattr(_art, "photo_url", "") or "")
+    except Exception:
+        pass
     if card:
         candidates.append(card.get("artist_photo"))
+    # 3) Foto de cualquier artista del evento (festivales, co-artistas) + logo.
     for a in ((ev or {}).get("artists") or []):
         candidates.append(a.get("photo_url"))
     candidates.append(logo)

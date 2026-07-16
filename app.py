@@ -44420,6 +44420,28 @@ def _invitation_assign_context(session_db, concert, categories) -> dict:
                 'requester': (c.created_by_nick or '').strip(),
             }
     tickets = [_invitation_ticket_payload(t, name_map, request_map, commitment_map) for t in ticket_rows]
+    # PLANO DEL RECINTO en el asignador: se casa cada entrada numerada con el mapa
+    # (sector/fila/asiento → "sec|fila|slot") para colocarla en su butaca REAL del plano
+    # completo. Sin mapa o sin casar, el asignador sigue con sus planos por sector de siempre.
+    assign_map = None
+    try:
+        if getattr(concert, 'venue_id', None):
+            _sm_asg = _venue_seatmap_default(session_db, concert.venue_id)
+            _lay_asg = (_sm_asg.layout_json or {}) if _sm_asg is not None else {}
+            if _lay_asg.get('sections'):
+                _lk_asg = seatmap_calc.seat_lookup(_lay_asg)
+                _n_match = 0
+                for item in tickets:
+                    if not (item.get('seat_number') or '').strip():
+                        continue
+                    _mk = seatmap_calc.match_ticket(_lk_asg, item.get('sector'), item.get('row_label'), item.get('seat_number'))
+                    if _mk:
+                        item['map_key'] = _mk
+                        _n_match += 1
+                if _n_match:
+                    assign_map = {'layout': _lay_asg, 'version': int(_sm_asg.version or 0), 'name': _sm_asg.name or ''}
+    except Exception:
+        assign_map = None
     tickets_by_category = {str(c.id): [] for c in categories}
     for item in tickets:
         tickets_by_category.setdefault(str(item['category_id']), []).append(item)
@@ -44441,6 +44463,7 @@ def _invitation_assign_context(session_db, concert, categories) -> dict:
         'ticket_groups_by_category': ticket_groups_by_category,
         'availability_by_category': availability_by_category,
         'pending_assignments': pending_assignments,
+        'assign_map': assign_map,
     }
 
 
@@ -51714,7 +51737,8 @@ def invitation_assign_partial(concert_id):
                                event={'id': str(concert.id)},
                                tickets_by_category=ctx['tickets_by_category'],
                                ticket_groups_by_category=ctx['ticket_groups_by_category'],
-                               pending_assignments=ctx['pending_assignments'])
+                               pending_assignments=ctx['pending_assignments'],
+                               assign_map=ctx.get('assign_map'))
     finally:
         session_db.close()
 

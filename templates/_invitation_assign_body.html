@@ -62,6 +62,18 @@
         <div class="small mb-2 invitation-remaining" data-remaining-indicator></div>
         <div class="assignment-drop-zone" data-drop-zone>
           {% if cat.ticket_kind == 'PDF_NUMBERED' %}
+            {% if assign_map %}
+            {# PLANO COMPLETO del recinto: el JS recoloca aquí las butacas casadas (mismos botones,
+               misma lógica de staging); solo se ilumina lo de ESTA categoría. El ojo vuelve a los
+               sectores por separado. Sin casar → sus sectores siguen debajo, como siempre. #}
+            <div class="inv-fullplan-wrap d-none" data-fullplan-wrap>
+              <div class="d-flex justify-content-between align-items-center mb-1 gap-2">
+                <div class="small text-muted"><i class="fa fa-map me-1 text-danger"></i>Plano del recinto · se ilumina solo lo disponible de esta categoría</div>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-fullplan-eye title="Ver los sectores de invitaciones por separado (y volver)"><i class="fa fa-eye"></i></button>
+              </div>
+              <div class="inv-fullplan" data-fullplan></div>
+            </div>
+            {% endif %}
             {% for sector in ticket_groups_by_category.get(cat.id, []) %}
               <div class="invitation-sector invitation-sector--plan mb-3{% if sector.stage %} has-stage{% endif %}"><div class="d-flex justify-content-between align-items-center mb-2 gap-2 invitation-sector-head"><div class="fw-bold">Sector {{ sector.sector }}</div></div>
               {% set stg = sector.stage %}
@@ -70,7 +82,7 @@
               {% for row in sector.rows %}
                 <div class="invitation-seat-row{% if row.separator %} invitation-seat-row--sep{% endif %}"><div class="invitation-row-label">{% if not row.separator %}Fila {{ row.row_label }}{% endif %}</div><div class="invitation-seat-grid invitation-seat-grid--numbered invitation-seat-grid--line">
                 {% for cell in row.visual %}
-                  {% if cell.type == 'seat' %}{% set t = cell.seat %}{% set tsrc = ('request:' ~ t.assigned_request_id) if t.assigned_request_id else (('commitment:' ~ t.assigned_commitment_id) if t.assigned_commitment_id else '') %}{% if t.status != 'AVAILABLE' %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }} invitation-seat--owned{% if t.assignee_photo %} invitation-seat--photo{% endif %}" style="--asg:{{ t.assignee_color }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"{% if tsrc %} data-src="{{ tsrc }}" data-an="{{ t.assignee_name|e }}" data-alk="{{ t.assignee_link|e }}" data-alo="{{ t.assignee_link_logo|e }}" data-alt="{{ t.assignee_link_type }}"{% endif %} title="{{ t.seat_number or t.location }}{% if t.assignee_name %} · {{ t.assignee_name }}{% endif %}{% if t.assignee_link %} · {{ t.assignee_link }}{% endif %}{% if t.assignee_total %} · {{ t.assignee_total }} invitación{{ '' if t.assignee_total == 1 else 'es' }}{% endif %}{% if t.assignee_requester %} · Pedidas por: {{ t.assignee_requester }}{% endif %}">{% if t.assignee_photo %}<img class="invitation-seat-photo" src="{{ t.assignee_photo }}" alt="">{% else %}<i class="fa {{ 'fa-lock' if t.status == 'BLOCKED' else 'fa-couch' }}"></i>{% endif %}<span class="invitation-seat-num">{{ t.seat_number or t.location }}</span></button>{% else %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>{% endif %}{% elif cell.type == 'missing' %}<span class="invitation-seat invitation-seat--missing{% if cell.off %} invitation-seat--off{% endif %}"><i class="fa fa-couch"></i></span>{% elif cell.type == 'gap' %}<span class="invitation-seat invitation-seat--hole"></span>{% elif cell.type == 'spacer' %}<span class="invitation-seat invitation-seat--spacer"></span>{% elif cell.type == 'stair' %}<span class="invitation-stair" title="Escalera"><i class="fa fa-stairs"></i><span>{{ cell.label or 'Escalera' }}</span></span>{% endif %}
+                  {% if cell.type == 'seat' %}{% set t = cell.seat %}{% set tsrc = ('request:' ~ t.assigned_request_id) if t.assigned_request_id else (('commitment:' ~ t.assigned_commitment_id) if t.assigned_commitment_id else '') %}{% if t.status != 'AVAILABLE' %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }} invitation-seat--owned{% if t.assignee_photo %} invitation-seat--photo{% endif %}" style="--asg:{{ t.assignee_color }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}" data-map-key="{{ t.map_key or '' }}"{% if tsrc %} data-src="{{ tsrc }}" data-an="{{ t.assignee_name|e }}" data-alk="{{ t.assignee_link|e }}" data-alo="{{ t.assignee_link_logo|e }}" data-alt="{{ t.assignee_link_type }}"{% endif %} title="{{ t.seat_number or t.location }}{% if t.assignee_name %} · {{ t.assignee_name }}{% endif %}{% if t.assignee_link %} · {{ t.assignee_link }}{% endif %}{% if t.assignee_total %} · {{ t.assignee_total }} invitación{{ '' if t.assignee_total == 1 else 'es' }}{% endif %}{% if t.assignee_requester %} · Pedidas por: {{ t.assignee_requester }}{% endif %}">{% if t.assignee_photo %}<img class="invitation-seat-photo" src="{{ t.assignee_photo }}" alt="">{% else %}<i class="fa {{ 'fa-lock' if t.status == 'BLOCKED' else 'fa-couch' }}"></i>{% endif %}<span class="invitation-seat-num">{{ t.seat_number or t.location }}</span></button>{% else %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}" data-map-key="{{ t.map_key or '' }}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>{% endif %}{% elif cell.type == 'missing' %}<span class="invitation-seat invitation-seat--missing{% if cell.off %} invitation-seat--off{% endif %}"><i class="fa fa-couch"></i></span>{% elif cell.type == 'gap' %}<span class="invitation-seat invitation-seat--hole"></span>{% elif cell.type == 'spacer' %}<span class="invitation-seat invitation-seat--spacer"></span>{% elif cell.type == 'stair' %}<span class="invitation-stair" title="Escalera"><i class="fa fa-stairs"></i><span>{{ cell.label or 'Escalera' }}</span></span>{% endif %}
                 {% endfor %}
                 </div></div>
               {% endfor %}
@@ -96,3 +108,4 @@
     </div>
   </form>
 {% endfor %}
+{% if assign_map %}<script type="application/json" id="invAssignMapData">{{ assign_map|tojson }}</script>{% endif %}

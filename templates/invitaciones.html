@@ -4171,6 +4171,90 @@
     });
   })();
 
+  // PLANO COMPLETO del recinto en el ASIGNADOR: recoloca los MISMOS botones de butaca del modal
+  // (misma lógica de staging, clic, arrastre, guardar… intacta) sobre un lienzo con la geometría
+  // real del mapa del recinto (window.VenueMapGeom, de venue_map.js). Solo se muestran las
+  // butacas de la categoría activa («se ilumina lo disponible de la zona que se asigna»); los
+  // sectores que quedan vacíos se ocultan (viven en el plano) y los SIN CASAR siguen debajo,
+  // como siempre. El ojo alterna plano completo ↔ sectores por separado.
+  window.initInvAssignFullPlan = function(){
+    var modal = document.getElementById('assignAllModal');
+    if (!modal || !window.VenueMapGeom) return;
+    var dataEl = modal.querySelector('#invAssignMapData');
+    if (!dataEl) return;
+    var am; try { am = JSON.parse(dataEl.textContent || '{}'); } catch (e) { return; }
+    var geom = window.VenueMapGeom((am && am.layout) || {});
+    if (!geom) return;
+    var SEAT = 32;                                   // px por butaca en el lienzo (= CSS .inv-fullplan)
+    var sc = SEAT / Math.max(8, geom.pitch);
+    modal.querySelectorAll('.invitation-assignment-form').forEach(function(form){
+      var wrap = form.querySelector('[data-fullplan-wrap]');
+      var plan = form.querySelector('[data-fullplan]');
+      if (!wrap || !plan) return;
+      var seats = Array.prototype.slice.call(form.querySelectorAll('[data-map-key]')).filter(function(b){
+        return b.getAttribute('data-map-key') && geom.pos[b.getAttribute('data-map-key')];
+      });
+      if (!seats.length) return;
+      var canvas = document.createElement('div');
+      canvas.className = 'inv-fullplan-canvas';
+      canvas.style.width = Math.round(geom.bbox.w * sc) + 'px';
+      canvas.style.height = Math.round(geom.bbox.h * sc) + 'px';
+      plan.appendChild(canvas);
+      // Fondo: nombre de cada sector + escenario (solo referencia visual, sin capturar clics).
+      geom.secs.forEach(function(s2){
+        if (!s2.name) return;
+        var lab = document.createElement('div');
+        lab.className = 'inv-fullplan-sec';
+        lab.textContent = s2.name;
+        lab.style.left = ((s2.cx - geom.bbox.x) * sc) + 'px';
+        lab.style.top = ((s2.minY - geom.bbox.y) * sc - 15) + 'px';
+        canvas.appendChild(lab);
+      });
+      if (geom.stage){
+        var st = document.createElement('div');
+        st.className = 'inv-fullplan-stage';
+        st.textContent = geom.stage.label || 'ESCENARIO';
+        st.style.left = ((geom.stage.x - geom.stage.w/2 - geom.bbox.x) * sc) + 'px';
+        st.style.top = ((geom.stage.y - geom.stage.h/2 - geom.bbox.y) * sc) + 'px';
+        st.style.width = (geom.stage.w * sc) + 'px';
+        st.style.height = (geom.stage.h * sc) + 'px';
+        st.style.transform = 'rotate(' + (geom.stage.rot || 0) + 'deg)';
+        canvas.appendChild(st);
+      }
+      // Mover cada butaca casada a su posición REAL (recordando su sitio para poder volver).
+      seats.forEach(function(b){
+        var p = geom.pos[b.getAttribute('data-map-key')];
+        b.__invHome = b.parentElement;
+        b.__invNext = b.nextSibling;
+        b.style.left = ((p.x - geom.bbox.x) * sc - SEAT/2) + 'px';
+        b.style.top = ((p.y - geom.bbox.y) * sc - SEAT/2) + 'px';
+        canvas.appendChild(b);
+      });
+      // Sectores que quedaron sin butacas → ocultos (todo lo suyo está en el plano).
+      var hiddenSecs = [];
+      form.querySelectorAll('.invitation-sector--plan').forEach(function(sec){
+        if (!sec.querySelector('[data-ticket-id]')){ sec.classList.add('d-none'); hiddenSecs.push(sec); }
+      });
+      wrap.classList.remove('d-none');
+      var eye = wrap.querySelector('[data-fullplan-eye]');
+      var mapMode = true;
+      if (eye) eye.addEventListener('click', function(){
+        mapMode = !mapMode;
+        if (mapMode){
+          seats.forEach(function(b){ canvas.appendChild(b); });
+          hiddenSecs.forEach(function(sec){ sec.classList.add('d-none'); });
+        } else {
+          seats.forEach(function(b){ if (b.__invHome) b.__invHome.insertBefore(b, (b.__invNext && b.__invNext.parentElement === b.__invHome) ? b.__invNext : null); });
+          hiddenSecs.forEach(function(sec){ sec.classList.remove('d-none'); });
+        }
+        plan.style.display = mapMode ? '' : 'none';
+        eye.innerHTML = mapMode ? '<i class="fa fa-eye"></i>' : '<i class="fa fa-eye-slash"></i>';
+        eye.classList.toggle('btn-danger', !mapMode);
+        eye.classList.toggle('btn-outline-secondary', mapMode);
+      });
+    });
+  };
+
   // APERTURA FILTRADA del modal (#assignAllModal):
   //  · «Asignar» de una CATEGORÍA → solo esa categoría (todas sus solicitudes).
   //  · «Asignar todo» de un COMPROMISO → todas sus categorías, solo sus tarjetas.
@@ -4248,6 +4332,7 @@
           if (html && html.indexOf('invitation-assignment-form') >= 0) {
             body.innerHTML = html;
             if (window.initInvitationAssigner) window.initInvitationAssigner();
+            if (window.initInvAssignFullPlan) window.initInvAssignFullPlan();   // plano completo del recinto
           }
         }
       } catch (e) { /* sin red: se queda el contenido renderizado con la página */ }

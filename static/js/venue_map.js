@@ -39,6 +39,75 @@
     var s=''; while(n>0){ n-=1; s=String.fromCharCode(65+(n%26))+s; n=Math.floor(n/26); } return s;
   }
 
+  // GEOMETRÍA PURA del layout (sin visor): posición en el MUNDO de cada butaca ("sec|fila|slot"),
+  // el bbox del contenido, el centroide de cada sección y el escenario. La usa el ASIGNADOR de
+  // invitaciones para colocar sus botones sobre el plano real del recinto. ⚠️ Misma matemática
+  // que secRows del visor (grid/box, arc con conteo por radio, points con lx/ly): mantener en
+  // sincronía si se toca una de las dos.
+  window.VenueMapGeom = function(layout){
+    var R2 = Math.PI/180;
+    var pos = {}, secs = [], xs = [], ys = [], pitches = [];
+    function sepExtra2(s, rowIdx){
+      var seps = Array.isArray(s.rowSeps) ? s.rowSeps : [];
+      var n = 0; seps.forEach(function(x){ if(x < rowIdx) n++; });
+      return n * (s.rowGap || 30);
+    }
+    (layout.sections || []).forEach(function(s){
+      if(!s || s.kind === 'floor') return;
+      var sxs = [], sys = [];
+      function put(key, x, y){ pos[key] = {x:x, y:y}; sxs.push(x); sys.push(y); xs.push(x); ys.push(y); }
+      if(s.kind === 'points'){
+        var crP = Math.cos((s.rot||0)*R2), srP = Math.sin((s.rot||0)*R2);
+        (s.seats || []).forEach(function(t){
+          var lx = +t.lx || 0, ly = +t.ly || 0;
+          put(s.id + '|' + (parseInt(t.row,10)||1) + '|' + (parseInt(t.slot,10)||1),
+              s.x + lx*crP - ly*srP, s.y + lx*srP + ly*crP);
+        });
+      } else if(s.kind === 'arc'){
+        for(var r = 0; r < (s.rows||1); r++){
+          var radius = s.r0 + r*s.rowGap, radiusPos = radius + sepExtra2(s, r+1);
+          var count = Math.max(2, Math.floor((radius * s.span * R2) / s.pitch));
+          for(var i = 0; i < count; i++){
+            var t2 = (s.dir - s.span/2 + ((i+.5)/count)*s.span) * R2;
+            put(s.id + '|' + (r+1) + '|' + (i+1), s.cx + radiusPos*Math.cos(t2), s.cy + radiusPos*Math.sin(t2));
+          }
+        }
+      } else if(s.kind === 'grid' || s.kind === 'box'){
+        var cr = Math.cos((s.rot||0)*R2), sr = Math.sin((s.rot||0)*R2);
+        for(var r2 = 0; r2 < (s.rows||1); r2++){
+          var ly2 = (r2-(s.rows-1)/2)*s.rowGap + sepExtra2(s, r2+1);
+          for(var i2 = 0; i2 < (s.cols||1); i2++){
+            var lx2 = (i2-(s.cols-1)/2)*s.pitch;
+            put(s.id + '|' + (r2+1) + '|' + (i2+1), s.x + lx2*cr - ly2*sr, s.y + lx2*sr + ly2*cr);
+          }
+        }
+      } else { return; }
+      if(s.pitch) pitches.push(+s.pitch);
+      if(sxs.length){
+        var cx0 = 0, cy0 = 0;
+        sxs.forEach(function(v){ cx0 += v; }); sys.forEach(function(v){ cy0 += v; });
+        secs.push({ id: s.id, name: s.name || '', cx: cx0/sxs.length, cy: cy0/sys.length,
+                    minY: Math.min.apply(null, sys) });
+      }
+    });
+    var stage = null;
+    (layout.elements || []).forEach(function(el){
+      if(el && el.type === 'stage' && !stage){
+        stage = { x: el.x, y: el.y, w: el.w || 220, h: el.h || 520, rot: el.rot || 0, label: el.label || 'ESCENARIO' };
+        xs.push(el.x - (el.w||220)/2); xs.push(el.x + (el.w||220)/2);
+        ys.push(el.y - (el.h||520)/2); ys.push(el.y + (el.h||520)/2);
+      }
+    });
+    if(!xs.length) return null;
+    pitches.sort(function(a,b){ return a-b; });
+    var pit = pitches.length ? pitches[Math.floor(pitches.length/2)] : 26;
+    var minX = Math.min.apply(null, xs) - pit, minY = Math.min.apply(null, ys) - pit;
+    return { pos: pos, secs: secs, stage: stage, pitch: pit,
+             bbox: { x: minX, y: minY,
+                     w: Math.max.apply(null, xs) + pit - minX,
+                     h: Math.max.apply(null, ys) + pit - minY } };
+  };
+
   function init(){
     var host = document.querySelector('[data-venue-map]');
     if(!host || host.dataset.vmapBound === '1') return;

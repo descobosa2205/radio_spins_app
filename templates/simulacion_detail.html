@@ -1609,18 +1609,13 @@
         (RETENTION ? '<div class="form-check"><input type="checkbox" class="form-check-input cf-ret" '+(o.includes_retention?'checked':'')+'><label class="form-check-label small">Incluye retención</label></div>' : '')+
       '</div></div>';
   }
-  // Cabecera de una tarjeta de coste: resumen + menú ⋮ (Editar / Eliminar). El cuerpo (.cost-edit)
-  // va colapsado; «Editar» lo abre. `expanded` fuerza abierto (edición manual).
+  // Cabecera de una tarjeta de coste: se pincha el RESUMEN para editar (se despliega .cost-edit) y un
+  // botón papelera directo para eliminar. Al pinchar fuera se pliega solo (sin menú desplegable, que
+  // era poco fiable). El cuerpo (.cost-edit) va colapsado; `expanded` lo abre de entrada (alta manual).
   function costHead(summaryHtml){
-    return '<div class="d-flex justify-content-between align-items-center cost-head">'+
-      '<div class="cost-summary small flex-grow-1 text-truncate">'+summaryHtml+'</div>'+
-      '<div class="dropdown flex-shrink-0">'+
-        '<button type="button" class="btn btn-sm btn-outline-secondary border-0" data-bs-toggle="dropdown" aria-label="Acciones"><i class="fa fa-ellipsis-vertical"></i></button>'+
-        '<ul class="dropdown-menu dropdown-menu-end">'+
-          '<li><button type="button" class="dropdown-item cost-edit-toggle"><i class="fa fa-pen fa-fw me-2"></i>Editar</button></li>'+
-          '<li><button type="button" class="dropdown-item text-danger cost-del"><i class="fa fa-trash fa-fw me-2"></i>Eliminar</button></li>'+
-        '</ul>'+
-      '</div>'+
+    return '<div class="d-flex justify-content-between align-items-center gap-2 cost-head">'+
+      '<div class="cost-summary small flex-grow-1 text-truncate" title="Pulsa para editar">'+summaryHtml+'</div>'+
+      '<button type="button" class="btn btn-sm btn-outline-danger border-0 flex-shrink-0 cost-del" title="Eliminar"><i class="fa fa-trash"></i></button>'+
     '</div>';
   }
   function costSummaryFromCard(card){
@@ -1751,7 +1746,7 @@
       return;
     }
     // Abrir/cerrar la configuración: por el menú ⋮ → Editar o pinchando el propio resumen.
-    var cet=e.target.closest('.cost-edit-toggle') || e.target.closest('.cost-summary'); if(cet){ var cc0=cet.closest('.cost-card'); var ed=cc0.querySelector('.cost-edit'); var wasHidden=ed.classList.contains('d-none'); ed.classList.toggle('d-none'); if(!wasHidden){ var sm=cc0.querySelector('.cost-summary'); if(sm) sm.innerHTML=costSummaryFromCard(cc0); } return; }
+    var sum=e.target.closest('.cost-summary'); if(sum){ var cc0=sum.closest('.cost-card'); form.querySelectorAll('.cost-card').forEach(function(o){ if(o!==cc0) collapseCostCard(o); }); var ed=cc0.querySelector('.cost-edit'); if(ed) ed.classList.remove('d-none'); return; }
     var del=e.target.closest('.cost-del'); if(del){ del.closest('.cost-card').remove(); recompute(); (window.__simExpensesSaveNow||window.__simExpensesAutosave||function(){})(); return; }
     var pdel=e.target.closest('.prod-del'); if(pdel){ pdel.closest('.prod-row').remove(); recompute(); (window.__simExpensesSaveNow||window.__simExpensesAutosave||function(){})(); return; }
     var pv=e.target.closest('.pr-var-toggle'); if(pv){ var row=pv.closest('.prod-row'); var on=row.querySelector('.prod-var').classList.toggle('d-none'); pv.classList.toggle('btn-primary', !on); pv.classList.toggle('btn-outline-secondary', on); recompute(); return; }
@@ -1760,6 +1755,22 @@
   });
   form.addEventListener('input', function(e){
     if(e.target.matches('.pr-net,.pr-iva,.pr-qty')) { var r=e.target.closest('.prod-row'); if(r) ivaBadge(r); recompute(); }
+  });
+
+  // Plegar una tarjeta de coste a modo VISIONADO (oculta la edición y refresca el resumen).
+  function collapseCostCard(card){
+    if(!card) return;
+    var ed=card.querySelector('.cost-edit');
+    if(ed && !ed.classList.contains('d-none')){
+      ed.classList.add('d-none');
+      var sm=card.querySelector('.cost-summary'); if(sm) sm.innerHTML=costSummaryFromCard(card);
+    }
+  }
+  // Clic FUERA de una tarjeta de coste -> se pliegan todas (no se queda en modo edición).
+  document.addEventListener('click', function(e){
+    if(e.target.closest('.cost-card')) return;         // clic dentro de una tarjeta: no plegar
+    if(e.target.closest('.select2-container, .modal')) return;  // dropdowns/modales no cuentan
+    form.querySelectorAll('.cost-card').forEach(collapseCostCard);
   });
 
   // --- Arrastrar gastos entre categorías ---

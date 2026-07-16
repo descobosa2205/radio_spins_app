@@ -1487,6 +1487,8 @@ def artist_detail_view(artist_id):
         if tab == "agenda":
             _ag_today = today_local()
             agenda_data = _agenda_build(session_db, [str(artist.id)], _ag_today - timedelta(weeks=26), _ag_today + timedelta(weeks=26), _ag_today)
+            # Con el artist_id el JS puede pedir más ventanas (home_agenda_data) y navegar SIN límite.
+            agenda_data["artist_id"] = str(artist.id)
             calendar_links = [
                 {"id": str(l.id), "label": l.label or "Sin nombre",
                  "page_url": _external_url_for("public_artist_calendar_view", token=l.token),
@@ -52108,9 +52110,10 @@ def _home_agenda() -> dict | None:
 @app.get("/agenda/inicio.json", endpoint="home_agenda_data")
 @admin_required
 def home_agenda_data():
-    """Ventana arbitraria de la agenda de Inicio (navegación con flechas SIN límite temporal):
-    mismas actividades que `_home_agenda` pero entre ?start y ?end (máx. ~6 semanas por petición;
-    el JS pide ventana a ventana y las cachea). Los colores por artista los estabiliza el cliente."""
+    """Ventana arbitraria de agenda (navegación con flechas SIN límite temporal): la de Inicio
+    (artistas del usuario) o, con ?artist_id, la de la pestaña Agenda de un artista concreto.
+    Máx. ~6 semanas por petición; el JS pide ventana a ventana y las cachea. Los colores por
+    artista los estabiliza el cliente."""
     try:
         start = parse_date(request.args.get("start") or "")
         end = parse_date(request.args.get("end") or "")
@@ -52120,7 +52123,14 @@ def home_agenda_data():
         return jsonify({"error": "Rango inválido."}), 400
     session_db = db()
     try:
-        return jsonify(_agenda_build(session_db, _home_agenda_target_ids(), start, end, today_local()))
+        target_ids = _home_agenda_target_ids()
+        artist_raw = (request.args.get("artist_id") or "").strip()
+        if artist_raw:
+            artist = session_db.get(Artist, _safe_uuid(artist_raw))
+            if not artist:
+                return jsonify({"error": "Artista no encontrado."}), 404
+            target_ids = [str(artist.id)]
+        return jsonify(_agenda_build(session_db, target_ids, start, end, today_local()))
     finally:
         session_db.close()
 

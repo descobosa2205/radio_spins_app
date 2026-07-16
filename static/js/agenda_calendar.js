@@ -141,16 +141,18 @@
     container.appendChild(bodyWrap);
 
     // ---------- Calendario ----------
-    // Inicio: 3 semanas navegables SIN límite temporal (las ventanas se cargan bajo demanda).
-    // Agenda del artista: 4 semanas navegables por meses dentro del rango cargado.
+    // Inicio (3 semanas) y agenda del artista (4 semanas, por meses): navegables SIN límite
+    // temporal — las ventanas fuera de lo cargado se piden bajo demanda a /agenda/inicio.json.
     var isArtist = (mode === 'artist');
     var HOME_STEP = 21; // días que salta cada flecha en Inicio (la ventana completa)
-    // En la agenda del artista se puede navegar también al pasado (hasta el inicio del rango cargado).
+    var artistId = data.artist_id || '';            // ficha: con él se piden más ventanas al servidor
+    var unlimited = !isArtist || !!artistId;        // sin artist_id (payload antiguo), se limita al rango cargado
+    // Límites SOLO para el modo limitado (ficha sin artist_id).
     var minStart = mondayOf(isArtist ? start : today);
     var maxStart = mondayOf(new Date(end.getTime() - 27 * 86400000));
     if (maxStart < minStart) maxStart = new Date(minStart);
     var winStart = mondayOf(today);
-    if (isArtist) {
+    if (isArtist && !unlimited) {
       if (winStart < minStart) winStart = new Date(minStart);
       if (winStart > maxStart) winStart = new Date(maxStart);
     }
@@ -162,8 +164,11 @@
     }
     function addMonths(d, n) { var x = new Date(d); x.setMonth(x.getMonth() + n); return x; }
 
-    // Ventanas del Inicio ya cargadas (clave = lunes ISO): la inicial viene embebida en la página;
-    // el resto se piden a /agenda/inicio.json al navegar y se cachean para volver sin recargar.
+    // Rango embebido en la página (ficha: ±6 meses; Inicio: la ventana inicial) y cobertura de los
+    // `acts` actuales: los días fuera de la cobertura se dimean (solo puede pasar en la ficha).
+    var baseActs = acts, baseStart = start, baseEnd = end;
+    var dataStart = start, dataEnd = end;
+    // Ventanas ya cargadas (clave = lunes ISO); se cachean para volver sin repetir peticiones.
     var winCache = {};
     if (!isArtist) winCache[iso(winStart)] = { activities: acts, artists: artists.slice(), kinds: kinds.slice() };
     var fetching = false;
@@ -187,24 +192,31 @@
       kinds.sort(function (x, y) { return KIND_ORDER.indexOf(x.key) - KIND_ORDER.indexOf(y.key); });
     }
 
-    function applyWindow(d) {
+    function applyWindow(d, ws, we) {
       acts = d.activities || [];
+      dataStart = ws; dataEnd = we;
       mergeLists(d);
       render();
     }
 
-    function loadHomeWindow() {
-      var key = iso(winStart);
-      if (winCache[key]) { fetching = false; applyWindow(winCache[key]); return; }
+    function loadWindow() {
+      var win = curWin(), ws = win[0], we = win[1];
+      // Ficha: si la ventana cae ENTERA dentro del rango embebido, se usa sin pedir nada.
+      if (isArtist && ws >= baseStart && we <= baseEnd) {
+        fetching = false; acts = baseActs; dataStart = baseStart; dataEnd = baseEnd; render(); return;
+      }
+      var key = iso(ws);
+      if (winCache[key]) { fetching = false; applyWindow(winCache[key], ws, we); return; }
       fetching = true;
       render(); // ventana con "Cargando…" y flechas desactivadas mientras llega
-      var until = iso(curWin()[1]);
-      fetch('/agenda/inicio.json?start=' + key + '&end=' + until, { noLoader: true, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      var url = '/agenda/inicio.json?start=' + key + '&end=' + iso(we) +
+                (artistId ? '&artist_id=' + encodeURIComponent(artistId) : '');
+      fetch(url, { noLoader: true, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
         .then(function (r) { if (!r.ok) throw new Error('http'); return r.json(); })
         .then(function (d) {
           winCache[key] = d;
           fetching = false;
-          if (iso(winStart) === key) applyWindow(d);
+          if (iso(winStart) === key) applyWindow(d, ws, we);
         })
         .catch(function () { fetching = false; render(); });
     }
@@ -213,16 +225,21 @@
       if (!isArtist) {
         var h = new Date(winStart); h.setDate(h.getDate() + dir * HOME_STEP);
         winStart = h;
-        loadHomeWindow();
+        loadWindow();
         return;
       }
       var d = mondayOf(addMonths(winStart, dir));
-      if (d < minStart) d = new Date(minStart);
-      if (d > maxStart) d = new Date(maxStart);
+      if (!unlimited) {
+        if (d < minStart) d = new Date(minStart);
+        if (d > maxStart) d = new Date(maxStart);
+        winStart = d;
+        render();
+        return;
+      }
       winStart = d;
-      render();
+      loadWindow();
     }
-    function goToday() { winStart = mondayOf(today); loadHomeWindow(); }
+    function goToday() { winStart = mondayOf(today); loadWindow(); }
 
     function makeChip(a) {
       // Bloqueos y notas no navegan: se pintan como <span>; el resto (eventos, cumpleaños) enlazan.
@@ -255,7 +272,7 @@
       var label = s.getDate() + ' ' + MONTHS[s.getMonth()] + ' – ' + e.getDate() + ' ' + MONTHS[e.getMonth()] + ' ' + e.getFullYear();
       nav.appendChild(el('span', 'agenda-cal__range', label));
       var arrows = el('div', 'agenda-cal__arrows');
-      if (!isArtist && iso(winStart) !== iso(mondayOf(today))) {
+      if (iso(winStart) !== iso(mondayOf(today))) {
         var hoy = el('button', 'agenda-nav-btn agenda-nav-btn--today', 'Hoy');
         hoy.type = 'button';
         hoy.setAttribute('aria-label', 'Volver a la semana actual');
@@ -267,9 +284,10 @@
       prev.type = 'button'; next.type = 'button';
       prev.setAttribute('aria-label', isArtist ? 'Mes anterior' : 'Semanas anteriores');
       next.setAttribute('aria-label', isArtist ? 'Mes siguiente' : 'Semanas siguientes');
-      // Inicio: SIN límite temporal (solo se bloquean mientras carga); ficha: dentro del rango cargado.
-      prev.disabled = isArtist ? (winStart <= minStart) : fetching;
-      next.disabled = isArtist ? (winStart >= maxStart) : fetching;
+      // SIN límite temporal (solo se bloquean mientras carga); único tope: ficha sin artist_id
+      // (payload antiguo), que se queda dentro del rango cargado.
+      prev.disabled = unlimited ? fetching : (winStart <= minStart);
+      next.disabled = unlimited ? fetching : (winStart >= maxStart);
       prev.addEventListener('click', function () { shift(-1); });
       next.addEventListener('click', function () { shift(1); });
       arrows.appendChild(prev); arrows.appendChild(next);
@@ -294,9 +312,9 @@
       while (cur <= gEnd) {
         var key = iso(cur);
         var cell = el('div', 'agenda-cal__day');
-        // Solo la ficha del artista dimea fuera del rango cargado; en Inicio la ventana visible
-        // coincide siempre con la cargada (se pide exactamente al navegar).
-        if (isArtist && (cur < start || cur > end)) cell.classList.add('is-out');
+        // Se dimean los días SIN datos cargados (solo puede pasar en la ficha, en los bordes del
+        // rango embebido); las ventanas pedidas al servidor cubren exactamente lo visible.
+        if (isArtist && (cur < dataStart || cur > dataEnd)) cell.classList.add('is-out');
         if (key === data.today) cell.classList.add('is-today');
         var label = cur.getDate() + ' ' + MONTHS[cur.getMonth()];
         cell.appendChild(el('div', 'agenda-cal__num', label));

@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% block content %}
 <div class="mb-2">
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('concerts_view', tab='vista') }}"><i class="fa fa-arrow-left me-1"></i>Volver</a>
+  <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('concerts_view', tab='vista') }}" title="Volver a conciertos" aria-label="Volver a conciertos"><i class="fa fa-arrow-left"></i></a>
 </div>
 <div class="ficha-hero">
   <img class="ficha-hero__media ficha-hero__media--round" src="{{ (concert.artist.photo_url if concert.artist else None) or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"{% if concert.artist %} data-artist-link="{{ concert.artist.id }}"{% endif %}>

@@ -1,5 +1,7 @@
 {% extends "layout.html" %}
 {% block content %}
+{# Botón «volver» homogéneo: solo flecha, gris, arriba a la izquierda. #}
+<div class="mb-2"><a class="btn btn-outline-secondary btn-volver" href="{{ url_for('venues_view') }}" title="Volver a recintos" aria-label="Volver a recintos"><i class="fa fa-arrow-left"></i></a></div>
 {% set venue_photo = venue.photo_url or DEFAULT_PHOTO_URL %}
 <div class="d-flex justify-content-between align-items-start gap-3 mb-4 flex-wrap">
   <div class="d-flex align-items-center gap-3">
@@ -15,7 +17,6 @@
     </div>
   </div>
   <div class="d-flex align-items-center gap-2">
-    <a class="btn btn-outline-secondary" href="{{ url_for('venues_view') }}">Volver a recintos</a>
     {% if CAN_EDIT_CATALOGS %}
       <div class="dropdown">
         <button class="btn btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-label="Acciones del recinto">

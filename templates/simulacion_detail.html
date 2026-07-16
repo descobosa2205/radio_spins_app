@@ -220,7 +220,7 @@
   <span class="text-muted small"><i class="fa fa-eye me-1"></i>Enlace de visualización: puedes consultar toda la simulación, sin editar nada.</span>
   <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('public_simulation_print', token=PUBLIC_TOKEN) }}" target="_blank" rel="noopener"><i class="fa fa-file-pdf me-1"></i>Imprimir / Guardar PDF</a>
   {% else %}
-  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('contracting_view', section='simulaciones') }}"><i class="fa fa-arrow-left me-1"></i>Volver a Simulaciones</a>
+  <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('contracting_view', section='simulaciones') }}" title="Volver a Simulaciones" aria-label="Volver a Simulaciones"><i class="fa fa-arrow-left"></i></a>
   <div class="d-flex gap-2">
     <div class="dropdown">
       <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown" aria-label="Acciones"><i class="fa fa-ellipsis-vertical"></i></button>

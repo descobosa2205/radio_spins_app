@@ -1974,6 +1974,11 @@ img[style*="width:"] { height: auto; }
 .vmap-canvas .vmap-dpop { position: absolute; top: .55rem; right: .55rem; z-index: 7; display: none; width: 224px; background: #fff; border: 2px solid var(--brand-accent); border-radius: .7rem; padding: .5rem .6rem; box-shadow: 0 8px 24px rgba(0,0,0,.18); }
 .vmap-dpop.show { display: block; }
 .vmap-dpop .vmap-dpop-row { display: flex; align-items: center; gap: .4rem; margin-top: .35rem; }
+/* Botón «VOLVER» homogéneo: SOLO la flecha ←, gris vaciado, siempre a la izquierda. */
+.btn-volver { display: inline-flex; align-items: center; justify-content: center; width: 2.4rem; min-width: 2.4rem; height: 2.15rem; padding: 0; color: #6b7683; border-color: #ced4da; }
+.btn-volver.btn-sm { width: 2.1rem; min-width: 2.1rem; height: 1.9rem; }
+.btn-volver:hover { color: #3c4450; background: #eef2f6; border-color: #ced4da; }
+.btn-volver i { font-size: .95em; }
 .vmap-dpop .vmap-dpop-row label { font-size: .72rem; color: #6b7683; flex: 0 0 54px; margin: 0; }
 .vmap-dpop .vmap-dpop-row .form-select-sm { font-size: .74rem; padding-top: .15rem; padding-bottom: .15rem; }
 .vmap-dpop .vmap-dpop-btns { display: flex; gap: .3rem; margin-top: .35rem; }

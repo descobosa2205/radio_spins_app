@@ -3,9 +3,7 @@
 
 <div class="d-flex align-items-start justify-content-between mb-3 flex-wrap gap-2">
   <div class="d-flex align-items-center gap-3 flex-wrap">
-    <a class="btn btn-outline-secondary" href="{{ url_for('sales_update_view', d=day.isoformat()) }}">
-      <i class="fa fa-arrow-left"></i> Volver a ventas
-    </a>
+    <a class="btn btn-outline-secondary btn-volver" href="{{ url_for('sales_update_view', d=day.isoformat()) }}" title="Volver a ventas" aria-label="Volver a ventas"><i class="fa fa-arrow-left"></i></a>
     <div>
       <div class="h5 mb-0"><i class="fa fa-chart-column me-2"></i>Reporte de ventas</div>
       <div class="text-muted small">Datos a {{ day.strftime('%d/%m/%Y') }} · Emitido el {{ emit_date.strftime('%d/%m/%Y') }}</div>

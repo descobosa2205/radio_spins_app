@@ -22,7 +22,7 @@
 {% set items_label = 'Artistas' if is_festival else 'Fechas' %}
 {% set logo = group.logo_url or (group.artist.photo_url if (is_tour and group.artist) else '') or (group.managing_company.logo_url if group.managing_company else '') or DEFAULT_PHOTO_URL %}
 
-<div class="mb-2"><a href="{{ back_url }}" class="btn btn-sm btn-outline-secondary"><i class="fa fa-arrow-left me-1"></i>Volver</a></div>
+<div class="mb-2"><a href="{{ back_url }}" class="btn btn-sm btn-outline-secondary btn-volver" title="Volver" aria-label="Volver"><i class="fa fa-arrow-left"></i></a></div>
 
 <div class="ficha-hero mb-3">
   <div class="ficha-hero__media"><img src="{{ logo }}" alt="" data-default-photo="1"></div>

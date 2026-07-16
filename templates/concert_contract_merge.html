@@ -5,7 +5,7 @@
     <h4 class="mb-0">Revisión de ficha de contratación</h4>
     <div class="text-muted small">Acepta la ficha y decide cómo resolver los campos en conflicto.</div>
   </div>
-  <a class="btn btn-outline-secondary" href="{{ url_for('concert_detail_view', cid=concert.id, tab='ficha') }}">Volver</a>
+  <a class="btn btn-outline-secondary btn-volver" href="{{ url_for('concert_detail_view', cid=concert.id, tab='ficha') }}" title="Volver al concierto" aria-label="Volver al concierto"><i class="fa fa-arrow-left"></i></a>
 </div>
 
 <form method="post" class="row g-3">

@@ -17,7 +17,7 @@
     <h1 class="h4 mt-2 mb-2">{{ title or 'Ha ocurrido un error' }}</h1>
     <p class="text-muted mb-4" style="max-width:520px;">{{ message or 'No se ha podido completar la operación.' }}</p>
     <div class="d-flex gap-2 flex-wrap justify-content-center">
-      <a href="{{ back_url or '#' }}" class="btn btn-primary" onclick="if(window.history.length>1){history.back();return false;}"><i class="fa fa-arrow-left me-1"></i>Volver</a>
+      <a href="{{ back_url or '#' }}" class="btn btn-outline-secondary btn-volver" onclick="if(window.history.length>1){history.back();return false;}" title="Volver" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
       <a href="{{ url_for('home') }}" class="btn btn-outline-secondary"><i class="fa fa-house me-1"></i>Ir al inicio</a>
     </div>
   </div>

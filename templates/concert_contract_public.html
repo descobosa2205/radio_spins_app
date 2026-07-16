@@ -122,7 +122,7 @@
         </div>
       </div>
       <div class="card-footer d-flex justify-content-end gap-2">
-        {% if not public_mode %}<a class="btn btn-outline-secondary" href="{{ url_for('concert_detail_view', cid=concert.id, tab='ficha') }}">Volver</a>{% endif %}
+        {% if not public_mode %}<a class="btn btn-outline-secondary btn-volver" href="{{ url_for('concert_detail_view', cid=concert.id, tab='ficha') }}" title="Volver al concierto" aria-label="Volver al concierto"><i class="fa fa-arrow-left"></i></a>{% endif %}
         {% if can_submit or not public_mode %}<button class="btn btn-primary">{% if admin_mode %}Guardar cambios{% else %}Enviar ficha{% endif %}</button>{% endif %}
       </div>
     </form>

@@ -95,7 +95,7 @@
 <body>
 <div class="toolbar">
   {# En el enlace público NO hay «Volver»: llevaría al back office (login). Solo imprimir. #}
-  {% if not public %}<a href="{{ url_for('simulation_detail_view', sid=sim.id) }}">← Volver</a>{% endif %}
+  {% if not public %}<a href="{{ url_for('simulation_detail_view', sid=sim.id) }}" title="Volver a la simulación" aria-label="Volver a la simulación">←</a>{% endif %}
   <button class="primary" onclick="window.print()">🖨️ Imprimir / Guardar PDF</button>
 </div>
 

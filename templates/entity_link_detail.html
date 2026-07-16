@@ -1,5 +1,7 @@
 {% extends "layout.html" %}
 {% block content %}
+{# Botón «volver» homogéneo: solo flecha, gris, arriba a la izquierda. #}
+<div class="mb-2"><a class="btn btn-outline-secondary btn-volver" href="{{ back_url }}" title="Volver" aria-label="Volver"><i class="fa fa-arrow-left"></i></a></div>
 <div class="card border-0 shadow-sm mb-4">
   <div class="card-body d-flex align-items-center gap-3 flex-wrap">
     <img src="{{ item_photo_url or DEFAULT_PHOTO_URL }}" alt="{{ item_title }}" data-default-photo="1" style="width:92px;height:92px;border-radius:22px;object-fit:contain;background:#f8f9fa;border:1px solid #e5e7eb;">
@@ -8,7 +10,6 @@
       <h3 class="mb-1 text-truncate">{{ item_title }}</h3>
       <div class="text-muted text-truncate">{{ item_subtitle }}</div>
     </div>
-    <a class="btn btn-outline-secondary" href="{{ back_url }}">Volver</a>
   </div>
 </div>
 

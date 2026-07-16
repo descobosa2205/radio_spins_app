@@ -1974,7 +1974,8 @@ img[style*="width:"] { height: auto; }
 .vmap-canvas .vmap-dpop { position: absolute; top: .55rem; right: .55rem; z-index: 7; display: none; width: 224px; background: #fff; border: 2px solid var(--brand-accent); border-radius: .7rem; padding: .5rem .6rem; box-shadow: 0 8px 24px rgba(0,0,0,.18); }
 .vmap-dpop.show { display: block; }
 .vmap-dpop .vmap-dpop-row { display: flex; align-items: center; gap: .4rem; margin-top: .35rem; }
-.vmap-dpop .vmap-dpop-row label { font-size: .72rem; color: #6b7683; flex: 0 0 48px; margin: 0; }
+.vmap-dpop .vmap-dpop-row label { font-size: .72rem; color: #6b7683; flex: 0 0 54px; margin: 0; }
+.vmap-dpop .vmap-dpop-row .form-select-sm { font-size: .74rem; padding-top: .15rem; padding-bottom: .15rem; }
 .vmap-dpop .vmap-dpop-btns { display: flex; gap: .3rem; margin-top: .35rem; }
 .vmap-dpop .vmap-dpop-btns .btn { flex: 1 1 0; padding: .15rem .2rem; font-size: .72rem; }
 .vmap-cat.drop-hint { border-color: #e0a800; box-shadow: 0 0 0 .18rem rgba(224,168,0,.25); background: #fff9e6; }
@@ -1986,6 +1987,30 @@ img[style*="width:"] { height: auto; }
 .vmap-canvas .vmap-ctrls button { width: 2.15rem; height: 2.15rem; border: 0; background: #fff; color: #49515d; font-size: .95rem; line-height: 1; display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
 /* Modo MANO (desplazarse sin tocar piezas): botón activo en rojo + cursor de agarre. */
 .vmap-canvas .vmap-ctrls button.on { background: var(--brand-primary, #E33D48); color: #fff; }
+/* Barra superior de AÑADIR piezas (iconos en fila + grupos desplegables). */
+.vmap-addbar { display: flex; align-items: stretch; gap: .25rem; flex-wrap: wrap; background: #fff; border: 1px solid #e2e7ee; border-radius: .6rem; padding: .3rem .4rem; margin-bottom: .5rem; position: relative; z-index: 8; }
+.vmap-addbtn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .18rem; min-width: 58px; padding: .32rem .5rem; border: 1px solid transparent; border-radius: .5rem; background: transparent; color: #49515d; font-size: .68rem; line-height: 1.05; cursor: pointer; }
+.vmap-addbtn i { font-size: .95rem; color: var(--brand-accent); }
+.vmap-addbtn span i { font-size: .6rem; color: inherit; }
+.vmap-addbtn:hover { background: #eef3f8; border-color: #dbe4ee; }
+.vmap-addbtn.on { background: var(--brand-primary, #E33D48); color: #fff; }
+.vmap-addbtn.on i { color: #fff; }
+.vmap-addsep { width: 1px; background: #e2e7ee; margin: .2rem .15rem; }
+.vmap-addgroup { position: relative; display: flex; }
+.vmap-addmenu { display: none; position: absolute; top: 100%; left: 0; z-index: 40; background: #fff; border: 1px solid #e2e7ee; border-radius: .55rem; box-shadow: 0 8px 24px rgba(16,24,40,.16); padding: .3rem; min-width: 190px; }
+.vmap-addgroup.open .vmap-addmenu { display: block; }
+.vmap-addgroup.open > .vmap-addbtn { background: #eef3f8; }
+.vmap-addmenu button { display: flex; align-items: center; gap: .5rem; width: 100%; border: 0; background: transparent; padding: .38rem .5rem; border-radius: .4rem; font-size: .8rem; color: #3c4450; cursor: pointer; text-align: left; }
+.vmap-addmenu button:hover { background: #eef3f8; }
+.vmap-addmenu button i { width: 1.05rem; text-align: center; color: var(--brand-accent); }
+/* Pantalla completa: el host es flex-columna y el lienzo estira a todo el alto disponible. */
+.vmap-fs { display: flex; flex-direction: column; background: #fff; padding: .6rem .8rem; overflow: auto; }
+.vmap-fs .vmap-body { flex: 1 1 auto; min-height: 0; }
+.vmap-fs .vmap-canvas { height: auto; min-height: 0; }
+.vmap-fs .vmap-side { max-height: none; overflow-y: auto; }
+/* Modo «maximizado» propio (cuando el fullscreen nativo no está permitido): fijo a todo el viewport. */
+.vmap-max { position: fixed; inset: 0; z-index: 2050; margin: 0; }
+body.vmap-max-open { overflow: hidden; }
 .vmap-canvas svg.vmap-hand { cursor: grab !important; }
 .vmap-canvas svg.vmap-hand:active { cursor: grabbing !important; }
 .vmap-canvas .vmap-ctrl-group button + button { border-top: 1px solid #eceff3; }

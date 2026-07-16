@@ -85,6 +85,37 @@
           (canEdit && saveUrl ? '<button type="button" class="btn btn-sm btn-danger" data-vm-save><i class="fa fa-check me-1"></i>Guardar mapa</button>' : '') +
         '</div>' +
       '</div>' +
+      // Barra de AÑADIR piezas: en fila sobre el lienzo (iconos directos + grupos desplegables).
+      (canEdit ?
+      '<div class="vmap-addbar" data-vm-addbar>' +
+        '<button type="button" class="vmap-addbtn" data-add="grid" title="Grada recta de filas y columnas"><i class="fa fa-table-cells"></i><span>Grada</span></button>' +
+        '<button type="button" class="vmap-addbtn" data-add="arc" title="Grada curva (sector de anillo)"><i class="fa fa-circle-notch"></i><span>Curva</span></button>' +
+        '<button type="button" class="vmap-addbtn" data-add="draw" title="Actívalo y ARRASTRA en el plano: según arrastras se van añadiendo butacas y filas"><i class="fa fa-pen"></i><span>Dibujar</span></button>' +
+        '<button type="button" class="vmap-addbtn" data-add="box" title="Palco"><i class="fa fa-crown"></i><span>Palco</span></button>' +
+        '<button type="button" class="vmap-addbtn" data-add="floor" title="Zona de pie con aforo"><i class="fa fa-people-group"></i><span>De pie</span></button>' +
+        '<button type="button" class="vmap-addbtn" data-arm-seat title="Actívalo y pincha en el plano para ir poniendo butacas sueltas: junto a otras se ENCAJAN al patrón de su fila (mismo tamaño y orientación)"><i class="fa fa-chair"></i><span>Butaca</span></button>' +
+        '<span class="vmap-addsep"></span>' +
+        '<div class="vmap-addgroup"><button type="button" class="vmap-addbtn" data-addgroup><i class="fa fa-music"></i><span>Pista <i class="fa fa-caret-down"></i></span></button><div class="vmap-addmenu">' +
+          '<button type="button" data-add="stage"><i class="fa fa-square"></i>Escenario</button>' +
+          '<button type="button" data-add="catwalk"><i class="fa fa-grip-lines"></i>Pasarela</button>' +
+          '<button type="button" data-add="mix"><i class="fa fa-sliders"></i>Torre mix</button>' +
+          '<button type="button" data-add="delay"><i class="fa fa-tower-cell"></i>Torre delay</button>' +
+          '<button type="button" data-add="pmr"><i class="fa fa-wheelchair"></i>Plataforma PMR</button>' +
+          '<button type="button" data-add="pit"><i class="fa fa-camera"></i>Foso fotógrafos</button>' +
+        '</div></div>' +
+        '<div class="vmap-addgroup"><button type="button" class="vmap-addbtn" data-addgroup><i class="fa fa-store"></i><span>Servicios <i class="fa fa-caret-down"></i></span></button><div class="vmap-addmenu">' +
+          '<button type="button" data-add="wc"><i class="fa fa-restroom"></i>Baños</button>' +
+          '<button type="button" data-add="wc_pmr"><i class="fa fa-wheelchair"></i>Baños PMR</button>' +
+          '<button type="button" data-add="merch"><i class="fa fa-shirt"></i>Merchandising</button>' +
+          '<button type="button" data-add="bar"><i class="fa fa-martini-glass"></i>Barra</button>' +
+        '</div></div>' +
+        '<div class="vmap-addgroup"><button type="button" class="vmap-addbtn" data-addgroup><i class="fa fa-vector-square"></i><span>Recinto <i class="fa fa-caret-down"></i></span></button><div class="vmap-addmenu">' +
+          '<button type="button" data-add="outline"><i class="fa fa-vector-square"></i>Silueta del recinto</button>' +
+          '<button type="button" data-add="door"><i class="fa fa-door-open"></i>Puerta de acceso</button>' +
+          '<button type="button" data-add="stair"><i class="fa fa-stairs"></i>Escalera suelta</button>' +
+          '<button type="button" data-add="rail"><i class="fa fa-grip-lines"></i>Barandilla</button>' +
+        '</div></div>' +
+      '</div>' : '') +
       '<div class="vmap-body">' +
         '<div class="vmap-canvas">' +
         // Controles flotantes arriba a la IZQUIERDA (como en los mapas): zoom +/−, girar el plano
@@ -104,6 +135,9 @@
           '</div>' +
           '<div class="vmap-ctrl-group">' +
             '<button type="button" data-vm-hand title="Mano: arrastra para DESPLAZARTE por el plano sin mover ninguna pieza (también manteniendo la barra espaciadora o con el botón central del ratón). La rueda/los dos dedos desplazan; el zoom, con pellizco o Ctrl/Cmd + rueda."><i class="fa fa-hand"></i></button>' +
+          '</div>' +
+          '<div class="vmap-ctrl-group">' +
+            '<button type="button" data-vm-full title="Pantalla completa (usar toda la pantalla para el diseñador)"><i class="fa fa-up-right-and-down-left-from-center"></i></button>' +
           '</div>' +
           (canEdit ? '<div class="vmap-ctrl-group"><button type="button" class="vmap-undo" data-vm-undo title="Deshacer lo último (Ctrl+Z)" disabled><i class="fa fa-rotate-left"></i></button></div>' : '') +
         '</div>' +
@@ -132,7 +166,10 @@
             '<button type="button" class="vmap-selpop-x" data-dpop-clear title="Vaciar selección">✕</button></div>' +
             '<div class="vmap-selpop-hint" data-dpop-blocks></div>' +
             '<div class="vmap-dpop-row"><label>Sector</label><input type="text" class="form-control form-control-sm" data-dpop-name placeholder="Grada, Palco 3…" title="Escribe para cambiar el sector de TODAS las seleccionadas"></div>' +
-            '<div class="vmap-dpop-row"><label>Fila nº</label><input type="text" inputmode="numeric" class="form-control form-control-sm" data-dpop-row title="Escribe para cambiar el número de fila de TODAS las seleccionadas"></div>' +
+            '<div class="vmap-dpop-row"><label>Fila</label><input type="text" class="form-control form-control-sm" data-dpop-row placeholder="1, 2… o A, B…" title="Número O LETRA de fila: la fila de las seleccionadas pasa a llamarse así (el resto de la sección sigue en orden)"></div>' +
+            '<div class="vmap-dpop-row"><label>Nº inicial</label><input type="text" inputmode="numeric" class="form-control form-control-sm" data-dpop-numstart placeholder="1" title="Primer número de asiento de cada fila del sector"></div>' +
+            '<div class="vmap-dpop-row"><label>Sentido</label><select class="form-select form-select-sm" data-dpop-numdir title="Sentido de la numeración de asientos del sector"><option value="">—</option><option value="ltr">Izq → der</option><option value="rtl">Der → izq</option></select></div>' +
+            '<div class="vmap-dpop-row"><label>Números</label><select class="form-select form-select-sm" data-dpop-nummode title="Numeración consecutiva o solo pares/impares"><option value="">—</option><option value="seq">Consecutivos (1,2,3…)</option><option value="odd">Solo impares (1,3,5…)</option><option value="even">Solo pares (2,4,6…)</option></select></div>' +
             '<div class="vmap-dpop-row d-none" data-dpop-seatrow><label>Nº asiento</label><input type="text" class="form-control form-control-sm" data-dpop-seatnum title="Número de ESTA butaca (vacío = volver al automático)"></div>' +
             '<div data-dpop-groupwrap>' +
               '<button type="button" class="btn btn-sm btn-danger w-100 mt-2" data-dpop-auto><i class="fa fa-object-group me-1"></i>Agrupar en bloques</button>' +
@@ -239,8 +276,10 @@
       return { start: st, step: step, mode: mode, dir: (n.dir==='rtl'?'rtl':'ltr') };
     }
     function rowLabelOf(s, rowIdx){
-      // «Primera fila» configurable: rowStart 3 → las filas se etiquetan 3,4,5… (o C,D,E… por letras).
-      var n = (parseInt(s.rowStart,10)||1) - 1 + rowIdx;
+      // «Primera fila» configurable: rowStart 3 → las filas se etiquetan 3,4,5… (o C,D,E… por
+      // letras). El 0 es un valor VÁLIDO (hay recintos con fila 0), no «ausente».
+      var st = parseInt(s.rowStart,10); if(isNaN(st)) st = 1;
+      var n = st - 1 + rowIdx;
       return (s.rowScheme==='alpha') ? alphaLabel(n) : String(n);
     }
     function modsOf(s, rowIdx){
@@ -535,9 +574,19 @@
           secRows(s).rows.forEach(function(row){ row.seats.forEach(function(p){
             if(p.state==='seat' && p.x>=x0 && p.x<=x1 && p.y>=y0 && p.y<=y1) dsel[s.id+'|'+row.rowIdx+'|'+p.slot]=1;
           }); });
+        } else if(s.kind==='floor'){
+          var bbF=bboxOf(s), fcx=bbF.x+bbF.w/2, fcy=bbF.y+bbF.h/2;
+          if(fcx>=x0 && fcx<=x1 && fcy>=y0 && fcy<=y1) dselO[s.id]=1;
         } else {
-          var bb=bboxOf(s), ccx=bb.x+bb.w/2, ccy=bb.y+bb.h/2;
-          if(ccx>=x0 && ccx<=x1 && ccy>=y0 && ccy<=y1) dselO[s.id]=1;
+          // GRADAS: envuelta ENTERA en el recuadro → como objeto (moverla); tocada en PARTE →
+          // se seleccionan sus BUTACAS de dentro (para configurar fila/numeración).
+          var bb=bboxOf(s);
+          if(bb.x>=x0 && bb.y>=y0 && bb.x+bb.w<=x1 && bb.y+bb.h<=y1){ dselO[s.id]=1; }
+          else if(!(bb.x>x1 || bb.y>y1 || bb.x+bb.w<x0 || bb.y+bb.h<y0)){
+            secRows(s).rows.forEach(function(row){ row.seats.forEach(function(p){
+              if(p.state==='seat' && p.x>=x0 && p.x<=x1 && p.y>=y0 && p.y<=y1) dsel[s.id+'|'+row.rowIdx+'|'+p.slot]=1;
+            }); });
+          }
         }
       });
       elements.forEach(function(el){ if(el.type==='bgimage') return; if(el.x>=x0 && el.x<=x1 && el.y>=y0 && el.y<=y1) dselO[el.id]=1; });
@@ -670,6 +719,9 @@
     // o 'auto' (un bloque por cada grupo CONTIGUO). opts: {name, rowStart} desde el popup de selección.
     function groupSelectedSeats(kindArg, opts){
       var dk=dselKeys(); if(!dk.length) return;
+      // Solo hay algo que agrupar si la selección tiene butacas SUELTAS ('points'): sin esto, el
+      // pushUndo quedaría huérfano (un Ctrl+Z «que no hace nada») con butacas de grada.
+      if(!dk.some(function(k){ var sc=sections.find(function(x){return x.id===k.split('|')[0];}); return sc && sc.kind==='points'; })) return;
       pushUndo('group');
       var srcPitch=dselPitch();   // ANTES de extraer (después la selección ya no existe)
       var pts=extractSelectedSeatPoints();
@@ -804,7 +856,21 @@
           var gP=['<g data-sec="'+s.id+'" style="cursor:pointer">'];
           // Marco «dorado» de PALCO para los grupos marcados como palco (agrupados «en palco»).
           if(s.box){ var pb=geoP.bbox; gP.push('<rect x="'+(pb.x-pit*.2)+'" y="'+(pb.y-pit*.2)+'" width="'+(pb.w+pit*.4)+'" height="'+(pb.h+pit*.4)+'" rx="'+(pit*1.1)+'" style="fill:#fbf6ec;stroke:#b08d4a;stroke-width:'+Math.max(2.5, pit*.14)+';pointer-events:none"/>'); }
-          if(mode==='design' && canEdit){ gP.push('<rect x="'+geoP.bbox.x+'" y="'+geoP.bbox.y+'" width="'+geoP.bbox.w+'" height="'+geoP.bbox.h+'" rx="'+pit+'" style="fill:rgba(0,0,0,0.001)'+selCss+'"/>'); }
+          // La zona CLICABLE del grupo son SOLO sus butacas: bandas estrechas por fila (como el
+          // LOD medio de las gradas), nada de bbox invisible que tape butacas de otros bloques
+          // cercanos. El marco punteado de selección es solo visual (no captura clics).
+          if(mode==='design' && canEdit){
+            if(isSel) gP.push('<rect x="'+geoP.bbox.x+'" y="'+geoP.bbox.y+'" width="'+geoP.bbox.w+'" height="'+geoP.bbox.h+'" rx="'+pit+'" style="fill:none;pointer-events:none'+selCss+'"/>');
+            geoP.rows.forEach(function(row){
+              if(!row.seats.length) return;
+              // Filas de 1 butaca (columnas verticales): trazo de longitud ~0 con remate redondo
+              // = disco de agarre bajo la butaca (el grupo sigue teniendo dónde cogerse).
+              var dHit = row.seats.length>=2
+                ? 'M'+row.seats.map(function(p){ return p.x+' '+p.y; }).join(' L')
+                : 'M'+row.seats[0].x+' '+row.seats[0].y+' L'+(row.seats[0].x+0.01)+' '+row.seats[0].y;
+              gP.push('<path d="'+dHit+'" style="fill:none;stroke:#fff;stroke-opacity:0.01;stroke-width:'+(pit*1.05)+';stroke-linecap:round"/>');
+            });
+          }
           geoP.rows.forEach(function(row){
             if(showRL && row.seats[0]){ var f0=row.seats[0], cr4=Math.cos((s.rot||0)*R), sr4=Math.sin((s.rot||0)*R);
               gP.push('<text x="'+(f0.x-1.4*pit*cr4)+'" y="'+(f0.y-1.4*pit*sr4)+'" text-anchor="middle" dominant-baseline="middle" style="font:700 '+(szP*.42)+'px system-ui;fill:#9aa3af">'+esc(row.label)+'</text>'); }
@@ -898,7 +964,7 @@
             row.seats.forEach(function(p){
               if(p.state==='stair' || p.state==='gap'){ cur=null; return; }
               var kSel = s.id+'|'+row.rowIdx+'|'+p.slot;
-              var col = sel[kSel] ? '#e0a800' : ((p.state==='off') ? '#d7dbe2' : (catColor(kSel) || '#c3ccd6'));
+              var col = (sel[kSel] || (mode==='design' && dsel[kSel])) ? '#e0a800' : ((p.state==='off') ? '#d7dbe2' : (catColor(kSel) || '#c3ccd6'));
               if(cur && cur.col===col){ cur.pts.push(p); } else { cur={col:col, pts:[p]}; runs.push(cur); }
             });
             runs.forEach(function(run){
@@ -953,7 +1019,7 @@
               var fill = isOff ? '#d7dbe2' : (col ? col+'22' : '#effaf2');
               var stroke = isOff ? '#c3c9d2' : (col || '#cfe4d6');
               var ink = isOff ? '#7b838f' : (col || '#16803a');
-              if(sel[key]){ fill='#ffdf7e'; stroke='#e0a800'; ink='#7a5b00'; }   // seleccionada (staging)
+              if(sel[key] || (mode==='design' && dsel[key])){ fill='#ffdf7e'; stroke='#e0a800'; ink='#7a5b00'; }   // seleccionada (staging o diseño)
               g2.push('<g data-seat="'+key+'" data-kind="'+p.state+'" data-n="'+(p.n!=null?p.n:'')+'" data-frac="'+p.frac.toFixed(4)+'" transform="translate('+p.x+' '+p.y+') rotate('+p.a.toFixed(1)+')" style="cursor:pointer">'+
                 '<rect x="'+(-half)+'" y="'+(-half)+'" width="'+size+'" height="'+size+'" rx="'+(size*.24)+'" style="fill:'+fill+';stroke:'+stroke+';stroke-width:'+(size*.05)+'"/>'+
                 '<use href="#vmSeatIcon" x="'+(-size*.30)+'" y="'+(-size*.34)+'" width="'+(size*.6)+'" height="'+(size*.45)+'" style="fill:'+ink+'"/>'+
@@ -1084,38 +1150,16 @@
       var html = '';
       if(mode==='design'){
         if(!sections.length && !elements.length){
-          html += '<h6 class="vmap-h">Empezar con plantilla</h6><div class="vmap-tools">'+
+          html += '<h6 class="vmap-h"><i class="fa fa-shapes me-1"></i>Empezar con plantilla</h6><div class="vmap-tools">'+
             '<button type="button" class="btn btn-sm btn-outline-danger" data-tpl="plaza">Plaza de toros</button>'+
             '<button type="button" class="btn btn-sm btn-outline-danger" data-tpl="arena">Arena (rectangular)</button>'+
             '<button type="button" class="btn btn-sm btn-outline-danger" data-tpl="teatro">Teatro (abanico)</button></div>';
         }
-        html += '<h6 class="vmap-h">Gradas y zonas</h6><div class="vmap-tools">'+
-          '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="arc">+ Grada curva</button>'+
-          '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="grid">+ Grada recta</button>'+
-          '<button type="button" class="btn btn-sm '+(drawArm?'btn-primary':'btn-outline-secondary')+'" data-add="draw" title="Actívalo y ARRASTRA en el plano: según arrastras se van añadiendo butacas y filas">✏ Dibujar grada</button>'+
-          '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="box">+ Palco</button>'+
-          '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="floor">+ Zona de pie</button>'+
-          '<button type="button" class="btn btn-sm '+(seatArm?'btn-primary':'btn-outline-secondary')+'" data-arm-seat title="Actívalo y pincha en el plano para ir poniendo butacas. Las que pongas SEGUIDAS y juntas se agrupan como una fila y heredan la orientación de la anterior (gírala con el círculo y las siguientes salen igual); si pinchas lejos, empieza un grupo nuevo que se mueve por separado. Con Mayús seleccionas varias para mover/orientar en bloque.">'+(seatArm?'Pincha para poner…':'🪑 Butaca suelta')+'</button></div>';
-        html += '<h6 class="vmap-h">Pista</h6><div class="vmap-tools">'+
-          '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="stage">+ Escenario</button>'+
-          '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="catwalk">+ Pasarela</button>'+
-          '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="mix">+ Torre mix</button>'+
-          '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="delay">+ Torre delay</button>'+
-          '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="pmr">+ Plataforma PMR</button>'+
-          '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="pit">+ Foso fotógrafos</button></div>';
-        html += '<h6 class="vmap-h">Servicios</h6><div class="vmap-tools">'+
-          '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="wc">+ Baños</button>'+
-          '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="wc_pmr">+ Baños PMR</button>'+
-          '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="merch">+ Merchandising</button>'+
-          '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="bar">+ Barra</button></div>';
-        html += '<h6 class="vmap-h">Recinto</h6><div class="vmap-tools">'+
-          '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="outline">+ Silueta del recinto</button>'+
-          '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="door">+ Puerta de acceso</button>'+
-          '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="stair">+ Escalera suelta</button>'+
-          '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="rail">+ Barandilla</button></div>';
+        // Los botones de AÑADIR piezas viven en la barra horizontal de ARRIBA del lienzo
+        // (data-vm-addbar): el panel queda para plano de fondo, herramientas y parámetros.
         // Plano de fondo (imagen subida): capa-guía para calcar el recinto encima.
         var bgE = elements.find(function(x){ return x.type==='bgimage' && x.url; });
-        html += '<h6 class="vmap-h">Plano de fondo</h6>';
+        html += '<h6 class="vmap-h"><i class="fa fa-image me-1"></i>Plano de fondo</h6>';
         if(!bgE){
           html += '<div class="vmap-tools"><button type="button" class="btn btn-sm btn-outline-secondary" data-bg-upload><i class="fa fa-image me-1"></i>Subir plano</button></div>'+
             '<p class="text-muted small mb-0">Sube una imagen del plano para calcar el recinto encima (gradas, sectores…).</p>';
@@ -1133,13 +1177,15 @@
               (lastSample?'<button type="button" class="btn btn-sm btn-outline-secondary" data-bg-redetect>Volver a detectar</button>':'')+'</div>'+
             '<div class="vmap-param"><label>Sensibilidad</label><input type="range" class="form-range" min="20" max="140" step="5" value="'+detectTol+'" data-detect-tol></div>';
         }
-        // SELECCIÓN MÚLTIPLE por recuadro: mover / eliminar / agrupar en conjunto.
-        html += '<h6 class="vmap-h">Selección</h6><div class="vmap-tools">'+
-          '<button type="button" class="btn btn-sm '+(tool==='select'?'btn-primary':'btn-outline-secondary')+'" data-tool="select" title="Arrastra un recuadro por el plano para seleccionar varias butacas sueltas o varios elementos; luego arrastra uno para mover el conjunto o pulsa Supr para eliminarlos. Mayús para ir añadiendo.">⛶ Seleccionar (recuadro)</button></div>';
+        // HERRAMIENTAS: seleccionar (recuadro) + retoques por butaca, en una sola fila de chips.
+        html += '<h6 class="vmap-h"><i class="fa fa-wand-magic-sparkles me-1"></i>Herramientas <i class="fa fa-circle-info text-muted" title="Seleccionar: arrastra un recuadro (Mayús añade); Supr borra lo seleccionado. Hueco = no existe la butaca; Apagada = existe pero no se ofrece; Escalera = corte vertical; Pasillo = hueco horizontal entre filas; № = cambiar el número de una butaca (o varias, barriéndolas). Pincha un retoque ya puesto para quitarlo."></i></h6>'+
+          '<div class="vmap-tools" data-tool-chips>'+
+          toolChip('select','⛶','Seleccionar')+
+          toolChip('gap','▢','Hueco')+toolChip('off','◼','Apagada')+toolChip('stair','☰','Escalera')+toolChip('rowsep','═','Pasillo')+toolChip('renum','№','Número')+'</div>';
         var nSeatsSel=dselKeys().length, nObjSel=dselOkeys().length;
         if(nSeatsSel || nObjSel){
-          html += '<p class="text-muted small mb-1 mt-1">Seleccionado: '+(nSeatsSel?nSeatsSel+' butaca'+(nSeatsSel===1?'':'s'):'')+(nSeatsSel&&nObjSel?' · ':'')+(nObjSel?nObjSel+' elemento'+(nObjSel===1?'':'s'):'')+'. Arrastra uno para mover el conjunto; Supr para eliminar.'+(nSeatsSel>=2?' En la tarjeta de la DERECHA del plano puedes agruparlas en bloques y ponerles sector y fila.':'')+'</p>';
-          if(nSeatsSel>=2){
+          html += '<p class="text-muted small mb-1 mt-1">Seleccionado: '+(nSeatsSel?nSeatsSel+' butaca'+(nSeatsSel===1?'':'s'):'')+(nSeatsSel&&nObjSel?' · ':'')+(nObjSel?nObjSel+' elemento'+(nObjSel===1?'':'s'):'')+'. Arrastra uno para mover el conjunto; Supr (o «Eliminar selección») borra todo lo seleccionado.'+(nSeatsSel>=2?' En la tarjeta de la DERECHA del plano puedes agruparlas y ponerles sector, fila y numeración.':'')+'</p>';
+          if(nSeatsSel>=2 && dselInfo().allPoints){
             html += '<div class="vmap-tools"><span class="text-muted small" style="align-self:center;margin-right:.2rem">Agrupar butacas:</span>'+
               '<button type="button" class="btn btn-sm btn-outline-secondary" data-group="row">en fila</button>'+
               '<button type="button" class="btn btn-sm btn-outline-secondary" data-group="box">en palco</button>'+
@@ -1147,14 +1193,11 @@
           }
           html += '<div class="vmap-tools"><button type="button" class="btn btn-sm btn-outline-danger" data-del-multi><i class="fa fa-trash me-1"></i>Eliminar selección</button></div>';
         }
-        html += '<h6 class="vmap-h">Retoques por butaca <i class="fa fa-circle-info text-muted" title="Activa una herramienta y pincha una butaca del plano (acércate hasta ver las butacas). Hueco = no existe la butaca; Apagada = existe pero no se ofrece; Escalera = corte vertical que parte el sector; Pasillo = hueco HORIZONTAL entre esa fila y la siguiente; № = cambiar el número de una butaca (o de varias seguidas, barriéndolas). Pincha un retoque ya puesto para quitarlo."></i></h6>'+
-          '<div class="vmap-tools" data-tool-chips>'+
-          toolChip('gap','▢','Hueco')+toolChip('off','◼','Apagada')+toolChip('stair','☰','Escalera')+toolChip('rowsep','═','Pasillo')+toolChip('renum','№','Número')+'</div>';
 
         var s = sections.find(function(x){return x.id===selId;});
         var el = elements.find(function(x){return x.id===selId;});
         if(s){
-          html += '<h6 class="vmap-h">Sección: '+esc(s.name||'')+'</h6>';
+          html += '<h6 class="vmap-h"><i class="fa fa-sliders me-1"></i>Sección: '+esc(s.name||'')+'</h6>';
           html += '<div class="vmap-param"><label>Nombre</label><input type="text" class="form-control form-control-sm" data-p="name" value="'+esc(s.name||'')+'"></div>';
           if(s.kind!=='floor'){
             html += '<div class="vmap-param"><label>Alias <i class="fa fa-circle-info text-muted" title="Otros nombres con los que las ticketeras llaman a este sector en los PDF (separados por comas)."></i></label><input type="text" class="form-control form-control-sm" data-p="aliases" value="'+esc(s.aliases||'')+'" placeholder="201, SECTOR 201"></div>';
@@ -1196,7 +1239,7 @@
             '<button type="button" class="btn btn-sm btn-outline-danger" data-act="del">Eliminar</button></div>';
           if(s.kind!=='floor') html += '<p class="text-muted small mt-2 mb-0">Butacas de esta sección: <b>'+seatCount(s).toLocaleString('es-ES')+'</b></p>';
         } else if(el){
-          html += '<h6 class="vmap-h">Elemento: '+esc(el.label|| (el.type==='outline'?'Silueta del recinto':''))+'</h6>';
+          html += '<h6 class="vmap-h"><i class="fa fa-sliders me-1"></i>Elemento: '+esc(el.label|| (el.type==='outline'?'Silueta del recinto':''))+'</h6>';
           if(el.type!=='outline') html += '<div class="vmap-param"><label>Etiqueta</label><input type="text" class="form-control form-control-sm" data-p="label" value="'+esc(el.label||'')+'"></div>';
           html += slider('Ancho','w',30,4000,5,el.w||100) + slider('Alto','h',8,4000,5,el.h||100)
                 + slider('Rotación','rot',-180,180,1,el.rot||0,'°');
@@ -1210,7 +1253,7 @@
             '<button type="button" class="btn btn-sm btn-outline-secondary" data-act="back">⬇ Al fondo</button>'+
             '<button type="button" class="btn btn-sm btn-outline-danger" data-act="del">Eliminar</button></div>';
         } else {
-          html += '<h6 class="vmap-h">Sección</h6><p class="text-muted small mb-0">Pincha un sector o elemento del plano para editar sus parámetros. Arrástralo para moverlo. Los sectores se pueden SUPERPONER (el imán se apaga al solaparlos): usa «Al frente / Al fondo» para decidir cuál queda encima.</p>';
+          html += '<h6 class="vmap-h"><i class="fa fa-sliders me-1"></i>Sección</h6><p class="text-muted small mb-0">Añade gradas y elementos desde la barra de ARRIBA del plano. Pincha una pieza para editar aquí sus parámetros y arrástrala para moverla. Los sectores se pueden superponer: «Al frente / Al fondo» decide cuál queda encima.</p>';
         }
       } else {
         /* -------- modo Categorías -------- */
@@ -1229,6 +1272,12 @@
         html += '<p class="text-muted small mt-2 mb-0"><b>Seleccionar</b>: pincha o barre butacas (de lejos, el sector entero) y verás el TOTAL en una tarjeta flotante: arrástrala hasta una categoría (o pincha una) para asignarlas. <b>Pintar</b>: aplica la categoría activa directamente. <b>Contar</b>: solo muestra cuántas abarcas. <b>Quitar</b>: libera.</p>';
       }
       side.innerHTML = html;
+      // Barra de añadir de ARRIBA: solo en modo diseño; refleja los modos armados (Dibujar/Butaca).
+      if(addbar){
+        addbar.style.display = (mode==='design') ? '' : 'none';
+        var abD=addbar.querySelector('[data-add="draw"]'); if(abD) abD.classList.toggle('on', drawArm);
+        var abS=addbar.querySelector('[data-arm-seat]'); if(abS) abS.classList.toggle('on', seatArm);
+      }
       if(mode==='cats') renderSummaryCounts();
       updateDPop();   // el popup de selección de diseño sigue SIEMPRE al estado actual de dsel
     }
@@ -1265,9 +1314,9 @@
       if(!canEdit){ h.innerHTML = 'Arrastra o usa la rueda/dos dedos para desplazarte; pellizco o Ctrl/Cmd + rueda para hacer zoom: de lejos verás los sectores y, al acercarte, cada butaca con su número.'; return; }
       if(detectArm){ h.innerHTML = '<b>Detectar asientos:</b> pincha en el CENTRO de un asiento de ejemplo del plano subido. Se detectarán todos los parecidos.'; return; }
       if(seatArm){ h.innerHTML = '<b>Butaca suelta:</b> pincha en el plano para ir poniendo butacas: junto a otras se ENCAJAN solas al patrón de su fila (mismo tamaño y orientación, sin montarse) y pinchando un HUECO lo rellenas. Luego puedes moverlas o girarlas; con Mayús seleccionas varias.'; return; }
-      if(tool==='select'){ h.innerHTML = '<b>Seleccionar:</b> arrastra un recuadro por el plano para marcar varias butacas sueltas o varios elementos. Arrastra uno de ellos para mover el conjunto, pulsa Supr para eliminarlos, o agrúpalos (fila/palco/sector) desde el panel. Mayús para ir añadiendo.'; return; }
+      if(tool==='select'){ h.innerHTML = '<b>Seleccionar:</b> arrastra un recuadro para marcar butacas (sueltas o de una grada) o elementos; una grada envuelta ENTERA se marca como pieza (moverla), tocada en parte se marcan sus butacas (configurar fila y numeración en el panel). Mayús para ir añadiendo.'; return; }
       h.innerHTML = mode==='design'
-        ? '<b>Diseñar:</b> pincha un sector para editar sus parámetros y arrástralo para moverlo. Con una herramienta de retoque activa (Hueco/Apagada/Escalera), acércate y pincha butacas para aplicarla. Rueda desplaza; pellizco o Ctrl/Cmd + rueda hace zoom.'
+        ? '<b>Diseñar:</b> pincha una BUTACA de una grada para configurarla (fila, numeración; Mayús añade) y ARRASTRA desde ella para mover el sector. Con una herramienta de retoque activa (Hueco/Apagada/Escalera), pincha butacas para aplicarla. Rueda desplaza; pellizco o Ctrl/Cmd + rueda hace zoom.'
         : '<b>Categorías:</b> selecciona butacas (clic, barrido o el sector entero de lejos) y verás el total en una tarjeta flotante: arrástrala hasta una categoría (o pincha una) para asignarlas. «Pintar» aplica directo; «Contar» solo cuenta.';
     }
 
@@ -1606,7 +1655,27 @@
       inp.click();
     }
 
-    if(side) side.addEventListener('click', function(e){
+    // El MISMO handler sirve para el panel lateral y para la barra de añadir de arriba
+    // (los botones comparten los data-add / data-arm-seat / data-tool…).
+    var addbar = host.querySelector('[data-vm-addbar]');
+    function designPanelClick(e){
+      // Grupos desplegables de la barra (Pista/Servicios/Recinto): abrir/cerrar.
+      var grpBtn = e.target.closest('[data-addgroup]');
+      if(grpBtn){
+        var grp=grpBtn.parentElement, was=grp.classList.contains('open');
+        host.querySelectorAll('.vmap-addgroup.open').forEach(function(g){ g.classList.remove('open'); });
+        if(!was) grp.classList.add('open');
+        return;
+      }
+      host.querySelectorAll('.vmap-addgroup.open').forEach(function(g){ g.classList.remove('open'); });
+      sideClickBody(e);
+    }
+    if(side) side.addEventListener('click', designPanelClick);
+    if(addbar) addbar.addEventListener('click', designPanelClick);
+    document.addEventListener('click', function(e){
+      if(addbar && !addbar.contains(e.target)) host.querySelectorAll('.vmap-addgroup.open').forEach(function(g){ g.classList.remove('open'); });
+    });
+    function sideClickBody(e){
       if(e.target.closest('[data-bg-upload]')){ pickAndUploadBg(); return; }
       if(e.target.closest('[data-bg-lock]')){ var b1=elements.find(function(x){return x.type==='bgimage';}); if(b1){ pushUndo('bglock'); b1.locked=!b1.locked; if(b1.locked && selId===b1.id) selId=null; renderSide(); queueRender(); } return; }
       if(e.target.closest('[data-bg-remove]')){ var b2=elements.find(function(x){return x.type==='bgimage';}); var i2=b2?elements.indexOf(b2):-1; if(i2>=0){ pushUndo('bgdel'); elements.splice(i2,1); if(selId===b2.id) selId=null; renderSide(); queueRender(); } return; }
@@ -1714,7 +1783,7 @@
         }
         renderSide(); queueRender(); return;
       }
-    });
+    }
 
     /* ================= Orden de apilado (Al frente / Al fondo) =================
        Las piezas se pintan en el orden de su lista: la última queda ENCIMA. Así un sector de
@@ -1732,15 +1801,38 @@
 
     /* ================= Borrar la selección (botón Eliminar o tecla Supr) ================= */
     function deleteSelected(){
-      // Selección MÚLTIPLE (recuadro): borra las butacas sueltas Y los elementos/sectores marcados.
-      var dk=dselKeys(), dko=dselOkeys();
-      if(dk.length || dko.length){
+      // Selección MÚLTIPLE: borra TODO lo seleccionado a la vez — butacas sueltas (se eliminan),
+      // butacas de GRADA paramétrica (se convierten en HUECO, la grada es filas×columnas) y
+      // elementos/sectores marcados como objeto (se eliminan enteros).
+      var dkAll=dselKeys(), dko=dselOkeys();
+      var dk=[], gapBySec={};
+      dkAll.forEach(function(k){
+        var scD=sections.find(function(x){return x.id===k.split('|')[0];});
+        if(!scD) return;
+        if(scD.kind==='points') dk.push(k);
+        else if(scD.kind!=='floor'){ var pp=k.split('|'); (gapBySec[pp[0]]=gapBySec[pp[0]]||[]).push({row:+pp[1], slot:+pp[2]}); }
+      });
+      var nGapSecs=Object.keys(gapBySec).length;
+      if(dk.length || dko.length || nGapSecs){
         pushUndo('del-multi');
         var bySec={}; dk.forEach(function(k){ var pp=k.split('|'); (bySec[pp[0]]=bySec[pp[0]]||{})[(+pp[1])+'|'+(+pp[2])]=1; delete assign[k]; });
         Object.keys(bySec).forEach(function(secId){
           var sc=sections.find(function(x){return x.id===secId;});
           if(sc && sc.seats){ sc.seats=sc.seats.filter(function(t){ return !bySec[secId][(+t.row)+'|'+(+t.slot)]; });
             if(sc.loose && !sc.seats.length && dko.indexOf(sc.id)<0) dko.push(sc.id); invalidate(sc.id); }
+        });
+        // Butacas de GRADA: «eliminar» = ponerlas como HUECO (y liberar su asignación).
+        Object.keys(gapBySec).forEach(function(secId){
+          var sc=sections.find(function(x){return x.id===secId;}); if(!sc) return;
+          sc.mods = sc.mods || {};
+          gapBySec[secId].forEach(function(o){
+            var m = sc.mods[String(o.row)] = sc.mods[String(o.row)] || {gaps:[], off:[]};
+            m.gaps = m.gaps || []; m.off = m.off || [];
+            if(m.gaps.indexOf(o.slot)===-1) m.gaps.push(o.slot);
+            var oi=m.off.indexOf(o.slot); if(oi>=0) m.off.splice(oi,1);
+            delete assign[secId+'|'+o.row+'|'+o.slot];
+          });
+          invalidate(sc.id);
         });
         if(dko.length){
           dko.forEach(function(id){ Object.keys(assign).forEach(function(k){ if(k.indexOf(id+'|')===0) delete assign[k]; }); delete floorCat[id]; });
@@ -1793,13 +1885,15 @@
         if(!document.body.contains(host)) return;
         var a = document.activeElement;
         if(a && (a.tagName==='INPUT' || a.tagName==='TEXTAREA' || a.tagName==='SELECT' || a.isContentEditable)) return;
+        // Esc sale del modo maximizado propio (el fullscreen nativo ya lo hace el navegador).
+        if(e.key==='Escape' && host.classList.contains('vmap-max')){ e.preventDefault(); _fsMaxExit(); return; }
         // Barra espaciadora mantenida = MANO (desplazarse sin tocar piezas); solo bloquea el
         // scroll de la página cuando el puntero está sobre el plano.
         if(e.key===' ' || e.code==='Space'){ spaceHeld=true; svg.classList.add('vmap-hand'); if(overCanvas) e.preventDefault(); return; }
         if((e.key==='z' || e.key==='Z') && (e.ctrlKey || e.metaKey)){ e.preventDefault(); undo(); return; }
         if((e.key==='c' || e.key==='C') && (e.ctrlKey || e.metaKey)){ if(mode==='design' && copySelected()) e.preventDefault(); return; }
         if((e.key==='v' || e.key==='V') && (e.ctrlKey || e.metaKey)){ if(mode==='design' && clipboard){ e.preventDefault(); pasteClipboard(); } return; }
-        if((e.key==='Delete' || e.key==='Backspace') && mode==='design' && selId){ e.preventDefault(); deleteSelected(); }
+        if((e.key==='Delete' || e.key==='Backspace') && mode==='design' && (selId || dselKeys().length || dselOkeys().length)){ e.preventDefault(); deleteSelected(); }
       });
       // Menú contextual (botón derecho / pulsación larga del trackpad): Copiar / Pegar / Duplicar / Eliminar.
       var ctx = document.createElement('div');
@@ -2098,13 +2192,15 @@
     // Radiografía de la selección: puntos, secciones implicadas, valores comunes y —con una sola
     // butaca— su sección/fila/slot/número para editarla individualmente.
     function dselInfo(){
-      var dk=dselKeys(), pts=[], secIds=[], secSeen={}, names={}, rowLabels={}, single=null, pitch=null;
+      var dk=dselKeys(), pts=[], secIds=[], secSeen={}, names={}, rowLabels={}, single=null, pitch=null, allPoints=true;
       sections.forEach(function(s){
-        if(s.kind!=='points') return;
+        if(s.kind==='floor') return;
+        var any=false;
         var geo=secRows(s);
         geo.rows.forEach(function(row){ row.seats.forEach(function(p){
           var k=s.id+'|'+row.rowIdx+'|'+p.slot;
           if(!dsel[k]) return;
+          any=true;
           pts.push({x:p.x, y:p.y});
           if(!secSeen[s.id]){ secSeen[s.id]=1; secIds.push(s.id); }
           names[s.name||'']=1;
@@ -2112,6 +2208,7 @@
           if(pitch==null) pitch=(+s.pitch)||26;
           single={sec:s, rowIdx:row.rowIdx, slot:p.slot, n:p.n};
         }); });
+        if(any && s.kind!=='points') allPoints=false;
       });
       var sameSection = secIds.length===1;
       var wholeSection = false;
@@ -2121,7 +2218,7 @@
       }
       var nm=Object.keys(names), rl=Object.keys(rowLabels);
       return { keys:dk, pts:pts, secIds:secIds, sameSection:sameSection, wholeSection:wholeSection,
-               pitch:(pitch||prevailingPitch()),
+               allPoints:allPoints, pitch:(pitch||prevailingPitch()),
                commonName:(nm.length===1?nm[0]:''), commonRowLabel:(rl.length===1?rl[0]:''),
                single:(dk.length===1?single:null) };
     }
@@ -2137,7 +2234,9 @@
       var info = dselInfo();
       dpop.querySelector('[data-dpop-n]').textContent = dk.length.toLocaleString('es-ES');
       var blocksEl = dpop.querySelector('[data-dpop-blocks]');
-      if(dk.length===1){
+      if(!info.allPoints){
+        blocksEl.textContent = 'Edita fila (número o letra) y la numeración del sector: se aplican al momento.';
+      } else if(dk.length===1){
         blocksEl.textContent = 'Edita sector, fila o nº de asiento: se aplican al momento.';
       } else {
         var nBlocks = contiguousClusters(info.pts, info.pitch*1.6).length;
@@ -2148,10 +2247,20 @@
       }
       dpop.querySelector('[data-dpop-name]').value = info.commonName || '';
       dpop.querySelector('[data-dpop-row]').value = info.commonRowLabel || '';
+      // Numeración de asientos de las secciones implicadas (valor común o «—» si difieren).
+      var nvStart={}, nvDir={}, nvMode={};
+      info.secIds.forEach(function(sid){
+        var sN=sections.find(function(x){return x.id===sid;}); if(!sN) return;
+        var n0=numOf(sN); nvStart[n0.start]=1; nvDir[n0.dir]=1; nvMode[n0.mode]=1;
+      });
+      function _common(o){ var ks=Object.keys(o); return ks.length===1 ? ks[0] : ''; }
+      dpop.querySelector('[data-dpop-numstart]').value = _common(nvStart);
+      dpop.querySelector('[data-dpop-numdir]').value = _common(nvDir);
+      dpop.querySelector('[data-dpop-nummode]').value = _common(nvMode);
       dpop.querySelector('[data-dpop-seatrow]').classList.toggle('d-none', dk.length!==1);
       if(info.single) dpop.querySelector('[data-dpop-seatnum]').value = (info.single.n!=null ? String(info.single.n) : '');
       var gw = dpop.querySelector('[data-dpop-groupwrap]');
-      if(gw) gw.style.display = dk.length>=2 ? '' : 'none';
+      if(gw) gw.style.display = (dk.length>=2 && info.allPoints) ? '' : 'none';
     }
     if(dpop){
       dpop.addEventListener('click', function(e){
@@ -2178,6 +2287,14 @@
           var s0=sections.find(function(x){return x.id===info.secIds[0];});
           if(s0){ s0.name=v; delete s0.loose; }
           dpopSig=''; markSummary(); renderSide(); queueRender();
+        } else if(!info.allPoints){
+          // Hay GRADAS paramétricas implicadas: no se re-agrupa, se renombra la(s) sección(es).
+          pushUndo('sel-name');
+          info.secIds.forEach(function(sid){
+            var sR=sections.find(function(x){return x.id===sid;});
+            if(sR){ sR.name=v; delete sR.loose; }
+          });
+          dpopSig=''; markSummary(); renderSide(); queueRender();
         } else {
           // Parte de una sección (o varias): esas butacas pasan a un sector con ese nombre,
           // conservando posición, tamaño y orientación.
@@ -2185,7 +2302,15 @@
         }
       });
       rwI.addEventListener('change', function(){
-        var n=parseInt(rwI.value,10); if(isNaN(n) || !dselKeys().length) return;
+        // Fila por NÚMERO (12) o por LETRA (C): la fila de la selección pasa a llamarse así y el
+        // resto de la sección sigue en orden (rowStart + esquema numérico/alfabético).
+        var raw=(rwI.value||'').trim(), n=null, scheme=null;
+        if(/^\d+$/.test(raw)){ n=parseInt(raw,10); scheme='num'; }
+        else if(/^[A-Za-z]{1,2}$/.test(raw)){
+          n=0; raw.toUpperCase().split('').forEach(function(ch){ n=n*26+(ch.charCodeAt(0)-64); });
+          scheme='alpha';
+        }
+        if(n==null || !dselKeys().length) return;
         var info=dselInfo();
         pushUndo('sel-row');
         info.secIds.forEach(function(sid){
@@ -2193,12 +2318,40 @@
           var geo=secRows(s0), minRow=null;
           geo.rows.forEach(function(row){ row.seats.forEach(function(p){ if(dsel[s0.id+'|'+row.rowIdx+'|'+p.slot]) minRow=(minRow==null?row.rowIdx:Math.min(minRow,row.rowIdx)); }); });
           if(minRow==null) return;
-          // La PRIMERA fila seleccionada pasa a numerarse n; el resto de la sección sigue en orden.
-          s0.rowStart = n - (minRow - 1);
+          // La PRIMERA fila seleccionada pasa a llamarse n; el resto de la sección sigue en orden.
+          var rs0 = n - (minRow - 1);
+          // Por letras no existen filas antes de la A: si la combinación deja filas anteriores
+          // sin letra (p. ej. «A» en la fila 3), se ancla la PRIMERA fila de la sección a la A.
+          if(scheme==='alpha' && rs0 < 1) rs0 = 1;
+          s0.rowStart = rs0;
+          s0.rowScheme = scheme;
           invalidate(s0.id);
         });
         dpopSig=''; markSummary(); renderSide(); queueRender();
       });
+      // Numeración de asientos del SECTOR (o sectores) de la selección: inicio, sentido y tipo
+      // (consecutivos / solo impares / solo pares). Mismo modelo que el panel lateral (s.num).
+      function applyNumCfg(fn){
+        var info=dselInfo(); if(!info.secIds.length) return;
+        pushUndo('sel-numcfg');
+        info.secIds.forEach(function(sid){
+          var s0=sections.find(function(x){return x.id===sid;}); if(!s0 || s0.kind==='floor') return;
+          // El inicio se conserva CRUDO (la paridad de impares/pares la ajusta numOf solo al
+          // leer): si se guardara normalizado, alternar consecutivos↔impares↔pares lo iría
+          // desplazando (2→3→4…) y divergiría del panel lateral.
+          var n0=numOf(s0);
+          var raw=parseInt((s0.num||{}).start,10); if(isNaN(raw)) raw=n0.start;
+          s0.num = { start:raw, mode:n0.mode, dir:n0.dir };
+          fn(s0.num);
+          s0.num.step = (s0.num.mode==='seq') ? 1 : 2;   // compat con mapas que solo miran step
+          invalidate(s0.id);
+        });
+        dpopSig=''; markSummary(); renderSide(); queueRender();
+      }
+      var nsI=dpop.querySelector('[data-dpop-numstart]'), ndI=dpop.querySelector('[data-dpop-numdir]'), nmoI=dpop.querySelector('[data-dpop-nummode]');
+      nsI.addEventListener('change', function(){ var v=parseInt(nsI.value,10); if(isNaN(v)) return; applyNumCfg(function(n){ n.start=v; }); });
+      ndI.addEventListener('change', function(){ var v=ndI.value; if(!v) return; applyNumCfg(function(n){ n.dir=v; }); });
+      nmoI.addEventListener('change', function(){ var v=nmoI.value; if(!v) return; applyNumCfg(function(n){ n.mode=v; }); });
       snI.addEventListener('change', function(){
         var info=dselInfo(); if(!info.single) return;
         pushUndo('sel-num');
@@ -2347,6 +2500,41 @@
       _handBtn.classList.toggle('on', panLock);
       svg.classList.toggle('vmap-hand', panLock);
     });
+    // PANTALLA COMPLETA: el diseñador entero (barra + lienzo + panel) ocupa toda la pantalla.
+    // Si el navegador no concede el fullscreen nativo (API bloqueada, iframe, etc.) se cae a un
+    // modo «maximizado» propio (posición fija a todo el viewport), que funciona siempre.
+    var _fsBtn=host.querySelector('[data-vm-full]');
+    function _fsSet(on){
+      host.classList.toggle('vmap-fs', on);
+      if(_fsBtn){
+        _fsBtn.classList.toggle('on', on);
+        var ic=_fsBtn.querySelector('i');
+        if(ic) ic.className = on ? 'fa fa-down-left-and-up-right-to-center' : 'fa fa-up-right-and-down-left-from-center';
+      }
+      setTimeout(fitAll, 80);   // el lienzo cambia de tamaño: reencuadrar el plano
+    }
+    function _fsMaxExit(){ host.classList.remove('vmap-max'); document.body.classList.remove('vmap-max-open'); _fsSet(false); }
+    function _fsMaxEnter(){ host.classList.add('vmap-max'); document.body.classList.add('vmap-max-open'); _fsSet(true); }
+    function _fsOnChange(){
+      if(host.classList.contains('vmap-max')) return;   // en modo maximizado propio, ignorar
+      _fsSet((document.fullscreenElement||document.webkitFullscreenElement)===host);
+    }
+    if(_fsBtn){
+      _fsBtn.addEventListener('click', function(){
+        if(host.classList.contains('vmap-max')){ _fsMaxExit(); return; }
+        if((document.fullscreenElement||document.webkitFullscreenElement)===host){
+          (document.exitFullscreen||document.webkitExitFullscreen).call(document);
+          return;
+        }
+        var p=null, ok=false;
+        try{ var rq=host.requestFullscreen||host.webkitRequestFullscreen; if(rq){ p=rq.call(host); ok=true; } }catch(err){ ok=false; }
+        if(p && typeof p.then==='function'){ p.catch(function(){ _fsMaxEnter(); }); }
+        else if(!ok){ _fsMaxEnter(); }
+        else setTimeout(function(){ if((document.fullscreenElement||document.webkitFullscreenElement)!==host) _fsMaxEnter(); }, 300);
+      });
+      document.addEventListener('fullscreenchange', _fsOnChange);
+      document.addEventListener('webkitfullscreenchange', _fsOnChange);
+    }
     svg.addEventListener('pointerenter', function(){ overCanvas=true; });
     svg.addEventListener('pointerleave', function(){ overCanvas=false; });
     document.addEventListener('keyup', function(e){
@@ -2482,8 +2670,10 @@
       }
       if(mode==='design' && canEdit && drawArm){
         // DIBUJAR GRADA: pincha y arrastra — según arrastras se van añadiendo butacas y filas.
+        // El tamaño de butaca es el PREDOMINANTE del plano (uniforme con lo que ya haya).
         pushUndo('draw');
-        var nd={id:nid('s'), kind:'grid', name:'Grada nueva', x:w.x, y:w.y, rot:0, rows:1, cols:2, pitch:26, rowGap:30};
+        var ppD=prevailingPitch();
+        var nd={id:nid('s'), kind:'grid', name:'Grada nueva', x:w.x, y:w.y, rot:0, rows:1, cols:2, pitch:ppD, rowGap:Math.round(ppD*1.15)};
         sections.push(nd); selId=nd.id;
         drag={kind:'drawsec', obj:nd, w0:w};
         renderSide(); queueRender();
@@ -2500,6 +2690,21 @@
             if(addSel){ if(dsel[sk]) delete dsel[sk]; else dsel[sk]=1; }
             else if(!dsel[sk]){ dsel={}; dselO={}; dsel[sk]=1; }
             startMultiMove(w); renderSide(); queueRender(); return;
+          }
+          // Butaca de una GRADA (grid/arc/palco): se selecciona para CONFIGURAR (fila, numeración),
+          // no se mueve individualmente. Si la grada ya está marcada como PIEZA (dselO), pinchar
+          // sus butacas sigue moviendo el conjunto (Mayús la desmarca), como siempre.
+          var scG=sections.find(function(x){return x.id===sk.split('|')[0];});
+          if(scG && scG.kind!=='floor'){
+            selId=scG.id;
+            if(dselO[scG.id]){
+              if(addSel){ delete dselO[scG.id]; drag={kind:'none'}; }
+              else startMultiMove(w);
+              renderSide(); queueRender(); return;
+            }
+            if(addSel){ if(dsel[sk]) delete dsel[sk]; else dsel[sk]=1; }
+            else if(!dsel[sk]){ dsel={}; dselO={}; dsel[sk]=1; }
+            drag={kind:'none'}; renderSide(); queueRender(); return;
           }
         }
         if(secEl || elEl){
@@ -2582,11 +2787,24 @@
           return;
         }
       }
+      // GRADAS (grid/arc/palco) sin herramienta: pinchar una BUTACA la selecciona para configurarla
+      // (fila, numeración, nº de asiento; Mayús añade/quita); ARRASTRAR desde ella mueve el sector
+      // entero. Se decide al soltar/mover (umbral en px de pantalla).
+      if(mode==='design' && canEdit && !tool && seatEl && secEl){
+        var skG2=seatEl.getAttribute('data-seat');
+        var sParG=sections.find(function(x){return x.id===skG2.split('|')[0];});
+        if(sParG && sParG.kind!=='points' && sParG.kind!=='floor'){
+          drag={kind:'gseatmaybe', sec:sParG, key:skG2, additive:(e.shiftKey||e.metaKey||e.ctrlKey), c0:{x:e.clientX,y:e.clientY}, w0:w};
+          return;
+        }
+      }
       // Diseñar sin herramienta (o solo lectura): seleccionar/mover o pan.
       if(mode==='design' && canEdit && (secEl||elEl)){
         selId=(secEl?secEl.getAttribute('data-sec'):elEl.getAttribute('data-el'));
         var obj=sections.find(function(x){return x.id===selId;})||elements.find(function(x){return x.id===selId;});
-        if(!(obj&&obj.kind==='points')) dsel={};   // al mover otro sector/elemento, limpia la selección de butacas
+        // Al mover otro sector/elemento se limpia la selección de butacas — se conserva solo si
+        // pertenece al PROPIO grupo points pinchado (mover el grupo con sus butacas marcadas).
+        if(!(obj && obj.kind==='points' && dselKeys().some(function(k){ return k.split('|')[0]===obj.id; }))) dsel={};
         drag={kind:'move', obj:obj, w0:w, o0:JSON.parse(JSON.stringify(obj))};
         renderSide(); queueRender();
       } else {
@@ -2749,6 +2967,14 @@
         }
       } else if(drag.kind==='secmaybe'){
         if(Math.hypot(e.clientX-drag.c0.x, e.clientY-drag.c0.y) > 8){ drag={kind:'lasso', w0:drag.w0}; }
+      } else if(drag.kind==='gseatmaybe'){
+        // Se empezó a ARRASTRAR desde una butaca de grada → mover el sector entero (el undo lo
+        // apunta la propia rama 'move' en su primer tick).
+        if(Math.hypot(e.clientX-drag.c0.x, e.clientY-drag.c0.y) > 6){
+          selId=drag.sec.id; dsel={}; dselO={};
+          drag={kind:'move', obj:drag.sec, w0:drag.w0, o0:JSON.parse(JSON.stringify(drag.sec))};
+          renderSide(); queueRender();
+        }
       } else if(drag.kind==='lasso'){
         drag.w1=client2world(e.clientX,e.clientY);
         var r3=svg.getBoundingClientRect();
@@ -2779,6 +3005,14 @@
         if(drag.w1) marqueeSelect(drag.w0, drag.w1, drag.add);
         else { if(!drag.add){ dsel={}; dselO={}; } }   // clic sin arrastre en vacío: vacía la selección
         drag=null; clearLasso(); renderSide(); queueRender(); return;
+      }
+      if(drag && drag.kind==='gseatmaybe'){
+        // Clic corto sobre una butaca de GRADA: seleccionarla para configurar (Mayús añade/quita
+        // SIN tocar las piezas marcadas como objeto, igual que las demás ramas aditivas).
+        selId=drag.sec.id;
+        if(drag.additive){ if(dsel[drag.key]) delete dsel[drag.key]; else dsel[drag.key]=1; }
+        else if(!dsel[drag.key]){ dsel={}; dselO={}; dsel[drag.key]=1; }
+        drag=null; renderSide(); queueRender(); return;
       }
       if(drag && drag.kind==='secmaybe' && drag.sec){
         // Clic corto sobre el sector (no llegó a arrastre), solo de lejos: seleccionar o pintar entero.

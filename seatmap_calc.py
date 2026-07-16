@@ -276,7 +276,9 @@ def seat_lookup(layout: dict) -> dict:
         rows_map = {}
         numbers = {}
         alpha = (sec.get("rowScheme") == "alpha")
-        row_start = _i(sec.get("rowStart"), 1) or 1   # «primera fila» configurable (3 → 3,4,5… / C,D,E…)
+        # «Primera fila» configurable (3 → 3,4,5… / C,D,E…). El 0 es VÁLIDO (fila 0), no ausencia:
+        # paridad con rowLabelOf del JS (solo None/no numérico caen al 1).
+        row_start = _i(sec.get("rowStart"), 1) if sec.get("rowStart") is not None else 1
         for r in range(1, n_rows + 1):
             n_lbl = row_start - 1 + r
             label = _alpha_label(n_lbl) if alpha else str(n_lbl)

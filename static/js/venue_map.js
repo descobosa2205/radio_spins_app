@@ -945,18 +945,27 @@
         if(pitchPx < 2.6){
           // De LEJOS: bloque del sector; la ETIQUETA (nombre, nº de asientos y desglose por
           // categoría si hay varias) va en una PASADA FINAL para que ningún bloque la tape.
+          // En el VISOR (no edición) el bloque toma el COLOR de su categoría mayoritaria: de un
+          // vistazo se ve qué es cada sector con su nombre y su aforo.
+          var farFill = isBox ? '#f3e9d4' : '#d7dee6';
+          if(!canEdit){
+            if(lodACounts===null) lodACounts = catCountsBySec();
+            var _bc=lodACounts[s.id]||{}, _bestC='', _bestN=0;
+            Object.keys(_bc).forEach(function(cid){ if(_bc[cid]>_bestN && catById[cid]){ _bestN=_bc[cid]; _bestC=catById[cid].color; } });
+            if(_bestC) farFill=_bestC;
+          }
           var lbl = s.name || '';
           var lcx, lcy, lsz;
           if(s.kind==='arc'){
             var mid=(s.dir)*R, rMid=s.r0+(s.rows-1)*s.rowGap/2;
             lcx = s.cx+rMid*Math.cos(mid); lcy = s.cy+rMid*Math.sin(mid);
             lsz = s.rows*s.rowGap*.3;
-            out.push('<g data-sec="'+s.id+'" style="cursor:pointer"><path d="'+arcBandPath(s)+'" style="fill:#d7dee6;opacity:.95;stroke:#fff;stroke-width:'+(2/scale)+selCss+'"/></g>');
+            out.push('<g data-sec="'+s.id+'" style="cursor:pointer"><path d="'+arcBandPath(s)+'" style="fill:'+farFill+';opacity:'+(canEdit?'.95':'.72')+';stroke:#fff;stroke-width:'+(2/scale)+selCss+'"/></g>');
           } else {
             var o=gridOutline(s);
             lcx = s.x; lcy = s.y; lsz = o.h*.22;
             out.push('<g data-sec="'+s.id+'" transform="translate('+s.x+' '+s.y+') rotate('+s.rot+')" style="cursor:pointer">'+
-              '<rect x="'+o.x+'" y="'+o.y+'" width="'+o.w+'" height="'+o.h+'" rx="14" style="fill:'+(isBox?'#f3e9d4':'#d7dee6')+';opacity:.95;stroke:#fff;stroke-width:'+(2/scale)+selCss+'"/></g>');
+              '<rect x="'+o.x+'" y="'+o.y+'" width="'+o.w+'" height="'+o.h+'" rx="14" style="fill:'+farFill+';opacity:'+(canEdit?'.95':'.72')+';stroke:#fff;stroke-width:'+(2/scale)+selCss+'"/></g>');
           }
           pushRichLabel(s, bb);
         } else if(pitchPx < 9.5){

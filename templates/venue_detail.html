@@ -183,7 +183,68 @@
       </form>
     </div></div>
   </div>
+  {% endif %}
 
+  {# ===== VISOR por defecto cuando hay plano: categorías a la IZQUIERDA (color+aforo) y el plano
+     NO editable a la derecha, con «Editar mapa» para abrir el editor (map_edit=1). ===== #}
+  {% set HAS_MAP = venue_seatmap_payload and venue_seatmap_payload.layout and venue_seatmap_payload.layout.sections %}
+  {% set MAP_EDIT = CAN_EDIT_CATALOGS and request.args.get('map_edit') %}
+  {% if HAS_MAP and not MAP_EDIT %}
+  {% set _mapcats = venue_seatmap_payload.layout.categories or [] %}
+  {% set _colormap = {} %}
+  {% for c in _mapcats %}{% if _colormap.update({(c.name or '')|lower|trim: c.color}) %}{% endif %}{% endfor %}
+  <div class="row g-3 mb-3">
+    <div class="col-lg-4 col-xl-3">
+      {% if venue_tk_summary and venue_tk_summary.has %}
+      <div class="d-flex flex-wrap gap-2 mb-3">
+        <div class="sim-stat"><div class="sim-stat__n">{{ venue_tk_summary.aforo_total|k }}</div><div class="sim-stat__l">Aforo total</div></div>
+        <div class="sim-stat"><div class="sim-stat__n">{{ venue_tk_summary.sellable|k }}</div><div class="sim-stat__l">A la venta</div></div>
+        <div class="sim-stat"><div class="sim-stat__n">{{ venue_tk_summary.invitations|k }}</div><div class="sim-stat__l">Invitaciones</div></div>
+      </div>
+      {% endif %}
+      {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown'),('OTROS','Otros','fa-shapes')] %}
+        {% set zrows = venue_ticketing_payload | selectattr('zone', 'equalto', zkey) | list %}
+        {% if zrows %}
+        <div class="card mb-2">
+          <div class="card-header bg-white py-2"><i class="fa {{ zicon }} me-1"></i>{{ zlabel }}</div>
+          <ul class="list-group list-group-flush">
+            {% for r in zrows %}
+            <li class="list-group-item py-2 d-flex justify-content-between align-items-center gap-2">
+              <span class="d-inline-flex align-items-center gap-2 text-truncate">
+                <span style="display:inline-block;width:11px;height:11px;border-radius:50%;flex:0 0 auto;background:{{ _colormap.get((r.name or '')|lower|trim) or '#9ca3af' }}"></span>
+                <span class="text-truncate">{{ r.name or 'Categoría' }}</span>
+              </span>
+              <span class="text-nowrap small"><strong>{{ r.qty|k }}</strong>{% if r.inv %} <span class="text-muted">· {{ r.inv|k }} inv.</span>{% endif %}</span>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+    <div class="col-lg-8 col-xl-9">
+      <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+        <div class="text-muted small">Plano del formato activo. Acércate para ver cada butaca (de lejos, cada sector muestra su color, nombre y aforo).</div>
+        {% if CAN_EDIT_CATALOGS %}
+        <a class="btn btn-sm btn-primary" href="{{ url_for('venue_detail_view', vid=venue.id, tab='ticketing', map=(venue_active_map.id if venue_active_map else None), map_edit=1) }}"><i class="fa fa-pen me-1"></i>Editar mapa</a>
+        {% endif %}
+      </div>
+      <div data-venue-map
+           data-can-edit=""
+           data-map-id="{{ venue_active_map.id if venue_active_map else '' }}"
+           data-save-url=""
+           data-bg-upload-url=""></div>
+    </div>
+  </div>
+  <script type="application/json" id="venueMapData">{{ (venue_seatmap_payload or {})|tojson }}</script>
+  {% else %}
+  {% if CAN_EDIT_CATALOGS %}
+  {% if MAP_EDIT %}
+  <div class="alert alert-warning py-2 small d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span><i class="fa fa-pen me-1"></i>Estás EDITANDO el plano. Al guardar, el ticketing del recinto se reemplaza por lo configurado en el mapa.</span>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('venue_detail_view', vid=venue.id, tab='ticketing', map=(venue_active_map.id if venue_active_map else None)) }}"><i class="fa fa-check me-1"></i>Terminar edición</a>
+  </div>
+  {% endif %}
   <form id="venueTkForm" method="post" action="{{ url_for('venue_ticketing_save', vid=venue.id) }}">
     <input type="hidden" name="ticketing_json" id="venueTkJson">
     <input type="hidden" name="map_id" value="{{ venue_active_map.id if venue_active_map else '' }}">
@@ -250,6 +311,7 @@
   </script>
   {% endif %}
   <script type="application/json" id="venueMapData">{{ (venue_seatmap_payload or {})|tojson }}</script>
+  {% endif %}
 {% else %}
   {% macro activity_list(rows) %}
     <div class="list-group">

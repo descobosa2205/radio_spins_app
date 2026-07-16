@@ -235,6 +235,8 @@ from models import (
     ExpenseTemplateItem,
     RepertoireTemplate,
     RepertoireTemplateItem,
+    PushSubscription,
+    ensure_push_schema,
     Photo,
     PhotoAlbum,
     PhotoAlbumItem,
@@ -30949,6 +30951,7 @@ def _bootstrap_schema_bg():
         (ensure_chartmetric_schema, "ensure_chartmetric_schema"),
         (ensure_venue_seatmap_schema, "ensure_venue_seatmap_schema"),
         (ensure_enterticket_schema, "ensure_enterticket_schema"),
+        (ensure_push_schema, "ensure_push_schema"),
     ]:
         _safe_ensure(_fn, _name)
     # Índices de rendimiento (claves foráneas sin índice): idempotente, solo crea los que falten.
@@ -32627,7 +32630,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view"}
+PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -34289,6 +34292,8 @@ SUPPORT_READ_ENDPOINTS = {
     "fotos_list_json", "foto_detail_json", "fotos_approval_options",
     "foto_download", "api_fotos_owner_emails",
     "setlist_template_items", "setlist_pdf",
+    # Web Push: preferencia por usuario (cualquier sesión gestiona SUS suscripciones).
+    "push_public_key", "push_subscribe", "push_unsubscribe", "push_test",
 }
 # Lecturas que exponen importes: requieren «ver económico» en la sección indicada.
 SUPPORT_ECON_READ_ENDPOINTS = {
@@ -40914,6 +40919,145 @@ def api_media_artist_activities(artist_id):
         return jsonify(out)
     finally:
         s.close()
+
+
+# ============================ WEB PUSH (notificaciones del navegador) ============================
+# Infraestructura: service worker (/sw.js) + manifest PWA (/manifest.webmanifest) + suscripciones por
+# usuario + envío con pywebpush (claves VAPID en Render). En iPhone/iPad SOLO funciona si la web se
+# añade a la pantalla de inicio como app (restricción de Apple). Qué eventos disparan avisos se define
+# más adelante; de momento queda toda la plomería + un botón de prueba.
+
+def push_enabled():
+    return bool(getattr(settings, "VAPID_PUBLIC_KEY", None) and getattr(settings, "VAPID_PRIVATE_KEY", None))
+
+
+@app.get("/push/public-key", endpoint="push_public_key")
+@admin_required
+def push_public_key():
+    return jsonify({"enabled": push_enabled(), "key": (settings.VAPID_PUBLIC_KEY or "")})
+
+
+@app.post("/push/subscribe", endpoint="push_subscribe")
+@admin_required
+def push_subscribe():
+    uid = _safe_uuid(session.get("user_id"))
+    if not uid:
+        return jsonify({"ok": False}), 401
+    data = request.get_json(silent=True) or {}
+    endpoint = (data.get("endpoint") or "").strip()
+    keys = data.get("keys") or {}
+    p256dh = (keys.get("p256dh") or "").strip()
+    auth = (keys.get("auth") or "").strip()
+    if not endpoint or not p256dh or not auth:
+        return jsonify({"ok": False, "error": "datos incompletos"}), 400
+    s = db()
+    try:
+        sub = s.query(PushSubscription).filter(PushSubscription.endpoint == endpoint).first()
+        ua = (request.headers.get("User-Agent") or "")[:300]
+        if sub:
+            sub.user_id, sub.p256dh, sub.auth, sub.user_agent, sub.last_used_at = uid, p256dh, auth, ua, _now_madrid()
+        else:
+            s.add(PushSubscription(user_id=uid, endpoint=endpoint, p256dh=p256dh, auth=auth, user_agent=ua, last_used_at=_now_madrid()))
+        s.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        s.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        s.close()
+
+
+@app.post("/push/unsubscribe", endpoint="push_unsubscribe")
+@admin_required
+def push_unsubscribe():
+    endpoint = ((request.get_json(silent=True) or {}).get("endpoint") or "").strip()
+    if endpoint:
+        s = db()
+        try:
+            s.query(PushSubscription).filter(PushSubscription.endpoint == endpoint).delete()
+            s.commit()
+        finally:
+            s.close()
+    return jsonify({"ok": True})
+
+
+@app.post("/push/test", endpoint="push_test")
+@admin_required
+def push_test():
+    sent = _send_web_push(session.get("user_id"), "Prueba de notificación",
+                          "Si ves esto, las notificaciones de la app funcionan ✅", url=url_for("home"))
+    return jsonify({"ok": True, "enabled": push_enabled(), "sent": sent})
+
+
+def _send_web_push(user_id, title, body, url=None, icon=None):
+    """Envía una notificación push a TODAS las suscripciones del usuario. Devuelve cuántas salieron.
+    Best-effort: sin claves VAPID o sin pywebpush no hace nada; limpia las suscripciones caducadas."""
+    if not push_enabled():
+        return 0
+    uid = _safe_uuid(user_id)
+    if not uid:
+        return 0
+    try:
+        from pywebpush import webpush, WebPushException
+    except Exception:
+        app.logger.warning("[push] pywebpush no instalado; no se envían notificaciones.")
+        return 0
+    payload = json.dumps({
+        "title": title, "body": body, "url": url or "/",
+        "icon": icon or url_for("static", filename="img/logo_33_producciones.png"),
+    })
+    sent = 0
+    s = db()
+    try:
+        for sub in s.query(PushSubscription).filter(PushSubscription.user_id == uid).all():
+            try:
+                webpush(
+                    subscription_info={"endpoint": sub.endpoint, "keys": {"p256dh": sub.p256dh, "auth": sub.auth}},
+                    data=payload,
+                    vapid_private_key=settings.VAPID_PRIVATE_KEY,
+                    vapid_claims={"sub": settings.VAPID_SUBJECT},
+                )
+                sub.last_used_at = _now_madrid()
+                sent += 1
+            except WebPushException as ex:
+                code = getattr(getattr(ex, "response", None), "status_code", None)
+                if code in (404, 410):
+                    s.delete(sub)  # suscripción caducada -> se elimina
+            except Exception:
+                pass
+        s.commit()
+    except Exception:
+        s.rollback()
+    finally:
+        s.close()
+    return sent
+
+
+@app.get("/sw.js", endpoint="push_sw")
+def push_sw():
+    # El service worker debe servirse desde la raíz para tener alcance «/». Cabecera
+    # Service-Worker-Allowed por si en el futuro se registra con scope explícito.
+    resp = send_from_directory(app.static_folder, "sw.js", mimetype="application/javascript")
+    resp.headers["Service-Worker-Allowed"] = "/"
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+@app.get("/manifest.webmanifest", endpoint="push_manifest")
+def push_manifest():
+    return jsonify({
+        "name": "Back Office · 33 Producciones / PIES",
+        "short_name": "33 Back Office",
+        "start_url": "/",
+        "scope": "/",
+        "display": "standalone",
+        "background_color": "#ffffff",
+        "theme_color": "#E33D48",
+        "icons": [
+            {"src": url_for("static", filename="img/logo_33_producciones.png"), "sizes": "512x512", "type": "image/png", "purpose": "any"},
+            {"src": url_for("static", filename="img/logo_33_producciones.png"), "sizes": "192x192", "type": "image/png", "purpose": "any"},
+        ],
+    })
 
 
 @app.get("/fotos-videos/<owner_type>/<owner_id>", endpoint="media_panel_view")

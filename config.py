@@ -57,5 +57,11 @@ class Settings:
     ENTERTICKET_API_BASE = os.getenv("ENTERTICKET_API_BASE", "https://api.enterticket.es")
     # Clave del endpoint /cron/enterticket/refresh (si falta, se acepta la de Chartmetric).
     ENTERTICKET_CRON_KEY = os.getenv("ENTERTICKET_CRON_KEY") or os.getenv("CHARTMETRIC_CRON_KEY")
+    # Web Push (notificaciones del navegador / centro de notificaciones). Claves VAPID: se generan una
+    # vez (p. ej. con `vapid --gen` de py-vapid) y se ponen en Render. Sin ellas, el push queda
+    # DESACTIVADO (la app funciona igual). VAPID_SUBJECT = "mailto:tu-correo" o la URL del sitio.
+    VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY")
+    VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY")
+    VAPID_SUBJECT = os.getenv("VAPID_SUBJECT", "mailto:escobosa@33producciones.es")
 
 settings = Settings()

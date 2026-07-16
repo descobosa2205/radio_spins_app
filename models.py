@@ -3528,6 +3528,39 @@ class RepertoireTemplateItem(Base):
     template = relationship("RepertoireTemplate", back_populates="items")
 
 
+class PushSubscription(Base):
+    """Suscripción Web Push de un usuario (un endpoint por navegador/dispositivo)."""
+    __tablename__ = "push_subscriptions"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    endpoint = Column(Text, nullable=False, unique=True)
+    p256dh = Column(Text, nullable=False)
+    auth = Column(Text, nullable=False)
+    user_agent = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_used_at = Column(DateTime(timezone=True))
+
+
+def ensure_push_schema():
+    """Tabla de suscripciones Web Push (idempotente)."""
+    stmts = [
+        """
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            endpoint text NOT NULL UNIQUE,
+            p256dh text NOT NULL,
+            auth text NOT NULL,
+            user_agent text,
+            created_at timestamptz DEFAULT now(),
+            last_used_at timestamptz
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id);",
+    ]
+    _exec_ddl_statements(stmts, "push")
+
+
 # ---------------------------------------------------------------------------
 # Fotos / vídeos (galería transversal)
 # ---------------------------------------------------------------------------

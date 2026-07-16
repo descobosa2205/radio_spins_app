@@ -23,3 +23,4 @@ pillow-heif>=0.16.0
 pydub>=0.25.1
 pycountry>=24.6.1
 pypdf>=4.2.0
+pywebpush>=1.14.0

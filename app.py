@@ -22817,12 +22817,16 @@ def simulation_income_save(sid):
             settings_d["income_overrides"] = clean
             act.settings = settings_d
         s.commit()
-        flash("Ingresos guardados.", "success")
+        _ok, _msg = True, "Ingresos guardados."
+        _figs = _sim_live_figures(sim, act)
     except Exception as e:
         s.rollback()
-        flash(f"Error guardando ingresos: {e}", "danger")
+        _ok, _msg, _figs = False, f"Error guardando ingresos: {e}", {}
     finally:
         s.close()
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": _ok, "message": _msg, "figures": _figs})
+    flash(_msg, "success" if _ok else "danger")
     return redirect(url_for("simulation_detail_view", sid=sid, tab="ingresos", act=request.form.get("activity_id") or None))
 
 
@@ -22840,6 +22844,33 @@ def _sim_cost_common(row):
         var_threshold_value=_sim_d(row.get("var_threshold_value")),
         artist_ids=[str(x) for x in (row.get("artist_ids") or []) if x],
     )
+
+
+def _sim_live_figures(sim, act):
+    """Break-even + cifras @100% de una actividad (con prorrateo de generales), para actualizar el
+    punto de empate «en tiempo real» tras cada autoguardado de gastos/ingresos. Best-effort."""
+    try:
+        all_acts = list(sim.activities or [])
+        artist_intl_map = {str(a.id): bool(getattr(a, "is_international", False)) for a in all_acts}
+        activities = [a for a in all_acts if not getattr(a, "is_shared", False)]
+        shared = next((a for a in all_acts if getattr(a, "is_shared", False)), None)
+        is_multi = (sim.kind or "").upper() in ("TOUR", "CYCLE", "FESTIVAL")
+        general_net = 0.0
+        if is_multi and shared is not None:
+            general_net = sim_calc.compute(_sim_build_calc_data(sim, shared, artist_intl_map))["at_100"]["gastos"]["total"]
+        general_share = (general_net / (len(activities) or 1)) if (is_multi and activities) else 0.0
+        prorateo = general_share if (act is not None and not getattr(act, "is_shared", False)) else 0.0
+        calc = sim_calc.compute(_sim_build_calc_data(sim, act, artist_intl_map, prorateo=prorateo))
+        at = calc.get("at_100") or {}
+        return {
+            "break_even_tickets": calc.get("break_even_tickets"),
+            "break_even_pct": calc.get("break_even_pct"),
+            "ingresos": (at.get("ingresos") or {}).get("total"),
+            "gastos": (at.get("gastos") or {}).get("total"),
+            "resultado": at.get("resultado"),
+        }
+    except Exception:
+        return {}
 
 
 @app.post("/contratacion/simulaciones/<sid>/gastos", endpoint="simulation_expenses_save")
@@ -22983,14 +23014,15 @@ def simulation_expenses_save(sid):
                     tpl_msg = f" Plantilla «{name}» guardada ({len(rows_tpl)} líneas)."
         s.commit()
         _ok, _msg = True, "Gastos guardados." + tpl_msg
+        _figs = _sim_live_figures(sim, act)   # break-even recomputado para actualizar en vivo
     except Exception as e:
         s.rollback()
-        _ok, _msg = False, f"Error guardando los gastos: {e}"
+        _ok, _msg, _figs = False, f"Error guardando los gastos: {e}", {}
     finally:
         s.close()
     # Autoguardado / «Vincular presupuesto» van por fetch: responder JSON (sin recargar la página).
     if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-        return jsonify({"ok": _ok, "message": _msg})
+        return jsonify({"ok": _ok, "message": _msg, "figures": _figs})
     flash(_msg, "success" if _ok else "danger")
     return redirect(url_for("simulation_detail_view", sid=sid, tab="gastos", act=request.form.get("activity_id") or None))
 

@@ -630,11 +630,18 @@
         <div class="ficha-section__body">
           <table class="table table-sm align-middle mb-0">
             <tbody>
-              <tr class="{{ 'sim-row-off' if income_overrides.get('ticketing') }}"><td>Ticketing{% if income_overrides.get('ticketing') %} <span class="badge text-bg-secondary">{{ 'Omitido' if income_overrides.get('ticketing') == 'OMIT' else 'No aplica' }}</span>{% endif %}</td><td class="text-end">{{ amt(ing.ticketing, 'Neto: sin IVA y sin SGAE') }}</td></tr>
-              {% if ing.complementos or income_overrides.get('complementos') %}<tr class="{{ 'sim-row-off' if income_overrides.get('complementos') }}"><td>Complementos</td><td class="text-end">{{ amt(ing.complementos, 'Sin IVA') }}</td></tr>{% endif %}
-              <tr class="{{ 'sim-row-off' if income_overrides.get('rebate') }}"><td>Rebate</td><td class="text-end">{{ amt(ing.rebate, 'Sin IVA') }}</td></tr>
-              <tr class="{{ 'sim-row-off' if income_overrides.get('barras') }}"><td>Barras</td><td class="text-end">{{ amt(ing.barras, 'Sin IVA') }}</td></tr>
-              <tr class="{{ 'sim-row-off' if income_overrides.get('incentivos') }}"><td>Incentivos fiscales</td><td class="text-end">{{ amt(ing.incentivos, 'Sin IVA') }}</td></tr>
+              {# Regla: los ingresos "No aplica" (NA) NO aparecen nunca; los "Omitidos" (OMIT) solo se ven
+                 en la vista interna (CAN_EDIT), no al compartir ni en el PDF. El badge, solo interno. #}
+              {% set _ovt = income_overrides.get('ticketing') %}
+              {% if _ovt != 'NA' and (CAN_EDIT or _ovt != 'OMIT') %}<tr class="{{ 'sim-row-off' if _ovt }}"><td>Ticketing{% if _ovt and CAN_EDIT %} <span class="badge text-bg-secondary">{{ 'Omitido' if _ovt == 'OMIT' else 'No aplica' }}</span>{% endif %}</td><td class="text-end">{{ amt(ing.ticketing, 'Neto: sin IVA y sin SGAE') }}</td></tr>{% endif %}
+              {% set _ovc = income_overrides.get('complementos') %}
+              {% if (ing.complementos or _ovc) and _ovc != 'NA' and (CAN_EDIT or _ovc != 'OMIT') %}<tr class="{{ 'sim-row-off' if _ovc }}"><td>Complementos{% if _ovc and CAN_EDIT %} <span class="badge text-bg-secondary">{{ 'Omitido' if _ovc == 'OMIT' else 'No aplica' }}</span>{% endif %}</td><td class="text-end">{{ amt(ing.complementos, 'Sin IVA') }}</td></tr>{% endif %}
+              {% set _ovr = income_overrides.get('rebate') %}
+              {% if _ovr != 'NA' and (CAN_EDIT or _ovr != 'OMIT') %}<tr class="{{ 'sim-row-off' if _ovr }}"><td>Rebate{% if _ovr and CAN_EDIT %} <span class="badge text-bg-secondary">{{ 'Omitido' if _ovr == 'OMIT' else 'No aplica' }}</span>{% endif %}</td><td class="text-end">{{ amt(ing.rebate, 'Sin IVA') }}</td></tr>{% endif %}
+              {% set _ovb = income_overrides.get('barras') %}
+              {% if _ovb != 'NA' and (CAN_EDIT or _ovb != 'OMIT') %}<tr class="{{ 'sim-row-off' if _ovb }}"><td>Barras{% if _ovb and CAN_EDIT %} <span class="badge text-bg-secondary">{{ 'Omitido' if _ovb == 'OMIT' else 'No aplica' }}</span>{% endif %}</td><td class="text-end">{{ amt(ing.barras, 'Sin IVA') }}</td></tr>{% endif %}
+              {% set _ovi = income_overrides.get('incentivos') %}
+              {% if _ovi != 'NA' and (CAN_EDIT or _ovi != 'OMIT') %}<tr class="{{ 'sim-row-off' if _ovi }}"><td>Incentivos fiscales{% if _ovi and CAN_EDIT %} <span class="badge text-bg-secondary">{{ 'Omitido' if _ovi == 'OMIT' else 'No aplica' }}</span>{% endif %}</td><td class="text-end">{{ amt(ing.incentivos, 'Sin IVA') }}</td></tr>{% endif %}
               {% if ing.subvenciones %}<tr><td>Subvenciones</td><td class="text-end">{{ amt(ing.subvenciones, 'Sin IVA') }}</td></tr>{% endif %}
               {% if ing.patrocinios %}<tr><td>Patrocinios</td><td class="text-end">{{ amt(ing.patrocinios, 'Sin IVA') }}</td></tr>{% endif %}
             </tbody>
@@ -795,6 +802,11 @@
   {% else %}
     {% set ing = calc.at_100.ingresos %}
     {% set ov = income_overrides %}
+    {% if calc.break_even_tickets is not none or calc.at_100.resultado is not none %}
+    <div class="alert alert-light border small mb-3" data-sim-live>
+      <i class="fa fa-scale-balanced me-1"></i>Punto de empate: <strong>{{ calc.break_even_tickets|k if calc.break_even_tickets is not none else '—' }}</strong> entradas{% if calc.break_even_pct is not none %} ({{ calc.break_even_pct }}%){% endif %} · Beneficio potencial @100%: <strong>{{ calc.at_100.resultado|k }} €</strong>
+    </div>
+    {% else %}<div class="alert alert-light border small mb-3 d-none" data-sim-live></div>{% endif %}
     <div class="row g-3">
       <div class="col-12 col-lg-7">
         <div class="ficha-section">
@@ -879,7 +891,7 @@
             </div>
           </div>
           {% endfor %}
-          <div class="d-flex justify-content-end"><button class="btn btn-primary" type="submit"><i class="fa fa-save me-1"></i>Guardar ingresos</button></div>
+          <div class="d-flex justify-content-end"><span class="text-muted small" data-income-status><i class="fa fa-cloud me-1"></i>Se guarda automáticamente</span></div>
         </form>
         {% else %}
           <div class="text-muted">Sin permiso de edición.</div>
@@ -893,6 +905,11 @@
   {% if not active_activity %}
     <div class="text-muted">Configura primero el <a href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing', act=(active_activity.id if is_multi else none)) }}">Ticketing</a>.</div>
   {% else %}
+    {% if calc and not active_activity.is_shared and (calc.break_even_tickets is not none or calc.at_100.resultado is not none) %}
+    <div class="alert alert-light border small mb-3" data-sim-live>
+      <i class="fa fa-scale-balanced me-1"></i>Punto de empate: <strong>{{ calc.break_even_tickets|k if calc.break_even_tickets is not none else '—' }}</strong> entradas{% if calc.break_even_pct is not none %} ({{ calc.break_even_pct }}%){% endif %} · Beneficio potencial @100%: <strong>{{ calc.at_100.resultado|k }} €</strong>
+    </div>
+    {% else %}<div class="alert alert-light border small mb-3 d-none" data-sim-live></div>{% endif %}
     {% set g = (calc.at_100.gastos if calc else None) %}
     {% if g %}
     <div class="d-flex flex-wrap gap-3 mb-3 justify-content-end align-items-center">
@@ -1469,13 +1486,41 @@
   var ovInput = document.getElementById('incomeOverridesJson');
   var overrides = {};
   try { overrides = JSON.parse(ovInput.value || '{}') || {}; } catch(e){ overrides = {}; }
+  // Autoguardado de ingresos (sin botón «Guardar»): cada cambio se guarda y actualiza el punto de empate.
+  var incStatus = document.querySelector('[data-income-status]');
+  var incTimer = null;
+  function simFmtNum(n){ try{ return Math.round(n).toLocaleString('es-ES'); }catch(e){ return n; } }
+  function simUpdateLive(f){
+    if(!f) return;
+    document.querySelectorAll('[data-sim-live]').forEach(function(el){
+      if(f.break_even_tickets==null && f.resultado==null){ return; }
+      var be = (f.break_even_tickets!=null) ? (simFmtNum(f.break_even_tickets) + (f.break_even_pct!=null?(' ('+f.break_even_pct+'%)'):'')) : '—';
+      var res = (f.resultado!=null) ? (simFmtNum(f.resultado)+' €') : '—';
+      el.innerHTML = '<i class="fa fa-scale-balanced me-1"></i>Punto de empate: <strong>'+be+'</strong> entradas · Beneficio potencial @100%: <strong>'+res+'</strong>';
+      el.classList.remove('d-none');
+    });
+  }
+  window.__simUpdateLive = simUpdateLive;
+  function incSave(){
+    var fd = new FormData(form);
+    if(incStatus) incStatus.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Guardando…';
+    return fetch(form.action, {method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'}, body:fd})
+      .then(function(r){ return r.json().catch(function(){ return {ok:false}; }); })
+      .then(function(js){ if(incStatus) incStatus.innerHTML = (js&&js.ok)?'<i class="fa fa-circle-check text-success me-1"></i>Guardado':'<i class="fa fa-triangle-exclamation text-danger me-1"></i>Error al guardar'; if(js&&js.figures) simUpdateLive(js.figures); return js; })
+      .catch(function(){ if(incStatus) incStatus.innerHTML='<i class="fa fa-triangle-exclamation text-danger me-1"></i>Error al guardar'; });
+  }
+  function incAutosave(){ clearTimeout(incTimer); incTimer=setTimeout(incSave, 700); }
+  form.addEventListener('submit', function(e){ e.preventDefault(); incSave(); });
+  form.addEventListener('input', incAutosave);
+  form.addEventListener('change', incAutosave);
+
   document.addEventListener('click', function(e){
     var b = e.target.closest('[data-inc-ov]');
     if(!b) return;
     var key = b.getAttribute('data-inc-ov'), val = b.getAttribute('data-val');
     if(val) overrides[key] = val; else delete overrides[key];
     ovInput.value = JSON.stringify(overrides);
-    if(form.requestSubmit) form.requestSubmit(); else form.submit();
+    incSave();
   });
 })();
 </script>
@@ -1855,13 +1900,23 @@
   var statusEl = document.querySelector('[data-expenses-status]');
   var saveTimer = null;
   function setStatus(txt, icon){ if(statusEl) statusEl.innerHTML = '<i class="fa fa-'+(icon||'cloud')+' me-1"></i>'+txt; }
+  function simUpdateLive(f){
+    if(!f) return;
+    document.querySelectorAll('[data-sim-live]').forEach(function(el){
+      if(f.break_even_tickets==null && f.resultado==null) return;
+      var be=(f.break_even_tickets!=null)?(Math.round(f.break_even_tickets).toLocaleString('es-ES')+(f.break_even_pct!=null?(' ('+f.break_even_pct+'%)'):'')):'—';
+      var res=(f.resultado!=null)?(Math.round(f.resultado).toLocaleString('es-ES')+' €'):'—';
+      el.innerHTML='<i class="fa fa-scale-balanced me-1"></i>Punto de empate: <strong>'+be+'</strong> entradas · Beneficio potencial @100%: <strong>'+res+'</strong>';
+      el.classList.remove('d-none');
+    });
+  }
   function doSave(withTemplate){
     fillPayload();
     if(!withTemplate) document.getElementById('templateSaveJson').value='';
     setStatus('Guardando…','spinner fa-spin');
     return fetch(form.action, { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'}, body:new FormData(form) })
       .then(function(r){ return r.json().catch(function(){ return {ok:false}; }); })
-      .then(function(js){ setStatus(js&&js.ok?'Guardado':'Error al guardar', js&&js.ok?'circle-check text-success':'triangle-exclamation text-danger'); return js; })
+      .then(function(js){ setStatus(js&&js.ok?'Guardado':'Error al guardar', js&&js.ok?'circle-check text-success':'triangle-exclamation text-danger'); if(js&&js.figures) simUpdateLive(js.figures); return js; })
       .catch(function(){ setStatus('Error al guardar','triangle-exclamation text-danger'); return {ok:false}; });
   }
   function autosave(){ clearTimeout(saveTimer); saveTimer=setTimeout(function(){ doSave(false); }, 700); }

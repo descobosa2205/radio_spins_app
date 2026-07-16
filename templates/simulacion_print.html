@@ -199,14 +199,15 @@
 {% macro ingresos_tbl(c, overrides) %}
 {% set ing = c.at_100.ingresos %}
 {% set ov = overrides or {} %}
+{# El PDF es compartible: los ingresos con override (Omitido / No aplica) NO aparecen. #}
 <table>
-  <tr class="{{ 'off' if ov.get('ticketing') }}"><td>Ticketing <span class="muted">(neto sin IVA y sin SGAE)</span>{{ offmark(ov, 'ticketing') }}</td><td class="text-end">{{ ing.ticketing|eur }}</td></tr>
-  {% if ing.complementos or ov.get('complementos') %}<tr class="{{ 'off' if ov.get('complementos') }}"><td>Complementos{{ offmark(ov, 'complementos') }}</td><td class="text-end">{{ ing.complementos|eur }}</td></tr>{% endif %}
-  <tr class="{{ 'off' if ov.get('rebate') }}"><td>Rebate{{ offmark(ov, 'rebate') }}</td><td class="text-end">{{ ing.rebate|eur }}</td></tr>
-  <tr class="{{ 'off' if ov.get('barras') }}"><td>Barras{{ offmark(ov, 'barras') }}</td><td class="text-end">{{ ing.barras|eur }}</td></tr>
-  <tr class="{{ 'off' if ov.get('incentivos') }}"><td>Incentivos fiscales{{ offmark(ov, 'incentivos') }}</td><td class="text-end">{{ ing.incentivos|eur }}</td></tr>
-  <tr class="{{ 'off' if ov.get('subvenciones') }}"><td>Subvenciones{{ offmark(ov, 'subvenciones') }}</td><td class="text-end">{{ ing.subvenciones|eur }}</td></tr>
-  <tr class="{{ 'off' if ov.get('patrocinios') }}"><td>Patrocinios{{ offmark(ov, 'patrocinios') }}</td><td class="text-end">{{ ing.patrocinios|eur }}</td></tr>
+  {% if not ov.get('ticketing') %}<tr><td>Ticketing <span class="muted">(neto sin IVA y sin SGAE)</span></td><td class="text-end">{{ ing.ticketing|eur }}</td></tr>{% endif %}
+  {% if ing.complementos and not ov.get('complementos') %}<tr><td>Complementos</td><td class="text-end">{{ ing.complementos|eur }}</td></tr>{% endif %}
+  {% if not ov.get('rebate') %}<tr><td>Rebate</td><td class="text-end">{{ ing.rebate|eur }}</td></tr>{% endif %}
+  {% if not ov.get('barras') %}<tr><td>Barras</td><td class="text-end">{{ ing.barras|eur }}</td></tr>{% endif %}
+  {% if not ov.get('incentivos') %}<tr><td>Incentivos fiscales</td><td class="text-end">{{ ing.incentivos|eur }}</td></tr>{% endif %}
+  {% if not ov.get('subvenciones') %}<tr><td>Subvenciones</td><td class="text-end">{{ ing.subvenciones|eur }}</td></tr>{% endif %}
+  {% if not ov.get('patrocinios') %}<tr><td>Patrocinios</td><td class="text-end">{{ ing.patrocinios|eur }}</td></tr>{% endif %}
   <tr class="tot"><td>Total ingresos</td><td class="text-end">{{ ing.total|eur }}</td></tr>
 </table>
 {% endmacro %}

@@ -617,28 +617,98 @@
          de butacas del recinto, cada invitado con su color (nombre + raya al acercar). Aditivo:
          los planos por categoría de abajo siguen siendo la vista operativa. #}
       {% if venue_map_inv %}
-      <details class="mb-3 border rounded p-2" data-vmap-inv>
-        <summary class="fw-semibold" style="cursor:pointer"><i class="fa fa-map me-1 text-danger"></i>Mapa del recinto
-          <span class="badge text-bg-light border ms-1">{{ venue_map_inv.matched }} casada(s)</span>
-          {% if venue_map_inv.unmatched %}<span class="badge text-bg-warning ms-1" title="Entradas numeradas cuyo sector/fila/asiento no casa con el mapa del recinto. Añade alias al sector en la ficha del recinto (Ticketing → Mapa de butacas) para que casen.">{{ venue_map_inv.unmatched }} sin casar</span>{% endif %}
-        </summary>
-        <div class="mt-2" data-venue-map data-can-edit="" data-save-url=""></div>
-        <script type="application/json" id="venueMapData">{{ venue_map_inv.payload|tojson }}</script>
-        <script src="{{ url_for('static', filename='js/venue_map.js') }}"></script>
-        <script>
-        (function(){
-          // El visor nace dentro de un <details> cerrado (sin tamaño): al abrirlo por primera
-          // vez se reencuadra el mapa.
-          var d = document.querySelector('[data-vmap-inv]');
-          if(!d) return;
-          d.addEventListener('toggle', function(){
-            if(!d.open) return;
-            var fit = d.querySelector('[data-vm-fit]');
-            setTimeout(function(){ if(fit) fit.click(); }, 60);
-          });
-        })();
-        </script>
-      </details>
+      {# Categorías con disponibilidades a la IZQUIERDA (con el OJO) y el PLANO COMPLETO del
+         recinto a la derecha. Las categorías cuyas entradas casan al 100% viven en el plano; las
+         que no casan siguen mostrando su panel por separado más abajo, como siempre. #}
+      <div class="row g-3 mb-3" data-vmap-inv>
+        <div class="col-lg-4 col-xl-3">
+          <div class="card">
+            <div class="card-header bg-white py-2 d-flex align-items-center gap-2">
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-inv-eye
+                      title="Alternar entre el plano completo del recinto y los sectores de invitaciones por separado"><i class="fa fa-eye"></i></button>
+              <span class="fw-semibold"><i class="fa fa-map me-1 text-danger"></i>Plano del recinto</span>
+            </div>
+            <ul class="list-group list-group-flush">
+              {% for cat in categories %}
+              <li class="list-group-item py-2">
+                <div class="d-flex justify-content-between align-items-center gap-2">
+                  <span class="text-truncate d-inline-flex align-items-center gap-1">{% if ZONE_ICON_SVG.get(cat.zone) %}<img src="{{ ZONE_ICON_SVG.get(cat.zone) }}" class="inv-zone-ico" alt="">{% endif %}{{ cat.name }}</span>
+                  <span class="small text-nowrap" title="Disponibles / configuradas"><strong>{{ cat.available_configured }}</strong>/{{ cat.configured }}</span>
+                </div>
+                {% if cat.pending_requests %}<div class="small text-danger"><i class="fa fa-hourglass-half me-1"></i>{{ cat.pending_requests }} {{ 'petición' if cat.pending_requests == 1 else 'peticiones' }} · {{ cat.pending_qty }} pendientes</div>{% endif %}
+              </li>
+              {% endfor %}
+            </ul>
+            <div class="card-body py-2 small text-muted">
+              <span class="badge text-bg-light border">{{ venue_map_inv.matched }} casada(s)</span>
+              {% if venue_map_inv.unmatched %}<span class="badge text-bg-warning ms-1">{{ venue_map_inv.unmatched }} sin casar</span>{% endif %}
+            </div>
+          </div>
+        </div>
+        <div class="col-lg-8 col-xl-9" data-inv-mapcol>
+          {% if venue_map_inv.unmatched %}
+          <div class="alert alert-warning py-2 small">
+            <i class="fa fa-triangle-exclamation me-1"></i><strong>Coincidencia parcial con el plano:</strong>
+            {{ venue_map_inv.unmatched }} entrada(s) no casan (sector{{ 'es' if venue_map_inv.unmatched_secs|length != 1 else '' }}: {{ venue_map_inv.unmatched_secs|join(', ') }}).
+            Corrígelo poniendo al sector del mapa el ALIAS con el nombre que usan los PDF (o ajustando la fila/numeración)
+            {% if venue_map_inv.venue_id %}en la <a href="{{ url_for('venue_detail_view', vid=venue_map_inv.venue_id, tab='ticketing') }}" target="_blank" rel="noopener">ficha del recinto</a>{% endif %};
+            esas entradas se muestran por separado más abajo mientras tanto.
+          </div>
+          {% endif %}
+          <div class="alert alert-info py-2 small d-none" data-inv-map-changed>
+            <i class="fa fa-rotate me-1"></i>El plano del recinto se ha ACTUALIZADO desde tu última visita: revisa que las invitaciones subidas siguen casando (los estados de este plano ya reflejan la versión nueva).
+            <button type="button" class="btn-close float-end" style="font-size:.7rem" data-inv-map-changed-ok></button>
+          </div>
+          <div data-venue-map data-can-edit="" data-save-url=""></div>
+          <script type="application/json" id="venueMapData">{{ venue_map_inv.payload|tojson }}</script>
+        </div>
+      </div>
+      <script src="{{ url_for('static', filename='js/venue_map.js') }}"></script>
+      <script>
+      (function(){
+        var wrap = document.querySelector('[data-vmap-inv]');
+        if(!wrap) return;
+        function fitMap(){ var f = wrap.querySelector('[data-vm-fit]'); if(f) setTimeout(function(){ f.click(); }, 60); }
+        // El visor puede nacer en una pestaña oculta (sin tamaño): reencuadrar al mostrarse.
+        document.addEventListener('shown.bs.tab', function(e){
+          var t = e.target && (e.target.getAttribute('data-bs-target') || e.target.getAttribute('href'));
+          if(t === '#inv-tab-tickets') fitMap();
+        });
+        // Paneles de categoría CASADOS al 100%: viven en el plano (ocultos por defecto).
+        var stats = {{ venue_map_inv.by_cat|tojson }};
+        var hiddenPanels = [];
+        document.querySelectorAll('[data-cat-panel]').forEach(function(p){
+          var st = stats[p.getAttribute('data-cat-panel')];
+          if(st && st.matched > 0 && st.unmatched === 0){ p.classList.add('d-none'); hiddenPanels.push(p); }
+        });
+        // OJO: alterna «solo los sectores de invitaciones» ↔ «visión sobre el plano del recinto».
+        var eye = wrap.querySelector('[data-inv-eye]');
+        var mapcol = wrap.querySelector('[data-inv-mapcol]');
+        var sectorMode = false;
+        if(eye) eye.addEventListener('click', function(){
+          sectorMode = !sectorMode;
+          mapcol.classList.toggle('d-none', sectorMode);
+          hiddenPanels.forEach(function(p){ p.classList.toggle('d-none', !sectorMode); });
+          eye.innerHTML = sectorMode ? '<i class="fa fa-eye-slash"></i>' : '<i class="fa fa-eye"></i>';
+          eye.classList.toggle('btn-danger', sectorMode);
+          eye.classList.toggle('btn-outline-secondary', !sectorMode);
+          if(!sectorMode) fitMap();
+        });
+        // Aviso «el plano del recinto ha cambiado desde tu última visita» (versión en localStorage).
+        try{
+          var v = {{ venue_map_inv.payload.version }};
+          var k = 'vmapInvSeen:{{ event.id }}:{{ venue_map_inv.payload.id }}';
+          var prev = localStorage.getItem(k);
+          if(prev !== null && parseInt(prev, 10) !== v){
+            var b = wrap.querySelector('[data-inv-map-changed]');
+            if(b) b.classList.remove('d-none');
+          }
+          var okBtn = wrap.querySelector('[data-inv-map-changed-ok]');
+          if(okBtn) okBtn.addEventListener('click', function(){ localStorage.setItem(k, String(v)); okBtn.closest('.alert').classList.add('d-none'); });
+          if(prev === null) localStorage.setItem(k, String(v));
+        }catch(e){}
+      })();
+      </script>
       {% endif %}
       <form method="post" action="{{ url_for('invitation_tickets_bulk', concert_id=event.id) }}" class="invitation-bulk-bar d-none align-items-center flex-wrap gap-2 mb-3 p-2 border rounded" data-bulk-bar>
         <input type="hidden" name="action" data-bulk-action value="">
@@ -787,7 +857,7 @@
             {% for cat in zcats %}
           {% set cat_tickets = tickets_by_category.get(cat.id, []) if tickets_by_category is defined else [] %}
           {% set cat_groups = ticket_groups_by_category.get(cat.id, []) if ticket_groups_by_category is defined else [] %}
-          <div class="col-12">
+          <div class="col-12" data-cat-panel="{{ cat.id }}">
             <div class="card invitation-ticket-module{% if cat.ticket_kind != 'GUEST_LIST' %} position-relative{% endif %}"{% if cat.ticket_kind != 'GUEST_LIST' %} data-cat-upload-drop data-file-drop="off" data-category-id="{{ cat.id }}" data-category-name="{{ cat.name }}" data-ticket-kind="{{ cat.ticket_kind }}" data-guest-list-mode="{{ cat.guest_list_mode }}" data-is-pmr="{{ '1' if cat.is_pmr else '' }}"{% endif %}>
               <div class="card-body">
                 {% if cat.ticket_kind != 'GUEST_LIST' %}<div class="inv-catdrop-hint"><i class="fa fa-file-arrow-up me-1"></i>Suelta los PDFs para subirlos a «{{ cat.name }}»</div>{% endif %}

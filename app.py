@@ -18037,14 +18037,21 @@ def _invitation_venue_map_payload(sm, ticket_payloads) -> dict | None:
     guest_cats: dict[str, dict] = {}
     assignments: dict = {}
     matched = unmatched = 0
+    by_cat: dict[str, dict] = {}     # por categoría de invitación: casadas / sin casar
+    unmatched_secs: dict[str, int] = {}   # sectores de los PDF que no casan (para la alerta)
     for t in (ticket_payloads or []):
         if not (t.get("seat_number") or "").strip():
             continue   # sin numerar: no se casan con el plano
+        _cstat = by_cat.setdefault(str(t.get("category_id") or ""), {"matched": 0, "unmatched": 0})
         key = seatmap_calc.match_ticket(lookup, t.get("sector"), t.get("row_label"), t.get("seat_number"))
         if not key:
             unmatched += 1
+            _cstat["unmatched"] += 1
+            _sec = (t.get("sector") or "").strip() or "(sin sector)"
+            unmatched_secs[_sec] = unmatched_secs.get(_sec, 0) + 1
             continue
         matched += 1
+        _cstat["matched"] += 1
         status = (t.get("status") or "").upper()
         if status not in assigned_states:
             continue   # disponible: se ve como butaca libre
@@ -18067,6 +18074,8 @@ def _invitation_venue_map_payload(sm, ticket_payloads) -> dict | None:
                     "layout": view_layout, "assignments": assignments},
         "matched": matched,
         "unmatched": unmatched,
+        "by_cat": by_cat,
+        "unmatched_secs": sorted(unmatched_secs, key=lambda k: -unmatched_secs[k])[:6],
     }
 
 
@@ -47667,6 +47676,8 @@ def invitation_event_detail(concert_id):
                 _sm_inv = _venue_seatmap_default(session_db, concert.venue_id)
                 if _sm_inv is not None:
                     venue_map_inv = _invitation_venue_map_payload(_sm_inv, tickets)
+                    if venue_map_inv:
+                        venue_map_inv["venue_id"] = str(concert.venue_id)   # enlace de corrección (alias)
             except Exception:
                 venue_map_inv = None
         current_state = _current_user_state()

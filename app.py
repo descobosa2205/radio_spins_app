@@ -48558,6 +48558,7 @@ def _invitation_release_apply(tickets, *, mode: str, entity_label: str) -> tuple
         t.assigned_commitment_id = None
         t.assigned_label = None
         t.sent_at = None
+        t.added_after_send = False   # al soltarse deja de ser «Nueva» de ninguna ampliación
         t.updated_at = now
     return recovered, discarded
 
@@ -48729,6 +48730,8 @@ def invitation_request_status(request_id):
                 t.assigned_request_id = None
                 t.assigned_label = None
                 t.status = 'AVAILABLE'
+                t.sent_at = None
+                t.added_after_send = False
                 t.updated_at = _now_madrid()
             subject, html_body, text_body = _invitation_rejection_email_body(session_db, row, reason)
             recipients = _dedupe_valid_email_addresses([row.requester_email, row.guest_email])
@@ -48745,6 +48748,8 @@ def invitation_request_status(request_id):
                 t.assigned_request_id = None
                 t.assigned_label = None
                 t.status = 'AVAILABLE'
+                t.sent_at = None
+                t.added_after_send = False
             flash('Solicitud anulada y entradas liberadas con advertencia.', 'success')
         elif action == 'DELIVER_HAND':
             row.status = 'ENTREGADAS_MANO'
@@ -48947,6 +48952,7 @@ def invitation_request_update(request_id):
                         t.assigned_commitment_id = None
                         t.assigned_label = None
                         t.sent_at = None
+                        t.added_after_send = False
                         t.updated_at = _now_madrid()
                     add_n = _safe_int(request.form.get(f'cat_{cid}_add'))
                     # Las AÑADIDAS ya NO se asignan aquí en automático: quedan PENDIENTES y la
@@ -49186,6 +49192,8 @@ def invitation_request_auto_assign(request_id):
                 raise ValueError(f'No se ha podido realizar la asignación por falta de invitaciones disponibles en «{cat.name}» (faltan {qty - len(available_all)}). Todo queda como estaba.')
             # Butacas contiguas para no dividir al grupo (mismo tramo de fila; si no, filas seguidas).
             available = _invitation_pick_grouped_seats(available_all, qty, category=cat, concert=concert)
+            # AMPLIACIÓN: si la solicitud ya tuvo un envío, lo asignado ahora nace marcado «Nueva».
+            _dest_sent = _invitation_dest_already_sent(session_db, request_row=row)
             for ticket in available:
                 if ticket.previous_assignment_warning and not _truthy(request.form.get('accept_warnings')):
                     raise ValueError(f'La entrada {ticket.ticket_code or ticket.pdf_name} ya había sido enviada/asignada antes. Acepta la advertencia para reasignarla.')
@@ -49193,6 +49201,8 @@ def invitation_request_auto_assign(request_id):
                 ticket.assigned_label = row.guest_name
                 ticket.status = 'ASSIGNED'
                 ticket.assigned_at = _now_madrid()
+                ticket.sent_at = None            # butaca reutilizada: esta asignación aún no se envió
+                ticket.added_after_send = _dest_sent
                 assigned_count += 1
         if assigned_count > 0:
             # No degradar una ENVIADAS/entregada AMPLIADA: conserva su estado (la etiqueta partida
@@ -49243,6 +49253,28 @@ def _invitation_tag_new_tickets(all_tickets, sending):
     for t in sending:
         if not _was_sent(t):
             t.added_after_send = True
+
+
+def _invitation_dest_already_sent(session_db, request_row=None, commitment_row=None) -> bool:
+    """¿La solicitud/compromiso YA tuvo un envío/entrega? Si sí, lo que se asigne AHORA es una
+    AMPLIACIÓN: la entrada nace marcada added_after_send para que el asignador, el correo y el
+    enlace la distingan como «Nueva» aunque el camino de envío no re-derive la etiqueta.
+    (El propio _invitation_tag_new_tickets la limpia cuando deja de haber mezcla, p. ej. al
+    reubicar la petición completa o en el reenvío siguiente.)"""
+    row = request_row if request_row is not None else commitment_row
+    if row is None:
+        return False
+    if getattr(row, 'sent_at', None):
+        return True
+    if (getattr(row, 'status', '') or '').upper() in {'ENVIADAS', 'ENTREGADAS_MANO', 'RECOGIDAS_TAQUILLA', 'DISPONIBLES_TAQUILLA'}:
+        return True
+    fld = InvitationTicket.assigned_request_id if request_row is not None else InvitationTicket.assigned_commitment_id
+    hit = (session_db.query(InvitationTicket.id)
+           .filter(fld == row.id)
+           .filter(or_(InvitationTicket.status.in_(list(_INVITATION_TICKET_SENT_STATUSES)),
+                       InvitationTicket.sent_at.isnot(None)))
+           .first())
+    return bool(hit)
 
 
 def _invitation_mark_sent_tickets(session_db, row, send_scope, sent_at):
@@ -49451,6 +49483,8 @@ def invitation_category_auto_assign(concert_id, category_id):
                     continue
                 label = commitment_row.name or 'Compromiso'
             picked = _invitation_pick_grouped_seats(remaining, need, category=cat, concert=concert)
+            # AMPLIACIÓN: si el destino ya tuvo un envío, lo asignado ahora nace marcado «Nueva».
+            _dest_sent = _invitation_dest_already_sent(session_db, request_row=request_row, commitment_row=commitment_row)
             for ticket in picked:
                 ticket.assigned_request_id = request_row.id if request_row else None
                 ticket.assigned_commitment_id = commitment_row.id if commitment_row else None
@@ -49458,6 +49492,8 @@ def invitation_category_auto_assign(concert_id, category_id):
                 ticket.status = 'ASSIGNED'
                 ticket.assigned_at = now
                 ticket.updated_at = now
+                ticket.sent_at = None            # butaca reutilizada: esta asignación aún no se envió
+                ticket.added_after_send = _dest_sent
             _picked_ids = {t.id for t in picked}
             remaining = [t for t in remaining if t.id not in _picked_ids]
             assigned_total += len(picked)
@@ -49526,12 +49562,15 @@ def invitation_category_send_all(concert_id, category_id):
             if not flags.get('can_send'):
                 not_complete += 1
                 continue
-            row.delivery_token = row.delivery_token or _invitation_token()
-            subject, html_body, text_body = _invitation_email_body(session_db, row, None)
             recipients = _dedupe_valid_email_addresses(_invitation_delivery_recipients(session_db, row))
             if not recipients:
                 no_email += 1
                 continue
+            row.delivery_token = row.delivery_token or _invitation_token()
+            # Etiquetas «Nueva» + SENT ANTES de componer (el correo ya sale con las etiquetas);
+            # si el SMTP falla, el rollback lo deshace todo.
+            _invitation_mark_sent_tickets(session_db, row, 'all', now)
+            subject, html_body, text_body = _invitation_email_body(session_db, row, None)
             reply_to = _invitation_request_reply_to(session_db, row) or _current_user_email()
             try:
                 ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=reply_to)
@@ -49542,7 +49581,6 @@ def invitation_category_send_all(concert_id, category_id):
                 row.sent_at = now
                 row.sent_via = 'Email'
                 row.sent_to = ', '.join(recipients or [])
-                _invitation_mark_sent_tickets(session_db, row, 'all', now)
                 session_db.commit()
                 sent_n += 1
             else:
@@ -49568,6 +49606,14 @@ def invitation_category_send_all(concert_id, category_id):
                 no_email += 1
                 continue
             row.delivery_token = row.delivery_token or _invitation_token()
+            # Etiquetas «Nueva» (ampliación reenviada: el correo lista viejas+nuevas de la categoría)
+            # + SENT ANTES de componer; si el SMTP falla, el rollback lo deshace todo. Antes este
+            # camino NO etiquetaba nunca: correo y enlace salían sin la marca.
+            _invitation_tag_new_tickets(_tks, _tks)
+            for t in _unsent:
+                t.status = 'SENT'
+                t.sent_at = now
+                t.updated_at = now
             subject, html_body, text_body = _invitation_commitment_email_body(session_db, row, category_id=cat.id)
             reply_to = _invitation_commitment_reply_to(session_db, row) or _current_user_email()
             try:
@@ -49575,10 +49621,6 @@ def invitation_category_send_all(concert_id, category_id):
             except Exception:
                 ok = False
             if ok:
-                for t in _unsent:
-                    t.status = 'SENT'
-                    t.sent_at = now
-                    t.updated_at = now
                 session_db.commit()
                 sent_n += 1
             else:
@@ -49631,12 +49673,16 @@ def invitation_event_send_all(concert_id):
             flags = _invitation_request_kind_flags(session_db, row, categories)
             if not flags.get('can_send'):
                 continue
-            row.delivery_token = row.delivery_token or _invitation_token()
-            subject, html_body, text_body = _invitation_email_body(session_db, row, None)
             recipients = _dedupe_valid_email_addresses(_invitation_delivery_recipients(session_db, row))
             if not recipients:
                 no_email += 1
                 continue
+            row.delivery_token = row.delivery_token or _invitation_token()
+            # Etiquetas «Nueva» + SENT ANTES de componer (el correo sale con las etiquetas);
+            # si el SMTP falla, el rollback lo deshace todo.
+            _sent_at_r = _now_madrid()
+            _invitation_mark_sent_tickets(session_db, row, 'all', _sent_at_r)
+            subject, html_body, text_body = _invitation_email_body(session_db, row, None)
             reply_to = _invitation_request_reply_to(session_db, row) or _current_user_email()
             try:
                 ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=reply_to)
@@ -49644,13 +49690,9 @@ def invitation_event_send_all(concert_id):
                 ok = False
             if ok:
                 row.status = 'ENVIADAS'
-                row.sent_at = _now_madrid()
+                row.sent_at = _sent_at_r
                 row.sent_via = 'Email'
                 row.sent_to = ', '.join(recipients or [])
-                for ticket in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
-                    ticket.status = 'SENT'
-                    ticket.sent_at = row.sent_at
-                    ticket.updated_at = row.sent_at
                 # Commit por fila: un fallo posterior no revierte las que ya se enviaron de verdad.
                 try:
                     session_db.commit()
@@ -50282,6 +50324,7 @@ def invitation_ticket_release(ticket_id):
         ticket.assigned_commitment_id = None
         ticket.assigned_label = None
         ticket.sent_at = None
+        ticket.added_after_send = False   # al soltarse deja de ser «Nueva» de ninguna ampliación
         ticket.updated_at = _now_madrid()
         # Estado de la solicitud/compromiso desde sus entradas (p. ej. si se recuperan TODAS las
         # enviadas, deja de figurar como enviada y vuelve a pendiente).
@@ -50389,6 +50432,8 @@ def invitation_ticket_move_category(ticket_id):
                 ticket.assigned_request_id = None
                 ticket.assigned_commitment_id = None
                 ticket.assigned_label = None
+                ticket.sent_at = None
+                ticket.added_after_send = False
             ticket.updated_at = _now_madrid()
             session_db.commit()
             flash(f'Entrada movida a «{new_cat.name}».', 'success')
@@ -50464,6 +50509,8 @@ def invitation_tickets_bulk(concert_id):
                     t.assigned_request_id = None
                     t.assigned_commitment_id = None
                     t.assigned_label = None
+                    t.sent_at = None
+                    t.added_after_send = False
                 t.updated_at = _now_madrid()
                 n += 1
             session_db.commit()
@@ -51730,6 +51777,8 @@ def invitation_assignment_save(concert_id):
                 ticket_ids = [x.id for x in _invitation_pick_grouped_seats(available_all, qty, category=cat, concert=concert)]
             if qty > 0 and len(ticket_ids) < qty:
                 raise ValueError(f'No hay invitaciones suficientes disponibles en {cat.name}.')
+            # AMPLIACIÓN: si el destino ya tuvo un envío, lo asignado ahora nace marcado «Nueva».
+            _dest_sent = _invitation_dest_already_sent(session_db, request_row=request_row, commitment_row=commitment_row)
             for tid in ticket_ids[:qty or len(ticket_ids)]:
                 ticket = session_db.get(InvitationTicket, tid)
                 if not ticket or ticket.category_id != cat.id or ticket.concert_id != concert.id:
@@ -51745,6 +51794,8 @@ def invitation_assignment_save(concert_id):
                 ticket.status = 'ASSIGNED'
                 ticket.assigned_at = _now_madrid()
                 ticket.updated_at = _now_madrid()
+                ticket.sent_at = None            # butaca reutilizada: esta asignación aún no se envió
+                ticket.added_after_send = _dest_sent
                 if request_row:
                     ticket.assigned_request_id = request_row.id
                     ticket.assigned_commitment_id = None
@@ -52107,6 +52158,8 @@ def public_invitation_request_cancel(token, request_id):
             t.assigned_request_id = None
             t.assigned_label = None
             t.status = 'AVAILABLE'
+            t.sent_at = None
+            t.added_after_send = False
         session_db.commit()
         flash('Petición anulada.', 'success')
         return redirect(url_for('public_invitation_request_link', token=token))
@@ -52199,6 +52252,8 @@ def public_invitation_request_update(token, request_id):
                 t.assigned_request_id = None
                 t.assigned_label = None
                 t.status = 'AVAILABLE'
+                t.sent_at = None
+                t.added_after_send = False
             row.status = 'SOLICITADAS'
             row.assigned_at = None
         row.guest_name = (request.form.get('guest_name') or '').strip() or row.guest_name
@@ -52235,13 +52290,15 @@ def public_invitation_request_resend(token, request_id):
         row.delivery_token = row.delivery_token or _invitation_token()
 
         def _mark_sent():
-            if (row.status or '') == 'ASIGNADAS':
-                row.status = 'ENVIADAS'
-                row.sent_at = _now_madrid()
-                for t in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
-                    t.status = 'SENT'
-                    t.sent_at = row.sent_at
-                    t.updated_at = row.sent_at
+            # Vale para el primer envío (ASIGNADAS) y para el REENVÍO de una ampliada (ENVIADAS
+            # parcial): etiqueta «Nueva» en las añadidas y marca SENT lo pendiente. Los estados
+            # manuales (mano/taquilla) no se tocan.
+            if (row.status or '') not in {'ASIGNADAS', 'ENVIADAS'}:
+                return
+            _now_rs = _now_madrid()
+            _invitation_mark_sent_tickets(session_db, row, 'all', _now_rs)
+            row.status = 'ENVIADAS'
+            row.sent_at = _now_rs
 
         if channel in ('whatsapp', 'sms'):
             link_url = _external_url_for('public_invitation_delivery', kind='r', token=row.delivery_token)
@@ -52254,14 +52311,17 @@ def public_invitation_request_resend(token, request_id):
             _mark_sent()
             session_db.commit()
             return redirect(url)
+        # Marcas/etiquetas ANTES de componer: el correo sale con las «Nueva»; si el SMTP falla,
+        # el rollback lo deshace todo.
+        _mark_sent()
         subject, html_body, text_body = _invitation_email_body(session_db, row, None)
         recipients = _dedupe_valid_email_addresses(re.split(r'[;,\s]+', request.form.get('extra_emails') or '') + _invitation_delivery_recipients(session_db, row))
         if not recipients:
+            session_db.rollback()
             flash('No hay ningún email al que reenviar. Añade uno.', 'warning')
             return redirect(url_for('public_invitation_request_link', token=token))
         ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=_invitation_request_reply_to(session_db, row) or None)
         if ok:
-            _mark_sent()
             session_db.commit()
             flash('Invitaciones reenviadas por email.', 'success')
         else:

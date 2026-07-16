@@ -219,6 +219,9 @@
               </div>
               <div class="col-lg-6" id="wizardPromoterWrap">
                 <label class="form-label">Promotor</label>
+                {# Alta rápida estándar (quick_create.js + _quick_create_modals.html del layout):
+                   funciona en TODAS las páginas que incluyen el asistente y deja el nuevo tercero
+                   seleccionado sin recargar. El botón va al final de la barra de búsqueda. #}
                 <div class="input-group">
                   <select name="promoter_id" id="wizard_promoter_id" class="form-select third-party-select">
                     <option value="">—</option>
@@ -226,7 +229,7 @@
                       <option value="{{ p.id }}" data-logo="{{ p.logo_url or DEFAULT_PHOTO_URL }}" data-search="{{ p.nick }} {{ p.contact_email or '' }} {{ p.tax_id or '' }}">{{ p.nick }}</option>
                     {% endfor %}
                   </select>
-                  <button type="button" class="btn btn-outline-secondary" onclick="openPromoterModal({mode:'select', selectId:'wizard_promoter_id'})"><i class="fa fa-plus"></i></button>
+                  <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter" data-target="wizard_promoter_id" title="Crear tercero nuevo"><i class="fa fa-plus"></i></button>
                 </div>
               </div>
               <div class="col-lg-6" id="wizardPromoterCompanyWrap">
@@ -464,6 +467,222 @@
     if(window.jQuery && jQuery.fn.select2 && el){
       jQuery(el).select2({width:'100%'});
     }
+  }
+
+  /* ----------------------- CACHÉS (filas dinámicas del asistente) -----------------------
+     Antes vivían en concerts.html y el botón «Añadir caché» fallaba en las demás páginas que
+     incluyen este asistente (contratación, vista, giras). Aquí quedan disponibles en todas. */
+  function addCacheRow(containerId){
+    const c = document.getElementById(containerId);
+    const row = document.createElement('div');
+    row.className = 'border rounded p-2 mb-2';
+    row.innerHTML = `
+      <div class="row g-2 align-items-end">
+        <div class="col-md-3">
+          <label class="form-label">Tipo de caché</label>
+          <select name="cache_kind[]" class="form-select" onchange="onCacheKindChange(this)">
+            <option value="FIXED">Fijo</option>
+            <option value="VARIABLE">Variable</option>
+            <option value="OTHER">Otros</option>
+          </select>
+        </div>
+
+        <div class="col-md-5 cache-concept" style="display:none;">
+          <label class="form-label">Concepto</label>
+          <input name="cache_concept[]" class="form-control" placeholder="Nombre / concepto">
+        </div>
+
+        <div class="col-md-3 cache-fixed">
+          <label class="form-label">Importe (€)</label>
+          <input type="number" step="0.01" name="cache_amount[]" class="form-control" placeholder="0,00">
+        </div>
+
+        <div class="col-md-1 d-grid">
+          <label class="form-label">&nbsp;</label>
+          <button type="button" class="btn btn-outline-danger" onclick="this.closest('.border').remove()"><i class="fa fa-trash"></i></button>
+        </div>
+
+        <!-- VARIABLE: modo y opciones -->
+        <div class="col-12 cache-variable" style="display:none;">
+          <div class="row g-2 align-items-end">
+            <div class="col-md-3">
+              <label class="form-label">Modo</label>
+              <select name="cache_var_mode[]" class="form-select" onchange="onCacheVarModeChange(this)">
+                <option value="FIXED">Fijo</option>
+                <option value="PERCENT">Porcentaje</option>
+              </select>
+            </div>
+
+            <div class="col-md-5">
+              <label class="form-label">Opción</label>
+              <select name="cache_var_option[]" class="form-select" onchange="onCacheVarOptionChange(this)">
+                <!-- se rellena dinámicamente según modo -->
+              </select>
+            </div>
+
+            <div class="col-md-2 cache-var-base" style="display:none;">
+              <label class="form-label">Base</label>
+              <select name="cache_pct_base[]" class="form-select">
+                <option value="GROSS">Bruto</option>
+                <option value="NET">Neto</option>
+              </select>
+            </div>
+
+            <div class="col-md-2">
+              <label class="form-label">Valor</label>
+              <input type="number" step="0.01" name="cache_pct[]" class="form-control" placeholder="% o €" style="display:none;">
+              <input type="number" step="0.01" name="cache_amount[]" class="form-control" placeholder="% o €">
+            </div>
+
+            <div class="col-md-3 cache-from-ticket" style="display:none;">
+              <label class="form-label">Desde entrada Nº</label>
+              <input type="number" name="cache_from_ticket[]" class="form-control" min="0" placeholder="1">
+            </div>
+
+            <div class="col-md-3 cache-min-tickets" style="display:none;">
+              <label class="form-label">Desde X entradas</label>
+              <input type="number" name="cache_min_tickets[]" class="form-control" min="0" placeholder="0">
+            </div>
+
+            <div class="col-md-3 cache-min-revenue" style="display:none;">
+              <label class="form-label">Desde recaudación (€)</label>
+              <input type="number" step="0.01" name="cache_min_revenue[]" class="form-control" min="0" placeholder="0,00">
+            </div>
+
+            <div class="col-md-3 cache-ticket-type" style="display:none;">
+              <label class="form-label">Tipo de entrada</label>
+              <input name="cache_ticket_type[]" class="form-control" placeholder="VIP / grada / ...">
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    c.appendChild(row);
+
+    // Inicializamos el select de opción según modo por defecto
+    const modeSel = row.querySelector('select[name="cache_var_mode[]"]');
+    if (modeSel) {
+      onCacheVarModeChange(modeSel);
+    }
+  }
+
+  function onCacheKindChange(sel){
+    const wrap = sel.closest('.border');
+    const fixed = wrap.querySelector('.cache-fixed');
+    const variable = wrap.querySelector('.cache-variable');
+    const concept = wrap.querySelector('.cache-concept');
+
+    const kind = sel.value;
+    if(kind === 'FIXED'){
+      fixed.style.display = '';
+      variable.style.display = 'none';
+      concept.style.display = 'none';
+    } else if(kind === 'VARIABLE'){
+      fixed.style.display = 'none';
+      variable.style.display = '';
+      concept.style.display = 'none';
+      // valor por defecto: fijo
+      const modeSel = wrap.querySelector('select[name="cache_var_mode[]"]');
+      if(modeSel) onCacheVarModeChange(modeSel);
+    } else {
+      fixed.style.display = '';
+      variable.style.display = 'none';
+      concept.style.display = '';
+    }
+  }
+
+  function onCacheVarModeChange(sel){
+    const wrap = sel.closest('.cache-variable');
+    const optSel = wrap.querySelector('select[name="cache_var_option[]"]');
+    const baseWrap = wrap.querySelector('.cache-var-base');
+    const pctInput = wrap.querySelector('input[name="cache_pct[]"]');
+    const amtInput = wrap.querySelector('input[name="cache_amount[]"]');
+
+    const mode = sel.value;
+
+    // opciones
+    optSel.innerHTML = '';
+    if(mode === 'FIXED'){
+      optSel.innerHTML = `
+        <option value="FIXED_PER_TICKET_FROM">Importe fijo por entrada vendida (desde entrada X)</option>
+        <option value="FIXED_FROM_TICKETS">Importe fijo (desde X entradas vendidas)</option>
+        <option value="FIXED_FROM_REVENUE">Importe fijo (desde X recaudación)</option>
+      `;
+      baseWrap.style.display = 'none';
+      pctInput.style.display = 'none';
+      amtInput.style.display = '';
+    } else {
+      optSel.innerHTML = `
+        <option value="PCT_FROM_REVENUE">% de taquilla (desde un importe)</option>
+        <option value="PCT_FROM_TICKETS">% de taquilla (desde X entradas vendidas)</option>
+        <option value="PCT_TICKET_TYPE">% de un tipo de entradas vendidas</option>
+      `;
+      baseWrap.style.display = '';
+      pctInput.style.display = '';
+      amtInput.style.display = 'none';
+    }
+
+    onCacheVarOptionChange(optSel);
+  }
+
+  function onCacheVarOptionChange(sel){
+    const wrap = sel.closest('.cache-variable');
+    const fromTicket = wrap.querySelector('.cache-from-ticket');
+    const minTickets = wrap.querySelector('.cache-min-tickets');
+    const minRevenue = wrap.querySelector('.cache-min-revenue');
+    const ticketType = wrap.querySelector('.cache-ticket-type');
+
+    // ocultar todo
+    [fromTicket, minTickets, minRevenue, ticketType].forEach(x => x.style.display='none');
+
+    const opt = sel.value;
+    if(opt === 'FIXED_PER_TICKET_FROM'){
+      fromTicket.style.display='';
+    } else if(opt === 'FIXED_FROM_TICKETS' || opt === 'PCT_FROM_TICKETS'){
+      minTickets.style.display='';
+    } else if(opt === 'FIXED_FROM_REVENUE' || opt === 'PCT_FROM_REVENUE'){
+      minRevenue.style.display='';
+    } else if(opt === 'PCT_TICKET_TYPE'){
+      ticketType.style.display='';
+    }
+  }
+
+  /* ------------------- Equipamiento: documentos y notas (filas dinámicas) ------------------- */
+  function addEquipmentDocRow(containerId){
+    const c = document.getElementById(containerId);
+    const row = document.createElement('div');
+    row.className = 'row g-2 align-items-end mb-2';
+    row.innerHTML = `
+      <div class="col-md-6">
+        <label class="form-label">Concepto</label>
+        <input name="equipment_doc_concept[]" class="form-control" placeholder="Rider artista / etc" required>
+      </div>
+      <div class="col-md-5">
+        <label class="form-label">PDF</label>
+        <input type="file" name="equipment_doc_file[]" accept="application/pdf" class="form-control" required>
+      </div>
+      <div class="col-md-1 d-grid">
+        <label class="form-label">&nbsp;</label>
+        <button type="button" class="btn btn-outline-danger" onclick="this.closest('.row').remove()"><i class="fa fa-trash"></i></button>
+      </div>
+    `;
+    c.appendChild(row);
+  }
+
+  function addEquipmentNoteRow(containerId){
+    const c = document.getElementById(containerId);
+    const row = document.createElement('div');
+    row.className = 'border rounded p-2 mb-2';
+    row.innerHTML = `
+      <div class="d-flex justify-content-between align-items-center">
+        <div class="fw-semibold">Nota</div>
+        <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('.border').remove()"><i class="fa fa-trash"></i></button>
+      </div>
+      <div class="mt-2">
+        <textarea name="equipment_note_body[]" class="form-control" rows="2" placeholder="Escribe la nota..."></textarea>
+      </div>
+    `;
+    c.appendChild(row);
   }
 
   function wizardAddPartnerRow(prefill){
@@ -891,7 +1110,30 @@
     hasTicketSales?.addEventListener('change', toggleTicketSales);
     document.querySelectorAll('.wizard-sale-type-select, .wizard-sale-type-radio').forEach(sel => sel.addEventListener('change', syncPromoterVisibility));
     document.querySelectorAll('input[name="activity_type"]').forEach(el => el.addEventListener('change', syncFestivalName));
-    mainPromoterSelect?.addEventListener('change', ()=> fillPromoterCompanySelect(mainPromoterSelect.value, mainPromoterCompany));
+    // Cambio de promotor principal: rellena sus sociedades y, si viene de la alta rápida (+) y aún
+    // no está en promotersPayload, lo incorpora (con su logo) para que también aparezca en las filas
+    // de socios y comisionistas. Se engancha por jQuery ADEMÁS de nativo: con select2 activo, el
+    // trigger('change') de quick_create.js no dispara listeners de addEventListener.
+    function syncMainPromoterSelection(){
+      if(!mainPromoterSelect) return;
+      const id = mainPromoterSelect.value;
+      if(id && !getPromoterDataById(id)){
+        const opt = mainPromoterSelect.querySelector('option[value="' + id + '"]');
+        const nick = opt ? opt.textContent : '';
+        const logo = (opt && (opt.dataset.photo || opt.dataset.logo)) || '{{ DEFAULT_PHOTO_URL }}';
+        if(opt && !opt.dataset.logo) opt.dataset.logo = logo;
+        window.promotersPayload.push({id: id, nick: nick, logo_url: logo, companies: []});
+        document.querySelectorAll('.wizard-partner-promoter, .wizard-zone-promoter').forEach(sel => {
+          if(Array.from(sel.options).some(o => o.value === id)) return;
+          const o = document.createElement('option');
+          o.value = id; o.textContent = nick; o.dataset.logo = logo;
+          sel.appendChild(o);
+        });
+      }
+      fillPromoterCompanySelect(id, mainPromoterCompany);
+    }
+    mainPromoterSelect?.addEventListener('change', syncMainPromoterSelection);
+    if(window.jQuery && mainPromoterSelect){ jQuery(mainPromoterSelect).on('change', syncMainPromoterSelection); }
     document.getElementById('wizard_artist_id')?.addEventListener('change', checkArtistConflict);
     document.getElementById('wizard_artist_id')?.addEventListener('change', filterTourCards);
     document.getElementById('wizard_date')?.addEventListener('change', checkArtistConflict);

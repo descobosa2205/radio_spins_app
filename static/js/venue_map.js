@@ -120,6 +120,21 @@
             '<div class="vmap-selpop-hint">Arrastra esta tarjeta hasta una categoría (o pincha una) para asignarlas.</div>' +
             '<button type="button" class="btn btn-sm btn-outline-secondary w-100 mt-1" data-selpop-unassign>Quitar su categoría</button>' +
           '</div>' +
+          // Popup de selección en DISEÑO (a la derecha, sin tapar lo seleccionado): agrupar en
+          // bloques por contigüidad y poner en bloque el sector y el nº de fila.
+          '<div class="vmap-dpop" data-vm-dpop>' +
+            '<div class="vmap-selpop-head"><b><span data-dpop-n>0</span> butacas</b>' +
+            '<button type="button" class="vmap-selpop-x" data-dpop-clear title="Vaciar selección">✕</button></div>' +
+            '<div class="vmap-selpop-hint" data-dpop-blocks></div>' +
+            '<div class="vmap-dpop-row"><label>Sector</label><input type="text" class="form-control form-control-sm" data-dpop-name placeholder="Grada, Palco 3…"></div>' +
+            '<div class="vmap-dpop-row"><label>Fila nº</label><input type="number" class="form-control form-control-sm" data-dpop-row value="1" min="1" title="Número de la PRIMERA fila del bloque (las demás siguen a partir de ella)"></div>' +
+            '<button type="button" class="btn btn-sm btn-danger w-100 mt-2" data-dpop-auto><i class="fa fa-object-group me-1"></i>Agrupar en bloques</button>' +
+            '<div class="vmap-dpop-btns">' +
+              '<button type="button" class="btn btn-sm btn-outline-secondary" data-dpop-one title="Todo lo seleccionado en UN solo sector">Un sector</button>' +
+              '<button type="button" class="btn btn-sm btn-outline-secondary" data-dpop-rowg title="Todo lo seleccionado como UNA fila">En fila</button>' +
+              '<button type="button" class="btn btn-sm btn-outline-secondary" data-dpop-box title="Todo lo seleccionado como un palco">Palco</button>' +
+            '</div>' +
+          '</div>' +
         '</div>' +
         (canEdit ? '<div class="vmap-side" data-vm-side></div>' : '') +
       '</div>' +
@@ -510,10 +525,9 @@
       dselOkeys().forEach(function(id){ var o=sections.find(function(x){return x.id===id;})||elements.find(function(x){return x.id===id;}); if(o) snap.objs[id]={o:o, x:(o.kind==='arc'?o.cx:o.x), y:(o.kind==='arc'?o.cy:o.y)}; });
       drag={kind:'multimove', w0:w, snap:snap};
     }
-    // Agrupar las butacas SUELTAS/detectadas seleccionadas en una nueva sección (fila / palco / sector).
-    function groupSelectedSeats(kindArg){
-      var dk=dselKeys(); if(!dk.length) return;
-      pushUndo('group');
+    // Saca de sus secciones 'points' las butacas seleccionadas y devuelve sus puntos {x,y} (mundo).
+    function extractSelectedSeatPoints(){
+      var dk=dselKeys(); if(!dk.length) return [];
       var pts=[], bySec={};
       dk.forEach(function(k){ var pp=k.split('|'); (bySec[pp[0]]=bySec[pp[0]]||[]).push({ri:+pp[1], sl:+pp[2]}); });
       Object.keys(bySec).forEach(function(secId){
@@ -524,20 +538,82 @@
         if(sc.loose && !sc.seats.length){ sections=sections.filter(function(x){return x.id!==sc.id;}); }
         invalidate(sc.id);
       });
-      if(!pts.length){ renderSide(); return; }
+      return pts;
+    }
+    // Igual pero SIN tocar nada (para contar bloques contiguos en el popup de selección).
+    function peekSelectedSeatPoints(){
+      var pts=[];
+      sections.forEach(function(s){ if(s.kind==='points') dselSeatObjs(s).forEach(function(o){ pts.push({x:o.x, y:o.y}); }); });
+      return pts;
+    }
+    // BLOQUES CONTIGUOS: componentes conexas uniendo butacas a menos de maxDist (rejilla + BFS).
+    function contiguousClusters(pts, maxDist){
+      var cell=maxDist, grid={}, md2=maxDist*maxDist;
+      pts.forEach(function(p,i){ var k=Math.floor(p.x/cell)+'_'+Math.floor(p.y/cell); (grid[k]=grid[k]||[]).push(i); });
+      var seen=new Array(pts.length), out=[];
+      for(var i=0;i<pts.length;i++){
+        if(seen[i]) continue;
+        var comp=[], q=[i]; seen[i]=1;
+        while(q.length){
+          var j=q.pop(), p=pts[j]; comp.push(p);
+          var gx=Math.floor(p.x/cell), gy=Math.floor(p.y/cell);
+          for(var dx=-1;dx<=1;dx++) for(var dy=-1;dy<=1;dy++){
+            (grid[(gx+dx)+'_'+(gy+dy)]||[]).forEach(function(t){
+              if(seen[t]) return;
+              var o=pts[t], ddx=o.x-p.x, ddy=o.y-p.y;
+              if(ddx*ddx+ddy*ddy<=md2){ seen[t]=1; q.push(t); }
+            });
+          }
+        }
+        out.push(comp);
+      }
+      return out;
+    }
+    // Crea una sección 'points' a partir de puntos del mundo (filas por proximidad vertical, como
+    // la detección). opts: {name, box, singleRow, rowStart}. (Distinta de buildPointsSection, que
+    // es la de la DETECCIÓN y trabaja con el tamaño muestreado.)
+    function makePointsSection(pts, opts){
+      opts = opts || {};
       var cx=0, cy=0; pts.forEach(function(p){ cx+=p.x; cy+=p.y; }); cx/=pts.length; cy/=pts.length;
       var pit=28, seats=[], maxRow=1;
-      if(kindArg==='row'){
-        pts.sort(function(a,b){ return a.x-b.x; }).forEach(function(p,i){ seats.push({row:1, slot:i+1, lx:Math.round(p.x-cx), ly:Math.round(p.y-cy), a:0}); });
+      if(opts.singleRow){
+        pts.slice().sort(function(a,b){ return a.x-b.x; }).forEach(function(p,i){ seats.push({row:1, slot:i+1, lx:Math.round(p.x-cx), ly:Math.round(p.y-cy), a:0}); });
       } else {
         var sorted=pts.slice().sort(function(a,b){ return a.y-b.y; }), thr=pit*1.1, rows=[], cur=null;
         sorted.forEach(function(p){ if(!cur || p.y-cur.y0>thr){ cur={y0:p.y, items:[]}; rows.push(cur); } cur.items.push(p); });
         rows.forEach(function(row, ri){ maxRow=ri+1; row.items.sort(function(a,b){ return a.x-b.x; }).forEach(function(p, si){ seats.push({row:ri+1, slot:si+1, lx:Math.round(p.x-cx), ly:Math.round(p.y-cy), a:0}); }); });
       }
-      var sec={id:nid('s'), kind:'points', name:(kindArg==='box'?'Palco':(kindArg==='row'?'Fila':'Sector')),
-               x:Math.round(cx), y:Math.round(cy), rot:0, pitch:pit, rows:maxRow, box:(kindArg==='box'),
-               num:{start:1, mode:'seq', step:1, dir:'ltr'}, rowScheme:'num', rowStart:1, gapPolicy:'skip', seats:seats};
-      sections.push(sec); dsel={}; dselO={}; selId=sec.id; invalidate(); markSummary(); renderSide(); queueRender();
+      var sec={id:nid('s'), kind:'points', name:(opts.name||'Sector'),
+               x:Math.round(cx), y:Math.round(cy), rot:0, pitch:pit, rows:maxRow, box:!!opts.box,
+               num:{start:1, mode:'seq', step:1, dir:'ltr'}, rowScheme:'num',
+               rowStart:(parseInt(opts.rowStart,10)||1), gapPolicy:'skip', seats:seats};
+      sections.push(sec);
+      return sec;
+    }
+    // Agrupar las butacas SUELTAS/detectadas seleccionadas: 'row' | 'box' | 'sector' (un solo bloque)
+    // o 'auto' (un bloque por cada grupo CONTIGUO). opts: {name, rowStart} desde el popup de selección.
+    function groupSelectedSeats(kindArg, opts){
+      var dk=dselKeys(); if(!dk.length) return;
+      pushUndo('group');
+      var pts=extractSelectedSeatPoints();
+      if(!pts.length){ renderSide(); return; }
+      opts = opts || {};
+      var made=[];
+      if(kindArg==='auto'){
+        var base=opts.name||'Sector';
+        var clusters=contiguousClusters(pts, 28*1.6);
+        clusters.forEach(function(cl, i){
+          made.push(makePointsSection(cl, {name:(clusters.length>1 ? base+' '+(i+1) : base), rowStart:opts.rowStart}));
+        });
+      } else if(kindArg==='row'){
+        made.push(makePointsSection(pts, {name:opts.name||'Fila', singleRow:true, rowStart:opts.rowStart}));
+      } else if(kindArg==='box'){
+        made.push(makePointsSection(pts, {name:opts.name||'Palco', box:true, rowStart:opts.rowStart}));
+      } else {
+        made.push(makePointsSection(pts, {name:opts.name||'Sector', rowStart:opts.rowStart}));
+      }
+      dsel={}; dselO={}; selId=(made.length===1?made[0].id:null);
+      invalidate(); markSummary(); renderSide(); queueRender();
     }
     function dselSeatObjs(sec){
       var out=[], geo=secRows(sec);
@@ -984,7 +1060,7 @@
           '<button type="button" class="btn btn-sm '+(tool==='select'?'btn-primary':'btn-outline-secondary')+'" data-tool="select" title="Arrastra un recuadro por el plano para seleccionar varias butacas sueltas o varios elementos; luego arrastra uno para mover el conjunto o pulsa Supr para eliminarlos. Mayús para ir añadiendo.">⛶ Seleccionar (recuadro)</button></div>';
         var nSeatsSel=dselKeys().length, nObjSel=dselOkeys().length;
         if(nSeatsSel || nObjSel){
-          html += '<p class="text-muted small mb-1 mt-1">Seleccionado: '+(nSeatsSel?nSeatsSel+' butaca'+(nSeatsSel===1?'':'s'):'')+(nSeatsSel&&nObjSel?' · ':'')+(nObjSel?nObjSel+' elemento'+(nObjSel===1?'':'s'):'')+'. Arrastra uno para mover el conjunto; Supr para eliminar.</p>';
+          html += '<p class="text-muted small mb-1 mt-1">Seleccionado: '+(nSeatsSel?nSeatsSel+' butaca'+(nSeatsSel===1?'':'s'):'')+(nSeatsSel&&nObjSel?' · ':'')+(nObjSel?nObjSel+' elemento'+(nObjSel===1?'':'s'):'')+'. Arrastra uno para mover el conjunto; Supr para eliminar.'+(nSeatsSel>=2?' En la tarjeta de la DERECHA del plano puedes agruparlas en bloques y ponerles sector y fila.':'')+'</p>';
           if(nSeatsSel>=2){
             html += '<div class="vmap-tools"><span class="text-muted small" style="align-self:center;margin-right:.2rem">Agrupar butacas:</span>'+
               '<button type="button" class="btn btn-sm btn-outline-secondary" data-group="row">en fila</button>'+
@@ -1076,6 +1152,7 @@
       }
       side.innerHTML = html;
       if(mode==='cats') renderSummaryCounts();
+      updateDPop();   // el popup de selección de diseño sigue SIEMPRE al estado actual de dsel
     }
     // ¿Existe HOY esa butaca (sección viva + slot con estado seat)? Depura asignaciones huérfanas:
     // al encoger una sección, cortar una escalera o poner huecos, las claves antiguas se ignoran
@@ -1786,6 +1863,42 @@
       }
       selpop.addEventListener('pointerup', popUp);
       selpop.addEventListener('pointercancel', function(){ dragPop=null; selpop.classList.remove('dragging'); });
+    }
+
+    /* ===== Popup de selección en DISEÑO (tarjeta fija a la DERECHA del lienzo) =====
+       Al seleccionar varias butacas sueltas/detectadas se abre solo, sin mover la vista ni tapar
+       la selección: cuenta los bloques CONTIGUOS y permite agruparlos automáticamente y fijar en
+       bloque el nombre del sector y el nº de la primera fila. */
+    var dpop = host.querySelector('[data-vm-dpop]');
+    var dpopSig = '';
+    function updateDPop(){
+      if(!dpop) return;
+      var dk = dselKeys();
+      var show = canEdit && mode==='design' && dk.length>=2;
+      dpop.classList.toggle('show', show);
+      if(!show){ dpopSig=''; return; }
+      var sig = dk.length + '|' + dk[0] + '|' + dk[dk.length-1];
+      if(sig === dpopSig) return;   // misma selección: no recalcular bloques (los inputs no se tocan)
+      dpopSig = sig;
+      dpop.querySelector('[data-dpop-n]').textContent = dk.length.toLocaleString('es-ES');
+      var nBlocks = contiguousClusters(peekSelectedSeatPoints(), 28*1.6).length;
+      dpop.querySelector('[data-dpop-blocks]').textContent = nBlocks>1
+        ? nBlocks+' bloques contiguos: «Agrupar en bloques» crea un sector por cada uno.'
+        : 'Butacas contiguas: «Agrupar en bloques» crea un sector con sus filas.';
+    }
+    if(dpop){
+      dpop.addEventListener('click', function(e){
+        if(e.target.closest('[data-dpop-clear]')){ dsel={}; renderSide(); queueRender(); return; }
+        var btnAuto=e.target.closest('[data-dpop-auto]'), btnOne=e.target.closest('[data-dpop-one]'),
+            btnRow=e.target.closest('[data-dpop-rowg]'), btnBox=e.target.closest('[data-dpop-box]');
+        if(!(btnAuto||btnOne||btnRow||btnBox)) return;
+        var nm=(dpop.querySelector('[data-dpop-name]').value||'').trim();
+        var rs=parseInt(dpop.querySelector('[data-dpop-row]').value, 10)||1;
+        if(btnAuto) groupSelectedSeats('auto', {name:nm||'Sector', rowStart:rs});
+        else if(btnOne) groupSelectedSeats('sector', {name:nm||'Sector', rowStart:rs});
+        else if(btnRow) groupSelectedSeats('row', {name:nm||'Fila', rowStart:rs});
+        else if(btnBox) groupSelectedSeats('box', {name:nm||'Palco', rowStart:rs});
+      });
     }
 
     function eachSeatInRect(a, b, fn){

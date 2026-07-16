@@ -193,6 +193,16 @@ button.song-status-item:focus {
 .select2-container--open {
   z-index: 1060;
 }
+/* Select2 dentro de un .input-group: que flexione como un .form-control (select2 fija width:100%
+   inline y empujaba el botón «+» de alta rápida a la línea de abajo; así queda AL FINAL de la barra). */
+.input-group > .select2-container {
+  flex: 1 1 auto;
+  width: 1% !important;
+  min-width: 0;
+}
+/* (El select original queda oculto como primer hijo: el contenedor select2 es el primer elemento
+   VISIBLE, así que conserva el redondeo izquierdo y solo pierde el derecho si le sigue el botón.) */
+.input-group > .select2-container:not(:last-child) .select2-selection--single { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .btn-primary, .bg-primary { background-color: var(--brand-primary); border-color: var(--brand-primary); }
 .btn-outline-primary { color: var(--brand-primary); border-color: var(--brand-primary); }
 .btn-outline-primary:hover { background-color: var(--brand-primary); border-color: var(--brand-primary); }
@@ -1945,6 +1955,14 @@ img[style*="width:"] { height: auto; }
 .vmap-selpop-head b { font-variant-numeric: tabular-nums; }
 .vmap-selpop-x { border: 0; background: transparent; font-weight: 700; color: #6b7683; cursor: pointer; line-height: 1; }
 .vmap-selpop-hint { font-size: .72rem; color: #6b7683; margin-top: .15rem; }
+/* Popup de selección del modo DISEÑO: fijo a la derecha del lienzo (no sigue al cursor ni tapa lo
+   seleccionado); agrupar en bloques contiguos + sector y nº de fila en bloque. */
+.vmap-canvas .vmap-dpop { position: absolute; top: .55rem; right: .55rem; z-index: 7; display: none; width: 224px; background: #fff; border: 2px solid var(--brand-accent); border-radius: .7rem; padding: .5rem .6rem; box-shadow: 0 8px 24px rgba(0,0,0,.18); }
+.vmap-dpop.show { display: block; }
+.vmap-dpop .vmap-dpop-row { display: flex; align-items: center; gap: .4rem; margin-top: .35rem; }
+.vmap-dpop .vmap-dpop-row label { font-size: .72rem; color: #6b7683; flex: 0 0 48px; margin: 0; }
+.vmap-dpop .vmap-dpop-btns { display: flex; gap: .3rem; margin-top: .35rem; }
+.vmap-dpop .vmap-dpop-btns .btn { flex: 1 1 0; padding: .15rem .2rem; font-size: .72rem; }
 .vmap-cat.drop-hint { border-color: #e0a800; box-shadow: 0 0 0 .18rem rgba(224,168,0,.25); background: #fff9e6; }
 
 /* Mapa del recinto: controles flotantes arriba a la IZQUIERDA (zoom +/−, girar, enderezar, ver

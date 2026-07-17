@@ -23976,6 +23976,7 @@ def concert_detail_view(cid):
             roadmap_ctx=roadmap_ctx,
             result_calc=(result_ctx["calc"] if result_ctx else None),
             result_module=(result_ctx["module"] if result_ctx else None),
+            result_et_income=(result_ctx.get("et_income") if result_ctx else False),
             venue_saved_ticket_count=venue_saved_ticket_count,
             show_ticketing_tab=show_ticketing_tab,
             et_event=et_event,
@@ -39898,9 +39899,29 @@ def _concert_build_calc_data(s, concert):
         except Exception:
             return 0.0
     categories = []
-    for t in sorted((getattr(concert, "ticket_types", None) or []), key=lambda x: (x.name or "")):
-        categories.append({"zone": "PISTA", "quantity": int(_ff(t.qty_for_sale)), "invitations": 0,
-                           "price_net": _ff(t.price), "extras": []})
+    # CONCIERTO SINCRONIZADO CON ENTERTICKET: los ingresos brutos REALES mandan. La recaudación
+    # total de ET (ventas válidas, sin invitaciones) es el INGRESO AL 100%: una categoría única
+    # con las entradas vendidas y su precio medio real, para que ingresos@100% == recaudación
+    # exacta (los % de aforo del cuadro escalan sobre la venta real).
+    try:
+        _et_ev = (s.query(EnterticketEvent)
+                  .filter(EnterticketEvent.concert_id == concert.id)
+                  .order_by(EnterticketEvent.last_synced_at.desc().nullslast())
+                  .first())
+        if _et_ev is not None:
+            _et_rev = _et_money(_et_valid_sales_filter(s.query(func.sum(EnterticketSale.price)), _et_ev)
+                                .filter(EnterticketSale.is_invitation.is_(False)).scalar())
+            _et_sold = int(_et_valid_sales_filter(s.query(func.count()), _et_ev)
+                           .filter(EnterticketSale.is_invitation.is_(False)).scalar() or 0)
+            if _et_rev and _et_sold > 0:
+                categories.append({"zone": "PISTA", "quantity": _et_sold, "invitations": 0,
+                                   "price_net": float(_et_rev) / _et_sold, "extras": []})
+    except Exception:
+        pass
+    if not categories:
+        for t in sorted((getattr(concert, "ticket_types", None) or []), key=lambda x: (x.name or "")):
+            categories.append({"zone": "PISTA", "quantity": int(_ff(t.qty_for_sale)), "invitations": 0,
+                               "price_net": _ff(t.price), "extras": []})
     if not categories and concert.capacity and not concert.no_capacity:
         categories.append({"zone": "PISTA", "quantity": int(concert.capacity or 0), "invitations": 0, "price_net": 0.0, "extras": []})
     caches = []
@@ -39974,7 +39995,16 @@ def _concert_result_context(s, concert):
         calc = sim_calc.compute(_concert_build_calc_data(s, concert))
         module = {"mode": "activity", "labels": SIM_EXPENSE_CATEGORY_LABELS,
                   "activities": [_concert_result_module_payload(s, concert, calc)]}
-        return {"calc": calc, "module": module}
+        # ¿Los ingresos vienen de la venta REAL de Enterticket? (mismo criterio que el adaptador)
+        et_income = False
+        try:
+            _ev = s.query(EnterticketEvent).filter(EnterticketEvent.concert_id == concert.id).first()
+            if _ev is not None:
+                et_income = bool(_et_valid_sales_filter(s.query(EnterticketSale.id), _ev)
+                                 .filter(EnterticketSale.is_invitation.is_(False)).first())
+        except Exception:
+            et_income = False
+        return {"calc": calc, "module": module, "et_income": et_income}
     except Exception:
         return None
 

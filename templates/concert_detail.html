@@ -823,7 +823,7 @@
       {% if result_calc %}
         <div class="d-flex flex-wrap gap-2 mb-3">
           <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if result_calc.at_100.resultado >= 0 else 'text-danger' }}">{{ result_calc.at_100.resultado|eur }}</div><div class="sim-stat__l">Resultado @100%</div></div>
-          <div class="sim-stat"><div class="sim-stat__n">{{ result_calc.at_100.ingresos.total|eur }}</div><div class="sim-stat__l">Ingresos @100%</div></div>
+          <div class="sim-stat"><div class="sim-stat__n">{{ result_calc.at_100.ingresos.total|eur }}</div><div class="sim-stat__l">Ingresos @100%{% if result_et_income %} <span class="badge text-bg-danger" title="Ingresos brutos REALES: recaudación total de la venta sincronizada con Enterticket (ese importe es el ingreso al 100%)">Enterticket</span>{% endif %}</div></div>
           <div class="sim-stat"><div class="sim-stat__n">{{ result_calc.at_100.gastos.total|eur }}</div><div class="sim-stat__l">Gastos @100%</div></div>
           <div class="sim-stat"><div class="sim-stat__n">{% if result_calc.break_even_tickets is none %}No se alcanza{% else %}{{ result_calc.break_even_tickets|k }}{% if result_calc.break_even_pct is not none %} · {{ result_calc.break_even_pct }}%{% endif %}{% endif %}</div><div class="sim-stat__l">Punto de empate</div></div>
           <div class="sim-stat"><div class="sim-stat__n">{{ result_calc.avg_price_sin_iva|eur }}</div><div class="sim-stat__l">Precio medio (sin IVA)</div></div>

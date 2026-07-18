@@ -47,9 +47,13 @@
   window.VenueMapGeom = function(layout){
     var R2 = Math.PI/180;
     var pos = {}, secs = [], xs = [], ys = [], pitches = [];
-    function sepExtra2(s, rowIdx){
+    function sepExtra2(s, rowIdx, slot){
       var seps = Array.isArray(s.rowSeps) ? s.rowSeps : [];
-      var n = 0; seps.forEach(function(x){ if(x < rowIdx) n++; });
+      var n = 0;
+      seps.forEach(function(x){
+        var e = (typeof x === 'number') ? {r:x, a:1, b:1e9} : x;   // pasillos por TRAMOS {r,a,b}
+        if(e.r < rowIdx && (slot == null || (slot >= e.a && slot <= e.b))) n++;
+      });
       return n * (s.rowGap || 30);
     }
     (layout.sections || []).forEach(function(s){
@@ -75,9 +79,9 @@
       } else if(s.kind === 'grid' || s.kind === 'box'){
         var cr = Math.cos((s.rot||0)*R2), sr = Math.sin((s.rot||0)*R2);
         for(var r2 = 0; r2 < (s.rows||1); r2++){
-          var ly2 = (r2-(s.rows-1)/2)*s.rowGap + sepExtra2(s, r2+1);
           for(var i2 = 0; i2 < (s.cols||1); i2++){
             var lx2 = (i2-(s.cols-1)/2)*s.pitch;
+            var ly2 = (r2-(s.rows-1)/2)*s.rowGap + sepExtra2(s, r2+1, i2+1);
             put(s.id + '|' + (r2+1) + '|' + (i2+1), s.x + lx2*cr - ly2*sr, s.y + lx2*sr + ly2*cr);
           }
         }
@@ -380,12 +384,24 @@
 
     // PASILLOS entre filas: desplazan la POSICIÓN de las filas siguientes (hueco físico) sin
     // tocar conteos ni numeración (así seatmap_calc sigue en paridad exacta con el JS).
-    function sepExtra(s, rowIdx){
+    // Cada entrada de s.rowSeps puede ser un NÚMERO (pasillo a todo lo ancho, formato antiguo)
+    // o {r, a, b} = pasillo tras la fila r SOLO en los asientos a..b (por TRAMOS, como las
+    // escaleras): el hueco existe únicamente donde está el pasillo y el resto sigue unido —
+    // necesario para calcar recintos reales con vomitorios parciales.
+    function sepEntries(s){
       var seps = Array.isArray(s.rowSeps) ? s.rowSeps : [];
-      var n = 0; seps.forEach(function(x){ if(x < rowIdx) n++; });
+      return seps.map(function(e){ return (typeof e === 'number') ? {r:e, a:1, b:1e9} : e; });
+    }
+    function sepExtra(s, rowIdx, slot){
+      var n = 0;
+      sepEntries(s).forEach(function(e){ if(e.r < rowIdx && (slot == null || (slot >= e.a && slot <= e.b))) n++; });
       return n * s.rowGap;
     }
-    function totalSep(s){ return (Array.isArray(s.rowSeps) ? s.rowSeps.length : 0) * s.rowGap; }
+    function totalSep(s){
+      var rSeen = {};
+      sepEntries(s).forEach(function(e){ rSeen[e.r] = 1; });
+      return Object.keys(rSeen).length * s.rowGap;
+    }
 
     // Filas de una sección con todo aplicado: escaleras integradas (cortes), huecos/apagadas por
     // butaca, pasillos entre filas, numeración (inicio/modo/sentido + política de hueco, con
@@ -464,7 +480,7 @@
         } else {
           var cr = Math.cos(s.rot*R), sr = Math.sin(s.rot*R), width = s.cols*s.pitch;
           for(i=0;i<s.cols;i++){
-            var lx = (i-(s.cols-1)/2)*s.pitch, ly = (r-(s.rows-1)/2)*s.rowGap + sepExtra(s, rowIdx);
+            var lx = (i-(s.cols-1)/2)*s.pitch, ly = (r-(s.rows-1)/2)*s.rowGap + sepExtra(s, rowIdx, i+1);
             var frac2 = (i+.5)/s.cols;
             var inStair2 = stairs.some(function(b){ return Math.abs(lx - (b.at-.5)*width) < (b.w*s.pitch)/2 + s.pitch*.5; });
             slots.push({ slot:i+1, frac:frac2, x:s.x + lx*cr - ly*sr, y:s.y + lx*sr + ly*cr,
@@ -540,24 +556,38 @@
       var hw=(s.cols-1)/2*s.pitch+s.pitch*.7, hh=(s.rows-1)/2*s.rowGap+s.rowGap*.6;
       return {x:-hw, y:-hh, w:2*hw, h:2*hh+totalSep(s)};   // los pasillos alargan el sector hacia atrás
     }
-    // Franjas de los PASILLOS entre filas (para verlos y poder quitarlos pinchándolos).
+    // Franjas de los PASILLOS entre filas (para verlos y poder quitarlos pinchándolos: en
+    // gradas rectas se quita SOLO el tramo pinchado). Un tramo puede quedar a dos alturas si
+    // otro pasillo de más arriba cubre parte de su ancho: se dibuja por sub-tramos uniformes.
     function rowSepSvg(s, scale){
       var seps = Array.isArray(s.rowSeps) ? s.rowSeps : [];
       if(!seps.length) return '';
       var out=[];
-      var sepHit = (mode==='design' && canEdit && tool==='rowsep');
-      seps.forEach(function(sepRow, idx){
+      var sepHit = (mode==='design' && canEdit && (!tool || tool==='rowsep'));
+      seps.forEach(function(sepRaw, idx){
         var css='fill:rgba(120,132,146,.10);stroke:#9aa8b5;stroke-width:'+(1.4/scale)+';stroke-dasharray:'+(6/scale)+' '+(4/scale)+(sepHit?'':';pointer-events:none');
         if(s.kind==='arc'){
+          var sepRow = (typeof sepRaw==='number') ? sepRaw : sepRaw.r;
           var rIn = s.r0 + sepRow*s.rowGap + sepExtra(s, sepRow) + s.pitch*.5;
           var rOut = rIn + s.rowGap - s.pitch;
           var a0=(s.dir-s.span/2)*R, a1=(s.dir+s.span/2)*R, la=s.span>180?1:0;
           function pt(rr,aa){ return (s.cx+rr*Math.cos(aa))+' '+(s.cy+rr*Math.sin(aa)); }
-          out.push('<path data-rowsep="'+s.id+'|'+idx+'" d="M'+pt(rOut,a0)+' A'+rOut+' '+rOut+' 0 '+la+' 1 '+pt(rOut,a1)+' L'+pt(rIn,a1)+' A'+rIn+' '+rIn+' 0 '+la+' 0 '+pt(rIn,a0)+' Z" style="'+css+';cursor:pointer"/>');
+          out.push('<path data-rowsep="'+s.id+'|'+idx+'" d="M'+pt(rOut,a0)+' A'+rOut+' '+rOut+' 0 '+la+' 1 '+pt(rOut,a1)+' L'+pt(rIn,a1)+' A'+rIn+' '+rIn+' 0 '+la+' 0 '+pt(rIn,a0)+' Z" style="'+css+';cursor:pointer"><title>Pasillo (pincha para quitarlo)</title></path>');
         } else {
-          var hw=(s.cols-1)/2*s.pitch+s.pitch*.7;
-          var yIn = (sepRow-1-(s.rows-1)/2)*s.rowGap + sepExtra(s, sepRow) + s.pitch*.5;
-          out.push('<rect data-rowsep="'+s.id+'|'+idx+'" x="'+(-hw)+'" y="'+yIn+'" width="'+(2*hw)+'" height="'+(s.rowGap - s.pitch)+'" transform="translate('+s.x+' '+s.y+') rotate('+s.rot+')" style="'+css+';cursor:pointer"/>');
+          var e = (typeof sepRaw==='number') ? {r:sepRaw, a:1, b:1e9} : sepRaw;
+          var aC = Math.max(1, e.a), bC = Math.min(s.cols|0, e.b);
+          if(bC < aC) return;
+          var run0 = aC, prevOff = sepExtra(s, e.r, aC);
+          for(var kSl = aC+1; kSl <= bC+1; kSl++){
+            var off = (kSl <= bC) ? sepExtra(s, e.r, kSl) : null;
+            if(off !== prevOff){
+              var x0 = (run0-1-(s.cols-1)/2)*s.pitch - s.pitch/2;
+              var x1 = (kSl-2-(s.cols-1)/2)*s.pitch + s.pitch/2;
+              var yIn = (e.r-1-(s.rows-1)/2)*s.rowGap + prevOff + s.pitch*.5;
+              out.push('<rect data-rowsep="'+s.id+'|'+idx+'" x="'+x0+'" y="'+yIn+'" width="'+(x1-x0)+'" height="'+(s.rowGap - s.pitch)+'" transform="translate('+s.x+' '+s.y+') rotate('+s.rot+')" style="'+css+';cursor:pointer"><title>Pasillo (pincha en un tramo para quitarlo)</title></rect>');
+              run0 = kSl; prevOff = off;
+            }
+          }
         }
       });
       return out.join('');
@@ -859,6 +889,10 @@
         if(colPos >= atSlot - 1) colPos += 1;
         b.at = colPos / (oldCols + 1);
       });
+      if(Array.isArray(s.rowSeps)) s.rowSeps = s.rowSeps.map(function(x){
+        if(typeof x === 'number') return x;
+        return {r:x.r, a:(x.a >= atSlot ? x.a + 1 : x.a), b:(x.b >= atSlot ? x.b + 1 : x.b)};
+      });
       s.cols = oldCols + 1;
       // Mantener quietas las butacas del lado IZQUIERDO (crece hacia la derecha del punto).
       var ax = Math.cos((s.rot || 0) * R), ay = Math.sin((s.rot || 0) * R);
@@ -909,6 +943,11 @@
         if(colPos > atSlot - 0.5) colPos -= 1;
         b.at = colPos / (oldCols - 1);
       });
+      if(Array.isArray(s.rowSeps)) s.rowSeps = s.rowSeps.map(function(x){
+        if(typeof x === 'number') return x;
+        var a2 = x.a > atSlot ? x.a - 1 : x.a, b2 = x.b >= atSlot ? x.b - 1 : x.b;
+        return (b2 < a2) ? null : {r:x.r, a:a2, b:b2};
+      }).filter(Boolean);
       s.cols = oldCols - 1;
       var ax = Math.cos((s.rot || 0) * R), ay = Math.sin((s.rot || 0) * R);
       var kx = (atSlot === 1 ? 1 : -1) * p / 2;
@@ -945,7 +984,12 @@
         } else na[k] = assign[k];
       });
       assign = na;
-      if(Array.isArray(s.rowSeps)) s.rowSeps = s.rowSeps.filter(function(x){ return x !== atRow; }).map(function(x){ return x > atRow ? x - 1 : x; });
+      if(Array.isArray(s.rowSeps)) s.rowSeps = s.rowSeps
+        .filter(function(x){ return ((typeof x === 'number') ? x : x.r) !== atRow; })
+        .map(function(x){
+          if(typeof x === 'number') return x > atRow ? x - 1 : x;
+          return x.r > atRow ? {r:x.r - 1, a:x.a, b:x.b} : x;
+        });
       s.rows = oldRows - 1;
       var ax = -Math.sin((s.rot || 0) * R), ay = Math.cos((s.rot || 0) * R);
       var ky = (atRow === 1 ? 1 : -1) * g / 2;
@@ -1009,7 +1053,10 @@
         } else na[k] = assign[k];
       });
       assign = na;
-      if(Array.isArray(s.rowSeps)) s.rowSeps = s.rowSeps.map(function(x){ return x >= atRow ? x + 1 : x; });
+      if(Array.isArray(s.rowSeps)) s.rowSeps = s.rowSeps.map(function(x){
+        if(typeof x === 'number') return x >= atRow ? x + 1 : x;
+        return x.r >= atRow ? {r:x.r + 1, a:x.a, b:x.b} : x;
+      });
       s.rows = oldRows + 1;
       var ax = -Math.sin((s.rot || 0) * R), ay = Math.cos((s.rot || 0) * R);
       var ky = (atRow === 1 ? -1 : 1) * g / 2;
@@ -2135,6 +2182,19 @@
           });
           dsel={}; markSummary(); renderSide(); queueRender(); return;
         }
+        // Con butacas seleccionadas, pinchar PASILLO abre un tramo bajo cada una (solo en esas
+        // columnas): seleccionar un trozo de fila + Pasillo = vomitorio parcial de una vez.
+        if(mode==='design' && tkC==='rowsep' && dselKeys().length){
+          pushUndo('tool-sel');
+          dselKeys().forEach(function(k){
+            var pp=k.split('|'); var s2=sections.find(function(x){return x.id===pp[0];});
+            if(!s2 || s2.kind==='floor' || s2.kind==='points') return;
+            var rI2=Math.min(parseInt(pp[1],10), Math.max(1, (s2.rows|0)-1));
+            addRowSepSegment(s2, rI2, +pp[2]);
+            invalidate(s2.id);
+          });
+          dsel={}; markSummary(); renderSide(); queueRender(); return;
+        }
         tool = (tool===tkC) ? null : tkC; if(tool==='select'){ seatArm=false; drawArm=false; } setHint(); renderSide(); queueRender(); return;
       }
       if(ctl){ catTool = ctl.dataset.catTool; if(catTool!=='select') clearSel(); renderSide(); return; }
@@ -2402,10 +2462,31 @@
       var sepB = under && under.closest ? under.closest('[data-rowsep]') : null;
       if(toolKey==='stair' && sgB) return {type:'stairgroup', el:sgB, label:'Quitar este tramo de escalera'};
       if(toolKey==='stair' && stairB) return {type:'stairband', el:stairB, label:'Quitar esta escalera'};
-      if(toolKey==='rowsep' && sepB) return {type:'rowsepband', el:sepB, label:'Quitar este pasillo'};
+      if(toolKey==='rowsep' && sepB) return {type:'rowsepband', el:sepB, label:'Quitar este tramo de pasillo'};
       if(seatB) return {type:'seat', el:seatB, key:seatB.getAttribute('data-seat'),
-                        label:({gap:'Hueco en esta butaca', off:'Apagar esta butaca', stair:'Escalera en esta butaca', renum:'Cambiar el número', rowsep:'Pasillo bajo esta fila'})[toolKey]||''};
+                        label:({gap:'Hueco en esta butaca', off:'Apagar esta butaca', stair:'Escalera en esta butaca', renum:'Cambiar el número', rowsep:'Pasillo bajo esta butaca (solo este tramo)'})[toolKey]||''};
       var w=client2world(cx, cy);
+      // PASILLO soltado ENTRE dos filas (sin butaca debajo): tramo en la juntura más cercana,
+      // solo en la columna del punto — el resto de la grada sigue unido.
+      if(toolKey==='rowsep'){
+        var bestRS=null;
+        sections.forEach(function(sG){
+          if(sG.kind!=='grid' && sG.kind!=='box') return;
+          var pG=sG.pitch||26, gG=sG.rowGap||30;
+          var cr=Math.cos((sG.rot||0)*R), sr=Math.sin((sG.rot||0)*R);
+          var dx=w.x-sG.x, dy=w.y-sG.y;
+          var lx=dx*cr+dy*sr, ly=-dx*sr+dy*cr;
+          var cols=sG.cols||1, rows=sG.rows||1;
+          if(rows<2) return;
+          var colF=lx/pG+(cols-1)/2, rowF=ly/gG+(rows-1)/2;
+          if(colF<-0.5 || colF>cols-0.5 || rowF<0 || rowF>rows-1) return;
+          var jR=Math.max(1, Math.min(rows-1, Math.round(rowF+0.5)));   // juntura más cercana
+          var d=Math.abs(rowF-(jR-0.5));
+          var slotRS=Math.max(1, Math.min(cols, Math.round(colF)+1));
+          if(!bestRS || d<bestRS.d) bestRS={type:'rowsep-seg', sec:sG, row:jR, slot:slotRS, d:d, label:'Pasillo entre estas filas (solo este tramo)'};
+        });
+        if(bestRS) return bestRS;
+      }
       if(toolKey==='gap' || toolKey==='off' || toolKey==='stair'){
         var best=null, MARGIN=2.2;
         sections.forEach(function(sG){
@@ -2452,7 +2533,8 @@
       try {
         if(t.type==='stairgroup'){ var wSG=client2world(cx, cy); removeStairCellAt(t.el, wSG.x, wSG.y); }
         else if(t.type==='stairband'){ removeStairBand(t.el); }
-        else if(t.type==='rowsepband'){ removeRowSep(t.el); }
+        else if(t.type==='rowsepband'){ var wRS=client2world(cx, cy); removeRowSep(t.el, wRS.x, wRS.y); }
+        else if(t.type==='rowsep-seg'){ pushUndo('tool'); addRowSepSegment(t.sec, t.row, t.slot); invalidate(t.sec.id); markSummary(); }
         else if(t.type==='insert-col'){ pushUndo('insert'); insertGridColumn(t.sec, t.at, toolKey); markSummary(); }
         else if(t.type==='insert-row'){ pushUndo('insert'); insertGridRow(t.sec, t.at, toolKey); markSummary(); }
         else if(t.type==='seat'){ if(toolKey==='renum') applyRenum([t.key]); else applyTool(t.el); }
@@ -2504,30 +2586,69 @@
           ghost.__root.appendChild(ghost);
         }
         if(ghost){
-          ghost.style.left = ev.clientX+'px'; ghost.style.top = ev.clientY+'px';
-          // Se ve DÓNDE va a caer: butaca resaltada o barra de inserción, con etiqueta.
+          // El FANTASMA se coloca EN EL SITIO donde caería el elemento según mueves el ratón
+          // (la butaca que reemplazaría, la columna/fila nueva o el tramo de pasillo); si no
+          // hay destino, sigue al puntero. La etiqueta explica la acción bajo el cursor.
           var tPrev = resolveDropTarget(toolKey, ev.clientX, ev.clientY);
           if(!ghost.__cap){ ghost.__cap=document.createElement('div'); ghost.__cap.className='vmap-toolghost-cap'; ghost.__root.appendChild(ghost.__cap); }
           if(!ghost.__hl){ ghost.__hl=document.createElement('div'); ghost.__hl.className='vmap-drophl'; ghost.__root.appendChild(ghost.__hl); }
           ghost.__cap.style.left = ev.clientX+'px'; ghost.__cap.style.top = (ev.clientY+26)+'px';
           ghost.__cap.textContent = tPrev ? (tPrev.label||'') : '';
           ghost.__cap.style.display = (tPrev && tPrev.label) ? '' : 'none';
-          var hl=ghost.__hl;
+          var hl=ghost.__hl; hl.style.display='none';
+          var ghostFollow = function(){
+            ghost.classList.remove('vmap-toolghost--fit');
+            ghost.style.left=ev.clientX+'px'; ghost.style.top=ev.clientY+'px';
+            ghost.style.width=''; ghost.style.height=''; ghost.style.fontSize='';
+          };
+          var ghostFit = function(x,y,wd,ht){
+            ghost.classList.add('vmap-toolghost--fit');
+            ghost.style.left=x+'px'; ghost.style.top=y+'px';
+            ghost.style.width=Math.max(6,wd)+'px'; ghost.style.height=Math.max(6,ht)+'px';
+            ghost.style.fontSize=Math.max(9, Math.min(wd,ht)*.6)+'px';
+          };
+          // Mundo → pantalla (respeta zoom, pan y giro de la vista) y punto local de una grada.
+          var mCTM = world.getScreenCTM ? world.getScreenCTM() : null;
+          var w2c = function(x,y){ return mCTM ? {x:mCTM.a*x+mCTM.c*y+mCTM.e, y:mCTM.b*x+mCTM.d*y+mCTM.f} : null; };
+          var secPt = function(sG,lx,ly){ var rr=(sG.rot||0)*R; return w2c(sG.x+lx*Math.cos(rr)-ly*Math.sin(rr), sG.y+lx*Math.sin(rr)+ly*Math.cos(rr)); };
           if(tPrev && tPrev.type==='seat' && tPrev.el){
-            var rHL=tPrev.el.getBoundingClientRect();
-            hl.style.display=''; hl.className='vmap-drophl vmap-drophl--seat';
-            hl.style.left=rHL.x+'px'; hl.style.top=rHL.y+'px'; hl.style.width=rHL.width+'px'; hl.style.height=rHL.height+'px';
+            var rF=tPrev.el.getBoundingClientRect();
+            ghostFit(rF.x, rF.y, rF.width, rF.height);
+          } else if(tPrev && (tPrev.type==='insert-col' || tPrev.type==='insert-row')){
+            var sG2=tPrev.sec, pG2=sG2.pitch||26, gG2=sG2.rowGap||30, cols2=sG2.cols||1, rows2=sG2.rows||1;
+            var p0,p1,thick;
+            if(tPrev.type==='insert-col'){
+              var jx=(tPrev.at-1-(cols2-1)/2)*pG2 - pG2/2;
+              p0=secPt(sG2, jx, -(rows2-1)/2*gG2 - gG2*.5);
+              p1=secPt(sG2, jx, (rows2-1)/2*gG2 + totalSep(sG2) + gG2*.5);
+              thick=pG2;
+            } else {
+              var jy=(tPrev.at-1-(rows2-1)/2)*gG2 - gG2/2;
+              p0=secPt(sG2, -(cols2-1)/2*pG2 - pG2*.5, jy);
+              p1=secPt(sG2, (cols2-1)/2*pG2 + pG2*.5, jy);
+              thick=gG2;
+            }
+            if(p0 && p1){
+              var scl=mCTM?Math.hypot(mCTM.a,mCTM.b):1, tPx=Math.max(6, thick*scl);
+              var x0f=Math.min(p0.x,p1.x), y0f=Math.min(p0.y,p1.y);
+              var wF=Math.abs(p1.x-p0.x), hF=Math.abs(p1.y-p0.y);
+              if(wF < tPx){ x0f=(p0.x+p1.x)/2 - tPx/2; wF=tPx; }
+              if(hF < tPx){ y0f=(p0.y+p1.y)/2 - tPx/2; hF=tPx; }
+              ghostFit(x0f, y0f, wF, hF);
+            } else ghostFollow();
+          } else if(tPrev && tPrev.type==='rowsep-seg'){
+            var sG3=tPrev.sec, pG3=sG3.pitch||26, gG3=sG3.rowGap||30, cols3=sG3.cols||1, rows3=sG3.rows||1;
+            var yj=(tPrev.row-1-(rows3-1)/2)*gG3 + sepExtra(sG3, tPrev.row, tPrev.slot) + pG3*.5;
+            var lxa=(tPrev.slot-1-(cols3-1)/2)*pG3;
+            var pa=secPt(sG3, lxa-pG3/2, yj), pb=secPt(sG3, lxa+pG3/2, yj+Math.max(4, gG3-pG3));
+            if(pa && pb) ghostFit(Math.min(pa.x,pb.x), Math.min(pa.y,pb.y), Math.abs(pb.x-pa.x), Math.abs(pb.y-pa.y));
+            else ghostFollow();
           } else if(tPrev && (tPrev.type==='stairgroup' || tPrev.type==='stairband' || tPrev.type==='rowsepband')){
+            ghostFollow();
             var rHL2=tPrev.el.getBoundingClientRect();
             hl.style.display=''; hl.className='vmap-drophl vmap-drophl--del';
             hl.style.left=rHL2.x+'px'; hl.style.top=rHL2.y+'px'; hl.style.width=rHL2.width+'px'; hl.style.height=rHL2.height+'px';
-          } else if(tPrev && tPrev.type==='insert-col'){
-            hl.style.display=''; hl.className='vmap-drophl vmap-drophl--v';
-            hl.style.left=(ev.clientX-2)+'px'; hl.style.top=(ev.clientY-44)+'px'; hl.style.width='4px'; hl.style.height='88px';
-          } else if(tPrev && tPrev.type==='insert-row'){
-            hl.style.display=''; hl.className='vmap-drophl vmap-drophl--h';
-            hl.style.left=(ev.clientX-44)+'px'; hl.style.top=(ev.clientY-2)+'px'; hl.style.width='88px'; hl.style.height='4px';
-          } else { hl.style.display='none'; }
+          } else ghostFollow();
         }
       }
       function up(ev){
@@ -2562,11 +2683,12 @@
       var rowIdx = parts[1], slot = parseInt(parts[2],10);
       pushUndo('tool');   // el barrido con la herramienta se agrupa en una sola entrada
       if(tool==='rowsep'){
-        // PASILLO horizontal: hueco entre esta fila y la siguiente (en la última fila, delante).
+        // PASILLO por TRAMOS: hueco entre esta fila y la siguiente SOLO bajo esta butaca (los
+        // tramos contiguos se funden; en la última fila, delante). En curvas, a todo lo ancho.
+        if(s.kind==='points') return false;
         var rI = parseInt(rowIdx,10);
         var sepAt = Math.min(rI, Math.max(1, (s.rows|0)-1));
-        s.rowSeps = s.rowSeps || [];
-        if(s.rowSeps.indexOf(sepAt)===-1){ s.rowSeps.push(sepAt); s.rowSeps.sort(function(a,b){return a-b;}); }
+        addRowSepSegment(s, sepAt, slot);
         invalidate(s.id); markSummary(); renderSide(); return true;
       }
       s.mods = s.mods || {};
@@ -2596,13 +2718,55 @@
       s.stairs.splice(parseInt(parts[1],10), 1);
       invalidate(s.id); markSummary(); renderSide();
     }
-    function removeRowSep(el){
+    // Añadir un TRAMO de pasillo tras la fila `row` en el asiento `slot` (se funde con los
+    // tramos contiguos de esa misma juntura). En curvas el pasillo es a todo lo ancho.
+    function addRowSepSegment(s, row, slot){
+      s.rowSeps = s.rowSeps || [];
+      if(s.kind==='arc'){
+        if(s.rowSeps.indexOf(row)===-1){ s.rowSeps.push(row); s.rowSeps.sort(function(a,b){return a-b;}); }
+        return;
+      }
+      var covered = sepEntries(s).some(function(e){ return e.r===row && slot>=e.a && slot<=e.b; });
+      if(covered) return;
+      var mine = s.rowSeps.filter(function(e){ return typeof e!=='number' && e.r===row; });
+      var rest = s.rowSeps.filter(function(e){ return typeof e==='number' || e.r!==row; });
+      mine.push({r:row, a:slot, b:slot});
+      mine.sort(function(x,y){ return x.a-y.a; });
+      var merged=[];
+      mine.forEach(function(e){
+        var last=merged[merged.length-1];
+        if(last && e.a<=last.b+1){ last.b=Math.max(last.b, e.b); }
+        else merged.push({r:e.r, a:e.a, b:e.b});
+      });
+      s.rowSeps = rest.concat(merged);
+    }
+    // Quitar el pasillo pinchado. En gradas rectas se quita SOLO el tramo del punto pinchado
+    // (las filas se vuelven a JUNTAR ahí; si el pasillo queda partido se divide en dos);
+    // en curvas el pasillo es a todo lo ancho y se quita entero.
+    function removeRowSep(el, wx, wy){
       var parts = (el.getAttribute('data-rowsep')||'').split('|');
       var s = sections.find(function(x){return x.id===parts[0];});
-      if(!s || !s.rowSeps) return;
+      if(!s || !Array.isArray(s.rowSeps)) return;
+      var idx = parseInt(parts[1],10);
+      if(isNaN(idx) || idx<0 || idx>=s.rowSeps.length) return;
       pushUndo('rowsep-del');
-      s.rowSeps.splice(parseInt(parts[1],10), 1);
-      invalidate(s.id); markSummary(); renderSide();
+      if(s.kind==='arc' || wx==null){
+        s.rowSeps.splice(idx, 1);
+      } else {
+        var raw=s.rowSeps[idx];
+        var e=(typeof raw==='number') ? {r:raw, a:1, b:(s.cols|0)} : raw;
+        var aC=Math.max(1, e.a), bC=Math.min(s.cols|0, e.b);
+        // Columna del punto pinchado, en coordenadas locales de la grada.
+        var cr=Math.cos((s.rot||0)*R), sr=Math.sin((s.rot||0)*R);
+        var lxRS=(wx-s.x)*cr+(wy-s.y)*sr;
+        var k=Math.round(lxRS/(s.pitch||26)+((s.cols|0)-1)/2)+1;
+        k=Math.max(aC, Math.min(bC, k));
+        var partsNew=[];
+        if(aC<=k-1) partsNew.push({r:e.r, a:aC, b:k-1});
+        if(k+1<=bC) partsNew.push({r:e.r, a:k+1, b:bC});
+        s.rowSeps.splice.apply(s.rowSeps, [idx,1].concat(partsNew));
+      }
+      invalidate(s.id); markSummary(); renderSide(); queueRender();
     }
     // Números a mano tras un barrido con la herramienta №: una butaca = número exacto; varias =
     // número inicial y se numeran SEGUIDAS en el orden del barrido (respetando pares/impares).
@@ -3281,7 +3445,7 @@
         // Herramienta de retoque activa: pinchar butacas aplica; pinchar un retoque puesto lo quita.
         if(tool==='stair' && stairEl){ removeStairBand(stairEl); drag={kind:'none'}; return; }
         var rowsepEl=e.target.closest('[data-rowsep]');
-        if(tool==='rowsep' && rowsepEl){ removeRowSep(rowsepEl); drag={kind:'none'}; return; }
+        if(tool==='rowsep' && rowsepEl){ removeRowSep(rowsepEl, w.x, w.y); drag={kind:'none'}; return; }
         if(tool==='renum' && seatEl){
           // El № se decide al SOLTAR: una butaca = número exacto; barriendo varias = seguidas.
           var kR=seatEl.getAttribute('data-seat');
@@ -3369,7 +3533,7 @@
         if(sgDel){ removeStairCellAt(sgDel, w.x, w.y); drag={kind:'none'}; return; }
         if(stairEl){ removeStairBand(stairEl); drag={kind:'none'}; return; }
         var rsDel=e.target.closest('[data-rowsep]');
-        if(rsDel){ removeRowSep(rsDel); drag={kind:'none'}; return; }
+        if(rsDel){ removeRowSep(rsDel, w.x, w.y); drag={kind:'none'}; return; }
         if(seatEl && seatEl.getAttribute('data-kind')==='gap'){
           var kG=seatEl.getAttribute('data-seat'), ppG=kG.split('|');
           var sDel=sections.find(function(x){return x.id===ppG[0];});

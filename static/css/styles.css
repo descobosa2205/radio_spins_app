@@ -2057,6 +2057,8 @@ body.vmap-max-open { overflow: hidden; }
 .vmap-toolghost--off { background: #d7dbe2; border-color: #c3c9d2; color: #7b838f; }
 .vmap-toolghost--stair { background: #eef1f5; border-color: #b9c2cd; color: #7b8694; }
 .vmap-toolghost--rowsep { width: 44px; height: 16px; font-size: .8rem; }
+/* Fantasma COLOCADO en su destino (butaca/columna/fila/tramo): tamaño real, sin centrar en el cursor. */
+.vmap-toolghost--fit { transform: none; opacity: .88; border-width: 2px; }
 /* Previsualización del destino del arrastre: etiqueta bajo el fantasma + marcador en el plano. */
 .vmap-toolghost-cap { position: fixed; z-index: 9999; pointer-events: none; transform: translate(-50%, 0); background: #111; color: #fff; font: 600 .7rem/1.2 system-ui; padding: .2rem .5rem; border-radius: .4rem; white-space: nowrap; box-shadow: 0 3px 10px rgba(0,0,0,.3); }
 .vmap-drophl { position: fixed; z-index: 9998; pointer-events: none; display: none; }

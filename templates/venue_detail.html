@@ -362,7 +362,7 @@
 
 {% block scripts %}
 {% if tab == 'ticketing' %}
-<script src="{{ url_for('static', filename='js/venue_map.js') }}"></script>
+<script src="{{ url_for('static', filename='js/venue_map.js', v=ASSET_V) }}"></script>
 {% endif %}
 {% if tab == 'ticketing' and CAN_EDIT_CATALOGS %}
 <script>

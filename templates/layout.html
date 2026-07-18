@@ -17,7 +17,7 @@
   {# Font Awesome AUTOALOJADO (no depende de cdnjs): así los iconos cargan siempre desde el propio
      dominio aunque el CDN esté bloqueado/caído (era la causa de que salieran como "?"). #}
   <link href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" rel="stylesheet">
-  <link href="{{ url_for('static', filename='css/styles.css') }}" rel="stylesheet" />
+  <link href="{{ url_for('static', filename='css/styles.css', v=ASSET_V) }}" rel="stylesheet" />
   <style>
     :root{
       --brand-primary: {{ BRAND_PRIMARY }};
@@ -191,7 +191,7 @@
 <script src="{{ url_for('static', filename='vendor/chartjs/chart.umd.min.js') }}"></script>
 {% if IS_ADMIN %}{% include '_quick_create_modals.html' %}{% endif %}
 <script src="{{ url_for('static', filename='js/csrf.js') }}"></script>
-<script src="{{ url_for('static', filename='js/scripts.js') }}"></script>
+<script src="{{ url_for('static', filename='js/scripts.js', v=ASSET_V) }}"></script>
 {% if IS_ADMIN %}<script src="{{ url_for('static', filename='js/push.js') }}" defer></script>{% endif %}
 <script src="{{ url_for('static', filename='js/typeahead.js') }}"></script>
 <script src="{{ url_for('static', filename='js/quick_create.js') }}"></script>

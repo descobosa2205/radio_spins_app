@@ -1037,6 +1037,9 @@ def _parse_optional_positive_int(value):
     
 # ---------- context ----------
 @app.context_processor
+_ASSET_VERSION = str(int(time.time()))   # cambia en cada arranque → rompe la caché de css/js
+
+
 def inject_globals():
     def has_endpoint(name: str) -> bool:
         # permite: {% if has_endpoint('mi_vista') %} ...
@@ -1070,6 +1073,9 @@ def inject_globals():
         BRAND_ACCENT=settings.BRAND_ACCENT,
         IS_ADMIN=bool(session.get("user_id")),
         has_endpoint=has_endpoint,
+        # Versión de ESTÁTICOS (cambia en cada arranque/deploy): rompe la caché del navegador de
+        # css/js — sin esto, Flask cachea 12 h y los usuarios no ven los cambios recién subidos.
+        ASSET_V=_ASSET_VERSION,
         artist_chip=artist_chip,
         artist_avatar=artist_avatar,
         linked_mini=linked_mini,

@@ -860,6 +860,114 @@
       }
       invalidate(s.id);
     }
+    // QUITAR una COLUMNA/FILA de la grada (inversa de insertar): al eliminar TODAS las butacas de
+    // una columna o fila, esa columna/fila desaparece y el sector se AJUSTA (remapeando huecos,
+    // apagadas, escaleras por butaca, números manuales, bandas y asignaciones).
+    function removeGridColumn(s, atSlot){
+      var oldCols = s.cols || 1, p = s.pitch || 26;
+      if(oldCols <= 1) return;
+      var mods = s.mods || {};
+      Object.keys(mods).forEach(function(rk){
+        var m = mods[rk];
+        ['gaps','off','stairs'].forEach(function(kk){
+          if(Array.isArray(m[kk])) m[kk] = m[kk].filter(function(sl){ return sl !== atSlot; }).map(function(sl){ return sl > atSlot ? sl - 1 : sl; });
+        });
+      });
+      if(s.numOverrides){
+        var nov = {};
+        Object.keys(s.numOverrides).forEach(function(k){
+          var pp = k.split('|'); var sl = +pp[1];
+          if(sl === atSlot) return;
+          nov[pp[0] + '|' + (sl > atSlot ? sl - 1 : sl)] = s.numOverrides[k];
+        });
+        s.numOverrides = nov;
+      }
+      var na = {};
+      Object.keys(assign).forEach(function(k){
+        var pp = k.split('|');
+        if(pp[0] === s.id && pp.length === 3){
+          var sl2 = +pp[2];
+          if(sl2 === atSlot) return;
+          na[pp[0] + '|' + pp[1] + '|' + (sl2 > atSlot ? sl2 - 1 : sl2)] = assign[k];
+        } else na[k] = assign[k];
+      });
+      assign = na;
+      (s.stairs || []).forEach(function(b){
+        var colPos = b.at * oldCols;
+        if(colPos > atSlot - 0.5) colPos -= 1;
+        b.at = colPos / (oldCols - 1);
+      });
+      s.cols = oldCols - 1;
+      var ax = Math.cos((s.rot || 0) * R), ay = Math.sin((s.rot || 0) * R);
+      var kx = (atSlot === 1 ? 1 : -1) * p / 2;
+      s.x += ax * kx; s.y += ay * kx;
+      invalidate(s.id);
+    }
+    function removeGridRow(s, atRow){
+      var oldRows = s.rows || 1, g = s.rowGap || 30;
+      if(oldRows <= 1) return;
+      function shiftKeyedDel(obj){
+        if(!obj) return obj;
+        var out = {};
+        Object.keys(obj).forEach(function(rk){ var r0 = +rk; if(r0 === atRow) return; out[String(r0 > atRow ? r0 - 1 : r0)] = obj[rk]; });
+        return out;
+      }
+      s.mods = shiftKeyedDel(s.mods);
+      s.rowNums = shiftKeyedDel(s.rowNums);
+      if(s.numOverrides){
+        var nov = {};
+        Object.keys(s.numOverrides).forEach(function(k){
+          var pp = k.split('|'); var r1 = +pp[0];
+          if(r1 === atRow) return;
+          nov[(r1 > atRow ? r1 - 1 : r1) + '|' + pp[1]] = s.numOverrides[k];
+        });
+        s.numOverrides = nov;
+      }
+      var na = {};
+      Object.keys(assign).forEach(function(k){
+        var pp = k.split('|');
+        if(pp[0] === s.id && pp.length === 3){
+          var r2 = +pp[1];
+          if(r2 === atRow) return;
+          na[pp[0] + '|' + (r2 > atRow ? r2 - 1 : r2) + '|' + pp[2]] = assign[k];
+        } else na[k] = assign[k];
+      });
+      assign = na;
+      if(Array.isArray(s.rowSeps)) s.rowSeps = s.rowSeps.filter(function(x){ return x !== atRow; }).map(function(x){ return x > atRow ? x - 1 : x; });
+      s.rows = oldRows - 1;
+      var ax = -Math.sin((s.rot || 0) * R), ay = Math.cos((s.rot || 0) * R);
+      var ky = (atRow === 1 ? 1 : -1) * g / 2;
+      s.x += ax * ky; s.y += ay * ky;
+      invalidate(s.id);
+    }
+    // Tras un BORRADO: si una columna o fila entera quedó en huecos, desaparece (el sector se ajusta).
+    function compactGridSection(s){
+      if(!s || (s.kind !== 'grid' && s.kind !== 'box')) return;
+      var changed = true, guard = 0;
+      while(changed && guard++ < 200){
+        changed = false;
+        var mods = s.mods || {};
+        // columna entera de huecos: en TODAS las filas ese slot es gap
+        for(var c = 1; c <= (s.cols || 1); c++){
+          var full = (s.cols || 1) > 1;
+          for(var r = 1; r <= (s.rows || 1) && full; r++){
+            var m = mods[String(r)];
+            if(!m || !Array.isArray(m.gaps) || m.gaps.indexOf(c) === -1) full = false;
+          }
+          if(full){ removeGridColumn(s, c); changed = true; break; }
+        }
+        if(changed) continue;
+        // fila entera de huecos
+        for(var r2 = 1; r2 <= (s.rows || 1); r2++){
+          var m2 = (s.mods || {})[String(r2)];
+          if((s.rows || 1) > 1 && m2 && Array.isArray(m2.gaps) && m2.gaps.length >= (s.cols || 1)){
+            var allG = true;
+            for(var c2 = 1; c2 <= (s.cols || 1); c2++){ if(m2.gaps.indexOf(c2) === -1){ allG = false; break; } }
+            if(allG){ removeGridRow(s, r2); changed = true; break; }
+          }
+        }
+      }
+    }
     // INSERTAR una FILA de huecos/apagadas arriba (atRow=1) o abajo (atRow=rows+1) de la grada.
     function insertGridRow(s, atRow, kind){
       var oldRows = s.rows || 1, g = s.rowGap || 30;
@@ -2149,7 +2257,8 @@
           if(sc && sc.seats){ sc.seats=sc.seats.filter(function(t){ return !bySec[secId][(+t.row)+'|'+(+t.slot)]; });
             if(sc.loose && !sc.seats.length && dko.indexOf(sc.id)<0) dko.push(sc.id); invalidate(sc.id); }
         });
-        // Butacas de GRADA: «eliminar» = ponerlas como HUECO (y liberar su asignación).
+        // Butacas de GRADA: «eliminar» = ponerlas como HUECO (y liberar su asignación). Si con
+        // ello una columna o fila queda VACÍA entera, desaparece y el sector se ajusta.
         Object.keys(gapBySec).forEach(function(secId){
           var sc=sections.find(function(x){return x.id===secId;}); if(!sc) return;
           sc.mods = sc.mods || {};
@@ -2160,6 +2269,7 @@
             var oi=m.off.indexOf(o.slot); if(oi>=0) m.off.splice(oi,1);
             delete assign[secId+'|'+o.row+'|'+o.slot];
           });
+          compactGridSection(sc);
           invalidate(sc.id);
         });
         if(dko.length){
@@ -2363,14 +2473,17 @@
           ghost = document.createElement('div');
           ghost.className = 'vmap-toolghost vmap-toolghost--' + toolKey;
           ghost.innerHTML = ({gap:'▢', off:'◼', stair:'<i class="fa fa-stairs"></i>', rowsep:'═', renum:'№', select:'⛶'})[toolKey] || '';
-          document.body.appendChild(ghost);
+          // En PANTALLA COMPLETA nativa, lo que cuelga de <body> no se pinta (queda fuera del
+          // elemento fullscreen): el fantasma y sus ayudas van dentro del elemento activo.
+          ghost.__root = document.fullscreenElement || document.webkitFullscreenElement || document.body;
+          ghost.__root.appendChild(ghost);
         }
         if(ghost){
           ghost.style.left = ev.clientX+'px'; ghost.style.top = ev.clientY+'px';
           // Se ve DÓNDE va a caer: butaca resaltada o barra de inserción, con etiqueta.
           var tPrev = resolveDropTarget(toolKey, ev.clientX, ev.clientY);
-          if(!ghost.__cap){ ghost.__cap=document.createElement('div'); ghost.__cap.className='vmap-toolghost-cap'; document.body.appendChild(ghost.__cap); }
-          if(!ghost.__hl){ ghost.__hl=document.createElement('div'); ghost.__hl.className='vmap-drophl'; document.body.appendChild(ghost.__hl); }
+          if(!ghost.__cap){ ghost.__cap=document.createElement('div'); ghost.__cap.className='vmap-toolghost-cap'; ghost.__root.appendChild(ghost.__cap); }
+          if(!ghost.__hl){ ghost.__hl=document.createElement('div'); ghost.__hl.className='vmap-drophl'; ghost.__root.appendChild(ghost.__hl); }
           ghost.__cap.style.left = ev.clientX+'px'; ghost.__cap.style.top = (ev.clientY+26)+'px';
           ghost.__cap.textContent = tPrev ? (tPrev.label||'') : '';
           ghost.__cap.style.display = (tPrev && tPrev.label) ? '' : 'none';
@@ -3461,14 +3574,14 @@
     // FUSIONAR GRADAS: al soltar una grada PEGADA a otra (borde con borde) se ofrece unirlas.
     // Siguen siendo sectores distintos, pero quedan enlazadas (linkGroup) y se mueven en conjunto.
     function maybeOfferMerge(s){
-      if(!s || (s.kind!=='grid' && s.kind!=='box')) return;
+      if(!s || (s.kind!=='grid' && s.kind!=='box' && s.kind!=='points')) return;
       // En pantalla completa NATIVA un confirm() expulsa del fullscreen (y desconcierta):
       // la fusión se ofrece al mover las gradas fuera de pantalla completa.
       if(document.fullscreenElement || document.webkitFullscreenElement) return;
       var bb=bboxOf(s), m=(s.pitch||26)*0.9;
       for(var i=0;i<sections.length;i++){
         var t=sections[i];
-        if(t===s || (t.kind!=='grid' && t.kind!=='box')) continue;
+        if(t===s || (t.kind!=='grid' && t.kind!=='box' && t.kind!=='points')) continue;
         if(s.linkGroup && s.linkGroup===t.linkGroup) continue;
         var db=bboxOf(t);
         var gapX=Math.max(db.x-(bb.x+bb.w), bb.x-(db.x+db.w));
@@ -3476,7 +3589,7 @@
         // Pegadas = casi tocándose por un lado, sin estar montada una sobre otra.
         if(gapX>m || gapY>m) continue;
         if(gapX<-m && gapY<-m) continue;
-        if(!window.confirm('«'+(s.name||'Grada')+'» ha quedado pegada a «'+(t.name||'Grada')+'».\n\n¿FUSIONAR las gradas? Seguirán siendo sectores distintos, pero quedarán unidas como un único elemento y se moverán en conjunto.')) return;
+        if(!window.confirm('«'+(s.name||'Bloque')+'» ha quedado pegado a «'+(t.name||'Bloque')+'».\n\n¿UNIR en un solo bloque? Seguirán siendo sectores distintos, pero quedarán unidos como un único elemento y se moverán en conjunto.')) return;
         var gidM=t.linkGroup || s.linkGroup || nid('lg');
         t.linkGroup=gidM; s.linkGroup=gidM;
         renderSide(); markSummary();

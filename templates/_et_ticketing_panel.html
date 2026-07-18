@@ -113,7 +113,7 @@
           <script type="application/json" id="venueMapData">{{ et_venue_map.payload|tojson }}</script>
         </div>
       </div>
-      <script src="{{ url_for('static', filename='js/venue_map.js') }}"></script>
+      <script src="{{ url_for('static', filename='js/venue_map.js', v=ASSET_V) }}"></script>
       <script>
       (function(){
         // El plano puede nacer en una pestaña/pill oculta (sin tamaño): reencuadrar al mostrarse

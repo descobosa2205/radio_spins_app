@@ -3191,6 +3191,14 @@
         drag={kind:'pan', c0:{x:e.clientX,y:e.clientY}, v0:JSON.parse(JSON.stringify(view))};
         return;
       }
+      // ⌘/Ctrl + ARRASTRE (sin herramienta) = RECUADRO de selección ADITIVO en cualquier punto
+      // (butaca, hueco o vacío): seleccionar varias butacas arrastrando, sin mover nada. El clic
+      // suelto con ⌘ alterna la butaca (se resuelve al soltar, en endPointer).
+      if(mode==='design' && canEdit && !tool && (e.metaKey || e.ctrlKey)){
+        e.preventDefault();
+        drag={kind:'marquee', w0:w, add:true};
+        return;
+      }
       // BUTACAS SUELTAS / detectadas: pinchar una butaca la selecciona y la mueve (en bloque si hay
       // varias seleccionadas; Mayús/Cmd añade o quita de la selección). Pinchar el cuerpo del sector
       // (fuera de las butacas) mueve el sector entero (más abajo).
@@ -3454,6 +3462,9 @@
     // Siguen siendo sectores distintos, pero quedan enlazadas (linkGroup) y se mueven en conjunto.
     function maybeOfferMerge(s){
       if(!s || (s.kind!=='grid' && s.kind!=='box')) return;
+      // En pantalla completa NATIVA un confirm() expulsa del fullscreen (y desconcierta):
+      // la fusión se ofrece al mover las gradas fuera de pantalla completa.
+      if(document.fullscreenElement || document.webkitFullscreenElement) return;
       var bb=bboxOf(s), m=(s.pitch||26)*0.9;
       for(var i=0;i<sections.length;i++){
         var t=sections[i];
@@ -3494,7 +3505,17 @@
       }
       if(drag && drag.kind==='marquee'){
         if(drag.w1) marqueeSelect(drag.w0, drag.w1, drag.add);
-        else { if(!drag.add){ dsel={}; dselO={}; } }   // clic sin arrastre en vacío: vacía la selección
+        else if(drag.add){
+          // ⌘+clic SUELTO (sin arrastre): alternar la butaca bajo el puntero en la selección.
+          var underM=document.elementFromPoint(e.clientX, e.clientY);
+          var seatM=underM && underM.closest ? underM.closest('[data-seat]') : null;
+          if(seatM){
+            var kM=seatM.getAttribute('data-seat');
+            if(dsel[kM]) delete dsel[kM]; else dsel[kM]=1;
+            selId=kM.split('|')[0];
+          }
+        }
+        else { dsel={}; dselO={}; }   // clic sin arrastre en vacío: vacía la selección
         drag=null; clearLasso(); renderSide(); queueRender(); return;
       }
       if(drag && drag.kind==='selpaint'){

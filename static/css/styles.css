@@ -2045,7 +2045,12 @@ body.vmap-max-open { overflow: hidden; }
 .vmap-ctx button:disabled { opacity: .45; cursor: default; }
 
 /* Mapa del recinto: fantasma al ARRASTRAR una herramienta desde el panel + ✕ de categoría */
-.vmap-toolghost { position: fixed; z-index: 9999; pointer-events: none; transform: translate(12px, 14px); background: #fff; border: 1px solid var(--brand-accent); border-radius: .5rem; padding: .25rem .55rem; font-size: .78rem; font-weight: 600; box-shadow: 0 4px 14px rgba(0,0,0,.22); }
+/* Fantasma del retoque arrastrado: se ve el ELEMENTO en sí (celda tipo butaca) siguiendo al puntero. */
+.vmap-toolghost { position: fixed; z-index: 9999; pointer-events: none; transform: translate(-50%, -50%); width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; background: #fff; border: 2px solid var(--brand-accent); border-radius: .45rem; font-size: 1rem; font-weight: 700; color: #49515d; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+.vmap-toolghost--gap { border-style: dashed; border-color: #b9c2cd; color: #9aa3af; background: #fbfcfd; }
+.vmap-toolghost--off { background: #d7dbe2; border-color: #c3c9d2; color: #7b838f; }
+.vmap-toolghost--stair { background: #eef1f5; border-color: #b9c2cd; color: #7b8694; }
+.vmap-toolghost--rowsep { width: 44px; height: 16px; font-size: .8rem; }
 .vmap-cat .vmap-cat-x { border: 0; background: transparent; color: #a5aeb8; font-weight: 700; line-height: 1; cursor: pointer; padding: 0 .15rem; flex: 0 0 auto; }
 .vmap-cat .vmap-cat-x:hover { color: var(--brand-primary); }
 

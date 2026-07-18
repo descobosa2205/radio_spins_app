@@ -375,7 +375,7 @@
     }
     function modsOf(s, rowIdx){
       var m = (s.mods || {})[String(rowIdx)] || {};
-      return { gaps: m.gaps || [], off: m.off || [] };
+      return { gaps: m.gaps || [], off: m.off || [], stairs: m.stairs || [] };
     }
 
     // PASILLOS entre filas: desplazan la POSICIÓN de las filas siguientes (hueco físico) sin
@@ -403,7 +403,7 @@
         var mods = modsOf(s, ri);
         var slots = arr.map(function(t){
           var lx=+t.lx||0, ly=+t.ly||0, slot=parseInt(t.slot,10)||1;
-          var state = (mods.gaps.indexOf(slot)!==-1?'gap':(mods.off.indexOf(slot)!==-1?'off':'seat'));
+          var state = (mods.stairs.indexOf(slot)!==-1?'stair':(mods.gaps.indexOf(slot)!==-1?'gap':(mods.off.indexOf(slot)!==-1?'off':'seat')));
           // Ángulo por butaca (butacas sueltas orientables): s.rot + el giro propio de la butaca.
           return { slot:slot, frac:0, x:s.x+lx*crP-ly*srP, y:s.y+lx*srP+ly*crP, a:(s.rot||0)+(parseFloat(t.a)||0), state:state };
         });
@@ -474,7 +474,7 @@
         // según la política de la sección («salta» = 1,2,_,4 · «renumera» = 1,2,_,3); las apagadas
         // conservan su número (existen pero no se ofrecen).
         slots.forEach(function(sl){
-          sl.state = sl.inStair ? 'stair' : (mods.gaps.indexOf(sl.slot)!==-1 ? 'gap' : (mods.off.indexOf(sl.slot)!==-1 ? 'off' : 'seat'));
+          sl.state = (sl.inStair || mods.stairs.indexOf(sl.slot)!==-1) ? 'stair' : (mods.gaps.indexOf(sl.slot)!==-1 ? 'gap' : (mods.off.indexOf(sl.slot)!==-1 ? 'off' : 'seat'));
         });
         var nmR = numOfRow(s, rowIdx);   // numeración propia de ESTA fila (o la general si no tiene)
         var ordered = (nmR.dir==='rtl') ? slots.slice().reverse() : slots;
@@ -787,6 +787,7 @@
       if(m){
         if(Array.isArray(m.gaps)) m.gaps=m.gaps.map(function(sl){ return mapOld[sl]||sl; });
         if(Array.isArray(m.off)) m.off=m.off.map(function(sl){ return mapOld[sl]||sl; });
+        if(Array.isArray(m.stairs)) m.stairs=m.stairs.map(function(sl){ return mapOld[sl]||sl; });
       }
       if(sec.numOverrides){
         var nov={};
@@ -820,6 +821,7 @@
         var m = mods[rk];
         if(Array.isArray(m.gaps)) m.gaps = m.gaps.map(function(sl){ return sl >= atSlot ? sl + 1 : sl; });
         if(Array.isArray(m.off)) m.off = m.off.map(function(sl){ return sl >= atSlot ? sl + 1 : sl; });
+        if(Array.isArray(m.stairs)) m.stairs = m.stairs.map(function(sl){ return sl >= atSlot ? sl + 1 : sl; });
       });
       if(s.numOverrides){
         var nov = {};
@@ -848,15 +850,11 @@
       var ax = Math.cos((s.rot || 0) * R), ay = Math.sin((s.rot || 0) * R);
       var kx = (atSlot === 1 ? -1 : 1) * p / 2;
       s.x += ax * kx; s.y += ay * kx;
-      if(kind === 'stair'){
-        s.stairs = s.stairs || [];
-        s.stairs.push({ at: (atSlot - 0.5) / s.cols, w: 0.35 });
-      } else {
-        s.mods = s.mods || {};
-        for(var r = 1; r <= (s.rows || 1); r++){
-          var m2 = s.mods[String(r)] = s.mods[String(r)] || { gaps: [], off: [] };
-          (kind === 'off' ? (m2.off = m2.off || []) : (m2.gaps = m2.gaps || [])).push(atSlot);
-        }
+      s.mods = s.mods || {};
+      for(var r = 1; r <= (s.rows || 1); r++){
+        var m2 = s.mods[String(r)] = s.mods[String(r)] || { gaps: [], off: [] };
+        var lst = (kind === 'stair') ? (m2.stairs = m2.stairs || []) : (kind === 'off' ? (m2.off = m2.off || []) : (m2.gaps = m2.gaps || []));
+        lst.push(atSlot);
       }
       invalidate(s.id);
     }
@@ -1063,6 +1061,16 @@
             row.seats.forEach(function(p){
               if(p.x<vx0-szP||p.x>vx1+szP||p.y<vy0-szP||p.y>vy1+szP) return;
               var key=s.id+'|'+row.rowIdx+'|'+p.slot;
+              if(p.state==='stair'){
+                if(far){ gP.push('<circle data-seat="'+key+'" data-kind="stair" data-frac="0" cx="'+p.x+'" cy="'+p.y+'" r="'+(halfP*.82)+'" style="fill:#b9c2cd;cursor:pointer"/>'); }
+                else {
+                  gP.push('<g data-seat="'+key+'" data-kind="stair" data-frac="0" transform="translate('+p.x+' '+p.y+')" style="cursor:pointer">'+
+                    '<rect x="'+(-halfP)+'" y="'+(-halfP)+'" width="'+szP+'" height="'+szP+'" rx="'+(szP*.18)+'" style="fill:#eef1f5;stroke:#b9c2cd;stroke-width:'+(szP*.05)+'"/>'+
+                    '<text y="'+(szP*.30)+'" text-anchor="middle" style="font:700 '+(szP*.62)+'px system-ui;fill:#7b8694;pointer-events:none">\u2630</text>'+
+                  '</g>');
+                }
+                return;
+              }
               if(p.state==='gap'){
                 var gapHit=(mode==='design'&&canEdit&&(tool==='gap'||tool==='off'));
                 gP.push('<circle data-seat="'+key+'" data-kind="gap" data-frac="0" cx="'+p.x+'" cy="'+p.y+'" r="'+halfP+'" style="fill:'+(gapHit?'transparent':'none')+';stroke:#d5dbe2;stroke-width:'+(szP*.06)+';stroke-dasharray:'+(szP*.18)+' '+(szP*.14)+';'+(gapHit?'cursor:pointer':'pointer-events:none')+'"/>');
@@ -1192,8 +1200,16 @@
             }
             var nameRuns=[], curRun=null;   // bloques de butacas seguidas del MISMO invitado (nombre + raya)
             row.seats.forEach(function(p){
-              if(p.state==='stair'){ curRun=null; return; }
               if(p.x<vx0-size||p.x>vx1+size||p.y<vy0-size||p.y>vy1+size){ curRun=null; return; }
+              if(p.state==='stair'){
+                curRun=null;
+                var kSt = s.id+'|'+row.rowIdx+'|'+p.slot;
+                g2.push('<g data-seat="'+kSt+'" data-kind="stair" data-frac="'+p.frac.toFixed(4)+'" transform="translate('+p.x+' '+p.y+') rotate('+p.a.toFixed(1)+')" style="cursor:pointer">'+
+                  '<rect x="'+(-half)+'" y="'+(-half)+'" width="'+size+'" height="'+size+'" rx="'+(size*.18)+'" style="fill:#eef1f5;stroke:#b9c2cd;stroke-width:'+(size*.05)+'"/>'+
+                  '<text y="'+(size*.30)+'" text-anchor="middle" style="font:700 '+(size*.62)+'px system-ui;fill:#7b8694;pointer-events:none">\u2630</text>'+
+                '</g>');
+                return;
+              }
               var key = s.id+'|'+row.rowIdx+'|'+p.slot;
               var aCat = assign[key] ? catById[assign[key]] : null;
               if(p.state==='seat' && aCat && aCat.kind==='guest'){
@@ -1374,8 +1390,8 @@
         // HERRAMIENTAS: seleccionar (recuadro) + retoques por butaca, en una sola fila de chips.
         html += '<h6 class="vmap-h"><i class="fa fa-wand-magic-sparkles me-1"></i>Herramientas <i class="fa fa-circle-info text-muted" title="Seleccionar: arrastra un recuadro (Mayús añade); Supr borra lo seleccionado. Hueco = no existe la butaca; Apagada = existe pero no se ofrece; Escalera = corte vertical; Pasillo = hueco horizontal entre filas; № = cambiar el número de una butaca (o varias, barriéndolas). Pincha un retoque ya puesto para quitarlo."></i></h6>'+
           '<div class="vmap-tools" data-tool-chips>'+
-          toolChip('select','⛶','Seleccionar')+
-          toolChip('gap','▢','Hueco')+toolChip('off','◼','Apagada')+toolChip('stair','☰','Escalera')+toolChip('rowsep','═','Pasillo')+toolChip('renum','№','Número')+'</div>';
+          toolChip('select','⛶','Seleccionar')+'</div>'+
+          '<p class="text-muted small mb-0 mt-1">Hueco, apagada, escalera, pasillo y nº se ARRASTRAN desde la barra de arriba. Con butacas seleccionadas, pincha uno de ellos y todas pasan a ser ese elemento.</p>';
         var nSeatsSel=dselKeys().length, nObjSel=dselOkeys().length;
         if(nSeatsSel || nObjSel){
           html += '<p class="text-muted small mb-1 mt-1">Seleccionado: '+(nSeatsSel?nSeatsSel+' butaca'+(nSeatsSel===1?'':'s'):'')+(nSeatsSel&&nObjSel?' · ':'')+(nObjSel?nObjSel+' elemento'+(nObjSel===1?'':'s'):'')+'. Arrastra uno para mover el conjunto; Supr (o «Eliminar selección») borra todo lo seleccionado.'+(nSeatsSel>=2?' En la tarjeta de la DERECHA del plano puedes agruparlas y ponerles sector, fila y numeración.':'')+'</p>';
@@ -1948,7 +1964,24 @@
       }
       if(tch){
         if(tch.dataset.suppressClick){ delete tch.dataset.suppressClick; return; }   // acaba de arrastrarse
-        tool = (tool===tch.dataset.tool) ? null : tch.dataset.tool; if(tool==='select'){ seatArm=false; drawArm=false; } setHint(); renderSide(); queueRender(); return;
+        var tkC = tch.dataset.tool;
+        // Con butacas SELECCIONADAS: pinchar el elemento las convierte TODAS en él (sin toggle).
+        if(mode==='design' && (tkC==='gap' || tkC==='off' || tkC==='stair') && dselKeys().length){
+          pushUndo('tool-sel');
+          dselKeys().forEach(function(k){
+            var pp=k.split('|'); var s2=sections.find(function(x){return x.id===pp[0];});
+            if(!s2 || s2.kind==='floor') return;
+            var mr=(s2.mods=s2.mods||{})[pp[1]]=(s2.mods[pp[1]]||{gaps:[],off:[]});
+            mr.gaps=mr.gaps||[]; mr.off=mr.off||[]; mr.stairs=mr.stairs||[];
+            var sl=+pp[2];
+            [mr.gaps, mr.off, mr.stairs].forEach(function(a){ var i2=a.indexOf(sl); if(i2!==-1) a.splice(i2,1); });
+            (tkC==='gap'?mr.gaps:(tkC==='off'?mr.off:mr.stairs)).push(sl);
+            delete assign[k];
+            invalidate(s2.id);
+          });
+          dsel={}; markSummary(); renderSide(); queueRender(); return;
+        }
+        tool = (tool===tkC) ? null : tkC; if(tool==='select'){ seatArm=false; drawArm=false; } setHint(); renderSide(); queueRender(); return;
       }
       if(ctl){ catTool = ctl.dataset.catTool; if(catTool!=='select') clearSel(); renderSide(); return; }
       if(cat){
@@ -2265,8 +2298,8 @@
         if(!movedT && Math.hypot(ev.clientX-sx, ev.clientY-sy) > 7){
           movedT = true;
           ghost = document.createElement('div');
-          ghost.className = 'vmap-toolghost';
-          ghost.textContent = chipT.textContent.trim();
+          ghost.className = 'vmap-toolghost vmap-toolghost--' + toolKey;
+          ghost.innerHTML = ({gap:'▢', off:'◼', stair:'<i class="fa fa-stairs"></i>', rowsep:'═', renum:'№', select:'⛶'})[toolKey] || '';
           document.body.appendChild(ghost);
         }
         if(ghost){ ghost.style.left = ev.clientX+'px'; ghost.style.top = ev.clientY+'px'; }
@@ -2302,12 +2335,6 @@
       if(!s || s.kind==='floor') return false;
       var rowIdx = parts[1], slot = parseInt(parts[2],10);
       pushUndo('tool');   // el barrido con la herramienta se agrupa en una sola entrada
-      if(tool==='stair'){
-        var frac = parseFloat(seatEl.getAttribute('data-frac')||'0.5');
-        s.stairs = s.stairs || [];
-        s.stairs.push({at: Math.round(frac*1000)/1000, w: 1.2});
-        invalidate(s.id); markSummary(); renderSide(); return true;
-      }
       if(tool==='rowsep'){
         // PASILLO horizontal: hueco entre esta fila y la siguiente (en la última fila, delante).
         var rI = parseInt(rowIdx,10);
@@ -2318,19 +2345,21 @@
       }
       s.mods = s.mods || {};
       var m = s.mods[rowIdx] = s.mods[rowIdx] || {gaps:[], off:[]};
-      // Toggle robusto SIN depender del data-kind del DOM (puede quedar desfasado hasta el
-      // siguiente frame): si el slot ya tiene el retoque se quita; si no, se pone (y se retira
-      // el retoque contrario y su categoría — deja de ser vendible).
-      function applyMod(arr, other){
+      m.gaps = m.gaps || []; m.off = m.off || []; m.stairs = m.stairs || [];
+      // Toggle robusto SIN depender del data-kind del DOM: si el slot ya tiene el retoque se
+      // quita; si no, se pone (retirando los otros y su categoría). La ESCALERA reemplaza SOLO
+      // esa butaca (estado por butaca, igual que hueco/apagada; ya no pone bandas anchas).
+      function applyMod(arr, others){
         var i = arr.indexOf(slot);
         if(i!==-1){ arr.splice(i,1); return; }
         arr.push(slot);
-        var j = other.indexOf(slot); if(j!==-1) other.splice(j,1);
+        others.forEach(function(o){ var j=o.indexOf(slot); if(j!==-1) o.splice(j,1); });
         delete assign[key];
       }
-      if(tool==='gap') applyMod(m.gaps, m.off);
-      else if(tool==='off') applyMod(m.off, m.gaps);
-      if(!m.gaps.length && !m.off.length) delete s.mods[rowIdx];
+      if(tool==='gap') applyMod(m.gaps, [m.off, m.stairs]);
+      else if(tool==='off') applyMod(m.off, [m.gaps, m.stairs]);
+      else if(tool==='stair') applyMod(m.stairs, [m.gaps, m.off]);
+      if(!m.gaps.length && !m.off.length && !m.stairs.length) delete s.mods[rowIdx];
       invalidate(s.id); markSummary(); renderSide(); return true;
     }
     function removeStairBand(el){

@@ -65,6 +65,8 @@ def _row_states(sec: dict, row_idx: int) -> list:
     mods = (sec.get("mods") or {}).get(str(row_idx)) or {}
     gaps = set(_i(x) for x in (mods.get("gaps") or []))
     off = set(_i(x) for x in (mods.get("off") or []))
+    # Escaleras POR BUTACA (mods.stairs): reemplazan solo esa butaca, paridad con el JS.
+    pstairs = set(_i(x) for x in (mods.get("stairs") or []))
 
     if kind == "arc":
         r0 = _f(sec.get("r0"), 900)
@@ -80,7 +82,7 @@ def _row_states(sec: dict, row_idx: int) -> list:
                 for b in stairs if isinstance(b, dict)
             )
             slot = i + 1
-            states.append("stair" if in_stair else ("gap" if slot in gaps else ("off" if slot in off else "seat")))
+            states.append("stair" if (in_stair or slot in pstairs) else ("gap" if slot in gaps else ("off" if slot in off else "seat")))
         return states
 
     if kind in ("grid", "box"):
@@ -94,7 +96,7 @@ def _row_states(sec: dict, row_idx: int) -> list:
                 for b in stairs if isinstance(b, dict)
             )
             slot = i + 1
-            states.append("stair" if in_stair else ("gap" if slot in gaps else ("off" if slot in off else "seat")))
+            states.append("stair" if (in_stair or slot in pstairs) else ("gap" if slot in gaps else ("off" if slot in off else "seat")))
         return states
 
     if kind == "points":
@@ -106,7 +108,7 @@ def _row_states(sec: dict, row_idx: int) -> list:
             rm.setdefault(_i(st.get("row"), 1), []).append(_i(st.get("slot"), 1))
         states = []
         for slot in sorted(rm.get(row_idx) or []):
-            states.append("gap" if slot in gaps else ("off" if slot in off else "seat"))
+            states.append("stair" if slot in pstairs else ("gap" if slot in gaps else ("off" if slot in off else "seat")))
         return states
 
     return []

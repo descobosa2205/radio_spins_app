@@ -2009,6 +2009,9 @@ img[style*="width:"] { height: auto; }
 .vmap-addbtn.on { background: var(--brand-primary, #E33D48); color: #fff; }
 .vmap-addbtn.on i { color: #fff; }
 .vmap-addsep { width: 1px; background: #e2e7ee; margin: .2rem .15rem; }
+/* Retoques ARRASTRABLES de la barra: se cogen y se sueltan sobre el plano. */
+.vmap-addbtn--tool { cursor: grab; }
+.vmap-addbtn--tool:active { cursor: grabbing; }
 .vmap-addgroup { position: relative; display: flex; }
 .vmap-addmenu { display: none; position: absolute; top: 100%; left: 0; z-index: 40; background: #fff; border: 1px solid #e2e7ee; border-radius: .55rem; box-shadow: 0 8px 24px rgba(16,24,40,.16); padding: .3rem; min-width: 190px; }
 .vmap-addgroup.open .vmap-addmenu { display: block; }

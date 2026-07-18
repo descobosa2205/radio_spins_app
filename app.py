@@ -45293,8 +45293,9 @@ def _invitation_request_kind_flags(session_db, row: InvitationRequest, categorie
         "fully_assigned": fully_assigned,
         "can_send": uses_guest_list or (assigned_or_sent and fully_assigned),
         "can_download_pdf": assigned_or_sent and not uses_guest_list,
-        # «Asignar» disponible también para las AMPLIADAS (enviadas/asignadas con pendientes).
-        "can_auto_assign": not requires_numbered_assignment and (
+        # «Asignar» disponible también para las AMPLIADAS (enviadas/asignadas con pendientes) y
+        # para las NUMERADAS (el auto-asignado coge butacas contiguas; afinar luego es opcional).
+        "can_auto_assign": (
             status in {"SOLICITADAS", "APROBADAS"} or (pending_qty > 0 and status not in {"RECHAZADAS", "ANULADAS"})
         ),
     }

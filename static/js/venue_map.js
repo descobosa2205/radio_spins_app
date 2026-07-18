@@ -184,6 +184,14 @@
           '<button type="button" data-add="stair"><i class="fa fa-stairs"></i>Escalera suelta</button>' +
           '<button type="button" data-add="rail"><i class="fa fa-grip-lines"></i>Barandilla</button>' +
         '</div></div>' +
+        '<span class="vmap-addsep"></span>' +
+        // RETOQUES arrastrables: se COGEN y se sueltan sobre una butaca (la ocupan), entre dos
+        // butacas (se hacen sitio moviéndolas) o en un borde del sector (la grada crece).
+        '<button type="button" class="vmap-addbtn vmap-addbtn--tool" data-tool="gap" title="HUECO: arrástralo sobre una butaca (la ocupa), entre dos (se hace sitio) o a un borde (la grada crece)">▢<span>Hueco</span></button>' +
+        '<button type="button" class="vmap-addbtn vmap-addbtn--tool" data-tool="off" title="APAGADA: existe pero no se ofrece. Arrástrala igual que el hueco"><i class="fa fa-square"></i><span>Apagada</span></button>' +
+        '<button type="button" class="vmap-addbtn vmap-addbtn--tool" data-tool="stair" title="ESCALERA: arrástrala sobre una butaca (ocupa su sitio), entre dos (las separa) o a un lado (la grada crece)"><i class="fa fa-stairs"></i><span>Escalera</span></button>' +
+        '<button type="button" class="vmap-addbtn vmap-addbtn--tool" data-tool="rowsep" title="PASILLO horizontal: arrástralo entre dos filas"><i class="fa fa-grip-lines"></i><span>Pasillo</span></button>' +
+        '<button type="button" class="vmap-addbtn vmap-addbtn--tool" data-tool="renum" title="NÚMERO: arrástralo a una butaca para cambiar su número">№<span>Número</span></button>' +
       '</div>' : '') +
       '<div class="vmap-body">' +
         '<div class="vmap-canvas">' +
@@ -800,6 +808,99 @@
       invalidate(sec.id);
     }
 
+    // INSERTAR una COLUMNA en una grada (grid/box): las butacas se hacen sitio (media a cada lado)
+    // y la nueva columna queda ocupada por el retoque (hueco/apagada) o por una ESCALERA (banda
+    // estrecha). Remapea huecos/apagadas, números manuales, bandas y asignaciones. atSlot=1 =
+    // crecer por la IZQUIERDA; atSlot=cols+1 = por la DERECHA; intermedio = entre dos butacas.
+    function insertGridColumn(s, atSlot, kind){
+      var oldCols = s.cols || 1, p = s.pitch || 26;
+      atSlot = Math.max(1, Math.min(oldCols + 1, atSlot));
+      var mods = s.mods || {};
+      Object.keys(mods).forEach(function(rk){
+        var m = mods[rk];
+        if(Array.isArray(m.gaps)) m.gaps = m.gaps.map(function(sl){ return sl >= atSlot ? sl + 1 : sl; });
+        if(Array.isArray(m.off)) m.off = m.off.map(function(sl){ return sl >= atSlot ? sl + 1 : sl; });
+      });
+      if(s.numOverrides){
+        var nov = {};
+        Object.keys(s.numOverrides).forEach(function(k){
+          var pp = k.split('|'); var sl = +pp[1];
+          nov[pp[0] + '|' + (sl >= atSlot ? sl + 1 : sl)] = s.numOverrides[k];
+        });
+        s.numOverrides = nov;
+      }
+      var na = {};
+      Object.keys(assign).forEach(function(k){
+        var pp = k.split('|');
+        if(pp[0] === s.id && pp.length === 3){
+          var sl2 = +pp[2];
+          na[pp[0] + '|' + pp[1] + '|' + (sl2 >= atSlot ? sl2 + 1 : sl2)] = assign[k];
+        } else na[k] = assign[k];
+      });
+      assign = na;
+      (s.stairs || []).forEach(function(b){
+        var colPos = b.at * oldCols;
+        if(colPos >= atSlot - 1) colPos += 1;
+        b.at = colPos / (oldCols + 1);
+      });
+      s.cols = oldCols + 1;
+      // Mantener quietas las butacas del lado IZQUIERDO (crece hacia la derecha del punto).
+      var ax = Math.cos((s.rot || 0) * R), ay = Math.sin((s.rot || 0) * R);
+      var kx = (atSlot === 1 ? -1 : 1) * p / 2;
+      s.x += ax * kx; s.y += ay * kx;
+      if(kind === 'stair'){
+        s.stairs = s.stairs || [];
+        s.stairs.push({ at: (atSlot - 0.5) / s.cols, w: 0.35 });
+      } else {
+        s.mods = s.mods || {};
+        for(var r = 1; r <= (s.rows || 1); r++){
+          var m2 = s.mods[String(r)] = s.mods[String(r)] || { gaps: [], off: [] };
+          (kind === 'off' ? (m2.off = m2.off || []) : (m2.gaps = m2.gaps || [])).push(atSlot);
+        }
+      }
+      invalidate(s.id);
+    }
+    // INSERTAR una FILA de huecos/apagadas arriba (atRow=1) o abajo (atRow=rows+1) de la grada.
+    function insertGridRow(s, atRow, kind){
+      var oldRows = s.rows || 1, g = s.rowGap || 30;
+      atRow = Math.max(1, Math.min(oldRows + 1, atRow));
+      function shiftKeyed(obj){
+        if(!obj) return obj;
+        var out = {};
+        Object.keys(obj).forEach(function(rk){ var r0 = +rk; out[String(r0 >= atRow ? r0 + 1 : r0)] = obj[rk]; });
+        return out;
+      }
+      s.mods = shiftKeyed(s.mods);
+      s.rowNums = shiftKeyed(s.rowNums);
+      if(s.numOverrides){
+        var nov = {};
+        Object.keys(s.numOverrides).forEach(function(k){
+          var pp = k.split('|'); var r1 = +pp[0];
+          nov[(r1 >= atRow ? r1 + 1 : r1) + '|' + pp[1]] = s.numOverrides[k];
+        });
+        s.numOverrides = nov;
+      }
+      var na = {};
+      Object.keys(assign).forEach(function(k){
+        var pp = k.split('|');
+        if(pp[0] === s.id && pp.length === 3){
+          var r2 = +pp[1];
+          na[pp[0] + '|' + (r2 >= atRow ? r2 + 1 : r2) + '|' + pp[2]] = assign[k];
+        } else na[k] = assign[k];
+      });
+      assign = na;
+      if(Array.isArray(s.rowSeps)) s.rowSeps = s.rowSeps.map(function(x){ return x >= atRow ? x + 1 : x; });
+      s.rows = oldRows + 1;
+      var ax = -Math.sin((s.rot || 0) * R), ay = Math.cos((s.rot || 0) * R);
+      var ky = (atRow === 1 ? -1 : 1) * g / 2;
+      s.x += ax * ky; s.y += ay * ky;
+      s.mods = s.mods || {};
+      var mR = s.mods[String(atRow)] = { gaps: [], off: [] };
+      var list = (kind === 'off') ? mR.off : mR.gaps;
+      for(var i = 1; i <= (s.cols || 1); i++) list.push(i);
+      invalidate(s.id);
+    }
+
     // Agrupar las butacas SUELTAS/detectadas seleccionadas: 'row' | 'box' | 'sector' (un solo bloque)
     // o 'auto' (un bloque por cada grupo CONTIGUO). opts: {name, rowStart} desde el popup de selección.
     function groupSelectedSeats(kindArg, opts){
@@ -1325,6 +1426,7 @@
             if(nStairs || nMods) html += '<p class="text-muted small mb-0 mt-1">Retoques: '+nMods+' butaca(s) · '+nStairs+' escalera(s) integrada(s).</p>';
           }
           html += '<div class="vmap-tools mt-2">'+
+            (s.linkGroup ? '<button type="button" class="btn btn-sm btn-outline-secondary" data-act="unlink" title="Esta grada está FUSIONADA con otras (se mueven en conjunto): separarla del grupo">⛓ Separar grada</button>' : '')+
             (s.kind==='arc' ? '<button type="button" class="btn btn-sm btn-outline-secondary" data-act="ring">⟳ Repetir en anillo</button><input type="number" class="form-control form-control-sm vmap-ringn" data-ring-n value="12" min="2" max="40" title="Nº de sectores del anillo">' : '')+
             '<button type="button" class="btn btn-sm btn-outline-secondary" data-act="dup">Duplicar</button>'+
             '<button type="button" class="btn btn-sm btn-outline-secondary" data-act="front" title="Ponerlo POR ENCIMA de lo que tenga debajo (p. ej. asientos sobre los huecos de otro sector)">⬆ Al frente</button>'+
@@ -1370,6 +1472,7 @@
         addbar.style.display = (mode==='design') ? '' : 'none';
         var abD=addbar.querySelector('[data-add="draw"]'); if(abD) abD.classList.toggle('on', drawArm);
         var abS=addbar.querySelector('[data-arm-seat]'); if(abS) abS.classList.toggle('on', seatArm);
+        addbar.querySelectorAll('[data-tool]').forEach(function(b){ b.classList.toggle('on', tool===b.dataset.tool); });
       }
       if(mode==='cats') renderSummaryCounts();
       updateDPop();   // el popup de selección de diseño sigue SIEMPRE al estado actual de dsel
@@ -1897,6 +2000,18 @@
         selId=null;
         renderSide(); markSummary(); queueRender(); return;
       }
+      if(act && act.dataset.act==='unlink'){
+        var sU=sections.find(function(x){return x.id===selId;});
+        if(sU && sU.linkGroup){
+          pushUndo('unlink');
+          var lg=sU.linkGroup; delete sU.linkGroup;
+          // Si el grupo queda con UNA sola grada, deja de ser grupo.
+          var rest=sections.filter(function(x){return x.linkGroup===lg;});
+          if(rest.length===1) delete rest[0].linkGroup;
+          renderSide(); markSummary();
+        }
+        return;
+      }
       if(act && (act.dataset.act==='front' || act.dataset.act==='back')){ reorderSelected(act.dataset.act); return; }
       if(act && act.dataset.act==='del'){ deleteSelected(); return; }
       if(act && act.dataset.act==='dup'){
@@ -2095,6 +2210,27 @@
         var stairB = under.closest('[data-stairband]');
         var sepB = under.closest('[data-rowsep]');
         var seatB = under.closest('[data-seat]');
+        if(!seatB && !stairB && !sepB && (toolKey==='gap' || toolKey==='off' || toolKey==='stair')){
+          // ENTRE dos butacas (se hacen sitio) o en un BORDE (la grada CRECE): insertar columna
+          // (o fila de huecos por arriba/abajo) en la grada más cercana al punto de suelta.
+          var wI=client2world(cx, cy);
+          for(var gi=0; gi<sections.length; gi++){
+            var sG=sections[gi];
+            if(sG.kind!=='grid' && sG.kind!=='box') continue;
+            var pG=sG.pitch||26, gG=sG.rowGap||30;
+            var crG=Math.cos((sG.rot||0)*R), srG=Math.sin((sG.rot||0)*R);
+            var dxG=wI.x-sG.x, dyG=wI.y-sG.y;
+            var lxG=dxG*crG+dyG*srG, lyG=-dxG*srG+dyG*crG;
+            var colF=lxG/pG+((sG.cols||1)-1)/2, rowF=lyG/gG+((sG.rows||1)-1)/2;
+            var inRows=(rowF>=-0.6 && rowF<=(sG.rows||1)-0.4), inCols=(colF>=-0.6 && colF<=(sG.cols||1)-0.4);
+            var frac=colF-Math.floor(colF);
+            if(inRows && colF<-0.4 && colF>=-1.6){ pushUndo('insert'); insertGridColumn(sG,1,toolKey); markSummary(); tool=prevTool; renderSide(); queueRender(); return; }
+            if(inRows && colF>(sG.cols||1)-0.6 && colF<=(sG.cols||1)+0.6){ pushUndo('insert'); insertGridColumn(sG,(sG.cols||1)+1,toolKey); markSummary(); tool=prevTool; renderSide(); queueRender(); return; }
+            if(inRows && colF>=-0.4 && colF<=(sG.cols||1)-0.6 && frac>=0.3 && frac<=0.7){ pushUndo('insert'); insertGridColumn(sG,Math.floor(colF)+2,toolKey); markSummary(); tool=prevTool; renderSide(); queueRender(); return; }
+            if(toolKey!=='stair' && inCols && rowF<-0.4 && rowF>=-1.6){ pushUndo('insert'); insertGridRow(sG,1,toolKey); markSummary(); tool=prevTool; renderSide(); queueRender(); return; }
+            if(toolKey!=='stair' && inCols && rowF>(sG.rows||1)-0.6 && rowF<=(sG.rows||1)+0.6){ pushUndo('insert'); insertGridRow(sG,(sG.rows||1)+1,toolKey); markSummary(); tool=prevTool; renderSide(); queueRender(); return; }
+          }
+        }
         if(!seatB && !stairB && !sepB){
           // Suelto ENTRE butacas o en el borde (principio/final de fila): aplicar a la butaca
           // MÁS CERCANA del plano (dentro de ~1.3 pasos), como el editor de invitaciones.
@@ -2120,7 +2256,7 @@
       } finally { tool = prevTool; }
       renderSide(); queueRender();
     }
-    if(side) side.addEventListener('pointerdown', function(e){
+    function chipDragBind(rootEl){ if(rootEl) rootEl.addEventListener('pointerdown', function(e){
       var chipT = e.target.closest('[data-tool]');
       if(!chipT || mode!=='design') return;
       var toolKey = chipT.dataset.tool;
@@ -2146,7 +2282,9 @@
       }
       document.addEventListener('pointermove', mv);
       document.addEventListener('pointerup', up);
-    });
+    }); }
+    chipDragBind(side);
+    chipDragBind(host.querySelector('[data-vm-addbar]'));
 
     /* ================= Modo (Diseñar / Categorías) ================= */
     host.querySelectorAll('[data-vm-mode]').forEach(function(b){
@@ -3037,6 +3175,19 @@
         if(o.kind==='arc'){ o.cx=drag.o0.cx+dx; o.cy=drag.o0.cy+dy; } else { o.x=drag.o0.x+dx; o.y=drag.o0.y+dy; }
         if(o.kind) invalidate(o.id);
         applySnap(o);   // imán: enlazar con los sectores/elementos de al lado
+        // GRADAS FUSIONADAS (linkGroup): las demás del grupo se mueven EN CONJUNTO con esta
+        // (delta real tras el imán, para que el grupo no se descuadre).
+        if(o.linkGroup){
+          if(!drag.linked){
+            drag.linked = sections.filter(function(x){ return x!==o && x.linkGroup===o.linkGroup; })
+              .map(function(x){ return {o:x, x0:(x.kind==='arc'?x.cx:x.x), y0:(x.kind==='arc'?x.cy:x.y)}; });
+          }
+          var rdx=(o.kind==='arc'?o.cx-drag.o0.cx:o.x-drag.o0.x), rdy=(o.kind==='arc'?o.cy-drag.o0.cy:o.y-drag.o0.y);
+          drag.linked.forEach(function(L){
+            if(L.o.kind==='arc'){ L.o.cx=L.x0+rdx; L.o.cy=L.y0+rdy; } else { L.o.x=L.x0+rdx; L.o.y=L.y0+rdy; }
+            invalidate(L.o.id);
+          });
+        }
         if(o.type==='stage') invalidate();
         queueRender();
       } else if(drag.kind==='rotate'){
@@ -3161,9 +3312,32 @@
         queueRender();   // el conteo y el rectángulo se pintan en el rAF (no a 120 Hz de puntero)
       }
     });
+    // FUSIONAR GRADAS: al soltar una grada PEGADA a otra (borde con borde) se ofrece unirlas.
+    // Siguen siendo sectores distintos, pero quedan enlazadas (linkGroup) y se mueven en conjunto.
+    function maybeOfferMerge(s){
+      if(!s || (s.kind!=='grid' && s.kind!=='box')) return;
+      var bb=bboxOf(s), m=(s.pitch||26)*0.9;
+      for(var i=0;i<sections.length;i++){
+        var t=sections[i];
+        if(t===s || (t.kind!=='grid' && t.kind!=='box')) continue;
+        if(s.linkGroup && s.linkGroup===t.linkGroup) continue;
+        var db=bboxOf(t);
+        var gapX=Math.max(db.x-(bb.x+bb.w), bb.x-(db.x+db.w));
+        var gapY=Math.max(db.y-(bb.y+bb.h), bb.y-(db.y+db.h));
+        // Pegadas = casi tocándose por un lado, sin estar montada una sobre otra.
+        if(gapX>m || gapY>m) continue;
+        if(gapX<-m && gapY<-m) continue;
+        if(!window.confirm('«'+(s.name||'Grada')+'» ha quedado pegada a «'+(t.name||'Grada')+'».\n\n¿FUSIONAR las gradas? Seguirán siendo sectores distintos, pero quedarán unidas como un único elemento y se moverán en conjunto.')) return;
+        var gidM=t.linkGroup || s.linkGroup || nid('lg');
+        t.linkGroup=gidM; s.linkGroup=gidM;
+        renderSide(); markSummary();
+        return;
+      }
+    }
     function endPointer(e){
       delete pointers[e.pointerId];
       if(Object.keys(pointers).length<2) pinch0=null;
+      if(drag && drag.kind==='move' && drag.pushed && drag.obj && drag.obj.kind){ maybeOfferMerge(drag.obj); }
       if(drag && drag.kind==='drawsec'){
         // Fin del dibujo: si apenas se arrastró, se descarta. Como el resto de piezas nuevas, la
         // grada dibujada NO se queda marcada (pincha en ella si quieres afinar sus parámetros).

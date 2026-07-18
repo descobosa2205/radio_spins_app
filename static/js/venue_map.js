@@ -403,9 +403,10 @@
         var mods = modsOf(s, ri);
         var slots = arr.map(function(t){
           var lx=+t.lx||0, ly=+t.ly||0, slot=parseInt(t.slot,10)||1;
-          var state = (mods.stairs.indexOf(slot)!==-1?'stair':(mods.gaps.indexOf(slot)!==-1?'gap':(mods.off.indexOf(slot)!==-1?'off':'seat')));
+          var perStair = mods.stairs.indexOf(slot)!==-1;
+          var state = (perStair?'stair':(mods.gaps.indexOf(slot)!==-1?'gap':(mods.off.indexOf(slot)!==-1?'off':'seat')));
           // Ángulo por butaca (butacas sueltas orientables): s.rot + el giro propio de la butaca.
-          return { slot:slot, frac:0, x:s.x+lx*crP-ly*srP, y:s.y+lx*srP+ly*crP, a:(s.rot||0)+(parseFloat(t.a)||0), state:state };
+          return { slot:slot, frac:0, x:s.x+lx*crP-ly*srP, y:s.y+lx*srP+ly*crP, a:(s.rot||0)+(parseFloat(t.a)||0), state:state, perStair:perStair };
         });
         var nmR = numOfRow(s, ri);   // numeración propia de ESTA fila (o la general si no tiene)
         var ordered = (nmR.dir==='rtl') ? slots.slice().reverse() : slots, counter=nmR.start;
@@ -474,7 +475,8 @@
         // según la política de la sección («salta» = 1,2,_,4 · «renumera» = 1,2,_,3); las apagadas
         // conservan su número (existen pero no se ofrecen).
         slots.forEach(function(sl){
-          sl.state = (sl.inStair || mods.stairs.indexOf(sl.slot)!==-1) ? 'stair' : (mods.gaps.indexOf(sl.slot)!==-1 ? 'gap' : (mods.off.indexOf(sl.slot)!==-1 ? 'off' : 'seat'));
+          sl.perStair = mods.stairs.indexOf(sl.slot)!==-1;
+          sl.state = (sl.inStair || sl.perStair) ? 'stair' : (mods.gaps.indexOf(sl.slot)!==-1 ? 'gap' : (mods.off.indexOf(sl.slot)!==-1 ? 'off' : 'seat'));
         });
         var nmR = numOfRow(s, rowIdx);   // numeración propia de ESTA fila (o la general si no tiene)
         var ordered = (nmR.dir==='rtl') ? slots.slice().reverse() : slots;
@@ -893,8 +895,8 @@
       var ky = (atRow === 1 ? -1 : 1) * g / 2;
       s.x += ax * ky; s.y += ay * ky;
       s.mods = s.mods || {};
-      var mR = s.mods[String(atRow)] = { gaps: [], off: [] };
-      var list = (kind === 'off') ? mR.off : mR.gaps;
+      var mR = s.mods[String(atRow)] = { gaps: [], off: [], stairs: [] };
+      var list = (kind === 'stair') ? mR.stairs : ((kind === 'off') ? mR.off : mR.gaps);
       for(var i = 1; i <= (s.cols || 1); i++) list.push(i);
       invalidate(s.id);
     }
@@ -1038,6 +1040,7 @@
           var geoP=secRows(s), pit=(s.pitch||26), szP=pit*.86, halfP=szP/2, pxP=pit*scale, far=pxP<9.5;
           var showN=pxP>=15, showRL=pxP>=13;
           var gP=['<g data-sec="'+s.id+'" style="cursor:pointer">'];
+          var stairCellsP=[];   // escaleras por butaca del bloque: se agrupan en escaleras continuas
           // Marco «dorado» de PALCO para los grupos marcados como palco (agrupados «en palco»).
           if(s.box){ var pb=geoP.bbox; gP.push('<rect x="'+(pb.x-pit*.2)+'" y="'+(pb.y-pit*.2)+'" width="'+(pb.w+pit*.4)+'" height="'+(pb.h+pit*.4)+'" rx="'+(pit*1.1)+'" style="fill:#fbf6ec;stroke:#b08d4a;stroke-width:'+Math.max(2.5, pit*.14)+';pointer-events:none"/>'); }
           // La zona CLICABLE del grupo son SOLO sus butacas: bandas estrechas por fila (como el
@@ -1062,17 +1065,11 @@
               if(p.x<vx0-szP||p.x>vx1+szP||p.y<vy0-szP||p.y>vy1+szP) return;
               var key=s.id+'|'+row.rowIdx+'|'+p.slot;
               if(p.state==='stair'){
-                if(far){ gP.push('<circle data-seat="'+key+'" data-kind="stair" data-frac="0" cx="'+p.x+'" cy="'+p.y+'" r="'+(halfP*.82)+'" style="fill:#b9c2cd;cursor:pointer"/>'); }
-                else {
-                  gP.push('<g data-seat="'+key+'" data-kind="stair" data-frac="0" transform="translate('+p.x+' '+p.y+')" style="cursor:pointer">'+
-                    '<rect x="'+(-halfP)+'" y="'+(-halfP)+'" width="'+szP+'" height="'+szP+'" rx="'+(szP*.18)+'" style="fill:#eef1f5;stroke:#b9c2cd;stroke-width:'+(szP*.05)+'"/>'+
-                    '<text y="'+(szP*.30)+'" text-anchor="middle" style="font:700 '+(szP*.62)+'px system-ui;fill:#7b8694;pointer-events:none">\u2630</text>'+
-                  '</g>');
-                }
+                if(p.perStair) stairCellsP.push({r:row.rowIdx, s:p.slot, x:p.x, y:p.y});
                 return;
               }
               if(p.state==='gap'){
-                var gapHit=(mode==='design'&&canEdit&&(tool==='gap'||tool==='off'));
+                var gapHit=(mode==='design'&&canEdit);   // en diseño, pinchar un hueco lo QUITA
                 gP.push('<circle data-seat="'+key+'" data-kind="gap" data-frac="0" cx="'+p.x+'" cy="'+p.y+'" r="'+halfP+'" style="fill:'+(gapHit?'transparent':'none')+';stroke:#d5dbe2;stroke-width:'+(szP*.06)+';stroke-dasharray:'+(szP*.18)+' '+(szP*.14)+';'+(gapHit?'cursor:pointer':'pointer-events:none')+'"/>');
                 return;
               }
@@ -1092,6 +1089,26 @@
               }
             });
           });
+          if(stairCellsP.length){
+            var seenP={};
+            stairCellsP.forEach(function(c, ci){
+              if(seenP[ci]) return;
+              var comp=[c]; seenP[ci]=1;
+              for(var gg=0; gg<comp.length; gg++){
+                stairCellsP.forEach(function(o, oi){
+                  if(seenP[oi]) return;
+                  if(Math.hypot(o.x-comp[gg].x, o.y-comp[gg].y) <= pit*1.4){ seenP[oi]=1; comp.push(o); }
+                });
+              }
+              var xs3=comp.map(function(u){return u.x;}), ys3=comp.map(function(u){return u.y;});
+              var x0=Math.min.apply(null,xs3)-halfP, x1=Math.max.apply(null,xs3)+halfP;
+              var y0=Math.min.apply(null,ys3)-halfP, y1=Math.max.apply(null,ys3)+halfP;
+              var keys=comp.map(function(u){return s.id+'|'+u.r+'|'+u.s;}).join(',');
+              var steps='';
+              for(var sy3=y0+szP*0.3; sy3<y1-szP*0.12; sy3+=szP*0.42) steps+='<line x1="'+(x0+szP*0.16)+'" y1="'+sy3+'" x2="'+(x1-szP*0.16)+'" y2="'+sy3+'" style="stroke:#93a0af;stroke-width:'+(szP*0.07)+'"/>';
+              gP.push('<g data-stairgroup="'+keys+'" style="cursor:pointer"><title>Escalera (pincha para quitarla)</title><rect x="'+x0+'" y="'+y0+'" width="'+(x1-x0)+'" height="'+(y1-y0)+'" rx="'+(szP*.2)+'" style="fill:#eef1f5;stroke:#b9c2cd;stroke-width:'+(szP*.05)+'"/>'+steps+'</g>');
+            });
+          }
           gP.push('</g>'); out.push(gP.join(''));
           if(pxP<2.6) pushRichLabel(s, bb);
           return;
@@ -1185,6 +1202,7 @@
         } else {
           var size = s.pitch*.86, half=size/2, showNum = pitchPx>=15, showRowLbl = pitchPx>=13;
           var g2=['<g data-sec="'+s.id+'">'];
+          var stairCells=[];   // casillas de ESCALERA por butaca: se agrupan en escaleras continuas
           if(isSel){ if(s.kind==='arc') g2.push('<path d="'+arcBandPath(s)+'" style="fill:none'+selCss+'"/>');
                      else { var go2=gridOutline(s); g2.push('<rect x="'+go2.x+'" y="'+go2.y+'" width="'+go2.w+'" height="'+go2.h+'" transform="translate('+s.x+' '+s.y+') rotate('+s.rot+')" style="fill:none'+selCss+'"/>'); } }
           geo.rows.forEach(function(row){
@@ -1203,11 +1221,7 @@
               if(p.x<vx0-size||p.x>vx1+size||p.y<vy0-size||p.y>vy1+size){ curRun=null; return; }
               if(p.state==='stair'){
                 curRun=null;
-                var kSt = s.id+'|'+row.rowIdx+'|'+p.slot;
-                g2.push('<g data-seat="'+kSt+'" data-kind="stair" data-frac="'+p.frac.toFixed(4)+'" transform="translate('+p.x+' '+p.y+') rotate('+p.a.toFixed(1)+')" style="cursor:pointer">'+
-                  '<rect x="'+(-half)+'" y="'+(-half)+'" width="'+size+'" height="'+size+'" rx="'+(size*.18)+'" style="fill:#eef1f5;stroke:#b9c2cd;stroke-width:'+(size*.05)+'"/>'+
-                  '<text y="'+(size*.30)+'" text-anchor="middle" style="font:700 '+(size*.62)+'px system-ui;fill:#7b8694;pointer-events:none">\u2630</text>'+
-                '</g>');
+                if(p.perStair) stairCells.push({r:row.rowIdx, s:p.slot, x:p.x, y:p.y});
                 return;
               }
               var key = s.id+'|'+row.rowIdx+'|'+p.slot;
@@ -1220,7 +1234,7 @@
                 // Hueco (no hay butaca): celda discontinua. Solo captura el clic cuando la
                 // herramienta Hueco/Apagada está activa (para poder quitarlo); si no, el clic
                 // ATRAVIESA — lo que haya debajo (otro sector encajado ahí) responde.
-                var gapHit = (mode==='design' && canEdit && (tool==='gap' || tool==='off'));
+                var gapHit = (mode==='design' && canEdit);   // en diseño, pinchar un hueco lo QUITA
                 g2.push('<g data-seat="'+key+'" data-kind="gap" data-frac="'+p.frac.toFixed(4)+'" transform="translate('+p.x+' '+p.y+') rotate('+p.a.toFixed(1)+')" style="'+(gapHit?'cursor:pointer':'pointer-events:none')+'">'+
                   '<rect x="'+(-half)+'" y="'+(-half)+'" width="'+size+'" height="'+size+'" rx="'+(size*.24)+'" style="fill:'+(gapHit?'transparent':'none')+';stroke:#d5dbe2;stroke-width:'+(size*.05)+';stroke-dasharray:'+(size*.16)+' '+(size*.12)+'"/></g>');
                 return;
@@ -1247,6 +1261,26 @@
               g2.push('<text x="'+((p0.x+p1.x)/2+ox*1.55)+'" y="'+((p0.y+p1.y)/2+oy*1.55)+'" text-anchor="middle" style="font:600 '+(size*.36)+'px system-ui;fill:'+run.cat.color+';pointer-events:none">'+esc(run.cat.name)+'</text>');
             });
           });
+          if(stairCells.length){
+            // ESCALERA CONTINUA: todas las casillas de escalera contiguas se muestran como UNA
+            // sola escalera (como en el editor de invitaciones). Pinchando encima se quita entera.
+            var setC={}; stairCells.forEach(function(c){ setC[c.r+'|'+c.s]=c; });
+            var seenC={};
+            stairCells.forEach(function(c){
+              var k0=c.r+'|'+c.s; if(seenC[k0]) return;
+              var comp=[], q=[c]; seenC[k0]=1;
+              while(q.length){ var u=q.pop(); comp.push(u);
+                [[1,0],[-1,0],[0,1],[0,-1]].forEach(function(dv){ var kk2=(u.r+dv[0])+'|'+(u.s+dv[1]); var v=setC[kk2]; if(v && !seenC[kk2]){ seenC[kk2]=1; q.push(v); } });
+              }
+              var xs2=comp.map(function(u){return u.x;}), ys2=comp.map(function(u){return u.y;});
+              var x0=Math.min.apply(null,xs2)-half, x1=Math.max.apply(null,xs2)+half;
+              var y0=Math.min.apply(null,ys2)-half, y1=Math.max.apply(null,ys2)+half;
+              var keys=comp.map(function(u){return s.id+'|'+u.r+'|'+u.s;}).join(',');
+              var steps='';
+              for(var sy2=y0+size*0.3; sy2<y1-size*0.12; sy2+=size*0.42) steps+='<line x1="'+(x0+size*0.16)+'" y1="'+sy2+'" x2="'+(x1-size*0.16)+'" y2="'+sy2+'" style="stroke:#93a0af;stroke-width:'+(size*0.07)+'"/>';
+              g2.push('<g data-stairgroup="'+keys+'" style="cursor:pointer"><title>Escalera (pincha para quitarla)</title><rect x="'+x0+'" y="'+y0+'" width="'+(x1-x0)+'" height="'+(y1-y0)+'" rx="'+(size*.2)+'" style="fill:#eef1f5;stroke:#b9c2cd;stroke-width:'+(size*.05)+'"/>'+steps+'</g>');
+            });
+          }
           g2.push('</g>');
           out.push(g2.join(''));
           out.push(stairBandSvg(s, scale));
@@ -2234,60 +2268,89 @@
        ARRASTRAR el elemento (Hueco/Apagada/Escalera/Pasillo/№) desde el panel hasta el plano —
        un fantasma sigue al puntero y se aplica donde lo sueltes (sobre una butaca, entre
        butacas, entre filas o en los bordes). El clic corto sigue activando el modo pincel. */
-    function dropToolAt(toolKey, cx, cy){
+    // ¿Qué pasaría si soltara el retoque AQUÍ? Lo usan el arrastre (para PREVISUALIZAR el
+    // destino) y la suelta (para actuar): sobre una butaca la REEMPLAZA; en cualquier otro punto
+    // de una grada, inserta en la juntura más cercana (entre butacas, principio/final de fila,
+    // arriba/abajo del sector: la grada CRECE por ahí).
+    function resolveDropTarget(toolKey, cx, cy){
       var under = document.elementFromPoint(cx, cy);
-      if(!under || !under.closest) return;
-      var prevTool = tool;
-      tool = toolKey;
+      var seatB = under && under.closest ? under.closest('[data-seat]') : null;
+      var stairB = under && under.closest ? under.closest('[data-stairband]') : null;
+      var sgB = under && under.closest ? under.closest('[data-stairgroup]') : null;
+      var sepB = under && under.closest ? under.closest('[data-rowsep]') : null;
+      if(toolKey==='stair' && sgB) return {type:'stairgroup', el:sgB, label:'Quitar esta escalera'};
+      if(toolKey==='stair' && stairB) return {type:'stairband', el:stairB, label:'Quitar esta escalera'};
+      if(toolKey==='rowsep' && sepB) return {type:'rowsepband', el:sepB, label:'Quitar este pasillo'};
+      if(seatB) return {type:'seat', el:seatB, key:seatB.getAttribute('data-seat'),
+                        label:({gap:'Hueco en esta butaca', off:'Apagar esta butaca', stair:'Escalera en esta butaca', renum:'Cambiar el número', rowsep:'Pasillo bajo esta fila'})[toolKey]||''};
+      var w=client2world(cx, cy);
+      if(toolKey==='gap' || toolKey==='off' || toolKey==='stair'){
+        var best=null, MARGIN=2.2;
+        sections.forEach(function(sG){
+          if(sG.kind!=='grid' && sG.kind!=='box') return;
+          var pG=sG.pitch||26, gG=sG.rowGap||30;
+          var cr=Math.cos((sG.rot||0)*R), sr=Math.sin((sG.rot||0)*R);
+          var dx=w.x-sG.x, dy=w.y-sG.y;
+          var lx=dx*cr+dy*sr, ly=-dx*sr+dy*cr;
+          var cols=sG.cols||1, rows=sG.rows||1;
+          var colF=lx/pG+(cols-1)/2, rowF=ly/gG+(rows-1)/2;
+          var inRows=(rowF>=-0.5 && rowF<=rows-0.5), inCols=(colF>=-0.5 && colF<=cols-0.5);
+          var cand=null;
+          if(inRows && colF<-0.5 && colF>=-MARGIN) cand={type:'insert-col', sec:sG, at:1, d:(-0.5-colF), label:'Ampliar la grada por la IZQUIERDA'};
+          else if(inRows && colF>cols-0.5 && colF<=cols-1+MARGIN) cand={type:'insert-col', sec:sG, at:cols+1, d:(colF-(cols-0.5)), label:'Ampliar la grada por la DERECHA'};
+          else if(inRows && inCols) cand={type:'insert-col', sec:sG, at:Math.max(1, Math.min(cols+1, Math.round(colF)+1)), d:0, label:'Añadir ENTRE butacas (se hacen sitio)'};
+          else if(inCols && rowF<-0.5 && rowF>=-MARGIN) cand={type:'insert-row', sec:sG, at:1, d:(-0.5-rowF), label:'Ampliar la grada por ARRIBA'};
+          else if(inCols && rowF>rows-0.5 && rowF<=rows-1+MARGIN) cand={type:'insert-row', sec:sG, at:rows+1, d:(rowF-(rows-0.5)), label:'Ampliar la grada por ABAJO'};
+          if(cand && (!best || cand.d < best.d)) best=cand;
+        });
+        if(best) return best;
+      }
+      // Butaca MÁS CERCANA (bloques detectados y arcos), dentro de ~1.5 pasos.
+      var bestK=null, bestD=Infinity, bestPit=26;
+      sections.forEach(function(s){
+        if(s.kind==='floor' || s.kind==='grid' || s.kind==='box') return;
+        var bb=bboxOf(s), m=(s.pitch||26)*1.6;
+        if(w.x<bb.x-m || w.y<bb.y-m || w.x>bb.x+bb.w+m || w.y>bb.y+bb.h+m) return;
+        secRows(s).rows.forEach(function(rw){ rw.seats.forEach(function(pt){
+          if(pt.state==='stair') return;
+          var d=Math.hypot(pt.x-w.x, pt.y-w.y);
+          if(d<bestD){ bestD=d; bestK=s.id+'|'+rw.rowIdx+'|'+pt.slot; bestPit=(s.pitch||26); }
+        }); });
+      });
+      if(bestK && bestD<=bestPit*1.5){
+        var el2=svg.querySelector('[data-seat="'+bestK.replace(/"/g,'\\"')+'"]');
+        if(el2) return {type:'seat', el:el2, key:bestK, label:'Aplicar a la butaca más cercana'};
+      }
+      return null;
+    }
+    function dropToolAt(toolKey, cx, cy){
+      var t = resolveDropTarget(toolKey, cx, cy);
+      if(!t) return;
+      var prevTool = tool; tool = toolKey;
       try {
-        var stairB = under.closest('[data-stairband]');
-        var sepB = under.closest('[data-rowsep]');
-        var seatB = under.closest('[data-seat]');
-        if(!seatB && !stairB && !sepB && (toolKey==='gap' || toolKey==='off' || toolKey==='stair')){
-          // ENTRE dos butacas (se hacen sitio) o en un BORDE (la grada CRECE): insertar columna
-          // (o fila de huecos por arriba/abajo) en la grada más cercana al punto de suelta.
-          var wI=client2world(cx, cy);
-          for(var gi=0; gi<sections.length; gi++){
-            var sG=sections[gi];
-            if(sG.kind!=='grid' && sG.kind!=='box') continue;
-            var pG=sG.pitch||26, gG=sG.rowGap||30;
-            var crG=Math.cos((sG.rot||0)*R), srG=Math.sin((sG.rot||0)*R);
-            var dxG=wI.x-sG.x, dyG=wI.y-sG.y;
-            var lxG=dxG*crG+dyG*srG, lyG=-dxG*srG+dyG*crG;
-            var colF=lxG/pG+((sG.cols||1)-1)/2, rowF=lyG/gG+((sG.rows||1)-1)/2;
-            var inRows=(rowF>=-0.6 && rowF<=(sG.rows||1)-0.4), inCols=(colF>=-0.6 && colF<=(sG.cols||1)-0.4);
-            var frac=colF-Math.floor(colF);
-            if(inRows && colF<-0.4 && colF>=-1.6){ pushUndo('insert'); insertGridColumn(sG,1,toolKey); markSummary(); tool=prevTool; renderSide(); queueRender(); return; }
-            if(inRows && colF>(sG.cols||1)-0.6 && colF<=(sG.cols||1)+0.6){ pushUndo('insert'); insertGridColumn(sG,(sG.cols||1)+1,toolKey); markSummary(); tool=prevTool; renderSide(); queueRender(); return; }
-            if(inRows && colF>=-0.4 && colF<=(sG.cols||1)-0.6 && frac>=0.3 && frac<=0.7){ pushUndo('insert'); insertGridColumn(sG,Math.floor(colF)+2,toolKey); markSummary(); tool=prevTool; renderSide(); queueRender(); return; }
-            if(toolKey!=='stair' && inCols && rowF<-0.4 && rowF>=-1.6){ pushUndo('insert'); insertGridRow(sG,1,toolKey); markSummary(); tool=prevTool; renderSide(); queueRender(); return; }
-            if(toolKey!=='stair' && inCols && rowF>(sG.rows||1)-0.6 && rowF<=(sG.rows||1)+0.6){ pushUndo('insert'); insertGridRow(sG,(sG.rows||1)+1,toolKey); markSummary(); tool=prevTool; renderSide(); queueRender(); return; }
-          }
-        }
-        if(!seatB && !stairB && !sepB){
-          // Suelto ENTRE butacas o en el borde (principio/final de fila): aplicar a la butaca
-          // MÁS CERCANA del plano (dentro de ~1.3 pasos), como el editor de invitaciones.
-          var wD=client2world(cx, cy), bestK=null, bestD=Infinity, bestPit=26;
-          sections.forEach(function(s){
-            if(s.kind==='floor') return;
-            var bb=bboxOf(s), m=(s.pitch||26)*1.6;
-            if(wD.x<bb.x-m || wD.y<bb.y-m || wD.x>bb.x+bb.w+m || wD.y>bb.y+bb.h+m) return;
-            secRows(s).rows.forEach(function(rw){ rw.seats.forEach(function(p){
-              if(p.state==='stair') return;
-              var d=Math.hypot(p.x-wD.x, p.y-wD.y);
-              if(d<bestD){ bestD=d; bestK=s.id+'|'+rw.rowIdx+'|'+p.slot; bestPit=(s.pitch||26); }
-            }); });
-          });
-          if(bestK && bestD<=bestPit*1.3) seatB=svg.querySelector('[data-seat="'+bestK.replace(/"/g,'\\"')+'"]');
-        }
-        if(toolKey==='stair' && stairB){ removeStairBand(stairB); }
-        else if(toolKey==='rowsep' && sepB){ removeRowSep(sepB); }
-        else if(seatB){
-          if(toolKey==='renum'){ applyRenum([seatB.getAttribute('data-seat')]); }
-          else applyTool(seatB);
-        }
+        if(t.type==='stairgroup'){ removeStairGroup(t.el); }
+        else if(t.type==='stairband'){ removeStairBand(t.el); }
+        else if(t.type==='rowsepband'){ removeRowSep(t.el); }
+        else if(t.type==='insert-col'){ pushUndo('insert'); insertGridColumn(t.sec, t.at, toolKey); markSummary(); }
+        else if(t.type==='insert-row'){ pushUndo('insert'); insertGridRow(t.sec, t.at, toolKey); markSummary(); }
+        else if(t.type==='seat'){ if(toolKey==='renum') applyRenum([t.key]); else applyTool(t.el); }
       } finally { tool = prevTool; }
       renderSide(); queueRender();
+    }
+    // Quitar una escalera CONTINUA entera (todas sus casillas encadenadas).
+    function removeStairGroup(el){
+      var keys=(el.getAttribute('data-stairgroup')||'').split(',');
+      if(!keys.length) return;
+      pushUndo('stair-del');
+      keys.forEach(function(k){
+        var pp=k.split('|'); var s=sections.find(function(x){return x.id===pp[0];});
+        if(!s || !s.mods || !s.mods[pp[1]]) return;
+        var lst=s.mods[pp[1]].stairs||[];
+        var i=lst.indexOf(+pp[2]); if(i!==-1) lst.splice(i,1);
+        if(!(s.mods[pp[1]].gaps||[]).length && !(s.mods[pp[1]].off||[]).length && !lst.length) delete s.mods[pp[1]];
+        invalidate(s.id);
+      });
+      markSummary(); renderSide(); queueRender();
     }
     function chipDragBind(rootEl){ if(rootEl) rootEl.addEventListener('pointerdown', function(e){
       var chipT = e.target.closest('[data-tool]');
@@ -2302,12 +2365,37 @@
           ghost.innerHTML = ({gap:'▢', off:'◼', stair:'<i class="fa fa-stairs"></i>', rowsep:'═', renum:'№', select:'⛶'})[toolKey] || '';
           document.body.appendChild(ghost);
         }
-        if(ghost){ ghost.style.left = ev.clientX+'px'; ghost.style.top = ev.clientY+'px'; }
+        if(ghost){
+          ghost.style.left = ev.clientX+'px'; ghost.style.top = ev.clientY+'px';
+          // Se ve DÓNDE va a caer: butaca resaltada o barra de inserción, con etiqueta.
+          var tPrev = resolveDropTarget(toolKey, ev.clientX, ev.clientY);
+          if(!ghost.__cap){ ghost.__cap=document.createElement('div'); ghost.__cap.className='vmap-toolghost-cap'; document.body.appendChild(ghost.__cap); }
+          if(!ghost.__hl){ ghost.__hl=document.createElement('div'); ghost.__hl.className='vmap-drophl'; document.body.appendChild(ghost.__hl); }
+          ghost.__cap.style.left = ev.clientX+'px'; ghost.__cap.style.top = (ev.clientY+26)+'px';
+          ghost.__cap.textContent = tPrev ? (tPrev.label||'') : '';
+          ghost.__cap.style.display = (tPrev && tPrev.label) ? '' : 'none';
+          var hl=ghost.__hl;
+          if(tPrev && tPrev.type==='seat' && tPrev.el){
+            var rHL=tPrev.el.getBoundingClientRect();
+            hl.style.display=''; hl.className='vmap-drophl vmap-drophl--seat';
+            hl.style.left=rHL.x+'px'; hl.style.top=rHL.y+'px'; hl.style.width=rHL.width+'px'; hl.style.height=rHL.height+'px';
+          } else if(tPrev && (tPrev.type==='stairgroup' || tPrev.type==='stairband' || tPrev.type==='rowsepband')){
+            var rHL2=tPrev.el.getBoundingClientRect();
+            hl.style.display=''; hl.className='vmap-drophl vmap-drophl--del';
+            hl.style.left=rHL2.x+'px'; hl.style.top=rHL2.y+'px'; hl.style.width=rHL2.width+'px'; hl.style.height=rHL2.height+'px';
+          } else if(tPrev && tPrev.type==='insert-col'){
+            hl.style.display=''; hl.className='vmap-drophl vmap-drophl--v';
+            hl.style.left=(ev.clientX-2)+'px'; hl.style.top=(ev.clientY-44)+'px'; hl.style.width='4px'; hl.style.height='88px';
+          } else if(tPrev && tPrev.type==='insert-row'){
+            hl.style.display=''; hl.className='vmap-drophl vmap-drophl--h';
+            hl.style.left=(ev.clientX-44)+'px'; hl.style.top=(ev.clientY-2)+'px'; hl.style.width='88px'; hl.style.height='4px';
+          } else { hl.style.display='none'; }
+        }
       }
       function up(ev){
         document.removeEventListener('pointermove', mv);
         document.removeEventListener('pointerup', up);
-        if(ghost) ghost.remove();
+        if(ghost){ if(ghost.__cap) ghost.__cap.remove(); if(ghost.__hl) ghost.__hl.remove(); ghost.remove(); }
         if(movedT){
           chipT.dataset.suppressClick = '1';   // que el click posterior no active/desactive el modo
           dropToolAt(toolKey, ev.clientX, ev.clientY);
@@ -3119,6 +3207,27 @@
           drag={kind:'seatmove', sec:sPts, w0:w, keys:keys, snap:snap};
           renderSide(); queueRender();
           return;
+        }
+      }
+      // Pinchar ENCIMA de un retoque colocado lo QUITA directamente (hueco, escalera continua,
+      // banda de escalera o pasillo), sin necesidad de armar la herramienta.
+      if(mode==='design' && canEdit && !tool){
+        var sgDel=e.target.closest('[data-stairgroup]');
+        if(sgDel){ removeStairGroup(sgDel); drag={kind:'none'}; return; }
+        if(stairEl){ removeStairBand(stairEl); drag={kind:'none'}; return; }
+        var rsDel=e.target.closest('[data-rowsep]');
+        if(rsDel){ removeRowSep(rsDel); drag={kind:'none'}; return; }
+        if(seatEl && seatEl.getAttribute('data-kind')==='gap'){
+          var kG=seatEl.getAttribute('data-seat'), ppG=kG.split('|');
+          var sDel=sections.find(function(x){return x.id===ppG[0];});
+          var mDel=sDel && sDel.mods ? sDel.mods[ppG[1]] : null;
+          if(mDel && Array.isArray(mDel.gaps)){
+            pushUndo('tool');
+            var iDel=mDel.gaps.indexOf(+ppG[2]); if(iDel!==-1) mDel.gaps.splice(iDel,1);
+            if(!mDel.gaps.length && !(mDel.off||[]).length && !(mDel.stairs||[]).length) delete sDel.mods[ppG[1]];
+            invalidate(sDel.id); markSummary(); renderSide(); queueRender();
+            drag={kind:'none'}; return;
+          }
         }
       }
       // GRADAS (grid/arc/palco) sin herramienta: pinchar una BUTACA la selecciona para configurarla

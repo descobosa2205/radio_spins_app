@@ -2051,6 +2051,12 @@ body.vmap-max-open { overflow: hidden; }
 .vmap-toolghost--off { background: #d7dbe2; border-color: #c3c9d2; color: #7b838f; }
 .vmap-toolghost--stair { background: #eef1f5; border-color: #b9c2cd; color: #7b8694; }
 .vmap-toolghost--rowsep { width: 44px; height: 16px; font-size: .8rem; }
+/* Previsualización del destino del arrastre: etiqueta bajo el fantasma + marcador en el plano. */
+.vmap-toolghost-cap { position: fixed; z-index: 9999; pointer-events: none; transform: translate(-50%, 0); background: #111; color: #fff; font: 600 .7rem/1.2 system-ui; padding: .2rem .5rem; border-radius: .4rem; white-space: nowrap; box-shadow: 0 3px 10px rgba(0,0,0,.3); }
+.vmap-drophl { position: fixed; z-index: 9998; pointer-events: none; display: none; }
+.vmap-drophl--seat { border: 2px solid var(--brand-primary, #E33D48); border-radius: .3rem; background: rgba(227,61,72,.12); }
+.vmap-drophl--del { border: 2px solid #dc3545; border-radius: .3rem; background: rgba(220,53,69,.18); }
+.vmap-drophl--v, .vmap-drophl--h { background: var(--brand-primary, #E33D48); border-radius: 2px; box-shadow: 0 0 0 1px #fff; }
 .vmap-cat .vmap-cat-x { border: 0; background: transparent; color: #a5aeb8; font-weight: 700; line-height: 1; cursor: pointer; padding: 0 .15rem; flex: 0 0 auto; }
 .vmap-cat .vmap-cat-x:hover { color: var(--brand-primary); }
 

@@ -1036,10 +1036,10 @@ def _parse_optional_positive_int(value):
         return None
     
 # ---------- context ----------
-@app.context_processor
 _ASSET_VERSION = str(int(time.time()))   # cambia en cada arranque → rompe la caché de css/js
 
 
+@app.context_processor
 def inject_globals():
     def has_endpoint(name: str) -> bool:
         # permite: {% if has_endpoint('mi_vista') %} ...

@@ -691,6 +691,18 @@
       var snap={seats:{}, objs:{}};
       dselKeys().forEach(function(k){ var pp=k.split('|'), sc=sections.find(function(x){return x.id===pp[0] && x.kind==='points';}); if(sc){ var st=(sc.seats||[]).find(function(t){return (+t.row)===(+pp[1]) && (+t.slot)===(+pp[2]);}); if(st) snap.seats[k]={sec:sc, seat:st, lx:+st.lx||0, ly:+st.ly||0}; } });
       dselOkeys().forEach(function(id){ var o=sections.find(function(x){return x.id===id;})||elements.find(function(x){return x.id===id;}); if(o) snap.objs[id]={o:o, x:(o.kind==='arc'?o.cx:o.x), y:(o.kind==='arc'?o.cy:o.y)}; });
+      // GRADAS/BLOQUES FUSIONADOS: si en el conjunto va una pieza del grupo (como objeto o con
+      // TODAS sus butacas), las demás piezas del grupo acompañan al movimiento.
+      var lgs={};
+      Object.keys(snap.objs).forEach(function(id){ var o=snap.objs[id].o; if(o && o.kind && o.linkGroup) lgs[o.linkGroup]=1; });
+      var perSecLG={}, seatSecIds={};
+      Object.keys(snap.seats).forEach(function(k){ var sc=snap.seats[k].sec; seatSecIds[sc.id]=1; perSecLG[sc.id]=(perSecLG[sc.id]||0)+1; });
+      Object.keys(perSecLG).forEach(function(id){ var sc=sections.find(function(x){return x.id===id;}); if(sc && sc.linkGroup && perSecLG[id]>=((sc.seats||[]).length)) lgs[sc.linkGroup]=1; });
+      sections.forEach(function(sc){
+        if(!sc.linkGroup || !lgs[sc.linkGroup]) return;
+        if(snap.objs[sc.id] || seatSecIds[sc.id]) return;
+        snap.objs[sc.id]={o:sc, x:(sc.kind==='arc'?sc.cx:sc.x), y:(sc.kind==='arc'?sc.cy:sc.y)};
+      });
       drag={kind:'multimove', w0:w, snap:snap};
     }
     // Saca de sus secciones 'points' las butacas seleccionadas y devuelve sus puntos {x,y,a}
@@ -1214,7 +1226,7 @@
               var keys=comp.map(function(u){return s.id+'|'+u.r+'|'+u.s;}).join(',');
               var steps='';
               for(var sy3=y0+szP*0.3; sy3<y1-szP*0.12; sy3+=szP*0.42) steps+='<line x1="'+(x0+szP*0.16)+'" y1="'+sy3+'" x2="'+(x1-szP*0.16)+'" y2="'+sy3+'" style="stroke:#93a0af;stroke-width:'+(szP*0.07)+'"/>';
-              gP.push('<g data-stairgroup="'+keys+'" style="cursor:pointer"><title>Escalera (pincha para quitarla)</title><rect x="'+x0+'" y="'+y0+'" width="'+(x1-x0)+'" height="'+(y1-y0)+'" rx="'+(szP*.2)+'" style="fill:#eef1f5;stroke:#b9c2cd;stroke-width:'+(szP*.05)+'"/>'+steps+'</g>');
+              gP.push('<g data-stairgroup="'+keys+'" style="cursor:pointer"><title>Escalera (pincha en un tramo para quitarlo)</title><rect x="'+x0+'" y="'+y0+'" width="'+(x1-x0)+'" height="'+(y1-y0)+'" rx="'+(szP*.2)+'" style="fill:#eef1f5;stroke:#b9c2cd;stroke-width:'+(szP*.05)+'"/>'+steps+'</g>');
             });
           }
           gP.push('</g>'); out.push(gP.join(''));
@@ -1386,7 +1398,7 @@
               var keys=comp.map(function(u){return s.id+'|'+u.r+'|'+u.s;}).join(',');
               var steps='';
               for(var sy2=y0+size*0.3; sy2<y1-size*0.12; sy2+=size*0.42) steps+='<line x1="'+(x0+size*0.16)+'" y1="'+sy2+'" x2="'+(x1-size*0.16)+'" y2="'+sy2+'" style="stroke:#93a0af;stroke-width:'+(size*0.07)+'"/>';
-              g2.push('<g data-stairgroup="'+keys+'" style="cursor:pointer"><title>Escalera (pincha para quitarla)</title><rect x="'+x0+'" y="'+y0+'" width="'+(x1-x0)+'" height="'+(y1-y0)+'" rx="'+(size*.2)+'" style="fill:#eef1f5;stroke:#b9c2cd;stroke-width:'+(size*.05)+'"/>'+steps+'</g>');
+              g2.push('<g data-stairgroup="'+keys+'" style="cursor:pointer"><title>Escalera (pincha en un tramo para quitarlo)</title><rect x="'+x0+'" y="'+y0+'" width="'+(x1-x0)+'" height="'+(y1-y0)+'" rx="'+(size*.2)+'" style="fill:#eef1f5;stroke:#b9c2cd;stroke-width:'+(size*.05)+'"/>'+steps+'</g>');
             });
           }
           g2.push('</g>');
@@ -2388,7 +2400,7 @@
       var stairB = under && under.closest ? under.closest('[data-stairband]') : null;
       var sgB = under && under.closest ? under.closest('[data-stairgroup]') : null;
       var sepB = under && under.closest ? under.closest('[data-rowsep]') : null;
-      if(toolKey==='stair' && sgB) return {type:'stairgroup', el:sgB, label:'Quitar esta escalera'};
+      if(toolKey==='stair' && sgB) return {type:'stairgroup', el:sgB, label:'Quitar este tramo de escalera'};
       if(toolKey==='stair' && stairB) return {type:'stairband', el:stairB, label:'Quitar esta escalera'};
       if(toolKey==='rowsep' && sepB) return {type:'rowsepband', el:sepB, label:'Quitar este pasillo'};
       if(seatB) return {type:'seat', el:seatB, key:seatB.getAttribute('data-seat'),
@@ -2438,7 +2450,7 @@
       if(!t) return;
       var prevTool = tool; tool = toolKey;
       try {
-        if(t.type==='stairgroup'){ removeStairGroup(t.el); }
+        if(t.type==='stairgroup'){ var wSG=client2world(cx, cy); removeStairCellAt(t.el, wSG.x, wSG.y); }
         else if(t.type==='stairband'){ removeStairBand(t.el); }
         else if(t.type==='rowsepband'){ removeRowSep(t.el); }
         else if(t.type==='insert-col'){ pushUndo('insert'); insertGridColumn(t.sec, t.at, toolKey); markSummary(); }
@@ -2447,19 +2459,32 @@
       } finally { tool = prevTool; }
       renderSide(); queueRender();
     }
-    // Quitar una escalera CONTINUA entera (todas sus casillas encadenadas).
-    function removeStairGroup(el){
-      var keys=(el.getAttribute('data-stairgroup')||'').split(',');
+    // Quitar SOLO el tramo pinchado de una escalera continua: se libera la casilla del grupo más
+    // cercana al punto (el resto de la escalera se conserva) — así una escalera que no es lineal
+    // se esculpe soltando la tira entera y quitando después los tramos que sobran.
+    function removeStairCellAt(el, wx, wy){
+      var keys=(el.getAttribute('data-stairgroup')||'').split(',').filter(Boolean);
       if(!keys.length) return;
-      pushUndo('stair-del');
+      var best=null, bd=Infinity;
       keys.forEach(function(k){
         var pp=k.split('|'); var s=sections.find(function(x){return x.id===pp[0];});
-        if(!s || !s.mods || !s.mods[pp[1]]) return;
-        var lst=s.mods[pp[1]].stairs||[];
-        var i=lst.indexOf(+pp[2]); if(i!==-1) lst.splice(i,1);
-        if(!(s.mods[pp[1]].gaps||[]).length && !(s.mods[pp[1]].off||[]).length && !lst.length) delete s.mods[pp[1]];
-        invalidate(s.id);
+        if(!s) return;
+        secRows(s).rows.forEach(function(row){
+          if(String(row.rowIdx)!==pp[1]) return;
+          row.seats.forEach(function(q){
+            if(String(q.slot)!==pp[2]) return;
+            var d=Math.hypot(q.x-wx, q.y-wy);
+            if(d<bd){ bd=d; best={s:s, row:pp[1], slot:+pp[2]}; }
+          });
+        });
       });
+      if(!best) return;
+      pushUndo('stair-del');
+      var mB=best.s.mods && best.s.mods[best.row];
+      var lstB=(mB && mB.stairs)||[];
+      var iB=lstB.indexOf(best.slot); if(iB!==-1) lstB.splice(iB,1);
+      if(mB && !(mB.gaps||[]).length && !(mB.off||[]).length && !lstB.length) delete best.s.mods[best.row];
+      invalidate(best.s.id);
       markSummary(); renderSide(); queueRender();
     }
     function chipDragBind(rootEl){ if(rootEl) rootEl.addEventListener('pointerdown', function(e){
@@ -3087,6 +3112,7 @@
 
     svg.addEventListener('pointerdown', function(e){
       try{ svg.setPointerCapture(e.pointerId); }catch(_){}
+      dismissAsk();   // seguir trabajando descarta la oferta de fusión pendiente
       pointers[e.pointerId]={x:e.clientX, y:e.clientY};
       var ids=Object.keys(pointers);
       if(ids.length===2){ var a=pointers[ids[0]], b=pointers[ids[1]];
@@ -3325,7 +3351,13 @@
           else if(!dsel[sk]){ dsel={}; dsel[sk]=1; }   // si ya estaba en el bloque, conserva el bloque
           var keys=dselKeys(), snap={};
           keys.forEach(function(k){ var pp=k.split('|'), ri=+pp[1], sl=+pp[2], st=(sPts.seats||[]).find(function(t){return (+t.row)===ri && (+t.slot)===sl;}); if(st) snap[k]={lx:+st.lx||0, ly:+st.ly||0}; });
-          drag={kind:'seatmove', sec:sPts, w0:w, keys:keys, snap:snap};
+          // Bloque FUSIONADO movido entero (todas sus butacas): las demás piezas del grupo acompañan.
+          var linkedSM=null;
+          if(sPts.linkGroup && keys.length>=((sPts.seats||[]).length)){
+            linkedSM=sections.filter(function(x){ return x!==sPts && x.linkGroup===sPts.linkGroup; })
+                             .map(function(x){ return {o:x, x:(x.kind==='arc'?x.cx:x.x), y:(x.kind==='arc'?x.cy:x.y)}; });
+          }
+          drag={kind:'seatmove', sec:sPts, w0:w, keys:keys, snap:snap, linked:linkedSM};
           renderSide(); queueRender();
           return;
         }
@@ -3334,7 +3366,7 @@
       // banda de escalera o pasillo), sin necesidad de armar la herramienta.
       if(mode==='design' && canEdit && !tool){
         var sgDel=e.target.closest('[data-stairgroup]');
-        if(sgDel){ removeStairGroup(sgDel); drag={kind:'none'}; return; }
+        if(sgDel){ removeStairCellAt(sgDel, w.x, w.y); drag={kind:'none'}; return; }
         if(stairEl){ removeStairBand(stairEl); drag={kind:'none'}; return; }
         var rsDel=e.target.closest('[data-rowsep]');
         if(rsDel){ removeRowSep(rsDel); drag={kind:'none'}; return; }
@@ -3483,6 +3515,7 @@
           var pp=k.split('|'), ri=+pp[1], sl=+pp[2], st=(scM.seats||[]).find(function(t){return (+t.row)===ri && (+t.slot)===sl;}), o0=drag.snap[k];
           if(st && o0){ st.lx=Math.round(o0.lx+dlx); st.ly=Math.round(o0.ly+dly); }
         });
+        if(drag.linked) drag.linked.forEach(function(L){ var oL=L.o; if(oL.kind==='arc'){ oL.cx=L.x+dxm; oL.cy=L.y+dym; } else { oL.x=L.x+dxm; oL.y=L.y+dym; } invalidate(oL.id); });
         invalidate(scM.id); queueRender();
       } else if(drag.kind==='marquee'){
         drag.w1=client2world(e.clientX,e.clientY); drawLasso(drag.w0, drag.w1);
@@ -3571,35 +3604,91 @@
         queueRender();   // el conteo y el rectángulo se pintan en el rAF (no a 120 Hz de puntero)
       }
     });
-    // FUSIONAR GRADAS: al soltar una grada PEGADA a otra (borde con borde) se ofrece unirlas.
-    // Siguen siendo sectores distintos, pero quedan enlazadas (linkGroup) y se mueven en conjunto.
-    function maybeOfferMerge(s){
-      if(!s || (s.kind!=='grid' && s.kind!=='box' && s.kind!=='points')) return;
-      // En pantalla completa NATIVA un confirm() expulsa del fullscreen (y desconcierta):
-      // la fusión se ofrece al mover las gradas fuera de pantalla completa.
-      if(document.fullscreenElement || document.webkitFullscreenElement) return;
-      var bb=bboxOf(s), m=(s.pitch||26)*0.9;
+    // FUSIONAR GRADAS/BLOQUES: al soltar una pieza PEGADA a otra (borde con borde) se ofrece
+    // unirlas. Siguen siendo sectores distintos, pero quedan enlazadas (linkGroup) y se mueven en
+    // conjunto. La pregunta es una TARJETA propia dentro del lienzo (no un confirm(): los diálogos
+    // nativos expulsan de la pantalla completa) — se descarta sola al seguir trabajando.
+    var askEl=null;
+    function dismissAsk(){ if(askEl && askEl.parentNode) askEl.parentNode.removeChild(askEl); askEl=null; }
+    function offerMergeUI(s, t){
+      dismissAsk();
+      askEl=document.createElement('div');
+      askEl.className='vmap-ask';
+      askEl.innerHTML=
+        '<div class="vmap-ask-msg"><b>«'+esc(s.name||'Bloque')+'»</b> ha quedado pegado a <b>«'+esc(t.name||'Bloque')+'»</b>. ¿Unirlos en un solo bloque?</div>'+
+        '<div class="vmap-ask-note">Seguirán siendo sectores distintos, pero se moverán en conjunto.</div>'+
+        '<div class="vmap-ask-btns">'+
+          '<button type="button" class="btn btn-sm btn-danger" data-ask="yes"><i class="fa fa-link me-1"></i>Unir</button>'+
+          '<button type="button" class="btn btn-sm btn-outline-secondary" data-ask="no">Ahora no</button>'+
+        '</div>';
+      askEl.addEventListener('pointerdown', function(ev){ ev.stopPropagation(); });
+      askEl.addEventListener('click', function(ev){
+        var b=ev.target.closest('[data-ask]'); if(!b) return;
+        if(b.getAttribute('data-ask')==='yes'){
+          pushUndo('merge');
+          var gidM=t.linkGroup || s.linkGroup || nid('lg');
+          t.linkGroup=gidM; s.linkGroup=gidM;
+          renderSide(); markSummary(); queueRender();
+        }
+        dismissAsk();
+      });
+      // Dentro del lienzo (posicionado y presente también en pantalla completa nativa).
+      var cv=host.querySelector('.vmap-canvas') || host;
+      cv.appendChild(askEl);
+    }
+    // Bordes de las BUTACAS (el bbox de secRows va inflado un paso por cada lado).
+    function seatBoxOf(s){
+      var bb=bboxOf(s), p=(s.pitch||26);
+      return {x:bb.x+p, y:bb.y+p, w:Math.max(1, bb.w-2*p), h:Math.max(1, bb.h-2*p)};
+    }
+    // skipIds: piezas que se movieron EN EL MISMO arrastre (no se han «acercado» entre sí).
+    function maybeOfferMerge(s, skipIds){
+      if(!s || (s.kind!=='grid' && s.kind!=='box' && s.kind!=='points')) return false;
+      var bb=seatBoxOf(s);
       for(var i=0;i<sections.length;i++){
         var t=sections[i];
         if(t===s || (t.kind!=='grid' && t.kind!=='box' && t.kind!=='points')) continue;
+        if(skipIds && skipIds[t.id]) continue;
         if(s.linkGroup && s.linkGroup===t.linkGroup) continue;
-        var db=bboxOf(t);
+        var db=seatBoxOf(t), m=Math.max(s.pitch||26, t.pitch||26);
         var gapX=Math.max(db.x-(bb.x+bb.w), bb.x-(db.x+db.w));
         var gapY=Math.max(db.y-(bb.y+bb.h), bb.y-(db.y+db.h));
-        // Pegadas = casi tocándose por un lado, sin estar montada una sobre otra.
-        if(gapX>m || gapY>m) continue;
-        if(gapX<-m && gapY<-m) continue;
-        if(!window.confirm('«'+(s.name||'Bloque')+'» ha quedado pegado a «'+(t.name||'Bloque')+'».\n\n¿UNIR en un solo bloque? Seguirán siendo sectores distintos, pero quedarán unidos como un único elemento y se moverán en conjunto.')) return;
-        var gidM=t.linkGroup || s.linkGroup || nid('lg');
-        t.linkGroup=gidM; s.linkGroup=gidM;
-        renderSide(); markSummary();
-        return;
+        // Pegadas = butacas a menos de ~2 pasos por algún lado…
+        if(Math.max(gapX, gapY) > m*2.2) continue;
+        // …sin estar montada una encima de la otra (solape profundo de las dos cajas).
+        if(gapX<0 && gapY<0){
+          var ovl=(-gapX)*(-gapY), minA=Math.min(bb.w*bb.h, db.w*db.h);
+          if(minA>0 && ovl/minA > 0.25) continue;
+        }
+        offerMergeUI(s, t);
+        return true;
       }
+      return false;
     }
     function endPointer(e){
       delete pointers[e.pointerId];
       if(Object.keys(pointers).length<2) pinch0=null;
       if(drag && drag.kind==='move' && drag.pushed && drag.obj && drag.obj.kind){ maybeOfferMerge(drag.obj); }
+      // La fusión también se ofrece al mover bloques POR SELECCIÓN (recuadro/Seleccionar) o
+      // arrastrando TODAS las butacas de un bloque detectado — es como se mueven los points.
+      if(drag && drag.kind==='multimove' && drag.pushed && drag.snap){
+        var movedM=[], skipM={};
+        Object.keys(drag.snap.objs||{}).forEach(function(id){
+          var o=drag.snap.objs[id].o;
+          if(o && o.kind){ skipM[o.id]=1; movedM.push(o); }
+        });
+        var cntM={};
+        Object.keys(drag.snap.seats||{}).forEach(function(k){ var scc=drag.snap.seats[k].sec; cntM[scc.id]=(cntM[scc.id]||0)+1; });
+        Object.keys(cntM).forEach(function(id){
+          if(skipM[id]) return;
+          var scc=sections.find(function(x){return x.id===id;});
+          if(scc && cntM[id] >= ((scc.seats||[]).length)){ skipM[id]=1; movedM.push(scc); }
+        });
+        for(var iM=0; iM<movedM.length; iM++){ if(maybeOfferMerge(movedM[iM], skipM)) break; }
+      }
+      if(drag && drag.kind==='seatmove' && drag.pushed && drag.sec && (drag.keys||[]).length >= ((drag.sec.seats||[]).length)){
+        maybeOfferMerge(drag.sec);
+      }
       if(drag && drag.kind==='drawsec'){
         // Fin del dibujo: si apenas se arrastró, se descarta. Como el resto de piezas nuevas, la
         // grada dibujada NO se queda marcada (pincha en ella si quieres afinar sus parámetros).

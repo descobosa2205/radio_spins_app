@@ -17707,11 +17707,16 @@ def promoters_view():
     try:
         if request.method == "POST":
             nick = (request.form.get("nick") or "").strip()
+            first_name = (request.form.get("first_name") or "").strip()
+            last_name = (request.form.get("last_name") or "").strip()
             contact_email = (request.form.get("contact_email") or "").strip()
             logo = request.files.get("logo")
+            # Nick por defecto = nombre oficial (útil al dar de alta desde un DNI/pasaporte).
+            if not nick:
+                nick = " ".join([x for x in (first_name, last_name) if x]).strip()
             try:
                 if not nick:
-                    raise ValueError("El nick es obligatorio.")
+                    raise ValueError("Indica un nick (o el nombre del documento).")
                 logo_url = upload_image(logo, "promoters") if (logo and getattr(logo, "filename", "")) else None
                 kind = (request.form.get("kind") or "").strip().lower()
                 if kind not in ("empresa", "institucion"):
@@ -17723,9 +17728,12 @@ def promoters_view():
                     contact_email=contact_email or None,
                     contact_phone=(request.form.get("contact_phone") or "").strip() or None,
                     kind=kind,
+                    first_name=first_name or None,
+                    last_name=last_name or None,
                 )
                 session.add(p)
                 session.flush()
+                _person_document_create_from_intake(session, "PROMOTER", p)
                 linked_embargos = _auto_link_embargo_orders_for_promoter(session, p) if "_auto_link_embargo_orders_for_promoter" in globals() else 0
                 session.commit()
                 flash("Tercero creado.", "success")
@@ -37826,8 +37834,13 @@ def personnel_view():
         if request.method == "POST":
             email = (request.form.get("email") or "").strip().lower()
             nick = (request.form.get("nick") or "").strip()
+            first_name = (request.form.get("first_name") or "").strip()
+            last_name = (request.form.get("last_name") or "").strip()
+            # Nick por defecto = nombre oficial (útil al dar de alta desde un DNI/pasaporte).
+            if not nick:
+                nick = " ".join([x for x in (first_name, last_name) if x]).strip()
             if not email or not nick:
-                flash("Nick y email son obligatorios.", "danger")
+                flash("El email es obligatorio, y el nick (o el nombre del documento).", "danger")
                 return redirect(url_for("personnel_view"))
             if session_db.query(User).filter(func.lower(User.email) == email).first():
                 flash("Ya existe un usuario con ese email.", "danger")
@@ -37844,8 +37857,8 @@ def personnel_view():
                 legacy_full_seed=False,
                 nick=nick,
                 photo_url=photo_url,
-                first_name=(request.form.get("first_name") or "").strip() or None,
-                last_name=(request.form.get("last_name") or "").strip() or None,
+                first_name=first_name or None,
+                last_name=last_name or None,
                 dni=(request.form.get("dni") or "").strip() or None,
                 birth_date=parse_optional_date(request.form.get("birth_date")),
                 mobile_phones=_parse_phone_rows_from_form(request.form),
@@ -37854,6 +37867,7 @@ def personnel_view():
             )
             _ensure_user_security(session_db, user)
             _sync_user_access_grants(session_db, user, profile)
+            _person_document_create_from_intake(session_db, "USER", user)
             token = _make_password_token(user.id, purpose="welcome")
             ok, err = _send_optional_email(
                 user.email,
@@ -38114,6 +38128,52 @@ def _person_document_delete_one(session_db, ot, owner, doc_id):
     session_db.delete(doc)
     session_db.commit()
     return True
+
+
+def _store_doc_image_from_dataurl(dataurl):
+    """Sube a Storage (carpeta 'documents') una imagen recibida como data URL base64 (los recortes
+    del alta con documento viajan así en el formulario). Devuelve URL absoluta o None."""
+    if not dataurl or "," not in dataurl:
+        return None
+    try:
+        import base64
+        header, b64 = dataurl.split(",", 1)
+        raw = base64.b64decode(b64)
+        if not raw:
+            return None
+        is_png = "png" in header.lower()
+        ext, ctype = ("png", "image/png") if is_png else ("jpg", "image/jpeg")
+        return _absolute_media_url(_upload_bytes(raw, "documents/%s.%s" % (uuid.uuid4().hex, ext), ctype))
+    except Exception:
+        return None
+
+
+def _person_document_create_from_intake(session_db, ot, owner):
+    """En el alta de una persona/tercero desde documento, crea un PersonDocument con los campos con
+    prefijo `doc_` del formulario (doc_kind, doc_number, doc_full_name, doc_*_date y los recortes
+    doc_front_b64/doc_back_b64). Devuelve el doc o None si no se subió/introdujo documento."""
+    kind = (request.form.get("doc_kind") or "").strip().upper()
+    if kind not in PERSON_DOC_KINDS:
+        return None
+    front = _store_doc_image_from_dataurl(request.form.get("doc_front_b64"))
+    back = _store_doc_image_from_dataurl(request.form.get("doc_back_b64"))
+    number = (request.form.get("doc_number") or "").strip() or None
+    full_name = (request.form.get("doc_full_name") or "").strip() or None
+    if not (front or back or number or full_name):
+        return None
+    state = _current_user_state()
+    doc = PersonDocument(
+        owner_type=ot, owner_id=owner.id, kind=kind, sort_order=0,
+        doc_number=number, full_name=full_name,
+        birth_date=parse_optional_date(request.form.get("doc_birth_date")),
+        expiry_date=parse_optional_date(request.form.get("doc_expiry_date")),
+        issue_date=parse_optional_date(request.form.get("doc_issue_date")),
+        front_url=front, back_url=back,
+        created_by_user_id=to_uuid(state.get("user_id")),
+        created_by_nick=(state.get("nick") or "").strip() or None,
+    )
+    session_db.add(doc)
+    return doc
 
 
 @app.post("/personal/<user_id>/documentos/guardar", endpoint="personnel_document_save")

@@ -97,16 +97,19 @@
 <div class="modal fade" id="newUserModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content">
-      <form method="post" enctype="multipart/form-data">
+      <form method="post" enctype="multipart/form-data" data-doc-intake>
         <div class="modal-header">
           <h5 class="modal-title">Nuevo usuario</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
+          {% include '_doc_intake_scan.html' %}
+          <div data-intake-step="form" class="d-none">
+          <button type="button" class="btn btn-link btn-sm px-0 mb-2 d-none" data-intake-back-to-doc><i class="fa fa-arrow-left me-1"></i>Volver al documento</button>
           <div class="row g-3">
             <div class="col-md-6">
-              <label class="form-label">Nick *</label>
-              <input type="text" name="nick" class="form-control" required>
+              <label class="form-label">Nick <span class="text-muted">(si lo dejas vacío, se usa el nombre)</span></label>
+              <input type="text" name="nick" class="form-control">
             </div>
             <div class="col-md-6">
               <label class="form-label">Email *</label>
@@ -164,10 +167,12 @@
               </div>
             </div>
           </div>
+          {% include '_doc_intake_hidden.html' %}
+          </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-          <button class="btn btn-primary">Crear usuario</button>
+          <button class="btn btn-primary d-none" data-intake-submit>Crear usuario</button>
         </div>
       </form>
     </div>

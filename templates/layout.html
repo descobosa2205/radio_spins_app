@@ -202,9 +202,14 @@
 <script src="{{ url_for('static', filename='js/ficha_inline.js') }}"></script>
 <script src="{{ url_for('static', filename='js/agenda_calendar.js') }}"></script>
 <script src="{{ url_for('static', filename='js/artist_links.js') }}"></script>
-{# Documentos personales (DNI, carnet, tarjetas de fidelización, matrículas) — solo actúa si la
-   página incluye el panel [data-person-docs]; el OCR del DNI carga tesseract.js bajo demanda. #}
+{# Escaneo de documentos (foto/PDF): render, recorte automático + manual y OCR (MRZ TD1/TD3).
+   Módulo global window.DocScan; lo usan person_docs.js y doc_intake.js. Debe cargarse ANTES. #}
+<script src="{{ url_for('static', filename='js/doc_scan.js', v=ASSET_V) }}"></script>
+{# Documentos personales (DNI, carnet, pasaporte, tarjetas, matrículas) — solo actúa si la página
+   incluye el panel [data-person-docs]; usa DocScan (tesseract.js/pdf.js bajo demanda). #}
 <script src="{{ url_for('static', filename='js/person_docs.js', v=ASSET_V) }}"></script>
+{# Alta de tercero/personal desde documento (DNI/pasaporte) o manual — actúa en [data-doc-intake]. #}
+<script src="{{ url_for('static', filename='js/doc_intake.js', v=ASSET_V) }}"></script>
 <script>
 (function(){
   var overlay=document.getElementById('globalLoader'); if(!overlay) return;

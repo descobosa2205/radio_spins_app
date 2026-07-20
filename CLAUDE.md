@@ -256,7 +256,16 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `floor` cap 0; merges vacíos = decoración (ignorar). El JS (`applyImportedPlan`) convierte los
   bloques en secciones grid conservando la composición de la hoja, los deja seleccionados y cada
   importación AÑADE bloques (varios archivos → un recinto). Verificado 1:1 con un plano real de
-  11.968 butacas.
+  11.968 butacas. **Barra**: la herramienta Seleccionar y los botones Importar Excel/Subir plano
+  van en la barra de añadir (`data-vm-addbar`). **Barridos en tiempo real**: todo arrastre que
+  hit-testea con `elementFromPoint` (seleccionar/pintar/retocar/numerar/zonas) debe recorrer el
+  camino completo del puntero con **`pointerPath(e, drag)`** (eventos coalescidos + interpolación;
+  sembrar `lastPt` al crear el drag) — si no, los gestos rápidos se saltan butacas (mismo patrón
+  aplicado al seleccionar invitaciones en `invitaciones.html`). **Selección de sectores en grupo**
+  (herramienta Seleccionar): pinchar un sector y barrer añade piezas a `dselO` (drag
+  `secselpaint`; bgimage/outline excluidos), pinchar una ya seleccionada mueve el conjunto, y con
+  ≥2 aparece el tirador `data-rotate="SELO"` que gira todo el grupo alrededor del centro común
+  (rama `rotate`/`rmode:'group'`; arcos → `cx/cy`+`dir`).
 
 - **Integración Enterticket (ticketing en tiempo casi real)**: cliente HTTP en `enterticket_utils.py`
   (credenciales `ENTERTICKET_USER/PASSWORD` en `.env`; sin ellas TODO desactivado). ⚠️ La API solo

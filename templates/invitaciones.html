@@ -2670,7 +2670,7 @@
     if(cancelBtn) cancelBtn.addEventListener('click', () => setMode(false));
     pop?.querySelector('[data-sel-close]')?.addEventListener('click', () => setMode(false));
     // Selección por CLIC y por ARRASTRE (pintar). Pointer events valen para ratón y táctil.
-    let dragging = false, dragMode = null;
+    let dragging = false, dragMode = null, dragLastPt = null;
     const applySeat = (seat) => {
       if(!seat) return;
       const id = seat.dataset.ticketId; lastSeat = seat;
@@ -2684,15 +2684,38 @@
       if(!seat) return;
       ev.preventDefault();
       dragging = true;
+      dragLastPt = {x: ev.clientX, y: ev.clientY};
       dragMode = selected.has(seat.dataset.ticketId) ? 'remove' : 'add';
       applySeat(seat);
     });
     tab.addEventListener('pointermove', (ev) => {
       if(!dragging || !isSelecting()) return;
       if(ev.pointerType === 'mouse' && ev.buttons === 0){ dragging = false; return; }
-      const el = document.elementFromPoint(ev.clientX, ev.clientY);
-      const seat = el && el.closest ? el.closest('[data-ticket-id]') : null;
-      if(seat) applySeat(seat);
+      // Los pointermove llegan menos veces de lo que se mueve el ratón: si el arrastre es rápido
+      // «salta» butacas. Se recorre el CAMINO completo (eventos coalescidos + interpolación a
+      // pasos de media butaca) para que se marquen TODAS las que pasan bajo el cursor.
+      const pts = [];
+      if(typeof ev.getCoalescedEvents === 'function'){
+        try { ev.getCoalescedEvents().forEach(ce => pts.push({x: ce.clientX, y: ce.clientY})); } catch(_e){}
+      }
+      if(!pts.length) pts.push({x: ev.clientX, y: ev.clientY});
+      const step = Math.max(6, lastSeat ? Math.min(lastSeat.offsetWidth || 24, lastSeat.offsetHeight || 24) / 2 : 12);
+      let prev = dragLastPt;
+      const path = [];
+      pts.forEach(p => {
+        if(prev){
+          const d = Math.hypot(p.x - prev.x, p.y - prev.y);
+          const n = Math.min(80, Math.floor(d / step));
+          for(let i = 1; i <= n; i++) path.push({x: prev.x + (p.x - prev.x) * i / (n + 1), y: prev.y + (p.y - prev.y) * i / (n + 1)});
+        }
+        path.push(p); prev = p;
+      });
+      dragLastPt = {x: prev.x, y: prev.y};
+      path.forEach(p => {
+        const el = document.elementFromPoint(p.x, p.y);
+        const seat = el && el.closest ? el.closest('[data-ticket-id]') : null;
+        if(seat) applySeat(seat);
+      });
     });
     document.addEventListener('pointerup', () => { dragging = false; dragMode = null; });
     document.addEventListener('pointercancel', () => { dragging = false; dragMode = null; });

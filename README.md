@@ -189,6 +189,27 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-07-20 — Diseñador: Seleccionar en la barra, barridos en tiempo real y giro de sectores en grupo
+
+- **Herramienta «Seleccionar» arriba**: el chip de seleccionar (antes solo en el panel lateral)
+  abre ahora la barra de añadir del diseñador, y junto a «Importar Excel» hay un botón
+  **«Subir plano»** (la imagen de fondo-guía, antes solo en el panel).
+- **Los barridos van en TIEMPO REAL** (en toda la app): al arrastrar el cursor por encima de las
+  butacas para seleccionarlas/pintarlas/retocarlas, los eventos del navegador llegan menos veces
+  de lo que se mueve el ratón y un gesto rápido «saltaba» butacas. Ahora se recorre el CAMINO
+  completo del puntero (eventos coalescidos + interpolación a pasos de media butaca,
+  `pointerPath` en `venue_map.js`): afecta a seleccionar por barrido, pintar categorías, quitar,
+  retoques (hueco/apagada), numerar barriendo y a la selección por zonas — y al mismo gesto de
+  selección de invitaciones en `invitaciones.html`.
+- **Selección múltiple de SECTORES** (cuando se ven como bloques): con la herramienta
+  Seleccionar, pincha un sector y, sin soltar, pasa por encima de otros para irlos seleccionando
+  (los sectores ya seleccionados se arrastran para MOVER todo el conjunto; Mayús añade/quita; el
+  recuadro por el vacío sigue funcionando). Con varios seleccionados aparece un **tirador de giro
+  del grupo** que rota TODAS las piezas a la vez alrededor del centro común (cada una orbita y
+  gira sobre sí misma; los arcos giran su centro y su orientación; Mayús = pasos de 15°) — las
+  butacas se reorientan solas hacia el escenario. El plano de fondo y la silueta del recinto no
+  entran en el barrido (cubren todo el lienzo).
+
 ### 2026-07-20 — Mapa de recintos: importar planos de butacas desde Excel
 
 - **Nuevo botón «Importar Excel»** en la barra del diseñador del mapa (ficha del recinto →

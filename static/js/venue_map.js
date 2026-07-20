@@ -162,6 +162,8 @@
       // Barra de AÑADIR piezas: en fila sobre el lienzo (iconos directos + grupos desplegables).
       (canEdit ?
       '<div class="vmap-addbar" data-vm-addbar>' +
+        '<button type="button" class="vmap-addbtn vmap-addbtn--tool" data-tool="select" title="SELECCIONAR: pincha una butaca y, sin soltar, barre las demás para ir seleccionándolas; pincha un SECTOR y barre otros para seleccionar varios (se mueven y giran a la vez); o arrastra un recuadro por el vacío. Mayús añade/quita; pincha algo ya seleccionado para MOVER todo el conjunto.">⛶<span>Seleccionar</span></button>' +
+        '<span class="vmap-addsep"></span>' +
         '<button type="button" class="vmap-addbtn" data-add="grid" title="Grada recta de filas y columnas"><i class="fa fa-table-cells"></i><span>Grada</span></button>' +
         '<button type="button" class="vmap-addbtn" data-add="arc" title="Grada curva (sector de anillo)"><i class="fa fa-circle-notch"></i><span>Curva</span></button>' +
         '<button type="button" class="vmap-addbtn" data-add="draw" title="Actívalo y ARRASTRA en el plano: según arrastras se van añadiendo butacas y filas"><i class="fa fa-pen"></i><span>Dibujar</span></button>' +
@@ -197,8 +199,9 @@
         '<button type="button" class="vmap-addbtn vmap-addbtn--tool" data-tool="stair" title="ESCALERA: arrástrala sobre una butaca (ocupa su sitio), entre dos (las separa) o a un lado (la grada crece)"><i class="fa fa-stairs"></i><span>Escalera</span></button>' +
         '<button type="button" class="vmap-addbtn vmap-addbtn--tool" data-tool="rowsep" title="PASILLO horizontal: arrástralo entre dos filas"><i class="fa fa-grip-lines"></i><span>Pasillo</span></button>' +
         '<button type="button" class="vmap-addbtn vmap-addbtn--tool" data-tool="renum" title="NÚMERO: arrástralo a una butaca para cambiar su número">№<span>Número</span></button>' +
-        (importUrl ? '<span class="vmap-addsep"></span>' +
-        '<button type="button" class="vmap-addbtn" data-vm-import title="Importar bloques de butacas desde un Excel: cada celda con un número es una butaca con ESE número, las celdas en blanco son huecos/pasillos y los textos, títulos y filas (F16…). Se puede repetir para ir AÑADIENDO bloques hasta completar el recinto."><i class="fa fa-file-excel"></i><span>Importar Excel</span></button>' : '') +
+        ((importUrl || bgUploadUrl) ? '<span class="vmap-addsep"></span>' : '') +
+        (importUrl ? '<button type="button" class="vmap-addbtn" data-vm-import title="Importar bloques de butacas desde un Excel: cada celda con un número es una butaca con ESE número, las celdas en blanco son huecos/pasillos y los textos, títulos y filas (F16…). Se puede repetir para ir AÑADIENDO bloques hasta completar el recinto."><i class="fa fa-file-excel"></i><span>Importar Excel</span></button>' : '') +
+        (bgUploadUrl ? '<button type="button" class="vmap-addbtn" data-bg-upload title="Subir una IMAGEN del plano del recinto como fondo-guía: se calca encima (mover/escalar/bloquear desde el panel) y se pueden detectar los asientos automáticamente."><i class="fa fa-image"></i><span>Subir plano</span></button>' : '') +
       '</div>' : '') +
       '<div class="vmap-body">' +
         '<div class="vmap-canvas">' +
@@ -1109,6 +1112,20 @@
       geo.rows.forEach(function(row){ row.seats.forEach(function(p){ var k=sec.id+'|'+row.rowIdx+'|'+p.slot; if(dsel[k]) out.push({key:k, row:row.rowIdx, slot:p.slot, x:p.x, y:p.y}); }); });
       return out;
     }
+    // Caja conjunta (mundo) de las PIEZAS seleccionadas (dselO): centro y bordes — para el
+    // tirador de giro del grupo y para girar todas alrededor del mismo pivote.
+    function dselOBounds(){
+      var xs=[], ys=[];
+      dselOkeys().forEach(function(id){
+        var o=sections.find(function(x){return x.id===id;})||elements.find(function(x){return x.id===id;});
+        if(!o) return;
+        var b = o.kind ? bboxOf(o) : {x:o.x-(o.w||120)/2, y:o.y-(o.h||100)/2, w:(o.w||120), h:(o.h||100)};
+        xs.push(b.x, b.x+b.w); ys.push(b.y, b.y+b.h);
+      });
+      if(!xs.length) return null;
+      var mx=Math.min.apply(null,xs), Mx=Math.max.apply(null,xs), my=Math.min.apply(null,ys), My=Math.max.apply(null,ys);
+      return {cx:(mx+Mx)/2, cy:(my+My)/2, mx:mx, Mx:Mx, my:my, My:My};
+    }
     // Geometría del tirador de GIRO del objeto seleccionado (o de las butacas sueltas seleccionadas).
     function rotHandleGeom(o){
       var scale=px();
@@ -1528,6 +1545,19 @@
             '<circle cx="'+rot.hx+'" cy="'+rot.hy+'" r="'+(hr*.34)+'" style="fill:#E33D48;pointer-events:none"/>');
         }
       }
+      // TIRADOR DE GIRO DEL GRUPO: con VARIOS sectores/elementos seleccionados (dselO), un
+      // tirador sobre la caja conjunta gira TODO el grupo alrededor de su centro (los arcos
+      // giran su centro y su orientación; las butacas se reorientan al escenario solas).
+      if(mode==='design' && canEdit && dselOkeys().length>=2){
+        var gb = dselOBounds();
+        if(gb){
+          var ghr = Math.max(9/scale, 7);
+          var ghy = gb.my - 40/scale;
+          out.push('<line x1="'+gb.cx+'" y1="'+gb.cy+'" x2="'+gb.cx+'" y2="'+ghy+'" style="stroke:#E33D48;stroke-width:'+(1.6/scale)+';stroke-dasharray:'+(4/scale)+' '+(3/scale)+';pointer-events:none"/>'+
+            '<circle data-rotate="SELO" cx="'+gb.cx+'" cy="'+ghy+'" r="'+ghr+'" style="fill:#fff;stroke:#E33D48;stroke-width:'+(2.4/scale)+';cursor:grab"><title>Girar TODO lo seleccionado a la vez (Mayús = pasos de 15°)</title></circle>'+
+            '<circle cx="'+gb.cx+'" cy="'+ghy+'" r="'+(ghr*.34)+'" style="fill:#E33D48;pointer-events:none"/>');
+        }
+      }
       world.innerHTML = out.join('');
       renderStats();
       // El resumen por categoría solo se recalcula cuando algo cambió (no en cada pan/zoom).
@@ -1740,7 +1770,7 @@
       if(!canEdit){ h.innerHTML = 'Arrastra o usa la rueda/dos dedos para desplazarte; pellizco o Ctrl/Cmd + rueda para hacer zoom: de lejos verás los sectores y, al acercarte, cada butaca con su número.'; return; }
       if(detectArm){ h.innerHTML = '<b>Detectar asientos:</b> pincha en el CENTRO de un asiento de ejemplo del plano subido. Se detectarán todos los parecidos.'; return; }
       if(seatArm){ h.innerHTML = '<b>Butaca suelta:</b> pincha en el plano para ir poniendo butacas: junto a otras se ENCAJAN solas al patrón de su fila (mismo tamaño y orientación, sin montarse) y pinchando un HUECO lo rellenas. Luego puedes moverlas o girarlas; con Mayús seleccionas varias.'; return; }
-      if(tool==='select'){ h.innerHTML = '<b>Seleccionar:</b> pincha una butaca y, SIN SOLTAR, pasa por encima de las demás para ir seleccionándolas (aunque salgas a otro sector); o arrastra un recuadro por el vacío. Una butaca ya seleccionada se ARRASTRA para mover el conjunto. En el panel flotante configuras fila y numeración de LAS FILAS seleccionadas. Mayús añade/quita.'; return; }
+      if(tool==='select'){ h.innerHTML = '<b>Seleccionar:</b> pincha una butaca y, SIN SOLTAR, pasa por encima de las demás para ir seleccionándolas (aunque salgas a otro sector); pincha un SECTOR y pasa por otros para seleccionar varios; o arrastra un recuadro por el vacío. Lo YA seleccionado se ARRASTRA para mover el conjunto, y con varios sectores aparece un tirador para GIRARLOS todos a la vez. En el panel flotante configuras fila y numeración de LAS FILAS seleccionadas. Mayús añade/quita.'; return; }
       h.innerHTML = mode==='design'
         ? '<b>Diseñar:</b> pincha una BUTACA de una grada para configurarla (fila, numeración; Mayús añade) y ARRASTRA desde ella para mover el sector. Con una herramienta de retoque activa (Hueco/Apagada/Escalera), pincha butacas para aplicarla. Rueda desplaza; pellizco o Ctrl/Cmd + rueda hace zoom.'
         : '<b>Categorías:</b> selecciona butacas (clic, barrido o el sector entero de lejos) y verás el total en una tarjeta flotante: arrástrala hasta una categoría (o pincha una) para asignarlas. «Pintar» aplica directo; «Contar» solo cuenta.';
@@ -3411,6 +3441,25 @@
       // GIRO por tirador: gira el objeto (o las butacas sueltas seleccionadas) arrastrando el círculo.
       if(mode==='design' && canEdit && rotEl){
         var rid=rotEl.getAttribute('data-rotate');
+        if(rid==='SELO'){
+          // GIRO DE GRUPO: todas las piezas seleccionadas giran alrededor del centro de su caja
+          // conjunta (cada una gira sobre sí misma Y su posición orbita el centro común).
+          var gbR=dselOBounds();
+          if(gbR){
+            var snapG=[];
+            dselOkeys().forEach(function(id){
+              var o=sections.find(function(x){return x.id===id;})||elements.find(function(x){return x.id===id;});
+              if(!o) return;
+              snapG.push({o:o, x:(o.kind==='arc'?o.cx:o.x), y:(o.kind==='arc'?o.cy:o.y),
+                          rot:(o.kind==='arc' ? (o.dir||0) : (o.rot||0))});
+            });
+            if(snapG.length){
+              drag={kind:'rotate', rmode:'group', c:{x:gbR.cx, y:gbR.cy},
+                    start:Math.atan2(w.y-gbR.cy, w.x-gbR.cx), snap:snapG};
+              return;
+            }
+          }
+        }
         if(rid==='SEL'){
           var secR=sections.find(function(x){return x.id===selId && x.kind==='points';});
           if(secR){
@@ -3544,16 +3593,31 @@
             // donde pases (vertical, horizontal o saliendo a OTRO sector).
             if(!addSel){ dsel={}; dselO={}; }
             dsel[sk]=1;
-            drag={kind:'selpaint', done:{}}; drag.done[sk]=1;
+            drag={kind:'selpaint', done:{}, lastPt:{x:e.clientX, y:e.clientY}}; drag.done[sk]=1;
             renderSide(); queueRender(); return;
           }
         }
         if(secEl || elEl){
           var oid=(elEl?elEl.getAttribute('data-el'):secEl.getAttribute('data-sec'));
+          // El plano de fondo y la silueta cubren el lienzo entero: con la herramienta de
+          // seleccionar cuentan como VACÍO (recuadro); se mueven en el modo normal.
+          var oSel=sections.find(function(x){return x.id===oid;})||elements.find(function(x){return x.id===oid;});
+          if(oSel && (oSel.type==='bgimage' || oSel.type==='outline')){
+            drag={kind:'marquee', w0:w, add:addSel}; return;
+          }
           selId=oid;
-          if(addSel){ if(dselO[oid]) delete dselO[oid]; else dselO[oid]=1; }
-          else if(!dselO[oid]){ dsel={}; dselO={}; dselO[oid]=1; }
-          startMultiMove(w); renderSide(); queueRender(); return;
+          if(addSel){
+            if(dselO[oid]) delete dselO[oid]; else dselO[oid]=1;
+            drag={kind:'none'}; renderSide(); queueRender(); return;
+          }
+          // Pieza YA seleccionada: arrastrarla mueve TODO el conjunto seleccionado.
+          if(dselO[oid]){ startMultiMove(w); renderSide(); queueRender(); return; }
+          // Pieza nueva: se selecciona y, SIN SOLTAR, se van seleccionando los sectores y
+          // elementos por los que pases (selección por zonas: luego se mueven o GIRAN a la vez
+          // con el tirador del grupo).
+          dsel={}; dselO={}; dselO[oid]=1;
+          drag={kind:'secselpaint', done:{}, lastPt:{x:e.clientX, y:e.clientY}}; drag.done[oid]=1;
+          renderSide(); queueRender(); return;
         }
         drag={kind:'marquee', w0:w, add:addSel}; return;   // vacío → recuadro
       }
@@ -3565,11 +3629,11 @@
         if(tool==='renum' && seatEl){
           // El № se decide al SOLTAR: una butaca = número exacto; barriendo varias = seguidas.
           var kR=seatEl.getAttribute('data-seat');
-          drag={kind:'renumdrag', seq:[kR], done:{}}; drag.done[kR]=1;
+          drag={kind:'renumdrag', seq:[kR], done:{}, lastPt:{x:e.clientX, y:e.clientY}}; drag.done[kR]=1;
           return;
         }
         if(seatEl && applyTool(seatEl)){
-          drag={kind:'tooldrag', done:{}};
+          drag={kind:'tooldrag', done:{}, lastPt:{x:e.clientX, y:e.clientY}};
           drag.done[seatEl.getAttribute('data-seat')]=1;   // la primera ya está aplicada
           return;
         }
@@ -3579,7 +3643,7 @@
       if(mode==='cats' && canEdit){
         if(catTool==='count'){ drag={kind:'lasso', w0:w}; return; }
         if(catTool==='select'){
-          if(seatEl){ toggleSel(seatEl, e); drag={kind:'seldrag'}; return; }
+          if(seatEl){ toggleSel(seatEl, e); drag={kind:'seldrag', done:{}, lastPt:{x:e.clientX, y:e.clientY}}; return; }
           if(secEl){
             var sSel=sections.find(function(x){return x.id===secEl.getAttribute('data-sec');});
             var farSel = sSel && sSel.kind!=='floor' ? (sSel.pitch*px() < 9.5) : false;
@@ -3587,7 +3651,7 @@
               // De lejos: el sector se marca ENTERO ya, y ARRASTRANDO se van marcando enteros
               // todos los sectores que toques (selección por zonas, tipo selector del sistema).
               selectSection(sSel, e);
-              drag={kind:'secdrag', done:{}}; drag.done[sSel.id]=1;
+              drag={kind:'secdrag', done:{}, lastPt:{x:e.clientX, y:e.clientY}}; drag.done[sSel.id]=1;
               return;
             }
             drag={kind:'secmaybe', sec:(sSel?sSel.id:null), far:false, select:true, c0:{x:e.clientX,y:e.clientY}, w0:w};
@@ -3596,7 +3660,7 @@
           drag={kind:'pan', c0:{x:e.clientX,y:e.clientY}, v0:JSON.parse(JSON.stringify(view))};
           return;
         }
-        if(seatEl){ paintSeat(seatEl); drag={kind:'paintdrag'}; return; }
+        if(seatEl){ paintSeat(seatEl); drag={kind:'paintdrag', done:{}, lastPt:{x:e.clientX, y:e.clientY}}; return; }
         if(secEl){
           // Sobre un sector: CLIC corto pinta el sector ENTERO — pero solo de lejos (LOD sin
           // butacas); de cerca un roce con la etiqueta de fila arrasaría cientos de asignaciones.
@@ -3688,6 +3752,30 @@
         drag={kind:'pan', c0:{x:e.clientX,y:e.clientY}, v0:JSON.parse(JSON.stringify(view))};
       }
     });
+    // Camino REAL del puntero desde el último evento del gesto: los pointermove llegan MENOS
+    // veces de lo que se mueve el ratón (y agrupados), así que un barrido rápido «salta»
+    // butacas. Se recuperan los eventos coalescidos del navegador y ADEMÁS se interpola entre
+    // muestras a pasos de media butaca en pantalla: los arrastres de seleccionar/pintar/retocar
+    // pasan por TODAS las butacas del recorrido aunque el gesto sea rápido.
+    function pointerPath(e, dragState){
+      var pts = [];
+      if(typeof e.getCoalescedEvents === 'function'){
+        try { e.getCoalescedEvents().forEach(function(ce){ pts.push({x:ce.clientX, y:ce.clientY}); }); } catch(_e){}
+      }
+      if(!pts.length) pts.push({x:e.clientX, y:e.clientY});
+      var step = Math.max(3, prevailingPitch()*px()*0.5);
+      var out = [], prev = dragState.lastPt;
+      pts.forEach(function(p){
+        if(prev){
+          var d = Math.hypot(p.x-prev.x, p.y-prev.y);
+          var n = Math.min(80, Math.floor(d/step));
+          for(var i=1;i<=n;i++) out.push({x:prev.x+(p.x-prev.x)*i/(n+1), y:prev.y+(p.y-prev.y)*i/(n+1)});
+        }
+        out.push(p); prev = p;
+      });
+      dragState.lastPt = {x:prev.x, y:prev.y};
+      return out;
+    }
     svg.addEventListener('pointermove', function(e){
       lastPtr = client2world(e.clientX, e.clientY);   // para «Pegar aquí» y Ctrl+V
       if(pointers[e.pointerId]) pointers[e.pointerId]={x:e.clientX,y:e.clientY};
@@ -3764,7 +3852,24 @@
       } else if(drag.kind==='rotate'){
         var wR=client2world(e.clientX,e.clientY);
         if(!drag.pushed){ pushUndo('rotate'); drag.pushed=true; }
-        if(drag.rmode==='seats'){
+        if(drag.rmode==='group'){
+          // Giro del GRUPO: cada pieza orbita el centro común y gira sobre sí misma el mismo
+          // ángulo (los arcos mueven su centro y suman a su orientación `dir`).
+          var angG=Math.atan2(wR.y-drag.c.y, wR.x-drag.c.x), daG=angG-drag.start;
+          if(e.shiftKey) daG=Math.round(daG/(15*R))*(15*R);
+          var caG=Math.cos(daG), saG=Math.sin(daG);
+          drag.snap.forEach(function(sn){
+            var oG=sn.o;
+            var nx=drag.c.x + (sn.x-drag.c.x)*caG - (sn.y-drag.c.y)*saG;
+            var ny=drag.c.y + (sn.x-drag.c.x)*saG + (sn.y-drag.c.y)*caG;
+            var nrot=Math.round((((sn.rot + daG/R) % 360) + 360) % 360);
+            if(oG.kind==='arc'){ oG.cx=nx; oG.cy=ny; oG.dir=nrot; }
+            else { oG.x=nx; oG.y=ny; oG.rot=nrot; }
+            if(oG.kind) invalidate(oG.id);
+            if(oG.type==='stage') invalidate();
+          });
+          queueRender();
+        } else if(drag.rmode==='seats'){
           var ang=Math.atan2(wR.y-drag.c.y, wR.x-drag.c.x), da=ang-drag.start;
           if(e.shiftKey) da=Math.round(da/(15*R))*(15*R);
           var caR=Math.cos(da), saR=Math.sin(da), scR=drag.sec, rotLR=(scR.rot||0)*R, cLR=Math.cos(rotLR), sLR=Math.sin(rotLR);
@@ -3808,22 +3913,24 @@
         queueRender();
       } else if(drag.kind==='tooldrag' || drag.kind==='paintdrag' || drag.kind==='seldrag'){
         // OJO: con setPointerCapture los pointermove llegan retargeteados al <svg> (e.target ya
-        // no es la butaca): hay que buscar el elemento REAL bajo el dedo con elementFromPoint.
-        var under = document.elementFromPoint(e.clientX, e.clientY);
-        var se = under && under.closest ? under.closest('[data-seat]') : null;
-        if(!se) return;
-        if(drag.kind==='paintdrag'){ paintSeat(se); return; }
-        if(drag.kind==='seldrag'){
-          var kS = se.getAttribute('data-seat');
-          if(kS && se.getAttribute('data-kind')==='seat' && !sel[kS]){ sel[kS]=1; updateSelPop(e.clientX, e.clientY); queueRender(); }
-          return;
-        }
-        if(tool==='stair') return;                        // la escalera se coloca de una en una
-        var k = se.getAttribute('data-seat');
+        // no es la butaca): hay que buscar el elemento REAL bajo el dedo con elementFromPoint —
+        // y recorrer el CAMINO completo del puntero (pointerPath) para no saltarse butacas.
+        if(drag.kind==='tooldrag' && tool==='stair') return;   // la escalera se coloca de una en una
         drag.done = drag.done || {};
-        if(drag.done[k]) return;                          // una vez por butaca y gesto (sin parpadeo)
-        drag.done[k] = 1;
-        applyTool(se);
+        pointerPath(e, drag).forEach(function(pt){
+          var under = document.elementFromPoint(pt.x, pt.y);
+          var se = under && under.closest ? under.closest('[data-seat]') : null;
+          if(!se) return;
+          var k = se.getAttribute('data-seat');
+          if(!k || drag.done[k]) return;                  // una vez por butaca y gesto (sin parpadeo)
+          if(drag.kind==='paintdrag'){ drag.done[k]=1; paintSeat(se); return; }
+          if(drag.kind==='seldrag'){
+            if(se.getAttribute('data-kind')==='seat' && !sel[k]){ drag.done[k]=1; sel[k]=1; updateSelPop(e.clientX, e.clientY); queueRender(); }
+            return;
+          }
+          drag.done[k] = 1;
+          applyTool(se);
+        });
       } else if(drag.kind==='drawsec'){
         // La grada crece hacia donde arrastres: columnas y filas según la distancia recorrida.
         var wd=client2world(e.clientX,e.clientY), od=drag.obj;
@@ -3838,37 +3945,65 @@
         chip.style.display='block';
         invalidate(od.id); queueRender();
       } else if(drag.kind==='renumdrag'){
-        var underR = document.elementFromPoint(e.clientX, e.clientY);
-        var seR = underR && underR.closest ? underR.closest('[data-seat]') : null;
-        if(seR && seR.getAttribute('data-kind')==='seat'){
-          var kR2 = seR.getAttribute('data-seat');
-          if(!drag.done[kR2]){ drag.done[kR2]=1; drag.seq.push(kR2); }
-        }
-      } else if(drag.kind==='secdrag'){
-        // Selección por ZONAS: cada sector que el arrastre toca se marca entero (una sola vez).
-        var underS = document.elementFromPoint(e.clientX, e.clientY);
-        var secU = underS && underS.closest ? underS.closest('[data-sec]') : null;
-        if(secU){
-          var idU = secU.getAttribute('data-sec');
-          if(!drag.done[idU]){
-            var sU = sections.find(function(x){ return x.id===idU; });
-            if(sU && sU.kind!=='floor'){ drag.done[idU]=1; selectSection(sU, e); }
+        // El barrido del № respeta el ORDEN del recorrido (pointerPath interpola en orden).
+        pointerPath(e, drag).forEach(function(pt){
+          var underR = document.elementFromPoint(pt.x, pt.y);
+          var seR = underR && underR.closest ? underR.closest('[data-seat]') : null;
+          if(seR && seR.getAttribute('data-kind')==='seat'){
+            var kR2 = seR.getAttribute('data-seat');
+            if(!drag.done[kR2]){ drag.done[kR2]=1; drag.seq.push(kR2); }
           }
-        }
+        });
+      } else if(drag.kind==='secdrag'){
+        // Selección por ZONAS: cada sector que el RECORRIDO toca se marca entero (una sola vez).
+        pointerPath(e, drag).forEach(function(pt){
+          var underS = document.elementFromPoint(pt.x, pt.y);
+          var secU = underS && underS.closest ? underS.closest('[data-sec]') : null;
+          if(secU){
+            var idU = secU.getAttribute('data-sec');
+            if(!drag.done[idU]){
+              var sU = sections.find(function(x){ return x.id===idU; });
+              if(sU && sU.kind!=='floor'){ drag.done[idU]=1; selectSection(sU, e); }
+            }
+          }
+        });
       } else if(drag.kind==='secmaybe'){
         if(Math.hypot(e.clientX-drag.c0.x, e.clientY-drag.c0.y) > 8){ drag={kind:'lasso', w0:drag.w0}; }
       } else if(drag.kind==='selpaint'){
-        // Pintar-seleccionar: cada butaca por la que pasa el puntero se añade a la selección
-        // (da igual la dirección o que cruce a otro sector). El panel se refresca al soltar.
-        var underP=document.elementFromPoint(e.clientX, e.clientY);
-        var seatP=underP && underP.closest ? underP.closest('[data-seat]') : null;
-        if(seatP){
+        // Pintar-seleccionar: cada butaca por la que pasa el RECORRIDO del puntero se añade a la
+        // selección (da igual la dirección o que cruce a otro sector). El panel se refresca al soltar.
+        var chgP=false;
+        pointerPath(e, drag).forEach(function(pt){
+          var underP=document.elementFromPoint(pt.x, pt.y);
+          var seatP=underP && underP.closest ? underP.closest('[data-seat]') : null;
+          if(!seatP) return;
           var kP=seatP.getAttribute('data-seat');
           if(kP && !drag.done[kP] && seatP.getAttribute('data-kind')!=='gap'){
-            drag.done[kP]=1; dsel[kP]=1;
-            updateDPop(); queueRender();
+            drag.done[kP]=1; dsel[kP]=1; chgP=true;
           }
-        }
+        });
+        if(chgP){ updateDPop(); queueRender(); }
+      } else if(drag.kind==='secselpaint'){
+        // Selección por ZONAS en diseño: cada sector/elemento que el recorrido toca se añade a la
+        // selección de piezas (dselO) — para luego moverlas o girarlas TODAS a la vez. El plano de
+        // fondo y la silueta del recinto se ignoran (cubren todo el lienzo y se colarían solos).
+        var chgO=false;
+        pointerPath(e, drag).forEach(function(pt){
+          var uO=document.elementFromPoint(pt.x, pt.y);
+          if(!uO || !uO.closest) return;
+          var idU=null;
+          var seatO=uO.closest('[data-seat]');
+          if(seatO){ idU=(seatO.getAttribute('data-seat')||'').split('|')[0]; }
+          else {
+            var elO=uO.closest('[data-sec],[data-el]');
+            if(elO) idU=elO.getAttribute('data-sec')||elO.getAttribute('data-el');
+          }
+          if(!idU || drag.done[idU]) return;
+          drag.done[idU]=1;
+          var oSw=sections.find(function(x){return x.id===idU;})||elements.find(function(x){return x.id===idU;});
+          if(oSw && oSw.type!=='bgimage' && oSw.type!=='outline'){ dselO[idU]=1; chgO=true; }
+        });
+        if(chgO) queueRender();
       } else if(drag.kind==='gseatmaybe'){
         // Se empezó a ARRASTRAR desde una butaca de grada → mover el sector entero (el undo lo
         // apunta la propia rama 'move' en su primer tick).
@@ -4000,7 +4135,7 @@
         else { dsel={}; dselO={}; }   // clic sin arrastre en vacío: vacía la selección
         drag=null; clearLasso(); renderSide(); queueRender(); return;
       }
-      if(drag && drag.kind==='selpaint'){
+      if(drag && drag.kind==='selpaint' || drag && drag.kind==='secselpaint'){
         drag=null; renderSide(); queueRender(); return;
       }
       if(drag && drag.kind==='gseatmaybe'){

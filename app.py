@@ -37894,7 +37894,8 @@ def personnel_view():
 # se propagan los datos detectados a los campos VACÍOS de la ficha.
 # =====================================================================================
 PERSON_DOC_KINDS = {"DNI", "LICENSE", "LOYALTY", "PLATE"}
-PERSON_DOC_IMAGE_EXTS = PHOTO_IMAGE_EXTS  # mismas extensiones de imagen que las fotos (HEIC incl.)
+# PERSON_DOC_IMAGE_EXTS = PHOTO_IMAGE_EXTS (mismas extensiones de imagen que las fotos, HEIC incl.)
+# El alias se define junto a PHOTO_IMAGE_EXTS (más abajo) para no referenciarlo antes de tiempo.
 
 # Marcas de fidelización conocidas → color de la tarjeta (y color del texto). Da igual mayúsculas
 # /acentos: se casa por nombre normalizado. Si la marca no está, se usa un color neutro.
@@ -41265,6 +41266,7 @@ def action_detail_view(action_id):
 PHOTO_OWNER_TYPES = {"CONCERT", "ACTION", "ARTIST", "EVENT"}
 PHOTO_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif", ".bmp", ".tif", ".tiff"}
 PHOTO_VIDEO_EXTS = {".mp4", ".mov", ".webm", ".m4v", ".avi", ".mkv", ".mpeg", ".mpg"}
+PERSON_DOC_IMAGE_EXTS = PHOTO_IMAGE_EXTS  # documentos personales: mismas extensiones de imagen que las fotos (HEIC incl.)
 
 
 def _photo_owner_type_norm(raw):

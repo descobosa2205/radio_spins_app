@@ -293,7 +293,8 @@
        data-can-edit="{{ '1' if CAN_EDIT_CATALOGS else '' }}"
        data-map-id="{{ venue_active_map.id if venue_active_map else '' }}"
        data-save-url="{{ url_for('venue_seatmap_save', vid=venue.id) }}"
-       data-bg-upload-url="{{ url_for('venue_seatmap_bg_upload', vid=venue.id) }}"></div>
+       data-bg-upload-url="{{ url_for('venue_seatmap_bg_upload', vid=venue.id) }}"
+       data-import-url="{{ url_for('venue_seatmap_import_xlsx', vid=venue.id) }}"></div>
   {% if CAN_EDIT_CATALOGS %}
   <script>
     // Renombrar el formato activo (prompt sencillo; el form oculto hace el POST).

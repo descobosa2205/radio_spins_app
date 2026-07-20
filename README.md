@@ -189,6 +189,38 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-07-20 — Mapa de recintos: importar planos de butacas desde Excel
+
+- **Nuevo botón «Importar Excel»** en la barra del diseñador del mapa (ficha del recinto →
+  Ticketing → Editar mapa; también en pantalla completa): sube un `.xlsx` con el plano «dibujado»
+  en celdas y lo recrea como bloques del mapa. Cómo interpreta el archivo (motor puro
+  **`seatmap_import.py`**, testeable sin BD): **celda con número = butaca con ESE número impreso**;
+  **celda en blanco = hueco/pasillo** (columnas vacías = pasillos verticales; filas vacías entre
+  filas = pasillo `rowSeps`); **textos = etiquetas** (celdas combinadas de cabecera → nombre del
+  bloque, «SECTOR N» → alias para casar PDFs de ticketeras; `F16`/`FILA 3`/`A` junto a cada fila →
+  etiqueta de fila). Cada hoja puede traer varias gradas (bandas separadas por ≥3 filas vacías) y
+  cada banda varios bloques (una cabecera por mitad, o separación de ≥3 columnas). La primera hoja
+  «Resumen de exportación» de los exports de Numbers se ignora.
+- **La numeración se conserva EXACTA, nunca se interpola**: por cada fila se intenta encajar la
+  numeración aritmética del diseñador (inicio + consecutivos/pares/impares + sentido, con la
+  política de hueco de la sección); si la fila no encaja, cada butaca sale con su número clavado en
+  `numOverrides`. Las celdas combinadas grandes con texto y sin números (p. ej. «PALCO VIP») entran
+  como zona etiquetada sin butacas (rectángulo `floor` con aforo 0), y las combinadas vacías
+  (decoración/escaleras dibujadas) se ignoran.
+- **Etiquetas de fila descendentes**: nuevo `rowDir: 'desc'` en las secciones (la fila `rowStart`
+  es la de ABAJO del dibujo, como los planos reales donde la F1 está delante) — así el bloque
+  conserva la forma del Excel sin espejarse. Editable en el panel («Filas» → «…3, 2, 1 (desc.)»);
+  paridad JS↔Python: `rowLabelOf` (venue_map.js) ↔ `seat_lookup` (seatmap_calc.py).
+- **Se puede repetir**: cada importación AÑADE los bloques debajo de lo que haya (misma escala que
+  el plano, `prevailingPitch`), seleccionados y listos para arrastrar/girar/unir — pensado para
+  recintos que llegan en varios archivos o en tablas separadas por secciones.
+- Endpoint `POST /recintos/<vid>/mapa/importar-excel` (`venue_seatmap_import_xlsx`): solo parsea
+  (no almacena el archivo), mismo gate que el resto del mapa (`can_edit_catalogs`), y cae bajo el
+  recurso `databases.venues` por el prefijo `venue_` del endpoint.
+- Verificado con un plano real de **11.968 butacas** (2 hojas, 10 bloques + PALCO VIP): los 11.968
+  números reproducidos 1:1 por el motor (`seatmap_calc`), etiquetas F1–F23 correctas (incluidas
+  gradas que empiezan en F2 y F11) y casado de entradas sector+fila+asiento funcionando.
+
 ### 2026-07-09 — Invitaciones: PMR con acompañante, desplegable de tipos agrupado y botón «Asignar todas»
 
 - **Categoría PMR con entrada de acompañante.** Nueva casilla **PMR** al configurar categorías

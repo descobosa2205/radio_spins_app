@@ -18252,6 +18252,37 @@ def venue_seatmap_bg_upload(vid):
         s.close()
 
 
+@app.post("/recintos/<vid>/mapa/importar-excel", endpoint="venue_seatmap_import_xlsx")
+@admin_required
+def venue_seatmap_import_xlsx(vid):
+    """Importa un plano de butacas «dibujado» en un Excel (cada celda con número = una butaca con
+    ese número; blanco = hueco/pasillo; textos = títulos/sectores/etiquetas de fila). Solo PARSEA
+    (no almacena el archivo) y devuelve los bloques (motor puro seatmap_import.py); venue_map.js
+    los convierte en secciones grid y las coloca en el lienzo — el mapa se guarda después con el
+    «Guardar mapa» normal. Se puede llamar varias veces para ir AÑADIENDO bloques al recinto."""
+    if not can_edit_catalogs():
+        return jsonify({"ok": False, "error": "Sin permisos para editar el recinto."}), 403
+    s = db()
+    try:
+        venue = s.get(Venue, to_uuid(vid))
+        if not venue:
+            abort(404)
+    finally:
+        s.close()
+    f = request.files.get("file")
+    if not f or not getattr(f, "filename", ""):
+        return jsonify({"ok": False, "error": "No se ha recibido ningún archivo."}), 400
+    try:
+        import seatmap_import
+        plan = seatmap_import.parse_seatmap_workbook(f.read())
+    except ValueError as ve:
+        return jsonify({"ok": False, "error": str(ve)}), 400
+    except Exception:
+        return jsonify({"ok": False, "error": "No se pudo interpretar el archivo."}), 400
+    plan["ok"] = True
+    return jsonify(plan)
+
+
 # ----------- FORMATOS de ticketing del recinto (subpestañas: plano + aforos por formato) -----------
 
 

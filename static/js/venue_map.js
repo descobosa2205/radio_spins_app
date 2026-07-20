@@ -119,6 +119,7 @@
     var canEdit = host.dataset.canEdit === '1';
     var saveUrl = host.dataset.saveUrl || '';
     var bgUploadUrl = host.dataset.bgUploadUrl || '';
+    var importUrl = host.dataset.importUrl || '';
 
     var payload = {};
     try { payload = JSON.parse(document.getElementById('venueMapData').textContent || '{}'); } catch(e){}
@@ -196,6 +197,8 @@
         '<button type="button" class="vmap-addbtn vmap-addbtn--tool" data-tool="stair" title="ESCALERA: arrástrala sobre una butaca (ocupa su sitio), entre dos (las separa) o a un lado (la grada crece)"><i class="fa fa-stairs"></i><span>Escalera</span></button>' +
         '<button type="button" class="vmap-addbtn vmap-addbtn--tool" data-tool="rowsep" title="PASILLO horizontal: arrástralo entre dos filas"><i class="fa fa-grip-lines"></i><span>Pasillo</span></button>' +
         '<button type="button" class="vmap-addbtn vmap-addbtn--tool" data-tool="renum" title="NÚMERO: arrástralo a una butaca para cambiar su número">№<span>Número</span></button>' +
+        (importUrl ? '<span class="vmap-addsep"></span>' +
+        '<button type="button" class="vmap-addbtn" data-vm-import title="Importar bloques de butacas desde un Excel: cada celda con un número es una butaca con ESE número, las celdas en blanco son huecos/pasillos y los textos, títulos y filas (F16…). Se puede repetir para ir AÑADIENDO bloques hasta completar el recinto."><i class="fa fa-file-excel"></i><span>Importar Excel</span></button>' : '') +
       '</div>' : '') +
       '<div class="vmap-body">' +
         '<div class="vmap-canvas">' +
@@ -373,8 +376,12 @@
     function rowLabelOf(s, rowIdx){
       // «Primera fila» configurable: rowStart 3 → las filas se etiquetan 3,4,5… (o C,D,E… por
       // letras). El 0 es un valor VÁLIDO (hay recintos con fila 0), no «ausente».
+      // rowDir 'desc': las etiquetas DESCIENDEN con el índice interno (la fila rowStart es la de
+      // ABAJO del dibujo) — para calcar planos donde la fila 1 está delante sin espejar la grada.
+      // Paridad con seat_lookup de seatmap_calc.py.
       var st = parseInt(s.rowStart,10); if(isNaN(st)) st = 1;
-      var n = st - 1 + rowIdx;
+      var idx = (s.rowDir==='desc') ? ((parseInt(s.rows,10)||1) - rowIdx + 1) : rowIdx;
+      var n = st - 1 + idx;
       return (s.rowScheme==='alpha') ? alphaLabel(n) : String(n);
     }
     function modsOf(s, rowIdx){
@@ -1634,8 +1641,14 @@
               '<input type="number" class="form-control form-control-sm" data-p="num_start" value="'+nm.start+'" min="0" title="Primera butaca">'+
               '<select class="form-select form-select-sm" data-p="num_mode" title="Numeración de las butacas"><option value="seq"'+(nm.mode==='seq'?' selected':'')+'>Consecutivos</option><option value="odd"'+(nm.mode==='odd'?' selected':'')+'>Impares</option><option value="even"'+(nm.mode==='even'?' selected':'')+'>Pares</option></select>'+
               '<select class="form-select form-select-sm" data-p="num_dir"><option value="ltr"'+(nm.dir==='ltr'?' selected':'')+'>Izq → der</option><option value="rtl"'+(nm.dir==='rtl'?' selected':'')+'>Der → izq</option></select></div>';
+            var _desc = s.rowDir==='desc';
             html += '<div class="vmap-numrow"><label>Filas</label>'+
-              '<select class="form-select form-select-sm" data-p="rowScheme"><option value="num"'+((s.rowScheme||'num')==='num'?' selected':'')+'>1, 2, 3…</option><option value="alpha"'+(s.rowScheme==='alpha'?' selected':'')+'>A, B, C…</option></select>'+
+              '<select class="form-select form-select-sm" data-p="rowSchemeDir" title="Cómo se etiquetan las filas. «Desc.» = la primera fila es la de ABAJO del dibujo (planos calcados donde la fila 1 está delante)">'+
+                '<option value="num"'+((s.rowScheme||'num')==='num'&&!_desc?' selected':'')+'>1, 2, 3…</option>'+
+                '<option value="alpha"'+(s.rowScheme==='alpha'&&!_desc?' selected':'')+'>A, B, C…</option>'+
+                '<option value="num_desc"'+((s.rowScheme||'num')==='num'&&_desc?' selected':'')+'>…3, 2, 1 (desc.)</option>'+
+                '<option value="alpha_desc"'+(s.rowScheme==='alpha'&&_desc?' selected':'')+'>…C, B, A (desc.)</option>'+
+              '</select>'+
               '<input type="number" class="form-control form-control-sm" data-p="rowStart" value="'+(parseInt(s.rowStart,10)||1)+'" min="1" title="Primera fila: 3 = empieza en la fila 3 (o en la C si van por letras)">'+
               '<select class="form-select form-select-sm" data-p="gapPolicy" title="Qué pasa con la numeración al poner un HUECO"><option value="skip"'+((s.gapPolicy||'skip')==='skip'?' selected':'')+'>Hueco salta nº</option><option value="renumber"'+(s.gapPolicy==='renumber'?' selected':'')+'>Hueco renumera</option></select></div>';
             var nStairs = (s.stairs||[]).length, nMods = 0;
@@ -2070,6 +2083,12 @@
         if(p==='num_start'){ var v0=parseInt(e.target.value,10); o.num.start = isNaN(v0)?1:v0; }  // 0 es válido
         else if(p==='num_mode'){ o.num.mode = e.target.value; o.num.step = (e.target.value==='seq'?1:2); }
         else o.num.dir = e.target.value;
+      } else if(p==='rowSchemeDir'){
+        // Un solo selector para dos campos: esquema (números/letras) + sentido de las etiquetas
+        // (rowDir 'desc' = la fila rowStart es la de abajo del dibujo).
+        var vRS = e.target.value;
+        o.rowScheme = (vRS.indexOf('alpha')===0) ? 'alpha' : 'num';
+        if(vRS.indexOf('_desc')!==-1) o.rowDir = 'desc'; else delete o.rowDir;
       } else if(p==='rowScheme' || p==='gapPolicy'){
         o[p] = e.target.value;
       } else if(e.target.type==='range' || e.target.type==='number'){
@@ -2121,6 +2140,99 @@
       inp.click();
     }
 
+    // ---- IMPORTAR bloques de butacas desde un Excel (plano «dibujado» en celdas) ----
+    // El servidor (seatmap_import.py) parsea el libro y devuelve BLOQUES neutros: rejilla con
+    // huecos (celdas en blanco), pasillos entre filas (filas vacías), numeración por fila donde
+    // el patrón aritmético encaja y el número EXACTO por butaca donde no. Aquí se convierten en
+    // secciones `grid` y se colocan conservando la composición de cada hoja (misma escala y
+    // posiciones relativas). Se puede repetir: cada importación AÑADE bloques debajo de lo que
+    // haya, seleccionados y listos para arrastrar/girar hasta completar el recinto.
+    function pickAndImportXlsx(){
+      if(!importUrl){ alert('No disponible.'); return; }
+      var inp=document.createElement('input'); inp.type='file';
+      inp.accept='.xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      inp.style.display='none';
+      document.body.appendChild(inp);
+      inp.addEventListener('change', function(){
+        var f=inp.files && inp.files[0]; inp.remove(); if(!f) return;
+        var fd=new FormData(); fd.append('file', f);
+        // El loader global aparece solo en fetch >300 ms (layout.html); no hay que gestionarlo aquí.
+        fetch(importUrl, {method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'}, body: fd})
+          .then(function(res){ return res.json().then(function(j){ return {ok:res.ok, j:j}; }); })
+          .then(function(r){
+            if(!(r.ok && r.j.ok && (r.j.sheets||[]).length)){ alert((r.j && r.j.error) || 'No se pudo importar el archivo.'); return; }
+            applyImportedPlan(r.j);
+          })
+          .catch(function(){ alert('No se pudo importar el archivo.'); });
+      });
+      inp.click();
+    }
+    function applyImportedPlan(plan){
+      var p = prevailingPitch();
+      var rg = Math.max(8, Math.round(p*30/26));   // misma proporción butaca/fila que el 26/30 de siempre
+      pushUndo('importxlsx');
+      var bb = contentBounds();
+      var ox = bb ? bb.mx : 0;
+      var oy = bb ? (bb.My + 4*rg) : 0;            // debajo de lo que ya haya en el plano
+      var newIds = [], nBlocks = 0, nSeats = 0, prefixes = {};
+      (plan.sheets||[]).forEach(function(sh){
+        var items = sh.blocks || [], labels = sh.labels || [];
+        if(!items.length && !labels.length) return;
+        var r0=Infinity, rMax=-Infinity, c0=Infinity;
+        items.forEach(function(b){ r0=Math.min(r0,b.row_span[0]); rMax=Math.max(rMax,b.row_span[1]); c0=Math.min(c0,b.col_span[0]); });
+        labels.forEach(function(lb){ r0=Math.min(r0,lb.row_span[0]); rMax=Math.max(rMax,lb.row_span[1]); c0=Math.min(c0,lb.col_span[0]); });
+        function colX(c){ return ox + (c - c0)*p; }
+        function rowY(r){ return oy + (r - r0)*rg; }
+        items.forEach(function(b){
+          var sec = {id:nid('s'), kind:'grid', name:(b.name||'Grada'), rot:0,
+                     rows:b.rows, cols:b.cols, pitch:p, rowGap:rg,
+                     x: colX(b.col_span[0]) + (b.cols-1)/2*p,
+                     y: rowY(b.row_span[0]) + (b.rows-1)/2*rg,
+                     num: b.num || {start:1, mode:'seq', dir:'ltr'},
+                     gapPolicy: b.gap_policy || 'skip',
+                     rowScheme: b.row_scheme || 'num',
+                     rowStart: (b.row_start!=null ? b.row_start : 1)};
+          sec.num.step = (sec.num.mode==='seq' ? 1 : 2);
+          if(b.alias) sec.aliases = b.alias;
+          if(b.row_dir==='desc') sec.rowDir = 'desc';
+          if(b.row_nums && Object.keys(b.row_nums).length) sec.rowNums = b.row_nums;
+          if(b.num_overrides && Object.keys(b.num_overrides).length) sec.numOverrides = b.num_overrides;
+          if(b.gaps && Object.keys(b.gaps).length){
+            sec.mods = {};
+            Object.keys(b.gaps).forEach(function(ri){ sec.mods[ri] = {gaps: b.gaps[ri]}; });
+          }
+          if(b.row_seps && b.row_seps.length) sec.rowSeps = b.row_seps.slice();
+          if(b.row_prefix) prefixes[b.row_prefix] = 1;
+          sections.push(sec); newIds.push(sec.id);
+          nBlocks++; nSeats += (b.seat_count||0);
+        });
+        // Zonas etiquetadas SIN butacas del plano (p. ej. «PALCO VIP»): entran como rectángulo
+        // con su nombre (zona de pie con aforo 0) para verlas y sustituirlas por lo que toque.
+        labels.forEach(function(lb){
+          var secL = {id:nid('s'), kind:'floor', name:(lb.text||'Zona'), rot:0, cap:0,
+                      x:(colX(lb.col_span[0])+colX(lb.col_span[1]))/2,
+                      y:(rowY(lb.row_span[0])+rowY(lb.row_span[1]))/2,
+                      w:(lb.col_span[1]-lb.col_span[0]+1)*p,
+                      h:(lb.row_span[1]-lb.row_span[0]+1)*rg};
+          sections.push(secL); newIds.push(secL.id);
+        });
+        oy = rowY(rMax) + 5*rg;   // la siguiente hoja, debajo de esta
+      });
+      // Lo importado queda SELECCIONADO: se ve resaltado y se puede mover en grupo.
+      dsel = {}; sel = {}; selId = null; dselO = {};
+      newIds.forEach(function(id){ dselO[id] = 1; });
+      invalidate(); markSummary(); renderSide(); fitAll();
+      var msg = 'Importados '+nBlocks+' bloque(s) con '+nSeats.toLocaleString('es-ES')+' butacas.';
+      var pfx = Object.keys(prefixes);
+      if(pfx.length) msg += '\nLas filas del Excel llevaban prefijo «'+pfx.join('», «')+'» (F16 → fila 16): se guarda solo el número.';
+      if((plan.warnings||[]).length){
+        msg += '\n\nAvisos:\n· ' + plan.warnings.slice(0,8).join('\n· ');
+        if(plan.warnings.length>8) msg += '\n· (+'+(plan.warnings.length-8)+' más)';
+      }
+      msg += '\n\nColoca y orienta los bloques (arrastrar / girar) y pulsa «Guardar mapa».';
+      alert(msg);
+    }
+
     // El MISMO handler sirve para el panel lateral y para la barra de añadir de arriba
     // (los botones comparten los data-add / data-arm-seat / data-tool…).
     var addbar = host.querySelector('[data-vm-addbar]');
@@ -2142,6 +2254,7 @@
       if(addbar && !addbar.contains(e.target)) host.querySelectorAll('.vmap-addgroup.open').forEach(function(g){ g.classList.remove('open'); });
     });
     function sideClickBody(e){
+      if(e.target.closest('[data-vm-import]')){ pickAndImportXlsx(); return; }
       if(e.target.closest('[data-bg-upload]')){ pickAndUploadBg(); return; }
       if(e.target.closest('[data-bg-lock]')){ var b1=elements.find(function(x){return x.type==='bgimage';}); if(b1){ pushUndo('bglock'); b1.locked=!b1.locked; if(b1.locked && selId===b1.id) selId=null; renderSide(); queueRender(); } return; }
       if(e.target.closest('[data-bg-remove]')){ var b2=elements.find(function(x){return x.type==='bgimage';}); var i2=b2?elements.indexOf(b2):-1; if(i2>=0){ pushUndo('bgdel'); elements.splice(i2,1); if(selId===b2.id) selId=null; renderSide(); queueRender(); } return; }
@@ -3039,8 +3152,11 @@
           var geo=secRows(s0), minRow=null;
           geo.rows.forEach(function(row){ row.seats.forEach(function(p){ if(dsel[s0.id+'|'+row.rowIdx+'|'+p.slot]) minRow=(minRow==null?row.rowIdx:Math.min(minRow,row.rowIdx)); }); });
           if(minRow==null) return;
-          // La PRIMERA fila seleccionada pasa a llamarse n; el resto de la sección sigue en orden.
-          var rs0 = n - (minRow - 1);
+          // La PRIMERA fila seleccionada pasa a llamarse n; el resto de la sección sigue en orden
+          // (con etiquetas descendentes, la cuenta va desde la fila de abajo).
+          var rs0 = (s0.rowDir==='desc')
+            ? (n - ((parseInt(s0.rows,10)||1) - minRow))
+            : (n - (minRow - 1));
           // Por letras no existen filas antes de la A: si la combinación deja filas anteriores
           // sin letra (p. ej. «A» en la fila 3), se ancla la PRIMERA fila de la sección a la A.
           if(scheme==='alpha' && rs0 < 1) rs0 = 1;

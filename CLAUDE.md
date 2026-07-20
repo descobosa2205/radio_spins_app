@@ -241,6 +241,23 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   "¿Para quién son?" y "Entrega". **No** aplicar en pasos **multicampo** (asistente de conciertos
   `_concert_wizard_modal.html`, alta de medios `media_outlets.html`), que conservan "Siguiente".
 
+- **Mapa de butacas del recinto (diseñador, pestaña Ticketing)**: `VenueSeatMap.layout_json`
+  paramétrico (secciones grid/arc/box/floor/points) editado por `static/js/venue_map.js`; motor puro
+  espejo en `seatmap_calc.py` — ⚠️ paridad OBLIGATORIA `secRows` (JS) ↔ `expand_section` (Python) ↔
+  `VenueMapGeom`, y `rowLabelOf` ↔ `seat_lookup`. Etiquetas de fila: `rowStart`/`rowScheme` y
+  **`rowDir:'desc'`** (la fila `rowStart` es la de ABAJO del dibujo — para calcar planos donde la F1
+  está delante sin espejar la grada; selector «Filas» del panel). **Importar desde Excel**: botón
+  «Importar Excel» de la barra → `POST /recintos/<vid>/mapa/importar-excel`
+  (`venue_seatmap_import_xlsx`, solo parsea, no almacena) → motor puro **`seatmap_import.py`**:
+  celda con número = butaca con ESE número; blanco = hueco (columnas) / pasillo `rowSeps` (filas
+  vacías); merges de cabecera → nombre del bloque + «SECTOR N» en `aliases`; `F16…` → etiquetas de
+  fila; numeración por fila si el patrón aritmético encaja (`num`/`rowNums`) y si no
+  **`numOverrides` exactos — NUNCA interpolar**; merges grandes con texto sin números (PALCO VIP) →
+  `floor` cap 0; merges vacíos = decoración (ignorar). El JS (`applyImportedPlan`) convierte los
+  bloques en secciones grid conservando la composición de la hoja, los deja seleccionados y cada
+  importación AÑADE bloques (varios archivos → un recinto). Verificado 1:1 con un plano real de
+  11.968 butacas.
+
 - **Integración Enterticket (ticketing en tiempo casi real)**: cliente HTTP en `enterticket_utils.py`
   (credenciales `ENTERTICKET_USER/PASSWORD` en `.env`; sin ellas TODO desactivado). ⚠️ La API solo
   admite **UN token activo por cuenta** → se comparte en BD (`EnterticketMeta` id=1) y `_et_call`

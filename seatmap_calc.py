@@ -286,8 +286,12 @@ def seat_lookup(layout: dict) -> dict:
         # «Primera fila» configurable (3 → 3,4,5… / C,D,E…). El 0 es VÁLIDO (fila 0), no ausencia:
         # paridad con rowLabelOf del JS (solo None/no numérico caen al 1).
         row_start = _i(sec.get("rowStart"), 1) if sec.get("rowStart") is not None else 1
+        # rowDir 'desc': las etiquetas DESCIENDEN con el índice interno (la fila `rowStart` es la
+        # ÚLTIMA fila, la de abajo del dibujo) — para calcar planos donde la fila 1 está delante
+        # sin espejar la grada. Paridad con rowLabelOf del JS.
+        row_desc = (sec.get("rowDir") == "desc")
         for r in range(1, n_rows + 1):
-            n_lbl = row_start - 1 + r
+            n_lbl = row_start - 1 + ((n_rows - r + 1) if row_desc else r)
             label = _alpha_label(n_lbl) if alpha else str(n_lbl)
             rows_map[_norm_label(label)] = r
             rows_map.setdefault(_norm_label(str(r)), r)

@@ -335,11 +335,18 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (`PERSON_LOYALTY_BRANDS`, casada por nombre, con `icon` del **tipo**: avión/tren/hotel/gasolina/
   compras — blanco en círculo translúcido) + nombre + nº; **al pinchar copia el número** (funciona
   también en solo lectura). Marca desconocida → color neutro e icono adivinado por palabras clave
-  (`_person_loyalty_icon_guess`). Matrícula = placa española + nombre del vehículo.
+  (`_person_loyalty_icon_guess`). **Matrícula = pastilla** (`.docs-plate-pill` en `.docs-pills`, estética
+  de placa española) del tamaño de las de fidelización, en fila; al pinchar copia la matrícula.
+  **Domicilio**: `UserProfile.address`/`Promoter.address`/`PersonDocument.address`. Al subir un **DNI**
+  el OCR lee el domicilio del reverso (`findAddress`, best-effort) y `_person_doc_apply_to_profile` lo
+  vuelca al **domicilio** de la ficha si está vacío (editable). Campo «Domicilio» en el modal (solo DNI),
+  en las fichas y en las altas.
   **Resumen en la ficha principal**: en la pestaña principal (personal → «Datos»; tercero →
   «Información general») se muestra una **vista compacta** (solo campos rellenos) con los **datos a la
   izquierda y el DNI a la derecha** (+ pastillas/vehículos debajo), reutilizando `person_docs.js` en
-  solo lectura (`data-can-edit=""`, subconjunto de `[data-docs-grid]`). En «Datos» de personal el
+  solo lectura (`data-can-edit=""`, subconjunto de `[data-docs-grid]`). Con **`data-docs-compact`** la
+  tarjeta de identidad muestra solo la MINIATURA + los datos que NO están ya en la ficha (p. ej. la
+  caducidad del DNI), para no duplicar. En «Datos» de personal el
   formulario de edición queda oculto tras un botón *Editar* (toggle `ficha_inline.js`:
   `data-edit-toggle="#personDatosForm"` + `data-view`). Endpoints por ficha para heredar permisos:
   `personnel_document_save`/`_delete` (mapeados a `personal.usuarios.accesos` en

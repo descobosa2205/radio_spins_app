@@ -2227,6 +2227,19 @@ body.vmap-max-open { overflow: hidden; }
 .docs-pill__copied { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; border-radius:999px; background:rgba(0,0,0,.55); color:#fff; font-size:.72rem; font-weight:700; opacity:0; pointer-events:none; transition:opacity .12s; }
 .docs-pill.is-copied .docs-pill__copied { opacity:1; }
 
+/* Matrícula = pastilla con estética de placa española, del tamaño de las de fidelización. */
+.docs-plate-pill { position:relative; display:inline-flex; align-items:stretch; gap:0; height:36px; border:2px solid #111; border-radius:8px; background:#fff; overflow:hidden; user-select:none; box-shadow:0 2px 6px rgba(0,0,0,.14); }
+.docs-plate-pill[data-doc-copy] { cursor:pointer; }
+.docs-plate-pill[data-doc-copy]:hover { box-shadow:0 4px 12px rgba(0,0,0,.22); }
+.docs-plate-pill__eu { display:flex; flex-direction:column; align-items:center; justify-content:center; width:22px; background:#003399; color:#fff; font-weight:800; font-size:.7rem; line-height:1; gap:2px; flex:0 0 auto; }
+.docs-plate-pill__stars { color:#ffcc00; font-size:.55rem; line-height:1; }
+.docs-plate-pill__num { display:flex; align-items:center; font-family:"Arial Narrow",Arial,sans-serif; font-weight:800; font-size:1.05rem; letter-spacing:.08em; color:#111; padding:0 .55rem; white-space:nowrap; }
+.docs-plate-pill__name { display:flex; align-items:center; font-size:.78rem; font-weight:700; color:#6c757d; white-space:nowrap; border-left:1px dashed #e0e0e0; padding:0 .55rem; }
+.docs-plate-pill:hover .docs-pill__acts { opacity:1; }
+.docs-plate-pill .docs-pill__acts { align-items:center; padding-right:.35rem; }
+.docs-plate-pill .docs-pill__copied { border-radius:6px; }
+.docs-plate-pill.is-copied .docs-pill__copied { opacity:1; }
+
 /* Resumen de la ficha principal: datos a la izquierda (solo campos rellenos) + DNI a la derecha. */
 .psum-list { margin:0; }
 .psum-list > div { display:flex; justify-content:space-between; gap:1rem; padding:.35rem 0; border-top:1px dashed #eef0f2; font-size:.92rem; }

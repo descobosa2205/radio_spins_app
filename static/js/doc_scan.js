@@ -240,10 +240,23 @@
     return '';
   }
 
+  // Domicilio del DNI (reverso, tras «DOMICILIO»). Best-effort: no está en el MRZ; texto libre.
+  function findAddress(text) {
+    var up = String(text).toUpperCase();
+    var i = up.indexOf('DOMICILIO');
+    if (i < 0) return '';
+    var after = String(text).slice(i + 9);
+    // Corta en la siguiente etiqueta conocida del reverso o al empezar el MRZ (rellenos '<').
+    var stop = after.search(/(LUGAR\s+DE\s+NACIMIENTO|HIJ[OA]\s+DE|EQUIPO|IDESP|N[º°]?\s*SOPORT|<<|[A-Z0-9<]{12,})/i);
+    var chunk = (stop > 0 ? after.slice(0, stop) : after.slice(0, 90));
+    chunk = chunk.replace(/^[\s:.\-]+/, '').replace(/[^0-9A-Za-zÁÉÍÓÚÑÜáéíóúñü.,ºª/\-\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    return chunk.length >= 5 ? chunk : '';
+  }
+
   // Extrae los campos oficiales del texto OCR combinado (puro, no toca el DOM).
   function extractFields(rawText, kind) {
     var mrz = (kind === 'PASSPORT') ? parseMrzTd3(rawText) : parseMrz(rawText);
-    var out = { number: '', full_name: '', birth: '', expiry: '', issue: '' };
+    var out = { number: '', full_name: '', birth: '', expiry: '', issue: '', address: '' };
     out.number = (kind === 'PASSPORT') ? (mrz.number || '') : (findDni(rawText) || '');
     out.full_name = mrz.fullName || '';
     out.birth = mrz.birth || '';
@@ -252,6 +265,7 @@
     if (!out.birth && dates.length) out.birth = dates[0];
     if (!out.expiry && dates.length > 1) out.expiry = dates[dates.length - 1];
     if (kind === 'PASSPORT') out.issue = findIssueDate(rawText, out.expiry) || '';
+    if (kind === 'DNI') out.address = findAddress(rawText);
     return out;
   }
 

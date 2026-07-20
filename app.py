@@ -17730,6 +17730,7 @@ def promoters_view():
                     kind=kind,
                     first_name=first_name or None,
                     last_name=last_name or None,
+                    address=(request.form.get("address") or "").strip() or None,
                 )
                 session.add(p)
                 session.flush()
@@ -17786,6 +17787,8 @@ def promoter_update(pid):
     p.tax_id = (request.form.get("tax_id") or p.tax_id or "").strip() or None
     p.contact_email = (request.form.get("contact_email") or p.contact_email or "").strip() or None
     p.contact_phone = (request.form.get("contact_phone") or p.contact_phone or "").strip() or None
+    if "address" in request.form:
+        p.address = (request.form.get("address") or "").strip() or None
     if "kind" in request.form:
         _kind = (request.form.get("kind") or "").strip().lower()
         p.kind = _kind if _kind in ("empresa", "institucion") else None
@@ -33534,6 +33537,7 @@ def _ensure_user_profile(session_db, user: User, legacy_full_seed: bool = False,
         last_name=kwargs.get("last_name"),
         dni=kwargs.get("dni"),
         birth_date=kwargs.get("birth_date"),
+        address=kwargs.get("address"),
         mobile_phones=_normalize_phone_rows(kwargs.get("mobile_phones") or []),
         departments=_normalize_departments(kwargs.get("departments") or []),
         assigned_artist_ids=_normalize_assigned_artist_ids(kwargs.get("assigned_artist_ids") or []),
@@ -37861,6 +37865,7 @@ def personnel_view():
                 last_name=last_name or None,
                 dni=(request.form.get("dni") or "").strip() or None,
                 birth_date=parse_optional_date(request.form.get("birth_date")),
+                address=(request.form.get("address") or "").strip() or None,
                 mobile_phones=_parse_phone_rows_from_form(request.form),
                 departments=_normalize_departments(request.form.getlist("departments")),
                 assigned_artist_ids=_normalize_assigned_artist_ids(request.form.getlist("assigned_artist_ids")),
@@ -38009,6 +38014,7 @@ def _person_document_payload(doc):
         "birth_date": doc.birth_date.isoformat() if doc.birth_date else "",
         "expiry_date": doc.expiry_date.isoformat() if doc.expiry_date else "",
         "issue_date": doc.issue_date.isoformat() if doc.issue_date else "",
+        "address": doc.address or "",
         "front_url": doc.front_url or "",
         "back_url": doc.back_url or "",
         "brand": brand,
@@ -38031,12 +38037,15 @@ def _person_doc_apply_to_profile(session_db, ot, owner, doc):
     if doc.kind not in {"DNI", "LICENSE", "PASSPORT"}:
         return
     apply_number_as_dni = (doc.kind == "DNI")
+    doc_address = (getattr(doc, "address", None) or "").strip()
     if ot == "USER":
         profile = _ensure_user_profile(session_db, owner, legacy_full_seed=False)
         if apply_number_as_dni and doc.doc_number and not (profile.dni or "").strip():
             profile.dni = doc.doc_number
         if doc.birth_date and not profile.birth_date:
             profile.birth_date = doc.birth_date
+        if doc_address and not (getattr(profile, "address", None) or "").strip():
+            profile.address = doc_address
         if doc.full_name:
             first, last = _split_full_name(doc.full_name)
             if first and not (profile.first_name or "").strip():
@@ -38046,6 +38055,8 @@ def _person_doc_apply_to_profile(session_db, ot, owner, doc):
     elif ot == "PROMOTER":
         if apply_number_as_dni and doc.doc_number and not (owner.tax_id or "").strip():
             owner.tax_id = doc.doc_number
+        if doc_address and not (getattr(owner, "address", None) or "").strip():
+            owner.address = doc_address
         if doc.full_name:
             first, last = _split_full_name(doc.full_name)
             if first and not (owner.first_name or "").strip():
@@ -38102,6 +38113,7 @@ def _person_document_save(session_db, ot, owner):
     doc.birth_date = parse_optional_date(request.form.get("birth_date"))
     doc.expiry_date = parse_optional_date(request.form.get("expiry_date"))
     doc.issue_date = parse_optional_date(request.form.get("issue_date"))
+    doc.address = (request.form.get("address") or "").strip() or None
 
     front = _person_doc_store_image(request.files.get("front"))
     if front:
@@ -38168,6 +38180,7 @@ def _person_document_create_from_intake(session_db, ot, owner):
         birth_date=parse_optional_date(request.form.get("doc_birth_date")),
         expiry_date=parse_optional_date(request.form.get("doc_expiry_date")),
         issue_date=parse_optional_date(request.form.get("doc_issue_date")),
+        address=(request.form.get("doc_address") or "").strip() or None,
         front_url=front, back_url=back,
         created_by_user_id=to_uuid(state.get("user_id")),
         created_by_nick=(state.get("nick") or "").strip() or None,
@@ -38271,6 +38284,7 @@ def personnel_detail_view(user_id):
                 profile.last_name = (request.form.get("last_name") or "").strip() or None
                 profile.dni = (request.form.get("dni") or "").strip() or None
                 profile.birth_date = parse_optional_date(request.form.get("birth_date"))
+                profile.address = (request.form.get("address") or "").strip() or None
                 profile.mobile_phones = _parse_phone_rows_from_form(request.form)
                 profile.departments = _normalize_departments(request.form.getlist("departments"))
                 _prod_ids = _normalize_assigned_artist_ids(request.form.getlist("assigned_artist_ids_produccion"))

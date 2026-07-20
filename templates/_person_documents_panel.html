@@ -40,7 +40,7 @@
   </div>
   <div data-docs-section="PLATE" class="docs-section d-none">
     <h6 class="docs-section__title"><i class="fa fa-car me-1"></i>Vehículos</h6>
-    <div class="docs-grid docs-grid--plates" data-docs-grid="PLATE"></div>
+    <div class="docs-pills" data-docs-grid="PLATE"></div>
   </div>
 
   <div data-docs-empty class="text-muted small py-4 text-center">
@@ -117,6 +117,10 @@
             <div class="col-md-6" data-doc-field="issue_date">
               <label class="form-label">Fecha de emisión</label>
               <input type="date" name="issue_date" class="form-control">
+            </div>
+            <div class="col-12" data-doc-field="address">
+              <label class="form-label">Domicilio</label>
+              <input type="text" name="address" class="form-control" placeholder="Se autorrellena del DNI; se puede editar">
             </div>
             <div class="col-md-6" data-doc-field="company">
               <label class="form-label">Compañía</label>

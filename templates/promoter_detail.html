@@ -36,18 +36,19 @@
   {% if tab == 'general' %}
     {# Resumen de documentos: DNI a la derecha, datos principales a la izquierda, tarjetas en pastillas. #}
     {% if person_documents %}
-    <div class="card mb-4" id="promoterDocsSummary" data-person-docs data-can-edit="">
+    <div class="card mb-4" id="promoterDocsSummary" data-person-docs data-can-edit="" data-docs-compact>
       <div class="card-body">
         <script type="application/json" data-person-docs-json>{{ person_documents|tojson }}</script>
         <script type="application/json" data-loyalty-brands-json>{{ loyalty_brands|tojson }}</script>
         <div class="row g-4">
           <div class="col-lg-7 col-xl-8">
-            {% if promoter.tax_id or promoter.contact_email or promoter.contact_phone %}
+            {% if promoter.tax_id or promoter.contact_email or promoter.contact_phone or promoter.address %}
             <h6 class="psum-docs__title">Datos</h6>
             <dl class="psum-list">
               {% if promoter.tax_id %}<div><span class="psum-k">NIF / CIF</span><span class="psum-v">{{ promoter.tax_id }}</span></div>{% endif %}
               {% if promoter.contact_email %}<div><span class="psum-k">Email</span><span class="psum-v">{{ promoter.contact_email }}</span></div>{% endif %}
               {% if promoter.contact_phone %}<div><span class="psum-k">Teléfono</span><span class="psum-v">{{ promoter.contact_phone }}</span></div>{% endif %}
+              {% if promoter.address %}<div><span class="psum-k">Domicilio</span><span class="psum-v">{{ promoter.address }}</span></div>{% endif %}
             </dl>
             {% endif %}
           </div>
@@ -72,7 +73,7 @@
         </div>
         <div data-docs-section="PLATE" class="docs-section d-none mt-3">
           <h6 class="psum-docs__title">Vehículos</h6>
-          <div class="docs-grid docs-grid--plates" data-docs-grid="PLATE"></div>
+          <div class="docs-pills" data-docs-grid="PLATE"></div>
         </div>
       </div>
     </div>
@@ -344,6 +345,7 @@
           <div class="col-md-3"><label class="form-label">Logo</label><input type="file" class="form-control" name="logo" accept="image/*"></div>
           <div class="col-md-6"><label class="form-label">Email principal</label><input type="email" class="form-control" name="contact_email" value="{{ promoter.contact_email or '' }}"></div>
           <div class="col-md-6"><label class="form-label">Teléfono</label><input class="form-control" name="contact_phone" value="{{ promoter.contact_phone or '' }}"></div>
+          <div class="col-12"><label class="form-label">Domicilio</label><input class="form-control" name="address" value="{{ promoter.address or '' }}"></div>
           {% set sl = promoter.social_links or {} %}
           <div class="col-12"><label class="form-label mb-1">Redes sociales <span class="text-muted small fw-normal">(opcional, para menciones)</span></label>
             <div class="row g-2">

@@ -45,7 +45,7 @@
     </div>
 
     {# ---------- Vista compacta: solo los campos rellenos + DNI a la derecha ---------- #}
-    <div id="personDatosView" data-person-docs data-can-edit="">
+    <div id="personDatosView" data-person-docs data-can-edit="" data-docs-compact>
       <script type="application/json" data-person-docs-json>{{ person_documents|tojson }}</script>
       <script type="application/json" data-loyalty-brands-json>{{ loyalty_brands|tojson }}</script>
       <div class="row g-4">
@@ -55,6 +55,7 @@
             <div><span class="psum-k">Email</span><span class="psum-v">{{ user.email }}</span></div>
             {% if profile.dni %}<div><span class="psum-k">DNI</span><span class="psum-v">{{ profile.dni }}</span></div>{% endif %}
             {% if profile.birth_date %}<div><span class="psum-k">Fecha de nacimiento</span><span class="psum-v">{{ profile.birth_date.strftime('%d/%m/%Y') }}</span></div>{% endif %}
+            {% if profile.address %}<div><span class="psum-k">Domicilio</span><span class="psum-v">{{ profile.address }}</span></div>{% endif %}
             {% for phone in profile.mobile_phones or [] %}{% if phone.phone %}<div><span class="psum-k">{{ phone.label or 'Móvil' }}</span><span class="psum-v">{{ phone.phone }}</span></div>{% endif %}{% endfor %}
           </dl>
           {% if profile.departments %}<div class="d-flex flex-wrap gap-1 mt-3">{% for dept in profile.departments %}<span class="badge text-bg-light border">{{ dept }}</span>{% endfor %}</div>{% endif %}
@@ -80,7 +81,7 @@
       </div>
       <div data-docs-section="PLATE" class="docs-section d-none mt-3">
         <h6 class="psum-docs__title">Vehículos</h6>
-        <div class="docs-grid docs-grid--plates" data-docs-grid="PLATE"></div>
+        <div class="docs-pills" data-docs-grid="PLATE"></div>
       </div>
       <div class="mt-3"><a class="small text-decoration-none" href="{{ url_for('personnel_detail_view', user_id=user.id, tab='documentos') }}"><i class="fa fa-id-card me-1"></i>Ver y gestionar documentos</a></div>
     </div>
@@ -96,6 +97,7 @@
         <div class="col-md-4"><label class="form-label">DNI</label><input type="text" name="dni" class="form-control" value="{{ profile.dni or '' }}"></div>
         <div class="col-md-4"><label class="form-label">Fecha de nacimiento</label><input type="date" name="birth_date" class="form-control" value="{{ profile.birth_date.isoformat() if profile.birth_date else '' }}"></div>
         <div class="col-md-4"><label class="form-label">Foto</label><input type="file" name="photo" class="form-control" accept="image/*"></div>
+        <div class="col-12"><label class="form-label">Domicilio</label><input type="text" name="address" class="form-control" value="{{ profile.address or '' }}"></div>
         <div class="col-12">
           <label class="form-label d-block">Departamentos</label>
           <div class="row g-2">

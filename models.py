@@ -694,6 +694,7 @@ class Promoter(Base):
     tax_id = Column(Text)
     contact_email = Column(Text)
     contact_phone = Column(Text)
+    address = Column(Text)            # domicilio (se autorrellena del DNI; editable)
 
     # Redes sociales del tercero (p. ej. del fotógrafo) para menciones. Dict opcional:
     # {"instagram": ..., "tiktok": ..., "twitter": ..., "facebook": ..., "youtube": ...}.
@@ -1865,6 +1866,7 @@ class UserProfile(Base):
     last_name = Column(Text)
     dni = Column(Text)
     birth_date = Column(Date)
+    address = Column(Text)            # domicilio (se autorrellena del DNI; editable)
     mobile_phones = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     departments = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     # Unión (compatibilidad). Las facetas separan qué artistas se asignan por Producción y por Sello
@@ -3790,6 +3792,7 @@ class PersonDocument(Base):
     birth_date = Column(Date)
     expiry_date = Column(Date)
     issue_date = Column(Date)         # fecha de emisión (pasaporte)
+    address = Column(Text)            # domicilio (DNI)
     front_url = Column(Text)          # anverso / imagen principal
     back_url = Column(Text)           # reverso (DNI/carnet por las dos caras)
     extra = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
@@ -3832,6 +3835,7 @@ def ensure_person_documents_schema():
         );
         """,
         "ALTER TABLE IF EXISTS person_documents ADD COLUMN IF NOT EXISTS issue_date date;",
+        "ALTER TABLE IF EXISTS person_documents ADD COLUMN IF NOT EXISTS address text;",
         "CREATE INDEX IF NOT EXISTS idx_person_documents_owner ON person_documents(owner_type, owner_id, sort_order);",
     ]
     _exec_ddl_statements(stmts, "person_documents_schema")
@@ -5393,6 +5397,8 @@ def ensure_third_party_and_contract_sheet_schema():
         'ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS kind text;',
         # Redes sociales del tercero (fotógrafo…) para menciones.
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS social_links jsonb NOT NULL DEFAULT '{}'::jsonb;",
+        # Domicilio del tercero (se autorrellena del DNI al darlo de alta; editable).
+        "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS address text;",
 
         """
         CREATE TABLE IF NOT EXISTS promoter_companies (
@@ -5636,7 +5642,8 @@ def ensure_personnel_and_operations_schema():
         ALTER TABLE IF EXISTS user_profiles
             ADD COLUMN IF NOT EXISTS assigned_artist_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
             ADD COLUMN IF NOT EXISTS assigned_artist_ids_produccion jsonb NOT NULL DEFAULT '[]'::jsonb,
-            ADD COLUMN IF NOT EXISTS assigned_artist_ids_sello jsonb NOT NULL DEFAULT '[]'::jsonb;
+            ADD COLUMN IF NOT EXISTS assigned_artist_ids_sello jsonb NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS address text;
         """,
         """
         UPDATE user_profiles

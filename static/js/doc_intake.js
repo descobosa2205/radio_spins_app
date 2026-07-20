@@ -73,9 +73,11 @@
       function put(name, val) { var el = fieldByName(name); if (el && val && !el.value) el.value = val; }
       put('first_name', nm[0]); put('last_name', nm[1]); put('birth_date', data.birth);
       if (kind === 'DNI' && data.number) { put('dni', data.number); put('tax_id', data.number); }
+      if (kind === 'DNI' && data.address) put('address', data.address);
       function h(name, val) { var el = hidden(name); if (el) el.value = val || ''; }
       h('doc_kind', kind); h('doc_number', data.number); h('doc_full_name', data.full_name);
       h('doc_birth_date', data.birth); h('doc_expiry_date', data.expiry); h('doc_issue_date', data.issue);
+      h('doc_address', data.address);
     }
 
     function applyFace(which, canvas) {

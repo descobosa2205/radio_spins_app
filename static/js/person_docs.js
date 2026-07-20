@@ -28,6 +28,9 @@
     var saveUrl = root.dataset.saveUrl || '';
     var deleteBase = root.dataset.deleteBase || '';
     var canEdit = root.dataset.canEdit === '1';
+    // Modo compacto (resumen de la ficha principal): la tarjeta de identidad muestra solo la MINIATURA
+    // + los datos que NO están ya en la ficha (para no duplicar; p. ej. la caducidad del DNI).
+    var compact = root.hasAttribute('data-docs-compact');
     var docs = readJSON(root, '[data-person-docs-json]');
     var brands = readJSON(root, '[data-loyalty-brands-json]');
     var brandByKey = {};
@@ -86,16 +89,20 @@
       var faces = (d.kind === 'PASSPORT')
         ? ('<div class="docs-id__faces docs-id__faces--single">' + faceHtml(d.front_url, 'is-front') + '</div>')
         : ('<div class="docs-id__faces">' + faceHtml(d.front_url, 'is-front') + faceHtml(d.back_url, 'is-back') + '</div>');
-      return '<div class="docs-id" data-doc-card="' + d.id + '">' +
+      // En compacto (resumen de la ficha), la miniatura SIEMPRE se ve; de los datos, solo los que no
+      // están ya en la ficha: nombre/nacimiento fuera; el nº solo si NO es el DNI (que ya sale arriba).
+      var rows =
+        (compact ? '' : idDataRow('Nombre', d.full_name)) +
+        ((compact && d.kind === 'DNI') ? '' : idDataRow(numLabel, d.doc_number)) +
+        (compact ? '' : idDataRow('F. nacimiento', fmtDate(d.birth_date))) +
+        (d.kind === 'PASSPORT' ? idDataRow('Emisión', fmtDate(d.issue_date)) : '') +
+        idDataRow('Caducidad', fmtDate(d.expiry_date));
+      return '<div class="docs-id' + (compact ? ' docs-id--compact' : '') + '" data-doc-card="' + d.id + '">' +
         actionsHtml(d) +
         faces +
         '<div class="docs-id__body">' +
           '<div class="docs-id__title"><i class="fa ' + icon + ' me-1"></i>' + esc(title) + '</div>' +
-          idDataRow('Nombre', d.full_name) +
-          idDataRow(numLabel, d.doc_number) +
-          idDataRow('F. nacimiento', fmtDate(d.birth_date)) +
-          (d.kind === 'PASSPORT' ? idDataRow('Emisión', fmtDate(d.issue_date)) : '') +
-          idDataRow('Caducidad', fmtDate(d.expiry_date)) +
+          rows +
         '</div>' +
       '</div>';
     }
@@ -145,15 +152,22 @@
       } else { fallback(); done(); }
     }
 
+    // Matrícula = PASTILLA con estética de placa española (banda azul EU + número), del tamaño de las
+    // tarjetas de fidelización y en fila. Al pinchar copia la matrícula.
     function plateHtml(d) {
       var plate = (d.doc_number || '').toUpperCase();
-      return '<div class="docs-plate-wrap" data-doc-card="' + d.id + '">' +
-        actionsHtml(d) +
-        (d.label ? '<div class="docs-plate__name"><i class="fa fa-car me-1"></i>' + esc(d.label) + '</div>' : '') +
-        '<div class="docs-plate">' +
-          '<div class="docs-plate__eu"><span class="docs-plate__stars">★</span><span class="docs-plate__country">E</span></div>' +
-          '<div class="docs-plate__num">' + esc(plate || '— — —') + '</div>' +
-        '</div>' +
+      var acts = canEdit ? ('<span class="docs-pill__acts">' +
+          '<button type="button" class="docs-pill__act" data-doc-edit="' + d.id + '" title="Editar"><i class="fa fa-pen"></i></button>' +
+          '<button type="button" class="docs-pill__act" data-doc-del="' + d.id + '" title="Eliminar"><i class="fa fa-trash"></i></button>' +
+        '</span>') : '';
+      return '<div class="docs-plate-pill" data-doc-card="' + d.id + '"' +
+          (d.doc_number ? ' data-doc-copy="' + esc(d.doc_number) + '"' : '') +
+          ' title="' + (d.doc_number ? 'Pinchar para copiar la matrícula' : esc(d.label || 'Vehículo')) + '">' +
+        '<span class="docs-plate-pill__eu"><span class="docs-plate-pill__stars">★</span>E</span>' +
+        '<span class="docs-plate-pill__num">' + esc(plate || '— — —') + '</span>' +
+        (d.label ? '<span class="docs-plate-pill__name"><i class="fa fa-car me-1"></i>' + esc(d.label) + '</span>' : '') +
+        acts +
+        '<span class="docs-pill__copied"><i class="fa fa-check me-1"></i>Copiado</span>' +
       '</div>';
     }
 
@@ -201,6 +215,7 @@
       show(fld('birth_date'), isDoc);
       show(fld('expiry_date'), isDoc);
       show(fld('issue_date'), kind === 'PASSPORT');
+      show(fld('address'), kind === 'DNI');
       show(fld('company'), kind === 'LOYALTY');
       show(fld('label'), kind === 'PLATE');
       // Etiquetas dinámicas
@@ -234,6 +249,7 @@
         if (input('birth_date')) input('birth_date').value = doc.birth_date || '';
         if (input('expiry_date')) input('expiry_date').value = doc.expiry_date || '';
         if (input('issue_date')) input('issue_date').value = doc.issue_date || '';
+        if (input('address')) input('address').value = doc.address || '';
         if (input('company')) input('company').value = doc.company || '';
         if (input('label')) input('label').value = doc.label || '';
         setPreview('front', doc.front_url || '');
@@ -349,6 +365,7 @@
       put('birth_date', data.birth, 'nac. ' + fmtDate(data.birth));
       put('expiry_date', data.expiry, 'cad. ' + fmtDate(data.expiry));
       if (kind === 'PASSPORT') put('issue_date', data.issue, 'emis. ' + fmtDate(data.issue));
+      if (kind === 'DNI') put('address', data.address, 'domicilio');
       return got.join(' · ');
     }
 

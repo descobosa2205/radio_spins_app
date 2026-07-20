@@ -37893,7 +37893,7 @@ def personnel_view():
 # hace en el navegador (person_docs.js); aquí solo se guardan campos + imágenes y, para el DNI,
 # se propagan los datos detectados a los campos VACÍOS de la ficha.
 # =====================================================================================
-PERSON_DOC_KINDS = {"DNI", "LICENSE", "LOYALTY", "PLATE"}
+PERSON_DOC_KINDS = {"DNI", "LICENSE", "PASSPORT", "LOYALTY", "PLATE"}
 # PERSON_DOC_IMAGE_EXTS = PHOTO_IMAGE_EXTS (mismas extensiones de imagen que las fotos, HEIC incl.)
 # El alias se define junto a PHOTO_IMAGE_EXTS (más abajo) para no referenciarlo antes de tiempo.
 
@@ -37994,6 +37994,7 @@ def _person_document_payload(doc):
         "full_name": doc.full_name or "",
         "birth_date": doc.birth_date.isoformat() if doc.birth_date else "",
         "expiry_date": doc.expiry_date.isoformat() if doc.expiry_date else "",
+        "issue_date": doc.issue_date.isoformat() if doc.issue_date else "",
         "front_url": doc.front_url or "",
         "back_url": doc.back_url or "",
         "brand": brand,
@@ -38011,12 +38012,14 @@ def _person_documents_for(session_db, owner_type, owner_id):
 
 
 def _person_doc_apply_to_profile(session_db, ot, owner, doc):
-    """DNI/carnet: rellena los campos VACÍOS de la ficha con lo detectado (no pisa lo ya puesto)."""
-    if doc.kind not in {"DNI", "LICENSE"}:
+    """DNI/carnet/pasaporte: rellena los campos VACÍOS de la ficha con lo detectado (no pisa lo ya
+    puesto). El nº solo se usa como DNI/NIF cuando es un DNI (el nº de pasaporte/carnet no es el DNI)."""
+    if doc.kind not in {"DNI", "LICENSE", "PASSPORT"}:
         return
+    apply_number_as_dni = (doc.kind == "DNI")
     if ot == "USER":
         profile = _ensure_user_profile(session_db, owner, legacy_full_seed=False)
-        if doc.doc_number and not (profile.dni or "").strip():
+        if apply_number_as_dni and doc.doc_number and not (profile.dni or "").strip():
             profile.dni = doc.doc_number
         if doc.birth_date and not profile.birth_date:
             profile.birth_date = doc.birth_date
@@ -38027,7 +38030,7 @@ def _person_doc_apply_to_profile(session_db, ot, owner, doc):
             if last and not (profile.last_name or "").strip():
                 profile.last_name = last
     elif ot == "PROMOTER":
-        if doc.doc_number and not (owner.tax_id or "").strip():
+        if apply_number_as_dni and doc.doc_number and not (owner.tax_id or "").strip():
             owner.tax_id = doc.doc_number
         if doc.full_name:
             first, last = _split_full_name(doc.full_name)
@@ -38084,6 +38087,7 @@ def _person_document_save(session_db, ot, owner):
     doc.full_name = (request.form.get("full_name") or "").strip() or None
     doc.birth_date = parse_optional_date(request.form.get("birth_date"))
     doc.expiry_date = parse_optional_date(request.form.get("expiry_date"))
+    doc.issue_date = parse_optional_date(request.form.get("issue_date"))
 
     front = _person_doc_store_image(request.files.get("front"))
     if front:

@@ -15,6 +15,7 @@
   <div class="d-flex flex-wrap gap-2 mb-3">
     <button type="button" class="btn btn-sm btn-outline-primary" data-doc-add="DNI"><i class="fa fa-id-card me-1"></i>Añadir DNI</button>
     <button type="button" class="btn btn-sm btn-outline-primary" data-doc-add="LICENSE"><i class="fa fa-id-card-clip me-1"></i>Carnet de conducir</button>
+    <button type="button" class="btn btn-sm btn-outline-primary" data-doc-add="PASSPORT"><i class="fa fa-passport me-1"></i>Pasaporte</button>
     <button type="button" class="btn btn-sm btn-outline-primary" data-doc-add="LOYALTY"><i class="fa fa-credit-card me-1"></i>Tarjeta de fidelización</button>
     <button type="button" class="btn btn-sm btn-outline-primary" data-doc-add="PLATE"><i class="fa fa-car me-1"></i>Matrícula de coche</button>
   </div>
@@ -28,6 +29,10 @@
   <div data-docs-section="LICENSE" class="docs-section d-none">
     <h6 class="docs-section__title"><i class="fa fa-id-card-clip me-1"></i>Carnets de conducir</h6>
     <div class="docs-grid" data-docs-grid="LICENSE"></div>
+  </div>
+  <div data-docs-section="PASSPORT" class="docs-section d-none">
+    <h6 class="docs-section__title"><i class="fa fa-passport me-1"></i>Pasaportes</h6>
+    <div class="docs-grid" data-docs-grid="PASSPORT"></div>
   </div>
   <div data-docs-section="LOYALTY" class="docs-section d-none">
     <h6 class="docs-section__title"><i class="fa fa-credit-card me-1"></i>Tarjetas de fidelización</h6>
@@ -63,25 +68,30 @@
             <div class="col-md-6" data-doc-front-wrap>
               <label class="form-label small text-muted" data-doc-front-label>Anverso (cara con la foto)</label>
               <label class="docs-drop" data-doc-drop="front">
-                <input type="file" name="front" accept="image/*" class="d-none" data-doc-file="front">
+                <input type="file" name="front" accept="image/*,application/pdf" class="d-none" data-doc-file="front">
                 <img class="docs-drop__img d-none" data-doc-preview="front" alt="">
-                <span class="docs-drop__hint"><i class="fa fa-camera me-1"></i>Subir imagen</span>
+                <span class="docs-drop__hint"><i class="fa fa-camera me-1"></i>Subir foto o PDF</span>
               </label>
               <input type="hidden" name="front_url_clear" value="" data-doc-clear="front">
             </div>
             <div class="col-md-6" data-doc-back-wrap>
               <label class="form-label small text-muted">Reverso (cara con el MRZ ‹‹‹)</label>
               <label class="docs-drop" data-doc-drop="back">
-                <input type="file" name="back" accept="image/*" class="d-none" data-doc-file="back">
+                <input type="file" name="back" accept="image/*,application/pdf" class="d-none" data-doc-file="back">
                 <img class="docs-drop__img d-none" data-doc-preview="back" alt="">
-                <span class="docs-drop__hint"><i class="fa fa-camera me-1"></i>Subir imagen</span>
+                <span class="docs-drop__hint"><i class="fa fa-camera me-1"></i>Subir foto o PDF</span>
               </label>
               <input type="hidden" name="back_url_clear" value="" data-doc-clear="back">
             </div>
           </div>
 
+          <div class="small text-muted mt-2" data-doc-pdf-hint>
+            <i class="fa fa-circle-info me-1"></i>Puedes subir una <b>foto</b> o un <b>PDF</b>. Si el PDF trae las
+            <b>dos caras</b> (en dos páginas o en la misma), se separan y recortan solas. Revisa el recorte antes de guardar.
+          </div>
+
           <div class="docs-ocr small text-muted mt-2 d-none" data-doc-ocr>
-            <i class="fa fa-wand-magic-sparkles me-1"></i><span data-doc-ocr-msg>Detectando datos del DNI…</span>
+            <i class="fa fa-wand-magic-sparkles me-1"></i><span data-doc-ocr-msg>Detectando datos del documento…</span>
           </div>
 
           {# --- Campos según tipo --- #}
@@ -101,6 +111,10 @@
             <div class="col-md-6" data-doc-field="expiry_date">
               <label class="form-label">Caducidad</label>
               <input type="date" name="expiry_date" class="form-control">
+            </div>
+            <div class="col-md-6" data-doc-field="issue_date">
+              <label class="form-label">Fecha de emisión</label>
+              <input type="date" name="issue_date" class="form-control">
             </div>
             <div class="col-md-6" data-doc-field="company">
               <label class="form-label">Compañía</label>

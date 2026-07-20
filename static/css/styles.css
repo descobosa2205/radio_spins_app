@@ -2200,6 +2200,7 @@ body.vmap-max-open { overflow: hidden; }
 /* --- DNI / carnet: tarjeta con las dos caras recortadas + datos --- */
 .docs-id { position:relative; background:#fff; border:1px solid #e6e8eb; border-radius:14px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.05); }
 .docs-id__faces { display:grid; grid-template-columns:1fr 1fr; gap:2px; background:#e6e8eb; }
+.docs-id__faces--single { grid-template-columns:1fr; }
 .docs-id__face { aspect-ratio:1.586/1; background-size:cover; background-position:center; background-color:#f1f3f5; }
 .docs-id__face--empty { display:flex; align-items:center; justify-content:center; color:#c2c8ce; font-size:1.4rem; }
 .docs-id__body { padding:.7rem .85rem .8rem; }

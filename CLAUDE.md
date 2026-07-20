@@ -313,15 +313,24 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `<select>` oculto) o «Desconocido».
 
 - **Documentos personales (pestaña «Documentos» en ficha de personal y de tercero)**: modelo
-  polimórfico `PersonDocument` (`owner_type` USER|PROMOTER, `kind` DNI|LICENSE|LOYALTY|PLATE,
-  `front_url`/`back_url`, `doc_number`, `full_name`, `birth_date`, `expiry_date`, `company`,
-  `label`, `extra`) + `ensure_person_documents_schema`. Panel reutilizable
-  `templates/_person_documents_panel.html` + `static/js/person_docs.js` (GLOBAL en layout, no-op sin
-  `[data-person-docs]`) + estilos `.docs-*`. DNI/carnet = tarjeta con imágenes recortadas (dos caras)
-  + datos; **OCR en cliente** con **tesseract.js** (CDN bajo demanda, precedente pdf.js): lee el
-  **MRZ** del reverso (whitelist `A-Z0-9<`, parser TD1 `parseMrz`) → nº (DNI validado mod-23
-  `findDni`), nombre, nacimiento, caducidad; rellena el documento y los campos VACÍOS de la ficha
-  (`_person_doc_apply_to_profile`: `UserProfile.dni`/`birth_date`/nombre o `Promoter.tax_id`/nombre).
+  polimórfico `PersonDocument` (`owner_type` USER|PROMOTER, `kind` DNI|LICENSE|PASSPORT|LOYALTY|PLATE,
+  `front_url`/`back_url`, `doc_number`, `full_name`, `birth_date`, `expiry_date`, `issue_date`
+  (emisión, pasaporte), `company`, `label`, `extra`) + `ensure_person_documents_schema`. Panel
+  reutilizable `templates/_person_documents_panel.html` + `static/js/person_docs.js` (GLOBAL en layout,
+  no-op sin `[data-person-docs]`) + estilos `.docs-*`. DNI/carnet = tarjeta de **dos caras**;
+  **pasaporte = una sola cara** (fa-passport) + fecha de **emisión**.
+  **Subida foto O PDF + recorte + OCR, todo en cliente** (el servidor no renderiza PDF): al elegir
+  archivo, `processIdFile` renderiza (pdf.js `pdfToCanvases`/imágenes), **auto-recorta el fondo**
+  (`trimUniform`, conservador) — *ese recorte es lo que se guarda y se ve* — y si es un DNI/carnet en
+  **un solo lado con las dos caras** (o PDF de 2 páginas) las **separa** (`splitTwoFaces` por
+  proporción; asigna anverso/reverso según cuál lleva MRZ, `hasMrz`). Los recortes se suben como JPEG
+  (via `input.files` **y** `pendingFiles`→`FormData.set`, robusto en iOS). **OCR** con **tesseract.js**
+  (CDN bajo demanda): MRZ **TD1** (DNI/carnet, `parseMrz`) o **TD3** (pasaporte, `parseMrzTd3`) → nº
+  (DNI validado mod-23 `findDni`; pasaporte del MRZ), nombre, nacimiento, caducidad; la **emisión del
+  pasaporte NO está en el MRZ** → best-effort del texto impreso o estimada (`findIssueDate`, ~10 años
+  antes de la caducidad). Rellena el documento y los campos VACÍOS de la ficha
+  (`_person_doc_apply_to_profile`: `UserProfile.dni`/`birth_date`/nombre o `Promoter.tax_id`/nombre;
+  el nº solo va a DNI/NIF cuando el documento es un DNI, no en carnet/pasaporte).
   Fidelización = **pastilla** (`.docs-pill`, contenedor `.docs-pills` en fila) de color de marca
   (`PERSON_LOYALTY_BRANDS`, casada por nombre, con `icon` del **tipo**: avión/tren/hotel/gasolina/
   compras — blanco en círculo translúcido) + nombre + nº; **al pinchar copia el número** (funciona

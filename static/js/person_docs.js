@@ -7,8 +7,12 @@
   'use strict';
   function ready(fn) { if (document.readyState !== 'loading') fn(); else document.addEventListener('DOMContentLoaded', fn); }
 
-  var KIND_LABEL = { DNI: 'DNI', LICENSE: 'Carnet de conducir', LOYALTY: 'Tarjeta de fidelización', PLATE: 'Vehículo' };
+  var KIND_LABEL = { DNI: 'DNI', LICENSE: 'Carnet de conducir', PASSPORT: 'Pasaporte', LOYALTY: 'Tarjeta de fidelización', PLATE: 'Vehículo' };
+  var ID_KINDS = { DNI: 1, LICENSE: 1, PASSPORT: 1 };   // documentos con foto/PDF + OCR
+  var TWO_FACE_KINDS = { DNI: 1, LICENSE: 1 };           // dos caras (el pasaporte solo tiene una)
   var TESSERACT_SRC = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js';
+  var PDFJS_SRC = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
+  var PDFJS_WORKER = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
 
   function csrfToken() { var m = document.querySelector('meta[name="csrf-token"]'); return m ? (m.getAttribute('content') || '') : ''; }
   function esc(s) { return String(s == null ? '' : s).replace(/[<>&"]/g, function (c) { return { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]; }); }
@@ -35,7 +39,7 @@
 
     /* ------------------- Render ------------------- */
     function render() {
-      var byKind = { DNI: [], LICENSE: [], LOYALTY: [], PLATE: [] };
+      var byKind = { DNI: [], LICENSE: [], PASSPORT: [], LOYALTY: [], PLATE: [] };
       docs.forEach(function (d) { (byKind[d.kind] || (byKind[d.kind] = [])).push(d); });
       var any = false;
       Object.keys(byKind).forEach(function (kind) {
@@ -72,19 +76,26 @@
     function cardHtml(d) {
       if (d.kind === 'LOYALTY') return loyaltyHtml(d);
       if (d.kind === 'PLATE') return plateHtml(d);
-      return idHtml(d);   // DNI + LICENSE
+      return idHtml(d);   // DNI + LICENSE + PASSPORT
     }
 
     function idHtml(d) {
-      var title = d.kind === 'LICENSE' ? 'Carnet de conducir' : 'DNI';
+      var title = d.kind === 'LICENSE' ? 'Carnet de conducir' : d.kind === 'PASSPORT' ? 'Pasaporte' : 'DNI';
+      var icon = d.kind === 'LICENSE' ? 'fa-id-card-clip' : d.kind === 'PASSPORT' ? 'fa-passport' : 'fa-id-card';
+      var numLabel = d.kind === 'LICENSE' ? 'Nº carnet' : d.kind === 'PASSPORT' ? 'Nº pasaporte' : 'Nº DNI';
+      // El pasaporte tiene UNA sola cara; DNI/carnet, dos.
+      var faces = (d.kind === 'PASSPORT')
+        ? ('<div class="docs-id__faces docs-id__faces--single">' + faceHtml(d.front_url, 'is-front') + '</div>')
+        : ('<div class="docs-id__faces">' + faceHtml(d.front_url, 'is-front') + faceHtml(d.back_url, 'is-back') + '</div>');
       return '<div class="docs-id" data-doc-card="' + d.id + '">' +
         actionsHtml(d) +
-        '<div class="docs-id__faces">' + faceHtml(d.front_url, 'is-front') + faceHtml(d.back_url, 'is-back') + '</div>' +
+        faces +
         '<div class="docs-id__body">' +
-          '<div class="docs-id__title"><i class="fa ' + (d.kind === 'LICENSE' ? 'fa-id-card-clip' : 'fa-id-card') + ' me-1"></i>' + esc(title) + '</div>' +
+          '<div class="docs-id__title"><i class="fa ' + icon + ' me-1"></i>' + esc(title) + '</div>' +
           idDataRow('Nombre', d.full_name) +
-          idDataRow(d.kind === 'LICENSE' ? 'Nº carnet' : 'Nº DNI', d.doc_number) +
+          idDataRow(numLabel, d.doc_number) +
           idDataRow('F. nacimiento', fmtDate(d.birth_date)) +
+          (d.kind === 'PASSPORT' ? idDataRow('Emisión', fmtDate(d.issue_date)) : '') +
           idDataRow('Caducidad', fmtDate(d.expiry_date)) +
         '</div>' +
       '</div>';
@@ -160,6 +171,9 @@
 
     /* ------------------- Modal (alta / edición) ------------------- */
     var form = modalEl ? modalEl.querySelector('[data-doc-form]') : null;
+    // Recortes ya generados (front/back) para subirlos aunque el navegador no deje fijar input.files
+    // (p. ej. iOS): se inyectan en el FormData al enviar. Se vacía al abrir el modal.
+    var pendingFiles = {};
     function fld(name) { return form.querySelector('[data-doc-field="' + name + '"]'); }
     function input(name) { return form.querySelector('[name="' + name + '"]'); }
     function setPreview(which, url) {
@@ -170,34 +184,41 @@
     }
 
     function configureForKind(kind) {
-      var isId = (kind === 'DNI' || kind === 'LICENSE');
+      var isDoc = !!ID_KINDS[kind];               // DNI/carnet/pasaporte (foto o PDF + OCR)
+      var twoFaces = !!TWO_FACE_KINDS[kind];       // DNI/carnet (el pasaporte solo tiene una cara)
       form.querySelector('[data-doc-modal-title]').textContent = KIND_LABEL[kind] || 'Documento';
-      // Imágenes: DNI/carnet dos caras; fidelización/matrícula solo una (opcional)
+      // Imágenes: DNI/carnet dos caras; pasaporte una; fidelización/matrícula una (opcional)
       form.querySelector('[data-doc-images]').classList.remove('d-none');
-      form.querySelector('[data-doc-back-wrap]').classList.toggle('d-none', !isId);
+      form.querySelector('[data-doc-back-wrap]').classList.toggle('d-none', !twoFaces);
       var frontLabel = form.querySelector('[data-doc-front-label]');
-      frontLabel.textContent = isId ? 'Anverso (cara con la foto)'
+      frontLabel.textContent = twoFaces ? 'Anverso (cara con la foto)'
+        : kind === 'PASSPORT' ? 'Página del pasaporte (foto o PDF)'
         : (kind === 'LOYALTY' ? 'Foto de la tarjeta (opcional)' : 'Foto del coche (opcional)');
       // Campos
-      show(fld('full_name'), isId);
+      show(fld('full_name'), isDoc);
       show(fld('doc_number'), true);
-      show(fld('birth_date'), isId);
-      show(fld('expiry_date'), isId);
+      show(fld('birth_date'), isDoc);
+      show(fld('expiry_date'), isDoc);
+      show(fld('issue_date'), kind === 'PASSPORT');
       show(fld('company'), kind === 'LOYALTY');
       show(fld('label'), kind === 'PLATE');
       // Etiquetas dinámicas
       form.querySelector('[data-doc-number-label]').textContent =
         kind === 'DNI' ? 'Nº DNI' : kind === 'LICENSE' ? 'Nº de carnet'
+        : kind === 'PASSPORT' ? 'Nº de pasaporte'
         : kind === 'LOYALTY' ? 'Nº de tarjeta' : 'Matrícula';
       var labLab = form.querySelector('[data-doc-label-label]');
       if (labLab) labLab.textContent = 'Nombre del vehículo';
-      form.querySelector('[data-doc-apply-wrap]').classList.toggle('d-none', !isId);
+      form.querySelector('[data-doc-apply-wrap]').classList.toggle('d-none', !isDoc);
+      var pdfHint = form.querySelector('[data-doc-pdf-hint]');
+      if (pdfHint) pdfHint.classList.toggle('d-none', !isDoc);
       form.querySelector('[data-doc-ocr]').classList.add('d-none');
     }
     function show(el, on) { if (el) el.classList.toggle('d-none', !on); }
 
     function openModal(kind, doc) {
       form.reset();
+      pendingFiles = {};
       input('kind').value = kind;
       input('doc_id').value = doc ? doc.id : '';
       input('front_url_clear').value = '';
@@ -209,6 +230,7 @@
         if (input('doc_number')) input('doc_number').value = doc.doc_number || '';
         if (input('birth_date')) input('birth_date').value = doc.birth_date || '';
         if (input('expiry_date')) input('expiry_date').value = doc.expiry_date || '';
+        if (input('issue_date')) input('issue_date').value = doc.issue_date || '';
         if (input('company')) input('company').value = doc.company || '';
         if (input('label')) input('label').value = doc.label || '';
         setPreview('front', doc.front_url || '');
@@ -232,17 +254,20 @@
       if (dl) { deleteDoc(dl.getAttribute('data-doc-del')); return; }
     });
 
-    // Previsualización + OCR al elegir imagen
+    // Previsualización + recorte + OCR al elegir foto o PDF.
     form.querySelectorAll('[data-doc-file]').forEach(function (inp) {
       inp.addEventListener('change', function () {
         var which = inp.getAttribute('data-doc-file');
         var f = inp.files && inp.files[0];
         if (!f) { return; }
-        var url = URL.createObjectURL(f);
-        setPreview(which, url);
-        input(which + '_url_clear').value = '';   // se sube una nueva, no borrar
         var kind = input('kind').value;
-        if (kind === 'DNI' || kind === 'LICENSE') runOcr(f, which);
+        if (ID_KINDS[kind]) {
+          processIdFile(f, which);   // recorta (y divide caras) + OCR; sustituye el fichero por el recorte
+        } else if (/^image\//i.test(f.type || '')) {
+          // Fidelización / matrícula: solo previsualización de imagen (sin PDF ni OCR).
+          setPreview(which, URL.createObjectURL(f));
+          input(which + '_url_clear').value = '';
+        }
       });
     });
 
@@ -263,6 +288,8 @@
       var orig = submit.innerHTML;
       submit.disabled = true; submit.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Guardando…';
       var fd = new FormData(form);
+      // Inyecta los recortes generados (front/back) por si el navegador no fijó input.files.
+      Object.keys(pendingFiles).forEach(function (w) { if (pendingFiles[w]) fd.set(w, pendingFiles[w], w + '.jpg'); });
       var xhr = new XMLHttpRequest();
       xhr.open('POST', saveUrl);
       xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
@@ -306,17 +333,184 @@
       msg.textContent = txt;
     }
 
-    function runOcr(file, which) {
-      ocrMsg('Leyendo el documento… (puede tardar unos segundos)', true);
-      loadTesseract().then(function (T) {
-        // El reverso lleva el MRSZ (‹‹‹): whitelist estricta. El anverso, texto normal en español.
-        var isBack = (which === 'back');
-        var opts = isBack ? { tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<' } : {};
-        return T.recognize(file, isBack ? 'eng' : 'spa+eng', opts);
-      }).then(function (res) {
-        var text = (res && res.data && res.data.text) || '';
-        var found = applyOcr(text, which === 'back');
-        if (found) ocrMsg('Detectado: ' + found + '. Revisa y corrige si hace falta.', false);
+    /* ---- Carga perezosa de pdf.js (para leer PDFs; precedente en invitaciones.html) ---- */
+    var pdfjsLoading = null;
+    function loadPdfjs() {
+      if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+      if (pdfjsLoading) return pdfjsLoading;
+      pdfjsLoading = new Promise(function (resolve, reject) {
+        var s = document.createElement('script');
+        s.src = PDFJS_SRC;
+        s.onload = function () {
+          if (window.pdfjsLib) {
+            try { window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER; } catch (e) {}
+            resolve(window.pdfjsLib);
+          } else reject();
+        };
+        s.onerror = function () { reject(); };
+        document.head.appendChild(s);
+      });
+      return pdfjsLoading;
+    }
+
+    function fileArrayBuffer(file) {
+      if (file.arrayBuffer) return file.arrayBuffer();
+      return new Promise(function (res, rej) { var r = new FileReader(); r.onload = function () { res(r.result); }; r.onerror = rej; r.readAsArrayBuffer(file); });
+    }
+
+    // Devuelve Promise<[canvas,...]>: una página por canvas (una imagen = una "página").
+    function fileToPageCanvases(file) {
+      var isPdf = /pdf/i.test(file.type || '') || /\.pdf$/i.test(file.name || '');
+      return isPdf ? pdfToCanvases(file) : imageToCanvas(file).then(function (c) { return [c]; });
+    }
+    function imageToCanvas(file) {
+      return new Promise(function (resolve, reject) {
+        var url = URL.createObjectURL(file), img = new Image();
+        img.onload = function () {
+          var maxW = 2200, scale = img.naturalWidth > maxW ? maxW / img.naturalWidth : 1;
+          var c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(img.naturalWidth * scale));
+          c.height = Math.max(1, Math.round(img.naturalHeight * scale));
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          URL.revokeObjectURL(url); resolve(c);
+        };
+        img.onerror = function () { URL.revokeObjectURL(url); reject(); };
+        img.src = url;
+      });
+    }
+    function pdfToCanvases(file) {
+      return loadPdfjs().then(function (PDFJS) {
+        return fileArrayBuffer(file).then(function (buf) { return PDFJS.getDocument({ data: buf }).promise; });
+      }).then(function (pdf) {
+        var n = Math.min(pdf.numPages, 4), tasks = [];
+        for (var i = 1; i <= n; i++) tasks.push(renderPdfPage(pdf, i));
+        return Promise.all(tasks);
+      });
+    }
+    function renderPdfPage(pdf, num) {
+      return pdf.getPage(num).then(function (page) {
+        var vp1 = page.getViewport({ scale: 1 });
+        var scale = Math.min(3, Math.max(1, 1600 / vp1.width));
+        var vp = page.getViewport({ scale: scale });
+        var c = document.createElement('canvas');
+        c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+        return page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise.then(function () { return c; });
+      });
+    }
+
+    // Recorta el borde uniforme (fondo) alrededor del contenido. Es el "recorte que se guarda".
+    // Conservador: si no ve un borde claro (foto con fondo complejo) deja el canvas tal cual.
+    function trimUniform(canvas) {
+      var w = canvas.width, h = canvas.height;
+      if (w < 60 || h < 60) return canvas;
+      var sw = Math.min(w, 420), sh = Math.max(1, Math.round(h * (sw / w)));
+      var tmp = document.createElement('canvas'); tmp.width = sw; tmp.height = sh;
+      var tctx = tmp.getContext('2d'); tctx.drawImage(canvas, 0, 0, sw, sh);
+      var data;
+      try { data = tctx.getImageData(0, 0, sw, sh).data; } catch (e) { return canvas; }
+      function px(x, y) { var i = (y * sw + x) * 4; return [data[i], data[i + 1], data[i + 2]]; }
+      var corners = [px(1, 1), px(sw - 2, 1), px(1, sh - 2), px(sw - 2, sh - 2)], bg = [0, 0, 0];
+      for (var k = 0; k < 3; k++) { var vals = corners.map(function (c) { return c[k]; }).sort(function (a, b) { return a - b; }); bg[k] = (vals[1] + vals[2]) / 2; }
+      var TH = 46, minX = sw, minY = sh, maxX = -1, maxY = -1;
+      for (var y = 0; y < sh; y++) for (var x = 0; x < sw; x++) {
+        var p = px(x, y);
+        if (Math.abs(p[0] - bg[0]) + Math.abs(p[1] - bg[1]) + Math.abs(p[2] - bg[2]) > TH) {
+          if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y;
+        }
+      }
+      if (maxX < 0) return canvas;
+      var bw = maxX - minX + 1, bh = maxY - minY + 1, frac = (bw * bh) / (sw * sh);
+      if (frac > 0.9 || frac < 0.1) return canvas;   // nada que quitar / demasiado pequeño (ruido)
+      var scaleX = w / sw, scaleY = h / sh, pad = Math.round(0.012 * w);
+      var rx = Math.max(0, Math.round(minX * scaleX) - pad), ry = Math.max(0, Math.round(minY * scaleY) - pad);
+      var rw = Math.min(w - rx, Math.round(bw * scaleX) + 2 * pad), rh = Math.min(h - ry, Math.round(bh * scaleY) + 2 * pad);
+      return subCanvas(canvas, rx, ry, rw, rh);
+    }
+    function subCanvas(canvas, sx, sy, sw, sh) {
+      var c = document.createElement('canvas'); c.width = Math.max(1, sw); c.height = Math.max(1, sh);
+      c.getContext('2d').drawImage(canvas, sx, sy, sw, sh, 0, 0, c.width, c.height);
+      return c;
+    }
+    // Divide una página con las dos caras en un mismo lado: apiladas (corte horizontal) o en fila
+    // (corte vertical), según la proporción. Si parece una sola tarjeta, devuelve [canvas].
+    function splitTwoFaces(canvas) {
+      var w = canvas.width, h = canvas.height, a = w / h;
+      if (a < 1.15) return [subCanvas(canvas, 0, 0, w, Math.round(h / 2)), subCanvas(canvas, 0, Math.round(h / 2), w, h - Math.round(h / 2))];
+      if (a > 2.4) return [subCanvas(canvas, 0, 0, Math.round(w / 2), h), subCanvas(canvas, Math.round(w / 2), 0, w - Math.round(w / 2), h)];
+      return [canvas];
+    }
+
+    function canvasToFile(canvas, name) {
+      return new Promise(function (resolve) {
+        if (!canvas.toBlob) { resolve(null); return; }
+        canvas.toBlob(function (blob) { resolve(blob ? new File([blob], name, { type: 'image/jpeg' }) : null); }, 'image/jpeg', 0.9);
+      });
+    }
+    function setInputFile(which, file) {
+      var inp = form.querySelector('[data-doc-file="' + which + '"]');
+      if (!inp || !file) return;
+      try { var dt = new DataTransfer(); dt.items.add(file); inp.files = dt.files; } catch (e) {}
+      input(which + '_url_clear').value = '';
+    }
+    function applyFace(which, canvas) {
+      setPreview(which, canvas.toDataURL('image/jpeg', 0.9));
+      return canvasToFile(canvas, which + '.jpg').then(function (file) {
+        if (file) { pendingFiles[which] = file; setInputFile(which, file); }
+      });
+    }
+
+    // Procesa una foto o PDF de DNI/carnet/pasaporte: renderiza → recorta → (divide caras) → OCR.
+    function processIdFile(file, which) {
+      var kind = input('kind').value;
+      ocrMsg('Procesando el documento… (puede tardar unos segundos)', true);
+      return fileToPageCanvases(file).then(function (pages) {
+        pages = pages.map(trimUniform);
+        var faces;
+        if (kind === 'PASSPORT') {
+          faces = [{ which: 'front', canvas: pages[0] }];
+        } else if (which === 'back') {
+          faces = [{ which: 'back', canvas: pages[0] }];   // subido directamente en el reverso
+        } else if (pages.length >= 2) {
+          faces = [{ which: 'front', canvas: pages[0] }, { which: 'back', canvas: pages[1] }];
+        } else {
+          var parts = splitTwoFaces(pages[0]).map(trimUniform);
+          faces = parts.length === 2
+            ? [{ which: 'front', canvas: parts[0] }, { which: 'back', canvas: parts[1] }]
+            : [{ which: 'front', canvas: parts[0] }];
+        }
+        var chain = Promise.resolve();
+        faces.forEach(function (f) { chain = chain.then(function () { return applyFace(f.which, f.canvas); }); });
+        return chain.then(function () { return runOcrFaces(faces, kind); });
+      }).catch(function () {
+        ocrMsg('No se pudo procesar el archivo. Sube las caras como imagen o rellena los datos a mano.', false);
+      });
+    }
+
+    function ocrCanvas(canvas) {
+      return loadTesseract().then(function (T) { return T.recognize(canvas, 'spa+eng'); })
+        .then(function (res) { return (res && res.data && res.data.text) || ''; });
+    }
+    // El MRZ tiene muchos rellenos '<'; el anverso casi ninguno → sirve para saber cuál es el reverso.
+    function hasMrz(text) { var m = String(text).match(/</g); return !!(m && m.length >= 8); }
+
+    function runOcrFaces(faces, kind) {
+      ocrMsg('Leyendo los datos…', true);
+      return Promise.all(faces.map(function (f) {
+        return ocrCanvas(f.canvas).then(function (t) { return { which: f.which, canvas: f.canvas, text: t }; });
+      })).then(function (results) {
+        // DNI/carnet con dos caras: si la marcada como anverso lleva MRZ y la otra no, intercámbialas.
+        if (TWO_FACE_KINDS[kind] && results.length === 2) {
+          var fi = results[0].which === 'front' ? 0 : 1, bi = 1 - fi;
+          if (hasMrz(results[fi].text) && !hasMrz(results[bi].text)) {
+            var tmp = results[fi]; results[fi] = results[bi]; results[bi] = tmp;
+            results[fi].which = 'front'; results[bi].which = 'back';
+            var chain = Promise.resolve();
+            results.forEach(function (r) { chain = chain.then(function () { return applyFace(r.which, r.canvas); }); });
+          }
+        }
+        var combined = results.map(function (r) { return r.text; }).join('\n');
+        var summary = applyOcr(combined, kind);
+        if (summary) ocrMsg('Detectado: ' + summary + '. Revisa y corrige si hace falta.', false);
         else ocrMsg('No se pudieron leer los datos automáticamente; rellénalos a mano.', false);
       }).catch(function () {
         ocrMsg('No se pudo ejecutar el lector automático; rellena los datos a mano.', false);
@@ -324,19 +518,26 @@
     }
 
     // Rellena los campos VACÍOS del formulario con lo detectado; devuelve un resumen legible.
-    function applyOcr(rawText, preferMrz) {
+    function applyOcr(rawText, kind) {
       var got = [];
-      var mrz = parseMrz(rawText);
-      var dni = findDni(rawText);
-      if (dni && !input('doc_number').value) { input('doc_number').value = dni; got.push('nº ' + dni); }
+      var mrz = (kind === 'PASSPORT') ? parseMrzTd3(rawText) : parseMrz(rawText);
+      if (kind === 'PASSPORT') {
+        if (mrz.number && input('doc_number') && !input('doc_number').value) { input('doc_number').value = mrz.number; got.push('nº ' + mrz.number); }
+      } else {
+        var dni = findDni(rawText);
+        if (dni && input('doc_number') && !input('doc_number').value) { input('doc_number').value = dni; got.push('nº ' + dni); }
+      }
       if (mrz.fullName && input('full_name') && !input('full_name').value) { input('full_name').value = mrz.fullName; got.push(mrz.fullName); }
       if (mrz.birth && input('birth_date') && !input('birth_date').value) { input('birth_date').value = mrz.birth; got.push('nac. ' + fmtDate(mrz.birth)); }
       if (mrz.expiry && input('expiry_date') && !input('expiry_date').value) { input('expiry_date').value = mrz.expiry; got.push('cad. ' + fmtDate(mrz.expiry)); }
-      // Anverso sin MRZ: intenta fechas sueltas dd/mm/aaaa para nacimiento/caducidad.
-      if (!mrz.birth) {
-        var dates = findDates(rawText);
-        if (dates.length && input('birth_date') && !input('birth_date').value) { input('birth_date').value = dates[0]; got.push('nac. ' + fmtDate(dates[0])); }
-        if (dates.length > 1 && input('expiry_date') && !input('expiry_date').value) { input('expiry_date').value = dates[dates.length - 1]; got.push('cad. ' + fmtDate(dates[dates.length - 1])); }
+      // Fechas impresas (anverso sin MRZ) para nacimiento/caducidad.
+      var dates = findDates(rawText);
+      if (!mrz.birth && dates.length && input('birth_date') && !input('birth_date').value) { input('birth_date').value = dates[0]; got.push('nac. ' + fmtDate(dates[0])); }
+      if (!mrz.expiry && dates.length > 1 && input('expiry_date') && !input('expiry_date').value) { input('expiry_date').value = dates[dates.length - 1]; got.push('cad. ' + fmtDate(dates[dates.length - 1])); }
+      // Fecha de emisión (pasaporte): NO está en el MRZ; se busca en el texto impreso o se estima.
+      if (kind === 'PASSPORT' && input('issue_date') && !input('issue_date').value) {
+        var issue = findIssueDate(rawText, mrz.expiry || input('expiry_date').value);
+        if (issue) { input('issue_date').value = issue; got.push('emis. ' + fmtDate(issue)); }
       }
       return got.join(' · ');
     }
@@ -396,6 +597,51 @@
         if (+m[2] >= 1 && +m[2] <= 12 && +m[1] >= 1 && +m[1] <= 31) out.push(m[3] + '-' + m[2] + '-' + m[1]);
       }
       return out;
+    }
+
+    // ---- Parseo del MRZ TD3 (pasaporte: 2 líneas de 44) ----
+    // Línea 1: P<PAÍS APELLIDOS<<NOMBRES...  ·  Línea 2: nºpas(9)+chk nac(3) YYMMDD(nac)+chk sexo YYMMDD(cad)+chk ...
+    function parseMrzTd3(text) {
+      var out = { number: '', fullName: '', birth: '', expiry: '' };
+      var lines = String(text).toUpperCase().split(/\n+/).map(function (l) {
+        return l.replace(/\s+/g, '').replace(/[^A-Z0-9<]/g, '');
+      }).filter(function (l) { return l.length >= 28; });
+      var nameLine = lines.find(function (l) { return /^P[A-Z0-9<]/.test(l) && l.indexOf('<<') > 0; });
+      if (nameLine) {
+        var m = nameLine.match(/^P.?[A-Z<]{3}(.*)$/);   // quita tipo(1)+país(3)
+        var np = ((m ? m[1] : nameLine)).split('<<');
+        var surn = (np[0] || '').replace(/</g, ' ').replace(/\s+/g, ' ').trim();
+        var giv = (np.slice(1).join(' ')).replace(/</g, ' ').replace(/\s+/g, ' ').trim();
+        if (surn) out.fullName = giv ? (surn + ', ' + giv) : surn;
+      }
+      var dataLine = lines.find(function (l) { return /^[A-Z0-9<]{9}[0-9<][A-Z<]{3}[0-9]{6}/.test(l); });
+      if (dataLine) {
+        out.number = (dataLine.substr(0, 9) || '').replace(/</g, '').trim();
+        out.birth = mrzDate(dataLine.substr(13, 6), false);
+        out.expiry = mrzDate(dataLine.substr(21, 6), true);
+      }
+      return out;
+    }
+
+    function normDate(s) {
+      var m = String(s).match(/(\d{2})[\/\.\- ](\d{2})[\/\.\- ](\d{4})/);
+      if (!m || +m[2] < 1 || +m[2] > 12 || +m[1] < 1 || +m[1] > 31) return '';
+      return m[3] + '-' + m[2] + '-' + m[1];
+    }
+    // Fecha de emisión del pasaporte: junto a "expedición/emisión/issue", o ~10 años antes de la caducidad.
+    function findIssueDate(text, expiryIso) {
+      var kw = String(text).match(/(EXPEDICI[ÓO]N|EMISI[ÓO]N|ISSUE|D[ÉE]LIVRANCE)[^0-9]{0,24}(\d{2}[\/\.\- ]\d{2}[\/\.\- ]\d{4})/i);
+      if (kw) { var d = normDate(kw[2]); if (d) return d; }
+      var dates = findDates(text);
+      if (expiryIso && dates.length) {
+        var ey = parseInt(String(expiryIso).slice(0, 4), 10), best = '', bestDiff = 99;
+        dates.forEach(function (dt) {
+          var y = parseInt(dt.slice(0, 4), 10), gap = ey - y;
+          if (gap >= 3 && gap <= 12 && Math.abs(gap - 10) < bestDiff) { bestDiff = Math.abs(gap - 10); best = dt; }
+        });
+        if (best) return best;
+      }
+      return '';
     }
   });
 })();

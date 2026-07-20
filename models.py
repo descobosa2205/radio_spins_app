@@ -3762,12 +3762,15 @@ class PhotoShare(Base):
 
 
 class PersonDocument(Base):
-    """Documento personal adjunto a una persona: DNI, carnet de conducir, tarjeta de fidelización
-    (Renfe, Iberia…) o matrícula de vehículo. Polimórfico: `owner_type` USER (personal de oficina)
-    o PROMOTER (tercero). El detalle específico va en los campos comunes + `extra` (JSONB):
+    """Documento personal adjunto a una persona: DNI, carnet de conducir, pasaporte, tarjeta de
+    fidelización (Renfe, Iberia…) o matrícula de vehículo. Polimórfico: `owner_type` USER (personal de
+    oficina) o PROMOTER (tercero). El detalle específico va en los campos comunes + `extra` (JSONB):
 
     - kind DNI / LICENSE: imágenes por ambas caras (`front_url`/`back_url`), `doc_number`,
-      `full_name`, `birth_date`, `expiry_date` (autodetectados por OCR al subir el DNI).
+      `full_name`, `birth_date`, `expiry_date` (autodetectados por OCR al subir el documento; se
+      acepta foto o PDF, incluidas las dos caras en una misma página o en páginas separadas).
+    - kind PASSPORT: una sola cara (`front_url`), `doc_number`, `full_name`, `birth_date`,
+      `expiry_date` y además `issue_date` (fecha de emisión). OCR del MRZ (TD3) + texto impreso.
     - kind LOYALTY (fidelización): `company` (marca), `doc_number` (nº de tarjeta), `front_url`
       opcional (imagen de la tarjeta); se pinta como tarjeta con el color/logotipo de la marca.
     - kind PLATE (matrícula): `doc_number` (la matrícula) + `label` (nombre del vehículo); se pinta
@@ -3779,13 +3782,14 @@ class PersonDocument(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     owner_type = Column(Text, nullable=False)   # USER | PROMOTER
     owner_id = Column(PGUUID(as_uuid=True), nullable=False)
-    kind = Column(Text, nullable=False, server_default=text("'DNI'"))  # DNI|LICENSE|LOYALTY|PLATE
+    kind = Column(Text, nullable=False, server_default=text("'DNI'"))  # DNI|LICENSE|PASSPORT|LOYALTY|PLATE
     label = Column(Text)              # nombre del vehículo (PLATE) / etiqueta libre
     company = Column(Text)            # marca de la tarjeta de fidelización (LOYALTY)
-    doc_number = Column(Text)         # nº DNI / carnet / tarjeta / matrícula
-    full_name = Column(Text)         # nombre y apellidos (DNI/carnet)
+    doc_number = Column(Text)         # nº DNI / carnet / pasaporte / tarjeta / matrícula
+    full_name = Column(Text)         # nombre y apellidos (DNI/carnet/pasaporte)
     birth_date = Column(Date)
     expiry_date = Column(Date)
+    issue_date = Column(Date)         # fecha de emisión (pasaporte)
     front_url = Column(Text)          # anverso / imagen principal
     back_url = Column(Text)           # reverso (DNI/carnet por las dos caras)
     extra = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
@@ -3827,6 +3831,7 @@ def ensure_person_documents_schema():
             updated_at timestamptz DEFAULT now()
         );
         """,
+        "ALTER TABLE IF EXISTS person_documents ADD COLUMN IF NOT EXISTS issue_date date;",
         "CREATE INDEX IF NOT EXISTS idx_person_documents_owner ON person_documents(owner_type, owner_id, sort_order);",
     ]
     _exec_ddl_statements(stmts, "person_documents_schema")

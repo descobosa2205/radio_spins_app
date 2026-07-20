@@ -31,6 +31,7 @@
     // Modo compacto (resumen de la ficha principal): la tarjeta de identidad muestra solo la MINIATURA
     // + los datos que NO están ya en la ficha (para no duplicar; p. ej. la caducidad del DNI).
     var compact = root.hasAttribute('data-docs-compact');
+    var ownerName = (root.dataset.ownerName || '').trim();   // para el nombre del fichero al arrastrar
     var docs = readJSON(root, '[data-person-docs-json]');
     var brands = readJSON(root, '[data-loyalty-brands-json]');
     var brandByKey = {};
@@ -57,8 +58,12 @@
       if (empty) empty.classList.toggle('d-none', any);
     }
 
-    function faceHtml(url, cls) {
-      if (url) return '<div class="docs-id__face ' + cls + '" style="background-image:url(\'' + esc(url) + '\')"></div>';
+    // La cara es un <img>: se puede AMPLIAR al pinchar y ARRASTRAR para guardar con el nombre del
+    // documento + la persona (data-doc-dl). El pasaporte se ve completo (CSS is-full).
+    function faceHtml(url, cls, dlName) {
+      if (url) return '<img class="docs-id__face ' + cls + '" src="' + esc(url) + '" alt="" ' +
+        'data-doc-img="' + esc(url) + '" data-doc-dl="' + esc(dlName || 'documento') + '" draggable="true" ' +
+        'title="Pinchar para ampliar · arrastra para guardar">';
       return '<div class="docs-id__face docs-id__face--empty ' + cls + '"><i class="fa fa-image"></i></div>';
     }
 
@@ -85,17 +90,19 @@
       var title = d.kind === 'LICENSE' ? 'Carnet de conducir' : d.kind === 'PASSPORT' ? 'Pasaporte' : 'DNI';
       var icon = d.kind === 'LICENSE' ? 'fa-id-card-clip' : d.kind === 'PASSPORT' ? 'fa-passport' : 'fa-id-card';
       var numLabel = d.kind === 'LICENSE' ? 'Nº carnet' : d.kind === 'PASSPORT' ? 'Nº pasaporte' : 'Nº DNI';
-      // El pasaporte tiene UNA sola cara; DNI/carnet, dos.
+      // Nombre del fichero al arrastrar: «<TIPO> <persona>» (+ « (reverso)» en la cara trasera).
+      var dlBase = (title + (ownerName ? ' ' + ownerName : '')).trim();
+      // El pasaporte tiene UNA sola cara y se ve COMPLETO (is-full); DNI/carnet, dos caras.
       var faces = (d.kind === 'PASSPORT')
-        ? ('<div class="docs-id__faces docs-id__faces--single">' + faceHtml(d.front_url, 'is-front') + '</div>')
-        : ('<div class="docs-id__faces">' + faceHtml(d.front_url, 'is-front') + faceHtml(d.back_url, 'is-back') + '</div>');
+        ? ('<div class="docs-id__faces docs-id__faces--single">' + faceHtml(d.front_url, 'is-front is-full', dlBase) + '</div>')
+        : ('<div class="docs-id__faces">' + faceHtml(d.front_url, 'is-front', dlBase) + faceHtml(d.back_url, 'is-back', dlBase + ' (reverso)') + '</div>');
       // En compacto (resumen de la ficha), la miniatura SIEMPRE se ve; de los datos, solo los que no
       // están ya en la ficha: nombre/nacimiento fuera; el nº solo si NO es el DNI (que ya sale arriba).
       var rows =
         (compact ? '' : idDataRow('Nombre', d.full_name)) +
         ((compact && d.kind === 'DNI') ? '' : idDataRow(numLabel, d.doc_number)) +
         (compact ? '' : idDataRow('F. nacimiento', fmtDate(d.birth_date))) +
-        (d.kind === 'PASSPORT' ? idDataRow('Emisión', fmtDate(d.issue_date)) : '') +
+        (d.kind === 'PASSPORT' ? idDataRow('Expedición', fmtDate(d.issue_date)) : '') +
         idDataRow('Caducidad', fmtDate(d.expiry_date));
       return '<div class="docs-id' + (compact ? ' docs-id--compact' : '') + '" data-doc-card="' + d.id + '">' +
         actionsHtml(d) +
@@ -116,7 +123,7 @@
       var icon = b.icon || 'fa-tag';
       var name = (b.label || d.company || 'Tarjeta');
       var num = (d.doc_number || '');
-      var numFmt = num.replace(/(.{4})/g, '$1 ').trim();
+      var numFmt = num;   // se muestra TAL CUAL se escribió (no se agrupa ni se separa)
       var acts = canEdit ? ('<span class="docs-pill__acts">' +
           '<button type="button" class="docs-pill__act" data-doc-edit="' + d.id + '" title="Editar"><i class="fa fa-pen"></i></button>' +
           '<button type="button" class="docs-pill__act" data-doc-del="' + d.id + '" title="Eliminar"><i class="fa fa-trash"></i></button>' +
@@ -152,6 +159,16 @@
       } else { fallback(); done(); }
     }
 
+    // Ampliar la imagen de un documento (DNI/pasaporte/carnet) a pantalla completa.
+    function openLightbox(url) {
+      if (!url) return;
+      var ov = document.createElement('div');
+      ov.className = 'docs-lightbox';
+      ov.innerHTML = '<img src="' + esc(url) + '" alt=""><button type="button" class="docs-lightbox__x" aria-label="Cerrar"><i class="fa fa-xmark"></i></button>';
+      ov.addEventListener('click', function () { ov.remove(); });
+      document.body.appendChild(ov);
+    }
+
     // Matrícula = PASTILLA con estética de placa española (banda azul EU + número), del tamaño de las
     // tarjetas de fidelización y en fila. Al pinchar copia la matrícula.
     function plateHtml(d) {
@@ -177,10 +194,20 @@
     root.addEventListener('click', function (e) {
       if (e.target.closest('[data-doc-edit],[data-doc-del]')) return;
       var cp = e.target.closest('[data-doc-copy]');
-      if (cp) copyNumber(cp);
+      if (cp) { copyNumber(cp); return; }
+      var img = e.target.closest('[data-doc-img]');
+      if (img) openLightbox(img.getAttribute('data-doc-img'));
+    });
+    // Arrastrar la imagen la descarga con nombre «<TIPO> <persona>» (truco DownloadURL de Chromium).
+    root.addEventListener('dragstart', function (e) {
+      var img = e.target.closest('[data-doc-img]');
+      if (!img || !e.dataTransfer) return;
+      var url = img.getAttribute('data-doc-img');
+      var name = (img.getAttribute('data-doc-dl') || 'documento').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+      try { e.dataTransfer.setData('DownloadURL', 'image/jpeg:' + name + '.jpg:' + url); } catch (_e) {}
     });
 
-    if (!canEdit) return;   // sin permisos: solo lectura (pero el copiar de arriba sigue activo)
+    if (!canEdit) return;   // sin permisos: solo lectura (pero copiar/ampliar/arrastrar siguen activos)
 
     /* ------------------- Modal (alta / edición) ------------------- */
     var form = modalEl ? modalEl.querySelector('[data-doc-form]') : null;
@@ -364,7 +391,7 @@
       put('full_name', data.full_name, data.full_name);
       put('birth_date', data.birth, 'nac. ' + fmtDate(data.birth));
       put('expiry_date', data.expiry, 'cad. ' + fmtDate(data.expiry));
-      if (kind === 'PASSPORT') put('issue_date', data.issue, 'emis. ' + fmtDate(data.issue));
+      if (kind === 'PASSPORT') put('issue_date', data.issue, 'exped. ' + fmtDate(data.issue));
       if (kind === 'DNI') put('address', data.address, 'domicilio');
       return got.join(' · ');
     }

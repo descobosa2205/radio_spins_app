@@ -36,7 +36,7 @@
   {% if tab == 'general' %}
     {# Resumen de documentos: DNI a la derecha, datos principales a la izquierda, tarjetas en pastillas. #}
     {% if person_documents %}
-    <div class="card mb-4" id="promoterDocsSummary" data-person-docs data-can-edit="" data-docs-compact>
+    <div class="card mb-4" id="promoterDocsSummary" data-person-docs data-can-edit="" data-docs-compact data-owner-name="{{ ((promoter.first_name ~ ' ' ~ promoter.last_name)|trim) or promoter.nick }}">
       <div class="card-body">
         <script type="application/json" data-person-docs-json>{{ person_documents|tojson }}</script>
         <script type="application/json" data-loyalty-brands-json>{{ loyalty_brands|tojson }}</script>
@@ -51,29 +51,29 @@
               {% if promoter.address %}<div><span class="psum-k">Domicilio</span><span class="psum-v">{{ promoter.address }}</span></div>{% endif %}
             </dl>
             {% endif %}
+            <div data-docs-section="LOYALTY" class="docs-section d-none mt-3">
+              <h6 class="psum-docs__title">Tarjetas de fidelización</h6>
+              <div class="docs-pills" data-docs-grid="LOYALTY"></div>
+            </div>
+            <div data-docs-section="PLATE" class="docs-section d-none mt-3">
+              <h6 class="psum-docs__title">Vehículos</h6>
+              <div class="docs-pills" data-docs-grid="PLATE"></div>
+            </div>
           </div>
           <div class="col-lg-5 col-xl-4">
             <div data-docs-section="DNI" class="docs-section d-none">
               <h6 class="psum-docs__title">Documento de identidad</h6>
               <div class="docs-grid" data-docs-grid="DNI"></div>
             </div>
-            <div data-docs-section="LICENSE" class="docs-section d-none">
-              <h6 class="psum-docs__title">Carnet de conducir</h6>
-              <div class="docs-grid" data-docs-grid="LICENSE"></div>
-            </div>
             <div data-docs-section="PASSPORT" class="docs-section d-none">
               <h6 class="psum-docs__title">Pasaporte</h6>
               <div class="docs-grid" data-docs-grid="PASSPORT"></div>
             </div>
+            <div data-docs-section="LICENSE" class="docs-section d-none">
+              <h6 class="psum-docs__title">Carnet de conducir</h6>
+              <div class="docs-grid" data-docs-grid="LICENSE"></div>
+            </div>
           </div>
-        </div>
-        <div data-docs-section="LOYALTY" class="docs-section d-none mt-2">
-          <h6 class="psum-docs__title">Tarjetas de fidelización</h6>
-          <div class="docs-pills" data-docs-grid="LOYALTY"></div>
-        </div>
-        <div data-docs-section="PLATE" class="docs-section d-none mt-3">
-          <h6 class="psum-docs__title">Vehículos</h6>
-          <div class="docs-pills" data-docs-grid="PLATE"></div>
         </div>
       </div>
     </div>

@@ -346,7 +346,13 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   izquierda y el DNI a la derecha** (+ pastillas/vehículos debajo), reutilizando `person_docs.js` en
   solo lectura (`data-can-edit=""`, subconjunto de `[data-docs-grid]`). Con **`data-docs-compact`** la
   tarjeta de identidad muestra solo la MINIATURA + los datos que NO están ya en la ficha (p. ej. la
-  caducidad del DNI), para no duplicar. En «Datos» de personal el
+  caducidad del DNI), para no duplicar. **Distribución**: a la izquierda datos + fidelización +
+  vehículos; a la derecha los documentos con foto (DNI/pasaporte/carnet). **Las caras son `<img>`**:
+  pinchar AMPLÍA (lightbox `.docs-lightbox`), arrastrar DESCARGA con nombre «`<TIPO> <persona>`»
+  (`data-doc-dl` + truco `DownloadURL`; persona vía `data-owner-name`/`person_docs_owner_name`). El
+  **pasaporte se ve COMPLETO** (una cara, `is-full` = `object-fit:contain`, proporción natural) y su
+  fecha es la de **expedición**. El nº de las tarjetas de fidelización se muestra **tal cual** (sin
+  agrupar). No hay botón «Ver y gestionar documentos» (eso se hace en la pestaña «Documentos»). En «Datos» de personal el
   formulario de edición queda oculto tras un botón *Editar* (toggle `ficha_inline.js`:
   `data-edit-toggle="#personDatosForm"` + `data-view`). Endpoints por ficha para heredar permisos:
   `personnel_document_save`/`_delete` (mapeados a `personal.usuarios.accesos` en

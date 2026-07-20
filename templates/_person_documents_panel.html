@@ -4,6 +4,7 @@
    El render de las tarjetas y el OCR del DNI los hace static/js/person_docs.js. #}
 <div class="docs-panel"
      data-person-docs
+     data-owner-name="{{ person_docs_owner_name or '' }}"
      data-save-url="{{ person_docs_save_url }}"
      data-delete-base="{{ person_docs_delete_base }}"
      data-can-edit="{{ '1' if person_docs_can_edit else '' }}">
@@ -115,7 +116,7 @@
               <input type="date" name="expiry_date" class="form-control">
             </div>
             <div class="col-md-6" data-doc-field="issue_date">
-              <label class="form-label">Fecha de emisión</label>
+              <label class="form-label">Fecha de expedición</label>
               <input type="date" name="issue_date" class="form-control">
             </div>
             <div class="col-12" data-doc-field="address">

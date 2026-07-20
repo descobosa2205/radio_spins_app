@@ -2200,9 +2200,12 @@ body.vmap-max-open { overflow: hidden; }
 /* --- DNI / carnet: tarjeta con las dos caras recortadas + datos --- */
 .docs-id { position:relative; background:#fff; border:1px solid #e6e8eb; border-radius:14px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.05); }
 .docs-id__faces { display:grid; grid-template-columns:1fr 1fr; gap:2px; background:#e6e8eb; }
-.docs-id__faces--single { grid-template-columns:1fr; }
+.docs-id__faces--single { grid-template-columns:1fr; background:transparent; }
 .docs-id__face { aspect-ratio:1.586/1; background-size:cover; background-position:center; background-color:#f1f3f5; }
-.docs-id__face--empty { display:flex; align-items:center; justify-content:center; color:#c2c8ce; font-size:1.4rem; }
+img.docs-id__face { width:100%; height:100%; object-fit:cover; display:block; cursor:zoom-in; }
+/* Pasaporte: se ve COMPLETO (proporción natural, sin recortar por CSS). */
+.docs-id__face.is-full { aspect-ratio:auto; height:auto; object-fit:contain; }
+.docs-id__face--empty { display:flex; align-items:center; justify-content:center; color:#c2c8ce; font-size:1.4rem; min-height:90px; }
 .docs-id__body { padding:.7rem .85rem .8rem; }
 .docs-id__title { font-weight:800; font-size:.9rem; margin-bottom:.45rem; color:#1a1a1a; }
 .docs-id__row { display:flex; justify-content:space-between; gap:.6rem; padding:.15rem 0; font-size:.82rem; border-top:1px dashed #eef0f2; }
@@ -2269,6 +2272,11 @@ body.vmap-max-open { overflow: hidden; }
 .docs-drop__img { width:100%; height:100%; object-fit:cover; }
 .docs-drop__hint { position:absolute; color:#8a9199; font-size:.85rem; }
 .docs-ocr { background:#fff8e1; border:1px solid #ffe08a; border-radius:8px; padding:.4rem .6rem; }
+
+/* --- Lightbox: ampliar la imagen de un documento al pincharla --- */
+.docs-lightbox { position:fixed; inset:0; z-index:20050; background:rgba(0,0,0,.82); display:flex; align-items:center; justify-content:center; padding:2vh 2vw; cursor:zoom-out; }
+.docs-lightbox img { max-width:96vw; max-height:96vh; object-fit:contain; border-radius:8px; box-shadow:0 10px 40px rgba(0,0,0,.5); }
+.docs-lightbox__x { position:fixed; top:14px; right:18px; width:42px; height:42px; border:0; border-radius:50%; background:rgba(255,255,255,.9); color:#111; font-size:1.1rem; cursor:pointer; }
 
 /* --- Herramienta de recorte manual (DocScan.openCropTool) --- */
 .dscrop-ov { position:fixed; inset:0; z-index:20000; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; padding:1rem; }

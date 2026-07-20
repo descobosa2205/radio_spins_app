@@ -1,0 +1,131 @@
+{# Panel reutilizable de DOCUMENTOS de una persona (ficha de personal y de tercero).
+   Requiere en el contexto: person_documents (lista de payloads), person_docs_owner_type,
+   person_docs_save_url, person_docs_delete_base (con __ID__), person_docs_can_edit, loyalty_brands.
+   El render de las tarjetas y el OCR del DNI los hace static/js/person_docs.js. #}
+<div class="docs-panel"
+     data-person-docs
+     data-save-url="{{ person_docs_save_url }}"
+     data-delete-base="{{ person_docs_delete_base }}"
+     data-can-edit="{{ '1' if person_docs_can_edit else '' }}">
+
+  <script type="application/json" data-person-docs-json>{{ person_documents|tojson }}</script>
+  <script type="application/json" data-loyalty-brands-json>{{ loyalty_brands|tojson }}</script>
+
+  {% if person_docs_can_edit %}
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    <button type="button" class="btn btn-sm btn-outline-primary" data-doc-add="DNI"><i class="fa fa-id-card me-1"></i>Añadir DNI</button>
+    <button type="button" class="btn btn-sm btn-outline-primary" data-doc-add="LICENSE"><i class="fa fa-id-card-clip me-1"></i>Carnet de conducir</button>
+    <button type="button" class="btn btn-sm btn-outline-primary" data-doc-add="LOYALTY"><i class="fa fa-credit-card me-1"></i>Tarjeta de fidelización</button>
+    <button type="button" class="btn btn-sm btn-outline-primary" data-doc-add="PLATE"><i class="fa fa-car me-1"></i>Matrícula de coche</button>
+  </div>
+  {% endif %}
+
+  {# Zonas por tipo; person_docs.js pinta las tarjetas dentro de cada grid. #}
+  <div data-docs-section="DNI" class="docs-section d-none">
+    <h6 class="docs-section__title"><i class="fa fa-id-card me-1"></i>Documentos de identidad</h6>
+    <div class="docs-grid" data-docs-grid="DNI"></div>
+  </div>
+  <div data-docs-section="LICENSE" class="docs-section d-none">
+    <h6 class="docs-section__title"><i class="fa fa-id-card-clip me-1"></i>Carnets de conducir</h6>
+    <div class="docs-grid" data-docs-grid="LICENSE"></div>
+  </div>
+  <div data-docs-section="LOYALTY" class="docs-section d-none">
+    <h6 class="docs-section__title"><i class="fa fa-credit-card me-1"></i>Tarjetas de fidelización</h6>
+    <div class="docs-grid docs-grid--cards" data-docs-grid="LOYALTY"></div>
+  </div>
+  <div data-docs-section="PLATE" class="docs-section d-none">
+    <h6 class="docs-section__title"><i class="fa fa-car me-1"></i>Vehículos</h6>
+    <div class="docs-grid docs-grid--plates" data-docs-grid="PLATE"></div>
+  </div>
+
+  <div data-docs-empty class="text-muted small py-4 text-center">
+    <i class="fa fa-folder-open fa-lg mb-2 d-block"></i>
+    Todavía no hay documentos.{% if person_docs_can_edit %} Usa los botones de arriba para añadir un DNI, carnet, tarjeta o matrícula.{% endif %}
+  </div>
+</div>
+
+{% if person_docs_can_edit %}
+{# ---- Modal de alta/edición (uno solo, se adapta al tipo) ---- #}
+<div class="modal fade" id="personDocModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <form data-doc-form enctype="multipart/form-data">
+        <div class="modal-header">
+          <h5 class="modal-title" data-doc-modal-title>Documento</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" name="kind" data-doc-kind>
+          <input type="hidden" name="doc_id" data-doc-id>
+
+          {# --- Imágenes (DNI/carnet: dos caras; fidelización: foto opcional) --- #}
+          <div class="row g-3" data-doc-images>
+            <div class="col-md-6" data-doc-front-wrap>
+              <label class="form-label small text-muted" data-doc-front-label>Anverso (cara con la foto)</label>
+              <label class="docs-drop" data-doc-drop="front">
+                <input type="file" name="front" accept="image/*" class="d-none" data-doc-file="front">
+                <img class="docs-drop__img d-none" data-doc-preview="front" alt="">
+                <span class="docs-drop__hint"><i class="fa fa-camera me-1"></i>Subir imagen</span>
+              </label>
+              <input type="hidden" name="front_url_clear" value="" data-doc-clear="front">
+            </div>
+            <div class="col-md-6" data-doc-back-wrap>
+              <label class="form-label small text-muted">Reverso (cara con el MRZ ‹‹‹)</label>
+              <label class="docs-drop" data-doc-drop="back">
+                <input type="file" name="back" accept="image/*" class="d-none" data-doc-file="back">
+                <img class="docs-drop__img d-none" data-doc-preview="back" alt="">
+                <span class="docs-drop__hint"><i class="fa fa-camera me-1"></i>Subir imagen</span>
+              </label>
+              <input type="hidden" name="back_url_clear" value="" data-doc-clear="back">
+            </div>
+          </div>
+
+          <div class="docs-ocr small text-muted mt-2 d-none" data-doc-ocr>
+            <i class="fa fa-wand-magic-sparkles me-1"></i><span data-doc-ocr-msg>Detectando datos del DNI…</span>
+          </div>
+
+          {# --- Campos según tipo --- #}
+          <div class="row g-3 mt-1">
+            <div class="col-md-6" data-doc-field="full_name">
+              <label class="form-label">Nombre y apellidos</label>
+              <input type="text" name="full_name" class="form-control">
+            </div>
+            <div class="col-md-6" data-doc-field="doc_number">
+              <label class="form-label" data-doc-number-label>Número</label>
+              <input type="text" name="doc_number" class="form-control">
+            </div>
+            <div class="col-md-6" data-doc-field="birth_date">
+              <label class="form-label">Fecha de nacimiento</label>
+              <input type="date" name="birth_date" class="form-control">
+            </div>
+            <div class="col-md-6" data-doc-field="expiry_date">
+              <label class="form-label">Caducidad</label>
+              <input type="date" name="expiry_date" class="form-control">
+            </div>
+            <div class="col-md-6" data-doc-field="company">
+              <label class="form-label">Compañía</label>
+              <input type="text" name="company" class="form-control" list="loyaltyBrandsList" placeholder="Renfe, Iberia, Repsol…">
+              <datalist id="loyaltyBrandsList">
+                {% for b in loyalty_brands %}<option value="{{ b.label }}">{% endfor %}
+              </datalist>
+            </div>
+            <div class="col-md-6" data-doc-field="label">
+              <label class="form-label" data-doc-label-label>Etiqueta</label>
+              <input type="text" name="label" class="form-control">
+            </div>
+          </div>
+
+          <div class="form-check mt-2 d-none" data-doc-apply-wrap>
+            <input class="form-check-input" type="checkbox" name="apply_to_profile" value="1" checked id="docApplyProfile">
+            <label class="form-check-label small" for="docApplyProfile">Rellenar los datos vacíos de la ficha con lo detectado (nombre, DNI, fecha de nacimiento)</label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-primary" data-doc-submit><i class="fa fa-check me-1"></i>Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}

@@ -312,6 +312,23 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   pasarela). El fotógrafo es un tercero (`Promoter`) con alta rápida (`quick_create.js` sobre un
   `<select>` oculto) o «Desconocido».
 
+- **Documentos personales (pestaña «Documentos» en ficha de personal y de tercero)**: modelo
+  polimórfico `PersonDocument` (`owner_type` USER|PROMOTER, `kind` DNI|LICENSE|LOYALTY|PLATE,
+  `front_url`/`back_url`, `doc_number`, `full_name`, `birth_date`, `expiry_date`, `company`,
+  `label`, `extra`) + `ensure_person_documents_schema`. Panel reutilizable
+  `templates/_person_documents_panel.html` + `static/js/person_docs.js` (GLOBAL en layout, no-op sin
+  `[data-person-docs]`) + estilos `.docs-*`. DNI/carnet = tarjeta con imágenes recortadas (dos caras)
+  + datos; **OCR en cliente** con **tesseract.js** (CDN bajo demanda, precedente pdf.js): lee el
+  **MRZ** del reverso (whitelist `A-Z0-9<`, parser TD1 `parseMrz`) → nº (DNI validado mod-23
+  `findDni`), nombre, nacimiento, caducidad; rellena el documento y los campos VACÍOS de la ficha
+  (`_person_doc_apply_to_profile`: `UserProfile.dni`/`birth_date`/nombre o `Promoter.tax_id`/nombre).
+  Fidelización = tarjeta con color de marca (`PERSON_LOYALTY_BRANDS`, casada por nombre) + nº;
+  matrícula = placa española + nombre del vehículo. Endpoints por ficha para heredar permisos:
+  `personnel_document_save`/`_delete` (mapeados a `personal.usuarios.accesos` en
+  `_resolve_request_resource_key` **y** `_coarse_endpoint_resource`) y `promoter_document_save`/`_delete`
+  (auto → `third_parties` por prefijo `promoter_`); ambos delegan en `_person_document_save`/`_delete_one`.
+  Imágenes a Storage `documents/` (HEIC→JPEG). El save devuelve JSON y el JS re-renderiza sin recargar.
+
 ## Despliegue
 - GitHub `descobosa2205/radio_spins_app` → **Render** (Pro Plus, **Frankfurt**) auto-deploy de
   `main`. **Supabase** Pro (**Frankfurt**, proyecto `gyezqnqyxpwxxevdjhgf`; migrado desde Estocolmo

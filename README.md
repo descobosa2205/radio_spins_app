@@ -189,6 +189,32 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-07-20 — Documentos personales en las fichas (DNI, carnet, tarjetas y matrículas)
+
+Nueva pestaña **«Documentos»** en la ficha de **personal** y de **terceros** para adjuntar y
+visualizar documentos de la persona. Modelo polimórfico único `PersonDocument`
+(`owner_type` USER|PROMOTER) + `ensure_person_documents_schema` (idempotente). Panel reutilizable
+`templates/_person_documents_panel.html` + `static/js/person_docs.js` + estilos `.docs-*`.
+
+- **DNI y carnet de conducir (por las dos caras)**: se suben anverso y reverso; se muestran como
+  una **tarjeta tipo carnet** con las imágenes **recortadas** (proporción ID-1) y, debajo, los
+  datos. **OCR en el navegador** (tesseract.js, cargado bajo demanda desde CDN): al subir el
+  **reverso** lee la banda **MRZ** (whitelist `A-Z0-9<`) y autodetecta **nº de documento** (DNI
+  validado con el dígito de control mod-23), **nombre y apellidos**, **fecha de nacimiento** y
+  **caducidad**; con el anverso, cae a regex de fechas. Lo detectado rellena el documento y, si
+  están vacíos, los **campos de la ficha** (en personal: `UserProfile.dni`/`birth_date`/nombre;
+  en terceros: `tax_id`/nombre) — casilla «rellenar datos de la ficha» activada por defecto.
+- **Tarjetas de fidelización** (Renfe, Iberia, Vueling, Repsol…): se muestran como **tarjeta con el
+  color/logotipo de la marca** (catálogo `PERSON_LOYALTY_BRANDS`, se casa por nombre) y el número
+  de tarjeta agrupado; admite además una foto de la tarjeta.
+- **Matrículas de coche**: se ven con **estética de placa española** (banda azul UE con la «E») y el
+  **nombre del vehículo** encima.
+- Endpoints por ficha para heredar permisos: `personnel_document_save`/`_delete`
+  (`/personal/<id>/documentos/…`, recurso `personal.usuarios.accesos`) y
+  `promoter_document_save`/`_delete` (`/promotores/<id>/documentos/…`, recurso `third_parties` por
+  el prefijo `promoter_`). Subida XHR con CSRF; imágenes a Storage `documents/` con conversión
+  HEIC→JPEG en servidor. Verificado en navegador: render de las 4 tipologías y OCR del MRZ.
+
 ### 2026-07-20 — Diseñador: Seleccionar en la barra, barridos en tiempo real y giro de sectores en grupo
 
 - **Herramienta «Seleccionar» arriba**: el chip de seleccionar (antes solo en el panel lateral)

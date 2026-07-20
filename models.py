@@ -3761,6 +3761,77 @@ class PhotoShare(Base):
     )
 
 
+class PersonDocument(Base):
+    """Documento personal adjunto a una persona: DNI, carnet de conducir, tarjeta de fidelización
+    (Renfe, Iberia…) o matrícula de vehículo. Polimórfico: `owner_type` USER (personal de oficina)
+    o PROMOTER (tercero). El detalle específico va en los campos comunes + `extra` (JSONB):
+
+    - kind DNI / LICENSE: imágenes por ambas caras (`front_url`/`back_url`), `doc_number`,
+      `full_name`, `birth_date`, `expiry_date` (autodetectados por OCR al subir el DNI).
+    - kind LOYALTY (fidelización): `company` (marca), `doc_number` (nº de tarjeta), `front_url`
+      opcional (imagen de la tarjeta); se pinta como tarjeta con el color/logotipo de la marca.
+    - kind PLATE (matrícula): `doc_number` (la matrícula) + `label` (nombre del vehículo); se pinta
+      con estética de placa española.
+    """
+
+    __tablename__ = "person_documents"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    owner_type = Column(Text, nullable=False)   # USER | PROMOTER
+    owner_id = Column(PGUUID(as_uuid=True), nullable=False)
+    kind = Column(Text, nullable=False, server_default=text("'DNI'"))  # DNI|LICENSE|LOYALTY|PLATE
+    label = Column(Text)              # nombre del vehículo (PLATE) / etiqueta libre
+    company = Column(Text)            # marca de la tarjeta de fidelización (LOYALTY)
+    doc_number = Column(Text)         # nº DNI / carnet / tarjeta / matrícula
+    full_name = Column(Text)         # nombre y apellidos (DNI/carnet)
+    birth_date = Column(Date)
+    expiry_date = Column(Date)
+    front_url = Column(Text)          # anverso / imagen principal
+    back_url = Column(Text)           # reverso (DNI/carnet por las dos caras)
+    extra = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_person_documents_owner", "owner_type", "owner_id", "sort_order"),
+    )
+
+
+def ensure_person_documents_schema():
+    """Crea/actualiza la tabla de documentos personales (idempotente, sin Alembic)."""
+    _create_all_once()
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        """
+        CREATE TABLE IF NOT EXISTS person_documents (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            owner_type text NOT NULL,
+            owner_id uuid NOT NULL,
+            kind text NOT NULL DEFAULT 'DNI',
+            label text,
+            company text,
+            doc_number text,
+            full_name text,
+            birth_date date,
+            expiry_date date,
+            front_url text,
+            back_url text,
+            extra jsonb NOT NULL DEFAULT '{}'::jsonb,
+            sort_order integer NOT NULL DEFAULT 0,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_person_documents_owner ON person_documents(owner_type, owner_id, sort_order);",
+    ]
+    _exec_ddl_statements(stmts, "person_documents_schema")
+
+
 def ensure_fotos_schema():
     """Crea/actualiza las tablas de la galería de fotos (idempotente, sin Alembic)."""
     _create_all_once()

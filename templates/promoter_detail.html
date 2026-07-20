@@ -29,6 +29,7 @@
   <li class="nav-item"><a class="nav-link {% if tab == 'contactos' %}active{% endif %}" href="{{ url_for('promoter_detail_view', pid=promoter.id, tab='contactos') }}">Datos de contacto</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'vinculaciones' %}active{% endif %}" href="{{ url_for('promoter_detail_view', pid=promoter.id, tab='vinculaciones') }}">Vinculaciones</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'invitaciones' %}active{% endif %}" href="{{ url_for('promoter_detail_view', pid=promoter.id, tab='invitaciones') }}">Invitaciones{% if promoter_invitations_count %} <span class="badge text-bg-secondary">{{ promoter_invitations_count }}</span>{% endif %}</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'documentos' %}active{% endif %}" href="{{ url_for('promoter_detail_view', pid=promoter.id, tab='documentos') }}"><i class="fa fa-id-card me-1"></i>Documentos</a></li>
 </ul>
 
 <div class="bg-white border border-top-0 rounded-bottom p-3">
@@ -138,6 +139,8 @@
     </div>
   {% elif tab == 'vinculaciones' %}
     {% include '_entity_links_panel.html' %}
+  {% elif tab == 'documentos' %}
+    {% include '_person_documents_panel.html' %}
   {% elif tab == 'invitaciones' %}
     {# Cabecera común de evento para una fila de invitación: foto del artista + etiqueta de tipo +
        nombre (si lo hay) · municipio · fecha; y debajo, en sub-línea, recinto · municipio · provincia.

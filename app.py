@@ -129,6 +129,7 @@ from models import (
     ensure_chartmetric_schema,
     ensure_venue_seatmap_schema,
     ensure_fotos_schema,
+    ensure_person_documents_schema,
     ensure_artist_calendar_schema,
     ensure_performance_indexes,
     SessionLocal,
@@ -245,6 +246,7 @@ from models import (
     PhotoApprover,
     PhotoApproval,
     PhotoShare,
+    PersonDocument,
 )
 import sim_calc  # motor de cálculo puro de Simulaciones
 import seatmap_calc  # motor puro del mapa de butacas del recinto (conteos/plantillas)
@@ -29101,7 +29103,7 @@ def promoter_detail_view(pid):
             flash('Tercero no encontrado.', 'warning')
             return redirect(url_for('promoters_view'))
         tab = (request.args.get('tab') or 'general').strip().lower()
-        if tab not in {'general', 'contactos', 'vinculaciones', 'invitaciones'}:
+        if tab not in {'general', 'contactos', 'vinculaciones', 'invitaciones', 'documentos'}:
             tab = 'general'
         promoter_email_addresses = (
             session.query(PromoterEmail)
@@ -29202,6 +29204,13 @@ def promoter_detail_view(pid):
             entity_link_context={'type': 'promoter', 'id': str(promoter.id), 'label': promoter.nick or 'tercero'},
             entity_link_types=APP33_ENTITY_LINK_TYPES,
             entity_links_can_edit=(can_edit_catalogs() or can_edit_discografica()),
+            person_documents=_person_documents_for(session, "PROMOTER", promoter.id),
+            person_docs_owner_type="PROMOTER",
+            person_docs_owner_id=str(promoter.id),
+            person_docs_save_url=url_for("promoter_document_save", pid=promoter.id),
+            person_docs_delete_base=url_for("promoter_document_delete", pid=promoter.id, doc_id="__ID__"),
+            person_docs_can_edit=(can_edit_catalogs() or can_edit_discografica()),
+            loyalty_brands=PERSON_LOYALTY_BRANDS,
         )
     finally:
         session.close()
@@ -31400,6 +31409,7 @@ def _bootstrap_schema_bg():
         (ensure_radio_import_schema, "ensure_radio_import_schema"),
         (ensure_simulations_schema, "ensure_simulations_schema"),
         (ensure_fotos_schema, "ensure_fotos_schema"),
+        (ensure_person_documents_schema, "ensure_person_documents_schema"),
         (ensure_artist_calendar_schema, "ensure_artist_calendar_schema"),
         # OJO: ensure_personnel_and_operations_schema NO va aquí. Lo ejecuta (serializado, con lock) el
         # before_request `ensure_personnel_bootstrap` -> _bootstrap_access_and_personnel. Ejecutarlo
@@ -33347,7 +33357,7 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return "contabilidad"
     if endpoint == "personnel_view":
         return "personal.usuarios"
-    if endpoint in {"personnel_detail_view", "personnel_bulk_access"}:
+    if endpoint in {"personnel_detail_view", "personnel_bulk_access", "personnel_document_save", "personnel_document_delete"}:
         return "personal.usuarios.accesos"
     if endpoint == "events_view" or endpoint.startswith("event_"):
         return "databases.events"
@@ -33929,6 +33939,8 @@ def _resolve_request_resource_key() -> str | None:
             "personnel_view": "personal.usuarios",
             "personnel_detail_view": "personal.usuarios.accesos",
             "personnel_bulk_access": "personal.usuarios.accesos",
+            "personnel_document_save": "personal.usuarios.accesos",
+            "personnel_document_delete": "personal.usuarios.accesos",
         }
         return mapping.get(endpoint)
     if endpoint.startswith("action_") or endpoint.startswith("acciones_"):
@@ -37875,6 +37887,279 @@ def personnel_view():
         session_db.close()
 
 
+# =====================================================================================
+# Documentos personales (DNI, carnet de conducir, tarjetas de fidelización, matrículas)
+# Adjuntos a una persona (USER = personal de oficina · PROMOTER = tercero). El OCR del DNI se
+# hace en el navegador (person_docs.js); aquí solo se guardan campos + imágenes y, para el DNI,
+# se propagan los datos detectados a los campos VACÍOS de la ficha.
+# =====================================================================================
+PERSON_DOC_KINDS = {"DNI", "LICENSE", "LOYALTY", "PLATE"}
+PERSON_DOC_IMAGE_EXTS = PHOTO_IMAGE_EXTS  # mismas extensiones de imagen que las fotos (HEIC incl.)
+
+# Marcas de fidelización conocidas → color de la tarjeta (y color del texto). Da igual mayúsculas
+# /acentos: se casa por nombre normalizado. Si la marca no está, se usa un color neutro.
+PERSON_LOYALTY_BRANDS = [
+    {"key": "renfe", "label": "Renfe", "color": "#5b247a", "color2": "#8e2de2", "fg": "#ffffff"},
+    {"key": "iberia", "label": "Iberia", "color": "#d40f14", "color2": "#f4b223", "fg": "#ffffff"},
+    {"key": "iberiaplus", "label": "Iberia Plus", "color": "#b8860b", "color2": "#e0b64a", "fg": "#ffffff"},
+    {"key": "vueling", "label": "Vueling", "color": "#ffcb05", "color2": "#ffe066", "fg": "#1a1a1a"},
+    {"key": "aireuropa", "label": "Air Europa", "color": "#0033a0", "color2": "#3f6fd1", "fg": "#ffffff"},
+    {"key": "ryanair", "label": "Ryanair", "color": "#073590", "color2": "#f1c40f", "fg": "#ffffff"},
+    {"key": "avios", "label": "Avios", "color": "#00205b", "color2": "#0a3d91", "fg": "#ffffff"},
+    {"key": "melia", "label": "Meliá", "color": "#0a1a3f", "color2": "#1f3a6d", "fg": "#ffffff"},
+    {"key": "nhhotels", "label": "NH Hotels", "color": "#00594f", "color2": "#0a8f7f", "fg": "#ffffff"},
+    {"key": "marriott", "label": "Marriott Bonvoy", "color": "#1c1c1c", "color2": "#3a3a3a", "fg": "#ffffff"},
+    {"key": "repsol", "label": "Repsol Waylet", "color": "#ff6a13", "color2": "#ffa04d", "fg": "#ffffff"},
+    {"key": "cepsa", "label": "Cepsa", "color": "#008c95", "color2": "#0abfc9", "fg": "#ffffff"},
+    {"key": "elcorteingles", "label": "El Corte Inglés", "color": "#0a5c2e", "color2": "#128a45", "fg": "#ffffff"},
+    {"key": "carrefour", "label": "Carrefour", "color": "#004e9f", "color2": "#e2231a", "fg": "#ffffff"},
+]
+
+
+def _person_loyalty_brand_for(company):
+    key = _norm_text_key(company or "").replace(" ", "")
+    for b in PERSON_LOYALTY_BRANDS:
+        if b["key"] in key or key in b["key"]:
+            return b
+    return {"key": "", "label": (company or "").strip(), "color": "#334155", "color2": "#64748b", "fg": "#ffffff"}
+
+
+def _person_doc_owner(session_db, owner_type, owner_id):
+    """(owner_obj, ot) para USER (User) o PROMOTER (Promoter); (None, None) si no válido."""
+    ot = (owner_type or "").strip().upper()
+    if ot == "USER":
+        return session_db.get(User, to_uuid(owner_id)), ot
+    if ot == "PROMOTER":
+        return session_db.get(Promoter, to_uuid(owner_id)), ot
+    return None, None
+
+
+def _person_doc_store_image(fs):
+    """Sube una imagen de documento a Storage (carpeta 'documents'); convierte HEIC/… a JPEG para
+    que se vea en el navegador. Devuelve URL absoluta o None."""
+    if not fs or not getattr(fs, "filename", ""):
+        return None
+    fname = fs.filename or "doc"
+    ext = os.path.splitext(fname.lower())[1]
+    try:
+        if ext in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
+            return _absolute_media_url(upload_image(fs, "documents"))
+        if ext in PERSON_DOC_IMAGE_EXTS and PILLOW_AVAILABLE:
+            try:
+                raw = fs.read()
+                img = ImageOps.exif_transpose(PILImage.open(BytesIO(raw)))
+                if img.mode not in ("RGB", "L"):
+                    img = img.convert("RGB")
+                out = BytesIO()
+                img.save(out, format="JPEG", quality=90)
+                return _absolute_media_url(_upload_bytes(out.getvalue(), "documents/%s.jpg" % uuid.uuid4().hex, "image/jpeg"))
+            except Exception:
+                try:
+                    fs.stream.seek(0)
+                except Exception:
+                    pass
+        return _absolute_media_url(upload_file(fs, "documents", allowed_extensions=PERSON_DOC_IMAGE_EXTS))
+    except ValueError:
+        return None
+
+
+def _person_document_payload(doc):
+    brand = _person_loyalty_brand_for(doc.company) if doc.kind == "LOYALTY" else None
+    return {
+        "id": str(doc.id),
+        "kind": doc.kind,
+        "label": doc.label or "",
+        "company": doc.company or "",
+        "doc_number": doc.doc_number or "",
+        "full_name": doc.full_name or "",
+        "birth_date": doc.birth_date.isoformat() if doc.birth_date else "",
+        "expiry_date": doc.expiry_date.isoformat() if doc.expiry_date else "",
+        "front_url": doc.front_url or "",
+        "back_url": doc.back_url or "",
+        "brand": brand,
+    }
+
+
+def _person_documents_for(session_db, owner_type, owner_id):
+    rows = (
+        session_db.query(PersonDocument)
+        .filter(PersonDocument.owner_type == owner_type, PersonDocument.owner_id == owner_id)
+        .order_by(PersonDocument.sort_order.asc(), PersonDocument.created_at.asc())
+        .all()
+    )
+    return [_person_document_payload(r) for r in rows]
+
+
+def _person_doc_apply_to_profile(session_db, ot, owner, doc):
+    """DNI/carnet: rellena los campos VACÍOS de la ficha con lo detectado (no pisa lo ya puesto)."""
+    if doc.kind not in {"DNI", "LICENSE"}:
+        return
+    if ot == "USER":
+        profile = _ensure_user_profile(session_db, owner, legacy_full_seed=False)
+        if doc.doc_number and not (profile.dni or "").strip():
+            profile.dni = doc.doc_number
+        if doc.birth_date and not profile.birth_date:
+            profile.birth_date = doc.birth_date
+        if doc.full_name:
+            first, last = _split_full_name(doc.full_name)
+            if first and not (profile.first_name or "").strip():
+                profile.first_name = first
+            if last and not (profile.last_name or "").strip():
+                profile.last_name = last
+    elif ot == "PROMOTER":
+        if doc.doc_number and not (owner.tax_id or "").strip():
+            owner.tax_id = doc.doc_number
+        if doc.full_name:
+            first, last = _split_full_name(doc.full_name)
+            if first and not (owner.first_name or "").strip():
+                owner.first_name = first
+            if last and not (owner.last_name or "").strip():
+                owner.last_name = last
+
+
+def _split_full_name(full):
+    """«APELLIDO1 APELLIDO2, NOMBRE» o «NOMBRE APELLIDO1 APELLIDO2» → (nombre, apellidos)."""
+    s = " ".join((full or "").split())
+    if not s:
+        return "", ""
+    if "," in s:
+        last, first = s.split(",", 1)
+        return first.strip().title(), last.strip().title()
+    parts = s.split(" ")
+    if len(parts) >= 3:
+        return " ".join(parts[:-2]).title(), " ".join(parts[-2:]).title()
+    if len(parts) == 2:
+        return parts[0].title(), parts[1].title()
+    return s.title(), ""
+
+
+def _person_document_save(session_db, ot, owner):
+    """Crea o actualiza un documento de la persona desde el form multipart. Devuelve el payload."""
+    state = _current_user_state()
+    doc_id = to_uuid(request.form.get("doc_id"))
+    doc = session_db.get(PersonDocument, doc_id) if doc_id else None
+    if doc and (doc.owner_type != ot or str(doc.owner_id) != str(owner.id)):
+        doc = None
+    creating = doc is None
+    if creating:
+        base = (
+            session_db.query(func.coalesce(func.max(PersonDocument.sort_order), -1))
+            .filter(PersonDocument.owner_type == ot, PersonDocument.owner_id == owner.id)
+            .scalar()
+        )
+        doc = PersonDocument(
+            owner_type=ot, owner_id=owner.id, sort_order=int(base) + 1,
+            created_by_user_id=to_uuid(state.get("user_id")),
+            created_by_nick=(state.get("nick") or "").strip() or None,
+        )
+        session_db.add(doc)
+
+    kind = (request.form.get("kind") or doc.kind or "DNI").strip().upper()
+    if kind not in PERSON_DOC_KINDS:
+        kind = "DNI"
+    doc.kind = kind
+    doc.label = (request.form.get("label") or "").strip() or None
+    doc.company = (request.form.get("company") or "").strip() or None
+    doc.doc_number = (request.form.get("doc_number") or "").strip() or None
+    doc.full_name = (request.form.get("full_name") or "").strip() or None
+    doc.birth_date = parse_optional_date(request.form.get("birth_date"))
+    doc.expiry_date = parse_optional_date(request.form.get("expiry_date"))
+
+    front = _person_doc_store_image(request.files.get("front"))
+    if front:
+        doc.front_url = front
+    elif request.form.get("front_url_clear") == "1":
+        doc.front_url = None
+    back = _person_doc_store_image(request.files.get("back"))
+    if back:
+        doc.back_url = back
+    elif request.form.get("back_url_clear") == "1":
+        doc.back_url = None
+
+    if _truthy(request.form.get("apply_to_profile", "1")):
+        _person_doc_apply_to_profile(session_db, ot, owner, doc)
+
+    session_db.commit()
+    return _person_document_payload(doc)
+
+
+def _person_document_delete_one(session_db, ot, owner, doc_id):
+    doc = session_db.get(PersonDocument, to_uuid(doc_id))
+    if not doc or doc.owner_type != ot or str(doc.owner_id) != str(owner.id):
+        return False
+    session_db.delete(doc)
+    session_db.commit()
+    return True
+
+
+@app.post("/personal/<user_id>/documentos/guardar", endpoint="personnel_document_save")
+@admin_required
+def personnel_document_save(user_id):
+    session_db = db()
+    try:
+        user = session_db.get(User, to_uuid(user_id))
+        if not user:
+            return jsonify({"ok": False, "error": "Usuario no encontrado."}), 404
+        payload = _person_document_save(session_db, "USER", user)
+        return jsonify({"ok": True, "document": payload})
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        session_db.close()
+
+
+@app.post("/personal/<user_id>/documentos/<doc_id>/eliminar", endpoint="personnel_document_delete")
+@admin_required
+def personnel_document_delete(user_id, doc_id):
+    session_db = db()
+    try:
+        user = session_db.get(User, to_uuid(user_id))
+        if not user:
+            return jsonify({"ok": False, "error": "Usuario no encontrado."}), 404
+        ok = _person_document_delete_one(session_db, "USER", user, doc_id)
+        return jsonify({"ok": ok}) if ok else (jsonify({"ok": False, "error": "No encontrado."}), 404)
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        session_db.close()
+
+
+@app.post("/promotores/<pid>/documentos/guardar", endpoint="promoter_document_save")
+@admin_required
+def promoter_document_save(pid):
+    session_db = db()
+    try:
+        promoter = session_db.get(Promoter, to_uuid(pid))
+        if not promoter:
+            return jsonify({"ok": False, "error": "Tercero no encontrado."}), 404
+        payload = _person_document_save(session_db, "PROMOTER", promoter)
+        return jsonify({"ok": True, "document": payload})
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        session_db.close()
+
+
+@app.post("/promotores/<pid>/documentos/<doc_id>/eliminar", endpoint="promoter_document_delete")
+@admin_required
+def promoter_document_delete(pid, doc_id):
+    session_db = db()
+    try:
+        promoter = session_db.get(Promoter, to_uuid(pid))
+        if not promoter:
+            return jsonify({"ok": False, "error": "Tercero no encontrado."}), 404
+        ok = _person_document_delete_one(session_db, "PROMOTER", promoter, doc_id)
+        return jsonify({"ok": ok}) if ok else (jsonify({"ok": False, "error": "No encontrado."}), 404)
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        session_db.close()
+
+
 @app.route("/personal/<user_id>", methods=["GET", "POST"], endpoint="personnel_detail_view")
 @admin_required
 def personnel_detail_view(user_id):
@@ -37888,7 +38173,7 @@ def personnel_detail_view(user_id):
         security = _ensure_user_security(session_db, user)
         _sync_user_access_grants(session_db, user, profile)
         tab = (request.args.get("tab") or "accesos").strip().lower()
-        if tab not in {"accesos", "datos"}:
+        if tab not in {"accesos", "datos", "documentos"}:
             tab = "accesos"
 
         if request.method == "POST":
@@ -37967,6 +38252,13 @@ def personnel_detail_view(user_id):
             assigned_sello_ids=assigned_sello_ids,
             container_keys=set(_ACCESS_CHILDREN.keys()),
             target_is_master=(int(getattr(user, "role", 0) or 0) == 10),
+            person_documents=_person_documents_for(session_db, "USER", user.id),
+            person_docs_owner_type="USER",
+            person_docs_owner_id=str(user.id),
+            person_docs_save_url=url_for("personnel_document_save", user_id=user.id),
+            person_docs_delete_base=url_for("personnel_document_delete", user_id=user.id, doc_id="__ID__"),
+            person_docs_can_edit=True,
+            loyalty_brands=PERSON_LOYALTY_BRANDS,
         )
     finally:
         session_db.close()

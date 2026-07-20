@@ -37897,24 +37897,42 @@ PERSON_DOC_KINDS = {"DNI", "LICENSE", "LOYALTY", "PLATE"}
 # PERSON_DOC_IMAGE_EXTS = PHOTO_IMAGE_EXTS (mismas extensiones de imagen que las fotos, HEIC incl.)
 # El alias se define junto a PHOTO_IMAGE_EXTS (más abajo) para no referenciarlo antes de tiempo.
 
-# Marcas de fidelización conocidas → color de la tarjeta (y color del texto). Da igual mayúsculas
-# /acentos: se casa por nombre normalizado. Si la marca no está, se usa un color neutro.
+# Marcas de fidelización conocidas → color de la tarjeta (y color del texto) + icono del TIPO de
+# compañía (avión, tren, hotel, gasolina, compras…) que se pinta en blanco en la pastilla. Da igual
+# mayúsculas/acentos: se casa por nombre normalizado. Si la marca no está, se usa un color neutro y
+# se intenta adivinar el tipo por palabras clave del nombre.
 PERSON_LOYALTY_BRANDS = [
-    {"key": "renfe", "label": "Renfe", "color": "#5b247a", "color2": "#8e2de2", "fg": "#ffffff"},
-    {"key": "iberia", "label": "Iberia", "color": "#d40f14", "color2": "#f4b223", "fg": "#ffffff"},
-    {"key": "iberiaplus", "label": "Iberia Plus", "color": "#b8860b", "color2": "#e0b64a", "fg": "#ffffff"},
-    {"key": "vueling", "label": "Vueling", "color": "#ffcb05", "color2": "#ffe066", "fg": "#1a1a1a"},
-    {"key": "aireuropa", "label": "Air Europa", "color": "#0033a0", "color2": "#3f6fd1", "fg": "#ffffff"},
-    {"key": "ryanair", "label": "Ryanair", "color": "#073590", "color2": "#f1c40f", "fg": "#ffffff"},
-    {"key": "avios", "label": "Avios", "color": "#00205b", "color2": "#0a3d91", "fg": "#ffffff"},
-    {"key": "melia", "label": "Meliá", "color": "#0a1a3f", "color2": "#1f3a6d", "fg": "#ffffff"},
-    {"key": "nhhotels", "label": "NH Hotels", "color": "#00594f", "color2": "#0a8f7f", "fg": "#ffffff"},
-    {"key": "marriott", "label": "Marriott Bonvoy", "color": "#1c1c1c", "color2": "#3a3a3a", "fg": "#ffffff"},
-    {"key": "repsol", "label": "Repsol Waylet", "color": "#ff6a13", "color2": "#ffa04d", "fg": "#ffffff"},
-    {"key": "cepsa", "label": "Cepsa", "color": "#008c95", "color2": "#0abfc9", "fg": "#ffffff"},
-    {"key": "elcorteingles", "label": "El Corte Inglés", "color": "#0a5c2e", "color2": "#128a45", "fg": "#ffffff"},
-    {"key": "carrefour", "label": "Carrefour", "color": "#004e9f", "color2": "#e2231a", "fg": "#ffffff"},
+    {"key": "renfe", "label": "Renfe", "color": "#5b247a", "color2": "#8e2de2", "fg": "#ffffff", "icon": "fa-train"},
+    {"key": "iberia", "label": "Iberia", "color": "#d40f14", "color2": "#f4b223", "fg": "#ffffff", "icon": "fa-plane"},
+    {"key": "iberiaplus", "label": "Iberia Plus", "color": "#b8860b", "color2": "#e0b64a", "fg": "#ffffff", "icon": "fa-plane"},
+    {"key": "vueling", "label": "Vueling", "color": "#ffcb05", "color2": "#ffe066", "fg": "#1a1a1a", "icon": "fa-plane"},
+    {"key": "aireuropa", "label": "Air Europa", "color": "#0033a0", "color2": "#3f6fd1", "fg": "#ffffff", "icon": "fa-plane"},
+    {"key": "ryanair", "label": "Ryanair", "color": "#073590", "color2": "#f1c40f", "fg": "#ffffff", "icon": "fa-plane"},
+    {"key": "avios", "label": "Avios", "color": "#00205b", "color2": "#0a3d91", "fg": "#ffffff", "icon": "fa-plane"},
+    {"key": "melia", "label": "Meliá", "color": "#0a1a3f", "color2": "#1f3a6d", "fg": "#ffffff", "icon": "fa-bed"},
+    {"key": "nhhotels", "label": "NH Hotels", "color": "#00594f", "color2": "#0a8f7f", "fg": "#ffffff", "icon": "fa-bed"},
+    {"key": "marriott", "label": "Marriott Bonvoy", "color": "#1c1c1c", "color2": "#3a3a3a", "fg": "#ffffff", "icon": "fa-bed"},
+    {"key": "repsol", "label": "Repsol Waylet", "color": "#ff6a13", "color2": "#ffa04d", "fg": "#ffffff", "icon": "fa-gas-pump"},
+    {"key": "cepsa", "label": "Cepsa", "color": "#008c95", "color2": "#0abfc9", "fg": "#ffffff", "icon": "fa-gas-pump"},
+    {"key": "elcorteingles", "label": "El Corte Inglés", "color": "#0a5c2e", "color2": "#128a45", "fg": "#ffffff", "icon": "fa-bag-shopping"},
+    {"key": "carrefour", "label": "Carrefour", "color": "#004e9f", "color2": "#e2231a", "fg": "#ffffff", "icon": "fa-cart-shopping"},
 ]
+
+
+def _person_loyalty_icon_guess(name):
+    """Icono del tipo de compañía a partir de palabras clave del nombre (marca desconocida)."""
+    k = _norm_text_key(name or "")
+    if any(w in k for w in ("air", "fly", "aero", "avia", "vuelo", "wizz", "easyjet", "lufthansa")):
+        return "fa-plane"
+    if any(w in k for w in ("renfe", "tren", "train", "rail", "ave", "ouigo", "iryo")):
+        return "fa-train"
+    if any(w in k for w in ("hotel", "resort", "hostel", "hoteles", "bonvoy", "hilton", "melia", "marriott", "nh")):
+        return "fa-bed"
+    if any(w in k for w in ("gas", "oil", "petrol", "combust", "carburante", "repsol", "cepsa", "shell", "bp", "galp")):
+        return "fa-gas-pump"
+    if any(w in k for w in ("corte", "carrefour", "super", "mercado", "tienda", "shop", "store", "compras", "market")):
+        return "fa-bag-shopping"
+    return "fa-tag"
 
 
 def _person_loyalty_brand_for(company):
@@ -37922,7 +37940,8 @@ def _person_loyalty_brand_for(company):
     for b in PERSON_LOYALTY_BRANDS:
         if b["key"] in key or key in b["key"]:
             return b
-    return {"key": "", "label": (company or "").strip(), "color": "#334155", "color2": "#64748b", "fg": "#ffffff"}
+    return {"key": "", "label": (company or "").strip(), "color": "#334155", "color2": "#64748b",
+            "fg": "#ffffff", "icon": _person_loyalty_icon_guess(company)}
 
 
 def _person_doc_owner(session_db, owner_type, owner_id):

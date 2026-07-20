@@ -90,19 +90,49 @@
       '</div>';
     }
 
+    // Tarjeta de fidelización = PASTILLA de color corporativo de la compañía: icono blanco del tipo
+    // (avión/tren/hotel…) + nombre + número. Van en fila (una al lado de otra). Al pinchar se copia
+    // el número al portapapeles (también en solo lectura).
     function loyaltyHtml(d) {
       var b = d.brand || {};
-      var col1 = b.color || '#334155', col2 = b.color2 || '#64748b', fg = b.fg || '#fff';
+      var c1 = b.color || '#334155', c2 = b.color2 || '#64748b', fg = b.fg || '#ffffff';
+      var icon = b.icon || 'fa-tag';
       var name = (b.label || d.company || 'Tarjeta');
-      var num = (d.doc_number || '').replace(/(.{4})/g, '$1 ').trim();
-      var style = 'background:linear-gradient(135deg,' + col1 + ' 0%,' + col2 + ' 100%);color:' + fg + ';';
-      var bg = d.front_url ? ('<div class="docs-loyalty__img" style="background-image:url(\'' + esc(d.front_url) + '\')"></div>') : '';
-      return '<div class="docs-loyalty" data-doc-card="' + d.id + '" style="' + style + '">' +
-        bg + actionsHtml(d) +
-        '<div class="docs-loyalty__brand">' + esc(name) + '</div>' +
-        '<div class="docs-loyalty__chip"></div>' +
-        '<div class="docs-loyalty__num">' + esc(num || '—') + '</div>' +
+      var num = (d.doc_number || '');
+      var numFmt = num.replace(/(.{4})/g, '$1 ').trim();
+      var acts = canEdit ? ('<span class="docs-pill__acts">' +
+          '<button type="button" class="docs-pill__act" data-doc-edit="' + d.id + '" title="Editar"><i class="fa fa-pen"></i></button>' +
+          '<button type="button" class="docs-pill__act" data-doc-del="' + d.id + '" title="Eliminar"><i class="fa fa-trash"></i></button>' +
+        '</span>') : '';
+      var style = '--pill-c1:' + c1 + ';--pill-c2:' + c2 + ';--pill-fg:' + fg + ';';
+      return '<div class="docs-pill" data-doc-card="' + d.id + '" style="' + style + '"' +
+          (num ? ' data-doc-copy="' + esc(num) + '"' : '') +
+          ' title="' + (num ? 'Pinchar para copiar el número' : esc(name)) + '">' +
+        '<span class="docs-pill__ic"><i class="fa ' + esc(icon) + '"></i></span>' +
+        '<span class="docs-pill__body">' +
+          '<span class="docs-pill__name">' + esc(name) + '</span>' +
+          (numFmt ? '<span class="docs-pill__num">' + esc(numFmt) + '</span>' : '') +
+        '</span>' +
+        acts +
+        '<span class="docs-pill__copied"><i class="fa fa-check me-1"></i>Copiado</span>' +
       '</div>';
+    }
+
+    function copyNumber(el) {
+      var num = el.getAttribute('data-doc-copy') || '';
+      if (!num) return;
+      var done = function () { el.classList.add('is-copied'); setTimeout(function () { el.classList.remove('is-copied'); }, 1200); };
+      var fallback = function () {
+        try {
+          var ta = document.createElement('textarea');
+          ta.value = num; ta.style.position = 'fixed'; ta.style.opacity = '0';
+          document.body.appendChild(ta); ta.focus(); ta.select();
+          document.execCommand('copy'); document.body.removeChild(ta);
+        } catch (e) {}
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(num).then(done, function () { fallback(); done(); });
+      } else { fallback(); done(); }
     }
 
     function plateHtml(d) {
@@ -118,7 +148,15 @@
     }
 
     render();
-    if (!canEdit) return;   // sin permisos: solo lectura
+
+    // Copiar el número de una pastilla al pincharla (activo también en solo lectura).
+    root.addEventListener('click', function (e) {
+      if (e.target.closest('[data-doc-edit],[data-doc-del]')) return;
+      var cp = e.target.closest('[data-doc-copy]');
+      if (cp) copyNumber(cp);
+    });
+
+    if (!canEdit) return;   // sin permisos: solo lectura (pero el copiar de arriba sigue activo)
 
     /* ------------------- Modal (alta / edición) ------------------- */
     var form = modalEl ? modalEl.querySelector('[data-doc-form]') : null;

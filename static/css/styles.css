@@ -2209,12 +2209,30 @@ body.vmap-max-open { overflow: hidden; }
 .docs-id__k { color:#8a9199; flex:0 0 auto; }
 .docs-id__v { font-weight:700; color:#1a1a1a; text-align:right; }
 
-/* --- Tarjeta de fidelización: estética tarjeta de crédito con color de marca --- */
-.docs-loyalty { position:relative; aspect-ratio:1.586/1; border-radius:16px; padding:1rem 1.1rem; display:flex; flex-direction:column; justify-content:space-between; overflow:hidden; box-shadow:0 4px 14px rgba(0,0,0,.16); }
-.docs-loyalty__img { position:absolute; inset:0; background-size:cover; background-position:center; opacity:.22; }
-.docs-loyalty__brand { position:relative; font-size:1.15rem; font-weight:800; letter-spacing:.01em; text-shadow:0 1px 2px rgba(0,0,0,.18); }
-.docs-loyalty__chip { position:relative; width:38px; height:28px; border-radius:6px; background:linear-gradient(135deg,#f5d67b,#d9ad3c); box-shadow:inset 0 0 0 1px rgba(0,0,0,.15); margin-top:.2rem; }
-.docs-loyalty__num { position:relative; font-family:"Courier New",monospace; font-size:1.15rem; font-weight:700; letter-spacing:.08em; text-shadow:0 1px 2px rgba(0,0,0,.2); }
+/* Tarjetas de fidelización = PASTILLAS de color corporativo de la compañía, en fila. */
+.docs-pills { display:flex; flex-wrap:wrap; gap:.5rem; }
+.docs-pill { position:relative; display:inline-flex; align-items:center; gap:.55rem; padding:.4rem .7rem .4rem .45rem; border-radius:999px; background:linear-gradient(135deg,var(--pill-c1,#334155),var(--pill-c2,#64748b)); color:var(--pill-fg,#fff); box-shadow:0 2px 6px rgba(0,0,0,.18); user-select:none; max-width:100%; transition:transform .08s, box-shadow .12s; }
+.docs-pill[data-doc-copy] { cursor:pointer; }
+.docs-pill[data-doc-copy]:hover { transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,0,0,.24); }
+.docs-pill[data-doc-copy]:active { transform:translateY(0); }
+.docs-pill__ic { flex:0 0 auto; width:26px; height:26px; border-radius:50%; background:rgba(255,255,255,.22); display:flex; align-items:center; justify-content:center; font-size:.8rem; color:#fff; }
+.docs-pill__body { display:flex; flex-direction:column; line-height:1.05; min-width:0; }
+.docs-pill__name { font-weight:800; font-size:.8rem; letter-spacing:.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.docs-pill__num { font-family:"Courier New",monospace; font-size:.72rem; font-weight:700; letter-spacing:.05em; opacity:.92; white-space:nowrap; }
+.docs-pill__acts { display:flex; gap:.15rem; margin-left:.15rem; opacity:0; transition:opacity .12s; }
+.docs-pill:hover .docs-pill__acts { opacity:1; }
+.docs-pill__act { width:22px; height:22px; border:0; border-radius:50%; background:rgba(255,255,255,.9); color:#495057; cursor:pointer; font-size:.65rem; line-height:1; padding:0; }
+.docs-pill__act:hover { background:#fff; }
+.docs-pill__copied { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; border-radius:999px; background:rgba(0,0,0,.55); color:#fff; font-size:.72rem; font-weight:700; opacity:0; pointer-events:none; transition:opacity .12s; }
+.docs-pill.is-copied .docs-pill__copied { opacity:1; }
+
+/* Resumen de la ficha principal: datos a la izquierda (solo campos rellenos) + DNI a la derecha. */
+.psum-list { margin:0; }
+.psum-list > div { display:flex; justify-content:space-between; gap:1rem; padding:.35rem 0; border-top:1px dashed #eef0f2; font-size:.92rem; }
+.psum-list > div:first-child { border-top:0; }
+.psum-k { color:#8a9199; font-weight:600; flex:0 0 auto; }
+.psum-v { font-weight:700; color:#1a1a1a; text-align:right; overflow-wrap:anywhere; }
+.psum-docs__title { font-size:.75rem; font-weight:800; text-transform:uppercase; letter-spacing:.04em; color:#8a9199; margin:0 0 .5rem; }
 
 /* --- Matrícula: placa española (banda azul EU + números) con el nombre del coche encima --- */
 .docs-plate-wrap { position:relative; background:#fff; border:1px solid #e6e8eb; border-radius:14px; padding:.85rem; box-shadow:0 1px 3px rgba(0,0,0,.05); }
@@ -2227,7 +2245,7 @@ body.vmap-max-open { overflow: hidden; }
 
 /* --- Acciones sobre cada tarjeta (editar/eliminar) --- */
 .docs-actions { position:absolute; top:.4rem; right:.4rem; display:flex; gap:.3rem; z-index:2; opacity:0; transition:opacity .15s; }
-.docs-id:hover .docs-actions, .docs-loyalty:hover .docs-actions, .docs-plate-wrap:hover .docs-actions { opacity:1; }
+.docs-id:hover .docs-actions, .docs-plate-wrap:hover .docs-actions { opacity:1; }
 .docs-actbtn { width:28px; height:28px; border:0; border-radius:8px; background:rgba(255,255,255,.92); color:#495057; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.2); }
 .docs-actbtn--del:hover { background:#E33D48; color:#fff; }
 

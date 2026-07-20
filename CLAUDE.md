@@ -265,7 +265,9 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (herramienta Seleccionar): pinchar un sector y barrer añade piezas a `dselO` (drag
   `secselpaint`; bgimage/outline excluidos), pinchar una ya seleccionada mueve el conjunto, y con
   ≥2 aparece el tirador `data-rotate="SELO"` que gira todo el grupo alrededor del centro común
-  (rama `rotate`/`rmode:'group'`; arcos → `cx/cy`+`dir`).
+  (rama `rotate`/`rmode:'group'`; arcos → `cx/cy`+`dir`). **«Guardar mapa» sale del modo edición**
+  (redirige al visor `?tab=ticketing&map=<id>` sin `map_edit`): las herramientas de edición solo
+  se ven editando; el visor enseña categorías a la izquierda + navegación.
 
 - **Integración Enterticket (ticketing en tiempo casi real)**: cliente HTTP en `enterticket_utils.py`
   (credenciales `ENTERTICKET_USER/PASSWORD` en `.env`; sin ellas TODO desactivado). ⚠️ La API solo

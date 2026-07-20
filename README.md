@@ -209,6 +209,10 @@ Existen dos vías (actualmente coexisten):
   gira sobre sí misma; los arcos giran su centro y su orientación; Mayús = pasos de 15°) — las
   butacas se reorientan solas hacia el escenario. El plano de fondo y la silueta del recinto no
   entran en el barrido (cubren todo el lienzo).
+- **«Guardar mapa» vuelve al VISOR**: tras guardar con éxito, la página sale del modo edición y
+  muestra solo el plano con las categorías a la izquierda y las herramientas de navegación
+  (zoom/girar vista/encajar/mano/pantalla completa); las herramientas de edición solo se ven en
+  modo edición («Editar mapa»).
 
 ### 2026-07-20 — Mapa de recintos: importar planos de butacas desde Excel
 

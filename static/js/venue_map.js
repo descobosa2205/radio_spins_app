@@ -4217,7 +4217,16 @@
             mapVersion = r.j.version;
             if(r.j.id && !host.dataset.mapId) host.dataset.mapId = r.j.id;   // primer guardado: fija el formato
             saveBtn.innerHTML = '<i class="fa fa-check me-1"></i>Guardado';
-            setTimeout(function(){ saveBtn.innerHTML = orig; saveBtn.disabled=false; }, 1600);
+            // Guardado OK → SALIR del modo edición: la página vuelve al VISOR (solo el plano con
+            // las categorías a la izquierda y las herramientas de navegación; las de edición
+            // solo se ven en modo edición, con «Editar mapa»).
+            try {
+              var uV = new URL(window.location.href);
+              uV.searchParams.delete('map_edit');
+              uV.searchParams.set('tab', 'ticketing');
+              if(host.dataset.mapId) uV.searchParams.set('map', host.dataset.mapId);
+              window.location.assign(uV.toString());
+            } catch(_e){ window.location.reload(); }
           } else {
             alert((r.j && r.j.error) || 'No se pudo guardar el mapa.');
             saveBtn.innerHTML = orig; saveBtn.disabled=false;

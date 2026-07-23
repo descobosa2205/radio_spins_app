@@ -35,7 +35,6 @@
         <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar me-2" alt="" data-artist-link="{{ artist.id }}">
         <div>
           <h5 class="m-0" data-artist-link="{{ artist.id }}">{{ artist.name }}</h5>
-          {{ linked_mini('artist', artist.id) }}
         </div>
       </div>
       <button class="btn btn-sm btn-light toggle-artist collapsed" type="button"

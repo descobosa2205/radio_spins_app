@@ -249,7 +249,7 @@
                       <th>Nombre</th>
                       <th>Artista</th>
                       <th>Colaboradores</th>
-                      <th class="text-nowrap" style="width:150px;">ISRC</th>
+                      <th class="text-nowrap" style="width:170px; min-width:170px;">ISRC</th>
                       <th class="text-nowrap" style="width:120px;">Publicación</th>
                     </tr>
                   </thead>
@@ -305,7 +305,7 @@
                           <span class="text-muted">{{ s.display_collaborator or s.collaborator or '—' }}</span>
                         </td>
                         <td>
-                          <span class="text-muted">{{ (song_audio_isrc_map.get(s.id) or s.isrc or '—')|isrc }}</span>
+                          <span class="text-muted text-nowrap" style="font-variant-numeric: tabular-nums;">{{ (song_audio_isrc_map.get(s.id) or s.isrc or '—')|isrc }}</span>
                         </td>
                         <td>
                           {% if s.release_date %}

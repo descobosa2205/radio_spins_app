@@ -73,7 +73,8 @@
             <div class="d-flex align-items-center gap-2 flex-wrap">
               <span class="fw-bold">{{ adv.label or 'Adelanto' }}</span>
               <span class="badge text-bg-{{ v.state_class }}">{{ v.state }}</span>
-              {% if adv.advance_date %}<span class="text-muted small"><i class="fa fa-calendar me-1"></i>{{ adv.advance_date.strftime('%d/%m/%Y') }}</span>{% endif %}
+              {% if adv.advance_date %}<span class="text-muted small" title="Fecha de la firma: solo amortizan los ingresos generados desde este día (no retroactivo)"><i class="fa fa-file-signature me-1"></i>Firma {{ adv.advance_date.strftime('%d/%m/%Y') }}</span>
+              {% else %}<span class="text-warning small" title="Sin fecha de firma: se contarán TODOS los ingresos, también los anteriores. Ponla en Editar datos."><i class="fa fa-triangle-exclamation me-1"></i>Sin fecha de firma</span>{% endif %}
               {% if adv.contract_url %}
                 <a class="small text-decoration-none" href="{{ adv.contract_url }}" target="_blank" rel="noopener"><i class="fa fa-file-contract me-1"></i>Contrato</a>
               {% endif %}
@@ -301,7 +302,7 @@
               <div class="mb-2"><label class="form-label">Nombre (opcional)</label><input class="form-control" name="label" value="{{ adv.label or '' }}" placeholder="Ej: Adelanto 2026"></div>
               <div class="row g-2">
                 <div class="col-6"><label class="form-label">Importe</label><div class="input-group"><input class="form-control" name="amount" value="{{ v.amount }}"><span class="input-group-text">€</span></div></div>
-                <div class="col-6"><label class="form-label">Fecha</label><input type="date" class="form-control" name="advance_date" value="{{ adv.advance_date.strftime('%Y-%m-%d') if adv.advance_date else '' }}"></div>
+                <div class="col-6"><label class="form-label" title="Solo amortizan los ingresos generados desde este día">Fecha de la firma</label><input type="date" class="form-control" name="advance_date" value="{{ adv.advance_date.strftime('%Y-%m-%d') if adv.advance_date else '' }}"></div>
               </div>
               <div class="mt-2"><label class="form-label">Contrato (PDF){% if adv.contract_url %} — reemplaza el actual{% endif %}</label><input type="file" class="form-control" name="contract" accept="application/pdf"></div>
               <div class="mt-2"><label class="form-label">Notas</label><textarea class="form-control" name="notes" rows="2">{{ adv.notes or '' }}</textarea></div>
@@ -352,7 +353,8 @@
               <label class="form-label">Importe *</label>
               <div class="input-group input-group-lg"><input class="form-control" name="amount" required inputmode="decimal" placeholder="50.000"><span class="input-group-text">€</span></div>
             </div>
-            <div class="col-md-4"><label class="form-label">Fecha del adelanto</label><input type="date" class="form-control" name="advance_date"></div>
+            <div class="col-md-4"><label class="form-label">Fecha de la FIRMA</label><input type="date" class="form-control" name="advance_date"></div>
+            <div class="col-12 mt-0"><div class="form-text"><i class="fa fa-circle-info me-1"></i>El adelanto se recupera con los ingresos generados <b>desde la firma</b> — los ingresos anteriores de esas canciones no cuentan (no es retroactivo).</div></div>
             <div class="col-md-3"><label class="form-label">Nombre (opcional)</label><input class="form-control" name="label" placeholder="Adelanto 2026"></div>
             <div class="col-12"><label class="form-label"><i class="fa fa-file-contract me-1 text-muted"></i>Contrato (PDF)</label><input type="file" class="form-control" name="contract" accept="application/pdf"></div>
           </div>

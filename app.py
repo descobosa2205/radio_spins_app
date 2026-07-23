@@ -10500,10 +10500,13 @@ def _build_distributor_advances_context(session_db):
             artists_of_song.setdefault(str(sid), []).append(str(aid))
         income_periods = _song_income_periods(session_db, song_ids)
 
-        # Cada canción se asigna al PRIMER adelanto ACTIVO cuyas condiciones la cubren; sus
-        # apuntes amortizan en orden CRONOLÓGICO (lo cobrado antes recupera antes), hasta
-        # agotar el importe del adelanto. Así la liquidación se puede ver también por
-        # mes / semestre / año y las sumas siempre cuadran con el total.
+        # Cada APUNTE amortiza en orden CRONOLÓGICO (lo cobrado antes recupera antes) en el
+        # primer adelanto ACTIVO que: (a) cubre la canción por sus condiciones, y (b) cuyo
+        # acuerdo ya estaba FIRMADO — solo cuentan los ingresos generados DESDE la fecha de la
+        # firma (advance_date; el periodo que contiene la firma, incluido), NUNCA los ingresos
+        # anteriores de esas canciones. Por eso en la liquidación de un adelanto solo aparecen
+        # los meses/semestres/años dentro del acuerdo. Si varios adelantos cubren un apunte,
+        # gana el primero con importe pendiente (si todos están recuperados, el primero).
         remaining = {}
         for adv in dist_advs:
             try:
@@ -10512,6 +10515,8 @@ def _build_distributor_advances_context(session_db):
                 remaining[str(adv.id)] = Decimal("0")
         rows_by_adv = {str(adv.id): [] for adv in dist_advs}
         unassigned_rows = []
+        # Para las canciones SIN ingresos (fila a cero en la vista «Todo»): primer adelanto
+        # activo que las cubre por condiciones (sin mirar la ventana del acuerdo).
         assign_map = {}
         for sng in songs:
             sid = str(sng.id)
@@ -10539,7 +10544,24 @@ def _build_distributor_advances_context(session_db):
                 "gross": e["gross"], "net": e["net"],
                 "amort": Decimal("0"), "ours": e["net"],
             }
-            chosen = assign_map.get(sid)
+            period_close = e["end"] or e["start"]
+            candidates = []
+            for adv in dist_advs:
+                if (adv.status or "ACTIVO").upper() != "ACTIVO":
+                    continue
+                # Fuera del acuerdo: el periodo terminó ANTES de la firma → no retroactivo.
+                if adv.advance_date and period_close and period_close < adv.advance_date:
+                    continue
+                rule = _advance_matching_rule(adv, sng, aids)
+                if rule:
+                    candidates.append((adv, rule))
+            chosen = None
+            for adv, rule in candidates:
+                if remaining[str(adv.id)] > 0:
+                    chosen = (adv, rule)
+                    break
+            if not chosen and candidates:
+                chosen = candidates[0]
             if chosen:
                 adv, rule = chosen
                 base_amt = e["gross"] if (rule.base or "NET").upper() == "GROSS" else e["net"]

@@ -450,6 +450,14 @@
     else if (action === 'edit') openBulkEdit(ids);
     else if (action === 'approval') openApproval(ids);
     else if (action === 'share') openShare(ids);
+    else if (action === 'state-approved' || action === 'state-rejected' || action === 'state-pending') {
+      // Marcado EN GRUPO del estado de aprobación de toda la selección.
+      var st = action === 'state-approved' ? 'APPROVED' : (action === 'state-rejected' ? 'REJECTED' : 'PENDING');
+      postJson(ownerBase + '/aprobacion-estado-bulk', { photo_ids: ids, state: st }).then(function (d) {
+        if (d && d.ok) { selected = {}; refresh(); }
+        else alert((d && d.error) || 'No se pudo cambiar el estado.');
+      });
+    }
   }
 
   // -- añadir a álbum

@@ -36079,7 +36079,7 @@ SUPPORT_ACTION_ENDPOINTS = {
     "roadmap_days_save", "roadmap_public_link",
     # Fotos / vídeos (galería transversal de conciertos y acciones)
     "fotos_upload", "fotos_reorder", "foto_update", "foto_delete", "foto_discard",
-    "foto_note_add", "fotos_bulk_update", "foto_set_approval_state",
+    "foto_note_add", "fotos_bulk_update", "foto_set_approval_state", "fotos_bulk_approval_state",
     "photo_album_create", "photo_album_add", "photo_album_update", "photo_album_delete",
     "fotos_approval_create", "fotos_zip", "fotos_share_create", "fotos_share_email", "fotos_share_email_preview",
     # Agenda: bloqueos y notas libres (botón + del calendario, Inicio y ficha de artista)
@@ -44108,12 +44108,51 @@ def fotos_approval_options(owner_type, owner_id):
         session_db.close()
 
 
+def _apply_photo_approval_state(session_db, photo, state, user_state):
+    """Aplica un cambio MANUAL de estado de aprobación a un contenido: actualiza todas sus
+    decisiones y recalcula el estado de cada aprobador (cierra o reabre su enlace). Si nunca
+    tuvo solicitud, crea una mínima «cambio manual» para que quede registrado quién lo hizo."""
+    rows = session_db.query(PhotoApproval).filter(PhotoApproval.photo_id == photo.id).all()
+    if rows:
+        now_dt = _now_madrid()
+        touched_approvers = set()
+        for ap in rows:
+            ap.decision = state
+            ap.decided_at = now_dt if state != "PENDING" else None
+            touched_approvers.add(ap.approver_id)
+        for aid in touched_approvers:
+            n_pend = (
+                session_db.query(func.count(PhotoApproval.id))
+                .filter(PhotoApproval.approver_id == aid, PhotoApproval.decision == "PENDING")
+                .scalar() or 0
+            )
+            approver = session_db.get(PhotoApprover, aid)
+            if approver:
+                approver.status = "PENDING" if n_pend else "SUBMITTED"
+                approver.submitted_at = None if n_pend else _now_madrid()
+    elif state != "PENDING":
+        req = PhotoApprovalRequest(
+            owner_type=photo.owner_type, owner_id=photo.owner_id,
+            photo_ids=[str(photo.id)], status="ACTIVE",
+            requested_by_user_id=to_uuid(user_state.get("user_id")),
+            requested_by_nick=((user_state.get("nick") or "").strip() or "Equipo") + " (cambio manual)",
+        )
+        session_db.add(req)
+        session_db.flush()
+        approver = PhotoApprover(
+            request_id=req.id, token=uuid.uuid4().hex, kind="CUSTOM",
+            name=((user_state.get("nick") or "").strip() or "Equipo") + " (manual)",
+            status="SUBMITTED", submitted_at=_now_madrid(),
+        )
+        session_db.add(approver)
+        session_db.flush()
+        session_db.add(PhotoApproval(approver_id=approver.id, photo_id=photo.id, decision=state, decided_at=_now_madrid()))
+
+
 @app.post("/fotos/photo/<photo_id>/estado-aprobacion", endpoint="foto_set_approval_state")
 @admin_required
 def foto_set_approval_state(photo_id):
-    """Cambio MANUAL del estado de aprobación de un contenido desde el panel (menú de la foto):
-    aprobado, rechazado o volver a pendiente. Si nunca tuvo solicitud, se crea una mínima
-    «cambio manual» para que el estado quede registrado con quién lo hizo."""
+    """Cambio manual del estado de aprobación de UN contenido (menú «Estado» de la foto)."""
     pid = to_uuid(photo_id)
     state = ((request.get_json(silent=True) or {}).get("state") or "").strip().upper()
     if not pid or state not in ("APPROVED", "REJECTED", "PENDING"):
@@ -44124,46 +44163,39 @@ def foto_set_approval_state(photo_id):
         photo = session_db.get(Photo, pid)
         if not photo:
             return jsonify({"ok": False, "error": "Contenido no encontrado."}), 404
-        rows = session_db.query(PhotoApproval).filter(PhotoApproval.photo_id == pid).all()
-        if rows:
-            now_dt = _now_madrid()
-            touched_approvers = set()
-            for ap in rows:
-                ap.decision = state
-                ap.decided_at = now_dt if state != "PENDING" else None
-                touched_approvers.add(ap.approver_id)
-            # Recalcular el estado de cada aprobador afectado (cierra o reabre su enlace).
-            for aid in touched_approvers:
-                n_pend = (
-                    session_db.query(func.count(PhotoApproval.id))
-                    .filter(PhotoApproval.approver_id == aid, PhotoApproval.decision == "PENDING")
-                    .scalar() or 0
-                )
-                approver = session_db.get(PhotoApprover, aid)
-                if approver:
-                    approver.status = "PENDING" if n_pend else "SUBMITTED"
-                    approver.submitted_at = None if n_pend else _now_madrid()
-        elif state != "PENDING":
-            req = PhotoApprovalRequest(
-                owner_type=photo.owner_type, owner_id=photo.owner_id,
-                photo_ids=[str(photo.id)], status="ACTIVE",
-                requested_by_user_id=to_uuid(user_state.get("user_id")),
-                requested_by_nick=((user_state.get("nick") or "").strip() or "Equipo") + " (cambio manual)",
-            )
-            session_db.add(req)
-            session_db.flush()
-            approver = PhotoApprover(
-                request_id=req.id, token=uuid.uuid4().hex, kind="CUSTOM",
-                name=((user_state.get("nick") or "").strip() or "Equipo") + " (manual)",
-                status="SUBMITTED", submitted_at=_now_madrid(),
-            )
-            session_db.add(approver)
-            session_db.flush()
-            session_db.add(PhotoApproval(approver_id=approver.id, photo_id=photo.id, decision=state, decided_at=_now_madrid()))
+        _apply_photo_approval_state(session_db, photo, state, user_state)
         session_db.commit()
         appr_map = _photo_approval_map(session_db, [photo.id])
         promo_map = _photo_promoter_map(session_db, [photo])
         return jsonify({"ok": True, "photo": _photo_payload(photo, promo_map.get(photo.photographer_promoter_id), appr_map.get(str(photo.id)))})
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        session_db.close()
+
+
+@app.post("/fotos/<owner_type>/<owner_id>/aprobacion-estado-bulk", endpoint="fotos_bulk_approval_state")
+@admin_required
+def fotos_bulk_approval_state(owner_type, owner_id):
+    """Cambio manual EN GRUPO del estado de aprobación (menú ⋮ de la selección múltiple):
+    marcar la selección como aprobada, rechazada o volver a pendiente."""
+    ot = _photo_owner_type_norm(owner_type)
+    if not ot:
+        return jsonify({"ok": False, "error": "Tipo no válido."}), 400
+    payload = request.get_json(silent=True) or {}
+    state = (payload.get("state") or "").strip().upper()
+    ids = [to_uuid(x) for x in (payload.get("photo_ids") or []) if to_uuid(x)]
+    if not ids or state not in ("APPROVED", "REJECTED", "PENDING"):
+        return jsonify({"ok": False, "error": "Estado o selección no válidos."}), 400
+    user_state = _current_user_state()
+    session_db = db()
+    try:
+        photos = session_db.query(Photo).filter(Photo.id.in_(ids)).all()
+        for photo in photos:
+            _apply_photo_approval_state(session_db, photo, state, user_state)
+        session_db.commit()
+        return jsonify({"ok": True, "changed": len(photos)})
     except Exception as e:
         session_db.rollback()
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -44273,6 +44305,12 @@ def fotos_approval_create(owner_type, owner_id):
 
         result = {"ok": True, "emailed": 0, "approvers": [], "supervision_url": "", "supervision_emailed": 0}
 
+        # Los correos de SUPERVISIÓN funcionan IGUAL que los de aprobación (mismo correo con la
+        # cabecera del evento y mismo enlace de supervisión con pulgares): se convierten en
+        # aprobadores más. Antes mandaban un enlace de solo-descarga, que confundía.
+        for e_mail in supervision_emails:
+            approvers_in.append({"kind": "CUSTOM", "name": e_mail.split("@")[0], "email": e_mail, "_force_email": True})
+
         if approvers_in:
             req = PhotoApprovalRequest(
                 owner_type=ot, owner_id=owner.id, brand_company_id=brand_company_id,
@@ -44300,39 +44338,24 @@ def fotos_approval_create(owner_type, owner_id):
                 for pid in photo_ids:
                     session_db.add(PhotoApproval(approver_id=approver.id, photo_id=pid, decision="PENDING"))
                 emailed_this = False
-                if send_email and approver.email:
+                if (send_email or a.get("_force_email")) and approver.email:
                     ok, _err = _send_optional_email(
                         approver.email,
-                        "Aprobación de contenidos — %s" % (owner_title or "Materiales"),
+                        "Supervisión de contenidos — %s" % (owner_title or "Materiales"),
                         _photo_approval_email_html(session_db, req, approver, photos, owner_title),
                         reply_to=_current_user_email(),
                     )
                     if ok:
                         emailed_this = True
                         result["emailed"] += 1
+                        if a.get("_force_email"):
+                            result["supervision_emailed"] += 1
                 result["approvers"].append({
                     "name": name,
                     "email": approver.email or "",
                     "url": _external_url_for("public_photo_approval", token=approver.token),
                     "emailed": emailed_this,
                 })
-
-        # Supervisión (solo revisar, sin aprobar): enlace de visualización (PhotoShare) enviado por
-        # correo. Reutiliza el mismo logo de empresa del grupo.
-        if supervision_emails:
-            share = _create_photo_share(session_db, ot, owner, photo_ids, brand_company_id, owner_title, state)
-            result["supervision_url"] = _photo_share_urls(share.token)["public_url"]
-            html = _photo_share_email_html(
-                session_db, share, photos, owner_title,
-                "Te compartimos estos contenidos para tu supervisión (solo revisión, no requieren aprobación).",
-            )
-            ok, _err = _send_optional_email(
-                supervision_emails,
-                "Supervisión de contenidos — %s" % (owner_title or "Materiales"),
-                html, reply_to=_current_user_email(),
-            )
-            if ok:
-                result["supervision_emailed"] = len(supervision_emails)
 
         session_db.commit()
         return jsonify(result)

@@ -39,6 +39,14 @@
       </a>
     </li>
   {% endif %}
+  {% if has_access_key('discografica.adelantos', include_descendants=True) %}
+    <li class="nav-item">
+      <a class="nav-link {% if section=='adelantos' %}active{% endif %}"
+         href="{{ url_for('discografica_view', section='adelantos') }}">
+        Adelantos
+      </a>
+    </li>
+  {% endif %}
   {% if has_access_key('discografica.isrc', include_descendants=True) %}
     <li class="nav-item">
       <a class="nav-link {% if section=='isrc' %}active{% endif %}"
@@ -236,6 +244,7 @@
                 <table class="table table-hover align-middle mb-0 repertorio-table">
                   <thead class="table-light">
                     <tr>
+                      {% if CAN_EDIT_DISCOGRAFICA %}<th style="width:36px;" title="Seleccionar para editar en bloque"></th>{% endif %}
                       <th style="width:84px;">Portada</th>
                       <th>Nombre</th>
                       <th>Artista</th>
@@ -256,6 +265,12 @@
                           data-href="{{ url_for('discografica_song_detail', song_id=s.id) }}"
                           onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label')) return; window.location.href='{{ url_for('discografica_song_detail', song_id=s.id) }}';"
                           onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_song_detail', song_id=s.id) }}'; }">
+                        {% if CAN_EDIT_DISCOGRAFICA %}
+                        <td>
+                          <input class="form-check-input song-bulk-check" type="checkbox" value="{{ s.id }}"
+                                 data-song-external="{{ '1' if s.is_external_collab else '0' }}" title="Seleccionar">
+                        </td>
+                        {% endif %}
                         <td>
                           <img src="{{ s.cover_url or DEFAULT_COVER_URL }}" class="cover-square" alt="">
                         </td>
@@ -270,6 +285,13 @@
                               <span class="badge text-bg-secondary">Catálogo</span>
                             {% else %}
                               <span class="badge text-bg-dark">Discográfica</span>
+                            {% endif %}
+                            {% set dst = distributor_by_id.get(s.distributor_id|string) if s.distributor_id else None %}
+                            {% if dst %}
+                              <span class="badge text-bg-light border d-inline-flex align-items-center gap-1" title="Distribuidora">
+                                {% if dst.logo_url %}<img src="{{ dst.logo_url }}" alt="" style="width:14px;height:14px;object-fit:contain;border-radius:3px;">{% else %}<i class="fa fa-truck-fast"></i>{% endif %}
+                                {{ dst.name }}
+                              </span>
                             {% endif %}
                           </div>
                         </td>
@@ -304,6 +326,105 @@
     {% endif %}
 
     {% if CAN_EDIT_DISCOGRAFICA %}
+    {# ===== Edición EN BLOQUE de canciones: barra flotante + modal ===== #}
+    <div id="songsBulkBar" class="position-fixed start-50 translate-middle-x shadow-lg bg-white border rounded-pill px-3 py-2 d-none align-items-center gap-3"
+         style="bottom:1.1rem; z-index:1055;">
+      <span class="fw-semibold"><span id="songsBulkCount">0</span> seleccionadas</span>
+      <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#songsBulkModal"><i class="fa fa-pen-to-square me-1"></i>Editar en bloque</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="songsBulkClear">Deseleccionar</button>
+    </div>
+
+    <div class="modal fade" id="songsBulkModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <form class="modal-content" method="post" action="{{ url_for('discografica_songs_bulk_update') }}" id="songsBulkForm">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="fa fa-layer-group me-2 text-muted"></i>Editar <span data-bulk-n>0</span> canciones</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="text-muted small mb-3">Solo se aplican los campos que cambies; el resto se deja como está. La distribuidora y la categoría no se tocan en las colaboraciones externas.</div>
+            <div class="mb-3">
+              <label class="form-label"><i class="fa fa-truck-fast me-1 text-muted"></i>Distribuidora</label>
+              <div class="input-group">
+                <select name="distributor_id" id="bulkDistributorSel" class="form-select select-with-thumbs">
+                  <option value="">— Sin cambio —</option>
+                  <option value="__none__">Quitar distribuidora</option>
+                  {% for d in distributors %}
+                    <option value="{{ d.id }}" data-logo="{{ d.logo_url or '' }}">{{ d.name }}</option>
+                  {% endfor %}
+                </select>
+                <button type="button" class="btn btn-outline-secondary" data-quick-create="distributor" data-target="bulkDistributorSel" title="Nueva distribuidora"><i class="fa fa-plus"></i></button>
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label"><i class="fa fa-compact-disc me-1 text-muted"></i>Categoría</label>
+              <select name="ownership_type" class="form-select">
+                <option value="">— Sin cambio —</option>
+                <option value="own">Propia</option>
+                <option value="distribution">Distribución</option>
+              </select>
+            </div>
+            <div class="row g-2">
+              <div class="col-6">
+                <label class="form-label"><i class="fa fa-box-archive me-1 text-muted"></i>Catálogo</label>
+                <select name="is_catalog" class="form-select">
+                  <option value="">— Sin cambio —</option>
+                  <option value="1">Sí, es catálogo</option>
+                  <option value="0">No es catálogo</option>
+                </select>
+              </div>
+              <div class="col-6">
+                <label class="form-label"><span class="badge text-bg-dark me-1">E</span>Explícita</label>
+                <select name="is_explicit" class="form-select">
+                  <option value="">— Sin cambio —</option>
+                  <option value="1">Sí, explícita</option>
+                  <option value="0">No explícita</option>
+                </select>
+              </div>
+            </div>
+            <div id="songsBulkIds"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button class="btn btn-primary"><i class="fa fa-check me-1"></i>Aplicar cambios</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script>
+    (function(){
+      var bar = document.getElementById('songsBulkBar');
+      if(!bar || bar.__bulkInit) return; bar.__bulkInit = true;
+      var countEl = document.getElementById('songsBulkCount');
+      function checks(){ return [].slice.call(document.querySelectorAll('.song-bulk-check')); }
+      function selected(){ return checks().filter(function(c){ return c.checked; }); }
+      function refresh(){
+        var n = selected().length;
+        countEl.textContent = n;
+        bar.classList.toggle('d-none', n === 0);
+        bar.classList.toggle('d-flex', n > 0);
+        var nEl = document.querySelector('#songsBulkModal [data-bulk-n]');
+        if(nEl) nEl.textContent = n;
+      }
+      document.addEventListener('change', function(e){
+        if(e.target && e.target.classList && e.target.classList.contains('song-bulk-check')) refresh();
+      });
+      var clearBtn = document.getElementById('songsBulkClear');
+      if(clearBtn) clearBtn.addEventListener('click', function(){ selected().forEach(function(c){ c.checked=false; }); refresh(); });
+      var form = document.getElementById('songsBulkForm');
+      if(form) form.addEventListener('submit', function(){
+        var box = document.getElementById('songsBulkIds');
+        box.innerHTML = '';
+        selected().forEach(function(c){
+          var inp = document.createElement('input');
+          inp.type='hidden'; inp.name='song_ids[]'; inp.value=c.value;
+          box.appendChild(inp);
+        });
+      });
+    })();
+    </script>
+
     <div class="modal fade" id="addSongModal" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog modal-lg modal-dialog-centered">
         <form class="modal-content" method="post" action="{{ url_for('discografica_song_create') }}">
@@ -396,6 +517,20 @@
                 <div class="col-12 col-md-6" data-song-cond="own">
                   <label class="form-label">Propiedad master (%)</label>
                   <input name="master_ownership_pct" type="number" class="form-control" min="0" max="100" step="0.01" value="100">
+                </div>
+
+                {# Distribuidora (con logo): propia o distribución — las colaboraciones externas van por su compañía #}
+                <div class="col-12 col-md-6" data-song-cond="own distribution">
+                  <label class="form-label"><i class="fa fa-truck-fast me-1 text-muted"></i>Distribuidora</label>
+                  <div class="input-group">
+                    <select name="distributor_id" id="songCreateDistributor" class="form-select select-with-thumbs">
+                      <option value="">Sin distribuidora</option>
+                      {% for d in distributors %}
+                        <option value="{{ d.id }}" data-logo="{{ d.logo_url or '' }}">{{ d.name }}</option>
+                      {% endfor %}
+                    </select>
+                    <button type="button" class="btn btn-outline-secondary" data-quick-create="distributor" data-target="songCreateDistributor" title="Nueva distribuidora"><i class="fa fa-plus"></i></button>
+                  </div>
                 </div>
 
                 {# Catálogo: propia o distribución #}
@@ -691,6 +826,19 @@
                     </div>
                   </div>
                 </div>
+
+                <div class="col-12 col-md-6">
+                  <label class="form-label"><i class="fa fa-truck-fast me-1 text-muted"></i>Distribuidora</label>
+                  <div class="input-group">
+                    <select name="distributor_id" id="albumCreateDistributor" class="form-select select-with-thumbs">
+                      <option value="">Sin distribuidora</option>
+                      {% for d in distributors %}
+                        <option value="{{ d.id }}" data-logo="{{ d.logo_url or '' }}">{{ d.name }}</option>
+                      {% endfor %}
+                    </select>
+                    <button type="button" class="btn btn-outline-secondary" data-quick-create="distributor" data-target="albumCreateDistributor" title="Nueva distribuidora"><i class="fa fa-plus"></i></button>
+                  </div>
+                </div>
               </div>
             </div>
             <div class="modal-footer">
@@ -707,6 +855,10 @@
 {% elif section == 'royalties' %}
 
   {% include 'discografica_royalties.html' %}
+
+{% elif section == 'adelantos' %}
+
+  {% include 'discografica_adelantos.html' %}
 
 {% elif section == 'editorial' %}
 

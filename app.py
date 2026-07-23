@@ -130,6 +130,7 @@ from models import (
     ensure_venue_seatmap_schema,
     ensure_fotos_schema,
     ensure_person_documents_schema,
+    ensure_distributors_schema,
     ensure_artist_calendar_schema,
     ensure_performance_indexes,
     SessionLocal,
@@ -232,6 +233,10 @@ from models import (
     VenueTicketExtra,
     VenueSeatMap,
     AppEvent,
+    Distributor,
+    DistributorAdvance,
+    DistributorAdvanceRule,
+    DistributorAdvanceException,
     ExpenseTemplate,
     ExpenseTemplateItem,
     RepertoireTemplate,
@@ -8882,7 +8887,7 @@ def discografica_view():
     income_upload_report = None
     income_import_review = None
 
-    if section not in ("lanzamientos", "canciones", "royalties", "editorial", "registros", "ingresos", "isrc"):
+    if section not in ("lanzamientos", "canciones", "royalties", "editorial", "registros", "ingresos", "isrc", "adelantos"):
         section = "canciones"
     if section == "registros":
         legacy_tab = (request.args.get("registros_tab") or request.args.get("tab") or "pendiente").strip().lower()
@@ -10137,9 +10142,17 @@ def discografica_view():
     _apply_display_collaborator(registros_ritmonet_songs)
     _apply_display_collaborator(launches_items)
 
+    # Distribuidoras (selectores de alta y edición en bloque) + pestaña Adelantos.
+    distributors_all = session_db.query(Distributor).order_by(Distributor.name.asc()).all()
+    distributor_by_id = {str(d.id): d for d in distributors_all}
+    adelantos_ctx = _build_distributor_advances_context(session_db) if section == "adelantos" else None
+
     response = render_template(
         "discografica.html",
         section=section,
+        distributors=distributors_all,
+        distributor_by_id=distributor_by_id,
+        adelantos_ctx=adelantos_ctx,
         launches_items=launches_items,
         launches_calendar_months=launches_calendar_months,
         repertorio_tab=repertorio_tab,
@@ -10294,6 +10307,604 @@ def discografica_isrc_artist_set(artist_id):
     return redirect(url_for("discografica_view", section="isrc", isrc_tab="configurador"))
 
 
+@app.post("/discografica/canciones/bulk-update", endpoint="discografica_songs_bulk_update")
+@admin_required
+def discografica_songs_bulk_update():
+    """Edición EN BLOQUE de canciones del repertorio (distribuidora, categoría, catálogo,
+    explícita). Solo aplica los campos con valor; distribuidora/categoría/catálogo se saltan
+    las colaboraciones externas (van por su compañía colaboradora)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar canciones.")
+    ids = [to_uuid(x) for x in request.form.getlist("song_ids[]")]
+    ids = [x for x in ids if x]
+    if not ids:
+        flash("No hay canciones seleccionadas.", "warning")
+        return redirect(url_for("discografica_view", section="canciones", rep_tab="canciones"))
+    dist_raw = (request.form.get("distributor_id") or "").strip()
+    ownership = (request.form.get("ownership_type") or "").strip().lower()
+    catalog_raw = (request.form.get("is_catalog") or "").strip()
+    explicit_raw = (request.form.get("is_explicit") or "").strip()
+    session_db = db()
+    try:
+        dist_id = None
+        if dist_raw and dist_raw != "__none__":
+            dist_id = to_uuid(dist_raw)
+            if not dist_id or not session_db.get(Distributor, dist_id):
+                flash("Distribuidora no válida.", "warning")
+                return redirect(url_for("discografica_view", section="canciones", rep_tab="canciones"))
+        songs = session_db.query(Song).filter(Song.id.in_(ids)).all()
+        changed = 0
+        skipped_external = 0
+        for sng in songs:
+            touched = False
+            if sng.is_external_collab and (dist_raw or ownership or catalog_raw):
+                skipped_external += 1
+            if not sng.is_external_collab:
+                if dist_raw == "__none__" and sng.distributor_id is not None:
+                    sng.distributor_id = None; touched = True
+                elif dist_id and sng.distributor_id != dist_id:
+                    sng.distributor_id = dist_id; touched = True
+                if ownership in ("own", "distribution"):
+                    new_dist = ownership == "distribution"
+                    if bool(sng.is_distribution) != new_dist:
+                        sng.is_distribution = new_dist
+                        if new_dist:
+                            sng.master_ownership_pct = Decimal("0")
+                        touched = True
+                if catalog_raw in ("0", "1"):
+                    new_cat = catalog_raw == "1"
+                    if bool(sng.is_catalog) != new_cat:
+                        sng.is_catalog = new_cat; touched = True
+            if explicit_raw in ("0", "1"):
+                new_exp = explicit_raw == "1"
+                if bool(sng.is_explicit) != new_exp:
+                    sng.is_explicit = new_exp; touched = True
+            if touched:
+                changed += 1
+        session_db.commit()
+        msg = f"Cambios aplicados a {changed} canción(es)."
+        if skipped_external:
+            msg += f" {skipped_external} colaboración(es) externa(s) no se tocaron (distribuidora/categoría no aplican)."
+        flash(msg, "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error aplicando los cambios en bloque: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_view", section="canciones", rep_tab="canciones"))
+
+
+# ===================== Discográfica · ADELANTOS de distribuidoras =====================
+# Un adelanto se RECUPERA con los ingresos del contenido distribuido con su distribuidora,
+# según sus condiciones ({%, base bruto/neto, contenido desde/hasta fecha, solo ciertos
+# artistas}) y sus excepciones (artistas o canciones que no amortizan). Todo lo que no va a
+# amortización es nuestro. Nada se guarda calculado: se recalcula con los ingresos actuales.
+
+def _song_income_totals_all(session_db, song_ids):
+    """{song_id(str): {'gross': Decimal, 'net': Decimal}} con TODO el histórico de ingresos.
+    Igual que en royalties, la fila de SEMESTRE prevalece sobre los meses que cubre (si una
+    canción tiene apunte semestral, sus meses dentro del rango no se suman)."""
+    out = {}
+    if not song_ids:
+        return out
+    sem_ranges = {}
+    rows = (
+        session_db.query(SongRevenueEntry)
+        .filter(SongRevenueEntry.song_id.in_(song_ids))
+        .all()
+    )
+    for r in rows:
+        if (r.period_type or "").upper() == "SEMESTER" and r.period_start and r.period_end:
+            sem_ranges.setdefault(str(r.song_id), []).append((r.period_start, r.period_end))
+    def _dec(v):
+        try:
+            return Decimal(str(v)) if v is not None else Decimal("0")
+        except (InvalidOperation, ValueError):
+            return Decimal("0")
+    for r in rows:
+        sid = str(r.song_id)
+        ptype = (r.period_type or "").upper()
+        if ptype == "MONTH":
+            covered = any(a <= (r.period_start or date.min) <= b for a, b in sem_ranges.get(sid, []))
+            if covered:
+                continue
+        agg = out.setdefault(sid, {"gross": Decimal("0"), "net": Decimal("0")})
+        agg["gross"] += _dec(r.gross)
+        agg["net"] += _dec(r.net)
+    return out
+
+
+def _advance_rule_matches(rule, song, song_artist_ids):
+    """¿Cubre esta condición a la canción? (fecha de publicación dentro del rango y, si la
+    condición limita artistas, alguno de los artistas de la canción está en la lista)."""
+    if rule.date_from and (not song.release_date or song.release_date < rule.date_from):
+        return False
+    if rule.date_until and (not song.release_date or song.release_date > rule.date_until):
+        return False
+    scope = [str(x) for x in (rule.artist_ids or [])]
+    if scope and not (set(scope) & set(song_artist_ids)):
+        return False
+    return True
+
+
+def _advance_matching_rule(adv, song, song_artist_ids):
+    """Primera condición del adelanto que cubre la canción (o None). Las excepciones del
+    adelanto (canción o cualquiera de sus artistas) la excluyen del todo."""
+    for exc in (adv.exceptions or []):
+        tid = str(exc.target_id)
+        if (exc.kind or "").upper() == "SONG" and tid == str(song.id):
+            return None
+        if (exc.kind or "").upper() == "ARTIST" and tid in song_artist_ids:
+            return None
+    for rule in (adv.rules or []):
+        if _advance_rule_matches(rule, song, song_artist_ids):
+            return rule
+    return None
+
+
+def _build_distributor_advances_context(session_db):
+    """Contexto completo de la pestaña Adelantos: por distribuidora, sus adelantos con estado
+    de recuperación y la liquidación artista por artista (nº canciones, generado por canción,
+    neto, parte que amortiza y parte nuestra). Cada canción amortiza en el PRIMER adelanto
+    (por fecha) cuyas condiciones la cubren, hasta agotar su importe."""
+    distributors = session_db.query(Distributor).order_by(Distributor.name.asc()).all()
+    advances = (
+        session_db.query(DistributorAdvance)
+        .options(selectinload(DistributorAdvance.rules),
+                 selectinload(DistributorAdvance.exceptions))
+        .order_by(DistributorAdvance.advance_date.asc().nullslast(), DistributorAdvance.created_at.asc())
+        .all()
+    )
+    adv_by_dist = {}
+    for adv in advances:
+        adv_by_dist.setdefault(str(adv.distributor_id), []).append(adv)
+
+    artists_all = session_db.query(Artist).order_by(Artist.name.asc()).all()
+    artist_by_id = {str(a.id): a for a in artists_all}
+
+    blocks = []
+    for dist in distributors:
+        dist_advs = adv_by_dist.get(str(dist.id), [])
+        songs = (
+            session_db.query(Song)
+            .filter(Song.distributor_id == dist.id, Song.is_external_collab.is_(False))
+            .order_by(Song.title.asc())
+            .all()
+        )
+        song_ids = [sng.id for sng in songs]
+        sa_rows = (
+            session_db.query(SongArtist.song_id, SongArtist.artist_id)
+            .filter(SongArtist.song_id.in_(song_ids)).all()
+        ) if song_ids else []
+        artists_of_song = {}
+        for sid, aid in sa_rows:
+            artists_of_song.setdefault(str(sid), []).append(str(aid))
+        income = _song_income_totals_all(session_db, song_ids)
+
+        # Asignación secuencial: cada canción amortiza en el primer adelanto ACTIVO que la
+        # cubre y aún tiene importe pendiente (orden de fecha del adelanto).
+        remaining = {}
+        for adv in dist_advs:
+            try:
+                remaining[str(adv.id)] = Decimal(str(adv.amount or 0))
+            except (InvalidOperation, ValueError):
+                remaining[str(adv.id)] = Decimal("0")
+        rows_by_adv = {str(adv.id): [] for adv in dist_advs}
+        unassigned_rows = []
+        for sng in songs:
+            sid = str(sng.id)
+            inc = income.get(sid, {"gross": Decimal("0"), "net": Decimal("0")})
+            aids = artists_of_song.get(sid, [])
+            row = {
+                "song": sng,
+                "artist_ids": aids,
+                "gross": inc["gross"],
+                "net": inc["net"],
+                "amort": Decimal("0"),
+                "ours": inc["net"],
+                "rule": None,
+            }
+            placed = False
+            for adv in dist_advs:
+                if (adv.status or "ACTIVO").upper() != "ACTIVO":
+                    continue
+                rule = _advance_matching_rule(adv, sng, aids)
+                if not rule:
+                    continue
+                base_amt = inc["gross"] if (rule.base or "NET").upper() == "GROSS" else inc["net"]
+                try:
+                    pct = Decimal(str(rule.pct or 0))
+                except (InvalidOperation, ValueError):
+                    pct = Decimal("0")
+                amort_full = (base_amt * pct / Decimal("100")).quantize(Decimal("0.01"))
+                take = min(amort_full, max(Decimal("0"), remaining[str(adv.id)]))
+                remaining[str(adv.id)] -= take
+                row["amort"] = take
+                row["ours"] = inc["net"] - take
+                row["rule"] = rule
+                rows_by_adv[str(adv.id)].append(row)
+                placed = True
+                break
+            if not placed:
+                unassigned_rows.append(row)
+
+        adv_views = []
+        for adv in dist_advs:
+            try:
+                amount = Decimal(str(adv.amount or 0))
+            except (InvalidOperation, ValueError):
+                amount = Decimal("0")
+            rem = max(Decimal("0"), remaining.get(str(adv.id), Decimal("0")))
+            recovered = amount - rem
+            pct_rec = float(recovered / amount * 100) if amount > 0 else 0.0
+            if (adv.status or "ACTIVO").upper() != "ACTIVO":
+                state, state_class = "ARCHIVADO", "secondary"
+            elif amount > 0 and recovered >= amount:
+                state, state_class = "RECUPERADO", "success"
+            elif recovered > 0:
+                state, state_class = "AMORTIZANDO", "warning"
+            else:
+                state, state_class = "PENDIENTE", "danger"
+            # Agrupar la liquidación por artista (una canción con varios artistas cuenta en el primero).
+            by_artist = {}
+            for row in rows_by_adv.get(str(adv.id), []):
+                aid = row["artist_ids"][0] if row["artist_ids"] else ""
+                g = by_artist.setdefault(aid, {
+                    "artist": artist_by_id.get(aid),
+                    "songs": [],
+                    "net": Decimal("0"), "gross": Decimal("0"),
+                    "amort": Decimal("0"), "ours": Decimal("0"),
+                })
+                g["songs"].append(row)
+                g["net"] += row["net"]; g["gross"] += row["gross"]
+                g["amort"] += row["amort"]; g["ours"] += row["ours"]
+            artist_groups = sorted(
+                by_artist.values(),
+                key=lambda g: (g["artist"].name.lower() if g["artist"] else "zzz"),
+            )
+            totals = {
+                "songs": sum(len(g["songs"]) for g in artist_groups),
+                "net": sum((g["net"] for g in artist_groups), Decimal("0")),
+                "amort": sum((g["amort"] for g in artist_groups), Decimal("0")),
+                "ours": sum((g["ours"] for g in artist_groups), Decimal("0")),
+            }
+            adv_views.append({
+                "adv": adv,
+                "amount": amount,
+                "recovered": recovered,
+                "remaining": rem,
+                "pct": max(0.0, min(100.0, pct_rec)),
+                "state": state,
+                "state_class": state_class,
+                "artist_groups": artist_groups,
+                "totals": totals,
+            })
+        blocks.append({
+            "distributor": dist,
+            "advances": adv_views,
+            "songs": songs,
+            "n_songs": len(songs),
+            "unassigned": unassigned_rows,
+        })
+    return {
+        "blocks": blocks,
+        "distributors": distributors,
+        "artists": artists_all,
+        "artist_by_id": artist_by_id,
+        "has_advances": any(b["advances"] for b in blocks),
+    }
+
+
+@app.post("/discografica/adelantos/crear", endpoint="discografica_advance_create")
+@admin_required
+def discografica_advance_create():
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para crear adelantos.")
+    session_db = db()
+    try:
+        dist_id = to_uuid((request.form.get("distributor_id") or "").strip())
+        if not dist_id or not session_db.get(Distributor, dist_id):
+            flash("Debes seleccionar la distribuidora del adelanto.", "warning")
+            return redirect(url_for("discografica_view", section="adelantos"))
+        amount = _parse_money_decimal(request.form.get("amount"))
+        if amount <= 0:
+            flash("El importe del adelanto debe ser mayor que cero.", "warning")
+            return redirect(url_for("discografica_view", section="adelantos"))
+        contract = request.files.get("contract")
+        contract_url = upload_pdf(contract, "distributor_advances") if contract and getattr(contract, "filename", "") else None
+        adv = DistributorAdvance(
+            distributor_id=dist_id,
+            label=(request.form.get("label") or "").strip() or None,
+            amount=amount,
+            advance_date=parse_optional_date(request.form.get("advance_date")),
+            contract_url=contract_url,
+            notes=(request.form.get("notes") or "").strip() or None,
+        )
+        session_db.add(adv)
+        session_db.flush()
+        session_db.add(_advance_rule_from_form(adv.id, request.form))
+        session_db.commit()
+        flash("Adelanto creado.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error creando el adelanto: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_view", section="adelantos"))
+
+
+def _advance_rule_from_form(advance_id, form, sort_order=0):
+    """Construye una condición de recuperación desde el formulario (wizard o «añadir condición»)."""
+    try:
+        pct = Decimal((form.get("rule_pct") or "100").strip().replace(",", "."))
+    except (InvalidOperation, ValueError):
+        pct = Decimal("100")
+    pct = max(Decimal("0"), min(Decimal("100"), pct))
+    base = (form.get("rule_base") or "NET").strip().upper()
+    if base not in ("NET", "GROSS"):
+        base = "NET"
+    scope = (form.get("rule_scope") or "all").strip().lower()
+    date_from = parse_optional_date(form.get("rule_date_from")) if scope == "from" else None
+    date_until = parse_optional_date(form.get("rule_date_until")) if scope == "until" else None
+    artists_mode = (form.get("rule_artists_mode") or "all").strip().lower()
+    artist_ids = None
+    if artists_mode == "some":
+        artist_ids = [str(to_uuid(x)) for x in form.getlist("rule_artist_ids[]") if to_uuid(x)]
+        artist_ids = artist_ids or None
+    return DistributorAdvanceRule(
+        advance_id=advance_id, pct=pct, base=base,
+        date_from=date_from, date_until=date_until,
+        artist_ids=artist_ids, sort_order=sort_order,
+    )
+
+
+def _get_advance_or_redirect(session_db, aid):
+    adv = session_db.get(DistributorAdvance, to_uuid(aid))
+    return adv
+
+
+@app.post("/discografica/adelantos/<aid>/actualizar", endpoint="discografica_advance_update")
+@admin_required
+def discografica_advance_update(aid):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar adelantos.")
+    session_db = db()
+    try:
+        adv = _get_advance_or_redirect(session_db, aid)
+        if not adv:
+            flash("Adelanto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="adelantos"))
+        if request.form.get("label") is not None:
+            adv.label = (request.form.get("label") or "").strip() or None
+        if (request.form.get("amount") or "").strip():
+            amt = _parse_money_decimal(request.form.get("amount"))
+            if amt > 0:
+                adv.amount = amt
+        if request.form.get("advance_date") is not None:
+            adv.advance_date = parse_optional_date(request.form.get("advance_date"))
+        if request.form.get("notes") is not None:
+            adv.notes = (request.form.get("notes") or "").strip() or None
+        status = (request.form.get("status") or "").strip().upper()
+        if status in ("ACTIVO", "ARCHIVADO"):
+            adv.status = status
+        contract = request.files.get("contract")
+        if contract and getattr(contract, "filename", ""):
+            adv.contract_url = upload_pdf(contract, "distributor_advances")
+        adv.updated_at = datetime.utcnow()
+        session_db.commit()
+        flash("Adelanto actualizado.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error actualizando el adelanto: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_view", section="adelantos"))
+
+
+@app.post("/discografica/adelantos/<aid>/eliminar", endpoint="discografica_advance_delete")
+@admin_required
+def discografica_advance_delete(aid):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para eliminar adelantos.")
+    session_db = db()
+    try:
+        adv = _get_advance_or_redirect(session_db, aid)
+        if adv:
+            session_db.delete(adv)
+            session_db.commit()
+            flash("Adelanto eliminado.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error eliminando el adelanto: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_view", section="adelantos"))
+
+
+@app.post("/discografica/adelantos/<aid>/reglas/anadir", endpoint="discografica_advance_rule_add")
+@admin_required
+def discografica_advance_rule_add(aid):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar adelantos.")
+    session_db = db()
+    try:
+        adv = _get_advance_or_redirect(session_db, aid)
+        if not adv:
+            flash("Adelanto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="adelantos"))
+        order = max([int(r.sort_order or 0) for r in (adv.rules or [])] or [0]) + 1
+        session_db.add(_advance_rule_from_form(adv.id, request.form, sort_order=order))
+        session_db.commit()
+        flash("Condición añadida.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error añadiendo la condición: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_view", section="adelantos"))
+
+
+@app.post("/discografica/adelantos/reglas/<rid>/eliminar", endpoint="discografica_advance_rule_delete")
+@admin_required
+def discografica_advance_rule_delete(rid):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar adelantos.")
+    session_db = db()
+    try:
+        rule = session_db.get(DistributorAdvanceRule, to_uuid(rid))
+        if rule:
+            session_db.delete(rule)
+            session_db.commit()
+            flash("Condición eliminada.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error eliminando la condición: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_view", section="adelantos"))
+
+
+@app.post("/discografica/adelantos/<aid>/excepciones/anadir", endpoint="discografica_advance_exception_add")
+@admin_required
+def discografica_advance_exception_add(aid):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar adelantos.")
+    session_db = db()
+    try:
+        adv = _get_advance_or_redirect(session_db, aid)
+        if not adv:
+            flash("Adelanto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="adelantos"))
+        kind = (request.form.get("kind") or "").strip().upper()
+        target_raw = request.form.get("artist_target_id") if kind == "ARTIST" else request.form.get("song_target_id")
+        target = to_uuid((target_raw or "").strip())
+        if kind not in ("ARTIST", "SONG") or not target:
+            flash("Selecciona el artista o la canción de la excepción.", "warning")
+            return redirect(url_for("discografica_view", section="adelantos"))
+        dup = any((e.kind or "").upper() == kind and str(e.target_id) == str(target) for e in (adv.exceptions or []))
+        if not dup:
+            session_db.add(DistributorAdvanceException(advance_id=adv.id, kind=kind, target_id=target))
+            session_db.commit()
+            flash("Excepción añadida: ese contenido ya no amortiza este adelanto.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error añadiendo la excepción: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_view", section="adelantos"))
+
+
+@app.post("/discografica/adelantos/excepciones/<eid>/eliminar", endpoint="discografica_advance_exception_delete")
+@admin_required
+def discografica_advance_exception_delete(eid):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar adelantos.")
+    session_db = db()
+    try:
+        exc = session_db.get(DistributorAdvanceException, to_uuid(eid))
+        if exc:
+            session_db.delete(exc)
+            session_db.commit()
+            flash("Excepción eliminada.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error eliminando la excepción: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_view", section="adelantos"))
+
+
+@app.get("/discografica/adelantos/<aid>/pdf", endpoint="discografica_advance_pdf")
+@admin_required
+def discografica_advance_pdf(aid):
+    """Balance del adelanto en PDF (estado + liquidación artista por artista)."""
+    if not REPORTLAB_AVAILABLE:
+        abort(503, "Generación de PDF no disponible en el servidor.")
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    session_db = db()
+    try:
+        adv = session_db.get(DistributorAdvance, to_uuid(aid))
+        if not adv:
+            abort(404)
+        ctx = _build_distributor_advances_context(session_db)
+        view = None
+        dist = None
+        for block in ctx["blocks"]:
+            for v in block["advances"]:
+                if str(v["adv"].id) == str(adv.id):
+                    view, dist = v, block["distributor"]
+                    break
+        if not view:
+            abort(404)
+
+        def eur_txt(x):
+            try:
+                q = Decimal(str(x or 0)).quantize(Decimal("0.01"))
+            except (InvalidOperation, ValueError):
+                q = Decimal("0")
+            ent, dec = f"{q:.2f}".split(".")
+            ent = "{:,}".format(int(ent)).replace(",", ".")
+            return f"{ent},{dec} €"
+
+        buf = BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=16*mm, bottomMargin=14*mm, leftMargin=14*mm, rightMargin=14*mm)
+        styles = getSampleStyleSheet()
+        h1 = ParagraphStyle("h1x", parent=styles["Heading1"], fontSize=15, spaceAfter=2)
+        sub = ParagraphStyle("subx", parent=styles["Normal"], fontSize=9, textColor=colors.HexColor("#6b7683"))
+        h2 = ParagraphStyle("h2x", parent=styles["Heading2"], fontSize=11, spaceBefore=8, spaceAfter=3)
+        story = []
+        title = f"Balance de adelanto · {dist.name}"
+        if adv.label:
+            title += f" · {adv.label}"
+        story.append(Paragraph(title, h1))
+        meta_bits = [f"Importe: {eur_txt(view['amount'])}"]
+        if adv.advance_date:
+            meta_bits.append("Fecha: " + adv.advance_date.strftime("%d/%m/%Y"))
+        meta_bits.append(f"Estado: {view['state']} ({view['pct']:.0f}% recuperado)")
+        meta_bits.append("Recuperado: " + eur_txt(view["recovered"]))
+        meta_bits.append("Pendiente: " + eur_txt(view["remaining"]))
+        story.append(Paragraph(" · ".join(meta_bits), sub))
+        story.append(Spacer(1, 6))
+        for g in view["artist_groups"]:
+            nm = g["artist"].name if g["artist"] else "Sin artista"
+            story.append(Paragraph(f"{nm} — {len(g['songs'])} canción(es)", h2))
+            data = [["Canción", "Ingreso neto", "Amortiza", "Nuestro"]]
+            for row in g["songs"]:
+                data.append([row["song"].title, eur_txt(row["net"]), eur_txt(row["amort"]), eur_txt(row["ours"])])
+            data.append(["Total " + nm, eur_txt(g["net"]), eur_txt(g["amort"]), eur_txt(g["ours"])])
+            t = Table(data, colWidths=[None, 30*mm, 30*mm, 30*mm], repeatRows=1)
+            t.setStyle(TableStyle([
+                ("FONT", (0, 0), (-1, -1), "Helvetica", 8.5),
+                ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 8.5),
+                ("FONT", (0, -1), (-1, -1), "Helvetica-Bold", 8.5),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f4f8")),
+                ("LINEBELOW", (0, 0), (-1, 0), 0.6, colors.HexColor("#c9d2dc")),
+                ("LINEABOVE", (0, -1), (-1, -1), 0.6, colors.HexColor("#c9d2dc")),
+                ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#fafbfc")]),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ]))
+            story.append(t)
+            story.append(Spacer(1, 4))
+        tt = view["totals"]
+        story.append(Spacer(1, 6))
+        story.append(Paragraph(
+            f"TOTAL · {tt['songs']} canción(es) · Neto {eur_txt(tt['net'])} · Amortiza {eur_txt(tt['amort'])} · Nuestro {eur_txt(tt['ours'])}",
+            ParagraphStyle("totx", parent=styles["Normal"], fontSize=10, spaceBefore=4, textColor=colors.HexColor("#212529")),
+        ))
+        doc.build(story)
+        buf.seek(0)
+        fname = f"adelanto_{(dist.name or 'distribuidora').replace(' ', '_').lower()}.pdf"
+        return send_file(buf, mimetype="application/pdf", as_attachment=False, download_name=fname)
+    finally:
+        session_db.close()
+
+
 @app.post("/discografica/canciones/create")
 @admin_required
 def discografica_song_create():
@@ -10346,6 +10957,11 @@ def discografica_song_create():
         flash("En una colaboración externa debes indicar la compañía colaboradora (un tercero).", "warning")
         return redirect(url_for("discografica_view", section="canciones"))
 
+    # Distribuidora: solo canciones propias o de distribución (las externas van por su compañía).
+    distributor_id = None
+    if not is_external_collab:
+        distributor_id = to_uuid((request.form.get("distributor_id") or "").strip())
+
     if not title:
         flash("El nombre de la canción es obligatorio.", "warning")
         return redirect(url_for("discografica_view", section="canciones"))
@@ -10370,6 +10986,7 @@ def discografica_song_create():
             external_company_id=external_company_id,
             our_pct=our_pct,
             our_pct_base=our_pct_base,
+            distributor_id=distributor_id,
         )
         session_db.add(s)
         session_db.flush()  # para obtener s.id
@@ -12339,6 +12956,8 @@ def discografica_song_detail(song_id):
         edit=edit,
         status=st,
         interpreters=interpreters,
+        distributors=session_db.query(Distributor).order_by(Distributor.name.asc()).all(),
+        song_distributor=(session_db.get(Distributor, s.distributor_id) if s.distributor_id else None),
         isrc_codes=isrc_codes,
         current_isrcs=current_isrcs,
         agedi_registered_isrcs=agedi_registered_isrcs,
@@ -12908,6 +13527,11 @@ def discografica_song_info_update(song_id):
             if mp > 100:
                 mp = Decimal("100")
             s.master_ownership_pct = mp
+
+        # Distribuidora (solo canciones que no son colaboración externa; el select solo se
+        # muestra en esas, pero se re-valida aquí).
+        if not s.is_external_collab:
+            s.distributor_id = to_uuid((request.form.get("distributor_id") or "").strip())
 
         # Portada
         cover = request.files.get("cover")
@@ -15826,6 +16450,7 @@ def discografica_album_create():
             physical_vinyl=physical_vinyl,
             is_distribution=is_distribution,
             is_catalog=is_catalog,
+            distributor_id=to_uuid((request.form.get("distributor_id") or "").strip()),
             copyright_text=_default_album_copy_text(release_date),
             edited_by="PIES Compañía Discográfica",
             updated_at=datetime.now(TZ_MADRID),
@@ -20834,6 +21459,141 @@ def api_create_event():
         s.add(ev)
         s.commit()
         return jsonify({"id": str(ev.id), "label": ev.name, "text": ev.name, "name": ev.name, "logo_url": ev.logo_url})
+    except Exception as e:
+        s.rollback()
+        return jsonify({"error": str(e)}), 400
+    finally:
+        s.close()
+
+
+# ============================ Bases de datos · DISTRIBUIDORAS ============================
+# Distribuidoras digitales (nombre + logo): se asignan a canciones/álbumes propios o de
+# distribución y son la contraparte de los ADELANTOS de Discográfica.
+
+@app.get("/distribuidoras", endpoint="distributors_view")
+@admin_required
+def distributors_view():
+    s = db()
+    try:
+        q = (request.args.get("q") or "").strip()
+        rows = s.query(Distributor).order_by(Distributor.name.asc()).all()
+        if q:
+            qn = _norm_text_key(q)
+            rows = [d for d in rows if qn in _norm_text_key(d.name or "")]
+        song_counts = {
+            str(k): v
+            for k, v in s.query(Song.distributor_id, func.count(Song.id))
+            .filter(Song.distributor_id.isnot(None)).group_by(Song.distributor_id).all()
+        }
+        adv_counts = {
+            str(k): v
+            for k, v in s.query(DistributorAdvance.distributor_id, func.count(DistributorAdvance.id))
+            .group_by(DistributorAdvance.distributor_id).all()
+        }
+        return render_template("distribuidoras_list.html", distributors=rows, query_text=q,
+                               song_counts=song_counts, adv_counts=adv_counts,
+                               CAN_EDIT=can_edit_catalogs())
+    finally:
+        s.close()
+
+
+@app.post("/distribuidoras/crear", endpoint="distributor_create")
+@admin_required
+def distributor_create():
+    s = db()
+    try:
+        name = (request.form.get("name") or "").strip()
+        if not name:
+            flash("El nombre de la distribuidora es obligatorio.", "warning")
+            return redirect(url_for("distributors_view"))
+        logo = request.files.get("logo")
+        logo_url = upload_image(logo, "distributors") if logo and getattr(logo, "filename", "") else None
+        d = Distributor(name=name, logo_url=logo_url, notes=(request.form.get("notes") or "").strip() or None)
+        s.add(d)
+        s.commit()
+        flash("Distribuidora creada.", "success")
+    except Exception as e:
+        s.rollback()
+        flash(f"Error creando la distribuidora: {e}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("distributors_view"))
+
+
+@app.post("/distribuidoras/<did>/actualizar", endpoint="distributor_update")
+@admin_required
+def distributor_update(did):
+    s = db()
+    try:
+        d = s.get(Distributor, _sim_safe_uuid(did))
+        if not d:
+            flash("Distribuidora no encontrada.", "warning")
+            return redirect(url_for("distributors_view"))
+        d.name = (request.form.get("name") or d.name or "").strip() or d.name
+        d.notes = (request.form.get("notes") or "").strip() or None
+        logo = request.files.get("logo")
+        if logo and getattr(logo, "filename", ""):
+            d.logo_url = upload_image(logo, "distributors")
+        d.updated_at = datetime.utcnow()
+        s.commit()
+        flash("Distribuidora actualizada.", "success")
+    except Exception as e:
+        s.rollback()
+        flash(f"Error actualizando la distribuidora: {e}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("distributors_view"))
+
+
+@app.post("/distribuidoras/<did>/eliminar", endpoint="distributor_delete")
+@admin_required
+def distributor_delete(did):
+    s = db()
+    try:
+        d = s.get(Distributor, _sim_safe_uuid(did))
+        if d:
+            n_adv = s.query(func.count(DistributorAdvance.id)).filter(DistributorAdvance.distributor_id == d.id).scalar() or 0
+            if n_adv:
+                flash(f"No se puede eliminar: la distribuidora tiene {n_adv} adelanto(s). Elimínalos antes.", "warning")
+                return redirect(url_for("distributors_view"))
+            # Las canciones/álbumes que la usaban quedan sin distribuidora (FK ON DELETE SET NULL).
+            s.delete(d)
+            s.commit()
+            flash("Distribuidora eliminada.", "success")
+    except Exception as e:
+        s.rollback()
+        flash(f"Error eliminando la distribuidora: {e}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("distributors_view"))
+
+
+@app.post("/api/distributors/create", endpoint="api_create_distributor")
+@admin_required
+def api_create_distributor():
+    """Alta rápida de distribuidora (quick_create.js): nombre + logo, con aviso de similares."""
+    s = db()
+    try:
+        name = (request.form.get("name") or "").strip()
+        if not name:
+            return jsonify({"error": "El nombre de la distribuidora es obligatorio."}), 400
+        force_new = _truthy(request.form.get("force_new"))
+        rows = [
+            {"id": str(d.id), "label": (d.name or "").strip(), "logo_url": (d.logo_url or "").strip()}
+            for d in s.query(Distributor).order_by(Distributor.name.asc()).all()
+        ]
+        exact = s.query(Distributor).filter(func.lower(Distributor.name) == name.lower()).first()
+        similar = _build_similarity_rows(name, rows, threshold=0.78)
+        if exact and not force_new:
+            similar = [{"id": str(exact.id), "label": (exact.name or "").strip(), "score": 1.0, "logo_url": (exact.logo_url or "").strip()}]
+        if similar and not force_new:
+            return jsonify({"error": "Ya existe una distribuidora similar.", "similar": similar}), 409
+        logo = request.files.get("logo")
+        logo_url = upload_image(logo, "distributors") if logo and getattr(logo, "filename", "") else None
+        d = Distributor(name=name, logo_url=logo_url)
+        s.add(d)
+        s.commit()
+        return jsonify({"id": str(d.id), "label": d.name, "text": d.name, "name": d.name, "logo_url": d.logo_url})
     except Exception as e:
         s.rollback()
         return jsonify({"error": str(e)}), 400
@@ -31437,6 +32197,7 @@ def _bootstrap_schema_bg():
         (ensure_simulations_schema, "ensure_simulations_schema"),
         (ensure_fotos_schema, "ensure_fotos_schema"),
         (ensure_person_documents_schema, "ensure_person_documents_schema"),
+        (ensure_distributors_schema, "ensure_distributors_schema"),
         (ensure_artist_calendar_schema, "ensure_artist_calendar_schema"),
         # OJO: ensure_personnel_and_operations_schema NO va aquí. Lo ejecuta (serializado, con lock) el
         # before_request `ensure_personnel_bootstrap` -> _bootstrap_access_and_personnel. Ejecutarlo
@@ -33031,6 +33792,7 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "discografica.editorial", "label": "Editorial", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 136, "description": "Pestaña «Editorial»: reparto autoral y editoriales."},
     {"key": "discografica.registros", "label": "Registros", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 137, "description": "Pestaña «Registros» del sello (declaración de fonogramas/obras del catálogo)."},
     {"key": "discografica.ingresos", "label": "Ingresos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": True, "sort_order": 138, "description": "Pestaña «Ingresos»: ingresos del sello por explotación (importes)."},
+    {"key": "discografica.adelantos", "label": "Adelantos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": True, "sort_order": 138, "description": "Pestaña «Adelantos»: adelantos de distribuidoras, condiciones de recuperación y liquidación artista por artista (importes)."},
     {"key": "discografica.isrc", "label": "ISRC", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 139, "description": "Pestaña «ISRC»: gestión de códigos ISRC."},
 
     {"key": "registros", "label": "Registros", "section_key": "registros", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 150, "description": "Registro de obras/fonogramas ante entidades de gestión (SGAE, etc.)."},
@@ -33097,6 +33859,7 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "databases.invoices", "label": "Facturas", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": True, "sort_order": 277, "description": "Facturas: registro y consulta (importes)."},
     {"key": "databases.events", "label": "Eventos", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 278, "description": "Eventos (sujetos de simulaciones sin artista): alta y edición."},
     {"key": "databases.buyers", "label": "Compradores", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 279, "description": "Compradores de entradas (Enterticket): base de datos deduplicada por email, agrupada por eventos, con exportación CSV."},
+    {"key": "databases.distributors", "label": "Distribuidoras", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 280, "description": "Distribuidoras digitales (nombre + logo): se asignan a canciones/álbumes y son la contraparte de los adelantos de Discográfica."},
 
     # Cajón para funciones nuevas aún sin clasificar: entran aquí DESACTIVADAS hasta que dirección
     # las asigne. Garantiza que nada quede accesible solo para dirección de forma silenciosa.
@@ -33118,6 +33881,7 @@ AUTO_SEGMENT_PARENT = {
     "empresas": "databases.group_companies",
     "medios": "databases.media",
     "compradores": "databases.buyers",
+    "distribuidoras": "databases.distributors",
     "bolsas": "databases.bags",
     "facturas": "databases.invoices",
     "personal": "personal",
@@ -33388,6 +34152,12 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return "personal.usuarios.accesos"
     if endpoint == "events_view" or endpoint.startswith("event_"):
         return "databases.events"
+    if endpoint == "distributors_view" or endpoint.startswith("distributor_"):
+        return "databases.distributors"
+    if endpoint.startswith("discografica_advance"):
+        return "discografica.adelantos"
+    if endpoint == "discografica_songs_bulk_update":
+        return "discografica.canciones"
     if endpoint.startswith("media_"):
         return "databases.media"
     if endpoint.startswith("bag_") or endpoint == "bags_view":
@@ -33819,6 +34589,7 @@ def _infer_group_key_from_path(path: str) -> str | None:
         ("/empresas", "databases.group_companies"),
         ("/medios", "databases.media"),
         ("/eventos", "databases.events"),
+        ("/distribuidoras", "databases.distributors"),
         ("/compradores", "databases.buyers"),
         ("/bolsas", "databases.bags"),
         ("/facturas", "databases.invoices"),
@@ -33867,7 +34638,7 @@ def _resolve_request_resource_key() -> str | None:
             royalty_tab = (request.args.get("royalty_tab") or request.args.get("tab") or "liquidaciones").strip().lower()
             if royalty_tab in {"liquidaciones", "resumen"}:
                 return f"discografica.royalties.{royalty_tab}"
-        if section in {"lanzamientos", "canciones", "royalties", "editorial", "registros", "ingresos", "isrc"}:
+        if section in {"lanzamientos", "canciones", "royalties", "editorial", "registros", "ingresos", "isrc", "adelantos"}:
             return f"discografica.{section}"
         return "discografica"
     if endpoint == "discografica_song_detail":
@@ -33947,6 +34718,12 @@ def _resolve_request_resource_key() -> str | None:
         return "contratacion.simulaciones"
     if endpoint == "events_view" or endpoint.startswith("event_"):
         return "databases.events"
+    if endpoint == "distributors_view" or endpoint.startswith("distributor_"):
+        return "databases.distributors"
+    if endpoint.startswith("discografica_advance"):
+        return "discografica.adelantos"
+    if endpoint == "discografica_songs_bulk_update":
+        return "discografica.canciones"
     if endpoint == "promo_view" or endpoint.startswith("promo_peticion"):
         return "promo"
     if endpoint == "diseno_view" or endpoint.startswith("diseno_peticion"):
@@ -34213,6 +34990,7 @@ def _resource_default_url(key: str) -> str:
         "discografica.editorial": url_for("discografica_view", section="editorial"),
         "discografica.registros": url_for("discografica_view", section="registros"),
         "discografica.ingresos": url_for("discografica_view", section="ingresos"),
+        "discografica.adelantos": url_for("discografica_view", section="adelantos"),
         "discografica.isrc": url_for("discografica_view", section="isrc", isrc_tab="repertorio"),
         "registros": url_for("registros_view", tab="pendiente"),
         "registros.pendiente": url_for("registros_view", tab="pendiente"),
@@ -34231,6 +35009,7 @@ def _resource_default_url(key: str) -> str:
         "contratacion.facturacion": url_for("concerts_view", tab="facturacion"),
         "contratacion.simulaciones": url_for("contracting_view", section="simulaciones"),
         "databases.events": url_for("events_view"),
+        "databases.distributors": url_for("distributors_view"),
         "databases.buyers": url_for("buyers_view"),
         "playlisting": url_for("playlisting_view"),
         "promocion": url_for("marketing_view"),
@@ -34430,6 +35209,7 @@ def _build_nav_menu() -> list[dict]:
             {"key": "databases.group_companies", "label": "Empresas del grupo", "url": _resource_default_url("databases.group_companies")},
             {"key": "databases.media", "label": "Medios", "url": _resource_default_url("databases.media")},
             {"key": "databases.events", "label": "Eventos", "url": _resource_default_url("databases.events")},
+            {"key": "databases.distributors", "label": "Distribuidoras", "url": _resource_default_url("databases.distributors")},
             {"key": "databases.buyers", "label": "Compradores", "url": _resource_default_url("databases.buyers")},
             {"key": "databases.bags", "label": "Bolsas", "url": _resource_default_url("databases.bags")},
             {"key": "databases.invoices", "label": "Facturas", "url": _resource_default_url("databases.invoices")},
@@ -34756,6 +35536,7 @@ SUPPORT_ACTION_ENDPOINTS = {
     "api_create_artist", "api_create_promoter", "api_create_venue", "api_create_ticketer",
     "api_create_publishing_company", "api_create_media_outlet", "api_media_contact_create",
     "api_create_event",
+    "api_create_distributor",
     # Plantillas de gastos (se gestionan desde las fichas de artista/evento/recinto y el simulador)
     "expense_template_rename", "expense_template_delete",
     "repertoire_template_create", "repertoire_template_update", "repertoire_template_delete",

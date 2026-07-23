@@ -383,6 +383,21 @@
                   <input name="master_ownership_pct" type="number" class="form-control" min="0" max="100" step="0.01" value="{{ song.master_ownership_pct if song.master_ownership_pct is not none else 100 }}">
                 </div>
 
+                {% if not song.is_external_collab %}
+                <div class="col-12 col-md-6">
+                  <label class="form-label"><i class="fa fa-truck-fast me-1 text-muted"></i>Distribuidora</label>
+                  <div class="input-group">
+                    <select name="distributor_id" id="songInfoDistributor" class="form-select select-with-thumbs">
+                      <option value="">Sin distribuidora</option>
+                      {% for d in distributors %}
+                        <option value="{{ d.id }}" data-logo="{{ d.logo_url or '' }}" {% if song.distributor_id and song.distributor_id|string == d.id|string %}selected{% endif %}>{{ d.name }}</option>
+                      {% endfor %}
+                    </select>
+                    <button type="button" class="btn btn-outline-secondary" data-quick-create="distributor" data-target="songInfoDistributor" title="Nueva distribuidora"><i class="fa fa-plus"></i></button>
+                  </div>
+                </div>
+                {% endif %}
+
                 <div class="col-12 col-md-6">
                   <label class="form-label">Timing (mm:ss)</label>
                   <input name="duration" class="form-control" placeholder="03:21"
@@ -550,6 +565,17 @@
                 <tbody>
                   {% if song.version %}
                     <tr><th style="width: 220px;">Versión</th><td>{{ song.version }}</td></tr>
+                  {% endif %}
+
+                  {% if song_distributor %}
+                    <tr><th style="width: 220px;">Distribuidora</th>
+                      <td>
+                        <span class="badge text-bg-light border d-inline-flex align-items-center gap-1">
+                          {% if song_distributor.logo_url %}<img src="{{ song_distributor.logo_url }}" alt="" style="width:16px;height:16px;object-fit:contain;border-radius:3px;">{% else %}<i class="fa fa-truck-fast"></i>{% endif %}
+                          {{ song_distributor.name }}
+                        </span>
+                      </td>
+                    </tr>
                   {% endif %}
 
                   {% if interpreters and (interpreters|length) > 0 %}

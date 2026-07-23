@@ -279,6 +279,10 @@ class Song(Base):
     our_pct = Column(Numeric, nullable=False, server_default=text("0"))
     our_pct_base = Column(Text, nullable=False, server_default=text("'GROSS'"))  # GROSS | NET
 
+    # Distribuidora digital (BD Distribuidoras). Solo aplica a canciones propias o de
+    # distribución: las colaboraciones externas van por la compañía colaboradora.
+    distributor_id = Column(PGUUID(as_uuid=True), ForeignKey("distributors.id", ondelete="SET NULL"))
+
     # ISRC principal (legacy / compat)
     isrc = Column(Text)
 
@@ -1022,6 +1026,9 @@ class Album(Base):
 
     is_distribution = Column(Boolean, nullable=False, server_default=text("false"))
     is_catalog = Column(Boolean, nullable=False, server_default=text("false"))
+
+    # Distribuidora digital (BD Distribuidoras), como en Song.
+    distributor_id = Column(PGUUID(as_uuid=True), ForeignKey("distributors.id", ondelete="SET NULL"))
 
     upc_code = Column(Text)
     legal_deposit_code = Column(Text)
@@ -3145,6 +3152,126 @@ class AppEvent(Base):
     notes = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class Distributor(Base):
+    """Distribuidora digital (Bases de datos → Distribuidoras). Nombre + logo. A cada canción
+    o álbum que NO sea colaboración externa se le asigna su distribuidora, y los ADELANTOS de
+    Discográfica se liquidan contra el contenido distribuido con ella."""
+    __tablename__ = "distributors"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    name = Column(Text, nullable=False)
+    logo_url = Column(Text)
+    notes = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class DistributorAdvance(Base):
+    """Adelanto de una distribuidora (Discográfica → Adelantos): importe entregado a cuenta que
+    se RECUPERA (amortiza) con los ingresos del contenido distribuido con esa distribuidora,
+    según sus condiciones. Todo lo que no va a amortización es nuestro. El «recuperado» no se
+    guarda: se CALCULA con los ingresos por canción (SongRevenueEntry)."""
+    __tablename__ = "distributor_advances"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    distributor_id = Column(PGUUID(as_uuid=True), ForeignKey("distributors.id", ondelete="CASCADE"), nullable=False, index=True)
+    label = Column(Text)                       # nombre corto opcional («Adelanto 2026»…)
+    amount = Column(Numeric(14, 2), nullable=False, server_default=text("0"))
+    advance_date = Column(Date)
+    contract_url = Column(Text)                # contrato adjunto (PDF en Storage)
+    status = Column(Text, nullable=False, server_default=text("'ACTIVO'"))   # ACTIVO | ARCHIVADO
+    notes = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+    distributor = relationship("Distributor")
+    rules = relationship("DistributorAdvanceRule", cascade="all, delete-orphan",
+                         order_by="DistributorAdvanceRule.sort_order", backref="advance")
+    exceptions = relationship("DistributorAdvanceException", cascade="all, delete-orphan", backref="advance")
+
+
+class DistributorAdvanceRule(Base):
+    """Condición de recuperación de un adelanto: qué % de los ingresos (sobre BRUTO o NETO) va
+    a amortizar, y sobre QUÉ contenido (publicado a partir de una fecha, hasta una fecha, o solo
+    ciertos artistas). Un adelanto puede tener varias condiciones; una canción amortiza por la
+    PRIMERA condición que la cubre (orden sort_order)."""
+    __tablename__ = "distributor_advance_rules"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    advance_id = Column(PGUUID(as_uuid=True), ForeignKey("distributor_advances.id", ondelete="CASCADE"), nullable=False, index=True)
+    pct = Column(Numeric(6, 2), nullable=False, server_default=text("100"))
+    base = Column(Text, nullable=False, server_default=text("'NET'"))    # NET | GROSS
+    date_from = Column(Date)     # contenido publicado A PARTIR de esta fecha (NULL = sin límite)
+    date_until = Column(Date)    # contenido publicado HASTA esta fecha (NULL = sin límite)
+    artist_ids = Column(JSONB)   # NULL/[] = todos los artistas; lista de uuid = solo esos
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+
+
+class DistributorAdvanceException(Base):
+    """Excepción de un adelanto: artista o canción que NO amortiza aunque las condiciones lo cubran."""
+    __tablename__ = "distributor_advance_exceptions"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    advance_id = Column(PGUUID(as_uuid=True), ForeignKey("distributor_advances.id", ondelete="CASCADE"), nullable=False, index=True)
+    kind = Column(Text, nullable=False)        # ARTIST | SONG
+    target_id = Column(PGUUID(as_uuid=True), nullable=False)
+
+
+def ensure_distributors_schema():
+    """Distribuidoras + adelantos (Discográfica → Adelantos) + columna distributor_id en
+    canciones y álbumes. Idempotente."""
+    _create_all_once()
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        """
+        CREATE TABLE IF NOT EXISTS distributors (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            name text NOT NULL,
+            logo_url text,
+            notes text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS distributor_advances (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            distributor_id uuid NOT NULL REFERENCES distributors(id) ON DELETE CASCADE,
+            label text,
+            amount numeric(14,2) NOT NULL DEFAULT 0,
+            advance_date date,
+            contract_url text,
+            status text NOT NULL DEFAULT 'ACTIVO',
+            notes text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_dist_advances_distributor ON distributor_advances(distributor_id);",
+        """
+        CREATE TABLE IF NOT EXISTS distributor_advance_rules (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            advance_id uuid NOT NULL REFERENCES distributor_advances(id) ON DELETE CASCADE,
+            pct numeric(6,2) NOT NULL DEFAULT 100,
+            base text NOT NULL DEFAULT 'NET',
+            date_from date,
+            date_until date,
+            artist_ids jsonb,
+            sort_order integer NOT NULL DEFAULT 0
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_dist_adv_rules_advance ON distributor_advance_rules(advance_id);",
+        """
+        CREATE TABLE IF NOT EXISTS distributor_advance_exceptions (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            advance_id uuid NOT NULL REFERENCES distributor_advances(id) ON DELETE CASCADE,
+            kind text NOT NULL,
+            target_id uuid NOT NULL
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_dist_adv_exc_advance ON distributor_advance_exceptions(advance_id);",
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS distributor_id uuid REFERENCES distributors(id) ON DELETE SET NULL;",
+        "CREATE INDEX IF NOT EXISTS idx_songs_distributor ON songs(distributor_id);",
+        "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS distributor_id uuid REFERENCES distributors(id) ON DELETE SET NULL;",
+    ]
+    _exec_ddl_statements(stmts, "distributors_schema")
 
 
 class Simulation(Base):

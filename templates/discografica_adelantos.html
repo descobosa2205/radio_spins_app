@@ -1,0 +1,507 @@
+{# ===================== Discográfica · ADELANTOS de distribuidoras =====================
+   Adelantos entregados por una distribuidora que se recuperan (amortizan) con los ingresos
+   del contenido distribuido con ella. Wizard visual por pasos (step_wizard.js, como en
+   simuladores/giras), barra de estado por adelanto y liquidación artista por artista. #}
+
+<style>
+  .adv-card{ border:1px solid #e9ecef; border-radius:16px; background:#fff; }
+  .adv-card + .adv-card{ margin-top:1rem; }
+  .adv-head{ display:flex; align-items:center; gap:.8rem; flex-wrap:wrap; padding:1rem 1.1rem .6rem; }
+  .adv-logo{ width:52px; height:52px; border-radius:12px; object-fit:contain; background:#f8f9fa; border:1px solid #eef0f2; }
+  .adv-logo--ph{ display:flex; align-items:center; justify-content:center; color:#adb5bd; font-size:1.4rem; }
+  .adv-amount{ font-size:1.25rem; font-weight:800; white-space:nowrap; }
+  .adv-bar-wrap{ padding:0 1.1rem .35rem; }
+  .adv-pills{ display:flex; flex-wrap:wrap; gap:.35rem; padding:.35rem 1.1rem; }
+  .adv-pill{ display:inline-flex; align-items:center; gap:.35rem; background:#f6f8fa; border:1px solid #e2e7ee; border-radius:999px; padding:.2rem .6rem; font-size:.78rem; }
+  .adv-pill img{ width:14px; height:14px; border-radius:50%; object-fit:cover; }
+  .adv-pill .btn-close{ width:.5em; height:.5em; }
+  .adv-sec-title{ font-size:.72rem; font-weight:700; letter-spacing:.05em; color:#8a94a1; text-transform:uppercase; padding:.4rem 1.1rem 0; }
+  .adv-kpis{ display:flex; flex-wrap:wrap; gap:.6rem; padding:.4rem 1.1rem; }
+  .adv-kpi{ background:#f6f8fa; border:1px solid #e2e7ee; border-radius:12px; padding:.4rem .8rem; }
+  .adv-kpi .v{ font-weight:800; }
+  .adv-kpi .l{ font-size:.72rem; color:#8a94a1; }
+  .adv-artist-head{ cursor:pointer; }
+  .adv-dist-title{ display:flex; align-items:center; gap:.6rem; margin:1.4rem 0 .6rem; }
+  .adv-dist-title img{ width:34px; height:34px; border-radius:9px; object-fit:contain; background:#f8f9fa; border:1px solid #eef0f2; }
+  .advw-dist-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:.7rem; }
+  .advw-dist-grid label{ display:flex; flex-direction:column; align-items:center; gap:.4rem; border:2px solid #e9ecef; border-radius:14px; padding:.9rem .5rem; cursor:pointer; text-align:center; }
+  .advw-dist-grid img, .advw-dist-grid .ph{ width:56px; height:56px; border-radius:12px; object-fit:contain; background:#f8f9fa; border:1px solid #eef0f2; }
+  .advw-dist-grid .ph{ display:flex; align-items:center; justify-content:center; color:#adb5bd; font-size:1.4rem; }
+  .advw-dist-grid input:checked + label, .advw-dist-grid label:has(input:checked){ border-color:var(--brand-primary,#E33D48); box-shadow:0 0 0 .2rem rgba(227,61,72,.15); }
+</style>
+
+<div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
+  <div>
+    <h5 class="mb-1"><i class="fa fa-hand-holding-dollar me-2 text-muted"></i>Adelantos de distribuidoras</h5>
+    <div class="text-muted small">El adelanto se recupera con los ingresos del contenido distribuido con esa distribuidora según sus condiciones. Todo lo que no va a amortización es nuestro.</div>
+  </div>
+  {% if CAN_EDIT_DISCOGRAFICA %}
+    {% if adelantos_ctx.distributors %}
+      <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#advanceWizardModal"><i class="fa fa-plus me-1"></i>Nuevo adelanto</button>
+    {% else %}
+      <a class="btn btn-outline-primary" href="{{ url_for('distributors_view') }}"><i class="fa fa-truck-fast me-1"></i>Crea primero una distribuidora</a>
+    {% endif %}
+  {% endif %}
+</div>
+
+{% if not adelantos_ctx.has_advances %}
+  <div class="card"><div class="card-body text-center text-muted py-5">
+    <div class="mb-2"><i class="fa fa-hand-holding-dollar fa-2x text-muted"></i></div>
+    <div class="fw-semibold">Aún no hay adelantos configurados</div>
+    <div class="small">Crea el primero con «Nuevo adelanto»: distribuidora → importe y contrato → condiciones de recuperación.</div>
+  </div></div>
+{% endif %}
+
+{% for block in adelantos_ctx.blocks %}
+  {% if block.advances %}
+    <div class="adv-dist-title">
+      {% if block.distributor.logo_url %}<img src="{{ block.distributor.logo_url }}" alt="">{% else %}<span class="adv-logo adv-logo--ph" style="width:34px;height:34px;"><i class="fa fa-truck-fast"></i></span>{% endif %}
+      <h5 class="m-0">{{ block.distributor.name }}</h5>
+      <span class="badge text-bg-light border">{{ block.n_songs|k }} {{ 'canción distribuida' if block.n_songs == 1 else 'canciones distribuidas' }}</span>
+    </div>
+
+    {% for v in block.advances %}
+      {% set adv = v.adv %}
+      <div class="adv-card">
+        <div class="adv-head">
+          {% if block.distributor.logo_url %}
+            <img src="{{ block.distributor.logo_url }}" class="adv-logo" alt="">
+          {% else %}
+            <span class="adv-logo adv-logo--ph"><i class="fa fa-truck-fast"></i></span>
+          {% endif %}
+          <div class="flex-grow-1">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <span class="fw-bold">{{ adv.label or 'Adelanto' }}</span>
+              <span class="badge text-bg-{{ v.state_class }}">{{ v.state }}</span>
+              {% if adv.advance_date %}<span class="text-muted small"><i class="fa fa-calendar me-1"></i>{{ adv.advance_date.strftime('%d/%m/%Y') }}</span>{% endif %}
+              {% if adv.contract_url %}
+                <a class="small text-decoration-none" href="{{ adv.contract_url }}" target="_blank" rel="noopener"><i class="fa fa-file-contract me-1"></i>Contrato</a>
+              {% endif %}
+            </div>
+            <div class="text-muted small">Recuperado {{ v.recovered|eur }} · pendiente {{ v.remaining|eur }}</div>
+          </div>
+          <div class="adv-amount">{{ v.amount|eur }}</div>
+          <div class="d-flex align-items-center gap-1">
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('discografica_advance_pdf', aid=adv.id) }}" target="_blank" title="Balance en PDF (imprimir/exportar)"><i class="fa fa-file-pdf"></i></a>
+            {% if CAN_EDIT_DISCOGRAFICA %}
+            <div class="dropdown">
+              <button class="btn btn-sm btn-light border" data-bs-toggle="dropdown" title="Más acciones"><i class="fa fa-ellipsis-vertical"></i></button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#advEdit-{{ adv.id }}"><i class="fa fa-pen fa-fw me-1"></i>Editar datos</button></li>
+                <li>
+                  <form method="post" action="{{ url_for('discografica_advance_update', aid=adv.id) }}">
+                    <input type="hidden" name="status" value="{{ 'ACTIVO' if (adv.status or 'ACTIVO')|upper != 'ACTIVO' else 'ARCHIVADO' }}">
+                    <button class="dropdown-item"><i class="fa fa-box-archive fa-fw me-1"></i>{{ 'Reactivar' if (adv.status or 'ACTIVO')|upper != 'ACTIVO' else 'Archivar' }}</button>
+                  </form>
+                </li>
+                <li><hr class="dropdown-divider"></li>
+                <li>
+                  <form method="post" action="{{ url_for('discografica_advance_delete', aid=adv.id) }}" onsubmit="return confirm('¿Eliminar este adelanto con sus condiciones y excepciones?');">
+                    <button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button>
+                  </form>
+                </li>
+              </ul>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+
+        {# Barra de estado del adelanto #}
+        <div class="adv-bar-wrap">
+          <div class="progress" role="progressbar" style="height:14px;">
+            <div class="progress-bar bg-{{ v.state_class }}" style="width: {{ '%.1f'|format(v.pct) }}%;">{{ '%.0f'|format(v.pct) }}%</div>
+          </div>
+        </div>
+
+        {# Condiciones de recuperación #}
+        <div class="adv-sec-title">Condiciones de recuperación</div>
+        <div class="adv-pills">
+          {% for r in adv.rules %}
+            <span class="adv-pill">
+              <i class="fa fa-percent text-muted"></i>
+              {{ r.pct|k if r.pct == (r.pct|int) else r.pct }}% sobre {{ 'BRUTO' if (r.base or 'NET')|upper == 'GROSS' else 'NETO' }}
+              {%- if r.date_from %} · publicado desde {{ r.date_from.strftime('%d/%m/%Y') }}{% endif -%}
+              {%- if r.date_until %} · publicado hasta {{ r.date_until.strftime('%d/%m/%Y') }}{% endif -%}
+              {%- if r.artist_ids %} · solo:
+                {%- for aid in r.artist_ids %}
+                  {%- set ra = adelantos_ctx.artist_by_id.get(aid|string) %} {{ ra.name if ra else '¿?' }}{{ ',' if not loop.last }}
+                {%- endfor %}
+              {%- endif %}
+              {% if CAN_EDIT_DISCOGRAFICA and (adv.rules|length) > 1 %}
+              <form method="post" action="{{ url_for('discografica_advance_rule_delete', rid=r.id) }}" class="d-inline" onsubmit="return confirm('¿Quitar esta condición?');">
+                <button class="btn-close" title="Quitar condición"></button>
+              </form>
+              {% endif %}
+            </span>
+          {% else %}
+            <span class="text-muted small">Sin condiciones: este adelanto no amortiza nada todavía.</span>
+          {% endfor %}
+          {% if CAN_EDIT_DISCOGRAFICA %}
+            <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#advRuleAdd-{{ adv.id }}"><i class="fa fa-plus me-1"></i>Añadir condición</button>
+          {% endif %}
+        </div>
+        {% if CAN_EDIT_DISCOGRAFICA %}
+        <div class="collapse px-3 pb-2" id="advRuleAdd-{{ adv.id }}">
+          <form method="post" action="{{ url_for('discografica_advance_rule_add', aid=adv.id) }}" class="border rounded p-2 bg-light-subtle">
+            <div class="row g-2 align-items-end">
+              <div class="col-6 col-md-2">
+                <label class="form-label small mb-0">%</label>
+                <input type="number" class="form-control form-control-sm" name="rule_pct" value="100" min="0" max="100" step="0.01">
+              </div>
+              <div class="col-6 col-md-2">
+                <label class="form-label small mb-0">Base</label>
+                <select class="form-select form-select-sm" name="rule_base"><option value="NET">Neto</option><option value="GROSS">Bruto</option></select>
+              </div>
+              <div class="col-6 col-md-3">
+                <label class="form-label small mb-0">Contenido</label>
+                <select class="form-select form-select-sm" name="rule_scope" data-adv-scope="{{ adv.id }}">
+                  <option value="all">Todo el contenido</option>
+                  <option value="from">Publicado a partir de…</option>
+                  <option value="until">Publicado hasta…</option>
+                </select>
+              </div>
+              <div class="col-6 col-md-2 d-none" data-adv-scope-date-from="{{ adv.id }}">
+                <label class="form-label small mb-0">Desde</label>
+                <input type="date" class="form-control form-control-sm" name="rule_date_from">
+              </div>
+              <div class="col-6 col-md-2 d-none" data-adv-scope-date-until="{{ adv.id }}">
+                <label class="form-label small mb-0">Hasta</label>
+                <input type="date" class="form-control form-control-sm" name="rule_date_until">
+              </div>
+              <div class="col-6 col-md-3">
+                <label class="form-label small mb-0">Artistas</label>
+                <select class="form-select form-select-sm" name="rule_artists_mode" data-adv-artists="{{ adv.id }}">
+                  <option value="all">Todos</option>
+                  <option value="some">Solo algunos…</option>
+                </select>
+              </div>
+              <div class="col-12 d-none" data-adv-artists-sel="{{ adv.id }}">
+                <select class="form-select form-select-sm select-artists" name="rule_artist_ids[]" multiple data-no-loader>
+                  {% for a in adelantos_ctx.artists %}<option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}">{{ a.name }}</option>{% endfor %}
+                </select>
+              </div>
+              <div class="col-12 col-md-2">
+                <button class="btn btn-sm btn-primary w-100"><i class="fa fa-check me-1"></i>Añadir</button>
+              </div>
+            </div>
+          </form>
+        </div>
+        {% endif %}
+
+        {# Excepciones #}
+        <div class="adv-sec-title">Excepciones (no amortizan)</div>
+        <div class="adv-pills">
+          {% for e in adv.exceptions %}
+            <span class="adv-pill">
+              {% if (e.kind or '')|upper == 'ARTIST' %}
+                {% set ea = adelantos_ctx.artist_by_id.get(e.target_id|string) %}
+                {% if ea and ea.photo_url %}<img src="{{ ea.photo_url }}" alt="">{% else %}<i class="fa fa-user text-muted"></i>{% endif %}
+                {{ ea.name if ea else 'Artista eliminado' }}
+              {% else %}
+                <i class="fa fa-music text-muted"></i>
+                {% set es = (block.songs | selectattr('id', 'equalto', e.target_id) | list | first) %}
+                {{ es.title if es else 'Canción' }}
+              {% endif %}
+              {% if CAN_EDIT_DISCOGRAFICA %}
+              <form method="post" action="{{ url_for('discografica_advance_exception_delete', eid=e.id) }}" class="d-inline">
+                <button class="btn-close" title="Quitar excepción"></button>
+              </form>
+              {% endif %}
+            </span>
+          {% else %}
+            <span class="text-muted small">Sin excepciones.</span>
+          {% endfor %}
+          {% if CAN_EDIT_DISCOGRAFICA %}
+            <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#advExcAdd-{{ adv.id }}"><i class="fa fa-plus me-1"></i>Añadir excepción</button>
+          {% endif %}
+        </div>
+        {% if CAN_EDIT_DISCOGRAFICA %}
+        <div class="collapse px-3 pb-2" id="advExcAdd-{{ adv.id }}">
+          <form method="post" action="{{ url_for('discografica_advance_exception_add', aid=adv.id) }}" class="border rounded p-2 bg-light-subtle">
+            <div class="row g-2 align-items-end">
+              <div class="col-6 col-md-3">
+                <label class="form-label small mb-0">Tipo</label>
+                <select class="form-select form-select-sm" name="kind" data-adv-exc-kind="{{ adv.id }}">
+                  <option value="ARTIST">Artista</option>
+                  <option value="SONG">Canción</option>
+                </select>
+              </div>
+              <div class="col-12 col-md-6" data-adv-exc-artist="{{ adv.id }}">
+                <label class="form-label small mb-0">Artista</label>
+                <select class="form-select form-select-sm select-artists" name="artist_target_id" data-no-loader>
+                  <option value="">Selecciona…</option>
+                  {% for a in adelantos_ctx.artists %}<option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}">{{ a.name }}</option>{% endfor %}
+                </select>
+              </div>
+              <div class="col-12 col-md-6 d-none" data-adv-exc-song="{{ adv.id }}">
+                <label class="form-label small mb-0">Canción</label>
+                <select class="form-select form-select-sm" name="song_target_id">
+                  <option value="">Selecciona…</option>
+                  {% for sng in block.songs %}<option value="{{ sng.id }}">{{ sng.title }}</option>{% endfor %}
+                </select>
+              </div>
+              <div class="col-6 col-md-3">
+                <button class="btn btn-sm btn-primary w-100"><i class="fa fa-check me-1"></i>Añadir</button>
+              </div>
+            </div>
+          </form>
+        </div>
+        {% endif %}
+
+        {# Liquidación artista por artista #}
+        <div class="adv-sec-title">Liquidación de ingresos por artista</div>
+        <div class="adv-kpis">
+          <div class="adv-kpi"><div class="v">{{ v.totals.songs|k }}</div><div class="l">Canciones</div></div>
+          <div class="adv-kpi"><div class="v">{{ v.totals.net|eur }}</div><div class="l">Ingreso neto</div></div>
+          <div class="adv-kpi"><div class="v text-danger">{{ v.totals.amort|eur }}</div><div class="l">Amortiza el adelanto</div></div>
+          <div class="adv-kpi"><div class="v text-success">{{ v.totals.ours|eur }}</div><div class="l">Nuestro</div></div>
+        </div>
+        {% if v.artist_groups %}
+        <div class="accordion accordion-flush border-top mt-1" id="advLiq-{{ adv.id }}">
+          {% for g in v.artist_groups %}
+            <div class="accordion-item">
+              <h2 class="accordion-header">
+                <button class="accordion-button collapsed py-2 adv-artist-head" type="button" data-bs-toggle="collapse" data-bs-target="#advLiq-{{ adv.id }}-{{ loop.index }}">
+                  <span class="d-flex align-items-center gap-2 flex-grow-1 flex-wrap">
+                    {% if g.artist %}{{ artist_chip(g.artist.name, g.artist.photo_url) }}{% else %}<span class="text-muted">Sin artista</span>{% endif %}
+                    <span class="badge text-bg-light border">{{ g.songs|length }} {{ 'canción' if g.songs|length == 1 else 'canciones' }}</span>
+                    <span class="ms-auto small text-muted me-3">Neto {{ g.net|eur }} · <span class="text-danger">Amortiza {{ g.amort|eur }}</span> · <span class="text-success">Nuestro {{ g.ours|eur }}</span></span>
+                  </span>
+                </button>
+              </h2>
+              <div id="advLiq-{{ adv.id }}-{{ loop.index }}" class="accordion-collapse collapse" data-bs-parent="#advLiq-{{ adv.id }}">
+                <div class="accordion-body p-0">
+                  <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                      <thead class="table-light"><tr><th>Canción</th><th class="text-end">Ingreso neto</th><th class="text-end">Amortiza</th><th class="text-end">Nuestro</th></tr></thead>
+                      <tbody>
+                        {% for row in g.songs %}
+                          <tr>
+                            <td>
+                              <a href="{{ url_for('discografica_song_detail', song_id=row.song.id) }}" class="text-decoration-none text-reset">
+                                <img src="{{ row.song.cover_url or DEFAULT_COVER_URL }}" style="width:26px;height:26px;border-radius:6px;object-fit:cover;" class="me-1" alt="">{{ row.song.title }}
+                              </a>
+                            </td>
+                            <td class="text-end">{{ row.net|eur }}</td>
+                            <td class="text-end text-danger">{{ row.amort|eur }}</td>
+                            <td class="text-end text-success">{{ row.ours|eur }}</td>
+                          </tr>
+                        {% endfor %}
+                      </tbody>
+                      <tfoot class="table-light fw-semibold"><tr><td>Total</td><td class="text-end">{{ g.net|eur }}</td><td class="text-end text-danger">{{ g.amort|eur }}</td><td class="text-end text-success">{{ g.ours|eur }}</td></tr></tfoot>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+        {% else %}
+          <div class="px-3 pb-3 text-muted small">Todavía no hay ingresos de canciones cubiertas por este adelanto. Asigna la distribuidora a las canciones (Repertorio, también en bloque) y sube los ingresos en la pestaña Ingresos.</div>
+        {% endif %}
+        <div class="pb-2"></div>
+      </div>
+
+      {# Modal de edición de datos del adelanto #}
+      {% if CAN_EDIT_DISCOGRAFICA %}
+      <div class="modal fade" id="advEdit-{{ adv.id }}" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+          <form method="post" action="{{ url_for('discografica_advance_update', aid=adv.id) }}" enctype="multipart/form-data">
+            <div class="modal-header"><h5 class="modal-title">Editar adelanto</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body">
+              <div class="mb-2"><label class="form-label">Nombre (opcional)</label><input class="form-control" name="label" value="{{ adv.label or '' }}" placeholder="Ej: Adelanto 2026"></div>
+              <div class="row g-2">
+                <div class="col-6"><label class="form-label">Importe</label><div class="input-group"><input class="form-control" name="amount" value="{{ v.amount }}"><span class="input-group-text">€</span></div></div>
+                <div class="col-6"><label class="form-label">Fecha</label><input type="date" class="form-control" name="advance_date" value="{{ adv.advance_date.strftime('%Y-%m-%d') if adv.advance_date else '' }}"></div>
+              </div>
+              <div class="mt-2"><label class="form-label">Contrato (PDF){% if adv.contract_url %} — reemplaza el actual{% endif %}</label><input type="file" class="form-control" name="contract" accept="application/pdf"></div>
+              <div class="mt-2"><label class="form-label">Notas</label><textarea class="form-control" name="notes" rows="2">{{ adv.notes or '' }}</textarea></div>
+            </div>
+            <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary"><i class="fa fa-check me-1"></i>Guardar</button></div>
+          </form>
+        </div></div>
+      </div>
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+{% endfor %}
+
+{# ===================== Wizard «Nuevo adelanto» (paso a paso, visual) ===================== #}
+{% if CAN_EDIT_DISCOGRAFICA and adelantos_ctx.distributors %}
+<div class="modal fade" id="advanceWizardModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post" action="{{ url_for('discografica_advance_create') }}" enctype="multipart/form-data" data-step-wizard>
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-hand-holding-dollar me-2"></i>Nuevo adelanto</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div data-sw-progress></div>
+
+        {# Paso 1 · Distribuidora #}
+        <section class="sw-step" data-step="1" data-title="Distribuidora">
+          <div class="sw-step__q"><i class="fa fa-truck-fast me-2 text-danger"></i>¿De qué distribuidora es el adelanto?</div>
+          <div class="sw-step__h">El adelanto se recuperará con los ingresos del contenido distribuido con ella.</div>
+          <div class="advw-dist-grid">
+            {% for d in adelantos_ctx.distributors %}
+              <label>
+                <input type="radio" class="btn-check" name="distributor_id" value="{{ d.id }}" data-sw-advance required>
+                {% if d.logo_url %}<img src="{{ d.logo_url }}" alt="">{% else %}<span class="ph"><i class="fa fa-truck-fast"></i></span>{% endif %}
+                <span class="fw-semibold small">{{ d.name }}</span>
+              </label>
+            {% endfor %}
+          </div>
+          <div class="small text-muted mt-2">¿Falta una? Créala en <a href="{{ url_for('distributors_view') }}" target="_blank">Bases de datos · Distribuidoras</a> y vuelve a abrir este asistente.</div>
+        </section>
+
+        {# Paso 2 · Importe y contrato #}
+        <section class="sw-step" data-step="2" data-title="Importe">
+          <div class="sw-step__q"><i class="fa fa-sack-dollar me-2 text-danger"></i>¿Cuánto es el adelanto?</div>
+          <div class="sw-step__h">Importe entregado, fecha y contrato adjunto.</div>
+          <div class="row g-3">
+            <div class="col-md-5">
+              <label class="form-label">Importe *</label>
+              <div class="input-group input-group-lg"><input class="form-control" name="amount" required inputmode="decimal" placeholder="50.000"><span class="input-group-text">€</span></div>
+            </div>
+            <div class="col-md-4"><label class="form-label">Fecha del adelanto</label><input type="date" class="form-control" name="advance_date"></div>
+            <div class="col-md-3"><label class="form-label">Nombre (opcional)</label><input class="form-control" name="label" placeholder="Adelanto 2026"></div>
+            <div class="col-12"><label class="form-label"><i class="fa fa-file-contract me-1 text-muted"></i>Contrato (PDF)</label><input type="file" class="form-control" name="contract" accept="application/pdf"></div>
+          </div>
+        </section>
+
+        {# Paso 3 · Condiciones de recuperación #}
+        <section class="sw-step" data-step="3" data-title="Recuperación">
+          <div class="sw-step__q"><i class="fa fa-rotate-left me-2 text-danger"></i>¿Cómo se recupera?</div>
+          <div class="sw-step__h">Qué parte de los ingresos amortiza el adelanto y sobre qué contenido. Después podrás añadir más condiciones y excepciones.</div>
+
+          <label class="form-label mt-1">Porcentaje que amortiza</label>
+          <div class="input-group mb-3" style="max-width:220px;"><input type="number" class="form-control" name="rule_pct" value="100" min="0" max="100" step="0.01"><span class="input-group-text">%</span></div>
+
+          <label class="form-label">Sobre qué importe</label>
+          <div class="sw-choice mb-3">
+            <input type="radio" class="btn-check" name="rule_base" id="advBaseNet" value="NET" checked>
+            <label for="advBaseNet"><i class="fa fa-filter-circle-dollar"></i><span class="sw-choice__t">Sobre el neto</span><span class="sw-choice__s">Ingreso neto de la canción</span></label>
+            <input type="radio" class="btn-check" name="rule_base" id="advBaseGross" value="GROSS">
+            <label for="advBaseGross"><i class="fa fa-sack-dollar"></i><span class="sw-choice__t">Sobre el bruto</span><span class="sw-choice__s">Ingreso bruto de la canción</span></label>
+          </div>
+
+          <label class="form-label">Qué contenido amortiza</label>
+          <div class="sw-choice mb-2">
+            <input type="radio" class="btn-check" name="rule_scope" id="advScopeAll" value="all" checked>
+            <label for="advScopeAll"><i class="fa fa-infinity"></i><span class="sw-choice__t">Todo</span><span class="sw-choice__s">Todo el contenido con esta distribuidora</span></label>
+            <input type="radio" class="btn-check" name="rule_scope" id="advScopeFrom" value="from">
+            <label for="advScopeFrom"><i class="fa fa-calendar-plus"></i><span class="sw-choice__t">A partir de una fecha</span><span class="sw-choice__s">Solo lo publicado desde…</span></label>
+            <input type="radio" class="btn-check" name="rule_scope" id="advScopeUntil" value="until">
+            <label for="advScopeUntil"><i class="fa fa-calendar-minus"></i><span class="sw-choice__t">Hasta una fecha</span><span class="sw-choice__s">Solo lo publicado hasta…</span></label>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-md-4 d-none" data-advw-date="from"><label class="form-label small">Publicado desde</label><input type="date" class="form-control" name="rule_date_from"></div>
+            <div class="col-md-4 d-none" data-advw-date="until"><label class="form-label small">Publicado hasta</label><input type="date" class="form-control" name="rule_date_until"></div>
+          </div>
+
+          <label class="form-label">De qué artistas</label>
+          <div class="sw-choice mb-2">
+            <input type="radio" class="btn-check" name="rule_artists_mode" id="advArtAll" value="all" checked>
+            <label for="advArtAll"><i class="fa fa-users"></i><span class="sw-choice__t">Todos</span><span class="sw-choice__s">Cualquier artista distribuido</span></label>
+            <input type="radio" class="btn-check" name="rule_artists_mode" id="advArtSome" value="some">
+            <label for="advArtSome"><i class="fa fa-user-check"></i><span class="sw-choice__t">Solo algunos</span><span class="sw-choice__s">Elige qué artistas amortizan</span></label>
+          </div>
+          <div class="d-none" data-advw-artists>
+            <select class="form-select select-artists" name="rule_artist_ids[]" multiple data-no-loader>
+              {% for a in adelantos_ctx.artists %}<option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}">{{ a.name }}</option>{% endfor %}
+            </select>
+          </div>
+        </section>
+
+        {# Paso 4 · Resumen #}
+        <section class="sw-step" data-step="4" data-title="Resumen">
+          <div class="sw-step__q"><i class="fa fa-clipboard-check me-2 text-danger"></i>Todo listo</div>
+          <div class="sw-step__h">Revisa el resumen y crea el adelanto. Podrás añadir más condiciones y excepciones desde su tarjeta.</div>
+          <div class="alert alert-light border" data-advw-summary>—</div>
+        </section>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-outline-primary" data-sw-prev><i class="fa fa-arrow-left me-1"></i>Atrás</button>
+        <button type="button" class="btn btn-primary" data-sw-next>Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
+        <button type="submit" class="btn btn-primary" data-sw-submit><i class="fa fa-floppy-disk me-1"></i>Crear adelanto</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<script src="{{ url_for('static', filename='js/step_wizard.js', v=ASSET_V) }}"></script>
+<script>
+(function(){
+  if(window.__advTabInit) return; window.__advTabInit = true;
+
+  // Wizard: fechas condicionales, artistas condicionales y resumen del paso final.
+  var wiz = document.getElementById('advanceWizardModal');
+  if(wiz){
+    function syncScope(){
+      var v = (wiz.querySelector('[name="rule_scope"]:checked')||{}).value || 'all';
+      wiz.querySelectorAll('[data-advw-date]').forEach(function(el){
+        el.classList.toggle('d-none', el.getAttribute('data-advw-date') !== v);
+      });
+    }
+    function syncArtists(){
+      var v = (wiz.querySelector('[name="rule_artists_mode"]:checked')||{}).value || 'all';
+      var box = wiz.querySelector('[data-advw-artists]');
+      if(box) box.classList.toggle('d-none', v !== 'some');
+    }
+    function summary(){
+      var out = [];
+      var dSel = wiz.querySelector('[name="distributor_id"]:checked');
+      if(dSel){ var lbl = dSel.closest('label'); out.push('<b>' + (lbl ? lbl.textContent.trim() : 'Distribuidora') + '</b>'); }
+      var amt = (wiz.querySelector('[name="amount"]')||{}).value;
+      if(amt) out.push('Importe: <b>' + amt + ' €</b>');
+      var dt = (wiz.querySelector('[name="advance_date"]')||{}).value;
+      if(dt) out.push('Fecha: ' + dt.split('-').reverse().join('/'));
+      var pct = (wiz.querySelector('[name="rule_pct"]')||{}).value || '100';
+      var base = (wiz.querySelector('[name="rule_base"]:checked')||{}).value === 'GROSS' ? 'BRUTO' : 'NETO';
+      out.push('Recupera el <b>' + pct + '%</b> sobre <b>' + base + '</b>');
+      var scope = (wiz.querySelector('[name="rule_scope"]:checked')||{}).value;
+      if(scope === 'from'){ var f=(wiz.querySelector('[name="rule_date_from"]')||{}).value; out.push('contenido publicado desde <b>' + (f? f.split('-').reverse().join('/') : '¿?') + '</b>'); }
+      else if(scope === 'until'){ var u=(wiz.querySelector('[name="rule_date_until"]')||{}).value; out.push('contenido publicado hasta <b>' + (u? u.split('-').reverse().join('/') : '¿?') + '</b>'); }
+      else out.push('todo el contenido');
+      var am = (wiz.querySelector('[name="rule_artists_mode"]:checked')||{}).value;
+      if(am === 'some'){
+        var sel = wiz.querySelector('[name="rule_artist_ids[]"]');
+        var names = sel ? [].slice.call(sel.selectedOptions).map(function(o){ return o.textContent; }) : [];
+        out.push('solo de: <b>' + (names.join(', ') || '¿?') + '</b>');
+      }
+      var el = wiz.querySelector('[data-advw-summary]');
+      if(el) el.innerHTML = out.join(' · ');
+    }
+    wiz.addEventListener('change', function(){ syncScope(); syncArtists(); summary(); });
+    wiz.addEventListener('input', summary);
+    wiz.addEventListener('shown.bs.modal', function(){ syncScope(); syncArtists(); summary(); });
+  }
+
+  // Formularios «añadir condición» y «añadir excepción» de cada tarjeta: campos condicionales.
+  document.addEventListener('change', function(e){
+    var sc = e.target.closest('[data-adv-scope]');
+    if(sc){
+      var id = sc.getAttribute('data-adv-scope'), v = sc.value;
+      var df = document.querySelector('[data-adv-scope-date-from="' + id + '"]');
+      var du = document.querySelector('[data-adv-scope-date-until="' + id + '"]');
+      if(df) df.classList.toggle('d-none', v !== 'from');
+      if(du) du.classList.toggle('d-none', v !== 'until');
+    }
+    var am = e.target.closest('[data-adv-artists]');
+    if(am){
+      var box = document.querySelector('[data-adv-artists-sel="' + am.getAttribute('data-adv-artists') + '"]');
+      if(box) box.classList.toggle('d-none', am.value !== 'some');
+    }
+    var ek = e.target.closest('[data-adv-exc-kind]');
+    if(ek){
+      var kid = ek.getAttribute('data-adv-exc-kind');
+      var wa = document.querySelector('[data-adv-exc-artist="' + kid + '"]');
+      var ws = document.querySelector('[data-adv-exc-song="' + kid + '"]');
+      if(wa) wa.classList.toggle('d-none', ek.value !== 'ARTIST');
+      if(ws) ws.classList.toggle('d-none', ek.value !== 'SONG');
+    }
+  });
+})();
+</script>

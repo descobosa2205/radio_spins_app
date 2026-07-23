@@ -1,0 +1,97 @@
+{% extends "layout.html" %}
+{% block content %}
+<style>
+  .dist-card{ border:1px solid #e9ecef; border-radius:16px; padding:1rem; height:100%; display:flex; flex-direction:column; align-items:center; gap:.5rem; text-align:center; transition:box-shadow .15s, border-color .15s; background:#fff; }
+  .dist-card:hover{ border-color:var(--brand-accent,#007CA2); box-shadow:0 .25rem .9rem rgba(0,0,0,.06); }
+  .dist-card__logo{ width:84px; height:84px; border-radius:18px; object-fit:contain; background:#f8f9fa; border:1px solid #eef0f2; }
+  .dist-card__logo--ph{ display:flex; align-items:center; justify-content:center; color:#adb5bd; font-size:1.9rem; }
+  .dist-card__name{ font-weight:600; }
+</style>
+
+<div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
+  <div>
+    <h4 class="mb-1">Bases de datos · Distribuidoras</h4>
+    <div class="text-muted">Distribuidoras digitales. Se asignan a canciones y álbumes (propios o de distribución) y son la contraparte de los adelantos de Discográfica.</div>
+  </div>
+  {% if CAN_EDIT %}
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newDistributorModal"><i class="fa fa-plus me-1"></i>Nueva distribuidora</button>
+  {% endif %}
+</div>
+
+<form method="get" class="mb-3" style="max-width:420px;">
+  <div class="input-group">
+    <span class="input-group-text"><i class="fa fa-magnifying-glass"></i></span>
+    <input type="search" class="form-control" name="q" value="{{ query_text }}" placeholder="Buscar distribuidora…">
+    <button class="btn btn-outline-secondary" type="submit">Buscar</button>
+  </div>
+</form>
+
+{% if distributors %}
+  <div class="row g-3">
+    {% for d in distributors %}
+      <div class="col-6 col-md-4 col-lg-3 col-xl-2">
+        <div class="dist-card position-relative">
+          {% if d.logo_url %}
+            <img src="{{ d.logo_url }}" alt="{{ d.name }}" class="dist-card__logo">
+          {% else %}
+            <span class="dist-card__logo dist-card__logo--ph"><i class="fa fa-truck-fast"></i></span>
+          {% endif %}
+          <div class="dist-card__name">{{ d.name }}</div>
+          <div class="d-flex flex-wrap gap-1 justify-content-center">
+            <span class="badge text-bg-light border">{{ (song_counts.get(d.id|string, 0))|k }} {{ 'canción' if song_counts.get(d.id|string, 0) == 1 else 'canciones' }}</span>
+            {% if adv_counts.get(d.id|string, 0) %}
+              <span class="badge text-bg-light border"><i class="fa fa-hand-holding-dollar me-1"></i>{{ adv_counts.get(d.id|string, 0) }} {{ 'adelanto' if adv_counts.get(d.id|string, 0) == 1 else 'adelantos' }}</span>
+            {% endif %}
+          </div>
+          {% if d.notes %}<div class="small text-muted">{{ d.notes }}</div>{% endif %}
+          {% if CAN_EDIT %}
+            <div class="mt-1 d-flex gap-1">
+              <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editDistributor-{{ d.id }}" title="Editar"><i class="fa fa-pen"></i></button>
+              <form method="post" action="{{ url_for('distributor_delete', did=d.id) }}" onsubmit="return confirm('¿Eliminar la distribuidora «{{ d.name|e }}»? Las canciones que la usan quedarán sin distribuidora.');">
+                <button class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="fa fa-trash"></i></button>
+              </form>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="card"><div class="card-body text-center text-muted py-5">
+    <div class="mb-2"><i class="fa fa-truck-fast fa-2x text-muted"></i></div>
+    <div class="fw-semibold">{% if query_text %}Sin resultados para «{{ query_text }}»{% else %}Aún no hay distribuidoras{% endif %}</div>
+    <div class="small">{% if CAN_EDIT %}Pulsa «Nueva distribuidora» para crear la primera.{% endif %}</div>
+  </div></div>
+{% endif %}
+
+{% if CAN_EDIT %}
+<div class="modal fade" id="newDistributorModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <form method="post" action="{{ url_for('distributor_create') }}" enctype="multipart/form-data">
+      <div class="modal-header"><h5 class="modal-title">Nueva distribuidora</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="mb-2"><label class="form-label">Nombre *</label><input class="form-control" name="name" required placeholder="Ej: Altafonte, The Orchard…"></div>
+        <div class="mb-2"><label class="form-label">Logo</label><input type="file" class="form-control" name="logo" accept="image/*"></div>
+        <div><label class="form-label">Notas (opcional)</label><textarea class="form-control" name="notes" rows="2"></textarea></div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-primary"><i class="fa fa-plus me-1"></i>Crear distribuidora</button></div>
+    </form>
+  </div></div>
+</div>
+{% for d in distributors %}
+<div class="modal fade" id="editDistributor-{{ d.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <form method="post" action="{{ url_for('distributor_update', did=d.id) }}" enctype="multipart/form-data">
+      <div class="modal-header"><h5 class="modal-title">Editar «{{ d.name }}»</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="mb-2"><label class="form-label">Nombre *</label><input class="form-control" name="name" value="{{ d.name }}" required></div>
+        <div class="mb-2"><label class="form-label">Logo {% if d.logo_url %}(reemplaza el actual){% endif %}</label><input type="file" class="form-control" name="logo" accept="image/*"></div>
+        <div><label class="form-label">Notas</label><textarea class="form-control" name="notes" rows="2">{{ d.notes or '' }}</textarea></div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-primary"><i class="fa fa-check me-1"></i>Guardar</button></div>
+    </form>
+  </div></div>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

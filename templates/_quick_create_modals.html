@@ -102,6 +102,20 @@
     </div></div>
   </div>
 
+  <div class="modal fade" id="qcModal-distributor" tabindex="-1" aria-hidden="true" data-qc-type="distributor">
+    <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+      <form class="qc-form" data-qc-endpoint="{{ url_for('api_create_distributor') }}" enctype="multipart/form-data">
+        <div class="modal-header"><h5 class="modal-title">Nueva distribuidora</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="mb-2"><label class="form-label">Nombre *</label><input class="form-control" name="name" required placeholder="Ej: Altafonte, The Orchard…"></div>
+          <div><label class="form-label">Logo</label><input type="file" class="form-control" name="logo" accept="image/*"></div>
+          <div class="qc-feedback mt-2"></div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-primary"><i class="fa fa-plus me-1"></i>Crear y seleccionar</button></div>
+      </form>
+    </div></div>
+  </div>
+
   <div class="modal fade" id="qcModal-event" tabindex="-1" aria-hidden="true" data-qc-type="event">
     <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
       <form class="qc-form" data-qc-endpoint="{{ url_for('api_create_event') }}" enctype="multipart/form-data">

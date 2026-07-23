@@ -437,7 +437,7 @@
         var extras=[];
         row.querySelectorAll('.vtk-extra-row').forEach(function(er){
           var nm=(er.querySelector('.vtk-ex-name').value||'').trim(); if(!nm) return;
-          extras.push({name:nm, amount: parseFloat(er.querySelector('.vtk-ex-amount').value||'0')||0});
+          extras.push({name:nm, amount: (window.MoneyInput ? (MoneyInput.num(er.querySelector('.vtk-ex-amount').value)||0) : (parseFloat(er.querySelector('.vtk-ex-amount').value||'0')||0))});
         });
         rows.push({ zone:zone, name:(row.querySelector('.vtk-name').value||'').trim(), qty:parseInt(row.querySelector('.vtk-qty').value||'0',10)||0, inv:parseInt(row.querySelector('.vtk-inv').value||'0',10)||0, extras:extras });
       });

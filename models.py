@@ -3202,6 +3202,9 @@ class DistributorAdvanceRule(Base):
     date_from = Column(Date)     # contenido publicado A PARTIR de esta fecha (NULL = sin límite)
     date_until = Column(Date)    # contenido publicado HASTA esta fecha (NULL = sin límite)
     artist_ids = Column(JSONB)   # NULL/[] = todos los artistas; lista de uuid = solo esos
+    # CARENCIA: cada canción solo amortiza cuando han pasado N meses desde SU publicación
+    # (p. ej. 12 = las canciones empiezan a recuperar al año de publicarse). NULL = desde ya.
+    min_age_months = Column(Integer)
     sort_order = Column(Integer, nullable=False, server_default=text("0"))
 
 
@@ -3258,6 +3261,7 @@ def ensure_distributors_schema():
         );
         """,
         "CREATE INDEX IF NOT EXISTS idx_dist_adv_rules_advance ON distributor_advance_rules(advance_id);",
+        "ALTER TABLE IF EXISTS distributor_advance_rules ADD COLUMN IF NOT EXISTS min_age_months integer;",
         """
         CREATE TABLE IF NOT EXISTS distributor_advance_exceptions (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

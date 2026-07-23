@@ -10414,13 +10414,28 @@ def _song_income_totals_all(session_db, song_ids):
     return out
 
 
+def _add_months(d, months):
+    """Suma meses a una fecha ajustando el día al último del mes destino si hace falta."""
+    m = d.month - 1 + int(months)
+    y = d.year + m // 12
+    m = m % 12 + 1
+    last = _cal.monthrange(y, m)[1]
+    return date(y, m, min(d.day, last))
+
+
 def _advance_rule_matches(rule, song, song_artist_ids):
-    """¿Cubre esta condición a la canción? (fecha de publicación dentro del rango y, si la
-    condición limita artistas, alguno de los artistas de la canción está en la lista)."""
+    """¿Cubre esta condición a la canción? Fecha de publicación dentro del rango; si limita
+    artistas, alguno de los de la canción está en la lista; y si tiene CARENCIA, solo cuando
+    ya han pasado N meses desde la publicación de la canción (hasta entonces no amortiza)."""
     if rule.date_from and (not song.release_date or song.release_date < rule.date_from):
         return False
     if rule.date_until and (not song.release_date or song.release_date > rule.date_until):
         return False
+    if rule.min_age_months:
+        if not song.release_date:
+            return False
+        if _add_months(song.release_date, int(rule.min_age_months)) > today_local():
+            return False
     scope = [str(x) for x in (rule.artist_ids or [])]
     if scope and not (set(scope) & set(song_artist_ids)):
         return False
@@ -10651,10 +10666,21 @@ def _advance_rule_from_form(advance_id, form, sort_order=0):
     if artists_mode == "some":
         artist_ids = [str(to_uuid(x)) for x in form.getlist("rule_artist_ids[]") if to_uuid(x)]
         artist_ids = artist_ids or None
+    # Carencia: cada canción amortiza solo cuando pasan N meses/años desde SU publicación.
+    min_age_months = None
+    if (form.get("rule_age_mode") or "now").strip().lower() == "age":
+        try:
+            n = int((form.get("rule_age_num") or "0").strip() or "0")
+        except ValueError:
+            n = 0
+        unit = (form.get("rule_age_unit") or "months").strip().lower()
+        if unit in ("years", "anios", "años"):
+            n *= 12
+        min_age_months = n if n > 0 else None
     return DistributorAdvanceRule(
         advance_id=advance_id, pct=pct, base=base,
         date_from=date_from, date_until=date_until,
-        artist_ids=artist_ids, sort_order=sort_order,
+        artist_ids=artist_ids, min_age_months=min_age_months, sort_order=sort_order,
     )
 
 

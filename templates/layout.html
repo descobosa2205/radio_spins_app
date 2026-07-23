@@ -192,6 +192,9 @@
 {% if IS_ADMIN %}{% include '_quick_create_modals.html' %}{% endif %}
 <script src="{{ url_for('static', filename='js/csrf.js') }}"></script>
 <script src="{{ url_for('static', filename='js/scripts.js', v=ASSET_V) }}"></script>
+{# Importes con puntos de miles EN VIVO al teclear (inputs con € o data-money); al enviar
+   viajan canónicos («1234.56»). Cliente: window.MoneyInput.num(v) para leerlos en JS. #}
+<script src="{{ url_for('static', filename='js/money_input.js', v=ASSET_V) }}"></script>
 {% if IS_ADMIN %}<script src="{{ url_for('static', filename='js/push.js') }}" defer></script>{% endif %}
 <script src="{{ url_for('static', filename='js/typeahead.js') }}"></script>
 <script src="{{ url_for('static', filename='js/quick_create.js') }}"></script>

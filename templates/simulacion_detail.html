@@ -1409,6 +1409,12 @@
 
 {% if tab == 'ticketing' and CAN_EDIT %}
 <script>
+// Parser de importes tolerante al formato con puntos de miles (money_input.js formatea los
+// campos con € en vivo): «1.234,56» → 1234.56; «21» → 21; vacío → NaN (como parseFloat).
+function numv(x){
+  if (window.MoneyInput) return window.MoneyInput.num(x);
+  var n = parseFloat(x); return n;
+}
 (function(){
   var form = document.getElementById('ticketingForm');
   if(!form) return;
@@ -1416,7 +1422,7 @@
   try { initial = JSON.parse(document.getElementById('ticketingData').textContent || '[]'); } catch(e){}
 
   // Config fiscal (rueda): SGAE % configurable para la previsualización del neto.
-  function sgaeRate(){ var el=document.getElementById('tkSgae'); return el ? ((parseFloat(el.value||'0')||0)/100) : 0.0765; }
+  function sgaeRate(){ var el=document.getElementById('tkSgae'); return el ? ((numv(el.value||'0')||0)/100) : 0.0765; }
   var cfgToggle=document.getElementById('tkCfgToggle');
   if(cfgToggle) cfgToggle.addEventListener('click', function(){ var p=document.getElementById('tkCfgPanel'); if(p) p.classList.toggle('d-none'); });
 
@@ -1469,7 +1475,7 @@
   form.addEventListener('input', function(e){ if(e.target.matches('.sim-cat-qty,.sim-cat-inv,.sim-cat-price,#tkSgae')) recompute(); });
 
   function collectTax(){
-    function v(id, def){ var el=document.getElementById(id); var n=el?parseFloat(el.value):NaN; return isNaN(n)?def:n; }
+    function v(id, def){ var el=document.getElementById(id); var n=el?numv(el.value):NaN; return isNaN(n)?def:n; }
     return { iva_ticket: v('tkIvaTicket', 10), iva_extra: v('tkIvaExtra', 10), sgae: v('tkSgae', 7.65) };
   }
 
@@ -1482,12 +1488,12 @@
         row.querySelectorAll('.sim-extra-row').forEach(function(er){
           var nm = (er.querySelector('.sim-extra-name').value||'').trim();
           if(!nm) return;
-          extras.push({ name: nm, amount: parseFloat(er.querySelector('.sim-extra-amount').value||'0')||0 });
+          extras.push({ name: nm, amount: numv(er.querySelector('.sim-extra-amount').value||'0')||0 });
         });
         rows.push({
           zone: zone,
           name: (row.querySelector('.sim-cat-name').value||'').trim(),
-          price: parseFloat(row.querySelector('.sim-cat-price').value||'0')||0,
+          price: numv(row.querySelector('.sim-cat-price').value||'0')||0,
           qty: parseInt(row.querySelector('.sim-cat-qty').value||'0',10)||0,
           inv: parseInt(row.querySelector('.sim-cat-inv').value||'0',10)||0,
           extras: extras
@@ -1817,7 +1823,7 @@
     var b=row.querySelector('.pr-iva-badge'); if(!b) return;
     var exempt=row.querySelector('.pr-exempt').checked;
     var inc=row.querySelector('.pr-inciva').checked;
-    var iva=parseFloat(row.querySelector('.pr-iva').value||'21')||0;
+    var iva=numv(row.querySelector('.pr-iva').value||'21')||0;
     b.textContent = exempt ? 'Exento de IVA' : (inc ? ('IVA '+iva+'% incluido') : ('+ IVA '+iva+'%'));
   }
 
@@ -1837,9 +1843,9 @@
     var isVar=!row.querySelector('.prod-var').classList.contains('d-none');
     var q=row.querySelector('.pr-qty');
     var o={ concept:row.querySelector('.pr-concept').value||'',
-            amount_net:parseFloat(row.querySelector('.pr-net').value||'0')||0,
-            quantity:(q?(parseFloat(q.value||'1')||1):1),
-            iva_pct:parseFloat(row.querySelector('.pr-iva').value||'21')||0,
+            amount_net:numv(row.querySelector('.pr-net').value||'0')||0,
+            quantity:(q?(numv(q.value||'1')||1):1),
+            iva_pct:numv(row.querySelector('.pr-iva').value||'21')||0,
             includes_iva:row.querySelector('.pr-inciva').checked,
             iva_exempt:row.querySelector('.pr-exempt').checked,
             is_variable:isVar };
@@ -1940,13 +1946,13 @@
   });
 
   function rowNet(row){
-    var n=parseFloat(row.querySelector('.pr-net').value||'0')||0;
+    var n=numv(row.querySelector('.pr-net').value||'0')||0;
     var q=row.querySelector('.pr-qty');
-    var qty=q ? (parseFloat(q.value||'1')||0) : 1;
+    var qty=q ? (numv(q.value||'1')||0) : 1;
     n = n * qty;
     var exempt=row.querySelector('.pr-exempt').checked;
     var inc=row.querySelector('.pr-inciva').checked;
-    var iva=parseFloat(row.querySelector('.pr-iva').value||'21')||0;
+    var iva=numv(row.querySelector('.pr-iva').value||'21')||0;
     if(!exempt && inc && iva>0) n = n/(1+iva/100);
     return n;
   }
@@ -1974,10 +1980,10 @@
     var cond=c.querySelector('.cv-cond');
     return {
       var_type: c.querySelector('.cv-type') ? (c.querySelector('.cv-type').value || null) : null,
-      var_value: c.querySelector('.cv-value') ? (parseFloat(c.querySelector('.cv-value').value||'0')||0) : 0,
+      var_value: c.querySelector('.cv-value') ? (numv(c.querySelector('.cv-value').value||'0')||0) : 0,
       var_threshold_type: c.querySelector('.cv-tt') ? c.querySelector('.cv-tt').value : null,
-      var_threshold_value: c.querySelector('.cv-tv') ? (parseFloat(c.querySelector('.cv-tv').value||'0')||0) : 0,
-      cond_under_tickets: (cond && cond.value !== '') ? (parseFloat(cond.value)||0) : null
+      var_threshold_value: c.querySelector('.cv-tv') ? (numv(c.querySelector('.cv-tv').value||'0')||0) : 0,
+      cond_under_tickets: (cond && cond.value !== '') ? (numv(cond.value)||0) : null
     };
   }
   function activeMode(c){ var b=c.querySelector('.mode-btn.active'); return b?b.getAttribute('data-mode'):'FIXED'; }
@@ -1989,7 +1995,7 @@
     document.querySelectorAll('#cachesList .cost-card').forEach(function(c){
       var mode=activeMode(c); var row={mode:mode, retention_exempt:exemptChecked(c)};
       if(mode==='VARIABLE'){ Object.assign(row, readVar(c)); }
-      else { row.amount=parseFloat(c.querySelector('.cf-amount').value||'0')||0; row.includes_iva=c.querySelector('.cf-iva').checked; var ret=c.querySelector('.cf-ret'); row.includes_retention=ret?ret.checked:false; }
+      else { row.amount=numv(c.querySelector('.cf-amount').value||'0')||0; row.includes_iva=c.querySelector('.cf-iva').checked; var ret=c.querySelector('.cf-ret'); row.includes_retention=ret?ret.checked:false; }
       row.artist_ids=cardArtistIds(c);
       out.push(row);
     });
@@ -2000,8 +2006,8 @@
     document.querySelectorAll('#commissionsList .cost-card').forEach(function(c){
       var mode=activeMode(c);
       var row={mode:mode, promoter_id:c.getAttribute('data-promoter-id')||'', media_outlet_id:c.getAttribute('data-media-outlet-id')||'', name:c.querySelector('.cc-name').value||'', retention_exempt:exemptChecked(c)};
-      if(mode==='VARIABLE'){ Object.assign(row, readVar(c)); row.exempt_amount=parseFloat(c.querySelector('.cc-exempt-amount').value||'0')||0; }
-      else { row.amount=parseFloat(c.querySelector('.cf-amount').value||'0')||0; row.includes_iva=c.querySelector('.cf-iva').checked; var ret=c.querySelector('.cf-ret'); row.includes_retention=ret?ret.checked:false; }
+      if(mode==='VARIABLE'){ Object.assign(row, readVar(c)); row.exempt_amount=numv(c.querySelector('.cc-exempt-amount').value||'0')||0; }
+      else { row.amount=numv(c.querySelector('.cf-amount').value||'0')||0; row.includes_iva=c.querySelector('.cf-iva').checked; var ret=c.querySelector('.cf-ret'); row.includes_retention=ret?ret.checked:false; }
       row.artist_ids=cardArtistIds(c);
       out.push(row);
     });
@@ -2015,9 +2021,9 @@
         var isVar=!row.querySelector('.prod-var').classList.contains('d-none');
         var q=row.querySelector('.pr-qty');
         var o={ category:key, concept:row.querySelector('.pr-concept').value||'',
-                amount_net:parseFloat(row.querySelector('.pr-net').value||'0')||0,
-                quantity:(q?(parseFloat(q.value||'1')||1):1),
-                iva_pct:parseFloat(row.querySelector('.pr-iva').value||'21')||0,
+                amount_net:numv(row.querySelector('.pr-net').value||'0')||0,
+                quantity:(q?(numv(q.value||'1')||1):1),
+                iva_pct:numv(row.querySelector('.pr-iva').value||'21')||0,
                 includes_iva:row.querySelector('.pr-inciva').checked,
                 iva_exempt:row.querySelector('.pr-exempt').checked,
                 is_variable:isVar };
@@ -2173,7 +2179,7 @@
   function pctTolerance(n){ return Math.max(1.0, (n||0) * 0.5); }
   function updateTotal(ed){
     var sum=0, n=0;
-    ed.querySelectorAll('.pe-pct').forEach(function(i){ sum += parseFloat(i.value||'0')||0; n++; });
+    ed.querySelectorAll('.pe-pct').forEach(function(i){ sum += numv(i.value||'0')||0; n++; });
     sum = Math.round(sum*100)/100;
     var el=ed.querySelector('.pe-total');
     if(el){ el.textContent = sum+'%'; el.className = 'badge fs-6 pe-total ' + (Math.abs(sum-100) <= pctTolerance(n) ? 'text-bg-success' : 'text-bg-warning text-dark'); }
@@ -2258,7 +2264,7 @@
       if(e.submitter && e.submitter.hasAttribute('data-pe-common')) return; // volver a comunes: sin validación de suma
       var rows=ed.querySelectorAll('.sim-partner-row');
       if(rows.length){
-        var sum=0; ed.querySelectorAll('.pe-pct').forEach(function(i){ sum+=parseFloat(i.value||'0')||0; });
+        var sum=0; ed.querySelectorAll('.pe-pct').forEach(function(i){ sum+=numv(i.value||'0')||0; });
         if(Math.abs(Math.round(sum*100)/100 - 100) > pctTolerance(rows.length)){
           e.preventDefault();
           alert('El reparto entre socios debe sumar 100% (ahora suma '+(Math.round(sum*100)/100)+'%).');

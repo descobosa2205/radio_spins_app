@@ -122,6 +122,7 @@
               {{ r.pct|k if r.pct == (r.pct|int) else r.pct }}% sobre {{ 'BRUTO' if (r.base or 'NET')|upper == 'GROSS' else 'NETO' }}
               {%- if r.date_from %} · publicado desde {{ r.date_from.strftime('%d/%m/%Y') }}{% endif -%}
               {%- if r.date_until %} · publicado hasta {{ r.date_until.strftime('%d/%m/%Y') }}{% endif -%}
+              {%- if r.min_age_months %} · amortiza tras {{ (r.min_age_months // 12)|string + ' año(s)' if r.min_age_months % 12 == 0 else r.min_age_months|string + ' mes(es)' }} desde su publicación{% endif -%}
               {%- if r.artist_ids %} · solo:
                 {%- for aid in r.artist_ids %}
                   {%- set ra = adelantos_ctx.artist_by_id.get(aid|string) %} {{ ra.name if ra else '¿?' }}{{ ',' if not loop.last }}
@@ -167,6 +168,24 @@
               <div class="col-6 col-md-2 d-none" data-adv-scope-date-until="{{ adv.id }}">
                 <label class="form-label small mb-0">Hasta</label>
                 <input type="date" class="form-control form-control-sm" name="rule_date_until">
+              </div>
+              <div class="col-6 col-md-3">
+                <label class="form-label small mb-0" title="Cada canción amortiza cuando pasa este tiempo desde SU publicación">Carencia</label>
+                <select class="form-select form-select-sm" name="rule_age_sel" data-adv-age="{{ adv.id }}">
+                  <option value="">Sin carencia</option>
+                  <option value="6:months">Tras 6 meses</option>
+                  <option value="1:years">Tras 1 año</option>
+                  <option value="18:months">Tras 18 meses</option>
+                  <option value="2:years">Tras 2 años</option>
+                  <option value="custom">Otro…</option>
+                </select>
+                <input type="hidden" name="rule_age_mode" value="now">
+                <input type="hidden" name="rule_age_num" value="">
+                <input type="hidden" name="rule_age_unit" value="months">
+              </div>
+              <div class="col-6 col-md-2 d-none" data-adv-age-custom="{{ adv.id }}">
+                <label class="form-label small mb-0">Meses</label>
+                <input type="number" class="form-control form-control-sm" min="1" step="1" data-adv-age-custom-num="{{ adv.id }}">
               </div>
               <div class="col-6 col-md-3">
                 <label class="form-label small mb-0">Artistas</label>
@@ -399,6 +418,28 @@
             <div class="col-md-4 d-none" data-advw-date="until"><label class="form-label small">Publicado hasta</label><input type="date" class="form-control" name="rule_date_until"></div>
           </div>
 
+          <label class="form-label">Desde cuándo amortiza cada canción</label>
+          <div class="sw-choice mb-2">
+            <input type="radio" class="btn-check" name="rule_age_mode" id="advAgeNow" value="now" checked>
+            <label for="advAgeNow"><i class="fa fa-bolt"></i><span class="sw-choice__t">Desde su publicación</span><span class="sw-choice__s">Amortiza desde el primer ingreso</span></label>
+            <input type="radio" class="btn-check" name="rule_age_mode" id="advAgeLater" value="age">
+            <label for="advAgeLater"><i class="fa fa-hourglass-half"></i><span class="sw-choice__t">Tras un tiempo</span><span class="sw-choice__s">P. ej. al año de publicarse</span></label>
+          </div>
+          <div class="row g-2 mb-3 d-none" data-advw-age>
+            <div class="col-6 col-md-3">
+              <label class="form-label small">Cuánto tiempo</label>
+              <input type="number" class="form-control" name="rule_age_num" value="1" min="1" step="1">
+            </div>
+            <div class="col-6 col-md-3">
+              <label class="form-label small">Unidad</label>
+              <select class="form-select" name="rule_age_unit">
+                <option value="years" selected>Años</option>
+                <option value="months">Meses</option>
+              </select>
+            </div>
+            <div class="col-12"><div class="form-text">Cada canción empieza a amortizar cuando pasa ese tiempo desde SU fecha de publicación (se activa sola al cumplirse).</div></div>
+          </div>
+
           <label class="form-label">De qué artistas</label>
           <div class="sw-choice mb-2">
             <input type="radio" class="btn-check" name="rule_artists_mode" id="advArtAll" value="all" checked>
@@ -450,6 +491,11 @@
       var box = wiz.querySelector('[data-advw-artists]');
       if(box) box.classList.toggle('d-none', v !== 'some');
     }
+    function syncAge(){
+      var v = (wiz.querySelector('[name="rule_age_mode"]:checked')||{}).value || 'now';
+      var box = wiz.querySelector('[data-advw-age]');
+      if(box) box.classList.toggle('d-none', v !== 'age');
+    }
     function summary(){
       var out = [];
       var dSel = wiz.querySelector('[name="distributor_id"]:checked');
@@ -465,6 +511,12 @@
       if(scope === 'from'){ var f=(wiz.querySelector('[name="rule_date_from"]')||{}).value; out.push('contenido publicado desde <b>' + (f? f.split('-').reverse().join('/') : '¿?') + '</b>'); }
       else if(scope === 'until'){ var u=(wiz.querySelector('[name="rule_date_until"]')||{}).value; out.push('contenido publicado hasta <b>' + (u? u.split('-').reverse().join('/') : '¿?') + '</b>'); }
       else out.push('todo el contenido');
+      var ag = (wiz.querySelector('[name="rule_age_mode"]:checked')||{}).value;
+      if(ag === 'age'){
+        var n = (wiz.querySelector('[name="rule_age_num"]')||{}).value || '1';
+        var u = (wiz.querySelector('[name="rule_age_unit"]')||{}).value === 'months' ? 'mes(es)' : 'año(s)';
+        out.push('cada canción amortiza <b>tras ' + n + ' ' + u + '</b> desde su publicación');
+      }
       var am = (wiz.querySelector('[name="rule_artists_mode"]:checked')||{}).value;
       if(am === 'some'){
         var sel = wiz.querySelector('[name="rule_artist_ids[]"]');
@@ -474,9 +526,9 @@
       var el = wiz.querySelector('[data-advw-summary]');
       if(el) el.innerHTML = out.join(' · ');
     }
-    wiz.addEventListener('change', function(){ syncScope(); syncArtists(); summary(); });
+    wiz.addEventListener('change', function(){ syncScope(); syncArtists(); syncAge(); summary(); });
     wiz.addEventListener('input', summary);
-    wiz.addEventListener('shown.bs.modal', function(){ syncScope(); syncArtists(); summary(); });
+    wiz.addEventListener('shown.bs.modal', function(){ syncScope(); syncArtists(); syncAge(); summary(); });
   }
 
   // Formularios «añadir condición» y «añadir excepción» de cada tarjeta: campos condicionales.
@@ -493,6 +545,25 @@
     if(am){
       var box = document.querySelector('[data-adv-artists-sel="' + am.getAttribute('data-adv-artists') + '"]');
       if(box) box.classList.toggle('d-none', am.value !== 'some');
+    }
+    var ag = e.target.closest('[data-adv-age]');
+    if(ag){
+      var aid2 = ag.getAttribute('data-adv-age');
+      var wrap2 = ag.closest('form');
+      var custom = document.querySelector('[data-adv-age-custom="' + aid2 + '"]');
+      var mode = wrap2.querySelector('[name="rule_age_mode"]');
+      var num = wrap2.querySelector('[name="rule_age_num"]');
+      var unit = wrap2.querySelector('[name="rule_age_unit"]');
+      if(custom) custom.classList.toggle('d-none', ag.value !== 'custom');
+      if(ag.value === '' ){ mode.value='now'; num.value=''; }
+      else if(ag.value === 'custom'){ mode.value='age'; unit.value='months'; num.value=(document.querySelector('[data-adv-age-custom-num="' + aid2 + '"]')||{}).value || ''; }
+      else { var pp2 = ag.value.split(':'); mode.value='age'; num.value=pp2[0]; unit.value=pp2[1]; }
+    }
+    var agn = e.target.closest('[data-adv-age-custom-num]');
+    if(agn){
+      var wrap3 = agn.closest('form');
+      var num3 = wrap3.querySelector('[name="rule_age_num"]');
+      if(num3){ num3.value = agn.value || ''; wrap3.querySelector('[name="rule_age_mode"]').value = agn.value ? 'age' : 'now'; }
     }
     var ek = e.target.closest('[data-adv-exc-kind]');
     if(ek){

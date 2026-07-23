@@ -43352,13 +43352,54 @@ def fotos_upload(owner_type, owner_id):
         next_order = int(base_order) + 1
 
         created = []
-        errors = []
+        errors = []       # [{name, reason}] — motivo CLARO por archivo (antes se tragaban)
+        duplicates = []   # [{name, prev_date}] — mismo contenido ya subido a esta actividad
+
+        # sha256 de lo YA subido a este owner (dedupe contra BD; fotos antiguas sin hash no cuentan).
+        existing_shas = {
+            sha: dt
+            for sha, dt in session_db.query(Photo.file_sha256, Photo.created_at)
+            .filter(Photo.owner_type == ot, Photo.owner_id == owner.id, Photo.file_sha256.isnot(None))
+            .all()
+            if sha
+        }
+        seen_batch = set()
+
         for fs in files:
             fname = fs.filename or "archivo"
             kind = _photo_kind_for_filename(fname)
             ext = os.path.splitext(fname.lower())[1]
             stored_name = fname
             stored_mime = (getattr(fs, "mimetype", "") or "").strip() or None
+
+            # Hash del contenido ORIGINAL (detección de duplicados) sin cargarlo entero en memoria.
+            file_sha = None
+            try:
+                fs.stream.seek(0)
+                hasher = hashlib.sha256()
+                while True:
+                    chunk = fs.stream.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    hasher.update(chunk)
+                file_sha = hasher.hexdigest()
+                fs.stream.seek(0)
+            except Exception:
+                file_sha = None
+            if file_sha and file_sha in existing_shas:
+                prev = existing_shas.get(file_sha)
+                try:
+                    prev_txt = prev.astimezone(TZ_MADRID).strftime("%d/%m/%Y") if prev else ""
+                except Exception:
+                    prev_txt = prev.strftime("%d/%m/%Y") if prev else ""
+                duplicates.append({"name": fname, "prev_date": prev_txt})
+                continue
+            if file_sha and file_sha in seen_batch:
+                duplicates.append({"name": fname, "prev_date": "hoy, en este mismo lote"})
+                continue
+            if file_sha:
+                seen_batch.add(file_sha)
+
             try:
                 if ext in {".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg"}:
                     # Formatos web estándar: validados por upload_image.
@@ -43390,10 +43431,26 @@ def fotos_upload(owner_type, owner_id):
                     # Vídeos y demás: se almacenan tal cual.
                     file_url = upload_file(fs, "photos", allowed_extensions=(PHOTO_IMAGE_EXTS | PHOTO_VIDEO_EXTS))
                 if not file_url:
-                    errors.append(fname)
+                    errors.append({"name": fname, "reason": "No se pudo guardar el archivo."})
                     continue
-            except Exception:
-                errors.append(fname)
+            except StorageObjectTooLargeError as e:
+                size_mb = None
+                try:
+                    size_mb = round((e.size_bytes or 0) / (1024 * 1024))
+                except Exception:
+                    pass
+                errors.append({
+                    "name": fname,
+                    "reason": "Supera el tamaño máximo del almacenamiento"
+                              + (f" (el archivo ocupa ~{size_mb} MB)" if size_mb else "")
+                              + ". Hay que ampliar el límite de subida en Supabase → Storage.",
+                })
+                continue
+            except ValueError as e:
+                errors.append({"name": fname, "reason": str(e) or "Formato de archivo no permitido."})
+                continue
+            except Exception as e:
+                errors.append({"name": fname, "reason": (str(e) or "Error desconocido al subir.")[:300]})
                 continue
             row = Photo(
                 owner_type=ot,
@@ -43406,6 +43463,7 @@ def fotos_upload(owner_type, owner_id):
                 mime_type=stored_mime,
                 photographer_promoter_id=photographer_id,
                 photographer_unknown=bool(photographer_unknown),
+                file_sha256=file_sha,
                 sort_order=next_order,
                 created_by_user_id=to_uuid(state.get("user_id")),
                 created_by_nick=(state.get("nick") or "").strip() or None,
@@ -43420,6 +43478,7 @@ def fotos_upload(owner_type, owner_id):
             "ok": True,
             "created": [_photo_payload(p, promo_map.get(p.photographer_promoter_id)) for p in created],
             "errors": errors,
+            "duplicates": duplicates,
         })
     except Exception as e:
         session_db.rollback()

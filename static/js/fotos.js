@@ -742,13 +742,44 @@
     xhr.upload.onprogress = function (e) { if (!e.lengthComputable) return; var p = Math.round(e.loaded * 100 / e.total); bar.style.width = p + '%'; pct.textContent = p + '%'; };
     xhr.onload = function () {
       var ok = xhr.status >= 200 && xhr.status < 300; var data = {}; try { data = JSON.parse(xhr.responseText); } catch (e) {}
+      var hint = document.getElementById('fotosUploadHint');
       if (ok && data.ok) {
         var n = (data.created || []).length;
-        label.textContent = n + ' ' + (n === 1 ? 'archivo guardado' : 'archivos guardados'); bar.classList.add('bg-success');
-        refresh().then(function () { setTimeout(function () { var m = bsModal('fotosUploadModal'); if (m) m.hide(); }, 800); });
-      } else { label.textContent = (data && data.error) ? data.error : 'Error al subir.'; bar.classList.add('bg-danger'); document.getElementById('fotosUploadBtn').disabled = false; }
+        var dups = data.duplicates || [];
+        var errs = data.errors || [];
+        var msgs = [];
+        if (n) msgs.push(n + ' ' + (n === 1 ? 'archivo guardado' : 'archivos guardados') + '.');
+        if (dups.length) {
+          // Duplicados: NO se suben porque ya se habían subido antes (con su fecha).
+          msgs.push('No se ' + (dups.length === 1 ? 'ha subido 1 contenido' : ('han subido ' + dups.length + ' contenidos')) +
+            ' porque ya se ' + (dups.length === 1 ? 'había' : 'habían') + ' subido anteriormente: ' +
+            dups.map(function (d) { return d.name + ' (el ' + (d.prev_date || 'sin fecha') + ')'; }).join(' · ') + '.');
+        }
+        if (errs.length) {
+          msgs.push('Con ERROR: ' + errs.map(function (er) {
+            if (typeof er === 'string') return er;
+            return er.name + (er.reason ? ' — ' + er.reason : '');
+          }).join(' · '));
+        }
+        label.textContent = msgs[0] || 'Nada que subir.';
+        if (hint) hint.textContent = msgs.slice(1).join('  ');
+        bar.classList.add(errs.length ? 'bg-danger' : 'bg-success');
+        // Solo se cierra solo si TODO fue bien; con duplicados o errores se queda para leerlos.
+        refresh().then(function () {
+          if (!dups.length && !errs.length) {
+            setTimeout(function () { var m = bsModal('fotosUploadModal'); if (m) m.hide(); }, 800);
+          } else {
+            pending = []; renderFileList();
+            document.getElementById('fotosUploadBtn').disabled = false;
+          }
+        });
+      } else {
+        if (xhr.status === 413) label.textContent = 'El envío es demasiado grande para el servidor (los vídeos muy pesados hay que subirlos de uno en uno o reducirlos).';
+        else label.textContent = (data && data.error) ? data.error : ('Error al subir (HTTP ' + xhr.status + ').');
+        bar.classList.add('bg-danger'); document.getElementById('fotosUploadBtn').disabled = false;
+      }
     };
-    xhr.onerror = function () { label.textContent = 'Error de red.'; document.getElementById('fotosUploadBtn').disabled = false; };
+    xhr.onerror = function () { label.textContent = 'Error de red (¿archivo demasiado grande o conexión cortada?).'; document.getElementById('fotosUploadBtn').disabled = false; };
     xhr.send(fd);
   }
 

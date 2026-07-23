@@ -3760,6 +3760,9 @@ class Photo(Base):
     photographer_unknown = Column(Boolean, nullable=False, server_default=text("false"))
 
     taken_date = Column(Date)  # fecha de la foto (no la de subida)
+    # sha256 del ARCHIVO ORIGINAL subido: detecta duplicados al volver a subir el mismo
+    # contenido (se avisa con la fecha de la subida anterior). NULL en fotos antiguas.
+    file_sha256 = Column(Text)
     sort_order = Column(Integer, nullable=False, server_default=text("0"))
 
     # Descartada: se oculta de la vista por defecto pero no se borra (recuperable con un filtro).
@@ -4029,6 +4032,8 @@ def ensure_fotos_schema():
         );
         """,
         "ALTER TABLE IF EXISTS photos ADD COLUMN IF NOT EXISTS discarded boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE IF EXISTS photos ADD COLUMN IF NOT EXISTS file_sha256 text;",
+        "CREATE INDEX IF NOT EXISTS idx_photos_sha ON photos(owner_type, owner_id, file_sha256);",
         "CREATE INDEX IF NOT EXISTS idx_photos_owner ON photos(owner_type, owner_id, sort_order);",
         "CREATE INDEX IF NOT EXISTS idx_photos_artist ON photos(artist_id);",
         """

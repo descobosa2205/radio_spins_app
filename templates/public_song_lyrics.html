@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Letra · {{ song.title }}</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=ASSET_V) }}">
   <style>
     body{margin:0;background:#f5f7fb;color:#111827;font-family:Arial,Helvetica,sans-serif;}
     .page{max-width:860px;margin:32px auto;padding:0 16px;}

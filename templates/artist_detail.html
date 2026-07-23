@@ -223,7 +223,7 @@
         </div>
       </div>
     </div>
-    <script src="{{ url_for('static', filename='js/artist_fotos.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/artist_fotos.js', v=ASSET_V) }}"></script>
   {% else %}
     <div class="text-muted text-center py-5"><i class="fa fa-images fa-2x mb-2 d-block opacity-50"></i>Este artista todavía no tiene fotos vinculadas.</div>
   {% endif %}

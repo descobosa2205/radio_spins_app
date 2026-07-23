@@ -13,7 +13,7 @@
   {% if not revoked %}<meta http-equiv="refresh" content="300">{% endif %}
   <link href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" rel="stylesheet">
-  <link href="{{ url_for('static', filename='css/styles.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/styles.css', v=ASSET_V) }}" rel="stylesheet">
   <style>
     body{ background:#fafafa; }
     /* El mapa debe ocupar el MAYOR espacio posible: contenedor a todo el ancho de la pantalla. */

@@ -185,26 +185,26 @@
 <script src="{{ url_for('static', filename='vendor/jquery/jquery-3.7.1.min.js') }}"></script>
 <!-- modal_stack.js DEBE ir antes que Bootstrap: registra su listener de captura antes que el
      data-api de modales de Bootstrap, para poder evitar que cierre el modal de debajo. -->
-<script src="{{ url_for('static', filename='js/modal_stack.js') }}"></script>
+<script src="{{ url_for('static', filename='js/modal_stack.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='vendor/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
 <script src="{{ url_for('static', filename='vendor/select2/js/select2.full.min.js') }}"></script>
 <script src="{{ url_for('static', filename='vendor/chartjs/chart.umd.min.js') }}"></script>
 {% if IS_ADMIN %}{% include '_quick_create_modals.html' %}{% endif %}
-<script src="{{ url_for('static', filename='js/csrf.js') }}"></script>
+<script src="{{ url_for('static', filename='js/csrf.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/scripts.js', v=ASSET_V) }}"></script>
 {# Importes con puntos de miles EN VIVO al teclear (inputs con € o data-money); al enviar
    viajan canónicos («1234.56»). Cliente: window.MoneyInput.num(v) para leerlos en JS. #}
 <script src="{{ url_for('static', filename='js/money_input.js', v=ASSET_V) }}"></script>
-{% if IS_ADMIN %}<script src="{{ url_for('static', filename='js/push.js') }}" defer></script>{% endif %}
-<script src="{{ url_for('static', filename='js/typeahead.js') }}"></script>
-<script src="{{ url_for('static', filename='js/quick_create.js') }}"></script>
-<script src="{{ url_for('static', filename='js/entity_links.js') }}"></script>
-<script src="{{ url_for('static', filename='js/ajax_inline.js') }}"></script>
+{% if IS_ADMIN %}<script src="{{ url_for('static', filename='js/push.js', v=ASSET_V) }}" defer></script>{% endif %}
+<script src="{{ url_for('static', filename='js/typeahead.js', v=ASSET_V) }}"></script>
+<script src="{{ url_for('static', filename='js/quick_create.js', v=ASSET_V) }}"></script>
+<script src="{{ url_for('static', filename='js/entity_links.js', v=ASSET_V) }}"></script>
+<script src="{{ url_for('static', filename='js/ajax_inline.js', v=ASSET_V) }}"></script>
 {# Arrastrar y soltar archivos en cualquier input file de la app (global). #}
-<script src="{{ url_for('static', filename='js/file_drop.js') }}"></script>
-<script src="{{ url_for('static', filename='js/ficha_inline.js') }}"></script>
-<script src="{{ url_for('static', filename='js/agenda_calendar.js') }}"></script>
-<script src="{{ url_for('static', filename='js/artist_links.js') }}"></script>
+<script src="{{ url_for('static', filename='js/file_drop.js', v=ASSET_V) }}"></script>
+<script src="{{ url_for('static', filename='js/ficha_inline.js', v=ASSET_V) }}"></script>
+<script src="{{ url_for('static', filename='js/agenda_calendar.js', v=ASSET_V) }}"></script>
+<script src="{{ url_for('static', filename='js/artist_links.js', v=ASSET_V) }}"></script>
 {# Escaneo de documentos (foto/PDF): render, recorte automático + manual y OCR (MRZ TD1/TD3).
    Módulo global window.DocScan; lo usan person_docs.js y doc_intake.js. Debe cargarse ANTES. #}
 <script src="{{ url_for('static', filename='js/doc_scan.js', v=ASSET_V) }}"></script>

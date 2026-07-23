@@ -266,6 +266,6 @@
   </div>
   {% endif %}
   {# Arrastrar y soltar archivos sobre cada campo (página standalone: se incluye a mano). #}
-  <script src="{{ url_for('static', filename='js/file_drop.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/file_drop.js', v=ASSET_V) }}"></script>
 </body>
 </html>

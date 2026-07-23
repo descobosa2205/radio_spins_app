@@ -164,7 +164,7 @@
 </div>
 
 {% include "_quick_create_modals.html" %}
-<script src="{{ url_for('static', filename='js/step_wizard.js') }}"></script>
+<script src="{{ url_for('static', filename='js/step_wizard.js', v=ASSET_V) }}"></script>
 <script>
   document.addEventListener('click', function(ev){
     if(ev.target.closest('[data-cf-new]')){ var m=document.getElementById('cfModal'); if(m && window.bootstrap) bootstrap.Modal.getOrCreateInstance(m).show(); }

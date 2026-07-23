@@ -334,7 +334,7 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>
 {% endif %}
 
-<script src="{{ url_for('static', filename='js/sales_report.js') }}"></script>
+<script src="{{ url_for('static', filename='js/sales_report.js', v=ASSET_V) }}"></script>
 
 {% if et_stamp is defined and et_map %}
 <script>

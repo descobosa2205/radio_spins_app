@@ -1405,7 +1405,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/sim_partners.js') }}"></script>
+<script src="{{ url_for('static', filename='js/sim_partners.js', v=ASSET_V) }}"></script>
 
 {% if tab == 'ticketing' and CAN_EDIT %}
 <script>

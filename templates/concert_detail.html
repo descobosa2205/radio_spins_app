@@ -1220,6 +1220,6 @@ document.addEventListener('DOMContentLoaded', function(){
     initialTags: {{ (concert.tags_clean or concert.hashtags or [])|tojson }}
   };
 </script>
-<script src="{{ url_for('static', filename='js/concert_form.js') }}"></script>
-{% if tab == 'resultado' %}<script src="{{ url_for('static', filename='js/sim_partners.js') }}"></script>{% endif %}
+<script src="{{ url_for('static', filename='js/concert_form.js', v=ASSET_V) }}"></script>
+{% if tab == 'resultado' %}<script src="{{ url_for('static', filename='js/sim_partners.js', v=ASSET_V) }}"></script>{% endif %}
 {% endblock %}

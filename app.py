@@ -237,6 +237,7 @@ from models import (
     DistributorAdvance,
     DistributorAdvanceRule,
     DistributorAdvanceException,
+    DistributorAdvanceCorrection,
     ExpenseTemplate,
     ExpenseTemplateItem,
     RepertoireTemplate,
@@ -10470,10 +10471,17 @@ def _build_distributor_advances_context(session_db):
     advances = (
         session_db.query(DistributorAdvance)
         .options(selectinload(DistributorAdvance.rules),
-                 selectinload(DistributorAdvance.exceptions))
+                 selectinload(DistributorAdvance.exceptions),
+                 selectinload(DistributorAdvance.corrections))
         .order_by(DistributorAdvance.advance_date.asc().nullslast(), DistributorAdvance.created_at.asc())
         .all()
     )
+    # Autores de las correcciones (nick + foto, como en el resto de la app).
+    corr_user_ids = {str(c.created_by_user_id) for adv in advances for c in (adv.corrections or []) if c.created_by_user_id}
+    corr_authors = {}
+    if corr_user_ids:
+        for up in session_db.query(UserProfile).filter(UserProfile.user_id.in_([to_uuid(x) for x in corr_user_ids])).all():
+            corr_authors[str(up.user_id)] = {"nick": up.nick or "", "photo_url": up.photo_url or ""}
     adv_by_dist = {}
     for adv in advances:
         adv_by_dist.setdefault(str(adv.distributor_id), []).append(adv)
@@ -10508,11 +10516,22 @@ def _build_distributor_advances_context(session_db):
         # los meses/semestres/años dentro del acuerdo. Si varios adelantos cubren un apunte,
         # gana el primero con importe pendiente (si todos están recuperados, el primero).
         remaining = {}
+        corr_total_by_adv = {}
         for adv in dist_advs:
             try:
-                remaining[str(adv.id)] = Decimal(str(adv.amount or 0))
+                amt0 = Decimal(str(adv.amount or 0))
             except (InvalidOperation, ValueError):
-                remaining[str(adv.id)] = Decimal("0")
+                amt0 = Decimal("0")
+            corr_total = Decimal("0")
+            for c in (adv.corrections or []):
+                try:
+                    corr_total += Decimal(str(c.amount or 0))
+                except (InvalidOperation, ValueError):
+                    pass
+            corr_total_by_adv[str(adv.id)] = corr_total
+            # Las correcciones manuales entran en la CUENTA GENERAL de amortización:
+            # positivas amortizan más (menos pendiente), negativas lo reducen.
+            remaining[str(adv.id)] = amt0 - corr_total
         rows_by_adv = {str(adv.id): [] for adv in dist_advs}
         unassigned_rows = []
         # Para las canciones SIN ingresos (fila a cero en la vista «Todo»): primer adelanto
@@ -10658,6 +10677,20 @@ def _build_distributor_advances_context(session_db):
                 "amort": sum((g["amort"] for g in artist_groups), Decimal("0")),
                 "ours": sum((g["ours"] for g in artist_groups), Decimal("0")),
             }
+            corrections_view = []
+            for c in sorted((adv.corrections or []), key=lambda x: (x.correction_date or date.min, x.created_at or datetime.min.replace(tzinfo=TZ_MADRID))):
+                try:
+                    c_amt = Decimal(str(c.amount or 0))
+                except (InvalidOperation, ValueError):
+                    c_amt = Decimal("0")
+                corrections_view.append({
+                    "id": str(c.id),
+                    "label": c.label or "Corrección",
+                    "amount": c_amt,
+                    "date": c.correction_date,
+                    "note": (c.note or "").strip(),
+                    "author": corr_authors.get(str(c.created_by_user_id)) if c.created_by_user_id else None,
+                })
             adv_views.append({
                 "adv": adv,
                 "amount": amount,
@@ -10669,6 +10702,8 @@ def _build_distributor_advances_context(session_db):
                 "artist_groups": artist_groups,
                 "totals": totals,
                 "rows": rows_payload,
+                "corrections": corrections_view,
+                "corrections_total": corr_total_by_adv.get(str(adv.id), Decimal("0")),
             })
         blocks.append({
             "distributor": dist,
@@ -10896,6 +10931,68 @@ def discografica_advance_exception_add(aid):
     return redirect(url_for("discografica_view", section="adelantos"))
 
 
+@app.post("/discografica/adelantos/<aid>/correcciones/anadir", endpoint="discografica_advance_correction_add")
+@admin_required
+def discografica_advance_correction_add(aid):
+    """Corrección manual sobre la cuenta de amortización: positiva (amortiza más) o negativa
+    (reduce lo amortizado), con nombre, fecha, nota opcional y autor (usuario actual)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar adelantos.")
+    session_db = db()
+    try:
+        adv = _get_advance_or_redirect(session_db, aid)
+        if not adv:
+            flash("Adelanto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="adelantos"))
+        label = (request.form.get("label") or "").strip()
+        if not label:
+            flash("Ponle un nombre a la corrección.", "warning")
+            return redirect(url_for("discografica_view", section="adelantos"))
+        amount = _parse_money_decimal(request.form.get("amount"))
+        if amount <= 0:
+            flash("El importe de la corrección debe ser mayor que cero (el sentido lo marca el tipo).", "warning")
+            return redirect(url_for("discografica_view", section="adelantos"))
+        direction = (request.form.get("direction") or "AMORTIZA").strip().upper()
+        if direction == "REDUCE":
+            amount = -amount
+        session_db.add(DistributorAdvanceCorrection(
+            advance_id=adv.id,
+            label=label,
+            amount=amount,
+            correction_date=parse_optional_date(request.form.get("correction_date")) or today_local(),
+            note=(request.form.get("note") or "").strip() or None,
+            created_by_user_id=to_uuid(session.get("user_id")),
+        ))
+        session_db.commit()
+        flash("Corrección añadida a la cuenta de amortización.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error añadiendo la corrección: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_view", section="adelantos"))
+
+
+@app.post("/discografica/adelantos/correcciones/<cid>/eliminar", endpoint="discografica_advance_correction_delete")
+@admin_required
+def discografica_advance_correction_delete(cid):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar adelantos.")
+    session_db = db()
+    try:
+        c = session_db.get(DistributorAdvanceCorrection, to_uuid(cid))
+        if c:
+            session_db.delete(c)
+            session_db.commit()
+            flash("Corrección eliminada.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error eliminando la corrección: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_view", section="adelantos"))
+
+
 @app.post("/discografica/adelantos/excepciones/<eid>/eliminar", endpoint="discografica_advance_exception_delete")
 @admin_required
 def discografica_advance_exception_delete(eid):
@@ -10916,16 +11013,42 @@ def discografica_advance_exception_delete(eid):
     return redirect(url_for("discografica_view", section="adelantos"))
 
 
+def _advance_rule_pdf_text(rule, artist_by_id):
+    """Texto corto de una condición de recuperación (para pastillas del PDF)."""
+    try:
+        pct = Decimal(str(rule.pct or 0))
+    except (InvalidOperation, ValueError):
+        pct = Decimal("0")
+    pct_txt = f"{pct:.2f}".rstrip("0").rstrip(".").replace(".", ",")
+    bits = [f"{pct_txt}% sobre {'BRUTO' if (rule.base or 'NET').upper() == 'GROSS' else 'NETO'}"]
+    if rule.date_from:
+        bits.append("publicado desde " + rule.date_from.strftime("%d/%m/%Y"))
+    if rule.date_until:
+        bits.append("publicado hasta " + rule.date_until.strftime("%d/%m/%Y"))
+    if rule.min_age_months:
+        n = int(rule.min_age_months)
+        bits.append(("amortiza tras %d año(s)" % (n // 12)) if n % 12 == 0 else ("amortiza tras %d mes(es)" % n))
+    if rule.artist_ids:
+        names = [getattr(artist_by_id.get(str(a)), "name", None) or "¿?" for a in rule.artist_ids]
+        bits.append("solo " + ", ".join(names))
+    return " · ".join(bits)
+
+
 @app.get("/discografica/adelantos/<aid>/pdf", endpoint="discografica_advance_pdf")
 @admin_required
 def discografica_advance_pdf(aid):
-    """Balance del adelanto en PDF (estado + liquidación artista por artista)."""
+    """Balance del adelanto en PDF con el estilo de casa: logo de PIES arriba a la derecha,
+    título centrado, cabecera de PASTILLAS (distribuidora, importe, firma, condiciones,
+    excepciones), barra de estado de la devolución en color y «galletas» resumen (importe
+    adelantado / recuperado / nuestro), seguido de la liquidación artista por artista."""
     if not REPORTLAB_AVAILABLE:
         abort(503, "Generación de PDF no disponible en el servidor.")
     from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import mm
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfbase.pdfmetrics import stringWidth
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
     session_db = db()
     try:
@@ -10935,13 +11058,17 @@ def discografica_advance_pdf(aid):
         ctx = _build_distributor_advances_context(session_db)
         view = None
         dist = None
+        blk_songs = []
         for block in ctx["blocks"]:
             for v in block["advances"]:
                 if str(v["adv"].id) == str(adv.id):
-                    view, dist = v, block["distributor"]
+                    view, dist, blk_songs = v, block["distributor"], block["songs"]
                     break
+            if view:
+                break
         if not view:
             abort(404)
+        artist_by_id = ctx["artist_by_id"]
 
         def eur_txt(x):
             try:
@@ -10952,54 +11079,344 @@ def discografica_advance_pdf(aid):
             ent = "{:,}".format(int(ent)).replace(",", ".")
             return f"{ent},{dec} €"
 
-        buf = BytesIO()
-        doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=16*mm, bottomMargin=14*mm, leftMargin=14*mm, rightMargin=14*mm)
-        styles = getSampleStyleSheet()
-        h1 = ParagraphStyle("h1x", parent=styles["Heading1"], fontSize=15, spaceAfter=2)
-        sub = ParagraphStyle("subx", parent=styles["Normal"], fontSize=9, textColor=colors.HexColor("#6b7683"))
-        h2 = ParagraphStyle("h2x", parent=styles["Heading2"], fontSize=11, spaceBefore=8, spaceAfter=3)
-        story = []
-        title = f"Balance de adelanto · {dist.name}"
+        # ----- Logo de PIES (empresa del grupo; caída al logo estático) -----
+        logo_reader = None
+        try:
+            logo_url, _ = _royalty_liquidation_brand_assets(session_db)
+            if logo_url and logo_url.lower().startswith("http"):
+                import urllib.request
+                raw = urllib.request.urlopen(logo_url, timeout=6).read()
+                logo_reader = ImageReader(BytesIO(raw))
+        except Exception:
+            logo_reader = None
+        if logo_reader is None:
+            try:
+                logo_reader = ImageReader(os.path.join(app.static_folder, "img", "logo.png"))
+            except Exception:
+                logo_reader = None
+
+        # ----- Cabecera: pastillas (flujo con salto de línea) + barra + galletas -----
+        page_w, page_h = A4
+        margin = 14 * mm
+        usable_w = page_w - 2 * margin
+        BRAND = colors.HexColor("#E33D48")
+        GREY_T = colors.HexColor("#6b7683")
+        state_hex = {"success": "#1e7e34", "warning": "#e0a800", "danger": "#dc3545", "secondary": "#6c757d"}
+        state_col = colors.HexColor(state_hex.get(view["state_class"], "#6c757d"))
+
+        pill_font, pill_sz, pill_h, pill_gap = "Helvetica", 8.2, 15.0, 5.0
+
+        def pill_rows(texts, bold_prefixes=False):
+            """Reparte pastillas en filas que caben en el ancho útil. [(texto, ancho)]"""
+            rows, cur, cur_w = [], [], 0.0
+            for t in texts:
+                w = stringWidth(t, pill_font, pill_sz) + 14
+                w = min(w, usable_w)
+                if cur and cur_w + pill_gap + w > usable_w:
+                    rows.append(cur)
+                    cur, cur_w = [], 0.0
+                cur.append((t, w))
+                cur_w += (pill_gap if len(cur) > 1 else 0) + w
+            if cur:
+                rows.append(cur)
+            return rows
+
+        data_pills = [
+            "Distribuidora: " + (dist.name or "—"),
+            "Importe del adelanto: " + eur_txt(view["amount"]),
+            "Fecha de la firma: " + (adv.advance_date.strftime("%d/%m/%Y") if adv.advance_date else "—"),
+        ]
         if adv.label:
-            title += f" · {adv.label}"
-        story.append(Paragraph(title, h1))
-        meta_bits = [f"Importe: {eur_txt(view['amount'])}"]
-        if adv.advance_date:
-            meta_bits.append("Fecha: " + adv.advance_date.strftime("%d/%m/%Y"))
-        meta_bits.append(f"Estado: {view['state']} ({view['pct']:.0f}% recuperado)")
-        meta_bits.append("Recuperado: " + eur_txt(view["recovered"]))
-        meta_bits.append("Pendiente: " + eur_txt(view["remaining"]))
-        story.append(Paragraph(" · ".join(meta_bits), sub))
-        story.append(Spacer(1, 6))
-        for g in view["artist_groups"]:
-            nm = g["artist"].name if g["artist"] else "Sin artista"
-            story.append(Paragraph(f"{nm} — {len(g['songs'])} canción(es)", h2))
-            data = [["Canción", "Ingreso neto", "Amortiza", "Nuestro"]]
-            for row in g["songs"]:
-                data.append([row["song"].title, eur_txt(row["net"]), eur_txt(row["amort"]), eur_txt(row["ours"])])
-            data.append(["Total " + nm, eur_txt(g["net"]), eur_txt(g["amort"]), eur_txt(g["ours"])])
-            t = Table(data, colWidths=[None, 30*mm, 30*mm, 30*mm], repeatRows=1)
-            t.setStyle(TableStyle([
-                ("FONT", (0, 0), (-1, -1), "Helvetica", 8.5),
-                ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 8.5),
-                ("FONT", (0, -1), (-1, -1), "Helvetica-Bold", 8.5),
+            data_pills.insert(0, "Adelanto: " + adv.label)
+        cond_pills = [_advance_rule_pdf_text(r, artist_by_id) for r in (adv.rules or [])] or ["Sin condiciones configuradas"]
+        exc_pills = []
+        for e in (adv.exceptions or []):
+            if (e.kind or "").upper() == "ARTIST":
+                a = artist_by_id.get(str(e.target_id))
+                exc_pills.append("Artista: " + (a.name if a else "eliminado"))
+            else:
+                sng = next((s for s in blk_songs if str(s.id) == str(e.target_id)), None)
+                exc_pills.append("Canción: " + (sng.title if sng else "eliminada"))
+
+        groups = [
+            ("DATOS DEL ADELANTO", data_pills, colors.HexColor("#f6f8fa"), colors.HexColor("#c9d2dc"), colors.HexColor("#212529")),
+            ("CONDICIONES DE RECUPERACIÓN", cond_pills, colors.HexColor("#fdecee"), BRAND, colors.HexColor("#8d2630")),
+        ]
+        if exc_pills:
+            groups.append(("EXCEPCIONES (NO AMORTIZAN)", exc_pills, colors.HexColor("#fff8e6"), colors.HexColor("#e0a800"), colors.HexColor("#7a5b00")))
+
+        # Altura total de la cabecera (para que el contenido empiece debajo).
+        header_top = page_h - 12 * mm
+        y_cursor = header_top - 40          # logo + título
+        y_cursor -= 26                      # subtítulo + aire
+        group_layouts = []
+        for gtitle, texts, bgc, brc, txc in groups:
+            rows = pill_rows(texts)
+            group_layouts.append((gtitle, rows, bgc, brc, txc))
+            y_cursor -= 14                  # rótulo del grupo (+ aire)
+            y_cursor -= len(rows) * (pill_h + 4)
+            y_cursor -= 4
+        y_cursor -= 26                      # título del PERIODO mostrado (centrado)
+        y_cursor -= 8 + 16                  # barra de estado
+        y_cursor -= 10 + 44                 # galletas
+        y_cursor -= 10                      # holgura antes de la tabla
+        header_h = header_top - y_cursor
+
+        def draw_header(pdf_c, _doc):
+            y = header_top
+            # Logo PIES arriba a la DERECHA
+            if logo_reader:
+                try:
+                    iw, ih = logo_reader.getSize()
+                    box_w, box_h = 110.0, 34.0
+                    sc = min(box_w / iw, box_h / ih)
+                    pdf_c.drawImage(logo_reader, page_w - margin - iw * sc, y - ih * sc,
+                                    width=iw * sc, height=ih * sc, preserveAspectRatio=True, mask="auto")
+                except Exception:
+                    pass
+            y -= 40
+            # Título centrado + subtítulo
+            pdf_c.setFillColor(colors.HexColor("#212529"))
+            pdf_c.setFont("Helvetica-Bold", 18)
+            pdf_c.drawCentredString(page_w / 2, y, "Balance de adelanto")
+            y -= 15
+            pdf_c.setFillColor(GREY_T)
+            pdf_c.setFont("Helvetica", 10)
+            sub_bits = [dist.name or "Distribuidora"]
+            if adv.label:
+                sub_bits.append(adv.label)
+            sub_bits.append("generado el " + datetime.now(TZ_MADRID).strftime("%d/%m/%Y"))
+            pdf_c.drawCentredString(page_w / 2, y, " · ".join(sub_bits))
+            y -= 11
+            # Grupos de pastillas
+            for gtitle, rows, bgc, brc, txc in group_layouts:
+                y -= 10
+                pdf_c.setFillColor(GREY_T)
+                pdf_c.setFont("Helvetica-Bold", 6.6)
+                pdf_c.drawString(margin, y, gtitle)
+                y -= 4
+                for row in rows:
+                    y -= pill_h
+                    x = margin
+                    for txt, w in row:
+                        pdf_c.setFillColor(bgc)
+                        pdf_c.setStrokeColor(brc)
+                        pdf_c.setLineWidth(0.8)
+                        pdf_c.roundRect(x, y, w, pill_h, pill_h / 2, fill=1, stroke=1)
+                        pdf_c.setFillColor(txc)
+                        pdf_c.setFont(pill_font, pill_sz)
+                        pdf_c.drawString(x + 7, y + 4.2, txt)
+                        x += w + pill_gap
+                    y -= 4
+                y -= 4
+            # Título del PERIODO mostrado (Total / mes / semestre / año), centrado
+            y -= 18
+            pdf_c.setFillColor(colors.HexColor("#212529"))
+            pdf_c.setFont("Helvetica-Bold", 12.5)
+            pdf_c.drawCentredString(page_w / 2, y, period_title)
+            y -= 8
+            # Barra de estado de la devolución (en color según el estado)
+            y -= 8
+            bar_h = 16.0
+            y -= bar_h
+            pdf_c.setFillColor(colors.HexColor("#eef1f5"))
+            pdf_c.setStrokeColor(colors.HexColor("#d5dce3"))
+            pdf_c.roundRect(margin, y, usable_w, bar_h, bar_h / 2, fill=1, stroke=1)
+            fill_w = max(0.0, min(1.0, view["pct"] / 100.0)) * usable_w
+            if fill_w > bar_h:
+                pdf_c.setFillColor(state_col)
+                pdf_c.setStrokeColor(state_col)
+                pdf_c.roundRect(margin, y, fill_w, bar_h, bar_h / 2, fill=1, stroke=0)
+            pdf_c.setFont("Helvetica-Bold", 8.2)
+            pct_txt = f"{view['pct']:.0f}% recuperado · {view['state']}"
+            if fill_w > stringWidth(pct_txt, "Helvetica-Bold", 8.2) + 20:
+                pdf_c.setFillColor(colors.white)
+                pdf_c.drawString(margin + 10, y + 4.6, pct_txt)
+            else:
+                pdf_c.setFillColor(colors.HexColor("#212529"))
+                pdf_c.drawString(margin + max(fill_w, 0) + 8, y + 4.6, pct_txt)
+            # Galletas resumen: Importe adelantado · Importe recuperado · Nuestro
+            y -= 10
+            cookie_h = 44.0
+            y -= cookie_h
+            cookies = [
+                ("IMPORTE ADELANTADO", eur_txt(view["amount"]), colors.HexColor("#212529")),
+                ("IMPORTE RECUPERADO", eur_txt(view["recovered"]), state_col),
+                ("NUESTRO", eur_txt(view["totals"]["ours"]), colors.HexColor("#1e7e34")),
+            ]
+            gap = 8.0
+            cw = (usable_w - gap * (len(cookies) - 1)) / len(cookies)
+            x = margin
+            for lab, val, vcol in cookies:
+                pdf_c.setFillColor(colors.HexColor("#f6f8fa"))
+                pdf_c.setStrokeColor(colors.HexColor("#d5dce3"))
+                pdf_c.roundRect(x, y, cw, cookie_h, 8, fill=1, stroke=1)
+                pdf_c.setFillColor(GREY_T)
+                pdf_c.setFont("Helvetica-Bold", 6.8)
+                pdf_c.drawCentredString(x + cw / 2, y + cookie_h - 13, lab)
+                pdf_c.setFillColor(vcol)
+                pdf_c.setFont("Helvetica-Bold", 14)
+                pdf_c.drawCentredString(x + cw / 2, y + 10, val)
+                x += cw + gap
+            # Pie de página
+            pdf_c.setFillColor(GREY_T)
+            pdf_c.setFont("Helvetica", 8)
+            pdf_c.drawRightString(page_w - margin, 10 * mm, "Página 1")
+
+        def draw_later(pdf_c, _doc):
+            if logo_reader:
+                try:
+                    iw, ih = logo_reader.getSize()
+                    sc = min(70.0 / iw, 22.0 / ih)
+                    pdf_c.drawImage(logo_reader, page_w - margin - iw * sc, page_h - 10 * mm - ih * sc,
+                                    width=iw * sc, height=ih * sc, preserveAspectRatio=True, mask="auto")
+                except Exception:
+                    pass
+            pdf_c.setFillColor(GREY_T)
+            pdf_c.setFont("Helvetica", 8)
+            pdf_c.drawRightString(page_w - margin, 10 * mm, f"Página {pdf_c.getPageNumber()}")
+
+        buf = BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=12*mm, bottomMargin=16*mm, leftMargin=margin, rightMargin=margin)
+        styles = getSampleStyleSheet()
+        h2 = ParagraphStyle("h2x", parent=styles["Heading2"], fontSize=11, spaceBefore=8, spaceAfter=3)
+        # ----- Resumen POR ARTISTA (con foto) del periodo elegido en pantalla -----
+        MESES_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio",
+                    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+        gran = (request.args.get("gran") or "all").strip().lower()
+        p_key = (request.args.get("p") or "").strip() or None
+
+        def _bucket(ps):
+            if not ps:
+                return None
+            y, m = ps[:4], int(ps[5:7] or 1)
+            if gran == "year":
+                return y
+            if gran == "sem":
+                return f"{y}-S{1 if m <= 6 else 2}"
+            if gran == "month":
+                return ps[:7]
+            return None
+
+        rows_sel = view["rows"]
+        if gran in ("year", "sem", "month") and p_key:
+            rows_sel = [r for r in rows_sel if r.get("ps") and _bucket(r["ps"]) == p_key]
+            if gran == "month":
+                period_title = f"{MESES_ES[int(p_key[5:7]) - 1]} {p_key[:4]}"
+            elif gran == "sem":
+                period_title = ("1º" if p_key.endswith("S1") else "2º") + " semestre " + p_key[:4]
+            else:
+                period_title = "Año " + p_key
+        else:
+            period_title = "Total · todo el acuerdo"
+
+        by_artist_pdf = {}
+        for r in rows_sel:
+            g = by_artist_pdf.setdefault(r["aid"], {
+                "an": r["an"], "ap": r["ap"], "sids": set(),
+                "net": 0.0, "am": 0.0, "ours": 0.0,
+            })
+            g["sids"].add(r["sid"])
+            g["net"] += r["net"]; g["am"] += r["am"]; g["ours"] += r["ours"]
+        artist_rows = sorted(by_artist_pdf.values(), key=lambda g: (g["an"] or "").lower())
+
+        # Fotos de artistas (remotas, en pequeño; si fallan, celda vacía).
+        def _photo_flowable(url):
+            if not url:
+                return ""
+            try:
+                import urllib.request
+                raw = urllib.request.urlopen(url, timeout=5).read()
+                if PILLOW_AVAILABLE and PILImage is not None:
+                    with PILImage.open(BytesIO(raw)) as img:
+                        img = img.convert("RGB")
+                        resampling = getattr(getattr(PILImage, "Resampling", PILImage), "LANCZOS", getattr(PILImage, "LANCZOS", 1))
+                        img.thumbnail((80, 80), resampling)
+                        out = BytesIO()
+                        img.save(out, format="JPEG", quality=80)
+                        out.seek(0)
+                        raw = out.getvalue()
+                return RLImage(BytesIO(raw), width=14, height=14)
+            except Exception:
+                return ""
+
+        from reportlab.platypus import Image as RLImage
+        name_style = ParagraphStyle("anx", parent=styles["Normal"], fontSize=9, leading=11)
+        data = [["", "Artista", "Canciones", "Neto generado", "Amortizado", "Nuestro"]]
+        for g in artist_rows:
+            data.append([
+                _photo_flowable(g["ap"]),
+                Paragraph((g["an"] or "Sin artista"), name_style),
+                str(len(g["sids"])),
+                eur_txt(g["net"]), eur_txt(g["am"]), eur_txt(g["ours"]),
+            ])
+        tot_songs = len({r["sid"] for r in rows_sel})
+        tot_net = sum(r["net"] for r in rows_sel)
+        tot_am = sum(r["am"] for r in rows_sel)
+        tot_ours = sum(r["ours"] for r in rows_sel)
+        data.append(["", "TOTALES", str(tot_songs), eur_txt(tot_net), eur_txt(tot_am), eur_txt(tot_ours)])
+
+        story = [Spacer(1, header_h)]
+        # Correcciones manuales (cuenta de amortización), antes del desglose por artistas.
+        if view["corrections"]:
+            story.append(Paragraph("Correcciones manuales", h2))
+            note_style = ParagraphStyle("cnx", parent=styles["Normal"], fontSize=8.6, leading=10.5)
+            cdata = [["Corrección", "Fecha", "Autor", "Importe"]]
+            for c in view["corrections"]:
+                lbl = c["label"] + ((" — " + c["note"]) if c["note"] else "")
+                cdata.append([
+                    Paragraph(lbl, note_style),
+                    c["date"].strftime("%d/%m/%Y") if c["date"] else "—",
+                    (c["author"] or {}).get("nick") or "—",
+                    ("−" if c["amount"] < 0 else "+") + eur_txt(-c["amount"] if c["amount"] < 0 else c["amount"]),
+                ])
+            ct_total = view["corrections_total"]
+            cdata.append(["Total correcciones", "", "",
+                          ("−" if ct_total < 0 else "+") + eur_txt(-ct_total if ct_total < 0 else ct_total)])
+            ct = Table(cdata, colWidths=[None, 24*mm, 34*mm, 28*mm], repeatRows=1)
+            ct.setStyle(TableStyle([
+                ("FONT", (0, 0), (-1, -1), "Helvetica", 8.6),
+                ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 8.4),
+                ("FONT", (0, -1), (-1, -1), "Helvetica-Bold", 8.8),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#49515d")),
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f4f8")),
-                ("LINEBELOW", (0, 0), (-1, 0), 0.6, colors.HexColor("#c9d2dc")),
-                ("LINEABOVE", (0, -1), (-1, -1), 0.6, colors.HexColor("#c9d2dc")),
+                ("LINEBELOW", (0, 0), (-1, 0), 0.7, colors.HexColor("#c9d2dc")),
+                ("LINEABOVE", (0, -1), (-1, -1), 0.9, colors.HexColor("#9aa8b5")),
                 ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#fafbfc")]),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
                 ("TOPPADDING", (0, 0), (-1, -1), 3),
             ]))
+            story.append(ct)
+            story.append(Spacer(1, 10))
+        story.append(Paragraph("Desglose por artista", h2))
+        if len(data) <= 2 and not artist_rows:
+            story.append(Paragraph("Sin ingresos en este periodo.", ParagraphStyle(
+                "emptyx", parent=styles["Normal"], fontSize=10, textColor=GREY_T)))
+        else:
+            t = Table(data, colWidths=[8*mm, None, 22*mm, 30*mm, 30*mm, 30*mm], repeatRows=1)
+            t.setStyle(TableStyle([
+                ("FONT", (0, 0), (-1, -1), "Helvetica", 9),
+                ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 8.6),
+                ("FONT", (0, -1), (-1, -1), "Helvetica-Bold", 9.2),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#49515d")),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f4f8")),
+                ("LINEBELOW", (0, 0), (-1, 0), 0.7, colors.HexColor("#c9d2dc")),
+                ("LINEABOVE", (0, -1), (-1, -1), 0.9, colors.HexColor("#9aa8b5")),
+                ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#f6f8fa")),
+                ("ALIGN", (2, 0), (-1, -1), "RIGHT"),
+                ("TEXTCOLOR", (4, 1), (4, -1), colors.HexColor("#b02a37")),
+                ("TEXTCOLOR", (5, 1), (5, -1), colors.HexColor("#1e7e34")),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#fafbfc")]),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("LEFTPADDING", (0, 0), (0, -1), 2),
+                ("RIGHTPADDING", (0, 0), (0, -1), 0),
+            ]))
             story.append(t)
-            story.append(Spacer(1, 4))
-        tt = view["totals"]
-        story.append(Spacer(1, 6))
-        story.append(Paragraph(
-            f"TOTAL · {tt['songs']} canción(es) · Neto {eur_txt(tt['net'])} · Amortiza {eur_txt(tt['amort'])} · Nuestro {eur_txt(tt['ours'])}",
-            ParagraphStyle("totx", parent=styles["Normal"], fontSize=10, spaceBefore=4, textColor=colors.HexColor("#212529")),
-        ))
-        doc.build(story)
+        doc.build(story, onFirstPage=draw_header, onLaterPages=draw_later)
         buf.seek(0)
         fname = f"adelanto_{(dist.name or 'distribuidora').replace(' ', '_').lower()}.pdf"
         return send_file(buf, mimetype="application/pdf", as_attachment=False, download_name=fname)

@@ -83,7 +83,7 @@
           </div>
           <div class="adv-amount">{{ v.amount|eur }}</div>
           <div class="d-flex align-items-center gap-1">
-            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('discografica_advance_pdf', aid=adv.id) }}" target="_blank" title="Balance en PDF (imprimir/exportar)"><i class="fa fa-file-pdf"></i></a>
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('discografica_advance_pdf', aid=adv.id) }}" data-liq-pdf="{{ adv.id }}" data-pdf-base="{{ url_for('discografica_advance_pdf', aid=adv.id) }}" target="_blank" title="Balance en PDF del periodo elegido (imprimir/exportar)"><i class="fa fa-file-pdf"></i></a>
             {% if CAN_EDIT_DISCOGRAFICA %}
             <div class="dropdown">
               <button class="btn btn-sm btn-light border" data-bs-toggle="dropdown" title="Más acciones"><i class="fa fa-ellipsis-vertical"></i></button>
@@ -286,6 +286,63 @@
           <div class="adv-kpi"><div class="v text-danger" data-k="am">{{ v.totals.amort|eur }}</div><div class="l">Amortiza el adelanto</div></div>
           <div class="adv-kpi"><div class="v text-success" data-k="ours">{{ v.totals.ours|eur }}</div><div class="l">Nuestro</div></div>
         </div>
+        {# Correcciones MANUALES sobre la cuenta de amortización (± con autor y nota) #}
+        {% if v.corrections or CAN_EDIT_DISCOGRAFICA %}
+        <div class="adv-sec-title">Correcciones manuales</div>
+        <div class="px-3 pb-1">
+          {% for c in v.corrections %}
+            <div class="d-flex align-items-center gap-2 border rounded p-2 mb-1 flex-wrap">
+              <div class="flex-grow-1">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                  <span class="fw-semibold">{{ c.label }}</span>
+                  {% if c.date %}<span class="text-muted small"><i class="fa fa-calendar me-1"></i>{{ c.date.strftime('%d/%m/%Y') }}</span>{% endif %}
+                  {% if c.note %}<span class="text-muted" title="{{ c.note }}" style="cursor:help;"><i class="fa fa-circle-info"></i></span>{% endif %}
+                </div>
+                {% if c.author %}
+                <div class="d-flex align-items-center gap-1 small text-muted mt-1">
+                  {% if c.author.photo_url %}<img src="{{ c.author.photo_url }}" alt="" style="width:18px;height:18px;border-radius:50%;object-fit:cover;">{% else %}<i class="fa fa-user-circle"></i>{% endif %}
+                  {{ c.author.nick }}
+                </div>
+                {% endif %}
+              </div>
+              <span class="fw-bold {{ 'text-danger' if c.amount < 0 else 'text-success' }}">{{ '−' if c.amount < 0 else '+' }}{{ (-c.amount if c.amount < 0 else c.amount)|eur }}</span>
+              {% if CAN_EDIT_DISCOGRAFICA %}
+              <form method="post" action="{{ url_for('discografica_advance_correction_delete', cid=c.id) }}" onsubmit="return confirm('¿Eliminar esta corrección?');">
+                <button class="btn btn-sm btn-outline-danger" title="Eliminar corrección"><i class="fa fa-trash"></i></button>
+              </form>
+              {% endif %}
+            </div>
+          {% endfor %}
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            {% if v.corrections %}
+              <span class="small text-muted">Total correcciones: <b class="{{ 'text-danger' if v.corrections_total < 0 else 'text-success' }}">{{ '−' if v.corrections_total < 0 else '+' }}{{ (-v.corrections_total if v.corrections_total < 0 else v.corrections_total)|eur }}</b> · aplicadas a la amortización</span>
+            {% endif %}
+            {% if CAN_EDIT_DISCOGRAFICA %}
+              <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#advCorrAdd-{{ adv.id }}"><i class="fa fa-plus me-1"></i>Añadir corrección</button>
+            {% endif %}
+          </div>
+          {% if CAN_EDIT_DISCOGRAFICA %}
+          <div class="collapse mt-2" id="advCorrAdd-{{ adv.id }}">
+            <form method="post" action="{{ url_for('discografica_advance_correction_add', aid=adv.id) }}" class="border rounded p-2 bg-light-subtle">
+              <div class="row g-2 align-items-end">
+                <div class="col-12 col-md-3"><label class="form-label small mb-0">Nombre *</label><input class="form-control form-control-sm" name="label" required placeholder="Ej: Ajuste statement Q1"></div>
+                <div class="col-6 col-md-3"><label class="form-label small mb-0">Tipo</label>
+                  <select class="form-select form-select-sm" name="direction">
+                    <option value="AMORTIZA">Amortiza más (+)</option>
+                    <option value="REDUCE">Reduce lo amortizado (−)</option>
+                  </select>
+                </div>
+                <div class="col-6 col-md-2"><label class="form-label small mb-0">Importe *</label><div class="input-group input-group-sm"><input class="form-control" name="amount" required inputmode="decimal"><span class="input-group-text">€</span></div></div>
+                <div class="col-6 col-md-2"><label class="form-label small mb-0">Fecha</label><input type="date" class="form-control form-control-sm" name="correction_date"></div>
+                <div class="col-12 col-md-8"><label class="form-label small mb-0">Nota (opcional, se verá al pasar el ratón por la <i class="fa fa-circle-info"></i>)</label><input class="form-control form-control-sm" name="note"></div>
+                <div class="col-6 col-md-2"><button class="btn btn-sm btn-primary w-100"><i class="fa fa-check me-1"></i>Añadir</button></div>
+              </div>
+            </form>
+          </div>
+          {% endif %}
+        </div>
+        {% endif %}
+
         <script type="application/json" data-liq-data="{{ adv.id }}">{{ v.rows|tojson }}</script>
         <div class="border-top mt-1" data-liq-body="{{ adv.id }}" data-default-cover="{{ DEFAULT_COVER_URL }}"
              data-empty-msg="Todavía no hay ingresos de canciones cubiertas por este adelanto. Asigna la distribuidora a las canciones (Repertorio, también en bloque) y sube los ingresos en la pestaña Ingresos."></div>
@@ -590,6 +647,12 @@
     }
     function render(){
       var rs = filtered();
+      // El botón PDF exporta el MISMO periodo que se está viendo.
+      var pdfA = document.querySelector('[data-liq-pdf="' + aid + '"]');
+      if(pdfA){
+        var base = pdfA.getAttribute('data-pdf-base');
+        pdfA.href = (state.g==='all' || !state.p) ? base : base + '?gran=' + encodeURIComponent(state.g) + '&p=' + encodeURIComponent(state.p);
+      }
       // KPIs del periodo elegido
       if(kpis){
         var sids={}, net=0, am=0, ours=0;

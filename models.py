@@ -3187,6 +3187,8 @@ class DistributorAdvance(Base):
     rules = relationship("DistributorAdvanceRule", cascade="all, delete-orphan",
                          order_by="DistributorAdvanceRule.sort_order", backref="advance")
     exceptions = relationship("DistributorAdvanceException", cascade="all, delete-orphan", backref="advance")
+    corrections = relationship("DistributorAdvanceCorrection", cascade="all, delete-orphan",
+                               order_by="DistributorAdvanceCorrection.correction_date", backref="advance")
 
 
 class DistributorAdvanceRule(Base):
@@ -3215,6 +3217,21 @@ class DistributorAdvanceException(Base):
     advance_id = Column(PGUUID(as_uuid=True), ForeignKey("distributor_advances.id", ondelete="CASCADE"), nullable=False, index=True)
     kind = Column(Text, nullable=False)        # ARTIST | SONG
     target_id = Column(PGUUID(as_uuid=True), nullable=False)
+
+
+class DistributorAdvanceCorrection(Base):
+    """Corrección MANUAL sobre la cuenta general de amortización de un adelanto: importe con
+    signo (positivo = amortiza más; negativo = reduce lo amortizado), con nombre, fecha, nota
+    opcional y quién la hizo (usuario, se muestra con su foto)."""
+    __tablename__ = "distributor_advance_corrections"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    advance_id = Column(PGUUID(as_uuid=True), ForeignKey("distributor_advances.id", ondelete="CASCADE"), nullable=False, index=True)
+    label = Column(Text, nullable=False)
+    amount = Column(Numeric(14, 2), nullable=False, server_default=text("0"))
+    correction_date = Column(Date)
+    note = Column(Text)
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 def ensure_distributors_schema():
@@ -3271,6 +3288,19 @@ def ensure_distributors_schema():
         );
         """,
         "CREATE INDEX IF NOT EXISTS idx_dist_adv_exc_advance ON distributor_advance_exceptions(advance_id);",
+        """
+        CREATE TABLE IF NOT EXISTS distributor_advance_corrections (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            advance_id uuid NOT NULL REFERENCES distributor_advances(id) ON DELETE CASCADE,
+            label text NOT NULL,
+            amount numeric(14,2) NOT NULL DEFAULT 0,
+            correction_date date,
+            note text,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_dist_adv_corr_advance ON distributor_advance_corrections(advance_id);",
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS distributor_id uuid REFERENCES distributors(id) ON DELETE SET NULL;",
         "CREATE INDEX IF NOT EXISTS idx_songs_distributor ON songs(distributor_id);",
         "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS distributor_id uuid REFERENCES distributors(id) ON DELETE SET NULL;",

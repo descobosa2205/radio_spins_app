@@ -267,57 +267,27 @@
         </div>
         {% endif %}
 
-        {# Liquidación artista por artista #}
+        {# Liquidación artista por artista, con vista por periodo (Todo / Año / Semestre / Mes) #}
         <div class="adv-sec-title">Liquidación de ingresos por artista</div>
-        <div class="adv-kpis">
-          <div class="adv-kpi"><div class="v">{{ v.totals.songs|k }}</div><div class="l">Canciones</div></div>
-          <div class="adv-kpi"><div class="v">{{ v.totals.net|eur }}</div><div class="l">Ingreso neto</div></div>
-          <div class="adv-kpi"><div class="v text-danger">{{ v.totals.amort|eur }}</div><div class="l">Amortiza el adelanto</div></div>
-          <div class="adv-kpi"><div class="v text-success">{{ v.totals.ours|eur }}</div><div class="l">Nuestro</div></div>
+        <div class="d-flex align-items-center gap-2 flex-wrap px-3 pt-1">
+          <div class="btn-group btn-group-sm" role="group" data-liq-gran="{{ adv.id }}">
+            <button type="button" class="btn btn-outline-secondary active" data-g="all"><i class="fa fa-infinity me-1"></i>Todo</button>
+            <button type="button" class="btn btn-outline-secondary" data-g="year">Año</button>
+            <button type="button" class="btn btn-outline-secondary" data-g="sem">Semestre</button>
+            <button type="button" class="btn btn-outline-secondary" data-g="month">Mes</button>
+          </div>
+          <select class="form-select form-select-sm d-none" style="max-width:230px;" data-liq-period="{{ adv.id }}" data-no-loader></select>
+          <span class="small text-muted d-none" data-liq-note="{{ adv.id }}"><i class="fa fa-circle-info me-1"></i>Los apuntes semestrales cuentan en su mes de inicio.</span>
         </div>
-        {% if v.artist_groups %}
-        <div class="accordion accordion-flush border-top mt-1" id="advLiq-{{ adv.id }}">
-          {% for g in v.artist_groups %}
-            <div class="accordion-item">
-              <h2 class="accordion-header">
-                <button class="accordion-button collapsed py-2 adv-artist-head" type="button" data-bs-toggle="collapse" data-bs-target="#advLiq-{{ adv.id }}-{{ loop.index }}">
-                  <span class="d-flex align-items-center gap-2 flex-grow-1 flex-wrap">
-                    {% if g.artist %}{{ artist_chip(g.artist.name, g.artist.photo_url) }}{% else %}<span class="text-muted">Sin artista</span>{% endif %}
-                    <span class="badge text-bg-light border">{{ g.songs|length }} {{ 'canción' if g.songs|length == 1 else 'canciones' }}</span>
-                    <span class="ms-auto small text-muted me-3">Neto {{ g.net|eur }} · <span class="text-danger">Amortiza {{ g.amort|eur }}</span> · <span class="text-success">Nuestro {{ g.ours|eur }}</span></span>
-                  </span>
-                </button>
-              </h2>
-              <div id="advLiq-{{ adv.id }}-{{ loop.index }}" class="accordion-collapse collapse" data-bs-parent="#advLiq-{{ adv.id }}">
-                <div class="accordion-body p-0">
-                  <div class="table-responsive">
-                    <table class="table table-sm align-middle mb-0">
-                      <thead class="table-light"><tr><th>Canción</th><th class="text-end">Ingreso neto</th><th class="text-end">Amortiza</th><th class="text-end">Nuestro</th></tr></thead>
-                      <tbody>
-                        {% for row in g.songs %}
-                          <tr>
-                            <td>
-                              <a href="{{ url_for('discografica_song_detail', song_id=row.song.id) }}" class="text-decoration-none text-reset">
-                                <img src="{{ row.song.cover_url or DEFAULT_COVER_URL }}" style="width:26px;height:26px;border-radius:6px;object-fit:cover;" class="me-1" alt="">{{ row.song.title }}
-                              </a>
-                            </td>
-                            <td class="text-end">{{ row.net|eur }}</td>
-                            <td class="text-end text-danger">{{ row.amort|eur }}</td>
-                            <td class="text-end text-success">{{ row.ours|eur }}</td>
-                          </tr>
-                        {% endfor %}
-                      </tbody>
-                      <tfoot class="table-light fw-semibold"><tr><td>Total</td><td class="text-end">{{ g.net|eur }}</td><td class="text-end text-danger">{{ g.amort|eur }}</td><td class="text-end text-success">{{ g.ours|eur }}</td></tr></tfoot>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            </div>
-          {% endfor %}
+        <div class="adv-kpis" data-liq-kpis="{{ adv.id }}">
+          <div class="adv-kpi"><div class="v" data-k="songs">{{ v.totals.songs|k }}</div><div class="l">Canciones</div></div>
+          <div class="adv-kpi"><div class="v" data-k="net">{{ v.totals.net|eur }}</div><div class="l">Ingreso neto</div></div>
+          <div class="adv-kpi"><div class="v text-danger" data-k="am">{{ v.totals.amort|eur }}</div><div class="l">Amortiza el adelanto</div></div>
+          <div class="adv-kpi"><div class="v text-success" data-k="ours">{{ v.totals.ours|eur }}</div><div class="l">Nuestro</div></div>
         </div>
-        {% else %}
-          <div class="px-3 pb-3 text-muted small">Todavía no hay ingresos de canciones cubiertas por este adelanto. Asigna la distribuidora a las canciones (Repertorio, también en bloque) y sube los ingresos en la pestaña Ingresos.</div>
-        {% endif %}
+        <script type="application/json" data-liq-data="{{ adv.id }}">{{ v.rows|tojson }}</script>
+        <div class="border-top mt-1" data-liq-body="{{ adv.id }}" data-default-cover="{{ DEFAULT_COVER_URL }}"
+             data-empty-msg="Todavía no hay ingresos de canciones cubiertas por este adelanto. Asigna la distribuidora a las canciones (Repertorio, también en bloque) y sube los ingresos en la pestaña Ingresos."></div>
         <div class="pb-2"></div>
       </div>
 
@@ -573,6 +543,127 @@
       if(wa) wa.classList.toggle('d-none', ek.value !== 'ARTIST');
       if(ws) ws.classList.toggle('d-none', ek.value !== 'SONG');
     }
+  });
+
+  // ===== Liquidación por periodo (Todo / Año / Semestre / Mes), agregada en el navegador =====
+  var MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  function esc(s){ var d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
+  function eurF(n){ return (Number(n)||0).toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' €'; }
+  function kF(n){ return (Number(n)||0).toLocaleString('es-ES'); }
+  function bucketOf(ps, g){
+    if(!ps) return null;
+    var y=ps.slice(0,4), m=parseInt(ps.slice(5,7),10)||1;
+    if(g==='year') return y;
+    if(g==='sem') return y + '-S' + (m<=6?'1':'2');
+    return ps.slice(0,7);
+  }
+  function labelOf(key, g){
+    if(g==='year') return key;
+    if(g==='sem') return (key.slice(5)==='S1'?'1º':'2º') + ' semestre ' + key.slice(0,4);
+    var m=parseInt(key.slice(5,7),10)||1;
+    return MESES[m-1] + ' ' + key.slice(0,4);
+  }
+  document.querySelectorAll('[data-liq-data]').forEach(function(dataEl){
+    var aid = dataEl.getAttribute('data-liq-data');
+    var rows = [];
+    try{ rows = JSON.parse(dataEl.textContent || '[]'); }catch(_){}
+    var body = document.querySelector('[data-liq-body="' + aid + '"]');
+    var granWrap = document.querySelector('[data-liq-gran="' + aid + '"]');
+    var perSel = document.querySelector('[data-liq-period="' + aid + '"]');
+    var note = document.querySelector('[data-liq-note="' + aid + '"]');
+    var kpis = document.querySelector('[data-liq-kpis="' + aid + '"]');
+    if(!body || !granWrap) return;
+    var state = { g:'all', p:null };
+    var haySemestrales = rows.some(function(r){ return r.pt === 'SEMESTER'; });
+
+    function periodKeys(g){
+      var seen={}, out=[];
+      rows.forEach(function(r){ var k=bucketOf(r.ps, g); if(k && !seen[k]){ seen[k]=1; out.push(k); } });
+      out.sort(); out.reverse();
+      return out;
+    }
+    function filtered(){
+      if(state.g==='all') return rows;
+      return rows.filter(function(r){ return r.ps && bucketOf(r.ps, state.g)===state.p; });
+    }
+    function render(){
+      var rs = filtered();
+      // KPIs del periodo elegido
+      if(kpis){
+        var sids={}, net=0, am=0, ours=0;
+        rs.forEach(function(r){ sids[r.sid]=1; net+=r.net; am+=r.am; ours+=r.ours; });
+        var set=function(k,v){ var el=kpis.querySelector('[data-k="'+k+'"]'); if(el) el.textContent=v; };
+        set('songs', kF(Object.keys(sids).length)); set('net', eurF(net)); set('am', eurF(am)); set('ours', eurF(ours));
+      }
+      if(!rs.length){
+        body.innerHTML = '<div class="px-3 py-3 text-muted small">' +
+          (state.g==='all' ? esc(body.getAttribute('data-empty-msg')||'Sin datos.') : 'Sin ingresos en este periodo.') + '</div>';
+        return;
+      }
+      // Agrupar artista → canción (sumando los apuntes del periodo elegido)
+      var byA={};
+      rs.forEach(function(r){
+        var a = byA[r.aid] = byA[r.aid] || {an:r.an, ap:r.ap, net:0, am:0, ours:0, songs:{}};
+        a.net+=r.net; a.am+=r.am; a.ours+=r.ours;
+        var s = a.songs[r.sid] = a.songs[r.sid] || {st:r.st, su:r.su, cv:r.cv, net:0, am:0, ours:0};
+        s.net+=r.net; s.am+=r.am; s.ours+=r.ours;
+      });
+      var arts = Object.keys(byA).map(function(k){ return byA[k]; });
+      arts.sort(function(x,y){ return (x.an||'').localeCompare(y.an||'', 'es'); });
+      var defCover = body.getAttribute('data-default-cover') || '';
+      var accId = 'advLiqJs-' + aid;
+      var html = ['<div class="accordion accordion-flush" id="' + accId + '">'];
+      arts.forEach(function(a, i){
+        var songs = Object.keys(a.songs).map(function(k){ return a.songs[k]; });
+        songs.sort(function(x,y){ return (x.st||'').localeCompare(y.st||'', 'es'); });
+        var cid = accId + '-' + i;
+        html.push('<div class="accordion-item"><h2 class="accordion-header">' +
+          '<button class="accordion-button collapsed py-2 adv-artist-head" type="button" data-bs-toggle="collapse" data-bs-target="#' + cid + '">' +
+          '<span class="d-flex align-items-center gap-2 flex-grow-1 flex-wrap">' +
+          (a.ap ? '<img src="' + esc(a.ap) + '" class="artist-avatar" style="width:26px;height:26px;" alt="">' : '') +
+          '<span class="fw-semibold">' + esc(a.an) + '</span>' +
+          '<span class="badge text-bg-light border">' + songs.length + (songs.length===1?' canción':' canciones') + '</span>' +
+          '<span class="ms-auto small text-muted me-3">Neto ' + eurF(a.net) + ' · <span class="text-danger">Amortiza ' + eurF(a.am) + '</span> · <span class="text-success">Nuestro ' + eurF(a.ours) + '</span></span>' +
+          '</span></button></h2>' +
+          '<div id="' + cid + '" class="accordion-collapse collapse" data-bs-parent="#' + accId + '"><div class="accordion-body p-0"><div class="table-responsive">' +
+          '<table class="table table-sm align-middle mb-0"><thead class="table-light"><tr><th>Canción</th><th class="text-end">Ingreso neto</th><th class="text-end">Amortiza</th><th class="text-end">Nuestro</th></tr></thead><tbody>');
+        songs.forEach(function(s){
+          html.push('<tr><td><a href="' + esc(s.su) + '" class="text-decoration-none text-reset">' +
+            '<img src="' + esc(s.cv || defCover) + '" style="width:26px;height:26px;border-radius:6px;object-fit:cover;" class="me-1" alt="">' + esc(s.st) + '</a></td>' +
+            '<td class="text-end">' + eurF(s.net) + '</td>' +
+            '<td class="text-end text-danger">' + eurF(s.am) + '</td>' +
+            '<td class="text-end text-success">' + eurF(s.ours) + '</td></tr>');
+        });
+        html.push('</tbody><tfoot class="table-light fw-semibold"><tr><td>Total</td><td class="text-end">' + eurF(a.net) +
+          '</td><td class="text-end text-danger">' + eurF(a.am) + '</td><td class="text-end text-success">' + eurF(a.ours) + '</td></tr></tfoot></table></div></div></div></div>');
+      });
+      html.push('</div>');
+      body.innerHTML = html.join('');
+    }
+    function syncPeriodUI(){
+      if(state.g==='all'){
+        if(perSel){ perSel.classList.add('d-none'); }
+        if(note) note.classList.add('d-none');
+        return;
+      }
+      var keys = periodKeys(state.g);
+      if(perSel){
+        perSel.innerHTML = keys.map(function(k){ return '<option value="' + esc(k) + '">' + esc(labelOf(k, state.g)) + '</option>'; }).join('') || '<option value="">Sin periodos</option>';
+        state.p = keys[0] || null;
+        perSel.value = state.p || '';
+        perSel.classList.remove('d-none');
+      }
+      if(note) note.classList.toggle('d-none', !(state.g==='month' && haySemestrales));
+    }
+    granWrap.addEventListener('click', function(e){
+      var b = e.target.closest('[data-g]'); if(!b) return;
+      granWrap.querySelectorAll('[data-g]').forEach(function(x){ x.classList.toggle('active', x===b); });
+      state.g = b.getAttribute('data-g');
+      syncPeriodUI();
+      render();
+    });
+    if(perSel) perSel.addEventListener('change', function(){ state.p = perSel.value || null; render(); });
+    render();   // vista inicial: Todo
   });
 })();
 </script>

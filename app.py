@@ -10380,10 +10380,11 @@ def discografica_songs_bulk_update():
 # artistas}) y sus excepciones (artistas o canciones que no amortizan). Todo lo que no va a
 # amortización es nuestro. Nada se guarda calculado: se recalcula con los ingresos actuales.
 
-def _song_income_totals_all(session_db, song_ids):
-    """{song_id(str): {'gross': Decimal, 'net': Decimal}} con TODO el histórico de ingresos.
-    Igual que en royalties, la fila de SEMESTRE prevalece sobre los meses que cubre (si una
-    canción tiene apunte semestral, sus meses dentro del rango no se suman)."""
+def _song_income_periods(session_db, song_ids):
+    """Apuntes de ingresos POR PERIODO y canción, deduplicados como en royalties (la fila de
+    SEMESTRE prevalece sobre los meses que cubre): {song_id(str): [{'start','end','ptype',
+    'gross','net'}]} ordenados por fecha. Alimenta la liquidación de adelantos por
+    mes/semestre/año además del total."""
     out = {}
     if not song_ids:
         return out
@@ -10403,14 +10404,17 @@ def _song_income_totals_all(session_db, song_ids):
             return Decimal("0")
     for r in rows:
         sid = str(r.song_id)
-        ptype = (r.period_type or "").upper()
+        ptype = (r.period_type or "").upper() or "MONTH"
         if ptype == "MONTH":
             covered = any(a <= (r.period_start or date.min) <= b for a, b in sem_ranges.get(sid, []))
             if covered:
                 continue
-        agg = out.setdefault(sid, {"gross": Decimal("0"), "net": Decimal("0")})
-        agg["gross"] += _dec(r.gross)
-        agg["net"] += _dec(r.net)
+        out.setdefault(sid, []).append({
+            "start": r.period_start, "end": r.period_end, "ptype": ptype,
+            "gross": _dec(r.gross), "net": _dec(r.net),
+        })
+    for sid in out:
+        out[sid].sort(key=lambda e: (e["start"] or date.min))
     return out
 
 
@@ -10494,10 +10498,12 @@ def _build_distributor_advances_context(session_db):
         artists_of_song = {}
         for sid, aid in sa_rows:
             artists_of_song.setdefault(str(sid), []).append(str(aid))
-        income = _song_income_totals_all(session_db, song_ids)
+        income_periods = _song_income_periods(session_db, song_ids)
 
-        # Asignación secuencial: cada canción amortiza en el primer adelanto ACTIVO que la
-        # cubre y aún tiene importe pendiente (orden de fecha del adelanto).
+        # Cada canción se asigna al PRIMER adelanto ACTIVO cuyas condiciones la cubren; sus
+        # apuntes amortizan en orden CRONOLÓGICO (lo cobrado antes recupera antes), hasta
+        # agotar el importe del adelanto. Así la liquidación se puede ver también por
+        # mes / semestre / año y las sumas siempre cuadran con el total.
         remaining = {}
         for adv in dist_advs:
             try:
@@ -10506,27 +10512,37 @@ def _build_distributor_advances_context(session_db):
                 remaining[str(adv.id)] = Decimal("0")
         rows_by_adv = {str(adv.id): [] for adv in dist_advs}
         unassigned_rows = []
+        assign_map = {}
         for sng in songs:
             sid = str(sng.id)
-            inc = income.get(sid, {"gross": Decimal("0"), "net": Decimal("0")})
             aids = artists_of_song.get(sid, [])
-            row = {
-                "song": sng,
-                "artist_ids": aids,
-                "gross": inc["gross"],
-                "net": inc["net"],
-                "amort": Decimal("0"),
-                "ours": inc["net"],
-                "rule": None,
-            }
-            placed = False
+            chosen = None
             for adv in dist_advs:
                 if (adv.status or "ACTIVO").upper() != "ACTIVO":
                     continue
                 rule = _advance_matching_rule(adv, sng, aids)
-                if not rule:
-                    continue
-                base_amt = inc["gross"] if (rule.base or "NET").upper() == "GROSS" else inc["net"]
+                if rule:
+                    chosen = (adv, rule)
+                    break
+            assign_map[sid] = chosen
+        events = []
+        for sng in songs:
+            for e in income_periods.get(str(sng.id), []):
+                events.append((e["start"] or date.min, (sng.title or "").lower(), sng, e))
+        events.sort(key=lambda t: (t[0], t[1]))
+        for _st, _tt, sng, e in events:
+            sid = str(sng.id)
+            aids = artists_of_song.get(sid, [])
+            row = {
+                "song": sng, "artist_ids": aids,
+                "start": e["start"], "end": e["end"], "ptype": e["ptype"],
+                "gross": e["gross"], "net": e["net"],
+                "amort": Decimal("0"), "ours": e["net"],
+            }
+            chosen = assign_map.get(sid)
+            if chosen:
+                adv, rule = chosen
+                base_amt = e["gross"] if (rule.base or "NET").upper() == "GROSS" else e["net"]
                 try:
                     pct = Decimal(str(rule.pct or 0))
                 except (InvalidOperation, ValueError):
@@ -10535,12 +10551,25 @@ def _build_distributor_advances_context(session_db):
                 take = min(amort_full, max(Decimal("0"), remaining[str(adv.id)]))
                 remaining[str(adv.id)] -= take
                 row["amort"] = take
-                row["ours"] = inc["net"] - take
-                row["rule"] = rule
+                row["ours"] = e["net"] - take
                 rows_by_adv[str(adv.id)].append(row)
-                placed = True
-                break
-            if not placed:
+            else:
+                unassigned_rows.append(row)
+        # Canciones sin ingresos todavía: fila a cero para que se vean en la vista «Todo».
+        for sng in songs:
+            sid = str(sng.id)
+            if income_periods.get(sid):
+                continue
+            row = {
+                "song": sng, "artist_ids": artists_of_song.get(sid, []),
+                "start": None, "end": None, "ptype": None,
+                "gross": Decimal("0"), "net": Decimal("0"),
+                "amort": Decimal("0"), "ours": Decimal("0"),
+            }
+            chosen = assign_map.get(sid)
+            if chosen:
+                rows_by_adv[str(chosen[0].id)].append(row)
+            else:
                 unassigned_rows.append(row)
 
         adv_views = []
@@ -10560,23 +10589,47 @@ def _build_distributor_advances_context(session_db):
                 state, state_class = "AMORTIZANDO", "warning"
             else:
                 state, state_class = "PENDIENTE", "danger"
-            # Agrupar la liquidación por artista (una canción con varios artistas cuenta en el primero).
+            # Agrupar por artista y canción (total histórico, para el PDF y los totales; una
+            # canción con varios artistas cuenta en el primero) + filas POR PERIODO para la
+            # vista por mes/semestre/año (se agregan en el navegador).
             by_artist = {}
+            rows_payload = []
             for row in rows_by_adv.get(str(adv.id), []):
                 aid = row["artist_ids"][0] if row["artist_ids"] else ""
+                art = artist_by_id.get(aid)
                 g = by_artist.setdefault(aid, {
-                    "artist": artist_by_id.get(aid),
-                    "songs": [],
+                    "artist": art,
+                    "by_song": {},
                     "net": Decimal("0"), "gross": Decimal("0"),
                     "amort": Decimal("0"), "ours": Decimal("0"),
                 })
-                g["songs"].append(row)
-                g["net"] += row["net"]; g["gross"] += row["gross"]
-                g["amort"] += row["amort"]; g["ours"] += row["ours"]
-            artist_groups = sorted(
-                by_artist.values(),
-                key=lambda g: (g["artist"].name.lower() if g["artist"] else "zzz"),
-            )
+                sk = str(row["song"].id)
+                sg = g["by_song"].setdefault(sk, {
+                    "song": row["song"],
+                    "net": Decimal("0"), "gross": Decimal("0"),
+                    "amort": Decimal("0"), "ours": Decimal("0"),
+                })
+                for k in ("net", "gross", "amort", "ours"):
+                    sg[k] += row[k]
+                    g[k] += row[k]
+                rows_payload.append({
+                    "aid": aid,
+                    "an": (art.name if art else "Sin artista") or "Sin artista",
+                    "ap": (art.photo_url or "") if art else "",
+                    "sid": sk,
+                    "st": row["song"].title or "",
+                    "su": url_for("discografica_song_detail", song_id=row["song"].id),
+                    "cv": row["song"].cover_url or "",
+                    "ps": row["start"].isoformat() if row["start"] else None,
+                    "pt": row["ptype"],
+                    "net": float(row["net"]), "gross": float(row["gross"]),
+                    "am": float(row["amort"]), "ours": float(row["ours"]),
+                })
+            artist_groups = []
+            for g in by_artist.values():
+                g["songs"] = sorted(g.pop("by_song").values(), key=lambda s: (s["song"].title or "").lower())
+                artist_groups.append(g)
+            artist_groups.sort(key=lambda g: (g["artist"].name.lower() if g["artist"] else "zzz"))
             totals = {
                 "songs": sum(len(g["songs"]) for g in artist_groups),
                 "net": sum((g["net"] for g in artist_groups), Decimal("0")),
@@ -10593,6 +10646,7 @@ def _build_distributor_advances_context(session_db):
                 "state_class": state_class,
                 "artist_groups": artist_groups,
                 "totals": totals,
+                "rows": rows_payload,
             })
         blocks.append({
             "distributor": dist,

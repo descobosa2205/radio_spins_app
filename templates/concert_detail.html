@@ -9,7 +9,7 @@
     <div class="ficha-hero__eyebrow">{{ sale_type_label }}</div>
     <div class="d-flex flex-wrap align-items-center gap-2">
       <h1 class="ficha-hero__title"{% if concert.artist %} data-artist-link="{{ concert.artist.id }}"{% endif %}>{{ concert.artist.name if concert.artist else 'Concierto' }}</h1>
-      <span class="badge {% if concert.status == 'CONFIRMADO' %}bg-success{% elif concert.status == 'RESERVADO' %}bg-primary{% elif concert.status == 'BORRADOR' %}status-borrador{% else %}bg-warning text-dark{% endif %}">{{ concert.status }}</span>
+      {% with cs_id=concert.id, cs_status=concert.status %}{% include '_concert_status_badge.html' %}{% endwith %}
       {% if contract_sheet_badge %}<span class="badge {{ contract_sheet_badge.class }}">{{ contract_sheet_badge.label }}</span>{% endif %}
       {% if announcement_badge %}<span class="badge {{ announcement_badge.class }}">{{ announcement_badge.label }}</span>{% endif %}
     </div>
@@ -68,6 +68,7 @@
           <div class="col-md-4">
             <label class="form-label">Estado</label>
             <select name="status" class="form-select" required>
+              <option value="BORRADOR" {% if concert.status=='BORRADOR' %}selected{% endif %}>Borrador</option>
               <option value="HABLADO" {% if concert.status=='HABLADO' %}selected{% endif %}>Hablado</option>
               <option value="RESERVADO" {% if concert.status=='RESERVADO' %}selected{% endif %}>Reservado</option>
               <option value="CONFIRMADO" {% if concert.status=='CONFIRMADO' %}selected{% endif %}>Confirmado</option>
@@ -338,12 +339,12 @@
 
     {% set eq = concert.equipment %}
     {% set eq_option = '' %}
-    {% if eq %}{% if eq.covered_by_promoter and eq.covered_mode == 'RIDER' %}{% set eq_option = 'FESTIVAL_RIDER' %}{% elif eq.covered_by_promoter %}{% set eq_option = 'PROMOTER' %}{% elif eq.included or eq.other %}{% set eq_option = 'INCLUDED' %}{% endif %}{% endif %}
+    {% if eq %}{% if eq.covered_by_promoter and eq.covered_mode == 'RIDER' %}{% set eq_option = 'FESTIVAL_RIDER' %}{% elif eq.covered_by_promoter %}{% set eq_option = 'PROMOTER' %}{% elif eq.covered_mode == 'ARTIST' %}{% set eq_option = 'ARTIST' %}{% elif eq.included or eq.other %}{% set eq_option = 'INCLUDED' %}{% endif %}{% endif %}
     <div class="ficha-section">
       <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-toolbox"></i>Equipamiento</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
       <div class="ficha-section__body" data-section-view>
         {% if eq or concert.equipment_documents or concert.equipment_notes %}
-        {% if eq %}<div class="mb-2 fw-semibold">{% if eq.covered_by_promoter and eq.covered_mode == 'RIDER' %}Rider de festival{% elif eq.covered_by_promoter %}Promotor cubre equipos{% elif eq.included or eq.other %}Equipos incluidos{% endif %}</div>{% endif %}
+        {% if eq %}<div class="mb-2 fw-semibold">{% if eq.covered_by_promoter and eq.covered_mode == 'RIDER' %}Rider de festival{% elif eq.covered_by_promoter %}Promotor cubre equipos{% elif eq.covered_mode == 'ARTIST' %}Equipo a cargo del artista{% elif eq.included or eq.other %}Equipos incluidos{% endif %}</div>{% endif %}
         {% for d in concert.equipment_documents %}<div class="d-flex justify-content-between align-items-center gap-2 py-1"><a href="{{ d.pdf_url }}" target="_blank"><i class="fa fa-file-pdf me-1"></i>{{ d.concept }}</a>{% if CAN_EDIT_CONCERTS %}<form method="post" action="{{ url_for('concert_equipment_doc_delete', cid=concert.id, did=d.id) }}" data-inline data-inline-target="#concert-general-zone" data-confirm="¿Eliminar este documento?"><input type="hidden" name="next" value="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}"><button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash"></i></button></form>{% endif %}</div>{% endfor %}
         {% for n in concert.equipment_notes %}<div class="d-flex justify-content-between align-items-start gap-2 py-1"><div class="small text-muted">{{ n.body }}</div>{% if CAN_EDIT_CONCERTS %}<form method="post" action="{{ url_for('concert_equipment_note_delete', cid=concert.id, note_id=n.id) }}" data-inline data-inline-target="#concert-general-zone" data-confirm="¿Eliminar esta nota?"><input type="hidden" name="next" value="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}"><button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash"></i></button></form>{% endif %}</div>{% endfor %}
         {% else %}<div class="ficha-empty">Sin información de equipamiento. Pulsa <i class="fa fa-pen"></i> para añadir.</div>{% endif %}
@@ -356,6 +357,7 @@
           <label class="form-check-label border rounded px-3 py-2"><input class="form-check-input me-2" type="radio" name="equipment_option" value="INCLUDED" {% if eq_option=='INCLUDED' %}checked{% endif %}>Equipos incluidos</label>
           <label class="form-check-label border rounded px-3 py-2"><input class="form-check-input me-2" type="radio" name="equipment_option" value="PROMOTER" {% if eq_option=='PROMOTER' %}checked{% endif %}>Promotor cubre equipos</label>
           <label class="form-check-label border rounded px-3 py-2"><input class="form-check-input me-2" type="radio" name="equipment_option" value="FESTIVAL_RIDER" {% if eq_option=='FESTIVAL_RIDER' %}checked{% endif %}>Rider de festival</label>
+          <label class="form-check-label border rounded px-3 py-2"><input class="form-check-input me-2" type="radio" name="equipment_option" value="ARTIST" {% if eq_option=='ARTIST' %}checked{% endif %}>Equipo a cargo del artista</label>
         </div>
         <div class="fw-semibold small text-muted mb-1">Adjuntar riders / PDFs nuevos</div>
         <div data-rows="equip-doc"></div>

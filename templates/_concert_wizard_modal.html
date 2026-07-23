@@ -125,11 +125,15 @@
                   <div class="row g-3" id="wizardVenueKnownWrap">
                     <div class="col-lg-8">
                       <label class="form-label">Buscar recinto</label>
+                      {# Selector AUTOCONTENIDO (Select2 AJAX con foto en vivo + alta rápida global):
+                         antes dependía de funciones que solo existían en /conciertos y en el resto
+                         de páginas ni buscaba ni funcionaba el botón +. #}
                       <div class="input-group">
-                        <input id="wizard_venue_search" class="form-control" placeholder="Escribe para buscar...">
-                        <button type="button" class="btn btn-outline-secondary" onclick="openVenueModal('wizard_venue_search','wizard_venue_id')"><i class="fa fa-plus"></i></button>
+                        <button type="button" class="btn btn-outline-secondary" data-quick-create="venue" data-target="wizard_venue_id" title="Añadir un recinto nuevo sobre la marcha"><i class="fa fa-plus"></i></button>
+                        <select id="wizard_venue_id" name="venue_id" class="form-select" data-no-loader>
+                          <option value=""></option>
+                        </select>
                       </div>
-                      <input type="hidden" name="venue_id" id="wizard_venue_id">
                     </div>
                     <div class="col-lg-4">
                       <label class="form-label">Nombre manual del recinto <span class="text-muted">(opcional)</span></label>
@@ -333,9 +337,13 @@
                     <input class="form-check-input" type="radio" name="equipment_option" id="wizard_equipment_option_promoter" value="PROMOTER">
                     <label class="form-check-label" for="wizard_equipment_option_promoter">Promotor cubre equipos</label>
                   </div>
-                  <div class="form-check mb-3">
+                  <div class="form-check">
                     <input class="form-check-input" type="radio" name="equipment_option" id="wizard_equipment_option_rider" value="FESTIVAL_RIDER">
                     <label class="form-check-label" for="wizard_equipment_option_rider">Rider del festival</label>
+                  </div>
+                  <div class="form-check mb-3">
+                    <input class="form-check-input" type="radio" name="equipment_option" id="wizard_equipment_option_artist" value="ARTIST">
+                    <label class="form-check-label" for="wizard_equipment_option_artist">Equipo a cargo del artista</label>
                   </div>
                   <div class="d-flex justify-content-between align-items-center mb-2">
                     <div class="fw-semibold">Documentos / riders</div>
@@ -827,38 +835,8 @@
       m.show();
     };
 
-    window.submitNewVenue = async function(ev){
-      ev.preventDefault();
-      const targetInputId = document.getElementById('venueCreate_target_input').value;
-      const targetHiddenId = document.getElementById('venueCreate_target_hidden').value;
-      const payload = {
-        name: document.getElementById('venue_new_name').value.trim(),
-        address: document.getElementById('venue_new_address').value.trim(),
-        municipality: document.getElementById('venue_new_municipality').value.trim(),
-        province: document.getElementById('venue_new_province').value.trim(),
-        covered: document.getElementById('venue_new_covered').value === 'true'
-      };
-      let res = await fetch('/api/venues/create', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-      let data = await res.json();
-      if(res.status === 409 && data.similar && data.similar.length){
-        const first = data.similar[0];
-        const useExisting = confirm(`Parece que ya existe un recinto similar: ${first.label}.\n\nAceptar = seleccionar existente\nCancelar = crear uno nuevo`);
-        if(useExisting){
-          document.getElementById(targetInputId).value = first.label || payload.name;
-          document.getElementById(targetHiddenId).value = first.id;
-          bootstrap.Modal.getInstance(document.getElementById('venueCreateModal')).hide();
-          return false;
-        }
-        payload.force_new = true;
-        res = await fetch('/api/venues/create', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-        data = await res.json();
-      }
-      if(!res.ok){ alert(data.error || 'Error creando recinto'); return false; }
-      document.getElementById(targetInputId).value = data.label || data.name;
-      document.getElementById(targetHiddenId).value = data.id;
-      bootstrap.Modal.getInstance(document.getElementById('venueCreateModal')).hide();
-      return false;
-    };
+    // (El recinto del asistente ya no usa el modal de /conciertos: va con Select2 AJAX +
+    // alta rápida global data-quick-create="venue", autocontenido en este parcial.)
 
     window.submitNewPromoter = async function(ev){
       ev.preventDefault();
@@ -1012,7 +990,7 @@
       const known = knowsVenue.checked;
       venueKnownWrap.style.display = known ? '' : 'none';
       venueManualWrap.style.display = known ? 'none' : '';
-      if(!known){ document.getElementById('wizard_venue_id').value = ''; document.getElementById('wizard_venue_search').value = ''; }
+      if(!known){ wizardVenueClear(); }
     }
 
     function toggleTicketSales(){
@@ -1137,6 +1115,35 @@
     document.getElementById('wizard_artist_id')?.addEventListener('change', checkArtistConflict);
     document.getElementById('wizard_artist_id')?.addEventListener('change', filterTourCards);
     document.getElementById('wizard_date')?.addEventListener('change', checkArtistConflict);
+    // RECINTO: Select2 AJAX con foto en tiempo real, AUTOCONTENIDO en este parcial (el
+    // typeahead antiguo solo existía en /conciertos y en el resto de páginas el buscador
+    // no mostraba nada y el botón + estaba muerto).
+    function initWizardVenueSelect(){
+      const el = document.getElementById('wizard_venue_id');
+      if(!el || el.__vsInit || !window.jQuery || !jQuery.fn.select2) return;
+      el.__vsInit = true;
+      function fmt(d){
+        if(!d.id) return d.text;
+        const photo = d.photo || (d.element && jQuery(d.element).data('photo')) || '';
+        const img = photo ? '<img class="thumb" src="'+photo+'">' : '<span class="me-2"><i class="fa fa-location-dot"></i></span>';
+        return jQuery('<span>'+img+(d.text||'')+'</span>');
+      }
+      jQuery(el).select2({
+        width:'100%', dropdownParent: jQuery(modalEl), placeholder:'Escribe para buscar el recinto…', allowClear:true, minimumInputLength:1,
+        ajax:{
+          url:'{{ url_for("api_search_venues") }}', dataType:'json', delay:200,
+          data:function(p){ return { q: p.term || '' }; },
+          processResults:function(data){ return { results:(data||[]).map(function(it){ return { id: it.id, text: it.label || it.name || '', photo: it.photo_url || it.logo_url || '' }; }) }; }
+        },
+        templateResult: fmt, templateSelection: fmt, escapeMarkup:function(m){ return m; }
+      });
+    }
+    function wizardVenueClear(){
+      const el = document.getElementById('wizard_venue_id');
+      if(!el) return;
+      if(window.jQuery && jQuery(el).data('select2')) jQuery(el).val(null).trigger('change');
+      else el.value = '';
+    }
     modalEl?.addEventListener('shown.bs.modal', ()=> {
       syncMode();
       toggleVenueKnown();
@@ -1145,7 +1152,7 @@
       syncPromoterVisibility();
       syncFestivalName();
       filterTourCards();
-      initVenueTypeahead('wizard_venue_search', 'wizard_venue_id');
+      initWizardVenueSelect();
       if(!document.getElementById('wizardPartnerRows').children.length) wizardAddPartnerRow();
       if(!document.getElementById('wizardZoneRows').children.length) wizardAddZoneRow();
       if(!document.getElementById('wizardPaymentRows').children.length) wizardAddPaymentRow();

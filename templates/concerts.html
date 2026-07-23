@@ -397,6 +397,8 @@
                               <div><strong>Rider de festival</strong></div>
                             {% elif c.equipment.covered_by_promoter %}
                               <div><strong>Promotor cubre equipos</strong></div>
+                            {% elif c.equipment.covered_mode == 'ARTIST' %}
+                              <div><strong>Equipo a cargo del artista</strong></div>
                             {% elif c.equipment.included or c.equipment.other %}
                               <div><strong>Equipos incluidos</strong></div>
                             {% endif %}
@@ -949,6 +951,10 @@
                 <div class="form-check">
                   <input class="form-check-input" type="radio" name="equipment_option" id="equipment_option_festival_rider_create" value="FESTIVAL_RIDER">
                   <label class="form-check-label" for="equipment_option_festival_rider_create">Rider de festival</label>
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="equipment_option" id="equipment_option_artist_create" value="ARTIST">
+                  <label class="form-check-label" for="equipment_option_artist_create">Equipo a cargo del artista</label>
                 </div>
                 <div class="form-text">Solo una opción. Si no marcas nada, no se guardará equipamiento.</div>
               </div>

@@ -111,7 +111,7 @@
         <div class="small text-muted text-truncate">{% if not drill_artist and c.artist %}{{ c.artist.name }} · {% endif %}{{ c.location_summary or (c.venue.name if c.venue else 'Sin recinto') }}</div>
       </div>
       <span class="badge text-bg-light border flex-shrink-0">{{ c.sale_type_label }}</span>
-      <span class="badge flex-shrink-0 {% if c.status == 'CONFIRMADO' %}bg-success{% elif c.status == 'RESERVADO' %}bg-primary text-white{% elif c.status == 'BORRADOR' %}text-bg-light border text-dark{% else %}bg-warning text-dark{% endif %}">{{ c.status }}</span>
+      {% with cs_id=c.id, cs_status=c.status, cs_extra_class='flex-shrink-0' %}{% include '_concert_status_badge.html' %}{% endwith %}
     </a>
     {% endfor %}
   </div></div>

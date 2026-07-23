@@ -54,7 +54,23 @@
       </div>
     </div>
     <span class="badge text-bg-light border flex-shrink-0">{{ it.type_label }}</span>
-    {% if it.status_label %}<span class="badge {{ it.status_badge }} flex-shrink-0">{{ it.status_label }}</span>{% endif %}
+    {% if it.kind == 'concert' %}
+      {% with cs_id=it.id, cs_status=(it.status_label or '')|upper, cs_extra_class='flex-shrink-0' %}{% include '_concert_status_badge.html' %}{% endwith %}
+    {% elif it.kind == 'action' and it.status_label %}
+      {% if has_access_key('acciones', edit=True, include_descendants=True) %}
+        <span class="dropdown flex-shrink-0" data-status-menu data-status-url="{{ url_for('action_detail_view', action_id=it.id) }}" data-status-extra='{"form_action": "status"}' onclick="event.preventDefault(); event.stopPropagation();">
+          <button type="button" class="badge border-0 dropdown-toggle {{ it.status_badge }}" data-bs-toggle="dropdown" data-no-loader title="Cambiar el estado">{{ it.status_label }}</button>
+          <ul class="dropdown-menu">
+            <li><button type="button" class="dropdown-item" data-status-option="RESERVA"><span class="badge bg-warning text-dark">Reserva de confirmar</span></button></li>
+            <li><button type="button" class="dropdown-item" data-status-option="CONFIRMADO"><span class="badge bg-success">Confirmada</span></button></li>
+            <li><button type="button" class="dropdown-item" data-status-option="CANCELADA"><span class="badge bg-danger">Cancelada</span></button></li>
+            <li><button type="button" class="dropdown-item" data-status-option="CERRADA"><span class="badge bg-secondary">Cerrada</span></button></li>
+          </ul>
+        </span>
+      {% else %}
+        <span class="badge {{ it.status_badge }} flex-shrink-0">{{ it.status_label }}</span>
+      {% endif %}
+    {% elif it.status_label %}<span class="badge {{ it.status_badge }} flex-shrink-0">{{ it.status_label }}</span>{% endif %}
   </{{ tag }}>
   {% endfor %}
 </div></div>

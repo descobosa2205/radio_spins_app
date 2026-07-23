@@ -1,0 +1,22 @@
+{# Etiqueta de ESTADO de un concierto/actividad, CLICABLE para quien puede editar: al pinchar
+   se despliegan las opciones con sus colores y el cambio se guarda al momento (POST a
+   concert_quick_status, handler global [data-status-option] en scripts.js). Quien no puede
+   editar ve la etiqueta normal. Uso:
+     {% with cs_id=concert.id, cs_status=concert.status, cs_extra_class='...' %}
+       {% include '_concert_status_badge.html' %}
+     {% endwith %} #}
+{% set _cs_map = {'CONFIRMADO': 'bg-success', 'RESERVADO': 'bg-primary text-white', 'BORRADOR': 'text-bg-light border text-dark', 'HABLADO': 'bg-warning text-dark'} %}
+{% set _cs = (cs_status or 'BORRADOR')|upper %}
+{% set _cls = _cs_map.get(_cs, 'bg-warning text-dark') %}
+{% if CAN_EDIT_CONCERTS %}
+<span class="dropdown {{ cs_extra_class or '' }}" data-status-menu data-status-url="{{ url_for('concert_quick_status', cid=cs_id) }}" onclick="event.preventDefault(); event.stopPropagation();">
+  <button type="button" class="badge border-0 dropdown-toggle {{ _cls }}" data-bs-toggle="dropdown" data-no-loader title="Cambiar el estado">{{ _cs }}</button>
+  <ul class="dropdown-menu">
+    {% for k, c in [('BORRADOR', 'text-bg-light border text-dark'), ('HABLADO', 'bg-warning text-dark'), ('RESERVADO', 'bg-primary text-white'), ('CONFIRMADO', 'bg-success')] %}
+      <li><button type="button" class="dropdown-item d-flex align-items-center gap-2 {% if k == _cs %}active{% endif %}" data-status-option="{{ k }}"><span class="badge {{ c }}">{{ k|capitalize }}</span></button></li>
+    {% endfor %}
+  </ul>
+</span>
+{% else %}
+<span class="badge {{ _cls }} {{ cs_extra_class or '' }}">{{ _cs }}</span>
+{% endif %}

@@ -20137,7 +20137,7 @@ def _upsert_equipment_from_request(session, concert_id):
 
     # 1) Nuevo formulario
     opt = (request.form.get("equipment_option") or "").strip().upper()
-    if opt in ("INCLUDED", "PROMOTER", "FESTIVAL_RIDER"):
+    if opt in ("INCLUDED", "PROMOTER", "FESTIVAL_RIDER", "ARTIST"):
         if not eq:
             eq = ConcertEquipment(concert_id=concert_id)
             session.add(eq)
@@ -20152,6 +20152,13 @@ def _upsert_equipment_from_request(session, concert_id):
         elif opt == "FESTIVAL_RIDER":
             eq.covered_by_promoter = True
             eq.covered_mode = "RIDER"
+            eq.covered_amount = None
+            eq.included = None
+            eq.other = None
+        elif opt == "ARTIST":
+            # Equipo A CARGO DEL ARTISTA (combinación propia: sin promotor + modo ARTIST).
+            eq.covered_by_promoter = False
+            eq.covered_mode = "ARTIST"
             eq.covered_amount = None
             eq.included = None
             eq.other = None
@@ -21724,7 +21731,7 @@ def activities_view():
             for c in cq.order_by(Concert.date.asc().nullslast()).limit(500).all():
                 lbl, bdg = _concert_status_meta(c.status)
                 items.append({
-                    "kind": "concert", "type_icon": "fa-guitar",
+                    "kind": "concert", "id": str(c.id), "type_icon": "fa-guitar",
                     "type_label": CONCERT_SALE_TYPE_LABELS.get((c.sale_type or "").upper(), (c.activity_type or "Concierto")),
                     "title": (c.festival_name or (c.artist.name if c.artist else "Concierto")),
                     "artist_name": (c.artist.name if c.artist else ""),
@@ -21745,12 +21752,12 @@ def activities_view():
                 aq = aq.filter(func.coalesce(CompanyAction.end_date, CompanyAction.start_date) < today)
             for a in aq.order_by(CompanyAction.start_date.asc().nullslast()).limit(500).all():
                 items.append({
-                    "kind": "action", "type_icon": "fa-rocket",
+                    "kind": "action", "id": str(a.id), "type_icon": "fa-rocket",
                     "type_label": (a.action_type or "Acción").replace("_", " ").capitalize(),
                     "title": (a.title or "Acción"), "artist_name": "", "artist_photo": "", "artist_id": "",
                     "date": a.start_date, "date_label": (a.start_date.strftime("%d/%m/%Y") if a.start_date else "Sin fecha"),
                     "venue": (a.venue.name if a.venue else ""),
-                    "status_label": (a.status or ""), "status_badge": "text-bg-light border", "url": "",
+                    "status_label": (a.status or ""), "status_badge": _action_status_badge(a.status), "url": "",
                 })
         items.sort(key=lambda x: (x["date"] or date.max), reverse=(when_f == "past"))
         counts = {

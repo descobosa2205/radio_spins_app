@@ -2095,3 +2095,43 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
     });
   }, true);
 })();
+
+/* ============================================================================
+   Cambio de ESTADO pinchando la etiqueta (conciertos y acciones).
+   Contenedor: [data-status-menu] con data-status-url (endpoint POST) y opcional
+   data-status-extra (JSON con campos extra, p. ej. {"form_action":"status"}).
+   Opciones: [data-status-option="VALOR"] dentro del dropdown. Se envía por fetch
+   (csrf.js añade el token) y se recarga la página al confirmar el servidor.
+   Solo se pinta para quien puede editar (gate en la plantilla).
+   ========================================================================== */
+(function () {
+  document.addEventListener('click', function (e) {
+    var opt = e.target.closest('[data-status-option]');
+    if (!opt) return;
+    var wrap = opt.closest('[data-status-menu]');
+    if (!wrap) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var url = wrap.getAttribute('data-status-url');
+    if (!url) return;
+    var params = new URLSearchParams();
+    params.set('status', opt.getAttribute('data-status-option') || '');
+    var extra = wrap.getAttribute('data-status-extra');
+    if (extra) {
+      try {
+        var o = JSON.parse(extra);
+        Object.keys(o).forEach(function (k) { params.set(k, o[k]); });
+      } catch (_) {}
+    }
+    opt.classList.add('disabled');
+    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString() })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        window.location.reload();
+      })
+      .catch(function () {
+        opt.classList.remove('disabled');
+        alert('No se pudo cambiar el estado.');
+      });
+  });
+})();

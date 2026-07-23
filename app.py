@@ -1223,9 +1223,10 @@ def home():
 
 # ---------- ARTISTAS ----------
 def _active_artist_ids(session_db) -> set:
-    """IDs (str) de artistas «en activo»: con canción o álbum de los últimos 6 meses, o con
-    conciertos / acciones / promociones activos o próximos. Se usa para filtrar el listado de
-    artistas (por defecto solo activos, con opción de ver inactivos)."""
+    """IDs (str) de artistas «en activo»: con canción o álbum de los últimos 6 meses, con
+    conciertos / acciones / promociones activos o próximos, o con una GIRA COMPRADA creada y
+    aún no terminada (cuenta desde que se crea, aunque no tenga actividades concretas). Se usa
+    para filtrar el listado de artistas (por defecto solo activos, con opción de ver inactivos)."""
     today = today_local()
     cutoff = today - timedelta(days=183)
     ids = set()
@@ -1272,6 +1273,20 @@ def _active_artist_ids(session_db) -> set:
                 or_(Promotion.ends_on >= today, Promotion.ends_on.is_(None)),
             ).all()
         ):
+            for x in (aids or []):
+                if x:
+                    ids.add(str(x))
+        # GIRAS COMPRADAS: tener una gira creada ya cuenta como actividad (aunque aún no tenga
+        # conciertos concretos) hasta que la gira TERMINA (fin pasado) o se archiva.
+        for aid, aids in (
+            session_db.query(PurchasedTour.artist_id, PurchasedTour.artist_ids)
+            .filter(
+                func.upper(func.coalesce(PurchasedTour.status, "ACTIVA")) == "ACTIVA",
+                or_(PurchasedTour.end_date.is_(None), PurchasedTour.end_date >= today),
+            ).all()
+        ):
+            if aid:
+                ids.add(str(aid))
             for x in (aids or []):
                 if x:
                     ids.add(str(x))

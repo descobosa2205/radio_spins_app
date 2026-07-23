@@ -306,6 +306,11 @@
           <div class="mb-2"><label class="form-label small text-muted">Asunto</label><input type="text" class="form-control form-control-sm" id="fotosShareSubject"></div>
           <div class="mb-2"><label class="form-label small text-muted">Empresa (logo)</label><select class="form-select form-select-sm" id="fotosShareCompany"></select></div>
           <div class="mb-2"><label class="form-label small text-muted">Nota</label><textarea class="form-control form-control-sm" id="fotosShareNote" rows="2"></textarea></div>
+          {# Vista previa del correo (misma estética que las comunicaciones de invitaciones) #}
+          <div class="mb-2">
+            <label class="form-label small text-muted">Vista previa</label>
+            <iframe id="fotosSharePreview" style="width:100%;height:260px;border:1px solid #e2e7ee;border-radius:.5rem;background:#fff;"></iframe>
+          </div>
           <div class="text-end"><button type="button" class="btn btn-primary btn-sm" id="fotosShareSendEmail"><i class="fa fa-paper-plane me-1"></i>Enviar</button></div>
           <div class="small mt-2" id="fotosShareHint"></div>
         </div>

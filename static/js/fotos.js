@@ -718,9 +718,28 @@
       fetch(ownerBase + '/approval-options').then(function (r) { return r.json(); }).then(function (o) {
         if (!o.ok) return;
         sel.innerHTML = '<option value="">—</option>' + (o.companies || []).map(function (c) { return '<option value="' + esc(c.id) + '"' + (c.id === o.default_company_id ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('');
+        loadSharePreview();
       });
     }
+    loadSharePreview();
   }
+  // Vista previa EN VIVO del correo de materiales (misma estética que invitaciones).
+  var sharePreviewTimer = null;
+  function loadSharePreview() {
+    var frame = document.getElementById('fotosSharePreview'); if (!frame) return;
+    if (sharePreviewTimer) clearTimeout(sharePreviewTimer);
+    sharePreviewTimer = setTimeout(function () {
+      postJson(ownerBase + '/share/email/preview', {
+        photo_ids: shareIds,
+        note: (document.getElementById('fotosShareNote') || {}).value || '',
+        brand_company_id: (document.getElementById('fotosShareCompany') || {}).value || null
+      }).then(function (d) { if (d && d.ok) frame.srcdoc = d.html; }).catch(function () {});
+    }, 400);
+  }
+  ['fotosShareNote', 'fotosShareCompany'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) { el.addEventListener('input', loadSharePreview); el.addEventListener('change', loadSharePreview); }
+  });
   document.getElementById('fotosShareSendEmail').addEventListener('click', function () {
     var recips = [];
     document.querySelectorAll('.fotos-share-rec:checked').forEach(function (cb) { recips.push(cb.value); });

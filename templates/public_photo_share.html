@@ -15,19 +15,31 @@
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
   <style>
     body{ background:#f5f5f5; }
-    .ps-wrap{ max-width:820px; margin:0 auto; padding:1.25rem; }
-    .ps-logo{ max-height:56px; }
+    .ps-wrap{ max-width:880px; margin:0 auto; padding:1.25rem; }
+    .ps-logo{ max-height:56px; max-width:200px; object-fit:contain; }
     .ps-hero{ background:#fff; border:1px solid #e5e5e5; border-radius:.8rem; padding:1.1rem 1.25rem; margin-bottom:1rem; }
     .ps-hero__avatar{ width:52px; height:52px; border-radius:50%; object-fit:cover; }
-    .ps-item{ display:flex; align-items:center; gap:.75rem; background:#fff; border:1px solid #e5e5e5; border-radius:.6rem; padding:.6rem; margin-bottom:.5rem; }
-    .ps-thumb{ width:64px; height:64px; border-radius:.4rem; object-fit:cover; flex:0 0 auto; background:#eee; }
+    .ps-sec-title{ font-size:.78rem; font-weight:700; letter-spacing:.05em; color:#8a94a1; text-transform:uppercase; margin:1.2rem 0 .5rem; }
+    .ps-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(150px,1fr)); gap:.7rem; }
+    .ps-tile{ position:relative; border-radius:.8rem; overflow:hidden; background:#111; aspect-ratio:1/1; cursor:pointer; border:1px solid #e5e5e5; }
+    .ps-tile img, .ps-tile video{ width:100%; height:100%; object-fit:cover; display:block; }
+    .ps-tile__dl{ position:absolute; bottom:.4rem; right:.4rem; }
+    .ps-tile__play{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#fff; font-size:2rem; text-shadow:0 2px 8px rgba(0,0,0,.6); pointer-events:none; }
+    /* Popup de visionado en grande */
+    .ps-pop{ position:fixed; inset:0; background:rgba(10,10,12,.92); z-index:1060; display:none; flex-direction:column; }
+    .ps-pop.open{ display:flex; }
+    .ps-pop__top{ display:flex; justify-content:space-between; align-items:center; padding:.7rem 1rem; color:#fff; gap:.6rem; flex-wrap:wrap; }
+    .ps-pop__media{ flex:1; display:flex; align-items:center; justify-content:center; min-height:0; padding:0 3.4rem 1rem; position:relative; }
+    .ps-pop__media img, .ps-pop__media video{ max-width:100%; max-height:100%; border-radius:.5rem; }
+    .ps-pop__nav{ position:absolute; top:50%; transform:translateY(-50%); width:2.7rem; height:2.7rem; border-radius:50%; border:0; background:rgba(255,255,255,.16); color:#fff; font-size:1.1rem; }
+    .ps-pop__nav:hover{ background:rgba(255,255,255,.3); }
   </style>
 </head>
 <body>
 <div class="ps-wrap">
   <div class="text-end mb-2"><img class="ps-logo" src="{{ logo }}" alt=""></div>
 
-  {# Composición visual: título destacado + tipo de actividad · nombre/municipio · fecha + artista. #}
+  {# Galleta de la actividad (misma composición que la página de supervisión). #}
   <div class="ps-hero">
     <div class="text-uppercase small fw-bold" style="letter-spacing:.05em;color:#6c757d;">{{ kind_title or 'Fotos / Vídeos' }}</div>
     {% if card %}
@@ -49,20 +61,104 @@
     {% else %}
       <div class="h4 mb-0 mt-1">{{ owner_title }}</div>
     {% endif %}
-    <div class="text-muted small mt-2">{{ count_label }}</div>
+    <div class="d-flex align-items-center gap-2 flex-wrap mt-2">
+      <span class="text-muted small">{{ count_label }}</span>
+      <a class="btn btn-sm btn-primary ms-auto" href="{{ zip_url }}"><i class="fa fa-file-zipper me-1"></i>Descargar todo (ZIP)</a>
+    </div>
   </div>
 
-  {% for p in photos %}
-  <div class="ps-item">
-    {% if p.is_video %}<video class="ps-thumb" src="{{ p.file_url }}" muted></video>{% else %}<img class="ps-thumb" src="{{ p.file_url }}" alt="">{% endif %}
-    <div class="flex-grow-1 text-truncate">{{ p.title }}</div>
-    <a class="btn btn-sm btn-outline-secondary" href="{{ p.download_url }}"><i class="fa fa-download me-1"></i>Descargar</a>
-  </div>
-  {% endfor %}
+  {# Contenidos: primero VÍDEOS y debajo las FOTOS, en panel de miniaturas. Pinchar = ver en grande. #}
+  {% set vids = photos | selectattr('is_video') | list %}
+  {% set fots = photos | rejectattr('is_video') | list %}
+  {% if vids %}
+    <div class="ps-sec-title">Vídeos</div>
+    <div class="ps-grid">
+      {% for p in vids %}
+      <div class="ps-tile" data-ps-item="{{ p.id }}">
+        <video src="{{ p.file_url }}" preload="metadata" muted playsinline></video>
+        <span class="ps-tile__play"><i class="fa fa-circle-play"></i></span>
+        <a class="btn btn-sm btn-light ps-tile__dl" href="{{ p.download_url }}" onclick="event.stopPropagation();" title="Descargar"><i class="fa fa-download"></i></a>
+      </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+  {% if fots %}
+    <div class="ps-sec-title">Fotos</div>
+    <div class="ps-grid">
+      {% for p in fots %}
+      <div class="ps-tile" data-ps-item="{{ p.id }}">
+        <img src="{{ p.file_url }}" alt="" loading="lazy">
+        <a class="btn btn-sm btn-light ps-tile__dl" href="{{ p.download_url }}" onclick="event.stopPropagation();" title="Descargar"><i class="fa fa-download"></i></a>
+      </div>
+      {% endfor %}
+    </div>
+  {% endif %}
 
   <div class="text-center my-4">
-    <a class="btn btn-primary btn-lg" href="{{ zip_url }}"><i class="fa fa-file-zipper me-1"></i>Descargar todas (ZIP)</a>
+    <a class="btn btn-primary btn-lg" href="{{ zip_url }}"><i class="fa fa-file-zipper me-1"></i>Descargar todo (ZIP)</a>
   </div>
+
+  {# Popup de visionado en grande con flechas y descarga del contenido en pantalla. #}
+  <div class="ps-pop" id="psPop">
+    <div class="ps-pop__top">
+      <div class="small" id="psPopTitle"></div>
+      <div class="d-flex gap-2">
+        <a class="btn btn-sm btn-light" id="psPopDl" href="#"><i class="fa fa-download me-1"></i>Descargar</a>
+        <button type="button" class="btn btn-sm btn-outline-light" id="psPopClose"><i class="fa fa-xmark me-1"></i>Cerrar</button>
+      </div>
+    </div>
+    <div class="ps-pop__media">
+      <button type="button" class="ps-pop__nav" style="left:.6rem" id="psPopPrev" title="Anterior"><i class="fa fa-chevron-left"></i></button>
+      <div id="psPopStage" class="w-100 h-100 d-flex align-items-center justify-content-center"></div>
+      <button type="button" class="ps-pop__nav" style="right:.6rem" id="psPopNext" title="Siguiente"><i class="fa fa-chevron-right"></i></button>
+    </div>
+  </div>
+
+  <script id="psData" type="application/json">{{ {'items': photos} | tojson }}</script>
+  <script>
+  (function(){
+    var items = [];
+    try { items = (JSON.parse(document.getElementById('psData').textContent || '{}').items) || []; } catch(e){}
+    // Orden de navegación = el del panel: vídeos primero y luego fotos.
+    var order = items.filter(function(it){ return it.is_video; }).concat(items.filter(function(it){ return !it.is_video; }));
+    var byId = {}; order.forEach(function(it){ byId[it.id] = it; });
+    var pop = document.getElementById('psPop'), stage = document.getElementById('psPopStage');
+    var current = null;
+    function renderStage(id){
+      var it = byId[id]; if(!it) return;
+      current = id;
+      document.getElementById('psPopTitle').textContent = (it.is_video ? 'Vídeo' : 'Foto') + (it.title ? ' · ' + it.title : '');
+      document.getElementById('psPopDl').href = it.download_url || '#';
+      stage.innerHTML = it.is_video
+        ? '<video src="' + it.file_url + '" controls autoplay playsinline style="max-width:100%;max-height:100%"></video>'
+        : '<img src="' + it.file_url + '" alt="">';
+    }
+    function openPop(id){ if(!id) return; pop.classList.add('open'); document.body.style.overflow='hidden'; renderStage(id); }
+    function closePop(){
+      pop.classList.remove('open'); stage.innerHTML=''; document.body.style.overflow='';
+      if(current){ var t = document.querySelector('[data-ps-item="' + current + '"]'); if(t && t.scrollIntoView) t.scrollIntoView({block:'nearest'}); }
+    }
+    function move(d){
+      if(!order.length) return;
+      var idx = order.findIndex(function(it){ return it.id === current; });
+      idx = (idx + d + order.length) % order.length;
+      renderStage(order[idx].id);
+    }
+    document.addEventListener('click', function(e){
+      var tile = e.target.closest('[data-ps-item]');
+      if(tile && !e.target.closest('.ps-tile__dl')){ openPop(tile.getAttribute('data-ps-item')); }
+    });
+    document.getElementById('psPopClose').addEventListener('click', closePop);
+    document.getElementById('psPopPrev').addEventListener('click', function(){ move(-1); });
+    document.getElementById('psPopNext').addEventListener('click', function(){ move(1); });
+    document.addEventListener('keydown', function(e){
+      if(!pop.classList.contains('open')) return;
+      if(e.key === 'Escape') closePop();
+      else if(e.key === 'ArrowLeft') move(-1);
+      else if(e.key === 'ArrowRight') move(1);
+    });
+  })();
+  </script>
 </div>
 </body>
 </html>

@@ -36081,7 +36081,7 @@ SUPPORT_ACTION_ENDPOINTS = {
     "fotos_upload", "fotos_reorder", "foto_update", "foto_delete", "foto_discard",
     "foto_note_add", "fotos_bulk_update", "foto_set_approval_state",
     "photo_album_create", "photo_album_add", "photo_album_update", "photo_album_delete",
-    "fotos_approval_create", "fotos_zip", "fotos_share_create", "fotos_share_email",
+    "fotos_approval_create", "fotos_zip", "fotos_share_create", "fotos_share_email", "fotos_share_email_preview",
     # Agenda: bloqueos y notas libres (botón + del calendario, Inicio y ficha de artista)
     "agenda_block_create", "agenda_note_create", "agenda_item_delete",
     "artist_calendar_link_create", "artist_calendar_link_cancel",
@@ -44651,26 +44651,77 @@ def api_fotos_owner_emails(owner_type, owner_id):
 
 
 def _photo_share_email_html(session_db, share, photos, owner_title, note):
+    """Correo de envío de materiales con el estilo de las comunicaciones de la app (como
+    invitaciones): logo de la empresa a la derecha, «Hola,» + nota, cabecera del evento en
+    galleta, botón principal para VER Y DESCARGAR, listado con miniaturas y botón ZIP."""
     company = session_db.get(GroupCompany, share.brand_company_id) if share.brand_company_id else None
     logo = (company.logo_url if company and company.logo_url else url_for("static", filename="img/logo.png", _external=True))
     urls = _photo_share_urls(share.token)
+    owner, _aid, _tt = _photo_resolve_owner(session_db, share.owner_type, share.owner_id)
+    card = _public_share_card(session_db, share.owner_type, owner, artist_id=_aid)
+    header_html = _photo_event_header_email_html(card, owner_title)
+    intro = '<p>Hola,</p>'
+    if note:
+        intro += "".join(f'<p>{escape(line)}</p>' for line in note.splitlines() if line.strip())
+    else:
+        intro += '<p>aquí tienes los materiales. Puedes verlos en grande y descargarlos, todos o uno a uno.</p>'
+    main_btn = ('<p style="margin:14px 0"><a href="%s" style="background:#e83b4b;color:#fff;padding:11px 22px;'
+                'border-radius:10px;text-decoration:none;font-weight:700;display:inline-block">Ver y descargar los contenidos</a></p>'
+                % urls["public_url"])
     rows = ""
     for p in photos:
-        thumb = p.file_url
+        is_video = (p.kind or "IMAGE").upper() == "VIDEO"
         dl = _external_url_for("public_photo_share_item", token=share.token, photo_id=str(p.id))
-        rows += ('<tr><td style="padding:6px"><img src="%s" style="width:64px;height:64px;object-fit:cover;border-radius:6px"></td>'
-                 '<td style="padding:6px;font-size:14px">%s</td>'
-                 '<td style="padding:6px"><a href="%s">Descargar</a></td></tr>') % (thumb, escape(p.title or p.file_name or ""), dl)
+        if is_video:
+            media = ('<span style="display:inline-block;width:64px;height:64px;border-radius:8px;background:#111;color:#fff;'
+                     'text-align:center;line-height:64px;font-size:22px">&#9654;</span>')
+        else:
+            media = '<img src="%s" style="width:64px;height:64px;object-fit:cover;border-radius:8px;display:block">' % escape(_absolute_media_url(p.file_url or ""))
+        rows += ('<tr><td style="padding:6px 10px 6px 0;width:64px">%s</td>'
+                 '<td style="padding:6px;font-size:14px;vertical-align:middle"><b>%s</b><div style="font-size:12px;color:#888">%s</div></td>'
+                 '<td style="padding:6px;vertical-align:middle"><a href="%s" style="color:#007CA2">&#11015; Descargar</a></td></tr>'
+                 ) % (media, escape(p.title or p.file_name or ""), ("Vídeo" if is_video else "Foto"), dl)
     return (
-        '<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto">'
-        '<div style="text-align:right"><img src="%s" style="max-height:54px"></div>' % logo
-        + ('<p>%s</p>' % escape(note) if note else '')
-        + '<h2 style="text-align:center">Envío de materiales</h2>'
-        + (('<p style="text-align:center;color:#666">%s</p>' % escape(owner_title)) if owner_title else '')
-        + '<table style="width:100%;border-collapse:collapse">' + rows + '</table>'
-        + '<p style="text-align:center;margin-top:18px"><a href="%s" style="background:#007CA2;color:#fff;padding:11px 20px;border-radius:6px;text-decoration:none">Descargar todas (ZIP)</a></p>' % urls["zip_url"]
+        '<div style="font-family:Arial,sans-serif;color:#111;line-height:1.45;max-width:640px;margin:auto">'
+        '<div style="text-align:right;margin-bottom:6px"><img src="%s" alt="" style="max-height:58px;max-width:200px"></div>' % logo
+        + intro
+        + header_html
+        + '<h2 style="text-align:center;margin:6px 0 10px">Envío de materiales</h2>'
+        + main_btn
+        + '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse">' + rows + '</table>'
+        + '<p style="margin-top:18px"><a href="%s" style="background:#007CA2;color:#fff;padding:10px 18px;border-radius:10px;text-decoration:none;font-weight:700;display:inline-block">Descargar todo (ZIP)</a></p>' % urls["zip_url"]
+        + '<p style="color:#888;font-size:12px;margin-top:14px">Si los botones no funcionan, copia este enlace: %s</p>' % urls["public_url"]
         + '</div>'
     )
+
+
+@app.post("/fotos/<owner_type>/<owner_id>/share/email/preview", endpoint="fotos_share_email_preview")
+@admin_required
+def fotos_share_email_preview(owner_type, owner_id):
+    """Vista previa del correo de materiales (misma estética que el envío, sin crear nada)."""
+    ot = _photo_owner_type_norm(owner_type)
+    if not ot:
+        return jsonify({"ok": False, "error": "Tipo no válido."}), 400
+    payload = request.get_json(silent=True) or {}
+    ids = [to_uuid(x) for x in (payload.get("photo_ids") or [])]
+    ids = [x for x in ids if x]
+    session_db = db()
+    try:
+        owner, _aid, owner_title = _photo_resolve_owner(session_db, ot, owner_id)
+        if not owner:
+            return jsonify({"ok": False, "error": "No encontrado."}), 404
+        photos = (
+            session_db.query(Photo).filter(Photo.id.in_(ids)).order_by(Photo.sort_order.asc()).all()
+        ) if ids else []
+        share = PhotoShare(
+            owner_type=ot, owner_id=owner.id, token="previsualizacion",
+            photo_ids=[str(x) for x in ids],
+            brand_company_id=to_uuid(payload.get("brand_company_id")) or _photo_owner_group_company_id(session_db, ot, owner),
+        )
+        html_body = _photo_share_email_html(session_db, share, photos, owner_title, (payload.get("note") or "").strip())
+        return jsonify({"ok": True, "html": html_body})
+    finally:
+        session_db.close()
 
 
 @app.post("/fotos/<owner_type>/<owner_id>/share/email", endpoint="fotos_share_email")

@@ -162,7 +162,33 @@
     }
     updateBulk();
     updateCounts();
+    renderPendingAlert();
   }
+
+  // Barra AMARILLA: contenido pendiente de aprobación (a quién se pidió, cuándo y su enlace).
+  // Desaparece sola cuando todo está aprobado o rechazado.
+  function renderPendingAlert() {
+    var box = document.getElementById('fotosPendingAlert'); if (!box) return;
+    var reqs = state.pending_approvals || [];
+    if (!reqs.length) { box.innerHTML = ''; return; }
+    box.innerHTML = '<div class="alert alert-warning py-2 px-3 d-flex flex-column gap-1 mb-2">'
+      + reqs.map(function (r) {
+        return '<div class="d-flex align-items-center gap-2 flex-wrap">'
+          + '<i class="fa fa-hourglass-half"></i>'
+          + '<span class="small">Hay <b>' + r.pending + '</b> contenido' + (r.pending === 1 ? '' : 's') + ' pendiente' + (r.pending === 1 ? '' : 's') + ' de aprobación, solicitado' + (r.pending === 1 ? '' : 's') + ' a <b>' + esc(r.approver) + '</b>' + (r.date ? ' el ' + esc(r.date) : '') + '</span>'
+          + '<button type="button" class="btn btn-sm btn-outline-secondary py-0" data-copy-approval="' + esc(r.url) + '"><i class="fa fa-link me-1"></i>Copiar enlace</button>'
+          + '</div>';
+      }).join('')
+      + '</div>';
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-copy-approval]'); if (!b) return;
+    var url = b.getAttribute('data-copy-approval');
+    (navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(url) : Promise.reject()).then(function () {
+      b.innerHTML = '<i class="fa fa-check me-1"></i>Copiado';
+      setTimeout(function () { b.innerHTML = '<i class="fa fa-link me-1"></i>Copiar enlace'; }, 1600);
+    }).catch(function () { window.prompt('Copia el enlace:', url); });
+  });
 
   // Etiquetas "N fotos" / "M vídeos" (sobre TODAS las fotos, no las filtradas).
   function updateCounts() {
@@ -243,6 +269,13 @@
     html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-detail-act="share"><i class="fa fa-share-nodes me-1"></i>Compartir</button>'
       + '<button type="button" class="btn btn-sm btn-outline-secondary" data-detail-act="album"><i class="fa fa-layer-group me-1"></i>Álbum</button>';
     if (canEdit) {
+      // Cambiar el ESTADO de aprobación a mano (aprobado / rechazado / volver a pendiente).
+      html += '<div class="dropdown d-inline-block"><button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-clipboard-check me-1"></i>Estado</button>'
+        + '<ul class="dropdown-menu">'
+        + '<li><button type="button" class="dropdown-item" data-detail-state="APPROVED"><i class="fa fa-circle-check text-success me-1"></i>Aprobado</button></li>'
+        + '<li><button type="button" class="dropdown-item" data-detail-state="REJECTED"><i class="fa fa-circle-xmark text-danger me-1"></i>Rechazado</button></li>'
+        + '<li><button type="button" class="dropdown-item" data-detail-state="PENDING"><i class="fa fa-circle-question text-warning me-1"></i>Pendiente de aprobación</button></li>'
+        + '</ul></div>';
       html += p.discarded
         ? '<button type="button" class="btn btn-sm btn-outline-secondary" data-detail-act="restore"><i class="fa fa-rotate-left me-1"></i>Restaurar</button>'
         : '<button type="button" class="btn btn-sm btn-outline-warning" data-detail-act="discard"><i class="fa fa-eye-slash me-1"></i>Descartar</button>';
@@ -251,6 +284,14 @@
     box.innerHTML = html;
   }
   document.getElementById('fotosDetailActions').addEventListener('click', function (e) {
+    var st = e.target.closest('[data-detail-state]');
+    if (st && detailPhotoId) {
+      postJson('/fotos/photo/' + detailPhotoId + '/estado-aprobacion', { state: st.getAttribute('data-detail-state') }).then(function (d) {
+        if (d && d.ok) { refresh(); openDetail(detailPhotoId); }
+        else alert((d && d.error) || 'No se pudo cambiar el estado.');
+      });
+      return;
+    }
     var b = e.target.closest('[data-detail-act]'); if (!b) return;
     var act = b.getAttribute('data-detail-act');
     var id = detailPhotoId; if (!id) return;
@@ -285,7 +326,20 @@
     var photog = p.photographer_unknown ? '<span class="text-muted">Desconocido</span>' : (p.photographer ? '<span class="fotos-chip">' + avatar(p.photographer.logo_url) + esc(p.photographer.name) + '</span>' : '<span class="text-muted">Desconocido</span>');
     rows += infoRow('Fotógrafo', photog);
     if (p.photographer && !p.photographer_unknown) { var sh = socialLinksHtml(p.photographer.social_links); if (sh) rows += infoRow('Menciones', sh); }
-    rows += infoRow('Aprobación', '<span class="text-muted small">Sin solicitud de aprobación</span>');
+    // Estado REAL de aprobación (antes salía siempre «Sin solicitud», aunque la hubiera).
+    var apSt = (p.approval_state || 'NONE').toUpperCase();
+    var apHtml;
+    if (apSt === 'APPROVED') apHtml = '<span class="text-success"><i class="fa fa-circle-check me-1"></i>Aprobado</span>';
+    else if (apSt === 'REJECTED') apHtml = '<span class="text-danger"><i class="fa fa-circle-xmark me-1"></i>Rechazado</span>';
+    else if (apSt === 'PENDING') apHtml = '<span class="text-warning"><i class="fa fa-circle-question me-1"></i>Pendiente de aprobación</span>';
+    else apHtml = '<span class="text-muted small">Sin solicitud de aprobación</span>';
+    if ((p.approvers || []).length) {
+      apHtml += ' <span class="text-muted small">· ' + p.approvers.map(function (a) {
+        var ic = a.decision === 'APPROVED' ? '✓' : (a.decision === 'REJECTED' ? '✗' : '?');
+        return ic + ' ' + esc(a.name || '');
+      }).join(' · ') + '</span>';
+    }
+    rows += infoRow('Aprobación', apHtml);
     return '<table class="table table-sm fotos-detail-table mb-3"><tbody>' + rows + '</tbody></table>'
       + '<div class="fotos-notes"><div class="small text-muted mb-1">Notas</div><div id="fotosNotesList"></div>'
       + (canEdit ? '<div class="input-group input-group-sm mt-2"><input type="text" class="form-control" id="fotosNoteInput" placeholder="Añadir una nota…"><button class="btn btn-outline-secondary" id="fotosNoteAdd"><i class="fa fa-plus"></i></button></div>' : '')

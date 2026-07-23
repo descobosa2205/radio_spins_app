@@ -3,114 +3,284 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Aprobación de contenidos</title>
+  <title>Supervisión de contenidos</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
   <style>
     body{ background:#f5f5f5; }
-    .pa-wrap{ max-width:920px; margin:0 auto; padding:1.25rem; }
-    .pa-logo{ max-height:56px; }
-    .pa-photo{ background:#fff; border:1px solid #e5e5e5; border-radius:.7rem; overflow:hidden; margin-bottom:1.2rem; }
-    .pa-photo__media{ position:relative; background:#000; display:flex; align-items:center; justify-content:center; }
-    .pa-photo__media img,.pa-photo__media video{ max-width:100%; max-height:70vh; display:block; }
-    .pa-expand{ position:absolute; top:.5rem; right:.5rem; }
-    .pa-actions{ display:flex; gap:.6rem; align-items:center; padding:.7rem 1rem; flex-wrap:wrap; }
-    .pa-thumb{ width:46px; height:46px; border-radius:.4rem; object-fit:cover; }
-    .pa-vote{ width:48px; height:48px; border-radius:50%; border:2px solid #ddd; background:#fff; font-size:1.1rem; }
-    .pa-vote--up.active{ background:#198754; color:#fff; border-color:#198754; }
-    .pa-vote--down.active{ background:#dc3545; color:#fff; border-color:#dc3545; }
-    .pa-vote.dim{ opacity:.4; }
-    .pa-note-bubble{ background:#eef6ff; border-radius:.6rem; padding:.4rem .6rem; margin:.3rem 1rem; font-size:.85rem; }
-    .pa-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:.5rem; }
-    .pa-grid img{ width:100%; aspect-ratio:1/1; object-fit:cover; border-radius:.4rem; }
+    .pa-wrap{ max-width:880px; margin:0 auto; padding:1rem; }
+    .pa-logo{ max-height:56px; max-width:200px; object-fit:contain; }
+    .pa-hero{ background:#fff; border:1px solid #e5e5e5; border-radius:.9rem; padding:1.1rem 1.25rem; }
+    .pa-hero__avatar{ width:52px; height:52px; border-radius:50%; object-fit:cover; border:1px solid #eceef1; }
+    .pa-kpis{ display:grid; grid-template-columns:1fr 1fr; gap:.8rem; }
+    @media (max-width:575px){ .pa-kpis{ grid-template-columns:1fr; } }
+    .pa-kpi{ background:#fff; border:1px solid #e5e5e5; border-radius:.9rem; padding:.9rem 1rem; cursor:pointer; }
+    .pa-kpi:hover{ border-color:#007CA2; }
+    .pa-kpi__thumbs{ display:flex; gap:.3rem; }
+    .pa-kpi__thumbs img, .pa-kpi__thumbs .ph{ width:38px; height:38px; border-radius:8px; object-fit:cover; background:#111; color:#fff; display:inline-flex; align-items:center; justify-content:center; }
+    .pa-sec-title{ font-size:.78rem; font-weight:700; letter-spacing:.05em; color:#8a94a1; text-transform:uppercase; margin:1.2rem 0 .5rem; }
+    .pa-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(150px,1fr)); gap:.7rem; }
+    .pa-tile{ position:relative; border-radius:.8rem; overflow:hidden; background:#111; aspect-ratio:1/1; cursor:pointer; border:1px solid #e5e5e5; }
+    .pa-tile img, .pa-tile video{ width:100%; height:100%; object-fit:cover; display:block; }
+    .pa-tile__state{ position:absolute; top:.4rem; right:.4rem; width:26px; height:26px; border-radius:50%; background:#fff; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,.3); font-size:.95rem; }
+    .pa-tile__play{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#fff; font-size:2rem; text-shadow:0 2px 8px rgba(0,0,0,.6); pointer-events:none; }
+    .st-PENDING{ color:#e0a800; } .st-APPROVED{ color:#1e7e34; } .st-REJECTED{ color:#dc3545; }
+    /* Popup de visionado en grande */
+    .pa-pop{ position:fixed; inset:0; background:rgba(10,10,12,.92); z-index:1060; display:none; flex-direction:column; }
+    .pa-pop.open{ display:flex; }
+    .pa-pop__top{ display:flex; justify-content:space-between; align-items:center; padding:.7rem 1rem; color:#fff; }
+    .pa-pop__media{ flex:1; display:flex; align-items:center; justify-content:center; min-height:0; padding:0 3.4rem; }
+    .pa-pop__media img, .pa-pop__media video{ max-width:100%; max-height:100%; border-radius:.5rem; }
+    .pa-pop__nav{ position:absolute; top:50%; transform:translateY(-50%); width:2.7rem; height:2.7rem; border-radius:50%; border:0; background:rgba(255,255,255,.16); color:#fff; font-size:1.1rem; }
+    .pa-pop__nav:hover{ background:rgba(255,255,255,.3); }
+    .pa-pop__actions{ display:flex; justify-content:center; align-items:center; gap:1.4rem; padding:1rem 0 1.4rem; }
+    .pa-vote{ width:64px; height:64px; border-radius:50%; border:0; color:#fff; font-size:1.5rem; box-shadow:0 6px 18px rgba(0,0,0,.35); }
+    .pa-vote--up{ background:#1e7e34; } .pa-vote--down{ background:#dc3545; }
+    .pa-vote:disabled{ opacity:.5; }
+    .pa-done{ background:#fff; border:1px solid #e5e5e5; border-radius:.9rem; padding:2rem; text-align:center; }
   </style>
 </head>
 <body>
 <div class="pa-wrap">
   <div class="text-end mb-2"><img class="pa-logo" src="{{ logo }}" alt=""></div>
+  <h3 class="text-center mb-1">Supervisión de contenidos</h3>
+  <div class="text-center text-muted small mb-3">
+    {% if requested_by_photo is defined and requested_by_photo %}<img src="{{ requested_by_photo }}" alt="" style="width:22px;height:22px;border-radius:50%;object-fit:cover;" class="me-1">{% endif %}
+    Solicitado por <b>{{ requested_by if requested_by is defined else 'el equipo' }}</b>{% if req is defined and req and req.created_at %} el {{ req.created_at.strftime('%d/%m/%Y') }}{% endif %}
+  </div>
+
+  {# Galleta de la actividad (igual que el resto de la app) #}
+  {% if card is defined and card %}
+  <div class="pa-hero mb-3">
+    <div class="text-uppercase small fw-bold" style="letter-spacing:.05em;color:#6c757d;">{{ card.activity_label or 'Actividad' }}</div>
+    <div class="h5 mb-1 mt-1">
+      <i class="fa {{ card.activity_icon or 'fa-images' }} me-2 text-muted"></i>
+      {{ [card.event_name, card.city, card.date_label] | select | join(' · ') or owner_title }}
+    </div>
+    {% if card.artist_name or card.artist_photo %}
+    <div class="d-flex align-items-center gap-2 mt-2">
+      <img class="pa-hero__avatar" src="{{ card.artist_photo or logo }}" alt="">
+      <span class="fw-semibold">{{ card.artist_name }}</span>
+    </div>
+    {% endif %}
+    {% if count_label is defined %}<div class="text-muted small mt-2">{{ count_label }}</div>{% endif %}
+  </div>
+  {% endif %}
 
   {% if done %}
-    <div class="text-center py-3">
-      <i class="fa fa-circle-check fa-3x text-success mb-3"></i>
-      <h3>¡Gracias!</h3>
-      {% if approved_photos is defined and approved_photos %}
-        <p class="text-muted">Has aprobado {{ approved_photos|length }} elemento{{ '' if approved_photos|length == 1 else 's' }}.</p>
-        <div class="pa-grid my-3">
-          {% for p in approved_photos %}
-            {% if (p.kind or 'IMAGE')|upper == 'VIDEO' %}<video src="{{ p.file_url }}" muted></video>{% else %}<img src="{{ p.file_url }}" alt="">{% endif %}
-          {% endfor %}
-        </div>
-      {% else %}
-        <p class="text-muted">Hemos registrado tus respuestas.</p>
-      {% endif %}
-      <div class="alert alert-warning d-inline-block mt-2">
-        <i class="fa fa-triangle-exclamation me-1"></i>
-        Estas todavía no se pueden compartir ni utilizar hasta que alguien del equipo indique lo contrario.
+    <div class="pa-done">
+      <div class="mb-2"><i class="fa fa-circle-check fa-2x text-success"></i></div>
+      <div class="fw-semibold mb-1">No queda contenido pendiente de aprobar</div>
+      {% if counts is defined and counts %}
+      <div class="text-muted small">
+        Fotos: {{ counts.photos.approved }} aprobadas · {{ counts.photos.rejected }} rechazadas ·
+        Vídeos: {{ counts.videos.approved }} aprobados · {{ counts.videos.rejected }} rechazados.
       </div>
+      {% endif %}
+      <div class="text-muted small mt-2">Este enlace ya no está activo. ¡Gracias por la revisión!</div>
+      <div class="alert alert-warning small mt-3 mb-0"><i class="fa fa-triangle-exclamation me-1"></i>Los contenidos revisados no se pueden compartir ni utilizar hasta que el equipo los publique.</div>
     </div>
   {% else %}
-    <h2 class="text-center mb-3">Aprobación de contenidos</h2>
-    <div class="d-flex align-items-center gap-2 mb-2">
-      {% if requested_by_photo %}<img src="{{ requested_by_photo }}" style="width:32px;height:32px;border-radius:50%;object-fit:cover">{% endif %}
-      <div><strong>{{ requested_by }}</strong> te ha compartido los siguientes materiales para que des tu aprobación.</div>
-    </div>
-    {% if owner_title %}<div class="bg-white border rounded p-2 mb-3"><i class="fa fa-folder-open me-1 text-muted"></i>{{ owner_title }} · {{ count_label }}</div>{% endif %}
 
-    <form method="post" id="paForm">
-      {% for p in photos %}
-      <div class="pa-photo" data-photo="{{ p.id }}">
-        <div class="pa-photo__media">
-          {% if p.is_video %}<video src="{{ p.file_url }}" controls></video>{% else %}<img src="{{ p.file_url }}" alt="">{% endif %}
-          <button type="button" class="btn btn-sm btn-light pa-expand" data-expand="{{ p.file_url }}" data-video="{{ '1' if p.is_video else '' }}"><i class="fa fa-expand"></i></button>
+  {# Resumen por tipo, con recuentos EN VIVO (pinchar abre el visionado por los pendientes) #}
+  <div class="pa-kpis mb-2">
+    <div class="pa-kpi" data-open-kind="photo" {% if not (counts.photos.pending + counts.photos.approved + counts.photos.rejected) %}style="display:none"{% endif %}>
+      <div class="d-flex justify-content-between align-items-start">
+        <div>
+          <div class="fw-bold"><i class="fa fa-image me-1 text-muted"></i>Fotos</div>
+          <div class="small"><span class="st-PENDING fw-bold" data-cnt="photos-pending">{{ counts.photos.pending }}</span> pendientes ·
+            <span class="st-APPROVED" data-cnt="photos-approved">{{ counts.photos.approved }}</span> aprobadas ·
+            <span class="st-REJECTED" data-cnt="photos-rejected">{{ counts.photos.rejected }}</span> rechazadas</div>
         </div>
-        <div class="pa-actions">
-          <div class="fw-semibold flex-grow-1 text-truncate">{{ p.title }}</div>
-          <input type="hidden" name="decision_{{ p.id }}" value="{{ p.decision if p.decision in ['APPROVED','REJECTED'] else '' }}">
-          <button type="button" class="btn btn-light" data-note-btn title="Añadir nota"><i class="fa fa-note-sticky"></i></button>
-          <button type="button" class="pa-vote pa-vote--up {% if p.decision=='APPROVED' %}active{% elif p.decision=='REJECTED' %}dim{% endif %}" data-vote="APPROVED"><i class="fa fa-thumbs-up"></i></button>
-          <button type="button" class="pa-vote pa-vote--down {% if p.decision=='REJECTED' %}active{% elif p.decision=='APPROVED' %}dim{% endif %}" data-vote="REJECTED"><i class="fa fa-thumbs-down"></i></button>
+        <div class="pa-kpi__thumbs">
+          {% for p in photos | rejectattr('is_video') | list %}{% if loop.index <= 3 %}<img src="{{ p.file_url }}" alt="">{% endif %}{% endfor %}
         </div>
-        <div class="pa-note-input px-3 pb-2 d-none"><textarea class="form-control form-control-sm" name="note_{{ p.id }}" rows="2" placeholder="Escribe una nota…"></textarea></div>
-        {% for n in p.notes %}
-          <div class="pa-note-bubble" title="{{ n.at }}"><strong>{{ n.author }}:</strong> {{ n.body }}</div>
-        {% endfor %}
+      </div>
+    </div>
+    <div class="pa-kpi" data-open-kind="video" {% if not (counts.videos.pending + counts.videos.approved + counts.videos.rejected) %}style="display:none"{% endif %}>
+      <div class="d-flex justify-content-between align-items-start">
+        <div>
+          <div class="fw-bold"><i class="fa fa-film me-1 text-muted"></i>Vídeos</div>
+          <div class="small"><span class="st-PENDING fw-bold" data-cnt="videos-pending">{{ counts.videos.pending }}</span> pendientes ·
+            <span class="st-APPROVED" data-cnt="videos-approved">{{ counts.videos.approved }}</span> aprobados ·
+            <span class="st-REJECTED" data-cnt="videos-rejected">{{ counts.videos.rejected }}</span> rechazados</div>
+        </div>
+        <div class="pa-kpi__thumbs">
+          {% for p in photos | selectattr('is_video') | list %}{% if loop.index <= 3 %}<span class="ph"><i class="fa fa-play"></i></span>{% endif %}{% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# Contenidos pendientes: primero VÍDEOS y debajo las FOTOS, con su símbolo de estado #}
+  {% set vids = photos | selectattr('is_video') | selectattr('decision', 'equalto', 'PENDING') | list %}
+  {% set fots = photos | rejectattr('is_video') | selectattr('decision', 'equalto', 'PENDING') | list %}
+  {% if vids %}
+    <div class="pa-sec-title">Vídeos pendientes</div>
+    <div class="pa-grid">
+      {% for p in vids %}
+      <div class="pa-tile" id="c-{{ p.id }}" data-pa-item="{{ p.id }}">
+        <video src="{{ p.file_url }}" preload="metadata" muted playsinline></video>
+        <span class="pa-tile__play"><i class="fa fa-circle-play"></i></span>
+        <span class="pa-tile__state"><i class="fa fa-circle-question st-PENDING" data-state-icon></i></span>
       </div>
       {% endfor %}
-
-      <div class="text-center my-4">
-        <button type="submit" class="btn btn-primary btn-lg"><i class="fa fa-floppy-disk me-1"></i>Guardar preferencias</button>
+    </div>
+  {% endif %}
+  {% if fots %}
+    <div class="pa-sec-title">Fotos pendientes</div>
+    <div class="pa-grid">
+      {% for p in fots %}
+      <div class="pa-tile" id="c-{{ p.id }}" data-pa-item="{{ p.id }}">
+        <img src="{{ p.file_url }}" alt="" loading="lazy">
+        <span class="pa-tile__state"><i class="fa fa-circle-question st-PENDING" data-state-icon></i></span>
       </div>
-    </form>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <div class="pa-done mt-3" id="paAllDone" style="display:none;">
+    <div class="mb-2"><i class="fa fa-circle-check fa-2x text-success"></i></div>
+    <div class="fw-semibold mb-1">¡Revisión completada!</div>
+    <div class="text-muted small" id="paAllDoneSummary"></div>
+    <div class="alert alert-warning small mt-3 mb-0"><i class="fa fa-triangle-exclamation me-1"></i>Los contenidos revisados no se pueden compartir ni utilizar hasta que el equipo los publique.</div>
+  </div>
+
+  {# Popup de visionado: pulgares rojo/verde + flechas para pasar por los PENDIENTES #}
+  <div class="pa-pop" id="paPop">
+    <div class="pa-pop__top">
+      <div class="small" id="paPopTitle"></div>
+      <button type="button" class="btn btn-sm btn-outline-light" id="paPopClose"><i class="fa fa-xmark me-1"></i>Cerrar</button>
+    </div>
+    <div class="pa-pop__media position-relative">
+      <button type="button" class="pa-pop__nav" style="left:.6rem" id="paPopPrev" title="Anterior"><i class="fa fa-chevron-left"></i></button>
+      <div id="paPopStage" class="w-100 h-100 d-flex align-items-center justify-content-center"></div>
+      <button type="button" class="pa-pop__nav" style="right:.6rem" id="paPopNext" title="Siguiente"><i class="fa fa-chevron-right"></i></button>
+    </div>
+    <div class="pa-pop__actions">
+      <button type="button" class="pa-vote pa-vote--down" id="paVoteDown" title="Rechazar"><i class="fa fa-thumbs-down"></i></button>
+      <button type="button" class="pa-vote pa-vote--up" id="paVoteUp" title="Aprobar"><i class="fa fa-thumbs-up"></i></button>
+    </div>
+  </div>
+
+  <script id="paData" type="application/json">{{ {'items': photos, 'counts': counts, 'decideUrl': decide_url} | tojson }}</script>
+  <script>
+  (function(){
+    var data = JSON.parse(document.getElementById('paData').textContent || '{}');
+    var items = (data.items || []);
+    var counts = data.counts || {photos:{pending:0,approved:0,rejected:0}, videos:{pending:0,approved:0,rejected:0}};
+    var byId = {}; items.forEach(function(it){ byId[it.id] = it; });
+    var pop = document.getElementById('paPop'), stage = document.getElementById('paPopStage');
+    var current = null;
+
+    function pendingList(){
+      // Orden de navegación = el del panel: vídeos primero y después las fotos.
+      return items.filter(function(it){ return it.decision === 'PENDING' && it.is_video; })
+        .concat(items.filter(function(it){ return it.decision === 'PENDING' && !it.is_video; }))
+        .map(function(it){ return it.id; });
+    }
+    function stateIconFor(dec){
+      return dec === 'APPROVED' ? '<i class="fa fa-circle-check st-APPROVED" data-state-icon></i>'
+           : dec === 'REJECTED' ? '<i class="fa fa-circle-xmark st-REJECTED" data-state-icon></i>'
+           : '<i class="fa fa-circle-question st-PENDING" data-state-icon></i>';
+    }
+    function refreshCounts(){
+      ['photos','videos'].forEach(function(k){
+        ['pending','approved','rejected'].forEach(function(s){
+          var el = document.querySelector('[data-cnt="' + k + '-' + s + '"]');
+          if(el) el.textContent = counts[k][s];
+        });
+      });
+      if(counts.photos.pending + counts.videos.pending === 0){
+        var box = document.getElementById('paAllDone');
+        if(box){
+          box.style.display = '';
+          document.getElementById('paAllDoneSummary').textContent =
+            'Fotos: ' + counts.photos.approved + ' aprobadas · ' + counts.photos.rejected + ' rechazadas · ' +
+            'Vídeos: ' + counts.videos.approved + ' aprobados · ' + counts.videos.rejected + ' rechazados.';
+        }
+      }
+    }
+    function renderStage(id){
+      var it = byId[id]; if(!it) return;
+      current = id;
+      document.getElementById('paPopTitle').textContent = (it.is_video ? 'Vídeo' : 'Foto') + (it.title ? ' · ' + it.title : '');
+      stage.innerHTML = it.is_video
+        ? '<video src="' + it.file_url + '" controls autoplay playsinline style="max-width:100%;max-height:100%"></video>'
+        : '<img src="' + it.file_url + '" alt="">';
+      var canVote = it.decision === 'PENDING';
+      document.getElementById('paVoteUp').disabled = !canVote;
+      document.getElementById('paVoteDown').disabled = !canVote;
+    }
+    function openPop(id){
+      if(!id) return;
+      pop.classList.add('open');
+      document.body.style.overflow = 'hidden';
+      renderStage(id);
+    }
+    function closePop(){
+      pop.classList.remove('open');
+      stage.innerHTML = '';
+      document.body.style.overflow = '';
+      // se vuelve al panel en el punto en el que estabas
+      if(current){ var t = document.getElementById('c-' + current); if(t && t.scrollIntoView) t.scrollIntoView({block:'nearest'}); }
+    }
+    function move(delta){
+      var list = pendingList();
+      if(!list.length){ closePop(); return; }
+      var idx = list.indexOf(current);
+      if(idx === -1) idx = 0; else idx = (idx + delta + list.length) % list.length;
+      renderStage(list[idx]);
+    }
+    function decide(decision){
+      var it = byId[current]; if(!it || it.decision !== 'PENDING') return;
+      var up = document.getElementById('paVoteUp'), down = document.getElementById('paVoteDown');
+      up.disabled = down.disabled = true;
+      fetch(data.decideUrl, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ photo_id: it.id, decision: decision })
+      }).then(function(r){ return r.json(); }).then(function(d){
+        if(!d || !d.ok){ alert((d && d.error) || 'No se pudo guardar.'); up.disabled = down.disabled = false; return; }
+        it.decision = decision;
+        counts = d.counts || counts;
+        var icon = document.querySelector('[data-pa-item="' + it.id + '"] [data-state-icon]');
+        if(icon) icon.outerHTML = stateIconFor(decision);
+        refreshCounts();
+        var list = pendingList();
+        if(list.length) renderStage(list[0]);
+        else closePop();
+      }).catch(function(){ alert('Error de red.'); up.disabled = down.disabled = false; });
+    }
+
+    document.addEventListener('click', function(e){
+      var tile = e.target.closest('[data-pa-item]');
+      if(tile){ openPop(tile.getAttribute('data-pa-item')); return; }
+      var kpi = e.target.closest('[data-open-kind]');
+      if(kpi){
+        var kind = kpi.getAttribute('data-open-kind');
+        var list = pendingList().filter(function(id){ return !!byId[id].is_video === (kind === 'video'); });
+        if(list.length) openPop(list[0]);
+      }
+    });
+    document.getElementById('paPopClose').addEventListener('click', closePop);
+    document.getElementById('paPopPrev').addEventListener('click', function(){ move(-1); });
+    document.getElementById('paPopNext').addEventListener('click', function(){ move(1); });
+    document.getElementById('paVoteUp').addEventListener('click', function(){ decide('APPROVED'); });
+    document.getElementById('paVoteDown').addEventListener('click', function(){ decide('REJECTED'); });
+    document.addEventListener('keydown', function(e){
+      if(!pop.classList.contains('open')) return;
+      if(e.key === 'Escape') closePop();
+      else if(e.key === 'ArrowLeft') move(-1);
+      else if(e.key === 'ArrowRight') move(1);
+    });
+    // Si se llega desde el correo con #c-<id>, se abre directamente ese contenido.
+    if(location.hash && location.hash.indexOf('#c-') === 0){
+      var hid = location.hash.slice(3);
+      if(byId[hid] && byId[hid].decision === 'PENDING') openPop(hid);
+    }
+  })();
+  </script>
   {% endif %}
 </div>
-
-<div class="modal fade" id="paLightbox" tabindex="-1"><div class="modal-dialog modal-xl modal-dialog-centered"><div class="modal-content bg-dark"><div class="modal-body p-0 text-center" id="paLightboxBody"></div></div></div></div>
-
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script>
-(function(){
-  document.querySelectorAll('.pa-photo').forEach(function(card){
-    var hidden = card.querySelector('input[type=hidden]');
-    card.querySelectorAll('[data-vote]').forEach(function(btn){
-      btn.addEventListener('click', function(){
-        var val = btn.getAttribute('data-vote');
-        hidden.value = val;
-        var up = card.querySelector('.pa-vote--up'), down = card.querySelector('.pa-vote--down');
-        up.classList.toggle('active', val==='APPROVED'); up.classList.toggle('dim', val!=='APPROVED');
-        down.classList.toggle('active', val==='REJECTED'); down.classList.toggle('dim', val!=='REJECTED');
-      });
-    });
-    var noteBtn = card.querySelector('[data-note-btn]');
-    if(noteBtn) noteBtn.addEventListener('click', function(){ card.querySelector('.pa-note-input').classList.toggle('d-none'); });
-  });
-  document.querySelectorAll('[data-expand]').forEach(function(b){
-    b.addEventListener('click', function(){
-      var url=b.getAttribute('data-expand'), isVid=b.getAttribute('data-video')==='1';
-      document.getElementById('paLightboxBody').innerHTML = isVid ? '<video src="'+url+'" controls autoplay style="max-width:100%;max-height:88vh"></video>' : '<img src="'+url+'" style="max-width:100%;max-height:88vh">';
-      bootstrap.Modal.getOrCreateInstance(document.getElementById('paLightbox')).show();
-    });
-  });
-})();
-</script>
 </body>
 </html>

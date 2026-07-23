@@ -352,6 +352,7 @@ _CSRF_EXEMPT_ENDPOINTS = {
     "public_song_delivery_create_author",
     "public_song_delivery_create_publisher",
     "public_photo_approval",
+    "public_photo_approval_decide",
     "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash",
     "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource",
     "public_caldav_rootdiscovery",
@@ -34420,7 +34421,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -36078,7 +36079,7 @@ SUPPORT_ACTION_ENDPOINTS = {
     "roadmap_days_save", "roadmap_public_link",
     # Fotos / vídeos (galería transversal de conciertos y acciones)
     "fotos_upload", "fotos_reorder", "foto_update", "foto_delete", "foto_discard",
-    "foto_note_add", "fotos_bulk_update",
+    "foto_note_add", "fotos_bulk_update", "foto_set_approval_state",
     "photo_album_create", "photo_album_add", "photo_album_update", "photo_album_delete",
     "fotos_approval_create", "fotos_zip", "fotos_share_create", "fotos_share_email",
     # Agenda: bloqueos y notas libres (botón + del calendario, Inicio y ficha de artista)
@@ -42878,6 +42879,35 @@ def _build_fotos_context(session_db, owner_type, owner_id, include_discarded=Fal
         })
 
     loose = [_photo_payload(p, promo_map.get(p.photographer_promoter_id), appr_map.get(str(p.id))) for p in photos if p.id not in in_album]
+
+    # Solicitudes de aprobación con contenido AÚN PENDIENTE (barra amarilla del panel):
+    # a quién se pidió, cuándo, cuánto queda y su enlace (para copiarlo). Desaparece sola
+    # cuando todo está aprobado o rechazado.
+    pending_approvals = []
+    try:
+        appr_rows = (
+            session_db.query(PhotoApprover, PhotoApprovalRequest)
+            .join(PhotoApprovalRequest, PhotoApprovalRequest.id == PhotoApprover.request_id)
+            .filter(PhotoApprovalRequest.owner_type == owner_type, PhotoApprovalRequest.owner_id == oid)
+            .order_by(PhotoApprovalRequest.created_at.asc())
+            .all()
+        )
+        for approver, reqrow in appr_rows:
+            n_pend = (
+                session_db.query(func.count(PhotoApproval.id))
+                .filter(PhotoApproval.approver_id == approver.id, PhotoApproval.decision == "PENDING")
+                .scalar() or 0
+            )
+            if n_pend:
+                pending_approvals.append({
+                    "approver": (approver.name or "—").strip(),
+                    "date": reqrow.created_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y") if reqrow.created_at else "",
+                    "pending": int(n_pend),
+                    "url": _external_url_for("public_photo_approval", token=approver.token),
+                })
+    except Exception:
+        pending_approvals = []
+
     return {
         "owner_type": owner_type,
         "owner_id": str(oid),
@@ -42891,6 +42921,7 @@ def _build_fotos_context(session_db, owner_type, owner_id, include_discarded=Fal
         "video_total": sum(1 for p in photos if (getattr(p, "kind", None) or "IMAGE").upper() == "VIDEO"),
         "photo_total": sum(1 for p in photos if (getattr(p, "kind", None) or "IMAGE").upper() != "VIDEO"),
         "include_discarded": bool(include_discarded),
+        "pending_approvals": pending_approvals,
     }
 
 
@@ -44077,20 +44108,138 @@ def fotos_approval_options(owner_type, owner_id):
         session_db.close()
 
 
+@app.post("/fotos/photo/<photo_id>/estado-aprobacion", endpoint="foto_set_approval_state")
+@admin_required
+def foto_set_approval_state(photo_id):
+    """Cambio MANUAL del estado de aprobación de un contenido desde el panel (menú de la foto):
+    aprobado, rechazado o volver a pendiente. Si nunca tuvo solicitud, se crea una mínima
+    «cambio manual» para que el estado quede registrado con quién lo hizo."""
+    pid = to_uuid(photo_id)
+    state = ((request.get_json(silent=True) or {}).get("state") or "").strip().upper()
+    if not pid or state not in ("APPROVED", "REJECTED", "PENDING"):
+        return jsonify({"ok": False, "error": "Estado no válido."}), 400
+    user_state = _current_user_state()
+    session_db = db()
+    try:
+        photo = session_db.get(Photo, pid)
+        if not photo:
+            return jsonify({"ok": False, "error": "Contenido no encontrado."}), 404
+        rows = session_db.query(PhotoApproval).filter(PhotoApproval.photo_id == pid).all()
+        if rows:
+            now_dt = _now_madrid()
+            touched_approvers = set()
+            for ap in rows:
+                ap.decision = state
+                ap.decided_at = now_dt if state != "PENDING" else None
+                touched_approvers.add(ap.approver_id)
+            # Recalcular el estado de cada aprobador afectado (cierra o reabre su enlace).
+            for aid in touched_approvers:
+                n_pend = (
+                    session_db.query(func.count(PhotoApproval.id))
+                    .filter(PhotoApproval.approver_id == aid, PhotoApproval.decision == "PENDING")
+                    .scalar() or 0
+                )
+                approver = session_db.get(PhotoApprover, aid)
+                if approver:
+                    approver.status = "PENDING" if n_pend else "SUBMITTED"
+                    approver.submitted_at = None if n_pend else _now_madrid()
+        elif state != "PENDING":
+            req = PhotoApprovalRequest(
+                owner_type=photo.owner_type, owner_id=photo.owner_id,
+                photo_ids=[str(photo.id)], status="ACTIVE",
+                requested_by_user_id=to_uuid(user_state.get("user_id")),
+                requested_by_nick=((user_state.get("nick") or "").strip() or "Equipo") + " (cambio manual)",
+            )
+            session_db.add(req)
+            session_db.flush()
+            approver = PhotoApprover(
+                request_id=req.id, token=uuid.uuid4().hex, kind="CUSTOM",
+                name=((user_state.get("nick") or "").strip() or "Equipo") + " (manual)",
+                status="SUBMITTED", submitted_at=_now_madrid(),
+            )
+            session_db.add(approver)
+            session_db.flush()
+            session_db.add(PhotoApproval(approver_id=approver.id, photo_id=photo.id, decision=state, decided_at=_now_madrid()))
+        session_db.commit()
+        appr_map = _photo_approval_map(session_db, [photo.id])
+        promo_map = _photo_promoter_map(session_db, [photo])
+        return jsonify({"ok": True, "photo": _photo_payload(photo, promo_map.get(photo.photographer_promoter_id), appr_map.get(str(photo.id)))})
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        session_db.close()
+
+
+def _photo_event_header_email_html(card, owner_title):
+    """Cabecera-galleta del EVENTO para correos de fotos/vídeos (mismo estilo que el resto de
+    correos de la app): foto del artista/cartel en círculo + nombre + Evento/Ciudad/Fecha."""
+    def esc(x):
+        return escape(str(x or ""))
+    meta_rows = [(k, v) for k, v in [
+        ("Actividad", card.get("activity_label")),
+        ("Evento", card.get("event_name")),
+        ("Ciudad", card.get("city")),
+        ("Fecha", card.get("date_label")),
+    ] if v]
+    meta_html = "".join(f'<div style="font-size:13px;color:#444"><b>{esc(k)}:</b> {esc(v)}</div>' for k, v in meta_rows)
+    photo = _absolute_media_url(card.get("artist_photo") or "") if card.get("artist_photo") else ""
+    photo_cell = (
+        f'<td style="vertical-align:middle;padding-right:12px">'
+        f'<img src="{esc(photo)}" width="52" height="52" alt="" style="width:52px;height:52px;border-radius:50%;object-fit:cover;display:block;border:1px solid #eceef1"></td>'
+    ) if photo else ''
+    return (
+        '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#f6f7f9;border:1px solid #eceef1;border-radius:14px;margin:8px 0 18px">'
+        '<tr><td style="padding:14px 16px"><table role="presentation" cellpadding="0" cellspacing="0"><tr>'
+        f'{photo_cell}'
+        f'<td style="vertical-align:top"><div style="font-size:17px;font-weight:700;color:#111">{esc(card.get("artist_name") or owner_title or "Evento")}</div>{meta_html}</td>'
+        '</tr></table></td></tr></table>'
+    )
+
+
 def _photo_approval_email_html(session_db, request_row, approver, photos, owner_title):
+    """Correo de solicitud de aprobación: logo de la empresa a la derecha, cabecera del evento,
+    botón «Supervisar contenidos» al PRINCIPIO y al FINAL, y el listado de contenidos con
+    miniatura — cada contenido enlaza a su punto exacto dentro de la página de supervisión."""
     company = session_db.get(GroupCompany, request_row.brand_company_id) if request_row.brand_company_id else None
     logo = (company.logo_url if company and company.logo_url else url_for("static", filename="img/logo.png", _external=True))
     url_pub = _external_url_for("public_photo_approval", token=approver.token)
     who = (request_row.requested_by_nick or "El equipo").strip()
     count = _photo_count_label(photos)
+    owner, _aid, _tt = _photo_resolve_owner(session_db, request_row.owner_type, request_row.owner_id)
+    card = _public_share_card(session_db, request_row.owner_type, owner, artist_id=_aid)
+    header_html = _photo_event_header_email_html(card, owner_title)
+    btn = ('<p style="margin:16px 0"><a href="%s" style="background:#E33D48;color:#fff;padding:11px 22px;'
+           'border-radius:10px;text-decoration:none;font-weight:700;display:inline-block">Supervisar contenidos</a></p>' % url_pub)
+    items = []
+    for p in photos:
+        thumb_url = _absolute_media_url(p.file_url or "")
+        anchor = url_pub + "#c-" + str(p.id)
+        is_video = (p.kind or "").upper() == "VIDEO"
+        if is_video:
+            media = ('<span style="display:inline-block;width:64px;height:64px;border-radius:8px;background:#111;color:#fff;'
+                     'text-align:center;line-height:64px;font-size:22px">&#9654;</span>')
+        else:
+            media = f'<img src="{escape(thumb_url)}" width="64" height="64" alt="" style="width:64px;height:64px;border-radius:8px;object-fit:cover;display:block">'
+        label = escape(p.title or p.file_name or ("Vídeo" if is_video else "Foto"))
+        kind_txt = "Vídeo" if is_video else "Foto"
+        items.append(
+            '<tr>'
+            f'<td style="padding:6px 10px 6px 0;width:64px"><a href="{escape(anchor)}" style="text-decoration:none">{media}</a></td>'
+            f'<td style="vertical-align:middle"><a href="{escape(anchor)}" style="color:#111;text-decoration:none"><b>{label}</b>'
+            f'<div style="font-size:12px;color:#888">{kind_txt} · pendiente de aprobar &rarr; revisar</div></a></td>'
+            '</tr>'
+        )
+    items_html = ('<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%%;margin:6px 0 2px">%s</table>' % "".join(items)) if items else ""
     return (
-        '<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto">'
-        '<div style="text-align:right"><img src="%s" alt="" style="max-height:54px"></div>' % logo
-        + '<p>%s te ha compartido unos contenidos para aprobación. Por favor revisa uno a uno para dar tu aprobación.</p>' % escape(who)
-        + '<h3 style="margin:18px 0 4px">Contenido pendiente de aprobar:</h3>'
-        + '<p style="font-size:16px"><strong>%s</strong>%s</p>' % (escape(count), (' · ' + escape(owner_title)) if owner_title else '')
-        + '<p style="margin-top:22px"><a href="%s" style="background:#E33D48;color:#fff;padding:11px 20px;border-radius:6px;text-decoration:none">Revisar ahora</a></p>' % url_pub
-        + '<p style="color:#888;font-size:12px;margin-top:18px">Si el botón no funciona, copia este enlace: %s</p>' % url_pub
+        '<div style="font-family:Arial,sans-serif;color:#111;line-height:1.45;max-width:640px;margin:auto">'
+        '<div style="text-align:right;margin-bottom:6px"><img src="%s" alt="" style="max-height:58px;max-width:200px"></div>' % logo
+        + '<p><b>%s</b> solicita aprobación de los siguientes contenidos (%s):</p>' % (escape(who), escape(count))
+        + header_html
+        + btn
+        + items_html
+        + btn
+        + '<p style="color:#888;font-size:12px;margin-top:14px">Si el botón no funciona, copia este enlace: %s</p>' % url_pub
         + '</div>'
     )
 
@@ -44241,9 +44390,6 @@ def photo_approval_public(token):
                 approved_photos=approved_photos, owner_title=owner_title, approver=approver,
             )
 
-        notes_map = {}
-        for n in session_db.query(PhotoNote).filter(PhotoNote.photo_id.in_(list(approvals.keys()))).order_by(PhotoNote.created_at.asc()).all() if approvals else []:
-            notes_map.setdefault(n.photo_id, []).append(n)
         photo_rows = []
         for p in photos:
             ap = approvals.get(p.id)
@@ -44251,14 +44397,90 @@ def photo_approval_public(token):
                 "id": str(p.id), "title": p.title or p.file_name or "", "file_url": p.file_url,
                 "is_video": (p.kind or "IMAGE").upper() == "VIDEO",
                 "decision": (ap.decision if ap else "PENDING"),
-                "notes": [{"body": n.body, "author": n.created_by_nick or "", "photo": n.created_by_photo_url or "", "at": (n.created_at.strftime("%d/%m/%Y") if n.created_at else "")} for n in notes_map.get(p.id, [])],
             })
+        counts = _photo_approval_counts_for(photo_rows)
+        card = _public_share_card(session_db, req.owner_type, owner, artist_id=_artist_id)
+        # El enlace deja de estar activo cuando no queda nada pendiente; al volver a entrar
+        # solo se ve (y se navega) el contenido pendiente de aprobar.
+        no_pending = not any(r["decision"] == "PENDING" for r in photo_rows)
         return render_template(
-            "public_photo_approval.html", done=(approver.status == "SUBMITTED"), logo=logo,
+            "public_photo_approval.html", done=no_pending, logo=logo,
             photos=photo_rows, owner_title=owner_title, approver=approver, req=req,
             requested_by=(req.requested_by_nick or "El equipo"), requested_by_photo=(req.requested_by_photo_url or ""),
-            count_label=_photo_count_label(photos),
+            count_label=_photo_count_label(photos), card=card, counts=counts,
+            decide_url=url_for("public_photo_approval_decide", token=approver.token),
         )
+    finally:
+        session_db.close()
+
+
+def _photo_approval_counts_for(rows):
+    """Recuentos por tipo y decisión para la página de supervisión (y sus respuestas AJAX)."""
+    out = {"photos": {"pending": 0, "approved": 0, "rejected": 0},
+           "videos": {"pending": 0, "approved": 0, "rejected": 0}}
+    for r in rows:
+        bucket = out["videos"] if r.get("is_video") else out["photos"]
+        d = (r.get("decision") or "PENDING").upper()
+        if d == "APPROVED":
+            bucket["approved"] += 1
+        elif d == "REJECTED":
+            bucket["rejected"] += 1
+        else:
+            bucket["pending"] += 1
+    return out
+
+
+@app.post("/aprobacion-fotos/<token>/decidir", endpoint="public_photo_approval_decide")
+def photo_approval_public_decide(token):
+    """Decisión EN VIVO de un contenido desde la página de supervisión (pulgares del popup):
+    guarda la aprobación/rechazo, recalcula recuentos y cierra la solicitud del aprobador
+    cuando ya no le queda nada pendiente."""
+    payload = request.get_json(silent=True) or {}
+    photo_id = to_uuid(payload.get("photo_id"))
+    decision = (payload.get("decision") or "").strip().upper()
+    note = (payload.get("note") or "").strip()
+    if not photo_id or decision not in ("APPROVED", "REJECTED"):
+        return jsonify({"ok": False, "error": "Decisión no válida."}), 400
+    session_db = db()
+    try:
+        approver = session_db.query(PhotoApprover).filter(PhotoApprover.token == token).first()
+        if not approver:
+            return jsonify({"ok": False, "error": "Enlace no válido."}), 404
+        ap = (
+            session_db.query(PhotoApproval)
+            .filter(PhotoApproval.approver_id == approver.id, PhotoApproval.photo_id == photo_id)
+            .first()
+        )
+        if not ap:
+            return jsonify({"ok": False, "error": "Contenido no encontrado."}), 404
+        ap.decision = decision
+        ap.decided_at = _now_madrid()
+        if note:
+            session_db.add(PhotoNote(
+                photo_id=photo_id, body=note, source="APPROVAL",
+                created_by_nick=approver.name,
+                created_by_photo_url=approver.photo_url,
+            ))
+        rows = (
+            session_db.query(PhotoApproval, Photo.kind)
+            .join(Photo, Photo.id == PhotoApproval.photo_id)
+            .filter(PhotoApproval.approver_id == approver.id)
+            .all()
+        )
+        payload_rows = [{"is_video": (k or "IMAGE").upper() == "VIDEO", "decision": a.decision} for a, k in rows]
+        counts = _photo_approval_counts_for(payload_rows)
+        pending_left = counts["photos"]["pending"] + counts["videos"]["pending"]
+        if pending_left == 0:
+            approver.status = "SUBMITTED"
+            approver.submitted_at = _now_madrid()
+        else:
+            approver.status = "PENDING"
+            approver.submitted_at = None
+        session_db.commit()
+        return jsonify({"ok": True, "decision": decision, "pending": pending_left, "counts": counts})
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
     finally:
         session_db.close()
 

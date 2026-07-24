@@ -298,7 +298,7 @@
         <div class="adv-sec-title">Correcciones manuales</div>
         <div class="px-3 pb-1">
           {% for c in v.corrections %}
-            <div class="d-flex align-items-center gap-2 border rounded p-2 mb-1 flex-wrap">
+            <div class="d-flex align-items-center gap-2 border rounded p-2 mb-1 flex-wrap" data-adj-row="corr" data-adv="{{ adv.id }}" data-adj-date="{{ c.date.isoformat() if c.date else '' }}" data-adj-amount="{{ c.amount }}">
               <div class="flex-grow-1">
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <span class="fw-semibold">{{ c.label }}</span>
@@ -320,14 +320,13 @@
               {% endif %}
             </div>
           {% endfor %}
-          <div class="d-flex align-items-center gap-2 flex-wrap">
-            {% if v.corrections %}
-              <span class="small text-muted">Total correcciones: <b class="{{ 'text-danger' if v.corrections_total < 0 else 'text-success' }}">{{ '−' if v.corrections_total < 0 else '+' }}{{ (-v.corrections_total if v.corrections_total < 0 else v.corrections_total)|eur }}</b> · aplicadas a la amortización</span>
-            {% endif %}
-            {% if CAN_EDIT_DISCOGRAFICA %}
-              <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#advCorrAdd-{{ adv.id }}"><i class="fa fa-plus me-1"></i>Añadir corrección</button>
-            {% endif %}
-          </div>
+          {% if v.corrections %}
+            <div class="text-end small text-muted mt-1" data-adj-total="corr" data-adv="{{ adv.id }}">Total correcciones: <b class="{{ 'text-danger' if v.corrections_total < 0 else 'text-success' }}">{{ '−' if v.corrections_total < 0 else '+' }}{{ (-v.corrections_total if v.corrections_total < 0 else v.corrections_total)|eur }}</b> · aplicadas a la amortización</div>
+          {% endif %}
+          <div class="small text-muted" style="display:none;" data-adj-empty="corr" data-adv="{{ adv.id }}">Sin correcciones en este periodo.</div>
+          {% if CAN_EDIT_DISCOGRAFICA %}
+            <div class="mt-1"><button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#advCorrAdd-{{ adv.id }}"><i class="fa fa-plus me-1"></i>Añadir corrección</button></div>
+          {% endif %}
           {% if CAN_EDIT_DISCOGRAFICA %}
           <div class="collapse mt-2" id="advCorrAdd-{{ adv.id }}">
             <form method="post" action="{{ url_for('discografica_advance_correction_add', aid=adv.id) }}" class="border rounded p-2 bg-light-subtle">
@@ -355,7 +354,7 @@
         <div class="adv-sec-title">Ingresos adicionales</div>
         <div class="px-3 pb-1">
           {% for it in v.additional_incomes %}
-            <div class="d-flex align-items-center gap-2 border rounded p-2 mb-1 flex-wrap">
+            <div class="d-flex align-items-center gap-2 border rounded p-2 mb-1 flex-wrap" data-adj-row="inc" data-adv="{{ adv.id }}" data-adj-date="{{ it.date.isoformat() if it.date else '' }}" data-adj-amort="{{ it.amort }}" data-adj-ours="{{ it.ours }}">
               <div class="flex-grow-1">
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                   <span class="fw-semibold">{{ it.label }}</span>
@@ -381,14 +380,13 @@
               {% endif %}
             </div>
           {% endfor %}
-          <div class="d-flex align-items-center gap-2 flex-wrap">
-            {% if v.additional_incomes %}
-              <span class="small text-muted">Total ingresos adicionales: <b class="text-danger">{{ v.additional_incomes_amort|eur }}</b> amortiza · <b class="text-success">{{ v.additional_incomes_ours|eur }}</b> a favor nuestro</span>
-            {% endif %}
-            {% if CAN_EDIT_DISCOGRAFICA and adv.rules %}
-              <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#advIncomeAdd-{{ adv.id }}"><i class="fa fa-plus me-1"></i>Añadir ingreso adicional</button>
-            {% endif %}
-          </div>
+          {% if v.additional_incomes %}
+            <div class="text-end small text-muted mt-1" data-adj-total="inc" data-adv="{{ adv.id }}">Total ingresos adicionales: <b class="text-danger">{{ v.additional_incomes_amort|eur }}</b> amortiza · <b class="text-success">{{ v.additional_incomes_ours|eur }}</b> a favor nuestro</div>
+          {% endif %}
+          <div class="small text-muted" style="display:none;" data-adj-empty="inc" data-adv="{{ adv.id }}">Sin ingresos adicionales en este periodo.</div>
+          {% if CAN_EDIT_DISCOGRAFICA and adv.rules %}
+            <div class="mt-1"><button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#advIncomeAdd-{{ adv.id }}"><i class="fa fa-plus me-1"></i>Añadir ingreso adicional</button></div>
+          {% endif %}
           {% if CAN_EDIT_DISCOGRAFICA and adv.rules %}
           <div class="collapse mt-2" id="advIncomeAdd-{{ adv.id }}">
             <form method="post" action="{{ url_for('discografica_advance_income_add', aid=adv.id) }}" class="border rounded p-2 bg-light-subtle">
@@ -722,6 +720,40 @@
       if(state.g==='all') return rows;
       return rows.filter(function(r){ return r.ps && bucketOf(r.ps, state.g)===state.p; });
     }
+    // Correcciones / ingresos adicionales: mostrar SOLO los del periodo elegido y recalcular su total.
+    function filterAdj(kind){
+      var advRows = document.querySelectorAll('[data-adj-row="'+kind+'"][data-adv="'+aid+'"]');
+      if(!advRows.length) return;
+      var totalEl = document.querySelector('[data-adj-total="'+kind+'"][data-adv="'+aid+'"]');
+      var emptyEl = document.querySelector('[data-adj-empty="'+kind+'"][data-adv="'+aid+'"]');
+      if(totalEl && totalEl.dataset.allHtml === undefined){ totalEl.dataset.allHtml = totalEl.innerHTML; }
+      var shown=0, amort=0, ours=0, amount=0;
+      advRows.forEach(function(row){
+        var d = row.getAttribute('data-adj-date') || '';
+        var vis = (state.g==='all') || (!!d && bucketOf(d, state.g)===state.p);
+        row.style.display = vis ? '' : 'none';
+        if(vis){
+          shown++;
+          amort  += parseFloat(row.getAttribute('data-adj-amort') ||'0')||0;
+          ours   += parseFloat(row.getAttribute('data-adj-ours')  ||'0')||0;
+          amount += parseFloat(row.getAttribute('data-adj-amount')||'0')||0;
+        }
+      });
+      if(emptyEl) emptyEl.style.display = shown ? 'none' : '';
+      if(totalEl){
+        if(state.g==='all'){ totalEl.style.display=''; totalEl.innerHTML = totalEl.dataset.allHtml; }
+        else if(!shown){ totalEl.style.display='none'; }
+        else {
+          totalEl.style.display='';
+          if(kind==='inc'){
+            totalEl.innerHTML = 'Total ingresos adicionales: <b class="text-danger">'+eurF(amort)+'</b> amortiza · <b class="text-success">'+eurF(ours)+'</b> a favor nuestro';
+          } else {
+            var neg = amount < -0.005;
+            totalEl.innerHTML = 'Total correcciones: <b class="'+(neg?'text-danger':'text-success')+'">'+(neg?'−':'+')+eurF(Math.abs(amount))+'</b> · aplicadas a la amortización';
+          }
+        }
+      }
+    }
     function render(){
       var rs = filtered();
       // El botón PDF exporta el MISMO periodo que se está viendo.
@@ -738,6 +770,9 @@
         var set=function(k,v){ var el=kpis.querySelector('[data-k="'+k+'"]'); if(el) el.textContent=v; };
         set('songs', kF(Object.keys(sids).length)); set('net', eurF(net)); set('am', eurF(am)); set('ours', eurF(ours));
       }
+      // Filtrar las correcciones e ingresos adicionales al mismo periodo que se está viendo.
+      filterAdj('corr');
+      filterAdj('inc');
       if(!rs.length){
         body.innerHTML = '<div class="px-3 py-3 text-muted small">' +
           (state.g==='all' ? esc(body.getAttribute('data-empty-msg')||'Sin datos.') : 'Sin ingresos en este periodo.') + '</div>';

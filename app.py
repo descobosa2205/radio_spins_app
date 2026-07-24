@@ -7398,7 +7398,7 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
 
     def _payload_signature(pies_logo_url: str | None, pies_tax_info: str | None) -> str:
         payload = {
-            "renderer": "royalty_pdf_v7",
+            "renderer": "royalty_pdf_v8",
             "kind": beneficiary.get("kind"),
             "id": beneficiary.get("id"),
             "name": beneficiary.get("name"),
@@ -7830,14 +7830,12 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
                 _draw_contained_image(logo_asset, right - 110, y - 10, 110, 34)
             else:
                 _draw_contained_image(logo_asset, right - 70, y - 6, 70, 22)
-        # Título centrado (el periodo va en la cabecera del beneficiario, no aquí)
+        # Título centrado (el periodo va en la cabecera del beneficiario, no aquí; sin línea
+        # separadora bajo el título, por estética).
         pdf.setFont("Helvetica-Bold", 17 if page_no == 1 else 14)
         pdf.setFillColor(colors.black)
         pdf.drawCentredString(page_width / 2, y, "Liquidación de Royalties")
-        y -= 14 if page_no == 1 else 12
-        pdf.setStrokeColor(colors.HexColor('#DDDDDD'))
-        pdf.line(left, y, right, y)
-        y -= 10
+        y -= 22 if page_no == 1 else 18
 
         if page_no == 1:
             box_h = 52
@@ -10465,24 +10463,36 @@ def _advance_matching_rule(adv, song, song_artist_ids):
     return None
 
 
+_ADV_INCOMES_READY = False
+
+
 def _build_distributor_advances_context(session_db):
     """Contexto completo de la pestaña Adelantos: por distribuidora, sus adelantos con estado
     de recuperación y la liquidación artista por artista (nº canciones, generado por canción,
     neto, parte que amortiza y parte nuestra). Cada canción amortiza en el PRIMER adelanto
     (por fecha) cuyas condiciones la cubren, hasta agotar su importe."""
+    # Blindaje: si el esquema de 2º plano aún no ha creado la tabla de ingresos adicionales
+    # (carrera justo tras un deploy), NO reventamos la página — se tratan como vacíos hasta
+    # que exista (se cachea en cuanto aparece). Evita el 500 que dejaría «caída» la sección.
+    global _ADV_INCOMES_READY
+    incomes_ready = _ADV_INCOMES_READY or _table_exists(session_db, "public.distributor_advance_incomes")
+    _ADV_INCOMES_READY = incomes_ready
     distributors = session_db.query(Distributor).order_by(Distributor.name.asc()).all()
+    _adv_opts = [selectinload(DistributorAdvance.rules),
+                 selectinload(DistributorAdvance.exceptions),
+                 selectinload(DistributorAdvance.corrections)]
+    if incomes_ready:
+        _adv_opts.append(selectinload(DistributorAdvance.additional_incomes))
     advances = (
         session_db.query(DistributorAdvance)
-        .options(selectinload(DistributorAdvance.rules),
-                 selectinload(DistributorAdvance.exceptions),
-                 selectinload(DistributorAdvance.corrections),
-                 selectinload(DistributorAdvance.additional_incomes))
+        .options(*_adv_opts)
         .order_by(DistributorAdvance.advance_date.asc().nullslast(), DistributorAdvance.created_at.asc())
         .all()
     )
     # Autores de las correcciones e ingresos adicionales (nick + foto, como en el resto de la app).
     corr_user_ids = {str(c.created_by_user_id) for adv in advances for c in (adv.corrections or []) if c.created_by_user_id}
-    corr_user_ids |= {str(i.created_by_user_id) for adv in advances for i in (adv.additional_incomes or []) if i.created_by_user_id}
+    if incomes_ready:
+        corr_user_ids |= {str(i.created_by_user_id) for adv in advances for i in (adv.additional_incomes or []) if i.created_by_user_id}
     corr_authors = {}
     if corr_user_ids:
         for up in session_db.query(UserProfile).filter(UserProfile.user_id.in_([to_uuid(x) for x in corr_user_ids])).all():
@@ -10542,7 +10552,7 @@ def _build_distributor_advances_context(session_db):
             rules_by_id = {str(r.id): r for r in (adv.rules or [])}
             inc_views = []
             inc_amort_total = Decimal("0")
-            for inc in (adv.additional_incomes or []):
+            for inc in ((adv.additional_incomes or []) if incomes_ready else []):
                 try:
                     inc_net = Decimal(str(inc.amount_net or 0))
                 except (InvalidOperation, ValueError):
@@ -11470,6 +11480,16 @@ def discografica_advance_pdf(aid):
         else:
             period_title = "Total · todo el acuerdo"
 
+        # Correcciones e ingresos adicionales del PERIODO elegido (por su fecha), para que el PDF
+        # cuadre con lo que se ve en pantalla. Sin periodo → todo el acuerdo.
+        def _adj_in_period(d):
+            if gran not in ("year", "sem", "month") or not p_key:
+                return True
+            return bool(d) and _bucket(d.isoformat()) == p_key
+
+        corrections_sel = [c for c in view["corrections"] if _adj_in_period(c["date"])]
+        incomes_sel = [it for it in view["additional_incomes"] if _adj_in_period(it["date"])]
+
         # El desglose por artista es SOLO de canciones; los ingresos adicionales (r["inc"]) van
         # en su propia tabla, así la fila de TOTALES cuadra con las filas de artistas.
         song_rows_sel = [r for r in rows_sel if not r.get("inc")]
@@ -11520,12 +11540,12 @@ def discografica_advance_pdf(aid):
         data.append(["", "TOTALES", str(tot_songs), eur_txt(tot_net), eur_txt(tot_am), eur_txt(tot_ours)])
 
         story = [Spacer(1, header_h)]
-        # Correcciones manuales (cuenta de amortización), antes del desglose por artistas.
-        if view["corrections"]:
+        # Correcciones manuales (cuenta de amortización) del periodo elegido, antes del desglose.
+        if corrections_sel:
             story.append(Paragraph("Correcciones manuales", h2))
             note_style = ParagraphStyle("cnx", parent=styles["Normal"], fontSize=8.6, leading=10.5)
             cdata = [["Corrección", "Fecha", "Autor", "Importe"]]
-            for c in view["corrections"]:
+            for c in corrections_sel:
                 lbl = c["label"] + ((" — " + c["note"]) if c["note"] else "")
                 cdata.append([
                     Paragraph(lbl, note_style),
@@ -11533,7 +11553,7 @@ def discografica_advance_pdf(aid):
                     (c["author"] or {}).get("nick") or "—",
                     ("−" if c["amount"] < 0 else "+") + eur_txt(-c["amount"] if c["amount"] < 0 else c["amount"]),
                 ])
-            ct_total = view["corrections_total"]
+            ct_total = sum((c["amount"] for c in corrections_sel), Decimal("0"))
             cdata.append(["Total correcciones", "", "",
                           ("−" if ct_total < 0 else "+") + eur_txt(-ct_total if ct_total < 0 else ct_total)])
             ct = Table(cdata, colWidths=[None, 24*mm, 34*mm, 28*mm], repeatRows=1)
@@ -11553,8 +11573,8 @@ def discografica_advance_pdf(aid):
             ]))
             story.append(ct)
             story.append(Spacer(1, 10))
-        # Ingresos adicionales (amortizan aplicando su condición: base × pct).
-        if view["additional_incomes"]:
+        # Ingresos adicionales (amortizan aplicando su condición: base × pct) del periodo elegido.
+        if incomes_sel:
             story.append(Paragraph("Ingresos adicionales", h2))
             inote = ParagraphStyle("inx", parent=styles["Normal"], fontSize=8.6, leading=10.5)
             idata = [["Ingreso adicional", "Fecha", "Neto", "Bruto", "Amortiza", "Nuestro"]]
@@ -11562,7 +11582,7 @@ def discografica_advance_pdf(aid):
             def _xml_escape(txt):
                 return (txt or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-            for it in view["additional_incomes"]:
+            for it in incomes_sel:
                 sub = it.get("rule_text") or ""
                 if it.get("author"):
                     sub = (sub + " · " if sub else "") + ((it["author"] or {}).get("nick") or "")
@@ -11575,7 +11595,8 @@ def discografica_advance_pdf(aid):
                     eur_txt(it["net"]), eur_txt(it["gross"]), eur_txt(it["amort"]), eur_txt(it["ours"]),
                 ])
             idata.append(["Total ingresos adicionales", "", "", "",
-                          eur_txt(view["additional_incomes_amort"]), eur_txt(view["additional_incomes_ours"])])
+                          eur_txt(sum((it["amort"] for it in incomes_sel), Decimal("0"))),
+                          eur_txt(sum((it["ours"] for it in incomes_sel), Decimal("0")))])
             itbl = Table(idata, colWidths=[None, 20*mm, 23*mm, 23*mm, 24*mm, 24*mm], repeatRows=1)
             itbl.setStyle(TableStyle([
                 ("FONT", (0, 0), (-1, -1), "Helvetica", 8.6),

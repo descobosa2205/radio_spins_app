@@ -161,69 +161,13 @@
 {# ===================== TAB: FOTOS (agregado) ===================== #}
 {% if tab == 'fotos' %}
   {% if artist_fotos_groups %}
-    <div class="fotos-artist-list">
-      {% for g in artist_fotos_groups %}
-      <a class="fotos-artist-group" href="{{ g.url }}" data-fotos-group data-owner-type="{{ g.owner_type|lower }}" data-owner-id="{{ g.owner_id }}" data-owner-title="{{ g.title }}">
-        <div class="fotos-artist-group__cover">
-          {% if g.cover_url %}<img src="{{ g.cover_url }}" alt="">{% else %}<i class="fa fa-images"></i>{% endif %}
-        </div>
-        <div class="fotos-artist-group__body">
-          {# Título: tipo de actividad (con icono) · nombre del evento (si lo hay) · municipio · fecha #}
-          {% set parts = [g.type_label] %}
-          {% if g.event_name %}{% set _ = parts.append(g.event_name) %}{% endif %}
-          {% if g.city %}{% set _ = parts.append(g.city) %}{% endif %}
-          {% if g.date_label %}{% set _ = parts.append(g.date_label) %}{% endif %}
-          <div class="d-flex align-items-center gap-2 flex-wrap">
-            <i class="fa {{ g.type_icon or 'fa-images' }} text-muted"></i>
-            <span class="fw-semibold">{{ parts|select|join(' · ') }}</span>
-            {% if g.photo_count %}<span class="badge text-bg-light border"><i class="fa fa-image me-1"></i>{{ (g.photo_count)|k }} foto{{ '' if g.photo_count == 1 else 's' }}</span>{% endif %}
-            {% if g.video_count %}<span class="badge text-bg-light border"><i class="fa fa-video me-1"></i>{{ (g.video_count)|k }} vídeo{{ '' if g.video_count == 1 else 's' }}</span>{% endif %}
-          </div>
-          {% if g.artist and g.artist.name %}<div class="mt-1">{{ artist_chip(g.artist.name, g.artist.photo_url) }}</div>{% endif %}
-          {% if g.albums %}
-          <div class="small text-muted mt-1"><i class="fa fa-layer-group me-1"></i>{% for a in g.albums %}{{ a.name }} ({{ a.count }}){% if not loop.last %} · {% endif %}{% endfor %}</div>
-          {% endif %}
-          <div class="fotos-artist-group__thumbs mt-2">
-            {% for t in g.thumbs %}<span class="fotos-artist-group__thumb"><img src="{{ t }}" alt=""></span>{% endfor %}
-          </div>
-        </div>
-        <i class="fa fa-chevron-right text-muted align-self-center"></i>
-      </a>
-      {% endfor %}
-    </div>
-
-    {# Popup in-place con el contenido del grupo (navegación + detalle) #}
-    <div class="modal fade" id="artistFotosModal" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog modal-xl modal-dialog-scrollable">
-        <div class="modal-content">
-          <div class="modal-header py-2">
-            <h6 class="modal-title text-truncate" id="artistFotosTitle">Fotos</h6>
-            <a class="btn btn-sm btn-outline-primary ms-2" id="artistFotosOpen" href="#"><i class="fa fa-up-right-from-square me-1"></i>Abrir en la ficha</a>
-            <button type="button" class="btn-close ms-2" data-bs-dismiss="modal"></button>
-          </div>
-          <div class="modal-body">
-            <div class="d-flex justify-content-end mb-2">
-              <div class="btn-group fotos-viewmodes" role="group">
-                <button type="button" data-amode="grid2" class="btn btn-outline-secondary btn-sm" title="2 por fila"><i class="fa fa-table-cells-large"></i></button>
-                <button type="button" data-amode="grid3" class="btn btn-outline-secondary btn-sm active" title="3 por fila"><i class="fa fa-table-cells"></i></button>
-                <button type="button" data-amode="list" class="btn btn-outline-secondary btn-sm" title="Lista"><i class="fa fa-list"></i></button>
-              </div>
-            </div>
-            <div id="artistFotosGallery" class="fotos-gallery fotos-grid3"></div>
-          </div>
-        </div>
-      </div>
-    </div>
-    {# Detalle de una foto #}
-    <div class="modal fade" id="artistFotoDetailModal" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog modal-xl modal-dialog-centered">
-        <div class="modal-content">
-          <div class="modal-header py-2"><h6 class="modal-title text-truncate" id="artistFotoDetailTitle">Foto</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-          <div class="modal-body"><div class="row g-3"><div class="col-lg-8"><div class="fotos-detail-media" id="artistFotoDetailMedia"></div></div><div class="col-lg-4"><div id="artistFotoDetailInfo"></div></div></div></div>
-        </div>
-      </div>
-    </div>
-    <script src="{{ url_for('static', filename='js/artist_fotos.js', v=ASSET_V) }}"></script>
+    {# Mismo listado (una fila por actividad) que la sección Fotos/Vídeos. Al pinchar una fila se abre
+       el panel de esa actividad; el «volver» regresa a esta pestaña. #}
+    {% set rows = artist_fotos_groups %}
+    {% set row_back = 'artist' %}
+    {% set row_back_id = artist.id %}
+    {% include '_media_activity_rows.html' %}
+    <script src="{{ url_for('static', filename='js/media_rows.js', v=ASSET_V) }}"></script>
   {% else %}
     <div class="text-muted text-center py-5"><i class="fa fa-images fa-2x mb-2 d-block opacity-50"></i>Este artista todavía no tiene fotos vinculadas.</div>
   {% endif %}

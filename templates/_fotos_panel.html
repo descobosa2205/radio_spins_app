@@ -19,19 +19,34 @@
     <span class="badge text-bg-light border{% if not fotos_ctx.video_total %} d-none{% endif %}" id="fotosVideoCount"><i class="fa fa-video me-1"></i>{{ fotos_ctx.video_total }} vídeo{{ '' if fotos_ctx.video_total == 1 else 's' }}</span>
   </div>
 
-  <div class="fotos-toolbar d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <div class="fotos-toolbar mb-3">
+    {# Filtros DIRECTOS (sin modal): tipo de contenido (fotos/vídeos) y estado de aprobación. #}
+    <div class="fotos-chipbar d-flex flex-wrap align-items-center gap-2 mb-2">
+      <div class="fotos-chips" id="fotosTypeChips" role="group" aria-label="Tipo de contenido">
+        <button type="button" class="fotos-chip active" data-media-type="all"><i class="fa fa-layer-group me-1"></i>Todo</button>
+        <button type="button" class="fotos-chip" data-media-type="photos"><i class="fa fa-image me-1"></i>Fotos</button>
+        <button type="button" class="fotos-chip" data-media-type="videos"><i class="fa fa-video me-1"></i>Vídeos</button>
+      </div>
+      <span class="vr d-none d-sm-inline mx-1"></span>
+      <div class="fotos-chips" id="fotosStateChips" role="group" aria-label="Estado de aprobación">
+        <button type="button" class="fotos-chip active" data-state="APPROVED"><i class="fa fa-circle-check me-1 text-success"></i>Aprobadas</button>
+        <button type="button" class="fotos-chip" data-state="PENDING"><i class="fa fa-circle-question me-1 text-warning"></i>Pendientes</button>
+        <button type="button" class="fotos-chip" data-state="REJECTED"><i class="fa fa-circle-xmark me-1 text-danger"></i>Rechazadas</button>
+        <button type="button" class="fotos-chip active" data-state="NONE"><i class="fa fa-circle me-1 text-muted"></i>Sin solicitud</button>
+        <button type="button" class="fotos-chip" data-state="__discarded"><i class="fa fa-eye-slash me-1"></i>Descartadas</button>
+      </div>
+    </div>
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
     <div class="d-flex align-items-center gap-2 flex-wrap">
       <div class="form-check m-0 d-flex align-items-center gap-1">
         <input class="form-check-input m-0" type="checkbox" id="fotosSelectAll">
-        <label class="form-check-label small text-muted" for="fotosSelectAll">Todo</label>
+        <label class="form-check-label small text-muted" for="fotosSelectAll">Todas</label>
       </div>
       <div class="btn-group fotos-viewmodes" role="group" aria-label="Modo de vista">
         <button type="button" data-view-mode="grid2" class="btn btn-outline-secondary btn-sm" title="2 por fila"><i class="fa fa-table-cells-large"></i></button>
         <button type="button" data-view-mode="grid3" class="btn btn-outline-secondary btn-sm active" title="3 por fila"><i class="fa fa-table-cells"></i></button>
         <button type="button" data-view-mode="list" class="btn btn-outline-secondary btn-sm" title="Lista"><i class="fa fa-list"></i></button>
       </div>
-      <button type="button" class="btn btn-outline-secondary btn-sm" id="fotosFilterBtn" title="Filtrar"><i class="fa fa-filter"></i></button>
-      <button type="button" class="btn btn-outline-secondary btn-sm" id="fotosDiscardedBtn" title="Ver descartadas"><i class="fa fa-eye-slash"></i></button>
     </div>
     <div class="d-flex align-items-center gap-2">
       <div class="fotos-bulkbar d-none align-items-center gap-2" id="fotosBulkBar">
@@ -55,6 +70,7 @@
       {% if fotos_ctx.can_edit %}
       <button type="button" class="btn btn-primary btn-sm" id="fotosAddBtn" title="Añadir fotos o vídeos" aria-label="Añadir"><i class="fa fa-plus"></i></button>
       {% endif %}
+    </div>
     </div>
   </div>
 
@@ -141,22 +157,6 @@
         </div>
       </div>
       <div class="modal-footer py-2 flex-wrap gap-1 justify-content-start" id="fotosDetailActions"></div>
-    </div>
-  </div>
-</div>
-
-{# ---------- Modal: filtros ---------- #}
-<div class="modal fade" id="fotosFilterModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-sm modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header py-2"><h6 class="modal-title">Filtrar por estado</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-      <div class="modal-body">
-        <div class="form-check"><input class="form-check-input" type="checkbox" value="APPROVED" id="fltApproved" checked><label class="form-check-label" for="fltApproved">Aprobadas</label></div>
-        <div class="form-check"><input class="form-check-input" type="checkbox" value="REJECTED" id="fltRejected"><label class="form-check-label" for="fltRejected">Rechazadas</label></div>
-        <div class="form-check"><input class="form-check-input" type="checkbox" value="PENDING" id="fltPending"><label class="form-check-label" for="fltPending">Pendientes</label></div>
-        <div class="form-check"><input class="form-check-input" type="checkbox" value="NONE" id="fltNone" checked><label class="form-check-label" for="fltNone">Sin solicitud de aprobación</label></div>
-      </div>
-      <div class="modal-footer py-2"><button type="button" class="btn btn-primary btn-sm" id="fotosFilterApply" data-bs-dismiss="modal">Aplicar</button></div>
     </div>
   </div>
 </div>

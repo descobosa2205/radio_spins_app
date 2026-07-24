@@ -35087,7 +35087,7 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return "artists"
     if endpoint in {"registros_view", "registros_concert_declare", "registros_repertoire_link"}:
         return "registros.pendiente"
-    if endpoint in {"media_gallery_view", "media_panel_view", "api_media_artist_activities"}:
+    if endpoint in {"media_gallery_view", "media_artist_view", "media_panel_view", "api_media_artist_activities"}:
         return "fotos"
     if endpoint == "promoters_view" or endpoint.startswith("promoter_"):
         return "third_parties"
@@ -35636,7 +35636,7 @@ def _resolve_request_resource_key() -> str | None:
             "marketing": "promocion",
         }
         return mapping.get(tab, "discografica.canciones")
-    if endpoint in {"media_gallery_view", "media_panel_view", "api_media_artist_activities"}:
+    if endpoint in {"media_gallery_view", "media_artist_view", "media_panel_view", "api_media_artist_activities"}:
         return "fotos"
     if endpoint == "promoters_view" or endpoint.startswith("promoter_"):
         return "third_parties"
@@ -43454,23 +43454,30 @@ def _build_artist_fotos_groups(session_db, artist_id):
                 "id": str(a.id), "name": a.name, "count": int(cnt),
                 "cover_url": (cover.file_url if cover else (plist[0].file_url if plist else "")),
             })
+        def _pv(p):
+            return (getattr(p, "kind", None) or "IMAGE").upper() == "VIDEO"
         out.append({
             "owner_type": ot,
             "owner_id": str(oid),
             "title": title,
             "type_label": type_label,
             "type_icon": type_icon,
+            # clave estable para el chip de filtro por tipo (mismo icono/etiqueta en el cliente)
+            "type_key": (type_label or "otro").strip().lower(),
             "event_name": event_name,
             "city": city,
             "province": province,
             "date_label": d.strftime("%d/%m/%Y") if d else "",
+            "date_iso": d.isoformat() if d else "",
             "count": len(plist),
-            "video_count": sum(1 for p in plist if (getattr(p, "kind", None) or "IMAGE").upper() == "VIDEO"),
-            "photo_count": sum(1 for p in plist if (getattr(p, "kind", None) or "IMAGE").upper() != "VIDEO"),
+            "video_count": sum(1 for p in plist if _pv(p)),
+            "photo_count": sum(1 for p in plist if not _pv(p)),
             "cover_url": plist[0].file_url if plist else "",
             "url": _photo_owner_url(ot.lower(), str(oid)),
             "albums": album_summ,
             "thumbs": [p.file_url for p in plist[:8]],
+            # solo fotos (para la tira de miniaturas de foto, separada de la de vídeo)
+            "photo_thumbs": [p.file_url for p in plist if not _pv(p)][:8],
             "artist": artist_payload,
         })
     return out
@@ -43479,7 +43486,8 @@ def _build_artist_fotos_groups(session_db, artist_id):
 @app.get("/fotos-videos", endpoint="media_gallery_view")
 @admin_required
 def media_gallery_view():
-    """Sección GLOBAL de Fotos/Vídeos: todas las fotos agrupadas por artista, con filtros y buscador.
+    """Sección GLOBAL de Fotos/Vídeos — PRIMER NIVEL: fichas de cada ARTISTA con media y de cada
+    EVENTO (actividad SIN artista asignado). Se entra en cada ficha para ver sus actividades/álbumes.
     La subida real se hace en el panel por dueño (mismo componente que las fichas)."""
     s = db()
     try:
@@ -43490,102 +43498,116 @@ def media_gallery_view():
             .limit(1500)
             .all()
         )
-        promo_map = _photo_promoter_map(s, photos)
+        # Descartar fotos HUÉRFANAS (dueño concierto/acción borrado; owner_id es polimórfico sin FK):
+        # así los contadores del nivel 1 cuadran con el nivel 2 (que también las descarta) y no salen
+        # tiles de evento que al pinchar darían 404. El dueño se resuelve UNA vez por (tipo, id).
+        owner_cache = {}
+        def _resolve_owner(ot, oid):
+            k = (ot, str(oid))
+            if k not in owner_cache:
+                owner_cache[k] = _photo_resolve_owner(s, ot, oid)
+            return owner_cache[k]
+        photos = [p for p in photos if _resolve_owner(p.owner_type, p.owner_id)[0] is not None]
         appr_map = _photo_approval_map(s, [p.id for p in photos])
-        # Agrupar por artista (o «Sin artista»); dentro, por dueño (actividad).
-        artists_by_id = {}
-        groups = {}   # artist_key -> {artist, owners: {(ot,oid): {title,type_label,type_icon,url,date,photos[]}}}
-        for p in photos:
-            akey = str(p.artist_id) if p.artist_id else "__none__"
-            if akey not in artists_by_id and p.artist_id:
-                artists_by_id[akey] = s.get(Artist, p.artist_id)
-            g = groups.setdefault(akey, {})
-            ok = (p.owner_type, str(p.owner_id))
-            og = g.get(ok)
-            if og is None:
-                owner, _art, title = _photo_resolve_owner(s, p.owner_type, p.owner_id)
-                event_name = venue_name = city = ""
-                if p.owner_type == "CONCERT":
-                    tl = _invitation_event_type_label(owner) if owner else "Concierto"; ti = _concert_activity_icon(owner) if owner else "fa-guitar"
-                    dval = getattr(owner, "date", None) if owner else None
-                    if owner:
-                        event_name = (getattr(owner, "festival_name", None) or "").strip()
-                        _ven = getattr(owner, "venue", None)
-                        venue_name = (getattr(_ven, "name", None) or getattr(owner, "manual_venue_name", None) or "").strip()
-                        city = _concert_city(owner) or ""
-                elif p.owner_type == "ACTION":
-                    ak = (getattr(owner, "action_type", None) or "").upper() if owner else ""
-                    tl = ACTION_TYPE_LABELS.get(ak, "Acción"); ti = ACTION_TYPE_ICONS.get(ak, "fa-bullhorn")
-                    dval = getattr(owner, "start_date", None) if owner else None
-                    if owner:
-                        event_name = (getattr(owner, "title", None) or "").strip()
-                        _ven = getattr(owner, "venue", None)
-                        _snap = _json_loads_safe(getattr(owner, "location_snapshot", None), {}) or {}
-                        venue_name = (getattr(_ven, "name", None) or _snap.get("venue") or "").strip()
-                        city = (getattr(_ven, "municipality", None) or _snap.get("city") or "").strip()
-                else:
-                    tl = "Suelto"; ti = "fa-images"; dval = None
-                og = {"title": title or "—", "type_label": tl, "type_icon": ti,
-                      "type_key": (tl or "otro").strip().lower(),
-                      "event_name": event_name, "venue": venue_name, "city": city,
-                      "url": _photo_owner_url(p.owner_type, str(p.owner_id)),
-                      "date": (dval.isoformat() if dval else ""), "_raw": []}
-                g[ok] = og
-            og["_raw"].append(p)
-        # Serializar: un ÁLBUM por actividad (portada = una foto aprobada si la hay; muestra de pocas
-        # imágenes, no todas; contadores de fotos y vídeos). Artistas con más fotos primero.
+
         def _is_video(ph):
             return (getattr(ph, "kind", None) or "IMAGE").upper() == "VIDEO"
-        gallery = []
-        for akey, owners in groups.items():
-            art = artists_by_id.get(akey)
-            owner_list = []
-            for og in owners.values():
-                raws = og.pop("_raw")
-                approved = [ph for ph in raws if (appr_map.get(str(ph.id)) or {}).get("state") == "APPROVED"]
-                pool = approved or raws                      # portada/muestra: aprobadas si las hay
-                imgs = [ph for ph in pool if not _is_video(ph)] or pool
-                cover = imgs[0] if imgs else (pool[0] if pool else None)
-                n_videos = sum(1 for ph in raws if _is_video(ph))
-                photos_only = [ph for ph in raws if not _is_video(ph)]
-                videos_only = [ph for ph in raws if _is_video(ph)]
-                og.update({
-                    "n_photos": len(raws) - n_videos,
-                    "n_videos": n_videos,
-                    "total": len(raws),
-                    "approved_count": len(approved),
-                    "cover": (cover.file_url if cover else ""),
-                    "sample": [{"file_url": ph.file_url, "is_video": _is_video(ph)} for ph in pool[:5]],
-                    # Separados para poder mostrar fotos y vídeos sin mezclar.
-                    "sample_photos": [ph.file_url for ph in photos_only[:6]],
-                    "sample_videos": [ph.file_url for ph in videos_only[:6]],
-                })
-                owner_list.append(og)
-            owner_list.sort(key=lambda o: o["date"], reverse=True)
-            gallery.append({
-                "artist_id": (akey if akey != "__none__" else ""),
-                "artist_name": (getattr(art, "name", None) or "Sin artista") if art else "Sin artista",
-                "artist_photo": (getattr(art, "photo_url", None) or "") if art else "",
-                "total": sum(o["total"] for o in owner_list),
-                "owners": owner_list,
+
+        def _cover_url(pool):
+            """Portada de una ficha: una foto APROBADA si la hay; si no, la primera imagen; si solo
+            hay vídeos, el primer vídeo (el front pinta un marco de vídeo)."""
+            approved = [ph for ph in pool if (appr_map.get(str(ph.id)) or {}).get("state") == "APPROVED"]
+            src = approved or pool
+            imgs = [ph for ph in src if not _is_video(ph)] or src
+            first = imgs[0] if imgs else (src[0] if src else None)
+            return (first.file_url if first else ""), (bool(first) and _is_video(first))
+
+        # Agrupar: por ARTISTA (artist_id) y, aparte, los EVENTOS = actividades sin artista.
+        art_groups = {}      # aid -> [photos]
+        event_groups = {}    # (ot, oid) -> [photos]
+        for p in photos:
+            if p.artist_id:
+                art_groups.setdefault(str(p.artist_id), []).append(p)
+            else:
+                event_groups.setdefault((p.owner_type, str(p.owner_id)), []).append(p)
+
+        art_objs = {}
+        if art_groups:
+            for a in s.query(Artist).filter(Artist.id.in_([to_uuid(k) for k in art_groups if to_uuid(k)])).all():
+                art_objs[str(a.id)] = a
+
+        artist_tiles = []
+        for aid, plist in art_groups.items():
+            art = art_objs.get(aid)
+            nv = sum(1 for ph in plist if _is_video(ph))
+            cover, cover_is_video = _cover_url(plist)
+            artist_tiles.append({
+                "kind": "artist", "id": aid,
+                "name": (getattr(art, "name", None) or "Sin nombre") if art else "Sin nombre",
+                "photo": (getattr(art, "photo_url", None) or "") if art else "",
+                "total": len(plist), "n_photos": len(plist) - nv, "n_videos": nv,
+                "cover": cover, "cover_is_video": cover_is_video,
+                "url": url_for("media_artist_view", artist_id=aid),
             })
-        gallery.sort(key=lambda gr: (-gr["total"], gr["artist_name"].lower()))
-        # Chips de filtro por artista (con foto).
-        artist_filter = [{"id": g["artist_id"], "name": g["artist_name"], "photo": g["artist_photo"], "total": g["total"]} for g in gallery if g["artist_id"]]
+        artist_tiles.sort(key=lambda t: (-t["total"], (t["name"] or "").lower()))
+
+        event_tiles = []
+        for (ot, oid), plist in event_groups.items():
+            owner, _art, title = _resolve_owner(ot, oid)
+            if ot == "CONCERT":
+                tl = _invitation_event_type_label(owner) if owner else "Concierto"
+                ti = _concert_activity_icon(owner) if owner else "fa-guitar"
+                dval = getattr(owner, "date", None) if owner else None
+            elif ot == "ACTION":
+                ak = (getattr(owner, "action_type", None) or "").upper() if owner else ""
+                tl = ACTION_TYPE_LABELS.get(ak, "Acción"); ti = ACTION_TYPE_ICONS.get(ak, "fa-bullhorn")
+                dval = getattr(owner, "start_date", None) if owner else None
+            else:
+                tl = "Suelto"; ti = "fa-images"; dval = None
+            nv = sum(1 for ph in plist if _is_video(ph))
+            cover, cover_is_video = _cover_url(plist)
+            event_tiles.append({
+                "kind": "event", "owner_type": ot, "owner_id": oid,
+                "name": title or tl, "type_label": tl, "type_icon": ti,
+                "date": (dval.isoformat() if dval else ""),
+                "date_label": (dval.strftime("%d/%m/%Y") if dval else ""),
+                "total": len(plist), "n_photos": len(plist) - nv, "n_videos": nv,
+                "cover": cover, "cover_is_video": cover_is_video,
+                "url": url_for("media_panel_view", owner_type=ot.lower(), owner_id=oid, back="media"),
+            })
+        event_tiles.sort(key=lambda t: (t["date"] or ""), reverse=True)
+
         all_artists = [{"id": str(a.id), "name": a.name, "photo": (a.photo_url or "")}
                        for a in s.query(Artist).order_by(Artist.name.asc()).all()]
-        # Chips de filtro por TIPO de actividad (con icono), tipos realmente presentes.
-        type_filter_map = {}
-        for g in gallery:
-            for o in g["owners"]:
-                k = o.get("type_key") or "otro"
-                tf = type_filter_map.setdefault(k, {"key": k, "label": o.get("type_label") or "Otro", "icon": o.get("type_icon") or "fa-images", "count": 0})
-                tf["count"] += 1
-        type_filter = sorted(type_filter_map.values(), key=lambda t: (-t["count"], t["label"].lower()))
-        return render_template("media_gallery.html", gallery=gallery, artist_filter=artist_filter,
-                               type_filter=type_filter,
+        return render_template("media_gallery.html", artist_tiles=artist_tiles, event_tiles=event_tiles,
                                active_owners=_media_active_targets(s), all_artists=all_artists,
                                can_edit=bool(is_master() or _user_is_actor()))
+    finally:
+        s.close()
+
+
+@app.get("/fotos-videos/artista/<artist_id>", endpoint="media_artist_view")
+@admin_required
+def media_artist_view(artist_id):
+    """SEGUNDO NIVEL: dentro de un artista — sus actividades como filas (con filtros de tipo/fecha/
+    búsqueda). Al pinchar una fila se abre el panel de esa actividad (tercer nivel)."""
+    s = db()
+    try:
+        try:
+            aid = to_uuid(artist_id)
+        except Exception:
+            aid = None
+        art = s.get(Artist, aid) if aid else None
+        if not art:
+            abort(404)
+        rows = _build_artist_fotos_groups(s, art.id)
+        return render_template(
+            "media_artist.html",
+            rows=rows,
+            artist={"id": str(art.id), "name": art.name, "photo_url": (art.photo_url or "")},
+            row_back="media_artist", row_back_id=str(art.id),
+            can_edit=bool(is_master() or _user_is_actor()),
+        )
     finally:
         s.close()
 

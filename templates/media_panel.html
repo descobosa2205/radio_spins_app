@@ -1,7 +1,15 @@
 {% extends "layout.html" %}
 {% block content %}
 <div class="mb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
-  <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('media_gallery_view') }}" title="Volver a Fotos / Vídeos" aria-label="Volver a Fotos / Vídeos"><i class="fa fa-arrow-left"></i></a>
+  {% set _back = request.args.get('back') %}{% set _bid = request.args.get('back_id') %}
+  {% if _back == 'media_artist' and _bid %}
+    {% set _back_url = url_for('media_artist_view', artist_id=_bid) %}{% set _back_title = 'Volver al artista' %}
+  {% elif _back == 'artist' and _bid %}
+    {% set _back_url = url_for('artist_detail_view', artist_id=_bid, tab='fotos') %}{% set _back_title = 'Volver a la ficha del artista' %}
+  {% else %}
+    {% set _back_url = url_for('media_gallery_view') %}{% set _back_title = 'Volver a Fotos / Vídeos' %}
+  {% endif %}
+  <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ _back_url }}" title="{{ _back_title }}" aria-label="{{ _back_title }}"><i class="fa fa-arrow-left"></i></a>
 </div>
 <div class="ficha-hero mb-3">
   <span class="ficha-hero__media d-flex align-items-center justify-content-center" style="background:#f8f9fa;color:#adb5bd;font-size:2rem;"><i class="fa fa-images"></i></span>

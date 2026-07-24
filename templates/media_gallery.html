@@ -1,111 +1,70 @@
 {% extends "layout.html" %}
 {% block content %}
-<style>
-  .mg-artist-head{ display:flex; align-items:center; gap:.6rem; margin:1.2rem 0 .5rem; }
-  .mg-artist-head img{ width:38px; height:38px; border-radius:50%; object-fit:cover; }
-  .mg-owner{ border-left:4px solid #E33D48; padding-left:.7rem; margin:.4rem 0 1rem; }
-  .mg-owner__head{ font-weight:600; font-size:.9rem; color:#495057; display:flex; align-items:center; gap:.4rem; }
-  .mg-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:.5rem; margin-top:.4rem; }
-  .mg-thumb{ position:relative; aspect-ratio:1/1; border-radius:10px; overflow:hidden; background:#f1f3f5; display:block; }
-  .mg-thumb img{ width:100%; height:100%; object-fit:cover; }
-  .mg-thumb .mg-vid{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#fff; background:rgba(0,0,0,.25); font-size:1.4rem; }
-  .mg-filter-chip{ cursor:pointer; }
-  .mg-filter-chip img{ width:22px; height:22px; border-radius:50%; object-fit:cover; margin-right:4px; }
-  .mg-filter-chip.active{ background:var(--brand-primary,#E33D48); color:#fff; border-color:var(--brand-primary,#E33D48); }
-  .mg-act-row{ border-left:4px solid #ced4da; }
-  /* Álbum por fila: portada (aprobada) + cabecera + contadores + tira de muestra. */
-  .mg-album{ display:flex; gap:.85rem; border-left:4px solid #E33D48; padding:.55rem .7rem; margin:.4rem 0 .8rem; background:#fff; border-radius:0 10px 10px 0; box-shadow:0 1px 4px rgba(0,0,0,.04); }
-  .mg-album__cover{ flex:0 0 auto; width:120px; height:88px; border-radius:10px; overflow:hidden; background:#f1f3f5; display:flex; align-items:center; justify-content:center; }
-  .mg-album__cover img{ width:100%; height:100%; object-fit:cover; }
-  .mg-album__ph{ color:#adb5bd; font-size:1.5rem; }
-  .mg-album__body{ flex:1 1 auto; min-width:0; }
-  .mg-album__head{ font-weight:600; font-size:.92rem; color:#343a40; }
-  .mg-album__strip{ display:flex; gap:.35rem; margin-top:.45rem; flex-wrap:wrap; }
-  .mg-album__strip .mg-thumb{ width:64px; height:64px; aspect-ratio:auto; }
-  .mg-thumb--vid{ display:flex; align-items:center; justify-content:center; color:#495057; background:#e9ecef; }
-  .mg-thumb--vid > i.fa-film{ font-size:1.4rem; }
-  @media (max-width:576px){ .mg-album{ flex-direction:column; } .mg-album__cover{ width:100%; height:150px; } }
-</style>
-
 <div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
   <div>
     <h4 class="mb-1"><i class="fa fa-images me-2"></i>Fotos / Vídeos</h4>
-    <div class="text-muted">Galería global agrupada por artista. Pincha una foto para abrir su actividad (misma vista y subida que en las fichas).</div>
+    <div class="text-muted">Elige un artista o un evento para ver sus fotos y vídeos.</div>
   </div>
   {% if can_edit %}<button class="btn btn-primary" id="mgAddBtn" title="Añadir fotos o vídeos" aria-label="Añadir"><i class="fa fa-plus"></i></button>{% endif %}
 </div>
 
-{# ---- Filtros ---- #}
-<div class="card mb-3"><div class="card-body">
-  <div class="mb-2 d-flex flex-wrap gap-1" id="mgArtistFilter">
-    <span class="badge text-bg-light border mg-filter-chip active" data-artist="">Todos</span>
-    {% for a in artist_filter %}
-      <span class="badge text-bg-light border mg-filter-chip" data-artist="{{ a.id }}">{% if a.photo %}<img src="{{ a.photo }}" alt="">{% endif %}{{ a.name }} <span class="text-muted">({{ a.total }})</span></span>
-    {% endfor %}
-  </div>
-  {% if type_filter %}
-  <div class="mb-2 d-flex flex-wrap gap-1" id="mgTypeFilter">
-    <span class="badge text-bg-light border mg-filter-chip mg-type-chip active" data-type=""><i class="fa fa-layer-group me-1"></i>Todo</span>
-    {% for t in type_filter %}
-      <span class="badge text-bg-light border mg-filter-chip mg-type-chip" data-type="{{ t.key }}"><i class="fa {{ t.icon }} me-1"></i>{{ t.label }} <span class="text-muted">({{ t.count }})</span></span>
-    {% endfor %}
-  </div>
-  {% endif %}
-  <div class="row g-2 align-items-end">
-    <div class="col-6 col-md-3"><label class="form-label small mb-0">Desde</label><input type="date" class="form-control form-control-sm" id="mgFrom"></div>
-    <div class="col-6 col-md-3"><label class="form-label small mb-0">Hasta</label><input type="date" class="form-control form-control-sm" id="mgTo"></div>
-    <div class="col-12 col-md-6"><label class="form-label small mb-0">Buscar</label><input type="search" class="form-control form-control-sm" id="mgSearch" placeholder="Artista, actividad, título, fotógrafo…"></div>
-  </div>
-</div></div>
+<div class="mb-3">
+  <input type="search" class="form-control" id="mgTileSearch" placeholder="Buscar artista o evento…" autocomplete="off">
+</div>
 
-<div id="mgResults">
-  {% for g in gallery %}
-    <div class="mg-artist-block" data-artist="{{ g.artist_id }}" data-name="{{ g.artist_name|lower }}">
-      <div class="mg-artist-head">
-        {% if g.artist_photo %}<img src="{{ g.artist_photo }}" alt="">{% else %}<span class="text-muted"><i class="fa fa-user-circle fa-2x"></i></span>{% endif %}
-        <h5 class="mb-0">{{ g.artist_name }}</h5>
-        <span class="badge text-bg-light border">{{ g.total }}</span>
-      </div>
-      {% for o in g.owners %}
-        {% set o_url = o.url ~ ('&' if '?' in o.url else '?') ~ 'back=media' %}
-        <div class="mg-owner mg-album" data-date="{{ o.date }}" data-type="{{ o.type_key }}" data-text="{{ (g.artist_name ~ ' ' ~ o.title ~ ' ' ~ o.event_name ~ ' ' ~ o.venue ~ ' ' ~ o.city ~ ' ' ~ o.type_label)|lower }}">
-          <a class="mg-album__cover" href="{{ o_url }}" title="{{ o.title }}">
-            {% if o.cover %}<img src="{{ o.cover }}" alt="" loading="lazy">{% else %}<span class="mg-album__ph"><i class="fa {{ o.type_icon }}"></i></span>{% endif %}
-          </a>
-          <div class="mg-album__body">
-            <div class="mg-album__head">
-              <i class="fa {{ o.type_icon }} me-1"></i>{{ o.type_label }}{% if o.event_name %} · <strong>{{ o.event_name }}</strong>{% endif %}{% if o.date %} · <span class="text-muted">{{ o.date }}</span>{% endif %}{% if o.venue %} · {{ o.venue }}{% endif %}{% if o.city %} · {{ o.city }}{% endif %}
-            </div>
-            <div class="small text-muted mt-1">
-              <span><i class="fa fa-image me-1"></i>{{ o.n_photos }} foto{{ '' if o.n_photos == 1 else 's' }}</span>
-              {% if o.n_videos %}<span class="ms-3"><i class="fa fa-video me-1"></i>{{ o.n_videos }} vídeo{{ '' if o.n_videos == 1 else 's' }}</span>{% endif %}
-              {% if o.approved_count %}<span class="ms-3 text-success"><i class="fa fa-circle-check me-1"></i>{{ o.approved_count }} aprobada{{ '' if o.approved_count == 1 else 's' }}</span>{% endif %}
-              <a href="{{ o_url }}" class="ms-3">Ver álbum →</a>
-            </div>
-            {# Fotos y vídeos SEPARADOS para identificarlos mejor (no mezclados). #}
-            {% if o.sample_photos %}
-            <div class="mg-album__strip">
-              {% for u in o.sample_photos %}
-                <a class="mg-thumb" href="{{ o_url }}"><img src="{{ u }}" alt="" loading="lazy"></a>
-              {% endfor %}
-            </div>
-            {% endif %}
-            {% if o.sample_videos %}
-            <div class="small text-muted mt-1"><i class="fa fa-video me-1"></i>Vídeos</div>
-            <div class="mg-album__strip">
-              {% for u in o.sample_videos %}
-                <a class="mg-thumb mg-thumb--vid" href="{{ o_url }}" title="Vídeo"><i class="fa fa-film"></i></a>
-              {% endfor %}
-            </div>
-            {% endif %}
+<div id="mgTiles">
+  {% if artist_tiles %}
+    <h6 class="mg-section-title"><i class="fa fa-user-group me-2 text-muted"></i>Artistas</h6>
+    <div class="mg-tiles mb-1" data-mg-section>
+      {% for t in artist_tiles %}
+      <a class="mg-tile" href="{{ t.url }}" data-name="{{ t.name|lower }}">
+        <div class="mg-tile__cover">
+          {% if t.cover and not t.cover_is_video %}<img src="{{ t.cover }}" alt="" loading="lazy">
+          {% elif t.cover and t.cover_is_video %}<span class="mg-tile__vid"><i class="fa fa-film"></i></span>
+          {% else %}<i class="fa fa-user-circle"></i>{% endif %}
+        </div>
+        <div class="mg-tile__body">
+          <div class="mg-tile__name">
+            {% if t.photo %}<span class="mg-tile__avatar"><img src="{{ t.photo }}" alt=""></span>{% endif %}
+            <span class="text-truncate">{{ t.name }}</span>
+          </div>
+          <div class="mg-tile__counts small text-muted">
+            {% if t.n_photos %}<span><i class="fa fa-image me-1"></i>{{ (t.n_photos)|k }}</span>{% endif %}
+            {% if t.n_videos %}<span><i class="fa fa-video me-1"></i>{{ (t.n_videos)|k }}</span>{% endif %}
           </div>
         </div>
+      </a>
       {% endfor %}
     </div>
-  {% else %}
+  {% endif %}
+
+  {% if event_tiles %}
+    <h6 class="mg-section-title mt-4"><i class="fa fa-calendar-day me-2 text-muted"></i>Eventos <span class="text-muted fw-normal small">(actividades sin artista)</span></h6>
+    <div class="mg-tiles mb-1" data-mg-section>
+      {% for t in event_tiles %}
+      <a class="mg-tile" href="{{ t.url }}" data-name="{{ (t.name ~ ' ' ~ t.type_label)|lower }}">
+        <div class="mg-tile__cover">
+          {% if t.cover and not t.cover_is_video %}<img src="{{ t.cover }}" alt="" loading="lazy">
+          {% elif t.cover and t.cover_is_video %}<span class="mg-tile__vid"><i class="fa fa-film"></i></span>
+          {% else %}<i class="fa {{ t.type_icon or 'fa-images' }}"></i>{% endif %}
+        </div>
+        <div class="mg-tile__body">
+          <div class="mg-tile__name"><i class="fa {{ t.type_icon or 'fa-images' }} me-1 text-muted"></i><span class="text-truncate">{{ t.name }}</span></div>
+          <div class="mg-tile__meta small text-muted text-truncate">{{ t.type_label }}{% if t.date_label %} · {{ t.date_label }}{% endif %}</div>
+          <div class="mg-tile__counts small text-muted">
+            {% if t.n_photos %}<span><i class="fa fa-image me-1"></i>{{ (t.n_photos)|k }}</span>{% endif %}
+            {% if t.n_videos %}<span><i class="fa fa-video me-1"></i>{{ (t.n_videos)|k }}</span>{% endif %}
+          </div>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if not artist_tiles and not event_tiles %}
     <div class="card"><div class="card-body text-center text-muted py-5"><i class="fa fa-images fa-2x mb-2"></i><div class="fw-semibold">Aún no hay fotos ni vídeos</div></div></div>
-  {% endfor %}
-  <div class="text-muted text-center py-4 d-none" id="mgEmpty">No hay resultados con esos filtros.</div>
+  {% endif %}
+  <div class="text-muted text-center py-4 d-none" id="mgEmpty">No hay resultados.</div>
 </div>
 
 {% if can_edit %}
@@ -159,44 +118,27 @@
 {% block scripts %}
 <script>
 (function(){
-  // ---- Filtros de la galería ----
-  var artistSel='', typeSel='', qFrom='', qTo='', qText='';
-  function apply(){
-    var anyVisible=false;
-    document.querySelectorAll('.mg-artist-block').forEach(function(block){
-      var okArtist = !artistSel || block.getAttribute('data-artist')===artistSel;
-      var ownersVisible=0;
-      block.querySelectorAll('.mg-owner').forEach(function(o){
-        var d=o.getAttribute('data-date')||''; var txt=o.getAttribute('data-text')||'';
-        var okDate=(!qFrom || (d && d>=qFrom)) && (!qTo || (d && d<=qTo));
-        var okType=!typeSel || (o.getAttribute('data-type')||'')===typeSel;
-        var okText=!qText || txt.indexOf(qText)>-1 || Array.prototype.some.call(o.querySelectorAll('.mg-thumb'), function(t){ return (t.getAttribute('data-ph')||'').indexOf(qText)>-1; });
-        var show = okArtist && okType && okDate && okText;
-        o.style.display = show ? '' : 'none';
-        if(show) ownersVisible++;
-      });
-      block.style.display = (okArtist && ownersVisible>0) ? '' : 'none';
-      if(okArtist && ownersVisible>0) anyVisible=true;
+  // ---- Buscador de fichas (artista / evento) ----
+  var q = document.getElementById('mgTileSearch');
+  function applySearch(){
+    var v = (q.value || '').toLowerCase().trim();
+    var any = false;
+    document.querySelectorAll('#mgTiles .mg-tile').forEach(function(t){
+      var show = !v || (t.getAttribute('data-name') || '').indexOf(v) > -1;
+      t.classList.toggle('d-none', !show); if(show) any = true;
     });
-    var empty=document.getElementById('mgEmpty'); if(empty) empty.classList.toggle('d-none', anyVisible);
+    // Ocultar el título de una sección si no queda ninguna ficha visible en ella.
+    document.querySelectorAll('#mgTiles [data-mg-section]').forEach(function(sec){
+      var vis = sec.querySelector('.mg-tile:not(.d-none)');
+      sec.classList.toggle('d-none', !vis);
+      var title = sec.previousElementSibling;
+      if(title && title.classList.contains('mg-section-title')) title.classList.toggle('d-none', !vis);
+    });
+    var empty = document.getElementById('mgEmpty'); if(empty) empty.classList.toggle('d-none', any);
   }
-  document.getElementById('mgArtistFilter').addEventListener('click', function(e){
-    var c=e.target.closest('.mg-filter-chip'); if(!c) return;
-    document.querySelectorAll('#mgArtistFilter .mg-filter-chip').forEach(function(x){ x.classList.remove('active'); });
-    c.classList.add('active'); artistSel=c.getAttribute('data-artist')||''; apply();
-  });
-  var typeFilterEl=document.getElementById('mgTypeFilter');
-  if(typeFilterEl) typeFilterEl.addEventListener('click', function(e){
-    var c=e.target.closest('.mg-type-chip'); if(!c) return;
-    typeFilterEl.querySelectorAll('.mg-type-chip').forEach(function(x){ x.classList.remove('active'); });
-    c.classList.add('active'); typeSel=c.getAttribute('data-type')||''; apply();
-  });
-  var f=document.getElementById('mgFrom'), t=document.getElementById('mgTo'), q=document.getElementById('mgSearch');
-  if(f) f.addEventListener('change', function(){ qFrom=this.value; apply(); });
-  if(t) t.addEventListener('change', function(){ qTo=this.value; apply(); });
-  if(q) q.addEventListener('input', function(){ qText=(this.value||'').toLowerCase().trim(); apply(); });
+  if(q) q.addEventListener('input', applySearch);
 
-  // ---- Asistente ----
+  // ---- Asistente de subida ----
   var modalEl=document.getElementById('mgWizard'); if(!modalEl) return;
   var artistId='', artistName='';
   function step(n){ modalEl.querySelectorAll('[data-mg-step]').forEach(function(s){ s.classList.toggle('d-none', s.getAttribute('data-mg-step')!=String(n)); }); }

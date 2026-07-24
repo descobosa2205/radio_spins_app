@@ -31,7 +31,9 @@
   var viewMode = localStorage.getItem('fotosViewMode') || 'grid3';
   var selected = {};
   var filters = { APPROVED: true, REJECTED: false, PENDING: false, NONE: true };
-  var showDiscarded = false;   // "Ver descartadas": incluye las fotos ocultas
+  var mediaType = 'all';       // chip directo: all | photos | videos
+  var showDiscarded = false;   // chip "Descartadas": incluye las fotos ocultas
+  var currentAlbum = null;     // null = nivel del dueño (tarjetas de sub-álbum + sueltas); id = dentro de un álbum
   var detailPhotoId = null;
   var bulkContext = { ids: [] };       // contexto de acciones en bloque / sobre álbum
 
@@ -105,7 +107,13 @@
   }
 
   // =============================================================== render
-  function passesFilter(p) { return !!filters[p.approval_state || 'NONE']; }
+  function passesFilter(p) {
+    if (!filters[p.approval_state || 'NONE']) return false;
+    if (p.discarded && !showDiscarded) return false;
+    if (mediaType === 'photos' && p.is_video) return false;
+    if (mediaType === 'videos' && !p.is_video) return false;
+    return true;
+  }
 
   function mediaHtml(p, cls) {
     if (p.is_video) return '<video src="' + esc(p.file_url) + '" class="' + cls + '" preload="metadata" muted></video><span class="fotos-tile__play"><i class="fa fa-play"></i></span>';
@@ -132,9 +140,42 @@
       + '<div class="fotos-tile__title" title="' + esc(p.title) + '">' + esc(p.title || '—') + '</div>'
       + '</div>';
   }
-  function albumHtml(a) {
-    var items = (a.photos || []).filter(passesFilter).map(function (p) { return tileHtml(p, canEdit); }).join('');
-    var menu = canEdit ? ('<div class="dropdown fotos-album__menu"><button class="btn btn-sm btn-light border" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-vertical"></i></button>'
+  // Fotos y VÍDEOS separados (no mezclados): dos cuadrículas con su rótulo. `scope` identifica el
+  // contenedor a la hora de reordenar ('loose' o 'album:<id>').
+  function tilesGridsHtml(list, scope) {
+    var vm = 'fotos-gallery fotos-' + viewMode;
+    var photos = list.filter(function (p) { return !p.is_video; });
+    var videos = list.filter(function (p) { return p.is_video; });
+    var both = photos.length && videos.length;
+    var html = '';
+    if (photos.length) {
+      if (both) html += '<div class="fotos-section-label"><i class="fa fa-image me-1"></i>Fotos</div>';
+      html += '<div class="' + vm + '" data-grid-scope="' + esc(scope) + '" data-grid-media="photos">' + photos.map(function (p) { return tileHtml(p, canEdit); }).join('') + '</div>';
+    }
+    if (videos.length) {
+      html += '<div class="fotos-section-label"><i class="fa fa-video me-1"></i>Vídeos</div>';
+      html += '<div class="' + vm + '" data-grid-scope="' + esc(scope) + '" data-grid-media="videos">' + videos.map(function (p) { return tileHtml(p, canEdit); }).join('') + '</div>';
+    }
+    return html;
+  }
+  // Tarjeta compacta de un sub-álbum (portada + título + nº de fotos/vídeos). Se abre al pincharla.
+  function albumCardHtml(a) {
+    var ps = a.photos || [];
+    var nv = ps.filter(function (p) { return p.is_video; }).length;
+    var np = ps.length - nv;
+    var counts = [];
+    if (np) counts.push('<i class="fa fa-image me-1"></i>' + np);
+    if (nv) counts.push('<i class="fa fa-video me-1"></i>' + nv);
+    return '<button type="button" class="fotos-albumcard" data-album-open="' + esc(a.id) + '" title="' + esc(a.name) + '">'
+      + '<span class="fotos-albumcard__cover">' + (a.cover_url ? '<img src="' + esc(a.cover_url) + '" alt="">' : '<i class="fa fa-images"></i>')
+      + '<span class="fotos-albumcard__badge"><i class="fa fa-layer-group"></i></span></span>'
+      + '<span class="fotos-albumcard__name">' + esc(a.name) + '</span>'
+      + '<span class="fotos-albumcard__counts small text-muted">' + counts.join(' · ') + '</span>'
+      + '</button>';
+  }
+  // Cabecera al entrar en un sub-álbum (volver + nombre + menú de acciones del álbum).
+  function albumHeadHtml(a) {
+    var menu = canEdit ? ('<div class="dropdown fotos-album__menu ms-auto"><button class="btn btn-sm btn-light border" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-vertical"></i></button>'
       + '<ul class="dropdown-menu dropdown-menu-end">'
       + '<li><a class="dropdown-item" href="#" data-album-action="approval" data-album-id="' + esc(a.id) + '"><i class="fa fa-thumbs-up fa-fw me-2"></i>Pedir aprobación</a></li>'
       + '<li><a class="dropdown-item" href="#" data-album-action="edit" data-album-id="' + esc(a.id) + '"><i class="fa fa-pen fa-fw me-2"></i>Editar álbum</a></li>'
@@ -144,52 +185,59 @@
       + '<li><hr class="dropdown-divider"></li>'
       + '<li><a class="dropdown-item text-danger" href="#" data-album-action="delete" data-album-id="' + esc(a.id) + '"><i class="fa fa-trash fa-fw me-2"></i>Eliminar</a></li>'
       + '</ul></div>') : '';
-    return '<div class="fotos-album" data-album-id="' + esc(a.id) + '">'
-      + '<div class="fotos-album__head">'
-      + '<div class="fotos-album__cover">' + (a.cover_url ? '<img src="' + esc(a.cover_url) + '" alt="">' : '<i class="fa fa-images"></i>') + '</div>'
-      + '<div class="fotos-album__meta"><div class="fotos-album__name">' + esc(a.name) + '</div><div class="small text-muted">(' + (a.count || 0) + ' foto' + (a.count === 1 ? '' : 's') + ')</div></div>'
-      + menu + '</div>'
-      + '<div class="fotos-album__items fotos-gallery fotos-' + viewMode + '" data-album-items="' + esc(a.id) + '">' + items + '</div>'
-      + '</div>';
+    return '<div class="fotos-albumhead d-flex align-items-center gap-2 mb-2 flex-wrap">'
+      + '<button type="button" class="btn btn-sm btn-outline-secondary" data-album-back><i class="fa fa-arrow-left me-1"></i>Álbumes</button>'
+      + '<span class="fw-semibold"><i class="fa fa-layer-group me-1 text-muted"></i>' + esc(a.name) + '</span>'
+      + '<span class="text-muted small">(' + (a.count || 0) + ')</span>'
+      + menu + '</div>';
   }
   function render() {
     gallery.className = 'fotos-loose-wrap';   // contenedor: las cuadrículas van dentro
-    var vm = 'fotos-gallery fotos-' + viewMode;
+    var albums = state.albums || [];
     var html = '';
-    (state.albums || []).forEach(function (a) { html += albumHtml(a); });
-    // Fotos y VÍDEOS separados (no mezclados): dos cuadrículas con su rótulo.
-    var loose = (state.photos || []).filter(passesFilter);
-    var loosePhotos = loose.filter(function (p) { return !p.is_video; });
-    var looseVideos = loose.filter(function (p) { return p.is_video; });
-    var both = loosePhotos.length && looseVideos.length;
-    if (loosePhotos.length) {
-      if (both) html += '<div class="fotos-section-label"><i class="fa fa-image me-1"></i>Fotos</div>';
-      html += '<div class="' + vm + '" data-loose-grid="photos">' + loosePhotos.map(function (p) { return tileHtml(p, canEdit); }).join('') + '</div>';
-    }
-    if (looseVideos.length) {
-      html += '<div class="fotos-section-label"><i class="fa fa-video me-1"></i>Vídeos</div>';
-      html += '<div class="' + vm + '" data-loose-grid="videos">' + looseVideos.map(function (p) { return tileHtml(p, canEdit); }).join('') + '</div>';
+    if (currentAlbum) {
+      // Dentro de un sub-álbum: cabecera + su contenido (fotos/vídeos separados).
+      var a = albumById(currentAlbum);
+      if (!a) { currentAlbum = null; return render(); }
+      html += albumHeadHtml(a);
+      var items = (a.photos || []).filter(passesFilter);
+      html += tilesGridsHtml(items, 'album:' + a.id);
+      if (!items.length) html += '<div class="text-muted text-center py-4">No hay contenido con esos filtros en este álbum.</div>';
+    } else {
+      // Nivel del dueño: primero los sub-álbumes (si hay) como tarjetas en fila; luego las sueltas.
+      if (albums.length) html += '<div class="fotos-albumrow">' + albums.map(albumCardHtml).join('') + '</div>';
+      var loose = (state.photos || []).filter(passesFilter);
+      html += tilesGridsHtml(loose, 'loose');
+      // Hay fotos sueltas pero el filtro las oculta todas (y no hay álbumes que mostrar): avísalo.
+      if (!albums.length && !loose.length && (state.photos || []).length)
+        html += '<div class="text-muted text-center py-4">No hay contenido con esos filtros.</div>';
     }
     gallery.innerHTML = html;
-    emptyEl.classList.toggle('d-none', !!(((state.albums || []).length) || loose.length));
+    // Vacío real: ni álbumes ni fotos sueltas (independiente de los filtros).
+    emptyEl.classList.toggle('d-none', !!(albums.length || (state.photos || []).length));
     if (canEdit) {
-      // Reorden por cuadrícula (foto no se mezcla con vídeo); se persiste el orden COMBINADO
-      // (fotos primero, luego vídeos), coherente con cómo se re-agrupan al re-renderizar.
-      gallery.querySelectorAll('[data-loose-grid]').forEach(function (grid) {
-        enableReorder(grid, function () { reorderLooseCombined(); });
-      });
-      gallery.querySelectorAll('[data-album-items]').forEach(function (c) {
-        enableReorder(c, function (ids) { postJson(reorderUrl, { album_id: c.getAttribute('data-album-items'), order: ids }); });
+      // Reorden por cuadrícula (foto no se mezcla con vídeo); se persiste el orden COMBINADO del
+      // ámbito (fotos primero, luego vídeos), coherente con cómo se re-agrupan al re-renderizar.
+      gallery.querySelectorAll('[data-grid-scope]').forEach(function (grid) {
+        enableReorder(grid, function () { persistReorder(grid.getAttribute('data-grid-scope')); });
       });
     }
     updateBulk();
     updateCounts();
     renderPendingAlert();
   }
-  function reorderLooseCombined() {
+  function persistReorder(scope) {
     var ids = [];
-    gallery.querySelectorAll('[data-loose-grid] .fotos-tile[data-photo-id]').forEach(function (t) { ids.push(t.getAttribute('data-photo-id')); });
-    reorderLoose(ids);
+    gallery.querySelectorAll('[data-grid-scope="' + scope + '"] .fotos-tile[data-photo-id]').forEach(function (t) { ids.push(t.getAttribute('data-photo-id')); });
+    if (scope === 'loose') { reorderLoose(ids); return; }
+    if (scope.indexOf('album:') === 0) {
+      var aid = scope.slice(6), a = albumById(aid);
+      if (a) {
+        // Preservar los ocultos por filtro y persistir el orden COMPLETO (no solo lo visible).
+        a.photos = reorderWithHidden(a.photos || [], ids);
+        postJson(reorderUrl, { album_id: aid, order: a.photos.map(function (p) { return p.id; }) });
+      }
+    }
   }
 
   // Barra AMARILLA: contenido pendiente de aprobación (a quién se pidió, cuándo y su enlace).
@@ -232,9 +280,15 @@
 
   // ============================================================ selección
   function allVisibleIds() {
+    // Lo que está REALMENTE en pantalla: dentro de un álbum, sus fotos filtradas; en el nivel del
+    // dueño, solo las sueltas filtradas (las de los álbumes viven dentro de su tarjeta).
     var ids = [];
-    (state.albums || []).forEach(function (a) { (a.photos || []).forEach(function (p) { if (passesFilter(p)) ids.push(p.id); }); });
-    (state.photos || []).forEach(function (p) { if (passesFilter(p)) ids.push(p.id); });
+    if (currentAlbum) {
+      var a = albumById(currentAlbum);
+      ((a && a.photos) || []).forEach(function (p) { if (passesFilter(p)) ids.push(p.id); });
+    } else {
+      (state.photos || []).forEach(function (p) { if (passesFilter(p)) ids.push(p.id); });
+    }
     return ids;
   }
   function updateBulk() {
@@ -258,8 +312,12 @@
     render();
   });
 
-  // ============================================================== detalle
+  // ============================================================== detalle / navegación de álbumes
   gallery.addEventListener('click', function (e) {
+    // Abrir un sub-álbum (tarjeta) o volver a la lista de álbumes.
+    var open = e.target.closest('[data-album-open]');
+    if (open) { currentAlbum = open.getAttribute('data-album-open'); render(); return; }
+    if (e.target.closest('[data-album-back]')) { currentAlbum = null; render(); return; }
     if (e.target.closest('.fotos-tile__check') || e.target.closest('.fotos-album__menu')) return;
     var tile = e.target.closest('.fotos-tile'); if (!tile) return;
     openDetail(tile.getAttribute('data-photo-id'));
@@ -402,10 +460,27 @@
       render();
     });
   });
-  document.getElementById('fotosFilterBtn').addEventListener('click', function () { bsModal('fotosFilterModal').show(); });
-  var applyBtn = document.getElementById('fotosFilterApply');
-  if (applyBtn) applyBtn.addEventListener('click', function () {
-    ['APPROVED', 'REJECTED', 'PENDING', 'NONE'].forEach(function (k) { var cb = document.querySelector('#fotosFilterModal input[value="' + k + '"]'); filters[k] = cb ? cb.checked : false; });
+  // Chip DIRECTO de tipo de contenido (Todo / Fotos / Vídeos) — selección única.
+  var typeChips = document.getElementById('fotosTypeChips');
+  if (typeChips) typeChips.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-media-type]'); if (!b) return;
+    mediaType = b.getAttribute('data-media-type');
+    typeChips.querySelectorAll('[data-media-type]').forEach(function (x) { x.classList.toggle('active', x === b); });
+    render();
+  });
+  // Chips DIRECTOS de estado (multi) + «Descartadas» (recarga para incluir/excluir las ocultas).
+  var stateChips = document.getElementById('fotosStateChips');
+  if (stateChips) stateChips.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-state]'); if (!b) return;
+    var st = b.getAttribute('data-state');
+    if (st === '__discarded') {
+      showDiscarded = !showDiscarded;
+      b.classList.toggle('active', showDiscarded);
+      refresh();
+      return;
+    }
+    filters[st] = !filters[st];
+    b.classList.toggle('active', !!filters[st]);
     render();
   });
 
@@ -434,10 +509,19 @@
       dragId = null;
     });
   }
+  // Reordena SOLO el subconjunto visible (`visIds`, en su nuevo orden) preservando en su sitio los
+  // ocultos por filtro (tipo/estado); devuelve la lista completa reordenada. Evita que arrastrar con
+  // un chip activo borre del estado local las fotos/vídeos ocultos (parecería que se pierden).
+  function reorderWithHidden(list, visIds) {
+    var visSet = {}; visIds.forEach(function (id) { visSet[id] = true; });
+    var byId = {}; list.forEach(function (p) { byId[p.id] = p; });
+    var newVis = visIds.map(function (id) { return byId[id]; }).filter(Boolean);
+    var i = 0;
+    return list.map(function (p) { return visSet[p.id] ? newVis[i++] : p; }).filter(Boolean);
+  }
   function reorderLoose(ids) {
-    var byId = {}; (state.photos || []).forEach(function (p) { byId[p.id] = p; });
-    state.photos = ids.map(function (id) { return byId[id]; }).filter(Boolean);
-    postJson(reorderUrl, { order: ids });
+    state.photos = reorderWithHidden(state.photos || [], ids);
+    postJson(reorderUrl, { order: state.photos.map(function (p) { return p.id; }) });
   }
 
   // ================================================================ helpers datos
@@ -452,13 +536,6 @@
     var url = listUrl + (showDiscarded ? '?include_discarded=1' : '');
     return fetch(url).then(function (r) { return r.json(); }).then(function (d) { if (d && d.ok) { state.albums = d.albums || []; state.photos = d.photos || []; render(); } });
   }
-  var discardedBtn = document.getElementById('fotosDiscardedBtn');
-  if (discardedBtn) discardedBtn.addEventListener('click', function () {
-    showDiscarded = !showDiscarded;
-    discardedBtn.classList.toggle('active', showDiscarded);
-    discardedBtn.title = showDiscarded ? 'Ocultar descartadas' : 'Ver descartadas';
-    refresh();
-  });
   // ================================================================== bulk
   document.querySelectorAll('#fotosBulkBar [data-bulk]').forEach(function (a) {
     a.addEventListener('click', function (e) {

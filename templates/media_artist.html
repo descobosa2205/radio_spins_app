@@ -1,0 +1,25 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="mb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('media_gallery_view') }}" title="Volver a Fotos / Vídeos" aria-label="Volver a Fotos / Vídeos"><i class="fa fa-arrow-left"></i></a>
+</div>
+<div class="ficha-hero mb-3">
+  <span class="ficha-hero__media d-flex align-items-center justify-content-center" style="background:#f8f9fa;color:#adb5bd;overflow:hidden;">
+    {% if artist.photo_url %}<img src="{{ artist.photo_url }}" alt="" style="width:100%;height:100%;object-fit:cover;">{% else %}<i class="fa fa-user-circle" style="font-size:2rem;"></i>{% endif %}
+  </span>
+  <div class="ficha-hero__body">
+    <div class="ficha-hero__eyebrow">Fotos / Vídeos</div>
+    <h1 class="ficha-hero__title">{{ artist.name }}</h1>
+  </div>
+</div>
+
+{% if rows %}
+  {% include '_media_activity_rows.html' %}
+{% else %}
+  <div class="text-muted text-center py-5"><i class="fa fa-images fa-2x mb-2 d-block opacity-50"></i>Este artista todavía no tiene fotos vinculadas.</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/media_rows.js', v=ASSET_V) }}"></script>
+{% endblock %}

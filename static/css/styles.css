@@ -1,4 +1,11 @@
 body { background: #fafafa; }
+/* La app debe caber SIEMPRE en el ancho del dispositivo (iPad, móvil, escritorio). Se recorta a nivel
+   de página cualquier desbordamiento horizontal accidental (unos px de más que hacían que en iPad se
+   viera «más página» por los lados y todo se moviera al hacer scroll). Se usa `clip` y NO `hidden`
+   porque `hidden` fuerza al eje vertical a `auto` y ROMPERÍA la barra superior `sticky-top`; `clip`
+   recorta sin crear contenedor de scroll, así el sticky y los scrolls internos (tablas/mapas con
+   overflow-x:auto) siguen funcionando. */
+html, body { overflow-x: clip; }
 .navbar .nav-link { color: #444; }
 .navbar .nav-link.active, .nav-link:hover { color: var(--brand-primary); }
 

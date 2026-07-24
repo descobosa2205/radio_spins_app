@@ -478,9 +478,15 @@
 
 
 <!-- Modal: Subir ingresos CSV -->
+<style>
+  .income-dz{display:flex;align-items:center;gap:.6rem;justify-content:center;text-align:center;
+    border:2px dashed #c9d2dc;border-radius:12px;padding:1rem;cursor:pointer;color:#5b6b7b;
+    background:#f8fafc;transition:background .15s,border-color .15s;margin-bottom:.25rem;}
+  .income-dz:hover{border-color:var(--brand-primary,#E33D48);background:#fff5f5;color:#3b4652;}
+</style>
 <div class="modal fade" id="incomeUploadModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered">
-    <form class="modal-content" method="post" action="{{ url_for('discografica_income_upload_csv') }}" enctype="multipart/form-data">
+    <form class="modal-content" method="post" action="{{ url_for('discografica_income_upload_csv') }}" enctype="multipart/form-data" data-native-upload>
       <div class="modal-header">
         <h5 class="modal-title">Subir ingresos (CSV)</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
@@ -500,6 +506,10 @@
         <div class="row g-2">
           <div class="col-12">
             <label class="form-label">Archivos CSV</label>
+            <label for="incomeUploadFile" class="income-dz" data-file-drop-for="#incomeUploadFile">
+              <i class="fa fa-cloud-arrow-up fa-lg"></i>
+              <span><b>Arrastra aquí los CSV</b> o haz clic para seleccionarlos (uno o varios)</span>
+            </label>
             <input class="form-control" type="file" name="csv_files" id="incomeUploadFile" accept=".csv,text/csv" multiple required>
             <div class="small text-muted mt-1">
               Formatos soportados: <span class="text-nowrap">Track / ISRC / Net Revenue</span>,

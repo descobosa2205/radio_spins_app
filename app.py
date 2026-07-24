@@ -12109,23 +12109,27 @@ def discografica_income_upload_csv():
         rows_total += int(len(df.index))
         files_processed += 1
 
-        for _, row in df.iterrows():
-            raw_row = {col: _clean_csv_cell(row.get(col)) for col in cols}
-            _track_val = _clean_csv_cell(row.get(file_track_col)) if file_track_col else ""
+        # to_dict('records') en vez de iterrows(): iterrows crea una Series por fila (muy lento en
+        # extractos de decenas/cientos de miles de filas y podía agotar el timeout del proxy →
+        # «No se pudo completar la subida»). Mismo resultado, mucho más rápido.
+        _file_name = getattr(uploaded, "filename", "archivo.csv")
+        for rec in df.to_dict("records"):
+            raw_row = {col: _clean_csv_cell(rec.get(col)) for col in cols}
+            _track_val = _clean_csv_cell(rec.get(file_track_col)) if file_track_col else ""
             # Fila-RESUMEN del extracto («Total» al final, sin ISRC ni Product Code): fuera en
             # silencio — no es una canción y solo metía ruido en «filas sin match».
-            if _track_val.strip().lower() in ("total", "totales") and not str(row.get("__isrc") or "") and not str(row.get("__product_code") or ""):
+            if _track_val.strip().lower() in ("total", "totales") and not str(rec.get("__isrc") or "") and not str(rec.get("__product_code") or ""):
                 continue
             parsed_rows.append(
                 {
-                    "file_name": getattr(uploaded, "filename", "archivo.csv"),
-                    "row_number": int(row.get("__row_number") or 0),
+                    "file_name": _file_name,
+                    "row_number": int(rec.get("__row_number") or 0),
                     "raw_row": raw_row,
-                    "isrc": str(row.get("__isrc") or ""),
-                    "product_code": str(row.get("__product_code") or ""),
-                    "amount": _money_norm(row.get("__amount") or 0),
+                    "isrc": str(rec.get("__isrc") or ""),
+                    "product_code": str(rec.get("__product_code") or ""),
+                    "amount": _money_norm(rec.get("__amount") or 0),
                     "track": _track_val,
-                    "primary_artist": _clean_csv_cell(row.get("Primary Artist") or row.get("ARTIST") or row.get("Artist")),
+                    "primary_artist": _clean_csv_cell(rec.get("Primary Artist") or rec.get("ARTIST") or rec.get("Artist")),
                 }
             )
 

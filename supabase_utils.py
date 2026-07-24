@@ -173,8 +173,9 @@ def _check_dict_response(resp, size_bytes: int | None) -> None:
         raise RuntimeError(msg)
 
 
-def _upload_bytes(data: bytes, key: str, content_type: str) -> str:
-    """Sube bytes a Supabase Storage y devuelve URL pública."""
+def _upload_bytes(data: bytes, key: str, content_type: str, upsert: bool = False) -> str:
+    """Sube bytes a Supabase Storage y devuelve URL pública. Con upsert=True SOBREESCRIBE si la clave
+    ya existe (útil para claves DETERMINISTAS, p. ej. el póster por photo_id, para no dejar huérfanos)."""
     client = supabase_client()
     size_bytes = len(data) if data is not None else None
 
@@ -188,7 +189,7 @@ def _upload_bytes(data: bytes, key: str, content_type: str) -> str:
                 # de 1 año. Con la caché corta de antes (1 h) las miniaturas caducaban y se
                 # re-descargaban todas en ráfaga, provocando fallos intermitentes de carga.
                 "cache-control": "31536000",
-                "upsert": "false",
+                "upsert": ("true" if upsert else "false"),
             },
         )
     except StorageObjectTooLargeError:

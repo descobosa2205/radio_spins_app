@@ -3815,6 +3815,10 @@ class Photo(Base):
     file_name = Column(Text, nullable=False)
     file_url = Column(Text, nullable=False)
     mime_type = Column(Text)
+    # Póster de VÍDEO: fotograma intermedio generado en el servidor (ffmpeg) y subido a Storage. Se
+    # usa como miniatura (img) para que el vídeo tenga portada real también en móvil (iOS no puede
+    # pintar un fotograma de <video> sin interacción). NULL en fotos y en vídeos aún sin procesar.
+    poster_url = Column(Text)
 
     # Fotógrafo: un tercero (Promoter) o desconocido.
     photographer_promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
@@ -4094,6 +4098,7 @@ def ensure_fotos_schema():
         """,
         "ALTER TABLE IF EXISTS photos ADD COLUMN IF NOT EXISTS discarded boolean NOT NULL DEFAULT false;",
         "ALTER TABLE IF EXISTS photos ADD COLUMN IF NOT EXISTS file_sha256 text;",
+        "ALTER TABLE IF EXISTS photos ADD COLUMN IF NOT EXISTS poster_url text;",
         "CREATE INDEX IF NOT EXISTS idx_photos_sha ON photos(owner_type, owner_id, file_sha256);",
         "CREATE INDEX IF NOT EXISTS idx_photos_owner ON photos(owner_type, owner_id, sort_order);",
         "CREATE INDEX IF NOT EXISTS idx_photos_artist ON photos(artist_id);",

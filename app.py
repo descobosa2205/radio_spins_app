@@ -3,6 +3,7 @@ import os
 import io
 import time
 import threading
+import subprocess
 import queue
 import smtplib
 from uuid import UUID
@@ -43222,6 +43223,7 @@ def _photo_payload(p, photographer=None, approval=None):
         "file_name": p.file_name or "",
         "kind": kind,
         "is_video": kind == "VIDEO",
+        "poster_url": (getattr(p, "poster_url", None) or ""),
         "mime_type": p.mime_type or "",
         "taken_date": taken.isoformat() if taken else "",
         "sort_order": int(p.sort_order or 0),
@@ -43291,6 +43293,143 @@ def _photo_approval_map(session_db, photo_ids):
     return out
 
 
+# ============================ Póster/miniatura de VÍDEO (ffmpeg en el servidor) ============================
+# Los vídeos suben directos a Supabase (sin pasar por el servidor). Para que tengan una MINIATURA real
+# también en móvil (iOS no puede pintar un fotograma de <video> sin interacción), el servidor extrae UN
+# fotograma intermedio con ffmpeg (imageio-ffmpeg, binario estático) por RANGO HTTP (sin bajar el vídeo
+# entero) y lo sube como imagen a Storage → Photo.poster_url. Se hace en 2º plano (no bloquea la subida)
+# con tope de concurrencia y deduplicado; las vistas re-programan los vídeos aún sin póster (auto-relleno).
+_VIDEO_POSTER_SEM = threading.Semaphore(2)
+_VIDEO_POSTER_INFLIGHT = set()
+_VIDEO_POSTER_LOCK = threading.Lock()
+# Caché NEGATIVA: vídeos cuyo póster acaba de fallar (no reintentar en cada render; TTL para volver a
+# probar más tarde, p. ej. si el objeto vuelve a estar accesible). Se limpia al reiniciar el proceso.
+_VIDEO_POSTER_FAILED = {}
+_VIDEO_POSTER_FAIL_TTL = 6 * 3600
+_FFMPEG_EXE_CACHE = []
+
+
+def _ffmpeg_exe():
+    if not _FFMPEG_EXE_CACHE:
+        try:
+            import imageio_ffmpeg
+            _FFMPEG_EXE_CACHE.append(imageio_ffmpeg.get_ffmpeg_exe())
+        except Exception:
+            _FFMPEG_EXE_CACHE.append(None)
+    return _FFMPEG_EXE_CACHE[0]
+
+
+def _video_probe_duration(exe, url):
+    """Duración en segundos (parseada del stderr de ffmpeg; devuelve None si no se puede)."""
+    try:
+        p = subprocess.run([exe, "-i", url], capture_output=True, timeout=45)
+        m = re.search(rb"Duration:\s*(\d+):(\d+):(\d+)\.(\d+)", p.stderr or b"")
+        if not m:
+            return None
+        h, mi, se, cs = (int(x) for x in m.groups())
+        return h * 3600 + mi * 60 + se + cs / 100.0
+    except Exception:
+        return None
+
+
+def _video_generate_poster_bytes(url):
+    """Extrae UN fotograma intermedio (~25% de la duración; tope 5 s) como JPEG. Usa input-seek
+    (-ss antes de -i) → lectura por rango HTTP, sin descargar el vídeo entero. None si falla."""
+    exe = _ffmpeg_exe()
+    if not exe or not url:
+        return None
+    try:
+        dur = _video_probe_duration(exe, url)
+        # dur*0.25 SIEMPRE cae dentro del vídeo (evita el fallo con clips cortos si se forzara t>=1s);
+        # si no se conoce la duración, 1 s (la mayoría de vídeos > 1 s; si falla, cae a la caché negativa).
+        t = min(dur * 0.25, 5.0) if (dur and dur > 0) else 1.0
+        r = subprocess.run(
+            [exe, "-hide_banner", "-loglevel", "error", "-ss", ("%.2f" % t), "-i", url,
+             "-frames:v", "1", "-vf", "scale='min(960,iw)':-2", "-q:v", "4", "-f", "image2", "-"],
+            capture_output=True, timeout=90,
+        )
+        data = r.stdout or b""
+        if r.returncode == 0 and data[:3] == b"\xff\xd8\xff":
+            return data
+    except Exception:
+        pass
+    return None
+
+
+def _video_poster_worker(photo_id, url):
+    ok = False
+    try:
+        data = _video_generate_poster_bytes(url)
+        if not data:
+            return
+        # Clave DETERMINISTA por photo_id (con upsert): si dos procesos (workers de gunicorn) generan
+        # el mismo póster a la vez, sobreescriben el MISMO objeto en vez de dejar un JPEG huérfano.
+        try:
+            poster_url = _upload_bytes(data, "photos/posters/%s.jpg" % str(photo_id), "image/jpeg", upsert=True)
+        except Exception:
+            poster_url = None
+        if not poster_url:
+            return
+        ok = True   # generación + subida OK; el guardado en BD de abajo es best-effort
+        s2 = db()
+        try:
+            ph = s2.get(Photo, to_uuid(photo_id))
+            if ph and not (getattr(ph, "poster_url", None) or "").strip():
+                ph.poster_url = poster_url
+                s2.commit()
+        except Exception:
+            s2.rollback()
+        finally:
+            s2.close()
+    finally:
+        with _VIDEO_POSTER_LOCK:
+            _VIDEO_POSTER_INFLIGHT.discard(str(photo_id))
+            if not ok:   # falló: no reintentar en cada render (hasta que expire el TTL)
+                _VIDEO_POSTER_FAILED[str(photo_id)] = time.time() + _VIDEO_POSTER_FAIL_TTL
+        _VIDEO_POSTER_SEM.release()
+
+
+def _video_poster_schedule(photo_id, url):
+    """Programa la generación del póster en 2º plano (idempotente, deduplicado, tope de concurrencia,
+    con caché negativa para no repetir intentos fallidos en cada render)."""
+    if not photo_id or not url or not _ffmpeg_exe():
+        return
+    pid = str(photo_id)
+    now = time.time()
+    with _VIDEO_POSTER_LOCK:
+        if pid in _VIDEO_POSTER_INFLIGHT:
+            return
+        exp = _VIDEO_POSTER_FAILED.get(pid)
+        if exp is not None:
+            if exp > now:
+                return          # falló hace poco: no reintentar todavía
+            _VIDEO_POSTER_FAILED.pop(pid, None)   # expiró: se permite un nuevo intento
+        _VIDEO_POSTER_INFLIGHT.add(pid)
+    if not _VIDEO_POSTER_SEM.acquire(blocking=False):
+        # Cola llena: se libera y lo reintentará otra vista/render más tarde (auto-relleno).
+        with _VIDEO_POSTER_LOCK:
+            _VIDEO_POSTER_INFLIGHT.discard(pid)
+        return
+    try:
+        threading.Thread(target=_video_poster_worker, args=(pid, url), daemon=True).start()
+    except Exception:
+        # No se pudo arrancar el hilo (p. ej. agotamiento de hilos): liberar recursos para no fugarlos.
+        with _VIDEO_POSTER_LOCK:
+            _VIDEO_POSTER_INFLIGHT.discard(pid)
+        _VIDEO_POSTER_SEM.release()
+
+
+def _video_posters_backfill(photos, limit=4):
+    """Programa el póster de hasta `limit` vídeos SIN póster de la lista (auto-relleno al ver páginas)."""
+    n = 0
+    for p in photos:
+        if n >= limit:
+            break
+        if (getattr(p, "kind", None) or "IMAGE").upper() == "VIDEO" and not (getattr(p, "poster_url", None) or "").strip():
+            _video_poster_schedule(p.id, p.file_url)
+            n += 1
+
+
 def _build_fotos_context(session_db, owner_type, owner_id, include_discarded=False):
     """Payload de la galería (álbumes primero, luego fotos sueltas) para la pestaña Fotos.
     Por defecto se excluyen las fotos descartadas (se ven con include_discarded)."""
@@ -43299,6 +43438,7 @@ def _build_fotos_context(session_db, owner_type, owner_id, include_discarded=Fal
     if not include_discarded:
         q = q.filter(Photo.discarded.is_(False))
     photos = q.order_by(Photo.sort_order.asc(), Photo.created_at.asc()).all()
+    _video_posters_backfill(photos)   # genera en 2º plano el póster de los vídeos que aún no lo tienen
     promo_map = _photo_promoter_map(session_db, photos)
     appr_map = _photo_approval_map(session_db, [p.id for p in photos])
     photo_by_id = {p.id: p for p in photos}
@@ -43324,12 +43464,26 @@ def _build_fotos_context(session_db, owner_type, owner_id, include_discarded=Fal
         member_photos = [photo_by_id[it.photo_id] for it in member_items if it.photo_id in photo_by_id]
         for it in member_items:
             in_album.add(it.photo_id)
-        cover = photo_by_id.get(a.cover_photo_id) if a.cover_photo_id else (member_photos[0] if member_photos else None)
+        # Portada del álbum SIEMPRE como imagen (fotos.js la pinta como <img>): la designada si es
+        # mostrable (foto, o póster de un vídeo), si no la primera del álbum que dé imagen; si solo hay
+        # vídeos aún sin póster, queda vacía (se pinta el icono del álbum), nunca una URL de vídeo.
+        def _img_cover(ph):
+            if not ph:
+                return ""
+            if (getattr(ph, "kind", None) or "IMAGE").upper() == "VIDEO":
+                return (getattr(ph, "poster_url", None) or "").strip()
+            return ph.file_url or ""
+        cover_url_val = _img_cover(photo_by_id.get(a.cover_photo_id) if a.cover_photo_id else None)
+        if not cover_url_val:
+            for mp in member_photos:
+                cover_url_val = _img_cover(mp)
+                if cover_url_val:
+                    break
         album_payloads.append({
             "id": str(a.id),
             "name": a.name,
             "count": len(member_photos),
-            "cover_url": (cover.file_url if cover else ""),
+            "cover_url": cover_url_val or "",
             "photos": [_photo_payload(mp, promo_map.get(mp.photographer_promoter_id), appr_map.get(str(mp.id))) for mp in member_photos],
         })
 
@@ -43403,6 +43557,7 @@ def _build_artist_fotos_groups(session_db, artist_id):
     )
     if not photos:
         return []
+    _video_posters_backfill(photos)   # genera en 2º plano el póster de los vídeos aún sin él
     artist = session_db.get(Artist, aid)
     artist_payload = {
         "id": str(aid),
@@ -43456,9 +43611,16 @@ def _build_artist_fotos_groups(session_db, artist_id):
             })
         def _pv(p):
             return (getattr(p, "kind", None) or "IMAGE").upper() == "VIDEO"
-        # Portada: preferir una FOTO (evita portadas de vídeo); si solo hay vídeos, el primero.
+        # Portada: preferir una FOTO; si solo hay vídeos, su PÓSTER (imagen) si ya existe, o el vídeo.
         _imgs = [p for p in plist if not _pv(p)]
         _cover = _imgs[0] if _imgs else (plist[0] if plist else None)
+        if not _cover:
+            _cover_url_val, _cover_is_video = "", False
+        elif _pv(_cover):
+            _poster = (getattr(_cover, "poster_url", None) or "").strip()
+            _cover_url_val, _cover_is_video = (_poster, False) if _poster else (_cover.file_url, True)
+        else:
+            _cover_url_val, _cover_is_video = _cover.file_url, False
         out.append({
             "owner_type": ot,
             "owner_id": str(oid),
@@ -43475,8 +43637,8 @@ def _build_artist_fotos_groups(session_db, artist_id):
             "count": len(plist),
             "video_count": sum(1 for p in plist if _pv(p)),
             "photo_count": sum(1 for p in plist if not _pv(p)),
-            "cover_url": (_cover.file_url if _cover else ""),
-            "cover_is_video": bool(_cover and _pv(_cover)),
+            "cover_url": _cover_url_val,
+            "cover_is_video": _cover_is_video,
             "url": _photo_owner_url(ot.lower(), str(oid)),
             "albums": album_summ,
             "thumbs": [p.file_url for p in plist[:8]],
@@ -43535,6 +43697,7 @@ def media_gallery_view():
             .limit(1500)
             .all()
         )
+        _video_posters_backfill(capped)   # genera en 2º plano el póster de los vídeos aún sin él
         appr_map = _photo_approval_map(s, [p.id for p in capped])
         cover_by_artist, cover_by_owner = {}, {}
         for p in capped:
@@ -43545,13 +43708,18 @@ def media_gallery_view():
             cover_by_owner.setdefault((p.owner_type, str(p.owner_id)), []).append(p)
 
         def _cover_url(pool):
-            """Portada: una foto APROBADA si la hay; si no, la primera imagen; si solo hay vídeos, el
-            primer vídeo (el front pinta el fotograma). Devuelve (url, es_vídeo)."""
+            """Portada: una foto APROBADA si la hay; si no, la primera imagen; si solo hay vídeos, su
+            PÓSTER (imagen) si ya existe, o el vídeo (el front pinta el fotograma). Devuelve (url, es_vídeo)."""
             approved = [ph for ph in pool if (appr_map.get(str(ph.id)) or {}).get("state") == "APPROVED"]
             src = approved or pool
             imgs = [ph for ph in src if not _is_video(ph)] or src
             first = imgs[0] if imgs else (src[0] if src else None)
-            return (first.file_url if first else ""), (bool(first) and _is_video(first))
+            if not first:
+                return "", False
+            if _is_video(first):
+                poster = (getattr(first, "poster_url", None) or "").strip()
+                return (poster, False) if poster else (first.file_url, True)
+            return first.file_url, False
 
         # Fichas de ARTISTA: imagen = su foto; «N álbumes» = nº de actividades vivas.
         art_objs = {}
@@ -44030,6 +44198,10 @@ def fotos_upload(owner_type, owner_id):
             created.append(row)
 
         session_db.commit()
+        # Generar la miniatura/póster de cada vídeo en 2º plano (no bloquea la respuesta).
+        for p in created:
+            if (getattr(p, "kind", None) or "").upper() == "VIDEO" and not (getattr(p, "poster_url", None) or "").strip():
+                _video_poster_schedule(p.id, p.file_url)
         promo_map = _photo_promoter_map(session_db, created)
         return jsonify({
             "ok": True,
@@ -44185,6 +44357,10 @@ def fotos_video_register(owner_type, owner_id):
             next_order += 1
             created.append(row)
         session_db.commit()
+        # Generar la miniatura/póster de cada vídeo en 2º plano (no bloquea la respuesta).
+        for p in created:
+            if (getattr(p, "kind", None) or "").upper() == "VIDEO" and not (getattr(p, "poster_url", None) or "").strip():
+                _video_poster_schedule(p.id, p.file_url)
         promo_map = _photo_promoter_map(session_db, created)
         return jsonify({
             "ok": True,

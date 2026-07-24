@@ -1746,6 +1746,9 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 
 /* ===================== Fotos / vídeos (galería) ===================== */
 .fotos-gallery{ display:grid; gap:.75rem; }
+.fotos-loose-wrap{ display:block; }
+.fotos-loose-wrap .fotos-gallery + .fotos-section-label{ margin-top:1rem; }
+.fotos-section-label{ font-size:.72rem; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:#8a94a1; margin:.25rem 0 .5rem; }
 .fotos-grid2{ grid-template-columns:repeat(2,1fr); }
 .fotos-grid3{ grid-template-columns:repeat(3,1fr); }
 .fotos-list{ grid-template-columns:1fr; }

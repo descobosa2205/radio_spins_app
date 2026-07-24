@@ -153,15 +153,31 @@
       + '</div>';
   }
   function render() {
-    gallery.className = 'fotos-gallery fotos-' + viewMode;
+    gallery.className = 'fotos-loose-wrap';   // contenedor: las cuadrículas van dentro
+    var vm = 'fotos-gallery fotos-' + viewMode;
     var html = '';
     (state.albums || []).forEach(function (a) { html += albumHtml(a); });
+    // Fotos y VÍDEOS separados (no mezclados): dos cuadrículas con su rótulo.
     var loose = (state.photos || []).filter(passesFilter);
-    loose.forEach(function (p) { html += tileHtml(p, canEdit); });
+    var loosePhotos = loose.filter(function (p) { return !p.is_video; });
+    var looseVideos = loose.filter(function (p) { return p.is_video; });
+    var both = loosePhotos.length && looseVideos.length;
+    if (loosePhotos.length) {
+      if (both) html += '<div class="fotos-section-label"><i class="fa fa-image me-1"></i>Fotos</div>';
+      html += '<div class="' + vm + '" data-loose-grid="photos">' + loosePhotos.map(function (p) { return tileHtml(p, canEdit); }).join('') + '</div>';
+    }
+    if (looseVideos.length) {
+      html += '<div class="fotos-section-label"><i class="fa fa-video me-1"></i>Vídeos</div>';
+      html += '<div class="' + vm + '" data-loose-grid="videos">' + looseVideos.map(function (p) { return tileHtml(p, canEdit); }).join('') + '</div>';
+    }
     gallery.innerHTML = html;
     emptyEl.classList.toggle('d-none', !!(((state.albums || []).length) || loose.length));
     if (canEdit) {
-      enableReorder(gallery, function (ids) { reorderLoose(ids); });
+      // Reorden por cuadrícula (foto no se mezcla con vídeo); se persiste el orden COMBINADO
+      // (fotos primero, luego vídeos), coherente con cómo se re-agrupan al re-renderizar.
+      gallery.querySelectorAll('[data-loose-grid]').forEach(function (grid) {
+        enableReorder(grid, function () { reorderLooseCombined(); });
+      });
       gallery.querySelectorAll('[data-album-items]').forEach(function (c) {
         enableReorder(c, function (ids) { postJson(reorderUrl, { album_id: c.getAttribute('data-album-items'), order: ids }); });
       });
@@ -169,6 +185,11 @@
     updateBulk();
     updateCounts();
     renderPendingAlert();
+  }
+  function reorderLooseCombined() {
+    var ids = [];
+    gallery.querySelectorAll('[data-loose-grid] .fotos-tile[data-photo-id]').forEach(function (t) { ids.push(t.getAttribute('data-photo-id')); });
+    reorderLoose(ids);
   }
 
   // Barra AMARILLA: contenido pendiente de aprobación (a quién se pidió, cuándo y su enlace).

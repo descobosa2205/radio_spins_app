@@ -10,6 +10,10 @@
   .adv-logo{ width:52px; height:52px; border-radius:12px; object-fit:contain; background:#f8f9fa; border:1px solid #eef0f2; }
   .adv-logo--ph{ display:flex; align-items:center; justify-content:center; color:#adb5bd; font-size:1.4rem; }
   .adv-amount{ font-size:1.25rem; font-weight:800; white-space:nowrap; }
+  .adv-amounts{ display:flex; gap:.5rem; flex-wrap:wrap; }
+  .adv-galleta{ background:#f6f8fa; border:1px solid #e2e7ee; border-radius:12px; padding:.35rem .75rem; text-align:center; min-width:116px; }
+  .adv-galleta .l{ font-size:.62rem; font-weight:700; letter-spacing:.03em; text-transform:uppercase; color:#8a94a1; }
+  .adv-galleta .v{ font-size:1.05rem; font-weight:800; white-space:nowrap; }
   .adv-bar-wrap{ padding:0 1.1rem .35rem; }
   .adv-pills{ display:flex; flex-wrap:wrap; gap:.35rem; padding:.35rem 1.1rem; }
   .adv-pill{ display:inline-flex; align-items:center; gap:.35rem; background:#f6f8fa; border:1px solid #e2e7ee; border-radius:999px; padding:.2rem .6rem; font-size:.78rem; }
@@ -79,9 +83,12 @@
                 <a class="small text-decoration-none" href="{{ adv.contract_url }}" target="_blank" rel="noopener"><i class="fa fa-file-contract me-1"></i>Contrato</a>
               {% endif %}
             </div>
-            <div class="text-muted small">Recuperado {{ v.recovered|eur }} · pendiente {{ v.remaining|eur }}</div>
+            <div class="text-muted small">Recuperado {{ v.recovered|eur }}</div>
           </div>
-          <div class="adv-amount">{{ v.amount|eur }}</div>
+          <div class="adv-amounts">
+            <div class="adv-galleta"><div class="l">Importe del adelanto</div><div class="v">{{ v.amount|eur }}</div></div>
+            <div class="adv-galleta"><div class="l">Adelanto restante</div><div class="v text-danger">{{ v.remaining|eur }}</div></div>
+          </div>
           <div class="d-flex align-items-center gap-1">
             <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('discografica_advance_pdf', aid=adv.id) }}" data-liq-pdf="{{ adv.id }}" data-pdf-base="{{ url_for('discografica_advance_pdf', aid=adv.id) }}" target="_blank" title="Balance en PDF del periodo elegido (imprimir/exportar)"><i class="fa fa-file-pdf"></i></a>
             {% if CAN_EDIT_DISCOGRAFICA %}
@@ -337,6 +344,76 @@
                 <div class="col-12 col-md-8"><label class="form-label small mb-0">Nota (opcional, se verá al pasar el ratón por la <i class="fa fa-circle-info"></i>)</label><input class="form-control form-control-sm" name="note"></div>
                 <div class="col-6 col-md-2"><button class="btn btn-sm btn-primary w-100"><i class="fa fa-check me-1"></i>Añadir</button></div>
               </div>
+            </form>
+          </div>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        {# Ingresos ADICIONALES: cobros que amortizan aplicando una condición (neto/bruto) #}
+        {% if v.additional_incomes or (CAN_EDIT_DISCOGRAFICA and adv.rules) %}
+        <div class="adv-sec-title">Ingresos adicionales</div>
+        <div class="px-3 pb-1">
+          {% for it in v.additional_incomes %}
+            <div class="d-flex align-items-center gap-2 border rounded p-2 mb-1 flex-wrap">
+              <div class="flex-grow-1">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                  <span class="fw-semibold">{{ it.label }}</span>
+                  {% if it.date %}<span class="text-muted small"><i class="fa fa-calendar me-1"></i>{{ it.date.strftime('%d/%m/%Y') }}</span>{% endif %}
+                  <span class="badge text-bg-light border" title="Condición de recuperación aplicada">{{ it.rule_text }}</span>
+                  {% if it.note %}<span class="text-muted" title="{{ it.note }}" style="cursor:help;"><i class="fa fa-circle-info"></i></span>{% endif %}
+                </div>
+                <div class="small text-muted mt-1">
+                  Neto {{ it.net|eur }} · Bruto {{ it.gross|eur }}
+                  {% if it.author %}
+                    · {% if it.author.photo_url %}<img src="{{ it.author.photo_url }}" alt="" style="width:16px;height:16px;border-radius:50%;object-fit:cover;vertical-align:middle;">{% else %}<i class="fa fa-user-circle"></i>{% endif %} {{ it.author.nick }}
+                  {% endif %}
+                </div>
+              </div>
+              <div class="text-end">
+                <div class="fw-bold text-success">{{ it.amort|eur }}</div>
+                <div class="small text-muted">amortiza</div>
+              </div>
+              {% if CAN_EDIT_DISCOGRAFICA %}
+              <form method="post" action="{{ url_for('discografica_advance_income_delete', iid=it.id) }}" onsubmit="return confirm('¿Eliminar este ingreso adicional?');">
+                <button class="btn btn-sm btn-outline-danger" title="Eliminar ingreso adicional"><i class="fa fa-trash"></i></button>
+              </form>
+              {% endif %}
+            </div>
+          {% endfor %}
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            {% if v.additional_incomes %}
+              <span class="small text-muted">Total amortizado por ingresos adicionales: <b class="text-success">{{ v.additional_incomes_amort|eur }}</b> · aplicado a la amortización</span>
+            {% endif %}
+            {% if CAN_EDIT_DISCOGRAFICA and adv.rules %}
+              <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#advIncomeAdd-{{ adv.id }}"><i class="fa fa-plus me-1"></i>Añadir ingreso adicional</button>
+            {% endif %}
+          </div>
+          {% if CAN_EDIT_DISCOGRAFICA and adv.rules %}
+          <div class="collapse mt-2" id="advIncomeAdd-{{ adv.id }}">
+            <form method="post" action="{{ url_for('discografica_advance_income_add', aid=adv.id) }}" class="border rounded p-2 bg-light-subtle">
+              <div class="row g-2 align-items-end">
+                <div class="col-12 col-md-4"><label class="form-label small mb-0">Nombre *</label><input class="form-control form-control-sm" name="label" required placeholder="Ej: Cobro por sincronización"></div>
+                <div class="col-6 col-md-2"><label class="form-label small mb-0">Importe neto</label><div class="input-group input-group-sm"><input class="form-control" name="amount_net" inputmode="decimal" placeholder="0"><span class="input-group-text">€</span></div></div>
+                <div class="col-6 col-md-2"><label class="form-label small mb-0">Importe bruto</label><div class="input-group input-group-sm"><input class="form-control" name="amount_gross" inputmode="decimal" placeholder="0"><span class="input-group-text">€</span></div></div>
+                <div class="col-6 col-md-2"><label class="form-label small mb-0">Fecha</label><input type="date" class="form-control form-control-sm" name="income_date"></div>
+                {% if (adv.rules|length) > 1 %}
+                <div class="col-12 col-md-6"><label class="form-label small mb-0">¿Qué condición amortiza este ingreso? *</label>
+                  <select class="form-select form-select-sm" name="rule_id" required>
+                    <option value="" selected disabled>Elige la condición…</option>
+                    {% for r in adv.rules %}
+                      <option value="{{ r.id }}">{{ r.pct|k if r.pct == (r.pct|int) else r.pct }}% sobre {{ 'BRUTO' if (r.base or 'NET')|upper == 'GROSS' else 'NETO' }}{% if r.date_from %} · desde {{ r.date_from.strftime('%d/%m/%Y') }}{% endif %}{% if r.date_until %} · hasta {{ r.date_until.strftime('%d/%m/%Y') }}{% endif %}{% if r.artist_ids %} · artistas concretos{% endif %}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                {% else %}
+                  <input type="hidden" name="rule_id" value="{{ adv.rules[0].id }}">
+                  <div class="col-12 col-md-6"><div class="small text-muted mt-2"><i class="fa fa-circle-info me-1"></i>Se amortiza con la única condición: <b>{{ adv.rules[0].pct|k if adv.rules[0].pct == (adv.rules[0].pct|int) else adv.rules[0].pct }}% sobre {{ 'BRUTO' if (adv.rules[0].base or 'NET')|upper == 'GROSS' else 'NETO' }}</b>.</div></div>
+                {% endif %}
+                <div class="col-12 col-md-8"><label class="form-label small mb-0">Nota (opcional, se verá al pasar el ratón por la <i class="fa fa-circle-info"></i>)</label><input class="form-control form-control-sm" name="note"></div>
+                <div class="col-6 col-md-2"><button class="btn btn-sm btn-primary w-100"><i class="fa fa-check me-1"></i>Añadir</button></div>
+              </div>
+              <div class="form-text mt-1">Amortiza según su condición (base × %). Rellena al menos el importe de la base de la condición (neto o bruto); puedes indicar ambos.</div>
             </form>
           </div>
           {% endif %}

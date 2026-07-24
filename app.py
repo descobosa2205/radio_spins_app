@@ -238,6 +238,7 @@ from models import (
     DistributorAdvanceRule,
     DistributorAdvanceException,
     DistributorAdvanceCorrection,
+    DistributorAdvanceIncome,
     ExpenseTemplate,
     ExpenseTemplateItem,
     RepertoireTemplate,
@@ -10474,12 +10475,14 @@ def _build_distributor_advances_context(session_db):
         session_db.query(DistributorAdvance)
         .options(selectinload(DistributorAdvance.rules),
                  selectinload(DistributorAdvance.exceptions),
-                 selectinload(DistributorAdvance.corrections))
+                 selectinload(DistributorAdvance.corrections),
+                 selectinload(DistributorAdvance.additional_incomes))
         .order_by(DistributorAdvance.advance_date.asc().nullslast(), DistributorAdvance.created_at.asc())
         .all()
     )
-    # Autores de las correcciones (nick + foto, como en el resto de la app).
+    # Autores de las correcciones e ingresos adicionales (nick + foto, como en el resto de la app).
     corr_user_ids = {str(c.created_by_user_id) for adv in advances for c in (adv.corrections or []) if c.created_by_user_id}
+    corr_user_ids |= {str(i.created_by_user_id) for adv in advances for i in (adv.additional_incomes or []) if i.created_by_user_id}
     corr_authors = {}
     if corr_user_ids:
         for up in session_db.query(UserProfile).filter(UserProfile.user_id.in_([to_uuid(x) for x in corr_user_ids])).all():
@@ -10519,6 +10522,8 @@ def _build_distributor_advances_context(session_db):
         # gana el primero con importe pendiente (si todos están recuperados, el primero).
         remaining = {}
         corr_total_by_adv = {}
+        income_views_by_adv = {}
+        income_amort_by_adv = {}
         for adv in dist_advs:
             try:
                 amt0 = Decimal(str(adv.amount or 0))
@@ -10531,9 +10536,50 @@ def _build_distributor_advances_context(session_db):
                 except (InvalidOperation, ValueError):
                     pass
             corr_total_by_adv[str(adv.id)] = corr_total
-            # Las correcciones manuales entran en la CUENTA GENERAL de amortización:
-            # positivas amortizan más (menos pendiente), negativas lo reducen.
-            remaining[str(adv.id)] = amt0 - corr_total
+            # Ingresos ADICIONALES: cada uno amortiza aplicando su condición de recuperación
+            # (base × pct: NET usa el neto, GROSS usa el bruto). Si no tiene regla asignada se
+            # aplica la primera del adelanto (al crear, si solo hay una se asigna sola).
+            rules_by_id = {str(r.id): r for r in (adv.rules or [])}
+            inc_views = []
+            inc_amort_total = Decimal("0")
+            for inc in (adv.additional_incomes or []):
+                try:
+                    inc_net = Decimal(str(inc.amount_net or 0))
+                except (InvalidOperation, ValueError):
+                    inc_net = Decimal("0")
+                try:
+                    inc_gross = Decimal(str(inc.amount_gross or 0))
+                except (InvalidOperation, ValueError):
+                    inc_gross = Decimal("0")
+                rule = rules_by_id.get(str(inc.rule_id)) if inc.rule_id else None
+                if rule is None and (adv.rules or []):
+                    rule = (adv.rules or [])[0]
+                if rule is not None:
+                    base = (rule.base or "NET").upper()
+                    base_amt = inc_gross if base == "GROSS" else inc_net
+                    try:
+                        rpct = Decimal(str(rule.pct or 0))
+                    except (InvalidOperation, ValueError):
+                        rpct = Decimal("0")
+                else:
+                    base, base_amt, rpct = "NET", inc_net, Decimal("100")
+                inc_amort = (base_amt * rpct / Decimal("100")).quantize(Decimal("0.01"))
+                inc_amort_total += inc_amort
+                inc_views.append({
+                    "id": str(inc.id),
+                    "label": inc.label or "Ingreso adicional",
+                    "net": inc_net, "gross": inc_gross,
+                    "base": base, "pct": rpct, "amort": inc_amort,
+                    "date": inc.income_date,
+                    "note": (inc.note or "").strip(),
+                    "rule_text": _advance_rule_pdf_text(rule, artist_by_id) if rule is not None else "Sin condición aplicable",
+                    "author": corr_authors.get(str(inc.created_by_user_id)) if inc.created_by_user_id else None,
+                })
+            income_views_by_adv[str(adv.id)] = inc_views
+            income_amort_by_adv[str(adv.id)] = inc_amort_total
+            # Las correcciones manuales (±) y lo amortizado por los ingresos adicionales entran en
+            # la CUENTA GENERAL de amortización: reducen lo pendiente del adelanto.
+            remaining[str(adv.id)] = amt0 - corr_total - inc_amort_total
         rows_by_adv = {str(adv.id): [] for adv in dist_advs}
         unassigned_rows = []
         # Para las canciones SIN ingresos (fila a cero en la vista «Todo»): primer adelanto
@@ -10693,6 +10739,7 @@ def _build_distributor_advances_context(session_db):
                     "note": (c.note or "").strip(),
                     "author": corr_authors.get(str(c.created_by_user_id)) if c.created_by_user_id else None,
                 })
+            inc_views = income_views_by_adv.get(str(adv.id), [])
             adv_views.append({
                 "adv": adv,
                 "amount": amount,
@@ -10706,6 +10753,9 @@ def _build_distributor_advances_context(session_db):
                 "rows": rows_payload,
                 "corrections": corrections_view,
                 "corrections_total": corr_total_by_adv.get(str(adv.id), Decimal("0")),
+                "additional_incomes": inc_views,
+                "additional_incomes_amort": income_amort_by_adv.get(str(adv.id), Decimal("0")),
+                "additional_incomes_net": sum((iv["net"] for iv in inc_views), Decimal("0")),
             })
         blocks.append({
             "distributor": dist,
@@ -10995,6 +11045,86 @@ def discografica_advance_correction_delete(cid):
     return redirect(url_for("discografica_view", section="adelantos"))
 
 
+@app.post("/discografica/adelantos/<aid>/ingresos-adicionales/anadir", endpoint="discografica_advance_income_add")
+@admin_required
+def discografica_advance_income_add(aid):
+    """Ingreso ADICIONAL de un adelanto: un cobro que amortiza aplicando una de sus condiciones
+    de recuperación (base × pct). Se guarda en neto y bruto (el motor usa el que pida la base de
+    la condición). La condición se elige; si el adelanto solo tiene una, se aplica sola."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar adelantos.")
+    session_db = db()
+    try:
+        adv = _get_advance_or_redirect(session_db, aid)
+        if not adv:
+            flash("Adelanto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="adelantos"))
+        label = (request.form.get("label") or "").strip()
+        if not label:
+            flash("Ponle un nombre al ingreso adicional.", "warning")
+            return redirect(url_for("discografica_view", section="adelantos"))
+        rules = list(adv.rules or [])
+        if not rules:
+            flash("Añade primero una condición de recuperación: el ingreso adicional amortiza según ella.", "warning")
+            return redirect(url_for("discografica_view", section="adelantos"))
+        # Condición a aplicar: la elegida; si solo hay una, esa directamente (sin preguntar).
+        rule = None
+        rid = to_uuid((request.form.get("rule_id") or "").strip())
+        if rid:
+            rule = next((r for r in rules if str(r.id) == str(rid)), None)
+        if rule is None:
+            if len(rules) == 1:
+                rule = rules[0]
+            else:
+                flash("Elige qué condición de recuperación se aplica a este ingreso adicional.", "warning")
+                return redirect(url_for("discografica_view", section="adelantos"))
+        net = _parse_money_decimal(request.form.get("amount_net"))
+        gross = _parse_money_decimal(request.form.get("amount_gross"))
+        base = (rule.base or "NET").upper()
+        base_amt = gross if base == "GROSS" else net
+        if base_amt <= 0:
+            flash("El importe %s debe ser mayor que cero (es la base de la condición elegida)." % ("bruto" if base == "GROSS" else "neto"), "warning")
+            return redirect(url_for("discografica_view", section="adelantos"))
+        session_db.add(DistributorAdvanceIncome(
+            advance_id=adv.id,
+            rule_id=rule.id,
+            label=label,
+            amount_net=net,
+            amount_gross=gross,
+            income_date=parse_optional_date(request.form.get("income_date")) or today_local(),
+            note=(request.form.get("note") or "").strip() or None,
+            created_by_user_id=to_uuid(session.get("user_id")),
+        ))
+        session_db.commit()
+        flash("Ingreso adicional añadido: amortiza el adelanto según su condición.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error añadiendo el ingreso adicional: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_view", section="adelantos"))
+
+
+@app.post("/discografica/adelantos/ingresos-adicionales/<iid>/eliminar", endpoint="discografica_advance_income_delete")
+@admin_required
+def discografica_advance_income_delete(iid):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar adelantos.")
+    session_db = db()
+    try:
+        inc = session_db.get(DistributorAdvanceIncome, to_uuid(iid))
+        if inc:
+            session_db.delete(inc)
+            session_db.commit()
+            flash("Ingreso adicional eliminado.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error eliminando el ingreso adicional: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_view", section="adelantos"))
+
+
 @app.post("/discografica/adelantos/excepciones/<eid>/eliminar", endpoint="discografica_advance_exception_delete")
 @admin_required
 def discografica_advance_exception_delete(eid):
@@ -11042,7 +11172,8 @@ def discografica_advance_pdf(aid):
     """Balance del adelanto en PDF con el estilo de casa: logo de PIES arriba a la derecha,
     título centrado, cabecera de PASTILLAS (distribuidora, importe, firma, condiciones,
     excepciones), barra de estado de la devolución en color y «galletas» resumen (importe
-    adelantado / recuperado / nuestro), seguido de la liquidación artista por artista."""
+    adelantado / adelanto restante / recuperado / nuestro), seguido de la liquidación
+    artista por artista."""
     if not REPORTLAB_AVAILABLE:
         abort(503, "Generación de PDF no disponible en el servidor.")
     from reportlab.lib.pagesizes import A4
@@ -11243,6 +11374,7 @@ def discografica_advance_pdf(aid):
             y -= cookie_h
             cookies = [
                 ("IMPORTE ADELANTADO", eur_txt(view["amount"]), colors.HexColor("#212529")),
+                ("ADELANTO RESTANTE", eur_txt(view["remaining"]), colors.HexColor("#b02a37")),
                 ("IMPORTE RECUPERADO", eur_txt(view["recovered"]), state_col),
                 ("NUESTRO", eur_txt(view["totals"]["ours"]), colors.HexColor("#1e7e34")),
             ]
@@ -11257,7 +11389,11 @@ def discografica_advance_pdf(aid):
                 pdf_c.setFont("Helvetica-Bold", 6.8)
                 pdf_c.drawCentredString(x + cw / 2, y + cookie_h - 13, lab)
                 pdf_c.setFillColor(vcol)
-                pdf_c.setFont("Helvetica-Bold", 14)
+                # Fuente adaptada al ancho de la galleta (más galletas = menos ancho).
+                v_sz = 14.0
+                while v_sz > 8.5 and stringWidth(val, "Helvetica-Bold", v_sz) > (cw - 10):
+                    v_sz -= 0.5
+                pdf_c.setFont("Helvetica-Bold", v_sz)
                 pdf_c.drawCentredString(x + cw / 2, y + 10, val)
                 x += cw + gap
             # Pie de página
@@ -11391,6 +11527,47 @@ def discografica_advance_pdf(aid):
                 ("TOPPADDING", (0, 0), (-1, -1), 3),
             ]))
             story.append(ct)
+            story.append(Spacer(1, 10))
+        # Ingresos adicionales (amortizan aplicando su condición: base × pct).
+        if view["additional_incomes"]:
+            story.append(Paragraph("Ingresos adicionales", h2))
+            inote = ParagraphStyle("inx", parent=styles["Normal"], fontSize=8.6, leading=10.5)
+            idata = [["Ingreso adicional", "Fecha", "Neto", "Bruto", "Amortiza"]]
+
+            def _xml_escape(txt):
+                return (txt or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+            for it in view["additional_incomes"]:
+                sub = it.get("rule_text") or ""
+                if it.get("author"):
+                    sub = (sub + " · " if sub else "") + ((it["author"] or {}).get("nick") or "")
+                if it.get("note"):
+                    sub = (sub + " · " if sub else "") + it["note"]
+                lbl = _xml_escape(it["label"]) + (("<br/><font size=7 color='#8a94a1'>" + _xml_escape(sub) + "</font>") if sub else "")
+                idata.append([
+                    Paragraph(lbl, inote),
+                    it["date"].strftime("%d/%m/%Y") if it["date"] else "—",
+                    eur_txt(it["net"]), eur_txt(it["gross"]), eur_txt(it["amort"]),
+                ])
+            it_total = view["additional_incomes_amort"]
+            idata.append(["Total amortizado por ingresos adicionales", "", "", "", eur_txt(it_total)])
+            itbl = Table(idata, colWidths=[None, 22*mm, 26*mm, 26*mm, 28*mm], repeatRows=1)
+            itbl.setStyle(TableStyle([
+                ("FONT", (0, 0), (-1, -1), "Helvetica", 8.6),
+                ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 8.4),
+                ("FONT", (0, -1), (-1, -1), "Helvetica-Bold", 8.8),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#49515d")),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f4f8")),
+                ("LINEBELOW", (0, 0), (-1, 0), 0.7, colors.HexColor("#c9d2dc")),
+                ("LINEABOVE", (0, -1), (-1, -1), 0.9, colors.HexColor("#9aa8b5")),
+                ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+                ("TEXTCOLOR", (4, 1), (4, -1), colors.HexColor("#1e7e34")),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#fafbfc")]),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ]))
+            story.append(itbl)
             story.append(Spacer(1, 10))
         story.append(Paragraph("Desglose por artista", h2))
         if len(data) <= 2 and not artist_rows:

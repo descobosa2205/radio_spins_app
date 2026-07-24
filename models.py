@@ -3189,6 +3189,8 @@ class DistributorAdvance(Base):
     exceptions = relationship("DistributorAdvanceException", cascade="all, delete-orphan", backref="advance")
     corrections = relationship("DistributorAdvanceCorrection", cascade="all, delete-orphan",
                                order_by="DistributorAdvanceCorrection.correction_date", backref="advance")
+    additional_incomes = relationship("DistributorAdvanceIncome", cascade="all, delete-orphan",
+                                      order_by="DistributorAdvanceIncome.income_date", backref="advance")
 
 
 class DistributorAdvanceRule(Base):
@@ -3232,6 +3234,26 @@ class DistributorAdvanceCorrection(Base):
     note = Column(Text)
     created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class DistributorAdvanceIncome(Base):
+    """Ingreso ADICIONAL de un adelanto: un cobro que no viene de los apuntes por canción pero que
+    igualmente AMORTIZA el adelanto aplicando una de sus condiciones de recuperación. Se guarda el
+    importe en NETO y en BRUTO (el motor usa el que pida la base de la regla elegida: NET→neto,
+    GROSS→bruto) y la regla que se aplica (`rule_id`; al crear, si el adelanto tiene una sola
+    condición se asigna sola). Lo que amortiza = base × pct de esa regla, y reduce lo pendiente."""
+    __tablename__ = "distributor_advance_incomes"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    advance_id = Column(PGUUID(as_uuid=True), ForeignKey("distributor_advances.id", ondelete="CASCADE"), nullable=False, index=True)
+    rule_id = Column(PGUUID(as_uuid=True), ForeignKey("distributor_advance_rules.id", ondelete="SET NULL"), index=True)
+    label = Column(Text, nullable=False)
+    amount_net = Column(Numeric(14, 2), nullable=False, server_default=text("0"))
+    amount_gross = Column(Numeric(14, 2), nullable=False, server_default=text("0"))
+    income_date = Column(Date)
+    note = Column(Text)
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    rule = relationship("DistributorAdvanceRule")
 
 
 def ensure_distributors_schema():
@@ -3301,6 +3323,21 @@ def ensure_distributors_schema():
         );
         """,
         "CREATE INDEX IF NOT EXISTS idx_dist_adv_corr_advance ON distributor_advance_corrections(advance_id);",
+        """
+        CREATE TABLE IF NOT EXISTS distributor_advance_incomes (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            advance_id uuid NOT NULL REFERENCES distributor_advances(id) ON DELETE CASCADE,
+            rule_id uuid REFERENCES distributor_advance_rules(id) ON DELETE SET NULL,
+            label text NOT NULL,
+            amount_net numeric(14,2) NOT NULL DEFAULT 0,
+            amount_gross numeric(14,2) NOT NULL DEFAULT 0,
+            income_date date,
+            note text,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_dist_adv_income_advance ON distributor_advance_incomes(advance_id);",
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS distributor_id uuid REFERENCES distributors(id) ON DELETE SET NULL;",
         "CREATE INDEX IF NOT EXISTS idx_songs_distributor ON songs(distributor_id);",
         "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS distributor_id uuid REFERENCES distributors(id) ON DELETE SET NULL;",

@@ -731,7 +731,9 @@
       advRows.forEach(function(row){
         var d = row.getAttribute('data-adj-date') || '';
         var vis = (state.g==='all') || (!!d && bucketOf(d, state.g)===state.p);
-        row.style.display = vis ? '' : 'none';
+        // Las filas llevan .d-flex (display:flex !important): un style.display='none' NO las oculta.
+        // Alternamos .d-none (display:none !important, gana a d-flex) para ocultarlas de verdad.
+        row.classList.toggle('d-none', !vis);
         if(vis){
           shown++;
           amort  += parseFloat(row.getAttribute('data-adj-amort') ||'0')||0;

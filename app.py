@@ -2364,12 +2364,27 @@ def _send_optional_email(
         return False, str(exc)
 
 
+def _public_base_url() -> str:
+    """Base ABSOLUTA (https://dominio) para TODO enlace que se comparte o sale por correo.
+    Prioridad: EXTERNAL_BASE_URL (env) > host canónico (CANONICAL_HOST = app.33producciones.es) >
+    host de la petición. Así los enlaces salen SIEMPRE con el dominio nuevo aunque la petición llegue
+    por onrender.com o por el host interno del proxy (que es lo que provocaba dominios equivocados)."""
+    base = (os.getenv("EXTERNAL_BASE_URL") or "").strip()
+    if not base and _CANONICAL_HOST:
+        base = "https://" + _CANONICAL_HOST
+    if not base:
+        try:
+            base = request.url_root
+        except Exception:
+            base = ""
+    return (base or "").rstrip("/")
+
+
 def _external_url_for(endpoint: str, **values) -> str:
-    # Base fija configurable (EXTERNAL_BASE_URL) para enlaces que salen por email (reset de
-    # contraseña, etc.): así un atacante no puede falsear el dominio del enlace manipulando la
-    # cabecera Host de la petición. Si no se configura, se usa el host de la petición (igual que antes).
-    base = (os.getenv("EXTERNAL_BASE_URL") or request.url_root).rstrip('/')
-    return base + url_for(endpoint, **values)
+    # Base fija (host canónico o EXTERNAL_BASE_URL) para enlaces que se comparten / salen por correo:
+    # el dominio no depende de la cabecera Host de la petición (evita dominios equivocados y
+    # suplantación). Ver _public_base_url.
+    return _public_base_url() + url_for(endpoint, **values)
 
 
 def _absolute_media_url(url: str) -> str:
@@ -2384,7 +2399,7 @@ def _absolute_media_url(url: str) -> str:
         return url
     if url.startswith("//"):
         return "https:" + url
-    base = (os.getenv("EXTERNAL_BASE_URL") or request.url_root).rstrip('/')
+    base = _public_base_url()
     return base + (url if url.startswith('/') else '/' + url)
 
 
@@ -4301,22 +4316,22 @@ def _sync_album_production_contract_status(session_db, album_or_id, status_obj: 
 def _producer_contract_public_url(media_kind: str, item_id, contract_id) -> str:
     media_kind = (media_kind or 'SONG').strip().upper()
     if media_kind == 'ALBUM':
-        return url_for('public_album_production_contract_download', token=_album_contract_share_token(item_id, contract_id), _external=True)
-    return url_for('public_song_production_contract_download', token=_song_contract_share_token(item_id, contract_id), _external=True)
+        return _external_url_for('public_album_production_contract_download', token=_album_contract_share_token(item_id, contract_id))
+    return _external_url_for('public_song_production_contract_download', token=_song_contract_share_token(item_id, contract_id))
 
 
 def _label_copy_public_pdf_url(media_kind: str, item_id) -> str:
     media_kind = (media_kind or 'SONG').strip().upper()
     if media_kind == 'ALBUM':
-        return url_for('public_album_label_copy_pdf', token=_album_label_copy_share_token(item_id), _external=True)
-    return url_for('public_song_label_copy_pdf', token=_song_label_copy_share_token(item_id), _external=True)
+        return _external_url_for('public_album_label_copy_pdf', token=_album_label_copy_share_token(item_id))
+    return _external_url_for('public_song_label_copy_pdf', token=_song_label_copy_share_token(item_id))
 
 
 def _label_copy_public_url(media_kind: str, item_id) -> str:
     media_kind = (media_kind or 'SONG').strip().upper()
     if media_kind == 'ALBUM':
-        return url_for('public_album_label_copy_view', token=_album_label_copy_share_token(item_id), _external=True)
-    return url_for('public_song_label_copy_view', token=_song_label_copy_share_token(item_id), _external=True)
+        return _external_url_for('public_album_label_copy_view', token=_album_label_copy_share_token(item_id))
+    return _external_url_for('public_song_label_copy_view', token=_song_label_copy_share_token(item_id))
 
 
 def _resolve_or_create_promoter_for_contract(session_db, nick: str, tax_id: str = '', contact_email: str = '', contact_phone: str = '') -> Promoter:
@@ -42549,7 +42564,7 @@ def concert_contract_sheet_request(cid):
             'requested_at': _now_madrid().isoformat(),
         }
         sheet.updated_at = _now_madrid()
-        public_url = url_for('concert_contract_public_form', token=sheet.public_token, _external=True)
+        public_url = _external_url_for('concert_contract_public_form', token=sheet.public_token)
         if emails:
             artist_name = getattr(getattr(concert, 'artist', None), 'name', None) or 'actividad'
             subject = f"Ficha de contratación · {artist_name}"
@@ -47449,7 +47464,7 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
         ),
         "can_edit_public": (row.status or "") in {"SOLICITADAS", "APROBADAS"},
         "download_url": url_for("invitation_request_download", token=row.delivery_token) if row.delivery_token else "",
-        "download_url_abs": url_for("invitation_request_download", token=row.delivery_token, _external=True) if row.delivery_token else "",
+        "download_url_abs": _external_url_for("invitation_request_download", token=row.delivery_token) if row.delivery_token else "",
         "created_by_nick": _cb_nick,
         "registered_by_other": bool(getattr(row, "created_by_user_id", None)) and str(getattr(row, "created_by_user_id", "") or "") != str(getattr(row, "requester_user_id", "") or ""),
     }

@@ -378,3 +378,24 @@ def upload_pdf_bytes(data: bytes, folder: str) -> str:
         raise ValueError("El PDF a subir está vacío.")
     key = f"{folder}/{uuid4().hex}.pdf"
     return _upload_bytes(bytes(data), key, "application/pdf")
+
+
+def create_signed_upload_url_for(folder: str, suffix: str) -> dict:
+    """URL FIRMADA para subir DIRECTAMENTE del navegador a Supabase Storage (vídeos grandes, sin
+    pasar por la memoria del servidor -> evita el OOM/502 y los límites del proxy). El servidor
+    genera la key (UUID); el navegador hace el PUT con el token. Devuelve {key, signed_url, token}."""
+    client = supabase_client()
+    key = f"{folder}/{uuid4().hex}{(suffix or '').lower()}"
+    res = client.storage.from_(settings.SUPABASE_BUCKET).create_signed_upload_url(key)
+    if isinstance(res, dict):
+        signed_url = res.get("signed_url") or res.get("signedUrl") or res.get("signedURL") or ""
+        token = res.get("token") or ""
+    else:
+        signed_url = getattr(res, "signed_url", "") or getattr(res, "signedUrl", "") or ""
+        token = getattr(res, "token", "") or ""
+    return {"key": key, "signed_url": signed_url, "token": token}
+
+
+def public_url_for_key(key: str) -> str:
+    """URL pública (limpia, sin el «?» final) de una key ya subida a Storage."""
+    return _public_url(supabase_client(), key)

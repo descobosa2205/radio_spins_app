@@ -9,7 +9,13 @@
 
   var listUrl = panel.getAttribute('data-list-url');
   var uploadUrl = panel.getAttribute('data-upload-url');
+  var videoSignUrl = panel.getAttribute('data-video-sign-url') || '';
+  var videoRegisterUrl = panel.getAttribute('data-video-register-url') || '';
   var reorderUrl = panel.getAttribute('data-reorder-url');
+  // Vídeos: se suben DIRECTOS a Supabase (signed URL) para no pasar el archivo grande por el
+  // servidor (evita OOM/502 y límites del proxy). Espejo de PHOTO_VIDEO_EXTS del backend.
+  var VIDEO_EXTS = ['.mp4', '.mov', '.webm', '.m4v', '.avi', '.mkv', '.mpeg', '.mpg'];
+  function isVideoFile(f) { var n = (f && f.name || '').toLowerCase(); return VIDEO_EXTS.some(function (e) { return n.endsWith(e); }); }
   var ownerBase = listUrl.replace(/\/list$/, '');   // /fotos/<tipo>/<id>
   var canEdit = panel.getAttribute('data-can-edit') === '1';
 
@@ -808,62 +814,164 @@
     var key = rm.getAttribute('data-key'); pending = pending.filter(function (it) { return it.key !== key; }); renderFileList();
   });
   document.getElementById('fotosUploadBtn').addEventListener('click', function () { doUpload(); });
+  // Huella DÉBIL sin leer el binario (evita OOM en móvil): SHA-256 de name|size|lastModified.
+  function fingerprint(file) {
+    try {
+      var s = (file.name || '') + '|' + (file.size || 0) + '|' + (file.lastModified || 0);
+      if (window.crypto && crypto.subtle && crypto.subtle.digest && window.TextEncoder) {
+        return crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)).then(function (buf) {
+          return Array.prototype.map.call(new Uint8Array(buf), function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+        }).catch(function () { return ''; });
+      }
+    } catch (e) {}
+    return Promise.resolve('');
+  }
+
+  // Registra la fila del vídeo ya subido. Reintenta (el register es IDEMPOTENTE por file_url en el
+  // servidor: reintentar NO crea duplicados). Éxito = reg.ok con al menos un created/duplicate; un
+  // ok:true con created vacío (p. ej. HEAD aún sin propagar) se reintenta.
+  function registerVideo(key, file, ph, attempt) {
+    return fingerprint(file).then(function (fp) {
+      var body = { items: [{ key: key, file_name: file.name, mime_type: file.type || '', size: file.size, fp: fp }] };
+      if (ph.unknown) body.photographer_unknown = true; else if (ph.id) body.photographer_promoter_id = ph.id;
+      return fetch(videoRegisterUrl, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken() },
+        body: JSON.stringify(body)
+      }).then(function (r) { return r.json().catch(function () { return {}; }); }).then(function (reg) {
+        if (reg && reg.ok && ((reg.created || []).length || (reg.duplicates || []).length)) return reg;
+        throw new Error('register-sin-alta');
+      });
+    }).catch(function (e) {
+      if ((attempt || 0) < 2) {
+        return new Promise(function (res) { setTimeout(res, 700); }).then(function () {
+          return registerVideo(key, file, ph, (attempt || 0) + 1);
+        });
+      }
+      throw e;
+    });
+  }
+
+  // Sube UN vídeo DIRECTO a Supabase (signed URL) y registra la fila. Resuelve a {created,duplicates,errors}.
+  // Rechaza con {putDone:false} si falló ANTES de subir (sign/PUT) -> se puede reintentar por servidor;
+  // con {putDone:true} si el objeto YA se subió pero no se registró -> NO re-subir (evita doble alta).
+  function uploadVideoDirect(item, ph, onProgress) {
+    var file = item.file;
+    if (!videoSignUrl || !videoRegisterUrl) return Promise.reject({ putDone: false });
+    return fetch(videoSignUrl, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken() },
+      body: JSON.stringify({ filename: file.name })
+    }).then(function (r) { return r.json().catch(function () { return {}; }); }).then(function (sig) {
+      if (!sig || !sig.ok || !sig.upload_url || !sig.key) return Promise.reject({ putDone: false });
+      return new Promise(function (resolve, reject) {
+        var fd = new FormData();
+        fd.append('cacheControl', '31536000');   // mecánica canónica de Supabase storage-js:
+        fd.append('', file);                      // campo de nombre VACÍO = el fichero
+        var xhr = new XMLHttpRequest();
+        xhr.open('PUT', sig.upload_url);          // la URL ya lleva ?token=<jwt>
+        // NO Content-Type (el navegador pone multipart/boundary); NO Authorization (token en la URL).
+        if (xhr.upload && onProgress) xhr.upload.onprogress = function (e) { if (e.lengthComputable) onProgress(Math.round(e.loaded * 100 / e.total)); };
+        xhr.onload = function () { (xhr.status >= 200 && xhr.status < 300) ? resolve(sig.key) : reject({ putDone: false }); };
+        xhr.onerror = function () { reject({ putDone: false }); };
+        xhr.send(fd);
+      }).then(function (key) {
+        // El objeto YA está en Storage: si el register falla tras reintentos, NO re-subir por servidor.
+        return registerVideo(key, file, ph, 0).catch(function () { return Promise.reject({ putDone: true }); });
+      });
+    });
+  }
+
   function doUpload() {
     if (!pending.length) return;
-    var fd = new FormData();
-    pending.forEach(function (it) { fd.append('files', it.file); });
     var ph = uploadPicker.value();
-    if (ph.unknown) fd.append('photographer_unknown', '1');
-    else if (ph.id) fd.append('photographer_promoter_id', ph.id);
-    var prog = document.getElementById('fotosProgress'), bar = document.getElementById('fotosProgressBar'), pct = document.getElementById('fotosProgressPct'), label = document.getElementById('fotosProgressLabel');
-    prog.classList.remove('d-none'); document.getElementById('fotosUploadBtn').disabled = true;
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', uploadUrl);
-    xhr.setRequestHeader('X-CSRFToken', csrfToken());
-    xhr.upload.onprogress = function (e) { if (!e.lengthComputable) return; var p = Math.round(e.loaded * 100 / e.total); bar.style.width = p + '%'; pct.textContent = p + '%'; };
-    xhr.onload = function () {
-      var ok = xhr.status >= 200 && xhr.status < 300; var data = {}; try { data = JSON.parse(xhr.responseText); } catch (e) {}
-      var hint = document.getElementById('fotosUploadHint');
-      if (ok && data.ok) {
-        var n = (data.created || []).length;
-        var dups = data.duplicates || [];
-        var errs = data.errors || [];
-        var msgs = [];
-        if (n) msgs.push(n + ' ' + (n === 1 ? 'archivo guardado' : 'archivos guardados') + '.');
-        if (dups.length) {
-          // Duplicados: NO se suben porque ya se habían subido antes (con su fecha).
-          msgs.push('No se ' + (dups.length === 1 ? 'ha subido 1 contenido' : ('han subido ' + dups.length + ' contenidos')) +
-            ' porque ya se ' + (dups.length === 1 ? 'había' : 'habían') + ' subido anteriormente: ' +
-            dups.map(function (d) { return d.name + ' (el ' + (d.prev_date || 'sin fecha') + ')'; }).join(' · ') + '.');
+    var bar = document.getElementById('fotosProgressBar'), pct = document.getElementById('fotosProgressPct');
+    document.getElementById('fotosProgress').classList.remove('d-none');
+    document.getElementById('fotosUploadBtn').disabled = true;
+    bar.classList.remove('bg-success', 'bg-danger');
+
+    // Vídeos -> subida DIRECTA a Supabase (si hay endpoints); el resto (imágenes) -> por servidor.
+    var directVideos = (videoSignUrl && videoRegisterUrl) ? pending.filter(function (it) { return isVideoFile(it.file); }) : [];
+    var serverItems = pending.filter(function (it) { return directVideos.indexOf(it) === -1; });
+    var agg = { created: [], duplicates: [], errors: [] };
+
+    function setProgress(p) { bar.style.width = p + '%'; pct.textContent = p + '%'; }
+    function setLabel(t) { var l = document.getElementById('fotosProgressLabel'); if (l) l.textContent = t; }
+
+    var idx = 0;
+    function nextVideo() {
+      if (idx >= directVideos.length) return Promise.resolve();
+      var it = directVideos[idx]; idx++;
+      setLabel('Subiendo vídeo ' + idx + '/' + directVideos.length + '…'); setProgress(0);
+      return uploadVideoDirect(it, ph, setProgress).then(function (reg) {
+        agg.created = agg.created.concat(reg.created || []);
+        agg.duplicates = agg.duplicates.concat(reg.duplicates || []);
+        agg.errors = agg.errors.concat(reg.errors || []);
+      }).catch(function (err) {
+        if (err && err.putDone) {
+          // El vídeo YA está en Supabase pero no se pudo registrar tras reintentos: NO re-subir por
+          // servidor (duplicaría el objeto). Se reporta para que el usuario recargue y reintente.
+          agg.errors.push({ name: it.file.name, reason: 'El vídeo se subió pero no se registró; recarga la página y reinténtalo.' });
+        } else {
+          serverItems.push(it);   // sign/PUT falló (no hay objeto en Storage): fallback seguro al servidor
         }
-        if (errs.length) {
-          msgs.push('Con ERROR: ' + errs.map(function (er) {
-            if (typeof er === 'string') return er;
-            return er.name + (er.reason ? ' — ' + er.reason : '');
-          }).join(' · '));
+      }).then(function () { return nextVideo(); });
+    }
+
+    nextVideo().then(function () {
+      if (!serverItems.length) { finishUpload(null); return; }
+      var fd = new FormData();
+      serverItems.forEach(function (it) { fd.append('files', it.file); });
+      if (ph.unknown) fd.append('photographer_unknown', '1'); else if (ph.id) fd.append('photographer_promoter_id', ph.id);
+      setLabel(directVideos.length ? 'Subiendo el resto…' : 'Subiendo… 0%'); setProgress(0);
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', uploadUrl);
+      xhr.setRequestHeader('X-CSRFToken', csrfToken());
+      xhr.upload.onprogress = function (e) { if (e.lengthComputable) setProgress(Math.round(e.loaded * 100 / e.total)); };
+      xhr.onload = function () {
+        var ok = xhr.status >= 200 && xhr.status < 300; var data = {}; try { data = JSON.parse(xhr.responseText); } catch (e) {}
+        if (ok && data.ok) {
+          agg.created = agg.created.concat(data.created || []);
+          agg.duplicates = agg.duplicates.concat(data.duplicates || []);
+          agg.errors = agg.errors.concat(data.errors || []);
+          finishUpload(null);
+        } else {
+          var msg;
+          if (xhr.status === 413) msg = 'El envío es demasiado grande para el servidor (sube los vídeos de uno en uno o redúcelos).';
+          else if (xhr.status === 407 || xhr.status === 511) msg = 'Tu red/proxy bloqueó la subida (HTTP ' + xhr.status + '). Prueba desde otra conexión.';
+          else if (xhr.status === 502 || xhr.status === 503 || xhr.status === 504 || xhr.status === 524) msg = 'La subida excedió el tiempo del servidor (HTTP ' + xhr.status + '). Reinténtalo o comprime el archivo.';
+          else msg = (data && data.error) ? data.error : ('Error al subir (HTTP ' + xhr.status + ').');
+          finishUpload(msg);
         }
-        label.textContent = msgs[0] || 'Nada que subir.';
-        if (hint) hint.textContent = msgs.slice(1).join('  ');
-        bar.classList.add(errs.length ? 'bg-danger' : 'bg-success');
-        // Solo se cierra solo si TODO fue bien; con duplicados o errores se queda para leerlos.
-        refresh().then(function () {
-          if (!dups.length && !errs.length) {
-            setTimeout(function () { var m = bsModal('fotosUploadModal'); if (m) m.hide(); }, 800);
-          } else {
-            pending = []; renderFileList();
-            document.getElementById('fotosUploadBtn').disabled = false;
-          }
-        });
-      } else {
-        if (xhr.status === 413) label.textContent = 'El envío es demasiado grande para el servidor (los vídeos muy pesados hay que subirlos de uno en uno o reducirlos).';
-        else if (xhr.status === 407 || xhr.status === 511) label.textContent = 'Tu red/proxy bloqueó la subida del vídeo (HTTP ' + xhr.status + '). Prueba desde otra conexión (p. ej. datos del móvil) o sube el vídeo de uno en uno; si sigue, avísanos.';
-        else if (xhr.status === 502 || xhr.status === 503 || xhr.status === 504 || xhr.status === 524) label.textContent = 'La subida del vídeo excedió el tiempo del servidor (HTTP ' + xhr.status + '). Si es muy grande, súbelo de uno en uno o comprímelo; los vídeos grandes van por subida directa (inténtalo de nuevo).';
-        else label.textContent = (data && data.error) ? data.error : ('Error al subir (HTTP ' + xhr.status + ').');
-        bar.classList.add('bg-danger'); document.getElementById('fotosUploadBtn').disabled = false;
-      }
-    };
-    xhr.onerror = function () { label.textContent = 'Error de red (¿archivo demasiado grande o conexión cortada?).'; document.getElementById('fotosUploadBtn').disabled = false; };
-    xhr.send(fd);
+      };
+      xhr.onerror = function () { finishUpload('Error de red (¿archivo demasiado grande o conexión cortada?).'); };
+      xhr.send(fd);
+    });
+
+    function finishUpload(serverErrMsg) {
+      var n = agg.created.length, dups = agg.duplicates, errs = agg.errors;
+      var msgs = [];
+      if (n) msgs.push(n + ' ' + (n === 1 ? 'archivo guardado' : 'archivos guardados') + '.');
+      if (dups.length) msgs.push('No se ' + (dups.length === 1 ? 'ha subido 1 contenido' : ('han subido ' + dups.length + ' contenidos')) +
+        ' porque ya se ' + (dups.length === 1 ? 'había' : 'habían') + ' subido: ' +
+        dups.map(function (d) { return d.name + ' (' + (d.prev_date || 'sin fecha') + ')'; }).join(' · ') + '.');
+      if (errs.length) msgs.push('Con ERROR: ' + errs.map(function (er) { return (typeof er === 'string') ? er : (er.name + (er.reason ? ' — ' + er.reason : '')); }).join(' · '));
+      if (serverErrMsg) msgs.push(serverErrMsg);
+      setLabel(msgs[0] || 'Nada que subir.');
+      var hint = document.getElementById('fotosUploadHint'); if (hint) hint.textContent = msgs.slice(1).join('  ');
+      var anyErr = errs.length || serverErrMsg;
+      bar.classList.add(anyErr ? 'bg-danger' : 'bg-success');
+      // La limpieza de la UI (rehabilitar botón, cerrar modal) SIEMPRE se ejecuta, aunque el
+      // refresco de la galería falle (red inestable / respuesta no-JSON) -> nunca deja el botón
+      // muerto tras una subida que sí funcionó.
+      var cleanup = function () {
+        if (!dups.length && !anyErr) {
+          setTimeout(function () { var m = bsModal('fotosUploadModal'); if (m) m.hide(); }, 800);
+        } else {
+          pending = []; renderFileList();
+        }
+        document.getElementById('fotosUploadBtn').disabled = false;
+      };
+      refresh().then(cleanup, cleanup);
+    }
   }
 
   render();

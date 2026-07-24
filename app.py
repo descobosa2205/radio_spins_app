@@ -257,7 +257,7 @@ from models import (
 )
 import sim_calc  # motor de cálculo puro de Simulaciones
 import seatmap_calc  # motor puro del mapa de butacas del recinto (conteos/plantillas)
-from supabase_utils import upload_png, upload_pdf, upload_image, upload_file, upload_pdf_bytes, supabase_client, _upload_bytes, StorageObjectTooLargeError
+from supabase_utils import upload_png, upload_pdf, upload_image, upload_file, upload_pdf_bytes, supabase_client, _upload_bytes, StorageObjectTooLargeError, create_signed_upload_url_for, public_url_for_key
 from flask_wtf import CSRFProtect
 from flask_wtf.csrf import CSRFError
 app = Flask(__name__)
@@ -36463,6 +36463,7 @@ SUPPORT_ACTION_ENDPOINTS = {
     "roadmap_days_save", "roadmap_public_link",
     # Fotos / vídeos (galería transversal de conciertos y acciones)
     "fotos_upload", "fotos_reorder", "foto_update", "foto_delete", "foto_discard",
+    "fotos_video_sign", "fotos_video_register",
     "foto_note_add", "fotos_bulk_update", "foto_set_approval_state", "fotos_bulk_approval_state",
     "photo_album_create", "photo_album_add", "photo_album_update", "photo_album_delete",
     "fotos_approval_create", "fotos_zip", "fotos_share_create", "fotos_share_email", "fotos_share_email_preview",
@@ -43297,6 +43298,8 @@ def _build_fotos_context(session_db, owner_type, owner_id, include_discarded=Fal
         "owner_id": str(oid),
         "list_url": url_for("fotos_list_json", owner_type=owner_type.lower(), owner_id=str(oid)),
         "upload_url": url_for("fotos_upload", owner_type=owner_type.lower(), owner_id=str(oid)),
+        "video_sign_url": url_for("fotos_video_sign", owner_type=owner_type.lower(), owner_id=str(oid)),
+        "video_register_url": url_for("fotos_video_register", owner_type=owner_type.lower(), owner_id=str(oid)),
         "reorder_url": url_for("fotos_reorder", owner_type=owner_type.lower(), owner_id=str(oid)),
         "can_edit": bool(is_master() or _user_is_actor()),
         "albums": album_payloads,
@@ -43887,6 +43890,161 @@ def fotos_upload(owner_type, owner_id):
             next_order += 1
             created.append(row)
 
+        session_db.commit()
+        promo_map = _photo_promoter_map(session_db, created)
+        return jsonify({
+            "ok": True,
+            "created": [_photo_payload(p, promo_map.get(p.photographer_promoter_id)) for p in created],
+            "errors": errors,
+            "duplicates": duplicates,
+        })
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        session_db.close()
+
+
+def _remote_object_exists(url: str, attempts: int = 3) -> bool:
+    """HEAD a una URL pública para confirmar que el objeto se subió de verdad (evita crear filas
+    Photo fantasma). Reintenta un par de veces: tras un PUT directo puede haber un microdesfase de
+    propagación y un único HEAD fallido daría un falso negativo."""
+    if not url or not isinstance(url, str) or not url.startswith(("http://", "https://")):
+        return False
+    for i in range(max(1, attempts)):
+        try:
+            req = Request(url, method="HEAD", headers={"User-Agent": "Mozilla/5.0"})
+            with urlopen(req, timeout=6) as resp:
+                code = getattr(resp, "status", None) or resp.getcode()
+                if 200 <= int(code) < 400:
+                    return True
+        except Exception:
+            pass
+        if i < attempts - 1:
+            time.sleep(0.5)
+    return False
+
+
+@app.post("/fotos/<owner_type>/<owner_id>/video/sign", endpoint="fotos_video_sign")
+@admin_required
+def fotos_video_sign(owner_type, owner_id):
+    """Paso 1 de la subida DIRECTA de vídeos: valida propietario + extensión de vídeo y devuelve una
+    URL firmada de Supabase para que el navegador suba el archivo sin pasar por el servidor."""
+    ot = _photo_owner_type_norm(owner_type)
+    if not ot:
+        return jsonify({"ok": False, "error": "Tipo no válido."}), 400
+    data = request.get_json(silent=True) or {}
+    filename = (data.get("filename") or "").strip()
+    ext = os.path.splitext(filename.lower())[1]
+    if ext not in PHOTO_VIDEO_EXTS:
+        return jsonify({"ok": False, "error": "La subida directa es solo para vídeos."}), 400
+    session_db = db()
+    try:
+        owner, _artist_id, _title = _photo_resolve_owner(session_db, ot, owner_id)
+        if not owner:
+            return jsonify({"ok": False, "error": "No encontrado."}), 404
+    finally:
+        session_db.close()
+    try:
+        info = create_signed_upload_url_for("photos", ext)
+    except Exception as e:
+        return jsonify({"ok": False, "error": "No se pudo preparar la subida directa: " + (str(e)[:200])}), 502
+    if not info.get("signed_url"):
+        return jsonify({"ok": False, "error": "No se pudo preparar la subida directa."}), 502
+    return jsonify({"ok": True, "key": info["key"], "upload_url": info["signed_url"]})
+
+
+@app.post("/fotos/<owner_type>/<owner_id>/video/register", endpoint="fotos_video_register")
+@admin_required
+def fotos_video_register(owner_type, owner_id):
+    """Paso 2 de la subida DIRECTA de vídeos: el navegador ya subió el/los archivo(s) a Supabase;
+    aquí se dan de alta las filas Photo (kind=VIDEO). Devuelve la MISMA forma que fotos_upload."""
+    ot = _photo_owner_type_norm(owner_type)
+    if not ot:
+        return jsonify({"ok": False, "error": "Tipo no válido."}), 400
+    data = request.get_json(silent=True) or {}
+    items = data.get("items") or []
+    photographer_unknown = _truthy(data.get("photographer_unknown"))
+    photographer_id = None if photographer_unknown else to_uuid(data.get("photographer_promoter_id"))
+    state = _current_user_state()
+    session_db = db()
+    try:
+        owner, artist_id, _title = _photo_resolve_owner(session_db, ot, owner_id)
+        if not owner:
+            return jsonify({"ok": False, "error": "No encontrado."}), 404
+        base_order = (
+            session_db.query(func.coalesce(func.max(Photo.sort_order), -1))
+            .filter(Photo.owner_type == ot, Photo.owner_id == owner.id)
+            .scalar()
+        )
+        next_order = int(base_order) + 1
+        # Huellas débiles (fp) ya presentes en este owner, para un dedup BLANDO de vídeos.
+        existing_fps = {
+            sha for (sha,) in session_db.query(Photo.file_sha256)
+            .filter(Photo.owner_type == ot, Photo.owner_id == owner.id, Photo.file_sha256.isnot(None)).all()
+            if sha
+        }
+        created, errors, duplicates = [], [], []
+        # Tope de ítems por llamada (normalmente 1): evita que un JSON con miles de items dispare
+        # miles de HEAD de red y bloquee un hilo del worker.
+        for it in (items if isinstance(items, list) else [])[:50]:
+            fname = (str(it.get("file_name") or "vídeo")).strip() or "vídeo"
+            key = (str(it.get("key") or "")).strip()
+            # key debe ser exactamente una que el servidor firmó: photos/<hex>.<extvideo>
+            if not re.match(r"^photos/[0-9a-fA-F]{16,}\.[a-z0-9]{2,5}$", key):
+                errors.append({"name": fname, "reason": "Referencia de archivo no válida."})
+                continue
+            ext = os.path.splitext(key.lower())[1]
+            if ext not in PHOTO_VIDEO_EXTS:
+                errors.append({"name": fname, "reason": "Formato no permitido."})
+                continue
+            try:
+                file_url = public_url_for_key(key)
+            except Exception:
+                file_url = ""
+            if not file_url:
+                errors.append({"name": fname, "reason": "No se encontró el archivo subido; reinténtalo."})
+                continue
+            # IDEMPOTENCIA: si ya existe una fila con esta file_url (mismo key único), un reintento
+            # del register tras perderse la respuesta NO crea un duplicado -> se devuelve la existente.
+            existing_row = (
+                session_db.query(Photo)
+                .filter(Photo.owner_type == ot, Photo.owner_id == owner.id, Photo.file_url == file_url)
+                .first()
+            )
+            if existing_row is not None:
+                created.append(existing_row)
+                continue
+            if not _remote_object_exists(file_url):
+                errors.append({"name": fname, "reason": "No se encontró el archivo subido; reinténtalo."})
+                continue
+            fp = (str(it.get("fp") or "")).strip()
+            fp_key = ("wk:" + fp) if fp else None
+            if fp_key and fp_key in existing_fps:
+                duplicates.append({"name": fname, "prev_date": "ya subido antes"})
+                continue
+            mime = (str(it.get("mime_type") or "")).strip() or None
+            row = Photo(
+                owner_type=ot,
+                owner_id=owner.id,
+                artist_id=artist_id,
+                kind="VIDEO",
+                title=os.path.splitext(os.path.basename(fname))[0] or fname,
+                file_name=fname,
+                file_url=file_url,
+                mime_type=mime,
+                photographer_promoter_id=photographer_id,
+                photographer_unknown=bool(photographer_unknown),
+                file_sha256=fp_key,
+                sort_order=next_order,
+                created_by_user_id=to_uuid(state.get("user_id")),
+                created_by_nick=(state.get("nick") or "").strip() or None,
+            )
+            session_db.add(row)
+            if fp_key:
+                existing_fps.add(fp_key)
+            next_order += 1
+            created.append(row)
         session_db.commit()
         promo_map = _photo_promoter_map(session_db, created)
         return jsonify({

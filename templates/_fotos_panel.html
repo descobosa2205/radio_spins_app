@@ -4,6 +4,8 @@
 <div class="fotos-panel" id="fotosPanel"
      data-list-url="{{ fotos_ctx.list_url }}"
      data-upload-url="{{ fotos_ctx.upload_url }}"
+     data-video-sign-url="{{ fotos_ctx.video_sign_url }}"
+     data-video-register-url="{{ fotos_ctx.video_register_url }}"
      data-reorder-url="{{ fotos_ctx.reorder_url }}"
      data-can-edit="{{ '1' if fotos_ctx.can_edit else '0' }}">
   <script type="application/json" id="fotosData">{{ fotos_ctx | tojson }}</script>

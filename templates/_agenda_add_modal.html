@@ -110,7 +110,13 @@
     else { setArtist('', ''); show('artist'); }
   });
 
-  // Selección de artista (paso 1)
+  // Selección de artista (paso 1). OJO: Select2 dispara el cambio vía jQuery .trigger('change'), que
+  // NO llega al addEventListener NATIVO; y jQuery/Select2 se cargan DESPUÉS de este script (van tras
+  // el contenido en layout.html), así que aquí window.jQuery aún no existe. Por eso el enlace de
+  // Select2 se hacía en un `if (window.jQuery)` que SIEMPRE era falso -> al elegir artista no
+  // avanzaba y el asistente se quedaba atascado. Solución: enlazar el evento de Select2 en cuanto
+  // jQuery esté disponible (reintentos acotados); el `change` nativo queda como respaldo por si el
+  // select no llega a convertirse en Select2.
   var sel = document.getElementById('agendaArtistSelect');
   if (sel) {
     var onSel = function () {
@@ -121,7 +127,11 @@
       show('type');
     };
     sel.addEventListener('change', onSel);
-    if (window.jQuery) { try { jQuery(sel).on('select2:select', onSel); } catch (e) {} }
+    var jqTries = 0;
+    (function bindSelect2() {
+      if (window.jQuery) { try { jQuery(sel).on('select2:select', onSel); } catch (e) {} return; }
+      if (jqTries++ < 60) setTimeout(bindSelect2, 150);
+    })();
   }
 
   // Elección de tipo (paso 2)

@@ -83,7 +83,7 @@
                 <a class="small text-decoration-none" href="{{ adv.contract_url }}" target="_blank" rel="noopener"><i class="fa fa-file-contract me-1"></i>Contrato</a>
               {% endif %}
             </div>
-            <div class="text-muted small">Recuperado {{ v.recovered|eur }}</div>
+            <div class="text-muted small" data-adv-recovered="{{ adv.id }}">Recuperado {{ v.recovered|eur }}</div>
           </div>
           <div class="adv-amounts">
             <div class="adv-galleta"><div class="l">Importe del adelanto</div><div class="v">{{ v.amount|eur }}</div></div>
@@ -753,6 +753,7 @@
           }
         }
       }
+      return { shown: shown, amort: amort, ours: ours, amount: amount };
     }
     function render(){
       var rs = filtered();
@@ -771,8 +772,14 @@
         set('songs', kF(Object.keys(sids).length)); set('net', eurF(net)); set('am', eurF(am)); set('ours', eurF(ours));
       }
       // Filtrar las correcciones e ingresos adicionales al mismo periodo que se está viendo.
-      filterAdj('corr');
+      var corrRes = filterAdj('corr');
       filterAdj('inc');
+      // «Recuperado» del periodo = amortizado (canciones + ingresos del periodo) + correcciones del periodo.
+      var recEl = document.querySelector('[data-adv-recovered="' + aid + '"]');
+      if(recEl){
+        var amPeriod = 0; rs.forEach(function(r){ amPeriod += (r.am || 0); });
+        recEl.textContent = 'Recuperado ' + eurF(amPeriod + (corrRes ? corrRes.amount : 0));
+      }
       if(!rs.length){
         body.innerHTML = '<div class="px-3 py-3 text-muted small">' +
           (state.g==='all' ? esc(body.getAttribute('data-empty-msg')||'Sin datos.') : 'Sin ingresos en este periodo.') + '</div>';

@@ -132,6 +132,19 @@
                 <li><a class="dropdown-item" href="{{ url_for('integrations_view') }}"><i class="fa fa-plug me-2"></i> Integraciones</a></li>
               {% endif %}
               <li><a class="dropdown-item" href="{{ url_for('admin_logout') }}"><i class="fa fa-right-from-bracket me-2"></i> Salir</a></li>
+              {% if session.get('role') == 10 and not IMPERSONATING %}
+              <li><hr class="dropdown-divider"></li>
+              <li>
+                <form method="post" action="{{ url_for('direccion_toggle_maintenance') }}" class="m-0">
+                  <input type="hidden" name="active" value="{{ '0' if MAINTENANCE_ACTIVE else '1' }}">
+                  <button type="submit" class="dropdown-item {{ 'text-success' if MAINTENANCE_ACTIVE else 'text-danger' }}"
+                          onclick="return confirm({{ ('¿Reactivar la app para todos los usuarios?' if MAINTENANCE_ACTIVE else '¿Poner la app en MODO TRABAJO? Todos menos dirección verán la pantalla de mantenimiento al usarla o intentar entrar.')|tojson }});">
+                    <i class="fa {{ 'fa-circle-play' if MAINTENANCE_ACTIVE else 'fa-screwdriver-wrench' }} me-2"></i>
+                    {{ 'Reactivar la app (salir de modo trabajo)' if MAINTENANCE_ACTIVE else 'Poner la app en modo trabajo' }}
+                  </button>
+                </form>
+              </li>
+              {% endif %}
             </ul>
           </li>
         {% else %}

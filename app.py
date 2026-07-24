@@ -693,6 +693,102 @@ def require_login():
     return redirect(url_for("admin_login", next=nxt))
 
 
+# ---------- Modo trabajo (mantenimiento activable por dirección) ----------
+_MAINT_CACHE = {"v": None, "t": 0.0}
+
+
+def _get_app_setting(key: str, default=None):
+    s = db()
+    try:
+        row = s.get(AppSetting, key)
+        return row.value if (row and row.value is not None) else default
+    except Exception:
+        return default
+    finally:
+        try:
+            s.close()
+        except Exception:
+            pass
+
+
+def _set_app_setting(key: str, value: str):
+    s = db()
+    try:
+        row = s.get(AppSetting, key)
+        if row:
+            row.value = value
+            row.updated_at = datetime.utcnow()
+        else:
+            s.add(AppSetting(key=key, value=value))
+        s.commit()
+    except Exception:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+    finally:
+        try:
+            s.close()
+        except Exception:
+            pass
+
+
+def _maintenance_active() -> bool:
+    """¿La app está en «modo trabajo»? Cacheado ~8 s por worker (barato y propaga los cambios rápido)."""
+    now = time.time()
+    if _MAINT_CACHE["v"] is not None and (now - _MAINT_CACHE["t"]) < 8:
+        return _MAINT_CACHE["v"]
+    val = (_get_app_setting("maintenance_mode", "0") or "0").strip() == "1"
+    _MAINT_CACHE["v"] = val
+    _MAINT_CACHE["t"] = now
+    return val
+
+
+def _set_maintenance(active: bool):
+    _set_app_setting("maintenance_mode", "1" if active else "0")
+    _MAINT_CACHE["v"] = bool(active)
+    _MAINT_CACHE["t"] = time.time()
+
+
+def _current_is_direccion() -> bool:
+    """True si el usuario logueado es DIRECCIÓN (rol real 10). Con impersonación cuenta el rol del
+    impersonador (dirección), no el del impersonado."""
+    if not session.get("user_id"):
+        return False
+    if session.get("impersonator_id"):
+        try:
+            return int(session.get("impersonator_role") or 0) == 10
+        except Exception:
+            return False
+    try:
+        return int(session.get("role") or 0) == 10
+    except Exception:
+        return False
+
+
+# Endpoints que SIEMPRE funcionan aunque la app esté en modo trabajo (login de dirección, salir, el
+# propio interruptor, estáticos, health y la página de mantenimiento).
+_MAINT_ALLOWED_ENDPOINTS = {
+    "static", "healthz", "maintenance_preview", "admin_login", "admin_logout",
+    "direccion_toggle_maintenance", "landing", "password_forgot", "password_set",
+}
+
+
+@app.before_request
+def _maintenance_gate():
+    """Con el modo trabajo activo, todo el que NO sea dirección ve la página de «app en
+    mantenimiento». Dirección trabaja con normalidad. Los anónimos pasan (los redirige el login,
+    que muestra el aviso y solo deja entrar a dirección)."""
+    if not _maintenance_active():
+        return
+    if (request.endpoint or "") in _MAINT_ALLOWED_ENDPOINTS:
+        return
+    if _current_is_direccion():
+        return
+    if session.get("user_id"):
+        return _render_maintenance_page(503)
+    return
+
 
 @app.errorhandler(RequestEntityTooLarge)
 def _handle_request_entity_too_large(exc):
@@ -1167,8 +1263,12 @@ def admin_login():
                         user.role = role_txt
                         session_db.commit()
 
+                _login_role = int(getattr(user, "role", 10) or 10)
+                if _maintenance_active() and _login_role != 10:
+                    flash("La app está en mantenimiento (modo trabajo). Solo dirección puede acceder ahora mismo.", "warning")
+                    return render_template("login.html", next_url=request.form.get("next") or "", maintenance=True)
                 session["user_id"] = str(user.id)
-                session["role"] = int(getattr(user, "role", 10) or 10)
+                session["role"] = _login_role
                 flash(ROLE_WELCOME.get(session["role"], "Bienvenido."), "success")
                 return redirect(nxt)
 
@@ -1176,6 +1276,10 @@ def admin_login():
             rec = txt_users.get(email)
             if rec and rec.get('password') == password:
                 role = int(rec.get('role') or 10)
+
+                if _maintenance_active() and role != 10:
+                    flash("La app está en mantenimiento (modo trabajo). Solo dirección puede acceder ahora mismo.", "warning")
+                    return render_template("login.html", next_url=request.form.get("next") or "", maintenance=True)
 
                 if not user:
                     user = User(
@@ -1201,7 +1305,7 @@ def admin_login():
         finally:
             session_db.close()
     next_param = request.args.get("next") or ""
-    return render_template("login.html", next_url=next_param)
+    return render_template("login.html", next_url=next_param, maintenance=_maintenance_active())
 
 @app.get("/logout")
 def admin_logout():
@@ -1211,6 +1315,21 @@ def admin_logout():
     session.pop("impersonator_role", None)
     flash("Sesión cerrada.", "success")
     return redirect(url_for("landing"))
+
+
+@app.post("/direccion/modo-trabajo", endpoint="direccion_toggle_maintenance")
+def direccion_toggle_maintenance():
+    """Interruptor del «modo trabajo» (solo dirección). Con él activo, la app aparece en
+    mantenimiento para todos menos dirección; se vuelve a activar con el mismo botón."""
+    if not _current_is_direccion():
+        abort(403)
+    active = (request.form.get("active") or "").strip() == "1"
+    _set_maintenance(active)
+    if active:
+        flash("Modo trabajo ACTIVADO. La app aparece «en mantenimiento» para todos menos dirección.", "warning")
+    else:
+        flash("Modo trabajo desactivado. La app vuelve a estar disponible para todos.", "success")
+    return redirect(request.referrer or url_for("home"))
 
 # ------ Home Page --------
 
@@ -11350,7 +11469,6 @@ def discografica_advance_pdf(aid):
             sub_bits = [dist.name or "Distribuidora"]
             if adv.label:
                 sub_bits.append(adv.label)
-            sub_bits.append("generado el " + datetime.now(TZ_MADRID).strftime("%d/%m/%Y"))
             pdf_c.drawCentredString(page_w / 2, y, " · ".join(sub_bits))
             y -= 11
             # Grupos de pastillas
@@ -11407,8 +11525,8 @@ def discografica_advance_pdf(aid):
             cookies = [
                 ("IMPORTE ADELANTADO", eur_txt(view["amount"]), colors.HexColor("#212529")),
                 ("ADELANTO RESTANTE", eur_txt(view["remaining"]), colors.HexColor("#b02a37")),
-                ("IMPORTE RECUPERADO", eur_txt(view["recovered"]), state_col),
-                ("NUESTRO", eur_txt(view["totals"]["ours"]), colors.HexColor("#1e7e34")),
+                (cookie_recovered_label, eur_txt(cookie_recovered), state_col),
+                (cookie_ours_label, eur_txt(cookie_ours), colors.HexColor("#1e7e34")),
             ]
             gap = 8.0
             cw = (usable_w - gap * (len(cookies) - 1)) / len(cookies)
@@ -11493,6 +11611,24 @@ def discografica_advance_pdf(aid):
         # El desglose por artista es SOLO de canciones; los ingresos adicionales (r["inc"]) van
         # en su propia tabla, así la fila de TOTALES cuadra con las filas de artistas.
         song_rows_sel = [r for r in rows_sel if not r.get("inc")]
+
+        # Galletas RECUPERADO y NUESTRO: cuando se ve un PERIODO concreto reflejan ESE periodo
+        # (amortización de canciones + ingresos adicionales + correcciones de ese periodo); en
+        # «Total» son de todo el acuerdo. El importe adelantado y el restante siguen siendo del
+        # adelanto completo (referencia). Las etiquetas avisan de qué se está mirando.
+        _is_period = bool(gran in ("year", "sem", "month") and p_key)
+        if _is_period:
+            _amort_period = sum(float(r["am"]) for r in song_rows_sel) + sum(float(it["amort"]) for it in incomes_sel)
+            _corr_period = sum(float(c["amount"]) for c in corrections_sel)
+            cookie_recovered = _amort_period + _corr_period
+            cookie_ours = sum(float(r["ours"]) for r in song_rows_sel) + sum(float(it["ours"]) for it in incomes_sel)
+            cookie_recovered_label = "RECUPERADO EN EL PERIODO"
+            cookie_ours_label = "NUESTRO EN EL PERIODO"
+        else:
+            cookie_recovered = float(view["recovered"])
+            cookie_ours = float(view["totals"]["ours"])
+            cookie_recovered_label = "IMPORTE RECUPERADO"
+            cookie_ours_label = "NUESTRO"
         by_artist_pdf = {}
         for r in song_rows_sel:
             g = by_artist_pdf.setdefault(r["aid"], {
@@ -32915,6 +33051,8 @@ from models import (
     Buyer,
     BuyerEvent,
     ensure_enterticket_schema,
+    AppSetting,
+    ensure_app_settings_schema,
 )
 
 # Arranque del esquema COMPLETO en SEGUNDO PLANO (ver nota más arriba). En este punto ya están
@@ -32969,6 +33107,7 @@ def _bootstrap_schema_bg():
         (ensure_venue_seatmap_schema, "ensure_venue_seatmap_schema"),
         (ensure_enterticket_schema, "ensure_enterticket_schema"),
         (ensure_push_schema, "ensure_push_schema"),
+        (ensure_app_settings_schema, "ensure_app_settings_schema"),
     ]:
         _safe_ensure(_fn, _name)
     # Índices de rendimiento (claves foráneas sin índice): idempotente, solo crea los que falten.
@@ -36168,6 +36307,7 @@ def inject_personnel_globals():
         },
         "IMPERSONATING": bool(session.get("impersonator_id")),
         "IMPERSONATOR_NICK": _impersonator_nick() if session.get("impersonator_id") else "",
+        "MAINTENANCE_ACTIVE": _maintenance_active(),
     }
 
 

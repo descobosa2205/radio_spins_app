@@ -3345,6 +3345,29 @@ def ensure_distributors_schema():
     _exec_ddl_statements(stmts, "distributors_schema")
 
 
+class AppSetting(Base):
+    """Ajustes GLOBALES de la app (clave/valor de texto), compartidos por todos los workers.
+    Usado, p. ej., para el «modo trabajo» (mantenimiento): key='maintenance_mode', value='1'/'0'."""
+    __tablename__ = "app_settings"
+    key = Column(Text, primary_key=True)
+    value = Column(Text)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+def ensure_app_settings_schema():
+    """Tabla de ajustes globales clave/valor. Idempotente."""
+    _create_all_once()
+    _exec_ddl_statements([
+        """
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key text PRIMARY KEY,
+            value text,
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+    ], "app_settings")
+
+
 class Simulation(Base):
     """Simulación económica de un concierto o de una gira."""
     __tablename__ = "simulations"

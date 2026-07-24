@@ -69,9 +69,13 @@
     }
 
     function fillForm(data, kind) {
-      var nm = splitName(data.full_name);
+      // El MRZ ya conoce la frontera nombre/apellidos: si viene (cualquiera de los dos), se usa esa
+      // pareja tal cual; si no, se parte el nombre completo por heurística.
+      var first, last;
+      if (data.first_name || data.last_name) { first = data.first_name || ''; last = data.last_name || ''; }
+      else { var nm = splitName(data.full_name); first = nm[0]; last = nm[1]; }
       function put(name, val) { var el = fieldByName(name); if (el && val && !el.value) el.value = val; }
-      put('first_name', nm[0]); put('last_name', nm[1]); put('birth_date', data.birth);
+      put('first_name', first); put('last_name', last); put('birth_date', data.birth);
       if (kind === 'DNI' && data.number) { put('dni', data.number); put('tax_id', data.number); }
       if (kind === 'DNI' && data.address) put('address', data.address);
       function h(name, val) { var el = hidden(name); if (el) el.value = val || ''; }

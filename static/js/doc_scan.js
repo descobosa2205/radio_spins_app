@@ -177,7 +177,7 @@
   }
   // MRZ TD1 (DNI / permiso de conducir españoles: 3 líneas de 30).
   function parseMrz(text) {
-    var out = { fullName: '', birth: '', expiry: '' };
+    var out = { fullName: '', given: '', surname: '', birth: '', expiry: '' };
     var lines = String(text).toUpperCase().split(/\n+/).map(function (l) {
       return l.replace(/\s+/g, '').replace(/[^A-Z0-9<]/g, '');
     }).filter(function (l) { return l.length >= 20 && /[<A-Z0-9]/.test(l); });
@@ -189,7 +189,10 @@
       var parts = nameCands[0].split('<<');
       var surn = (parts[0] || '').replace(/</g, ' ').replace(/\s+/g, ' ').trim();
       var giv = (parts.slice(1).join(' ')).replace(/</g, ' ').replace(/\s+/g, ' ').trim();
-      if (surn) out.fullName = titleCase(giv ? (giv + ' ' + surn) : surn);
+      if (surn) {
+        out.surname = titleCase(surn); out.given = titleCase(giv);
+        out.fullName = titleCase(giv ? (giv + ' ' + surn) : surn);
+      }
     }
     var dl = lines.find(function (l) { return /^[0-9]{6}[0-9<][MFX<][0-9]{6}/.test(l); });
     if (dl) { out.birth = mrzDate(dl.substr(0, 6), false); out.expiry = mrzDate(dl.substr(8, 6), true); }
@@ -197,7 +200,7 @@
   }
   // MRZ TD3 (pasaporte: 2 líneas de 44).
   function parseMrzTd3(text) {
-    var out = { number: '', fullName: '', birth: '', expiry: '' };
+    var out = { number: '', fullName: '', given: '', surname: '', birth: '', expiry: '' };
     var lines = String(text).toUpperCase().split(/\n+/).map(function (l) {
       return l.replace(/\s+/g, '').replace(/[^A-Z0-9<]/g, '');
     }).filter(function (l) { return l.length >= 28; });
@@ -207,7 +210,10 @@
       var np = ((m ? m[1] : nameLine)).split('<<');
       var surn = (np[0] || '').replace(/</g, ' ').replace(/\s+/g, ' ').trim();
       var giv = (np.slice(1).join(' ')).replace(/</g, ' ').replace(/\s+/g, ' ').trim();
-      if (surn) out.fullName = titleCase(giv ? (giv + ' ' + surn) : surn);
+      if (surn) {
+        out.surname = titleCase(surn); out.given = titleCase(giv);
+        out.fullName = titleCase(giv ? (giv + ' ' + surn) : surn);
+      }
     }
     var dataLine = lines.find(function (l) { return /^[A-Z0-9<]{9}[0-9<][A-Z<]{3}[0-9]{6}/.test(l); });
     if (dataLine) {
@@ -263,9 +269,11 @@
   // Extrae los campos oficiales del texto OCR combinado (puro, no toca el DOM).
   function extractFields(rawText, kind) {
     var mrz = (kind === 'PASSPORT') ? parseMrzTd3(rawText) : parseMrz(rawText);
-    var out = { number: '', full_name: '', birth: '', expiry: '', issue: '', address: '' };
+    var out = { number: '', full_name: '', first_name: '', last_name: '', birth: '', expiry: '', issue: '', address: '' };
     out.number = (kind === 'PASSPORT') ? (mrz.number || '') : (findDni(rawText) || '');
     out.full_name = mrz.fullName || '';
+    out.first_name = mrz.given || '';   // frontera nombre/apellidos que da el MRZ (evita re-partir por heurística)
+    out.last_name = mrz.surname || '';
     out.birth = mrz.birth || '';
     out.expiry = mrz.expiry || '';
     var dates = findDates(rawText);

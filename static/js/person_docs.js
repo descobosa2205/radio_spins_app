@@ -216,6 +216,8 @@
     var pendingFiles = {};
     // Fuente + recorte por cara (para reajustar el recorte a mano): {front:{source,rect}, back:{…}}.
     var faceSources = {};
+    // Frontera nombre/apellidos leída del MRZ (para no re-partir por heurística en el servidor).
+    var scanNames = { first: '', last: '', full: '' };
     function fld(name) { return form.querySelector('[data-doc-field="' + name + '"]'); }
     function input(name) { return form.querySelector('[name="' + name + '"]'); }
     function setPreview(which, url) {
@@ -263,6 +265,7 @@
       form.reset();
       pendingFiles = {};
       faceSources = {};
+      scanNames = { first: '', last: '', full: '' };
       form.querySelectorAll('[data-doc-crop]').forEach(function (b) { b.classList.add('d-none'); });
       input('kind').value = kind;
       input('doc_id').value = doc ? doc.id : '';
@@ -336,6 +339,11 @@
       var fd = new FormData(form);
       // Inyecta los recortes generados (front/back) por si el navegador no fijó input.files.
       Object.keys(pendingFiles).forEach(function (w) { if (pendingFiles[w]) fd.set(w, pendingFiles[w], w + '.jpg'); });
+      // Frontera nombre/apellidos del MRZ (solo si el nombre no se editó a mano); el servidor la prefiere al partir.
+      var fnEl = input('full_name');
+      if ((scanNames.first || scanNames.last) && fnEl && fnEl.value.trim() === (scanNames.full || '').trim()) {
+        fd.set('doc_first_name', scanNames.first); fd.set('doc_last_name', scanNames.last);
+      }
       var xhr = new XMLHttpRequest();
       xhr.open('POST', saveUrl);
       xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
@@ -389,6 +397,7 @@
       function put(name, val, label) { var el = input(name); if (val && el && !el.value) { el.value = val; got.push(label); } }
       put('doc_number', data.number, 'nº ' + data.number);
       put('full_name', data.full_name, data.full_name);
+      if (data.first_name || data.last_name) scanNames = { first: data.first_name || '', last: data.last_name || '', full: data.full_name || '' };
       put('birth_date', data.birth, 'nac. ' + fmtDate(data.birth));
       put('expiry_date', data.expiry, 'cad. ' + fmtDate(data.expiry));
       if (kind === 'PASSPORT') put('issue_date', data.issue, 'exped. ' + fmtDate(data.issue));

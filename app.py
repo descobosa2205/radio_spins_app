@@ -39797,13 +39797,24 @@ def _person_documents_for(session_db, owner_type, owner_id):
     return [_person_document_payload(r) for r in rows]
 
 
-def _person_doc_apply_to_profile(session_db, ot, owner, doc):
+def _person_doc_apply_to_profile(session_db, ot, owner, doc, first_override=None, last_override=None):
     """DNI/carnet/pasaporte: rellena los campos VACÍOS de la ficha con lo detectado (no pisa lo ya
-    puesto). El nº solo se usa como DNI/NIF cuando es un DNI (el nº de pasaporte/carnet no es el DNI)."""
+    puesto). El nº solo se usa como DNI/NIF cuando es un DNI (el nº de pasaporte/carnet no es el DNI).
+    `first_override`/`last_override`: frontera nombre/apellidos que el MRZ ya conoce (el cliente la
+    envía); tiene prioridad sobre partir `full_name` por heurística (que falla con nombres extranjeros
+    de varios nombres de pila + un solo apellido)."""
     if doc.kind not in {"DNI", "LICENSE", "PASSPORT"}:
         return
     apply_number_as_dni = (doc.kind == "DNI")
     doc_address = (getattr(doc, "address", None) or "").strip()
+
+    def _name_parts():
+        fo = (first_override or "").strip()
+        lo = (last_override or "").strip()
+        if fo or lo:  # el MRZ trae la frontera exacta: úsala tal cual (pareja), sin heurística
+            return fo.title(), lo.title()
+        return _split_full_name(doc.full_name) if doc.full_name else ("", "")
+
     if ot == "USER":
         profile = _ensure_user_profile(session_db, owner, legacy_full_seed=False)
         if apply_number_as_dni and doc.doc_number and not (profile.dni or "").strip():
@@ -39812,23 +39823,21 @@ def _person_doc_apply_to_profile(session_db, ot, owner, doc):
             profile.birth_date = doc.birth_date
         if doc_address and not (getattr(profile, "address", None) or "").strip():
             profile.address = doc_address
-        if doc.full_name:
-            first, last = _split_full_name(doc.full_name)
-            if first and not (profile.first_name or "").strip():
-                profile.first_name = first
-            if last and not (profile.last_name or "").strip():
-                profile.last_name = last
+        first, last = _name_parts()
+        if first and not (profile.first_name or "").strip():
+            profile.first_name = first
+        if last and not (profile.last_name or "").strip():
+            profile.last_name = last
     elif ot == "PROMOTER":
         if apply_number_as_dni and doc.doc_number and not (owner.tax_id or "").strip():
             owner.tax_id = doc.doc_number
         if doc_address and not (getattr(owner, "address", None) or "").strip():
             owner.address = doc_address
-        if doc.full_name:
-            first, last = _split_full_name(doc.full_name)
-            if first and not (owner.first_name or "").strip():
-                owner.first_name = first
-            if last and not (owner.last_name or "").strip():
-                owner.last_name = last
+        first, last = _name_parts()
+        if first and not (owner.first_name or "").strip():
+            owner.first_name = first
+        if last and not (owner.last_name or "").strip():
+            owner.last_name = last
 
 
 def _split_full_name(full):
@@ -39893,7 +39902,11 @@ def _person_document_save(session_db, ot, owner):
         doc.back_url = None
 
     if _truthy(request.form.get("apply_to_profile", "1")):
-        _person_doc_apply_to_profile(session_db, ot, owner, doc)
+        _person_doc_apply_to_profile(
+            session_db, ot, owner, doc,
+            first_override=(request.form.get("doc_first_name") or "").strip() or None,
+            last_override=(request.form.get("doc_last_name") or "").strip() or None,
+        )
 
     session_db.commit()
     return _person_document_payload(doc)

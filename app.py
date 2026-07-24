@@ -7397,7 +7397,7 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
 
     def _payload_signature(pies_logo_url: str | None, pies_tax_info: str | None) -> str:
         payload = {
-            "renderer": "royalty_pdf_v5",
+            "renderer": "royalty_pdf_v6",
             "kind": beneficiary.get("kind"),
             "id": beneficiary.get("id"),
             "name": beneficiary.get("name"),
@@ -7823,36 +7823,39 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
 
     def _draw_page_header(page_no: int) -> float:
         y = top
-        title_x = left
-        if page_no == 1 and logo_asset:
-            _draw_contained_image(logo_asset, left, y - 10, 110, 34)
-            title_x = left + 120
+        # Logo de la empresa del grupo (PIES) arriba a la DERECHA (estilo de casa)
+        if logo_asset:
+            if page_no == 1:
+                _draw_contained_image(logo_asset, right - 110, y - 10, 110, 34)
+            else:
+                _draw_contained_image(logo_asset, right - 70, y - 6, 70, 22)
+        # Título centrado
         pdf.setFont("Helvetica-Bold", 17 if page_no == 1 else 14)
         pdf.setFillColor(colors.black)
-        pdf.drawString(title_x, y, "Liquidación de Royalties")
+        pdf.drawCentredString(page_width / 2, y, "Liquidación de Royalties")
         y -= 20 if page_no == 1 else 18
+        # Periodo: subtítulo centrado gris (única aparición del periodo = la cabecera)
         pdf.setFont("Helvetica", 9)
         pdf.setFillColor(colors.HexColor('#555555'))
-        pdf.drawString(left, y, period_str)
+        pdf.drawCentredString(page_width / 2, y, period_str)
         y -= 8
         pdf.setStrokeColor(colors.HexColor('#DDDDDD'))
         pdf.line(left, y, right, y)
         y -= 10
 
         if page_no == 1:
-            box_h = 52
+            box_h = 44
             pdf.setFillColor(colors.HexColor('#F8F8F8'))
             pdf.setStrokeColor(colors.HexColor('#DDDDDD'))
             pdf.roundRect(left, y - box_h, right - left, box_h, 6, fill=1, stroke=1)
-            _draw_contained_image(beneficiary_asset, left + 8, y - box_h + 7, 38, 38, pad=0, draw_placeholder=True)
+            _draw_contained_image(beneficiary_asset, left + 8, y - box_h + 3, 38, 38, pad=0, draw_placeholder=True)
             text_x = left + 56
             pdf.setFillColor(colors.black)
             pdf.setFont("Helvetica-Bold", 11)
-            pdf.drawString(text_x, y - 18, _truncate((beneficiary.get('name') or 'Beneficiario').strip(), right - text_x - 12, 'Helvetica-Bold', 11))
+            pdf.drawString(text_x, y - 19, _truncate((beneficiary.get('name') or 'Beneficiario').strip(), right - text_x - 12, 'Helvetica-Bold', 11))
             pdf.setFont("Helvetica", 9)
             pdf.setFillColor(colors.HexColor('#555555'))
-            pdf.drawString(text_x, y - 31, _truncate((beneficiary.get('kind_label') or '').strip(), right - text_x - 12, 'Helvetica', 9))
-            pdf.drawString(text_x, y - 42, _truncate(period_str, right - text_x - 12, 'Helvetica', 9))
+            pdf.drawString(text_x, y - 33, _truncate((beneficiary.get('kind_label') or '').strip(), right - text_x - 12, 'Helvetica', 9))
             y -= box_h + 12
 
         pdf.setFillColor(colors.HexColor('#F1F1F1'))
@@ -7861,7 +7864,9 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
         pdf.setFillColor(colors.black)
         pdf.setFont("Helvetica-Bold", 8)
         for idx, (x, title, width) in enumerate(zip(col_starts, col_titles, col_widths)):
-            if idx >= 4:
+            if idx == 5:
+                pdf.drawCentredString(x + width / 2, y - 10, title)
+            elif idx >= 4:
                 pdf.drawRightString(x + width - 4, y - 10, title)
             else:
                 pdf.drawString(x + 4, y - 10, title)
@@ -7911,7 +7916,7 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
         pdf.drawString(col_starts[2] + 4, baseline, _truncate(code_txt, col_widths[2] - 8, 'Helvetica', 7.6) or '—')
         pdf.drawString(col_starts[3] + 4, baseline, _truncate(item.get('release_date') or '', col_widths[3] - 8, 'Helvetica', 7.6))
         pdf.drawRightString(col_starts[4] + col_widths[4] - 4, baseline, _eur(item.get('income') or 0))
-        pdf.drawRightString(col_starts[5] + col_widths[5] - 4, baseline, f"{float(item.get('pct') or 0):.2f}%")
+        pdf.drawCentredString(col_starts[5] + col_widths[5] / 2, baseline, f"{float(item.get('pct') or 0):.2f}%")
         pdf.setFont('Helvetica-Bold', 7.8)
         pdf.drawRightString(col_starts[6] + col_widths[6] - 4, baseline, _eur(item.get('amount') or 0))
 

@@ -248,9 +248,21 @@
       if (hasUrl) chip.href = a.url; else chip.style.cursor = 'default';
       chip.style.setProperty('--c', colorOf(a));
       var inner = '';
-      // En Inicio (multi-artista) se antepone la foto del artista para identificarlo de un vistazo.
-      if (mode === 'home' && a.artist_photo) {
-        inner += '<img class="agenda-event__avatar" src="' + esc(a.artist_photo) + '" alt="">';
+      // En Inicio (multi-artista) se anteponen las fotos de los artistas para identificarlos de un
+      // vistazo. Si la actividad tiene VARIOS, se apilan (máx. 3 + «+N»).
+      if (mode === 'home') {
+        var photos = (a.artist_photos && a.artist_photos.length)
+          ? a.artist_photos
+          : (a.artist_photo ? [{ photo_url: a.artist_photo, name: a.artist_name || '' }] : []);
+        if (photos.length) {
+          var maxShow = 3;
+          inner += '<span class="agenda-event__avatars">';
+          photos.slice(0, maxShow).forEach(function (p) {
+            inner += '<img class="agenda-event__avatar" src="' + esc(p.photo_url || DEFAULT_PHOTO) + '" alt="" title="' + esc(p.name || '') + '">';
+          });
+          if (photos.length > maxShow) inner += '<span class="agenda-event__avatar agenda-event__avatar--more">+' + (photos.length - maxShow) + '</span>';
+          inner += '</span>';
+        }
       }
       if (a.kind === 'lanzamiento' && a.cover_url) {
         inner += '<img class="agenda-event__cover" src="' + esc(a.cover_url) + '" alt="">';

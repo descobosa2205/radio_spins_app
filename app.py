@@ -55472,12 +55472,23 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
         pid = it.get("artist_id") or ""
         meta = AGENDA_KIND_META.get(it["kind"], {})
         names = [artist_map[i]["name"] for i in ids if i in artist_map]
+        # Todos los artistas de la actividad (para pintar varias fotos cuando hay más de uno).
+        artist_photos = [
+            {
+                "id": i,
+                "name": artist_map[i]["name"],
+                "photo_url": artist_map[i].get("photo_url", ""),
+                "color": artist_color.get(i, "#6c757d"),
+            }
+            for i in ids if i in artist_map
+        ]
         activities.append({
             **it,
             "artist_ids": ids,
             "icon": it.pop("icon_override", "") or meta.get("icon", "fa-circle"),
             "artist_name": ", ".join(names) if names else (it.get("title") or ""),
             "artist_photo": artist_map.get(pid, {}).get("photo_url", ""),
+            "artist_photos": artist_photos,
             "artist_color": artist_color.get(pid, "#6c757d"),
             "kind_color": meta.get("color", "#6c757d"),
             "kind_label": meta.get("label", ""),

@@ -1,12 +1,51 @@
 # supabase_utils.py
+import os
 from pathlib import Path
 import mimetypes
 from uuid import uuid4
 from supabase import create_client, Client
+try:
+    import httpx
+except Exception:  # pragma: no cover
+    httpx = None
+try:
+    from supabase.lib.client_options import ClientOptions
+except Exception:  # pragma: no cover
+    ClientOptions = None
 
 from config import settings
 
 _supabase: Client | None = None
+
+# Timeout AMPLIO para el cliente de Storage. El default de storage3 es 20 s (escalar): subir un vídeo
+# grande de Render a Supabase lo supera, httpx lanzaba WriteTimeout y saltaba el fallback de
+# upload_file que cargaba el vídeo ENTERO en memoria (OOM del worker -> 502). connect/pool cortos;
+# read/write largos (lo que dura la subida). Override por env STORAGE_CLIENT_TIMEOUT.
+_STORAGE_TIMEOUT_S = float(os.getenv("STORAGE_CLIENT_TIMEOUT", "300"))
+# Tope del fallback en memoria de upload_file: por encima NO se lee el archivo entero (evita el OOM);
+# se propaga un error legible. Imágenes/PDF pequeños conservan el reintento defensivo.
+_MEM_FALLBACK_MAX_BYTES = int(os.getenv("UPLOAD_MEMORY_FALLBACK_MAX_BYTES", str(25 * 1024 * 1024)))
+
+
+def _build_client_options():
+    """Opciones del cliente con timeout amplio para Storage. DEFENSIVO: si la API difiere en la
+    versión instalada, devuelve None y el cliente se crea sin opciones (comportamiento anterior)."""
+    if ClientOptions is None:
+        return None
+    candidates = []
+    if httpx is not None:
+        try:
+            candidates.append(httpx.Timeout(connect=15.0, read=_STORAGE_TIMEOUT_S,
+                                            write=_STORAGE_TIMEOUT_S, pool=15.0))
+        except Exception:
+            pass
+    candidates.append(_STORAGE_TIMEOUT_S)  # el tipo admite int/float/httpx.Timeout
+    for candidate in candidates:
+        try:
+            return ClientOptions(storage_client_timeout=candidate)
+        except Exception:
+            continue
+    return None
 
 
 def supabase_client() -> Client:
@@ -16,7 +55,16 @@ def supabase_client() -> Client:
             raise RuntimeError(
                 "Faltan SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY en variables de entorno."
             )
-        _supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        options = _build_client_options()
+        if options is not None:
+            try:
+                _supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY, options=options)
+            except Exception:
+                # Si la firma de create_client difiere en la versión instalada, NO rompemos TODO el
+                # almacenamiento: creamos el cliente como siempre (timeout por defecto).
+                _supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        else:
+            _supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
     return _supabase
 
 
@@ -294,6 +342,13 @@ def upload_file(file_storage, folder: str, allowed_extensions: set[str] | None =
         # el resultado, así que propagamos el error claro directamente.
         raise
     except Exception:
+        # Fallback en memoria SOLO para archivos pequeños. Con vídeos grandes, file_storage.read()
+        # cargaba el archivo ENTERO en RAM (+ otra copia en el multipart de httpx) -> OOM del worker
+        # -> SIGKILL -> 502 (sin JSON). Por encima del tope, propagamos el error real: el endpoint
+        # responde un error legible en vez de reventar el proceso.
+        size = _stream_size(file_storage.stream)
+        if size is None or size > _MEM_FALLBACK_MAX_BYTES:
+            raise
         _rewind_file_storage(file_storage)
         data = file_storage.read()
         _rewind_file_storage(file_storage)

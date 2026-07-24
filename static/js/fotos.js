@@ -857,6 +857,7 @@
       } else {
         if (xhr.status === 413) label.textContent = 'El envío es demasiado grande para el servidor (los vídeos muy pesados hay que subirlos de uno en uno o reducirlos).';
         else if (xhr.status === 407 || xhr.status === 511) label.textContent = 'Tu red/proxy bloqueó la subida del vídeo (HTTP ' + xhr.status + '). Prueba desde otra conexión (p. ej. datos del móvil) o sube el vídeo de uno en uno; si sigue, avísanos.';
+        else if (xhr.status === 502 || xhr.status === 503 || xhr.status === 504 || xhr.status === 524) label.textContent = 'La subida del vídeo excedió el tiempo del servidor (HTTP ' + xhr.status + '). Si es muy grande, súbelo de uno en uno o comprímelo; los vídeos grandes van por subida directa (inténtalo de nuevo).';
         else label.textContent = (data && data.error) ? data.error : ('Error al subir (HTTP ' + xhr.status + ').');
         bar.classList.add('bg-danger'); document.getElementById('fotosUploadBtn').disabled = false;
       }

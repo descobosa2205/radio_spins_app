@@ -43475,6 +43475,7 @@ def media_gallery_view():
                 else:
                     tl = "Suelto"; ti = "fa-images"; dval = None
                 og = {"title": title or "—", "type_label": tl, "type_icon": ti,
+                      "type_key": (tl or "otro").strip().lower(),
                       "event_name": event_name, "venue": venue_name, "city": city,
                       "url": _photo_owner_url(p.owner_type, str(p.owner_id)),
                       "date": (dval.isoformat() if dval else ""), "_raw": []}
@@ -43495,6 +43496,8 @@ def media_gallery_view():
                 imgs = [ph for ph in pool if not _is_video(ph)] or pool
                 cover = imgs[0] if imgs else (pool[0] if pool else None)
                 n_videos = sum(1 for ph in raws if _is_video(ph))
+                photos_only = [ph for ph in raws if not _is_video(ph)]
+                videos_only = [ph for ph in raws if _is_video(ph)]
                 og.update({
                     "n_photos": len(raws) - n_videos,
                     "n_videos": n_videos,
@@ -43502,6 +43505,9 @@ def media_gallery_view():
                     "approved_count": len(approved),
                     "cover": (cover.file_url if cover else ""),
                     "sample": [{"file_url": ph.file_url, "is_video": _is_video(ph)} for ph in pool[:5]],
+                    # Separados para poder mostrar fotos y vídeos sin mezclar.
+                    "sample_photos": [ph.file_url for ph in photos_only[:6]],
+                    "sample_videos": [ph.file_url for ph in videos_only[:6]],
                 })
                 owner_list.append(og)
             owner_list.sort(key=lambda o: o["date"], reverse=True)
@@ -43517,7 +43523,16 @@ def media_gallery_view():
         artist_filter = [{"id": g["artist_id"], "name": g["artist_name"], "photo": g["artist_photo"], "total": g["total"]} for g in gallery if g["artist_id"]]
         all_artists = [{"id": str(a.id), "name": a.name, "photo": (a.photo_url or "")}
                        for a in s.query(Artist).order_by(Artist.name.asc()).all()]
+        # Chips de filtro por TIPO de actividad (con icono), tipos realmente presentes.
+        type_filter_map = {}
+        for g in gallery:
+            for o in g["owners"]:
+                k = o.get("type_key") or "otro"
+                tf = type_filter_map.setdefault(k, {"key": k, "label": o.get("type_label") or "Otro", "icon": o.get("type_icon") or "fa-images", "count": 0})
+                tf["count"] += 1
+        type_filter = sorted(type_filter_map.values(), key=lambda t: (-t["count"], t["label"].lower()))
         return render_template("media_gallery.html", gallery=gallery, artist_filter=artist_filter,
+                               type_filter=type_filter,
                                active_owners=_media_active_targets(s), all_artists=all_artists,
                                can_edit=bool(is_master() or _user_is_actor()))
     finally:

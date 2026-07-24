@@ -22,6 +22,8 @@
   .mg-album__head{ font-weight:600; font-size:.92rem; color:#343a40; }
   .mg-album__strip{ display:flex; gap:.35rem; margin-top:.45rem; flex-wrap:wrap; }
   .mg-album__strip .mg-thumb{ width:64px; height:64px; aspect-ratio:auto; }
+  .mg-thumb--vid{ display:flex; align-items:center; justify-content:center; color:#495057; background:#e9ecef; }
+  .mg-thumb--vid > i.fa-film{ font-size:1.4rem; }
   @media (max-width:576px){ .mg-album{ flex-direction:column; } .mg-album__cover{ width:100%; height:150px; } }
 </style>
 
@@ -30,7 +32,7 @@
     <h4 class="mb-1"><i class="fa fa-images me-2"></i>Fotos / Vídeos</h4>
     <div class="text-muted">Galería global agrupada por artista. Pincha una foto para abrir su actividad (misma vista y subida que en las fichas).</div>
   </div>
-  {% if can_edit %}<button class="btn btn-primary" id="mgAddBtn"><i class="fa fa-plus me-1"></i>Añadir Fotos / Vídeo</button>{% endif %}
+  {% if can_edit %}<button class="btn btn-primary" id="mgAddBtn" title="Añadir fotos o vídeos" aria-label="Añadir"><i class="fa fa-plus"></i></button>{% endif %}
 </div>
 
 {# ---- Filtros ---- #}
@@ -41,6 +43,14 @@
       <span class="badge text-bg-light border mg-filter-chip" data-artist="{{ a.id }}">{% if a.photo %}<img src="{{ a.photo }}" alt="">{% endif %}{{ a.name }} <span class="text-muted">({{ a.total }})</span></span>
     {% endfor %}
   </div>
+  {% if type_filter %}
+  <div class="mb-2 d-flex flex-wrap gap-1" id="mgTypeFilter">
+    <span class="badge text-bg-light border mg-filter-chip mg-type-chip active" data-type=""><i class="fa fa-layer-group me-1"></i>Todo</span>
+    {% for t in type_filter %}
+      <span class="badge text-bg-light border mg-filter-chip mg-type-chip" data-type="{{ t.key }}"><i class="fa {{ t.icon }} me-1"></i>{{ t.label }} <span class="text-muted">({{ t.count }})</span></span>
+    {% endfor %}
+  </div>
+  {% endif %}
   <div class="row g-2 align-items-end">
     <div class="col-6 col-md-3"><label class="form-label small mb-0">Desde</label><input type="date" class="form-control form-control-sm" id="mgFrom"></div>
     <div class="col-6 col-md-3"><label class="form-label small mb-0">Hasta</label><input type="date" class="form-control form-control-sm" id="mgTo"></div>
@@ -57,7 +67,7 @@
         <span class="badge text-bg-light border">{{ g.total }}</span>
       </div>
       {% for o in g.owners %}
-        <div class="mg-owner mg-album" data-date="{{ o.date }}" data-text="{{ (g.artist_name ~ ' ' ~ o.title ~ ' ' ~ o.event_name ~ ' ' ~ o.venue ~ ' ' ~ o.city ~ ' ' ~ o.type_label)|lower }}">
+        <div class="mg-owner mg-album" data-date="{{ o.date }}" data-type="{{ o.type_key }}" data-text="{{ (g.artist_name ~ ' ' ~ o.title ~ ' ' ~ o.event_name ~ ' ' ~ o.venue ~ ' ' ~ o.city ~ ' ' ~ o.type_label)|lower }}">
           <a class="mg-album__cover" href="{{ o.url }}" title="{{ o.title }}">
             {% if o.cover %}<img src="{{ o.cover }}" alt="" loading="lazy">{% else %}<span class="mg-album__ph"><i class="fa {{ o.type_icon }}"></i></span>{% endif %}
           </a>
@@ -71,14 +81,22 @@
               {% if o.approved_count %}<span class="ms-3 text-success"><i class="fa fa-circle-check me-1"></i>{{ o.approved_count }} aprobada{{ '' if o.approved_count == 1 else 's' }}</span>{% endif %}
               <a href="{{ o.url }}" class="ms-3">Ver álbum →</a>
             </div>
+            {# Fotos y vídeos SEPARADOS para identificarlos mejor (no mezclados). #}
+            {% if o.sample_photos %}
             <div class="mg-album__strip">
-              {% for p in o.sample %}
-                <a class="mg-thumb" href="{{ o.url }}">
-                  <img src="{{ p.file_url }}" alt="" loading="lazy">
-                  {% if p.is_video %}<span class="mg-vid"><i class="fa fa-play"></i></span>{% endif %}
-                </a>
+              {% for u in o.sample_photos %}
+                <a class="mg-thumb" href="{{ o.url }}"><img src="{{ u }}" alt="" loading="lazy"></a>
               {% endfor %}
             </div>
+            {% endif %}
+            {% if o.sample_videos %}
+            <div class="small text-muted mt-1"><i class="fa fa-video me-1"></i>Vídeos</div>
+            <div class="mg-album__strip">
+              {% for u in o.sample_videos %}
+                <a class="mg-thumb mg-thumb--vid" href="{{ o.url }}" title="Vídeo"><i class="fa fa-film"></i></a>
+              {% endfor %}
+            </div>
+            {% endif %}
           </div>
         </div>
       {% endfor %}
@@ -141,7 +159,7 @@
 <script>
 (function(){
   // ---- Filtros de la galería ----
-  var artistSel='', qFrom='', qTo='', qText='';
+  var artistSel='', typeSel='', qFrom='', qTo='', qText='';
   function apply(){
     var anyVisible=false;
     document.querySelectorAll('.mg-artist-block').forEach(function(block){
@@ -150,8 +168,9 @@
       block.querySelectorAll('.mg-owner').forEach(function(o){
         var d=o.getAttribute('data-date')||''; var txt=o.getAttribute('data-text')||'';
         var okDate=(!qFrom || (d && d>=qFrom)) && (!qTo || (d && d<=qTo));
+        var okType=!typeSel || (o.getAttribute('data-type')||'')===typeSel;
         var okText=!qText || txt.indexOf(qText)>-1 || Array.prototype.some.call(o.querySelectorAll('.mg-thumb'), function(t){ return (t.getAttribute('data-ph')||'').indexOf(qText)>-1; });
-        var show = okArtist && okDate && okText;
+        var show = okArtist && okType && okDate && okText;
         o.style.display = show ? '' : 'none';
         if(show) ownersVisible++;
       });
@@ -164,6 +183,12 @@
     var c=e.target.closest('.mg-filter-chip'); if(!c) return;
     document.querySelectorAll('#mgArtistFilter .mg-filter-chip').forEach(function(x){ x.classList.remove('active'); });
     c.classList.add('active'); artistSel=c.getAttribute('data-artist')||''; apply();
+  });
+  var typeFilterEl=document.getElementById('mgTypeFilter');
+  if(typeFilterEl) typeFilterEl.addEventListener('click', function(e){
+    var c=e.target.closest('.mg-type-chip'); if(!c) return;
+    typeFilterEl.querySelectorAll('.mg-type-chip').forEach(function(x){ x.classList.remove('active'); });
+    c.classList.add('active'); typeSel=c.getAttribute('data-type')||''; apply();
   });
   var f=document.getElementById('mgFrom'), t=document.getElementById('mgTo'), q=document.getElementById('mgSearch');
   if(f) f.addEventListener('change', function(){ qFrom=this.value; apply(); });

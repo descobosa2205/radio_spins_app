@@ -212,6 +212,7 @@ class ArtistContract(Base):
 
     name = Column(Text, nullable=False)
     signed_date = Column(Date)
+    contract_url = Column(Text)   # PDF del contrato adjunto (Storage)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -4540,6 +4541,7 @@ def ensure_artist_feature_schema():
         );
         """,
         'CREATE INDEX IF NOT EXISTS idx_artist_contracts_artist_id ON artist_contracts(artist_id);',
+        'ALTER TABLE IF EXISTS artist_contracts ADD COLUMN IF NOT EXISTS contract_url text;',
 
         # Líneas/compromisos de cada contrato
         """

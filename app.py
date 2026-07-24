@@ -2975,6 +2975,32 @@ def _artist_ids_with_discography_contracts(session_db) -> set:
 
 
 
+# Icono por CATEGORÍA (concepto) del compromiso de un contrato de artista. Por palabra clave, con
+# caída a un icono de contrato genérico. Se usa en la ficha del artista (tabla de condiciones).
+_CONTRACT_CONCEPT_ICONS = [
+    (("concierto", "directo", "gira", "bolo", "live", "show", "actuaci"), "fa-guitar"),
+    (("discográf", "discografi", "grabaci", "disco", "máster", "master", "fonográf", "fonograf", "single", "álbum", "album"), "fa-compact-disc"),
+    (("editorial", "autoral", "autor", "sgae", "publishing"), "fa-pen-nib"),
+    (("merch",), "fa-shirt"),
+    (("management", "representa", "mánager", "manager"), "fa-user-tie"),
+    (("sync", "sincroniz", "publicidad", "marca", "brand", "anuncio"), "fa-bullhorn"),
+    (("streaming", "digital", "plataforma", "spotify"), "fa-headphones"),
+    (("redes", "social", "contenido", "rrss"), "fa-hashtag"),
+    (("patrocin", "sponsor"), "fa-handshake"),
+]
+
+
+def _contract_concept_icon(concept: str) -> str:
+    c = (concept or "").strip().lower()
+    for keys, icon in _CONTRACT_CONCEPT_ICONS:
+        if any(k in c for k in keys):
+            return icon
+    return "fa-file-contract"
+
+
+app.jinja_env.globals["contract_concept_icon"] = _contract_concept_icon
+
+
 @app.post("/artistas/<artist_id>/contracts/create", endpoint="artist_contract_create")
 @admin_required
 def artist_contract_create(artist_id):
@@ -2999,6 +3025,12 @@ def artist_contract_create(artist_id):
             return redirect(safe_next_or(url_for("artist_detail_view", artist_id=a.id, tab="contratos")))
 
         c = ArtistContract(artist_id=a.id, name=name, signed_date=signed_date)
+        _f = request.files.get("contract")
+        if _f and getattr(_f, "filename", ""):
+            try:
+                c.contract_url = upload_pdf(_f, "artist_contracts")
+            except Exception as _e:
+                flash(f"El contrato no se pudo adjuntar (debe ser PDF): {_e}", "warning")
         session_db.add(c)
         session_db.commit()
         flash("Contrato creado.", "success")
@@ -3036,6 +3068,12 @@ def artist_contract_update(contract_id):
 
         c.name = name
         c.signed_date = signed_date
+        _f = request.files.get("contract")
+        if _f and getattr(_f, "filename", ""):
+            try:
+                c.contract_url = upload_pdf(_f, "artist_contracts")
+            except Exception as _e:
+                flash(f"El contrato no se pudo adjuntar (debe ser PDF): {_e}", "warning")
         session_db.commit()
         flash("Contrato actualizado.", "success")
         return redirect(safe_next_or(url_for("artist_detail_view", artist_id=c.artist_id, tab="contratos")))

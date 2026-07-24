@@ -10565,11 +10565,13 @@ def _build_distributor_advances_context(session_db):
                     base, base_amt, rpct = "NET", inc_net, Decimal("100")
                 inc_amort = (base_amt * rpct / Decimal("100")).quantize(Decimal("0.01"))
                 inc_amort_total += inc_amort
+                # Lo que NO amortiza del ingreso (neto − amortizado) es NUESTRO.
+                inc_ours = (inc_net - inc_amort)
                 inc_views.append({
                     "id": str(inc.id),
                     "label": inc.label or "Ingreso adicional",
                     "net": inc_net, "gross": inc_gross,
-                    "base": base, "pct": rpct, "amort": inc_amort,
+                    "base": base, "pct": rpct, "amort": inc_amort, "ours": inc_ours,
                     "date": inc.income_date,
                     "note": (inc.note or "").strip(),
                     "rule_text": _advance_rule_pdf_text(rule, artist_by_id) if rule is not None else "Sin condición aplicable",
@@ -10740,6 +10742,25 @@ def _build_distributor_advances_context(session_db):
                     "author": corr_authors.get(str(c.created_by_user_id)) if c.created_by_user_id else None,
                 })
             inc_views = income_views_by_adv.get(str(adv.id), [])
+            inc_net_sum = sum((iv["net"] for iv in inc_views), Decimal("0"))
+            inc_amort_sum = income_amort_by_adv.get(str(adv.id), Decimal("0"))
+            inc_ours_sum = sum((iv["ours"] for iv in inc_views), Decimal("0"))
+            # El ingreso adicional forma parte de la cuenta: su neto suma al ingreso, lo que
+            # amortiza suma a «Amortiza» y el resto (neto − amortizado) suma a «Nuestro».
+            totals["net"] += inc_net_sum
+            totals["amort"] += inc_amort_sum
+            totals["ours"] += inc_ours_sum
+            # Filas sintéticas para las vistas por periodo (KPIs/PDF): NO son canciones (inc=1),
+            # se filtran del desglose por artista pero cuentan en los totales del periodo.
+            for iv in inc_views:
+                rows_payload.append({
+                    "aid": "__inc__", "an": "Ingresos adicionales", "ap": "",
+                    "sid": "inc:" + iv["id"], "st": iv["label"], "su": "", "cv": "",
+                    "ps": iv["date"].isoformat() if iv["date"] else None, "pt": None,
+                    "net": float(iv["net"]), "gross": float(iv["gross"]),
+                    "am": float(iv["amort"]), "ours": float(iv["ours"]),
+                    "inc": 1,
+                })
             adv_views.append({
                 "adv": adv,
                 "amount": amount,
@@ -10754,8 +10775,9 @@ def _build_distributor_advances_context(session_db):
                 "corrections": corrections_view,
                 "corrections_total": corr_total_by_adv.get(str(adv.id), Decimal("0")),
                 "additional_incomes": inc_views,
-                "additional_incomes_amort": income_amort_by_adv.get(str(adv.id), Decimal("0")),
-                "additional_incomes_net": sum((iv["net"] for iv in inc_views), Decimal("0")),
+                "additional_incomes_amort": inc_amort_sum,
+                "additional_incomes_net": inc_net_sum,
+                "additional_incomes_ours": inc_ours_sum,
             })
         blocks.append({
             "distributor": dist,
@@ -11448,8 +11470,11 @@ def discografica_advance_pdf(aid):
         else:
             period_title = "Total · todo el acuerdo"
 
+        # El desglose por artista es SOLO de canciones; los ingresos adicionales (r["inc"]) van
+        # en su propia tabla, así la fila de TOTALES cuadra con las filas de artistas.
+        song_rows_sel = [r for r in rows_sel if not r.get("inc")]
         by_artist_pdf = {}
-        for r in rows_sel:
+        for r in song_rows_sel:
             g = by_artist_pdf.setdefault(r["aid"], {
                 "an": r["an"], "ap": r["ap"], "sids": set(),
                 "net": 0.0, "am": 0.0, "ours": 0.0,
@@ -11488,10 +11513,10 @@ def discografica_advance_pdf(aid):
                 str(len(g["sids"])),
                 eur_txt(g["net"]), eur_txt(g["am"]), eur_txt(g["ours"]),
             ])
-        tot_songs = len({r["sid"] for r in rows_sel})
-        tot_net = sum(r["net"] for r in rows_sel)
-        tot_am = sum(r["am"] for r in rows_sel)
-        tot_ours = sum(r["ours"] for r in rows_sel)
+        tot_songs = len({r["sid"] for r in song_rows_sel})
+        tot_net = sum(r["net"] for r in song_rows_sel)
+        tot_am = sum(r["am"] for r in song_rows_sel)
+        tot_ours = sum(r["ours"] for r in song_rows_sel)
         data.append(["", "TOTALES", str(tot_songs), eur_txt(tot_net), eur_txt(tot_am), eur_txt(tot_ours)])
 
         story = [Spacer(1, header_h)]
@@ -11532,7 +11557,7 @@ def discografica_advance_pdf(aid):
         if view["additional_incomes"]:
             story.append(Paragraph("Ingresos adicionales", h2))
             inote = ParagraphStyle("inx", parent=styles["Normal"], fontSize=8.6, leading=10.5)
-            idata = [["Ingreso adicional", "Fecha", "Neto", "Bruto", "Amortiza"]]
+            idata = [["Ingreso adicional", "Fecha", "Neto", "Bruto", "Amortiza", "Nuestro"]]
 
             def _xml_escape(txt):
                 return (txt or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -11547,11 +11572,11 @@ def discografica_advance_pdf(aid):
                 idata.append([
                     Paragraph(lbl, inote),
                     it["date"].strftime("%d/%m/%Y") if it["date"] else "—",
-                    eur_txt(it["net"]), eur_txt(it["gross"]), eur_txt(it["amort"]),
+                    eur_txt(it["net"]), eur_txt(it["gross"]), eur_txt(it["amort"]), eur_txt(it["ours"]),
                 ])
-            it_total = view["additional_incomes_amort"]
-            idata.append(["Total amortizado por ingresos adicionales", "", "", "", eur_txt(it_total)])
-            itbl = Table(idata, colWidths=[None, 22*mm, 26*mm, 26*mm, 28*mm], repeatRows=1)
+            idata.append(["Total ingresos adicionales", "", "", "",
+                          eur_txt(view["additional_incomes_amort"]), eur_txt(view["additional_incomes_ours"])])
+            itbl = Table(idata, colWidths=[None, 20*mm, 23*mm, 23*mm, 24*mm, 24*mm], repeatRows=1)
             itbl.setStyle(TableStyle([
                 ("FONT", (0, 0), (-1, -1), "Helvetica", 8.6),
                 ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 8.4),
@@ -11561,7 +11586,8 @@ def discografica_advance_pdf(aid):
                 ("LINEBELOW", (0, 0), (-1, 0), 0.7, colors.HexColor("#c9d2dc")),
                 ("LINEABOVE", (0, -1), (-1, -1), 0.9, colors.HexColor("#9aa8b5")),
                 ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
-                ("TEXTCOLOR", (4, 1), (4, -1), colors.HexColor("#1e7e34")),
+                ("TEXTCOLOR", (4, 1), (4, -1), colors.HexColor("#b02a37")),
+                ("TEXTCOLOR", (5, 1), (5, -1), colors.HexColor("#1e7e34")),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#fafbfc")]),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 3),

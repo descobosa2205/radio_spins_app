@@ -371,8 +371,8 @@
                 </div>
               </div>
               <div class="text-end">
-                <div class="fw-bold text-success">{{ it.amort|eur }}</div>
-                <div class="small text-muted">amortiza</div>
+                <div><span class="text-danger fw-bold">{{ it.amort|eur }}</span> <span class="small text-muted">amortiza</span></div>
+                <div><span class="text-success fw-bold">{{ it.ours|eur }}</span> <span class="small text-muted">nuestro</span></div>
               </div>
               {% if CAN_EDIT_DISCOGRAFICA %}
               <form method="post" action="{{ url_for('discografica_advance_income_delete', iid=it.id) }}" onsubmit="return confirm('¿Eliminar este ingreso adicional?');">
@@ -383,7 +383,7 @@
           {% endfor %}
           <div class="d-flex align-items-center gap-2 flex-wrap">
             {% if v.additional_incomes %}
-              <span class="small text-muted">Total amortizado por ingresos adicionales: <b class="text-success">{{ v.additional_incomes_amort|eur }}</b> · aplicado a la amortización</span>
+              <span class="small text-muted">Total ingresos adicionales: <b class="text-danger">{{ v.additional_incomes_amort|eur }}</b> amortiza · <b class="text-success">{{ v.additional_incomes_ours|eur }}</b> a favor nuestro</span>
             {% endif %}
             {% if CAN_EDIT_DISCOGRAFICA and adv.rules %}
               <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#advIncomeAdd-{{ adv.id }}"><i class="fa fa-plus me-1"></i>Añadir ingreso adicional</button>
@@ -733,7 +733,8 @@
       // KPIs del periodo elegido
       if(kpis){
         var sids={}, net=0, am=0, ours=0;
-        rs.forEach(function(r){ sids[r.sid]=1; net+=r.net; am+=r.am; ours+=r.ours; });
+        // Los ingresos adicionales (r.inc) suman a los importes pero NO cuentan como canciones.
+        rs.forEach(function(r){ if(!r.inc) sids[r.sid]=1; net+=r.net; am+=r.am; ours+=r.ours; });
         var set=function(k,v){ var el=kpis.querySelector('[data-k="'+k+'"]'); if(el) el.textContent=v; };
         set('songs', kF(Object.keys(sids).length)); set('net', eurF(net)); set('am', eurF(am)); set('ours', eurF(ours));
       }
@@ -745,6 +746,7 @@
       // Agrupar artista → canción (sumando los apuntes del periodo elegido)
       var byA={};
       rs.forEach(function(r){
+        if(r.inc) return;   // los ingresos adicionales van en su propia sección, no en el desglose por artista
         var a = byA[r.aid] = byA[r.aid] || {an:r.an, ap:r.ap, net:0, am:0, ours:0, songs:{}};
         a.net+=r.net; a.am+=r.am; a.ours+=r.ours;
         var s = a.songs[r.sid] = a.songs[r.sid] || {st:r.st, su:r.su, cv:r.cv, net:0, am:0, ours:0};
@@ -752,6 +754,10 @@
       });
       var arts = Object.keys(byA).map(function(k){ return byA[k]; });
       arts.sort(function(x,y){ return (x.an||'').localeCompare(y.an||'', 'es'); });
+      if(!arts.length){
+        body.innerHTML = '<div class="px-3 py-3 text-muted small">Sin ingresos de canciones en este periodo (los ingresos adicionales se listan arriba).</div>';
+        return;
+      }
       var defCover = body.getAttribute('data-default-cover') || '';
       var accId = 'advLiqJs-' + aid;
       var html = ['<div class="accordion accordion-flush" id="' + accId + '">'];

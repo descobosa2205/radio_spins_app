@@ -87,7 +87,7 @@
           </div>
           <div class="adv-amounts">
             <div class="adv-galleta"><div class="l">Importe del adelanto</div><div class="v">{{ v.amount|eur }}</div></div>
-            <div class="adv-galleta"><div class="l">Adelanto restante</div><div class="v text-danger">{{ v.remaining|eur }}</div></div>
+            <div class="adv-galleta"><div class="l" data-adv-remaining-label="{{ adv.id }}">Adelanto restante</div><div class="v text-danger" data-adv-remaining="{{ adv.id }}" data-adv-amount="{{ v.amount }}">{{ v.remaining|eur }}</div></div>
           </div>
           <div class="d-flex align-items-center gap-1">
             <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('discografica_advance_pdf', aid=adv.id) }}" data-liq-pdf="{{ adv.id }}" data-pdf-base="{{ url_for('discografica_advance_pdf', aid=adv.id) }}" target="_blank" title="Balance en PDF del periodo elegido (imprimir/exportar)"><i class="fa fa-file-pdf"></i></a>
@@ -779,6 +779,29 @@
       if(recEl){
         var amPeriod = 0; rs.forEach(function(r){ amPeriod += (r.am || 0); });
         recEl.textContent = 'Recuperado ' + eurF(amPeriod + (corrRes ? corrRes.amount : 0));
+      }
+      // «Adelanto restante» del periodo = importe − amortizado ACUMULADO hasta el final del periodo
+      // (todo lo recuperado con fecha dentro o antes del periodo). En «Todo», el restante del acuerdo.
+      var remEl = document.querySelector('[data-adv-remaining="' + aid + '"]');
+      var remLbl = document.querySelector('[data-adv-remaining-label="' + aid + '"]');
+      if(remEl){
+        if(remEl.dataset.allHtml === undefined){ remEl.dataset.allHtml = remEl.textContent; }
+        if(remLbl && remLbl.dataset.allLbl === undefined){ remLbl.dataset.allLbl = remLbl.textContent; }
+        if(state.g === 'all'){
+          remEl.textContent = remEl.dataset.allHtml;
+          if(remLbl) remLbl.textContent = remLbl.dataset.allLbl;
+        } else {
+          var amount = parseFloat(remEl.getAttribute('data-adv-amount') || '0') || 0;
+          var cum = 0;
+          rows.forEach(function(r){ var b = bucketOf(r.ps, state.g); if(b && b <= state.p){ cum += (r.am || 0); } });
+          document.querySelectorAll('[data-adj-row="corr"][data-adv="' + aid + '"]').forEach(function(row){
+            var d = row.getAttribute('data-adj-date') || ''; var b = d ? bucketOf(d, state.g) : null;
+            if(b && b <= state.p){ cum += parseFloat(row.getAttribute('data-adj-amount') || '0') || 0; }
+          });
+          var rem = amount - cum; if(rem < 0) rem = 0;
+          remEl.textContent = eurF(rem);
+          if(remLbl) remLbl.textContent = 'Restante tras ' + labelOf(state.p, state.g);
+        }
       }
       if(!rs.length){
         body.innerHTML = '<div class="px-3 py-3 text-muted small">' +

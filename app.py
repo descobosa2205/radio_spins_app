@@ -11524,7 +11524,7 @@ def discografica_advance_pdf(aid):
             y -= cookie_h
             cookies = [
                 ("IMPORTE ADELANTADO", eur_txt(view["amount"]), colors.HexColor("#212529")),
-                ("ADELANTO RESTANTE", eur_txt(view["remaining"]), colors.HexColor("#b02a37")),
+                (cookie_remaining_label, eur_txt(cookie_remaining), colors.HexColor("#b02a37")),
                 (cookie_recovered_label, eur_txt(cookie_recovered), state_col),
                 (cookie_ours_label, eur_txt(cookie_ours), colors.HexColor("#1e7e34")),
             ]
@@ -11614,8 +11614,9 @@ def discografica_advance_pdf(aid):
 
         # Galletas RECUPERADO y NUESTRO: cuando se ve un PERIODO concreto reflejan ESE periodo
         # (amortización de canciones + ingresos adicionales + correcciones de ese periodo); en
-        # «Total» son de todo el acuerdo. El importe adelantado y el restante siguen siendo del
-        # adelanto completo (referencia). Las etiquetas avisan de qué se está mirando.
+        # «Total» son de todo el acuerdo. El ADELANTO RESTANTE del periodo es el pendiente AL FINAL
+        # de ese periodo = importe − amortizado ACUMULADO hasta el final del periodo (todo lo
+        # recuperado con fecha dentro o antes del periodo). El importe adelantado es la referencia.
         _is_period = bool(gran in ("year", "sem", "month") and p_key)
         if _is_period:
             _amort_period = sum(float(r["am"]) for r in song_rows_sel) + sum(float(it["amort"]) for it in incomes_sel)
@@ -11624,11 +11625,25 @@ def discografica_advance_pdf(aid):
             cookie_ours = sum(float(r["ours"]) for r in song_rows_sel) + sum(float(it["ours"]) for it in incomes_sel)
             cookie_recovered_label = "RECUPERADO EN EL PERIODO"
             cookie_ours_label = "NUESTRO EN EL PERIODO"
+            # Recuperado ACUMULADO hasta el final del periodo (bucket <= periodo elegido).
+            _cum = 0.0
+            for _r in view["rows"]:
+                _b = _bucket(_r["ps"]) if _r.get("ps") else None
+                if _b is not None and _b <= p_key:
+                    _cum += float(_r.get("am") or 0)
+            for _c in view["corrections"]:
+                _b = _bucket(_c["date"].isoformat()) if _c.get("date") else None
+                if _b is not None and _b <= p_key:
+                    _cum += float(_c.get("amount") or 0)
+            cookie_remaining = max(0.0, float(view["amount"]) - _cum)
+            cookie_remaining_label = "RESTANTE TRAS EL PERIODO"
         else:
             cookie_recovered = float(view["recovered"])
             cookie_ours = float(view["totals"]["ours"])
             cookie_recovered_label = "IMPORTE RECUPERADO"
             cookie_ours_label = "NUESTRO"
+            cookie_remaining = float(view["remaining"])
+            cookie_remaining_label = "ADELANTO RESTANTE"
         by_artist_pdf = {}
         for r in song_rows_sel:
             g = by_artist_pdf.setdefault(r["aid"], {

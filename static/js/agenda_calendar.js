@@ -278,6 +278,38 @@
       return chip;
     }
 
+    // Barra CONTINUA de un evento multi-día dentro de una semana (bloqueo/nota). `seg` lleva
+    // contL/contR = si el evento continúa antes/después de esta semana (corta el redondeo del borde).
+    function makeBar(a, seg) {
+      var hasUrl = !!a.url;
+      var bar = el(hasUrl ? 'a' : 'span', 'agenda-event agenda-event--bar' + (a.kind === 'bloqueo' ? ' agenda-event--block' : ''));
+      if (hasUrl) bar.href = a.url; else bar.style.cursor = 'default';
+      if (seg.contL) bar.classList.add('is-cont-l');
+      if (seg.contR) bar.classList.add('is-cont-r');
+      bar.style.setProperty('--c', colorOf(a));
+      var inner = '';
+      if (mode === 'home') {
+        var photos = (a.artist_photos && a.artist_photos.length)
+          ? a.artist_photos
+          : (a.artist_photo ? [{ photo_url: a.artist_photo, name: a.artist_name || '' }] : []);
+        if (photos.length) {
+          inner += '<span class="agenda-event__avatars">';
+          photos.slice(0, 3).forEach(function (p) {
+            inner += '<img class="agenda-event__avatar" src="' + esc(p.photo_url || DEFAULT_PHOTO) + '" alt="" title="' + esc(p.name || '') + '">';
+          });
+          if (photos.length > 3) inner += '<span class="agenda-event__avatar agenda-event__avatar--more">+' + (photos.length - 3) + '</span>';
+          inner += '</span>';
+        }
+      }
+      inner += '<i class="fa ' + esc(a.icon) + ' agenda-event__icon"></i>';
+      inner += '<span class="agenda-event__title">' + esc(a.title) + '</span>';
+      bar.innerHTML = inner;
+      bar.addEventListener('mouseenter', function (ev) { showTip(a, ev.clientX, ev.clientY); });
+      bar.addEventListener('mousemove', function (ev) { showTip(a, ev.clientX, ev.clientY); });
+      bar.addEventListener('mouseleave', hideTip);
+      return bar;
+    }
+
     function buildNav() {
       var win = curWin(), s = win[0], e = win[1];
       var nav = el('div', 'agenda-cal__nav');
@@ -316,29 +348,86 @@
       DOW.forEach(function (d) { head.appendChild(el('div', 'agenda-cal__dow', d)); });
       calWrap.appendChild(head);
 
-      var byDate = {};
-      acts.forEach(function (a) { if (passes(a)) { (byDate[a.date] = byDate[a.date] || []).push(a); } });
+      function dowIndex(d) { return (d.getDay() + 6) % 7; }  // 0=Lun … 6=Dom
 
-      var grid = el('div', 'agenda-cal__grid');
-      var cur = new Date(gStart);
-      while (cur <= gEnd) {
-        var key = iso(cur);
-        var cell = el('div', 'agenda-cal__day');
-        // Se dimean los días SIN datos cargados (solo puede pasar en la ficha, en los bordes del
-        // rango embebido); las ventanas pedidas al servidor cubren exactamente lo visible.
-        if (isArtist && (cur < dataStart || cur > dataEnd)) cell.classList.add('is-out');
-        if (key === data.today) cell.classList.add('is-today');
-        var label = cur.getDate() + ' ' + MONTHS[cur.getMonth()];
-        cell.appendChild(el('div', 'agenda-cal__num', label));
-        var dayActs = byDate[key] || [];
-        if (dayActs.some(function (a) { return a.kind === 'bloqueo'; })) cell.classList.add('is-blocked');
-        var list = el('div', 'agenda-cal__events');
-        dayActs.forEach(function (a) { list.appendChild(makeChip(a)); });
-        cell.appendChild(list);
-        grid.appendChild(cell);
-        cur.setDate(cur.getDate() + 1);
+      // Single-day vs multi-día (franja continua). Un evento con end_date > date se pinta como barra.
+      var byDate = {}, spans = [];
+      acts.forEach(function (a) {
+        if (!passes(a)) return;
+        if (a.end_date && a.end_date > a.date) spans.push(a);
+        else (byDate[a.date] = byDate[a.date] || []).push(a);
+      });
+      function isBlockedDay(key) {
+        if ((byDate[key] || []).some(function (a) { return a.kind === 'bloqueo'; })) return true;
+        return spans.some(function (s) { return s.kind === 'bloqueo' && key >= s.date && key <= s.end_date; });
       }
-      calWrap.appendChild(grid);
+
+      var BAR_H = 18, BARS_TOP = 22;  // alto por carril y desfase bajo el número del día (ver CSS)
+      var weeks = el('div', 'agenda-cal__weeks');
+      var weekStart = new Date(gStart);
+      while (weekStart <= gEnd) {
+        var weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate() + 6);
+        var wS = iso(weekStart), wE = iso(weekEnd);
+
+        // Segmentos de franja que tocan esta semana, recortados a [lunes..domingo], con carril (lane).
+        var segs = [];
+        spans.forEach(function (a) {
+          if (a.end_date < wS || a.date > wE) return;
+          segs.push({
+            a: a,
+            c0: a.date > wS ? dowIndex(parseISO(a.date)) : 0,
+            c1: a.end_date < wE ? dowIndex(parseISO(a.end_date)) : 6,
+            contL: a.date < wS, contR: a.end_date > wE, lane: 0
+          });
+        });
+        var lanes = [];
+        segs.sort(function (x, y) { return x.c0 - y.c0 || (y.c1 - y.c0) - (x.c1 - x.c0); });
+        segs.forEach(function (sg) {
+          var li = 0;
+          for (; li < lanes.length; li++) {
+            var clash = lanes[li].some(function (o) { return !(sg.c1 < o.c0 || sg.c0 > o.c1); });
+            if (!clash) break;
+          }
+          sg.lane = li; (lanes[li] = lanes[li] || []).push(sg);
+        });
+        var laneCount = lanes.length;
+
+        var weekEl = el('div', 'agenda-cal__week');
+        var daysRow = el('div', 'agenda-cal__grid');
+        var cur = new Date(weekStart);
+        for (var di = 0; di < 7; di++) {
+          var key = iso(cur);
+          var cell = el('div', 'agenda-cal__day');
+          if (isArtist && (cur < dataStart || cur > dataEnd)) cell.classList.add('is-out');
+          if (key === data.today) cell.classList.add('is-today');
+          if (isBlockedDay(key)) cell.classList.add('is-blocked');
+          cell.appendChild(el('div', 'agenda-cal__num', cur.getDate() + ' ' + MONTHS[cur.getMonth()]));
+          if (laneCount) { var sp = el('div', 'agenda-cal__spanspace'); sp.style.height = (laneCount * BAR_H) + 'px'; cell.appendChild(sp); }
+          var list = el('div', 'agenda-cal__events');
+          (byDate[key] || []).forEach(function (a) { list.appendChild(makeChip(a)); });
+          cell.appendChild(list);
+          daysRow.appendChild(cell);
+          cur.setDate(cur.getDate() + 1);
+        }
+        weekEl.appendChild(daysRow);
+
+        if (segs.length) {
+          // Capa de franjas: left/width en calc() teniendo en cuenta el gap del grid (7 columnas).
+          var bars = el('div', 'agenda-cal__bars');
+          segs.forEach(function (sg) {
+            var span = sg.c1 - sg.c0 + 1;
+            var bar = makeBar(sg.a, sg);
+            bar.style.left = 'calc((var(--cw) + var(--g)) * ' + sg.c0 + ')';
+            bar.style.width = 'calc(var(--cw) * ' + span + ' + var(--g) * ' + (span - 1) + ')';
+            bar.style.top = (BARS_TOP + sg.lane * BAR_H) + 'px';
+            bars.appendChild(bar);
+          });
+          weekEl.appendChild(bars);
+        }
+        weeks.appendChild(weekEl);
+        weekStart.setDate(weekStart.getDate() + 7);
+      }
+      calWrap.appendChild(weeks);
     }
 
     // ---------- Lateral ----------
@@ -365,7 +454,10 @@
         // Listado de eventos del artista (color por tipo), en sintonía con la ventana visible
         side.appendChild(el('div', 'agenda-side__title', 'Actividades'));
         var win = curWin(), ws = iso(win[0]), we = iso(win[1]);
-        var visible = acts.filter(function (a) { return passes(a) && a.date >= ws && a.date <= we; });
+        // Solape con la ventana (un evento la toca si empieza <= fin de ventana y su fin >= inicio):
+        // así una franja multi-día que EMPIEZA antes de la ventana pero llega hasta ella sigue en la
+        // lista (y su botón de eliminar accesible), no solo si su día de inicio cae dentro.
+        var visible = acts.filter(function (a) { return passes(a) && (a.end_date || a.date) >= ws && a.date <= we; });
         // Bloqueos/notas multi-día se expanden por día: en el listado se muestran una sola vez.
         var seenItem = {};
         visible = visible.filter(function (a) {

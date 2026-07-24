@@ -28,7 +28,9 @@
         opt.textContent = label;
       }
       if (logo) { opt.setAttribute('data-photo', logo); }
-      sel.value = id;
+      // En un <select multiple> asignar .value reemplaza toda la selección; marcar la opción AÑADE
+      // la recién creada conservando las ya elegidas.
+      if (sel.multiple) { opt.selected = true; } else { sel.value = id; }
       if (window.jQuery && jQuery.fn.select2 && jQuery(sel).hasClass('select2-hidden-accessible')) {
         jQuery(sel).trigger('change');
       } else {

@@ -948,6 +948,8 @@
   </div>
   {% set agenda_add_artist = {'id': artist.id, 'name': artist.name} %}
   {% include '_agenda_add_modal.html' %}
+  {# Asistente de concierto embebido: crear una «Actividad» del «+» IN SITU (sin ir a /conciertos). #}
+  {% if wizard_available %}{% include '_concert_wizard_modal.html' %}{% endif %}
 
   <div class="modal fade" id="calendarShareModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">

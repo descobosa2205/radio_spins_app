@@ -1338,16 +1338,24 @@ def direccion_toggle_maintenance():
 def home():
     # Refresco diario automático de Chartmetric (sin configurar nada; no bloquea ni rompe la home).
     _chartmetric_maybe_daily_refresh()
-    artists = []
+    s = db()
     try:
-        s = db()
         try:
             artists = s.query(Artist).order_by(Artist.name.asc()).all()
-        finally:
-            s.close()
-    except Exception:
-        artists = []
-    return render_template("home.html", artists=artists)
+        except Exception:
+            artists = []
+        # Contexto del asistente de concierto para abrirlo IN SITU desde el «+» de la agenda (sin
+        # navegar a /conciertos). Best-effort: si falla, la home no se rompe y el «+» cae al redirect.
+        try:
+            wizard_ctx = _concert_wizard_context(s)
+        except Exception:
+            wizard_ctx = {}
+        wizard_available = bool(wizard_ctx)
+        wizard_ctx.pop("artists", None)   # la home ya pasa `artists` (misma lista); evita colisión de kwarg
+        # Se renderiza DENTRO de la sesión abierta para que los objetos ORM del wizard sigan válidos.
+        return render_template("home.html", artists=artists, wizard_available=wizard_available, **wizard_ctx)
+    finally:
+        s.close()
 
 # ---------- ARTISTAS ----------
 def _active_artist_ids(session_db) -> set:
@@ -1657,10 +1665,18 @@ def artist_detail_view(artist_id):
 
         artist_fotos_groups = _build_artist_fotos_groups(session_db, artist.id) if tab == "fotos" else None
 
+        # Contexto del asistente de concierto para abrirlo IN SITU desde el «+» de la agenda del
+        # artista (sin navegar a /conciertos). Best-effort: si falla, el «+» cae al redirect.
+        try:
+            _wizctx = _concert_wizard_context(session_db)
+        except Exception:
+            _wizctx = {}
+
         return render_template(
             "artist_detail.html",
             artist=artist,
             tab=tab,
+            wizard_available=bool(_wizctx),
             expense_templates=_expense_templates_for(session_db, "ARTIST", artist.id),
             repertoire_templates=_repertoire_templates_for(session_db, "ARTIST", artist.id),
             templates_owner_type="ARTIST",
@@ -1701,6 +1717,7 @@ def artist_detail_view(artist_id):
             entity_links_can_edit=True,
             chartmetric_header=_chartmetric_header_metrics(session_db, artist),
             chartmetric_playlists=(_chartmetric_playlists_grouped(session_db, artist_id=artist.id) if tab == 'playlisting' else None),
+            **_wizctx,
         )
     finally:
         session_db.close()
@@ -21453,6 +21470,36 @@ def _wizard_group_options(s):
         for cf in s.query(CycleFestival).filter(func.upper(func.coalesce(CycleFestival.status, "ACTIVO")) == "ACTIVO").order_by(CycleFestival.created_at.desc()).limit(100).all()
     ]
     return tours, cycles
+
+
+def _concert_wizard_context(session_db):
+    """Contexto que necesita el asistente de concierto (_concert_wizard_modal.html) para poder
+    incluirlo en CUALQUIER página (Inicio, ficha de artista…) y abrirlo in situ, sin navegar a
+    /conciertos. El recinto es un Select2 AJAX autocontenido y `activity_options` se define en la
+    propia plantilla, así que solo hacen falta estas listas (mismas que usa `contratacion`)."""
+    promoters = (
+        session_db.query(Promoter).options(selectinload(Promoter.companies))
+        .order_by(Promoter.nick.asc()).all()
+    )
+    tours, cycles = _wizard_group_options(session_db)
+    return {
+        "artists": session_db.query(Artist).order_by(Artist.name.asc()).all(),
+        "promoters": promoters,
+        "promoters_payload": [
+            {
+                "id": str(p.id),
+                "nick": (p.nick or "").strip(),
+                "logo_url": (p.logo_url or "").strip(),
+                "companies": [_serialize_promoter_company(x) for x in (p.companies or [])],
+            }
+            for p in promoters
+        ],
+        "companies": session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all(),
+        "type_choices": [(k, CONCERT_SALE_TYPE_LABELS.get(k, k)) for k in CONCERTS_SECTION_ORDER],
+        "all_concert_tags": _collect_all_concert_tags(session_db),
+        "wizard_tours": tours,
+        "wizard_cycles": cycles,
+    }
 
 
 def _group_general_roadmap(concerts):
@@ -55689,19 +55736,21 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
         aid = str(it.artist_id)
         kind = "bloqueo" if (it.kind or "").upper() == "BLOCK" else "otro"
         seen_artist_ids.add(aid)
+        # UN solo evento con rango (date..end_date), recortado a la ventana: el front pinta una FRANJA
+        # CONTINUA que conecta todos los días (antes se expandía por día y salía un chip por día).
+        _end = it.end_date or it.start_date
         d0 = it.start_date if it.start_date > start_date else start_date
-        d1 = it.end_date if it.end_date < end_date else end_date
-        cur = d0
-        while cur <= d1:
-            raw.append(([aid], {
-                "kind": kind, "date": cur.isoformat(),
-                "title": it.title or ("Bloqueado" if kind == "bloqueo" else "Nota"),
-                "subtitle": (it.note or "") if kind == "otro" else "",
-                "artist_id": aid,
-                "status_label": "", "status_class": "",
-                "cover_url": "", "item_id": str(it.id), "url": "",
-            }))
-            cur += timedelta(days=1)
+        d1 = _end if _end < end_date else end_date
+        if d1 < d0:
+            d1 = d0
+        raw.append(([aid], {
+            "kind": kind, "date": d0.isoformat(), "end_date": d1.isoformat(),
+            "title": it.title or ("Bloqueado" if kind == "bloqueo" else "Nota"),
+            "subtitle": (it.note or "") if kind == "otro" else "",
+            "artist_id": aid,
+            "status_label": "", "status_class": "",
+            "cover_url": "", "item_id": str(it.id), "url": "",
+        }))
 
     # ---- Cumpleaños (artista individual -> Artist.birth_date; grupo -> cada miembro) ----
     def _birthday_occurrences(bdate):
@@ -56046,8 +56095,11 @@ def _artist_calendar_ics(agenda_data: dict, artist) -> str:
         d = raw_date.replace("-", "")
         if len(d) != 8:
             continue
+        # DTEND desde end_date (rango multi-día de bloqueos/notas); si no hay, un día. Antes se
+        # ignoraba end_date y una franja de varios días se colapsaba a su primer día en el .ics.
         try:
-            dtend = (date.fromisoformat(raw_date) + timedelta(days=1)).isoformat().replace("-", "")
+            raw_end = it.get("end_date") or raw_date
+            dtend = (date.fromisoformat(raw_end) + timedelta(days=1)).isoformat().replace("-", "")
         except (ValueError, TypeError):
             continue
         kind_label = (it.get("kind_label") or it.get("kind") or "Evento").strip()

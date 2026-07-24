@@ -39,6 +39,9 @@
 </div>
 {% set agenda_add_artists = AGENDA_ARTIST_OPTIONS %}
 {% include '_agenda_add_modal.html' %}
+{# Asistente de concierto embebido: permite crear una «Actividad» del «+» de la agenda IN SITU
+   (sin navegar a /conciertos). Solo si hay contexto (wizard_available). #}
+{% if wizard_available %}{% include '_concert_wizard_modal.html' %}{% endif %}
 {% endif %}
 
 {% if HOME_PENDING_PETICIONES %}

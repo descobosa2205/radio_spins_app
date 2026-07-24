@@ -14,15 +14,23 @@
            data-preset-artist-name="{{ agenda_add_artist.name if agenda_add_artist else '' }}"
            data-activity-url="{{ url_for('concerts_view', tab='vista') }}">
 
-        {# Paso 1 · artista (solo sin preseleccionar, p. ej. en Inicio) #}
+        {# Paso 1 · artista (solo sin preseleccionar, p. ej. en Inicio). Selección VISUAL con tarjetas
+           de foto: al pinchar una se avanza directo al paso de tipo (más intuitivo que el desplegable). #}
         <div data-agenda-step="artist" class="d-none">
           <p class="text-muted mb-2"><i class="fa fa-user-music me-1"></i>¿Para qué artista?</p>
-          <select class="form-select select-artists" id="agendaArtistSelect" data-no-loader>
-            <option value="">Selecciona un artista…</option>
+          {% if (agenda_add_artists or [])|length > 8 %}
+          <input type="search" class="form-control form-control-sm mb-2" data-agenda-artist-search placeholder="Buscar artista…" autocomplete="off">
+          {% endif %}
+          <div class="agenda-artist-picker">
             {% for a in (agenda_add_artists or []) %}
-              <option value="{{ a.id }}" data-name="{{ a.name }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}">{{ a.name }}</option>
+              <button type="button" class="agenda-artist-card" data-agenda-pick="{{ a.id }}" data-name="{{ a.name }}" data-search="{{ a.name|lower }}">
+                <img src="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" alt="" loading="lazy">
+                <span>{{ a.name }}</span>
+              </button>
+            {% else %}
+              <div class="text-muted small">No hay artistas disponibles.</div>
             {% endfor %}
-          </select>
+          </div>
         </div>
 
         {# Paso 2 · tipo #}
@@ -110,29 +118,21 @@
     else { setArtist('', ''); show('artist'); }
   });
 
-  // Selección de artista (paso 1). OJO: Select2 dispara el cambio vía jQuery .trigger('change'), que
-  // NO llega al addEventListener NATIVO; y jQuery/Select2 se cargan DESPUÉS de este script (van tras
-  // el contenido en layout.html), así que aquí window.jQuery aún no existe. Por eso el enlace de
-  // Select2 se hacía en un `if (window.jQuery)` que SIEMPRE era falso -> al elegir artista no
-  // avanzaba y el asistente se quedaba atascado. Solución: enlazar el evento de Select2 en cuanto
-  // jQuery esté disponible (reintentos acotados); el `change` nativo queda como respaldo por si el
-  // select no llega a convertirse en Select2.
-  var sel = document.getElementById('agendaArtistSelect');
-  if (sel) {
-    var onSel = function () {
-      var id = sel.value;
-      if (!id) return;
-      var opt = sel.options[sel.selectedIndex];
-      setArtist(id, opt ? (opt.getAttribute('data-name') || opt.textContent) : '');
+  // Selección de artista (paso 1) VISUAL: tarjetas con foto (clics nativos, sin depender de Select2/
+  // jQuery, que se cargan después del contenido). Al pinchar una se avanza directo al paso de tipo.
+  modalEl.querySelectorAll('[data-agenda-pick]').forEach(function (card) {
+    card.addEventListener('click', function () {
+      setArtist(card.getAttribute('data-agenda-pick'), card.getAttribute('data-name') || '');
       show('type');
-    };
-    sel.addEventListener('change', onSel);
-    var jqTries = 0;
-    (function bindSelect2() {
-      if (window.jQuery) { try { jQuery(sel).on('select2:select', onSel); } catch (e) {} return; }
-      if (jqTries++ < 60) setTimeout(bindSelect2, 150);
-    })();
-  }
+    });
+  });
+  var artistSearch = modalEl.querySelector('[data-agenda-artist-search]');
+  if (artistSearch) artistSearch.addEventListener('input', function () {
+    var q = (this.value || '').toLowerCase().trim();
+    modalEl.querySelectorAll('[data-agenda-pick]').forEach(function (c) {
+      c.classList.toggle('d-none', !!q && (c.getAttribute('data-search') || '').indexOf(q) < 0);
+    });
+  });
 
   // Elección de tipo (paso 2)
   modalEl.querySelectorAll('[data-agenda-choice]').forEach(function (btn) {
@@ -140,6 +140,22 @@
       var choice = btn.getAttribute('data-agenda-choice');
       if (!artistId) { show('artist'); return; }
       if (choice === 'actividad') {
+        // Si el asistente de concierto está embebido en ESTA página, se abre IN SITU (sin navegar);
+        // si no, se cae al comportamiento anterior (ir a /conciertos con el asistente abierto).
+        var wm = document.getElementById('concertWizardModal');
+        if (wm && window.bootstrap) {
+          var openWizard = function () {
+            try { if (window.jQuery) jQuery('#wizard_artist_id').val([artistId]).trigger('change'); } catch (e) {}
+            window.bootstrap.Modal.getOrCreateInstance(wm).show();
+          };
+          var inst = window.bootstrap.Modal.getInstance(modalEl);
+          if (inst) {
+            // Cerrar el modal de agenda y, al terminar de cerrarse, abrir el asistente (sin solapar).
+            modalEl.addEventListener('hidden.bs.modal', function onh() { modalEl.removeEventListener('hidden.bs.modal', onh); openWizard(); });
+            inst.hide();
+          } else { openWizard(); }
+          return;
+        }
         var u = body.getAttribute('data-activity-url') || '';
         u += (u.indexOf('?') >= 0 ? '&' : '?') + 'open_wizard=1&wizard_artist=' + encodeURIComponent(artistId);
         window.location.href = u;

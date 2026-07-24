@@ -7397,7 +7397,7 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
 
     def _payload_signature(pies_logo_url: str | None, pies_tax_info: str | None) -> str:
         payload = {
-            "renderer": "royalty_pdf_v6",
+            "renderer": "royalty_pdf_v7",
             "kind": beneficiary.get("kind"),
             "id": beneficiary.get("id"),
             "name": beneficiary.get("name"),
@@ -7829,33 +7829,29 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
                 _draw_contained_image(logo_asset, right - 110, y - 10, 110, 34)
             else:
                 _draw_contained_image(logo_asset, right - 70, y - 6, 70, 22)
-        # Título centrado
+        # Título centrado (el periodo va en la cabecera del beneficiario, no aquí)
         pdf.setFont("Helvetica-Bold", 17 if page_no == 1 else 14)
         pdf.setFillColor(colors.black)
         pdf.drawCentredString(page_width / 2, y, "Liquidación de Royalties")
-        y -= 20 if page_no == 1 else 18
-        # Periodo: subtítulo centrado gris (única aparición del periodo = la cabecera)
-        pdf.setFont("Helvetica", 9)
-        pdf.setFillColor(colors.HexColor('#555555'))
-        pdf.drawCentredString(page_width / 2, y, period_str)
-        y -= 8
+        y -= 14 if page_no == 1 else 12
         pdf.setStrokeColor(colors.HexColor('#DDDDDD'))
         pdf.line(left, y, right, y)
         y -= 10
 
         if page_no == 1:
-            box_h = 44
+            box_h = 52
             pdf.setFillColor(colors.HexColor('#F8F8F8'))
             pdf.setStrokeColor(colors.HexColor('#DDDDDD'))
             pdf.roundRect(left, y - box_h, right - left, box_h, 6, fill=1, stroke=1)
-            _draw_contained_image(beneficiary_asset, left + 8, y - box_h + 3, 38, 38, pad=0, draw_placeholder=True)
+            _draw_contained_image(beneficiary_asset, left + 8, y - box_h + 7, 38, 38, pad=0, draw_placeholder=True)
             text_x = left + 56
             pdf.setFillColor(colors.black)
             pdf.setFont("Helvetica-Bold", 11)
-            pdf.drawString(text_x, y - 19, _truncate((beneficiary.get('name') or 'Beneficiario').strip(), right - text_x - 12, 'Helvetica-Bold', 11))
+            pdf.drawString(text_x, y - 18, _truncate((beneficiary.get('name') or 'Beneficiario').strip(), right - text_x - 12, 'Helvetica-Bold', 11))
             pdf.setFont("Helvetica", 9)
             pdf.setFillColor(colors.HexColor('#555555'))
-            pdf.drawString(text_x, y - 33, _truncate((beneficiary.get('kind_label') or '').strip(), right - text_x - 12, 'Helvetica', 9))
+            pdf.drawString(text_x, y - 31, _truncate((beneficiary.get('kind_label') or '').strip(), right - text_x - 12, 'Helvetica', 9))
+            pdf.drawString(text_x, y - 42, _truncate(period_str, right - text_x - 12, 'Helvetica', 9))
             y -= box_h + 12
 
         pdf.setFillColor(colors.HexColor('#F1F1F1'))

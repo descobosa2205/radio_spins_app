@@ -55911,9 +55911,34 @@ def home_agenda_data():
         session_db.close()
 
 
+def _agenda_active_artist_ids(session_db) -> set:
+    """IDs (str) de artistas «activos»: con lanzamiento (álbum/canción) o actividad (concierto/acción)
+    próxima o de los últimos 10 días. Para mostrarlos primero en el selector del botón + de la agenda."""
+    lo = date.today() - timedelta(days=10)
+    ids = set()
+    try:
+        for a in session_db.query(Album.artist_id).filter(Album.release_date.isnot(None), Album.release_date >= lo).all():
+            if a[0]:
+                ids.add(str(a[0]))
+        for c in session_db.query(Concert.artist_id).filter(Concert.date.isnot(None), Concert.date >= lo).limit(600).all():
+            if c[0]:
+                ids.add(str(c[0]))
+        for a in session_db.query(CompanyAction).filter(CompanyAction.start_date.isnot(None), CompanyAction.start_date >= lo).limit(600).all():
+            for x in (a.artist_ids or []):
+                if x:
+                    ids.add(str(x))
+        for row in session_db.query(SongArtist.artist_id).join(Song, Song.id == SongArtist.song_id).filter(Song.release_date.isnot(None), Song.release_date >= lo).limit(1000).all():
+            if row[0]:
+                ids.add(str(row[0]))
+    except Exception:
+        pass
+    return ids
+
+
 def _agenda_artist_options() -> list[dict]:
     """Artistas para el selector del botón + en Inicio: los asignados al usuario (o todos si no tiene
-    ninguno o es dirección)."""
+    ninguno o es dirección). Cada uno marcado `active` (con lanzamiento/actividad próxima o reciente)
+    para mostrarlos primero; el resto quedan tras «Ver más artistas»."""
     state = _current_user_state()
     role = _safe_int(state.get("role"))
     assigned = [str(x) for x in (state.get("assigned_artist_ids") or []) if x]
@@ -55922,7 +55947,11 @@ def _agenda_artist_options() -> list[dict]:
         q = session_db.query(Artist).order_by(Artist.name.asc())
         if not (role == 10 or not assigned):
             q = q.filter(Artist.id.in_([to_uuid(x) for x in assigned]))
-        return [{"id": str(a.id), "name": a.name or "—", "photo_url": a.photo_url or ""} for a in q.all()]
+        active_ids = _agenda_active_artist_ids(session_db)
+        return [
+            {"id": str(a.id), "name": a.name or "—", "photo_url": a.photo_url or "", "active": (str(a.id) in active_ids)}
+            for a in q.all()
+        ]
     except Exception:
         return []
     finally:

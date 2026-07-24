@@ -18,18 +18,23 @@
            de foto: al pinchar una se avanza directo al paso de tipo (más intuitivo que el desplegable). #}
         <div data-agenda-step="artist" class="d-none">
           <p class="text-muted mb-2"><i class="fa fa-user-music me-1"></i>¿Para qué artista?</p>
-          {% if (agenda_add_artists or [])|length > 8 %}
-          <input type="search" class="form-control form-control-sm mb-2" data-agenda-artist-search placeholder="Buscar artista…" autocomplete="off">
-          {% endif %}
+          {# Buscador y botón «Ver más» ocultos por defecto; los revela agenda_add_modal.js según haya
+             muchos artistas / artistas inactivos. Los ACTIVOS (con lanzamiento/actividad próxima o
+             reciente) se muestran primero; los demás llevan data-agenda-extra y salen con «Ver más». #}
+          <input type="search" class="form-control form-control-sm mb-2 d-none" data-agenda-artist-search placeholder="Buscar artista…" autocomplete="off">
           <div class="agenda-artist-picker">
             {% for a in (agenda_add_artists or []) %}
-              <button type="button" class="agenda-artist-card" data-agenda-pick="{{ a.id }}" data-name="{{ a.name }}" data-search="{{ a.name|lower }}">
+              <button type="button" class="agenda-artist-card{% if not a.active %} agenda-artist-card--extra d-none{% endif %}"
+                      data-agenda-pick="{{ a.id }}" data-name="{{ a.name }}" data-search="{{ a.name|lower }}"{% if not a.active %} data-agenda-extra="1"{% endif %}>
                 <img src="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" alt="" loading="lazy">
                 <span>{{ a.name }}</span>
               </button>
             {% else %}
               <div class="text-muted small">No hay artistas disponibles.</div>
             {% endfor %}
+          </div>
+          <div class="text-center mt-2">
+            <button type="button" class="btn btn-sm btn-link text-decoration-none d-none" data-agenda-more><i class="fa fa-ellipsis me-1"></i>Ver más artistas</button>
           </div>
         </div>
 
@@ -119,20 +124,35 @@
   });
 
   // Selección de artista (paso 1) VISUAL: tarjetas con foto (clics nativos, sin depender de Select2/
-  // jQuery, que se cargan después del contenido). Al pinchar una se avanza directo al paso de tipo.
-  modalEl.querySelectorAll('[data-agenda-pick]').forEach(function (card) {
+  // jQuery). Al pinchar una se avanza directo al paso de tipo. Se muestran primero los ACTIVOS; el
+  // resto (data-agenda-extra) tras «Ver más artistas»; el buscador filtra sobre TODOS.
+  var pickerCards = [].slice.call(modalEl.querySelectorAll('[data-agenda-pick]'));
+  pickerCards.forEach(function (card) {
     card.addEventListener('click', function () {
       setArtist(card.getAttribute('data-agenda-pick'), card.getAttribute('data-name') || '');
       show('type');
     });
   });
   var artistSearch = modalEl.querySelector('[data-agenda-artist-search]');
-  if (artistSearch) artistSearch.addEventListener('input', function () {
-    var q = (this.value || '').toLowerCase().trim();
-    modalEl.querySelectorAll('[data-agenda-pick]').forEach(function (c) {
-      c.classList.toggle('d-none', !!q && (c.getAttribute('data-search') || '').indexOf(q) < 0);
+  var moreBtn = modalEl.querySelector('[data-agenda-more]');
+  var hasExtras = pickerCards.some(function (c) { return c.hasAttribute('data-agenda-extra'); });
+  var hasActive = pickerCards.some(function (c) { return !c.hasAttribute('data-agenda-extra'); });
+  var showAllArtists = !hasActive;   // si no hay activos, se muestran todos de entrada
+  if (moreBtn && hasExtras) moreBtn.classList.remove('d-none');
+  if (artistSearch && pickerCards.length > 8) artistSearch.classList.remove('d-none');
+  function refilterArtists() {
+    var q = artistSearch ? (artistSearch.value || '').toLowerCase().trim() : '';
+    pickerCards.forEach(function (c) {
+      var isExtra = c.hasAttribute('data-agenda-extra');
+      var matches = !q || (c.getAttribute('data-search') || '').indexOf(q) > -1;
+      var visible = matches && (q ? true : (showAllArtists || !isExtra));
+      c.classList.toggle('d-none', !visible);
     });
-  });
+    if (moreBtn && hasExtras) moreBtn.classList.toggle('d-none', showAllArtists || !!q);
+  }
+  if (moreBtn) moreBtn.addEventListener('click', function () { showAllArtists = true; refilterArtists(); });
+  if (artistSearch) artistSearch.addEventListener('input', refilterArtists);
+  if (showAllArtists && hasExtras) refilterArtists();   // caso sin activos: revelar todos
 
   // Elección de tipo (paso 2)
   modalEl.querySelectorAll('[data-agenda-choice]').forEach(function (btn) {

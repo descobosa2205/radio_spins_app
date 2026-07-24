@@ -14,6 +14,8 @@
   .adv-galleta{ background:#f6f8fa; border:1px solid #e2e7ee; border-radius:12px; padding:.35rem .75rem; text-align:center; min-width:116px; }
   .adv-galleta .l{ font-size:.62rem; font-weight:700; letter-spacing:.03em; text-transform:uppercase; color:#8a94a1; }
   .adv-galleta .v{ font-size:1.05rem; font-weight:800; white-space:nowrap; }
+  .adv-caret{ transition:transform .15s ease; font-size:.8rem; }
+  .adv-head-toggle[aria-expanded="true"] .adv-caret{ transform:rotate(180deg); }
   .adv-bar-wrap{ padding:0 1.1rem .35rem; }
   .adv-pills{ display:flex; flex-wrap:wrap; gap:.35rem; padding:.35rem 1.1rem; }
   .adv-pill{ display:inline-flex; align-items:center; gap:.35rem; background:#f6f8fa; border:1px solid #e2e7ee; border-radius:999px; padding:.2rem .6rem; font-size:.78rem; }
@@ -73,8 +75,9 @@
           {% else %}
             <span class="adv-logo adv-logo--ph"><i class="fa fa-truck-fast"></i></span>
           {% endif %}
-          <div class="flex-grow-1">
+          <div class="flex-grow-1 adv-head-toggle" role="button" data-bs-toggle="collapse" data-bs-target="#advBody-{{ adv.id }}" aria-expanded="{{ 'true' if block.advances|length == 1 else 'false' }}" style="cursor:pointer;" title="Ver/ocultar el detalle de este adelanto">
             <div class="d-flex align-items-center gap-2 flex-wrap">
+              <i class="fa fa-chevron-down adv-caret text-muted"></i>
               <span class="fw-bold">{{ adv.label or 'Adelanto' }}</span>
               <span class="badge text-bg-{{ v.state_class }}">{{ v.state }}</span>
               {% if adv.advance_date %}<span class="text-muted small" title="Fecha de la firma: solo amortizan los ingresos generados desde este día (no retroactivo)"><i class="fa fa-file-signature me-1"></i>Firma {{ adv.advance_date.strftime('%d/%m/%Y') }}</span>
@@ -114,6 +117,7 @@
           </div>
         </div>
 
+        <div class="collapse{% if block.advances|length == 1 %} show{% endif %}" id="advBody-{{ adv.id }}">
         {# Barra de estado del adelanto #}
         <div class="adv-bar-wrap">
           <div class="progress" role="progressbar" style="height:14px;">
@@ -422,6 +426,7 @@
         <div class="border-top mt-1" data-liq-body="{{ adv.id }}" data-default-cover="{{ DEFAULT_COVER_URL }}"
              data-empty-msg="Todavía no hay ingresos de canciones cubiertas por este adelanto. Asigna la distribuidora a las canciones (Repertorio, también en bloque) y sube los ingresos en la pestaña Ingresos."></div>
         <div class="pb-2"></div>
+        </div>{# /collapse advBody #}
       </div>
 
       {# Modal de edición de datos del adelanto #}

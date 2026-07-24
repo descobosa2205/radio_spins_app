@@ -11,6 +11,8 @@
         <h3 class="mb-0">{{ promoter.nick }}</h3>
         {% if promoter.tax_id %}<span class="badge text-bg-light border">{{ promoter.tax_id }}</span>{% endif %}
       </div>
+      {% set _legal = ((promoter.first_name or '') ~ ' ' ~ (promoter.last_name or ''))|trim %}
+      {% if _legal and _legal|lower != (promoter.nick or '')|lower %}<div class="text-muted small mt-1">{{ _legal }}</div>{% endif %}
       <div class="text-muted mt-2">
         {% if promoter.contact_email %}<span class="me-3"><i class="fa fa-envelope me-1"></i>{{ promoter.contact_email }}</span>{% endif %}
         {% if promoter.contact_phone %}<span><i class="fa fa-phone me-1"></i>{{ promoter.contact_phone }}</span>{% endif %}

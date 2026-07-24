@@ -112,6 +112,8 @@
             <img src="{{ p.logo_url or DEFAULT_PHOTO_URL }}" alt="" style="width:56px;height:56px;border-radius:14px;object-fit:contain;border:1px solid #eee;background:#fff;">
             <div>
               <div class="fw-semibold">{{ p.nick }}</div>
+              {% set _legal = ((p.first_name or '') ~ ' ' ~ (p.last_name or ''))|trim %}
+              {% if _legal and _legal|lower != (p.nick or '')|lower %}<div class="small text-muted">{{ _legal }}</div>{% endif %}
               <div class="small text-muted d-flex flex-wrap gap-3">
                 {% if p.contact_email %}<span><i class="fa fa-envelope me-1"></i>{{ p.contact_email }}</span>{% endif %}
                 {% if p.tax_id %}<span><i class="fa fa-id-card me-1"></i>{{ p.tax_id }}</span>{% endif %}

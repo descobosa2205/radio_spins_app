@@ -1184,12 +1184,12 @@
         var byCat = lodACounts[s.id] || {};
         var catIds = Object.keys(byCat).filter(function(c){ return catById[c]; });
         var lineSz = lsz*.68, ly2 = lcy + lsz*1.05;
-        lines.push('<text x="'+lcx+'" y="'+ly2+'" text-anchor="middle" style="font:600 '+lineSz+'px system-ui;fill:#5b6673'+halo+'">'+seatCount(s).toLocaleString('es-ES')+' asientos</text>');
+        lines.push('<text x="'+lcx+'" y="'+ly2+'" text-anchor="middle" style="font:600 '+lineSz+'px system-ui;fill:#5b6673'+halo+'">'+seatCount(s).toLocaleString('es-ES', { useGrouping: 'always' })+' asientos</text>');
         if(catIds.length>1){
           catIds.sort(function(a,b){ return byCat[b]-byCat[a]; }).slice(0,4).forEach(function(cid){
             ly2 += lineSz*1.3;
             lines.push('<circle cx="'+(lcx - lineSz*3.6)+'" cy="'+(ly2-lineSz*.34)+'" r="'+(lineSz*.36)+'" style="fill:'+catById[cid].color+'"/>'+
-              '<text x="'+(lcx - lineSz*2.9)+'" y="'+ly2+'" style="font:600 '+lineSz+'px system-ui;fill:#5b6673'+halo+'">'+byCat[cid].toLocaleString('es-ES')+' '+esc(catById[cid].name)+'</text>');
+              '<text x="'+(lcx - lineSz*2.9)+'" y="'+ly2+'" style="font:600 '+lineSz+'px system-ui;fill:#5b6673'+halo+'">'+byCat[cid].toLocaleString('es-ES', { useGrouping: 'always' })+' '+esc(catById[cid].name)+'</text>');
           });
         }
         labelsA.push(lines.join(''));
@@ -1310,7 +1310,7 @@
           out.push('<g data-sec="'+s.id+'" style="cursor:pointer">'+
             '<rect x="'+(s.x-s.w/2)+'" y="'+(s.y-s.h/2)+'" width="'+s.w+'" height="'+s.h+'" rx="26" transform="rotate('+(s.rot||0)+' '+s.x+' '+s.y+')" style="fill:'+fc+';opacity:.9'+selCss+'"/>'+
             '<text x="'+s.x+'" y="'+s.y+'" text-anchor="middle" style="font:700 34px system-ui;fill:#fff">'+esc(s.name)+'</text>'+
-            '<text x="'+s.x+'" y="'+(s.y+44)+'" text-anchor="middle" style="font:600 24px system-ui;fill:rgba(255,255,255,.85)">'+(parseInt(s.cap||0,10)||0).toLocaleString('es-ES')+' de pie</text>'+
+            '<text x="'+s.x+'" y="'+(s.y+44)+'" text-anchor="middle" style="font:600 24px system-ui;fill:rgba(255,255,255,.85)">'+(parseInt(s.cap||0,10)||0).toLocaleString('es-ES', { useGrouping: 'always' })+' de pie</text>'+
           '</g>');
           return;
         }
@@ -1566,7 +1566,7 @@
       // llegan a 120 Hz y contar butacas en cada uno atascaba justo la interacción de pintar.
       if(drag && drag.kind==='lasso' && drag.w1){
         var nL=0; eachSeatInRect(drag.w0, drag.w1, function(){ nL++; });
-        chip.textContent=nL.toLocaleString('es-ES')+' butaca'+(nL===1?'':'s'); chip.style.display='block';
+        chip.textContent=nL.toLocaleString('es-ES', { useGrouping: 'always' })+' butaca'+(nL===1?'':'s'); chip.style.display='block';
         drawLasso(drag.w0, drag.w1);
       }
     }
@@ -1577,7 +1577,7 @@
     function renderStats(){
       var seated=0, standing=0;
       sections.forEach(function(s){ if(s.kind==='floor') standing += parseInt(s.cap||0,10)||0; else seated += seatCount(s); });
-      var set = function(sel,v){ var e=host.querySelector(sel); if(e) e.textContent = v.toLocaleString('es-ES'); };
+      var set = function(sel,v){ var e=host.querySelector(sel); if(e) e.textContent = v.toLocaleString('es-ES', { useGrouping: 'always' }); };
       set('[data-vm-total]', seated+standing); set('[data-vm-seated]', seated); set('[data-vm-standing]', standing);
     }
 
@@ -1692,7 +1692,7 @@
             '<button type="button" class="btn btn-sm btn-outline-secondary" data-act="front" title="Ponerlo POR ENCIMA de lo que tenga debajo (p. ej. asientos sobre los huecos de otro sector)">⬆ Al frente</button>'+
             '<button type="button" class="btn btn-sm btn-outline-secondary" data-act="back" title="Mandarlo detrás de las demás piezas">⬇ Al fondo</button>'+
             '<button type="button" class="btn btn-sm btn-outline-danger" data-act="del">Eliminar</button></div>';
-          if(s.kind!=='floor') html += '<p class="text-muted small mt-2 mb-0">Butacas de esta sección: <b>'+seatCount(s).toLocaleString('es-ES')+'</b></p>';
+          if(s.kind!=='floor') html += '<p class="text-muted small mt-2 mb-0">Butacas de esta sección: <b>'+seatCount(s).toLocaleString('es-ES', { useGrouping: 'always' })+'</b></p>';
         } else if(el){
           html += '<h6 class="vmap-h"><i class="fa fa-sliders me-1"></i>Elemento: '+esc(el.label|| (el.type==='outline'?'Silueta del recinto':''))+'</h6>';
           if(el.type!=='outline') html += '<div class="vmap-param"><label>Etiqueta</label><input type="text" class="form-control form-control-sm" data-p="label" value="'+esc(el.label||'')+'"></div>';
@@ -1757,11 +1757,11 @@
         else total += seatCount(s);
       });
       var assigned=0; Object.keys(counts).forEach(function(k){ assigned+=counts[k]; });
-      var html = '<div class="vmap-srow head"><span>Asignadas</span><span class="n">'+assigned.toLocaleString('es-ES')+' / '+total.toLocaleString('es-ES')+'</span></div>';
+      var html = '<div class="vmap-srow head"><span>Asignadas</span><span class="n">'+assigned.toLocaleString('es-ES', { useGrouping: 'always' })+' / '+total.toLocaleString('es-ES', { useGrouping: 'always' })+'</span></div>';
       cats.forEach(function(c){
-        html += '<div class="vmap-srow"><span class="sw" style="background:'+c.color+'"></span><span>'+esc(c.name)+'</span><span class="n">'+(counts[c.id]||0).toLocaleString('es-ES')+'</span></div>';
+        html += '<div class="vmap-srow"><span class="sw" style="background:'+c.color+'"></span><span>'+esc(c.name)+'</span><span class="n">'+(counts[c.id]||0).toLocaleString('es-ES', { useGrouping: 'always' })+'</span></div>';
       });
-      html += '<div class="vmap-srow"><span class="sw" style="background:#effaf2;border:1px solid #cfe4d6"></span><span>Sin asignar</span><span class="n">'+Math.max(0,total-assigned).toLocaleString('es-ES')+'</span></div>';
+      html += '<div class="vmap-srow"><span class="sw" style="background:#effaf2;border:1px solid #cfe4d6"></span><span>Sin asignar</span><span class="n">'+Math.max(0,total-assigned).toLocaleString('es-ES', { useGrouping: 'always' })+'</span></div>';
       box.innerHTML = html;
     }
     function setHint(){
@@ -2252,7 +2252,7 @@
       dsel = {}; sel = {}; selId = null; dselO = {};
       newIds.forEach(function(id){ dselO[id] = 1; });
       invalidate(); markSummary(); renderSide(); fitAll();
-      var msg = 'Importados '+nBlocks+' bloque(s) con '+nSeats.toLocaleString('es-ES')+' butacas.';
+      var msg = 'Importados '+nBlocks+' bloque(s) con '+nSeats.toLocaleString('es-ES', { useGrouping: 'always' })+' butacas.';
       var pfx = Object.keys(prefixes);
       if(pfx.length) msg += '\nLas filas del Excel llevaban prefijo «'+pfx.join('», «')+'» (F16 → fila 16): se guarda solo el número.';
       if((plan.warnings||[]).length){
@@ -2971,7 +2971,7 @@
     function updateSelPop(){
       if(!selpop) return;
       var n = selCount();
-      var nEl = selpop.querySelector('[data-selpop-n]'); if(nEl) nEl.textContent = n.toLocaleString('es-ES');
+      var nEl = selpop.querySelector('[data-selpop-n]'); if(nEl) nEl.textContent = n.toLocaleString('es-ES', { useGrouping: 'always' });
       // La tarjeta vive en su ESQUINA (superior derecha, por CSS) para no taparse con lo que
       // estás seleccionando; solo se mueve si el usuario la arrastra (hacia una categoría).
       selpop.classList.toggle('show', n>0 && mode==='cats' && catTool==='select');
@@ -3094,7 +3094,7 @@
       if(sig === dpopSig) return;   // misma selección: no repintar (no pisa lo que se esté escribiendo)
       dpopSig = sig;
       var info = dselInfo();
-      dpop.querySelector('[data-dpop-n]').textContent = dk.length.toLocaleString('es-ES');
+      dpop.querySelector('[data-dpop-n]').textContent = dk.length.toLocaleString('es-ES', { useGrouping: 'always' });
       var blocksEl = dpop.querySelector('[data-dpop-blocks]');
       if(!info.allPoints){
         blocksEl.textContent = 'Edita fila (número o letra) y la numeración del sector: se aplican al momento.';
@@ -3941,7 +3941,7 @@
         // Información del dibujo ARRIBA A LA DERECHA (como la tarjeta de selección).
         var wrapD = svg.getBoundingClientRect();
         chip.style.left=(wrapD.width-240)+'px'; chip.style.top='44px';
-        chip.textContent = od.rows+' filas × '+od.cols+' butacas/fila = '+(od.rows*od.cols).toLocaleString('es-ES')+' asientos';
+        chip.textContent = od.rows+' filas × '+od.cols+' butacas/fila = '+(od.rows*od.cols).toLocaleString('es-ES', { useGrouping: 'always' })+' asientos';
         chip.style.display='block';
         invalidate(od.id); queueRender();
       } else if(drag.kind==='renumdrag'){

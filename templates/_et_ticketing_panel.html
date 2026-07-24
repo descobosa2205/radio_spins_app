@@ -197,8 +197,8 @@
     });
   });
   // --- Tiempo casi real: polling cada 60 s (el servidor sincroniza si los datos están viejos) ---
-  var fmtInt = function (n) { return (n || 0).toLocaleString('es-ES'); };
-  var fmtEur = function (n) { return (n || 0).toLocaleString('es-ES', {style: 'currency', currency: 'EUR'}); };
+  var fmtInt = function (n) { return (n || 0).toLocaleString('es-ES', { useGrouping: 'always' }); };
+  var fmtEur = function (n) { return (n || 0).toLocaleString('es-ES', { useGrouping: 'always', style: 'currency', currency: 'EUR'}); };
   function applyBar(el, pct) {
     if (!el) return;
     el.style.width = Math.min(pct || 0, 100) + '%';

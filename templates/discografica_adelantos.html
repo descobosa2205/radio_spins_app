@@ -687,8 +687,8 @@
   // ===== Liquidación por periodo (Todo / Año / Semestre / Mes), agregada en el navegador =====
   var MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
   function esc(s){ var d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
-  function eurF(n){ return (Number(n)||0).toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' €'; }
-  function kF(n){ return (Number(n)||0).toLocaleString('es-ES'); }
+  function eurF(n){ return (Number(n)||0).toLocaleString('es-ES', { useGrouping: 'always', minimumFractionDigits:2,maximumFractionDigits:2}) + ' €'; }
+  function kF(n){ return (Number(n)||0).toLocaleString('es-ES', { useGrouping: 'always' }); }
   function bucketOf(ps, g){
     if(!ps) return null;
     var y=ps.slice(0,4), m=parseInt(ps.slice(5,7),10)||1;

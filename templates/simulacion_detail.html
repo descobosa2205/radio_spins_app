@@ -1427,8 +1427,8 @@ function numv(x){
   if(cfgToggle) cfgToggle.addEventListener('click', function(){ var p=document.getElementById('tkCfgPanel'); if(p) p.classList.toggle('d-none'); });
 
   function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
-  function fmtEur(n){ n = Number(n)||0; return n.toLocaleString('es-ES',{minimumFractionDigits:2, maximumFractionDigits:2}) + ' €'; }
-  function fmtInt(n){ return (Number(n)||0).toLocaleString('es-ES'); }
+  function fmtEur(n){ n = Number(n)||0; return n.toLocaleString('es-ES', { useGrouping: 'always', minimumFractionDigits:2, maximumFractionDigits:2}) + ' €'; }
+  function fmtInt(n){ return (Number(n)||0).toLocaleString('es-ES', { useGrouping: 'always' }); }
 
   function extraHtml(ex){
     ex = ex || {};
@@ -1622,7 +1622,7 @@ function numv(x){
   // Autoguardado de ingresos (sin botón «Guardar»): cada cambio se guarda y actualiza el punto de empate.
   var incStatus = document.querySelector('[data-income-status]');
   var incTimer = null;
-  function simFmtNum(n){ try{ return Math.round(n).toLocaleString('es-ES'); }catch(e){ return n; } }
+  function simFmtNum(n){ try{ return Math.round(n).toLocaleString('es-ES', { useGrouping: 'always' }); }catch(e){ return n; } }
   function simUpdateLive(f){
     if(!f) return;
     document.querySelectorAll('[data-sim-live]').forEach(function(el){
@@ -1685,7 +1685,7 @@ function numv(x){
   }
   function val(v){ return (v!=null && v!=='')? v : ''; }
   function sel(a,b){ return String(a==null?'':a).toUpperCase()===b ? 'selected' : ''; }
-  function eur(v){ var n=Number(v)||0; return n.toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2})+' €'; }
+  function eur(v){ var n=Number(v)||0; return n.toLocaleString('es-ES', { useGrouping: 'always', minimumFractionDigits:2,maximumFractionDigits:2})+' €'; }
 
   // El umbral no se muestra hasta elegir el tipo de variable. condUnder añade el
   // condicionante «solo si se venden menos de X entradas» (gastos del recinto).
@@ -2048,8 +2048,8 @@ function numv(x){
     if(!f) return;
     document.querySelectorAll('[data-sim-live]').forEach(function(el){
       if(f.break_even_tickets==null && f.resultado==null) return;
-      var be=(f.break_even_tickets!=null)?(Math.round(f.break_even_tickets).toLocaleString('es-ES')+(f.break_even_pct!=null?(' ('+f.break_even_pct+'%)'):'')):'—';
-      var res=(f.resultado!=null)?(Math.round(f.resultado).toLocaleString('es-ES')+' €'):'—';
+      var be=(f.break_even_tickets!=null)?(Math.round(f.break_even_tickets).toLocaleString('es-ES', { useGrouping: 'always' })+(f.break_even_pct!=null?(' ('+f.break_even_pct+'%)'):'')):'—';
+      var res=(f.resultado!=null)?(Math.round(f.resultado).toLocaleString('es-ES', { useGrouping: 'always' })+' €'):'—';
       el.innerHTML='<i class="fa fa-scale-balanced me-1"></i>Punto de empate: <strong>'+be+'</strong> entradas · Beneficio potencial @100%: <strong>'+res+'</strong>';
       el.classList.remove('d-none');
     });

@@ -22,9 +22,9 @@
 
   function fmtEur(n) {
     n = Number(n) || 0;
-    return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+    return n.toLocaleString('es-ES', { useGrouping: 'always',  minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
   }
-  function fmtInt(n) { return (Number(n) || 0).toLocaleString('es-ES'); }
+  function fmtInt(n) { return (Number(n) || 0).toLocaleString('es-ES', { useGrouping: 'always' }); }
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];

@@ -10,7 +10,7 @@
     if (root.getAttribute('data-media-rows-init') === '1') return;
     root.setAttribute('data-media-rows-init', '1');
     var listEl = root.querySelector('[data-media-rows]');
-    var rows = [].slice.call(root.querySelectorAll('.media-row'));
+    var rows = [].slice.call(root.querySelectorAll('.media-card'));
     var chipsBox = root.querySelector('[data-media-typechips]');
     var fromEl = root.querySelector('[data-media-from]');
     var toEl = root.querySelector('[data-media-to]');

@@ -116,7 +116,7 @@
   }
 
   function mediaHtml(p, cls) {
-    if (p.is_video) return '<video src="' + esc(p.file_url) + '" class="' + cls + '" preload="metadata" muted></video><span class="fotos-tile__play"><i class="fa fa-play"></i></span>';
+    if (p.is_video) return '<video src="' + esc(p.file_url) + '" class="' + cls + ' video-thumb" preload="metadata" muted playsinline></video><span class="fotos-tile__play"><i class="fa fa-play"></i></span>';
     return '<img src="' + esc(p.file_url) + '" class="' + cls + '" loading="lazy" alt="">';
   }
   function approvalBadge(p) {

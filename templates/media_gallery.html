@@ -19,19 +19,14 @@
       {% for t in artist_tiles %}
       <a class="mg-tile" href="{{ t.url }}" data-name="{{ t.name|lower }}">
         <div class="mg-tile__cover">
-          {% if t.cover and not t.cover_is_video %}<img src="{{ t.cover }}" alt="" loading="lazy">
-          {% elif t.cover and t.cover_is_video %}<span class="mg-tile__vid"><i class="fa fa-film"></i></span>
+          {% if t.photo %}<img src="{{ t.photo }}" alt="" loading="lazy">
+          {% elif t.cover and t.cover_is_video %}<span class="cover-vidfallback"><i class="fa fa-film"></i></span><video class="video-thumb" src="{{ t.cover }}" preload="metadata" muted playsinline></video>
+          {% elif t.cover %}<img src="{{ t.cover }}" alt="" loading="lazy">
           {% else %}<i class="fa fa-user-circle"></i>{% endif %}
         </div>
         <div class="mg-tile__body">
-          <div class="mg-tile__name">
-            {% if t.photo %}<span class="mg-tile__avatar"><img src="{{ t.photo }}" alt=""></span>{% endif %}
-            <span class="text-truncate">{{ t.name }}</span>
-          </div>
-          <div class="mg-tile__counts small text-muted">
-            {% if t.n_photos %}<span><i class="fa fa-image me-1"></i>{{ (t.n_photos)|k }}</span>{% endif %}
-            {% if t.n_videos %}<span><i class="fa fa-video me-1"></i>{{ (t.n_videos)|k }}</span>{% endif %}
-          </div>
+          <div class="mg-tile__name"><span class="text-truncate">{{ t.name }}</span></div>
+          <div class="mg-tile__counts small text-muted"><span><i class="fa fa-layer-group me-1"></i>{{ t.album_count }} álbum{{ '' if t.album_count == 1 else 'es' }}</span></div>
         </div>
       </a>
       {% endfor %}
@@ -44,17 +39,14 @@
       {% for t in event_tiles %}
       <a class="mg-tile" href="{{ t.url }}" data-name="{{ (t.name ~ ' ' ~ t.type_label)|lower }}">
         <div class="mg-tile__cover">
-          {% if t.cover and not t.cover_is_video %}<img src="{{ t.cover }}" alt="" loading="lazy">
-          {% elif t.cover and t.cover_is_video %}<span class="mg-tile__vid"><i class="fa fa-film"></i></span>
+          {% if t.cover and t.cover_is_video %}<span class="cover-vidfallback"><i class="fa fa-film"></i></span><video class="video-thumb" src="{{ t.cover }}" preload="metadata" muted playsinline></video>
+          {% elif t.cover %}<img src="{{ t.cover }}" alt="" loading="lazy">
           {% else %}<i class="fa {{ t.type_icon or 'fa-images' }}"></i>{% endif %}
         </div>
         <div class="mg-tile__body">
           <div class="mg-tile__name"><i class="fa {{ t.type_icon or 'fa-images' }} me-1 text-muted"></i><span class="text-truncate">{{ t.name }}</span></div>
           <div class="mg-tile__meta small text-muted text-truncate">{{ t.type_label }}{% if t.date_label %} · {{ t.date_label }}{% endif %}</div>
-          <div class="mg-tile__counts small text-muted">
-            {% if t.n_photos %}<span><i class="fa fa-image me-1"></i>{{ (t.n_photos)|k }}</span>{% endif %}
-            {% if t.n_videos %}<span><i class="fa fa-video me-1"></i>{{ (t.n_videos)|k }}</span>{% endif %}
-          </div>
+          {% if t.album_count %}<div class="mg-tile__counts small text-muted"><span><i class="fa fa-layer-group me-1"></i>{{ t.album_count }} álbum{{ '' if t.album_count == 1 else 'es' }}</span></div>{% endif %}
         </div>
       </a>
       {% endfor %}

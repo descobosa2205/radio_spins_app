@@ -12,39 +12,31 @@
     </div>
   </div></div>
 
-  <div class="media-rows__list" data-media-rows>
+  {# Cada actividad = una tarjeta de álbum: una sola portada + título con su info. #}
+  <div class="media-cards" data-media-rows>
     {% for r in rows %}
       {% set drill = url_for('media_panel_view', owner_type=r.owner_type|lower, owner_id=r.owner_id, back=row_back, back_id=row_back_id) %}
       {% set parts = [r.type_label] %}
       {% if r.event_name %}{% set _ = parts.append(r.event_name) %}{% endif %}
       {% if r.city %}{% set _ = parts.append(r.city) %}{% endif %}
       {% if r.date_label %}{% set _ = parts.append(r.date_label) %}{% endif %}
-      <a class="media-row" href="{{ drill }}"
+      <a class="media-card" href="{{ drill }}"
          data-type-key="{{ r.type_key }}" data-type-label="{{ r.type_label }}" data-type-icon="{{ r.type_icon or 'fa-images' }}"
          data-date="{{ r.date_iso }}"
          data-text="{{ (r.type_label ~ ' ' ~ r.event_name ~ ' ' ~ r.city ~ ' ' ~ (r.title or ''))|lower }}">
-        <div class="media-row__main">
-          <div class="media-row__head">
-            <i class="fa {{ r.type_icon or 'fa-images' }} text-muted"></i>
-            <span class="media-row__title">{{ parts|select|join(' · ') }}</span>
-            {% if r.photo_count %}<span class="badge text-bg-light border"><i class="fa fa-image me-1"></i>{{ (r.photo_count)|k }} foto{{ '' if r.photo_count == 1 else 's' }}</span>{% endif %}
-            {% if r.video_count %}<span class="badge text-bg-light border"><i class="fa fa-video me-1"></i>{{ (r.video_count)|k }} vídeo{{ '' if r.video_count == 1 else 's' }}</span>{% endif %}
-            {% if r.albums %}<span class="badge text-bg-light border"><i class="fa fa-layer-group me-1"></i>{{ r.albums|length }} álbum{{ '' if r.albums|length == 1 else 'es' }}</span>{% endif %}
-          </div>
-          {% if r.photo_thumbs %}
-          <div class="media-row__strip">
-            {% for t in r.photo_thumbs %}<span class="media-row__thumb"><img src="{{ t }}" loading="lazy" alt=""></span>{% endfor %}
-          </div>
-          {% endif %}
-          {% if r.video_count %}
-          <div class="media-row__sublabel"><i class="fa fa-video me-1"></i>Vídeos</div>
-          <div class="media-row__strip">
-            {% set vn = r.video_count if r.video_count <= 8 else 8 %}
-            {% for _ in range(vn) %}<span class="media-row__thumb media-row__thumb--vid"><i class="fa fa-film"></i></span>{% endfor %}
-          </div>
-          {% endif %}
+        <div class="media-card__cover">
+          {% if r.cover_url and r.cover_is_video %}<span class="cover-vidfallback"><i class="fa fa-film"></i></span><video class="video-thumb" src="{{ r.cover_url }}" preload="metadata" muted playsinline></video>
+          {% elif r.cover_url %}<img src="{{ r.cover_url }}" loading="lazy" alt="">
+          {% else %}<i class="fa {{ r.type_icon or 'fa-images' }}"></i>{% endif %}
         </div>
-        <i class="fa fa-chevron-right media-row__chev text-muted"></i>
+        <div class="media-card__body">
+          <div class="media-card__title"><i class="fa {{ r.type_icon or 'fa-images' }} me-1 text-muted"></i>{{ parts|select|join(' · ') }}</div>
+          <div class="media-card__counts small text-muted">
+            {% if r.photo_count %}<span><i class="fa fa-image me-1"></i>{{ (r.photo_count)|k }}</span>{% endif %}
+            {% if r.video_count %}<span><i class="fa fa-video me-1"></i>{{ (r.video_count)|k }}</span>{% endif %}
+            {% if r.albums %}<span><i class="fa fa-layer-group me-1"></i>{{ r.albums|length }}</span>{% endif %}
+          </div>
+        </div>
       </a>
     {% endfor %}
   </div>

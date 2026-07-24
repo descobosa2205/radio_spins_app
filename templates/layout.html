@@ -218,6 +218,8 @@
 <script src="{{ url_for('static', filename='js/ficha_inline.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/agenda_calendar.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/artist_links.js', v=ASSET_V) }}"></script>
+{# Miniatura de vídeo (fotograma intermedio) para cualquier <video class="video-thumb"> (global). #}
+<script src="{{ url_for('static', filename='js/video_thumb.js', v=ASSET_V) }}"></script>
 {# Escaneo de documentos (foto/PDF): render, recorte automático + manual y OCR (MRZ TD1/TD3).
    Módulo global window.DocScan; lo usan person_docs.js y doc_intake.js. Debe cargarse ANTES. #}
 <script src="{{ url_for('static', filename='js/doc_scan.js', v=ASSET_V) }}"></script>

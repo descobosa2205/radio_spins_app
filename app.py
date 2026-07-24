@@ -43456,6 +43456,9 @@ def _build_artist_fotos_groups(session_db, artist_id):
             })
         def _pv(p):
             return (getattr(p, "kind", None) or "IMAGE").upper() == "VIDEO"
+        # Portada: preferir una FOTO (evita portadas de vídeo); si solo hay vídeos, el primero.
+        _imgs = [p for p in plist if not _pv(p)]
+        _cover = _imgs[0] if _imgs else (plist[0] if plist else None)
         out.append({
             "owner_type": ot,
             "owner_id": str(oid),
@@ -43472,7 +43475,8 @@ def _build_artist_fotos_groups(session_db, artist_id):
             "count": len(plist),
             "video_count": sum(1 for p in plist if _pv(p)),
             "photo_count": sum(1 for p in plist if not _pv(p)),
-            "cover_url": plist[0].file_url if plist else "",
+            "cover_url": (_cover.file_url if _cover else ""),
+            "cover_is_video": bool(_cover and _pv(_cover)),
             "url": _photo_owner_url(ot.lower(), str(oid)),
             "albums": album_summ,
             "thumbs": [p.file_url for p in plist[:8]],
@@ -43491,68 +43495,97 @@ def media_gallery_view():
     La subida real se hace en el panel por dueño (mismo componente que las fichas)."""
     s = db()
     try:
-        photos = (
-            s.query(Photo)
-            .filter(Photo.discarded.is_(False))
-            .order_by(Photo.created_at.desc())
-            .limit(1500)
-            .all()
-        )
-        # Descartar fotos HUÉRFANAS (dueño concierto/acción borrado; owner_id es polimórfico sin FK):
-        # así los contadores del nivel 1 cuadran con el nivel 2 (que también las descarta) y no salen
-        # tiles de evento que al pinchar darían 404. El dueño se resuelve UNA vez por (tipo, id).
         owner_cache = {}
         def _resolve_owner(ot, oid):
             k = (ot, str(oid))
             if k not in owner_cache:
                 owner_cache[k] = _photo_resolve_owner(s, ot, oid)
             return owner_cache[k]
-        photos = [p for p in photos if _resolve_owner(p.owner_type, p.owner_id)[0] is not None]
-        appr_map = _photo_approval_map(s, [p.id for p in photos])
 
         def _is_video(ph):
             return (getattr(ph, "kind", None) or "IMAGE").upper() == "VIDEO"
 
+        # El nº de ÁLBUMES y la lista de artistas/eventos salen de un DISTINCT SIN límite (no del corte
+        # de portadas), para que el contador del nivel 1 cuadre SIEMPRE con las tarjetas del nivel 2 y
+        # no se oculte ningún artista con media antigua. Se descartan las HUÉRFANAS (dueño borrado;
+        # owner_id es polimórfico sin FK) resolviendo el dueño una vez por (tipo, id).
+        triples = (
+            s.query(Photo.artist_id, Photo.owner_type, Photo.owner_id)
+            .filter(Photo.discarded.is_(False))
+            .distinct()
+            .all()
+        )
+        artist_owner_sets = {}   # aid -> set{(ot, oid)}  (actividades vivas del artista)
+        event_owners = set()     # {(ot, oid)}  actividades SIN artista (eventos)
+        for aid, ot, oid in triples:
+            if _resolve_owner(ot, oid)[0] is None:
+                continue
+            key = (ot, str(oid))
+            if aid:
+                artist_owner_sets.setdefault(str(aid), set()).add(key)
+            else:
+                event_owners.add(key)
+
+        # Portadas: solo se necesitan las fotos RECIENTES (corte cosmético). Si una ficha no tiene
+        # portada aquí, cae al icono / a la foto del artista; el CONTADOR no depende de esto.
+        capped = (
+            s.query(Photo)
+            .filter(Photo.discarded.is_(False))
+            .order_by(Photo.created_at.desc())
+            .limit(1500)
+            .all()
+        )
+        appr_map = _photo_approval_map(s, [p.id for p in capped])
+        cover_by_artist, cover_by_owner = {}, {}
+        for p in capped:
+            if _resolve_owner(p.owner_type, p.owner_id)[0] is None:
+                continue
+            if p.artist_id:
+                cover_by_artist.setdefault(str(p.artist_id), []).append(p)
+            cover_by_owner.setdefault((p.owner_type, str(p.owner_id)), []).append(p)
+
         def _cover_url(pool):
-            """Portada de una ficha: una foto APROBADA si la hay; si no, la primera imagen; si solo
-            hay vídeos, el primer vídeo (el front pinta un marco de vídeo)."""
+            """Portada: una foto APROBADA si la hay; si no, la primera imagen; si solo hay vídeos, el
+            primer vídeo (el front pinta el fotograma). Devuelve (url, es_vídeo)."""
             approved = [ph for ph in pool if (appr_map.get(str(ph.id)) or {}).get("state") == "APPROVED"]
             src = approved or pool
             imgs = [ph for ph in src if not _is_video(ph)] or src
             first = imgs[0] if imgs else (src[0] if src else None)
             return (first.file_url if first else ""), (bool(first) and _is_video(first))
 
-        # Agrupar: por ARTISTA (artist_id) y, aparte, los EVENTOS = actividades sin artista.
-        art_groups = {}      # aid -> [photos]
-        event_groups = {}    # (ot, oid) -> [photos]
-        for p in photos:
-            if p.artist_id:
-                art_groups.setdefault(str(p.artist_id), []).append(p)
-            else:
-                event_groups.setdefault((p.owner_type, str(p.owner_id)), []).append(p)
-
+        # Fichas de ARTISTA: imagen = su foto; «N álbumes» = nº de actividades vivas.
         art_objs = {}
-        if art_groups:
-            for a in s.query(Artist).filter(Artist.id.in_([to_uuid(k) for k in art_groups if to_uuid(k)])).all():
+        if artist_owner_sets:
+            for a in s.query(Artist).filter(Artist.id.in_([to_uuid(k) for k in artist_owner_sets if to_uuid(k)])).all():
                 art_objs[str(a.id)] = a
-
         artist_tiles = []
-        for aid, plist in art_groups.items():
+        for aid, owners in artist_owner_sets.items():
             art = art_objs.get(aid)
-            nv = sum(1 for ph in plist if _is_video(ph))
-            cover, cover_is_video = _cover_url(plist)
+            cover, cover_is_video = _cover_url(cover_by_artist.get(aid, []))
             artist_tiles.append({
                 "kind": "artist", "id": aid,
                 "name": (getattr(art, "name", None) or "Sin nombre") if art else "Sin nombre",
                 "photo": (getattr(art, "photo_url", None) or "") if art else "",
-                "total": len(plist), "n_photos": len(plist) - nv, "n_videos": nv,
+                "album_count": len(owners),
                 "cover": cover, "cover_is_video": cover_is_video,
                 "url": url_for("media_artist_view", artist_id=aid),
             })
-        artist_tiles.sort(key=lambda t: (-t["total"], (t["name"] or "").lower()))
+        artist_tiles.sort(key=lambda t: (-t["album_count"], (t["name"] or "").lower()))
+
+        # Nº de sub-álbumes por dueño de EVENTO (consulta aparte, sin límite).
+        album_count_by_owner = {}
+        ev_ids_by_type = {}
+        for (ot, oid) in event_owners:
+            u = to_uuid(oid)
+            if u:
+                ev_ids_by_type.setdefault(ot, []).append(u)
+        for ot, ids in ev_ids_by_type.items():
+            for row in s.query(PhotoAlbum.owner_id).filter(PhotoAlbum.owner_type == ot, PhotoAlbum.owner_id.in_(ids)).all():
+                k = (ot, str(row.owner_id))
+                album_count_by_owner[k] = album_count_by_owner.get(k, 0) + 1
 
         event_tiles = []
-        for (ot, oid), plist in event_groups.items():
+        for (ot, oid) in event_owners:
             owner, _art, title = _resolve_owner(ot, oid)
             if ot == "CONCERT":
                 tl = _invitation_event_type_label(owner) if owner else "Concierto"
@@ -43564,14 +43597,13 @@ def media_gallery_view():
                 dval = getattr(owner, "start_date", None) if owner else None
             else:
                 tl = "Suelto"; ti = "fa-images"; dval = None
-            nv = sum(1 for ph in plist if _is_video(ph))
-            cover, cover_is_video = _cover_url(plist)
+            cover, cover_is_video = _cover_url(cover_by_owner.get((ot, oid), []))
             event_tiles.append({
                 "kind": "event", "owner_type": ot, "owner_id": oid,
                 "name": title or tl, "type_label": tl, "type_icon": ti,
                 "date": (dval.isoformat() if dval else ""),
                 "date_label": (dval.strftime("%d/%m/%Y") if dval else ""),
-                "total": len(plist), "n_photos": len(plist) - nv, "n_videos": nv,
+                "album_count": album_count_by_owner.get((ot, oid), 0),
                 "cover": cover, "cover_is_video": cover_is_video,
                 "url": url_for("media_panel_view", owner_type=ot.lower(), owner_id=oid, back="media"),
             })

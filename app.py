@@ -35374,7 +35374,11 @@ def _do_bootstrap_access_and_personnel():
                     user.role = int(rec.get("role") or getattr(user, "role", 10) or 10)
                 except Exception:
                     pass
-            _ensure_user_profile(session_db, user, legacy_full_seed=True, nick=_email_to_nick(email))
+            # NO pasar nick aquí: la siembra corre en CADA arranque/deploy y, con el perfil ya
+            # existente, `nick=` SOBRESCRIBÍA el nick personalizado con el derivado del email (el
+            # usuario cambiaba el nick y «al poco tiempo» —tras un deploy— volvía el anterior). Al
+            # crear un perfil nuevo, _ensure_user_profile ya usa _email_to_nick(email) como defecto.
+            _ensure_user_profile(session_db, user, legacy_full_seed=True)
             _ensure_user_security(session_db, user)
             session_db.commit()  # por usuario: locks brevísimos
         users = session_db.query(User).all()

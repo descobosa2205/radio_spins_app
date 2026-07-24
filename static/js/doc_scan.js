@@ -168,6 +168,13 @@
     else year = (2000 + yy > new Date().getFullYear()) ? 1900 + yy : 2000 + yy;
     return year + '-' + mm + '-' + dd;
   }
+  // «JUAN CARLOS GARCIA» -> «Juan Carlos Garcia»: primera letra de cada palabra en mayúscula, el
+  // resto en minúscula (respeta guiones/apóstrofos de apellidos compuestos).
+  function titleCase(s) {
+    return String(s || '').toLowerCase().replace(/(^|[\s\-'’])([a-záéíóúñüàèìòùç])/g, function (m, sep, ch) {
+      return sep + ch.toUpperCase();
+    });
+  }
   // MRZ TD1 (DNI / permiso de conducir españoles: 3 líneas de 30).
   function parseMrz(text) {
     var out = { fullName: '', birth: '', expiry: '' };
@@ -182,7 +189,7 @@
       var parts = nameCands[0].split('<<');
       var surn = (parts[0] || '').replace(/</g, ' ').replace(/\s+/g, ' ').trim();
       var giv = (parts.slice(1).join(' ')).replace(/</g, ' ').replace(/\s+/g, ' ').trim();
-      if (surn) out.fullName = giv ? (surn + ', ' + giv) : surn;
+      if (surn) out.fullName = titleCase(giv ? (giv + ' ' + surn) : surn);
     }
     var dl = lines.find(function (l) { return /^[0-9]{6}[0-9<][MFX<][0-9]{6}/.test(l); });
     if (dl) { out.birth = mrzDate(dl.substr(0, 6), false); out.expiry = mrzDate(dl.substr(8, 6), true); }
@@ -200,7 +207,7 @@
       var np = ((m ? m[1] : nameLine)).split('<<');
       var surn = (np[0] || '').replace(/</g, ' ').replace(/\s+/g, ' ').trim();
       var giv = (np.slice(1).join(' ')).replace(/</g, ' ').replace(/\s+/g, ' ').trim();
-      if (surn) out.fullName = giv ? (surn + ', ' + giv) : surn;
+      if (surn) out.fullName = titleCase(giv ? (giv + ' ' + surn) : surn);
     }
     var dataLine = lines.find(function (l) { return /^[A-Z0-9<]{9}[0-9<][A-Z<]{3}[0-9]{6}/.test(l); });
     if (dataLine) {

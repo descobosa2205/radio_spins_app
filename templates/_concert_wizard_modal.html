@@ -14,7 +14,24 @@
 
           <div class="d-flex flex-wrap gap-2 mb-3" id="wizardStepPills"></div>
 
-          {# ============================ PASO 1 · Tipo de actividad ============================ #}
+          {# ============================ PRIMER PASO · Artista (data-step 12, común a conciertos y actividades) ============================ #}
+          <section class="wizard-step" data-step="12" data-mode="any">
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-microphone-lines"></i>¿Para qué artista es la actividad?</div>
+              <div class="input-group">
+                <select name="artist_id" id="wizard_artist_id" class="form-select select-artists" required multiple>
+                  {% for a in artists %}
+                    <option value="{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}">{{ a.name }}</option>
+                  {% endfor %}
+                </select>
+                {# Alta rápida GLOBAL (funciona en cualquier página donde se embeba el asistente). #}
+                <button type="button" class="btn btn-outline-secondary" data-quick-create="artist" data-target="wizard_artist_id"><i class="fa fa-plus"></i></button>
+              </div>
+              <div class="form-text">Puedes seleccionar varios artistas. El selector busca sin distinguir tildes, símbolos o mayúsculas.</div>
+            </div>
+          </section>
+
+          {# ============================ PASO · Tipo de actividad ============================ #}
           <section class="wizard-step" data-step="1" data-mode="any">
             <div class="wizard-card">
               <div class="wizard-card__title"><i class="fa fa-shapes"></i>¿Qué tipo de actividad es?</div>
@@ -72,19 +89,6 @@
                   </div>
                 {% endfor %}
               </div>
-            </div>
-            <div class="wizard-card">
-              <div class="wizard-card__title"><i class="fa fa-microphone-lines"></i>Artista o artistas</div>
-              <div class="input-group">
-                <select name="artist_id" id="wizard_artist_id" class="form-select select-artists" required multiple>
-                  {% for a in artists %}
-                    <option value="{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}">{{ a.name }}</option>
-                  {% endfor %}
-                </select>
-                {# Alta rápida GLOBAL (funciona en cualquier página donde se embeba el asistente). #}
-                <button type="button" class="btn btn-outline-secondary" data-quick-create="artist" data-target="wizard_artist_id"><i class="fa fa-plus"></i></button>
-              </div>
-              <div class="form-text">Puedes seleccionar varios artistas. El selector busca sin distinguir tildes, símbolos o mayúsculas.</div>
             </div>
           </section>
 
@@ -259,8 +263,8 @@
 
           {# ============================ PASO 5 (direct) · Economía + promotor ============================ #}
           <section class="wizard-step" data-step="5" data-mode="direct">
-            <div class="wizard-card">
-              <div class="wizard-card__title"><i class="fa fa-sack-dollar"></i><span id="wizardEconomyTitle">Tipo de concierto</span></div>
+            <div class="wizard-card" id="wizardEconomyCard">
+              <div class="wizard-card__title"><i class="fa fa-sack-dollar"></i>Tipo de concierto</div>
               <div class="row g-2">
                 {# Tarjetas para CONCIERTO/FESTIVAL (sin «Gratuito»). #}
                 {% for value, icon, lbl in [('VENDIDO','fa-hand-holding-dollar','Vendido'),('EMPRESA','fa-building','A empresa'),('PARTICIPADOS','fa-handshake-angle','Participado')] %}
@@ -272,18 +276,14 @@
                   </label>
                 </div>
                 {% endfor %}
-                {# Tarjetas para actividades que NO son concierto: con caché o gratuito. #}
-                {% for value, icon, lbl in [('VENDIDO','fa-coins','Con caché'),('GRATUITO','fa-gift','Gratuito')] %}
-                <div class="col-6 col-md-3 wizard-st-promo d-none">
-                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
-                    <input class="form-check-input visually-hidden wizard-sale-type-radio" type="radio" name="sale_type" value="{{ value }}">
-                    <i class="fa {{ icon }} d-block fs-3 mb-2 text-dark"></i>
-                    <span class="fw-semibold small">{{ lbl }}</span>
-                  </label>
-                </div>
-                {% endfor %}
               </div>
-              <div class="form-text wizard-st-concert">«A empresa» = lo organiza una empresa del grupo (no se pide promotor externo).</div>
+              <div class="form-text">«A empresa» = lo organiza una empresa del grupo (no se pide promotor externo).</div>
+            </div>
+            {# Actividades NO concierto: la economía la decide «¿Tiene caché?» en el paso de caché
+               (Sí = Con caché/VENDIDO · No = Gratuito). Radios ocultos que sincroniza el JS. #}
+            <div class="d-none">
+              <input type="radio" name="sale_type" value="VENDIDO" class="wizard-sale-type-radio wizard-st-promo-radio">
+              <input type="radio" name="sale_type" value="GRATUITO" class="wizard-sale-type-radio wizard-st-promo-radio">
             </div>
 
             <div class="wizard-card" id="wizardPromoterWrap">
@@ -382,6 +382,7 @@
           <section class="wizard-step" data-step="6" data-mode="direct" id="wizardCacheStep">
             <div class="wizard-card" id="wizardHasCacheCard">
               <div class="wizard-card__title"><i class="fa fa-coins"></i>¿La actividad tiene caché?</div>
+              <div class="wizard-card__hint d-none" id="wizardHasCacheHint">En actividades que no son concierto, «Sin caché» equivale a actividad <strong>gratuita</strong>.</div>
               <div class="row g-3">
                 <div class="col-6 col-md-3">
                   <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
@@ -1492,7 +1493,7 @@
     const conflictBox = document.getElementById('wizardArtistConflict');
     const promoterIdInput = document.getElementById('wizard_promoter_id');
     const promoterMediaInput = document.getElementById('wizard_promoter_media_id');
-    let currentStep = 1;
+    let currentStep = 12; // primer paso = artista (data-step 12)
     let selectedPromoter = null; // {id, kind, label, logo}
     let entryModeTouched = false;
 
@@ -1513,8 +1514,9 @@
     }
 
     function stepSequence(){
-      if(modeInput.value === 'request_sheet') return [1, 2, 3, 4];
-      const seq = [1, 2, 3];
+      // El PRIMER paso siempre es el artista (data-step 12), igual en conciertos y actividades.
+      if(modeInput.value === 'request_sheet') return [12, 1, 2, 3, 4];
+      const seq = [12, 1, 2, 3];
       if(isPromoActivity()) seq.push(4);
       seq.push(5, 6, 8);
       if(!isPromoActivity() || artistSings()) seq.push(9);
@@ -1553,7 +1555,10 @@
       document.querySelectorAll('.direct-only').forEach(el => {
         el.classList.toggle('d-none', modeInput.value !== 'direct');
       });
-      showStep(1);
+      // Si el cambio de modo ocurre en los pasos comunes, mantenemos el paso actual;
+      // si no, volvemos al primero de la secuencia (el artista).
+      const seq = stepSequence();
+      showStep(seq.indexOf(currentStep) >= 0 && currentStep !== 12 ? currentStep : seq[0]);
     }
 
     function toggleVenueKnown(){
@@ -1568,19 +1573,32 @@
       updateSellerCards();
     }
 
-    /* ------- Economía: tarjetas según tipo de actividad + visibilidad del promotor ------- */
+    /* ------- Economía: en conciertos, tarjetas Vendido/A empresa/Participado; en actividades
+       NO concierto la viñeta desaparece y la decide «¿Tiene caché?» (radios ocultos
+       .wizard-st-promo-radio: Sí → VENDIDO/Con caché · No → GRATUITO). ------- */
+    function syncPromoSaleFromCache(){
+      if(!isPromoActivity()) return;
+      const want = hasCacheYes() ? 'VENDIDO' : 'GRATUITO';
+      const target = document.querySelector(`.wizard-st-promo-radio[value="${want}"]`);
+      if(target && !target.checked){ target.checked = true; target.dispatchEvent(new Event('change', { bubbles: true })); }
+    }
     function syncEconomyCards(){
       const promo = isPromoActivity();
-      document.querySelectorAll('.wizard-st-concert').forEach(el => el.classList.toggle('d-none', promo));
-      document.querySelectorAll('.wizard-st-promo').forEach(el => el.classList.toggle('d-none', !promo));
-      const title = document.getElementById('wizardEconomyTitle');
-      if(title) title.textContent = promo ? '¿Cómo se retribuye la actividad?' : 'Tipo de concierto';
-      // Si la opción marcada quedó oculta, marca la primera visible del set activo.
-      const checked = document.querySelector('.wizard-sale-type-radio:checked');
-      const checkedVisible = checked && !checked.closest(promo ? '.wizard-st-promo' : '.wizard-st-concert');
-      if(!checked || checkedVisible){
-        const first = document.querySelector((promo ? '.wizard-st-promo' : '.wizard-st-concert') + ' .wizard-sale-type-radio');
-        if(first){ first.checked = true; first.dispatchEvent(new Event('change', { bubbles: true })); }
+      document.getElementById('wizardEconomyCard')?.classList.toggle('d-none', promo);
+      if(promo){
+        // Al entrar en modo actividad, por defecto «Con caché» (VENDIDO) salvo que el usuario
+        // ya haya respondido «Sin caché» en el paso de caché.
+        const wantGratis = hasCacheTouched && !hasCacheYes();
+        const target = document.querySelector(`.wizard-st-promo-radio[value="${wantGratis ? 'GRATUITO' : 'VENDIDO'}"]`);
+        if(target && !target.checked){ target.checked = true; target.dispatchEvent(new Event('change', { bubbles: true })); }
+      } else {
+        // Si la opción marcada era de actividad (radios ocultos), vuelve a la primera de concierto.
+        const checked = document.querySelector('.wizard-sale-type-radio:checked');
+        const needsReset = !checked || checked.classList.contains('wizard-st-promo-radio');
+        if(needsReset){
+          const first = document.querySelector('.wizard-st-concert .wizard-sale-type-radio');
+          if(first && !first.checked){ first.checked = true; first.dispatchEvent(new Event('change', { bubbles: true })); }
+        }
       }
       syncPromoterVisibility();
       syncCacheCards();
@@ -1606,17 +1624,10 @@
     }
     function syncCacheCards(){
       const freePromo = isPromoActivity() && saleTypeValue() === 'GRATUITO';
-      document.getElementById('wizardHasCacheCard')?.classList.toggle('d-none', freePromo);
-      if(freePromo){
-        const no = document.querySelector('.wizard-hascache-radio[value="0"]');
-        if(no) no.checked = true;
-        document.getElementById('wizardCacheOptions')?.classList.add('d-none');
-        document.getElementById('wizardCaches').innerHTML = '';
-        document.getElementById('wizardPaymentRows').innerHTML = '';
-        window.__wzRecalcCache?.();
-      } else {
-        document.getElementById('wizardCacheOptions')?.classList.toggle('d-none', !hasCacheYes());
-      }
+      // La pregunta «¿Tiene caché?» está SIEMPRE visible: en actividades no-concierto ES la
+      // decisión económica (Sí = Con caché · No = Gratuita). La aclaración solo en actividades.
+      document.getElementById('wizardHasCacheHint')?.classList.toggle('d-none', !isPromoActivity());
+      document.getElementById('wizardCacheOptions')?.classList.toggle('d-none', !hasCacheYes());
       // Socios y comisionistas (paso del promotor): fuera en no-concierto gratuito.
       document.getElementById('wizardPartnersZone')?.classList.toggle('d-none', freePromo);
       if(freePromo){
@@ -1632,7 +1643,6 @@
        usuario responda a mano). */
     function syncHasCacheDefault(){
       if(hasCacheTouched) return;
-      if(isPromoActivity() && saleTypeValue() === 'GRATUITO') return;
       const want = saleTypeValue() === 'VENDIDO' ? '1' : '0';
       const target = document.querySelector(`.wizard-hascache-radio[value="${want}"]`);
       if(target && !target.checked){ target.checked = true; target.dispatchEvent(new Event('change', { bubbles: true })); }
@@ -1828,7 +1838,8 @@
       document.querySelector(`[data-pc-detail="${key}"]`)?.classList.toggle('d-none', !chk.checked);
     }));
 
-    /* ¿Tiene caché? Sí despliega cachés + pagos (con una fila sembrada); No lo limpia. */
+    /* ¿Tiene caché? Sí despliega cachés + pagos (con una fila sembrada); No lo limpia.
+       En actividades NO concierto además DECIDE la economía (Sí=Con caché · No=Gratuita). */
     document.querySelectorAll('.wizard-hascache-radio').forEach(r => r.addEventListener('change', (ev) => {
       if(ev.isTrusted) hasCacheTouched = true;
       const yes = hasCacheYes();
@@ -1839,6 +1850,7 @@
         document.getElementById('wizardPaymentRows').innerHTML = '';
       }
       window.__wzRecalcCache?.();
+      syncPromoSaleFromCache();
     }));
 
     /* Formatos de cartelería PERSONALIZADOS: chips con hidden artwork_formats_custom[]. */
@@ -2113,7 +2125,7 @@
     }
 
     function validateStep(step){
-      if(step === 2){
+      if(step === 12){
         if(!document.getElementById('wizard_artist_id').value){ alert('Debes seleccionar un artista.'); return false; }
       }
       if(step === 3){

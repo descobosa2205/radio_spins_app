@@ -245,11 +245,13 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   tarjetas `.activity-choice-card` (selección visual vía `initVisualChoiceCards` de scripts.js); los
   campos condicionados viven en paneles `[data-wz-panel]` y al ENVIAR se deshabilitan los inputs de
   pasos fuera de secuencia y de paneles `.d-none` (no llegan al backend). **Secuencia dinámica**
-  (`stepSequence()` en el JS del parcial): 1 tipo+modo · 2 empresa/artista · 3 fecha/recinto (nombre
+  (`stepSequence()` en el JS del parcial): **artista (PRIMER paso, data-step 12, común a conciertos y
+  actividades)** · 1 tipo+modo · 2 empresa · 3 fecha/recinto (nombre
   manual SOLO con «Conozco el recinto» apagado) · 4 SOLO promocional/TV/marca/otros (descripción,
   «¿canta?» → nº canciones + repertorio vía `api_artist_wizard_meta` (SUPPORT_READ) + formación
-  SOLO/PLUS) · 5 economía (concierto: VENDIDO/EMPRESA/PARTICIPADOS, sin GRATUITO; no-concierto: Con
-  caché=VENDIDO / GRATUITO — dos sets de radios `sale_type` con visibilidad por tipo) + promotor
+  SOLO/PLUS) · 5 economía (viñeta SOLO para concierto: VENDIDO/EMPRESA/PARTICIPADOS, sin GRATUITO;
+  en no-concierto la viñeta NO existe y la economía la decide «¿Tiene caché?» del paso 6 vía radios
+  ocultos `.wizard-st-promo-radio`: Sí=VENDIDO/Con caché · No=GRATUITO) + promotor
   visual (Select2 AJAX sobre `api_search_commission_entities`: terceros **y medios**; un medio se
   espeja a tercero con `_ensure_promoter_for_media`; hidden `promoter_id`/`promoter_media_id`) +
   sociedades en tarjetas (+ «Nueva sociedad» inline → `new_promoter_company_name`, la crea el wizard) +

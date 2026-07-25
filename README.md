@@ -191,6 +191,11 @@ Existen dos vías (actualmente coexisten):
 
 ### 2026-07-25 — Alta de actividades: retoques tras la primera revisión
 
+- **El artista es ahora el PRIMER paso del asistente** (mismo selector con fotos y alta rápida),
+  igual en conciertos y en el resto de actividades; después van tipo de actividad, empresa, etc.
+- **En actividades que no son concierto desaparece la pregunta económica del paso del promotor**
+  («¿Cómo se retribuye la actividad?»): la decide directamente **«¿Tiene caché?»** en el paso de
+  caché (Sí = con caché · No = actividad gratuita).
 - **Viñetas con más sombra** para que cada bloque de preguntas se distinga mejor.
 - **«¿Tiene caché?»** como pregunta visual al inicio del paso de caché: solo al marcar «Sí» se
   despliegan los cachés y las formas de pago (por defecto «Sí» en actividades vendidas/con caché).

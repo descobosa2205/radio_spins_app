@@ -7,7 +7,7 @@
 <div class="ficha-hero">
   <img class="ficha-hero__media ficha-hero__media--round" src="{{ (concert.artist.photo_url if concert.artist else None) or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"{% if concert.artist %} data-artist-link="{{ concert.artist.id }}"{% endif %}>
   <div class="ficha-hero__body">
-    <div class="ficha-hero__eyebrow">{{ sale_type_label }}</div>
+    <div class="ficha-hero__eyebrow">{{ sale_type_label }}{% if concert.activity_type and concert.activity_type != 'CONCIERTO' %} · {{ activity_type_label }}{% endif %}</div>
     <div class="d-flex flex-wrap align-items-center gap-2">
       <h1 class="ficha-hero__title"{% if concert.artist %} data-artist-link="{{ concert.artist.id }}"{% endif %}>{{ concert.artist.name if concert.artist else 'Concierto' }}</h1>
       {% with cs_id=concert.id, cs_status=concert.status %}{% include '_concert_status_badge.html' %}{% endwith %}
@@ -134,6 +134,25 @@
             <datalist id="concertTagOptionsDetail">{% for tag in all_concert_tags %}<option value="#{{ tag }}"></option><option value="{{ tag }}"></option>{% endfor %}</datalist>
             <div id="concertTagChipsDetail" class="d-flex flex-wrap gap-2 mt-2"></div>
             <div id="concertTagHiddenDetail"></div>
+          </div>
+          {% set cpay = concert.contracting_payload or {} %}
+          <div class="col-12">
+            <input type="hidden" name="announcement_present" value="1">
+            <label class="form-label d-block">Anuncio</label>
+            <div class="d-flex flex-wrap gap-3 align-items-end">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="do_not_announce" id="concertDatosNoAnnounce" value="1" {% if concert.do_not_announce %}checked{% endif %}>
+                <label class="form-check-label" for="concertDatosNoAnnounce">No anunciar</label>
+              </div>
+              <div>
+                <label class="form-label mb-1 small">Fecha de anuncio <span class="text-muted">(vacía = TBC)</span></label>
+                <input type="date" class="form-control" name="announcement_date" value="{{ concert.announcement_date.isoformat() if concert.announcement_date else '' }}">
+              </div>
+              <div class="flex-grow-1" style="min-width:220px;">
+                <label class="form-label mb-1 small">Nota sobre el anuncio</label>
+                <input class="form-control" name="announcement_note" value="{{ cpay.get('announcement_note') or '' }}" placeholder="Cómo se anuncia, embargos…">
+              </div>
+            </div>
           </div>
         </div>
         <div class="d-flex justify-content-end gap-2 mt-3">
@@ -281,6 +300,69 @@
     </div><!-- /data-datos-view -->
 
     {# ---------- Secciones consolidadas (vista + edición inline por sección) ---------- #}
+    {% set cpay = concert.contracting_payload or {} %}
+    {% set perf = cpay.get('performance') or {} %}
+    {% if is_promo_activity %}
+    <div class="ficha-section">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-bullhorn"></i>Actividad</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
+      <div class="ficha-section__body" data-section-view>
+        {% if cpay.get('description') or perf.get('sings') is not none %}
+          <div class="ficha-fields">
+            {% if cpay.get('description') %}<div><div class="ficha-field__label">En qué consiste</div><div class="ficha-field__value">{{ cpay.get('description') }}</div></div>{% endif %}
+            {% if perf.get('sings') is not none %}<div><div class="ficha-field__label">¿El artista canta?</div><div class="ficha-field__value">{{ 'Sí' if perf.get('sings') else 'No' }}</div></div>{% endif %}
+            {% if perf.get('sings') and perf.get('songs_count') %}<div><div class="ficha-field__label">Nº de canciones</div><div class="ficha-field__value">{{ perf.get('songs_count') }}</div></div>{% endif %}
+            {% if perf.get('sings') and perf.get('songs') %}<div><div class="ficha-field__label">Canciones</div><div class="ficha-field__value">{{ perf.get('songs')|map(attribute='title')|select|join(', ') }}</div></div>{% endif %}
+            {% if perf.get('sings') and cpay.get('formation') %}<div><div class="ficha-field__label">Formación</div><div class="ficha-field__value">{{ cpay.get('formation') }}</div></div>{% endif %}
+          </div>
+        {% else %}<div class="ficha-empty">Sin detalle de la actividad. Pulsa <i class="fa fa-pen"></i> para añadirlo.</div>{% endif %}
+      </div>
+      {% if CAN_EDIT_CONCERTS %}
+      <form class="ficha-section__body d-none" data-section-form method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='actividad') }}" data-inline data-inline-target="#concert-general-zone" data-actividad-form>
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label">¿En qué consiste la actividad?</label>
+            <textarea class="form-control" name="activity_description" rows="3" placeholder="Describe la actividad">{{ cpay.get('description') or '' }}</textarea>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label d-block">¿El artista canta?</label>
+            <div class="d-flex gap-2">
+              <label class="form-check-label border rounded px-3 py-2"><input class="form-check-input me-2" type="radio" name="artist_sings" value="1" data-act-sings {% if perf.get('sings') %}checked{% endif %}><i class="fa fa-microphone me-1"></i>Sí</label>
+              <label class="form-check-label border rounded px-3 py-2"><input class="form-check-input me-2" type="radio" name="artist_sings" value="0" data-act-sings {% if perf.get('sings') is sameas false %}checked{% endif %}><i class="fa fa-microphone-slash me-1"></i>No</label>
+            </div>
+          </div>
+          <div class="col-12 {% if not perf.get('sings') %}d-none{% endif %}" data-act-sings-panel>
+            <div class="row g-3">
+              <div class="col-md-3 col-6">
+                <label class="form-label">Nº de canciones</label>
+                <input type="number" min="1" class="form-control" name="performance_songs_count" value="{{ perf.get('songs_count') or '' }}">
+              </div>
+              <div class="col-md-9">
+                <label class="form-label">Canciones del repertorio</label>
+                <select name="performance_song_ids[]" class="form-select" multiple>
+                  {% set chosen_ids = (perf.get('songs') or [])|map(attribute='id')|list %}
+                  {% for s in activity_songs %}<option value="{{ s.id }}" {% if s.id in chosen_ids %}selected{% endif %}>{{ s.title }}</option>{% endfor %}
+                </select>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label d-block">Formación</label>
+                <div class="d-flex gap-2">
+                  <label class="form-check-label border rounded px-3 py-2"><input class="form-check-input me-2" type="radio" name="formation_kind" value="SOLO" data-act-formation {% if perf.get('formation_kind') == 'SOLO' %}checked{% endif %}>Solo artista</label>
+                  <label class="form-check-label border rounded px-3 py-2"><input class="form-check-input me-2" type="radio" name="formation_kind" value="PLUS" data-act-formation {% if perf.get('formation_kind') == 'PLUS' %}checked{% endif %}>Artista +</label>
+                </div>
+              </div>
+              <div class="col-md-6 {% if perf.get('formation_kind') != 'PLUS' %}d-none{% endif %}" data-act-formation-panel>
+                <label class="form-label">Artista + …</label>
+                <input class="form-control" name="formation_text" value="{{ perf.get('formation_text') or '' }}" placeholder="pianista, banda completa…">
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="d-flex justify-content-end gap-2 mt-3"><button type="button" class="btn btn-outline-secondary btn-sm" data-edit-cancel>Cancelar</button><button class="btn btn-primary btn-sm"><i class="fa fa-check me-1"></i>Guardar</button></div>
+      </form>
+      {% endif %}
+    </div>
+    {% endif %}
+
     {% if concert.sale_type != 'VENDIDO' %}
     <div class="ficha-section">
       <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-handshake"></i>Colaboradores</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
@@ -310,12 +392,187 @@
         {% if concert.caches %}<div class="ficha-fields">
         {% for ch in concert.caches %}<div><div class="ficha-field__label">{% if ch.kind == 'FIXED' %}Caché fijo{% elif ch.kind == 'VARIABLE' %}Caché variable{% else %}{{ ch.concept or 'Otros' }}{% endif %}</div><div class="ficha-field__value">{% if ch.kind == 'VARIABLE' and ch.pct %}{{ ch.pct }}% · {{ 'Bruto' if ch.pct_base=='GROSS' else 'Neto' }}{% elif ch.amount %}{{ ch.amount|eur }}{% else %}—{% endif %}</div></div>{% endfor %}
       </div>{% else %}<div class="ficha-empty">Sin cachés. Pulsa <i class="fa fa-pen"></i> para añadir.</div>{% endif %}
+        {% if promoter_costs_rows %}
+          <div class="fw-semibold small text-muted mt-3 mb-1"><i class="fa fa-hand-holding-heart me-1"></i>El promotor cubre otros gastos</div>
+          <div class="ficha-fields">
+            {% for pc in promoter_costs_rows %}
+              <div>
+                <div class="ficha-field__label">{{ pc.label }}</div>
+                <div class="ficha-field__value">
+                  {{ 'Lo gestionamos y facturamos nosotros' if pc.managed_by == 'US' else 'Lo gestiona el promotor' }}
+                  {% if pc.max_amount %} · Máx. {{ pc.max_amount|eur }}{% endif %}
+                  {% if pc.note %}<div class="small text-muted">{{ pc.note }}</div>{% endif %}
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
       </div>
       {% if CAN_EDIT_CONCERTS %}
       <form class="ficha-section__body d-none" data-section-form method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='caches') }}" data-inline data-inline-target="#concert-general-zone">
         <div data-rows="cache">{% for ch in concert.caches %}{% set cfg = ch.config or {} %}<script type="application/json" data-row-type="cache">{{ {'cache_kind': (ch.kind or 'FIXED'), 'cache_concept': (ch.concept or ''), 'cache_amount': (ch.amount|string if ch.amount is not none else ''), 'cache_pct': (ch.pct|string if ch.pct is not none else ''), 'cache_pct_base': (ch.pct_base or 'GROSS'), 'cache_var_mode': (cfg.get('mode') or 'FIXED'), 'cache_var_option': (cfg.get('option') or ''), 'cache_from_ticket': (cfg.get('from_ticket')|string if cfg.get('from_ticket') is not none else ''), 'cache_min_tickets': (cfg.get('min_tickets')|string if cfg.get('min_tickets') is not none else ''), 'cache_min_revenue': (cfg.get('min_revenue')|string if cfg.get('min_revenue') is not none else ''), 'cache_ticket_type': (cfg.get('ticket_type') or '')}|tojson }}</script>{% endfor %}</div>
         <button type="button" class="btn btn-sm btn-outline-primary mb-3" data-add-row="cache"><i class="fa fa-plus me-1"></i>Añadir caché</button>
+
+        {# --- El promotor cubre otros gastos --- #}
+        {% set pc_payload = concert.promoter_costs_payload or {} %}
+        {% set pc_keys = promoter_costs_rows|map(attribute='key')|list %}
+        <input type="hidden" name="promoter_costs_present" value="1">
+        <div class="border rounded p-3 mb-3">
+          <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" name="promoter_costs_enabled" id="concertPcEnabled" value="1" data-pc-toggle {% if pc_payload.get('enabled') %}checked{% endif %}>
+            <label class="form-check-label fw-semibold" for="concertPcEnabled"><i class="fa fa-hand-holding-heart me-1"></i>El promotor cubre otros gastos</label>
+          </div>
+          <div class="{% if not pc_payload.get('enabled') %}d-none{% endif %}" data-pc-panel>
+            {% for key, label, icon in PROMOTER_COST_ITEMS %}
+              {% set item = (promoter_costs_rows|selectattr('key', 'equalto', key)|list|first) %}
+              <div class="border rounded p-2 mb-2">
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" name="promoter_cost_item[]" value="{{ key }}" id="pcItem{{ key }}" data-pc-item="{{ key }}" {% if key in pc_keys %}checked{% endif %}>
+                  <label class="form-check-label fw-semibold" for="pcItem{{ key }}"><i class="fa {{ icon }} me-1 text-danger"></i>{{ label }}</label>
+                </div>
+                <div class="row g-2 align-items-end mt-1 {% if key not in pc_keys %}d-none{% endif %}" data-pc-detail="{{ key }}">
+                  <div class="col-lg-5">
+                    <label class="form-label small">¿Qué cubre? (nota)</label>
+                    <input class="form-control" name="promoter_cost_note_{{ key }}" value="{{ item.note if item else '' }}">
+                  </div>
+                  <div class="col-lg-4">
+                    <label class="form-label small d-block">¿Quién lo gestiona?</label>
+                    <div class="d-flex gap-2 flex-wrap">
+                      <label class="form-check-label border rounded px-2 py-1 small"><input class="form-check-input me-1" type="radio" name="promoter_cost_managed_{{ key }}" value="US" {% if item and item.managed_by == 'US' %}checked{% endif %}><i class="fa fa-file-invoice me-1"></i>Nosotros y facturamos</label>
+                      <label class="form-check-label border rounded px-2 py-1 small"><input class="form-check-input me-1" type="radio" name="promoter_cost_managed_{{ key }}" value="PROMOTER" {% if not item or item.managed_by != 'US' %}checked{% endif %}><i class="fa fa-handshake me-1"></i>El promotor</label>
+                    </div>
+                  </div>
+                  <div class="col-lg-3">
+                    <label class="form-label small">Importe máx. (€)</label>
+                    <input type="number" step="0.01" min="0" class="form-control" name="promoter_cost_max_{{ key }}" value="{{ item.max_amount if item and item.max_amount is not none else '' }}" placeholder="Sin límite">
+                  </div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
         <div class="d-flex justify-content-end gap-2"><button type="button" class="btn btn-outline-secondary btn-sm" data-edit-cancel>Cancelar</button><button class="btn btn-primary btn-sm"><i class="fa fa-check me-1"></i>Guardar</button></div>
+      </form>
+      {% endif %}
+    </div>
+
+    {# ---------- Entradas y venta ---------- #}
+    {% set tpay = concert.ticketing_payload or {} %}
+    {% set tseller = tpay.get('sale_seller') or {} %}
+    {% set ttypes = entradas_ticket_rows or [] %}
+    {% set entry_mode = (tpay.get('entry_mode') or '')|upper %}
+    <div class="ficha-section">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-ticket"></i>Entradas y venta</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
+      <div class="ficha-section__body" data-section-view>
+        {% if entry_mode or ttypes or concert.capacity or concert.no_capacity %}
+          <div class="ficha-fields">
+            {% if entry_mode == 'FREE' %}<div><div class="ficha-field__label">Acceso</div><div class="ficha-field__value"><i class="fa fa-gift me-1 text-danger"></i>Evento gratuito</div></div>
+            {% elif entry_mode == 'SALE' %}<div><div class="ficha-field__label">Acceso</div><div class="ficha-field__value"><i class="fa fa-ticket me-1 text-danger"></i>Venta de entradas</div></div>{% endif %}
+            {% if concert.no_capacity %}<div><div class="ficha-field__label">Aforo</div><div class="ficha-field__value">{{ 'Aforo libre' if entry_mode == 'FREE' else 'Sin aforo' }}</div></div>
+            {% elif concert.capacity %}<div><div class="ficha-field__label">Aforo{{ ' a la venta' if entry_mode != 'FREE' else '' }}</div><div class="ficha-field__value">{{ concert.capacity|k }}</div></div>{% endif %}
+            {% if tseller.get('label') %}
+              {% set seller_kind_labels = {'US': 'Nosotros', 'PROMOTER': 'El promotor', 'VENUE': 'El recinto', 'THIRD': 'Un tercero'} %}
+              <div><div class="ficha-field__label">Saca las entradas a la venta</div><div class="ficha-field__value">{{ seller_kind_labels.get(tseller.get('kind'), '') }}{% if tseller.get('label') %} · {{ tseller.get('label') }}{% endif %}</div></div>
+            {% elif tpay.get('sale_owner') %}
+              <div><div class="ficha-field__label">Saca las entradas a la venta</div><div class="ficha-field__value">{{ tpay.get('sale_owner') }}</div></div>
+            {% endif %}
+            {% if concert.sale_start_tbc %}<div><div class="ficha-field__label">Salida a la venta</div><div class="ficha-field__value">TBC</div></div>
+            {% elif concert.sale_start_date %}<div><div class="ficha-field__label">Salida a la venta</div><div class="ficha-field__value">{{ concert.sale_start_date.strftime('%d/%m/%Y') }}</div></div>{% endif %}
+            {% if (tpay.get('invitations_mode') or '')|upper == 'TOTAL' and tpay.get('invitations_total') %}
+              <div><div class="ficha-field__label">Invitaciones pactadas</div><div class="ficha-field__value">{{ tpay.get('invitations_total') }} por contrato</div></div>
+            {% endif %}
+          </div>
+          {% if ttypes %}
+            <div class="table-responsive mt-3">
+              <table class="table table-sm align-middle mb-0">
+                <thead class="table-light"><tr><th>Tipo de entrada</th><th class="text-end">Importe</th><th class="text-end">Cupo</th><th class="text-end">Invitaciones</th></tr></thead>
+                <tbody>
+                  {% for t in ttypes %}
+                    <tr><td>{{ t.get('name') or 'Entrada' }}</td><td class="text-end">{{ (t.get('price') or 0)|eur }}</td><td class="text-end">{{ (t.get('qty_for_sale') or 0)|k if t.get('qty_for_sale') else '—' }}</td><td class="text-end">{{ t.get('invites_total') or '—' }}</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% endif %}
+        {% else %}<div class="ficha-empty">Sin datos de entradas. Pulsa <i class="fa fa-pen"></i> para configurarlo.</div>{% endif %}
+      </div>
+      {% if CAN_EDIT_CONCERTS %}
+      <form class="ficha-section__body d-none" data-section-form method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='entradas') }}" data-inline data-inline-target="#concert-general-zone" data-entradas-form>
+        <div class="row g-3">
+          <div class="col-md-5">
+            <label class="form-label d-block">¿Cómo es el acceso?</label>
+            <div class="d-flex gap-2">
+              <label class="form-check-label border rounded px-3 py-2"><input class="form-check-input me-2" type="radio" name="entry_mode" value="FREE" data-ent-mode {% if entry_mode == 'FREE' %}checked{% endif %}><i class="fa fa-gift me-1"></i>Gratuito</label>
+              <label class="form-check-label border rounded px-3 py-2"><input class="form-check-input me-2" type="radio" name="entry_mode" value="SALE" data-ent-mode {% if entry_mode != 'FREE' %}checked{% endif %}><i class="fa fa-ticket me-1"></i>Venta de entradas</label>
+            </div>
+          </div>
+          <div class="col-12 {% if entry_mode != 'FREE' %}d-none{% endif %}" data-ent-free-panel>
+            <div class="row g-2 align-items-end">
+              <div class="col-auto">
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" name="free_capacity_unlimited" id="entFreeUnlimited" data-ent-unlimited {% if concert.no_capacity %}checked{% endif %}>
+                  <label class="form-check-label" for="entFreeUnlimited"><i class="fa fa-infinity me-1"></i>Aforo libre</label>
+                </div>
+              </div>
+              <div class="col-md-3 {% if concert.no_capacity %}d-none{% endif %}" data-ent-free-capacity>
+                <label class="form-label small">Aforo estimado</label>
+                <input type="number" min="0" class="form-control" name="free_capacity" value="{{ concert.capacity or '' }}">
+              </div>
+            </div>
+          </div>
+          <div class="col-12 {% if entry_mode == 'FREE' %}d-none{% endif %}" data-ent-sale-panel>
+            <div class="row g-3">
+              <div class="col-md-4">
+                <label class="form-label d-block">¿Quién saca las entradas a la venta?</label>
+                <select name="sale_seller_kind" class="form-select" data-ent-seller>
+                  <option value="US" {% if tseller.get('kind') == 'US' %}selected{% endif %}>Nosotros ({{ concert.billing_company.name if concert.billing_company else 'empresa del grupo' }})</option>
+                  <option value="PROMOTER" {% if tseller.get('kind') == 'PROMOTER' %}selected{% endif %}>El promotor{{ ' (' ~ concert.promoter.nick ~ ')' if concert.promoter else '' }}</option>
+                  <option value="VENUE" {% if tseller.get('kind') == 'VENUE' %}selected{% endif %}>El recinto{{ ' (' ~ concert.venue.name ~ ')' if concert.venue else '' }}</option>
+                  <option value="THIRD" {% if tseller.get('kind') == 'THIRD' %}selected{% endif %}>Un tercero</option>
+                </select>
+                <input type="hidden" name="sale_seller_venue_label" value="{{ concert.venue.name if concert.venue else (concert.manual_venue_name or '') }}">
+              </div>
+              <div class="col-md-4 {% if tseller.get('kind') != 'THIRD' %}d-none{% endif %}" data-ent-third-panel>
+                <label class="form-label">Tercero que vende</label>
+                <select name="sale_seller_third_id" class="form-select select-providers">
+                  <option value="">—</option>
+                  {% for p in promoters %}<option value="{{ p.id }}" data-photo="{{ p.logo_url or '' }}" {% if tseller.get('promoter_id') == (p.id|string) %}selected{% endif %}>{{ p.nick }}</option>{% endfor %}
+                </select>
+                <input type="hidden" name="sale_seller_third_kind" value="promoter">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Salida a la venta</label>
+                <div class="input-group">
+                  <input type="date" class="form-control" name="sale_start_date" value="{{ concert.sale_start_date.isoformat() if concert.sale_start_date else '' }}">
+                  <div class="input-group-text"><input class="form-check-input mt-0" type="checkbox" name="sale_start_tbc" {% if concert.sale_start_tbc %}checked{% endif %}> <span class="ms-2 small">TBC</span></div>
+                </div>
+              </div>
+              <div class="col-12">
+                <div class="fw-semibold small text-muted mb-1">Tipos de entrada e importes</div>
+                <div data-rows="ticket-type">{% for t in ttypes %}<script type="application/json" data-row-type="ticket-type">{{ {'wt_name': (t.get('name') or ''), 'wt_price': (t.get('price')|string if t.get('price') is not none else ''), 'wt_qty': (t.get('qty_for_sale')|string if t.get('qty_for_sale') else ''), 'wt_invites': (t.get('invites_total')|string if t.get('invites_total') else '')}|tojson }}</script>{% endfor %}</div>
+                <button type="button" class="btn btn-sm btn-outline-primary" data-add-row="ticket-type"><i class="fa fa-plus me-1"></i>Tipo de entrada</button>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Invitaciones pactadas</label>
+                <select name="invitations_mode" class="form-select" data-ent-invmode>
+                  <option value="NONE" {% if (tpay.get('invitations_mode') or 'NONE')|upper == 'NONE' %}selected{% endif %}>Sin invitaciones pactadas</option>
+                  <option value="BY_TYPE" {% if (tpay.get('invitations_mode') or '')|upper == 'BY_TYPE' %}selected{% endif %}>Por tipo de entrada (columna Invitaciones)</option>
+                  <option value="TOTAL" {% if (tpay.get('invitations_mode') or '')|upper == 'TOTAL' %}selected{% endif %}>Total por contrato</option>
+                </select>
+              </div>
+              <div class="col-md-3 {% if (tpay.get('invitations_mode') or '')|upper != 'TOTAL' %}d-none{% endif %}" data-ent-invtotal>
+                <label class="form-label">Invitaciones por contrato</label>
+                <input type="number" min="0" class="form-control" name="invitations_total" value="{{ tpay.get('invitations_total') or '' }}">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Aforo a la venta <span class="text-muted">(opc.)</span></label>
+                <input type="number" min="0" class="form-control" name="capacity" value="{{ concert.capacity or '' }}">
+                <div class="form-text">Vacío = suma de cupos.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="d-flex justify-content-end gap-2 mt-3"><button type="button" class="btn btn-outline-secondary btn-sm" data-edit-cancel>Cancelar</button><button class="btn btn-primary btn-sm"><i class="fa fa-check me-1"></i>Guardar</button></div>
       </form>
       {% endif %}
     </div>
@@ -447,6 +704,21 @@
 
             <div class="col-12 artwork-ours-fields">
               <div class="row g-3">
+                <div class="col-12">
+                  <label class="form-label">Formatos que se piden</label>
+                  {% set req_formats = (artwork_request.requested_formats if artwork_request else []) or [] %}
+                  <div class="row g-2">
+                    {% for key, label, aspect in ARTWORK_FORMAT_CHOICES %}
+                      <div class="col-6 col-md-4 col-xl-2">
+                        <label class="activity-choice-card border rounded p-2 text-center h-100 w-100 d-block bg-white">
+                          <input class="form-check-input visually-hidden" type="checkbox" name="artwork_formats[]" value="{{ key }}" {% if key in req_formats %}checked{% endif %}>
+                          <span class="artfmt-box"><span class="artfmt-shape" style="aspect-ratio: {{ aspect }};"></span></span>
+                          <span class="fw-semibold small d-block">{{ label }}</span>
+                        </label>
+                      </div>
+                    {% endfor %}
+                  </div>
+                </div>
                 <div class="col-12 col-xl-6">
                   <label class="form-label">Logos que deben incluirse</label>
                   <textarea class="form-control" name="logo_notes" rows="3" placeholder="Notas sobre logos, orden, tamaño, versiones, etc.">{{ artwork_request.logo_notes if artwork_request else '' }}</textarea>
@@ -533,6 +805,14 @@
             <div class="card-body">
               <h6 class="mb-3">Detalle de la solicitud</h6>
               {% if artwork_request.handled_by == 'OURS' %}
+                {% if artwork_requested_format_labels %}
+                  <div class="mb-3">
+                    <div class="small text-muted">Formatos solicitados</div>
+                    <div class="d-flex flex-wrap gap-2 mt-2">
+                      {% for fl in artwork_requested_format_labels %}<span class="badge text-bg-light border">{{ fl }}</span>{% endfor %}
+                    </div>
+                  </div>
+                {% endif %}
                 <div class="mb-3">
                   <div class="small text-muted">Logos seleccionados</div>
                   <div class="d-flex flex-wrap gap-2 mt-2">
@@ -1193,6 +1473,43 @@ document.addEventListener('DOMContentLoaded', function(){
         input.closest('form').submit();
       }
     });
+  });
+
+  // Toggles de las secciones nuevas de la ficha (Actividad / gastos del promotor / Entradas):
+  // por delegación, para que funcionen también tras el refresco AJAX de la zona.
+  document.addEventListener('change', function(ev){
+    const t = ev.target;
+    if (!(t instanceof Element)) return;
+    const form = t.closest('form');
+    if (t.matches('[data-act-sings]') && form) {
+      const sings = form.querySelector('[data-act-sings]:checked');
+      form.querySelector('[data-act-sings-panel]')?.classList.toggle('d-none', !(sings && sings.value === '1'));
+    }
+    if (t.matches('[data-act-formation]') && form) {
+      const fk = form.querySelector('[data-act-formation]:checked');
+      form.querySelector('[data-act-formation-panel]')?.classList.toggle('d-none', !(fk && fk.value === 'PLUS'));
+    }
+    if (t.matches('[data-pc-toggle]') && form) {
+      form.querySelector('[data-pc-panel]')?.classList.toggle('d-none', !t.checked);
+    }
+    if (t.matches('[data-pc-item]') && form) {
+      const key = t.getAttribute('data-pc-item');
+      form.querySelector('[data-pc-detail="' + key + '"]')?.classList.toggle('d-none', !t.checked);
+    }
+    if (t.matches('[data-ent-mode]') && form) {
+      const mode = form.querySelector('[data-ent-mode]:checked')?.value || 'SALE';
+      form.querySelector('[data-ent-free-panel]')?.classList.toggle('d-none', mode !== 'FREE');
+      form.querySelector('[data-ent-sale-panel]')?.classList.toggle('d-none', mode !== 'SALE');
+    }
+    if (t.matches('[data-ent-unlimited]') && form) {
+      form.querySelector('[data-ent-free-capacity]')?.classList.toggle('d-none', t.checked);
+    }
+    if (t.matches('[data-ent-seller]') && form) {
+      form.querySelector('[data-ent-third-panel]')?.classList.toggle('d-none', t.value !== 'THIRD');
+    }
+    if (t.matches('[data-ent-invmode]') && form) {
+      form.querySelector('[data-ent-invtotal]')?.classList.toggle('d-none', t.value !== 'TOTAL');
+    }
   });
 
   const artworkForm = document.getElementById('artworkRequestForm');

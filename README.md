@@ -189,6 +189,50 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-07-25 — Alta de actividades: asistente rediseñado por completo + ficha a juego
+
+- **Asistente «+ Actividad»** (`_concert_wizard_modal.html`, reescrito): pasos con **viñetas**
+  (`.wizard-card`, una tarjeta por bloque de preguntas) y **tarjetas visuales con iconos**
+  (`.activity-choice-card`) en todas las elecciones; nada se muestra si la opción que lo abre no
+  está activada. La **secuencia de pasos es dinámica** según tipo de actividad, economía y si el
+  artista canta.
+  - **Recinto (paso 3)**: el nombre manual del recinto **solo** aparece al apagar «Conozco el
+    recinto». El alta de recintos (rápida, /recintos y ficha) incorpora **país** (`Venue.country`,
+    por defecto España).
+  - **Detalle promocional (paso nuevo, solo evento promocional/TV/marca/otros)**: «¿en qué
+    consiste?», «¿el artista canta?» → nº de canciones con selección del **repertorio** del artista
+    (`/api/artists/<id>/wizard-meta`) y **formación** (Solo artista / Artista + texto).
+  - **Economía (paso 4)**: conciertos sin «Gratuito» (Vendido/A empresa/Participado); actividades no
+    concierto solo **Con caché** o **Gratuito**. El **promotor** se elige con buscador visual con
+    logos que incluye **medios de comunicación** (un medio se espeja a tercero automáticamente);
+    las **sociedades** del promotor aparecen como tarjetas al elegirlo, con **«Nueva sociedad»**
+    creada sobre la marcha al enviar.
+  - **Caché (paso propio)**: cachés + formas de pago con **pendiente de configurar calculado en
+    vivo** y botón «Añadir pago por la cantidad restante»; módulo **«El promotor cubre otros
+    gastos»** (Hoteles/Traslados/Viáticos/Sueldos/Todos, cada uno con nota, quién lo gestiona —
+    nosotros y facturamos o el promotor — e importe máximo); **estado** de la actividad visual
+    (Borrador/Hablado/Reservado/Confirmado) y **cartelería** (nosotros/promotor; si nosotros,
+    solicitar ahora eligiendo **formatos con su forma gráfica** y logos, o «no solicitar ahora»).
+    Al solicitar se crea la **petición automática de carteles** y se envía a diseño.
+  - **Socios y comisionistas**: pregunta visual Sí/No que abre las opciones; el paso se omite en
+    actividades no concierto gratuitas (que solo ven los gastos del promotor en el paso de caché).
+  - **Entradas**: primero **gratuito vs venta** con iconos; gratuito → aforo con **«Aforo libre»**;
+    venta → **quién saca las entradas** (nosotros con la empresa del grupo, el promotor, el recinto
+    o un tercero/medio con buscador y alta rápida), **tipos de entrada con importe** (crean
+    `ConcertTicketType` reales), **invitaciones** (por tipo de entrada o total por contrato, que el
+    sistema de invitaciones materializa) y **salida a la venta con TBC**.
+  - **Equipamiento** con tarjetas de iconos (se omite si el artista no canta en promocionales),
+    **gira/ciclo + #** (chips con sugerencias del artista y **deduplicación** contra los # de todos
+    los artistas) y **anuncio como último paso** (TBC / fecha / no anunciar + nota).
+- **Ficha del concierto** (`concert_detail.html`): refleja todo lo anterior — sección **Actividad**
+  (promocionales), sección **Entradas y venta**, gastos del promotor dentro de **Cachés**, anuncio
+  editable en **Datos** y **formatos solicitados** en Cartelería (también en la página pública de
+  diseño y en el correo). Nuevas secciones de guardado parcial: `actividad` y `entradas`
+  (`concert_section_update`); los tipos de entrada editados ahí **nunca** tocan los espejados de
+  Enterticket.
+- Modelos: `Venue.country` y `ConcertArtworkRequest.requested_formats` (migración ligera
+  idempotente al arrancar).
+
 ### 2026-07-20 — Documentos personales en las fichas (DNI, carnet, tarjetas y matrículas)
 
 Nueva pestaña **«Documentos»** en la ficha de **personal** y de **terceros** para adjuntar y

@@ -240,6 +240,42 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   de invitaciones (`invitaciones.html`, helpers `goStep`/`getStep`): pasos de artista, evento,
   "¿Para quién son?" y "Entrega". **No** aplicar en pasos **multicampo** (asistente de conciertos
   `_concert_wizard_modal.html`, alta de medios `media_outlets.html`), que conservan "Siguiente".
+- **Asistente «+ Actividad» — rediseño jul 2026** (`_concert_wizard_modal.html`, reescrito): cada paso
+  se compone de **viñetas** `.wizard-card` (una tarjeta por bloque de preguntas) con elecciones en
+  tarjetas `.activity-choice-card` (selección visual vía `initVisualChoiceCards` de scripts.js); los
+  campos condicionados viven en paneles `[data-wz-panel]` y al ENVIAR se deshabilitan los inputs de
+  pasos fuera de secuencia y de paneles `.d-none` (no llegan al backend). **Secuencia dinámica**
+  (`stepSequence()` en el JS del parcial): 1 tipo+modo · 2 empresa/artista · 3 fecha/recinto (nombre
+  manual SOLO con «Conozco el recinto» apagado) · 4 SOLO promocional/TV/marca/otros (descripción,
+  «¿canta?» → nº canciones + repertorio vía `api_artist_wizard_meta` (SUPPORT_READ) + formación
+  SOLO/PLUS) · 5 economía (concierto: VENDIDO/EMPRESA/PARTICIPADOS, sin GRATUITO; no-concierto: Con
+  caché=VENDIDO / GRATUITO — dos sets de radios `sale_type` con visibilidad por tipo) + promotor
+  visual (Select2 AJAX sobre `api_search_commission_entities`: terceros **y medios**; un medio se
+  espeja a tercero con `_ensure_promoter_for_media`; hidden `promoter_id`/`promoter_media_id`) +
+  sociedades en tarjetas (+ «Nueva sociedad» inline → `new_promoter_company_name`, la crea el wizard) ·
+  6 caché (cachés+pagos con pendiente en vivo y botón «cantidad restante»; «El promotor cubre otros
+  gastos»: `PROMOTER_COST_ITEMS`/`_parse_promoter_costs_form` → `promoter_costs_payload`
+  `{enabled, items:[{key,label,note,managed_by US|PROMOTER,max_amount}]}`; **estado** visual; **cartelería**:
+  nosotros/promotor y «solicitar ahora» con formatos gráficos `ARTWORK_FORMAT_CHOICES` →
+  `ConcertArtworkRequest.requested_formats` + correo a diseño automático, o «no solicitar ahora») ·
+  7 socios/comisionistas (pregunta Sí/No; paso omitido en no-concierto GRATUITO) · 8 entradas
+  (`entry_mode` FREE→aforo+«Aforo libre»(no_capacity) / SALE→vendedor `ticketing_payload.sale_seller`
+  {kind US|PROMOTER|VENUE|THIRD,...}, tipos `wt_*`→`ConcertTicketType` reales +
+  `ticketing_payload.ticket_types` [{name,price,qty_for_sale,invites_total}], invitaciones
+  `invitations_mode` BY_TYPE/TOTAL→`invitations_json` (las materializa `_invitation_category_legacy_rows`),
+  salida a la venta+TBC) · 9 equipamiento visual (omitido si el artista no canta en promocionales) ·
+  10 gira/ciclo + # (chips `initConcertTagManager` name=`concert_tags[]` + sugerencias del artista y
+  dedupe acento-insensible contra `all_concert_tags`) · 11 anuncio (TBC/fecha/no anunciar + nota →
+  `contracting_payload.announcement_note`). Detalle promocional en `contracting_payload.description`
+  y `.performance` {sings, songs_count, songs:[{id,title}], formation_kind, formation_text}.
+  **Ficha a juego**: `concert_section_update` acepta además `actividad` y `entradas` (los tipos parten
+  de los ConcertTicketType reales vía `_concert_entradas_ticket_rows`; `_replace_concert_ticket_types_manual`
+  NUNCA toca los espejados de Enterticket); `caches` guarda los gastos del promotor **solo si** llega
+  `promoter_costs_present` y `datos` el anuncio **solo si** llega `announcement_present` (para no pisar
+  desde forms antiguos). `_concert_contracting_general_rows` pinta los payloads nuevos con etiquetas
+  legibles. Los formatos solicitados se ven en la pestaña Cartelería, en la página pública de diseño
+  y en el correo. **Recintos con país**: `Venue.country` (default España) en alta rápida, /recintos
+  y ficha.
 
 - **Mapa de butacas del recinto (diseñador, pestaña Ticketing)**: `VenueSeatMap.layout_json`
   paramétrico (secciones grid/arc/box/floor/points) editado por `static/js/venue_map.js`; motor puro

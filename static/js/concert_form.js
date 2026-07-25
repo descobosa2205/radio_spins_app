@@ -19,7 +19,7 @@
        zona `#concert-general-zone`.
 
    Filas dinámicas: por delegación (sin onclick inline).
-     - Añadir:  <button data-add-row="TIPO">      (TIPO: company-share|promoter-share|zone|cache|contract|note|equip-doc|equip-note)
+     - Añadir:  <button data-add-row="TIPO">      (TIPO: company-share|promoter-share|zone|cache|ticket-type|contract|note|equip-doc|equip-note)
      - Contenedor: <div data-rows="TIPO">
      - Borrar fila (solo en memoria): <button data-remove-row>  (quita el `.cf-row` contenedor)
 */
@@ -175,6 +175,15 @@
         + '</div></div>');
       applyCacheKind(row);
       return row;
+    }
+    if (type === 'ticket-type') {
+      return el('<div class="cf-row row g-2 align-items-end mb-2">'
+        + '<div class="col-md-4"><label class="form-label small">Tipo de entrada</label><input name="wt_name[]" class="form-control" placeholder="General, VIP, Grada…"></div>'
+        + '<div class="col-md-2"><label class="form-label small">Importe (€)</label><input type="number" step="0.01" min="0" name="wt_price[]" class="form-control" placeholder="0,00"></div>'
+        + '<div class="col-md-2"><label class="form-label small">Cupo <span class="text-muted">(opc.)</span></label><input type="number" min="0" name="wt_qty[]" class="form-control"></div>'
+        + '<div class="col-md-2"><label class="form-label small">Invitaciones</label><input type="number" min="0" name="wt_invites[]" class="form-control"></div>'
+        + '<div class="col-md-2 d-grid"><label class="form-label small">&nbsp;</label><button type="button" class="btn btn-outline-danger" data-remove-row><i class="fa fa-trash"></i></button></div>'
+        + '</div>');
     }
     if (type === 'contract') {
       return el('<div class="cf-row row g-2 align-items-end mb-2">'

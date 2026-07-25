@@ -54,6 +54,13 @@
               <input name="province" class="form-control" />
             </div>
             <div class="col-12 col-md-6">
+              <label class="form-label">País</label>
+              <input name="country" class="form-control" value="España" list="venueCountryOptions" />
+              <datalist id="venueCountryOptions">
+                <option value="España"></option><option value="Portugal"></option><option value="Francia"></option><option value="Andorra"></option><option value="Italia"></option><option value="México"></option><option value="Argentina"></option><option value="Chile"></option><option value="Colombia"></option><option value="Estados Unidos"></option>
+              </datalist>
+            </div>
+            <div class="col-12 col-md-6">
               <label class="form-label">Características</label>
               <div class="form-check form-switch">
                 <input class="form-check-input" type="checkbox" role="switch" id="covered_new" name="covered">
@@ -98,7 +105,7 @@
             <img src="{{ v.photo_url or DEFAULT_PHOTO_URL }}" alt="{{ v.name }}" data-default-photo="1" style="width:72px;height:72px;border-radius:16px;object-fit:cover;border:1px solid #eee;">
             <div class="flex-grow-1 min-w-0">
               <div class="fw-semibold text-truncate">{{ v.name }}</div>
-              <div class="text-muted small text-truncate">{{ v.municipality or 'Sin municipio' }}{% if v.province %} · {{ v.province }}{% endif %}</div>
+              <div class="text-muted small text-truncate">{{ v.municipality or 'Sin municipio' }}{% if v.province %} · {{ v.province }}{% endif %}{% if v.country and v.country != 'España' %} · {{ v.country }}{% endif %}</div>
               {% if v.address %}<div class="text-muted small text-truncate">{{ v.address }}</div>{% endif %}
               <div class="mt-2 d-flex flex-wrap gap-1">
                 {% if v.covered %}

@@ -33,6 +33,15 @@
               </tbody>
             </table>
             <hr>
+            {% set req_formats = artwork_request.requested_formats or [] %}
+            {% if req_formats %}
+              <div class="small text-muted mb-1">Formatos solicitados</div>
+              <div class="d-flex flex-wrap gap-2 mb-3">
+                {% for key, label, aspect in ARTWORK_FORMAT_CHOICES %}
+                  {% if key in req_formats %}<span class="badge text-bg-light border">{{ label }}</span>{% endif %}
+                {% endfor %}
+              </div>
+            {% endif %}
             <div class="small text-muted mb-1">Logos de empresas del grupo</div>
             <div class="d-flex flex-wrap gap-2 mb-3">
               {% for co in selected_companies %}

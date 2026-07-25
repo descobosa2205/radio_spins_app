@@ -842,6 +842,7 @@ class Venue(Base):
     address = Column(Text)
     municipality = Column(Text)
     province = Column(Text)
+    country = Column(Text)  # país (por defecto España en los formularios)
     photo_url = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -1753,6 +1754,8 @@ class ConcertArtworkRequest(Base):
     logo_notes = Column(Text)
     ticketer_notes = Column(Text)
     other_notes = Column(Text)
+    # Formatos solicitados a diseño (lista de claves de ARTWORK_FORMAT_CHOICES en app.py)
+    requested_formats = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     delivery_deadline = Column(Date)
     event_snapshot = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     needs_refresh = Column(Boolean, nullable=False, server_default=text("false"))
@@ -5560,6 +5563,9 @@ def ensure_concerts_schema_enhancements():
             ADD COLUMN IF NOT EXISTS hashtags jsonb NOT NULL DEFAULT '[]'::jsonb;
         """,
 
+        # País del recinto (alta de recintos con país; por defecto España en los formularios).
+        'ALTER TABLE IF EXISTS venues ADD COLUMN IF NOT EXISTS country text;',
+
         """
         UPDATE concerts
            SET billing_company_id = COALESCE(billing_company_id, group_company_id)
@@ -5854,6 +5860,11 @@ def ensure_concert_artwork_schema():
             ADD COLUMN IF NOT EXISTS is_archived boolean NOT NULL DEFAULT false,
             ADD COLUMN IF NOT EXISTS archived_at timestamptz,
             ADD COLUMN IF NOT EXISTS is_primary boolean NOT NULL DEFAULT false;
+        """,
+        # Formatos solicitados desde el asistente/ficha (claves de ARTWORK_FORMAT_CHOICES).
+        """
+        ALTER TABLE IF EXISTS concert_artwork_requests
+            ADD COLUMN IF NOT EXISTS requested_formats jsonb NOT NULL DEFAULT '[]'::jsonb;
         """,
         'CREATE INDEX IF NOT EXISTS idx_concert_artwork_assets_is_archived ON concert_artwork_assets(is_archived);',
     ]

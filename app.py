@@ -2485,6 +2485,8 @@ def _build_artwork_request_email(concert: Concert, row: ConcertArtworkRequest, s
     deadline_txt = row.delivery_deadline.strftime('%d/%m/%Y') if row.delivery_deadline else 'Sin fecha máxima indicada'
     logos_txt = ', '.join(selected_company_names) if selected_company_names else 'No se han marcado logos de empresas del grupo'
     ticketers_txt = ', '.join(selected_ticketer_names) if selected_ticketer_names else 'No se han marcado ticketeras'
+    format_labels = _artwork_requested_format_labels(row)
+    formats_txt = ', '.join(format_labels) if format_labels else 'Formatos habituales (no se marcaron formatos concretos)'
     mod_html = '<p><span style="display:inline-block;background:#f59e0b;color:#111827;padding:4px 10px;border-radius:999px;font-weight:700;">MODIFICACIONES</span></p>' if is_update else ''
     mod_text = 'Solicitud actualizada de cartelería' if is_update else 'Solicitud de cartelería'
     html_body = (
@@ -2499,6 +2501,7 @@ def _build_artwork_request_email(concert: Concert, row: ConcertArtworkRequest, s
         f'<div>Hora show: {concert.show_time or ("TBC" if concert.show_time_tbc else "—")}</div>'
         f'<div>Hora puertas: {concert.doors_time or ("TBC" if concert.doors_time_tbc else "—")}</div>'
         f'</div></div></div>'
+        f'<p><strong>Formatos solicitados:</strong> {formats_txt}</p>'
         f'<p><strong>Logos empresas del grupo:</strong> {logos_txt}</p>'
         f'<p><strong>Notas de logos:</strong> {row.logo_notes or "—"}</p>'
         f'<p><strong>Ticketeras:</strong> {ticketers_txt}</p>'
@@ -2574,6 +2577,114 @@ def _artwork_request_badge(row: ConcertArtworkRequest | None, concert: Concert |
     if st == 'DRAFT':
         return {'label': 'Solicitud de carteles pendiente', 'class': 'bg-light text-dark border'}
     return None
+
+
+# --- Catálogos del asistente de actividad (cartelería / gastos que cubre el promotor) ---
+
+# Formatos habituales de cartelería con su proporción (representación gráfica en el
+# asistente de actividad y en la pestaña Cartelería). key → (etiqueta, aspect-ratio CSS).
+ARTWORK_FORMAT_CHOICES = [
+    ("CUADRADO", "Cuadrado (feed)", "1 / 1"),
+    ("STORY", "Story (9:16)", "9 / 16"),
+    ("CARTEL", "Cartel impresión (A3)", "1 / 1.414"),
+    ("HORIZONTAL", "Horizontal (16:9)", "16 / 9"),
+    ("MUPI", "MUPI / marquesina", "2 / 3"),
+    ("BANNER", "Banner web", "4 / 1"),
+]
+ARTWORK_FORMAT_LABELS = {key: label for key, label, _aspect in ARTWORK_FORMAT_CHOICES}
+
+
+def _artwork_requested_format_labels(row) -> list[str]:
+    out = []
+    for key in list(getattr(row, "requested_formats", None) or []):
+        k = str(key or "").strip().upper()
+        if k:
+            out.append(ARTWORK_FORMAT_LABELS.get(k, k.title()))
+    return out
+
+
+# Gastos que puede cubrir el promotor además del caché (paso de caché del asistente y
+# sección Cachés de la ficha). key → (etiqueta, icono Font Awesome).
+PROMOTER_COST_ITEMS = [
+    ("HOTELES", "Hoteles", "fa-hotel"),
+    ("TRASLADOS", "Traslados", "fa-van-shuttle"),
+    ("VIATICOS", "Viáticos", "fa-utensils"),
+    ("SUELDOS", "Sueldos", "fa-money-bill-wave"),
+    ("TODOS", "Cubre todos los gastos", "fa-circle-check"),
+]
+PROMOTER_COST_LABELS = {key: label for key, label, _icon in PROMOTER_COST_ITEMS}
+
+
+def _parse_promoter_costs_form(form) -> dict:
+    """Parsea el módulo «El promotor cubre otros gastos» (asistente y ficha).
+
+    Cada opción marcada lleva nota (qué cubre), quién lo gestiona (US = lo gestionamos
+    nosotros y lo facturamos | PROMOTER = lo gestiona el promotor) e importe máximo opcional."""
+    enabled = _truthy(form.get("promoter_costs_enabled"))
+    items = []
+    if enabled:
+        for key in form.getlist("promoter_cost_item[]"):
+            key = (key or "").strip().upper()
+            if key not in PROMOTER_COST_LABELS:
+                continue
+            if any(x["key"] == key for x in items):
+                continue
+            managed = (form.get(f"promoter_cost_managed_{key}") or "").strip().upper()
+            if managed not in ("US", "PROMOTER"):
+                managed = "PROMOTER"
+            max_amount = _parse_optional_decimal(form.get(f"promoter_cost_max_{key}"))
+            items.append({
+                "key": key,
+                "label": PROMOTER_COST_LABELS[key],
+                "note": (form.get(f"promoter_cost_note_{key}") or "").strip(),
+                "managed_by": managed,
+                "max_amount": float(max_amount) if max_amount is not None else None,
+            })
+    return {"enabled": bool(items), "items": items}
+
+
+def _concert_entradas_ticket_rows(concert) -> list[dict]:
+    """Filas de la sección «Entradas y venta» de la ficha: parte de los ConcertTicketType
+    REALES (no ET) para no pisar tipos configurados fuera del asistente, y completa las
+    invitaciones pactadas desde el ticketing_payload (casadas por nombre)."""
+    payload = getattr(concert, "ticketing_payload", None) or {}
+    payload = payload if isinstance(payload, dict) else {}
+    inv_by_name = {}
+    for r in (payload.get("ticket_types") or []):
+        if isinstance(r, dict) and r.get("name"):
+            inv_by_name[str(r["name"]).casefold()] = int(r.get("invites_total") or 0)
+    rows = []
+    for t in (getattr(concert, "ticket_types", None) or []):
+        if getattr(t, "et_managed", False):
+            continue
+        name = (t.name or "").strip()
+        rows.append({
+            "name": name,
+            "price": float(t.price or 0),
+            "qty_for_sale": int(t.qty_for_sale or 0),
+            "invites_total": inv_by_name.get(name.casefold(), 0),
+        })
+    if not rows:
+        rows = [r for r in (payload.get("ticket_types") or []) if isinstance(r, dict)]
+    return rows
+
+
+def _promoter_costs_rows(payload) -> list[dict]:
+    """Filas normalizadas del payload «El promotor cubre otros gastos» para mostrarlas."""
+    data = payload if isinstance(payload, dict) else {}
+    rows = []
+    for raw in list(data.get("items") or []):
+        if not isinstance(raw, dict):
+            continue
+        key = (raw.get("key") or "").strip().upper()
+        rows.append({
+            "key": key,
+            "label": raw.get("label") or PROMOTER_COST_LABELS.get(key, key.title() or "Gasto"),
+            "note": (raw.get("note") or "").strip(),
+            "managed_by": (raw.get("managed_by") or "PROMOTER").strip().upper(),
+            "max_amount": raw.get("max_amount"),
+        })
+    return rows
 
 
 def _payment_term_status(row: dict | None) -> str:
@@ -19456,11 +19567,12 @@ def venues_view():
         address = request.form.get("address","").strip()
         municipality = request.form.get("municipality","").strip()
         province = request.form.get("province","").strip()
+        country = (request.form.get("country") or "").strip() or "España"
         try:
             photo = request.files.get("photo")
             photo_url = upload_image(photo, "venues") if photo and getattr(photo, "filename", "") else None
             v = Venue(name=name, covered=covered, allows_bars=allows_bars, address=address,
-                      municipality=municipality, province=province, photo_url=photo_url)
+                      municipality=municipality, province=province, country=country, photo_url=photo_url)
             session.add(v)
             session.commit()
             flash("Recinto creado.", "success")
@@ -19503,6 +19615,7 @@ def venue_update(vid):
     v.address = (request.form.get("address") or "").strip()
     v.municipality = (request.form.get("municipality") or "").strip()
     v.province = (request.form.get("province") or "").strip()
+    v.country = (request.form.get("country") or "").strip() or (v.country or "España")
     photo = request.files.get("photo")
     if photo and getattr(photo, "filename", ""):
         v.photo_url = upload_image(photo, "venues")
@@ -22437,6 +22550,34 @@ def api_search_events():
             {"id": str(e.id), "label": (e.name or "").strip(), "logo_url": (e.logo_url or "").strip()}
             for e in rows
         ])
+    finally:
+        s.close()
+
+
+@app.get("/api/artists/<aid>/wizard-meta", endpoint="api_artist_wizard_meta")
+@admin_required
+def api_artist_wizard_meta(aid):
+    """Datos del artista para el asistente de actividad: su repertorio (eventos promocionales
+    donde el artista canta) y los # que ya usa (sugerencias del paso de gira, sin duplicados)."""
+    s = db()
+    try:
+        artist_uuid = to_uuid(aid)
+        if not artist_uuid:
+            return jsonify({"songs": [], "tags": []})
+        songs = _repertoire_songs_for_artists(s, [artist_uuid])
+        tags = []
+        seen = set()
+        for (tags_json,) in s.query(Concert.hashtags).filter(Concert.artist_id == artist_uuid).all():
+            for raw in (tags_json or []):
+                tag = _norm_concert_tag(raw)
+                key = _norm_text_key(tag)
+                if tag and key not in seen:
+                    seen.add(key)
+                    tags.append(tag)
+        return jsonify({
+            "songs": [{"id": row["id"], "title": row["title"]} for row in songs],
+            "tags": tags,
+        })
     finally:
         s.close()
 
@@ -25740,6 +25881,8 @@ def concert_detail_view(cid):
         edit_artists = edit_venues = edit_promoters = edit_companies = []
         edit_type_choices = []
         all_concert_tags = []
+        activity_songs = []
+        is_promo_activity = (c.activity_type or "").strip().upper() in ("EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS")
         if tab == "general" and (is_master() or can_edit_concerts()):
             edit_artists = session.query(Artist).order_by(Artist.name.asc()).all()
             edit_venues = session.query(Venue).order_by(Venue.name.asc()).all()
@@ -25747,6 +25890,11 @@ def concert_detail_view(cid):
             edit_companies = session.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
             all_concert_tags = _collect_all_concert_tags(session)
             edit_type_choices = [(k, CONCERT_SALE_TYPE_LABELS.get(k, k)) for k in CONCERTS_SECTION_ORDER]
+            if is_promo_activity:
+                try:
+                    activity_songs = _repertoire_songs_for_artists(session, [c.artist_id])
+                except Exception:
+                    activity_songs = []
         session.commit()
 
         return render_template(
@@ -25825,6 +25973,12 @@ def concert_detail_view(cid):
             promoters=edit_promoters,
             type_choices=edit_type_choices,
             all_concert_tags=all_concert_tags,
+            is_promo_activity=is_promo_activity,
+            activity_type_label=QUAD_ACTIVITY_LABELS.get((c.activity_type or '').strip().upper(), (c.activity_type or '').replace('_', ' ').title()),
+            activity_songs=activity_songs,
+            entradas_ticket_rows=_concert_entradas_ticket_rows(c),
+            promoter_costs_rows=_promoter_costs_rows(getattr(c, "promoter_costs_payload", None)),
+            artwork_requested_format_labels=_artwork_requested_format_labels(artwork_request) if artwork_request else [],
         )
     finally:
         session.close()
@@ -25885,6 +26039,7 @@ def concert_artwork_save(cid):
 
         row.group_company_ids = _parse_uuid_list(request.form.getlist('group_company_ids[]'))
         row.ticketer_ids = _parse_uuid_list(request.form.getlist('ticketer_ids[]'))
+        row.requested_formats = [k for k in request.form.getlist('artwork_formats[]') if (k or '').strip().upper() in ARTWORK_FORMAT_LABELS]
         row.logo_notes = (request.form.get('logo_notes') or '').strip() or None
         row.ticketer_notes = (request.form.get('ticketer_notes') or '').strip() or None
         row.other_notes = (request.form.get('other_notes') or '').strip() or None
@@ -26192,6 +26347,13 @@ def concert_section_update_handler(cid, section):
             c.status = _norm_status(request.form.get("status"))
             c.promoter_id = to_uuid(request.form.get("promoter_id") or None) if sale_type in ("VENDIDO", "GRATUITO", "GIRAS_COMPRADAS") else None
             c.hashtags = _dedupe_concert_tags(request.form.getlist("concert_tags[]"))
+            # Anuncio (solo si el formulario lo incluye, para no pisar datos desde forms antiguos).
+            if request.form.get("announcement_present"):
+                c.do_not_announce = _truthy(request.form.get("do_not_announce"))
+                c.announcement_date = None if c.do_not_announce else parse_optional_date(request.form.get("announcement_date"))
+                _cp = dict(c.contracting_payload or {})
+                _cp["announcement_note"] = (request.form.get("announcement_note") or "").strip()
+                c.contracting_payload = _cp
             # Coherencia: si pasa a VENDIDO no hay colaboradores/comisionistas.
             if sale_type == "VENDIDO":
                 _replace_concert_promoter_shares(session, c.id, [])
@@ -26276,8 +26438,75 @@ def concert_section_update_handler(cid, section):
                 request.form.getlist("cache_ticket_type[]"),
             )
             _replace_concert_caches(session, c.id, cache_rows)
+            # «El promotor cubre otros gastos» (solo si el formulario incluye el módulo).
+            if request.form.get("promoter_costs_present"):
+                c.promoter_costs_payload = _parse_promoter_costs_form(request.form)
             session.commit()
             flash("Cachés actualizados.", "success")
+        elif section == "actividad":
+            # Detalle de eventos promocionales/TV/marca/otros: descripción + actuación.
+            is_promo = (c.activity_type or "").strip().upper() in ("EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS")
+            payload = dict(c.contracting_payload or {})
+            payload["description"] = (request.form.get("activity_description") or "").strip()
+            performance = _wizard_performance_payload(session, request.form, is_promo)
+            payload["performance"] = performance
+            formation_label = _performance_formation_label(performance)
+            if formation_label or performance.get("sings") is not None:
+                payload["formation"] = formation_label
+            c.contracting_payload = payload
+            session.commit()
+            flash("Detalle de la actividad actualizado.", "success")
+        elif section == "entradas":
+            # Entrada y venta: gratuito/venta, aforo, quién vende, tipos, salida e invitaciones.
+            payload = dict(c.ticketing_payload or {})
+            entry_mode = (request.form.get("entry_mode") or "").strip().upper()
+            if entry_mode not in ("FREE", "SALE"):
+                entry_mode = "FREE"
+            ticket_type_rows = _parse_wizard_ticket_types(request.form)
+            if entry_mode == "FREE":
+                c.no_capacity = _truthy(request.form.get("free_capacity_unlimited"))
+                c.capacity = 0 if c.no_capacity else (_parse_optional_positive_int(request.form.get("free_capacity")) or 0)
+                c.sale_start_tbc = False
+                c.sale_start_date = None
+                ticket_type_rows = []
+                payload["sale_seller"] = None
+                payload["sale_owner"] = ""
+            else:
+                c.no_capacity = False
+                qty_sum = sum(int(r.get("qty_for_sale") or 0) for r in ticket_type_rows)
+                c.capacity = _parse_optional_positive_int(request.form.get("capacity")) or qty_sum or 0
+                c.sale_start_tbc = _truthy(request.form.get("sale_start_tbc"))
+                c.sale_start_date = None if c.sale_start_tbc else parse_optional_date(request.form.get("sale_start_date"))
+                seller = _parse_wizard_sale_seller(
+                    session, request.form,
+                    billing_company_id=c.billing_company_id,
+                    promoter_id=c.promoter_id,
+                    venue_id=c.venue_id,
+                )
+                payload["sale_seller"] = seller
+                payload["sale_owner"] = (seller.get("label") if seller else "") or ""
+            payload["entry_mode"] = entry_mode
+            payload["free_capacity_unlimited"] = bool(entry_mode == "FREE" and c.no_capacity)
+            payload["ticket_types"] = ticket_type_rows
+            invitations_mode = (request.form.get("invitations_mode") or "").strip().upper()
+            invitation_rows = []
+            if invitations_mode == "TOTAL":
+                inv_total = _parse_optional_positive_int(request.form.get("invitations_total")) or 0
+                if inv_total:
+                    invitation_rows = [{"category": "Invitaciones por contrato", "artist_qty": 0, "office_qty": inv_total, "total_qty": inv_total}]
+                payload["invitations_total"] = inv_total
+            elif invitations_mode == "BY_TYPE":
+                for r in ticket_type_rows:
+                    inv_total = int(r.get("invites_total") or 0)
+                    if inv_total:
+                        invitation_rows.append({"category": r["name"], "artist_qty": 0, "office_qty": inv_total, "total_qty": inv_total})
+            if invitations_mode:
+                payload["invitations_mode"] = invitations_mode
+                c.invitations_json = invitation_rows
+            c.ticketing_payload = payload
+            _replace_concert_ticket_types_manual(session, c.id, ticket_type_rows)
+            session.commit()
+            flash("Entradas y venta actualizadas.", "success")
         elif section == "equipamiento":
             _upsert_equipment_from_request(session, c.id)
             _add_equipment_docs_from_request(session, c.id)
@@ -26363,6 +26592,7 @@ def api_create_venue():
 
         municipality = (payload.get("municipality") or "").strip() or None
         province = (payload.get("province") or "").strip() or None
+        country = (payload.get("country") or "").strip() or "España"
         address = (payload.get("address") or "").strip() or None
         force_new = _truthy(payload.get("force_new"))
         photo = request.files.get("photo") or request.files.get("logo") if not request.is_json else None
@@ -26400,6 +26630,7 @@ def api_create_venue():
             address=address,
             municipality=municipality,
             province=province,
+            country=country,
             photo_url=photo_url,
         )
         session_db.add(v)
@@ -26420,6 +26651,7 @@ def api_create_venue():
             "name": (v.name or "").strip(),
             "municipality": mun,
             "province": prov,
+            "country": (v.country or "").strip(),
             "label": text_label,
             "text": text_label,
             "photo_url": (v.photo_url or ""),
@@ -31366,6 +31598,164 @@ def api_concert_artist_conflicts():
         session.close()
 
 
+def _ensure_promoter_for_media(session, media_id):
+    """El promotor de una actividad también puede ser un MEDIO de comunicación: como
+    Concert.promoter_id apunta a promoters, se reutiliza (o crea) el tercero espejo con
+    el nombre y el logo del medio."""
+    media = session.get(MediaOutlet, media_id) if media_id else None
+    if not media:
+        return None
+    name = (media.name or '').strip()
+    if not name:
+        return None
+    existing = (
+        session.query(Promoter)
+        .filter(func.lower(Promoter.nick) == name.lower())
+        .first()
+    )
+    if existing:
+        if not existing.logo_url and media.logo_url:
+            existing.logo_url = media.logo_url
+        return existing
+    p = Promoter(nick=name, logo_url=media.logo_url, kind='empresa')
+    session.add(p)
+    session.flush()
+    return p
+
+
+def _parse_wizard_ticket_types(form) -> list[dict]:
+    """Tipos de entrada del asistente: nombre + precio (+ cupo e invitaciones opcionales)."""
+    names = form.getlist('wt_name[]')
+    prices = form.getlist('wt_price[]')
+    qtys = form.getlist('wt_qty[]')
+    invites = form.getlist('wt_invites[]')
+    rows = []
+    seen = set()
+    for i, raw_name in enumerate(names or []):
+        name = (raw_name or '').strip()
+        price = _parse_optional_decimal(prices[i] if i < len(prices) else None)
+        qty = _parse_optional_positive_int((qtys[i] if i < len(qtys) else '') or '')
+        inv = _parse_optional_positive_int((invites[i] if i < len(invites) else '') or '')
+        if not name and price is None and not qty and not inv:
+            continue
+        name = name or f'Entrada {len(rows) + 1}'
+        key = name.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append({
+            'name': name,
+            'price': float(price or 0),
+            'qty_for_sale': int(qty or 0),
+            'invites_total': int(inv or 0),
+        })
+    return rows
+
+
+def _parse_wizard_sale_seller(session, form, billing_company_id=None, promoter_id=None, venue_id=None):
+    """«¿Quién saca las entradas a la venta?» del asistente → dict para ticketing_payload."""
+    kind = (form.get('sale_seller_kind') or '').strip().upper()
+    if kind not in ('US', 'PROMOTER', 'VENUE', 'THIRD'):
+        return None
+    seller = {'kind': kind, 'label': ''}
+    if kind == 'US' and billing_company_id:
+        co = session.get(GroupCompany, billing_company_id)
+        seller['label'] = (co.name if co else '') or 'Empresa del grupo'
+    elif kind == 'PROMOTER' and promoter_id:
+        p = session.get(Promoter, promoter_id)
+        seller['label'] = (p.nick if p else '') or 'Promotor'
+    elif kind == 'VENUE':
+        v = session.get(Venue, venue_id) if venue_id else None
+        seller['label'] = ((v.name if v else '') or (form.get('sale_seller_venue_label') or '').strip() or 'Recinto')
+    elif kind == 'THIRD':
+        third_kind = (form.get('sale_seller_third_kind') or 'promoter').strip().lower()
+        third_id = to_uuid((form.get('sale_seller_third_id') or '').strip() or None)
+        if third_kind == 'media' and third_id:
+            m = session.get(MediaOutlet, third_id)
+            if m:
+                seller['media_id'] = str(third_id)
+                seller['label'] = (m.name or '').strip()
+        elif third_id:
+            p = session.get(Promoter, third_id)
+            if p:
+                seller['promoter_id'] = str(third_id)
+                seller['label'] = (p.nick or '').strip()
+        if not seller.get('label'):
+            seller['label'] = (form.get('sale_seller_third_label') or '').strip() or 'Tercero'
+    if not seller['label']:
+        seller['label'] = {'US': 'Empresa del grupo', 'PROMOTER': 'Promotor', 'VENUE': 'Recinto', 'THIRD': 'Tercero'}[kind]
+    return seller
+
+
+def _replace_concert_ticket_types_manual(session, concert_id, rows):
+    """Reemplaza los tipos de entrada configurados a mano (NUNCA toca los espejados de
+    Enterticket, et_managed=True; tampoco crea uno manual que choque con uno de ET)."""
+    et_names = {
+        (t.name or '').casefold()
+        for t in session.query(ConcertTicketType).filter_by(concert_id=concert_id, et_managed=True).all()
+    }
+    session.query(ConcertTicketType).filter_by(concert_id=concert_id, et_managed=False).delete(synchronize_session=False)
+    session.flush()
+    for r in rows or []:
+        if (r.get('name') or '').casefold() in et_names:
+            continue
+        session.add(ConcertTicketType(
+            concert_id=concert_id,
+            name=r['name'],
+            qty_for_sale=int(r.get('qty_for_sale') or 0),
+            price=r.get('price') or 0,
+        ))
+
+
+def _wizard_performance_payload(session, form, is_promo: bool) -> dict:
+    """Bloque «¿En qué consiste la actividad?» de los eventos promocionales/TV/marca/otros:
+    descripción + si el artista canta (nº de canciones, repertorio y formación)."""
+    perf = {
+        'sings': None,
+        'songs_count': None,
+        'songs': [],
+        'formation_kind': None,
+        'formation_text': '',
+    }
+    if not is_promo:
+        return perf
+    sings_raw = (form.get('artist_sings') or '').strip()
+    if not sings_raw:
+        return perf
+    sings = _truthy(sings_raw)
+    perf['sings'] = sings
+    if not sings:
+        return perf
+    perf['songs_count'] = _parse_optional_positive_int((form.get('performance_songs_count') or '').strip())
+    song_ids = []
+    for raw in form.getlist('performance_song_ids[]'):
+        sid = to_uuid((raw or '').strip() or None)
+        if sid and sid not in song_ids:
+            song_ids.append(sid)
+    if song_ids:
+        titles = {str(s.id): (s.title or '').strip() for s in session.query(Song).filter(Song.id.in_(song_ids)).all()}
+        perf['songs'] = [{'id': str(sid), 'title': titles.get(str(sid), '')} for sid in song_ids if str(sid) in titles]
+        if not perf['songs_count']:
+            perf['songs_count'] = len(perf['songs'])
+    fk = (form.get('formation_kind') or '').strip().upper()
+    if fk in ('SOLO', 'PLUS'):
+        perf['formation_kind'] = fk
+        if fk == 'PLUS':
+            perf['formation_text'] = (form.get('formation_text') or '').strip()
+    return perf
+
+
+def _performance_formation_label(perf: dict | None) -> str:
+    perf = perf or {}
+    fk = (perf.get('formation_kind') or '').strip().upper()
+    if fk == 'SOLO':
+        return 'Solo artista'
+    if fk == 'PLUS':
+        extra = (perf.get('formation_text') or '').strip()
+        return f'Artista + {extra}' if extra else 'Artista +'
+    return ''
+
+
 def _parse_wizard_promoter_share_rows(form) -> list[dict]:
     rows = []
     ids = form.getlist('wizard_partner_promoter_id[]')
@@ -31482,7 +31872,8 @@ def concert_wizard_create():
         sale_type = (request.form.get('sale_type') or 'EMPRESA').strip().upper()
         if sale_type not in CONCERT_SALE_TYPES_ALL_SET:
             sale_type = 'EMPRESA'
-        hashtags = _parse_hashtag_text(request.form.get('wizard_hashtags_text'))
+        # Chips del gestor de tags (concert_tags[]) con fallback al campo de texto legacy.
+        hashtags = _dedupe_concert_tags(request.form.getlist('concert_tags[]')) or _parse_hashtag_text(request.form.get('wizard_hashtags_text'))
         billing_company_id = to_uuid((request.form.get('billing_company_id') or '').strip() or None)
         festival_name = (request.form.get('festival_name') or '').strip() or None
         venue_id = to_uuid((request.form.get('venue_id') or '').strip() or None)
@@ -31507,11 +31898,18 @@ def concert_wizard_create():
                 if manual_province:
                     venue_row.province = manual_province
 
+        # ¿Es una actividad promocional (no concierto/festival)? Cambia pasos y opciones.
+        is_promo_activity = activity_type in ('EVENTO_PROMOCIONAL', 'TV', 'MARCA', 'OTROS')
+        performance = _wizard_performance_payload(session, request.form, is_promo_activity)
+        formation_label = _performance_formation_label(performance) or (request.form.get('formation') or '').strip()
+
         wizard_payload = {
             'activity_type': activity_type,
             'activity_subtype': activity_subtype,
             'artist_ids': artist_ids_payload,
-            'formation': (request.form.get('formation') or '').strip(),
+            'description': (request.form.get('activity_description') or '').strip(),
+            'performance': performance,
+            'formation': formation_label,
             'performance_duration': (request.form.get('performance_duration') or '').strip(),
             'meet_greet': {
                 'enabled': _truthy(request.form.get('meet_greet')),
@@ -31519,14 +31917,16 @@ def concert_wizard_create():
                 'moment': (request.form.get('meet_greet_moment') or '').strip(),
             },
             'other_commitments': (request.form.get('other_commitments') or '').strip(),
-            'carteleria': (request.form.get('artwork_owner') or '').strip(),
+            'carteleria': (request.form.get('artwork_choice') or request.form.get('artwork_owner') or '').strip(),
+            'announcement_note': (request.form.get('announcement_note') or '').strip(),
             'billing_plan': _parse_payment_terms_rows(request.form),
         }
+        ticket_type_rows = _parse_wizard_ticket_types(request.form)
         ticketing_payload = {
             'total_capacity': (request.form.get('capacity_total') or request.form.get('capacity') or '').strip(),
             'sale_capacity': (request.form.get('capacity_sale') or '').strip(),
             'sale_owner': (request.form.get('sale_owner') or '').strip(),
-            'ticket_types': request.form.getlist('ticket_type_name[]'),
+            'ticket_types': ticket_type_rows,
             'channels': request.form.getlist('ticketer_ids[]') or request.form.getlist('ticketer_id[]'),
             'invitations': request.form.getlist('invitation_qty[]'),
         }
@@ -31535,11 +31935,7 @@ def concert_wizard_create():
             'amount': (request.form.get('equipment_amount') or '').strip(),
             'notes': (request.form.get('equipment_notes') or request.form.get('equipment_note_body[]') or '').strip(),
         }
-        promoter_costs_payload = {
-            'items': request.form.getlist('promoter_costs[]'),
-            'notes': (request.form.get('promoter_costs_note') or '').strip(),
-            'amount': (request.form.get('promoter_costs_amount') or '').strip(),
-        }
+        promoter_costs_payload = _parse_promoter_costs_form(request.form)
 
         if mode == 'request_sheet':
             promoter_email = (request.form.get('promoter_email') or '').strip()
@@ -31614,19 +32010,93 @@ def concert_wizard_create():
 
         promoter_id = to_uuid((request.form.get('promoter_id') or '').strip() or None)
         promoter_company_id = to_uuid((request.form.get('promoter_company_id') or '').strip() or None)
+        # El promotor también puede ser un MEDIO de comunicación (espejado a tercero).
+        if not promoter_id:
+            promoter_media_id = to_uuid((request.form.get('promoter_media_id') or '').strip() or None)
+            if promoter_media_id:
+                media_promoter = _ensure_promoter_for_media(session, promoter_media_id)
+                promoter_id = media_promoter.id if media_promoter else None
+        # Sociedad nueva creada sobre la marcha desde el propio asistente.
+        new_company_name = (request.form.get('new_promoter_company_name') or '').strip()
+        if promoter_id and not promoter_company_id and new_company_name:
+            new_company = PromoterCompany(
+                promoter_id=promoter_id,
+                legal_name=new_company_name,
+                tax_id=(request.form.get('new_promoter_company_tax_id') or '').strip() or None,
+            )
+            session.add(new_company)
+            session.flush()
+            promoter_company_id = new_company.id
         if sale_type == 'EMPRESA':
             # En conciertos a empresa la contraparte es la empresa del grupo
             # seleccionada arriba; no se fuerza un tercero/promotor externo.
             promoter_id = None
             promoter_company_id = None
-        no_capacity = _truthy(request.form.get('no_capacity'))
-        sale_start_tbc = _truthy(request.form.get('sale_start_tbc'))
+
         show_time_tbc = _truthy(request.form.get('show_time_tbc'))
         doors_time_tbc = _truthy(request.form.get('doors_time_tbc'))
         do_not_announce = _truthy(request.form.get('do_not_announce'))
-        capacity = 0 if no_capacity else (_parse_optional_positive_int(request.form.get('capacity')) or 0)
         announcement_date = None if do_not_announce else parse_optional_date(request.form.get('announcement_date'))
-        sale_start_date = None if sale_start_tbc else parse_optional_date(request.form.get('sale_start_date'))
+
+        # Entrada: ¿evento gratuito o con venta de entradas? (paso «Entradas» del asistente).
+        entry_mode = (request.form.get('entry_mode') or '').strip().upper()
+        if entry_mode not in ('FREE', 'SALE'):
+            entry_mode = ''
+        if entry_mode == 'FREE':
+            no_capacity = _truthy(request.form.get('free_capacity_unlimited'))
+            capacity = 0 if no_capacity else (_parse_optional_positive_int(request.form.get('free_capacity')) or 0)
+            sale_start_tbc = False
+            sale_start_date = None
+            ticket_type_rows = []
+            ticketing_payload['ticket_types'] = []
+        elif entry_mode == 'SALE':
+            no_capacity = False
+            qty_sum = sum(int(r.get('qty_for_sale') or 0) for r in ticket_type_rows)
+            capacity = _parse_optional_positive_int(request.form.get('capacity')) or qty_sum or 0
+            sale_start_tbc = _truthy(request.form.get('sale_start_tbc'))
+            sale_start_date = None if sale_start_tbc else parse_optional_date(request.form.get('sale_start_date'))
+        else:
+            # Compatibilidad con formularios antiguos (sin entry_mode).
+            no_capacity = _truthy(request.form.get('no_capacity'))
+            capacity = 0 if no_capacity else (_parse_optional_positive_int(request.form.get('capacity')) or 0)
+            sale_start_tbc = _truthy(request.form.get('sale_start_tbc'))
+            sale_start_date = None if sale_start_tbc else parse_optional_date(request.form.get('sale_start_date'))
+
+        sale_seller = None
+        if entry_mode == 'SALE':
+            sale_seller = _parse_wizard_sale_seller(
+                session, request.form,
+                billing_company_id=billing_company_id,
+                promoter_id=promoter_id,
+                venue_id=venue_id,
+            )
+        ticketing_payload['entry_mode'] = entry_mode or None
+        ticketing_payload['free_capacity_unlimited'] = bool(entry_mode == 'FREE' and no_capacity)
+        if sale_seller:
+            ticketing_payload['sale_seller'] = sale_seller
+            if not ticketing_payload.get('sale_owner'):
+                ticketing_payload['sale_owner'] = sale_seller.get('label') or ''
+
+        # Invitaciones pactadas: por tipo de entrada o total por contrato.
+        invitations_mode = (request.form.get('invitations_mode') or '').strip().upper()
+        invitation_rows = []
+        if invitations_mode == 'TOTAL':
+            inv_total = _parse_optional_positive_int(request.form.get('invitations_total')) or 0
+            if inv_total:
+                invitation_rows = [{'category': 'Invitaciones por contrato', 'artist_qty': 0, 'office_qty': inv_total, 'total_qty': inv_total}]
+            ticketing_payload['invitations_total'] = inv_total
+        elif invitations_mode == 'BY_TYPE':
+            for r in ticket_type_rows:
+                inv_total = int(r.get('invites_total') or 0)
+                if inv_total:
+                    invitation_rows.append({'category': r['name'], 'artist_qty': 0, 'office_qty': inv_total, 'total_qty': inv_total})
+        if invitations_mode:
+            ticketing_payload['invitations_mode'] = invitations_mode
+        if not invitation_rows:
+            invitation_rows = _parse_invitation_rows(request.form)
+
+        # Estado inicial elegido de forma visual en el asistente (por defecto BORRADOR).
+        initial_status = _norm_status(request.form.get('status'))
 
         concert = Concert(
             date=event_date,
@@ -31652,7 +32122,7 @@ def concert_wizard_create():
             group_company_id=billing_company_id if sale_type == 'EMPRESA' else None,
             billing_company_id=billing_company_id,
             hashtags=hashtags,
-            status='BORRADOR',
+            status=initial_status,
             manual_venue_name=manual_venue_name,
             manual_venue_address=manual_venue_address,
             manual_municipality=manual_municipality,
@@ -31662,13 +32132,17 @@ def concert_wizard_create():
             doors_time=(request.form.get('doors_time') or '').strip() or None,
             show_time_tbc=show_time_tbc,
             doors_time_tbc=doors_time_tbc,
-            invitations_json=_parse_invitation_rows(request.form),
+            invitations_json=invitation_rows,
             payment_terms_json=_parse_payment_terms_rows(request.form),
             announcement_date=announcement_date,
             do_not_announce=do_not_announce,
         )
         session.add(concert)
         session.flush()
+
+        # Tipos de entrada del asistente → tipos reales (nombre, precio, cupo) del concierto.
+        if ticket_type_rows:
+            _replace_concert_ticket_types_manual(session, concert.id, ticket_type_rows)
 
         # Vínculo opcional a una gira comprada / ciclo o festival (paso del asistente).
         _ptid = (request.form.get('wizard_purchased_tour_id') or '').strip()
@@ -31707,8 +32181,43 @@ def concert_wizard_create():
         _add_equipment_notes_from_request(session, concert.id)
         _ensure_internal_contract_sheet(session, concert)
 
+        # Cartelería elegida en el asistente: quién hace los carteles y, si somos nosotros,
+        # la solicitud automática a diseño (formatos + logos + notas).
+        artwork_choice = (request.form.get('artwork_choice') or '').strip().upper()
+        artwork_row = None
+        artwork_send = False
+        if artwork_choice in ('PROMOTER', 'REQUEST'):
+            now = datetime.now(ZoneInfo('Europe/Madrid'))
+            artwork_row = ConcertArtworkRequest(concert_id=concert.id, public_token=uuid.uuid4().hex)
+            session.add(artwork_row)
+            if artwork_choice == 'PROMOTER':
+                artwork_row.handled_by = 'PROMOTER'
+                artwork_row.status = 'PROMOTER'
+            else:
+                artwork_row.handled_by = 'OURS'
+                artwork_row.status = 'REQUESTED'
+                artwork_row.requested_at = now
+                artwork_row.group_company_ids = _parse_uuid_list(request.form.getlist('artwork_company_ids[]'))
+                artwork_row.ticketer_ids = _parse_uuid_list(request.form.getlist('artwork_ticketer_ids[]'))
+                artwork_row.requested_formats = [k for k in request.form.getlist('artwork_formats[]') if (k or '').strip().upper() in ARTWORK_FORMAT_LABELS]
+                artwork_row.other_notes = (request.form.get('artwork_notes') or '').strip() or None
+                artwork_row.delivery_deadline = parse_optional_date(request.form.get('artwork_deadline'))
+                artwork_send = True
+            artwork_row.updated_at = now
+            artwork_row.event_snapshot = _concert_artwork_snapshot(concert)
+
         session.commit()
-        flash('Concierto creado correctamente.', 'success')
+        if artwork_send and artwork_row:
+            try:
+                ok, error = _send_artwork_request_email(concert, artwork_row, is_update=False)
+            except Exception as exc:
+                ok, error = False, str(exc)
+            if ok:
+                flash('Actividad creada y solicitud de cartelería enviada a diseño.', 'success')
+            else:
+                flash(f'Actividad creada. La solicitud de cartelería quedó registrada pero el correo no se pudo enviar: {error}', 'warning')
+        else:
+            flash('Actividad creada correctamente.', 'success')
         return redirect(url_for('concert_detail_view', cid=concert.id, tab='general'))
     except Exception as exc:
         session.rollback()
@@ -36412,6 +36921,9 @@ def inject_personnel_globals():
         "HOME_AGENDA": _home_agenda() if request.endpoint == "home" and session.get("user_id") and "_home_agenda" in globals() else None,
         "AGENDA_ARTIST_OPTIONS": _agenda_artist_options() if request.endpoint == "home" and session.get("user_id") and "_agenda_artist_options" in globals() else [],
         "PERSONNEL_DEPARTMENTS": PERSONNEL_DEPARTMENTS,
+        # Catálogos del asistente de actividad y de la ficha (cartelería / gastos del promotor).
+        "ARTWORK_FORMAT_CHOICES": ARTWORK_FORMAT_CHOICES,
+        "PROMOTER_COST_ITEMS": PROMOTER_COST_ITEMS,
         "SECTION_STATS": _section_stats_counts() if request.endpoint in {"promocion_view", "marketing_view", "administracion_view", "contabilidad_view", "produccion_view", "acciones_view", "action_detail_view", "personnel_view", "invitations_view", "invitation_event_detail"} and session.get("user_id") else {},
         "has_access_key": has_access_key,
         # Placeholder de PORTADA (canción/álbum) cuando no hay portada: disco gris sobre fondo gris
@@ -36586,6 +37098,8 @@ SUPPORT_READ_ENDPOINTS = {
     "api_media_artist_activities",
     "api_search_promoters", "api_search_publishing_companies", "api_search_ticketers",
     "api_search_venues", "api_search_events", "api_entity_link_search", "api_search_commission_entities",
+    # Asistente de actividad: repertorio + # del artista (para eventos promocionales y sugerencias).
+    "api_artist_wizard_meta",
     "api_get_promoter", "api_promoter_detail", "api_promoter_emails", "api_media_contacts",
     "api_concert_meta", "api_song_meta", "api_album_song_search",
     "api_concert_artist_conflicts", "api_embargo_check_third_party", "api_geocode",
@@ -42095,8 +42609,86 @@ def _concert_contracting_general_rows(session_db, concert):
     if not getattr(concert, "no_capacity", False) and getattr(concert, "capacity", None):
         add("Aforo", str(concert.capacity))
     elif getattr(concert, "no_capacity", False):
-        add("Aforo", "Sin aforo")
+        ticketing_probe = _json_loads_safe(getattr(concert, "ticketing_payload", None), {})
+        free_mode = isinstance(ticketing_probe, dict) and (ticketing_probe.get("entry_mode") or "").upper() == "FREE"
+        add("Aforo", "Aforo libre" if free_mode else "Sin aforo")
 
+    # --- Datos estructurados del asistente (con etiqueta legible) ---
+    contracting = _json_loads_safe(getattr(concert, "contracting_payload", None), {})
+    contracting = contracting if isinstance(contracting, dict) else {}
+    add("En qué consiste", contracting.get("description"))
+    performance = contracting.get("performance") if isinstance(contracting.get("performance"), dict) else {}
+    if performance.get("sings") is True:
+        add("¿El artista canta?", "Sí")
+        if performance.get("songs_count"):
+            add("Nº de canciones", str(performance.get("songs_count")))
+        songs = [(x.get("title") or "").strip() for x in (performance.get("songs") or []) if isinstance(x, dict)]
+        songs = [x for x in songs if x]
+        if songs:
+            add("Canciones", ", ".join(songs))
+    elif performance.get("sings") is False:
+        add("¿El artista canta?", "No")
+    add("Formación", contracting.get("formation"))
+    if getattr(concert, "do_not_announce", False):
+        add("Anuncio", "No anunciar")
+    elif getattr(concert, "announcement_date", None):
+        add("Anuncio", concert.announcement_date.strftime("%d/%m/%Y"))
+    if contracting.get("announcement_note"):
+        add("Nota del anuncio", contracting.get("announcement_note"))
+
+    ticketing = _json_loads_safe(getattr(concert, "ticketing_payload", None), {})
+    ticketing = ticketing if isinstance(ticketing, dict) else {}
+    entry_mode = (ticketing.get("entry_mode") or "").upper()
+    if entry_mode == "FREE":
+        add("Entrada", "Evento gratuito")
+    elif entry_mode == "SALE":
+        add("Entrada", "Venta de entradas")
+    seller = ticketing.get("sale_seller") if isinstance(ticketing.get("sale_seller"), dict) else None
+    seller_kind_labels = {"US": "Nosotros", "PROMOTER": "El promotor", "VENUE": "El recinto", "THIRD": "Un tercero"}
+    if seller:
+        kind_label = seller_kind_labels.get((seller.get("kind") or "").upper(), "")
+        label_txt = (seller.get("label") or "").strip()
+        add("Saca las entradas a la venta", f"{kind_label} · {label_txt}".strip(" ·") if label_txt else kind_label)
+    elif ticketing.get("sale_owner"):
+        add("Saca las entradas a la venta", ticketing.get("sale_owner"))
+    tt_rows = [x for x in (ticketing.get("ticket_types") or []) if isinstance(x, dict)]
+    if tt_rows:
+        parts = []
+        for x in tt_rows:
+            piece = (x.get("name") or "Entrada").strip()
+            try:
+                price = float(x.get("price") or 0)
+            except Exception:
+                price = 0.0
+            if price:
+                piece += f" · {('%.2f' % price).replace('.', ',')} €"
+            parts.append(piece)
+        add("Tipos de entrada", " | ".join(parts))
+    inv_mode = (ticketing.get("invitations_mode") or "").upper()
+    if inv_mode == "TOTAL" and ticketing.get("invitations_total"):
+        add("Invitaciones pactadas", f"{ticketing.get('invitations_total')} por contrato")
+    elif inv_mode == "BY_TYPE":
+        inv_parts = [f"{(x.get('name') or 'Entrada').strip()}: {int(x.get('invites_total') or 0)}" for x in tt_rows if int(x.get("invites_total") or 0)]
+        if inv_parts:
+            add("Invitaciones pactadas", " | ".join(inv_parts))
+
+    pc_rows = _promoter_costs_rows(getattr(concert, "promoter_costs_payload", None))
+    if pc_rows:
+        add("Promotor cubre otros gastos", ", ".join(r["label"] for r in pc_rows))
+
+    # --- Resto de claves de los payloads (volcado genérico, sin las ya mostradas) ---
+    shown_keys = {
+        ("Datos de contratación", "description"), ("Datos de contratación", "performance"),
+        ("Datos de contratación", "formation"), ("Datos de contratación", "announcement_note"),
+        ("Datos de contratación", "activity_type"), ("Datos de contratación", "activity_subtype"),
+        ("Datos de contratación", "artist_ids"), ("Datos de contratación", "carteleria"),
+        ("Datos de contratación", "billing_plan"),
+        ("Ticketing", "entry_mode"), ("Ticketing", "sale_seller"), ("Ticketing", "sale_owner"),
+        ("Ticketing", "ticket_types"), ("Ticketing", "invitations_mode"), ("Ticketing", "invitations_total"),
+        ("Ticketing", "free_capacity_unlimited"), ("Ticketing", "invitations"), ("Ticketing", "channels"),
+        ("Ticketing", "total_capacity"), ("Ticketing", "sale_capacity"),
+        ("Gastos cubiertos por promotor", "enabled"), ("Gastos cubiertos por promotor", "items"),
+    }
     payloads = [
         ("Datos de contratación", getattr(concert, "contracting_payload", None)),
         ("Ticketing", getattr(concert, "ticketing_payload", None)),
@@ -42110,6 +42702,8 @@ def _concert_contracting_general_rows(session_db, concert):
             continue
         for key, value in data.items():
             if value in (None, "", [], {}):
+                continue
+            if (prefix, key) in shown_keys:
                 continue
             label = str(key).replace("_", " ").strip().title()
             if isinstance(value, (list, dict)):

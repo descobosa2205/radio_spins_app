@@ -14,389 +14,749 @@
 
           <div class="d-flex flex-wrap gap-2 mb-3" id="wizardStepPills"></div>
 
+          {# ============================ PASO 1 · Tipo de actividad ============================ #}
           <section class="wizard-step" data-step="1" data-mode="any">
-            <div class="card border-0 bg-light">
-              <div class="card-body">
-                <h6 class="mb-3">Selecciona el tipo de actividad</h6>
-                <div class="row g-3 mb-3">
-                  {% set activity_options = [
-                    ('CONCIERTO','fa-music','Concierto'),
-                    ('FESTIVAL','fa-people-group','Festival'),
-                    ('EVENTO_PROMOCIONAL','fa-bullhorn','Evento promocional'),
-                    ('TV','fa-tv','Programa de TV'),
-                    ('MARCA','fa-handshake','Acción con marca'),
-                    ('OTROS','fa-star','Otros')
-                  ] %}
-                  {% for value, icon, label in activity_options %}
-                    <div class="col-md-4 col-lg-2">
-                      <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
-                        <input class="form-check-input visually-hidden" type="radio" name="activity_type" value="{{ value }}" {% if loop.first %}checked{% endif %}>
-                        <i class="fa {{ icon }} d-block fs-3 mb-2 text-dark"></i>
-                        <span class="fw-semibold small">{{ label }}</span>
-                      </label>
-                    </div>
-                  {% endfor %}
-                </div>
-                <div class="border rounded bg-white p-3">
-                  <h6 class="mb-3">¿Tienes los datos o hay que pedir ficha?</h6>
-                  <div class="row g-3">
-                    <div class="col-md-6">
-                      <label class="border rounded p-3 d-flex gap-3 align-items-start h-100 w-100 cursor-pointer">
-                        <input class="form-check-input mt-1" type="radio" name="wizard_mode_choice" value="direct" checked>
-                        <span><span class="fw-semibold d-block">Sí, ya tengo los datos</span><span class="text-muted small">Crear la actividad con el asistente.</span></span>
-                      </label>
-                    </div>
-                    <div class="col-md-6">
-                      <label class="border rounded p-3 d-flex gap-3 align-items-start h-100 w-100 cursor-pointer">
-                        <input class="form-check-input mt-1" type="radio" name="wizard_mode_choice" value="request_sheet">
-                        <span><span class="fw-semibold d-block">Enviar ficha de contratación</span><span class="text-muted small">Se crea la actividad como Hablado y se envía el enlace al promotor.</span></span>
-                      </label>
-                    </div>
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-shapes"></i>¿Qué tipo de actividad es?</div>
+              <div class="row g-3">
+                {% set activity_options = [
+                  ('CONCIERTO','fa-music','Concierto'),
+                  ('FESTIVAL','fa-people-group','Festival'),
+                  ('EVENTO_PROMOCIONAL','fa-bullhorn','Evento promocional'),
+                  ('TV','fa-tv','Programa de TV'),
+                  ('MARCA','fa-handshake','Acción con marca'),
+                  ('OTROS','fa-star','Otros')
+                ] %}
+                {% for value, icon, label in activity_options %}
+                  <div class="col-md-4 col-lg-2 col-6">
+                    <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                      <input class="form-check-input visually-hidden" type="radio" name="activity_type" value="{{ value }}" {% if loop.first %}checked{% endif %}>
+                      <i class="fa {{ icon }} d-block fs-3 mb-2 text-dark"></i>
+                      <span class="fw-semibold small">{{ label }}</span>
+                    </label>
                   </div>
+                {% endfor %}
+              </div>
+            </div>
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-clipboard-question"></i>¿Tienes los datos o hay que pedir ficha?</div>
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="activity-choice-card border rounded p-3 d-flex gap-3 align-items-start h-100 w-100 bg-white">
+                    <input class="form-check-input mt-1" type="radio" name="wizard_mode_choice" value="direct" checked>
+                    <span><span class="fw-semibold d-block">Sí, ya tengo los datos</span><span class="text-muted small">Crear la actividad con el asistente.</span></span>
+                  </label>
+                </div>
+                <div class="col-md-6">
+                  <label class="activity-choice-card border rounded p-3 d-flex gap-3 align-items-start h-100 w-100 bg-white">
+                    <input class="form-check-input mt-1" type="radio" name="wizard_mode_choice" value="request_sheet">
+                    <span><span class="fw-semibold d-block">Enviar ficha de contratación</span><span class="text-muted small">Se crea la actividad como Hablado y se envía el enlace al promotor.</span></span>
+                  </label>
                 </div>
               </div>
             </div>
           </section>
 
+          {# ============================ PASO 2 · Empresa + artista ============================ #}
           <section class="wizard-step" data-step="2" data-mode="any">
-            <div class="row g-3">
-              <div class="col-lg-6">
-                <div class="card h-100">
-                  <div class="card-body">
-                    <h6 class="mb-3">Empresa del grupo que factura</h6>
-                    <div class="row g-2">
-                      {% for co in companies %}
-                        <div class="col-md-6">
-                          <label class="border rounded p-2 d-flex gap-2 align-items-center h-100 w-100">
-                            <input class="form-check-input" type="radio" name="billing_company_id" value="{{ co.id }}" {% if loop.first %}checked{% endif %}>
-                            <img src="{{ co.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:34px;height:34px;object-fit:contain;border-radius:8px;">
-                            <span class="fw-semibold small">{{ co.name }}</span>
-                          </label>
-                        </div>
-                      {% endfor %}
-                    </div>
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-building"></i>Empresa del grupo que factura</div>
+              <div class="row g-2">
+                {% for co in companies %}
+                  <div class="col-md-6 col-lg-4">
+                    <label class="activity-choice-card border rounded p-2 d-flex gap-2 align-items-center h-100 w-100 bg-white">
+                      <input class="form-check-input" type="radio" name="billing_company_id" value="{{ co.id }}" data-company-name="{{ co.name }}" data-company-logo="{{ co.logo_url or url_for('static', filename='img/logo.png') }}" {% if loop.first %}checked{% endif %}>
+                      <img src="{{ co.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:34px;height:34px;object-fit:contain;border-radius:8px;">
+                      <span class="fw-semibold small">{{ co.name }}</span>
+                    </label>
                   </div>
-                </div>
-              </div>
-              <div class="col-lg-6">
-                <div class="card h-100">
-                  <div class="card-body">
-                    <h6 class="mb-3">Artista o artistas</h6>
-                    <div class="input-group">
-                      <select name="artist_id" id="wizard_artist_id" class="form-select select-artists" required multiple>
-                        {% for a in artists %}
-                          <option value="{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}">{{ a.name }}</option>
-                        {% endfor %}
-                      </select>
-                      {# Alta rápida GLOBAL (funciona en cualquier página donde se embeba el asistente:
-                         Inicio, ficha de artista…). Antes usaba openArtistModal, que dependía de un
-                         #artistCreateModal que solo existe en /conciertos → petaba embebido. #}
-                      <button type="button" class="btn btn-outline-secondary" data-quick-create="artist" data-target="wizard_artist_id"><i class="fa fa-plus"></i></button>
-                    </div>
-                    <div class="form-text">Puedes seleccionar varios artistas. El selector busca sin distinguir tildes, símbolos o mayúsculas.</div>
-                  </div>
-                </div>
+                {% endfor %}
               </div>
             </div>
-          </section>
-
-          <section class="wizard-step" data-step="3" data-mode="any">
-            <div class="row g-3">
-              <div class="col-lg-4">
-                <label class="form-label">Fecha del concierto</label>
-                <input type="date" class="form-control" name="date" id="wizard_date" required>
-                <div class="form-text">Fecha obligatoria en ambos flujos.</div>
-              </div>
-              <div class="col-lg-8" id="wizardFestivalNameWrap">
-                <label class="form-label">Nombre del festival / evento</label>
-                <input type="text" class="form-control" name="festival_name" placeholder="Festival / nombre interno">
-              </div>
-
-              <div class="col-12">
-                <div class="border rounded p-3">
-                  <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
-                    <div>
-                      <div class="fw-semibold">Recinto y localización</div>
-                      <div class="text-muted small">Si conoces el recinto, selecciónalo. Si no, indica al menos municipio y provincia.</div>
-                    </div>
-                    <div class="form-check form-switch m-0">
-                      <input class="form-check-input" type="checkbox" id="wizard_knows_venue" checked>
-                      <label class="form-check-label small" for="wizard_knows_venue">Conozco el recinto</label>
-                    </div>
-                  </div>
-
-                  <div class="row g-3" id="wizardVenueKnownWrap">
-                    <div class="col-lg-8">
-                      <label class="form-label">Buscar recinto</label>
-                      {# Selector AUTOCONTENIDO (Select2 AJAX con foto en vivo + alta rápida global):
-                         antes dependía de funciones que solo existían en /conciertos y en el resto
-                         de páginas ni buscaba ni funcionaba el botón +. #}
-                      <div class="input-group">
-                        <button type="button" class="btn btn-outline-secondary" data-quick-create="venue" data-target="wizard_venue_id" title="Añadir un recinto nuevo sobre la marcha"><i class="fa fa-plus"></i></button>
-                        <select id="wizard_venue_id" name="venue_id" class="form-select" data-no-loader>
-                          <option value=""></option>
-                        </select>
-                      </div>
-                    </div>
-                    <div class="col-lg-4">
-                      <label class="form-label">Nombre manual del recinto <span class="text-muted">(opcional)</span></label>
-                      <input class="form-control" name="manual_venue_name" placeholder="Solo si aún no existe o quieres dejarlo indicado">
-                    </div>
-                  </div>
-
-                  <div class="row g-3 mt-0" id="wizardVenueManualWrap" style="display:none;">
-                    <div class="col-lg-3">
-                      <label class="form-label">Municipio</label>
-                      <input class="form-control" name="manual_municipality" id="wizard_manual_municipality" placeholder="Municipio">
-                    </div>
-                    <div class="col-lg-3">
-                      <label class="form-label">Provincia</label>
-                      <input class="form-control" name="manual_province" id="wizard_manual_province" placeholder="Provincia">
-                    </div>
-                    <div class="col-lg-4">
-                      <label class="form-label">Dirección</label>
-                      <input class="form-control" name="manual_venue_address" placeholder="Dirección del recinto">
-                    </div>
-                    <div class="col-lg-2">
-                      <label class="form-label">Código postal</label>
-                      <input class="form-control" name="manual_postal_code" placeholder="CP">
-                    </div>
-                  </div>
-
-                  <div class="row g-3 mt-0">
-                    <div class="col-lg-3 direct-only" data-mode="direct">
-                      <label class="form-label">Hora del show</label>
-                      <div class="input-group">
-                        <input class="form-control" name="show_time" placeholder="22:00">
-                        <div class="input-group-text"><input class="form-check-input mt-0" type="checkbox" name="show_time_tbc"> <span class="ms-2 small">TBC</span></div>
-                      </div>
-                    </div>
-                    <div class="col-lg-3 direct-only" data-mode="direct">
-                      <label class="form-label">Apertura de puertas</label>
-                      <div class="input-group">
-                        <input class="form-control" name="doors_time" placeholder="20:30">
-                        <div class="input-group-text"><input class="form-check-input mt-0" type="checkbox" name="doors_time_tbc"> <span class="ms-2 small">TBC</span></div>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="alert alert-warning mt-3 mb-0 d-none" id="wizardArtistConflict"></div>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section class="wizard-step" data-step="4" data-mode="request_sheet">
-            <div class="row g-3">
-              <div class="col-lg-6">
-                <label class="form-label">Tipo de concierto</label>
-                <select name="sale_type" class="form-select wizard-sale-type-select">
-                  {% for value, label in type_choices %}
-                    <option value="{{ value }}">{{ label }}</option>
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-microphone-lines"></i>Artista o artistas</div>
+              <div class="input-group">
+                <select name="artist_id" id="wizard_artist_id" class="form-select select-artists" required multiple>
+                  {% for a in artists %}
+                    <option value="{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}">{{ a.name }}</option>
                   {% endfor %}
                 </select>
+                {# Alta rápida GLOBAL (funciona en cualquier página donde se embeba el asistente). #}
+                <button type="button" class="btn btn-outline-secondary" data-quick-create="artist" data-target="wizard_artist_id"><i class="fa fa-plus"></i></button>
               </div>
-              <div class="col-lg-6">
-                <label class="form-label">Email del promotor</label>
-                <input type="email" class="form-control" name="promoter_email" placeholder="promotor@email.com">
+              <div class="form-text">Puedes seleccionar varios artistas. El selector busca sin distinguir tildes, símbolos o mayúsculas.</div>
+            </div>
+          </section>
+
+          {# ============================ PASO 3 · Fecha + recinto ============================ #}
+          <section class="wizard-step" data-step="3" data-mode="any">
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-calendar-day"></i>Fecha y horarios</div>
+              <div class="row g-3">
+                <div class="col-lg-4">
+                  <label class="form-label">Fecha de la actividad</label>
+                  <input type="date" class="form-control" name="date" id="wizard_date" required>
+                </div>
+                <div class="col-lg-8" id="wizardFestivalNameWrap">
+                  <label class="form-label">Nombre del festival / evento</label>
+                  <input type="text" class="form-control" name="festival_name" placeholder="Festival / nombre interno">
+                </div>
+                <div class="col-lg-3 col-6 direct-only" data-mode="direct">
+                  <label class="form-label">Hora del show</label>
+                  <div class="input-group">
+                    <input class="form-control" name="show_time" placeholder="22:00">
+                    <div class="input-group-text"><input class="form-check-input mt-0" type="checkbox" name="show_time_tbc"> <span class="ms-2 small">TBC</span></div>
+                  </div>
+                </div>
+                <div class="col-lg-3 col-6 direct-only" data-mode="direct">
+                  <label class="form-label">Apertura de puertas</label>
+                  <div class="input-group">
+                    <input class="form-control" name="doors_time" placeholder="20:30">
+                    <div class="input-group-text"><input class="form-check-input mt-0" type="checkbox" name="doors_time_tbc"> <span class="ms-2 small">TBC</span></div>
+                  </div>
+                </div>
               </div>
-              <div class="col-12">
-                <label class="form-label"># / gira / conjunto de eventos</label>
-                <input class="form-control" list="wizardTagOptions" name="wizard_hashtags_text" placeholder="#verano, #gira2026, festival x">
-                <div class="form-text">Puedes poner varios separados por coma. Si no existe uno similar, se creará.</div>
+            </div>
+
+            <div class="wizard-card">
+              <div class="d-flex justify-content-between align-items-center gap-2 mb-2 flex-wrap">
+                <div class="wizard-card__title mb-0"><i class="fa fa-location-dot"></i>Recinto y localización</div>
+                <div class="form-check form-switch m-0">
+                  <input class="form-check-input" type="checkbox" id="wizard_knows_venue" checked>
+                  <label class="form-check-label small" for="wizard_knows_venue">Conozco el recinto</label>
+                </div>
+              </div>
+              <div class="wizard-card__hint">Si conoces el recinto, selecciónalo (o créalo con el botón +, ahora con país). Si no, indica al menos municipio y provincia.</div>
+
+              <div class="row g-3" id="wizardVenueKnownWrap">
+                <div class="col-12">
+                  <label class="form-label">Buscar recinto</label>
+                  {# Selector AUTOCONTENIDO (Select2 AJAX con foto en vivo + alta rápida global). #}
+                  <div class="input-group">
+                    <button type="button" class="btn btn-outline-secondary" data-quick-create="venue" data-target="wizard_venue_id" title="Añadir un recinto nuevo sobre la marcha"><i class="fa fa-plus"></i></button>
+                    <select id="wizard_venue_id" name="venue_id" class="form-select" data-no-loader>
+                      <option value=""></option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {# El nombre manual SOLO aparece cuando NO se conoce el recinto. #}
+              <div class="row g-3 mt-0" id="wizardVenueManualWrap" style="display:none;">
+                <div class="col-lg-4">
+                  <label class="form-label">Nombre del recinto <span class="text-muted">(si se conoce)</span></label>
+                  <input class="form-control" name="manual_venue_name" placeholder="Nombre provisional del recinto">
+                </div>
+                <div class="col-lg-3">
+                  <label class="form-label">Municipio</label>
+                  <input class="form-control" name="manual_municipality" id="wizard_manual_municipality" placeholder="Municipio">
+                </div>
+                <div class="col-lg-3">
+                  <label class="form-label">Provincia</label>
+                  <input class="form-control" name="manual_province" id="wizard_manual_province" placeholder="Provincia">
+                </div>
+                <div class="col-lg-2">
+                  <label class="form-label">Código postal</label>
+                  <input class="form-control" name="manual_postal_code" placeholder="CP">
+                </div>
+                <div class="col-lg-6">
+                  <label class="form-label">Dirección</label>
+                  <input class="form-control" name="manual_venue_address" placeholder="Dirección del recinto">
+                </div>
+              </div>
+              <div class="alert alert-warning mt-3 mb-0 d-none" id="wizardArtistConflict"></div>
+            </div>
+          </section>
+
+          {# ================= PASO 4 (request_sheet) · Tipo + email promotor ================= #}
+          <section class="wizard-step" data-step="4" data-mode="request_sheet">
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-file-signature"></i>Ficha de contratación</div>
+              <div class="row g-3">
+                <div class="col-lg-6">
+                  <label class="form-label">Tipo de concierto</label>
+                  <select name="sale_type" class="form-select wizard-sale-type-select">
+                    {% for value, label in type_choices %}
+                      <option value="{{ value }}">{{ label }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="col-lg-6">
+                  <label class="form-label">Email del promotor</label>
+                  <input type="email" class="form-control" name="promoter_email" placeholder="promotor@email.com">
+                </div>
+                <div class="col-12">
+                  <label class="form-label"># / gira / conjunto de eventos</label>
+                  <input class="form-control" list="wizardTagOptions" name="wizard_hashtags_text" placeholder="#verano, #gira2026, festival x">
+                  <div class="form-text">Puedes poner varios separados por coma. Si no existe uno similar, se creará.</div>
+                </div>
               </div>
             </div>
           </section>
 
+          {# ============ PASO 4 (direct) · Detalle del evento promocional / TV / marca ============ #}
           <section class="wizard-step" data-step="4" data-mode="direct">
-            <div class="row g-3">
-              <div class="col-12">
-                <label class="form-label d-block">Tipo de concierto</label>
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-circle-info"></i>¿En qué consiste la actividad?</div>
+              <textarea class="form-control" name="activity_description" id="wizard_activity_description" rows="3" placeholder="Describe la actividad: qué es, dónde encaja, qué se espera del artista…"></textarea>
+            </div>
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-microphone"></i>¿El artista canta?</div>
+              <div class="row g-3">
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-sings-radio" type="radio" name="artist_sings" value="1">
+                    <i class="fa fa-microphone d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">Sí, canta</span>
+                  </label>
+                </div>
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-sings-radio" type="radio" name="artist_sings" value="0">
+                    <i class="fa fa-microphone-slash d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">No canta</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="wizard-card d-none" data-wz-panel id="wizardSingsPanel">
+              <div class="wizard-card__title"><i class="fa fa-music"></i>Actuación</div>
+              <div class="row g-3">
+                <div class="col-lg-3 col-6">
+                  <label class="form-label">Nº de canciones</label>
+                  <input type="number" min="1" class="form-control" name="performance_songs_count" id="wizard_songs_count" placeholder="3">
+                </div>
+                <div class="col-lg-9">
+                  <label class="form-label">Canciones del repertorio <span class="text-muted">(opcional)</span></label>
+                  <select name="performance_song_ids[]" id="wizardSongsSelect" class="form-select" multiple data-no-loader></select>
+                  <div class="form-text">Se cargan las canciones del artista seleccionado; puedes marcar solo el número si aún no se sabe cuáles.</div>
+                </div>
+              </div>
+              <hr>
+              <div class="wizard-card__title"><i class="fa fa-users"></i>Formación</div>
+              <div class="row g-3 align-items-stretch">
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-formation-radio" type="radio" name="formation_kind" value="SOLO">
+                    <i class="fa fa-user d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">Solo artista</span>
+                  </label>
+                </div>
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-formation-radio" type="radio" name="formation_kind" value="PLUS">
+                    <i class="fa fa-users d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">Artista +</span>
+                  </label>
+                </div>
+                <div class="col-md-6 d-none" data-wz-panel id="wizardFormationPlusWrap">
+                  <label class="form-label">Artista + …</label>
+                  <input class="form-control" name="formation_text" placeholder="pianista, banda completa, coros…">
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {# ============================ PASO 5 (direct) · Economía + promotor ============================ #}
+          <section class="wizard-step" data-step="5" data-mode="direct">
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-sack-dollar"></i><span id="wizardEconomyTitle">Tipo de concierto</span></div>
+              <div class="row g-2">
+                {# Tarjetas para CONCIERTO/FESTIVAL (sin «Gratuito»). #}
+                {% for value, icon, lbl in [('VENDIDO','fa-hand-holding-dollar','Vendido'),('EMPRESA','fa-building','A empresa'),('PARTICIPADOS','fa-handshake-angle','Participado')] %}
+                <div class="col-6 col-md-3 wizard-st-concert">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-sale-type-radio" type="radio" name="sale_type" value="{{ value }}" {% if loop.first %}checked{% endif %}>
+                    <i class="fa {{ icon }} d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">{{ lbl }}</span>
+                  </label>
+                </div>
+                {% endfor %}
+                {# Tarjetas para actividades que NO son concierto: con caché o gratuito. #}
+                {% for value, icon, lbl in [('VENDIDO','fa-coins','Con caché'),('GRATUITO','fa-gift','Gratuito')] %}
+                <div class="col-6 col-md-3 wizard-st-promo d-none">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-sale-type-radio" type="radio" name="sale_type" value="{{ value }}">
+                    <i class="fa {{ icon }} d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">{{ lbl }}</span>
+                  </label>
+                </div>
+                {% endfor %}
+              </div>
+              <div class="form-text wizard-st-concert">«A empresa» = lo organiza una empresa del grupo (no se pide promotor externo).</div>
+            </div>
+
+            <div class="wizard-card" id="wizardPromoterWrap">
+              <div class="wizard-card__title"><i class="fa fa-user-tie"></i>Promotor</div>
+              <div class="wizard-card__hint">Busca el tercero o el medio de comunicación que organiza. Puedes crear uno nuevo con el botón +.</div>
+              <div class="input-group">
+                <select id="wizard_promoter_search" class="form-select" data-no-loader>
+                  <option value=""></option>
+                </select>
+                <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter" data-target="wizard_promoter_search" title="Crear tercero nuevo"><i class="fa fa-plus"></i></button>
+              </div>
+              <input type="hidden" name="promoter_id" id="wizard_promoter_id" value="">
+              <input type="hidden" name="promoter_media_id" id="wizard_promoter_media_id" value="">
+              <div class="d-flex align-items-center gap-2 mt-2 d-none" id="wizardPromoterChip">
+                <img src="{{ DEFAULT_PHOTO_URL }}" alt="" id="wizardPromoterChipImg" style="width:34px;height:34px;object-fit:cover;border-radius:50%;border:1px solid #eee;">
+                <span class="fw-semibold" id="wizardPromoterChipName"></span>
+                <span class="badge text-bg-light border d-none" id="wizardPromoterChipMedia"><i class="fa fa-bullhorn me-1"></i>Medio</span>
+              </div>
+            </div>
+
+            <div class="wizard-card d-none" data-wz-panel id="wizardPromoterCompanyWrap">
+              <div class="wizard-card__title"><i class="fa fa-landmark"></i>Sociedad del promotor</div>
+              <div class="wizard-card__hint">Elige con qué sociedad se contrata, o crea una nueva sobre la marcha.</div>
+              <input type="hidden" name="promoter_company_id" id="wizard_promoter_company_id" value="">
+              <div class="row g-2" id="wizardCompanyCards"></div>
+              <div class="row g-2 mt-1 d-none" data-wz-panel id="wizardNewCompanyWrap">
+                <div class="col-md-6">
+                  <label class="form-label">Razón social de la nueva sociedad</label>
+                  <input class="form-control" name="new_promoter_company_name" id="wizard_new_company_name" placeholder="Producciones Ejemplo SL">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">CIF <span class="text-muted">(opcional)</span></label>
+                  <input class="form-control" name="new_promoter_company_tax_id" placeholder="B12345678">
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {# ============================ PASO 6 (direct) · Caché ============================ #}
+          <section class="wizard-step" data-step="6" data-mode="direct" id="wizardCacheStep">
+            <div class="wizard-card" id="wizardCacheCard">
+              <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                <div class="wizard-card__title mb-0"><i class="fa fa-coins"></i>Cachés</div>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                  <span class="badge text-bg-light border" id="wzCacheTotal">Caché fijo: 0 €</span>
+                  <button type="button" class="btn btn-sm btn-outline-primary" onclick="addCacheRow('wizardCaches')"><i class="fa fa-plus"></i> Añadir caché</button>
+                </div>
+              </div>
+              <div id="wizardCaches"></div>
+            </div>
+
+            <div class="wizard-card" id="wizardPaymentsCard">
+              <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                <div class="wizard-card__title mb-0"><i class="fa fa-money-bill-transfer"></i>Formas de pago del caché</div>
+                <button type="button" class="btn btn-sm btn-outline-primary" onclick="wizardAddPaymentRow()"><i class="fa fa-plus"></i> Añadir pago</button>
+              </div>
+              <div class="wizard-card__hint">Reparte el caché total en pagos. El asistente calcula en todo momento lo que queda pendiente de configurar.</div>
+              <div id="wizardPaymentRows"></div>
+              <div class="d-flex align-items-center gap-2 flex-wrap mt-2">
+                <span class="badge text-bg-light border" id="wzPaymentsTotal">Pagos configurados: 0 €</span>
+                <span class="badge text-bg-warning text-dark d-none" id="wzPaymentPending"></span>
+                <button type="button" class="btn btn-sm btn-outline-success d-none" id="wzAddRemainingBtn"><i class="fa fa-wand-magic-sparkles me-1"></i>Añadir pago por la cantidad restante</button>
+              </div>
+            </div>
+
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-hand-holding-heart"></i>¿El promotor cubre otros gastos?</div>
+              <div class="row g-3 mb-2">
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-pc-radio" type="radio" name="promoter_costs_enabled" value="1">
+                    <i class="fa fa-circle-check d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">Sí</span>
+                  </label>
+                </div>
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-pc-radio" type="radio" name="promoter_costs_enabled" value="0" checked>
+                    <i class="fa fa-circle-xmark d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">No</span>
+                  </label>
+                </div>
+              </div>
+              <div class="d-none" data-wz-panel id="wizardPromoterCostsPanel">
                 <div class="row g-2">
-                  {% for value, icon, lbl in [('VENDIDO','fa-hand-holding-dollar','Vendido'),('EMPRESA','fa-building','A empresa'),('PARTICIPADOS','fa-handshake-angle','Participado'),('GRATUITO','fa-gift','Gratuito')] %}
-                  <div class="col-6 col-md-3">
+                  {% for key, label, icon in PROMOTER_COST_ITEMS %}
+                  <div class="col-6 col-md-4 col-xl-2">
                     <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
-                      <input class="form-check-input visually-hidden wizard-sale-type-radio" type="radio" name="sale_type" value="{{ value }}" {% if loop.first %}checked{% endif %}>
+                      <input class="form-check-input visually-hidden wizard-pc-item" type="checkbox" name="promoter_cost_item[]" value="{{ key }}">
                       <i class="fa {{ icon }} d-block fs-3 mb-2 text-dark"></i>
-                      <span class="fw-semibold small">{{ lbl }}</span>
+                      <span class="fw-semibold small">{{ label }}</span>
                     </label>
                   </div>
                   {% endfor %}
                 </div>
-                <div class="form-text">«A empresa» = lo organiza una empresa del grupo (no se pide promotor). Con venta de entradas: si es propio, lo saca a la venta la empresa; si es vendido/participado, indica quién lo saca en el paso de aforo.</div>
+                {% for key, label, icon in PROMOTER_COST_ITEMS %}
+                <div class="border rounded p-3 mt-2 d-none" data-wz-panel data-pc-detail="{{ key }}">
+                  <div class="fw-semibold mb-2"><i class="fa {{ icon }} me-1 text-danger"></i>{{ label }}</div>
+                  <div class="row g-2 align-items-end">
+                    <div class="col-lg-5">
+                      <label class="form-label">¿Qué cubre? <span class="text-muted">(nota)</span></label>
+                      <input class="form-control" name="promoter_cost_note_{{ key }}" placeholder="Detalle de lo que cubre el promotor">
+                    </div>
+                    <div class="col-lg-5">
+                      <label class="form-label d-block">¿Quién lo gestiona?</label>
+                      <div class="row g-2">
+                        <div class="col-6">
+                          <label class="activity-choice-card border rounded p-2 text-center h-100 w-100 d-block bg-white">
+                            <input class="form-check-input visually-hidden" type="radio" name="promoter_cost_managed_{{ key }}" value="US">
+                            <i class="fa fa-file-invoice d-block mb-1 text-dark"></i>
+                            <span class="small fw-semibold">Nosotros y lo facturamos</span>
+                          </label>
+                        </div>
+                        <div class="col-6">
+                          <label class="activity-choice-card border rounded p-2 text-center h-100 w-100 d-block bg-white">
+                            <input class="form-check-input visually-hidden" type="radio" name="promoter_cost_managed_{{ key }}" value="PROMOTER" checked>
+                            <i class="fa fa-handshake d-block mb-1 text-dark"></i>
+                            <span class="small fw-semibold">Lo gestiona el promotor</span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="col-lg-2">
+                      <label class="form-label">Importe máx. (€)</label>
+                      <input type="number" step="0.01" min="0" class="form-control" name="promoter_cost_max_{{ key }}" placeholder="Sin límite">
+                    </div>
+                  </div>
+                </div>
+                {% endfor %}
               </div>
-              <div class="col-lg-6" id="wizardPromoterWrap">
-                <label class="form-label">Promotor</label>
-                {# Alta rápida estándar (quick_create.js + _quick_create_modals.html del layout):
-                   funciona en TODAS las páginas que incluyen el asistente y deja el nuevo tercero
-                   seleccionado sin recargar. El botón va al final de la barra de búsqueda. #}
-                <div class="input-group">
-                  <select name="promoter_id" id="wizard_promoter_id" class="form-select third-party-select">
-                    <option value="">—</option>
-                    {% for p in promoters %}
-                      <option value="{{ p.id }}" data-logo="{{ p.logo_url or DEFAULT_PHOTO_URL }}" data-search="{{ p.nick }} {{ p.contact_email or '' }} {{ p.tax_id or '' }}">{{ p.nick }}</option>
+            </div>
+
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-flag"></i>Estado de la actividad</div>
+              <div class="row g-2">
+                {% for value, icon, lbl in [('BORRADOR','fa-pencil','Borrador'),('HABLADO','fa-comments','Hablado'),('RESERVADO','fa-hourglass-half','Reservado'),('CONFIRMADO','fa-circle-check','Confirmado')] %}
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden" type="radio" name="status" value="{{ value }}" {% if loop.first %}checked{% endif %}>
+                    <i class="fa {{ icon }} d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">{{ lbl }}</span>
+                  </label>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-palette"></i>Cartelería</div>
+              <input type="hidden" name="artwork_choice" id="wizard_artwork_choice" value="">
+              <div class="row g-3 mb-2">
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-artmaker-radio" type="radio" name="artwork_maker" value="OURS" checked>
+                    <i class="fa fa-palette d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">Los hacemos nosotros</span>
+                  </label>
+                </div>
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-artmaker-radio" type="radio" name="artwork_maker" value="PROMOTER">
+                    <i class="fa fa-handshake d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">Los hace el promotor</span>
+                  </label>
+                </div>
+              </div>
+              <div data-wz-panel id="wizardArtworkOursWrap">
+                <div class="row g-3 mb-2">
+                  <div class="col-6 col-md-3">
+                    <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                      <input class="form-check-input visually-hidden wizard-artnow-radio" type="radio" name="artwork_request_now" value="LATER" checked>
+                      <i class="fa fa-clock d-block fs-3 mb-2 text-dark"></i>
+                      <span class="fw-semibold small">No solicitar carteles ahora</span>
+                    </label>
+                  </div>
+                  <div class="col-6 col-md-3">
+                    <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                      <input class="form-check-input visually-hidden wizard-artnow-radio" type="radio" name="artwork_request_now" value="REQUEST">
+                      <i class="fa fa-paper-plane d-block fs-3 mb-2 text-dark"></i>
+                      <span class="fw-semibold small">Solicitar carteles a diseño</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="d-none" data-wz-panel id="wizardArtworkRequestPanel">
+                  <div class="fw-semibold small text-muted mb-1">Formatos que se piden</div>
+                  <div class="row g-2 mb-3">
+                    {% for key, label, aspect in ARTWORK_FORMAT_CHOICES %}
+                    <div class="col-6 col-md-4 col-lg-2">
+                      <label class="activity-choice-card border rounded p-2 text-center h-100 w-100 d-block bg-white">
+                        <input class="form-check-input visually-hidden" type="checkbox" name="artwork_formats[]" value="{{ key }}">
+                        <span class="artfmt-box"><span class="artfmt-shape" style="aspect-ratio: {{ aspect }};"></span></span>
+                        <span class="fw-semibold small d-block">{{ label }}</span>
+                      </label>
+                    </div>
                     {% endfor %}
-                  </select>
-                  <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter" data-target="wizard_promoter_id" title="Crear tercero nuevo"><i class="fa fa-plus"></i></button>
-                </div>
-              </div>
-              <div class="col-lg-6" id="wizardPromoterCompanyWrap">
-                <label class="form-label">Sociedad del promotor</label>
-                <select name="promoter_company_id" id="wizard_promoter_company_id" class="form-select">
-                  <option value="">—</option>
-                </select>
-              </div>
-            </div>
-          </section>
-
-          <section class="wizard-step" data-step="5" data-mode="direct">
-            <div class="row g-3">
-              <div class="col-12">
-                <div class="border rounded p-3">
-                  <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h6 class="mb-0">Socios o colaboradores</h6>
-                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="wizardAddPartnerRow()"><i class="fa fa-plus"></i> Agregar socio</button>
                   </div>
-                  <div class="text-muted small mb-2">Selecciona el tercero, la sociedad y el porcentaje que le corresponde.</div>
-                  <div id="wizardPartnerRows"></div>
-                </div>
-              </div>
-              <div class="col-12">
-                <div class="border rounded p-3">
-                  <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h6 class="mb-0">Comisionistas</h6>
-                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="wizardAddZoneRow()"><i class="fa fa-plus"></i> Agregar comisionista</button>
+                  <div class="fw-semibold small text-muted mb-1">Logos que deben incluirse</div>
+                  <div class="row g-2 mb-3">
+                    {% for co in companies %}
+                    <div class="col-6 col-md-4 col-lg-3">
+                      <label class="activity-choice-card border rounded p-2 d-flex gap-2 align-items-center h-100 w-100 bg-white">
+                        <input class="form-check-input" type="checkbox" name="artwork_company_ids[]" value="{{ co.id }}">
+                        <img src="{{ co.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:32px;height:32px;object-fit:contain;">
+                        <span class="small fw-semibold">{{ co.name }}</span>
+                      </label>
+                    </div>
+                    {% endfor %}
                   </div>
-                  <div class="text-muted small mb-2">Puedes indicar importe fijo o porcentaje sobre bruto, neto o beneficio de empresa.</div>
-                  <div id="wizardZoneRows"></div>
+                  <div class="row g-3">
+                    <div class="col-lg-8">
+                      <label class="form-label">Notas sobre la cartelería</label>
+                      <textarea class="form-control" name="artwork_notes" rows="2" placeholder="Copys, prioridades, referencias…"></textarea>
+                    </div>
+                    <div class="col-lg-4">
+                      <label class="form-label">Fecha máxima de entrega <span class="text-muted">(opcional)</span></label>
+                      <input type="date" class="form-control" name="artwork_deadline">
+                    </div>
+                  </div>
+                  <div class="form-text mt-2"><i class="fa fa-circle-info me-1"></i>Al crear la actividad se generará automáticamente la petición de carteles y se enviará a diseño.</div>
                 </div>
               </div>
             </div>
           </section>
 
-          <section class="wizard-step" data-step="6" data-mode="direct">
-            <div class="row g-3">
-              <div class="col-lg-4">
-                <div class="border rounded p-3 h-100">
-                  <h6 class="mb-3">Venta de entradas y aforo</h6>
-                  <div class="form-check form-switch mb-3">
-                    <input class="form-check-input" type="checkbox" id="wizard_has_ticket_sales" checked>
-                    <label class="form-check-label" for="wizard_has_ticket_sales">Hay venta de entradas</label>
+          {# ============================ PASO 7 (direct) · Socios y comisionistas ============================ #}
+          <section class="wizard-step" data-step="7" data-mode="direct">
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-handshake"></i>¿Hay algún socio o colaborador?</div>
+              <div class="row g-3 mb-2">
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-partners-radio" type="radio" name="has_partners" value="1">
+                    <i class="fa fa-people-arrows d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">Sí, hay socios</span>
+                  </label>
+                </div>
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-partners-radio" type="radio" name="has_partners" value="0" checked>
+                    <i class="fa fa-user d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">No</span>
+                  </label>
+                </div>
+              </div>
+              <div class="d-none" data-wz-panel id="wizardPartnersPanel">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <div class="text-muted small">Selecciona el tercero, la sociedad y el porcentaje que le corresponde.</div>
+                  <button type="button" class="btn btn-sm btn-outline-primary" onclick="wizardAddPartnerRow()"><i class="fa fa-plus"></i> Agregar socio</button>
+                </div>
+                <div id="wizardPartnerRows"></div>
+              </div>
+            </div>
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-user-tag"></i>¿Hay comisionistas?</div>
+              <div class="row g-3 mb-2">
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-zones-radio" type="radio" name="has_zone_agents" value="1">
+                    <i class="fa fa-percent d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">Sí, hay comisionista</span>
+                  </label>
+                </div>
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-zones-radio" type="radio" name="has_zone_agents" value="0" checked>
+                    <i class="fa fa-ban d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">No</span>
+                  </label>
+                </div>
+              </div>
+              <div class="d-none" data-wz-panel id="wizardZonesPanel">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <div class="text-muted small">Importe fijo o porcentaje sobre bruto, neto o beneficio de empresa.</div>
+                  <button type="button" class="btn btn-sm btn-outline-primary" onclick="wizardAddZoneRow()"><i class="fa fa-plus"></i> Agregar comisionista</button>
+                </div>
+                <div id="wizardZoneRows"></div>
+              </div>
+            </div>
+          </section>
+
+          {# ============================ PASO 8 (direct) · Entradas ============================ #}
+          <section class="wizard-step" data-step="8" data-mode="direct">
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-ticket"></i>¿Cómo es el acceso?</div>
+              <div class="row g-3">
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-entry-radio" type="radio" name="entry_mode" value="FREE">
+                    <i class="fa fa-gift d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">Evento gratuito</span>
+                  </label>
+                </div>
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-entry-radio" type="radio" name="entry_mode" value="SALE" checked>
+                    <i class="fa fa-ticket d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">Venta de entradas</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {# --- Gratuito: aforo con opción «aforo libre» --- #}
+            <div class="wizard-card d-none" data-wz-panel id="wizardFreePanel">
+              <div class="wizard-card__title"><i class="fa fa-people-group"></i>Aforo</div>
+              <div class="row g-3 align-items-end">
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden" type="checkbox" name="free_capacity_unlimited" id="wizard_free_unlimited">
+                    <i class="fa fa-infinity d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">Aforo libre</span>
+                  </label>
+                </div>
+                <div class="col-6 col-md-3" id="wizardFreeCapacityWrap">
+                  <label class="form-label">Aforo estimado</label>
+                  <input type="number" min="0" class="form-control" name="free_capacity" placeholder="Aforo">
+                </div>
+              </div>
+            </div>
+
+            {# --- Venta de entradas --- #}
+            <div data-wz-panel id="wizardSalePanel">
+              <div class="wizard-card">
+                <div class="wizard-card__title"><i class="fa fa-cash-register"></i>¿Quién saca las entradas a la venta?</div>
+                <div class="row g-2">
+                  <div class="col-6 col-md-3">
+                    <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                      <input class="form-check-input visually-hidden wizard-seller-radio" type="radio" name="sale_seller_kind" value="US" checked>
+                      <i class="fa fa-building d-block fs-3 mb-2 text-dark"></i>
+                      <span class="fw-semibold small">Nosotros</span>
+                      <span class="text-muted small d-block text-truncate" id="wzSellerUsName"></span>
+                    </label>
                   </div>
-                  <div id="wizardTicketSalesWrap">
-                    <label class="form-label">Aforo a la venta</label>
-                    <input type="number" min="0" class="form-control mb-3" name="capacity" placeholder="Aforo a la venta">
+                  <div class="col-6 col-md-3 d-none" id="wzSellerPromoterCard">
+                    <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                      <input class="form-check-input visually-hidden wizard-seller-radio" type="radio" name="sale_seller_kind" value="PROMOTER">
+                      <i class="fa fa-user-tie d-block fs-3 mb-2 text-dark"></i>
+                      <span class="fw-semibold small">El promotor</span>
+                      <span class="text-muted small d-block text-truncate" id="wzSellerPromoterName"></span>
+                    </label>
+                  </div>
+                  <div class="col-6 col-md-3 d-none" id="wzSellerVenueCard">
+                    <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                      <input class="form-check-input visually-hidden wizard-seller-radio" type="radio" name="sale_seller_kind" value="VENUE">
+                      <i class="fa fa-location-dot d-block fs-3 mb-2 text-dark"></i>
+                      <span class="fw-semibold small">El recinto</span>
+                      <span class="text-muted small d-block text-truncate" id="wzSellerVenueName"></span>
+                    </label>
+                  </div>
+                  <div class="col-6 col-md-3">
+                    <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                      <input class="form-check-input visually-hidden wizard-seller-radio" type="radio" name="sale_seller_kind" value="THIRD">
+                      <i class="fa fa-user-plus d-block fs-3 mb-2 text-dark"></i>
+                      <span class="fw-semibold small">Un tercero</span>
+                    </label>
+                  </div>
+                </div>
+                <input type="hidden" name="sale_seller_venue_label" id="wizard_seller_venue_label" value="">
+                <div class="row g-2 mt-2 d-none" data-wz-panel id="wizardSellerThirdWrap">
+                  <div class="col-12">
+                    <label class="form-label">Buscar tercero o medio</label>
+                    <div class="input-group">
+                      <select id="wizard_seller_third_search" class="form-select" data-no-loader><option value=""></option></select>
+                      <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter" data-target="wizard_seller_third_search" title="Crear tercero nuevo"><i class="fa fa-plus"></i></button>
+                    </div>
+                    <input type="hidden" name="sale_seller_third_id" id="wizard_seller_third_id" value="">
+                    <input type="hidden" name="sale_seller_third_kind" id="wizard_seller_third_kind" value="promoter">
+                    <input type="hidden" name="sale_seller_third_label" id="wizard_seller_third_label" value="">
+                  </div>
+                </div>
+              </div>
+
+              <div class="wizard-card">
+                <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                  <div class="wizard-card__title mb-0"><i class="fa fa-tags"></i>Tipos de entrada e importes</div>
+                  <button type="button" class="btn btn-sm btn-outline-primary" onclick="wizardAddTicketTypeRow()"><i class="fa fa-plus"></i> Añadir tipo de entrada</button>
+                </div>
+                <div id="wizardTicketTypeRows"></div>
+              </div>
+
+              <div class="wizard-card">
+                <div class="wizard-card__title"><i class="fa fa-envelope-open-text"></i>Invitaciones</div>
+                <div class="row g-3 mb-2">
+                  <div class="col-6 col-md-3">
+                    <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                      <input class="form-check-input visually-hidden wizard-inv-radio" type="radio" name="invitations_mode" value="NONE" checked>
+                      <i class="fa fa-ban d-block fs-3 mb-2 text-dark"></i>
+                      <span class="fw-semibold small">Sin invitaciones pactadas</span>
+                    </label>
+                  </div>
+                  <div class="col-6 col-md-3">
+                    <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                      <input class="form-check-input visually-hidden wizard-inv-radio" type="radio" name="invitations_mode" value="BY_TYPE">
+                      <i class="fa fa-list-check d-block fs-3 mb-2 text-dark"></i>
+                      <span class="fw-semibold small">Por tipo de entrada</span>
+                    </label>
+                  </div>
+                  <div class="col-6 col-md-3">
+                    <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                      <input class="form-check-input visually-hidden wizard-inv-radio" type="radio" name="invitations_mode" value="TOTAL">
+                      <i class="fa fa-file-signature d-block fs-3 mb-2 text-dark"></i>
+                      <span class="fw-semibold small">Total por contrato</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="d-none" data-wz-panel id="wizardInvByTypeHint">
+                  <div class="form-text"><i class="fa fa-circle-info me-1"></i>Indica el nº de invitaciones en la columna «Invitaciones» de cada tipo de entrada de arriba.</div>
+                </div>
+                <div class="row g-2 d-none" data-wz-panel id="wizardInvTotalWrap">
+                  <div class="col-6 col-md-3">
+                    <label class="form-label">Invitaciones por contrato</label>
+                    <input type="number" min="0" class="form-control" name="invitations_total" placeholder="0">
+                  </div>
+                </div>
+              </div>
+
+              <div class="wizard-card">
+                <div class="wizard-card__title"><i class="fa fa-calendar-check"></i>Salida a la venta</div>
+                <div class="row g-3">
+                  <div class="col-lg-4">
                     <label class="form-label">Fecha de salida a la venta</label>
                     <div class="input-group">
                       <input type="date" class="form-control" name="sale_start_date">
                       <div class="input-group-text"><input class="form-check-input mt-0" type="checkbox" name="sale_start_tbc"> <span class="ms-2 small">TBC</span></div>
                     </div>
-                    <div class="mt-3" id="wizardSaleOwnerWrap">
-                      <label class="form-label">¿Quién saca a la venta?</label>
-                      <input class="form-control" name="sale_owner" id="wizard_sale_owner" placeholder="Empresa del grupo, ticketera o promotor">
-                      <div class="form-text">Si es propio, la empresa del grupo. Si es vendido o participado, indica quién.</div>
-                    </div>
                   </div>
-                  <div id="wizardNoCapacityWrap" style="display:none;">
-                    <div class="form-check mb-2">
-                      <input class="form-check-input" type="checkbox" name="no_capacity" id="wizard_no_capacity" checked>
-                      <label class="form-check-label" for="wizard_no_capacity">Sin aforo</label>
-                    </div>
-                    <label class="form-label">Aforo del recinto</label>
-                    <input type="number" min="0" class="form-control" name="capacity" placeholder="Aforo total si se conoce">
-                  </div>
-                </div>
-              </div>
-              <div class="col-lg-8">
-                <div class="border rounded p-3 h-100">
-                  <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h6 class="mb-0">Cachés</h6>
-                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="addCacheRow('wizardCaches')"><i class="fa fa-plus"></i> Añadir caché</button>
-                  </div>
-                  <div id="wizardCaches"></div>
-                </div>
-              </div>
-              <div class="col-12">
-                <div class="border rounded p-3">
-                  <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h6 class="mb-0">Formas de pago</h6>
-                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="wizardAddPaymentRow()"><i class="fa fa-plus"></i> Añadir pago</button>
-                  </div>
-                  <div id="wizardPaymentRows"></div>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section class="wizard-step" data-step="7" data-mode="direct">
-            <div class="row g-3">
-              <div class="col-lg-6">
-                <div class="border rounded p-3 h-100">
-                  <h6 class="mb-3">Equipamiento</h6>
-                  <div class="form-check">
-                    <input class="form-check-input" type="radio" name="equipment_option" id="wizard_equipment_option_included" value="INCLUDED">
-                    <label class="form-check-label" for="wizard_equipment_option_included">Equipos incluidos</label>
-                  </div>
-                  <div class="form-check">
-                    <input class="form-check-input" type="radio" name="equipment_option" id="wizard_equipment_option_promoter" value="PROMOTER">
-                    <label class="form-check-label" for="wizard_equipment_option_promoter">Promotor cubre equipos</label>
-                  </div>
-                  <div class="form-check">
-                    <input class="form-check-input" type="radio" name="equipment_option" id="wizard_equipment_option_rider" value="FESTIVAL_RIDER">
-                    <label class="form-check-label" for="wizard_equipment_option_rider">Rider del festival</label>
-                  </div>
-                  <div class="form-check mb-3">
-                    <input class="form-check-input" type="radio" name="equipment_option" id="wizard_equipment_option_artist" value="ARTIST">
-                    <label class="form-check-label" for="wizard_equipment_option_artist">Equipo a cargo del artista</label>
-                  </div>
-                  <div class="d-flex justify-content-between align-items-center mb-2">
-                    <div class="fw-semibold">Documentos / riders</div>
-                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="addEquipmentDocRow('wizardEquipmentDocs')"><i class="fa fa-plus"></i></button>
-                  </div>
-                  <div id="wizardEquipmentDocs"></div>
-                  <div class="d-flex justify-content-between align-items-center mb-2 mt-3">
-                    <div class="fw-semibold">Notas de equipamiento</div>
-                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="addEquipmentNoteRow('wizardEquipmentNotes')"><i class="fa fa-plus"></i></button>
-                  </div>
-                  <div id="wizardEquipmentNotes"></div>
-                </div>
-              </div>
-              <div class="col-lg-6">
-                <div class="border rounded p-3 h-100">
-                  <h6 class="mb-3"># / gira / conjunto de eventos</h6>
-                  <input class="form-control mb-3" list="wizardTagOptions" name="wizard_hashtags_text" placeholder="#verano, #gira2026, festival x">
-                  <datalist id="wizardTagOptions">
-                    {% for tag in all_concert_tags %}
-                      <option value="#{{ tag }}"></option>
-                      <option value="{{ tag }}"></option>
-                    {% endfor %}
-                  </datalist>
-
-                  <div class="border-top pt-3 mt-3">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                      <h6 class="mb-0">Invitaciones</h6>
-                      <button type="button" class="btn btn-sm btn-outline-primary" onclick="wizardAddInvitationRow()"><i class="fa fa-plus"></i> Añadir categoría</button>
-                    </div>
-                    <div id="wizardInvitationRows"></div>
-                  </div>
-
-                  <div class="border-top pt-3 mt-3">
-                    <h6 class="mb-3">Anuncio</h6>
-                    <div class="form-check mb-2">
-                      <input class="form-check-input" type="checkbox" name="do_not_announce" id="wizard_do_not_announce">
-                      <label class="form-check-label" for="wizard_do_not_announce">No anunciar</label>
-                    </div>
-                    <label class="form-label">Fecha de anuncio</label>
-                    <input type="date" class="form-control" name="announcement_date">
+                  <div class="col-lg-3">
+                    <label class="form-label">Aforo a la venta <span class="text-muted">(opcional)</span></label>
+                    <input type="number" min="0" class="form-control" name="capacity" placeholder="Suma de cupos">
+                    <div class="form-text">Si lo dejas vacío se usa la suma de cupos por tipo.</div>
                   </div>
                 </div>
               </div>
             </div>
           </section>
 
-          <section class="wizard-step" data-step="8" data-mode="direct">
-            <div class="border rounded p-3">
-              <h6 class="mb-1">¿Forma parte de una gira comprada, ciclo o festival?</h6>
-              <div class="text-muted small mb-3">Opcional. Vincúlalo para agruparlo y compartir su producción general.</div>
+          {# ============================ PASO 9 (direct) · Equipamiento ============================ #}
+          <section class="wizard-step" data-step="9" data-mode="direct">
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-toolbox"></i>Equipamiento y rider técnico</div>
+              <div class="row g-2">
+                {% for value, icon, lbl in [('','fa-circle-question','Pendiente de definir'),('INCLUDED','fa-circle-check','Equipos incluidos'),('PROMOTER','fa-handshake','Promotor cubre equipos'),('FESTIVAL_RIDER','fa-file-lines','Rider del festival'),('ARTIST','fa-user-gear','Equipo del artista')] %}
+                <div class="col-6 col-md-4 col-lg">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden" type="radio" name="equipment_option" value="{{ value }}" {% if loop.first %}checked{% endif %}>
+                    <i class="fa {{ icon }} d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">{{ lbl }}</span>
+                  </label>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+            <div class="wizard-card">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <div class="wizard-card__title mb-0"><i class="fa fa-file-pdf"></i>Documentos / riders</div>
+                <button type="button" class="btn btn-sm btn-outline-primary" onclick="addEquipmentDocRow('wizardEquipmentDocs')"><i class="fa fa-plus"></i></button>
+              </div>
+              <div id="wizardEquipmentDocs"></div>
+            </div>
+            <div class="wizard-card">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <div class="wizard-card__title mb-0"><i class="fa fa-note-sticky"></i>Notas de equipamiento</div>
+                <button type="button" class="btn btn-sm btn-outline-primary" onclick="addEquipmentNoteRow('wizardEquipmentNotes')"><i class="fa fa-plus"></i></button>
+              </div>
+              <div id="wizardEquipmentNotes"></div>
+            </div>
+          </section>
+
+          {# ============================ PASO 10 (direct) · Gira + # ============================ #}
+          <section class="wizard-step" data-step="10" data-mode="direct">
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-route"></i>¿Forma parte de una gira comprada, ciclo o festival?</div>
+              <div class="wizard-card__hint">Opcional. Vincúlalo para agruparlo y compartir su producción general.</div>
               <input type="hidden" name="wizard_purchased_tour_id" id="wizard_purchased_tour_id">
               <input type="hidden" name="wizard_cycle_festival_id" id="wizard_cycle_festival_id">
               <div class="row g-2">
@@ -427,6 +787,67 @@
               </div>
               {% if not (wizard_tours or wizard_cycles) %}<div class="text-muted small mt-2">Aún no hay giras compradas ni ciclos/festivales. Se crean en Contratación.</div>{% endif %}
             </div>
+
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-hashtag"></i># / gira / conjunto de eventos</div>
+              <div class="wizard-card__hint">Se sugieren los # del artista. Si escribes uno que ya existe en otro artista, se reutiliza el existente para no duplicar.</div>
+              <div class="d-flex flex-wrap gap-2 mb-2 d-none" id="wizardTagSuggest"></div>
+              <div class="input-group">
+                <span class="input-group-text"><i class="fa fa-hashtag"></i></span>
+                <input class="form-control" id="wizardTagInput" list="wizardTagOptions" placeholder="Escribe un # y pulsa Enter o Añadir">
+                <button type="button" class="btn btn-outline-primary" id="wizardTagAddBtn">Añadir</button>
+              </div>
+              <datalist id="wizardTagOptions">
+                {% for tag in all_concert_tags %}
+                  <option value="#{{ tag }}"></option>
+                  <option value="{{ tag }}"></option>
+                {% endfor %}
+              </datalist>
+              <div id="wizardTagChips" class="d-flex flex-wrap gap-2 mt-2"></div>
+              <div id="wizardTagHidden"></div>
+            </div>
+          </section>
+
+          {# ============================ PASO 11 (direct) · Anuncio ============================ #}
+          <section class="wizard-step" data-step="11" data-mode="direct">
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-bullhorn"></i>Anuncio de la actividad</div>
+              <input type="hidden" name="do_not_announce" id="wizard_do_not_announce" value="">
+              <div class="row g-3 mb-2">
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-announce-radio" type="radio" name="announce_mode" value="TBC" checked>
+                    <i class="fa fa-clock d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">TBC</span>
+                    <span class="text-muted small d-block">Aún sin fecha</span>
+                  </label>
+                </div>
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-announce-radio" type="radio" name="announce_mode" value="DATE">
+                    <i class="fa fa-calendar-day d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">Fecha de anuncio</span>
+                  </label>
+                </div>
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-announce-radio" type="radio" name="announce_mode" value="NONE">
+                    <i class="fa fa-ban d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">No anunciar</span>
+                  </label>
+                </div>
+              </div>
+              <div class="row g-2 d-none" data-wz-panel id="wizardAnnounceDateWrap">
+                <div class="col-lg-4">
+                  <label class="form-label">Fecha de anuncio</label>
+                  <input type="date" class="form-control" name="announcement_date">
+                </div>
+              </div>
+              <div class="mt-3">
+                <label class="form-label">Nota sobre el anuncio <span class="text-muted">(opcional)</span></label>
+                <textarea class="form-control" name="announcement_note" rows="2" placeholder="Cómo se anuncia, embargos, coordinación con el promotor…"></textarea>
+              </div>
+            </div>
           </section>
         </div>
         <div class="modal-footer d-flex justify-content-between">
@@ -445,6 +866,7 @@
 <script>
   window.promotersPayload = {{ promoters_payload|tojson }};
   window.artistCreateTargetSelectId = 'wizard_artist_id';
+  window.__wizardAllTags = {{ (all_concert_tags or [])|tojson }};
 
   function getPromoterDataById(id){
     return (window.promotersPayload || []).find(p => String(p.id) === String(id));
@@ -456,7 +878,7 @@
     items.forEach(p => {
       const selected = String(p.id) === String(selectedId || '') ? 'selected' : '';
       const logo = p.logo_url || '{{ DEFAULT_PHOTO_URL }}';
-      html += `<option value="${p.id}" data-logo="${logo}">${p.nick || '—'}</option>`;
+      html += `<option value="${p.id}" data-logo="${logo}" ${selected}>${p.nick || '—'}</option>`;
     });
     return html;
   }
@@ -481,8 +903,7 @@
   }
 
   /* ----------------------- CACHÉS (filas dinámicas del asistente) -----------------------
-     Antes vivían en concerts.html y el botón «Añadir caché» fallaba en las demás páginas que
-     incluyen este asistente (contratación, vista, giras). Aquí quedan disponibles en todas. */
+     Compartidas con otras páginas (contratación, vista, giras): NO renombrar. */
   function addCacheRow(containerId){
     const c = document.getElementById(containerId);
     const row = document.createElement('div');
@@ -570,11 +991,11 @@
     `;
     c.appendChild(row);
 
-    // Inicializamos el select de opción según modo por defecto
     const modeSel = row.querySelector('select[name="cache_var_mode[]"]');
     if (modeSel) {
       onCacheVarModeChange(modeSel);
     }
+    if (typeof window.__wzRecalcCache === 'function') window.__wzRecalcCache();
   }
 
   function onCacheKindChange(sel){
@@ -592,7 +1013,6 @@
       fixed.style.display = 'none';
       variable.style.display = '';
       concept.style.display = 'none';
-      // valor por defecto: fijo
       const modeSel = wrap.querySelector('select[name="cache_var_mode[]"]');
       if(modeSel) onCacheVarModeChange(modeSel);
     } else {
@@ -600,6 +1020,7 @@
       variable.style.display = 'none';
       concept.style.display = '';
     }
+    if (typeof window.__wzRecalcCache === 'function') window.__wzRecalcCache();
   }
 
   function onCacheVarModeChange(sel){
@@ -611,7 +1032,6 @@
 
     const mode = sel.value;
 
-    // opciones
     optSel.innerHTML = '';
     if(mode === 'FIXED'){
       optSel.innerHTML = `
@@ -643,7 +1063,6 @@
     const minRevenue = wrap.querySelector('.cache-min-revenue');
     const ticketType = wrap.querySelector('.cache-ticket-type');
 
-    // ocultar todo
     [fromTicket, minTickets, minRevenue, ticketType].forEach(x => x.style.display='none');
 
     const opt = sel.value;
@@ -815,10 +1234,29 @@
       <div class="col-lg-1"><input type="hidden" name="payment_cache_ref[]" value=""></div>
       <div class="col-lg-2 d-grid"><label class="form-label">&nbsp;</label><button type="button" class="btn btn-outline-danger" onclick="this.closest('.row').remove()"><i class="fa fa-trash"></i></button></div>`;
     c.appendChild(row);
+    if (typeof window.__wzRecalcCache === 'function') window.__wzRecalcCache();
   }
 
+  /* Tipos de entrada (paso Entradas): nombre + importe (+ cupo e invitaciones). */
+  function wizardAddTicketTypeRow(prefill){
+    const c = document.getElementById('wizardTicketTypeRows');
+    if(!c) return;
+    const row = document.createElement('div');
+    row.className = 'row g-2 align-items-end mb-2 wz-tt-row';
+    row.innerHTML = `
+      <div class="col-md-4"><label class="form-label">Tipo de entrada</label><input name="wt_name[]" class="form-control" placeholder="General, VIP, Grada…" value="${prefill?.name || ''}"></div>
+      <div class="col-md-3 col-6"><label class="form-label">Importe (€)</label><input type="number" step="0.01" min="0" name="wt_price[]" class="form-control" value="${prefill?.price ?? ''}" placeholder="0,00"></div>
+      <div class="col-md-2 col-6"><label class="form-label">Cupo <span class="text-muted">(opc.)</span></label><input type="number" min="0" name="wt_qty[]" class="form-control" value="${prefill?.qty ?? ''}"></div>
+      <div class="col-md-2 col-6 wz-tt-inv d-none"><label class="form-label">Invitaciones</label><input type="number" min="0" name="wt_invites[]" class="form-control" value="${prefill?.invites ?? ''}"></div>
+      <div class="col-md-1 col-6 d-grid"><label class="form-label">&nbsp;</label><button type="button" class="btn btn-outline-danger" onclick="this.closest('.wz-tt-row').remove()"><i class="fa fa-trash"></i></button></div>`;
+    c.appendChild(row);
+    if (typeof window.__wzSyncInvColumns === 'function') window.__wzSyncInvColumns();
+  }
+
+  /* Compat: función legacy usada por páginas antiguas (categorías de invitación sueltas). */
   function wizardAddInvitationRow(prefill){
     const c = document.getElementById('wizardInvitationRows');
+    if(!c) return;
     const row = document.createElement('div');
     row.className = 'row g-2 align-items-end mb-2';
     row.innerHTML = `
@@ -838,9 +1276,6 @@
       m.show();
     };
 
-    // (El recinto del asistente ya no usa el modal de /conciertos: va con Select2 AJAX +
-    // alta rápida global data-quick-create="venue", autocontenido en este parcial.)
-
     window.submitNewPromoter = async function(ev){
       ev.preventDefault();
       const selectId = document.getElementById('promoterCreate_select_id').value;
@@ -857,9 +1292,11 @@
         if(useExisting){
           if(selectId){
             const sel = document.getElementById(selectId);
-            const exists = Array.from(sel.options).find(o => o.value === first.id);
-            if(exists){ sel.value = first.id; }
-            if(window.jQuery && jQuery.fn.select2){ jQuery(sel).trigger('change'); }
+            if(sel && sel.tagName === 'SELECT'){
+              const exists = Array.from(sel.options).find(o => o.value === first.id);
+              if(exists){ sel.value = first.id; }
+              if(window.jQuery && jQuery.fn.select2){ jQuery(sel).trigger('change'); }
+            }
           }
           bootstrap.Modal.getInstance(document.getElementById('promoterCreateModal')).hide();
           return false;
@@ -880,10 +1317,9 @@
       });
       if(selectId){
         const sel = document.getElementById(selectId);
-        sel.value = data.id;
-        if(window.jQuery && jQuery.fn.select2){ jQuery(sel).trigger('change'); }
-        if(sel.id === 'wizard_promoter_id'){
-          fillPromoterCompanySelect(data.id, document.getElementById('wizard_promoter_company_id'));
+        if(sel && sel.tagName === 'SELECT'){
+          sel.value = data.id;
+          if(window.jQuery && jQuery.fn.select2){ jQuery(sel).trigger('change'); }
         }
       }
       bootstrap.Modal.getInstance(document.getElementById('promoterCreateModal')).hide();
@@ -944,19 +1380,42 @@
     const submitBtn = document.getElementById('wizardSubmitBtn');
     const modeInput = document.getElementById('wizard_mode');
     const modeChoices = document.querySelectorAll('input[name="wizard_mode_choice"]');
-    const mainPromoterSelect = document.getElementById('wizard_promoter_id');
-    const mainPromoterCompany = document.getElementById('wizard_promoter_company_id');
     const knowsVenue = document.getElementById('wizard_knows_venue');
     const venueKnownWrap = document.getElementById('wizardVenueKnownWrap');
     const venueManualWrap = document.getElementById('wizardVenueManualWrap');
-    const hasTicketSales = document.getElementById('wizard_has_ticket_sales');
-    const ticketSalesWrap = document.getElementById('wizardTicketSalesWrap');
-    const noCapacityWrap = document.getElementById('wizardNoCapacityWrap');
     const conflictBox = document.getElementById('wizardArtistConflict');
+    const promoterIdInput = document.getElementById('wizard_promoter_id');
+    const promoterMediaInput = document.getElementById('wizard_promoter_media_id');
     let currentStep = 1;
+    let selectedPromoter = null; // {id, kind, label, logo}
+    let entryModeTouched = false;
+
+    const PROMO_TYPES = ['EVENTO_PROMOCIONAL', 'TV', 'MARCA', 'OTROS'];
+
+    function activityType(){
+      const t = document.querySelector('input[name="activity_type"]:checked');
+      return t ? t.value : 'CONCIERTO';
+    }
+    function isPromoActivity(){ return PROMO_TYPES.indexOf(activityType()) >= 0; }
+    function saleTypeValue(){
+      const r = document.querySelector('.wizard-sale-type-radio:checked');
+      return r ? r.value : '';
+    }
+    function artistSings(){
+      const r = document.querySelector('input[name="artist_sings"]:checked');
+      return r ? r.value === '1' : false;
+    }
 
     function stepSequence(){
-      return modeInput.value === 'request_sheet' ? [1,2,3,4] : [1,2,3,4,5,6,7,8];
+      if(modeInput.value === 'request_sheet') return [1, 2, 3, 4];
+      const seq = [1, 2, 3];
+      if(isPromoActivity()) seq.push(4);
+      seq.push(5, 6);
+      if(!(isPromoActivity() && saleTypeValue() === 'GRATUITO')) seq.push(7);
+      seq.push(8);
+      if(!isPromoActivity() || artistSings()) seq.push(9);
+      seq.push(10, 11);
+      return seq;
     }
 
     function renderStepPills(){
@@ -978,6 +1437,9 @@
       const isLast = step === seq[seq.length - 1];
       nextBtn.classList.toggle('d-none', isLast);
       submitBtn.classList.toggle('d-none', !isLast);
+      if(step === 4 && modeInput.value === 'direct'){ fetchArtistMeta(); }
+      if(step === 8){ updateSellerCards(); }
+      if(step === 10){ renderTagSuggestions(); }
     }
 
     function syncMode(){
@@ -993,38 +1455,461 @@
       const known = knowsVenue.checked;
       venueKnownWrap.style.display = known ? '' : 'none';
       venueManualWrap.style.display = known ? 'none' : '';
-      if(!known){ wizardVenueClear(); }
+      if(known){
+        venueManualWrap.querySelectorAll('input').forEach(i => { i.value = ''; });
+      } else {
+        wizardVenueClear();
+      }
+      updateSellerCards();
     }
 
-    function toggleTicketSales(){
-      const yes = hasTicketSales.checked;
-      ticketSalesWrap.style.display = yes ? '' : 'none';
-      noCapacityWrap.style.display = yes ? 'none' : '';
+    /* ------- Economía: tarjetas según tipo de actividad + visibilidad del promotor ------- */
+    function syncEconomyCards(){
+      const promo = isPromoActivity();
+      document.querySelectorAll('.wizard-st-concert').forEach(el => el.classList.toggle('d-none', promo));
+      document.querySelectorAll('.wizard-st-promo').forEach(el => el.classList.toggle('d-none', !promo));
+      const title = document.getElementById('wizardEconomyTitle');
+      if(title) title.textContent = promo ? '¿Cómo se retribuye la actividad?' : 'Tipo de concierto';
+      // Si la opción marcada quedó oculta, marca la primera visible del set activo.
+      const checked = document.querySelector('.wizard-sale-type-radio:checked');
+      const checkedVisible = checked && !checked.closest(promo ? '.wizard-st-promo' : '.wizard-st-concert');
+      if(!checked || checkedVisible){
+        const first = document.querySelector((promo ? '.wizard-st-promo' : '.wizard-st-concert') + ' .wizard-sale-type-radio');
+        if(first){ first.checked = true; first.dispatchEvent(new Event('change', { bubbles: true })); }
+      }
+      syncPromoterVisibility();
+      syncCacheCards();
+      syncEntryDefault();
     }
 
     function syncPromoterVisibility(){
-      const saleRadio = document.querySelector('.wizard-sale-type-radio:checked');
-      const saleType = (saleRadio && saleRadio.value || '').toUpperCase();
-      const isEmpresa = saleType === 'EMPRESA';
-      const isGratuito = saleType === 'GRATUITO';
-      const promoterWrap = document.getElementById('wizardPromoterWrap');
-      const promoterCompanyWrap = document.getElementById('wizardPromoterCompanyWrap');
-      if(promoterWrap) promoterWrap.classList.toggle('d-none', isEmpresa);
-      if(promoterCompanyWrap) promoterCompanyWrap.classList.toggle('d-none', isEmpresa);
-      if(isEmpresa){
-        if(mainPromoterSelect){ mainPromoterSelect.value = ''; if(window.jQuery && jQuery.fn.select2){ jQuery(mainPromoterSelect).val('').trigger('change'); } }
-        if(mainPromoterCompany){ mainPromoterCompany.innerHTML = '<option value="">—</option>'; }
-      }
-      // «¿Quién saca a la venta?»: solo en vendido/participado (en «a empresa» lo saca la empresa del grupo; en gratuito no hay venta).
-      const ownerWrap = document.getElementById('wizardSaleOwnerWrap');
-      if(ownerWrap) ownerWrap.classList.toggle('d-none', isEmpresa || isGratuito);
-      // Gratuito ⇒ sin venta de entradas (se desmarca y bloquea el switch).
-      if(hasTicketSales){
-        if(isGratuito){ hasTicketSales.checked = false; hasTicketSales.disabled = true; }
-        else { hasTicketSales.disabled = false; }
-        toggleTicketSales();
+      const st = saleTypeValue();
+      const isEmpresa = st === 'EMPRESA';
+      document.getElementById('wizardPromoterWrap')?.classList.toggle('d-none', isEmpresa);
+      const hasCompanies = updateCompanyCards();
+      document.getElementById('wizardPromoterCompanyWrap')?.classList.toggle('d-none', isEmpresa || !selectedPromoter || selectedPromoter.kind !== 'promoter');
+      if(isEmpresa){ clearMainPromoter(); }
+      updateSellerCards();
+    }
+
+    /* En actividades promocionales GRATUITAS el paso de caché queda solo para los gastos
+       que cubre el promotor (cachés y pagos se ocultan). */
+    function syncCacheCards(){
+      const freePromo = isPromoActivity() && saleTypeValue() === 'GRATUITO';
+      document.getElementById('wizardCacheCard')?.classList.toggle('d-none', freePromo);
+      document.getElementById('wizardPaymentsCard')?.classList.toggle('d-none', freePromo);
+      if(freePromo){
+        document.getElementById('wizardCaches').innerHTML = '';
+        document.getElementById('wizardPaymentRows').innerHTML = '';
+        window.__wzRecalcCache?.();
       }
     }
+
+    function syncEntryDefault(){
+      if(entryModeTouched) return;
+      const free = saleTypeValue() === 'GRATUITO';
+      const target = document.querySelector(`.wizard-entry-radio[value="${free ? 'FREE' : 'SALE'}"]`);
+      if(target && !target.checked){ target.checked = true; target.dispatchEvent(new Event('change', { bubbles: true })); }
+    }
+
+    /* ------------------- Promotor: buscador visual (terceros + medios) ------------------- */
+    function initPromoterSearch(){
+      const el = document.getElementById('wizard_promoter_search');
+      if(!el || el.__psInit || !window.jQuery || !jQuery.fn.select2) return;
+      el.__psInit = true;
+      function fmt(d){
+        if(!d.id) return d.text;
+        const logo = d.logo_url || (d.element && (jQuery(d.element).data('photo') || jQuery(d.element).data('logo'))) || '';
+        const img = logo ? '<img class="thumb" src="'+logo+'">' : '<span class="me-2"><i class="fa fa-user-tie"></i></span>';
+        return jQuery('<span>'+img+(d.text || d.label || '')+'</span>');
+      }
+      jQuery(el).select2({
+        width:'100%', dropdownParent: jQuery(modalEl), placeholder:'Busca el promotor (tercero o medio)…', allowClear:true, minimumInputLength:1,
+        ajax:{
+          url:'{{ url_for("api_search_commission_entities") }}', dataType:'json', delay:200,
+          data:function(p){ return { q: p.term || '' }; },
+          processResults:function(data){ return { results:(data||[]).map(function(it){ return { id: it.kind + ':' + it.id, text: it.label || '', logo_url: it.logo_url || '', kind: it.kind, raw_id: it.id }; }) }; }
+        },
+        templateResult: fmt, templateSelection: fmt, escapeMarkup:function(m){ return m; }
+      });
+      jQuery(el).on('select2:select', function(e){
+        const d = e.params.data || {};
+        onMainPromoterPicked(d.raw_id || d.id, d.kind || 'promoter', (d.text || '').replace(' · medio',''), d.logo_url || '');
+      });
+      jQuery(el).on('select2:clear', function(){ clearMainPromoter(); });
+      // Alta rápida (+): quick_create añade la opción y dispara change nativo/jQuery.
+      jQuery(el).on('change', function(){
+        const opt = el.selectedOptions && el.selectedOptions[0];
+        if(!opt || !opt.value) return;
+        if(opt.value.indexOf(':') >= 0) return; // ya gestionado por select2:select
+        onMainPromoterPicked(opt.value, 'promoter', opt.textContent || '', opt.dataset.photo || opt.dataset.logo || '');
+      });
+    }
+
+    function onMainPromoterPicked(id, kind, label, logo){
+      if(!id) return;
+      selectedPromoter = { id: String(id), kind: kind || 'promoter', label: label || '', logo: logo || '' };
+      if(selectedPromoter.kind === 'media'){
+        promoterIdInput.value = '';
+        promoterMediaInput.value = selectedPromoter.id;
+      } else {
+        promoterIdInput.value = selectedPromoter.id;
+        promoterMediaInput.value = '';
+        if(!getPromoterDataById(selectedPromoter.id)){
+          window.promotersPayload.push({ id: selectedPromoter.id, nick: selectedPromoter.label, logo_url: selectedPromoter.logo, companies: [] });
+          document.querySelectorAll('.wizard-partner-promoter, .wizard-zone-promoter').forEach(sel => {
+            if(Array.from(sel.options).some(o => o.value === selectedPromoter.id)) return;
+            const o = document.createElement('option');
+            o.value = selectedPromoter.id; o.textContent = selectedPromoter.label; o.dataset.logo = selectedPromoter.logo;
+            sel.appendChild(o);
+          });
+        }
+      }
+      const chip = document.getElementById('wizardPromoterChip');
+      if(chip){
+        chip.classList.remove('d-none');
+        document.getElementById('wizardPromoterChipImg').src = selectedPromoter.logo || '{{ DEFAULT_PHOTO_URL }}';
+        document.getElementById('wizardPromoterChipName').textContent = selectedPromoter.label;
+        document.getElementById('wizardPromoterChipMedia').classList.toggle('d-none', selectedPromoter.kind !== 'media');
+      }
+      syncPromoterVisibility();
+    }
+
+    function clearMainPromoter(){
+      selectedPromoter = null;
+      promoterIdInput.value = '';
+      promoterMediaInput.value = '';
+      document.getElementById('wizardPromoterChip')?.classList.add('d-none');
+      const el = document.getElementById('wizard_promoter_search');
+      if(el && window.jQuery && jQuery(el).data('select2')) jQuery(el).val(null).trigger('change.select2');
+      updateCompanyCards();
+      document.getElementById('wizardPromoterCompanyWrap')?.classList.add('d-none');
+      updateSellerCards();
+    }
+
+    /* Sociedades del promotor como tarjetas visuales + «nueva sociedad» sobre la marcha. */
+    let lastCompanyCardsFor = null;
+    function updateCompanyCards(){
+      const wrap = document.getElementById('wizardCompanyCards');
+      if(!wrap) return false;
+      const currentKey = selectedPromoter ? (selectedPromoter.kind + ':' + selectedPromoter.id) : '';
+      if(currentKey === lastCompanyCardsFor && wrap.children.length){
+        return !!(selectedPromoter && selectedPromoter.kind === 'promoter' && (getPromoterDataById(selectedPromoter.id)?.companies || []).length);
+      }
+      lastCompanyCardsFor = currentKey;
+      const hiddenId = document.getElementById('wizard_promoter_company_id');
+      const data = (selectedPromoter && selectedPromoter.kind === 'promoter') ? getPromoterDataById(selectedPromoter.id) : null;
+      const companies = (data && data.companies) ? data.companies : [];
+      let html = `
+        <div class="col-6 col-md-3">
+          <button type="button" class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white wz-company-card is-selected" data-company-id="">
+            <i class="fa fa-user d-block fs-4 mb-2 text-dark"></i>
+            <span class="fw-semibold small">Sin sociedad</span>
+            <span class="text-muted small d-block">Contrata como persona</span>
+          </button>
+        </div>`;
+      companies.forEach(c => {
+        html += `
+        <div class="col-6 col-md-3">
+          <button type="button" class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white wz-company-card" data-company-id="${c.id}">
+            <i class="fa fa-landmark d-block fs-4 mb-2 text-dark"></i>
+            <span class="fw-semibold small d-block text-truncate">${c.legal_name || 'Sociedad'}</span>
+            <span class="text-muted small d-block">${c.tax_id || ''}</span>
+          </button>
+        </div>`;
+      });
+      html += `
+        <div class="col-6 col-md-3">
+          <button type="button" class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white wz-company-card" data-company-id="__new__">
+            <i class="fa fa-plus d-block fs-4 mb-2 text-dark"></i>
+            <span class="fw-semibold small">Nueva sociedad</span>
+            <span class="text-muted small d-block">Crear sobre la marcha</span>
+          </button>
+        </div>`;
+      wrap.innerHTML = html;
+      if(hiddenId) hiddenId.value = '';
+      document.getElementById('wizardNewCompanyWrap')?.classList.add('d-none');
+      const nameInput = document.getElementById('wizard_new_company_name');
+      if(nameInput) nameInput.value = '';
+      wrap.querySelectorAll('.wz-company-card').forEach(btn => {
+        btn.addEventListener('click', () => {
+          wrap.querySelectorAll('.wz-company-card').forEach(b => b.classList.remove('is-selected'));
+          btn.classList.add('is-selected');
+          const cid = btn.getAttribute('data-company-id');
+          const isNew = cid === '__new__';
+          document.getElementById('wizardNewCompanyWrap')?.classList.toggle('d-none', !isNew);
+          if(hiddenId) hiddenId.value = isNew ? '' : cid;
+          if(!isNew && nameInput) nameInput.value = '';
+        });
+      });
+      return companies.length > 0;
+    }
+
+    /* ------------------- Detalle promocional: repertorio + tags del artista ------------------- */
+    let lastMetaArtist = '';
+    async function fetchArtistMeta(){
+      const sel = document.getElementById('wizard_artist_id');
+      const artistId = sel ? sel.value : '';
+      if(!artistId || artistId === lastMetaArtist) return;
+      lastMetaArtist = artistId;
+      try{
+        const res = await fetch('{{ url_for("api_artist_wizard_meta", aid="__AID__") }}'.replace('__AID__', encodeURIComponent(artistId)), { headers: { 'Accept': 'application/json' } });
+        if(!res.ok) return;
+        const data = await res.json();
+        const songsSel = document.getElementById('wizardSongsSelect');
+        if(songsSel){
+          const selected = new Set(Array.from(songsSel.selectedOptions || []).map(o => o.value));
+          songsSel.innerHTML = (data.songs || []).map(s => `<option value="${s.id}" ${selected.has(s.id) ? 'selected' : ''}>${s.title}</option>`).join('');
+          ensureSelect2(songsSel);
+        }
+        window.__wizardArtistTags = data.tags || [];
+        renderTagSuggestions();
+      }catch(e){ /* sin red: se puede indicar solo el número */ }
+    }
+
+    /* ------------------- Paneles condicionales sencillos ------------------- */
+    function bindPanelRadio(radioSelector, panelId, showValue){
+      document.querySelectorAll(radioSelector).forEach(r => r.addEventListener('change', () => {
+        const checked = document.querySelector(radioSelector + ':checked');
+        document.getElementById(panelId)?.classList.toggle('d-none', !(checked && checked.value === showValue));
+      }));
+    }
+
+    bindPanelRadio('.wizard-sings-radio', 'wizardSingsPanel', '1');
+    bindPanelRadio('.wizard-formation-radio', 'wizardFormationPlusWrap', 'PLUS');
+    bindPanelRadio('.wizard-pc-radio', 'wizardPromoterCostsPanel', '1');
+    bindPanelRadio('.wizard-partners-radio', 'wizardPartnersPanel', '1');
+    bindPanelRadio('.wizard-zones-radio', 'wizardZonesPanel', '1');
+    bindPanelRadio('.wizard-announce-radio', 'wizardAnnounceDateWrap', 'DATE');
+    bindPanelRadio('.wizard-artnow-radio', 'wizardArtworkRequestPanel', 'REQUEST');
+
+    document.querySelectorAll('.wizard-sings-radio').forEach(r => r.addEventListener('change', renderStepPills));
+    document.querySelectorAll('.wizard-partners-radio').forEach(r => r.addEventListener('change', () => {
+      const yes = document.querySelector('.wizard-partners-radio:checked')?.value === '1';
+      if(yes && !document.getElementById('wizardPartnerRows').children.length) wizardAddPartnerRow();
+      if(!yes) document.getElementById('wizardPartnerRows').innerHTML = '';
+    }));
+    document.querySelectorAll('.wizard-zones-radio').forEach(r => r.addEventListener('change', () => {
+      const yes = document.querySelector('.wizard-zones-radio:checked')?.value === '1';
+      if(yes && !document.getElementById('wizardZoneRows').children.length) wizardAddZoneRow();
+      if(!yes) document.getElementById('wizardZoneRows').innerHTML = '';
+    }));
+
+    /* Gastos que cubre el promotor: cada opción marcada abre su detalle. */
+    document.querySelectorAll('.wizard-pc-item').forEach(chk => chk.addEventListener('change', () => {
+      const key = chk.value;
+      document.querySelector(`[data-pc-detail="${key}"]`)?.classList.toggle('d-none', !chk.checked);
+    }));
+
+    /* Cartelería: nosotros/promotor + solicitar ahora o después. */
+    function syncArtwork(){
+      const maker = document.querySelector('.wizard-artmaker-radio:checked')?.value || 'OURS';
+      document.getElementById('wizardArtworkOursWrap')?.classList.toggle('d-none', maker !== 'OURS');
+      const now = document.querySelector('.wizard-artnow-radio:checked')?.value || 'LATER';
+      document.getElementById('wizardArtworkRequestPanel')?.classList.toggle('d-none', !(maker === 'OURS' && now === 'REQUEST'));
+      const choice = maker === 'PROMOTER' ? 'PROMOTER' : (now === 'REQUEST' ? 'REQUEST' : '');
+      document.getElementById('wizard_artwork_choice').value = choice;
+    }
+    document.querySelectorAll('.wizard-artmaker-radio, .wizard-artnow-radio').forEach(r => r.addEventListener('change', syncArtwork));
+
+    /* Anuncio: modo → hidden do_not_announce. */
+    function syncAnnounce(){
+      const mode = document.querySelector('.wizard-announce-radio:checked')?.value || 'TBC';
+      document.getElementById('wizard_do_not_announce').value = (mode === 'NONE') ? '1' : '';
+      document.getElementById('wizardAnnounceDateWrap')?.classList.toggle('d-none', mode !== 'DATE');
+      if(mode !== 'DATE'){ const d = form.querySelector('input[name="announcement_date"]'); if(d) d.value = ''; }
+    }
+    document.querySelectorAll('.wizard-announce-radio').forEach(r => r.addEventListener('change', syncAnnounce));
+
+    /* ------------------- Entradas: gratuito vs venta ------------------- */
+    function syncEntryMode(){
+      const mode = document.querySelector('.wizard-entry-radio:checked')?.value || 'SALE';
+      document.getElementById('wizardFreePanel')?.classList.toggle('d-none', mode !== 'FREE');
+      document.getElementById('wizardSalePanel')?.classList.toggle('d-none', mode !== 'SALE');
+      if(mode === 'SALE' && !document.getElementById('wizardTicketTypeRows').children.length){
+        wizardAddTicketTypeRow();
+      }
+    }
+    document.querySelectorAll('.wizard-entry-radio').forEach(r => r.addEventListener('change', (ev) => { if(ev.isTrusted) entryModeTouched = true; syncEntryMode(); }));
+    document.getElementById('wizard_free_unlimited')?.addEventListener('change', function(){
+      document.getElementById('wizardFreeCapacityWrap')?.classList.toggle('d-none', this.checked);
+    });
+
+    /* Vendedor de entradas: tarjetas dinámicas con los nombres reales. */
+    function updateSellerCards(){
+      const usName = document.querySelector('input[name="billing_company_id"]:checked')?.dataset.companyName || '';
+      const usEl = document.getElementById('wzSellerUsName');
+      if(usEl) usEl.textContent = usName;
+      // Promotor
+      const pCard = document.getElementById('wzSellerPromoterCard');
+      const pName = document.getElementById('wzSellerPromoterName');
+      const hasPromoter = !!(selectedPromoter && selectedPromoter.label) && saleTypeValue() !== 'EMPRESA';
+      if(pCard){ pCard.classList.toggle('d-none', !hasPromoter); }
+      if(pName){ pName.textContent = hasPromoter ? selectedPromoter.label : ''; }
+      // Recinto
+      const vCard = document.getElementById('wzSellerVenueCard');
+      const vName = document.getElementById('wzSellerVenueName');
+      let venueLabel = '';
+      const venueSel = document.getElementById('wizard_venue_id');
+      if(venueSel && venueSel.value){
+        const opt = venueSel.selectedOptions && venueSel.selectedOptions[0];
+        venueLabel = opt ? (opt.textContent || '').split('—')[0].trim() : '';
+      }
+      if(!venueLabel){
+        venueLabel = (form.querySelector('input[name="manual_venue_name"]')?.value || '').trim();
+      }
+      if(vCard) vCard.classList.toggle('d-none', !venueLabel);
+      if(vName) vName.textContent = venueLabel;
+      const vHidden = document.getElementById('wizard_seller_venue_label');
+      if(vHidden) vHidden.value = venueLabel;
+      // Si la tarjeta marcada quedó oculta, vuelve a «Nosotros».
+      const checked = document.querySelector('.wizard-seller-radio:checked');
+      if(checked && checked.closest('.d-none')){
+        const us = document.querySelector('.wizard-seller-radio[value="US"]');
+        if(us){ us.checked = true; us.dispatchEvent(new Event('change', { bubbles: true })); }
+      }
+      const third = document.querySelector('.wizard-seller-radio:checked')?.value === 'THIRD';
+      document.getElementById('wizardSellerThirdWrap')?.classList.toggle('d-none', !third);
+    }
+    document.querySelectorAll('.wizard-seller-radio').forEach(r => r.addEventListener('change', updateSellerCards));
+    document.querySelectorAll('input[name="billing_company_id"]').forEach(r => r.addEventListener('change', updateSellerCards));
+
+    function initSellerThirdSearch(){
+      const el = document.getElementById('wizard_seller_third_search');
+      if(!el || el.__stInit || !window.jQuery || !jQuery.fn.select2) return;
+      el.__stInit = true;
+      function fmt(d){
+        if(!d.id) return d.text;
+        const logo = d.logo_url || (d.element && (jQuery(d.element).data('photo') || jQuery(d.element).data('logo'))) || '';
+        const img = logo ? '<img class="thumb" src="'+logo+'">' : '<span class="me-2"><i class="fa fa-user"></i></span>';
+        return jQuery('<span>'+img+(d.text || '')+'</span>');
+      }
+      jQuery(el).select2({
+        width:'100%', dropdownParent: jQuery(modalEl), placeholder:'Busca el tercero o medio que vende…', allowClear:true, minimumInputLength:1,
+        ajax:{
+          url:'{{ url_for("api_search_commission_entities") }}', dataType:'json', delay:200,
+          data:function(p){ return { q: p.term || '' }; },
+          processResults:function(data){ return { results:(data||[]).map(function(it){ return { id: it.kind + ':' + it.id, text: it.label || '', logo_url: it.logo_url || '', kind: it.kind, raw_id: it.id }; }) }; }
+        },
+        templateResult: fmt, templateSelection: fmt, escapeMarkup:function(m){ return m; }
+      });
+      function setThird(id, kind, label){
+        document.getElementById('wizard_seller_third_id').value = id || '';
+        document.getElementById('wizard_seller_third_kind').value = kind || 'promoter';
+        document.getElementById('wizard_seller_third_label').value = (label || '').replace(' · medio','');
+      }
+      jQuery(el).on('select2:select', function(e){
+        const d = e.params.data || {};
+        setThird(d.raw_id || d.id, d.kind || 'promoter', d.text || '');
+      });
+      jQuery(el).on('select2:clear', function(){ setThird('', 'promoter', ''); });
+      jQuery(el).on('change', function(){
+        const opt = el.selectedOptions && el.selectedOptions[0];
+        if(!opt || !opt.value || opt.value.indexOf(':') >= 0) return;
+        setThird(opt.value, 'promoter', opt.textContent || '');
+      });
+    }
+
+    /* Columna «Invitaciones» de los tipos de entrada + panel total. */
+    function syncInvitations(){
+      const mode = document.querySelector('.wizard-inv-radio:checked')?.value || 'NONE';
+      window.__wzSyncInvColumns = function(){
+        document.querySelectorAll('.wz-tt-inv').forEach(el => el.classList.toggle('d-none', mode !== 'BY_TYPE'));
+      };
+      window.__wzSyncInvColumns();
+      document.getElementById('wizardInvByTypeHint')?.classList.toggle('d-none', mode !== 'BY_TYPE');
+      document.getElementById('wizardInvTotalWrap')?.classList.toggle('d-none', mode !== 'TOTAL');
+    }
+    document.querySelectorAll('.wizard-inv-radio').forEach(r => r.addEventListener('change', syncInvitations));
+
+    /* ------------------- Caché: totales y pendiente de configurar en pagos ------------------- */
+    function moneyFmt(n){
+      try{ return n.toLocaleString('es-ES', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €'; }
+      catch(e){ return (Math.round(n * 100) / 100) + ' €'; }
+    }
+    function recalcCacheTotals(){
+      let total = 0;
+      document.querySelectorAll('#wizardCaches .cache-fixed input[name="cache_amount[]"]').forEach(inp => {
+        const row = inp.closest('.border');
+        const kind = row?.querySelector('select[name="cache_kind[]"]')?.value || 'FIXED';
+        if(kind === 'VARIABLE') return;
+        const v = parseFloat(inp.value);
+        if(!isNaN(v)) total += v;
+      });
+      let paid = 0;
+      document.querySelectorAll('#wizardPaymentRows input[name="payment_amount[]"]').forEach(inp => {
+        const v = parseFloat(inp.value);
+        if(!isNaN(v)) paid += v;
+      });
+      const pending = Math.round((total - paid) * 100) / 100;
+      const totalEl = document.getElementById('wzCacheTotal');
+      if(totalEl) totalEl.textContent = 'Caché fijo: ' + moneyFmt(total);
+      const paidEl = document.getElementById('wzPaymentsTotal');
+      if(paidEl) paidEl.textContent = 'Pagos configurados: ' + moneyFmt(paid);
+      const pendEl = document.getElementById('wzPaymentPending');
+      const restBtn = document.getElementById('wzAddRemainingBtn');
+      if(pendEl){
+        if(total > 0 && Math.abs(pending) >= 0.01){
+          pendEl.classList.remove('d-none');
+          pendEl.classList.toggle('text-bg-warning', pending > 0);
+          pendEl.classList.toggle('text-bg-danger', pending < 0);
+          pendEl.textContent = pending > 0 ? ('Pendiente de configurar: ' + moneyFmt(pending)) : ('Configurado de más: ' + moneyFmt(-pending));
+        } else {
+          pendEl.classList.add('d-none');
+        }
+      }
+      if(restBtn){
+        restBtn.classList.toggle('d-none', !(total > 0 && pending >= 0.01));
+        restBtn.dataset.pending = pending;
+      }
+    }
+    window.__wzRecalcCache = recalcCacheTotals;
+    document.getElementById('wizardCacheStep')?.addEventListener('input', recalcCacheTotals);
+    document.getElementById('wizardCacheStep')?.addEventListener('click', () => setTimeout(recalcCacheTotals, 30));
+    document.getElementById('wzAddRemainingBtn')?.addEventListener('click', function(){
+      const pending = parseFloat(this.dataset.pending || '0');
+      if(pending > 0){ wizardAddPaymentRow({ concept: 'Resto de caché', amount: pending.toFixed(2) }); }
+      recalcCacheTotals();
+    });
+
+    /* ------------------- # (tags): gestor de chips + sugerencias del artista ------------------- */
+    let tagManager = null;
+    function canonicalTag(raw){
+      const clean = String(raw || '').trim().replace(/^#+/, '').replace(/\s+/g, ' ');
+      if(!clean) return '';
+      const all = window.__wizardAllTags || [];
+      const found = all.find(t => String(t).localeCompare(clean, 'es', { sensitivity: 'accent' }) === 0);
+      return found || clean;
+    }
+    function initTagManager(){
+      if(tagManager || !window.initConcertTagManager) return;
+      tagManager = window.initConcertTagManager({ inputId: 'wizardTagInput', chipsId: 'wizardTagChips', hiddenId: 'wizardTagHidden', initialTags: [] });
+      const input = document.getElementById('wizardTagInput');
+      // Canonicaliza ANTES de que el gestor añada el chip (dedupe entre artistas).
+      input?.addEventListener('keydown', (ev) => {
+        if(ev.key === 'Enter' || ev.key === ','){ input.value = canonicalTag(input.value); }
+      }, true);
+      document.getElementById('wizardTagAddBtn')?.addEventListener('click', () => {
+        if(!tagManager) return;
+        input.value = canonicalTag(input.value);
+        tagManager.addFromInput();
+        renderTagSuggestions();
+      });
+    }
+    function renderTagSuggestions(){
+      const wrap = document.getElementById('wizardTagSuggest');
+      if(!wrap) return;
+      const tags = window.__wizardArtistTags || [];
+      const chosen = tagManager ? tagManager.getTags().map(t => t.toLowerCase()) : [];
+      const items = tags.filter(t => chosen.indexOf(String(t).toLowerCase()) < 0).slice(0, 12);
+      wrap.classList.toggle('d-none', !items.length);
+      wrap.innerHTML = items.map(t => `<button type="button" class="btn btn-sm btn-outline-secondary rounded-pill wz-tag-suggest" data-tag="${t}"><i class="fa fa-hashtag me-1"></i>${t}</button>`).join('');
+      wrap.querySelectorAll('.wz-tag-suggest').forEach(btn => btn.addEventListener('click', () => {
+        tagManager?.addTag(btn.dataset.tag);
+        renderTagSuggestions();
+      }));
+    }
+
     function syncFestivalName(){
       const t = document.querySelector('input[name="activity_type"]:checked');
       const wrap = document.getElementById('wizardFestivalNameWrap');
@@ -1061,7 +1946,7 @@
         if(!document.getElementById('wizard_artist_id').value){ alert('Debes seleccionar un artista.'); return false; }
       }
       if(step === 3){
-        if(!document.getElementById('wizard_date').value){ alert('Debes indicar la fecha del concierto.'); return false; }
+        if(!document.getElementById('wizard_date').value){ alert('Debes indicar la fecha de la actividad.'); return false; }
         if(!document.getElementById('wizard_venue_id').value && !document.querySelector('input[name="manual_municipality"]').value.trim() && !document.querySelector('input[name="manual_province"]').value.trim()){
           alert('Indica un recinto o al menos municipio y provincia.');
           return false;
@@ -1070,6 +1955,9 @@
       if(step === 4 && modeInput.value === 'request_sheet'){
         const email = form.querySelector('input[name="promoter_email"]').value.trim();
         if(!email){ alert('Debes indicar el email del promotor.'); return false; }
+      }
+      if(step === 4 && modeInput.value === 'direct'){
+        if(!document.querySelector('input[name="artist_sings"]:checked')){ alert('Indica si el artista canta o no.'); return false; }
       }
       return true;
     }
@@ -1088,39 +1976,12 @@
 
     modeChoices.forEach(el => el.addEventListener('change', syncMode));
     knowsVenue?.addEventListener('change', toggleVenueKnown);
-    hasTicketSales?.addEventListener('change', toggleTicketSales);
-    document.querySelectorAll('.wizard-sale-type-select, .wizard-sale-type-radio').forEach(sel => sel.addEventListener('change', syncPromoterVisibility));
-    document.querySelectorAll('input[name="activity_type"]').forEach(el => el.addEventListener('change', syncFestivalName));
-    // Cambio de promotor principal: rellena sus sociedades y, si viene de la alta rápida (+) y aún
-    // no está en promotersPayload, lo incorpora (con su logo) para que también aparezca en las filas
-    // de socios y comisionistas. Se engancha por jQuery ADEMÁS de nativo: con select2 activo, el
-    // trigger('change') de quick_create.js no dispara listeners de addEventListener.
-    function syncMainPromoterSelection(){
-      if(!mainPromoterSelect) return;
-      const id = mainPromoterSelect.value;
-      if(id && !getPromoterDataById(id)){
-        const opt = mainPromoterSelect.querySelector('option[value="' + id + '"]');
-        const nick = opt ? opt.textContent : '';
-        const logo = (opt && (opt.dataset.photo || opt.dataset.logo)) || '{{ DEFAULT_PHOTO_URL }}';
-        if(opt && !opt.dataset.logo) opt.dataset.logo = logo;
-        window.promotersPayload.push({id: id, nick: nick, logo_url: logo, companies: []});
-        document.querySelectorAll('.wizard-partner-promoter, .wizard-zone-promoter').forEach(sel => {
-          if(Array.from(sel.options).some(o => o.value === id)) return;
-          const o = document.createElement('option');
-          o.value = id; o.textContent = nick; o.dataset.logo = logo;
-          sel.appendChild(o);
-        });
-      }
-      fillPromoterCompanySelect(id, mainPromoterCompany);
-    }
-    mainPromoterSelect?.addEventListener('change', syncMainPromoterSelection);
-    if(window.jQuery && mainPromoterSelect){ jQuery(mainPromoterSelect).on('change', syncMainPromoterSelection); }
-    document.getElementById('wizard_artist_id')?.addEventListener('change', checkArtistConflict);
-    document.getElementById('wizard_artist_id')?.addEventListener('change', filterTourCards);
+    document.querySelectorAll('input[name="activity_type"]').forEach(el => el.addEventListener('change', () => { syncFestivalName(); syncEconomyCards(); renderStepPills(); }));
+    document.querySelectorAll('.wizard-sale-type-radio').forEach(el => el.addEventListener('change', () => { syncPromoterVisibility(); syncCacheCards(); syncEntryDefault(); renderStepPills(); }));
+    document.getElementById('wizard_artist_id')?.addEventListener('change', () => { checkArtistConflict(); filterTourCards(); lastMetaArtist=''; fetchArtistMeta(); });
     document.getElementById('wizard_date')?.addEventListener('change', checkArtistConflict);
-    // RECINTO: Select2 AJAX con foto en tiempo real, AUTOCONTENIDO en este parcial (el
-    // typeahead antiguo solo existía en /conciertos y en el resto de páginas el buscador
-    // no mostraba nada y el botón + estaba muerto).
+
+    /* RECINTO: Select2 AJAX con foto en tiempo real, AUTOCONTENIDO en este parcial. */
     function initWizardVenueSelect(){
       const el = document.getElementById('wizard_venue_id');
       if(!el || el.__vsInit || !window.jQuery || !jQuery.fn.select2) return;
@@ -1140,6 +2001,7 @@
         },
         templateResult: fmt, templateSelection: fmt, escapeMarkup:function(m){ return m; }
       });
+      jQuery(el).on('change', updateSellerCards);
     }
     function wizardVenueClear(){
       const el = document.getElementById('wizard_venue_id');
@@ -1147,24 +2009,29 @@
       if(window.jQuery && jQuery(el).data('select2')) jQuery(el).val(null).trigger('change');
       else el.value = '';
     }
+
     modalEl?.addEventListener('shown.bs.modal', ()=> {
       syncMode();
       toggleVenueKnown();
-      toggleTicketSales();
-      fillPromoterCompanySelect(mainPromoterSelect?.value, mainPromoterCompany);
-      syncPromoterVisibility();
       syncFestivalName();
+      syncEconomyCards();
       filterTourCards();
       initWizardVenueSelect();
-      if(!document.getElementById('wizardPartnerRows').children.length) wizardAddPartnerRow();
-      if(!document.getElementById('wizardZoneRows').children.length) wizardAddZoneRow();
-      if(!document.getElementById('wizardPaymentRows').children.length) wizardAddPaymentRow();
-      if(!document.getElementById('wizardInvitationRows').children.length) wizardAddInvitationRow();
+      initPromoterSearch();
+      initSellerThirdSearch();
+      initTagManager();
+      syncEntryMode();
+      syncInvitations();
+      syncArtwork();
+      syncAnnounce();
+      recalcCacheTotals();
+      updateSellerCards();
+      if(!document.getElementById('wizardTicketTypeRows').children.length) wizardAddTicketTypeRow();
     });
 
     form.addEventListener('submit', (ev)=> {
       if(!validateStep(currentStep)){ ev.preventDefault(); return; }
-      // Vínculo a gira comprada / ciclo / festival elegido en el último paso.
+      // Vínculo a gira comprada / ciclo / festival elegido en su paso.
       const gref = document.querySelector('input[name="wizard_group_ref"]:checked');
       const ptEl = document.getElementById('wizard_purchased_tour_id');
       const cfEl = document.getElementById('wizard_cycle_festival_id');
@@ -1174,19 +2041,29 @@
         if(gref.value.indexOf('tour:') === 0 && ptEl) ptEl.value = gref.value.slice(5);
         else if(gref.value.indexOf('cycle:') === 0 && cfEl) cfEl.value = gref.value.slice(6);
       }
-      // No enviar los campos del flujo NO activo (evita, p. ej., el sale_type duplicado del otro paso).
+      syncArtwork();
+      syncAnnounce();
+      // No enviar los campos de pasos NO activos (por modo NI por secuencia) ni de paneles cerrados.
+      const seq = stepSequence();
       document.querySelectorAll('.wizard-step').forEach(el => {
         const modes = (el.dataset.mode || 'any').split(',');
-        const active = modes.includes('any') || modes.includes(modeInput.value);
-        if(!active){ el.querySelectorAll('input,select,textarea').forEach(i => { i.disabled = true; }); }
+        const modeOk = modes.includes('any') || modes.includes(modeInput.value);
+        const seqOk = seq.indexOf(Number(el.dataset.step)) >= 0;
+        if(!(modeOk && seqOk)){ el.querySelectorAll('input,select,textarea').forEach(i => { i.disabled = true; }); }
+      });
+      document.querySelectorAll('[data-wz-panel].d-none').forEach(panel => {
+        panel.querySelectorAll('input,select,textarea').forEach(i => { i.disabled = true; });
       });
     });
 
     syncMode();
     toggleVenueKnown();
-    toggleTicketSales();
-    syncPromoterVisibility();
     syncFestivalName();
+    syncEconomyCards();
+    syncEntryMode();
+    syncInvitations();
+    syncArtwork();
+    syncAnnounce();
   })();
 </script>
 <script>

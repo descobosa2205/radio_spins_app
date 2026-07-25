@@ -10,7 +10,7 @@
       <h3 class="mb-1">{{ venue.name }}</h3>
       <div class="text-muted">{{ venue.address or 'Sin dirección registrada' }}</div>
       <div class="text-muted small">
-        {{ venue.municipality or 'Sin municipio' }}{% if venue.province %} · {{ venue.province }}{% endif %}
+        {{ venue.municipality or 'Sin municipio' }}{% if venue.province %} · {{ venue.province }}{% endif %}{% if venue.country and venue.country != 'España' %} · {{ venue.country }}{% endif %}
         {% if venue.covered %}<span class="badge text-bg-light border ms-2">Cubierto</span>{% endif %}
         {% if venue.allows_bars %}<span class="badge text-bg-light border ms-1"><i class="fa fa-beer-mug-empty me-1"></i>Barras</span>{% endif %}
       </div>
@@ -65,6 +65,10 @@
         <label class="form-label">Provincia</label>
         <input class="form-control" name="province" value="{{ venue.province or '' }}">
       </div>
+      <div class="col-md-2">
+        <label class="form-label">País</label>
+        <input class="form-control" name="country" value="{{ venue.country or 'España' }}">
+      </div>
       <div class="col-md-4">
         <label class="form-label">Foto</label>
         <input class="form-control" type="file" name="photo" accept="image/*">
@@ -100,9 +104,13 @@
         <div class="small text-uppercase text-muted">Dirección</div>
         <div>{{ venue.address or '—' }}</div>
       </div>
-      <div class="col-md-3">
+      <div class="col-md-2">
         <div class="small text-uppercase text-muted">Ubicación</div>
         <div>{{ venue.municipality or '—' }}{% if venue.province %} · {{ venue.province }}{% endif %}</div>
+      </div>
+      <div class="col-md-1">
+        <div class="small text-uppercase text-muted">País</div>
+        <div>{{ venue.country or 'España' }}</div>
       </div>
     </div>
   </div>

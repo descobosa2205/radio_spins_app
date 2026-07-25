@@ -700,6 +700,8 @@ class Promoter(Base):
     contact_email = Column(Text)
     contact_phone = Column(Text)
     address = Column(Text)            # domicilio (se autorrellena del DNI; editable)
+    # Petición especial de HOTELES (aparece como nota junto a la persona en las rooming lists).
+    hotel_notes = Column(Text)
 
     # Redes sociales del tercero (p. ej. del fotógrafo) para menciones. Dict opcional:
     # {"instagram": ..., "tiktok": ..., "twitter": ..., "facebook": ..., "youtube": ...}.
@@ -5673,6 +5675,8 @@ def ensure_third_party_and_contract_sheet_schema():
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS social_links jsonb NOT NULL DEFAULT '{}'::jsonb;",
         # Domicilio del tercero (se autorrellena del DNI al darlo de alta; editable).
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS address text;",
+        # Petición especial de hoteles (nota junto a la persona en las rooming lists).
+        "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS hotel_notes text;",
 
         """
         CREATE TABLE IF NOT EXISTS promoter_companies (

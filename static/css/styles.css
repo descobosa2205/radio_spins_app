@@ -678,6 +678,25 @@ img.img-error-pending{ visibility: hidden; }
   background: #f8fbff !important;
 }
 
+/* ===== Rooming list (hoja de ruta · hoteles) ===== */
+.rm-rooms-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:.45rem; }
+.rm-room{
+  border:1px solid #e5e8ee; border-radius:10px; background:#fff; padding:.4rem .5rem;
+  min-height:64px; font-size:.8rem;
+}
+.rm-room--edit{ min-height:96px; }
+.rm-room--pool{ min-height:140px; display:flex; flex-wrap:wrap; gap:.3rem; align-content:flex-start; }
+.rm-room.drag-over{ border-color:#E33D48; box-shadow:0 0 0 .15rem rgba(227,61,72,.15); }
+.rm-room__head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:.25rem; }
+.rm-occ{
+  display:inline-flex; align-items:center; gap:.3rem; border:1px solid #eceff3; border-radius:999px;
+  padding:.1rem .5rem .1rem .15rem; margin:.1rem .15rem .1rem 0; background:#f8f9fb; cursor:grab;
+  max-width:100%;
+}
+.rm-occ.dragging{ opacity:.5; }
+.rm-occ img, .rm-occ .rm-av{ width:22px; height:22px; border-radius:50%; object-fit:cover; }
+.rm-occ span{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:120px; }
+
 /* ===== Ficha de actividad: accesos rápidos + resumen visual ===== */
 .ficha-quick{
   display:flex; flex-wrap:wrap; gap:.5rem;

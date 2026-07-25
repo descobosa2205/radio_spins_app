@@ -1,6 +1,0 @@
-{
-  "version": "0.0.1",
-  "configurations": [
-    { "name": "setlist-test", "runtimeExecutable": "python3", "runtimeArgs": ["/private/tmp/claude-501/-Users-carlos-Documents-radio-spins-app/74143722-1978-40cd-8b81-bcef13264850/scratchpad/setlist_test/serve.py"], "port": 8765 }
-  ]
-}

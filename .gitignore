@@ -30,3 +30,4 @@ Thumbs.db
 *.tmp
 tmp/
 migracion_frankfurt.env
+.claude/launch.json

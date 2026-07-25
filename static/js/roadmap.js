@@ -527,8 +527,204 @@
       view.querySelector('[data-add]').addEventListener('click', function () { openHotelEditor(newHotel()); });
       view.querySelectorAll('[data-hedit]').forEach(function (b) { b.addEventListener('click', function () { openHotelEditor(JSON.parse(JSON.stringify(hotelById(b.getAttribute('data-hedit'))))); }); });
       view.querySelectorAll('[data-hdel]').forEach(function (b) { b.addEventListener('click', function () { if (!confirm('¿Eliminar este hotel?')) return; postJson(ep('/hotel/delete'), { id: b.getAttribute('data-hdel') }).then(apply); }); });
+      wireRooming();
+    }
+    function wireRooming() {
+      view.querySelectorAll('[data-rooming-edit]').forEach(function (b) {
+        b.addEventListener('click', function () { var ho = hotelById(b.getAttribute('data-rooming-edit')); if (ho) openRoomingEditor(ho); });
+      });
+      view.querySelectorAll('[data-rshare]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var ho = hotelById(b.getAttribute('data-rhotel')); if (!ho) return;
+          var mode = b.getAttribute('data-rshare');
+          if (mode === 'pdf') {
+            var withDni = confirm('¿Incluir la foto del DNI de cada huésped en el documento?\n\nAceptar = con fotos del DNI · Cancelar = sin fotos');
+            window.open(ep('/rooming/' + encodeURIComponent(ho.id) + '/pdf') + (withDni ? '?dni=1' : ''), '_blank');
+          } else if (mode === 'xlsx') {
+            window.open(ep('/rooming/' + encodeURIComponent(ho.id) + '/xlsx'), '_blank');
+          } else {
+            var text = roomingShareText(ho);
+            if (mode === 'wa') window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+            else if (mode === 'sms') window.location.href = 'sms:?&body=' + encodeURIComponent(text);
+            else window.location.href = 'mailto:?subject=' + encodeURIComponent('Rooming list · ' + (ho.name || 'Hotel')) + '&body=' + encodeURIComponent(text);
+          }
+        });
+      });
+      if (RO) return;
+      // Arrastrar personas ENTRE habitaciones (también de un hotel a otro) desde la vista.
+      view.querySelectorAll('.rm-occ[data-occ]').forEach(function (chip) {
+        chip.addEventListener('dragstart', function (e) {
+          chip.classList.add('dragging');
+          try { e.dataTransfer.setData('text/plain', JSON.stringify({ pid: chip.getAttribute('data-occ'), hotel: chip.getAttribute('data-occ-hotel'), room: chip.getAttribute('data-occ-room') })); } catch (err) {}
+        });
+        chip.addEventListener('dragend', function () { chip.classList.remove('dragging'); });
+      });
+      view.querySelectorAll('.rm-room[data-room]').forEach(function (zone) {
+        zone.addEventListener('dragover', function (e) { e.preventDefault(); zone.classList.add('drag-over'); });
+        zone.addEventListener('dragleave', function () { zone.classList.remove('drag-over'); });
+        zone.addEventListener('drop', function (e) {
+          e.preventDefault(); zone.classList.remove('drag-over');
+          var data = null; try { data = JSON.parse(e.dataTransfer.getData('text/plain') || 'null'); } catch (err) {}
+          if (!data || !data.pid) return;
+          var destHotel = hotelById(zone.getAttribute('data-room-hotel'));
+          if (!destHotel) return;
+          var rooms = JSON.parse(JSON.stringify(destHotel.rooms || []));
+          rooms.forEach(function (r) { r.occupant_ids = (r.occupant_ids || []).filter(function (x) { return String(x) !== String(data.pid); }); });
+          var dest = null;
+          rooms.forEach(function (r) { if (String(r.id) === String(zone.getAttribute('data-room'))) dest = r; });
+          if (!dest) return;
+          dest.occupant_ids.push(String(data.pid));
+          // El servidor quita a la persona del resto de hoteles automáticamente.
+          saveRooms(destHotel.id, rooms);
+        });
+      });
     }
     function newHotel() { return { id: '', name: '', stars: 0, photo_url: '', address: '', phone: '', email: '', days: [], for_all: true, assignee_ids: [], note: '', attachments: [] }; }
+    // ---------- ROOMING LIST ----------
+    function assignedRoomIds(exceptHotelId) {
+      // ids de personal con habitación asignada en CUALQUIER hotel (salvo el indicado).
+      var out = {};
+      P.hotels.forEach(function (ho) {
+        if (exceptHotelId && String(ho.id) === String(exceptHotelId)) return;
+        (ho.rooms || []).forEach(function (r) { (r.occupant_ids || []).forEach(function (id) { out[String(id)] = ho.id; }); });
+      });
+      return out;
+    }
+    function roomTypeLabel(n) { return n === 1 ? 'DUI' : (n === 2 ? 'Doble' : (n === 3 ? 'Triple' : (n ? n + ' pers.' : 'Vacía'))); }
+    function roomRangeLabel(r, ho) {
+      var from = r.day_from || (ho.days || [])[0] || '';
+      var to = r.day_to || (ho.days || [])[(ho.days || []).length - 1] || from;
+      if (!from) return '';
+      var d1 = new Date(from), d2 = new Date(to || from);
+      var nights = Math.max(1, Math.round((d2 - d1) / 86400000) + 1);
+      function f(d) { return ('0' + d.getDate()).slice(-2) + '/' + ('0' + (d.getMonth() + 1)).slice(-2); }
+      return 'del ' + f(d1) + ' al ' + f(d2) + ' (' + nights + ' noche' + (nights !== 1 ? 's' : '') + ')';
+    }
+    function roomMiniCard(ho, r, ri) {
+      var occ = (r.occupant_ids || []).map(function (id) {
+        var p = personById(id); if (!p) return '';
+        return '<span class="rm-occ" draggable="' + (RO ? 'false' : 'true') + '" data-occ="' + esc(id) + '" data-occ-hotel="' + esc(ho.id) + '" data-occ-room="' + esc(r.id) + '" title="' + esc(p.name) + '">' + avatar(p.photo_url) + '<span>' + esc(p.name) + '</span></span>';
+      }).join('');
+      return '<div class="rm-room" data-room="' + esc(r.id) + '" data-room-hotel="' + esc(ho.id) + '">'
+        + '<div class="rm-room__head"><span class="fw-semibold">' + roomTypeLabel((r.occupant_ids || []).length) + '</span>'
+        + '<span class="rm-sub">' + (r.breakfast ? '<i class="fa fa-mug-saucer" title="Con desayuno"></i>' : '<i class="fa fa-mug-saucer" style="opacity:.25" title="Sin desayuno"></i>') + '</span></div>'
+        + (occ || '<div class="rm-sub">Arrastra personas aquí</div>')
+        + '</div>';
+    }
+    function roomingBlock(ho) {
+      var rooms = ho.rooms || [];
+      // agrupadas por nº de días (rango)
+      var groups = {};
+      rooms.forEach(function (r) { var k = roomRangeLabel(r, ho) || 'Sin días'; (groups[k] = groups[k] || []).push(r); });
+      var html = '<div class="rm-rooming mt-2" data-rooming="' + esc(ho.id) + '">';
+      html += '<div class="d-flex justify-content-between align-items-center flex-wrap gap-1 mb-1">'
+        + '<span class="rm-sub fw-semibold"><i class="fa fa-bed"></i> Rooming list' + (rooms.length ? ' · ' + rooms.length + ' hab.' : '') + '</span>'
+        + '<span class="d-flex gap-1">'
+        + (RO ? '' : '<button class="btn btn-sm btn-outline-primary py-0" data-rooming-edit="' + esc(ho.id) + '"><i class="fa fa-pen"></i> Editar rooming</button>')
+        + '<div class="dropdown d-inline-block"><button class="btn btn-sm btn-outline-secondary py-0" data-bs-toggle="dropdown"><i class="fa fa-share-nodes"></i> Compartir</button>'
+        + '<ul class="dropdown-menu dropdown-menu-end">'
+        + '<li><button class="dropdown-item" data-rshare="pdf" data-rhotel="' + esc(ho.id) + '"><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar PDF</button></li>'
+        + '<li><button class="dropdown-item" data-rshare="xlsx" data-rhotel="' + esc(ho.id) + '"><i class="fa fa-file-excel fa-fw me-1"></i>Descargar Excel</button></li>'
+        + '<li><hr class="dropdown-divider"></li>'
+        + '<li><button class="dropdown-item" data-rshare="email" data-rhotel="' + esc(ho.id) + '"><i class="fa fa-envelope fa-fw me-1"></i>Compartir por email</button></li>'
+        + '<li><button class="dropdown-item" data-rshare="wa" data-rhotel="' + esc(ho.id) + '"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</button></li>'
+        + '<li><button class="dropdown-item" data-rshare="sms" data-rhotel="' + esc(ho.id) + '"><i class="fa fa-comment-sms fa-fw me-1"></i>Por SMS</button></li>'
+        + '</ul></div></span></div>';
+      if (!rooms.length) html += '<div class="rm-sub">Sin habitaciones. ' + (RO ? '' : 'Pulsa «Editar rooming» para configurarlas.') + '</div>';
+      Object.keys(groups).forEach(function (k) {
+        html += '<div class="rm-sub fw-semibold mt-1">' + esc(k) + '</div><div class="rm-rooms-grid">';
+        groups[k].forEach(function (r) { html += roomMiniCard(ho, r, 0); });
+        html += '</div>';
+      });
+      html += '</div>';
+      return html;
+    }
+    function roomingShareText(ho) {
+      var lines = ['Rooming list · ' + (ho.name || 'Hotel')];
+      (ho.rooms || []).forEach(function (r, i) {
+        var names = (r.occupant_ids || []).map(function (id) { var p = personById(id); return p ? p.name : ''; }).filter(Boolean).join(', ');
+        lines.push('Hab. ' + (i + 1) + ' (' + roomTypeLabel((r.occupant_ids || []).length) + (r.breakfast ? ', con desayuno' : ', sin desayuno') + ') ' + (roomRangeLabel(r, ho) || '') + ': ' + (names || 'vacía'));
+      });
+      return lines.join('\n');
+    }
+    function saveRooms(hotelId, rooms) {
+      return postJson(ep('/hotel/rooms'), { hotel_id: hotelId, rooms: rooms }).then(apply);
+    }
+    function openRoomingEditor(ho) {
+      var draftRooms = JSON.parse(JSON.stringify(ho.rooms || []));
+      var assignedElsewhere = assignedRoomIds(ho.id);
+      var hotelDays = ho.days || [];
+      function unassigned() {
+        var inDraft = {};
+        draftRooms.forEach(function (r) { (r.occupant_ids || []).forEach(function (id) { inDraft[String(id)] = 1; }); });
+        return P.personnel.filter(function (p) { return !inDraft[String(p.id)] && !assignedElsewhere[String(p.id)]; });
+      }
+      function newRoomId() { return 'tmp-' + Math.random().toString(36).slice(2, 10); }
+      function dayOptions(sel) {
+        var days = hotelDays.length ? hotelDays : DAYS.map(function (d) { return d.date; });
+        return days.map(function (d) { return '<option value="' + esc(d) + '"' + (d === sel ? ' selected' : '') + '>' + esc(dayLabel(d)) + '</option>'; }).join('');
+      }
+      function html() {
+        var left = '<div class="d-flex justify-content-between align-items-center mb-2"><span class="fw-semibold">Habitaciones</span><button type="button" class="btn btn-sm btn-outline-primary" data-addroom><i class="fa fa-plus"></i> Añadir habitación</button></div><div class="rm-rooms-grid" data-roomsedit>';
+        draftRooms.forEach(function (r, i) {
+          var occ = (r.occupant_ids || []).map(function (id) {
+            var p = personById(id); if (!p) return '';
+            return '<span class="rm-occ" draggable="true" data-eocc="' + esc(id) + '">' + avatar(p.photo_url) + '<span>' + esc(p.name) + '</span></span>';
+          }).join('');
+          left += '<div class="rm-room rm-room--edit" data-eroom="' + i + '">'
+            + '<div class="rm-room__head"><span class="fw-semibold">' + roomTypeLabel((r.occupant_ids || []).length) + '</span>'
+            + '<span><label class="rm-sub me-1" title="Desayuno"><input type="checkbox" data-ebrk="' + i + '"' + (r.breakfast ? ' checked' : '') + '> <i class="fa fa-mug-saucer"></i></label>'
+            + '<button type="button" class="btn btn-sm btn-link text-danger p-0" data-edelroom="' + i + '"><i class="fa fa-trash"></i></button></span></div>'
+            + '<div class="rm-sub mb-1">De <select class="form-select form-select-sm d-inline-block w-auto" data-efrom="' + i + '">' + dayOptions(r.day_from || hotelDays[0] || '') + '</select> a <select class="form-select form-select-sm d-inline-block w-auto" data-eto="' + i + '">' + dayOptions(r.day_to || hotelDays[hotelDays.length - 1] || '') + '</select></div>'
+            + (occ || '<div class="rm-sub">Arrastra personas aquí</div>')
+            + '</div>';
+        });
+        left += '</div>';
+        var people = unassigned().map(function (p) {
+          return '<span class="rm-occ" draggable="true" data-eocc="' + esc(p.id) + '">' + avatar(p.photo_url) + '<span>' + esc(p.name) + '</span></span>';
+        }).join('') || '<div class="rm-sub">Todo el personal disponible ya tiene habitación.</div>';
+        var right = '<div class="fw-semibold mb-2">Personal sin habitación</div><div class="rm-room rm-room--pool" data-epool>' + people + '</div><div class="rm-sub mt-2">1 persona = DUI · 2 = Doble · 3 = Triple. Las personas alojadas en otro hotel no aparecen.</div>';
+        return '<div class="row g-3"><div class="col-md-7">' + left + '</div><div class="col-md-5">' + right + '</div></div>';
+      }
+      var m = openModal('rmRoomingModal', 'modal-xl', 'Rooming list · ' + (ho.name || 'Hotel'), html(), [
+        btn('Cancelar', 'btn-outline-secondary', function () { var i = bs('rmRoomingModal'); if (i) i.hide(); }),
+        btn('Guardar rooming', 'btn-primary', function () { var i = bs('rmRoomingModal'); if (i) i.hide(); saveRooms(ho.id, draftRooms); })
+      ]);
+      function rerender() { m.querySelector('.modal-body').innerHTML = html(); wire(); }
+      function moveOcc(pid, toRoomIdx) {
+        draftRooms.forEach(function (r) { r.occupant_ids = (r.occupant_ids || []).filter(function (x) { return String(x) !== String(pid); }); });
+        if (toRoomIdx >= 0 && draftRooms[toRoomIdx]) draftRooms[toRoomIdx].occupant_ids.push(String(pid));
+        rerender();
+      }
+      function wire() {
+        var body = m.querySelector('.modal-body');
+        body.querySelector('[data-addroom]').addEventListener('click', function () {
+          draftRooms.push({ id: newRoomId(), breakfast: false, day_from: hotelDays[0] || '', day_to: hotelDays[hotelDays.length - 1] || '', occupant_ids: [] });
+          rerender();
+        });
+        body.querySelectorAll('[data-edelroom]').forEach(function (b) { b.addEventListener('click', function () { draftRooms.splice(parseInt(b.getAttribute('data-edelroom'), 10), 1); rerender(); }); });
+        body.querySelectorAll('[data-ebrk]').forEach(function (c) { c.addEventListener('change', function () { draftRooms[parseInt(c.getAttribute('data-ebrk'), 10)].breakfast = c.checked; }); });
+        body.querySelectorAll('[data-efrom]').forEach(function (s) { s.addEventListener('change', function () { draftRooms[parseInt(s.getAttribute('data-efrom'), 10)].day_from = s.value; }); });
+        body.querySelectorAll('[data-eto]').forEach(function (s) { s.addEventListener('change', function () { draftRooms[parseInt(s.getAttribute('data-eto'), 10)].day_to = s.value; }); });
+        body.querySelectorAll('[data-eocc]').forEach(function (chip) {
+          chip.addEventListener('dragstart', function (e) { chip.classList.add('dragging'); try { e.dataTransfer.setData('text/plain', chip.getAttribute('data-eocc')); } catch (err) {} });
+          chip.addEventListener('dragend', function () { chip.classList.remove('dragging'); });
+        });
+        body.querySelectorAll('[data-eroom], [data-epool]').forEach(function (zone) {
+          zone.addEventListener('dragover', function (e) { e.preventDefault(); zone.classList.add('drag-over'); });
+          zone.addEventListener('dragleave', function () { zone.classList.remove('drag-over'); });
+          zone.addEventListener('drop', function (e) {
+            e.preventDefault(); zone.classList.remove('drag-over');
+            var pid = ''; try { pid = e.dataTransfer.getData('text/plain'); } catch (err) {}
+            if (!pid) return;
+            var idx = zone.hasAttribute('data-eroom') ? parseInt(zone.getAttribute('data-eroom'), 10) : -1;
+            moveOcc(pid, idx);
+          });
+        });
+      }
+      wire();
+    }
+
     function hotelCard(ho) {
       var stars = ho.stars ? '<span class="rm-stars">' + Array(ho.stars + 1).join('★') + '</span>' : '';
       var whoNames = ho.for_all ? 'Todo el equipo' : (ho.assignee_ids || []).map(function (id) { var p = personById(id); return p ? p.name : ''; }).filter(Boolean).join(', ');
@@ -543,6 +739,7 @@
         + '<div class="rm-sub"><i class="fa fa-users"></i> ' + esc(whoNames || '—') + '</div>'
         + (ho.note ? '<div class="rm-sub"><i class="fa fa-note-sticky"></i> ' + esc(ho.note) + '</div>' : '')
         + (atts ? '<div class="mt-1">' + atts + '</div>' : '')
+        + roomingBlock(ho)
         + '</div>'
         + (RO ? '' : '<div class="dropdown rm-menu"><button class="btn btn-sm btn-light" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-vertical"></i></button><ul class="dropdown-menu dropdown-menu-end"><li><button class="dropdown-item" data-hedit="' + esc(ho.id) + '">Editar</button></li><li><button class="dropdown-item text-danger" data-hdel="' + esc(ho.id) + '">Eliminar</button></li></ul></div>')
         + '</div>';
@@ -598,7 +795,14 @@
       var groups = {};
       P.personnel.forEach(function (p) { var g = (p.role || 'Sin función').trim() || 'Sin función'; (groups[g] = groups[g] || []).push(p); });
       var addBtn = RO ? '' : '<button class="rm-add" data-add><i class="fa fa-plus"></i> Añadir</button>';
-      var html = '<div class="rm-toolbar"><div class="text-muted small">Personal de la actividad</div>' + addBtn + '</div>';
+      var exportBtns = '<div class="dropdown d-inline-block me-1"><button class="btn btn-sm btn-outline-secondary py-0" data-bs-toggle="dropdown"><i class="fa fa-share-nodes"></i> Exportar / compartir</button>'
+        + '<ul class="dropdown-menu"><li><button class="dropdown-item" data-pexp="pdf"><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar PDF</button></li>'
+        + '<li><button class="dropdown-item" data-pexp="xlsx"><i class="fa fa-file-excel fa-fw me-1"></i>Descargar Excel</button></li>'
+        + '<li><hr class="dropdown-divider"></li>'
+        + '<li><button class="dropdown-item" data-pexp="email"><i class="fa fa-envelope fa-fw me-1"></i>Compartir por email</button></li>'
+        + '<li><button class="dropdown-item" data-pexp="wa"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</button></li>'
+        + '<li><button class="dropdown-item" data-pexp="sms"><i class="fa fa-comment-sms fa-fw me-1"></i>Por SMS</button></li></ul></div>';
+      var html = '<div class="rm-toolbar"><div class="text-muted small">Personal de la actividad</div><span>' + exportBtns + addBtn + '</span></div>';
       if (!P.personnel.length) html += '<div class="rm-empty">Sin personal todavía.</div>';
       Object.keys(groups).sort().forEach(function (g) {
         html += '<div class="rm-group-title">' + esc(g) + '</div><div class="d-flex flex-column gap-2">';
@@ -609,6 +813,26 @@
         html += '</div>';
       });
       view.innerHTML = html;
+      view.querySelectorAll('[data-pexp]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var mode = b.getAttribute('data-pexp');
+          if (mode === 'pdf' || mode === 'xlsx') {
+            var withContact = confirm('¿Incluir teléfono y email de cada persona?\n\nAceptar = sí · Cancelar = no');
+            var withDni = (mode === 'pdf') ? confirm('¿Incluir la foto del DNI (las dos caras) de cada persona?\n\nAceptar = sí · Cancelar = no') : false;
+            var qs = [];
+            if (withContact) qs.push('contact=1');
+            if (withDni) qs.push('dni=1');
+            window.open(ep('/personal/' + mode) + (qs.length ? '?' + qs.join('&') : ''), '_blank');
+          } else {
+            var lines = ['Listado de personal'];
+            P.personnel.forEach(function (p) { lines.push((p.name || '') + (p.role ? ' · ' + p.role : '') + (p.phone ? ' · ' + p.phone : '')); });
+            var text = lines.join('\n');
+            if (mode === 'wa') window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+            else if (mode === 'sms') window.location.href = 'sms:?&body=' + encodeURIComponent(text);
+            else window.location.href = 'mailto:?subject=' + encodeURIComponent('Listado de personal') + '&body=' + encodeURIComponent(text);
+          }
+        });
+      });
       if (RO) return;
       view.querySelector('[data-add]').addEventListener('click', function () { openPersonEditor({ id: '', kind: 'MANUAL', ref_id: '', name: '', role: '', phone: '', email: '', photo_url: '' }); });
       view.querySelectorAll('[data-pedit]').forEach(function (b) { b.addEventListener('click', function () { openPersonEditor(JSON.parse(JSON.stringify(personById(b.getAttribute('data-pedit'))))); }); });

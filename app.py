@@ -19654,6 +19654,8 @@ def promoter_update(pid):
     p.contact_phone = (request.form.get("contact_phone") or p.contact_phone or "").strip() or None
     if "address" in request.form:
         p.address = (request.form.get("address") or "").strip() or None
+    if "hotel_notes" in request.form:
+        p.hotel_notes = (request.form.get("hotel_notes") or "").strip() or None
     if "kind" in request.form:
         _kind = (request.form.get("kind") or "").strip().lower()
         p.kind = _kind if _kind in ("empresa", "institucion") else None
@@ -35145,6 +35147,7 @@ def _roadmap_hotel_from_json(data: dict) -> dict:
         "assignee_ids": [str(x) for x in (data.get("assignee_ids") or [])],
         "note": (data.get("note") or "").strip(),
         "attachments": [],
+        "rooms": [],  # rooming list: [{id, breakfast, day_from, day_to, occupant_ids[]}]
     }
 
 
@@ -35647,6 +35650,7 @@ def roadmap_hotel_save(entity_type, entity_id):
         if current is not None:
             hotel["id"] = hid
             hotel["attachments"] = current.get("attachments") or []
+            hotel["rooms"] = current.get("rooms") or []  # la rooming list se conserva al editar
             hotels[idx] = hotel
         else:
             hotels.append(hotel)
@@ -35674,6 +35678,398 @@ def roadmap_hotel_delete(entity_type, entity_id):
     except Exception as exc:
         session_db.rollback()
         return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/hotel/rooms', endpoint='roadmap_hotel_rooms_save')
+@admin_required
+def roadmap_hotel_rooms_save(entity_type, entity_id):
+    """Guarda la ROOMING LIST de un hotel: habitaciones con desayuno, rango de días y ocupantes.
+    Una persona solo puede tener habitación en UN hotel (se limpia de los demás)."""
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        data = request.get_json(silent=True) or {}
+        payload = _roadmap_load(row)
+        hotels = payload.setdefault("hotels", [])
+        hid = (data.get("hotel_id") or "").strip()
+        idx, hotel = _roadmap_find(hotels, hid)
+        if hotel is None:
+            return jsonify({"ok": False, "error": "Hotel no encontrado."}), 404
+        valid_person_ids = {str(p.get("id")) for p in (payload.get("personnel") or [])}
+        seen_occupants = set()
+        rooms = []
+        for raw in (data.get("rooms") or []):
+            if not isinstance(raw, dict):
+                continue
+            occupants = []
+            for oid in (raw.get("occupant_ids") or []):
+                oid = str(oid)
+                if oid in valid_person_ids and oid not in seen_occupants:
+                    occupants.append(oid)
+                    seen_occupants.add(oid)
+            rooms.append({
+                "id": (str(raw.get("id") or "").strip() or _roadmap_new_id()),
+                "breakfast": bool(raw.get("breakfast")),
+                "day_from": _roadmap_clean_day(raw.get("day_from") or ""),
+                "day_to": _roadmap_clean_day(raw.get("day_to") or ""),
+                "occupant_ids": occupants,
+            })
+        hotel["rooms"] = rooms
+        hotels[idx] = hotel
+        # Una persona con habitación aquí no puede estar alojada en OTRO hotel.
+        for other in hotels:
+            if str(other.get("id")) == hid:
+                continue
+            for r in (other.get("rooms") or []):
+                r["occupant_ids"] = [x for x in (r.get("occupant_ids") or []) if x not in seen_occupants]
+        return _roadmap_ok(session_db, row, payload)
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+def _rooming_person_info(session_db, person: dict) -> dict:
+    """Datos de un miembro del personal para rooming/listados: nombre y apellidos (no nick),
+    nº de DNI, fotos del DNI (2 caras) y la petición especial de hoteles de su ficha."""
+    info = {
+        "name": (person.get("name") or "").strip(),
+        "full_name": (person.get("name") or "").strip(),
+        "role": (person.get("role") or "").strip(),
+        "phone": (person.get("phone") or "").strip(),
+        "email": (person.get("email") or "").strip(),
+        "dni": "",
+        "dni_front": "",
+        "dni_back": "",
+        "hotel_note": "",
+        "photo_url": (person.get("photo_url") or "").strip(),
+    }
+    if (person.get("kind") or "").upper() != "PROMOTER" or not person.get("ref_id"):
+        return info
+    promoter = session_db.get(Promoter, to_uuid(person.get("ref_id"))) if to_uuid(person.get("ref_id")) else None
+    if not promoter:
+        return info
+    full = " ".join([x for x in [(promoter.first_name or "").strip(), (promoter.last_name or "").strip()] if x])
+    info["full_name"] = full or (promoter.nick or info["name"])
+    info["dni"] = (promoter.tax_id or "").strip()
+    info["hotel_note"] = (getattr(promoter, "hotel_notes", None) or "").strip()
+    info["phone"] = info["phone"] or (promoter.contact_phone or "").strip()
+    info["email"] = info["email"] or (promoter.contact_email or "").strip()
+    try:
+        doc = (session_db.query(PersonDocument)
+               .filter(PersonDocument.owner_type == "PROMOTER", PersonDocument.owner_id == promoter.id,
+                       PersonDocument.kind == "DNI")
+               .order_by(PersonDocument.created_at.desc())
+               .first())
+        if doc:
+            if (doc.full_name or "").strip():
+                info["full_name"] = doc.full_name.strip()
+            info["dni"] = (doc.doc_number or "").strip() or info["dni"]
+            info["dni_front"] = (doc.front_url or "").strip()
+            info["dni_back"] = (doc.back_url or "").strip()
+    except Exception:
+        pass
+    return info
+
+
+def _rooming_range_label(day_from: str, day_to: str) -> str:
+    try:
+        d1 = datetime.strptime(day_from, "%Y-%m-%d").date()
+        d2 = datetime.strptime(day_to or day_from, "%Y-%m-%d").date()
+        nights = max(1, (d2 - d1).days + 1)
+        return f"del {d1.strftime('%d/%m')} al {d2.strftime('%d/%m')} ({nights} noche{'s' if nights != 1 else ''})"
+    except Exception:
+        return (day_from or "").strip()
+
+
+def _roadmap_export_header(kind, row) -> dict:
+    """Cabecera del evento para PDFs/Excels de rooming y personal."""
+    if kind == "concert":
+        return {
+            "title": (row.artist.name if getattr(row, "artist", None) else "Actividad"),
+            "date": row.date.strftime("%d/%m/%Y") if getattr(row, "date", None) else "",
+            "venue": _concert_venue_name(row) or "",
+            "city": _concert_city(row) or "",
+            "logo_url": (getattr(getattr(row, "billing_company", None), "logo_url", None) or "") or (getattr(getattr(row, "group_company", None), "logo_url", None) or ""),
+            "artist_photo": (getattr(getattr(row, "artist", None), "photo_url", None) or ""),
+        }
+    title = getattr(row, "title", None) or getattr(row, "name", None) or "Actividad"
+    return {"title": title, "date": "", "venue": "", "city": "", "logo_url": "", "artist_photo": ""}
+
+
+def _rooming_rows_for_pdf(session_db, payload: dict, hotel: dict) -> list[dict]:
+    """Habitaciones agrupadas por rango de días, con la info completa de cada huésped."""
+    people = {str(p.get("id")): p for p in (payload.get("personnel") or [])}
+    default_from = (hotel.get("days") or [""])[0]
+    default_to = (hotel.get("days") or [""])[-1] if hotel.get("days") else ""
+    groups = {}
+    for r in (hotel.get("rooms") or []):
+        day_from = r.get("day_from") or default_from
+        day_to = r.get("day_to") or default_to
+        key = (day_from, day_to)
+        occupants = []
+        for oid in (r.get("occupant_ids") or []):
+            person = people.get(str(oid))
+            if person:
+                occupants.append(_rooming_person_info(session_db, person))
+        rtype = {1: "DUI", 2: "Doble", 3: "Triple"}.get(len(occupants), f"{len(occupants)} pers." if occupants else "Vacía")
+        groups.setdefault(key, []).append({
+            "type": rtype,
+            "breakfast": bool(r.get("breakfast")),
+            "occupants": occupants,
+        })
+    out = []
+    for (day_from, day_to) in sorted(groups.keys()):
+        out.append({"label": _rooming_range_label(day_from, day_to), "rooms": groups[(day_from, day_to)]})
+    return out
+
+
+def _fetch_image_reader(url: str):
+    if not url:
+        return None
+    try:
+        req = Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urlopen(req, timeout=20) as resp:
+            return BytesIO(resp.read())
+    except Exception:
+        return None
+
+
+@app.get('/hoja-ruta/<entity_type>/<entity_id>/rooming/<hotel_id>/pdf', endpoint='roadmap_rooming_pdf')
+@admin_required
+def roadmap_rooming_pdf(entity_type, entity_id, hotel_id):
+    """PDF de la ROOMING LIST: logo de la empresa a la derecha, título, cabecera del evento,
+    cabecera del hotel y habitaciones agrupadas por días (nombre y apellidos, DNI, desayuno,
+    peticiones especiales de hotel; con ?dni=1 añade las fotos de las dos caras del DNI)."""
+    if not REPORTLAB_AVAILABLE:
+        return abort(503)
+    include_dni = _truthy(request.args.get('dni'))
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        payload = _roadmap_load(row)
+        _idx, hotel = _roadmap_find(payload.get("hotels") or [], (hotel_id or "").strip())
+        if hotel is None:
+            abort(404)
+        header = _roadmap_export_header(kind, row)
+        groups = _rooming_rows_for_pdf(session_db, payload, hotel)
+
+        buf = BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=32, rightMargin=32, topMargin=24, bottomMargin=24)
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle('RoomTitle', parent=styles['Title'], alignment=TA_CENTER, fontSize=16, leading=19)
+        h_style = ParagraphStyle('RoomH', parent=styles['Normal'], fontSize=10, leading=12, fontName='Helvetica-Bold')
+        n_style = ParagraphStyle('RoomN', parent=styles['Normal'], fontSize=9, leading=11)
+        sub_style = ParagraphStyle('RoomSub', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#6b7280'))
+        story = []
+        logo = _fetch_image_reader(header['logo_url'])
+        logo_cell = RLImage(logo, width=110, height=40, kind='proportional') if logo else ''
+        lr = Table([['', logo_cell]], colWidths=[411, 120])
+        lr.setStyle(TableStyle([('ALIGN', (1, 0), (1, 0), 'RIGHT')]))
+        story.append(lr)
+        story.append(Paragraph('Rooming list', title_style))
+        facts = ' · '.join([x for x in [header['date'], header['venue'], header['city']] if x])
+        story.append(Paragraph(header['title'], h_style))
+        if facts:
+            story.append(Paragraph(facts, n_style))
+        story.append(Spacer(1, 6))
+        hotel_line = ' · '.join([x for x in [
+            (hotel.get('name') or 'Hotel') + (' ' + '★' * int(hotel.get('stars') or 0) if hotel.get('stars') else ''),
+            hotel.get('address') or '', hotel.get('phone') or '', hotel.get('email') or '',
+        ] if x])
+        ht = Table([[Paragraph(hotel_line, h_style)]], colWidths=[531])
+        ht.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f8f9fb')),
+            ('BOX', (0, 0), (-1, -1), 0.6, colors.HexColor('#e5e7eb')),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8), ('TOPPADDING', (0, 0), (-1, -1), 4), ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ]))
+        story.append(ht)
+        story.append(Spacer(1, 6))
+        if not groups:
+            story.append(Paragraph('Sin habitaciones configuradas todavía.', n_style))
+        for g in groups:
+            story.append(Paragraph(g['label'], ParagraphStyle('RoomG', parent=h_style, textColor=colors.HexColor('#E33D48'), spaceBefore=8, spaceAfter=3)))
+            for i, room in enumerate(g['rooms'], 1):
+                head = f"Habitación {i} · {room['type']} · {'Con desayuno' if room['breakfast'] else 'Sin desayuno'}"
+                cells = [[Paragraph(head, h_style)]]
+                for occ in room['occupants']:
+                    line = occ['full_name']
+                    if occ['dni']:
+                        line += f" · DNI {occ['dni']}"
+                    para = [Paragraph(line, n_style)]
+                    if occ['hotel_note']:
+                        para.append(Paragraph(f"Nota: {occ['hotel_note']}", sub_style))
+                    cells.append([para])
+                    if include_dni and (occ['dni_front'] or occ['dni_back']):
+                        imgs = []
+                        for u in (occ['dni_front'], occ['dni_back']):
+                            reader = _fetch_image_reader(u)
+                            if reader:
+                                imgs.append(RLImage(reader, width=150, height=95, kind='proportional'))
+                        if imgs:
+                            cells.append([Table([imgs], colWidths=[160] * len(imgs))])
+                t = Table(cells, colWidths=[531])
+                t.setStyle(TableStyle([
+                    ('BOX', (0, 0), (-1, -1), 0.6, colors.HexColor('#e5e7eb')),
+                    ('LINEBELOW', (0, 0), (0, 0), 0.6, colors.HexColor('#f3d3d6')),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 8), ('TOPPADDING', (0, 0), (-1, -1), 3), ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+                ]))
+                story.append(t)
+                story.append(Spacer(1, 4))
+        doc.build(story)
+        buf.seek(0)
+        fname = f"rooming_{(hotel.get('name') or 'hotel').replace(' ', '_')}.pdf"
+        return send_file(buf, mimetype='application/pdf', as_attachment=False, download_name=fname)
+    finally:
+        session_db.close()
+
+
+@app.get('/hoja-ruta/<entity_type>/<entity_id>/rooming/<hotel_id>/xlsx', endpoint='roadmap_rooming_xlsx')
+@admin_required
+def roadmap_rooming_xlsx(entity_type, entity_id, hotel_id):
+    """Excel de la rooming list (una fila por huésped, agrupado por días y habitación)."""
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        payload = _roadmap_load(row)
+        _idx, hotel = _roadmap_find(payload.get("hotels") or [], (hotel_id or "").strip())
+        if hotel is None:
+            abort(404)
+        groups = _rooming_rows_for_pdf(session_db, payload, hotel)
+        from openpyxl import Workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = 'Rooming'
+        header = _roadmap_export_header(kind, row)
+        ws.append([f"Rooming list · {header['title']} · {header['date']}"])
+        ws.append([f"Hotel: {hotel.get('name') or ''} · {hotel.get('address') or ''}"])
+        ws.append([])
+        ws.append(['Días', 'Habitación', 'Tipo', 'Desayuno', 'Nombre y apellidos', 'DNI', 'Nota hotel'])
+        for g in groups:
+            for i, room in enumerate(g['rooms'], 1):
+                if not room['occupants']:
+                    ws.append([g['label'], f'Habitación {i}', room['type'], 'Sí' if room['breakfast'] else 'No', '(vacía)', '', ''])
+                for occ in room['occupants']:
+                    ws.append([g['label'], f'Habitación {i}', room['type'], 'Sí' if room['breakfast'] else 'No', occ['full_name'], occ['dni'], occ['hotel_note']])
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        fname = f"rooming_{(hotel.get('name') or 'hotel').replace(' ', '_')}.xlsx"
+        return send_file(buf, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name=fname)
+    finally:
+        session_db.close()
+
+
+@app.get('/hoja-ruta/<entity_type>/<entity_id>/personal/pdf', endpoint='roadmap_personnel_pdf')
+@admin_required
+def roadmap_personnel_pdf(entity_type, entity_id):
+    """PDF del LISTADO DE PERSONAL del evento: nombre y apellidos, DNI y función; con
+    ?contact=1 añade teléfono/email y con ?dni=1 las fotos de las dos caras del DNI."""
+    if not REPORTLAB_AVAILABLE:
+        return abort(503)
+    include_dni = _truthy(request.args.get('dni'))
+    include_contact = _truthy(request.args.get('contact'))
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        payload = _roadmap_load(row)
+        header = _roadmap_export_header(kind, row)
+        buf = BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=32, rightMargin=32, topMargin=24, bottomMargin=24)
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle('PersTitle', parent=styles['Title'], alignment=TA_CENTER, fontSize=16, leading=19)
+        h_style = ParagraphStyle('PersH', parent=styles['Normal'], fontSize=10, leading=12, fontName='Helvetica-Bold')
+        n_style = ParagraphStyle('PersN', parent=styles['Normal'], fontSize=9, leading=11)
+        sub_style = ParagraphStyle('PersSub', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#6b7280'))
+        story = []
+        logo = _fetch_image_reader(header['logo_url'])
+        logo_cell = RLImage(logo, width=110, height=40, kind='proportional') if logo else ''
+        lr = Table([['', logo_cell]], colWidths=[411, 120])
+        lr.setStyle(TableStyle([('ALIGN', (1, 0), (1, 0), 'RIGHT')]))
+        story.append(lr)
+        story.append(Paragraph('Listado de personal', title_style))
+        facts = ' · '.join([x for x in [header['date'], header['venue'], header['city']] if x])
+        story.append(Paragraph(header['title'], h_style))
+        if facts:
+            story.append(Paragraph(facts, n_style))
+        story.append(Spacer(1, 8))
+        people = payload.get('personnel') or []
+        if not people:
+            story.append(Paragraph('Sin personal registrado todavía.', n_style))
+        for person in people:
+            occ = _rooming_person_info(session_db, person)
+            line = occ['full_name']
+            if occ['dni']:
+                line += f" · DNI {occ['dni']}"
+            if occ['role']:
+                line += f" · {occ['role']}"
+            cells = [[Paragraph(line, h_style)]]
+            if include_contact and (occ['phone'] or occ['email']):
+                cells.append([Paragraph(' · '.join([x for x in [occ['phone'], occ['email']] if x]), sub_style)])
+            if include_dni and (occ['dni_front'] or occ['dni_back']):
+                imgs = []
+                for u in (occ['dni_front'], occ['dni_back']):
+                    reader = _fetch_image_reader(u)
+                    if reader:
+                        imgs.append(RLImage(reader, width=150, height=95, kind='proportional'))
+                if imgs:
+                    cells.append([Table([imgs], colWidths=[160] * len(imgs))])
+            t = Table(cells, colWidths=[531])
+            t.setStyle(TableStyle([
+                ('BOX', (0, 0), (-1, -1), 0.6, colors.HexColor('#e5e7eb')),
+                ('LEFTPADDING', (0, 0), (-1, -1), 8), ('TOPPADDING', (0, 0), (-1, -1), 3), ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+            ]))
+            story.append(t)
+            story.append(Spacer(1, 4))
+        doc.build(story)
+        buf.seek(0)
+        return send_file(buf, mimetype='application/pdf', as_attachment=False, download_name='listado_personal.pdf')
+    finally:
+        session_db.close()
+
+
+@app.get('/hoja-ruta/<entity_type>/<entity_id>/personal/xlsx', endpoint='roadmap_personnel_xlsx')
+@admin_required
+def roadmap_personnel_xlsx(entity_type, entity_id):
+    include_contact = _truthy(request.args.get('contact'))
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        payload = _roadmap_load(row)
+        header = _roadmap_export_header(kind, row)
+        from openpyxl import Workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = 'Personal'
+        ws.append([f"Listado de personal · {header['title']} · {header['date']}"])
+        ws.append([])
+        cols = ['Nombre y apellidos', 'DNI', 'Función']
+        if include_contact:
+            cols += ['Teléfono', 'Email']
+        ws.append(cols)
+        for person in (payload.get('personnel') or []):
+            occ = _rooming_person_info(session_db, person)
+            vals = [occ['full_name'], occ['dni'], occ['role']]
+            if include_contact:
+                vals += [occ['phone'], occ['email']]
+            ws.append(vals)
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return send_file(buf, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True, download_name='listado_personal.xlsx')
     finally:
         session_db.close()
 
@@ -37987,7 +38383,7 @@ SUPPORT_ACTION_ENDPOINTS = {
     "entity_link_create", "entity_link_update", "entity_link_delete",
     # Hoja de ruta v2 (conciertos / acciones / promociones)
     "roadmap_item_save", "roadmap_item_delete", "roadmap_item_toggle", "roadmap_item_move",
-    "roadmap_hotel_save", "roadmap_hotel_delete",
+    "roadmap_hotel_save", "roadmap_hotel_delete", "roadmap_hotel_rooms_save",
     "roadmap_personnel_save", "roadmap_personnel_delete",
     "roadmap_attachment_upload", "roadmap_attachment_delete",
     "roadmap_days_save", "roadmap_public_link",
@@ -38013,6 +38409,8 @@ SUPPORT_READ_ENDPOINTS = {
     "api_search_venues", "api_search_events", "api_entity_link_search", "api_search_commission_entities",
     # Asistente de actividad: repertorio + # del artista (para eventos promocionales y sugerencias).
     "api_artist_wizard_meta",
+    # Hoja de ruta: exportaciones de rooming y listado de personal (PDF/Excel).
+    "roadmap_rooming_pdf", "roadmap_rooming_xlsx", "roadmap_personnel_pdf", "roadmap_personnel_xlsx",
     "api_get_promoter", "api_promoter_detail", "api_promoter_emails", "api_media_contacts",
     "api_concert_meta", "api_song_meta", "api_album_song_search",
     "api_concert_artist_conflicts", "api_embargo_check_third_party", "api_geocode",

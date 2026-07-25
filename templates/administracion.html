@@ -431,5 +431,81 @@
     input.addEventListener('input', filter);
   })();
   </script>
+
+{% elif tab == 'altas' %}
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <div>
+      <h5 class="mb-0"><i class="fa fa-file-shield me-2 text-danger"></i>Altas · ITA de las empresas del grupo</h5>
+      <div class="small text-muted">El ITA (informe de trabajadores en alta) es válido durante el mes en vigor del informe. Al subirlo se detecta la fecha y se vinculan automáticamente las personas que aparecen (por DNI).</div>
+    </div>
+    <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#itaUploadModal"><i class="fa fa-upload me-1"></i>Subir ITA</button>
+  </div>
+
+  <div class="row g-3">
+    {% for r in altas_rows %}
+      <div class="col-12 col-lg-6">
+        <div class="card border-0 shadow-sm h-100">
+          <div class="card-body">
+            <div class="d-flex align-items-center gap-2 mb-2">
+              {% if r.company.logo_url %}<img src="{{ r.company.logo_url }}" alt="" style="width:42px;height:42px;object-fit:contain;border-radius:8px;background:#fff;border:1px solid #e5e9f0;">{% else %}<span class="d-inline-flex align-items-center justify-content-center" style="width:42px;height:42px;border-radius:8px;background:#f1f3f7;"><i class="fa fa-building text-muted"></i></span>{% endif %}
+              <div class="flex-grow-1">
+                <div class="fw-semibold">{{ r.company.name }}</div>
+                {% if r.current %}
+                  {% if r.valid %}
+                    <span class="badge bg-success"><i class="fa fa-circle-check me-1"></i>ITA en vigor{% if r.current.valid_until %} · hasta {{ r.current.valid_until.strftime('%d/%m/%Y') }}{% endif %}</span>
+                  {% else %}
+                    <span class="badge bg-danger"><i class="fa fa-triangle-exclamation me-1"></i>ITA caducado{% if r.current.valid_until %} · {{ r.current.valid_until.strftime('%d/%m/%Y') }}{% endif %}</span>
+                  {% endif %}
+                {% else %}
+                  <span class="badge bg-secondary">Sin ITA subido</span>
+                {% endif %}
+              </div>
+              {% if r.current %}
+                <a class="btn btn-sm btn-outline-secondary" href="{{ r.current.file_url }}" target="_blank" rel="noopener" title="Ver ITA"><i class="fa fa-eye"></i></a>
+                <form method="post" action="{{ url_for('prl_doc_delete', doc_id=r.current.id) }}" onsubmit="return confirm('¿Eliminar este ITA?');" class="d-inline">
+                  <input type="hidden" name="next" value="{{ url_for('administracion_view', tab='altas') }}">
+                  <button class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="fa fa-trash"></i></button>
+                </form>
+              {% endif %}
+            </div>
+            {% if r.current and r.workers %}
+              <div class="small text-muted mb-1"><i class="fa fa-users me-1"></i>{{ r.workers|length }} trabajadores en el informe{% if r.linked_names|select|list %} · vinculados: {{ r.linked_names|select|join(', ') }}{% endif %}</div>
+              <div class="d-flex flex-wrap gap-1">
+                {% for w in r.workers[:12] %}<span class="badge bg-light text-dark border">{{ w.name }}</span>{% endfor %}
+                {% if r.workers|length > 12 %}<span class="badge bg-light text-muted border">+{{ r.workers|length - 12 }}</span>{% endif %}
+              </div>
+            {% endif %}
+            {% if r.history %}
+              <div class="small text-muted mt-2">Anteriores:
+                {% for h in r.history %}<a href="{{ h.file_url }}" target="_blank" rel="noopener" class="me-2">{{ h.created_at.strftime('%d/%m/%Y') if h.created_at else 'ITA' }}</a>{% endfor %}
+              </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    {% else %}
+      <div class="col-12"><div class="alert alert-light border">No hay empresas del grupo dadas de alta. Créalas en Bases de datos → Empresas del grupo.</div></div>
+    {% endfor %}
+  </div>
+
+  <div class="modal fade" id="itaUploadModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog"><div class="modal-content">
+      <form method="post" action="{{ url_for('admin_ita_upload') }}" enctype="multipart/form-data">
+        <input type="hidden" name="next" value="{{ url_for('administracion_view', tab='altas') }}">
+        <div class="modal-header"><h5 class="modal-title"><i class="fa fa-file-shield me-2 text-danger"></i>Subir ITA</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <label class="form-label">Empresa del grupo</label>
+          <select name="company_id" class="form-select" required>
+            <option value="">— Elegir empresa —</option>
+            {% for comp in group_companies %}<option value="{{ comp.id }}">{{ comp.name }}</option>{% endfor %}
+          </select>
+          <label class="form-label mt-3">PDF del ITA</label>
+          <input type="file" name="file" class="form-control" accept="application/pdf,.pdf" required>
+          <div class="form-text">Se detectará la fecha «EN ALTA A FECHA» (válido ese mes) y se vincularán automáticamente los trabajadores por su DNI con los terceros y usuarios de la app.</div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-danger"><i class="fa fa-upload me-1"></i>Subir y detectar</button></div>
+      </form>
+    </div></div>
+  </div>
 {% endif %}
 {% endblock %}

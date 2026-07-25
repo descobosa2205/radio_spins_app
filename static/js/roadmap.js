@@ -791,7 +791,21 @@
     }
 
     // ================================================================ PERSONAL
+    var psub = 'list'; // subpestaña del Personal: 'list' | 'prl'
+    function personalSubtabs() {
+      if (RO) return '';  // el enlace público de la hoja de ruta no enseña el PRL
+      return '<ul class="nav nav-pills nav-sm mb-2" data-psub-bar>'
+        + '<li class="nav-item"><button type="button" class="nav-link py-1 px-3' + (psub === 'list' ? ' active' : '') + '" data-psub="list"><i class="fa fa-users me-1"></i>Personal</button></li>'
+        + '<li class="nav-item"><button type="button" class="nav-link py-1 px-3' + (psub === 'prl' ? ' active' : '') + '" data-psub="prl"><i class="fa fa-helmet-safety me-1"></i>PRL</button></li>'
+        + '</ul>';
+    }
+    function wirePersonalSubtabs() {
+      view.querySelectorAll('[data-psub]').forEach(function (b) {
+        b.addEventListener('click', function () { psub = b.getAttribute('data-psub'); renderPersonal(); });
+      });
+    }
     function renderPersonal() {
+      if (psub === 'prl') { renderPrl(); return; }
       var groups = {};
       P.personnel.forEach(function (p) { var g = (p.role || 'Sin función').trim() || 'Sin función'; (groups[g] = groups[g] || []).push(p); });
       var addBtn = RO ? '' : '<button class="rm-add" data-add><i class="fa fa-plus"></i> Añadir</button>';
@@ -802,7 +816,7 @@
         + '<li><button class="dropdown-item" data-pexp="email"><i class="fa fa-envelope fa-fw me-1"></i>Compartir por email</button></li>'
         + '<li><button class="dropdown-item" data-pexp="wa"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</button></li>'
         + '<li><button class="dropdown-item" data-pexp="sms"><i class="fa fa-comment-sms fa-fw me-1"></i>Por SMS</button></li></ul></div>';
-      var html = '<div class="rm-toolbar"><div class="text-muted small">Personal de la actividad</div><span>' + exportBtns + addBtn + '</span></div>';
+      var html = personalSubtabs() + '<div class="rm-toolbar"><div class="text-muted small">Personal de la actividad</div><span>' + exportBtns + addBtn + '</span></div>';
       if (!P.personnel.length) html += '<div class="rm-empty">Sin personal todavía.</div>';
       Object.keys(groups).sort().forEach(function (g) {
         html += '<div class="rm-group-title">' + esc(g) + '</div><div class="d-flex flex-column gap-2">';
@@ -813,6 +827,7 @@
         html += '</div>';
       });
       view.innerHTML = html;
+      wirePersonalSubtabs();
       view.querySelectorAll('[data-pexp]').forEach(function (b) {
         b.addEventListener('click', function () {
           var mode = b.getAttribute('data-pexp');
@@ -837,6 +852,196 @@
       view.querySelector('[data-add]').addEventListener('click', function () { openPersonEditor({ id: '', kind: 'MANUAL', ref_id: '', name: '', role: '', phone: '', email: '', photo_url: '' }); });
       view.querySelectorAll('[data-pedit]').forEach(function (b) { b.addEventListener('click', function () { openPersonEditor(JSON.parse(JSON.stringify(personById(b.getAttribute('data-pedit'))))); }); });
       view.querySelectorAll('[data-pdel]').forEach(function (b) { b.addEventListener('click', function () { if (!confirm('¿Eliminar del personal?')) return; postJson(ep('/personal/delete'), { id: b.getAttribute('data-pdel') }).then(apply); }); });
+    }
+    // ---------------------------------------------------------------- PRL (alta y riesgos laborales)
+    var PRL_ALTA_BY_TYPE = { AUTONOMO: 'AUTONOMO_RECIBO', PUNTUAL: 'ALTA_SS', EMPRESA: 'ITA' };
+    var PRL_CACHE = null;
+    function renderPrl() {
+      view.innerHTML = personalSubtabs() + '<div class="rm-empty">Cargando estado de PRL…</div>';
+      wirePersonalSubtabs();
+      fetch(ep('/prl'), { headers: { 'Accept': 'application/json' } })
+        .then(function (r) { return r.json(); })
+        .then(function (resp) { PRL_CACHE = resp; drawPrl(resp); })
+        .catch(function () { view.innerHTML = personalSubtabs() + '<div class="rm-empty text-danger">No se pudo cargar el PRL.</div>'; wirePersonalSubtabs(); });
+    }
+    function prlIcon(row, slotKey, label) {
+      var slot = row[slotKey] || {};
+      var ok = !!slot.ok;
+      var cls = ok ? 'text-success' : 'text-danger';
+      var icon = ok ? 'fa-circle-check' : 'fa-circle-xmark';
+      var title = label + ': ' + (ok ? 'en regla' : 'pendiente');
+      if (!ok && slot.doc && slot.doc.status === 'REJECTED') { icon = 'fa-circle-exclamation'; title = label + ': documento rechazado'; }
+      return '<button type="button" class="btn btn-link p-0 ' + cls + '" style="font-size:1.35rem;line-height:1;" title="' + esc(title) + '" data-prl-slot="' + slotKey + '" data-prl-person="' + esc(row.personnel_id) + '"><i class="fa ' + icon + '"></i><span class="d-block small text-muted" style="font-size:.62rem;">' + label + '</span></button>';
+    }
+    function drawPrl(resp) {
+      if (!resp || !resp.ok) { view.innerHTML = personalSubtabs() + '<div class="rm-empty text-danger">No se pudo cargar el PRL.</div>'; wirePersonalSubtabs(); return; }
+      var rows = resp.rows || [];
+      var exportBtns = '<div class="dropdown d-inline-block me-1"><button class="btn btn-sm btn-outline-secondary py-0" data-bs-toggle="dropdown"><i class="fa fa-share-nodes"></i> Exportar / compartir</button>'
+        + '<ul class="dropdown-menu"><li><button class="dropdown-item" data-prlexp="pdf"><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar PDF</button></li>'
+        + '<li><button class="dropdown-item" data-prlexp="xlsx"><i class="fa fa-file-excel fa-fw me-1"></i>Descargar Excel</button></li>'
+        + '<li><hr class="dropdown-divider"></li>'
+        + '<li><button class="dropdown-item" data-prlexp="email"><i class="fa fa-envelope fa-fw me-1"></i>Compartir por email</button></li>'
+        + '<li><button class="dropdown-item" data-prlexp="wa"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</button></li>'
+        + '<li><button class="dropdown-item" data-prlexp="sms"><i class="fa fa-comment-sms fa-fw me-1"></i>Por SMS</button></li></ul></div>';
+      var askAll = RO ? '' : '<button class="btn btn-sm btn-danger py-0" data-prl-askall><i class="fa fa-paper-plane me-1"></i>Solicitar documentación a todos</button>';
+      var html = personalSubtabs() + '<div class="rm-toolbar"><div class="text-muted small">Alta y prevención de riesgos laborales</div><span>' + exportBtns + askAll + '</span></div>';
+      if (!rows.length) html += '<div class="rm-empty">Sin personal todavía: añade personas en la pestaña Personal.</div>';
+      html += '<div class="d-flex flex-column gap-2">';
+      rows.forEach(function (row) {
+        var typeBadge;
+        if (row.worker_type) {
+          typeBadge = '<span class="badge text-bg-light border">' + esc(row.worker_type_label) + '</span>';
+        } else {
+          typeBadge = '<span class="badge text-bg-secondary">Sin tipo</span>';
+        }
+        if (!RO) {
+          typeBadge = '<div class="dropdown d-inline-block"><button type="button" class="btn btn-sm p-0 border-0 bg-transparent" data-bs-toggle="dropdown">' + typeBadge + ' <i class="fa fa-caret-down small text-muted"></i></button><ul class="dropdown-menu">'
+            + '<li><button class="dropdown-item" data-prl-type="AUTONOMO" data-prl-person="' + esc(row.personnel_id) + '"><i class="fa fa-user-tie fa-fw me-1"></i>Autónomo</button></li>'
+            + '<li><button class="dropdown-item" data-prl-type="PUNTUAL" data-prl-person="' + esc(row.personnel_id) + '"><i class="fa fa-user-clock fa-fw me-1"></i>Alta temporal</button></li>'
+            + '<li><button class="dropdown-item" data-prl-type="EMPRESA" data-prl-person="' + esc(row.personnel_id) + '"><i class="fa fa-building-user fa-fw me-1"></i>Empleado de empresa</button></li></ul></div>';
+        }
+        var menu = RO ? '' : '<div class="dropdown ms-1"><button class="btn btn-sm btn-light" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-vertical"></i></button><ul class="dropdown-menu dropdown-menu-end">'
+          + '<li><h6 class="dropdown-header">Solicitar documentación</h6></li>'
+          + '<li><button class="dropdown-item" data-prl-ask="email" data-prl-person="' + esc(row.personnel_id) + '"><i class="fa fa-envelope fa-fw me-1"></i>Por correo</button></li>'
+          + '<li><button class="dropdown-item" data-prl-ask="wa" data-prl-person="' + esc(row.personnel_id) + '"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</button></li>'
+          + '<li><hr class="dropdown-divider"></li>'
+          + '<li><button class="dropdown-item text-danger" data-pdel="' + esc(row.personnel_id) + '"><i class="fa fa-trash fa-fw me-1"></i>Eliminar del personal</button></li></ul></div>';
+        html += '<div class="rm-person align-items-center"><span class="av">' + avatar(row.photo_url) + '</span>'
+          + '<div class="flex-grow-1 min-w-0"><div class="nm">' + esc(row.full_name || row.name) + '</div><div class="rl">' + esc(row.role || '') + (row.dni ? ' · ' + esc(row.dni) : '') + '</div><div class="mt-1">' + typeBadge + '</div></div>'
+          + '<div class="d-flex align-items-start gap-3 text-center me-1">' + prlIcon(row, 'alta', 'Alta') + prlIcon(row, 'informacion', 'Información') + prlIcon(row, 'formacion', 'Formación') + '</div>'
+          + menu + '</div>';
+      });
+      html += '</div>';
+      view.innerHTML = html;
+      wirePersonalSubtabs();
+      wirePrl(rows, resp);
+    }
+    function prlRowById(rows, pid) { for (var i = 0; i < rows.length; i++) { if (rows[i].personnel_id === pid) return rows[i]; } return null; }
+    function wirePrl(rows, resp) {
+      view.querySelectorAll('[data-prlexp]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var mode = b.getAttribute('data-prlexp');
+          if (mode === 'pdf' || mode === 'xlsx') { window.open(ep('/prl/' + mode), '_blank'); return; }
+          var lines = ['Listado de Alta y PRL'];
+          rows.forEach(function (r) {
+            lines.push((r.full_name || r.name) + (r.worker_type_label ? ' · ' + r.worker_type_label : '')
+              + ' · Alta: ' + (r.alta.ok ? 'OK' : 'PENDIENTE') + ' · Información: ' + (r.informacion.ok ? 'OK' : 'PENDIENTE') + ' · Formación: ' + (r.formacion.ok ? 'OK' : 'PENDIENTE'));
+          });
+          var text = lines.join('\n');
+          if (mode === 'wa') window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+          else if (mode === 'sms') window.location.href = 'sms:?&body=' + encodeURIComponent(text);
+          else window.location.href = 'mailto:?subject=' + encodeURIComponent('Listado de Alta y PRL') + '&body=' + encodeURIComponent(text);
+        });
+      });
+      if (RO) return;
+      var askAllBtn = view.querySelector('[data-prl-askall]');
+      if (askAllBtn) askAllBtn.addEventListener('click', function () {
+        if (!confirm('Se enviará un correo con el enlace de subida a todas las personas a las que les falte algún documento. ¿Continuar?')) return;
+        var fd = new FormData(); fd.append('personnel_id', ''); fd.append('channel', 'email');
+        postForm(ep('/prl/solicitar'), fd).then(function (r) {
+          if (r && r.ok) alert('Correos enviados: ' + r.sent + (r.errors && r.errors.length ? '\nIncidencias:\n' + r.errors.join('\n') : ''));
+          else alert('No se pudo enviar la solicitud.');
+        });
+      });
+      view.querySelectorAll('[data-prl-ask]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var pid = b.getAttribute('data-prl-person');
+          var mode = b.getAttribute('data-prl-ask');
+          var row = prlRowById(rows, pid) || {};
+          var fd = new FormData(); fd.append('personnel_id', pid); fd.append('channel', mode);
+          if (mode === 'email') {
+            var to = prompt('Correo de destino:', row.email || '');
+            if (to === null) return;
+            fd.append('to_email', to.trim());
+          }
+          postForm(ep('/prl/solicitar'), fd).then(function (r) {
+            if (!r || !r.ok) { alert('No se pudo generar la solicitud.'); return; }
+            if (mode === 'wa') { (r.wa_links || []).forEach(function (l) { window.open(l.url, '_blank'); }); }
+            else if (r.sent) alert('Correo enviado.');
+            else alert((r.errors && r.errors.join('\n')) || 'No se pudo enviar el correo.');
+          });
+        });
+      });
+      view.querySelectorAll('[data-pdel]').forEach(function (b) {
+        b.addEventListener('click', function () { if (!confirm('¿Eliminar del personal?')) return; postJson(ep('/personal/delete'), { id: b.getAttribute('data-pdel') }).then(function (r) { apply(r); renderPrl(); }); });
+      });
+      view.querySelectorAll('[data-prl-type]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var row = prlRowById(rows, b.getAttribute('data-prl-person'));
+          if (!row) return;
+          if (!row.promoter_id) { alert('Esta persona no está vinculada a ningún tercero: edítala en la pestaña Personal y búscala como tercero (o solicítale la documentación, el enlace la vincula solo).'); return; }
+          var fd = new FormData(); fd.append('promoter_id', row.promoter_id); fd.append('worker_type', b.getAttribute('data-prl-type'));
+          postForm('/prl-docs/tipo', fd).then(function (r) { if (r && r.ok) renderPrl(); else alert('No se pudo guardar el tipo.'); });
+        });
+      });
+      view.querySelectorAll('[data-prl-slot]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var row = prlRowById(rows, b.getAttribute('data-prl-person'));
+          if (!row) return;
+          var slotKey = b.getAttribute('data-prl-slot');
+          var slot = row[slotKey] || {};
+          if (slot.ok && slot.doc) { openPrlDocModal(row, slotKey, slot.doc); return; }
+          if (slot.doc && slot.doc.status === 'REJECTED') { openPrlUploadModal(row, slotKey, slot.doc); return; }
+          openPrlUploadModal(row, slotKey, slot.doc || null);
+        });
+      });
+    }
+    function prlDocTypeFor(row, slotKey) {
+      if (slotKey === 'informacion') return 'PRL_INFORMACION';
+      if (slotKey === 'formacion') return 'PRL_FORMACION';
+      return PRL_ALTA_BY_TYPE[row.worker_type] || '';
+    }
+    function openPrlDocModal(row, slotKey, doc) {
+      var h = '<div class="d-flex align-items-center gap-2 mb-2">' + avatar(row.photo_url) + '<div><div class="fw-semibold">' + esc(row.full_name || row.name) + '</div><div class="small text-muted">' + esc(doc.label || '') + (doc.valid_until ? ' · válido hasta ' + esc(doc.valid_until.split('-').reverse().join('/')) : ' · sin caducidad') + '</div></div></div>'
+        + '<a class="btn btn-outline-primary btn-sm mb-3" href="' + esc(doc.file_url) + '" target="_blank" rel="noopener"><i class="fa fa-eye me-1"></i>Ver documento</a>'
+        + '<div class="border-top pt-2"><label class="form-label small">Rechazar con un mensaje (se le enviará por correo para que lo vuelva a subir):</label><textarea class="form-control" rows="2" data-prl-reject-msg placeholder="Motivo del rechazo…"></textarea></div>';
+      var m = openModal('rmPrlDocModal', 'modal-md', 'Documento de ' + (slotKey === 'alta' ? 'alta' : slotKey), h, [
+        btn('Cerrar', 'btn-outline-secondary', function () { var i = bs('rmPrlDocModal'); if (i) i.hide(); }),
+        btn('Rechazar documento', 'btn-danger', function () {
+          var msg = m.querySelector('[data-prl-reject-msg]').value.trim();
+          if (!confirm('¿Rechazar este documento? Se avisará a la persona para que lo vuelva a subir.')) return;
+          var fd = new FormData(); fd.append('reason', msg);
+          postForm('/prl-docs/' + doc.id + '/rechazar', fd).then(function (r) {
+            var i = bs('rmPrlDocModal'); if (i) i.hide();
+            if (r && r.ok) renderPrl(); else alert('No se pudo rechazar.');
+          });
+        })
+      ]);
+    }
+    function openPrlUploadModal(row, slotKey, prevDoc) {
+      if (!row.promoter_id) { alert('Esta persona no está vinculada a ningún tercero: edítala en la pestaña Personal y búscala como tercero, o solicítale la documentación por correo/WhatsApp (el enlace la vincula solo).'); return; }
+      var docType = prlDocTypeFor(row, slotKey);
+      if (!docType) { alert('Primero elige el tipo de trabajador (autónomo, alta temporal o empresa) en la etiqueta de la persona.'); return; }
+      var labels = (PRL_CACHE && PRL_CACHE.doc_labels) || {};
+      var h = '<div class="small text-muted mb-2">' + esc(labels[docType] || docType) + ' de <strong>' + esc(row.full_name || row.name) + '</strong>.'
+        + (prevDoc && prevDoc.status === 'REJECTED' && prevDoc.reject_reason ? '<div class="text-danger mt-1">Rechazado: ' + esc(prevDoc.reject_reason) + '</div>' : '') + '</div>'
+        + '<input type="file" class="form-control" accept="application/pdf,image/*" data-prl-file>'
+        + '<div class="form-text">Se detectará automáticamente la fecha de validez del documento.</div>'
+        + '<div class="small mt-2 d-none" data-prl-upmsg></div>';
+      var m = openModal('rmPrlUpModal', 'modal-md', 'Subir documento', h, [
+        btn('Cancelar', 'btn-outline-secondary', function () { var i = bs('rmPrlUpModal'); if (i) i.hide(); }),
+        btn('Subir', 'btn-primary', function () {
+          var inp = m.querySelector('[data-prl-file]');
+          if (!inp.files.length) { alert('Elige un archivo.'); return; }
+          var fd = new FormData();
+          fd.append('owner_type', 'PROMOTER');
+          fd.append('owner_id', row.promoter_id);
+          fd.append('doc_type', docType);
+          if (row.worker_type) fd.append('worker_type', row.worker_type);
+          var cid = (base.match(/\/hoja-ruta\/[^/]+\/([0-9a-f-]{36})/) || [])[1];
+          if (cid) fd.append('concert_id', cid);
+          fd.append('file', inp.files[0]);
+          var msg = m.querySelector('[data-prl-upmsg]');
+          msg.classList.remove('d-none'); msg.className = 'small mt-2 text-muted'; msg.textContent = 'Subiendo…';
+          postForm('/prl-docs/subir', fd).then(function (r) {
+            if (r && r.ok) {
+              var i = bs('rmPrlUpModal'); if (i) i.hide();
+              if (r.warning) alert(r.warning);
+              renderPrl();
+            } else { msg.className = 'small mt-2 text-danger'; msg.textContent = (r && r.error) || 'Error al subir.'; }
+          });
+        })
+      ]);
     }
     function openPersonEditor(p) {
       var editing = !!p.id;

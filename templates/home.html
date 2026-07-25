@@ -196,6 +196,36 @@
 </div>
 {% endif %}
 
+{% if HOME_ADMIN_ALTAS_PENDING %}
+<div class="card mb-4 border-danger">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <div>
+        <h5 class="mb-0"><i class="fa fa-file-shield text-danger me-2"></i>Tareas pendientes · Altas (ITA)</h5>
+        <div class="small text-muted">Empresas del grupo con el ITA caducado o sin subir: hay que subir el informe del mes en vigor.</div>
+      </div>
+      <span class="badge text-bg-danger">{{ HOME_ADMIN_ALTAS_PENDING|length }}</span>
+    </div>
+    <div class="row g-3">
+      {% for row in HOME_ADMIN_ALTAS_PENDING %}
+        <div class="col-12 col-lg-6">
+          <a href="{{ url_for('administracion_view', tab='altas') }}" class="text-decoration-none text-reset">
+            <div class="d-flex align-items-center gap-3 border rounded p-2 h-100">
+              {% if row.logo_url %}<img src="{{ row.logo_url }}" alt="" style="width:48px;height:48px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff;">{% else %}<span class="d-inline-flex align-items-center justify-content-center" style="width:48px;height:48px;border-radius:8px;background:#f1f3f7;"><i class="fa fa-building text-muted"></i></span>{% endif %}
+              <div class="flex-grow-1 min-w-0">
+                <div class="fw-semibold text-truncate">{{ row.name }}</div>
+                <div class="small text-muted text-truncate">{% if row.until %}ITA caducado el {{ row.until }}{% else %}Sin ITA subido{% endif %}</div>
+              </div>
+              <span class="badge text-bg-danger">Subir ITA</span>
+            </div>
+          </a>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% if HOME_REGISTROS_PENDING %}
 <div class="card mb-4 border-warning">
   <div class="card-body">

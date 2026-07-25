@@ -420,6 +420,31 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `_store_doc_image_from_dataurl`). El **nick vacío ⇒ nombre oficial** (en `promoters_view`/
   `personnel_view`). Carga en `layout.html`: `doc_scan.js` ANTES de `person_docs.js` y `doc_intake.js`.
 
+- **PRL / Altas (riesgos laborales del personal de eventos)**: modelos `PersonComplianceDoc`
+  (polimórfico: owner PROMOTER/USER/COMPANY; `doc_type` AUTONOMO_RECIBO/ALTA_SS/ITA/PRL_FORMACION/
+  PRL_INFORMACION; `valid_from/valid_until` —NULL = sin caducidad—, status APPROVED/REJECTED,
+  `linked_person_ids` para ITA) y `PrlUploadRequest` (token público por persona/evento);
+  `Promoter.prl_type` AUTONOMO|PUNTUAL|EMPRESA. Bloque en `app.py` junto a la hoja de ruta
+  (~`_prl_*`): **detección de fechas con pypdf** (`_prl_detect`, validado con documentos reales):
+  recibo autónomos «PERIODO LIQUIDACION: MM/AAAA» → válido el mes SIGUIENTE; ITA «EN ALTA A FECHA:
+  dd mm aaaa» → válido ese mes (+ extracción de trabajadores nombre+IPF y auto-vinculación por DNI
+  normalizado `_prl_norm_dni` contra `Promoter.tax_id`/`UserProfile.dni`); alta SS «fecha de
+  efectos» → debe coincidir con la fecha del evento (aviso si no). Estado por persona
+  `_prl_person_status` (3 semáforos: alta según tipo / información / formación; EMPRESA acepta ITA
+  propio o de empresa del grupo vinculado). UI: **subpestaña PRL** del Personal de la hoja de ruta
+  (`roadmap.js`: `renderPrl`, iconos verde/rojo clicables —rojo=subir manual, verde=ver+rechazar
+  con correo «ha sido rechazado, vuélvelo a subir»—, menú solicitar por correo/WhatsApp, «Solicitar
+  a todos», exportar PDF/Excel `prl_export_pdf/xlsx`); **página pública** `/prl/<token>`
+  (`public_prl_upload.html`: pregunta el tipo con iconos → huecos de documentos con drag&drop y
+  detección; una persona MANUAL se convierte en tercero y se vincula sola); pestañas **«Alta y
+  PRL»** en tercero y **«PRL»** en personal propio (partial `_prl_docs_panel.html`);
+  **Administración → Altas** (`administracion.html` tab `altas` + `admin_ita_upload`: ITA mensual
+  por empresa del grupo con vigencia y trabajadores detectados) y módulo en Inicio
+  `HOME_ADMIN_ALTAS_PENDING` (ITA caducado/sin subir). Endpoints en `SUPPORT_ACTION/READ_ENDPOINTS`;
+  públicos en las 3 listas (`allowed`, `PUBLIC_ENDPOINTS_EXTRA`, `_CSRF_EXEMPT_ENDPOINTS`).
+  Los docs en vigor NO se vuelven a pedir entre eventos («solicitar a todos» solo escribe a quien
+  le falte algo). `pypdf` en requirements.
+
 ## Despliegue
 - GitHub `descobosa2205/radio_spins_app` → **Render** (Pro Plus, **Frankfurt**) auto-deploy de
   `main`. **Supabase** Pro (**Frankfurt**, proyecto `gyezqnqyxpwxxevdjhgf`; migrado desde Estocolmo

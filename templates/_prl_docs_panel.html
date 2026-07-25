@@ -1,0 +1,88 @@
+{# Panel de documentación de ALTA y PRL de una persona (ficha de tercero o de personal propio).
+   Contexto: prl_owner_type PROMOTER|USER · prl_owner_id · prl_docs (PersonComplianceDoc desc) ·
+   prl_can_edit · prl_doc_labels · prl_worker_types · prl_worker_type (solo tercero) ·
+   prl_next (URL de retorno). #}
+{% set _today = prl_today %}
+<div class="ficha-section mb-3">
+  <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+    <h6 class="mb-0"><i class="fa fa-helmet-safety me-2 text-danger"></i>Alta y prevención de riesgos laborales</h6>
+    {% if prl_can_edit and prl_owner_type == 'PROMOTER' %}
+      <form method="post" action="{{ url_for('prl_set_worker_type') }}" class="d-flex align-items-center gap-2">
+        <input type="hidden" name="promoter_id" value="{{ prl_owner_id }}">
+        <input type="hidden" name="next" value="{{ prl_next }}">
+        <label class="small text-muted mb-0">Tipo de trabajador:</label>
+        <select name="worker_type" class="form-select form-select-sm" style="width:auto;" onchange="this.form.submit()">
+          <option value="">— Sin definir —</option>
+          {% for key, label, icon, hint in prl_worker_types %}
+            <option value="{{ key }}" {% if prl_worker_type == key %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </form>
+    {% elif prl_owner_type == 'PROMOTER' and prl_worker_type %}
+      <span class="badge text-bg-light border">{% for key, label, icon, hint in prl_worker_types %}{% if key == prl_worker_type %}{{ label }}{% endif %}{% endfor %}</span>
+    {% endif %}
+  </div>
+
+  {% if prl_docs %}
+    <div class="d-grid gap-2">
+      {% for d in prl_docs %}
+        <div class="border rounded-3 p-2 d-flex align-items-center gap-3">
+          <span class="d-inline-flex align-items-center justify-content-center flex-shrink-0" style="width:38px;height:38px;border-radius:10px;background:rgba(0,124,162,.10);color:#007CA2;"><i class="fa fa-file-shield"></i></span>
+          <div class="flex-grow-1 min-w-0">
+            <div class="d-flex align-items-center flex-wrap gap-2">
+              <span class="fw-semibold small">{{ prl_doc_labels.get(d.doc_type, d.doc_type) }}</span>
+              {% if d.status == 'REJECTED' %}
+                <span class="badge text-bg-danger">Rechazado</span>
+              {% elif d.valid_until and _today and d.valid_until < _today %}
+                <span class="badge text-bg-warning text-dark">Caducado {{ d.valid_until.strftime('%d/%m/%Y') }}</span>
+              {% elif d.valid_until %}
+                <span class="badge text-bg-success">En vigor · hasta {{ d.valid_until.strftime('%d/%m/%Y') }}</span>
+              {% else %}
+                <span class="badge text-bg-success">En vigor · sin caducidad</span>
+              {% endif %}
+            </div>
+            <div class="small text-muted text-truncate">
+              {{ d.original_name or '' }}{% if d.created_at %} · subido el {{ d.created_at.strftime('%d/%m/%Y') }}{% endif %}
+              {% if d.status == 'REJECTED' and d.reject_reason %} · {{ d.reject_reason }}{% endif %}
+            </div>
+          </div>
+          <a class="btn btn-sm btn-outline-secondary" href="{{ d.file_url }}" target="_blank" rel="noopener" title="Ver"><i class="fa fa-eye"></i></a>
+          {% if prl_can_edit %}
+            <form method="post" action="{{ url_for('prl_doc_delete', doc_id=d.id) }}" onsubmit="return confirm('¿Eliminar este documento?');" class="d-inline">
+              <input type="hidden" name="next" value="{{ prl_next }}">
+              <button class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="fa fa-trash"></i></button>
+            </form>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="text-muted small">Sin documentos de alta o PRL todavía.</div>
+  {% endif %}
+
+  {% if prl_can_edit %}
+    <form method="post" action="{{ url_for('prl_doc_upload') }}" enctype="multipart/form-data" class="row g-2 align-items-end mt-2">
+      <input type="hidden" name="owner_type" value="{{ prl_owner_type }}">
+      <input type="hidden" name="owner_id" value="{{ prl_owner_id }}">
+      <input type="hidden" name="next" value="{{ prl_next }}">
+      <div class="col-12 col-md-4">
+        <label class="form-label small mb-1">Tipo de documento</label>
+        <select name="doc_type" class="form-select form-select-sm" required>
+          {% for key, label in prl_doc_labels.items() %}
+            {% if prl_owner_type == 'PROMOTER' or key in ('PRL_FORMACION', 'PRL_INFORMACION') %}
+              <option value="{{ key }}">{{ label }}</option>
+            {% endif %}
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-md-6">
+        <label class="form-label small mb-1">Archivo (PDF o foto)</label>
+        <input type="file" name="file" class="form-control form-control-sm" accept="application/pdf,image/*" required>
+      </div>
+      <div class="col-12 col-md-2 d-grid">
+        <button class="btn btn-sm btn-danger"><i class="fa fa-upload me-1"></i>Subir</button>
+      </div>
+      <div class="col-12"><div class="form-text">La fecha de validez se detecta automáticamente (recibo de autónomos → mes siguiente; ITA → mes en vigor; alta → fecha de efectos).</div></div>
+    </form>
+  {% endif %}
+</div>

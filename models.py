@@ -702,6 +702,8 @@ class Promoter(Base):
     address = Column(Text)            # domicilio (se autorrellena del DNI; editable)
     # Petición especial de HOTELES (aparece como nota junto a la persona en las rooming lists).
     hotel_notes = Column(Text)
+    # Tipo de trabajador a efectos de PRL/altas: AUTONOMO | PUNTUAL (alta puntual) | EMPRESA (fijo).
+    prl_type = Column(Text)
 
     # Redes sociales del tercero (p. ej. del fotógrafo) para menciones. Dict opcional:
     # {"instagram": ..., "tiktok": ..., "twitter": ..., "facebook": ..., "youtube": ...}.
@@ -1805,6 +1807,54 @@ class ConcertArtworkAsset(Base):
 
 
 # --- NOTAS (contratación / generales) ---
+
+class PersonComplianceDoc(Base):
+    """Documentación de ALTA y PRL de una persona (tercero o personal propio) o el ITA de una
+    empresa del grupo. Tipos: AUTONOMO_RECIBO (recibo de autónomos del mes anterior), ALTA_SS
+    (alta puntual en la Seguridad Social, ligada a un concierto), ITA (informe de trabajadores en
+    alta de una empresa del grupo), PRL_FORMACION (acreditación de formación) y PRL_INFORMACION
+    (justificante de información de riesgos específicos)."""
+
+    __tablename__ = "person_compliance_docs"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    owner_type = Column(Text, nullable=False)   # PROMOTER | USER | COMPANY
+    owner_id = Column(PGUUID(as_uuid=True), nullable=False)
+    doc_type = Column(Text, nullable=False)     # AUTONOMO_RECIBO | ALTA_SS | ITA | PRL_FORMACION | PRL_INFORMACION
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="SET NULL"))
+    company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
+    file_url = Column(Text, nullable=False)
+    original_name = Column(Text)
+    mime_type = Column(Text)
+    valid_from = Column(Date)
+    valid_until = Column(Date)          # NULL = sin caducidad (formación/información)
+    status = Column(Text, nullable=False, server_default=text("'APPROVED'"))  # APPROVED | REJECTED
+    reject_reason = Column(Text)
+    # ITA: ids de terceros (promoters) y usuarios vinculados que aparecen en el informe.
+    linked_person_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    detected_meta = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    uploaded_via = Column(Text, nullable=False, server_default=text("'MANUAL'"))  # MANUAL | PUBLIC | ADMIN
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class PrlUploadRequest(Base):
+    """Petición de documentación de alta/PRL a una persona del personal de un evento (enlace
+    público para que suba sus documentos)."""
+
+    __tablename__ = "prl_upload_requests"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    public_token = Column(Text, nullable=False, unique=True)
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
+    personnel_id = Column(Text, nullable=False)      # id de la persona en roadmap_payload.personnel
+    person_kind = Column(Text, nullable=False, server_default=text("'MANUAL'"))  # PROMOTER | MANUAL
+    person_ref = Column(PGUUID(as_uuid=True))        # promoter id si kind=PROMOTER
+    person_name = Column(Text, nullable=False, server_default=text("''"))
+    worker_type = Column(Text)                       # AUTONOMO | PUNTUAL | EMPRESA (elegido en la página)
+    status = Column(Text, nullable=False, server_default=text("'ACTIVE'"))  # ACTIVE | DONE
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
 
 class ConcertSaleChannelRequest(Base):
     """Petición al promotor para que configure los CANALES DE VENTA (links + ticketeras) de un
@@ -5677,6 +5727,47 @@ def ensure_third_party_and_contract_sheet_schema():
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS address text;",
         # Petición especial de hoteles (nota junto a la persona en las rooming lists).
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS hotel_notes text;",
+        # Tipo de trabajador a efectos de PRL (autónomo / alta puntual / empresa fija).
+        "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS prl_type text;",
+        # Documentación de alta y PRL (personas y empresas del grupo) + peticiones de subida.
+        """
+        CREATE TABLE IF NOT EXISTS person_compliance_docs (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            owner_type text NOT NULL,
+            owner_id uuid NOT NULL,
+            doc_type text NOT NULL,
+            concert_id uuid REFERENCES concerts(id) ON DELETE SET NULL,
+            company_id uuid REFERENCES group_companies(id) ON DELETE SET NULL,
+            file_url text NOT NULL,
+            original_name text,
+            mime_type text,
+            valid_from date,
+            valid_until date,
+            status text NOT NULL DEFAULT 'APPROVED',
+            reject_reason text,
+            linked_person_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+            detected_meta jsonb NOT NULL DEFAULT '{}'::jsonb,
+            uploaded_via text NOT NULL DEFAULT 'MANUAL',
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_person_compliance_owner ON person_compliance_docs(owner_type, owner_id);',
+        'CREATE INDEX IF NOT EXISTS idx_person_compliance_type ON person_compliance_docs(doc_type);',
+        """
+        CREATE TABLE IF NOT EXISTS prl_upload_requests (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            public_token text NOT NULL UNIQUE,
+            concert_id uuid NOT NULL REFERENCES concerts(id) ON DELETE CASCADE,
+            personnel_id text NOT NULL,
+            person_kind text NOT NULL DEFAULT 'MANUAL',
+            person_ref uuid,
+            person_name text NOT NULL DEFAULT '',
+            worker_type text,
+            status text NOT NULL DEFAULT 'ACTIVE',
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
 
         """
         CREATE TABLE IF NOT EXISTS promoter_companies (

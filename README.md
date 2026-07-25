@@ -189,6 +189,37 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-07-25 — PRL y Altas: documentación de riesgos laborales del personal de eventos
+
+- **Modelos nuevos**: `PersonComplianceDoc` (documento de alta/PRL de una persona —tercero o
+  usuario— o ITA de una empresa del grupo, con vigencia detectada y estado aprobado/rechazado) y
+  `PrlUploadRequest` (enlace público por persona y evento). `Promoter.prl_type` guarda el tipo de
+  trabajador: **Autónomo / Alta temporal / Empleado de empresa**.
+- **Subpestaña «PRL»** dentro del Personal de la hoja de ruta: cada persona muestra su tipo (editable)
+  y **3 semáforos** (Alta · Información · Formación). Icono **rojo** → subir el documento a mano;
+  **verde** → ver el documento y poder **rechazarlo con un motivo** (se avisa por correo: «el
+  documento ha sido rechazado, por favor vuélvelo a subir», con botón para resubir). Menú de 3 puntos
+  por persona: **solicitar documentación por correo o WhatsApp** y eliminar; botón «**Solicitar
+  documentación a todos**» (solo escribe a quien le falte algo). Listado exportable en PDF/Excel
+  (con tipo de alta, semáforos y enlaces a cada documento en el Excel) y compartible por
+  email/WhatsApp/SMS.
+- **Página pública de subida** (`/prl/<token>`): cabecera del evento + cabecera de la persona,
+  pregunta primero **«¿Cuál es tu situación laboral?»** con iconos y solo entonces muestra los
+  documentos que tocan, con arrastrar-y-soltar, barra de progreso y estados (en vigor / caducado /
+  rechazado / pendiente). Los documentos **en vigor no se vuelven a pedir** entre eventos. Si la
+  persona se añadió a mano (sin tercero), al subir se **crea el tercero y se vincula solo**.
+- **Detección automática de fechas** (pypdf, validada con documentos reales de la TGSS): recibo de
+  autónomos → «PERIODO LIQUIDACION: MM/AAAA», válido durante el **mes siguiente**; ITA → «EN ALTA A
+  FECHA: dd mm aaaa», válido **ese mes**, y además extrae los **trabajadores (nombre + DNI)** del
+  informe; alta puntual → «fecha de efectos», que **debe coincidir con la fecha del evento** (avisa
+  si no coincide o si el PDF no tiene texto legible).
+- **Administración → pestaña «Altas»**: el ITA mensual de cada **empresa del grupo**, con vigencia,
+  trabajadores detectados y personas vinculadas automáticamente **por DNI** (terceros y usuarios).
+  Cuando el ITA caduca o falta, aparece como **tarea pendiente en Inicio** para administración.
+  Al añadir a un evento personal de una empresa con ITA en vigor, su semáforo de alta sale verde solo.
+- **Fichas**: pestaña **«Alta y PRL»** en la ficha del tercero (tipo de trabajador + documentos +
+  subida manual) y pestaña **«PRL»** en la ficha del personal propio (formación/información).
+
 ### 2026-07-25 — Alta de actividades: retoques tras la primera revisión
 
 - **El artista es ahora el PRIMER paso del asistente** (mismo selector con fotos y alta rápida),

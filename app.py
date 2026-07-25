@@ -46,7 +46,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.exceptions import RequestEntityTooLarge
 from markupsafe import Markup, escape
 import calendar as _cal
-from urllib.parse import quote_plus, urlsplit, urlunsplit, parse_qsl, parse_qs, urlencode, unquote
+from urllib.parse import quote, quote_plus, urlsplit, urlunsplit, parse_qsl, parse_qs, urlencode, unquote
 from urllib.request import Request, urlopen
 from decimal import Decimal, InvalidOperation
 from email.message import EmailMessage
@@ -257,6 +257,8 @@ from models import (
     PhotoApproval,
     PhotoShare,
     PersonDocument,
+    PersonComplianceDoc,
+    PrlUploadRequest,
 )
 import sim_calc  # motor de cálculo puro de Simulaciones
 import seatmap_calc  # motor puro del mapa de butacas del recinto (conteos/plantillas)
@@ -344,6 +346,7 @@ if CALDAV_ONLY:
 # todas las rutas (ver el bucle sobre _CSRF_EXEMPT_ENDPOINTS).
 _CSRF_EXEMPT_ENDPOINTS = {
     "concert_artwork_public_upload",
+    "public_prl_upload_post",
     "concert_artwork_public_submit",
     "public_sale_channels",
     "concert_contract_public_form",
@@ -686,7 +689,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher"}
+    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher"}
     if request.endpoint in allowed:
         return
 
@@ -31923,7 +31926,7 @@ def promoter_detail_view(pid):
             flash('Tercero no encontrado.', 'warning')
             return redirect(url_for('promoters_view'))
         tab = (request.args.get('tab') or 'general').strip().lower()
-        if tab not in {'general', 'contactos', 'vinculaciones', 'invitaciones', 'documentos'}:
+        if tab not in {'general', 'contactos', 'vinculaciones', 'invitaciones', 'documentos', 'prl'}:
             tab = 'general'
         promoter_email_addresses = (
             session.query(PromoterEmail)
@@ -32032,6 +32035,17 @@ def promoter_detail_view(pid):
             person_docs_delete_base=url_for("promoter_document_delete", pid=promoter.id, doc_id="__ID__"),
             person_docs_can_edit=(can_edit_catalogs() or can_edit_discografica()),
             loyalty_brands=PERSON_LOYALTY_BRANDS,
+            prl_docs=(session.query(PersonComplianceDoc)
+                      .filter(PersonComplianceDoc.owner_type == 'PROMOTER', PersonComplianceDoc.owner_id == promoter.id)
+                      .order_by(PersonComplianceDoc.created_at.desc()).all()) if tab == 'prl' else [],
+            prl_owner_type='PROMOTER',
+            prl_owner_id=str(promoter.id),
+            prl_can_edit=(can_edit_catalogs() or can_edit_discografica()),
+            prl_doc_labels=PRL_DOC_LABELS,
+            prl_worker_types=PRL_WORKER_TYPES,
+            prl_worker_type=(promoter.prl_type or ''),
+            prl_next=url_for('promoter_detail_view', pid=promoter.id, tab='prl'),
+            prl_today=date.today(),
         )
     finally:
         session.close()
@@ -36074,6 +36088,864 @@ def roadmap_personnel_xlsx(entity_type, entity_id):
         session_db.close()
 
 
+# ---------------------------------------------------------------------------
+#  PRL / ALTAS — documentación de riesgos laborales y altas en la Seguridad
+#  Social del personal de los eventos (subpestaña PRL del Personal de la hoja
+#  de ruta, pestaña «Alta y PRL» del tercero, PRL del personal propio y
+#  pestaña «Altas» de Administración con los ITA de las empresas del grupo).
+# ---------------------------------------------------------------------------
+
+PRL_WORKER_TYPES = [
+    ("AUTONOMO", "Autónomo", "fa-user-tie", "Recibo de autónomos del mes anterior + PRL"),
+    ("PUNTUAL", "Alta temporal", "fa-user-clock", "Alta puntual en la Seguridad Social para el evento + PRL"),
+    ("EMPRESA", "Empleado de empresa", "fa-building-user", "Empresa con ITA en vigor + PRL"),
+]
+PRL_WORKER_TYPE_LABELS = {k: v for k, v, _i, _d in PRL_WORKER_TYPES}
+PRL_DOC_LABELS = {
+    "AUTONOMO_RECIBO": "Recibo de autónomos",
+    "ALTA_SS": "Alta en la Seguridad Social",
+    "ITA": "Informe de trabajadores en alta (ITA)",
+    "PRL_FORMACION": "PRL · Formación",
+    "PRL_INFORMACION": "PRL · Información de riesgos",
+}
+# Documento de «alta» que corresponde a cada tipo de trabajador.
+PRL_ALTA_DOC_BY_TYPE = {"AUTONOMO": "AUTONOMO_RECIBO", "PUNTUAL": "ALTA_SS", "EMPRESA": "ITA"}
+_PRL_MESES_ES = {"enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
+                 "julio": 7, "agosto": 8, "septiembre": 9, "setiembre": 9, "octubre": 10,
+                 "noviembre": 11, "diciembre": 12}
+
+
+def _prl_month_end(year: int, month: int) -> date:
+    return date(year, month, _cal.monthrange(year, month)[1])
+
+
+def _pdf_extract_text_bytes(data: bytes) -> str:
+    """Texto plano de un PDF (mejor esfuerzo; '' si no es PDF o no hay texto)."""
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(BytesIO(data))
+        parts = []
+        for page in reader.pages[:6]:
+            try:
+                parts.append(page.extract_text() or "")
+            except Exception:
+                continue
+        return "\n".join(parts)
+    except Exception:
+        return ""
+
+
+def _prl_norm_dni(value: str) -> str:
+    """Normaliza un DNI/NIE para comparar (mayúsculas, sin separadores ni ceros a la izquierda)."""
+    v = re.sub(r"[^0-9A-Za-z]", "", (value or "")).upper()
+    if v and v[0] not in "XYZ":
+        v = v.lstrip("0")
+    return v
+
+
+def _ita_extract_workers(text: str) -> list:
+    """Extrae los trabajadores de un ITA: líneas con APELLIDOS Y NOMBRE + NAF + IPF (DNI/NIE)."""
+    workers = []
+    for line in (text or "").splitlines():
+        line = line.strip()
+        m_ipf = re.search(r"\b(0?\d{8}[A-Z]|\d{7,8}[A-Z]|[XYZ]\d{7}[A-Z])\b", line)
+        m_name = re.match(r"^([A-ZÁÉÍÓÚÑÜ][A-ZÁÉÍÓÚÑÜ\s\.'\-]{3,70}?)\s+\d{1,2}\s*[\s/]\s*\d{6,12}", line)
+        if not m_name:
+            m_name = re.match(r"^([A-ZÁÉÍÓÚÑÜ][A-ZÁÉÍÓÚÑÜ\s\.'\-]{3,70}?)\s+\d{2}\s+\d{6,12}", line)
+        if m_ipf and m_name:
+            name = re.sub(r"\s+", " ", m_name.group(1)).strip()
+            if len(name.split()) >= 2:
+                workers.append({"name": name, "ipf": _prl_norm_dni(m_ipf.group(1))})
+    return workers
+
+
+def _prl_detect(doc_type: str, text: str, event_date) -> dict:
+    """Detecta las fechas de validez de un documento de alta/PRL a partir de su texto.
+    Devuelve {valid_from, valid_until, meta} (fechas date o None)."""
+    out = {"valid_from": None, "valid_until": None, "meta": {"detected": False}}
+    t = text or ""
+    if doc_type == "AUTONOMO_RECIBO":
+        # «PERIODO LIQUIDACION: 05/2025-05/2025» → válido durante el mes SIGUIENTE al del recibo.
+        m = re.search(r"PERIODO\s+LIQUIDACION[:\s]*([01]?\d)\s*/\s*(\d{4})", t, re.IGNORECASE)
+        if m:
+            mm, yy = int(m.group(1)), int(m.group(2))
+            if 1 <= mm <= 12:
+                nm, ny = (1, yy + 1) if mm == 12 else (mm + 1, yy)
+                out["valid_from"] = date(yy, mm, 1)
+                out["valid_until"] = _prl_month_end(ny, nm)
+                out["meta"] = {"detected": True, "periodo": f"{mm:02d}/{yy}"}
+    elif doc_type == "ITA":
+        # «INFORME DE TRABAJADORES EN ALTA A FECHA: 19 06 2026» → válido durante ese mes.
+        m = re.search(r"EN\s+ALTA\s+A\s+FECHA[:\s]*(\d{1,2})[\s\-/]+(\d{1,2})[\s\-/]+(\d{4})", t, re.IGNORECASE)
+        if m:
+            dd, mm, yy = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            if 1 <= mm <= 12:
+                out["valid_from"] = date(yy, mm, 1)
+                out["valid_until"] = _prl_month_end(yy, mm)
+                out["meta"] = {"detected": True, "fecha": f"{dd:02d}/{mm:02d}/{yy}"}
+        mrs = re.search(r"RAZ[OÓ]N\s+SOCIAL[:\s]*(.+)", t, re.IGNORECASE)
+        if mrs:
+            out["meta"]["razon_social"] = mrs.group(1).strip()[:120]
+        workers = _ita_extract_workers(t)
+        if workers:
+            out["meta"]["workers"] = workers
+    elif doc_type == "ALTA_SS":
+        # «La fecha de efectos con que se reconoce el alta es ... 12 de febrero de 2026»
+        detected = None
+        m = re.search(r"fecha\s+de\s+efectos[^0-9]{0,80}?(\d{1,2})\s+de\s+([a-záéíóú]+)\s+de\s+(\d{4})", t, re.IGNORECASE)
+        if m and _PRL_MESES_ES.get(m.group(2).lower()):
+            try:
+                detected = date(int(m.group(3)), _PRL_MESES_ES[m.group(2).lower()], int(m.group(1)))
+            except ValueError:
+                detected = None
+        if not detected:
+            m = re.search(r"FECHA[:\s]*(\d{1,2})[\-/](\d{1,2})[\-/](\d{4})", t)
+            if m:
+                try:
+                    detected = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+                except ValueError:
+                    detected = None
+        if detected:
+            out["valid_from"] = detected
+            out["valid_until"] = detected
+            out["meta"] = {"detected": True, "fecha_efectos": detected.isoformat()}
+            if event_date:
+                out["meta"]["match_event"] = (detected == event_date)
+    # Formación/Información: sin caducidad (valid_until NULL).
+    return out
+
+
+def _prl_doc_valid_on(doc, on_date) -> bool:
+    if (doc.status or "APPROVED") != "APPROVED":
+        return False
+    if doc.valid_until and on_date and doc.valid_until < on_date:
+        return False
+    if doc.valid_from and on_date and doc.valid_from > on_date:
+        return False
+    return True
+
+
+def _prl_company_ita_docs(session_db):
+    return (session_db.query(PersonComplianceDoc)
+            .filter(PersonComplianceDoc.owner_type == "COMPANY", PersonComplianceDoc.doc_type == "ITA")
+            .order_by(PersonComplianceDoc.created_at.desc()).all())
+
+
+def _prl_doc_json(doc) -> dict:
+    return {
+        "id": str(doc.id),
+        "doc_type": doc.doc_type,
+        "label": PRL_DOC_LABELS.get(doc.doc_type, doc.doc_type),
+        "file_url": doc.file_url,
+        "status": doc.status,
+        "reject_reason": doc.reject_reason or "",
+        "valid_from": doc.valid_from.isoformat() if doc.valid_from else None,
+        "valid_until": doc.valid_until.isoformat() if doc.valid_until else None,
+        "created_at": doc.created_at.strftime("%d/%m/%Y") if doc.created_at else "",
+    }
+
+
+def _prl_person_status(session_db, concert, person: dict, event_date, ita_docs=None) -> dict:
+    """Estado de alta y PRL de una persona del personal del evento: tipo de trabajador y
+    3 semáforos (alta / información / formación) con sus documentos."""
+    info = _rooming_person_info(session_db, person)
+    promoter = None
+    if (person.get("kind") or "").upper() == "PROMOTER" and to_uuid(person.get("ref_id") or ""):
+        promoter = session_db.get(Promoter, to_uuid(person.get("ref_id")))
+    row = {
+        "personnel_id": person.get("id") or "",
+        "name": info["name"], "full_name": info["full_name"], "role": info["role"],
+        "phone": info["phone"], "email": info["email"], "photo_url": info["photo_url"],
+        "dni": info["dni"],
+        "promoter_id": str(promoter.id) if promoter else "",
+        "worker_type": (getattr(promoter, "prl_type", None) or "") if promoter else "",
+        "worker_type_label": "",
+        "alta": {"ok": False, "doc": None}, "informacion": {"ok": False, "doc": None},
+        "formacion": {"ok": False, "doc": None}, "docs": [],
+    }
+    row["worker_type_label"] = PRL_WORKER_TYPE_LABELS.get(row["worker_type"], "")
+    if not promoter:
+        return row
+    docs = (session_db.query(PersonComplianceDoc)
+            .filter(PersonComplianceDoc.owner_type == "PROMOTER", PersonComplianceDoc.owner_id == promoter.id)
+            .order_by(PersonComplianceDoc.created_at.desc()).all())
+    row["docs"] = [_prl_doc_json(d) for d in docs]
+    for slot, dt in (("informacion", "PRL_INFORMACION"), ("formacion", "PRL_FORMACION")):
+        for d in docs:
+            if d.doc_type == dt:
+                if _prl_doc_valid_on(d, event_date):
+                    row[slot] = {"ok": True, "doc": _prl_doc_json(d)}
+                elif not row[slot]["doc"]:
+                    row[slot] = {"ok": False, "doc": _prl_doc_json(d)}
+                if row[slot]["ok"]:
+                    break
+    wt = row["worker_type"]
+    if wt == "AUTONOMO":
+        for d in docs:
+            if d.doc_type == "AUTONOMO_RECIBO":
+                if _prl_doc_valid_on(d, event_date):
+                    row["alta"] = {"ok": True, "doc": _prl_doc_json(d)}
+                    break
+                if not row["alta"]["doc"]:
+                    row["alta"] = {"ok": False, "doc": _prl_doc_json(d)}
+    elif wt == "PUNTUAL":
+        for d in docs:
+            if d.doc_type == "ALTA_SS":
+                same_concert = concert is not None and d.concert_id == getattr(concert, "id", None)
+                if (d.status or "") == "APPROVED" and (same_concert or _prl_doc_valid_on(d, event_date)):
+                    row["alta"] = {"ok": True, "doc": _prl_doc_json(d)}
+                    break
+                if not row["alta"]["doc"]:
+                    row["alta"] = {"ok": False, "doc": _prl_doc_json(d)}
+    elif wt == "EMPRESA":
+        # ITA de una empresa del grupo donde la persona está vinculada, o un ITA de su propia
+        # empresa subido en su ficha / por el enlace público.
+        for d in docs:
+            if d.doc_type == "ITA":
+                if _prl_doc_valid_on(d, event_date):
+                    row["alta"] = {"ok": True, "doc": _prl_doc_json(d)}
+                    break
+                if not row["alta"]["doc"]:
+                    row["alta"] = {"ok": False, "doc": _prl_doc_json(d)}
+        pid = str(promoter.id)
+        dni_norm = _prl_norm_dni(info["dni"])
+        for d in ([] if row["alta"]["ok"] else (ita_docs if ita_docs is not None else _prl_company_ita_docs(session_db))):
+            linked = [str(x) for x in (d.linked_person_ids or [])]
+            by_link = f"PROMOTER:{pid}" in linked or pid in linked
+            by_dni = bool(dni_norm) and any(_prl_norm_dni(w.get("ipf") or "") == dni_norm
+                                            for w in ((d.detected_meta or {}).get("workers") or []))
+            if (by_link or by_dni) and _prl_doc_valid_on(d, event_date):
+                row["alta"] = {"ok": True, "doc": _prl_doc_json(d)}
+                break
+    return row
+
+
+def _prl_rows_for_concert(session_db, kind, row_entity) -> list:
+    payload = _roadmap_load(row_entity)
+    event_date = getattr(row_entity, "date", None)
+    ita_docs = _prl_company_ita_docs(session_db)
+    concert = row_entity if kind == "concert" else None
+    return [_prl_person_status(session_db, concert, p, event_date, ita_docs)
+            for p in (payload.get("personnel") or [])]
+
+
+@app.get('/hoja-ruta/<entity_type>/<entity_id>/prl', endpoint='prl_status_json')
+@admin_required
+def prl_status_json(entity_type, entity_id):
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        return jsonify({
+            "ok": True,
+            "rows": _prl_rows_for_concert(session_db, kind, row),
+            "worker_types": [{"key": k, "label": l, "icon": i, "hint": h} for k, l, i, h in PRL_WORKER_TYPES],
+            "doc_labels": PRL_DOC_LABELS,
+        })
+    finally:
+        session_db.close()
+
+
+def _prl_get_or_create_request(session_db, concert, person: dict) -> "PrlUploadRequest":
+    pid = person.get("id") or ""
+    req = (session_db.query(PrlUploadRequest)
+           .filter(PrlUploadRequest.concert_id == concert.id, PrlUploadRequest.personnel_id == pid,
+                   PrlUploadRequest.status == "ACTIVE")
+           .first())
+    if req:
+        req.person_name = (person.get("name") or req.person_name or "").strip()
+        return req
+    req = PrlUploadRequest(
+        public_token=uuid.uuid4().hex,
+        concert_id=concert.id,
+        personnel_id=pid,
+        person_kind=(person.get("kind") or "MANUAL").upper(),
+        person_ref=to_uuid(person.get("ref_id") or "") if person.get("ref_id") else None,
+        person_name=(person.get("name") or "").strip(),
+        status="ACTIVE",
+    )
+    session_db.add(req)
+    session_db.flush()
+    return req
+
+
+def _prl_request_email_html(concert, person_name: str, link: str) -> str:
+    header = _concert_email_header_html(concert, "Documentación de alta y PRL")
+    return f"""
+    {header}
+    <p style="margin:16px 0 6px;">Hola {escape(person_name) or ''},</p>
+    <p style="margin:0 0 12px;">Para poder contar contigo en este evento necesitamos tu documentación de
+    <strong>alta</strong> y de <strong>prevención de riesgos laborales</strong> (información y formación).
+    Puedes subirla directamente desde este enlace:</p>
+    <p style="text-align:center;margin:18px 0;">
+      <a href="{link}" style="background:#E33D48;color:#fff;text-decoration:none;padding:12px 26px;border-radius:8px;font-weight:600;display:inline-block;">Subir mi documentación</a>
+    </p>
+    <p style="margin:0;color:#64748b;font-size:13px;">Si alguno de tus documentos ya está en vigor no hará falta volver a subirlo: la página te indicará qué falta.</p>
+    """
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/prl/solicitar', endpoint='prl_request_docs')
+@admin_required
+def prl_request_docs(entity_type, entity_id):
+    """Solicitar la documentación de alta/PRL a una persona (o a todas las que les falte algo).
+    channel=email envía el correo; channel=wa devuelve enlaces de WhatsApp para abrir."""
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row or kind != "concert":
+            abort(404)
+        payload = _roadmap_load(row)
+        event_title = _roadmap_export_header(kind, row).get("title") or "el evento"
+        target_id = (request.form.get("personnel_id") or "").strip()
+        channel = (request.form.get("channel") or "email").strip().lower()
+        extra_email = (request.form.get("to_email") or "").strip()
+        statuses = {r["personnel_id"]: r for r in _prl_rows_for_concert(session_db, kind, row)}
+        targets = []
+        for person in (payload.get("personnel") or []):
+            pid = person.get("id") or ""
+            if target_id and pid != target_id:
+                continue
+            st = statuses.get(pid) or {}
+            missing = not (st.get("alta", {}).get("ok") and st.get("informacion", {}).get("ok")
+                           and st.get("formacion", {}).get("ok"))
+            if target_id or missing:
+                targets.append((person, st))
+        sent, wa_links, errors = 0, [], []
+        for person, st in targets:
+            req = _prl_get_or_create_request(session_db, row, person)
+            link = url_for("public_prl_upload", token=req.public_token, _external=True)
+            name = st.get("full_name") or person.get("name") or ""
+            if channel == "wa":
+                phone = re.sub(r"[^0-9]", "", st.get("phone") or "")
+                text_msg = (f"Hola {name}: necesitamos tu documentación de alta y PRL para "
+                            f"{event_title}. Súbela aquí: {link}")
+                wa_url = (f"https://wa.me/{phone}?text=" if phone else "https://wa.me/?text=") + quote(text_msg)
+                wa_links.append({"name": name, "url": wa_url})
+            else:
+                email_to = extra_email if (target_id and extra_email) else (st.get("email") or "")
+                if not email_to:
+                    errors.append(f"{name}: sin correo")
+                    continue
+                ok, err = _send_optional_email(
+                    email_to,
+                    f"Documentación de alta y PRL · {event_title}",
+                    _prl_request_email_html(row, name, link),
+                )
+                if ok:
+                    sent += 1
+                else:
+                    errors.append(f"{name}: {err or 'error al enviar'}")
+        session_db.commit()
+        return jsonify({"ok": True, "sent": sent, "wa_links": wa_links, "errors": errors,
+                        "targets": len(targets)})
+    except Exception:
+        session_db.rollback()
+        raise
+    finally:
+        session_db.close()
+
+
+def _prl_store_upload(session_db, promoter, doc_type: str, file_storage, concert=None,
+                      uploaded_via: str = "MANUAL") -> tuple:
+    """Guarda un documento de alta/PRL de un tercero: sube el fichero, detecta las fechas de
+    validez y crea el PersonComplianceDoc. Devuelve (doc, warning|None)."""
+    data = file_storage.read()
+    file_storage.seek(0)
+    filename = (file_storage.filename or "documento").strip()
+    is_pdf = filename.lower().endswith(".pdf") or (file_storage.mimetype or "") == "application/pdf"
+    url = upload_pdf(file_storage, "documents") if is_pdf else upload_file(file_storage, "documents")
+    if not url:
+        return None, "No se pudo guardar el archivo"
+    event_date = getattr(concert, "date", None) if concert is not None else None
+    text = _pdf_extract_text_bytes(data) if is_pdf else ""
+    det = _prl_detect(doc_type, text, event_date)
+    warning = None
+    if doc_type == "ALTA_SS":
+        if det["meta"].get("detected"):
+            if event_date and det["meta"].get("match_event") is False:
+                warning = ("La fecha de efectos del alta (%s) no coincide con la fecha del evento."
+                           % det["valid_from"].strftime("%d/%m/%Y"))
+        else:
+            # Sin texto legible: se asume la fecha del evento (revisable a mano).
+            det["valid_from"] = det["valid_until"] = event_date
+            warning = "No se pudo leer la fecha del documento; se ha asumido la fecha del evento."
+    elif doc_type == "AUTONOMO_RECIBO" and det["meta"].get("detected"):
+        if event_date and det["valid_until"] and det["valid_until"] < event_date:
+            warning = ("El recibo (periodo %s) no cubre la fecha del evento; habrá que subir el del mes anterior al evento."
+                       % det["meta"].get("periodo"))
+    doc = PersonComplianceDoc(
+        owner_type="PROMOTER", owner_id=promoter.id, doc_type=doc_type,
+        concert_id=getattr(concert, "id", None) if doc_type == "ALTA_SS" else None,
+        file_url=url, original_name=filename[:200], mime_type=file_storage.mimetype,
+        valid_from=det["valid_from"], valid_until=det["valid_until"],
+        status="APPROVED", detected_meta=det["meta"], uploaded_via=uploaded_via,
+    )
+    session_db.add(doc)
+    session_db.flush()
+    return doc, warning
+
+
+def _prl_person_from_request(session_db, req: "PrlUploadRequest"):
+    """Devuelve (concert, person_dict, promoter) de una petición pública. Si la persona era
+    MANUAL, crea el tercero y lo vincula en la hoja de ruta (para poder colgar sus documentos)."""
+    concert = session_db.get(Concert, req.concert_id)
+    if not concert:
+        return None, None, None
+    payload = _roadmap_load(concert)
+    person = next((p for p in (payload.get("personnel") or []) if (p.get("id") or "") == req.personnel_id), None)
+    promoter = None
+    if person and (person.get("kind") or "").upper() == "PROMOTER" and person.get("ref_id"):
+        promoter = session_db.get(Promoter, to_uuid(person.get("ref_id")))
+    if person and not promoter:
+        nick = (person.get("name") or req.person_name or "Personal evento").strip()
+        promoter = session_db.query(Promoter).filter(func.lower(Promoter.nick) == nick.lower()).first()
+        if not promoter:
+            promoter = Promoter(nick=nick)
+            session_db.add(promoter)
+            session_db.flush()
+        person["kind"] = "PROMOTER"
+        person["ref_id"] = str(promoter.id)
+        _roadmap_save(session_db, concert, payload)
+        req.person_ref = promoter.id
+        req.person_kind = "PROMOTER"
+    return concert, person, promoter
+
+
+@app.route('/prl/<token>', methods=['GET'], endpoint='public_prl_upload')
+def public_prl_upload(token):
+    session_db = db()
+    try:
+        req = session_db.query(PrlUploadRequest).filter(PrlUploadRequest.public_token == token).first()
+        if not req:
+            abort(404)
+        concert, person, promoter = _prl_person_from_request(session_db, req)
+        if not concert or not person:
+            abort(404)
+        session_db.commit()
+        event_date = concert.date
+        status_row = _prl_person_status(session_db, concert, person, event_date)
+        worker_type = (request.args.get("tipo") or "").strip().upper()
+        if worker_type not in PRL_ALTA_DOC_BY_TYPE:
+            worker_type = req.worker_type or (getattr(promoter, "prl_type", None) or "")
+        artist = session_db.get(Artist, concert.artist_id) if concert.artist_id else None
+        venue = session_db.get(Venue, concert.venue_id) if concert.venue_id else None
+        return render_template(
+            "public_prl_upload.html",
+            req=req, concert=concert, artist=artist, venue=venue,
+            person=person, status_row=status_row,
+            worker_type=worker_type if worker_type in PRL_ALTA_DOC_BY_TYPE else "",
+            worker_types=PRL_WORKER_TYPES, doc_labels=PRL_DOC_LABELS,
+            alta_doc_by_type=PRL_ALTA_DOC_BY_TYPE,
+        )
+    finally:
+        session_db.close()
+
+
+@app.post('/prl/<token>/subir', endpoint='public_prl_upload_post')
+def public_prl_upload_post(token):
+    session_db = db()
+    try:
+        req = session_db.query(PrlUploadRequest).filter(PrlUploadRequest.public_token == token).first()
+        if not req:
+            return jsonify({"ok": False, "error": "Enlace no válido"}), 404
+        concert, person, promoter = _prl_person_from_request(session_db, req)
+        if not concert or not promoter:
+            return jsonify({"ok": False, "error": "Enlace no válido"}), 404
+        worker_type = (request.form.get("worker_type") or "").strip().upper()
+        if worker_type in PRL_ALTA_DOC_BY_TYPE:
+            req.worker_type = worker_type
+            promoter.prl_type = worker_type
+        doc_type = (request.form.get("doc_type") or "").strip().upper()
+        if doc_type not in PRL_DOC_LABELS:
+            return jsonify({"ok": False, "error": "Tipo de documento no válido"}), 400
+        f = request.files.get("file")
+        if not f or not f.filename:
+            return jsonify({"ok": False, "error": "Falta el archivo"}), 400
+        doc, warning = _prl_store_upload(session_db, promoter, doc_type, f, concert=concert, uploaded_via="PUBLIC")
+        if not doc:
+            return jsonify({"ok": False, "error": warning or "No se pudo guardar"}), 400
+        req.updated_at = datetime.utcnow()
+        session_db.commit()
+        status_row = _prl_person_status(session_db, concert, person, concert.date)
+        return jsonify({"ok": True, "warning": warning, "doc": _prl_doc_json(doc), "status": status_row})
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("public_prl_upload_post")
+        return jsonify({"ok": False, "error": "Error al procesar el documento"}), 500
+    finally:
+        session_db.close()
+
+
+@app.post('/prl-docs/subir', endpoint='prl_doc_upload')
+@admin_required
+def prl_doc_upload():
+    """Subida manual desde la app (icono rojo del PRL del evento o fichas de tercero/personal)."""
+    session_db = db()
+    try:
+        owner_type = (request.form.get("owner_type") or "PROMOTER").strip().upper()
+        doc_type = (request.form.get("doc_type") or "").strip().upper()
+        if doc_type not in PRL_DOC_LABELS:
+            return jsonify({"ok": False, "error": "Tipo de documento no válido"}), 400
+        f = request.files.get("file")
+        if not f or not f.filename:
+            return jsonify({"ok": False, "error": "Falta el archivo"}), 400
+        concert = None
+        cid = to_uuid(request.form.get("concert_id") or "")
+        if cid:
+            concert = session_db.get(Concert, cid)
+        if owner_type == "USER":
+            # Personal propio: el documento cuelga del usuario (formación/información).
+            uid = to_uuid(request.form.get("owner_id") or "")
+            if not uid:
+                return jsonify({"ok": False, "error": "Falta la persona"}), 400
+            data = f.read(); f.seek(0)
+            is_pdf = (f.filename or "").lower().endswith(".pdf")
+            url = upload_pdf(f, "documents") if is_pdf else upload_file(f, "documents")
+            if not url:
+                return jsonify({"ok": False, "error": "No se pudo guardar el archivo"}), 400
+            det = _prl_detect(doc_type, _pdf_extract_text_bytes(data) if is_pdf else "", None)
+            doc = PersonComplianceDoc(owner_type="USER", owner_id=uid, doc_type=doc_type,
+                                      file_url=url, original_name=(f.filename or "")[:200],
+                                      mime_type=f.mimetype, valid_from=det["valid_from"],
+                                      valid_until=det["valid_until"], status="APPROVED",
+                                      detected_meta=det["meta"], uploaded_via="MANUAL")
+            session_db.add(doc)
+            session_db.commit()
+            return jsonify({"ok": True, "doc": _prl_doc_json(doc)})
+        promoter = session_db.get(Promoter, to_uuid(request.form.get("owner_id") or "") or uuid.uuid4())
+        if not promoter:
+            return jsonify({"ok": False, "error": "Tercero no encontrado"}), 404
+        worker_type = (request.form.get("worker_type") or "").strip().upper()
+        if worker_type in PRL_ALTA_DOC_BY_TYPE:
+            promoter.prl_type = worker_type
+        doc, warning = _prl_store_upload(session_db, promoter, doc_type, f, concert=concert, uploaded_via="MANUAL")
+        if not doc:
+            if request.form.get("next"):
+                flash(warning or "No se pudo guardar el documento", "danger")
+                return redirect(safe_next_or(url_for("home")))
+            return jsonify({"ok": False, "error": warning or "No se pudo guardar"}), 400
+        session_db.commit()
+        if request.form.get("next"):
+            flash(("Documento subido. " + warning) if warning else "Documento subido", "warning" if warning else "success")
+            return redirect(safe_next_or(url_for("home")))
+        return jsonify({"ok": True, "warning": warning, "doc": _prl_doc_json(doc)})
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("prl_doc_upload")
+        return jsonify({"ok": False, "error": "Error al subir el documento"}), 500
+    finally:
+        session_db.close()
+
+
+@app.post('/prl-docs/tipo', endpoint='prl_set_worker_type')
+@admin_required
+def prl_set_worker_type():
+    session_db = db()
+    try:
+        promoter = session_db.get(Promoter, to_uuid(request.form.get("promoter_id") or "") or uuid.uuid4())
+        if not promoter:
+            return jsonify({"ok": False, "error": "Tercero no encontrado"}), 404
+        wt = (request.form.get("worker_type") or "").strip().upper()
+        promoter.prl_type = wt if wt in PRL_ALTA_DOC_BY_TYPE else None
+        session_db.commit()
+        if request.form.get("next"):
+            return redirect(safe_next_or(url_for("home")))
+        return jsonify({"ok": True, "worker_type": promoter.prl_type or ""})
+    except Exception:
+        session_db.rollback()
+        raise
+    finally:
+        session_db.close()
+
+
+@app.post('/prl-docs/<doc_id>/rechazar', endpoint='prl_doc_reject')
+@admin_required
+def prl_doc_reject(doc_id):
+    """Rechaza un documento subido con un mensaje y avisa por correo a la persona."""
+    session_db = db()
+    try:
+        doc = session_db.get(PersonComplianceDoc, to_uuid(doc_id) or uuid.uuid4())
+        if not doc:
+            return jsonify({"ok": False, "error": "Documento no encontrado"}), 404
+        reason = (request.form.get("reason") or "").strip()
+        doc.status = "REJECTED"
+        doc.reject_reason = reason
+        label = PRL_DOC_LABELS.get(doc.doc_type, doc.doc_type)
+        emailed = False
+        if doc.owner_type == "PROMOTER":
+            promoter = session_db.get(Promoter, doc.owner_id)
+            email_to = (getattr(promoter, "contact_email", None) or "").strip() if promoter else ""
+            if email_to:
+                link = ""
+                concert = session_db.get(Concert, doc.concert_id) if doc.concert_id else None
+                req = (session_db.query(PrlUploadRequest)
+                       .filter(PrlUploadRequest.person_ref == doc.owner_id, PrlUploadRequest.status == "ACTIVE")
+                       .order_by(PrlUploadRequest.created_at.desc()).first())
+                if req:
+                    link = url_for("public_prl_upload", token=req.public_token, _external=True)
+                    if not concert:
+                        concert = session_db.get(Concert, req.concert_id)
+                body = ""
+                if concert:
+                    body += _concert_email_header_html(concert, "Documento rechazado")
+                body += (f"<p style='margin:16px 0 8px;'>El documento <strong>{escape(label)}</strong> ha sido "
+                         f"rechazado, por favor vuélvelo a subir.</p>")
+                if reason:
+                    body += f"<p style='margin:0 0 12px;'><strong>Motivo:</strong> {escape(reason)}</p>"
+                if link:
+                    body += (f"<p style='text-align:center;margin:18px 0;'><a href='{link}' "
+                             "style='background:#E33D48;color:#fff;text-decoration:none;padding:12px 26px;"
+                             "border-radius:8px;font-weight:600;display:inline-block;'>Volver a subir</a></p>")
+                ok, _err = _send_optional_email(email_to, f"Documento rechazado · {label}", body)
+                emailed = ok
+        session_db.commit()
+        if request.form.get("next"):
+            flash("Documento rechazado" + (" y aviso enviado por correo" if emailed else ""), "warning")
+            return redirect(safe_next_or(url_for("home")))
+        return jsonify({"ok": True, "emailed": emailed})
+    except Exception:
+        session_db.rollback()
+        raise
+    finally:
+        session_db.close()
+
+
+@app.post('/prl-docs/<doc_id>/eliminar', endpoint='prl_doc_delete')
+@admin_required
+def prl_doc_delete(doc_id):
+    session_db = db()
+    try:
+        doc = session_db.get(PersonComplianceDoc, to_uuid(doc_id) or uuid.uuid4())
+        if doc:
+            session_db.delete(doc)
+            session_db.commit()
+        if request.form.get("ajax") or (request.accept_mimetypes and request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html):
+            return jsonify({"ok": True})
+        return redirect(safe_next_or(url_for("home")))
+    except Exception:
+        session_db.rollback()
+        raise
+    finally:
+        session_db.close()
+
+
+@app.get('/hoja-ruta/<entity_type>/<entity_id>/prl/pdf', endpoint='prl_export_pdf')
+@admin_required
+def prl_export_pdf(entity_type, entity_id):
+    if not REPORTLAB_AVAILABLE:
+        abort(503)
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        rows = _prl_rows_for_concert(session_db, kind, row)
+        header = _roadmap_export_header(kind, row)
+        buf = BytesIO()
+        docpdf = SimpleDocTemplate(buf, pagesize=A4, leftMargin=32, rightMargin=32, topMargin=24, bottomMargin=24)
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle("PrlTitle", parent=styles["Title"], alignment=TA_CENTER, fontSize=16, leading=19)
+        h_style = ParagraphStyle("PrlH", parent=styles["Normal"], fontSize=10, leading=12, fontName="Helvetica-Bold")
+        small = ParagraphStyle("PrlS", parent=styles["Normal"], fontSize=8, leading=10)
+        story = []
+        logo = _fetch_image_reader(header["logo_url"])
+        logo_cell = RLImage(logo, width=110, height=40, kind="proportional") if logo else ""
+        lr = Table([["", logo_cell]], colWidths=[411, 120])
+        lr.setStyle(TableStyle([("ALIGN", (1, 0), (1, 0), "RIGHT")]))
+        story.append(lr)
+        story.append(Paragraph("Listado de Alta y PRL", title_style))
+        facts = " · ".join([x for x in [header["date"], header.get("venue") or "", header.get("city") or ""] if x])
+        story.append(Paragraph(header["title"], h_style))
+        if facts:
+            story.append(Paragraph(facts, small))
+        story.append(Spacer(1, 6))
+        data = [["Nombre y apellidos", "DNI", "Función", "Tipo de alta", "Alta", "Información", "Formación"]]
+        for r in rows:
+            data.append([
+                Paragraph(escape(r["full_name"]), small), r["dni"], Paragraph(escape(r["role"]), small),
+                r["worker_type_label"] or "—",
+                "SÍ" if r["alta"]["ok"] else "NO",
+                "SÍ" if r["informacion"]["ok"] else "NO",
+                "SÍ" if r["formacion"]["ok"] else "NO",
+            ])
+        tbl = Table(data, colWidths=[150, 70, 90, 85, 45, 55, 45], repeatRows=1)
+        style_cmds = [
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E33D48")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#d8dee6")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f7f8fa")]),
+        ]
+        for idx, r in enumerate(rows, start=1):
+            for col, key in ((4, "alta"), (5, "informacion"), (6, "formacion")):
+                ok = r[key]["ok"]
+                style_cmds.append(("TEXTCOLOR", (col, idx), (col, idx),
+                                   colors.HexColor("#1a7f37") if ok else colors.HexColor("#c62828")))
+        tbl.setStyle(TableStyle(style_cmds))
+        story.append(tbl)
+        docpdf.build(story)
+        buf.seek(0)
+        return send_file(buf, mimetype="application/pdf", as_attachment=True, download_name="listado_prl.pdf")
+    finally:
+        session_db.close()
+
+
+@app.get('/hoja-ruta/<entity_type>/<entity_id>/prl/xlsx', endpoint='prl_export_xlsx')
+@admin_required
+def prl_export_xlsx(entity_type, entity_id):
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        rows = _prl_rows_for_concert(session_db, kind, row)
+        header = _roadmap_export_header(kind, row)
+        from openpyxl import Workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "PRL"
+        ws.append([f"Listado de Alta y PRL · {header['title']} · {header['date']}"])
+        ws.append([])
+        ws.append(["Nombre y apellidos", "DNI", "Función", "Tipo de alta", "Alta OK", "Información OK",
+                   "Formación OK", "Doc alta", "Doc información", "Doc formación"])
+        for r in rows:
+            ws.append([
+                r["full_name"], r["dni"], r["role"], r["worker_type_label"] or "",
+                "SÍ" if r["alta"]["ok"] else "NO",
+                "SÍ" if r["informacion"]["ok"] else "NO",
+                "SÍ" if r["formacion"]["ok"] else "NO",
+                (r["alta"]["doc"] or {}).get("file_url", ""),
+                (r["informacion"]["doc"] or {}).get("file_url", ""),
+                (r["formacion"]["doc"] or {}).get("file_url", ""),
+            ])
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return send_file(buf, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                         as_attachment=True, download_name="listado_prl.xlsx")
+    finally:
+        session_db.close()
+
+
+def _prl_ita_link_people(session_db, workers: list) -> list:
+    """Vincula los trabajadores detectados en un ITA con terceros/usuarios por DNI (o nombre)."""
+    linked = []
+    if not workers:
+        return linked
+    by_dni = {}
+    for p in session_db.query(Promoter).filter(Promoter.tax_id.isnot(None)).all():
+        norm = _prl_norm_dni(p.tax_id)
+        if norm:
+            by_dni[norm] = f"PROMOTER:{p.id}"
+    try:
+        for u in session_db.query(UserProfile).filter(UserProfile.dni.isnot(None)).all():
+            norm = _prl_norm_dni(u.dni)
+            if norm and norm not in by_dni:
+                by_dni[norm] = f"USER:{u.user_id}"
+    except Exception:
+        pass
+    for w in workers:
+        ref = by_dni.get(_prl_norm_dni(w.get("ipf") or ""))
+        if ref and ref not in linked:
+            linked.append(ref)
+    return linked
+
+
+@app.post('/administracion/altas/subir', endpoint='admin_ita_upload')
+@admin_required
+def admin_ita_upload():
+    """Sube el ITA mensual de una empresa del grupo: detecta la fecha (válido el mes en vigor)
+    y vincula automáticamente a las personas que aparecen en el informe por su DNI."""
+    session_db = db()
+    try:
+        company = session_db.get(GroupCompany, to_uuid(request.form.get("company_id") or "") or uuid.uuid4())
+        f = request.files.get("file")
+        if not company or not f or not f.filename:
+            flash("Falta la empresa o el archivo del ITA", "danger")
+            return redirect(safe_next_or(url_for("administracion_view", tab="altas")))
+        data = f.read(); f.seek(0)
+        is_pdf = (f.filename or "").lower().endswith(".pdf")
+        url = upload_pdf(f, "documents") if is_pdf else upload_file(f, "documents")
+        if not url:
+            flash("No se pudo guardar el archivo", "danger")
+            return redirect(safe_next_or(url_for("administracion_view", tab="altas")))
+        det = _prl_detect("ITA", _pdf_extract_text_bytes(data) if is_pdf else "", None)
+        linked = _prl_ita_link_people(session_db, (det["meta"].get("workers") or []))
+        doc = PersonComplianceDoc(
+            owner_type="COMPANY", owner_id=company.id, doc_type="ITA", company_id=company.id,
+            file_url=url, original_name=(f.filename or "")[:200], mime_type=f.mimetype,
+            valid_from=det["valid_from"], valid_until=det["valid_until"], status="APPROVED",
+            linked_person_ids=linked, detected_meta=det["meta"], uploaded_via="ADMIN",
+        )
+        session_db.add(doc)
+        session_db.commit()
+        n = len((det["meta"].get("workers") or []))
+        if det["meta"].get("detected"):
+            flash(f"ITA de {company.name} subido: válido hasta {doc.valid_until.strftime('%d/%m/%Y')} · "
+                  f"{n} trabajadores detectados ({len(linked)} vinculados)", "success")
+        else:
+            flash("ITA subido, pero no se pudo leer la fecha del informe: revísalo a mano", "warning")
+        return redirect(safe_next_or(url_for("administracion_view", tab="altas")))
+    except Exception:
+        session_db.rollback()
+        raise
+    finally:
+        session_db.close()
+
+
+def _prl_admin_altas_context(session_db) -> dict:
+    """Contexto de la pestaña Altas de Administración: ITA vigente por empresa del grupo."""
+    companies = session_db.query(GroupCompany).order_by(GroupCompany.name).all()
+    docs = _prl_company_ita_docs(session_db)
+    today = date.today()
+    by_company = {}
+    for d in docs:
+        key = str(d.company_id or d.owner_id)
+        by_company.setdefault(key, []).append(d)
+    name_by_ref = {}
+    for ref in {r for d in docs for r in (d.linked_person_ids or [])}:
+        try:
+            kind_s, _, id_s = str(ref).partition(":")
+            if kind_s == "PROMOTER":
+                p = session_db.get(Promoter, to_uuid(id_s))
+                if p:
+                    name_by_ref[ref] = p.nick or ""
+            elif kind_s == "USER":
+                u = session_db.query(UserProfile).filter(UserProfile.user_id == to_uuid(id_s)).first()
+                if u:
+                    name_by_ref[ref] = (u.nick or u.full_name or "")
+        except Exception:
+            continue
+    rows = []
+    for comp in companies:
+        comp_docs = by_company.get(str(comp.id), [])
+        current = comp_docs[0] if comp_docs else None
+        valid = bool(current) and _prl_doc_valid_on(current, today)
+        rows.append({
+            "company": comp, "current": current, "valid": valid,
+            "history": comp_docs[1:6],
+            "workers": ((current.detected_meta or {}).get("workers") or []) if current else [],
+            "linked_names": [name_by_ref.get(r, "") for r in (current.linked_person_ids or [])] if current else [],
+        })
+    return {"altas_rows": rows, "altas_today": today}
+
+
+def _home_admin_altas_pending() -> list:
+    """Empresas del grupo con ITA caducado o sin ITA (tarea pendiente de Administración)."""
+    session_db = db()
+    try:
+        ctx = _prl_admin_altas_context(session_db)
+        return [{"name": r["company"].name, "logo_url": r["company"].logo_url,
+                 "until": r["current"].valid_until.strftime("%d/%m/%Y") if (r["current"] and r["current"].valid_until) else None}
+                for r in ctx["altas_rows"] if not r["valid"]]
+    except Exception:
+        return []
+    finally:
+        session_db.close()
+
+
 @app.post('/hoja-ruta/<entity_type>/<entity_id>/personal', endpoint='roadmap_personnel_save')
 @admin_required
 def roadmap_personnel_save(entity_type, entity_id):
@@ -36527,6 +37399,7 @@ ADMINISTRATION_TABS = [
     ("pagos", "Pagos"),
     ("cobros", "Cobros"),
     ("embargos", "Embargos"),
+    ("altas", "Altas"),
 ]
 ADMINISTRATION_PENDING_TABS = [
     ("solicitudes", "Solicitudes"),
@@ -36722,7 +37595,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_promoter_requests", "public_sale_channels", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_promoter_requests", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -38226,6 +39099,7 @@ def inject_personnel_globals():
         "HOME_REGISTROS_PENDING": _home_registros_pending() if request.endpoint == "home" and session.get("user_id") and "_home_registros_pending" in globals() and has_access_key("registros") else [],
         "HOME_PENDING_PETICIONES": _home_pending_peticiones() if request.endpoint == "home" and session.get("user_id") and "_home_pending_peticiones" in globals() else [],
         "HOME_PRODUCCION_PENDING": _home_produccion_pending() if request.endpoint == "home" and session.get("user_id") and "_home_produccion_pending" in globals() and has_access_key("produccion", include_descendants=True) else [],
+        "HOME_ADMIN_ALTAS_PENDING": _home_admin_altas_pending() if request.endpoint == "home" and session.get("user_id") and "_home_admin_altas_pending" in globals() and has_access_key("administracion", include_descendants=True) else [],
         "HOME_AFAVOR_ALERT": _home_afavor_alert() if request.endpoint == "home" and session.get("user_id") and "_home_afavor_alert" in globals() and has_access_key("registros") else None,
         "HOME_AGENDA": _home_agenda() if request.endpoint == "home" and session.get("user_id") and "_home_agenda" in globals() else None,
         "AGENDA_ARTIST_OPTIONS": _agenda_artist_options() if request.endpoint == "home" and session.get("user_id") and "_agenda_artist_options" in globals() else [],
@@ -38387,6 +39261,8 @@ SUPPORT_ACTION_ENDPOINTS = {
     "roadmap_personnel_save", "roadmap_personnel_delete",
     "roadmap_attachment_upload", "roadmap_attachment_delete",
     "roadmap_days_save", "roadmap_public_link",
+    # PRL / altas del personal del evento (subpestaña PRL del Personal + fichas)
+    "prl_request_docs", "prl_doc_upload", "prl_doc_reject", "prl_doc_delete", "prl_set_worker_type",
     # Fotos / vídeos (galería transversal de conciertos y acciones)
     "fotos_upload", "fotos_reorder", "foto_update", "foto_delete", "foto_discard",
     "fotos_video_sign", "fotos_video_register",
@@ -38411,6 +39287,8 @@ SUPPORT_READ_ENDPOINTS = {
     "api_artist_wizard_meta",
     # Hoja de ruta: exportaciones de rooming y listado de personal (PDF/Excel).
     "roadmap_rooming_pdf", "roadmap_rooming_xlsx", "roadmap_personnel_pdf", "roadmap_personnel_xlsx",
+    # PRL: estado por persona y listado exportable.
+    "prl_status_json", "prl_export_pdf", "prl_export_xlsx",
     "api_get_promoter", "api_promoter_detail", "api_promoter_emails", "api_media_contacts",
     "api_concert_meta", "api_song_meta", "api_album_song_search",
     "api_concert_artist_conflicts", "api_embargo_check_third_party", "api_geocode",
@@ -41294,10 +42172,13 @@ def administracion_view():
             "cobros": len(receivable_invoices),
             "embargos": len(embargo_rows) + len(embargo_active_orders),
         }
+        altas_ctx = _prl_admin_altas_context(session_db) if tab == "altas" else {"altas_rows": [], "altas_today": date.today()}
         return render_template(
             "administracion.html",
             tab=tab,
             tabs=ADMINISTRATION_TABS,
+            group_companies=session_db.query(GroupCompany).order_by(GroupCompany.name).all() if tab == "altas" else [],
+            **altas_ctx,
             pending_subtab=pending_subtab,
             pending_tabs=ADMINISTRATION_PENDING_TABS,
             embargo_subtab=embargo_subtab,
@@ -41922,7 +42803,7 @@ def personnel_detail_view(user_id):
         security = _ensure_user_security(session_db, user)
         _sync_user_access_grants(session_db, user, profile)
         tab = (request.args.get("tab") or "accesos").strip().lower()
-        if tab not in {"accesos", "datos", "documentos"}:
+        if tab not in {"accesos", "datos", "documentos", "prl"}:
             tab = "accesos"
 
         if request.method == "POST":
@@ -42010,6 +42891,17 @@ def personnel_detail_view(user_id):
             person_docs_delete_base=url_for("personnel_document_delete", user_id=user.id, doc_id="__ID__"),
             person_docs_can_edit=True,
             loyalty_brands=PERSON_LOYALTY_BRANDS,
+            prl_docs=(session_db.query(PersonComplianceDoc)
+                      .filter(PersonComplianceDoc.owner_type == "USER", PersonComplianceDoc.owner_id == user.id)
+                      .order_by(PersonComplianceDoc.created_at.desc()).all()) if tab == "prl" else [],
+            prl_owner_type="USER",
+            prl_owner_id=str(user.id),
+            prl_can_edit=True,
+            prl_doc_labels=PRL_DOC_LABELS,
+            prl_worker_types=PRL_WORKER_TYPES,
+            prl_worker_type="",
+            prl_next=url_for("personnel_detail_view", user_id=user.id, tab="prl"),
+            prl_today=date.today(),
         )
     finally:
         session_db.close()

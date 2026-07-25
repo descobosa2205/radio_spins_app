@@ -1,0 +1,232 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="container py-4">
+  <div class="mx-auto" style="max-width:860px;">
+    {# Logo de la empresa del grupo arriba a la DERECHA + título centrado + cabecera del evento. #}
+    <div class="text-end mb-2">
+      <img src="{{ (concert.billing_company.logo_url if concert.billing_company else None) or url_for('static', filename='img/logo.png') }}" alt="" style="max-height:56px;max-width:200px;object-fit:contain;">
+    </div>
+    <h3 class="text-center mb-3">Documentación de alta y PRL</h3>
+
+    <div class="card shadow-sm mb-3">
+      <div class="card-body d-flex flex-column flex-lg-row gap-3 align-items-start align-items-lg-center">
+        <img src="{{ (artist.photo_url if artist else None) or url_for('static', filename='img/logo.png') }}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:50%;border:1px solid #eee;background:#fff;">
+        <div class="flex-grow-1">
+          <h4 class="mb-1">{{ artist.name if artist else 'Actividad' }}</h4>
+          <div class="text-muted">
+            {% if concert.date %}{{ concert.date.strftime('%d/%m/%Y') }}{% endif %}
+            {% if venue %} · {{ venue.name }}{% elif concert.manual_venue_name %} · {{ concert.manual_venue_name }}{% endif %}
+            {% if venue and venue.municipality %} · {{ venue.municipality }}{% elif concert.manual_municipality %} · {{ concert.manual_municipality }}{% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {# Cabecera de la persona #}
+    <div class="card shadow-sm mb-4">
+      <div class="card-body d-flex align-items-center gap-3">
+        {% if status_row.photo_url %}<img src="{{ status_row.photo_url }}" alt="" style="width:54px;height:54px;object-fit:cover;border-radius:50%;border:1px solid #eee;">{% else %}<span class="d-inline-flex align-items-center justify-content-center" style="width:54px;height:54px;border-radius:50%;background:#f1f3f7;"><i class="fa fa-user text-muted fa-lg"></i></span>{% endif %}
+        <div>
+          <div class="fw-semibold fs-5">{{ status_row.full_name or status_row.name }}</div>
+          {% if status_row.role %}<div class="small text-muted">{{ status_row.role }}</div>{% endif %}
+        </div>
+      </div>
+    </div>
+
+    {# Paso 1: tipo de trabajador #}
+    <div class="card shadow-sm mb-4">
+      <div class="card-body">
+        <h6 class="mb-1">¿Cuál es tu situación laboral?</h6>
+        <p class="small text-muted mb-3">Según tu situación necesitaremos unos documentos u otros.</p>
+        <div class="row g-2" id="prlTypeCards">
+          {% for key, label, icon, hint in worker_types %}
+            <div class="col-12 col-md-4">
+              <button type="button" class="btn w-100 h-100 text-start border rounded-3 p-3 prl-type-card {% if worker_type == key %}active{% endif %}" data-type="{{ key }}">
+                <span class="d-inline-flex align-items-center justify-content-center mb-2" style="width:44px;height:44px;border-radius:12px;background:rgba(227,61,72,.10);color:#E33D48;"><i class="fa {{ icon }} fa-lg"></i></span>
+                <span class="d-block fw-semibold">{{ label }}</span>
+                <span class="d-block small text-muted">{{ hint }}</span>
+              </button>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    {# Paso 2: documentos según el tipo #}
+    <div id="prlDocs" class="{% if not worker_type %}d-none{% endif %}">
+      <div class="card shadow-sm mb-4">
+        <div class="card-body">
+          <h6 class="mb-1">Tus documentos</h6>
+          <p class="small text-muted mb-3">Arrastra el archivo o pulsa para elegirlo (PDF o foto). Los documentos que ya estén en vigor no hace falta volver a subirlos.</p>
+          <div id="prlSlots" class="d-grid gap-3"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const TOKEN = {{ req.public_token|tojson }};
+  const EVENT_DATE = {{ (concert.date.isoformat() if concert.date else '')|tojson }};
+  const DOC_LABELS = {{ doc_labels|tojson }};
+  const ALTA_BY_TYPE = {{ alta_doc_by_type|tojson }};
+  let STATUS = {{ status_row|tojson }};
+  let currentType = {{ worker_type|tojson }};
+
+  const DOC_HINTS = {
+    'AUTONOMO_RECIBO': 'Recibo bancario de la cuota de autónomos del MES ANTERIOR (se detecta el periodo de liquidación automáticamente).',
+    'ALTA_SS': 'Informe de situación de alta en la Seguridad Social con fecha de efectos del día del evento.',
+    'ITA': 'Informe de trabajadores en alta (ITA) de tu empresa, del mes en vigor.',
+    'PRL_FORMACION': 'Acreditación de la formación en prevención de riesgos laborales.',
+    'PRL_INFORMACION': 'Justificante de haber recibido la información de riesgos del puesto.'
+  };
+  const DOC_ICONS = {
+    'AUTONOMO_RECIBO': 'fa-file-invoice-dollar', 'ALTA_SS': 'fa-file-signature', 'ITA': 'fa-file-shield',
+    'PRL_FORMACION': 'fa-graduation-cap', 'PRL_INFORMACION': 'fa-circle-info'
+  };
+
+  function slotState(docType){
+    // Estado del documento a partir de STATUS (alta/informacion/formacion + docs).
+    let slot = null;
+    if (docType === 'PRL_FORMACION') slot = STATUS.formacion;
+    else if (docType === 'PRL_INFORMACION') slot = STATUS.informacion;
+    else if (STATUS.worker_type === currentType) slot = STATUS.alta;
+    else {
+      // El tipo elegido no es el guardado: buscamos un documento de ese tipo entre los subidos.
+      let best = null, ok = false;
+      (STATUS.docs || []).forEach(function(d){
+        if (d.doc_type !== docType) return;
+        const valid = d.status === 'APPROVED' && (!d.valid_until || !EVENT_DATE || d.valid_until >= EVENT_DATE) && (!d.valid_from || !EVENT_DATE || d.valid_from <= EVENT_DATE);
+        if (valid && !ok) { best = d; ok = true; }
+        if (!best) best = d;
+      });
+      return { ok: ok, doc: best };
+    }
+    const ok = !!(slot && slot.ok);
+    const doc = slot ? slot.doc : null;
+    return { ok: ok, doc: doc };
+  }
+
+  function slotHtml(docType){
+    const st = slotState(docType);
+    const label = DOC_LABELS[docType] || docType;
+    let badge, extra = '';
+    if (st.ok) {
+      badge = '<span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>En vigor</span>';
+      if (st.doc && st.doc.valid_until) extra = '<div class="small text-muted mt-1">Válido hasta ' + st.doc.valid_until.split('-').reverse().join('/') + '</div>';
+    } else if (st.doc && st.doc.status === 'REJECTED') {
+      badge = '<span class="badge text-bg-danger"><i class="fa fa-circle-xmark me-1"></i>Rechazado</span>';
+      if (st.doc.reject_reason) extra = '<div class="small text-danger mt-1">' + st.doc.reject_reason + '</div>';
+    } else if (st.doc) {
+      badge = '<span class="badge text-bg-warning text-dark"><i class="fa fa-triangle-exclamation me-1"></i>Caducado</span>';
+      if (st.doc.valid_until) extra = '<div class="small text-muted mt-1">Caducó el ' + st.doc.valid_until.split('-').reverse().join('/') + '</div>';
+    } else {
+      badge = '<span class="badge text-bg-secondary">Pendiente</span>';
+    }
+    const needUpload = !st.ok;
+    return '<div class="border rounded-3 p-3 prl-slot" data-doc-type="' + docType + '">' +
+      '<div class="d-flex align-items-start gap-3">' +
+        '<span class="d-inline-flex align-items-center justify-content-center flex-shrink-0" style="width:44px;height:44px;border-radius:12px;background:rgba(0,124,162,.10);color:#007CA2;"><i class="fa ' + (DOC_ICONS[docType]||'fa-file') + ' fa-lg"></i></span>' +
+        '<div class="flex-grow-1 min-w-0">' +
+          '<div class="d-flex align-items-center flex-wrap gap-2"><span class="fw-semibold">' + label + '</span>' + badge + '</div>' +
+          '<div class="small text-muted">' + (DOC_HINTS[docType]||'') + '</div>' + extra +
+          (needUpload ?
+            ('<div class="prl-drop mt-2 border border-2 border-dashed rounded-3 p-3 text-center text-muted" style="cursor:pointer;">' +
+              '<i class="fa fa-cloud-arrow-up me-1"></i>Arrastra aquí o pulsa para subir' +
+              '<input type="file" class="d-none" accept="application/pdf,image/*">' +
+            '</div><div class="prl-progress mt-2 d-none"><div class="progress" style="height:8px;"><div class="progress-bar bg-danger" style="width:0%"></div></div><div class="small text-muted mt-1 prl-progress-text">Subiendo…</div></div>' +
+            '<div class="prl-msg small mt-2"></div>')
+            : (st.doc && st.doc.file_url ? '<div class="mt-2"><a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener" href="' + st.doc.file_url + '"><i class="fa fa-eye me-1"></i>Ver documento</a></div>' : '')) +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function docTypesFor(type){
+    const alta = ALTA_BY_TYPE[type];
+    return alta ? [alta, 'PRL_INFORMACION', 'PRL_FORMACION'] : [];
+  }
+
+  function render(){
+    const zone = document.getElementById('prlDocs');
+    const slots = document.getElementById('prlSlots');
+    document.querySelectorAll('.prl-type-card').forEach(function(btn){
+      btn.classList.toggle('active', btn.dataset.type === currentType);
+      btn.classList.toggle('border-danger', btn.dataset.type === currentType);
+      btn.style.boxShadow = btn.dataset.type === currentType ? '0 0 0 .2rem rgba(227,61,72,.15)' : '';
+    });
+    if (!currentType) { zone.classList.add('d-none'); return; }
+    zone.classList.remove('d-none');
+    slots.innerHTML = docTypesFor(currentType).map(slotHtml).join('');
+    wireSlots();
+  }
+
+  function wireSlots(){
+    document.querySelectorAll('.prl-slot').forEach(function(slot){
+      const drop = slot.querySelector('.prl-drop');
+      if (!drop) return;
+      const input = drop.querySelector('input[type=file]');
+      drop.addEventListener('click', function(){ input.click(); });
+      drop.addEventListener('dragover', function(e){ e.preventDefault(); drop.classList.add('bg-light'); });
+      drop.addEventListener('dragleave', function(){ drop.classList.remove('bg-light'); });
+      drop.addEventListener('drop', function(e){
+        e.preventDefault(); drop.classList.remove('bg-light');
+        if (e.dataTransfer.files && e.dataTransfer.files.length) upload(slot, e.dataTransfer.files[0]);
+      });
+      input.addEventListener('change', function(){ if (input.files.length) upload(slot, input.files[0]); });
+    });
+  }
+
+  function upload(slot, file){
+    const docType = slot.dataset.docType;
+    const prog = slot.querySelector('.prl-progress');
+    const bar = prog.querySelector('.progress-bar');
+    const msg = slot.querySelector('.prl-msg');
+    prog.classList.remove('d-none');
+    msg.textContent = '';
+    const fd = new FormData();
+    fd.append('worker_type', currentType);
+    fd.append('doc_type', docType);
+    fd.append('file', file);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/prl/' + TOKEN + '/subir');
+    xhr.upload.addEventListener('progress', function(e){
+      if (e.lengthComputable) bar.style.width = Math.round(e.loaded / e.total * 100) + '%';
+    });
+    xhr.addEventListener('load', function(){
+      let resp = {};
+      try { resp = JSON.parse(xhr.responseText || '{}'); } catch (e) {}
+      if (xhr.status === 200 && resp.ok) {
+        if (resp.status) STATUS = resp.status;
+        render();
+        if (resp.warning) {
+          const newSlot = document.querySelector('.prl-slot[data-doc-type="' + docType + '"]');
+          const m = newSlot ? newSlot.querySelector('.prl-msg') : null;
+          if (m) { m.className = 'prl-msg small mt-2 text-warning'; m.textContent = resp.warning; }
+          else alert(resp.warning);
+        }
+      } else {
+        prog.classList.add('d-none');
+        msg.className = 'prl-msg small mt-2 text-danger';
+        msg.textContent = (resp && resp.error) || 'Error al subir el documento';
+      }
+    });
+    xhr.addEventListener('error', function(){
+      prog.classList.add('d-none');
+      msg.className = 'prl-msg small mt-2 text-danger';
+      msg.textContent = 'Error de conexión';
+    });
+    xhr.send(fd);
+  }
+
+  document.querySelectorAll('.prl-type-card').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      currentType = btn.dataset.type;
+      render();
+    });
+  });
+  render();
+})();
+</script>
+{% endblock %}

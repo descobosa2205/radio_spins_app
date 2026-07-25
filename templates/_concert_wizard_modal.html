@@ -11,6 +11,7 @@
       <form method="post" action="{{ url_for('concert_wizard_create') }}" enctype="multipart/form-data" id="concertWizardForm">
         <div class="modal-body">
           <input type="hidden" name="wizard_mode" id="wizard_mode" value="direct">
+          <input type="hidden" name="wizard_simulation_id" id="wizard_simulation_id" value="">
 
           <div class="d-flex flex-wrap gap-2 mb-3" id="wizardStepPills"></div>
 
@@ -2274,6 +2275,7 @@
     var artistId = params.get('wizard_artist') || '';
     var actType = params.get('wizard_activity_type') || '';
     var groupRef = params.get('wizard_group') || '';
+    var simId = params.get('wizard_sim') || '';
     function go() {
       var modalEl = document.getElementById('concertWizardModal');
       if (!modalEl || typeof bootstrap === 'undefined') { return setTimeout(go, 80); }
@@ -2293,9 +2295,14 @@
         var gRadio = document.querySelector('input[name="wizard_group_ref"][value="' + groupRef + '"]');
         if (gRadio) gRadio.checked = true;
       }
+      // Conversión desde simulación: sus gastos previstos pasarán a ser el presupuesto.
+      if (simId) {
+        var simInput = document.getElementById('wizard_simulation_id');
+        if (simInput) simInput.value = simId;
+      }
       bootstrap.Modal.getOrCreateInstance(modalEl).show();
       // Limpia los parámetros para que un refresco no reabra el asistente.
-      params.delete('open_wizard'); params.delete('wizard_artist'); params.delete('wizard_activity_type'); params.delete('wizard_group');
+      params.delete('open_wizard'); params.delete('wizard_artist'); params.delete('wizard_activity_type'); params.delete('wizard_group'); params.delete('wizard_sim');
       var qs = params.toString();
       window.history.replaceState({}, '', window.location.pathname + (qs ? '?' + qs : ''));
     }

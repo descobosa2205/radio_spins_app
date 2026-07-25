@@ -26,17 +26,28 @@
       </div>
     {% endif %}
   </div>
-  <div class="ficha-hero__actions">
-    {% if CAN_EDIT_CONCERTS %}
-      <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#requestContractSheetModal"><i class="fa fa-file-signature me-1"></i>Solicitar ficha</button>
-    {% endif %}
-  </div>
+</div>
+
+{# ---------- ACCESOS RÁPIDOS: justo debajo de la cabecera, con iconos ---------- #}
+<div class="ficha-quick mb-0">
+  {% if CAN_EDIT_CONCERTS and tab == 'general' %}
+    <button class="btn btn-primary btn-sm" type="button" data-edit-toggle="#concert-datos-edit"><i class="fa fa-pen me-1"></i>Editar ficha</button>
+  {% endif %}
+  {% if CAN_EDIT_CONCERTS %}
+    <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#requestContractSheetModal"><i class="fa fa-file-signature me-1"></i>Solicitar ficha al promotor</button>
+  {% endif %}
+  {% if concert.contract_sheet %}
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('concert_contract_sheet_edit', cid=concert.id) }}"><i class="fa fa-file-pen me-1"></i>Ficha interna</a>
+    <a class="btn btn-outline-dark btn-sm" href="{{ url_for('concert_contract_sheet_pdf', cid=concert.id) }}" target="_blank"><i class="fa fa-file-pdf me-1"></i>PDF ficha</a>
+  {% endif %}
+  <a class="btn btn-outline-success btn-sm" href="{{ url_for('concert_detail_view', cid=concert.id, tab='produccion') }}"><i class="fa fa-clipboard-list me-1"></i>Producción</a>
+  <a class="btn btn-outline-danger btn-sm" href="{{ url_for('concert_detail_view', cid=concert.id, tab='invitations') }}"><i class="fa fa-envelope-open-text me-1"></i>Invitaciones</a>
 </div>
 
 <ul class="nav nav-tabs ficha-tabs mb-0">
   <li class="nav-item"><a class="nav-link {% if tab == 'general' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}">Ficha de contratación</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'invitations' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='invitations') }}">Invitaciones</a></li>
-  <li class="nav-item"><a class="nav-link {% if tab == 'repertorio' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='repertorio') }}">Repertorio</a></li>
+  {% if show_repertorio_tab %}<li class="nav-item"><a class="nav-link {% if tab == 'repertorio' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='repertorio') }}">Repertorio</a></li>{% endif %}
   {% if show_ticketing_tab or tab == 'ticketing' %}<li class="nav-item"><a class="nav-link {% if tab == 'ticketing' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='ticketing') }}">Ticketing</a></li>{% endif %}
   <li class="nav-item"><a class="nav-link {% if tab == 'carteleria' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='carteleria') }}">Cartelería</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'produccion' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='produccion') }}">Producción</a></li>
@@ -49,17 +60,11 @@
 <div class="ficha-tabpane">
   {% if tab == 'general' %}
     <div id="concert-general-zone" data-inline-zone>
-    <div class="d-flex justify-content-between align-items-start gap-2 mb-3 flex-wrap">
-      <h5 class="mb-0">Ficha de contratación</h5>
-      <div class="d-flex gap-2 flex-wrap">
-        {% if contract_sheet_status == 'RECEIVED' %}
-          <a class="btn btn-warning btn-sm" href="{{ url_for('concert_contract_sheet_review', cid=concert.id) }}"><i class="fa fa-file-import me-1"></i>Importar datos recibidos</a>
-        {% endif %}
-        {% if CAN_EDIT_CONCERTS %}
-          <button type="button" class="btn btn-primary btn-sm" data-edit-toggle="#concert-datos-edit"><i class="fa fa-pen me-1"></i>Editar datos</button>
-        {% endif %}
-      </div>
+    {% if contract_sheet_status == 'RECEIVED' %}
+    <div class="d-flex justify-content-end mb-2">
+      <a class="btn btn-warning btn-sm" href="{{ url_for('concert_contract_sheet_review', cid=concert.id) }}"><i class="fa fa-file-import me-1"></i>Importar datos recibidos</a>
     </div>
+    {% endif %}
 
     {% if CAN_EDIT_CONCERTS %}
     <form id="concert-datos-edit" class="ficha-section d-none mb-3" method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='datos') }}" data-inline data-inline-target="#concert-general-zone" data-concert-datos-form data-view="[data-datos-view]">
@@ -176,127 +181,156 @@
       </div>
     {% endif %}
 
-    <div class="row g-3">
-      <div class="col-12 col-xl-5">
-        <div class="card h-100">
-          <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-              <h6 class="mb-0">Recinto</h6>
-            </div>
-            {% if concert.venue %}<a class="d-flex gap-3 align-items-start text-reset text-decoration-none" href="{{ url_for('venue_detail_view', vid=concert.venue.id) }}">{% else %}<div class="d-flex gap-3 align-items-start">{% endif %}
-              <img src="{{ (concert.venue.photo_url if concert.venue else None) or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:112px;height:84px;border-radius:14px;object-fit:cover;">
-              <div>
-                <div class="fw-semibold">{{ concert.venue.name if concert.venue else (concert.manual_venue_name or 'Recinto pendiente') }}</div>
-                {% if concert.venue %}{{ linked_mini('venue', concert.venue.id) }}{% endif %}
-                {% if concert.venue %}
-                  {% if concert.venue.address %}<div class="small text-muted">{{ concert.venue.address }}</div>{% endif %}
-                  <div class="small text-muted">{{ concert.venue.municipality or '' }}{% if concert.venue.province %} · {{ concert.venue.province }}{% endif %}</div>
-                {% else %}
-                  {% if concert.manual_venue_address %}<div class="small text-muted">{{ concert.manual_venue_address }}</div>{% endif %}
-                  <div class="small text-muted">{{ concert.manual_municipality or '' }}{% if concert.manual_province %} · {{ concert.manual_province }}{% endif %}</div>
-                {% endif %}
-              </div>
-            {% if concert.venue %}</a>{% else %}</div>{% endif %}
-          </div>
+    {% set cpay_g = concert.contracting_payload or {} %}
+    {% set perf_g = cpay_g.get('performance') or {} %}
+    {# ---------- RESUMEN VISUAL: datos básicos seguidos, con iconos, solo lo cumplimentado ---------- #}
+    <div class="ficha-summary mb-3">
+      <div class="fs-item">
+        <div class="fs-item__label"><i class="fa fa-flag"></i>Estado</div>
+        <div class="fs-item__value">{% with cs_id=concert.id, cs_status=concert.status %}{% include '_concert_status_badge.html' %}{% endwith %}</div>
+      </div>
+      {% if concert.artist %}
+      <div class="fs-item" data-artist-link="{{ concert.artist.id }}">
+        <div class="fs-item__label"><i class="fa fa-microphone-lines"></i>Artista</div>
+        <div class="fs-item__value d-flex align-items-center gap-2">
+          <img src="{{ concert.artist.photo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1" style="width:34px;height:34px;border-radius:50%;object-fit:cover;">
+          <span class="fw-semibold">{{ concert.artist.name }}</span>
         </div>
       </div>
-
-      <div class="col-12 col-xl-7">
-        <div class="card h-100">
-          <div class="card-body">
-            <h6 class="mb-3">Datos consolidados</h6>
-            {% if contracting_general_rows %}
-              <div class="table-responsive">
-                <table class="table table-sm align-middle mb-0">
-                  <tbody>
-                    {% for row in contracting_general_rows %}
-                      <tr><th style="width:240px;">{{ row.label }}</th><td>{{ row.value }}</td></tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
-              </div>
-            {% else %}
-              <div class="text-muted">No hay campos cumplimentados todavía.</div>
-            {% endif %}
-          </div>
-        </div>
-      </div>
-
-      <div class="col-12 col-xl-6">
-        <div class="card h-100">
-          <div class="card-body">
-            <h6 class="mb-3">Ventas y facturación</h6>
-            <div class="row g-2 small">
-              {% if capacity_sale %}<div class="col-6"><span class="text-muted">Aforo a la venta</span><div class="fw-semibold">{{ capacity_sale|k }}</div></div>{% endif %}
-              {% if sold_total %}<div class="col-6"><span class="text-muted">Vendidas total</span><div class="fw-semibold">{{ sold_total|k }}</div></div>{% endif %}
-              {% if gross_total %}<div class="col-6"><span class="text-muted">Bruto total</span><div class="fw-semibold">{{ gross_total|eur }}</div></div>{% endif %}
-              {% if net_breakdown.net %}<div class="col-6"><span class="text-muted">Neto estimado</span><div class="fw-semibold">{{ net_breakdown.net|eur }}</div></div>{% endif %}
-              {% if payment_terms %}<div class="col-6"><span class="text-muted">Pagos configurados</span><div class="fw-semibold">{{ payment_terms|length }}</div></div>{% endif %}
-              {% if payment_pending %}<div class="col-6"><span class="text-muted">Pendiente de facturar/cobrar</span><div class="fw-semibold">{{ payment_pending|eur }}</div></div>{% endif %}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {% if payment_terms %}
-        <div class="col-12">
-          <div class="card">
-            <div class="card-body">
-              <h6 class="mb-3">Plan de facturación / cobro</h6>
-              <div class="table-responsive">
-                <table class="table table-sm align-middle mb-0">
-                  <thead class="table-light"><tr><th>Concepto</th><th class="text-end">Importe</th><th>Fecha límite</th><th>Estado</th><th class="text-end">Acciones</th></tr></thead>
-                  <tbody>
-                    {% for row in payment_terms %}
-                      <tr id="payment-row-{{ row.idx }}" data-inline-zone>
-                        <td>
-                          <div class="fw-semibold">{{ row.concept or 'Pago' }}</div>
-                          {% if row.invoice_url %}<a href="{{ row.invoice_url }}" target="_blank" class="small">{{ row.invoice_name or 'Factura' }}</a>{% endif %}
-                        </td>
-                        <td class="text-end">{{ row.amount|eur }}</td>
-                        <td>{{ row.due_date or '—' }}</td>
-                        <td><span class="badge {{ row.badge.class }}">{{ row.badge.label }}</span></td>
-                        <td class="text-end">
-                          <div class="d-flex justify-content-end gap-2 flex-wrap">
-                            {% if row.can_upload_invoice %}
-                              <form method="post" action="{{ url_for('concert_payment_upload_invoice', cid=concert.id, payment_idx=row.idx) }}" enctype="multipart/form-data" class="d-inline invoice-upload-form">
-                                <input type="hidden" name="next" value="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}">
-                                <input type="file" name="invoice_file" accept="application/pdf" class="d-none invoice-file-input">
-                                <button type="button" class="btn btn-sm btn-outline-primary trigger-invoice-upload">Subir factura</button>
-                              </form>
-                            {% endif %}
-                            {% if row.can_mark_collected %}
-                              <form method="post" action="{{ url_for('concert_payment_mark_collected', cid=concert.id, payment_idx=row.idx) }}" class="d-inline" data-inline data-inline-target="#payment-row-{{ row.idx }}">
-                                <input type="hidden" name="next" value="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}">
-                                <button class="btn btn-sm btn-outline-success">Marcar cobrado</button>
-                              </form>
-                            {% endif %}
-                          </div>
-                        </td>
-                      </tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
       {% endif %}
+      {% if concert.date %}
+      <div class="fs-item">
+        <div class="fs-item__label"><i class="fa fa-calendar-day"></i>Fecha</div>
+        <div class="fs-item__value">
+          <span class="cal-tile"><span class="cal-tile__day">{{ concert.date.strftime('%d') }}</span><span class="cal-tile__month">{{ ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'][concert.date.month - 1] }} {{ concert.date.strftime('%y') }}</span></span>
+        </div>
+      </div>
+      {% endif %}
+      {% if concert.venue or concert.manual_venue_name %}
+      <div class="fs-item fs-item--wide">
+        <div class="fs-item__label"><i class="fa fa-location-dot"></i>Recinto</div>
+        <div class="fs-item__value d-flex align-items-center gap-2">
+          <img src="{{ (concert.venue.photo_url if concert.venue else None) or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:52px;height:40px;border-radius:10px;object-fit:cover;">
+          <span>
+            {% if concert.venue %}<a class="fw-semibold text-reset text-decoration-none" href="{{ url_for('venue_detail_view', vid=concert.venue.id) }}">{{ concert.venue.name }}</a>{% else %}<span class="fw-semibold">{{ concert.manual_venue_name }}</span>{% endif %}
+            <span class="d-block small text-muted">{{ (concert.venue.address if concert.venue else concert.manual_venue_address) or '' }}{% if location_summary %}{% if (concert.venue.address if concert.venue else concert.manual_venue_address) %} · {% endif %}{{ location_summary }}{% endif %}</span>
+            {% if capacity_sale %}<span class="d-block small"><i class="fa fa-people-group me-1 text-danger"></i>Aforo a la venta: <strong>{{ capacity_sale|k }}</strong></span>{% elif concert.no_capacity %}<span class="d-block small"><i class="fa fa-infinity me-1 text-danger"></i>Aforo libre</span>{% endif %}
+          </span>
+        </div>
+      </div>
+      {% endif %}
+      {% if concert.billing_company and concert.billing_company.logo_url %}
+      <div class="fs-item">
+        <div class="fs-item__label"><i class="fa fa-building"></i>Factura</div>
+        <div class="fs-item__value"><img src="{{ concert.billing_company.logo_url }}" alt="{{ concert.billing_company.name }}" title="{{ concert.billing_company.name }}" style="height:34px;max-width:110px;object-fit:contain;"></div>
+      </div>
+      {% elif concert.billing_company %}
+      <div class="fs-item">
+        <div class="fs-item__label"><i class="fa fa-building"></i>Factura</div>
+        <div class="fs-item__value fw-semibold">{{ concert.billing_company.name }}</div>
+      </div>
+      {% endif %}
+      <div class="fs-item">
+        <div class="fs-item__label"><i class="fa fa-shapes"></i>Tipo</div>
+        <div class="fs-item__value"><span class="badge text-bg-light border">{{ activity_type_label }}</span> <span class="badge text-bg-light border">{{ sale_type_label }}</span></div>
+      </div>
+      {% if concert.promoter %}
+      <div class="fs-item fs-item--wide">
+        <div class="fs-item__label"><i class="fa fa-user-tie"></i>Promotor</div>
+        <div class="fs-item__value d-flex align-items-center gap-2">
+          <img src="{{ concert.promoter.logo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:34px;height:34px;border-radius:50%;object-fit:cover;">
+          <span><a class="fw-semibold text-reset text-decoration-none" href="{{ url_for('promoter_detail_view', pid=concert.promoter.id) }}">{{ concert.promoter.nick }}</a>
+          {% if concert.promoter_company %}<span class="d-block small text-muted"><i class="fa fa-landmark me-1"></i>{{ concert.promoter_company.legal_name }}</span>{% endif %}</span>
+        </div>
+      </div>
+      {% endif %}
+      {% if concert.do_not_announce %}
+      <div class="fs-item"><div class="fs-item__label"><i class="fa fa-bullhorn"></i>Anuncio</div><div class="fs-item__value"><span class="badge text-bg-secondary">No anunciar</span></div></div>
+      {% elif concert.announcement_date %}
+      <div class="fs-item"><div class="fs-item__label"><i class="fa fa-bullhorn"></i>Anuncio</div><div class="fs-item__value fw-semibold">{{ concert.announcement_date.strftime('%d/%m/%Y') }}</div></div>
+      {% else %}
+      <div class="fs-item"><div class="fs-item__label"><i class="fa fa-bullhorn"></i>Anuncio</div><div class="fs-item__value"><span class="badge text-bg-light border">TBC</span></div></div>
+      {% endif %}
+      {% if concert.sale_start_tbc %}
+      <div class="fs-item"><div class="fs-item__label"><i class="fa fa-calendar-check"></i>A la venta</div><div class="fs-item__value"><span class="badge text-bg-light border">TBC</span></div></div>
+      {% elif concert.sale_start_date %}
+      <div class="fs-item"><div class="fs-item__label"><i class="fa fa-calendar-check"></i>A la venta</div><div class="fs-item__value fw-semibold">{{ concert.sale_start_date.strftime('%d/%m/%Y') }}</div></div>
+      {% endif %}
+      {% if perf_g.get('sings') is not none %}
+      <div class="fs-item"><div class="fs-item__label"><i class="fa fa-microphone"></i>¿Canta?</div><div class="fs-item__value"><span class="badge {{ 'text-bg-success' if perf_g.get('sings') else 'text-bg-secondary' }}">{{ 'Sí' if perf_g.get('sings') else 'No' }}</span></div></div>
+      {% endif %}
+      {% if cpay_g.get('formation') %}
+      <div class="fs-item"><div class="fs-item__label"><i class="fa fa-users"></i>Formación</div><div class="fs-item__value fw-semibold">{{ cpay_g.get('formation') }}</div></div>
+      {% endif %}
+    </div>
 
-      <div class="col-12 col-xl-6">
-        <div class="card h-100">
-          <div class="card-body">
-            <h6 class="mb-3">Acciones rápidas</h6>
-            <div class="d-flex gap-2 flex-wrap">
-              <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#requestContractSheetModal">Solicitar ficha al promotor</button>
-              {% if concert.contract_sheet %}<a class="btn btn-outline-secondary btn-sm" href="{{ url_for('concert_contract_sheet_edit', cid=concert.id) }}">Editar ficha interna</a>{% endif %}
-              {% if concert.contract_sheet %}<a class="btn btn-outline-dark btn-sm" href="{{ url_for('concert_contract_sheet_pdf', cid=concert.id) }}" target="_blank">PDF ficha</a>{% endif %}
-              <a class="btn btn-outline-success btn-sm" href="{{ url_for('concert_detail_view', cid=concert.id, tab='produccion') }}">Producción</a>
-            </div>
-          </div>
+    {# ---------- Descripción de la actividad, primero ---------- #}
+    {% if cpay_g.get('description') %}
+    <div class="ficha-section">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-circle-info"></i>Descripción de la actividad</h6></div>
+      <div class="ficha-section__body">{{ cpay_g.get('description') }}</div>
+    </div>
+    {% endif %}
+
+    {# ---------- Resto de la información cumplimentada (sin lo ya mostrado arriba) ---------- #}
+    {% set summary_labels = ['Artista/s', 'Tipo de actividad', 'Subtipo', 'Estado', 'Fecha', 'Empresa que factura', 'Promotor', 'Sociedad promotor', 'Salida a la venta', 'Aforo', 'En qué consiste', '¿El artista canta?', 'Formación', 'Anuncio'] %}
+    {% set resto_rows = contracting_general_rows|rejectattr('label', 'in', summary_labels)|list %}
+    {% if resto_rows %}
+    <div class="ficha-section">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-list"></i>Más información de la actividad</h6></div>
+      <div class="ficha-section__body">
+        <div class="ficha-fields">
+          {% for row in resto_rows %}
+            <div><div class="ficha-field__label">{{ row.label }}</div><div class="ficha-field__value">{{ row.value }}</div></div>
+          {% endfor %}
         </div>
       </div>
     </div>
+    {% endif %}
+
+    {% if payment_terms %}
+    <div class="ficha-section">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-file-invoice-dollar"></i>Plan de facturación / cobro{% if payment_pending %} <span class="badge text-bg-warning text-dark ms-2">Pendiente: {{ payment_pending|eur }}</span>{% endif %}</h6></div>
+      <div class="ficha-section__body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead class="table-light"><tr><th>Concepto</th><th class="text-end">Importe</th><th>Fecha límite</th><th>Estado</th><th class="text-end">Acciones</th></tr></thead>
+            <tbody>
+              {% for row in payment_terms %}
+                <tr id="payment-row-{{ row.idx }}" data-inline-zone>
+                  <td>
+                    <div class="fw-semibold">{{ row.concept or 'Pago' }}</div>
+                    {% if row.invoice_url %}<a href="{{ row.invoice_url }}" target="_blank" class="small">{{ row.invoice_name or 'Factura' }}</a>{% endif %}
+                  </td>
+                  <td class="text-end">{{ row.amount|eur }}</td>
+                  <td>{{ row.due_date or '—' }}</td>
+                  <td><span class="badge {{ row.badge.class }}">{{ row.badge.label }}</span></td>
+                  <td class="text-end">
+                    <div class="d-flex justify-content-end gap-2 flex-wrap">
+                      {% if row.can_upload_invoice %}
+                        <form method="post" action="{{ url_for('concert_payment_upload_invoice', cid=concert.id, payment_idx=row.idx) }}" enctype="multipart/form-data" class="d-inline invoice-upload-form">
+                          <input type="hidden" name="next" value="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}">
+                          <input type="file" name="invoice_file" accept="application/pdf" class="d-none invoice-file-input">
+                          <button type="button" class="btn btn-sm btn-outline-primary trigger-invoice-upload">Subir factura</button>
+                        </form>
+                      {% endif %}
+                      {% if row.can_mark_collected %}
+                        <form method="post" action="{{ url_for('concert_payment_mark_collected', cid=concert.id, payment_idx=row.idx) }}" class="d-inline" data-inline data-inline-target="#payment-row-{{ row.idx }}">
+                          <input type="hidden" name="next" value="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}">
+                          <button class="btn btn-sm btn-outline-success">Marcar cobrado</button>
+                        </form>
+                      {% endif %}
+                    </div>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
     </div><!-- /data-datos-view -->
 
     {# ---------- Secciones consolidadas (vista + edición inline por sección) ---------- #}
@@ -662,25 +696,53 @@
 
     </div><!-- /concert-general-zone -->
   {% elif tab == 'carteleria' %}
+    {% set art_status = (artwork_request.status if artwork_request else 'NONE')|upper %}
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-      <div>
-        <h5 class="mb-0">Cartelería</h5>
-      </div>
+      <h5 class="mb-0">Cartelería</h5>
       <div class="d-flex gap-2 align-items-center flex-wrap">
         {% if artwork_badge %}<span class="badge {{ artwork_badge.class }}">{{ artwork_badge.label }}</span>{% endif %}
-        {% if artwork_request and CAN_EDIT_CONCERTS %}
-          <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('concert_detail_view', cid=concert.id, tab='carteleria', edit_artwork=1) }}">Editar solicitud</a>
+        {% if artwork_request and artwork_request.handled_by == 'OURS' and CAN_EDIT_CONCERTS %}
+          <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('concert_detail_view', cid=concert.id, tab='carteleria', edit_artwork=1) }}"><i class="fa fa-pen me-1"></i>Editar solicitud</a>
+        {% endif %}
+        {% if artwork_request and artwork_request.handled_by == 'PROMOTER' and CAN_EDIT_CONCERTS and art_status in ['PROMOTER', 'REQUESTED', 'CORRECTIONS'] %}
+          <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkPromoterModal"><i class="fa fa-paper-plane me-1"></i>{{ 'Reenviar solicitud' if art_status != 'PROMOTER' else 'Solicitar carteles al promotor' }}</button>
         {% endif %}
       </div>
     </div>
 
     {% if artwork_request and artwork_needs_refresh %}
       <div class="alert alert-warning">
-        Los datos del concierto han cambiado desde la última solicitud o subida de cartelería. Al volver a solicitar se archivarán los formatos actuales como <strong>Cartel Antiguo</strong> y se reenviará la petición a diseño.
+        Los datos del concierto han cambiado desde la última solicitud o subida de cartelería. Al volver a solicitar se archivarán los formatos actuales como <strong>Cartel Antiguo</strong> y se reenviará la petición ({{ 'al promotor' if artwork_request.handled_by == 'PROMOTER' else 'a diseño' }}).
+      </div>
+    {% endif %}
+    {% if art_status == 'CORRECTIONS' and artwork_request.correction_notes %}
+      <div class="alert alert-danger">
+        <strong><i class="fa fa-triangle-exclamation me-1"></i>Pendiente de correcciones.</strong> Se pidió al promotor: <span class="fst-italic">{{ artwork_request.correction_notes }}</span>
       </div>
     {% endif %}
 
+    {# ---------- SIN SOLICITUD: elegir de forma visual cómo se hacen los carteles ---------- #}
     {% if not artwork_request or artwork_edit %}
+      {% if not artwork_request and CAN_EDIT_CONCERTS %}
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            <div class="wizard-card h-100 mb-0 text-center">
+              <i class="fa fa-palette fs-2 text-danger d-block mb-2"></i>
+              <div class="fw-semibold mb-1">Los hacemos nosotros</div>
+              <div class="text-muted small mb-2">Solicitar los carteles a nuestro departamento de diseño.</div>
+              <a class="btn btn-primary btn-sm" href="#artworkRequestForm"><i class="fa fa-paper-plane me-1"></i>Solicitar carteles</a>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="wizard-card h-100 mb-0 text-center">
+              <i class="fa fa-handshake fs-2 text-danger d-block mb-2"></i>
+              <div class="fw-semibold mb-1">Los hace el promotor</div>
+              <div class="text-muted small mb-2">Se le enviará un correo pidiéndole que suba los carteles del evento.</div>
+              <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkPromoterModal"><i class="fa fa-envelope me-1"></i>Solicitar carteles al promotor</button>
+            </div>
+          </div>
+        </div>
+      {% endif %}
       <div class="card">
         <div class="card-body">
           {% if artwork_request and artwork_edit %}
@@ -693,11 +755,11 @@
               <div class="d-flex flex-wrap gap-3">
                 <label class="form-check-label border rounded px-3 py-2">
                   <input class="form-check-input me-2" type="radio" name="handled_by" value="OURS" {% if not artwork_request or artwork_request.handled_by == 'OURS' %}checked{% endif %}>
-                  Nosotros
+                  <i class="fa fa-palette me-1"></i>Nosotros
                 </label>
                 <label class="form-check-label border rounded px-3 py-2">
                   <input class="form-check-input me-2" type="radio" name="handled_by" value="PROMOTER" {% if artwork_request and artwork_request.handled_by == 'PROMOTER' %}checked{% endif %}>
-                  Promotor
+                  <i class="fa fa-handshake me-1"></i>Promotor
                 </label>
               </div>
             </div>
@@ -777,15 +839,13 @@
         </div>
       </div>
     {% else %}
+      {# ---------- SOLICITUD EXISTENTE ---------- #}
       <div class="row g-3">
         <div class="col-12 col-xl-5">
           <div class="card h-100">
             <div class="card-body">
               <div class="d-flex justify-content-between align-items-center mb-3">
                 <h6 class="mb-0">Solicitud</h6>
-                {% if CAN_EDIT_CONCERTS %}
-                  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('concert_detail_view', cid=concert.id, tab='carteleria', edit_artwork=1) }}">Editar solicitud</a>
-                {% endif %}
               </div>
               <table class="table table-sm mb-0">
                 <tbody>
@@ -794,11 +854,14 @@
                   <tr><th>Fecha máxima de entrega</th><td>{{ artwork_request.delivery_deadline.strftime('%d/%m/%Y') if artwork_request.delivery_deadline else '—' }}</td></tr>
                   <tr><th>Solicitado el</th><td>{{ artwork_request.requested_at.strftime('%d/%m/%Y %H:%M') if artwork_request.requested_at else '—' }}</td></tr>
                   <tr><th>Última subida</th><td>{{ artwork_request.uploaded_at.strftime('%d/%m/%Y %H:%M') if artwork_request.uploaded_at else '—' }}</td></tr>
+                  {% if artwork_request.handled_by == 'PROMOTER' and artwork_request.recipients_json %}
+                    <tr><th>Solicitado a</th><td class="small">{{ artwork_request.recipients_json|join(', ') }}</td></tr>
+                  {% endif %}
                 </tbody>
               </table>
-              {% if artwork_request.handled_by == 'OURS' and artwork_upload_url %}
+              {% if artwork_upload_url %}
                 <hr>
-                <div class="small text-muted mb-2">Enlace de subida para diseño</div>
+                <div class="small text-muted mb-2">Enlace de subida ({{ 'promotor' if artwork_request.handled_by == 'PROMOTER' else 'diseño' }})</div>
                 <div class="input-group">
                   <input type="text" class="form-control" value="{{ artwork_upload_url }}" readonly>
                   <button type="button" class="btn btn-outline-secondary copy-link-btn" data-copy-url="{{ artwork_upload_url }}">Copiar</button>
@@ -811,32 +874,31 @@
           <div class="card h-100">
             <div class="card-body">
               <h6 class="mb-3">Detalle de la solicitud</h6>
-              {% if artwork_request.handled_by == 'OURS' %}
-                {% if artwork_requested_format_labels %}
-                  <div class="mb-3">
-                    <div class="small text-muted">Formatos solicitados</div>
-                    <div class="d-flex flex-wrap gap-2 mt-2">
-                      {% for fl in artwork_requested_format_labels %}<span class="badge text-bg-light border">{{ fl }}</span>{% endfor %}
-                    </div>
-                  </div>
-                {% endif %}
+              {% if artwork_requested_format_labels %}
                 <div class="mb-3">
-                  <div class="small text-muted">Logos seleccionados</div>
+                  <div class="small text-muted">Formatos solicitados</div>
                   <div class="d-flex flex-wrap gap-2 mt-2">
-                    {% for co in artwork_companies if (co.id|string) in artwork_company_ids %}
-                      <span class="badge text-bg-light border d-inline-flex align-items-center gap-2 px-2 py-2">
-                        <img src="{{ co.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:26px;height:26px;object-fit:contain;">
-                        {{ co.name }}
-                      </span>
-                    {% else %}
-                      <span class="text-muted">No se han marcado logos de empresas del grupo.</span>
-                    {% endfor %}
+                    {% for fl in artwork_requested_format_labels %}<span class="badge text-bg-light border">{{ fl }}</span>{% endfor %}
                   </div>
                 </div>
-                <div class="mb-3">
-                  <div class="small text-muted">Notas de logos</div>
-                  <div>{{ artwork_request.logo_notes or '—' }}</div>
+              {% endif %}
+              <div class="mb-3">
+                <div class="small text-muted">Logos seleccionados</div>
+                <div class="d-flex flex-wrap gap-2 mt-2">
+                  {% for co in artwork_companies if (co.id|string) in artwork_company_ids %}
+                    <span class="badge text-bg-light border d-inline-flex align-items-center gap-2 px-2 py-2">
+                      <img src="{{ co.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:26px;height:26px;object-fit:contain;">
+                      {{ co.name }}
+                    </span>
+                  {% else %}
+                    <span class="text-muted">No se han marcado logos de empresas del grupo.</span>
+                  {% endfor %}
                 </div>
+              </div>
+              {% if artwork_request.logo_notes %}
+                <div class="mb-3"><div class="small text-muted">Notas de logos</div><div>{{ artwork_request.logo_notes }}</div></div>
+              {% endif %}
+              {% if artwork_request.handled_by == 'OURS' %}
                 <div class="mb-3">
                   <div class="small text-muted">Ticketeras seleccionadas</div>
                   <div class="d-flex flex-wrap gap-2 mt-2">
@@ -850,45 +912,92 @@
                     {% endfor %}
                   </div>
                 </div>
-                <div class="mb-3">
-                  <div class="small text-muted">Notas de ticketeras</div>
-                  <div>{{ artwork_request.ticketer_notes or '—' }}</div>
-                </div>
+                {% if artwork_request.ticketer_notes %}
+                  <div class="mb-3"><div class="small text-muted">Notas de ticketeras</div><div>{{ artwork_request.ticketer_notes }}</div></div>
+                {% endif %}
               {% endif %}
-              <div>
-                <div class="small text-muted">Otras notas</div>
-                <div>{{ artwork_request.other_notes or '—' }}</div>
-              </div>
+              {% if artwork_request.other_notes %}
+                <div><div class="small text-muted">Otras notas</div><div>{{ artwork_request.other_notes }}</div></div>
+              {% endif %}
             </div>
           </div>
         </div>
       </div>
 
+      {# ---------- VALIDACIÓN por diseño (carteles del promotor pendientes) ---------- #}
+      {% if art_status == 'REVIEW' and can_validate_artwork %}
+        <div class="card border-warning mt-3">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+              <h6 class="mb-0"><i class="fa fa-clipboard-check me-1 text-warning"></i>Carteles pendientes de validación</h6>
+              <div class="d-flex gap-2">
+                <form method="post" action="{{ url_for('concert_artwork_validate', cid=concert.id) }}">
+                  <button class="btn btn-success btn-sm"><i class="fa fa-check me-1"></i>Validar todos</button>
+                </form>
+                <button class="btn btn-outline-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkRejectModal"><i class="fa fa-xmark me-1"></i>Rechazar</button>
+              </div>
+            </div>
+            <div class="row g-3">
+              {% for asset in current_artwork_assets if asset.validation_status == 'PENDING' %}
+                <div class="col-6 col-md-4 col-xl-3">
+                  <div class="border rounded p-2 h-100 text-center">
+                    {% if (asset.mime_type or '')[:5] == 'image' %}<img src="{{ asset.file_url }}" alt="" style="max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;">{% else %}<i class="fa fa-file-pdf fs-1 text-danger"></i>{% endif %}
+                    <div class="fw-semibold small mt-2 text-truncate">{{ asset.format_label }}</div>
+                    {% if asset.width and asset.height %}<div class="small text-muted">{{ asset.width }}×{{ asset.height }} px</div>{% endif %}
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      {% elif art_status == 'REVIEW' %}
+        <div class="alert alert-warning mt-3"><i class="fa fa-clock me-1"></i>Los carteles subidos están pendientes de validación por diseño gráfico.</div>
+      {% endif %}
+
+      {# ---------- FORMATOS SUBIDOS (validados) ---------- #}
+      {% set visible_assets = current_artwork_assets|selectattr('validation_status', 'ne', 'PENDING')|list if art_status == 'REVIEW' else current_artwork_assets %}
       <div class="card mt-3">
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
             <h6 class="mb-0">Formatos subidos</h6>
-            {% if current_artwork_assets %}<span class="badge text-bg-primary">{{ current_artwork_assets|length }} formato(s)</span>{% endif %}
+            <div class="d-flex gap-2 align-items-center flex-wrap">
+              {% if visible_assets %}
+                <span class="badge text-bg-primary">{{ visible_assets|length }} formato(s)</span>
+                {% set share_text = ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto') ~ (' · ' ~ concert.date.strftime('%d/%m/%Y') if concert.date else '') ~ ':\n' ~ (visible_assets|map(attribute='file_url')|join('\n'))) %}
+                <div class="dropdown">
+                  <button class="btn btn-outline-danger btn-sm" data-bs-toggle="dropdown"><i class="fa fa-share-nodes me-1"></i>Compartir con el artista</button>
+                  <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="mailto:?subject={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto'))|urlencode }}&body={{ share_text|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Por correo</a></li>
+                    <li><a class="dropdown-item" href="https://wa.me/?text={{ share_text|urlencode }}" target="_blank"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</a></li>
+                    <li><a class="dropdown-item" href="sms:?&body={{ share_text|urlencode }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Por SMS</a></li>
+                  </ul>
+                </div>
+              {% endif %}
+            </div>
           </div>
-          {% if current_artwork_assets %}
+          {% if visible_assets %}
             <div class="row g-3">
-              {% for asset in current_artwork_assets %}
+              {% for asset in visible_assets %}
                 <div class="col-12 col-xl-6">
                   <div class="border rounded p-3 h-100">
                     <div class="d-flex justify-content-between align-items-start gap-2">
-                      <div>
-                        <div class="fw-semibold">{{ asset.format_label }}{% if (current_artwork_assets|length == 1) or asset.is_primary %}<span class="badge text-bg-warning text-dark ms-2" title="Se muestra en las cabeceras (invitaciones, enlaces)"><i class="fa fa-star me-1"></i>Cartel principal</span>{% endif %}</div>
-                        <div class="text-muted small text-break">{{ asset.original_name or asset.format_label }}</div>
-                        <div class="small text-muted mt-1">{{ asset.created_at.strftime('%d/%m/%Y %H:%M') if asset.created_at else '—' }}</div>
+                      <div class="d-flex gap-2 align-items-start">
+                        {% if (asset.mime_type or '')[:5] == 'image' %}<img src="{{ asset.file_url }}" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid #eee;">{% else %}<span class="d-inline-flex align-items-center justify-content-center border rounded" style="width:64px;height:64px;"><i class="fa fa-file-pdf fs-3 text-danger"></i></span>{% endif %}
+                        <div>
+                          <div class="fw-semibold">{{ asset.format_label }}{% if (visible_assets|length == 1) or asset.is_primary %}<span class="badge text-bg-warning text-dark ms-2" title="Se muestra en las cabeceras (invitaciones, enlaces)"><i class="fa fa-star me-1"></i>Principal</span>{% endif %}</div>
+                          <div class="text-muted small text-break">{{ asset.original_name or asset.format_label }}</div>
+                          <div class="small text-muted mt-1">{% if asset.width and asset.height %}{{ asset.width }}×{{ asset.height }} px · {% endif %}{{ asset.created_at.strftime('%d/%m/%Y %H:%M') if asset.created_at else '—' }}</div>
+                        </div>
                       </div>
                       <div class="dropdown">
                         <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-v"></i></button>
                         <ul class="dropdown-menu dropdown-menu-end">
                           <li><a class="dropdown-item" href="{{ url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id) }}"><i class="fa fa-download fa-fw me-1"></i>Descargar</a></li>
-                          <li><a class="dropdown-item" href="https://wa.me/?text={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto') ~ ' ' ~ asset.file_url)|urlencode }}" target="_blank"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Compartir por WhatsApp</a></li>
-                          <li><a class="dropdown-item" href="mailto:?subject={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto'))|urlencode }}&body={{ asset.file_url|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por mail</a></li>
+                          <li><a class="dropdown-item" href="mailto:?subject={{ ('Cartel ' ~ asset.format_label ~ ' · ' ~ (concert.artist.name if concert.artist else 'concierto'))|urlencode }}&body={{ asset.file_url|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por mail</a></li>
+                          <li><a class="dropdown-item" href="https://wa.me/?text={{ ('Cartel ' ~ asset.format_label ~ ' · ' ~ (concert.artist.name if concert.artist else 'concierto') ~ ' ' ~ asset.file_url)|urlencode }}" target="_blank"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar por WhatsApp</a></li>
+                          <li><a class="dropdown-item" href="sms:?&body={{ ('Cartel ' ~ asset.format_label ~ ': ' ~ asset.file_url)|urlencode }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar por SMS</a></li>
                           <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ asset.file_url }}"><i class="fa fa-link fa-fw me-1"></i>Copiar link</button></li>
-                          {% if CAN_EDIT_CONCERTS and (current_artwork_assets|length > 1) and not asset.is_primary %}
+                          {% if CAN_EDIT_CONCERTS and (visible_assets|length > 1) and not asset.is_primary %}
                             <li>
                               <form method="post" action="{{ url_for('concert_artwork_asset_primary', cid=concert.id, asset_id=asset.id) }}">
                                 <button type="submit" class="dropdown-item"><i class="fa fa-star me-2"></i>Marcar como cartel principal</button>
@@ -908,6 +1017,7 @@
                     </div>
                     <div class="d-flex gap-2 mt-3 flex-wrap">
                       <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id) }}"><i class="fa fa-download fa-fw me-1"></i>Descargar</a>
+                      <a class="btn btn-sm btn-outline-secondary" href="https://wa.me/?text={{ ('Cartel ' ~ asset.format_label ~ ' · ' ~ (concert.artist.name if concert.artist else 'concierto') ~ ' ' ~ asset.file_url)|urlencode }}" target="_blank"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>WhatsApp</a>
                       <button type="button" class="btn btn-sm btn-outline-secondary copy-link-btn" data-copy-url="{{ asset.file_url }}"><i class="fa fa-link fa-fw me-1"></i>Copiar link</button>
                     </div>
                   </div>
@@ -932,7 +1042,7 @@
                       <div>
                         <div class="fw-semibold d-flex align-items-center gap-2 flex-wrap">
                           {{ asset.format_label }}
-                          <span class="badge text-bg-secondary">Cartel Antiguo</span>
+                          <span class="badge text-bg-secondary">{{ 'Rechazado' if asset.validation_status == 'REJECTED' else 'Cartel Antiguo' }}</span>
                         </div>
                         <div class="text-muted small text-break">{{ asset.original_name or asset.format_label }}</div>
                         <div class="small text-muted mt-1">Archivado {{ (asset.archived_at or asset.created_at).strftime('%d/%m/%Y %H:%M') if (asset.archived_at or asset.created_at) else '—' }}</div>
@@ -941,8 +1051,6 @@
                         <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-v"></i></button>
                         <ul class="dropdown-menu dropdown-menu-end">
                           <li><a class="dropdown-item" href="{{ url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id) }}"><i class="fa fa-download fa-fw me-1"></i>Descargar</a></li>
-                          <li><a class="dropdown-item" href="https://wa.me/?text={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto') ~ ' ' ~ asset.file_url)|urlencode }}" target="_blank"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Compartir por WhatsApp</a></li>
-                          <li><a class="dropdown-item" href="mailto:?subject={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto'))|urlencode }}&body={{ asset.file_url|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por mail</a></li>
                           <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ asset.file_url }}"><i class="fa fa-link fa-fw me-1"></i>Copiar link</button></li>
                           {% if CAN_EDIT_CONCERTS %}
                             <li><hr class="dropdown-divider"></li>
@@ -963,110 +1071,454 @@
         </div>
       </div>
     {% endif %}
-  {% elif tab == 'produccion' %}
-    <div class="d-flex justify-content-between align-items-start gap-2 mb-3 flex-wrap">
-      <div>
-        <h5 class="mb-0">Producción</h5>
+
+    {# ---------- Modal: solicitar carteles AL PROMOTOR (destinatarios + previsualización) ---------- #}
+    {% if CAN_EDIT_CONCERTS %}
+    <div class="modal fade" id="artworkPromoterModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+          <form method="post" action="{{ url_for('concert_artwork_promoter_request', cid=concert.id) }}">
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="fa fa-palette me-2"></i>Solicitar carteles al promotor</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+              <div class="row g-3">
+                <div class="col-lg-5">
+                  {% if promoter_email_suggestions %}
+                    <label class="form-label mb-1">Destinatarios</label>
+                    <div class="list-group mb-3">
+                      {% for row in promoter_email_suggestions %}
+                        <label class="list-group-item d-flex gap-2 align-items-center">
+                          <input class="form-check-input" type="checkbox" name="to_email" value="{{ row.email }}" checked>
+                          <span><span class="fw-semibold">{{ row.email }}</span><span class="text-muted small"> · {{ row.label }}</span></span>
+                        </label>
+                      {% endfor %}
+                    </div>
+                  {% else %}
+                    <div class="alert alert-warning py-2">No hay correos guardados en el promotor. Añádelos abajo.</div>
+                  {% endif %}
+                  <div class="mb-3">
+                    <label class="form-label mb-1">Otros correos</label>
+                    <input class="form-control" name="extra_emails" placeholder="correo@dominio.com, otro@dominio.com">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label mb-1">Logos que debe llevar el cartel</label>
+                    <div class="row g-2">
+                      {% for co in artwork_companies %}
+                        <div class="col-12">
+                          <label class="border rounded p-2 d-flex gap-2 align-items-center w-100">
+                            <input class="form-check-input" type="checkbox" name="group_company_ids[]" value="{{ co.id }}" {% if (co.id|string) in artwork_company_ids %}checked{% endif %}>
+                            <img src="{{ co.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:30px;height:30px;object-fit:contain;">
+                            <span class="small">{{ co.name }}</span>
+                          </label>
+                        </div>
+                      {% endfor %}
+                    </div>
+                    <input class="form-control mt-2" name="logo_notes" value="{{ artwork_request.logo_notes if artwork_request else '' }}" placeholder="Otros logos (escríbelos aquí)">
+                  </div>
+                  <div class="row g-2">
+                    <div class="col-7">
+                      <label class="form-label mb-1">Nota para el promotor</label>
+                      <input class="form-control" name="other_notes" value="{{ artwork_request.other_notes if artwork_request else '' }}" placeholder="Indicaciones…">
+                    </div>
+                    <div class="col-5">
+                      <label class="form-label mb-1">Entrega máxima <span class="text-danger">*</span></label>
+                      <input type="date" class="form-control" name="delivery_deadline" required value="{{ artwork_request.delivery_deadline.isoformat() if artwork_request and artwork_request.delivery_deadline else '' }}">
+                    </div>
+                  </div>
+                </div>
+                <div class="col-lg-7">
+                  <label class="form-label mb-1">Vista previa · lo que recibirá el promotor</label>
+                  <div class="border rounded p-3" style="max-height:520px;overflow:auto;background:#fff">
+                    {% if concert.billing_company and concert.billing_company.logo_url %}<div class="text-end mb-2"><img src="{{ concert.billing_company.logo_url }}" style="max-height:44px;max-width:160px;"></div>{% endif %}
+                    <h5 class="text-center">Solicitud de carteles</h5>
+                    <div class="border rounded p-3 mb-3 d-flex gap-3 align-items-center">
+                      <img src="{{ (concert.artist.photo_url if concert.artist else None) or DEFAULT_PHOTO_URL }}" style="width:56px;height:56px;border-radius:50%;object-fit:cover;">
+                      <div>
+                        <div class="fw-bold">{{ concert.artist.name if concert.artist else 'Actividad' }}</div>
+                        <div class="small">{{ concert.date.strftime('%d/%m/%Y') if concert.date else '—' }} · {{ location_summary or 'Recinto pendiente' }}</div>
+                      </div>
+                    </div>
+                    <p class="small">Necesitamos que subas los <strong>carteles del evento</strong> con los datos y logos indicados.</p>
+                    <p class="small text-muted">El correo incluye los logos marcados, la guía de estilo (si está configurada) y el botón «Subir los carteles» con su enlace personal.</p>
+                    <span class="btn btn-danger btn-sm disabled">Subir los carteles</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button class="btn btn-primary"><i class="fa fa-paper-plane me-1"></i>Enviar solicitud</button>
+            </div>
+          </form>
+        </div>
       </div>
-      {% if production_panel.bag %}
-        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('bag_detail_view', bag_id=production_panel.bag.id) }}">Abrir bolsa</a>
-      {% endif %}
     </div>
 
+    {# ---------- Modal: rechazar carteles (correcciones) ---------- #}
+    <div class="modal fade" id="artworkRejectModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <form method="post" action="{{ url_for('concert_artwork_reject', cid=concert.id) }}">
+            <div class="modal-header"><h5 class="modal-title">Rechazar carteles</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body">
+              <p class="small text-muted mb-2">Se enviará al promotor: «Los carteles no han sido aprobados, por favor realiza los siguientes cambios y vuelve a subirlos».</p>
+              <label class="form-label">¿Qué hay que corregir?</label>
+              <textarea class="form-control" name="reason" rows="4" required placeholder="Cambios necesarios…"></textarea>
+            </div>
+            <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-danger"><i class="fa fa-xmark me-1"></i>Rechazar y pedir correcciones</button></div>
+          </form>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+  {% elif tab == 'produccion' %}
+    {% set ptab = request.args.get('ptab') or 'hoja-ruta' %}
+    <div class="d-flex justify-content-between align-items-start gap-2 mb-3 flex-wrap">
+      <h5 class="mb-0">Producción</h5>
+    </div>
+
+    {# Orden nuevo: 1 Hoja de ruta · 2 Bolsa · 3 Presupuesto. #}
     <ul class="nav nav-pills mb-3" role="tablist">
-      <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#prod-bolsa" type="button">Bolsa</button></li>
-      <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#prod-roadmap" type="button">Hoja de ruta</button></li>
-      <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#prod-budget" type="button">Presupuesto</button></li>
+      <li class="nav-item"><button class="nav-link {% if ptab != 'bolsa' and ptab != 'presupuesto' %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#prod-roadmap" type="button"><i class="fa fa-route me-1"></i>Hoja de ruta</button></li>
+      <li class="nav-item"><button class="nav-link {% if ptab == 'bolsa' %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#prod-bolsa" type="button"><i class="fa fa-sack-dollar me-1"></i>Bolsa</button></li>
+      <li class="nav-item"><button class="nav-link {% if ptab == 'presupuesto' %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#prod-budget" type="button"><i class="fa fa-file-invoice-dollar me-1"></i>Presupuesto</button></li>
     </ul>
 
     <div class="tab-content">
-      <div class="tab-pane fade show active" id="prod-bolsa">
-        <div class="card mb-3">
-          <div class="card-body">
-            {% if production_panel.bag %}
-              <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-                <div>
-                  <div class="fw-semibold">{{ production_panel.bag.title }}</div>
-                  <div class="small text-muted">Estado: {{ production_panel.bag.status }} · Liquidación: {{ production_panel.bag.liquidation_status }}</div>
-                </div>
-                <a class="btn btn-primary btn-sm" href="{{ url_for('bag_detail_view', bag_id=production_panel.bag.id) }}">Gestionar bolsa</a>
-              </div>
-            {% else %}
-              <p class="text-muted">Todavía no hay bolsa vinculada a esta actividad.</p>
-              <form method="post" action="{{ url_for('concert_production_open_bag', cid=concert.id) }}" class="d-flex gap-3 flex-wrap align-items-center">
-                {% if production_panel.has_budget %}
-                  <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="import_budget" value="1" id="importBudgetAsBag" checked>
-                    <label class="form-check-label" for="importBudgetAsBag">Usar el presupuesto como base de la bolsa</label>
-                  </div>
-                {% endif %}
-                <button class="btn btn-success btn-sm">Abrir bolsa</button>
-              </form>
-            {% endif %}
-          </div>
-        </div>
-      </div>
-
-      <div class="tab-pane fade" id="prod-roadmap">
+      <div class="tab-pane fade {% if ptab != 'bolsa' and ptab != 'presupuesto' %}show active{% endif %}" id="prod-roadmap">
         {% include "_roadmap_panel.html" %}
       </div>
 
-      <div class="tab-pane fade" id="prod-budget">
-        <div class="card mb-3">
-          <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-              <div>
-                <h6 class="mb-0">Presupuesto</h6>
-                <div class="small text-muted">Total sin IVA: {{ production_panel.budget_net_total|eur }} · Total con IVA: {{ production_panel.budget_gross_total|eur }}</div>
+      <div class="tab-pane fade {% if ptab == 'bolsa' %}show active{% endif %}" id="prod-bolsa">
+        {% if production_panel.bag %}
+          {# --- INGRESOS de la actividad (configuración cargada del evento) --- #}
+          {% set tpay_b = concert.ticketing_payload or {} %}
+          {% set ttypes_b = entradas_ticket_rows or [] %}
+          <div class="sim-cat-card">
+            <div class="sim-cat-card__head"><div><i class="fa fa-coins me-1"></i>Ingresos de la actividad</div></div>
+            <div class="sim-cat-card__body">
+              <div class="row g-2">
+                {% for ch in concert.caches %}
+                  <div class="col-6 col-md-3">
+                    <div class="border rounded p-2 h-100">
+                      <div class="small text-muted"><i class="fa fa-coins me-1 text-danger"></i>{% if ch.kind == 'FIXED' %}Caché fijo{% elif ch.kind == 'VARIABLE' %}Caché variable{% else %}{{ ch.concept or 'Otros' }}{% endif %}</div>
+                      <div class="fw-semibold">{% if ch.kind == 'VARIABLE' and ch.pct %}{{ ch.pct }}% · {{ 'Bruto' if ch.pct_base=='GROSS' else 'Neto' }}{% elif ch.amount %}{{ ch.amount|eur }}{% else %}—{% endif %}</div>
+                    </div>
+                  </div>
+                {% endfor %}
+                {% for t in ttypes_b %}
+                  <div class="col-6 col-md-3">
+                    <div class="border rounded p-2 h-100">
+                      <div class="small text-muted"><i class="fa fa-ticket me-1 text-danger"></i>{{ t.get('name') or 'Entrada' }}</div>
+                      <div class="fw-semibold">{{ (t.get('price') or 0)|eur }}{% if t.get('qty_for_sale') %} · {{ t.get('qty_for_sale')|k }} uds{% endif %}</div>
+                    </div>
+                  </div>
+                {% endfor %}
+                {% if not concert.caches and not ttypes_b %}
+                  <div class="col-12 text-muted small">Sin cachés ni tipos de entrada configurados todavía (se configuran en la Ficha de contratación).</div>
+                {% endif %}
               </div>
-              <form method="post" action="{{ url_for('concert_budget_request', cid=concert.id) }}" class="d-flex gap-2">
-                <input type="hidden" name="notes" value="Solicitud de presupuesto de producción">
-                <button class="btn btn-outline-secondary btn-sm">Solicitar presupuesto</button>
+            </div>
+          </div>
+
+          {# --- Lo que CUBRE EL PROMOTOR (equipos + otros extras), visual con iconos --- #}
+          {% set eq_b = concert.equipment %}
+          <div class="sim-cat-card">
+            <div class="sim-cat-card__head"><div><i class="fa fa-hand-holding-heart me-1"></i>Lo que cubre el promotor</div></div>
+            <div class="sim-cat-card__body">
+              <div class="d-flex flex-wrap gap-2">
+                {% if eq_b and eq_b.covered_by_promoter %}
+                  <span class="badge text-bg-light border px-3 py-2"><i class="fa fa-toolbox me-1 text-danger"></i>{{ 'Rider del festival' if eq_b.covered_mode == 'RIDER' else 'Equipos' }}</span>
+                {% endif %}
+                {% for pc in promoter_costs_rows %}
+                  <span class="badge text-bg-light border px-3 py-2" {% if pc.note %}title="{{ pc.note }}"{% endif %}>
+                    <i class="fa {{ {'HOTELES':'fa-hotel','TRASLADOS':'fa-van-shuttle','VIATICOS':'fa-utensils','SUELDOS':'fa-money-bill-wave','TODOS':'fa-circle-check'}.get(pc.key, 'fa-circle-check') }} me-1 text-danger"></i>
+                    {{ pc.label }}{% if pc.max_amount %} · máx. {{ pc.max_amount|eur }}{% endif %}
+                    <span class="text-muted">· {{ 'facturamos nosotros' if pc.managed_by == 'US' else 'lo gestiona él' }}</span>
+                  </span>
+                {% endfor %}
+                {% if not promoter_costs_rows and not (eq_b and eq_b.covered_by_promoter) %}
+                  <span class="text-muted small">El promotor no cubre gastos adicionales (se configura en Cachés de la Ficha de contratación).</span>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+
+          {# --- BOLSA INTEGRADA: mismo panel completo que /bolsas/<id> --- #}
+          {% include '_bag_panel.html' %}
+        {% else %}
+          <div class="card mb-3">
+            <div class="card-body">
+              <div class="d-flex align-items-center gap-3 mb-3">
+                <i class="fa fa-sack-dollar fs-2 text-danger"></i>
+                <div>
+                  <div class="fw-semibold">Todavía no hay bolsa para esta actividad.</div>
+                  <div class="text-muted small">Al abrirla se carga aquí toda la configuración de ingresos y gastos, y se gestiona sin salir de la ficha.</div>
+                </div>
+              </div>
+              <form method="post" action="{{ url_for('concert_production_open_bag', cid=concert.id) }}" class="row g-3">
+                {% if production_panel.artist_templates or production_panel.venue_templates %}
+                  <div class="col-12">
+                    <div class="fw-semibold small text-muted mb-1">Cargar plantilla de gastos <span class="fw-normal">(puedes COMBINAR artista y recinto marcando varias)</span></div>
+                    <div class="row g-2">
+                      {% for t in production_panel.artist_templates %}
+                        <div class="col-6 col-md-4 col-xl-3">
+                          <label class="activity-choice-card border rounded p-2 d-flex gap-2 align-items-center h-100 w-100 bg-white">
+                            <input class="form-check-input" type="checkbox" name="expense_template_ids[]" value="{{ t.id }}">
+                            <i class="fa fa-user-music d-none"></i><i class="fa fa-microphone-lines text-danger"></i>
+                            <span class="small"><span class="fw-semibold d-block">{{ t.name }}</span><span class="text-muted">Del artista · {{ t.count }} gastos</span></span>
+                          </label>
+                        </div>
+                      {% endfor %}
+                      {% for t in production_panel.venue_templates %}
+                        <div class="col-6 col-md-4 col-xl-3">
+                          <label class="activity-choice-card border rounded p-2 d-flex gap-2 align-items-center h-100 w-100 bg-white">
+                            <input class="form-check-input" type="checkbox" name="expense_template_ids[]" value="{{ t.id }}">
+                            <i class="fa fa-location-dot text-danger"></i>
+                            <span class="small"><span class="fw-semibold d-block">{{ t.name }}</span><span class="text-muted">Del recinto · {{ t.count }} gastos</span></span>
+                          </label>
+                        </div>
+                      {% endfor %}
+                    </div>
+                  </div>
+                {% endif %}
+                {% if production_panel.has_budget %}
+                  <div class="col-12">
+                    <label class="activity-choice-card border rounded p-2 d-inline-flex gap-2 align-items-center bg-white">
+                      <input class="form-check-input" type="checkbox" name="import_budget" value="1" checked>
+                      <i class="fa fa-file-invoice-dollar text-danger"></i>
+                      <span class="small"><span class="fw-semibold d-block">Cargar el presupuesto en la bolsa</span><span class="text-muted">El presupuesto se fusiona con la bolsa y desaparece como presupuesto.</span></span>
+                    </label>
+                  </div>
+                {% endif %}
+                <div class="col-12"><button class="btn btn-success"><i class="fa fa-folder-open me-1"></i>Abrir bolsa</button></div>
               </form>
             </div>
-            {% if production_panel.artist_templates %}
-              <form method="post" action="{{ url_for('concert_budget_load_template', cid=concert.id) }}" class="d-flex flex-wrap gap-2 align-items-end mb-3 p-2 rounded" style="background:#f8f9fa;">
-                <div class="flex-grow-1" style="min-width:220px;">
-                  <label class="form-label mb-1 small text-muted"><i class="fa fa-folder-open me-1"></i>Cargar presupuesto guardado del artista</label>
-                  <select name="template_id" class="form-select form-select-sm" required>
-                    <option value="">Selecciona una plantilla de gastos…</option>
-                    {% for t in production_panel.artist_templates %}<option value="{{ t.id }}">{{ t.name }} ({{ t.count }} partida{{ '' if t.count == 1 else 's' }})</option>{% endfor %}
-                  </select>
-                </div>
-                <button class="btn btn-outline-primary btn-sm"><i class="fa fa-download me-1"></i>Cargar como base</button>
-              </form>
-            {% endif %}
-            {% if production_panel.budget_items %}
-              <div class="table-responsive mb-3">
-                <table class="table table-sm align-middle">
-                  <thead class="table-light"><tr><th>Categoría</th><th>Concepto</th><th class="text-end">Sin IVA</th><th class="text-end">Con IVA</th><th></th></tr></thead>
-                  <tbody>
-                    {% for item in production_panel.budget_items %}
-                      <tr>
-                        <td>{{ item.category }}</td>
-                        <td>{{ item.concept }}</td>
-                        <td class="text-end">{{ item.amount_net|eur }}</td>
-                        <td class="text-end">{{ item.amount_gross|eur }}</td>
-                        <td class="text-end"><form method="post" action="{{ url_for('concert_budget_item_delete', cid=concert.id, item_id=item.id) }}"><button class="btn btn-sm btn-outline-danger">Eliminar</button></form></td>
-                      </tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
-              </div>
-            {% endif %}
-            <form method="post" action="{{ url_for('concert_budget_item_create', cid=concert.id) }}" class="row g-2 align-items-end">
-              <div class="col-md-2"><label class="form-label">Módulo</label><select name="category" class="form-select"><option value="SONIDO_LUCES">Sonido y luces</option><option value="MUSICOS">Músicos</option><option value="PERSONAL">Personal</option><option value="TRANSPORTE">Transporte</option><option value="HOTELES">Hoteles</option><option value="MARKETING">Marketing</option><option value="OTROS">Otros</option></select></div>
-              <div class="col-md-4"><label class="form-label">Concepto</label><input class="form-control" name="concept" required></div>
-              <div class="col-md-2"><label class="form-label">Sin IVA</label><input class="form-control" name="amount_net" inputmode="decimal"></div>
-              <div class="col-md-2"><label class="form-label">Con IVA</label><input class="form-control" name="amount_gross" inputmode="decimal"></div>
-              <div class="col-md-2"><button class="btn btn-primary w-100">Añadir</button></div>
+          </div>
+        {% endif %}
+      </div>
+
+      <div class="tab-pane fade {% if ptab == 'presupuesto' %}show active{% endif %}" id="prod-budget">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+          <div>
+            <h6 class="mb-0">Presupuesto</h6>
+            <div class="small text-muted">Total sin IVA: {{ production_panel.budget_net_total|eur }} · Total con IVA: {{ production_panel.budget_gross_total|eur }}</div>
+          </div>
+          <div class="d-flex gap-2 flex-wrap">
+            <form method="post" action="{{ url_for('concert_budget_request', cid=concert.id) }}">
+              <input type="hidden" name="notes" value="Solicitud de presupuesto de producción">
+              <button class="btn btn-outline-secondary btn-sm"><i class="fa fa-paper-plane me-1"></i>Solicitar presupuesto</button>
             </form>
           </div>
         </div>
+        {% if production_panel.artist_templates %}
+          <form method="post" action="{{ url_for('concert_budget_load_template', cid=concert.id) }}" class="d-flex flex-wrap gap-2 align-items-end mb-3 p-2 rounded" style="background:#f8f9fa;">
+            <div class="flex-grow-1" style="min-width:220px;">
+              <label class="form-label mb-1 small text-muted"><i class="fa fa-folder-open me-1"></i>Cargar presupuesto guardado del artista</label>
+              <select name="template_id" class="form-select form-select-sm" required>
+                <option value="">Selecciona una plantilla de gastos…</option>
+                {% for t in production_panel.artist_templates %}<option value="{{ t.id }}">{{ t.name }} ({{ t.count }} partida{{ '' if t.count == 1 else 's' }})</option>{% endfor %}
+              </select>
+            </div>
+            <button class="btn btn-outline-primary btn-sm"><i class="fa fa-download me-1"></i>Cargar como base</button>
+          </form>
+        {% endif %}
+        {# Presupuesto con la MISMA estética que los gastos de las simulaciones (categorías bocadillo). #}
+        {% for cat_key, cat_label, cat_icon in SIM_EXPENSE_CATEGORIES %}
+          {% set items_in_cat = production_panel.budget_by_cat.get(cat_key, []) %}
+          {% if items_in_cat %}
+          <div class="sim-cat-card">
+            <div class="sim-cat-card__head"><div><i class="fa {{ cat_icon }} me-1"></i>{{ cat_label }}</div>
+              {% set cat_net = items_in_cat|map(attribute='amount_net')|map('float')|sum %}
+              <span class="badge text-bg-light border">{{ cat_net|eur }}</span>
+            </div>
+            <div class="sim-cat-card__body p-0">
+              <table class="table table-sm align-middle mb-0">
+                <tbody>
+                  {% for item in items_in_cat %}
+                    <tr>
+                      <td>{{ item.concept }}</td>
+                      <td class="text-end text-muted small" style="width:120px;">{{ item.amount_net|eur }} <span class="text-muted">sin IVA</span></td>
+                      <td class="text-end small" style="width:120px;">{{ item.amount_gross|eur }} <span class="text-muted">con IVA</span></td>
+                      {% if CAN_EDIT_CONCERTS %}<td class="text-end" style="width:60px;"><form method="post" action="{{ url_for('concert_budget_item_delete', cid=concert.id, item_id=item.id) }}"><button class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="fa fa-trash"></i></button></form></td>{% endif %}
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          {% endif %}
+        {% endfor %}
+        {% if not production_panel.budget_items %}
+          <div class="alert alert-light border">Sin presupuesto todavía. Añade partidas abajo, carga una plantilla o conviértelo desde una simulación (sus gastos previstos pasan aquí automáticamente).</div>
+        {% endif %}
+        <form method="post" action="{{ url_for('concert_budget_item_create', cid=concert.id) }}" class="row g-2 align-items-end mt-2">
+          <div class="col-md-3"><label class="form-label">Categoría</label><select name="category" class="form-select">{% for value, label, icon in SIM_EXPENSE_CATEGORIES %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></div>
+          <div class="col-md-4"><label class="form-label">Concepto</label><input class="form-control" name="concept" required></div>
+          <div class="col-md-2"><label class="form-label">Sin IVA</label><input class="form-control" name="amount_net" inputmode="decimal"></div>
+          <div class="col-md-2"><label class="form-label">Con IVA</label><input class="form-control" name="amount_gross" inputmode="decimal"></div>
+          <div class="col-md-1"><button class="btn btn-primary w-100"><i class="fa fa-plus"></i></button></div>
+        </form>
       </div>
     </div>
 
   {% elif tab == 'ticketing' %}
+    {# ---------- CANALES DE VENTA (cuando vende un promotor externo / recinto / tercero) ---------- #}
+    {% set seller_kind = (sale_seller.get('kind') or '')|upper %}
+    {% set external_seller = seller_kind in ['PROMOTER', 'VENUE', 'THIRD'] or (not seller_kind and (concert.sale_type or '')|upper == 'VENDIDO') %}
+    {% if external_seller %}
+      {% set has_any_link = sale_channels|selectattr('sale_url')|list|length > 0 %}
+      <div class="card mb-3">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+            <div>
+              <h6 class="mb-0"><i class="fa fa-link me-1 text-danger"></i>Canales de venta</h6>
+              <div class="small text-muted">Vende {{ sale_seller.get('label') or 'un tercero' }} · puede haber más de una ticketera.</div>
+            </div>
+            <div class="d-flex gap-2 flex-wrap">
+              {% if CAN_EDIT_CONCERTS and not has_any_link %}
+                <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#saleLinksRequestModal"><i class="fa fa-paper-plane me-1"></i>Solicitar link de venta</button>
+              {% endif %}
+              {% if CAN_EDIT_CONCERTS %}
+                <button class="btn btn-primary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#addSaleChannelForm"><i class="fa fa-plus me-1"></i>Añadir link de venta</button>
+              {% endif %}
+            </div>
+          </div>
+
+          {% if sale_channel_request %}
+            {% if sale_channel_request.status == 'ACTIVE' %}
+              <div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+                <div class="small"><i class="fa fa-rotate me-1"></i>Petición automática ACTIVA: se recuerda al promotor una vez a la semana hasta que suba el link.{% if sale_channel_request.last_sent_at %} Último envío: {{ sale_channel_request.last_sent_at.strftime('%d/%m/%Y') }}.{% endif %}</div>
+                {% if CAN_EDIT_CONCERTS %}
+                <form method="post" action="{{ url_for('concert_sale_links_auto_toggle', cid=concert.id) }}">
+                  <input type="hidden" name="action" value="cancel">
+                  <button class="btn btn-sm btn-outline-danger"><i class="fa fa-ban me-1"></i>Cancelar petición automática</button>
+                </form>
+                {% endif %}
+              </div>
+            {% elif sale_channel_request.status == 'CANCELLED' and not has_any_link %}
+              <div class="alert alert-light border d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+                <div class="small text-muted">Petición automática cancelada.</div>
+                {% if CAN_EDIT_CONCERTS %}
+                <form method="post" action="{{ url_for('concert_sale_links_auto_toggle', cid=concert.id) }}">
+                  <input type="hidden" name="action" value="resume">
+                  <button class="btn btn-sm btn-outline-success"><i class="fa fa-rotate me-1"></i>Reactivar</button>
+                </form>
+                {% endif %}
+              </div>
+            {% endif %}
+          {% endif %}
+
+          {% if sale_channels %}
+            <div class="row g-2 mb-2">
+              {% for ch in sale_channels %}
+                <div class="col-12 col-md-6 col-xl-4">
+                  <div class="border rounded p-2 h-100 d-flex align-items-center gap-2">
+                    <img src="{{ ch.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:38px;height:38px;object-fit:contain;border-radius:8px;">
+                    <div class="flex-grow-1 min-w-0">
+                      <div class="fw-semibold small text-truncate">{{ ch.name }}</div>
+                      {% if ch.sale_url %}
+                        <a class="small text-truncate d-block" href="{{ ch.sale_url }}" target="_blank"><i class="fa fa-arrow-up-right-from-square me-1"></i>{{ ch.sale_url }}</a>
+                      {% else %}
+                        <span class="small text-muted"><i class="fa fa-triangle-exclamation me-1 text-warning"></i>Sin link de venta</span>
+                      {% endif %}
+                      {% if ch.capacity_for_sale %}<span class="small text-muted d-block"><i class="fa fa-people-group me-1"></i>Aforo a la venta: {{ ch.capacity_for_sale|k }}</span>{% endif %}
+                    </div>
+                    {% if CAN_EDIT_CONCERTS %}
+                    <form method="post" action="{{ url_for('concert_sale_channel_delete', cid=concert.id, tid=ch.id) }}" onsubmit="return confirm('¿Quitar este canal de venta?');">
+                      <button class="btn btn-sm btn-outline-danger" title="Quitar"><i class="fa fa-trash"></i></button>
+                    </form>
+                    {% endif %}
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="text-muted small mb-2">Todavía no hay canales de venta configurados.</div>
+          {% endif %}
+
+          {% if CAN_EDIT_CONCERTS %}
+          <div class="collapse" id="addSaleChannelForm">
+            <form method="post" action="{{ url_for('concert_sale_channel_save', cid=concert.id) }}" class="row g-2 align-items-end border rounded p-3 bg-light-subtle">
+              <div class="col-md-3">
+                <label class="form-label small">Ticketera</label>
+                <select name="ticketer_id" class="form-select select-with-thumbs">
+                  <option value="">Otra (escríbela) →</option>
+                  {% for t in all_ticketers %}<option value="{{ t.id }}" data-photo="{{ t.logo_url or '' }}">{{ t.name }}</option>{% endfor %}
+                </select>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label small">Nueva ticketera <span class="text-muted">(si no está)</span></label>
+                <input class="form-control" name="new_ticketer_name" placeholder="Nombre de la ticketera">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label small">Link de venta</label>
+                <input class="form-control" name="sale_url" placeholder="https://…">
+              </div>
+              <div class="col-md-2">
+                <label class="form-label small">Aforo a la venta</label>
+                <input type="number" min="0" class="form-control" name="capacity_for_sale">
+              </div>
+              <div class="col-md-1 d-grid"><button class="btn btn-primary"><i class="fa fa-check"></i></button></div>
+            </form>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      {# Modal: solicitar los links de venta al promotor (correo «Actualizar canales de venta»). #}
+      {% if CAN_EDIT_CONCERTS %}
+      <div class="modal fade" id="saleLinksRequestModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+          <div class="modal-content">
+            <form method="post" action="{{ url_for('concert_sale_links_request', cid=concert.id) }}">
+              <div class="modal-header"><h5 class="modal-title"><i class="fa fa-link me-2"></i>Solicitar links de venta al promotor</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+              <div class="modal-body">
+                <div class="row g-3">
+                  <div class="col-md-6">
+                    {% if promoter_email_suggestions %}
+                      <label class="form-label mb-1">Destinatarios</label>
+                      <div class="list-group mb-2">
+                        {% for row in promoter_email_suggestions %}
+                          <label class="list-group-item d-flex gap-2 align-items-center">
+                            <input class="form-check-input" type="checkbox" name="to_email" value="{{ row.email }}" checked>
+                            <span><span class="fw-semibold">{{ row.email }}</span><span class="text-muted small"> · {{ row.label }}</span></span>
+                          </label>
+                        {% endfor %}
+                      </div>
+                    {% else %}
+                      <div class="alert alert-warning py-2">No hay correos guardados en el promotor. Añádelos abajo.</div>
+                    {% endif %}
+                    <label class="form-label mb-1">Otros correos</label>
+                    <input class="form-control" name="extra_emails" placeholder="correo@dominio.com, otro@dominio.com">
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label mb-1">Vista previa</label>
+                    <div class="border rounded p-3 bg-white">
+                      {% if concert.billing_company and concert.billing_company.logo_url %}<div class="text-end mb-2"><img src="{{ concert.billing_company.logo_url }}" style="max-height:40px;max-width:150px;"></div>{% endif %}
+                      <h6 class="text-center">Actualizar canales de venta</h6>
+                      <div class="border rounded p-2 mb-2 d-flex gap-2 align-items-center">
+                        <img src="{{ (concert.artist.photo_url if concert.artist else None) or DEFAULT_PHOTO_URL }}" style="width:44px;height:44px;border-radius:50%;object-fit:cover;">
+                        <div class="small"><strong>{{ concert.artist.name if concert.artist else 'Actividad' }}</strong><br>{{ concert.date.strftime('%d/%m/%Y') if concert.date else '—' }} · {{ location_summary or '' }}</div>
+                      </div>
+                      <p class="small">Se le pedirá que configure <strong>todos los links de venta</strong> del evento (puede añadir varias ticketeras).</p>
+                      <span class="btn btn-danger btn-sm disabled">Añadir links de venta</span>
+                      <p class="small text-muted mt-2 mb-0"><i class="fa fa-rotate me-1"></i>Si no sube el link, se le recordará automáticamente una vez a la semana (desde que el evento se confirme) hasta que lo suba.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary"><i class="fa fa-paper-plane me-1"></i>Enviar petición</button></div>
+            </form>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+    {% endif %}
+
     {% include "_et_ticketing_panel.html" %}
     <div class="card mb-3"><div class="card-body">
       <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
@@ -1157,6 +1609,8 @@
           <div class="d-flex gap-2 flex-wrap">
             {% if invitation_can_manage %}
               {% if invitation_open_for_requests %}
+                <a class="btn btn-sm btn-outline-success" href="{{ url_for('invitation_event_detail', concert_id=concert.id, open='commitment', **{'from': 'ficha'}) }}"><i class="fa fa-handshake me-1"></i>Añadir compromiso</a>
+                <a class="btn btn-sm btn-outline-primary" href="{{ url_for('invitation_event_detail', concert_id=concert.id, open='request', **{'from': 'ficha'}) }}"><i class="fa fa-envelope-open-text me-1"></i>Añadir petición</a>
                 <a class="btn btn-sm btn-danger" href="{{ url_for('invitation_event_detail', concert_id=concert.id, **{'from': 'ficha'}) }}"><i class="fa fa-arrow-up-right-from-square me-1"></i>Gestionar invitaciones</a>
                 <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#concertInvitationCategoryModal"><i class="fa fa-gear me-1"></i>Configurar</button>
               {% else %}
@@ -1170,11 +1624,12 @@
         {% if not invitation_open_for_requests %}
           <div class="alert alert-warning small">Este concierto o evento ya no admite nuevas solicitudes ni gestión de invitaciones porque han pasado más de 5 horas desde el día del evento.</div>
         {% endif %}
+        {# Contadores nuevos: Por contrato · Subidas · Solicitadas · Total (subidas − solicitadas). #}
         <div class="invitation-counts invitation-counts--large mb-3">
-          <div><span>{{ invitation_counts.configured if invitation_counts else invitation_totals.total }}</span><small>Disponibles</small></div>
-          <div><span>{{ invitation_counts.committed if invitation_counts else 0 }}</span><small>Comprometidas</small></div>
-          <div><span>{{ invitation_counts.requested if invitation_counts else 0 }}</span><small>Solicitadas</small></div>
-          <div class="{% if invitation_counts and invitation_counts.result < 0 %}text-danger{% else %}text-success{% endif %}"><span>{{ invitation_counts.result if invitation_counts else invitation_totals.total }}</span><small>Total</small></div>
+          <div><span>{{ invitation_header_counts.contract if invitation_header_counts else invitation_totals.total }}</span><small><i class="fa fa-file-signature me-1"></i>Por contrato</small></div>
+          <div><span>{{ invitation_header_counts.uploaded if invitation_header_counts else 0 }}</span><small><i class="fa fa-upload me-1"></i>Subidas</small></div>
+          <div><span>{{ invitation_header_counts.requested if invitation_header_counts else 0 }}</span><small><i class="fa fa-envelope-open-text me-1"></i>Solicitadas</small></div>
+          <div class="{% if invitation_header_counts and invitation_header_counts.total < 0 %}text-danger{% else %}text-success{% endif %}"><span>{{ invitation_header_counts.total if invitation_header_counts else invitation_totals.total }}</span><small><i class="fa fa-ticket me-1"></i>Total</small></div>
         </div>
         {% if invitation_categories_summary %}
           <div class="row g-3">

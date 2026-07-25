@@ -1748,14 +1748,19 @@ class ConcertArtworkRequest(Base):
     )
     public_token = Column(Text, nullable=False, unique=True)
     handled_by = Column(Text, nullable=False, server_default=text("'OURS'"))
+    # DRAFT | PROMOTER | REQUESTED | REVIEW (subidos, pendientes de validar) | CORRECTIONS | UPLOADED
     status = Column(Text, nullable=False, server_default=text("'DRAFT'"))
     group_company_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     ticketer_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     logo_notes = Column(Text)
     ticketer_notes = Column(Text)
     other_notes = Column(Text)
-    # Formatos solicitados a diseño (lista de claves de ARTWORK_FORMAT_CHOICES en app.py)
+    # Formatos solicitados a diseño (claves de ARTWORK_FORMAT_CHOICES o texto personalizado)
     requested_formats = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # Correos a los que se pidió (promotor): se reutilizan para correcciones/cambios de datos.
+    recipients_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # Nota de rechazo de diseño (qué hay que corregir antes de volver a subir).
+    correction_notes = Column(Text)
     delivery_deadline = Column(Date)
     event_snapshot = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     needs_refresh = Column(Boolean, nullable=False, server_default=text("false"))
@@ -1784,6 +1789,12 @@ class ConcertArtworkAsset(Base):
     file_url = Column(Text, nullable=False)
     original_name = Column(Text)
     mime_type = Column(Text)
+    # Dimensiones (px) medidas en el navegador al subir; para mostrar el tamaño y elegir
+    # como principal el más cuadrado.
+    width = Column(Integer)
+    height = Column(Integer)
+    # Validación de diseño para carteles subidos por el PROMOTOR: PENDING | APPROVED | REJECTED.
+    validation_status = Column(Text, nullable=False, server_default=text("'APPROVED'"))
     # Cartel principal (el que se muestra en cabeceras). Si solo hay uno, ese es el principal.
     is_primary = Column(Boolean, nullable=False, server_default=text("false"))
     is_archived = Column(Boolean, nullable=False, server_default=text("false"))
@@ -1792,6 +1803,30 @@ class ConcertArtworkAsset(Base):
 
 
 # --- NOTAS (contratación / generales) ---
+
+class ConcertSaleChannelRequest(Base):
+    """Petición al promotor para que configure los CANALES DE VENTA (links + ticketeras) de un
+    concierto vendido por terceros. Mientras esté ACTIVE y auto_remind, se le recuerda por correo
+    una vez a la semana (desde que el evento se confirma) hasta que suba algún link."""
+
+    __tablename__ = "concert_sale_channel_requests"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("concerts.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    public_token = Column(Text, nullable=False, unique=True)
+    # ACTIVE (pendiente) | DONE (links subidos) | CANCELLED
+    status = Column(Text, nullable=False, server_default=text("'ACTIVE'"))
+    auto_remind = Column(Boolean, nullable=False, server_default=text("true"))
+    recipients_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    last_sent_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
 
 class ConcertNote(Base):
     __tablename__ = "concert_notes"
@@ -5861,11 +5896,68 @@ def ensure_concert_artwork_schema():
             ADD COLUMN IF NOT EXISTS archived_at timestamptz,
             ADD COLUMN IF NOT EXISTS is_primary boolean NOT NULL DEFAULT false;
         """,
-        # Formatos solicitados desde el asistente/ficha (claves de ARTWORK_FORMAT_CHOICES).
+        # Formatos solicitados desde el asistente/ficha (claves de ARTWORK_FORMAT_CHOICES o
+        # personalizados) + destinatarios del promotor + nota de rechazo de diseño.
         """
         ALTER TABLE IF EXISTS concert_artwork_requests
-            ADD COLUMN IF NOT EXISTS requested_formats jsonb NOT NULL DEFAULT '[]'::jsonb;
+            ADD COLUMN IF NOT EXISTS requested_formats jsonb NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS recipients_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS correction_notes text;
         """,
+        # Validación de diseño + dimensiones de los carteles subidos.
+        """
+        ALTER TABLE IF EXISTS concert_artwork_assets
+            ADD COLUMN IF NOT EXISTS width integer,
+            ADD COLUMN IF NOT EXISTS height integer,
+            ADD COLUMN IF NOT EXISTS validation_status text NOT NULL DEFAULT 'APPROVED';
+        """,
+        # Estados nuevos del flujo de validación (REVIEW/CORRECTIONS): rehacer el CHECK.
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.table_constraints
+                WHERE table_schema='public' AND table_name='concert_artwork_requests'
+                  AND constraint_name='chk_concert_artwork_status'
+            ) THEN
+                ALTER TABLE concert_artwork_requests DROP CONSTRAINT chk_concert_artwork_status;
+            END IF;
+        EXCEPTION WHEN undefined_table THEN
+            NULL;
+        END $$;
+        """,
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.tables
+                WHERE table_schema='public' AND table_name='concert_artwork_requests'
+            ) THEN
+                BEGIN
+                    ALTER TABLE concert_artwork_requests
+                        ADD CONSTRAINT chk_concert_artwork_status
+                        CHECK (status IN ('DRAFT', 'PROMOTER', 'REQUESTED', 'REVIEW', 'CORRECTIONS', 'UPLOADED'));
+                EXCEPTION WHEN duplicate_object THEN
+                    NULL;
+                END;
+            END IF;
+        END $$;
+        """,
+        # Petición de canales de venta al promotor (links de venta + recordatorio semanal).
+        """
+        CREATE TABLE IF NOT EXISTS concert_sale_channel_requests (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            concert_id uuid NOT NULL UNIQUE REFERENCES concerts(id) ON DELETE CASCADE,
+            public_token text NOT NULL UNIQUE,
+            status text NOT NULL DEFAULT 'ACTIVE',
+            auto_remind boolean NOT NULL DEFAULT true,
+            recipients_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+            last_sent_at timestamptz,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_concert_sale_channel_requests_status ON concert_sale_channel_requests(status);',
         'CREATE INDEX IF NOT EXISTS idx_concert_artwork_assets_is_archived ON concert_artwork_assets(is_archived);',
     ]
 

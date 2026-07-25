@@ -2,12 +2,16 @@
 {% block content %}
 <div class="container py-4">
   <div class="mx-auto" style="max-width:1100px;">
+    {# Logo de la empresa del grupo arriba a la DERECHA + título centrado + cabecera del evento. #}
+    <div class="text-end mb-2">
+      <img src="{{ (concert.billing_company.logo_url if concert.billing_company else None) or url_for('static', filename='img/logo.png') }}" alt="" style="max-height:56px;max-width:200px;object-fit:contain;">
+    </div>
+    <h3 class="text-center mb-3">{{ 'Subida de carteles' if is_promoter_flow else 'Solicitud de cartelería' }}</h3>
     <div class="card shadow-sm mb-4">
       <div class="card-body d-flex flex-column flex-lg-row gap-3 align-items-start align-items-lg-center">
-        <img src="{{ (concert.billing_company.logo_url if concert.billing_company else None) or url_for('static', filename='img/logo.png') }}" alt="" style="width:88px;height:88px;object-fit:contain;border-radius:18px;border:1px solid #eee;background:#fff;">
+        <img src="{{ (concert.artist.photo_url if concert.artist else None) or url_for('static', filename='img/logo.png') }}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:50%;border:1px solid #eee;background:#fff;">
         <div class="flex-grow-1">
-          <div class="fw-semibold text-uppercase text-muted small">Solicitud de cartelería</div>
-          <h3 class="mb-1">{{ concert.artist.name if concert.artist else 'Concierto' }}</h3>
+          <h4 class="mb-1">{{ concert.artist.name if concert.artist else 'Concierto' }}</h4>
           <div class="text-muted">
             {% if concert.date %}{{ concert.date.strftime('%d/%m/%Y') }}{% endif %}
             {% if concert.venue %} · {{ concert.venue.name }}{% elif concert.manual_venue_name %} · {{ concert.manual_venue_name }}{% endif %}
@@ -19,6 +23,15 @@
         {% if artwork_badge %}<span class="badge {{ artwork_badge.class }}">{{ artwork_badge.label }}</span>{% endif %}
       </div>
     </div>
+
+    {% if artwork_request.status == 'CORRECTIONS' and artwork_request.correction_notes %}
+      <div class="alert alert-danger"><strong>Los carteles no han sido aprobados.</strong> Por favor, realiza los siguientes cambios y vuelve a subirlos: <span class="fst-italic">{{ artwork_request.correction_notes }}</span></div>
+    {% elif artwork_request.status == 'REVIEW' %}
+      <div class="alert alert-warning"><i class="fa fa-clock me-1"></i>Carteles enviados: pendientes de validación por nuestro equipo de diseño.</div>
+    {% endif %}
+    {% if style_guide_url %}
+      <div class="mb-3"><a class="btn btn-outline-dark" href="{{ style_guide_url }}" target="_blank"><i class="fa fa-book me-1"></i>Descargar guía de estilo y materiales</a></div>
+    {% endif %}
 
     <div class="row g-4">
       <div class="col-12 col-xl-4">
@@ -75,33 +88,117 @@
       </div>
 
       <div class="col-12 col-xl-8">
-        <form method="post" action="{{ upload_action }}" enctype="multipart/form-data" class="card shadow-sm mb-4" id="artworkUploadForm">
+        <div class="card shadow-sm mb-4" id="artworkUploadCard">
           <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-              <h5 class="mb-0">Subir formatos</h5>
-              <button type="button" class="btn btn-sm btn-outline-secondary" id="addArtworkRowBtn">Añadir formato</button>
+            <h5 class="mb-2">Subir carteles</h5>
+            <p class="text-muted small mb-3">Arrastra los archivos aquí o pulsa para seleccionarlos (imágenes o PDF). El nombre del archivo se usa como formato; puedes editarlo antes de subir.</p>
+            <div id="artworkDropzone" class="border rounded-3 p-4 text-center" style="border-style:dashed !important; cursor:pointer; background:#fafbfc;">
+              <i class="fa fa-cloud-arrow-up fs-1 text-danger d-block mb-2"></i>
+              <div class="fw-semibold">Arrastra los carteles aquí</div>
+              <div class="text-muted small">o haz clic para seleccionarlos</div>
+              <input type="file" id="artworkFileInput" class="d-none" multiple accept="image/*,application/pdf">
             </div>
-            <div id="artworkUploadRows">
-              <div class="row g-2 align-items-end mb-2 artwork-upload-row">
-                <div class="col-md-4">
-                  <label class="form-label">Formato</label>
-                  <input class="form-control" name="asset_format[]" placeholder="Feed, story, impresión, MUPI...">
-                </div>
-                <div class="col-md-7">
-                  <label class="form-label">Archivo</label>
-                  <input class="form-control" type="file" name="asset_file[]" accept="image/*,application/pdf">
-                </div>
-                <div class="col-md-1 d-grid">
-                  <label class="form-label">&nbsp;</label>
-                  <button type="button" class="btn btn-outline-danger remove-artwork-row"><i class="fa fa-trash"></i></button>
-                </div>
-              </div>
-            </div>
+            <div id="artworkQueue" class="mt-3"></div>
+            {% if is_promoter_flow %}
+              <form method="post" action="{{ submit_action }}" class="mt-3 text-end" id="artworkSubmitForm">
+                <button class="btn btn-danger" id="artworkSendBtn"><i class="fa fa-paper-plane me-1"></i>Enviar carteles para validación</button>
+              </form>
+            {% endif %}
           </div>
-          <div class="card-footer d-flex justify-content-end">
-            <button class="btn btn-primary">Subir cartelería</button>
-          </div>
-        </form>
+        </div>
+        <script>
+        (function(){
+          var drop = document.getElementById('artworkDropzone');
+          var input = document.getElementById('artworkFileInput');
+          var queue = document.getElementById('artworkQueue');
+          var uploadUrl = {{ upload_action|tojson }};
+          if(!drop) return;
+
+          function fmtName(file){ return (file.name || 'Cartel').replace(/\.[^.]+$/, ''); }
+
+          function readDims(file){
+            return new Promise(function(resolve){
+              if(!/^image\//.test(file.type || '')){ resolve({w:'', h:''}); return; }
+              var url = URL.createObjectURL(file);
+              var img = new Image();
+              img.onload = function(){ resolve({w: img.naturalWidth || '', h: img.naturalHeight || ''}); URL.revokeObjectURL(url); };
+              img.onerror = function(){ resolve({w:'', h:''}); URL.revokeObjectURL(url); };
+              img.src = url;
+            });
+          }
+
+          function row(file){
+            var el = document.createElement('div');
+            el.className = 'border rounded p-2 mb-2';
+            el.innerHTML = '<div class="d-flex align-items-center gap-2 flex-wrap">' +
+              '<i class="fa ' + (/^image\//.test(file.type||'') ? 'fa-image' : 'fa-file-pdf') + ' text-danger"></i>' +
+              '<input class="form-control form-control-sm aw-format" style="max-width:220px;" value="">' +
+              '<span class="small text-muted flex-grow-1 text-truncate"></span>' +
+              '<span class="badge text-bg-light border aw-status">En cola</span>' +
+              '<button type="button" class="btn btn-sm btn-outline-primary aw-send"><i class="fa fa-upload me-1"></i>Subir</button>' +
+              '</div>' +
+              '<div class="progress mt-2" style="height:6px;"><div class="progress-bar bg-danger aw-bar" style="width:0%"></div></div>';
+            el.querySelector('.aw-format').value = fmtName(file);
+            el.querySelector('.small').textContent = file.name;
+            queue.appendChild(el);
+            var btn = el.querySelector('.aw-send');
+            btn.addEventListener('click', function(){ send(file, el); });
+            // sube automáticamente al añadir
+            send(file, el);
+          }
+
+          function send(file, el){
+            var bar = el.querySelector('.aw-bar');
+            var status = el.querySelector('.aw-status');
+            var btn = el.querySelector('.aw-send');
+            btn.disabled = true;
+            status.textContent = 'Subiendo…';
+            readDims(file).then(function(d){
+              var fd = new FormData();
+              fd.append('ajax', '1');
+              fd.append('asset_format[]', el.querySelector('.aw-format').value || fmtName(file));
+              fd.append('asset_file[]', file, file.name);
+              fd.append('asset_width[]', d.w);
+              fd.append('asset_height[]', d.h);
+              var xhr = new XMLHttpRequest();
+              xhr.open('POST', uploadUrl);
+              var meta = document.querySelector('meta[name="csrf-token"]');
+              if (meta) xhr.setRequestHeader('X-CSRFToken', meta.getAttribute('content') || '');
+              xhr.upload.onprogress = function(ev){ if(ev.lengthComputable){ bar.style.width = Math.round(ev.loaded * 100 / ev.total) + '%'; } };
+              xhr.onload = function(){
+                if(xhr.status >= 200 && xhr.status < 300){
+                  bar.style.width = '100%';
+                  status.textContent = 'Subido ✓';
+                  status.className = 'badge text-bg-success aw-status';
+                  el.querySelector('.aw-format').disabled = true;
+                  {% if not is_promoter_flow %}setTimeout(function(){ window.location.reload(); }, 600);{% endif %}
+                } else {
+                  status.textContent = 'Error';
+                  status.className = 'badge text-bg-danger aw-status';
+                  btn.disabled = false;
+                }
+              };
+              xhr.onerror = function(){ status.textContent = 'Error'; status.className = 'badge text-bg-danger aw-status'; btn.disabled = false; };
+              xhr.send(fd);
+            });
+          }
+
+          function addFiles(files){ Array.prototype.forEach.call(files || [], row); }
+          drop.addEventListener('click', function(){ input.click(); });
+          input.addEventListener('change', function(){ addFiles(input.files); input.value = ''; });
+          drop.addEventListener('dragover', function(ev){ ev.preventDefault(); drop.classList.add('border-danger'); });
+          drop.addEventListener('dragleave', function(){ drop.classList.remove('border-danger'); });
+          drop.addEventListener('drop', function(ev){ ev.preventDefault(); drop.classList.remove('border-danger'); if(ev.dataTransfer){ addFiles(ev.dataTransfer.files); } });
+          var submitForm = document.getElementById('artworkSubmitForm');
+          if(submitForm){
+            submitForm.addEventListener('submit', function(ev){
+              var pending = queue.querySelector('.aw-status:not(.text-bg-success)');
+              var any = queue.querySelector('.aw-status');
+              if(any && pending){ ev.preventDefault(); alert('Espera a que terminen de subirse todos los carteles.'); }
+            });
+          }
+        })();
+        </script>
 
         <div class="card shadow-sm">
           <div class="card-body">
@@ -135,29 +232,5 @@
   </div>
 </div>
 
-<script>
-document.addEventListener('DOMContentLoaded', function(){
-  const rows = document.getElementById('artworkUploadRows');
-  const addBtn = document.getElementById('addArtworkRowBtn');
-  if (rows && addBtn) {
-    addBtn.addEventListener('click', function(){
-      const first = rows.querySelector('.artwork-upload-row');
-      if (!first) return;
-      const clone = first.cloneNode(true);
-      clone.querySelectorAll('input').forEach(function(input){ input.value = ''; });
-      rows.appendChild(clone);
-    });
-    rows.addEventListener('click', function(ev){
-      const btn = ev.target.closest('.remove-artwork-row');
-      if (!btn) return;
-      const allRows = rows.querySelectorAll('.artwork-upload-row');
-      if (allRows.length <= 1) {
-        allRows[0].querySelectorAll('input').forEach(function(input){ input.value = ''; });
-        return;
-      }
-      btn.closest('.artwork-upload-row').remove();
-    });
-  }
-});
-</script>
+
 {% endblock %}

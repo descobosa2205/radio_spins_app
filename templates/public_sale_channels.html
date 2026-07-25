@@ -1,0 +1,104 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="container py-4">
+  <div class="mx-auto" style="max-width:860px;">
+    {# Logo de la empresa del grupo arriba a la DERECHA + título centrado + cabecera del evento. #}
+    <div class="text-end mb-2">
+      <img src="{{ (concert.billing_company.logo_url if concert.billing_company else None) or url_for('static', filename='img/logo.png') }}" alt="" style="max-height:56px;max-width:200px;object-fit:contain;">
+    </div>
+    <h3 class="text-center mb-3">Actualizar canales de venta</h3>
+    <div class="card shadow-sm mb-4">
+      <div class="card-body d-flex flex-column flex-lg-row gap-3 align-items-start align-items-lg-center">
+        <img src="{{ (concert.artist.photo_url if concert.artist else None) or url_for('static', filename='img/logo.png') }}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:50%;border:1px solid #eee;background:#fff;">
+        <div class="flex-grow-1">
+          <h4 class="mb-1">{{ concert.artist.name if concert.artist else 'Actividad' }}</h4>
+          <div class="text-muted">
+            {% if concert.date %}{{ concert.date.strftime('%d/%m/%Y') }}{% endif %}
+            {% if concert.venue %} · {{ concert.venue.name }}{% elif concert.manual_venue_name %} · {{ concert.manual_venue_name }}{% endif %}
+            {% if concert.venue and concert.venue.municipality %} · {{ concert.venue.municipality }}{% elif concert.manual_municipality %} · {{ concert.manual_municipality }}{% endif %}
+          </div>
+        </div>
+        {% if req.status == 'DONE' %}<span class="badge text-bg-success">Links recibidos</span>{% endif %}
+      </div>
+    </div>
+
+    {% if channels %}
+      <div class="card shadow-sm mb-4">
+        <div class="card-body">
+          <h6 class="mb-3">Canales ya configurados</h6>
+          <div class="row g-2">
+            {% for ch in channels %}
+              <div class="col-12 col-md-6">
+                <div class="border rounded p-2 d-flex align-items-center gap-2">
+                  <img src="{{ ch.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:34px;height:34px;object-fit:contain;border-radius:8px;">
+                  <div class="min-w-0">
+                    <div class="fw-semibold small">{{ ch.name }}</div>
+                    {% if ch.sale_url %}<a class="small d-block text-truncate" href="{{ ch.sale_url }}" target="_blank">{{ ch.sale_url }}</a>{% else %}<span class="small text-muted">Sin link</span>{% endif %}
+                  </div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h6 class="mb-2">Añadir links de venta</h6>
+        <p class="text-muted small">Configura <strong>todos los links de venta</strong> del evento. Puedes añadir varias ticketeras: elige una del listado o escribe el nombre de otra.</p>
+        <form method="post" action="{{ url_for('public_sale_channels', token=req.public_token) }}">
+          <div id="channelRows">
+            <div class="row g-2 align-items-end mb-2 channel-row">
+              <div class="col-md-4">
+                <label class="form-label small">Ticketera</label>
+                <select name="channel_ticketer_id[]" class="form-select">
+                  <option value="">Otra (escríbela) →</option>
+                  {% for t in ticketers %}<option value="{{ t.id }}">{{ t.name }}</option>{% endfor %}
+                </select>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label small">Otra ticketera</label>
+                <input class="form-control" name="channel_other_name[]" placeholder="Nombre">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small">Link de venta</label>
+                <input class="form-control" name="channel_sale_url[]" placeholder="https://…">
+              </div>
+              <div class="col-md-1 d-grid">
+                <button type="button" class="btn btn-outline-danger remove-channel-row"><i class="fa fa-trash"></i></button>
+              </div>
+            </div>
+          </div>
+          <button type="button" class="btn btn-outline-primary btn-sm" id="addChannelRow"><i class="fa fa-plus me-1"></i>Añadir otro link de venta</button>
+          <div class="text-end mt-3">
+            <button class="btn btn-danger"><i class="fa fa-paper-plane me-1"></i>Enviar links de venta</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  var rows = document.getElementById('channelRows');
+  var add = document.getElementById('addChannelRow');
+  if (!rows || !add) return;
+  add.addEventListener('click', function(){
+    var first = rows.querySelector('.channel-row');
+    var clone = first.cloneNode(true);
+    clone.querySelectorAll('input').forEach(function(i){ i.value = ''; });
+    clone.querySelector('select').value = '';
+    rows.appendChild(clone);
+  });
+  rows.addEventListener('click', function(ev){
+    var btn = ev.target.closest('.remove-channel-row');
+    if (!btn) return;
+    var all = rows.querySelectorAll('.channel-row');
+    if (all.length <= 1) { all[0].querySelectorAll('input').forEach(function(i){ i.value=''; }); return; }
+    btn.closest('.channel-row').remove();
+  });
+});
+</script>
+{% endblock %}

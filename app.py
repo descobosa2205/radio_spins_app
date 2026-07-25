@@ -1,5 +1,6 @@
 from datetime import date, timedelta, datetime
 import os
+import math
 import io
 import time
 import threading
@@ -199,6 +200,7 @@ from models import (
     ConcertContract,
     ConcertContractSheet,
     ConcertArtworkRequest,
+    ConcertSaleChannelRequest,
     ConcertArtworkAsset,
     ConcertNote,
     ConcertEquipment,
@@ -342,6 +344,8 @@ if CALDAV_ONLY:
 # todas las rutas (ver el bucle sobre _CSRF_EXEMPT_ENDPOINTS).
 _CSRF_EXEMPT_ENDPOINTS = {
     "concert_artwork_public_upload",
+    "concert_artwork_public_submit",
+    "public_sale_channels",
     "concert_contract_public_form",
     "public_bag_expense_document_upload",
     "public_invitation_guest_list_status",
@@ -682,7 +686,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher"}
+    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher"}
     if request.endpoint in allowed:
         return
 
@@ -2543,9 +2547,11 @@ def _artwork_request_status(row: ConcertArtworkRequest | None) -> str:
 
 
 def _artwork_request_has_event_changes(row: ConcertArtworkRequest | None, concert: Concert | None) -> bool:
+    """¿Cambiaron fecha/recinto/horarios desde la última solicitud? Aplica tanto a carteles
+    hechos por nosotros (OURS) como por el PROMOTOR: en ambos casos hay que rehacerlos."""
     if not row or not concert:
         return False
-    if (getattr(row, 'handled_by', None) or 'OURS').strip().upper() != 'OURS':
+    if _artwork_request_status(row) in ('NONE', 'DRAFT'):
         return False
     baseline = dict(getattr(row, 'event_snapshot', None) or {})
     if not baseline:
@@ -2558,6 +2564,114 @@ def _artwork_request_has_event_changes(row: ConcertArtworkRequest | None, concer
     return False
 
 
+def _concert_email_header_html(concert: Concert, title: str) -> str:
+    """Cabecera común de los correos de actividad: logo de la empresa del grupo arriba a la
+    DERECHA, título centrado y tarjeta con la cabecera del evento (foto del artista + datos)."""
+    logo_html = ''
+    company = getattr(concert, 'billing_company', None) or getattr(concert, 'group_company', None)
+    if company and getattr(company, 'logo_url', None):
+        logo_html = f'<div style="text-align:right;margin-bottom:8px;"><img src="{company.logo_url}" style="max-height:56px;max-width:200px;"></div>'
+    artist_photo = ''
+    if concert.artist and getattr(concert.artist, 'photo_url', None):
+        artist_photo = f'<img src="{concert.artist.photo_url}" style="width:70px;height:70px;object-fit:cover;border-radius:50%;">'
+    date_txt = concert.date.strftime('%d/%m/%Y') if concert.date else '—'
+    prov = _concert_province_value(concert)
+    return (
+        f'{logo_html}'
+        f'<h2 style="margin:0 0 16px;text-align:center;">{title}</h2>'
+        f'<div style="border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:18px;">'
+        f'<div style="display:flex;gap:16px;align-items:center;"><div>{artist_photo}</div><div>'
+        f'<div style="font-size:18px;font-weight:700;">{concert.artist.name if concert.artist else "Actividad"}</div>'
+        f'<div>Fecha: {date_txt}</div>'
+        f'<div>{_concert_venue_name(concert) or "Recinto pendiente"}</div>'
+        f'<div>{_concert_city(concert)} {("· " + prov) if prov else ""}</div>'
+        f'<div>Hora show: {concert.show_time or ("TBC" if concert.show_time_tbc else "—")}</div>'
+        f'</div></div></div>'
+    )
+
+
+def _artwork_logo_lines_html(row: ConcertArtworkRequest) -> str:
+    """Logos que debe llevar el cartel (empresas del grupo con imagen + notas de logos)."""
+    temp_session = db()
+    try:
+        all_companies = {str(x.id): x for x in temp_session.query(GroupCompany).all()}
+    finally:
+        temp_session.close()
+    chips = []
+    for cid in (row.group_company_ids or []):
+        co = all_companies.get(str(cid))
+        if not co:
+            continue
+        img = f'<img src="{co.logo_url}" style="width:26px;height:26px;object-fit:contain;vertical-align:middle;margin-right:6px;">' if co.logo_url else ''
+        chips.append(f'<span style="display:inline-block;border:1px solid #e5e7eb;border-radius:999px;padding:5px 12px;margin:0 6px 6px 0;">{img}{co.name}</span>')
+    html = ''
+    if chips:
+        html += f'<p style="margin-bottom:6px;"><strong>Logos que deben incluirse:</strong></p><div>{"".join(chips)}</div>'
+    if row.logo_notes:
+        html += f'<p><strong>Otros logos / notas:</strong> {row.logo_notes}</p>'
+    fmts = _artwork_requested_format_labels(row)
+    if fmts:
+        html += f'<p><strong>Formatos:</strong> {", ".join(fmts)}</p>'
+    if row.delivery_deadline:
+        html += f'<p><strong>Fecha máxima de entrega:</strong> {row.delivery_deadline.strftime("%d/%m/%Y")}</p>'
+    return html
+
+
+def _send_promoter_artwork_email(concert: Concert, row: ConcertArtworkRequest, kind: str = 'REQUEST', note: str = '') -> tuple[bool, str | None]:
+    """Correo al PROMOTOR para pedir/corregir los carteles del evento. kind:
+    REQUEST (solicitud inicial) · CHANGES (los datos del evento cambiaron) · REJECTED (correcciones)."""
+    recipients = [x for x in (row.recipients_json or []) if x]
+    if not recipients:
+        return False, 'Sin destinatarios guardados en la solicitud.'
+    upload_url = _external_url_for('concert_artwork_public_upload', token=row.public_token)
+    intro = {
+        'REQUEST': '<p>Necesitamos que subas los <strong>carteles del evento</strong> con los datos y logos indicados.</p>',
+        'CHANGES': '<p style="background:#fef3c7;border-radius:8px;padding:10px 12px;"><strong>Se ha realizado un cambio en los datos del evento</strong> y es necesario realizar carteles nuevos con la información actualizada.</p>',
+        'REJECTED': '<p style="background:#fee2e2;border-radius:8px;padding:10px 12px;"><strong>Los carteles no han sido aprobados.</strong> Por favor, realiza los siguientes cambios y vuelve a subirlos:</p>'
+                    + (f'<p style="white-space:pre-line;">{note}</p>' if note else ''),
+    }.get((kind or 'REQUEST').upper(), '')
+    style_guide_url = (os.environ.get('ARTWORK_STYLE_GUIDE_URL') or '').strip()
+    guide_html = ''
+    if style_guide_url:
+        guide_html = f'<p><a href="{style_guide_url}" style="display:inline-block;background:#fff;color:#111827;border:1px solid #d1d5db;padding:10px 16px;border-radius:8px;text-decoration:none;">Descargar guía de estilo y materiales</a></p>'
+    html_body = (
+        '<div style="font-family:Arial,sans-serif;color:#1f2937;max-width:640px;">'
+        + _concert_email_header_html(concert, 'Solicitud de carteles')
+        + intro
+        + _artwork_logo_lines_html(row)
+        + guide_html
+        + f'<p><a href="{upload_url}" style="display:inline-block;background:#E33D48;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;font-weight:700;">Subir los carteles</a></p>'
+        + '</div>'
+    )
+    subject = {
+        'REQUEST': f'Solicitud de carteles · {concert.artist.name if concert.artist else "actividad"}',
+        'CHANGES': f'Carteles: cambio en los datos del evento · {concert.artist.name if concert.artist else "actividad"}',
+        'REJECTED': f'Carteles: correcciones necesarias · {concert.artist.name if concert.artist else "actividad"}',
+    }.get((kind or 'REQUEST').upper())
+    return _send_optional_email(recipients, subject, html_body, text_body=upload_url)
+
+
+def _artwork_pick_primary_by_squareness(row: ConcertArtworkRequest) -> None:
+    """Si ningún cartel vigente es principal, marca el MÁS CUADRADO (por dimensiones medidas
+    en el navegador al subir; sin dimensiones cuenta como poco cuadrado)."""
+    assets = [a for a in (row.assets or []) if not getattr(a, 'is_archived', False)]
+    if not assets or any(getattr(a, 'is_primary', False) for a in assets):
+        return
+
+    def squareness(a):
+        try:
+            w, h = float(a.width or 0), float(a.height or 0)
+            if w > 0 and h > 0:
+                return abs(math.log(w / h))
+        except Exception:
+            pass
+        return 999.0
+
+    best = min(assets, key=squareness)
+    for a in assets:
+        a.is_primary = (a is best)
+
+
 def _sync_artwork_request_refresh_flag(concert: Concert | None) -> bool:
     if not concert or not getattr(concert, 'artwork_request', None):
         return False
@@ -2568,10 +2682,15 @@ def _sync_artwork_request_refresh_flag(concert: Concert | None) -> bool:
 
 def _artwork_request_badge(row: ConcertArtworkRequest | None, concert: Concert | None = None):
     st = _artwork_request_status(row)
+    handled = (getattr(row, 'handled_by', None) or 'OURS').strip().upper() if row else 'OURS'
     if st == 'PROMOTER':
         return {'label': 'Cartelería promotor', 'class': 'bg-secondary'}
     if st == 'REQUESTED':
-        return {'label': 'Carteles solicitados', 'class': 'bg-warning text-dark'}
+        return {'label': ('Solicitado al Promotor' if handled == 'PROMOTER' else 'Solicitado a Diseño'), 'class': 'bg-warning text-dark'}
+    if st == 'REVIEW':
+        return {'label': 'Pendiente de validación', 'class': 'bg-warning text-dark'}
+    if st == 'CORRECTIONS':
+        return {'label': 'Pendiente de correcciones', 'class': 'bg-danger'}
     if st == 'UPLOADED':
         return {'label': 'Carteles subidos', 'class': 'bg-success'}
     if st == 'DRAFT':
@@ -21414,6 +21533,54 @@ def _current_user_peticion_departments():
     return depts
 
 
+def _home_produccion_pending(limit=12):
+    """Tareas pendientes · Producción: actividades CONFIRMADAS (futuras) de los artistas
+    asignados al usuario (faceta producción) cuya producción aún no ha arrancado (sin bolsa).
+    Dirección y usuarios sin artistas asignados ven todas."""
+    uid = session.get("user_id")
+    if not uid:
+        return []
+    s = db()
+    try:
+        assigned = []
+        if not is_master():
+            prof = s.query(UserProfile).filter(UserProfile.user_id == to_uuid(uid)).first()
+            assigned = [x for x in ((getattr(prof, "assigned_artist_ids_produccion", None) or []) or (getattr(prof, "assigned_artist_ids", None) or [])) if x]
+        q = (s.query(Concert)
+             .options(joinedload(Concert.artist), joinedload(Concert.venue))
+             .filter(func.upper(func.coalesce(Concert.status, '')) == 'CONFIRMADO')
+             .filter(Concert.date >= date.today()))
+        if assigned:
+            assigned_uuids = [to_uuid(a) for a in assigned if to_uuid(a)]
+            if assigned_uuids:
+                q = q.filter(Concert.artist_id.in_(assigned_uuids))
+        rows = q.order_by(Concert.date.asc()).limit(60).all()
+        # Solo las que NO tienen bolsa abierta (producción sin arrancar).
+        out = []
+        for c in rows:
+            has_bag = (s.query(WorkflowBag.id)
+                       .filter(WorkflowBag.linked_type.in_(("CONCERT", "concert")), WorkflowBag.linked_id == c.id)
+                       .first()) is not None
+            if has_bag:
+                continue
+            out.append({
+                "id": str(c.id),
+                "artist_name": (c.artist.name if c.artist else ""),
+                "artist_photo": ((c.artist.photo_url or "") if c.artist else ""),
+                "date_label": c.date.strftime("%d/%m/%Y") if c.date else "",
+                "venue": (c.venue.name if c.venue else (c.manual_venue_name or c.manual_municipality or "")),
+                "activity_label": QUAD_ACTIVITY_LABELS.get((c.activity_type or '').strip().upper(), 'Concierto'),
+                "url": url_for("concert_detail_view", cid=c.id, tab="produccion"),
+            })
+            if len(out) >= limit:
+                break
+        return out
+    except Exception:
+        return []
+    finally:
+        s.close()
+
+
 def _home_pending_peticiones(limit=12):
     """Peticiones abiertas (pendientes/negociando) de los departamentos del usuario, para el
     módulo de Inicio. Añade días transcurridos desde que se solicitó y sus departamentos."""
@@ -22292,7 +22459,9 @@ def simulation_convert(sid):
         nick = stt.get("nick") or None
         if target == "concert":
             aid = str(sim.artist_id) if sim.artist_id else ""
-            return redirect(url_for("concerts_view", tab="vista", open_wizard=1, wizard_artist=aid))
+            # El asistente recibirá wizard_sim: al crear el concierto, los GASTOS PREVISTOS de la
+            # simulación pasan automáticamente a ser su PRESUPUESTO (misma categoría/estructura).
+            return redirect(url_for("concerts_view", tab="vista", open_wizard=1, wizard_artist=aid, wizard_sim=str(sim.id)))
         if target == "tour":
             t = PurchasedTour(
                 name=name, managing_company_id=sim.managing_company_id, artist_id=sim.artist_id,
@@ -22969,7 +23138,8 @@ def _setlist_concert_artist_ids(c):
     ids = []
     if getattr(c, "artist_id", None):
         ids.append(c.artist_id)
-    for a in (getattr(c, "artists_json", None) or []):
+    # Multi-artista: Concert guarda la lista en `artist_ids` (JSONB de strings).
+    for a in (getattr(c, "artist_ids", None) or []):
         aid = _sim_safe_uuid(a.get("id") if isinstance(a, dict) else a)
         if aid and aid not in ids:
             ids.append(aid)
@@ -25868,7 +26038,15 @@ def concert_detail_view(cid):
             except Exception:
                 et_event = None
                 et_ctx = None
-        show_ticketing_tab = (c.sale_type or '').upper() in ('EMPRESA', 'PARTICIPADOS')
+        # Ticketing: SIN pestaña si el evento es gratuito (entrada FREE o sale_type GRATUITO).
+        show_ticketing_tab = not _concert_is_free_event(c)
+        # Repertorio: solo conciertos/festivales o actividades donde se marcó que el artista canta.
+        _cpay_probe = c.contracting_payload if isinstance(c.contracting_payload, dict) else {}
+        _perf_probe = _cpay_probe.get('performance') if isinstance(_cpay_probe.get('performance'), dict) else {}
+        show_repertorio_tab = ((c.activity_type or 'CONCIERTO').strip().upper() in ('CONCIERTO', 'FESTIVAL')) or bool(_perf_probe.get('sings'))
+        sale_channels = _concert_sale_channel_rows(c)
+        sale_channel_request = session.query(ConcertSaleChannelRequest).filter_by(concert_id=c.id).first()
+        sale_seller = _concert_sale_seller(c)
         payment_terms = _concert_payment_rows(c, pending_only=False)
         payment_pending = _concert_payment_total(c, pending_only=True)
         payment_total_configured = _concert_payment_total(c, pending_only=False)
@@ -25919,6 +26097,18 @@ def concert_detail_view(cid):
                     activity_songs = _repertoire_songs_for_artists(session, [c.artist_id])
                 except Exception:
                     activity_songs = []
+
+        # Bolsa INTEGRADA en la pestaña Producción: mismo panel/contexto que /bolsas/<id>.
+        bag_panel_ctx = {}
+        if tab == "produccion" and production_panel.get("bag"):
+            bag_panel_ctx = _bag_panel_context(session, production_panel["bag"])
+            bag_panel_ctx.pop("today", None)  # ya lo pasa la ficha
+            _bag_artists_catalog = bag_panel_ctx.pop("artists", [])
+            _bag_companies_catalog = bag_panel_ctx.pop("companies", [])
+            if not edit_artists:
+                edit_artists = _bag_artists_catalog
+            if not edit_companies:
+                edit_companies = _bag_companies_catalog
         session.commit()
 
         return render_template(
@@ -25984,6 +26174,13 @@ def concert_detail_view(cid):
             result_et_income=(result_ctx.get("et_income") if result_ctx else False),
             venue_saved_ticket_count=venue_saved_ticket_count,
             show_ticketing_tab=show_ticketing_tab,
+            show_repertorio_tab=show_repertorio_tab,
+            sale_channels=sale_channels,
+            sale_channel_request=sale_channel_request,
+            sale_seller=sale_seller,
+            all_ticketers=(session.query(Ticketer).order_by(Ticketer.name.asc()).all() if tab == 'ticketing' else []),
+            can_validate_artwork=_can_validate_artwork(),
+            invitation_header_counts=(_invitation_ficha_header_counts(session, c) if tab == 'invitations' else None),
             et_event=et_event,
             et_ctx=et_ctx,
             et_buyers=et_buyers,
@@ -26003,6 +26200,8 @@ def concert_detail_view(cid):
             entradas_ticket_rows=_concert_entradas_ticket_rows(c),
             promoter_costs_rows=_promoter_costs_rows(getattr(c, "promoter_costs_payload", None)),
             artwork_requested_format_labels=_artwork_requested_format_labels(artwork_request) if artwork_request else [],
+            bag_embed=True,
+            **bag_panel_ctx,
         )
     finally:
         session.close()
@@ -26119,9 +26318,14 @@ def concert_artwork_public_upload(token):
         selected_companies = [x for x in all_companies if str(x.id) in selected_company_ids]
         selected_ticketers = [x for x in all_ticketers if str(x.id) in selected_ticketer_ids]
 
+        is_promoter_flow = (row.handled_by or 'OURS').strip().upper() == 'PROMOTER'
+        wants_json = _truthy(request.form.get('ajax')) or (request.headers.get('X-Requested-With') == 'XMLHttpRequest')
+
         if request.method == 'POST':
             labels = request.form.getlist('asset_format[]')
             files = request.files.getlist('asset_file[]')
+            widths = request.form.getlist('asset_width[]')
+            heights = request.form.getlist('asset_height[]')
             uploaded = 0
             for i, fs in enumerate(files or []):
                 if not fs or not getattr(fs, 'filename', ''):
@@ -26141,18 +26345,32 @@ def concert_artwork_public_upload(token):
                     file_url=file_url,
                     original_name=fs.filename,
                     mime_type=mime_type,
+                    width=_parse_optional_positive_int((widths[i] if i < len(widths) else '') or ''),
+                    height=_parse_optional_positive_int((heights[i] if i < len(heights) else '') or ''),
+                    # Lo que sube el PROMOTOR queda pendiente de validar por diseño.
+                    validation_status='PENDING' if is_promoter_flow else 'APPROVED',
                 ))
                 uploaded += 1
             if uploaded <= 0:
+                if wants_json:
+                    return jsonify({'ok': False, 'error': 'Debes subir al menos un archivo de cartelería.'}), 400
                 flash('Debes subir al menos un archivo de cartelería.', 'warning')
             else:
                 now = datetime.now(ZoneInfo('Europe/Madrid'))
-                row.status = 'UPLOADED'
-                row.uploaded_at = now
-                row.updated_at = now
-                row.event_snapshot = _concert_artwork_snapshot(concert)
-                row.needs_refresh = False
+                if is_promoter_flow:
+                    # Los archivos quedan subidos; el envío definitivo lo hace el botón «Enviar»
+                    # (concert_artwork_public_submit), que avisa a diseño para validar.
+                    row.updated_at = now
+                else:
+                    row.status = 'UPLOADED'
+                    row.uploaded_at = now
+                    row.updated_at = now
+                    row.event_snapshot = _concert_artwork_snapshot(concert)
+                    row.needs_refresh = False
+                    _artwork_pick_primary_by_squareness(row)
                 session.commit()
+                if wants_json:
+                    return jsonify({'ok': True, 'uploaded': uploaded})
                 flash('Cartelería subida correctamente.', 'success')
                 return redirect(url_for('concert_artwork_public_upload', token=token))
 
@@ -26163,9 +26381,557 @@ def concert_artwork_public_upload(token):
             artwork_badge=_artwork_request_badge(row, concert),
             selected_companies=selected_companies,
             selected_ticketers=selected_ticketers,
+            is_promoter_flow=is_promoter_flow,
+            style_guide_url=(os.environ.get('ARTWORK_STYLE_GUIDE_URL') or '').strip(),
             artwork_assets=sorted([x for x in (row.assets or []) if not bool(getattr(x, 'is_archived', False))], key=lambda x: getattr(x, 'created_at', None) or datetime.min, reverse=True),
             upload_action=url_for('concert_artwork_public_upload', token=token),
+            submit_action=url_for('concert_artwork_public_submit', token=token),
         )
+    finally:
+        session.close()
+
+
+@app.post('/carteleria/<token>/enviar', endpoint='concert_artwork_public_submit')
+def concert_artwork_public_submit(token):
+    """El promotor pulsa «Enviar» tras subir sus carteles: pasan a REVIEW y se avisa a diseño
+    gráfico para que los valide o rechace."""
+    session = db()
+    try:
+        row = (
+            session.query(ConcertArtworkRequest)
+            .options(selectinload(ConcertArtworkRequest.assets))
+            .filter(ConcertArtworkRequest.public_token == token)
+            .first()
+        )
+        if not row:
+            return abort(404)
+        concert = (
+            session.query(Concert)
+            .options(joinedload(Concert.artist), joinedload(Concert.venue), joinedload(Concert.billing_company))
+            .filter(Concert.id == row.concert_id)
+            .first()
+        )
+        if not concert:
+            return abort(404)
+        pending = [a for a in (row.assets or []) if not a.is_archived and (a.validation_status or 'APPROVED') == 'PENDING']
+        if not pending:
+            flash('Sube al menos un cartel antes de enviar.', 'warning')
+            return redirect(url_for('concert_artwork_public_upload', token=token))
+        now = datetime.now(ZoneInfo('Europe/Madrid'))
+        row.status = 'REVIEW'
+        row.uploaded_at = now
+        row.updated_at = now
+        row.event_snapshot = _concert_artwork_snapshot(concert)
+        row.needs_refresh = False
+        session.commit()
+        # Alerta a diseño gráfico para validar.
+        ficha_url = _external_url_for('concert_detail_view', cid=concert.id, tab='carteleria')
+        html_body = (
+            '<div style="font-family:Arial,sans-serif;color:#1f2937;max-width:640px;">'
+            + _concert_email_header_html(concert, 'Carteles pendientes de validación')
+            + f'<p>El promotor ha subido <strong>{len(pending)}</strong> cartel(es). Revísalos y valídalos o recházalos desde la ficha.</p>'
+            + f'<p><a href="{ficha_url}" style="display:inline-block;background:#E33D48;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;font-weight:700;">Revisar carteles</a></p>'
+            + '</div>'
+        )
+        try:
+            _send_optional_email('grafico@33producciones.es', f'Carteles pendientes de validación · {concert.artist.name if concert.artist else "actividad"}', html_body, text_body=ficha_url)
+        except Exception:
+            pass
+        flash('Carteles enviados. Quedan pendientes de validación por nuestro equipo de diseño.', 'success')
+        return redirect(url_for('concert_artwork_public_upload', token=token))
+    except Exception as exc:
+        session.rollback()
+        flash(f'Error enviando los carteles: {exc}', 'danger')
+        return redirect(url_for('concert_artwork_public_upload', token=token))
+    finally:
+        session.close()
+
+
+@app.post('/conciertos/<cid>/carteleria/solicitar-promotor', endpoint='concert_artwork_promoter_request')
+@admin_required
+def concert_artwork_promoter_request(cid):
+    """Solicitar al PROMOTOR que suba los carteles del evento (correo con la cabecera del evento,
+    los logos necesarios, la guía de estilo y el botón de subida)."""
+    if not (is_master() or can_edit_concerts()):
+        return forbid('Tu usuario no tiene permisos para gestionar cartelería.')
+    session = db()
+    try:
+        concert = (
+            session.query(Concert)
+            .options(joinedload(Concert.artist), joinedload(Concert.venue), joinedload(Concert.billing_company),
+                     selectinload(Concert.artwork_request).selectinload(ConcertArtworkRequest.assets))
+            .filter(Concert.id == to_uuid(cid))
+            .first()
+        )
+        if not concert:
+            flash('Concierto no encontrado.', 'warning')
+            return redirect(url_for('concerts_view', tab='vista'))
+        emails = []
+        for raw in request.form.getlist('to_email') + [request.form.get('extra_emails')]:
+            for chunk in re.split(r'[;,\n]+', str(raw or '')):
+                email = chunk.strip()
+                if email and email.lower() not in [x.lower() for x in emails]:
+                    emails.append(email)
+        if not emails:
+            flash('Añade al menos un destinatario para solicitar los carteles.', 'warning')
+            return redirect(url_for('concert_detail_view', cid=cid, tab='carteleria'))
+        row = getattr(concert, 'artwork_request', None)
+        if not row:
+            row = ConcertArtworkRequest(concert_id=concert.id, public_token=uuid.uuid4().hex)
+            session.add(row)
+            session.flush()
+        now = datetime.now(ZoneInfo('Europe/Madrid'))
+        if _artwork_request_status(row) in ('REVIEW', 'UPLOADED'):
+            _archive_current_artwork_assets(row)
+        row.handled_by = 'PROMOTER'
+        row.status = 'REQUESTED'
+        row.recipients_json = emails
+        row.group_company_ids = _parse_uuid_list(request.form.getlist('group_company_ids[]'))
+        row.requested_formats = _parse_artwork_formats(request.form)
+        row.logo_notes = (request.form.get('logo_notes') or '').strip() or None
+        row.other_notes = (request.form.get('other_notes') or '').strip() or None
+        row.delivery_deadline = parse_optional_date(request.form.get('delivery_deadline'))
+        row.requested_at = now
+        row.updated_at = now
+        row.event_snapshot = _concert_artwork_snapshot(concert)
+        row.needs_refresh = False
+        session.commit()
+        ok, error = _send_promoter_artwork_email(concert, row, kind='REQUEST')
+        if ok:
+            flash('Solicitud de carteles enviada al promotor.', 'success')
+        else:
+            flash(f'Solicitud registrada, pero el correo no se pudo enviar: {error}', 'warning')
+        return redirect(url_for('concert_detail_view', cid=cid, tab='carteleria'))
+    except Exception as exc:
+        session.rollback()
+        flash(f'Error solicitando carteles al promotor: {exc}', 'danger')
+        return redirect(url_for('concert_detail_view', cid=cid, tab='carteleria'))
+    finally:
+        session.close()
+
+
+def _can_validate_artwork() -> bool:
+    """Validación de carteles: diseño gráfico (sección diseño), quien edita conciertos o dirección."""
+    try:
+        return bool(is_master() or has_access_key('diseno', include_descendants=True) or can_edit_concerts())
+    except Exception:
+        return False
+
+
+@app.post('/conciertos/<cid>/carteleria/validar', endpoint='concert_artwork_validate')
+@admin_required
+def concert_artwork_validate(cid):
+    if not _can_validate_artwork():
+        return forbid('Tu usuario no puede validar cartelería.')
+    session = db()
+    try:
+        concert = (
+            session.query(Concert)
+            .options(joinedload(Concert.artist), selectinload(Concert.artwork_request).selectinload(ConcertArtworkRequest.assets))
+            .filter(Concert.id == to_uuid(cid))
+            .first()
+        )
+        row = getattr(concert, 'artwork_request', None) if concert else None
+        if not row:
+            flash('No hay solicitud de cartelería.', 'warning')
+            return redirect(url_for('concert_detail_view', cid=cid, tab='carteleria'))
+        now = datetime.now(ZoneInfo('Europe/Madrid'))
+        for a in (row.assets or []):
+            if not a.is_archived and (a.validation_status or 'APPROVED') == 'PENDING':
+                a.validation_status = 'APPROVED'
+        row.status = 'UPLOADED'
+        row.correction_notes = None
+        row.updated_at = now
+        _artwork_pick_primary_by_squareness(row)
+        session.commit()
+        flash('Carteles validados: ya aparecen en la ficha del evento.', 'success')
+    except Exception as exc:
+        session.rollback()
+        flash(f'Error validando carteles: {exc}', 'danger')
+    finally:
+        session.close()
+    return redirect(url_for('concert_detail_view', cid=cid, tab='carteleria'))
+
+
+@app.post('/conciertos/<cid>/carteleria/rechazar', endpoint='concert_artwork_reject')
+@admin_required
+def concert_artwork_reject(cid):
+    if not _can_validate_artwork():
+        return forbid('Tu usuario no puede validar cartelería.')
+    session = db()
+    try:
+        concert = (
+            session.query(Concert)
+            .options(joinedload(Concert.artist), joinedload(Concert.venue), joinedload(Concert.billing_company),
+                     selectinload(Concert.artwork_request).selectinload(ConcertArtworkRequest.assets))
+            .filter(Concert.id == to_uuid(cid))
+            .first()
+        )
+        row = getattr(concert, 'artwork_request', None) if concert else None
+        if not row:
+            flash('No hay solicitud de cartelería.', 'warning')
+            return redirect(url_for('concert_detail_view', cid=cid, tab='carteleria'))
+        note = (request.form.get('reason') or '').strip()
+        if not note:
+            flash('Indica qué debe corregirse antes de rechazar.', 'warning')
+            return redirect(url_for('concert_detail_view', cid=cid, tab='carteleria'))
+        now = datetime.now(ZoneInfo('Europe/Madrid'))
+        for a in (row.assets or []):
+            if not a.is_archived and (a.validation_status or 'APPROVED') == 'PENDING':
+                a.validation_status = 'REJECTED'
+                a.is_archived = True
+                a.archived_at = now
+        row.status = 'CORRECTIONS'
+        row.correction_notes = note
+        row.updated_at = now
+        session.commit()
+        ok, error = _send_promoter_artwork_email(concert, row, kind='REJECTED', note=note)
+        if ok:
+            flash('Carteles rechazados: se ha pedido al promotor que los corrija y vuelva a subirlos.', 'warning')
+        else:
+            flash(f'Carteles rechazados, pero el correo no se pudo enviar: {error}', 'warning')
+    except Exception as exc:
+        session.rollback()
+        flash(f'Error rechazando carteles: {exc}', 'danger')
+    finally:
+        session.close()
+    return redirect(url_for('concert_detail_view', cid=cid, tab='carteleria'))
+
+
+# ---------- Canales de venta (links de venta cuando vende un promotor externo) ----------
+
+def _concert_is_free_event(concert) -> bool:
+    """¿El evento es gratuito? (entrada FREE del asistente o sale_type GRATUITO)."""
+    payload = getattr(concert, 'ticketing_payload', None) or {}
+    entry_mode = (payload.get('entry_mode') or '').strip().upper() if isinstance(payload, dict) else ''
+    return entry_mode == 'FREE' or (concert.sale_type or '').strip().upper() == 'GRATUITO'
+
+
+def _concert_sale_seller(concert) -> dict:
+    payload = getattr(concert, 'ticketing_payload', None) or {}
+    seller = payload.get('sale_seller') if isinstance(payload, dict) else None
+    return seller if isinstance(seller, dict) else {}
+
+
+def _concert_sale_channel_rows(concert) -> list[dict]:
+    """Canales de venta configurados (ConcertTicketer): ticketera + link + aforo."""
+    rows = []
+    for ct in (getattr(concert, 'ticketers', None) or []):
+        t = getattr(ct, 'ticketer', None)
+        rows.append({
+            'id': str(ct.ticketer_id),
+            'name': (t.name if t else 'Ticketera'),
+            'logo_url': (t.logo_url if t else '') or '',
+            'sale_url': (ct.sale_url or '').strip(),
+            'capacity_for_sale': int(ct.capacity_for_sale or 0),
+        })
+    rows.sort(key=lambda r: r['name'].casefold())
+    return rows
+
+
+def _ensure_ticketer_by_name(session, name: str):
+    name = (name or '').strip()
+    if not name:
+        return None
+    existing = session.query(Ticketer).filter(func.lower(Ticketer.name) == name.lower()).first()
+    if existing:
+        return existing
+    t = Ticketer(name=name)
+    session.add(t)
+    session.flush()
+    return t
+
+
+def _send_sale_channels_email(concert: Concert, req: ConcertSaleChannelRequest, kind: str = 'REQUEST') -> tuple[bool, str | None]:
+    """Correo al promotor «Actualizar canales de venta»: configura TODOS los links de venta."""
+    recipients = [x for x in (req.recipients_json or []) if x]
+    if not recipients:
+        return False, 'Sin destinatarios guardados en la petición.'
+    public_url = _external_url_for('public_sale_channels', token=req.public_token)
+    reminder = ''
+    if (kind or '').upper() == 'REMINDER':
+        reminder = '<p style="background:#fef3c7;border-radius:8px;padding:10px 12px;">Recordatorio automático: aún no tenemos los links de venta de este evento.</p>'
+    html_body = (
+        '<div style="font-family:Arial,sans-serif;color:#1f2937;max-width:640px;">'
+        + _concert_email_header_html(concert, 'Actualizar canales de venta')
+        + reminder
+        + '<p>Necesitamos que configures <strong>todos los links de venta</strong> del evento (puedes añadir varias ticketeras).</p>'
+        + f'<p><a href="{public_url}" style="display:inline-block;background:#E33D48;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;font-weight:700;">Añadir links de venta</a></p>'
+        + '</div>'
+    )
+    subject = f'Actualizar canales de venta · {concert.artist.name if concert.artist else "actividad"}'
+    return _send_optional_email(recipients, subject, html_body, text_body=public_url)
+
+
+@app.post('/conciertos/<cid>/canales-venta/guardar', endpoint='concert_sale_channel_save')
+@admin_required
+def concert_sale_channel_save(cid):
+    if not (is_master() or can_edit_concerts()):
+        return forbid('Tu usuario no tiene permisos para editar el ticketing.')
+    session = db()
+    try:
+        concert = session.get(Concert, to_uuid(cid))
+        if not concert:
+            flash('Concierto no encontrado.', 'warning')
+            return redirect(url_for('concerts_view', tab='vista'))
+        ticketer_id = to_uuid((request.form.get('ticketer_id') or '').strip() or None)
+        if not ticketer_id:
+            t = _ensure_ticketer_by_name(session, request.form.get('new_ticketer_name'))
+            ticketer_id = t.id if t else None
+        if not ticketer_id:
+            flash('Elige una ticketera o escribe el nombre de una nueva.', 'warning')
+            return redirect(url_for('concert_detail_view', cid=cid, tab='ticketing'))
+        row = (session.query(ConcertTicketer)
+               .filter(ConcertTicketer.concert_id == concert.id, ConcertTicketer.ticketer_id == ticketer_id)
+               .first())
+        if not row:
+            row = ConcertTicketer(concert_id=concert.id, ticketer_id=ticketer_id)
+            session.add(row)
+        sale_url = (request.form.get('sale_url') or '').strip()
+        if sale_url and not re.match(r'^https?://', sale_url, re.I):
+            sale_url = 'https://' + sale_url
+        row.sale_url = sale_url or None
+        cap = _parse_optional_positive_int(request.form.get('capacity_for_sale'))
+        if cap is not None:
+            row.capacity_for_sale = cap
+        # Si ya hay link, la petición al promotor queda satisfecha.
+        req = session.query(ConcertSaleChannelRequest).filter_by(concert_id=concert.id).first()
+        if req and sale_url and req.status == 'ACTIVE':
+            req.status = 'DONE'
+            req.updated_at = datetime.now(ZoneInfo('Europe/Madrid'))
+        session.commit()
+        flash('Canal de venta guardado.', 'success')
+    except Exception as exc:
+        session.rollback()
+        flash(f'Error guardando el canal de venta: {exc}', 'danger')
+    finally:
+        session.close()
+    return redirect(url_for('concert_detail_view', cid=cid, tab='ticketing'))
+
+
+@app.post('/conciertos/<cid>/canales-venta/<tid>/eliminar', endpoint='concert_sale_channel_delete')
+@admin_required
+def concert_sale_channel_delete(cid, tid):
+    if not (is_master() or can_edit_concerts()):
+        return forbid('Tu usuario no tiene permisos para editar el ticketing.')
+    session = db()
+    try:
+        row = (session.query(ConcertTicketer)
+               .filter(ConcertTicketer.concert_id == to_uuid(cid), ConcertTicketer.ticketer_id == to_uuid(tid))
+               .first())
+        if row:
+            session.delete(row)
+            session.commit()
+            flash('Canal de venta eliminado.', 'success')
+    except Exception as exc:
+        session.rollback()
+        flash(f'Error eliminando el canal: {exc}', 'danger')
+    finally:
+        session.close()
+    return redirect(url_for('concert_detail_view', cid=cid, tab='ticketing'))
+
+
+@app.post('/conciertos/<cid>/canales-venta/solicitar', endpoint='concert_sale_links_request')
+@admin_required
+def concert_sale_links_request(cid):
+    if not (is_master() or can_edit_concerts()):
+        return forbid('Tu usuario no tiene permisos para editar el ticketing.')
+    session = db()
+    try:
+        concert = (
+            session.query(Concert)
+            .options(joinedload(Concert.artist), joinedload(Concert.venue), joinedload(Concert.billing_company))
+            .filter(Concert.id == to_uuid(cid))
+            .first()
+        )
+        if not concert:
+            flash('Concierto no encontrado.', 'warning')
+            return redirect(url_for('concerts_view', tab='vista'))
+        emails = []
+        for raw in request.form.getlist('to_email') + [request.form.get('extra_emails')]:
+            for chunk in re.split(r'[;,\n]+', str(raw or '')):
+                email = chunk.strip()
+                if email and email.lower() not in [x.lower() for x in emails]:
+                    emails.append(email)
+        if not emails:
+            flash('Añade al menos un destinatario para pedir los links de venta.', 'warning')
+            return redirect(url_for('concert_detail_view', cid=cid, tab='ticketing'))
+        req = session.query(ConcertSaleChannelRequest).filter_by(concert_id=concert.id).first()
+        now = datetime.now(ZoneInfo('Europe/Madrid'))
+        if not req:
+            req = ConcertSaleChannelRequest(concert_id=concert.id, public_token=uuid.uuid4().hex)
+            session.add(req)
+            session.flush()
+        req.status = 'ACTIVE'
+        req.auto_remind = True
+        req.recipients_json = emails
+        req.last_sent_at = now
+        req.updated_at = now
+        session.commit()
+        ok, error = _send_sale_channels_email(concert, req, kind='REQUEST')
+        if ok:
+            flash('Petición de links de venta enviada al promotor. Se recordará una vez a la semana hasta que los suba.', 'success')
+        else:
+            flash(f'Petición registrada, pero el correo no se pudo enviar: {error}', 'warning')
+    except Exception as exc:
+        session.rollback()
+        flash(f'Error solicitando los links de venta: {exc}', 'danger')
+    finally:
+        session.close()
+    return redirect(url_for('concert_detail_view', cid=cid, tab='ticketing'))
+
+
+@app.post('/conciertos/<cid>/canales-venta/auto', endpoint='concert_sale_links_auto_toggle')
+@admin_required
+def concert_sale_links_auto_toggle(cid):
+    if not (is_master() or can_edit_concerts()):
+        return forbid('Tu usuario no tiene permisos para editar el ticketing.')
+    session = db()
+    try:
+        req = session.query(ConcertSaleChannelRequest).filter_by(concert_id=to_uuid(cid)).first()
+        if not req:
+            flash('No hay petición de links de venta.', 'warning')
+            return redirect(url_for('concert_detail_view', cid=cid, tab='ticketing'))
+        action = (request.form.get('action') or 'cancel').strip().lower()
+        now = datetime.now(ZoneInfo('Europe/Madrid'))
+        if action == 'resume':
+            req.status = 'ACTIVE'
+            req.auto_remind = True
+            flash('Petición automática reactivada.', 'success')
+        else:
+            req.status = 'CANCELLED'
+            req.auto_remind = False
+            flash('Petición automática cancelada.', 'success')
+        req.updated_at = now
+        session.commit()
+    except Exception as exc:
+        session.rollback()
+        flash(f'Error actualizando la petición automática: {exc}', 'danger')
+    finally:
+        session.close()
+    return redirect(url_for('concert_detail_view', cid=cid, tab='ticketing'))
+
+
+@app.route('/canales-venta/<token>', methods=['GET', 'POST'], endpoint='public_sale_channels')
+def public_sale_channels(token):
+    """Página PÚBLICA para que el promotor configure los canales de venta del evento:
+    ticketera (catálogo con logos u otra nueva) + link de venta; puede añadir varias."""
+    session = db()
+    try:
+        req = session.query(ConcertSaleChannelRequest).filter(ConcertSaleChannelRequest.public_token == (token or '').strip()).first()
+        if not req:
+            abort(404)
+        concert = (
+            session.query(Concert)
+            .options(joinedload(Concert.artist), joinedload(Concert.venue), joinedload(Concert.billing_company),
+                     selectinload(Concert.ticketers).joinedload(ConcertTicketer.ticketer))
+            .filter(Concert.id == req.concert_id)
+            .first()
+        )
+        if not concert:
+            abort(404)
+        if request.method == 'POST':
+            ticketer_ids = request.form.getlist('channel_ticketer_id[]')
+            other_names = request.form.getlist('channel_other_name[]')
+            urls = request.form.getlist('channel_sale_url[]')
+            saved = 0
+            for i, url_raw in enumerate(urls or []):
+                sale_url = (url_raw or '').strip()
+                if not sale_url:
+                    continue
+                if not re.match(r'^https?://', sale_url, re.I):
+                    sale_url = 'https://' + sale_url
+                tid = to_uuid((ticketer_ids[i] if i < len(ticketer_ids) else '').strip() or None)
+                if not tid:
+                    t = _ensure_ticketer_by_name(session, other_names[i] if i < len(other_names) else '')
+                    tid = t.id if t else None
+                if not tid:
+                    continue
+                row = (session.query(ConcertTicketer)
+                       .filter(ConcertTicketer.concert_id == concert.id, ConcertTicketer.ticketer_id == tid)
+                       .first())
+                if not row:
+                    row = ConcertTicketer(concert_id=concert.id, ticketer_id=tid)
+                    session.add(row)
+                row.sale_url = sale_url
+                saved += 1
+            if saved:
+                req.status = 'DONE'
+                req.updated_at = datetime.now(ZoneInfo('Europe/Madrid'))
+                session.commit()
+                flash('¡Gracias! Links de venta guardados correctamente.', 'success')
+            else:
+                flash('Añade al menos un link de venta (con su ticketera).', 'warning')
+            return redirect(url_for('public_sale_channels', token=token))
+        ticketers = session.query(Ticketer).order_by(Ticketer.name.asc()).all()
+        return render_template(
+            'public_sale_channels.html',
+            concert=concert,
+            req=req,
+            ticketers=ticketers,
+            channels=_concert_sale_channel_rows(concert),
+        )
+    finally:
+        session.close()
+
+
+def _process_sale_channel_reminders(session) -> int:
+    """Recordatorio SEMANAL al promotor mientras el evento confirmado no tenga link de venta.
+    Devuelve cuántos correos se han enviado. Best-effort (lo dispara el cron)."""
+    now = datetime.now(ZoneInfo('Europe/Madrid'))
+    cutoff = now - timedelta(days=7)
+    sent = 0
+    reqs = (session.query(ConcertSaleChannelRequest)
+            .filter(ConcertSaleChannelRequest.status == 'ACTIVE',
+                    ConcertSaleChannelRequest.auto_remind.is_(True))
+            .all())
+    for req in reqs:
+        try:
+            last = req.last_sent_at
+            if last is not None and last.tzinfo is None:
+                last = last.replace(tzinfo=ZoneInfo('UTC'))
+            if last is not None and last > cutoff:
+                continue
+            concert = (
+                session.query(Concert)
+                .options(joinedload(Concert.artist), joinedload(Concert.venue), joinedload(Concert.billing_company),
+                         selectinload(Concert.ticketers))
+                .filter(Concert.id == req.concert_id)
+                .first()
+            )
+            if not concert:
+                continue
+            if (concert.status or '').upper() != 'CONFIRMADO':
+                continue
+            if concert.date and concert.date < date.today():
+                req.status = 'CANCELLED'
+                continue
+            if any((ct.sale_url or '').strip() for ct in (concert.ticketers or [])):
+                req.status = 'DONE'
+                continue
+            ok, _err = _send_sale_channels_email(concert, req, kind='REMINDER')
+            if ok:
+                req.last_sent_at = now
+                req.updated_at = now
+                sent += 1
+        except Exception:
+            session.rollback()
+            continue
+    session.commit()
+    return sent
+
+
+@app.get('/cron/promoter-requests', endpoint='cron_promoter_requests')
+def cron_promoter_requests():
+    """Cron externo: recordatorios semanales de links de venta (misma clave que Enterticket)."""
+    key = (request.args.get('key') or '').strip()
+    expected = (os.environ.get('PROMOTER_CRON_KEY') or os.environ.get('ENTERTICKET_CRON_KEY') or '').strip()
+    if not expected or key != expected:
+        abort(403)
+    session = db()
+    try:
+        sent = _process_sale_channel_reminders(session)
+        return jsonify({'ok': True, 'reminders_sent': sent})
     finally:
         session.close()
 
@@ -26392,24 +27158,26 @@ def concert_section_update_handler(cid, section):
                 session.expire(c, ['venue'])
             except Exception:
                 pass
-            artwork_resend = False
-            if artwork_row and (getattr(artwork_row, 'handled_by', None) or 'OURS').strip().upper() == 'OURS':
-                if _artwork_request_has_event_changes(artwork_row, c):
-                    _archive_current_artwork_assets(artwork_row)
-                    now = datetime.now(ZoneInfo('Europe/Madrid'))
-                    artwork_row.status = 'REQUESTED'
-                    artwork_row.requested_at = now
-                    artwork_row.updated_at = now
-                    artwork_row.needs_refresh = False
-                    artwork_row.event_snapshot = _concert_artwork_snapshot(c)
-                    artwork_resend = True
-                else:
-                    _sync_artwork_request_refresh_flag(c)
+            artwork_resend = None  # None | 'OURS' | 'PROMOTER'
+            artwork_handled = (getattr(artwork_row, 'handled_by', None) or 'OURS').strip().upper() if artwork_row else 'OURS'
+            if artwork_row and _artwork_request_has_event_changes(artwork_row, c):
+                # Cambian fecha/recinto/horarios → los carteles se ANULAN (pasan a antiguos) y se
+                # genera automáticamente una nueva petición (a diseño o al promotor, según quién los haga).
+                _archive_current_artwork_assets(artwork_row)
+                now = datetime.now(ZoneInfo('Europe/Madrid'))
+                artwork_row.status = 'REQUESTED'
+                artwork_row.requested_at = now
+                artwork_row.updated_at = now
+                artwork_row.needs_refresh = False
+                artwork_row.event_snapshot = _concert_artwork_snapshot(c)
+                artwork_resend = artwork_handled
             else:
                 _sync_artwork_request_refresh_flag(c)
             session.commit()
-            if artwork_resend and artwork_row:
+            if artwork_resend == 'OURS' and artwork_row:
                 _send_artwork_request_email(c, artwork_row, is_update=True)
+            elif artwork_resend == 'PROMOTER' and artwork_row:
+                _send_promoter_artwork_email(c, artwork_row, kind='CHANGES')
             flash("Datos de la actividad actualizados.", "success")
         elif section == "colaboradores":
             if (c.sale_type or "").strip().upper() == "VENDIDO":
@@ -31780,6 +32548,54 @@ def _performance_formation_label(perf: dict | None) -> str:
     return ''
 
 
+def _copy_simulation_budget_to_concert(session, sim_id, concert_id) -> int:
+    """Al convertir una simulación en evento: sus GASTOS PREVISTOS pasan a ser el PRESUPUESTO
+    del concierto (ConcertBudgetItem con las MISMAS categorías de simulación). Los gastos
+    variables se conservan como línea informativa (importe 0) para no perder nada."""
+    sim = session.get(Simulation, sim_id)
+    if not sim:
+        return 0
+    copied = 0
+    order = 0
+    for act in (sim.activities or []):
+        if getattr(act, "is_shared", False):
+            continue
+        for it in sorted((act.production_items or []), key=lambda x: (x.sort_order or 0)):
+            qty = _sim_d(getattr(it, "quantity", 1) or 1)
+            unit = _sim_d(getattr(it, "amount_net", 0) or 0)
+            total = unit * (qty if qty > 0 else Decimal("1"))
+            iva = _sim_d(getattr(it, "iva_pct", 21) or 0)
+            concept = (it.concept or "").strip() or "Gasto"
+            if qty and qty != 1:
+                concept = f"{concept} (x{qty.normalize()})"
+            if getattr(it, "is_variable", False):
+                vt = (it.var_type or "").upper()
+                vdesc = f"{_sim_d(it.var_value or 0)}%" if vt == "PERCENT" else f"{_sim_d(it.var_value or 0)} €/entrada"
+                concept = f"{concept} (variable: {vdesc})"
+                net = Decimal("0")
+                gross = Decimal("0")
+            elif getattr(it, "iva_exempt", False):
+                net = total
+                gross = total
+            elif getattr(it, "includes_iva", False):
+                gross = total
+                net = (total / (Decimal("1") + iva / Decimal("100"))) if iva else total
+            else:
+                net = total
+                gross = total * (Decimal("1") + iva / Decimal("100")) if iva else total
+            session.add(ConcertBudgetItem(
+                concert_id=concert_id,
+                category=(it.category or "OTROS").strip().upper(),
+                concept=concept,
+                amount_net=net.quantize(Decimal("0.01")),
+                amount_gross=gross.quantize(Decimal("0.01")),
+                sort_order=order,
+            ))
+            order += 10
+            copied += 1
+    return copied
+
+
 def _parse_wizard_promoter_share_rows(form) -> list[dict]:
     rows = []
     ids = form.getlist('wizard_partner_promoter_id[]')
@@ -32195,6 +33011,14 @@ def concert_wizard_create():
         if ticket_type_rows:
             _replace_concert_ticket_types_manual(session, concert.id, ticket_type_rows)
 
+        # Conversión desde una SIMULACIÓN: los gastos previstos pasan a ser el PRESUPUESTO.
+        _wsim = to_uuid((request.form.get('wizard_simulation_id') or '').strip() or None)
+        if _wsim:
+            try:
+                _copy_simulation_budget_to_concert(session, _wsim, concert.id)
+            except Exception:
+                app.logger.exception('[wizard] no se pudo copiar el presupuesto de la simulación')
+
         # Vínculo opcional a una gira comprada / ciclo o festival (paso del asistente).
         _ptid = (request.form.get('wizard_purchased_tour_id') or '').strip()
         _cfid = (request.form.get('wizard_cycle_festival_id') or '').strip()
@@ -32501,75 +33325,93 @@ def concert_contract_sheet_pdf(cid):
         sheet = concert.contract_sheet or _ensure_internal_contract_sheet(session, concert)
         data = _contract_sheet_prefill(concert, sheet)
         buf = BytesIO()
-        doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=36)
+        # Compacto para caber en UNA cara de A4: márgenes y tipografías reducidos, solo
+        # campos y secciones CUMPLIMENTADOS.
+        doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=28, rightMargin=28, topMargin=22, bottomMargin=22)
         styles = getSampleStyleSheet()
-        title_style = ParagraphStyle('ContractSheetTitle', parent=styles['Title'], alignment=TA_CENTER, fontSize=20, leading=24)
-        meta_style = ParagraphStyle('ContractSheetMeta', parent=styles['Normal'], alignment=TA_RIGHT, fontSize=8, textColor=colors.HexColor('#6b7280'))
+        title_style = ParagraphStyle('ContractSheetTitle', parent=styles['Title'], alignment=TA_CENTER, fontSize=16, leading=19, spaceAfter=2)
+        head_style = ParagraphStyle('ContractSheetHead', parent=styles['Normal'], fontSize=9, leading=12)
+        head_big = ParagraphStyle('ContractSheetHeadBig', parent=styles['Normal'], fontSize=12, leading=14, fontName='Helvetica-Bold')
+        sec_style = ParagraphStyle('ContractSheetSec', parent=styles['Normal'], fontSize=9, leading=11, fontName='Helvetica-Bold', textColor=colors.HexColor('#E33D48'), spaceBefore=6, spaceAfter=2)
+        cell_lbl = ParagraphStyle('CellLbl', parent=styles['Normal'], fontSize=7.5, leading=9, textColor=colors.HexColor('#6b7280'))
+        cell_val = ParagraphStyle('CellVal', parent=styles['Normal'], fontSize=8, leading=10)
         story = []
+        # Logo de la empresa del grupo arriba a la DERECHA.
         logo_cell = ''
-        logo_url = (getattr(getattr(concert, 'billing_company', None), 'logo_url', None) or '').strip()
+        logo_url = (getattr(getattr(concert, 'billing_company', None), 'logo_url', None) or getattr(getattr(concert, 'group_company', None), 'logo_url', None) or '').strip()
         if logo_url:
             try:
                 req = Request(logo_url, headers={'User-Agent': 'Mozilla/5.0'})
                 with urlopen(req, timeout=25) as resp:
                     img_bytes = resp.read()
-                logo_cell = RLImage(BytesIO(img_bytes), width=120, height=48)
-                logo_cell.hAlign = 'LEFT'
+                logo_cell = RLImage(BytesIO(img_bytes), width=110, height=40, kind='proportional')
+                logo_cell.hAlign = 'RIGHT'
             except Exception:
                 logo_cell = ''
-        generated_txt = datetime.now(ZoneInfo('Europe/Madrid')).strftime('%d/%m/%Y %H:%M')
-        header = Table(
-            [[logo_cell, Paragraph('Ficha de contratación', title_style), Paragraph(f'Generado el {generated_txt}', meta_style)]],
-            colWidths=[130, 260, 130],
-        )
-        header.setStyle(TableStyle([
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('ALIGN', (0, 0), (0, 0), 'LEFT'),
-            ('ALIGN', (1, 0), (1, 0), 'CENTER'),
-            ('ALIGN', (2, 0), (2, 0), 'RIGHT'),
+        logo_row = Table([['', logo_cell]], colWidths=[419, 120])
+        logo_row.setStyle(TableStyle([('ALIGN', (1, 0), (1, 0), 'RIGHT'), ('VALIGN', (0, 0), (-1, -1), 'TOP')]))
+        story.append(logo_row)
+        # Título centrado + cabecera del evento.
+        story.append(Paragraph('Ficha de contratación', title_style))
+        prov = _concert_province_value(concert)
+        loc = ' · '.join([x for x in [_concert_venue_name(concert), _concert_city(concert), prov] if x])
+        event_lines = [Paragraph(concert.artist.name if concert.artist else 'Actividad', head_big)]
+        facts = ' · '.join([x for x in [
+            (concert.date.strftime('%d/%m/%Y') if concert.date else ''),
+            loc,
+            (f"Show {concert.show_time}" if concert.show_time else ('Show TBC' if concert.show_time_tbc else '')),
+            (f"Puertas {concert.doors_time}" if concert.doors_time else ''),
+        ] if x])
+        if facts:
+            event_lines.append(Paragraph(facts, head_style))
+        ev = Table([[line] for line in event_lines], colWidths=[539])
+        ev.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f8f9fb')),
+            ('BOX', (0, 0), (-1, -1), 0.6, colors.HexColor('#e5e7eb')),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8), ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+            ('TOPPADDING', (0, 0), (-1, -1), 3), ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
         ]))
-        story.extend([
-            header,
-            Spacer(1, 12),
-            Paragraph(f"Artista: {concert.artist.name if concert.artist else '—'}", styles['Normal']),
-            Paragraph(f"Fecha concierto: {concert.date.strftime('%d/%m/%Y') if concert.date else '—'}", styles['Normal']),
-            Spacer(1, 12),
-        ])
+        story.append(ev)
+        story.append(Spacer(1, 4))
+        # Secciones: SOLO campos rellenos, en tabla de 2 columnas campo·valor (4 celdas por fila).
         for section in _contract_sheet_sections(data):
-            story.append(Paragraph(section['title'], styles['Heading2']))
-            rows = [['Campo', 'Valor']]
-            for label, value in section.get('rows') or []:
-                rows.append([label, '' if value in (None, '', []) else str(value)])
-            table = Table(rows, colWidths=[170, 330])
-            table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#d1d5db')),
-                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#fafafa')]),
-            ]))
-            story.append(table)
-            story.append(Spacer(1, 10))
+            filled = [(label, value) for label, value in (section.get('rows') or []) if value not in (None, '', [])]
             ticket_rows = section.get('ticket_rows') or []
+            if not filled and not ticket_rows:
+                continue
+            story.append(Paragraph(section['title'], sec_style))
+            if filled:
+                cells = []
+                pair = []
+                for label, value in filled:
+                    pair.append(Paragraph(str(label), cell_lbl))
+                    pair.append(Paragraph(str(value), cell_val))
+                    if len(pair) == 4:
+                        cells.append(pair)
+                        pair = []
+                if pair:
+                    pair += [''] * (4 - len(pair))
+                    cells.append(pair)
+                table = Table(cells, colWidths=[95, 175, 95, 174])
+                table.setStyle(TableStyle([
+                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                    ('LINEBELOW', (0, 0), (-1, -1), 0.3, colors.HexColor('#eceff3')),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 2), ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                    ('TOPPADDING', (0, 0), (-1, -1), 1.5), ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
+                ]))
+                story.append(table)
             if ticket_rows:
-                trows = [['Tipo', 'Entradas venta', 'Importe', 'Inv. totales', 'Inv. artista']]
+                trows = [[Paragraph(x, cell_lbl) for x in ['Tipo', 'Entradas venta', 'Importe', 'Inv. totales', 'Inv. artista']]]
                 for row in ticket_rows:
-                    trows.append([
-                        str(row.get('name') or ''),
-                        str(row.get('qty_for_sale') or ''),
-                        str(row.get('amount') or ''),
-                        str(row.get('invites_total') or ''),
-                        str(row.get('invites_artist') or ''),
-                    ])
-                t = Table(trows, colWidths=[150, 90, 70, 90, 90])
+                    trows.append([Paragraph(str(row.get(k) or ''), cell_val) for k in ('name', 'qty_for_sale', 'amount', 'invites_total', 'invites_artist')])
+                t = Table(trows, colWidths=[199, 85, 85, 85, 85])
                 t.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#e5e7eb')),
-                    ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#d1d5db')),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')),
+                    ('GRID', (0, 0), (-1, -1), 0.3, colors.HexColor('#e5e7eb')),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 3), ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+                    ('TOPPADDING', (0, 0), (-1, -1), 1.5), ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
                 ]))
                 story.append(t)
-                story.append(Spacer(1, 10))
         doc.build(story)
         buf.seek(0)
         filename = f"ficha_contratacion_{(concert.artist.name if concert.artist else 'concierto').replace(' ', '_')}.pdf"
@@ -35238,19 +36080,36 @@ PRODUCTION_REQUEST_STATUS_LABELS = {
     "CONVERTED": "Convertida",
 }
 BAG_EXPENSE_CATEGORIES = [
-    # NOTA: las claves se conservan (datos existentes intactos); solo cambian etiquetas.
-    # "Recinto" es nueva y va primero para alinear con el presupuesto de Simulaciones.
-    ("RECINTO", "Recinto"),
+    # Las bolsas se cargan EXACTAMENTE igual que los gastos de las simulaciones: mismas
+    # categorías (SIM_EXPENSE_CATEGORIES) + Prorrateos. Los datos antiguos se conservan:
+    # TRANSPORTE/HOTELES legacy se agrupan en Logística/Alojamiento vía _bag_expense_display_cat.
+    ("RECINTO", "Gastos del recinto"),
+    ("RIDER", "Rider"),
     ("SONIDO_LUCES", "Producción técnica e infraestructuras"),
-    ("MUSICOS", "Músicos"),
     ("PERSONAL", "Personal"),
-    ("TRANSPORTE", "Transporte"),
-    ("HOTELES", "Hoteles"),
+    ("MUSICOS", "Músicos"),
+    ("LOGISTICA", "Logística"),
+    ("ALOJAMIENTO", "Alojamiento"),
     ("MARKETING", "Marketing y promoción"),
+    ("PERMISOS", "Permisos y licencias"),
     ("OTROS", "Otros gastos"),
     ("PRORRATEOS", "Prorrateos"),
 ]
 BAG_EXPENSE_CATEGORY_LABELS = dict(BAG_EXPENSE_CATEGORIES)
+BAG_EXPENSE_CATEGORY_ICONS = {
+    "RECINTO": "fa-building", "RIDER": "fa-list-check", "SONIDO_LUCES": "fa-sliders",
+    "PERSONAL": "fa-users-gear", "MUSICOS": "fa-guitar", "LOGISTICA": "fa-truck",
+    "ALOJAMIENTO": "fa-bed", "MARKETING": "fa-bullhorn", "PERMISOS": "fa-stamp",
+    "OTROS": "fa-shapes", "PRORRATEOS": "fa-code-branch",
+}
+# Claves legacy de bolsa → categoría de simulación equivalente (solo para AGRUPAR/mostrar).
+_BAG_LEGACY_CATEGORY_MAP = {"TRANSPORTE": "LOGISTICA", "HOTELES": "ALOJAMIENTO"}
+
+
+def _bag_expense_display_cat(cat: str | None) -> str:
+    k = (cat or "OTROS").strip().upper()
+    k = _BAG_LEGACY_CATEGORY_MAP.get(k, k)
+    return k if k in BAG_EXPENSE_CATEGORY_LABELS else "OTROS"
 BAG_DOCUMENT_TYPES = [("FACTURA", "Factura"), ("TICKET", "Ticket"), ("SIN_DOCUMENTO", "Sin factura/ticket")]
 BAG_PAYMENT_METHODS = ["Tarjeta", "Pleo", "Banco", "PayPal", "Efectivo"]
 BAG_PAYMENT_STATUS_LABELS = {
@@ -35467,7 +36326,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_promoter_requests", "public_sale_channels", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -36970,6 +37829,7 @@ def inject_personnel_globals():
         "HOME_INVITATIONS_TO_MANAGE": _home_invitations_to_manage() if request.endpoint == "home" and session.get("user_id") and "_home_invitations_to_manage" in globals() and has_access_key("invitaciones.gestionar", include_descendants=True) else [],
         "HOME_REGISTROS_PENDING": _home_registros_pending() if request.endpoint == "home" and session.get("user_id") and "_home_registros_pending" in globals() and has_access_key("registros") else [],
         "HOME_PENDING_PETICIONES": _home_pending_peticiones() if request.endpoint == "home" and session.get("user_id") and "_home_pending_peticiones" in globals() else [],
+        "HOME_PRODUCCION_PENDING": _home_produccion_pending() if request.endpoint == "home" and session.get("user_id") and "_home_produccion_pending" in globals() and has_access_key("produccion", include_descendants=True) else [],
         "HOME_AFAVOR_ALERT": _home_afavor_alert() if request.endpoint == "home" and session.get("user_id") and "_home_afavor_alert" in globals() and has_access_key("registros") else None,
         "HOME_AGENDA": _home_agenda() if request.endpoint == "home" and session.get("user_id") and "_home_agenda" in globals() else None,
         "AGENDA_ARTIST_OPTIONS": _agenda_artist_options() if request.endpoint == "home" and session.get("user_id") and "_agenda_artist_options" in globals() else [],
@@ -37086,7 +37946,7 @@ def _require_login_v2():
         return
     if session.get("user_id"):
         return
-    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -39221,7 +40081,7 @@ def production_request_convert_to_bag(request_id):
             return redirect(url_for("produccion_view", tab="solicitudes"))
         if getattr(req, "bag_id", None):
             flash("Esta solicitud ya está vinculada a una bolsa.", "info")
-            return redirect(url_for("bag_detail_view", bag_id=req.bag_id))
+            return redirect(safe_next_or(url_for("bag_detail_view", bag_id=req.bag_id)))
         artist_ids = _production_artist_ids_from_any(getattr(req, "artist_ids", None) or [])
         primary_artist_id = to_uuid(artist_ids[0]) if artist_ids else None
         snapshot = {
@@ -39254,7 +40114,7 @@ def production_request_convert_to_bag(request_id):
         req.updated_at = _now_madrid()
         session_db.commit()
         flash("Solicitud convertida en bolsa activa de producción.", "success")
-        return redirect(url_for("bag_detail_view", bag_id=bag.id))
+        return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag.id)))
     except Exception as exc:
         session_db.rollback()
         flash(f"No se pudo convertir la solicitud: {exc}", "danger")
@@ -41426,9 +42286,8 @@ def _bag_group_expenses(expenses: list[BagExpense]) -> dict[str, list[BagExpense
     for expense in expenses:
         if (getattr(expense, "status", "") or "").upper() == "ELIMINADO":
             continue
-        key = (getattr(expense, "category", "OTROS") or "OTROS").upper()
-        if key not in grouped:
-            key = "OTROS"
+        # Agrupa con las categorías de SIMULACIÓN (legacy TRANSPORTE/HOTELES incluidos).
+        key = _bag_expense_display_cat(getattr(expense, "category", "OTROS"))
         grouped[key].append(expense)
     for key in grouped:
         grouped[key].sort(key=lambda e: (getattr(e, "sort_order", 0) or 0, getattr(e, "created_at", None) or datetime.min.replace(tzinfo=TZ_MADRID)))
@@ -41689,7 +42548,7 @@ def bags_view():
             session_db.add(bag)
             session_db.commit()
             flash("Bolsa creada.", "success")
-            return redirect(url_for("bag_detail_view", bag_id=bag.id))
+            return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag.id)))
 
         tab = (request.args.get("tab") or "active").strip().lower()
         if tab not in {"active", "archived"}:
@@ -41790,67 +42649,77 @@ def bag_detail_view(bag_id):
             bag.updated_at = _now_madrid()
             session_db.commit()
             flash("Bolsa actualizada.", "success")
-            return redirect(url_for("bag_detail_view", bag_id=bag.id))
-        expenses = session_db.query(BagExpense).options(
-            joinedload(BagExpense.provider),
-            joinedload(BagExpense.provider_company),
-            selectinload(BagExpense.notes),
-            selectinload(BagExpense.alerts),
-            selectinload(BagExpense.payment_events),
-        ).filter(BagExpense.bag_id == bag.id, BagExpense.status != "ELIMINADO").order_by(BagExpense.category.asc(), BagExpense.sort_order.asc(), BagExpense.created_at.asc()).all()
-        invoices = session_db.query(InvoiceRecord).options(joinedload(InvoiceRecord.artist), joinedload(InvoiceRecord.company)).filter(InvoiceRecord.bag_id == bag.id).order_by(InvoiceRecord.issue_date.desc()).all()
-        artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
-        providers = session_db.query(Promoter).options(selectinload(Promoter.companies), selectinload(Promoter.contacts)).order_by(Promoter.nick.asc()).all()
-        companies = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
-        active_bags = session_db.query(WorkflowBag).filter(WorkflowBag.id != bag.id, WorkflowBag.is_archived == False).order_by(WorkflowBag.created_at.desc()).limit(100).all()  # noqa: E712
-        grouped_expenses = _bag_group_expenses(expenses)
-        totals = _bag_totals(expenses)
-        category_totals = {key: totals["by_category"].get(key, Decimal("0")) for key, _label in BAG_EXPENSE_CATEGORIES}
-        bag_artists = _bag_artist_rows(session_db, bag)
-        provider_email_map = {str(exp.id): _bag_provider_email_suggestions(session_db, exp) for exp in expenses}
-        provider_embargo_map = {}
-        for provider in providers:
-            orders = _active_embargo_orders_for_promoter(session_db, provider) if "_active_embargo_orders_for_promoter" in globals() else []
-            if orders:
-                provider_embargo_map[str(provider.id)] = [_embargo_order_summary(order) for order in orders]
-        expense_embargo_alerts = {str(exp.id): _expense_active_embargo_alerts(session_db, exp) for exp in expenses} if "_expense_active_embargo_alerts" in globals() else {}
-        expense_counts = {str(exp.id): _bag_expense_counts_for_badges(exp) for exp in expenses}
-        payment_symbols = {str(exp.id): _bag_payment_symbol(exp) for exp in expenses}
-        proration_bags = _bag_available_proration_bags(session_db, bag)
-        can_close_bag = bool(expenses) and all(_bag_expense_is_consolidated(exp) for exp in expenses) and (bag.status or "").upper() not in {"CERRADA", "LIQUIDADA", "ARCHIVADA"}
-        return render_template(
-            "bag_detail.html",
-            bag=bag,
-            bag_artists=bag_artists,
-            bag_artist_id_strings=[str(a.id) for a in bag_artists],
-            invoices=invoices,
-            expenses=expenses,
-            grouped_expenses=grouped_expenses,
-            totals=totals,
-            category_totals=category_totals,
-            artists=artists,
-            providers=providers,
-            companies=companies,
-            active_bags=active_bags,
-            proration_bags=proration_bags,
-            provider_email_map=provider_email_map,
-            provider_embargo_map=provider_embargo_map,
-            expense_embargo_alerts=expense_embargo_alerts,
-            expense_counts=expense_counts,
-            payment_symbols=payment_symbols,
-            can_close_bag=can_close_bag,
-            bag_status_options=BAG_STATUS_OPTIONS,
-            bag_types=BAG_TYPES,
-            bag_expense_categories=BAG_EXPENSE_CATEGORIES,
-            bag_document_types=BAG_DOCUMENT_TYPES,
-            bag_payment_methods=BAG_PAYMENT_METHODS,
-            bag_payment_status_labels=BAG_PAYMENT_STATUS_LABELS,
-            bag_covered_by_labels=BAG_COVERED_BY_LABELS,
-            bag_consolidated_statuses=BAG_CONSOLIDATED_STATUSES,
-            today=today_local(),
-        )
+            return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag.id)))
+        return render_template("bag_detail.html", **_bag_panel_context(session_db, bag))
     finally:
         session_db.close()
+
+
+def _bag_panel_context(session_db, bag) -> dict:
+    """Contexto COMPLETO del panel de bolsa (_bag_panel.html): lo usa la página /bolsas/<id>
+    y la bolsa EMBEBIDA en la pestaña Producción de la ficha de la actividad."""
+    expenses = session_db.query(BagExpense).options(
+        joinedload(BagExpense.provider),
+        joinedload(BagExpense.provider_company),
+        selectinload(BagExpense.notes),
+        selectinload(BagExpense.alerts),
+        selectinload(BagExpense.payment_events),
+    ).filter(BagExpense.bag_id == bag.id, BagExpense.status != "ELIMINADO").order_by(BagExpense.category.asc(), BagExpense.sort_order.asc(), BagExpense.created_at.asc()).all()
+    invoices = session_db.query(InvoiceRecord).options(joinedload(InvoiceRecord.artist), joinedload(InvoiceRecord.company)).filter(InvoiceRecord.bag_id == bag.id).order_by(InvoiceRecord.issue_date.desc()).all()
+    artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
+    providers = session_db.query(Promoter).options(selectinload(Promoter.companies), selectinload(Promoter.contacts)).order_by(Promoter.nick.asc()).all()
+    companies = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+    active_bags = session_db.query(WorkflowBag).filter(WorkflowBag.id != bag.id, WorkflowBag.is_archived == False).order_by(WorkflowBag.created_at.desc()).limit(100).all()  # noqa: E712
+    grouped_expenses = _bag_group_expenses(expenses)
+    totals = _bag_totals(expenses)
+    # Totales por categoría sobre la AGRUPACIÓN visible (los legacy suman en su bucket nuevo).
+    category_totals = {
+        key: sum((_money_or_zero(getattr(e, "amount_gross", 0)) for e in rows), Decimal("0"))
+        for key, rows in grouped_expenses.items()
+    }
+    bag_artists = _bag_artist_rows(session_db, bag)
+    provider_email_map = {str(exp.id): _bag_provider_email_suggestions(session_db, exp) for exp in expenses}
+    provider_embargo_map = {}
+    for provider in providers:
+        orders = _active_embargo_orders_for_promoter(session_db, provider) if "_active_embargo_orders_for_promoter" in globals() else []
+        if orders:
+            provider_embargo_map[str(provider.id)] = [_embargo_order_summary(order) for order in orders]
+    expense_embargo_alerts = {str(exp.id): _expense_active_embargo_alerts(session_db, exp) for exp in expenses} if "_expense_active_embargo_alerts" in globals() else {}
+    expense_counts = {str(exp.id): _bag_expense_counts_for_badges(exp) for exp in expenses}
+    payment_symbols = {str(exp.id): _bag_payment_symbol(exp) for exp in expenses}
+    proration_bags = _bag_available_proration_bags(session_db, bag)
+    can_close_bag = bool(expenses) and all(_bag_expense_is_consolidated(exp) for exp in expenses) and (bag.status or "").upper() not in {"CERRADA", "LIQUIDADA", "ARCHIVADA"}
+    return dict(
+        bag=bag,
+        bag_artists=bag_artists,
+        bag_artist_id_strings=[str(a.id) for a in bag_artists],
+        invoices=invoices,
+        expenses=expenses,
+        grouped_expenses=grouped_expenses,
+        totals=totals,
+        category_totals=category_totals,
+        artists=artists,
+        providers=providers,
+        companies=companies,
+        active_bags=active_bags,
+        proration_bags=proration_bags,
+        provider_email_map=provider_email_map,
+        provider_embargo_map=provider_embargo_map,
+        expense_embargo_alerts=expense_embargo_alerts,
+        expense_counts=expense_counts,
+        payment_symbols=payment_symbols,
+        can_close_bag=can_close_bag,
+        bag_status_options=BAG_STATUS_OPTIONS,
+        bag_types=BAG_TYPES,
+        bag_expense_categories=BAG_EXPENSE_CATEGORIES,
+        bag_expense_category_icons=BAG_EXPENSE_CATEGORY_ICONS,
+        bag_document_types=BAG_DOCUMENT_TYPES,
+        bag_payment_methods=BAG_PAYMENT_METHODS,
+        bag_payment_status_labels=BAG_PAYMENT_STATUS_LABELS,
+        bag_covered_by_labels=BAG_COVERED_BY_LABELS,
+        bag_consolidated_statuses=BAG_CONSOLIDATED_STATUSES,
+        today=today_local(),
+    )
 
 
 @app.post("/bolsas/<bag_id>/notes", endpoint="bag_note_create")
@@ -41865,7 +42734,7 @@ def bag_note_create(bag_id):
         body = (request.form.get("body") or "").strip()
         if not body:
             flash("La nota no puede estar vacía.", "warning")
-            return redirect(url_for("bag_detail_view", bag_id=bag.id))
+            return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag.id)))
         audit = _bag_current_user_audit()
         session_db.add(BagNote(
             bag_id=bag.id,
@@ -41879,7 +42748,7 @@ def bag_note_create(bag_id):
         flash("Nota añadida.", "success")
     finally:
         session_db.close()
-    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+    return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
 
 
 @app.post("/bolsas/<bag_id>/expenses", endpoint="bag_expense_create")
@@ -41893,7 +42762,7 @@ def bag_expense_create(bag_id):
             return redirect(url_for("bags_view"))
         if (bag.status or "").upper() in {"CERRADA", "LIQUIDADA", "ARCHIVADA"}:
             flash("La bolsa está cerrada y no admite nuevos gastos.", "warning")
-            return redirect(url_for("bag_detail_view", bag_id=bag.id))
+            return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag.id)))
         docs = [f for f in request.files.getlist("documents") if f and getattr(f, "filename", "")]
         single = request.files.get("document")
         if single and getattr(single, "filename", "") and single not in docs:
@@ -41917,7 +42786,7 @@ def bag_expense_create(bag_id):
         flash(f"No se pudo añadir el gasto: {exc}", "danger")
     finally:
         session_db.close()
-    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+    return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
 
 
 @app.post("/bolsas/<bag_id>/expenses/<expense_id>/edit", endpoint="bag_expense_edit")
@@ -41928,7 +42797,7 @@ def bag_expense_edit(bag_id, expense_id):
         expense = session_db.query(BagExpense).filter(BagExpense.id == to_uuid(expense_id), BagExpense.bag_id == to_uuid(bag_id)).first()
         if not expense:
             flash("Gasto no encontrado.", "warning")
-            return redirect(url_for("bag_detail_view", bag_id=bag_id))
+            return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
         doc = request.files.get("document")
         _bag_update_expense_from_form(session_db, expense, request.form, file_storage=doc if doc and getattr(doc, "filename", "") else None)
         embargo_hits = _expense_active_embargo_alerts(session_db, expense) if "_expense_active_embargo_alerts" in globals() else []
@@ -41941,7 +42810,7 @@ def bag_expense_edit(bag_id, expense_id):
         flash(f"No se pudo actualizar el gasto: {exc}", "danger")
     finally:
         session_db.close()
-    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+    return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
 
 
 @app.post("/bolsas/<bag_id>/expenses/<expense_id>/document", endpoint="bag_expense_document_replace")
@@ -41952,7 +42821,7 @@ def bag_expense_document_replace(bag_id, expense_id):
         expense = session_db.query(BagExpense).filter(BagExpense.id == to_uuid(expense_id), BagExpense.bag_id == to_uuid(bag_id)).first()
         if not expense:
             flash("Gasto no encontrado.", "warning")
-            return redirect(url_for("bag_detail_view", bag_id=bag_id))
+            return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
         policy = (request.form.get("replace_policy") or "replace").strip().lower()
         rect_file = request.files.get("rectification_document")
         new_file = request.files.get("document")
@@ -41982,7 +42851,7 @@ def bag_expense_document_replace(bag_id, expense_id):
         flash(f"No se pudo reemplazar el documento: {exc}", "danger")
     finally:
         session_db.close()
-    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+    return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
 
 
 @app.post("/bolsas/<bag_id>/expenses/<expense_id>/request-invoice", endpoint="bag_expense_request_invoice")
@@ -41995,7 +42864,7 @@ def bag_expense_request_invoice(bag_id, expense_id):
         bag = session_db.get(WorkflowBag, to_uuid(bag_id))
         if not expense or not bag:
             flash("Gasto no encontrado.", "warning")
-            return redirect(url_for("bag_detail_view", bag_id=bag_id))
+            return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
         recipients = []
         for value in request.form.getlist("recipients"):
             if _looks_like_email_address(value):
@@ -42059,7 +42928,7 @@ def bag_expense_request_payment(bag_id, expense_id):
         expense = session_db.query(BagExpense).filter(BagExpense.id == to_uuid(expense_id), BagExpense.bag_id == to_uuid(bag_id)).first()
         if not expense:
             flash("Gasto no encontrado.", "warning")
-            return redirect(url_for("bag_detail_view", bag_id=bag_id))
+            return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
         amount_mode = (request.form.get("amount_mode") or "TOTAL").strip().upper()
         percent = _bag_money(request.form.get("percent")) if amount_mode == "PERCENT" else None
         amount = _bag_money(request.form.get("amount")) if amount_mode == "AMOUNT" else None
@@ -42099,7 +42968,7 @@ def bag_expense_cover(bag_id, expense_id):
         expense = session_db.query(BagExpense).filter(BagExpense.id == to_uuid(expense_id), BagExpense.bag_id == to_uuid(bag_id)).first()
         if not expense:
             flash("Gasto no encontrado.", "warning")
-            return redirect(url_for("bag_detail_view", bag_id=bag_id))
+            return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
         covered_by = (request.form.get("covered_by") or "BOLSA").strip().upper()
         expense.covered_by = covered_by if covered_by in BAG_COVERED_BY_LABELS else "BOLSA"
         expense.cover_detail = (request.form.get("cover_detail") or "").strip() or None
@@ -42186,7 +43055,7 @@ def bag_expense_cover(bag_id, expense_id):
         flash(f"No se pudo aplicar la cobertura: {exc}", "danger")
     finally:
         session_db.close()
-    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+    return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
 
 
 @app.post("/bolsas/<bag_id>/expenses/<expense_id>/no-invoice", endpoint="bag_expense_no_invoice_request")
@@ -42224,7 +43093,7 @@ def bag_expense_note_create(bag_id, expense_id):
             flash("Nota añadida al gasto.", "success")
     finally:
         session_db.close()
-    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+    return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
 
 
 @app.post("/bolsas/<bag_id>/expenses/<expense_id>/alerts", endpoint="bag_expense_alert_create")
@@ -42243,7 +43112,7 @@ def bag_expense_alert_create(bag_id, expense_id):
             flash("Indica una fecha de alerta válida.", "warning")
     finally:
         session_db.close()
-    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+    return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
 
 
 @app.post("/bolsas/<bag_id>/expenses/<expense_id>/alerts/<alert_id>/done", endpoint="bag_expense_alert_done")
@@ -42259,7 +43128,7 @@ def bag_expense_alert_done(bag_id, expense_id, alert_id):
             flash("Alerta marcada como vista/ejecutada.", "success")
     finally:
         session_db.close()
-    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+    return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
 
 
 @app.post("/bolsas/<bag_id>/expenses/<expense_id>/move", endpoint="bag_expense_move")
@@ -42284,7 +43153,7 @@ def bag_expense_move(bag_id, expense_id):
         flash("Gasto movido.", "success")
     finally:
         session_db.close()
-    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+    return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
 
 
 @app.post("/bolsas/<bag_id>/expenses/<expense_id>/delete", endpoint="bag_expense_delete")
@@ -42300,7 +43169,7 @@ def bag_expense_delete(bag_id, expense_id):
             flash("Gasto eliminado.", "success")
     finally:
         session_db.close()
-    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+    return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
 
 
 @app.post("/bolsas/<bag_id>/prorrateos", endpoint="bag_proration_add")
@@ -42312,11 +43181,11 @@ def bag_proration_add(bag_id):
         source = session_db.get(WorkflowBag, _safe_uuid(request.form.get("source_bag_id")))
         if not bag or not source:
             flash("Bolsa de prorrateo no encontrada.", "warning")
-            return redirect(url_for("bag_detail_view", bag_id=bag_id))
+            return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
         amount = _bag_money(request.form.get("amount"))
         if amount <= 0:
             flash("Indica el importe a prorratear.", "warning")
-            return redirect(url_for("bag_detail_view", bag_id=bag_id))
+            return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
         form_proxy = request.form.copy()
         form_proxy = dict(form_proxy)
         form_proxy["category"] = "PRORRATEOS"
@@ -42336,7 +43205,7 @@ def bag_proration_add(bag_id):
         flash(f"No se pudo añadir el prorrateo: {exc}", "danger")
     finally:
         session_db.close()
-    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+    return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
 
 
 @app.post("/bolsas/<bag_id>/close", endpoint="bag_close")
@@ -42351,11 +43220,11 @@ def bag_close(bag_id):
         expenses = session_db.query(BagExpense).filter(BagExpense.bag_id == bag.id, BagExpense.status != "ELIMINADO").all()
         if not expenses:
             flash("No se puede cerrar una bolsa sin gastos.", "warning")
-            return redirect(url_for("bag_detail_view", bag_id=bag.id))
+            return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag.id)))
         pending = [e for e in expenses if not _bag_expense_is_consolidated(e)]
         if pending:
             flash("No se puede cerrar: hay gastos sin consolidar.", "warning")
-            return redirect(url_for("bag_detail_view", bag_id=bag.id))
+            return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag.id)))
         bag.status = "CERRADA"
         bag.closed_at = _now_madrid()
         bag.closed_by_user_id = _bag_current_user_audit()["user_id"]
@@ -42365,7 +43234,7 @@ def bag_close(bag_id):
         flash("Bolsa cerrada y enviada a administración para liquidación.", "success")
     finally:
         session_db.close()
-    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+    return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
 
 
 @app.post("/bolsas/<bag_id>/archive")
@@ -42936,16 +43805,29 @@ def _concert_production_panel(session_db, concert):
     net_total = sum([_money_or_zero(getattr(item, "amount_net", 0)) for item in budget_items], Decimal("0"))
     gross_total = sum([_money_or_zero(getattr(item, "amount_gross", 0)) for item in budget_items], Decimal("0"))
     roadmap = _json_loads_safe(getattr(concert, "roadmap_payload", None), {})
-    # Plantillas de gastos guardadas del ARTISTA, para cargarlas como base del presupuesto.
+    # Plantillas de gastos del ARTISTA y del RECINTO (para cargarlas al abrir la bolsa o
+    # como base del presupuesto; se pueden COMBINAR ambas).
     artist_templates = []
+    venue_templates = []
     try:
         for t in _expense_templates_for(session_db, "ARTIST", concert.artist_id):
             artist_templates.append({"id": str(t.id), "name": (t.name or "Plantilla"), "count": len(t.items or [])})
     except Exception:
         artist_templates = []
+    try:
+        if getattr(concert, "venue_id", None):
+            for t in _expense_templates_for(session_db, "VENUE", concert.venue_id):
+                venue_templates.append({"id": str(t.id), "name": (t.name or "Plantilla"), "count": len(t.items or [])})
+    except Exception:
+        venue_templates = []
+    # Presupuesto agrupado con las categorías de SIMULACIÓN (misma estética que sus gastos).
+    budget_by_cat = {}
+    for item in budget_items:
+        budget_by_cat.setdefault(_bag_expense_display_cat(getattr(item, "category", "OTROS")), []).append(item)
     return {
         "bag": bag,
         "budget_items": budget_items,
+        "budget_by_cat": budget_by_cat,
         "budget_net_total": net_total,
         "budget_gross_total": gross_total,
         "has_budget": bool(budget_items),
@@ -42953,6 +43835,7 @@ def _concert_production_panel(session_db, concert):
         "roadmap": roadmap if isinstance(roadmap, dict) else {},
         "can_open_bag": bag is None,
         "artist_templates": artist_templates,
+        "venue_templates": venue_templates,
     }
 
 
@@ -43354,17 +44237,80 @@ def concert_production_open_bag(cid):
         )
         if not concert:
             abort(404)
-        bag = _create_bag_for_concert(session_db, concert, import_budget=bool(request.form.get('import_budget')))
+        import_budget = bool(request.form.get('import_budget'))
+        bag = _create_bag_for_concert(session_db, concert, import_budget=import_budget)
+        # Plantillas de gastos elegidas al abrir (del artista, del recinto o AMBAS combinadas).
+        loaded_tpl = 0
+        for raw in request.form.getlist('expense_template_ids[]'):
+            tpl = session_db.get(ExpenseTemplate, to_uuid(raw)) if to_uuid(raw) else None
+            if tpl:
+                loaded_tpl += _bag_load_expense_template(session_db, bag, tpl)
+        # El presupuesto se FUSIONA con la bolsa y desaparece como presupuesto.
+        if import_budget:
+            for item in (session_db.query(ConcertBudgetItem)
+                         .filter(ConcertBudgetItem.concert_id == concert.id,
+                                 ConcertBudgetItem.status != 'ELIMINADO').all()):
+                item.status = 'ELIMINADO'
         _ensure_production_request_for_concert(session_db, concert)
         session_db.commit()
-        flash('Bolsa de producción abierta y vinculada a la actividad.', 'success')
-        return redirect(url_for('bag_detail_view', bag_id=bag.id))
+        msg = 'Bolsa de producción abierta y vinculada a la actividad.'
+        if loaded_tpl:
+            msg += f' Se cargaron {loaded_tpl} gastos de plantilla.'
+        if import_budget:
+            msg += ' El presupuesto se ha fusionado con la bolsa.'
+        flash(msg, 'success')
+        # La bolsa se gestiona DESDE LA FICHA (integrada), no navegando a /bolsas.
+        return redirect(url_for('concert_detail_view', cid=cid, tab='produccion', ptab='bolsa'))
     except Exception as exc:
         session_db.rollback()
         flash(f'Error abriendo la bolsa: {exc}', 'danger')
         return redirect(url_for('concert_detail_view', cid=cid, tab='produccion'))
     finally:
         session_db.close()
+
+
+def _bag_load_expense_template(session_db, bag, template) -> int:
+    """Vuelca una plantilla de gastos (ExpenseTemplate de artista/recinto) como gastos de la
+    bolsa. Los variables se conservan como línea informativa (importe 0) en su categoría."""
+    added = 0
+    base_order = 1000
+    for it in sorted((template.items or []), key=lambda x: (x.sort_order or 0)):
+        qty = _sim_d(getattr(it, 'quantity', 1) or 1)
+        unit = _sim_d(getattr(it, 'amount_net', 0) or 0)
+        total = unit * (qty if qty > 0 else Decimal('1'))
+        iva = _sim_d(getattr(it, 'iva_pct', 21) or 0)
+        concept = (it.concept or '').strip() or 'Gasto'
+        if qty and qty != 1:
+            concept = f"{concept} (x{qty.normalize()})"
+        if getattr(it, 'is_variable', False):
+            vt = (it.var_type or '').upper()
+            vdesc = f"{_sim_d(it.var_value or 0)}%" if vt == 'PERCENT' else f"{_sim_d(it.var_value or 0)} €/entrada"
+            concept = f"{concept} (variable: {vdesc})"
+            net = tax = gross = Decimal('0')
+        elif getattr(it, 'iva_exempt', False):
+            net = total
+            tax = Decimal('0')
+            gross = total
+        elif getattr(it, 'includes_iva', False):
+            gross = total
+            net = (total / (Decimal('1') + iva / Decimal('100'))) if iva else total
+            tax = gross - net
+        else:
+            net = total
+            tax = total * iva / Decimal('100') if iva else Decimal('0')
+            gross = net + tax
+        session_db.add(BagExpense(
+            bag_id=bag.id,
+            category=_bag_expense_display_cat(getattr(it, 'category', 'OTROS')),
+            concept=concept,
+            document_type='SIN_DOCUMENTO',
+            amount_net=net.quantize(Decimal('0.01')),
+            amount_tax=tax.quantize(Decimal('0.01')),
+            amount_gross=gross.quantize(Decimal('0.01')),
+            sort_order=base_order + added * 10,
+        ))
+        added += 1
+    return added
 
 
 @app.post('/conciertos/<cid>/produccion/presupuesto', endpoint='concert_budget_item_create')
@@ -43794,7 +44740,7 @@ def action_detail_view(action_id):
                 _ensure_production_request_for_action(session_db, action)
                 session_db.commit()
                 flash('Bolsa abierta para la acción.', 'success')
-                return redirect(url_for('bag_detail_view', bag_id=bag.id))
+                return redirect(safe_next_or(url_for('bag_detail_view', bag_id=bag.id)))
             action.title = (request.form.get('title') or action.title).strip()
             action.start_date = parse_optional_date(request.form.get('start_date')) or action.start_date
             action.end_date = parse_optional_date(request.form.get('end_date')) or action.end_date
@@ -48971,6 +49917,34 @@ def _invitation_parse_ticket_kind_and_guest_mode(raw_kind: str | None, fallback_
     if value not in {"PDF_UNNUMBERED", "PDF_NUMBERED"}:
         value = "PDF_UNNUMBERED"
     return value, None
+
+
+def _invitation_ficha_header_counts(session_db, concert: Concert) -> dict:
+    """Contadores de la pestaña Invitaciones de la ficha: Por contrato (lo pactado en la ficha
+    de contratación) · Subidas (entradas subidas al back office) · Solicitadas (comprometidas +
+    solicitadas activas) · Total (subidas − solicitadas)."""
+    categories = _invitation_get_categories(session_db, concert, ensure_defaults=False)
+    if categories:
+        contract = sum(_safe_int(c.qty_contract) for c in categories)
+    else:
+        contract = sum(_safe_int(row.get("qty_contract")) for row in _invitation_category_legacy_rows(concert))
+    uploaded = int(
+        session_db.query(func.count(InvitationTicket.id))
+        .filter(InvitationTicket.concert_id == concert.id)
+        .scalar() or 0
+    )
+    commitments = session_db.query(InvitationCommitment).filter(InvitationCommitment.concert_id == concert.id).filter(InvitationCommitment.status != "ANULADAS").all()
+    requests_rows = session_db.query(InvitationRequest).filter(InvitationRequest.concert_id == concert.id).all()
+    solicitadas = (
+        sum(_invitation_total_qty(_json_dict(x.quantities_json)) for x in commitments)
+        + sum(_invitation_total_qty(_json_dict(x.quantities_json)) for x in requests_rows if (x.status or "") in INVITATION_PENDING_COUNT_STATUSES)
+    )
+    return {
+        "contract": contract,
+        "uploaded": uploaded,
+        "requested": solicitadas,
+        "total": uploaded - solicitadas,
+    }
 
 
 def _invitation_event_counts(session_db, concert: Concert) -> dict:
@@ -60216,6 +61190,16 @@ def cron_enterticket_refresh():
     key = (request.args.get("key") or "").strip()
     if not expected or key != expected:
         return ("forbidden", 403)
+    # Aprovechamos este cron para los recordatorios semanales de LINKS DE VENTA al promotor
+    # (best-effort; el gating semanal por last_sent_at lo hace la propia función).
+    try:
+        _s = db()
+        try:
+            _process_sale_channel_reminders(_s)
+        finally:
+            _s.close()
+    except Exception:
+        app.logger.exception('[canales-venta] recordatorios semanales fallaron')
     if not et_api.enterticket_configured():
         return ("enterticket no configurado", 200)
     threading.Thread(target=_et_sync_all_bg, daemon=True).start()

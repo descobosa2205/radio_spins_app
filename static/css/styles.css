@@ -678,6 +678,48 @@ img.img-error-pending{ visibility: hidden; }
   background: #f8fbff !important;
 }
 
+/* ===== Ficha de actividad: accesos rápidos + resumen visual ===== */
+.ficha-quick{
+  display:flex; flex-wrap:wrap; gap:.5rem;
+  padding:.6rem .9rem; margin-top:.6rem;
+  background:#fff; border:1px solid #e5e8ee; border-radius:14px;
+  box-shadow:0 1px 3px rgba(15,23,42,.05);
+}
+.ficha-summary{
+  display:flex; flex-wrap:wrap; gap:.6rem;
+}
+.fs-item{
+  background:#fff; border:1px solid #e5e8ee; border-radius:14px;
+  padding:.55rem .8rem; min-width:130px; flex:0 1 auto;
+  box-shadow:0 1px 3px rgba(15,23,42,.05);
+}
+.fs-item--wide{ min-width:240px; }
+.fs-item__label{
+  font-size:.68rem; text-transform:uppercase; letter-spacing:.03em; color:#8a909a;
+  display:flex; align-items:center; gap:.35rem; margin-bottom:.25rem;
+}
+.fs-item__label i{ color: var(--brand-primary); }
+.fs-item__value{ font-size:.92rem; }
+.fs-item[data-artist-link]{ cursor:pointer; }
+.cal-tile{
+  display:inline-flex; flex-direction:column; align-items:center; justify-content:center;
+  border:1px solid #e5e8ee; border-radius:10px; overflow:hidden; min-width:58px; background:#fff;
+}
+.cal-tile__day{ font-size:1.25rem; font-weight:800; line-height:1.1; padding:.1rem .5rem 0; }
+.cal-tile__month{
+  font-size:.62rem; font-weight:700; letter-spacing:.06em; color:#fff;
+  background:var(--brand-primary); width:100%; text-align:center; padding:.1rem .4rem;
+}
+
+/* Tarjetas «bocadillo» de categoría de gastos (promovidas de simulacion_detail.html para
+   reutilizarlas en bolsas y presupuesto de la ficha con la MISMA estética). */
+.sim-cat-card{ border:1px solid #f3d3d6; border-radius:16px; overflow:hidden; margin-bottom:1rem; background:#fff; }
+.sim-cat-card__head{ display:flex; align-items:center; justify-content:space-between; gap:.5rem; padding:.55rem .9rem; background:#fdECED; color:#E33D48; font-weight:700; }
+.sim-cat-card__head i{ width:1.3rem; text-align:center; }
+.sim-cat-card__body{ padding:.75rem .9rem; }
+.sim-cat-card__foot{ display:flex; justify-content:space-between; align-items:center; padding:.45rem .9rem; border-top:1px dashed #f3d3d6; background:#fffafa; font-size:.85rem; }
+.sim-cat-card.drag-over{ border-color:#E33D48; box-shadow:0 0 0 .15rem rgba(227,61,72,.15); }
+
 /* Asistente de actividad: «viñetas» de pregunta dentro de cada paso (una tarjeta por
    bloque de preguntas, para distinguir visualmente cada tema aunque compartan paso). */
 .wizard-card{

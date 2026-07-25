@@ -4725,4 +4725,13 @@
   });
 </script>
 {% endif %}
+{% if request.args.get('open') in ['commitment', 'request'] %}
+<script>
+  // Auto-apertura desde la ficha del evento (botones «Añadir compromiso»/«Añadir petición»).
+  document.addEventListener('DOMContentLoaded', function(){
+    var el = document.getElementById({{ "'commitmentModal'" if request.args.get('open') == 'commitment' else "'invitationRequestModal'" }});
+    if (el && window.bootstrap) bootstrap.Modal.getOrCreateInstance(el).show();
+  });
+</script>
+{% endif %}
 {% endblock %}

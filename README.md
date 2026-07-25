@@ -189,6 +189,23 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-07-25 — Alta de actividades: retoques tras la primera revisión
+
+- **Viñetas con más sombra** para que cada bloque de preguntas se distinga mejor.
+- **«¿Tiene caché?»** como pregunta visual al inicio del paso de caché: solo al marcar «Sí» se
+  despliegan los cachés y las formas de pago (por defecto «Sí» en actividades vendidas/con caché).
+- **Socios y comisionistas** se mueven al paso del promotor, y su selector pasa a ser una **barra de
+  búsqueda de terceros y medios** con foto/logo en vivo y alta rápida (los medios se espejan a
+  tercero automáticamente).
+- **Cartelería** pasa a ser un **paso independiente en penúltima posición**, con **formatos
+  personalizados** ilimitados (chips), **«otros logos»** en texto libre y **fecha máxima de entrega
+  obligatoria** al solicitar (también en la ficha). El **estado** de la actividad pasa a ser el
+  primer punto del último paso (anuncio).
+- **Arreglado**: los detalles de «El promotor cubre otros gastos» no se desplegaban al marcar cada
+  tipo — las tarjetas con checkbox dentro de `<label>` sufrían un doble toggle (el manual de
+  `initVisualChoiceCards` + el nativo del label) que las dejaba como estaban; afectaba también a
+  «Aforo libre» y a los formatos/logos de cartelería.
+
 ### 2026-07-25 — Alta de actividades: asistente rediseñado por completo + ficha a juego
 
 - **Asistente «+ Actividad»** (`_concert_wizard_modal.html`, reescrito): pasos con **viñetas**

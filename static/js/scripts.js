@@ -1312,6 +1312,11 @@ function initVisualChoiceCards(){
     card.addEventListener('click', (ev) => {
       if (ev.target && ev.target.closest('a,button,select,textarea')) return;
       if (input.disabled) return;
+      // En tarjetas <label>, el navegador YA reenvía el clic al checkbox (lo marca y dispara
+      // change): togglearlo también aquí producía un DOBLE toggle que lo dejaba como estaba
+      // (los detalles de «promotor cubre otros gastos» no se abrían). Los radios son
+      // idempotentes (checked=true dos veces), así que se mantienen igual.
+      if (card.tagName === 'LABEL' && input.type === 'checkbox') return;
       if (input.type === 'radio') input.checked = true;
       else if (ev.target !== input) input.checked = !input.checked;
       input.dispatchEvent(new Event('change', { bubbles: true }));

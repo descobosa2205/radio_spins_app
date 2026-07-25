@@ -707,6 +707,8 @@
                 <div class="col-12">
                   <label class="form-label">Formatos que se piden</label>
                   {% set req_formats = (artwork_request.requested_formats if artwork_request else []) or [] %}
+                  {% set catalog_keys = [] %}
+                  {% for key, label, aspect in ARTWORK_FORMAT_CHOICES %}{% if catalog_keys.append(key) %}{% endif %}{% endfor %}
                   <div class="row g-2">
                     {% for key, label, aspect in ARTWORK_FORMAT_CHOICES %}
                       <div class="col-6 col-md-4 col-xl-2">
@@ -717,6 +719,10 @@
                         </label>
                       </div>
                     {% endfor %}
+                  </div>
+                  <div class="mt-2">
+                    <label class="form-label small">Formatos personalizados <span class="text-muted">(separados por comas, tantos como quieras)</span></label>
+                    <input class="form-control" name="artwork_formats_custom_text" value="{{ req_formats|reject('in', catalog_keys)|join(', ') }}" placeholder="MUPI 120x180, pantalla LED del recinto…">
                   </div>
                 </div>
                 <div class="col-12 col-xl-6">
@@ -754,8 +760,9 @@
                   <textarea class="form-control" name="other_notes" rows="3" placeholder="Indicaciones adicionales para diseño, copys, tamaños, prioridades, etc.">{{ artwork_request.other_notes if artwork_request else '' }}</textarea>
                 </div>
                 <div class="col-12 col-xl-4">
-                  <label class="form-label">Fecha máxima de entrega</label>
+                  <label class="form-label">Fecha máxima de entrega <span class="text-danger">*</span></label>
                   <input type="date" class="form-control" name="delivery_deadline" value="{{ artwork_request.delivery_deadline.isoformat() if artwork_request and artwork_request.delivery_deadline else '' }}">
+                  <div class="form-text">Obligatoria al solicitar carteles a diseño.</div>
                 </div>
               </div>
             </div>
@@ -1520,6 +1527,9 @@ document.addEventListener('DOMContentLoaded', function(){
       artworkForm.querySelectorAll('.artwork-ours-fields').forEach(function(el){
         el.style.display = showOurs ? '' : 'none';
       });
+      // La fecha máxima de entrega es obligatoria al solicitar a diseño (solo si lo hacemos nosotros).
+      const deadline = artworkForm.querySelector('input[name="delivery_deadline"]');
+      if (deadline) deadline.required = showOurs;
     };
     artworkForm.querySelectorAll('input[name="handled_by"]').forEach(function(radio){
       radio.addEventListener('change', toggle);

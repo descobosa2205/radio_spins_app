@@ -2597,9 +2597,33 @@ ARTWORK_FORMAT_LABELS = {key: label for key, label, _aspect in ARTWORK_FORMAT_CH
 def _artwork_requested_format_labels(row) -> list[str]:
     out = []
     for key in list(getattr(row, "requested_formats", None) or []):
-        k = str(key or "").strip().upper()
-        if k:
-            out.append(ARTWORK_FORMAT_LABELS.get(k, k.title()))
+        raw = str(key or "").strip()
+        if not raw:
+            continue
+        # Claves del catálogo → etiqueta; formatos PERSONALIZADOS → tal cual se escribieron.
+        out.append(ARTWORK_FORMAT_LABELS.get(raw.upper(), raw))
+    return out
+
+
+def _parse_artwork_formats(form) -> list[str]:
+    """Formatos de cartelería marcados: claves del catálogo + formatos PERSONALIZADOS
+    (chips `artwork_formats_custom[]` del asistente o texto separado por comas de la ficha)."""
+    out = []
+    for k in form.getlist("artwork_formats[]"):
+        key = (k or "").strip().upper()
+        if key in ARTWORK_FORMAT_LABELS and key not in out:
+            out.append(key)
+    customs = list(form.getlist("artwork_formats_custom[]"))
+    raw_text = (form.get("artwork_formats_custom_text") or "").strip()
+    if raw_text:
+        customs += [p for p in raw_text.split(",")]
+    seen = {c.casefold() for c in out}
+    for c in customs:
+        c = (c or "").strip()[:80]
+        if not c or c.casefold() in seen or c.upper() in ARTWORK_FORMAT_LABELS:
+            continue
+        seen.add(c.casefold())
+        out.append(c)
     return out
 
 
@@ -26039,7 +26063,7 @@ def concert_artwork_save(cid):
 
         row.group_company_ids = _parse_uuid_list(request.form.getlist('group_company_ids[]'))
         row.ticketer_ids = _parse_uuid_list(request.form.getlist('ticketer_ids[]'))
-        row.requested_formats = [k for k in request.form.getlist('artwork_formats[]') if (k or '').strip().upper() in ARTWORK_FORMAT_LABELS]
+        row.requested_formats = _parse_artwork_formats(request.form)
         row.logo_notes = (request.form.get('logo_notes') or '').strip() or None
         row.ticketer_notes = (request.form.get('ticketer_notes') or '').strip() or None
         row.other_notes = (request.form.get('other_notes') or '').strip() or None
@@ -31759,6 +31783,7 @@ def _performance_formation_label(perf: dict | None) -> str:
 def _parse_wizard_promoter_share_rows(form) -> list[dict]:
     rows = []
     ids = form.getlist('wizard_partner_promoter_id[]')
+    kinds = form.getlist('wizard_partner_kind[]')
     company_ids = form.getlist('wizard_partner_company_id[]')
     pcts = form.getlist('wizard_partner_pct[]')
     bases = form.getlist('wizard_partner_base[]')
@@ -31769,8 +31794,10 @@ def _parse_wizard_promoter_share_rows(form) -> list[dict]:
         pct = _parse_optional_decimal(pcts[i] if i < len(pcts) else None)
         if pct is None:
             continue
+        kind = ((kinds[i] if i < len(kinds) else '') or 'promoter').strip().lower()
         rows.append({
             'id': raw_id,
+            'kind': 'media' if kind == 'media' else 'promoter',
             'company_id': (company_ids[i] if i < len(company_ids) else '').strip() or None,
             'pct': pct,
             'pct_base': _norm_base(bases[i] if i < len(bases) else None),
@@ -31783,9 +31810,29 @@ def _parse_wizard_promoter_share_rows(form) -> list[dict]:
     return list(dedup.values())
 
 
+def _resolve_wizard_entity_rows(session, rows) -> list[dict]:
+    """Los socios/comisionistas del asistente pueden ser MEDIOS (buscador mixto): se espejan
+    a su tercero (`_ensure_promoter_for_media`) porque las tablas apuntan a promoters."""
+    out = []
+    for row in rows or []:
+        if (row.get('kind') or 'promoter') == 'media':
+            try:
+                mirrored = _ensure_promoter_for_media(session, to_uuid(row.get('id')))
+            except Exception:
+                mirrored = None
+            if not mirrored:
+                continue
+            row = dict(row)
+            row['id'] = str(mirrored.id)
+            row['company_id'] = None
+        out.append(row)
+    return out
+
+
 def _parse_wizard_zone_rows(form) -> list[dict]:
     rows = []
     ids = form.getlist('wizard_zone_promoter_id[]')
+    kinds = form.getlist('wizard_zone_kind[]')
     company_ids = form.getlist('wizard_zone_company_id[]')
     modes = form.getlist('wizard_zone_mode[]')
     amounts = form.getlist('wizard_zone_amount[]')
@@ -31796,6 +31843,8 @@ def _parse_wizard_zone_rows(form) -> list[dict]:
         raw_id = (raw_id or '').strip()
         if not raw_id:
             continue
+        kind = ((kinds[i] if i < len(kinds) else '') or 'promoter').strip().lower()
+        kind = 'media' if kind == 'media' else 'promoter'
         mode = (modes[i] if i < len(modes) else 'PERCENT').strip().upper()
         if mode not in {'PERCENT', 'FIXED'}:
             mode = 'PERCENT'
@@ -31805,6 +31854,7 @@ def _parse_wizard_zone_rows(form) -> list[dict]:
                 continue
             rows.append({
                 'id': raw_id,
+                'kind': kind,
                 'company_id': (company_ids[i] if i < len(company_ids) else '').strip() or None,
                 'commission_type': 'AMOUNT',
                 'commission_pct': None,
@@ -31819,6 +31869,7 @@ def _parse_wizard_zone_rows(form) -> list[dict]:
                 continue
             rows.append({
                 'id': raw_id,
+                'kind': kind,
                 'company_id': (company_ids[i] if i < len(company_ids) else '').strip() or None,
                 'commission_type': 'PERCENT',
                 'commission_pct': pct,
@@ -32158,8 +32209,8 @@ def concert_wizard_create():
             except Exception:
                 pass
 
-        _replace_concert_promoter_shares(session, concert.id, _parse_wizard_promoter_share_rows(request.form))
-        _replace_concert_zone_agents(session, concert.id, _parse_wizard_zone_rows(request.form))
+        _replace_concert_promoter_shares(session, concert.id, _resolve_wizard_entity_rows(session, _parse_wizard_promoter_share_rows(request.form)))
+        _replace_concert_zone_agents(session, concert.id, _resolve_wizard_entity_rows(session, _parse_wizard_zone_rows(request.form)))
         _replace_concert_company_shares(session, concert.id, [])
 
         cache_rows = _parse_cache_rows(
@@ -32199,7 +32250,9 @@ def concert_wizard_create():
                 artwork_row.requested_at = now
                 artwork_row.group_company_ids = _parse_uuid_list(request.form.getlist('artwork_company_ids[]'))
                 artwork_row.ticketer_ids = _parse_uuid_list(request.form.getlist('artwork_ticketer_ids[]'))
-                artwork_row.requested_formats = [k for k in request.form.getlist('artwork_formats[]') if (k or '').strip().upper() in ARTWORK_FORMAT_LABELS]
+                artwork_row.requested_formats = _parse_artwork_formats(request.form)
+                logo_others = (request.form.get('artwork_logo_others') or '').strip()
+                artwork_row.logo_notes = f'Otros logos: {logo_others}' if logo_others else None
                 artwork_row.other_notes = (request.form.get('artwork_notes') or '').strip() or None
                 artwork_row.delivery_deadline = parse_optional_date(request.form.get('artwork_deadline'))
                 artwork_send = True

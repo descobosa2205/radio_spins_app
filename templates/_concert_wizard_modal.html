@@ -320,10 +320,87 @@
                 </div>
               </div>
             </div>
+
+            {# Socios y comisionistas (en el mismo paso que el promotor; ocultos en no-concierto gratuito). #}
+            <div id="wizardPartnersZone" data-wz-panel>
+              <div class="wizard-card">
+                <div class="wizard-card__title"><i class="fa fa-handshake"></i>¿Hay algún socio o colaborador?</div>
+                <div class="row g-3 mb-2">
+                  <div class="col-6 col-md-3">
+                    <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                      <input class="form-check-input visually-hidden wizard-partners-radio" type="radio" name="has_partners" value="1">
+                      <i class="fa fa-people-arrows d-block fs-3 mb-2 text-dark"></i>
+                      <span class="fw-semibold small">Sí, hay socios</span>
+                    </label>
+                  </div>
+                  <div class="col-6 col-md-3">
+                    <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                      <input class="form-check-input visually-hidden wizard-partners-radio" type="radio" name="has_partners" value="0" checked>
+                      <i class="fa fa-user d-block fs-3 mb-2 text-dark"></i>
+                      <span class="fw-semibold small">No</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="d-none" data-wz-panel id="wizardPartnersPanel">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div class="text-muted small">Busca el tercero o el medio, elige su sociedad y el porcentaje que le corresponde.</div>
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="wizardAddPartnerRow()"><i class="fa fa-plus"></i> Agregar socio</button>
+                  </div>
+                  <div id="wizardPartnerRows"></div>
+                </div>
+              </div>
+              <div class="wizard-card">
+                <div class="wizard-card__title"><i class="fa fa-user-tag"></i>¿Hay comisionistas?</div>
+                <div class="row g-3 mb-2">
+                  <div class="col-6 col-md-3">
+                    <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                      <input class="form-check-input visually-hidden wizard-zones-radio" type="radio" name="has_zone_agents" value="1">
+                      <i class="fa fa-percent d-block fs-3 mb-2 text-dark"></i>
+                      <span class="fw-semibold small">Sí, hay comisionista</span>
+                    </label>
+                  </div>
+                  <div class="col-6 col-md-3">
+                    <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                      <input class="form-check-input visually-hidden wizard-zones-radio" type="radio" name="has_zone_agents" value="0" checked>
+                      <i class="fa fa-ban d-block fs-3 mb-2 text-dark"></i>
+                      <span class="fw-semibold small">No</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="d-none" data-wz-panel id="wizardZonesPanel">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div class="text-muted small">Busca el tercero o el medio. Importe fijo o porcentaje sobre bruto, neto o beneficio.</div>
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="wizardAddZoneRow()"><i class="fa fa-plus"></i> Agregar comisionista</button>
+                  </div>
+                  <div id="wizardZoneRows"></div>
+                </div>
+              </div>
+            </div>
           </section>
 
           {# ============================ PASO 6 (direct) · Caché ============================ #}
           <section class="wizard-step" data-step="6" data-mode="direct" id="wizardCacheStep">
+            <div class="wizard-card" id="wizardHasCacheCard">
+              <div class="wizard-card__title"><i class="fa fa-coins"></i>¿La actividad tiene caché?</div>
+              <div class="row g-3">
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-hascache-radio" type="radio" name="has_cache" value="1">
+                    <i class="fa fa-coins d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">Sí, con caché</span>
+                  </label>
+                </div>
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-hascache-radio" type="radio" name="has_cache" value="0" checked>
+                    <i class="fa fa-circle-xmark d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">Sin caché</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div class="d-none" data-wz-panel id="wizardCacheOptions">
             <div class="wizard-card" id="wizardCacheCard">
               <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
                 <div class="wizard-card__title mb-0"><i class="fa fa-coins"></i>Cachés</div>
@@ -348,6 +425,7 @@
                 <button type="button" class="btn btn-sm btn-outline-success d-none" id="wzAddRemainingBtn"><i class="fa fa-wand-magic-sparkles me-1"></i>Añadir pago por la cantidad restante</button>
               </div>
             </div>
+            </div><!-- /wizardCacheOptions -->
 
             <div class="wizard-card">
               <div class="wizard-card__title"><i class="fa fa-hand-holding-heart"></i>¿El promotor cubre otros gastos?</div>
@@ -415,22 +493,10 @@
                 {% endfor %}
               </div>
             </div>
+          </section>
 
-            <div class="wizard-card">
-              <div class="wizard-card__title"><i class="fa fa-flag"></i>Estado de la actividad</div>
-              <div class="row g-2">
-                {% for value, icon, lbl in [('BORRADOR','fa-pencil','Borrador'),('HABLADO','fa-comments','Hablado'),('RESERVADO','fa-hourglass-half','Reservado'),('CONFIRMADO','fa-circle-check','Confirmado')] %}
-                <div class="col-6 col-md-3">
-                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
-                    <input class="form-check-input visually-hidden" type="radio" name="status" value="{{ value }}" {% if loop.first %}checked{% endif %}>
-                    <i class="fa {{ icon }} d-block fs-3 mb-2 text-dark"></i>
-                    <span class="fw-semibold small">{{ lbl }}</span>
-                  </label>
-                </div>
-                {% endfor %}
-              </div>
-            </div>
-
+          {# ============================ PASO 7 (direct) · Cartelería (penúltimo) ============================ #}
+          <section class="wizard-step" data-step="7" data-mode="direct">
             <div class="wizard-card">
               <div class="wizard-card__title"><i class="fa fa-palette"></i>Cartelería</div>
               <input type="hidden" name="artwork_choice" id="wizard_artwork_choice" value="">
@@ -480,8 +546,21 @@
                     </div>
                     {% endfor %}
                   </div>
+                  {# Formatos PERSONALIZADOS: tantos como se quiera, sobre la marcha. #}
+                  <div class="row g-2 mb-3 align-items-end">
+                    <div class="col-lg-5">
+                      <label class="form-label small">Formato personalizado <span class="text-muted">(añade todos los que quieras)</span></label>
+                      <div class="input-group">
+                        <input class="form-control" id="wizardCustomFormatInput" placeholder="Ej: MUPI 120x180, pantalla LED del recinto…">
+                        <button type="button" class="btn btn-outline-primary" id="wizardCustomFormatAdd"><i class="fa fa-plus me-1"></i>Añadir formato</button>
+                      </div>
+                    </div>
+                    <div class="col-lg-7">
+                      <div class="d-flex flex-wrap gap-2" id="wizardCustomFormats"></div>
+                    </div>
+                  </div>
                   <div class="fw-semibold small text-muted mb-1">Logos que deben incluirse</div>
-                  <div class="row g-2 mb-3">
+                  <div class="row g-2 mb-2">
                     {% for co in companies %}
                     <div class="col-6 col-md-4 col-lg-3">
                       <label class="activity-choice-card border rounded p-2 d-flex gap-2 align-items-center h-100 w-100 bg-white">
@@ -492,74 +571,25 @@
                     </div>
                     {% endfor %}
                   </div>
+                  <div class="row g-2 mb-3">
+                    <div class="col-lg-6">
+                      <label class="form-label small">Otros logos <span class="text-muted">(escribe sus nombres)</span></label>
+                      <input class="form-control" name="artwork_logo_others" placeholder="Ayuntamiento, patrocinador X, festival Y…">
+                    </div>
+                  </div>
                   <div class="row g-3">
                     <div class="col-lg-8">
                       <label class="form-label">Notas sobre la cartelería</label>
                       <textarea class="form-control" name="artwork_notes" rows="2" placeholder="Copys, prioridades, referencias…"></textarea>
                     </div>
                     <div class="col-lg-4">
-                      <label class="form-label">Fecha máxima de entrega <span class="text-muted">(opcional)</span></label>
-                      <input type="date" class="form-control" name="artwork_deadline">
+                      <label class="form-label">Fecha máxima de entrega <span class="text-danger">*</span></label>
+                      <input type="date" class="form-control" name="artwork_deadline" id="wizard_artwork_deadline">
+                      <div class="form-text">Obligatoria al solicitar carteles.</div>
                     </div>
                   </div>
                   <div class="form-text mt-2"><i class="fa fa-circle-info me-1"></i>Al crear la actividad se generará automáticamente la petición de carteles y se enviará a diseño.</div>
                 </div>
-              </div>
-            </div>
-          </section>
-
-          {# ============================ PASO 7 (direct) · Socios y comisionistas ============================ #}
-          <section class="wizard-step" data-step="7" data-mode="direct">
-            <div class="wizard-card">
-              <div class="wizard-card__title"><i class="fa fa-handshake"></i>¿Hay algún socio o colaborador?</div>
-              <div class="row g-3 mb-2">
-                <div class="col-6 col-md-3">
-                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
-                    <input class="form-check-input visually-hidden wizard-partners-radio" type="radio" name="has_partners" value="1">
-                    <i class="fa fa-people-arrows d-block fs-3 mb-2 text-dark"></i>
-                    <span class="fw-semibold small">Sí, hay socios</span>
-                  </label>
-                </div>
-                <div class="col-6 col-md-3">
-                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
-                    <input class="form-check-input visually-hidden wizard-partners-radio" type="radio" name="has_partners" value="0" checked>
-                    <i class="fa fa-user d-block fs-3 mb-2 text-dark"></i>
-                    <span class="fw-semibold small">No</span>
-                  </label>
-                </div>
-              </div>
-              <div class="d-none" data-wz-panel id="wizardPartnersPanel">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                  <div class="text-muted small">Selecciona el tercero, la sociedad y el porcentaje que le corresponde.</div>
-                  <button type="button" class="btn btn-sm btn-outline-primary" onclick="wizardAddPartnerRow()"><i class="fa fa-plus"></i> Agregar socio</button>
-                </div>
-                <div id="wizardPartnerRows"></div>
-              </div>
-            </div>
-            <div class="wizard-card">
-              <div class="wizard-card__title"><i class="fa fa-user-tag"></i>¿Hay comisionistas?</div>
-              <div class="row g-3 mb-2">
-                <div class="col-6 col-md-3">
-                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
-                    <input class="form-check-input visually-hidden wizard-zones-radio" type="radio" name="has_zone_agents" value="1">
-                    <i class="fa fa-percent d-block fs-3 mb-2 text-dark"></i>
-                    <span class="fw-semibold small">Sí, hay comisionista</span>
-                  </label>
-                </div>
-                <div class="col-6 col-md-3">
-                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
-                    <input class="form-check-input visually-hidden wizard-zones-radio" type="radio" name="has_zone_agents" value="0" checked>
-                    <i class="fa fa-ban d-block fs-3 mb-2 text-dark"></i>
-                    <span class="fw-semibold small">No</span>
-                  </label>
-                </div>
-              </div>
-              <div class="d-none" data-wz-panel id="wizardZonesPanel">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                  <div class="text-muted small">Importe fijo o porcentaje sobre bruto, neto o beneficio de empresa.</div>
-                  <button type="button" class="btn btn-sm btn-outline-primary" onclick="wizardAddZoneRow()"><i class="fa fa-plus"></i> Agregar comisionista</button>
-                </div>
-                <div id="wizardZoneRows"></div>
               </div>
             </div>
           </section>
@@ -808,8 +838,23 @@
             </div>
           </section>
 
-          {# ============================ PASO 11 (direct) · Anuncio ============================ #}
+          {# ============================ PASO 11 (direct) · Estado + anuncio ============================ #}
           <section class="wizard-step" data-step="11" data-mode="direct">
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-flag"></i>Estado de la actividad</div>
+              <div class="row g-2">
+                {% for value, icon, lbl in [('BORRADOR','fa-pencil','Borrador'),('HABLADO','fa-comments','Hablado'),('RESERVADO','fa-hourglass-half','Reservado'),('CONFIRMADO','fa-circle-check','Confirmado')] %}
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden" type="radio" name="status" value="{{ value }}" {% if loop.first %}checked{% endif %}>
+                    <i class="fa {{ icon }} d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">{{ lbl }}</span>
+                  </label>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+
             <div class="wizard-card">
               <div class="wizard-card__title"><i class="fa fa-bullhorn"></i>Anuncio de la actividad</div>
               <input type="hidden" name="do_not_announce" id="wizard_do_not_announce" value="">
@@ -867,20 +912,45 @@
   window.promotersPayload = {{ promoters_payload|tojson }};
   window.artistCreateTargetSelectId = 'wizard_artist_id';
   window.__wizardAllTags = {{ (all_concert_tags or [])|tojson }};
+  window.__wzEntitySearchUrl = '{{ url_for("api_search_commission_entities") }}';
+  window.__wzRowSeq = window.__wzRowSeq || 0;
 
   function getPromoterDataById(id){
     return (window.promotersPayload || []).find(p => String(p.id) === String(id));
   }
 
-  function buildPromoterOptions(selectedId){
-    const items = window.promotersPayload || [];
-    let html = '<option value="">—</option>';
-    items.forEach(p => {
-      const selected = String(p.id) === String(selectedId || '') ? 'selected' : '';
-      const logo = p.logo_url || '{{ DEFAULT_PHOTO_URL }}';
-      html += `<option value="${p.id}" data-logo="${logo}" ${selected}>${p.nick || '—'}</option>`;
+  /* Buscador de TERCEROS + MEDIOS con foto/logo en vivo (Select2 AJAX), reutilizado por el
+     promotor principal, el vendedor tercero y las filas de socios/comisionistas. */
+  function wizardInitEntitySearch(sel, onPick){
+    if(!sel || sel.__esInit || !window.jQuery || !jQuery.fn.select2) return;
+    sel.__esInit = true;
+    const modalEl = document.getElementById('concertWizardModal');
+    function fmt(d){
+      if(!d.id) return d.text;
+      const logo = d.logo_url || (d.element && (jQuery(d.element).data('photo') || jQuery(d.element).data('logo'))) || '';
+      const img = logo ? '<img class="thumb" src="'+logo+'">' : '<span class="me-2"><i class="fa fa-user"></i></span>';
+      return jQuery('<span>'+img+(d.text || '')+'</span>');
+    }
+    jQuery(sel).select2({
+      width:'100%', dropdownParent: jQuery(modalEl), placeholder:'Busca tercero o medio…', allowClear:true, minimumInputLength:1,
+      ajax:{
+        url: window.__wzEntitySearchUrl, dataType:'json', delay:200,
+        data:function(p){ return { q: p.term || '' }; },
+        processResults:function(data){ return { results:(data||[]).map(function(it){ return { id: it.kind + ':' + it.id, text: it.label || '', logo_url: it.logo_url || '', kind: it.kind, raw_id: it.id }; }) }; }
+      },
+      templateResult: fmt, templateSelection: fmt, escapeMarkup:function(m){ return m; }
     });
-    return html;
+    jQuery(sel).on('select2:select', function(e){
+      const d = e.params.data || {};
+      onPick(d.raw_id || d.id, d.kind || 'promoter', (d.text || '').replace(' · medio',''), d.logo_url || '');
+    });
+    jQuery(sel).on('select2:clear', function(){ onPick('', 'promoter', '', ''); });
+    // Alta rápida (+): quick_create añade la opción (uuid sin prefijo kind:) y dispara change.
+    jQuery(sel).on('change', function(){
+      const opt = sel.selectedOptions && sel.selectedOptions[0];
+      if(!opt || !opt.value || opt.value.indexOf(':') >= 0) return;
+      onPick(opt.value, 'promoter', opt.textContent || '', opt.dataset.photo || opt.dataset.logo || '');
+    });
   }
 
   function fillPromoterCompanySelect(promoterId, selectEl, selectedCompanyId){
@@ -1117,15 +1187,21 @@
 
   function wizardAddPartnerRow(prefill){
     const c = document.getElementById('wizardPartnerRows');
+    const uid = 'wzpart' + (++window.__wzRowSeq);
     const row = document.createElement('div');
     row.className = 'border rounded p-2 mb-2';
     row.innerHTML = `
       <div class="row g-2 align-items-end">
         <div class="col-lg-4">
-          <label class="form-label">Tercero</label>
-          <select name="wizard_partner_promoter_id[]" class="form-select third-party-select wizard-partner-promoter">${buildPromoterOptions(prefill?.promoter_id)}</select>
+          <label class="form-label">Socio (tercero o medio)</label>
+          <div class="input-group">
+            <select id="${uid}" class="form-select" data-no-loader><option value=""></option></select>
+            <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter" data-target="${uid}" title="Crear tercero nuevo"><i class="fa fa-plus"></i></button>
+          </div>
+          <input type="hidden" name="wizard_partner_promoter_id[]" class="wz-ent-id">
+          <input type="hidden" name="wizard_partner_kind[]" class="wz-ent-kind" value="promoter">
         </div>
-        <div class="col-lg-4 company-select-wrap d-none">
+        <div class="col-lg-3 company-select-wrap d-none">
           <label class="form-label">Sociedad</label>
           <select name="wizard_partner_company_id[]" class="form-select wizard-partner-company"></select>
         </div>
@@ -1133,7 +1209,7 @@
           <label class="form-label">%</label>
           <input type="number" step="0.01" name="wizard_partner_pct[]" class="form-control" value="${prefill?.pct || ''}" placeholder="0">
         </div>
-        <div class="col-lg-1">
+        <div class="col-lg-2">
           <label class="form-label">Base</label>
           <select name="wizard_partner_base[]" class="form-select">
             <option value="GROSS">Bruto</option>
@@ -1147,23 +1223,41 @@
         </div>
       </div>`;
     c.appendChild(row);
-    const promoterSelect = row.querySelector('.wizard-partner-promoter');
+    const search = row.querySelector('#' + uid);
+    const idInput = row.querySelector('.wz-ent-id');
+    const kindInput = row.querySelector('.wz-ent-kind');
     const companySelect = row.querySelector('.wizard-partner-company');
-    promoterSelect.addEventListener('change', ()=> fillPromoterCompanySelect(promoterSelect.value, companySelect));
-    fillPromoterCompanySelect(promoterSelect.value, companySelect, prefill?.company_id || '');
+    wizardInitEntitySearch(search, function(id, kind, label, logo){
+      idInput.value = id || '';
+      kindInput.value = kind || 'promoter';
+      if(!id || kind === 'media'){
+        companySelect.innerHTML = '<option value="">—</option>';
+        companySelect.closest('.company-select-wrap')?.classList.add('d-none');
+        return;
+      }
+      if(!getPromoterDataById(id)){
+        window.promotersPayload.push({ id: String(id), nick: label || '', logo_url: logo || '', companies: [] });
+      }
+      fillPromoterCompanySelect(id, companySelect);
+    });
     row.querySelector('select[name="wizard_partner_base[]"]').value = prefill?.base || 'GROSS';
-    ensureSelect2(promoterSelect);
   }
 
   function wizardAddZoneRow(prefill){
     const c = document.getElementById('wizardZoneRows');
+    const uid = 'wzzone' + (++window.__wzRowSeq);
     const row = document.createElement('div');
     row.className = 'border rounded p-2 mb-2';
     row.innerHTML = `
       <div class="row g-2 align-items-end">
         <div class="col-lg-4">
-          <label class="form-label">Comisionista</label>
-          <select name="wizard_zone_promoter_id[]" class="form-select third-party-select wizard-zone-promoter">${buildPromoterOptions(prefill?.promoter_id)}</select>
+          <label class="form-label">Comisionista (tercero o medio)</label>
+          <div class="input-group">
+            <select id="${uid}" class="form-select" data-no-loader><option value=""></option></select>
+            <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter" data-target="${uid}" title="Crear tercero nuevo"><i class="fa fa-plus"></i></button>
+          </div>
+          <input type="hidden" name="wizard_zone_promoter_id[]" class="wz-ent-id">
+          <input type="hidden" name="wizard_zone_kind[]" class="wz-ent-kind" value="promoter">
         </div>
         <div class="col-lg-3 company-select-wrap d-none">
           <label class="form-label">Sociedad</label>
@@ -1202,10 +1296,23 @@
         </div>
       </div>`;
     c.appendChild(row);
-    const promoterSelect = row.querySelector('.wizard-zone-promoter');
+    const search = row.querySelector('#' + uid);
+    const idInput = row.querySelector('.wz-ent-id');
+    const kindInput = row.querySelector('.wz-ent-kind');
     const companySelect = row.querySelector('.wizard-zone-company');
-    promoterSelect.addEventListener('change', ()=> fillPromoterCompanySelect(promoterSelect.value, companySelect));
-    fillPromoterCompanySelect(promoterSelect.value, companySelect, prefill?.company_id || '');
+    wizardInitEntitySearch(search, function(id, kind, label, logo){
+      idInput.value = id || '';
+      kindInput.value = kind || 'promoter';
+      if(!id || kind === 'media'){
+        companySelect.innerHTML = '<option value="">—</option>';
+        companySelect.closest('.company-select-wrap')?.classList.add('d-none');
+        return;
+      }
+      if(!getPromoterDataById(id)){
+        window.promotersPayload.push({ id: String(id), nick: label || '', logo_url: logo || '', companies: [] });
+      }
+      fillPromoterCompanySelect(id, companySelect);
+    });
     const modeSel = row.querySelector('.wizard-zone-mode');
     const pctWrap = row.querySelector('.zone-pct-wrap');
     const baseWrap = row.querySelector('.zone-base-wrap');
@@ -1220,7 +1327,6 @@
     modeSel.value = prefill?.mode || 'PERCENT';
     row.querySelector('select[name="wizard_zone_base[]"]').value = prefill?.base || 'GROSS';
     applyMode();
-    ensureSelect2(promoterSelect);
   }
 
   function wizardAddPaymentRow(prefill){
@@ -1410,11 +1516,10 @@
       if(modeInput.value === 'request_sheet') return [1, 2, 3, 4];
       const seq = [1, 2, 3];
       if(isPromoActivity()) seq.push(4);
-      seq.push(5, 6);
-      if(!(isPromoActivity() && saleTypeValue() === 'GRATUITO')) seq.push(7);
-      seq.push(8);
+      seq.push(5, 6, 8);
       if(!isPromoActivity() || artistSings()) seq.push(9);
-      seq.push(10, 11);
+      // Cartelería (data-step 7) es el paso PENÚLTIMO; el último es estado + anuncio.
+      seq.push(10, 7, 11);
       return seq;
     }
 
@@ -1493,16 +1598,44 @@
     }
 
     /* En actividades promocionales GRATUITAS el paso de caché queda solo para los gastos
-       que cubre el promotor (cachés y pagos se ocultan). */
+       que cubre el promotor (la pregunta de caché y sus opciones se ocultan), y los socios/
+       comisionistas del paso del promotor también desaparecen. */
+    let hasCacheTouched = false;
+    function hasCacheYes(){
+      return document.querySelector('.wizard-hascache-radio:checked')?.value === '1';
+    }
     function syncCacheCards(){
       const freePromo = isPromoActivity() && saleTypeValue() === 'GRATUITO';
-      document.getElementById('wizardCacheCard')?.classList.toggle('d-none', freePromo);
-      document.getElementById('wizardPaymentsCard')?.classList.toggle('d-none', freePromo);
+      document.getElementById('wizardHasCacheCard')?.classList.toggle('d-none', freePromo);
       if(freePromo){
+        const no = document.querySelector('.wizard-hascache-radio[value="0"]');
+        if(no) no.checked = true;
+        document.getElementById('wizardCacheOptions')?.classList.add('d-none');
         document.getElementById('wizardCaches').innerHTML = '';
         document.getElementById('wizardPaymentRows').innerHTML = '';
         window.__wzRecalcCache?.();
+      } else {
+        document.getElementById('wizardCacheOptions')?.classList.toggle('d-none', !hasCacheYes());
       }
+      // Socios y comisionistas (paso del promotor): fuera en no-concierto gratuito.
+      document.getElementById('wizardPartnersZone')?.classList.toggle('d-none', freePromo);
+      if(freePromo){
+        document.getElementById('wizardPartnerRows').innerHTML = '';
+        document.getElementById('wizardZoneRows').innerHTML = '';
+        document.querySelectorAll('.wizard-partners-radio[value="0"], .wizard-zones-radio[value="0"]').forEach(r => { r.checked = true; });
+        document.getElementById('wizardPartnersPanel')?.classList.add('d-none');
+        document.getElementById('wizardZonesPanel')?.classList.add('d-none');
+      }
+    }
+
+    /* Por defecto «Sí, con caché» cuando la actividad es VENDIDA/Con caché (hasta que el
+       usuario responda a mano). */
+    function syncHasCacheDefault(){
+      if(hasCacheTouched) return;
+      if(isPromoActivity() && saleTypeValue() === 'GRATUITO') return;
+      const want = saleTypeValue() === 'VENDIDO' ? '1' : '0';
+      const target = document.querySelector(`.wizard-hascache-radio[value="${want}"]`);
+      if(target && !target.checked){ target.checked = true; target.dispatchEvent(new Event('change', { bubbles: true })); }
     }
 
     function syncEntryDefault(){
@@ -1557,12 +1690,6 @@
         promoterMediaInput.value = '';
         if(!getPromoterDataById(selectedPromoter.id)){
           window.promotersPayload.push({ id: selectedPromoter.id, nick: selectedPromoter.label, logo_url: selectedPromoter.logo, companies: [] });
-          document.querySelectorAll('.wizard-partner-promoter, .wizard-zone-promoter').forEach(sel => {
-            if(Array.from(sel.options).some(o => o.value === selectedPromoter.id)) return;
-            const o = document.createElement('option');
-            o.value = selectedPromoter.id; o.textContent = selectedPromoter.label; o.dataset.logo = selectedPromoter.logo;
-            sel.appendChild(o);
-          });
         }
       }
       const chip = document.getElementById('wizardPromoterChip');
@@ -1700,6 +1827,50 @@
       const key = chk.value;
       document.querySelector(`[data-pc-detail="${key}"]`)?.classList.toggle('d-none', !chk.checked);
     }));
+
+    /* ¿Tiene caché? Sí despliega cachés + pagos (con una fila sembrada); No lo limpia. */
+    document.querySelectorAll('.wizard-hascache-radio').forEach(r => r.addEventListener('change', (ev) => {
+      if(ev.isTrusted) hasCacheTouched = true;
+      const yes = hasCacheYes();
+      document.getElementById('wizardCacheOptions')?.classList.toggle('d-none', !yes);
+      if(yes && !document.getElementById('wizardCaches').children.length){ addCacheRow('wizardCaches'); }
+      if(!yes){
+        document.getElementById('wizardCaches').innerHTML = '';
+        document.getElementById('wizardPaymentRows').innerHTML = '';
+      }
+      window.__wzRecalcCache?.();
+    }));
+
+    /* Formatos de cartelería PERSONALIZADOS: chips con hidden artwork_formats_custom[]. */
+    function wizardAddCustomFormatChip(text){
+      const wrap = document.getElementById('wizardCustomFormats');
+      if(!wrap) return;
+      const clean = String(text || '').trim().slice(0, 80);
+      if(!clean) return;
+      const exists = Array.from(wrap.querySelectorAll('input[name="artwork_formats_custom[]"]'))
+        .some(i => i.value.localeCompare(clean, 'es', { sensitivity: 'accent' }) === 0);
+      if(exists) return;
+      const chip = document.createElement('span');
+      chip.className = 'badge rounded-pill text-bg-light border d-inline-flex align-items-center gap-2 px-3 py-2';
+      chip.innerHTML = '<i class="fa fa-crop-simple text-danger"></i><span></span><button type="button" class="btn btn-sm p-0 border-0 bg-transparent text-danger" aria-label="Quitar"><i class="fa fa-times"></i></button>';
+      chip.querySelector('span').textContent = clean;
+      const hidden = document.createElement('input');
+      hidden.type = 'hidden';
+      hidden.name = 'artwork_formats_custom[]';
+      hidden.value = clean;
+      chip.appendChild(hidden);
+      chip.querySelector('button').addEventListener('click', () => chip.remove());
+      wrap.appendChild(chip);
+    }
+    document.getElementById('wizardCustomFormatAdd')?.addEventListener('click', () => {
+      const input = document.getElementById('wizardCustomFormatInput');
+      wizardAddCustomFormatChip(input.value);
+      input.value = '';
+      input.focus();
+    });
+    document.getElementById('wizardCustomFormatInput')?.addEventListener('keydown', (ev) => {
+      if(ev.key === 'Enter'){ ev.preventDefault(); wizardAddCustomFormatChip(ev.target.value); ev.target.value = ''; }
+    });
 
     /* Cartelería: nosotros/promotor + solicitar ahora o después. */
     function syncArtwork(){
@@ -1959,6 +2130,13 @@
       if(step === 4 && modeInput.value === 'direct'){
         if(!document.querySelector('input[name="artist_sings"]:checked')){ alert('Indica si el artista canta o no.'); return false; }
       }
+      if(step === 7 && modeInput.value === 'direct'){
+        syncArtwork();
+        if(document.getElementById('wizard_artwork_choice').value === 'REQUEST' && !document.getElementById('wizard_artwork_deadline').value){
+          alert('Indica la fecha máxima de entrega de los carteles (es obligatoria al solicitarlos).');
+          return false;
+        }
+      }
       return true;
     }
 
@@ -1977,7 +2155,7 @@
     modeChoices.forEach(el => el.addEventListener('change', syncMode));
     knowsVenue?.addEventListener('change', toggleVenueKnown);
     document.querySelectorAll('input[name="activity_type"]').forEach(el => el.addEventListener('change', () => { syncFestivalName(); syncEconomyCards(); renderStepPills(); }));
-    document.querySelectorAll('.wizard-sale-type-radio').forEach(el => el.addEventListener('change', () => { syncPromoterVisibility(); syncCacheCards(); syncEntryDefault(); renderStepPills(); }));
+    document.querySelectorAll('.wizard-sale-type-radio').forEach(el => el.addEventListener('change', () => { syncPromoterVisibility(); syncCacheCards(); syncHasCacheDefault(); syncEntryDefault(); renderStepPills(); }));
     document.getElementById('wizard_artist_id')?.addEventListener('change', () => { checkArtistConflict(); filterTourCards(); lastMetaArtist=''; fetchArtistMeta(); });
     document.getElementById('wizard_date')?.addEventListener('change', checkArtistConflict);
 
@@ -2015,6 +2193,7 @@
       toggleVenueKnown();
       syncFestivalName();
       syncEconomyCards();
+      syncHasCacheDefault();
       filterTourCards();
       initWizardVenueSelect();
       initPromoterSearch();
@@ -2043,6 +2222,13 @@
       }
       syncArtwork();
       syncAnnounce();
+      // La fecha máxima de entrega es OBLIGATORIA si se solicitan carteles.
+      if(modeInput.value === 'direct' && document.getElementById('wizard_artwork_choice').value === 'REQUEST' && !document.getElementById('wizard_artwork_deadline').value){
+        ev.preventDefault();
+        alert('Indica la fecha máxima de entrega de los carteles (es obligatoria al solicitarlos).');
+        showStep(7);
+        return;
+      }
       // No enviar los campos de pasos NO activos (por modo NI por secuencia) ni de paneles cerrados.
       const seq = stepSequence();
       document.querySelectorAll('.wizard-step').forEach(el => {
@@ -2060,6 +2246,7 @@
     toggleVenueKnown();
     syncFestivalName();
     syncEconomyCards();
+    syncHasCacheDefault();
     syncEntryMode();
     syncInvitations();
     syncArtwork();

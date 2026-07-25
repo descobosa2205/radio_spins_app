@@ -252,21 +252,30 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   caché=VENDIDO / GRATUITO — dos sets de radios `sale_type` con visibilidad por tipo) + promotor
   visual (Select2 AJAX sobre `api_search_commission_entities`: terceros **y medios**; un medio se
   espeja a tercero con `_ensure_promoter_for_media`; hidden `promoter_id`/`promoter_media_id`) +
-  sociedades en tarjetas (+ «Nueva sociedad» inline → `new_promoter_company_name`, la crea el wizard) ·
-  6 caché (cachés+pagos con pendiente en vivo y botón «cantidad restante»; «El promotor cubre otros
-  gastos»: `PROMOTER_COST_ITEMS`/`_parse_promoter_costs_form` → `promoter_costs_payload`
-  `{enabled, items:[{key,label,note,managed_by US|PROMOTER,max_amount}]}`; **estado** visual; **cartelería**:
-  nosotros/promotor y «solicitar ahora» con formatos gráficos `ARTWORK_FORMAT_CHOICES` →
-  `ConcertArtworkRequest.requested_formats` + correo a diseño automático, o «no solicitar ahora») ·
-  7 socios/comisionistas (pregunta Sí/No; paso omitido en no-concierto GRATUITO) · 8 entradas
+  sociedades en tarjetas (+ «Nueva sociedad» inline → `new_promoter_company_name`, la crea el wizard) +
+  **socios y comisionistas en este mismo paso** (pregunta Sí/No; cada fila con buscador mixto
+  terceros+MEDIOS con foto (`wizardInitEntitySearch`) — hidden `wizard_partner_kind[]`/`wizard_zone_kind[]`,
+  espejo de medios vía `_resolve_wizard_entity_rows` —; zona `#wizardPartnersZone` oculta en
+  no-concierto GRATUITO) · 6 caché (pregunta **«¿Tiene caché?»** Sí/No que despliega cachés+pagos con
+  pendiente en vivo y botón «cantidad restante» — por defecto Sí solo en VENDIDO —; «El promotor cubre
+  otros gastos»: `PROMOTER_COST_ITEMS`/`_parse_promoter_costs_form` → `promoter_costs_payload`
+  `{enabled, items:[{key,label,note,managed_by US|PROMOTER,max_amount}]}`) · 8 entradas
   (`entry_mode` FREE→aforo+«Aforo libre»(no_capacity) / SALE→vendedor `ticketing_payload.sale_seller`
   {kind US|PROMOTER|VENUE|THIRD,...}, tipos `wt_*`→`ConcertTicketType` reales +
   `ticketing_payload.ticket_types` [{name,price,qty_for_sale,invites_total}], invitaciones
   `invitations_mode` BY_TYPE/TOTAL→`invitations_json` (las materializa `_invitation_category_legacy_rows`),
   salida a la venta+TBC) · 9 equipamiento visual (omitido si el artista no canta en promocionales) ·
   10 gira/ciclo + # (chips `initConcertTagManager` name=`concert_tags[]` + sugerencias del artista y
-  dedupe acento-insensible contra `all_concert_tags`) · 11 anuncio (TBC/fecha/no anunciar + nota →
-  `contracting_payload.announcement_note`). Detalle promocional en `contracting_payload.description`
+  dedupe acento-insensible contra `all_concert_tags`) · **penúltimo = cartelería** (data-step 7:
+  nosotros/promotor y «solicitar ahora» con formatos gráficos `ARTWORK_FORMAT_CHOICES` **+
+  personalizados** (`_parse_artwork_formats`: chips `artwork_formats_custom[]` del wizard o texto por
+  comas `artwork_formats_custom_text` de la ficha) → `ConcertArtworkRequest.requested_formats`,
+  «otros logos» `artwork_logo_others` → `logo_notes`, **fecha máxima de entrega OBLIGATORIA**
+  (validada en JS; en la ficha `required` al elegir OURS) + correo a diseño automático, o «no
+  solicitar ahora») · último (11) = **estado** visual + anuncio (TBC/fecha/no anunciar + nota →
+  `contracting_payload.announcement_note`). ⚠️ `initVisualChoiceCards` (scripts.js) NO togglea
+  manualmente checkboxes dentro de `<label>`: el label nativo ya lo hace y el doble toggle los dejaba
+  como estaban (bug real de los gastos del promotor). Detalle promocional en `contracting_payload.description`
   y `.performance` {sings, songs_count, songs:[{id,title}], formation_kind, formation_text}.
   **Ficha a juego**: `concert_section_update` acepta además `actividad` y `entradas` (los tipos parten
   de los ConcertTicketType reales vía `_concert_entradas_ticket_rows`; `_replace_concert_ticket_types_manual`

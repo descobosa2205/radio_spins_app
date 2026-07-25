@@ -682,11 +682,12 @@ img.img-error-pending{ visibility: hidden; }
    bloque de preguntas, para distinguir visualmente cada tema aunque compartan paso). */
 .wizard-card{
   background:#fff;
-  border:1px solid #e5e8ee;
+  border:1px solid #e2e6ec;
   border-radius:14px;
   padding:1rem 1.1rem;
-  margin-bottom:1rem;
-  box-shadow:0 1px 2px rgba(0,0,0,.03);
+  margin-bottom:1.1rem;
+  /* Sombra más marcada para que cada viñeta se distinga bien de la anterior. */
+  box-shadow:0 .45rem 1.1rem rgba(15,23,42,.10), 0 1px 2px rgba(15,23,42,.06);
 }
 .wizard-card__title{
   display:flex; align-items:center; gap:.55rem;

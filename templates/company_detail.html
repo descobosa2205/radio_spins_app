@@ -47,34 +47,29 @@
   <div class="ficha-section" data-inline-zone>
     <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
       <h5 class="m-0"><i class="fa fa-circle-info me-2 text-danger"></i>Datos de la empresa</h5>
-      {% if CAN_EDIT_CATALOGS %}
+      {% if can_edit_company %}
         <button type="button" class="btn btn-primary" data-edit-toggle="#companyDatosForm"><i class="fa fa-edit me-1"></i>Editar</button>
       {% endif %}
     </div>
 
     {# Vista consolidada: solo lo que está rellenado. #}
     <div data-section-view>
-      <div class="row g-3">
-        <div class="col-12 col-md-4">
-          <div class="border rounded-3 p-3 h-100 text-center">
-            <img src="{{ company.logo_url or url_for('static', filename='img/logo_33_producciones.png') }}" alt="{{ company.name }}" style="max-width:100%;max-height:110px;object-fit:contain;">
-            <div class="fw-semibold mt-2">{{ company.name }}</div>
-          </div>
+      <div class="border rounded-3 p-3">
+        <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap mb-1">
+          <div class="text-muted small text-uppercase" style="letter-spacing:.03em;">Datos de facturación</div>
+          {% if company.tax_info %}
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-copy-target="#companyTaxInfo" title="Copiar los datos de facturación"><i class="fa fa-copy"></i></button>
+          {% endif %}
         </div>
-        <div class="col-12 col-md-8">
-          <div class="border rounded-3 p-3 h-100">
-            <div class="text-muted small text-uppercase" style="letter-spacing:.03em;">Datos de facturación</div>
-            {% if company.tax_info %}
-              <div style="white-space:pre-line;">{{ company.tax_info }}</div>
-            {% else %}
-              <div class="text-muted fst-italic small">Sin datos de facturación. Son los que ve el proveedor al hacer la factura.</div>
-            {% endif %}
-          </div>
-        </div>
+        {% if company.tax_info %}
+          <div id="companyTaxInfo" style="white-space:pre-line;">{{ company.tax_info }}</div>
+        {% else %}
+          <div class="text-muted fst-italic small">Sin datos de facturación. Son los que ve el proveedor al hacer la factura.</div>
+        {% endif %}
       </div>
     </div>
 
-    {% if CAN_EDIT_CATALOGS %}
+    {% if can_edit_company %}
       <form id="companyDatosForm" class="d-none mt-3" method="post" enctype="multipart/form-data" action="{{ url_for('company_update', cid=company.id) }}">
         <div class="row g-3">
           <div class="col-12 col-md-6">
@@ -91,11 +86,45 @@
             <div class="form-text">Es lo que se muestra al proveedor en el paso 1 de la subida de facturas.</div>
           </div>
         </div>
-        <div class="d-flex justify-content-end gap-2 mt-3">
-          <button type="button" class="btn btn-outline-secondary" data-edit-cancel="#companyDatosForm">Cancelar</button>
-          <button class="btn btn-primary"><i class="fa fa-save me-1"></i>Guardar</button>
+        <div class="d-flex justify-content-between gap-2 mt-3 flex-wrap">
+          <button type="submit" class="btn btn-outline-danger" form="companyDeleteForm"
+                  onclick="return confirm('¿Eliminar la empresa «{{ company.name|e }}» y su documentación?');">
+            <i class="fa fa-trash me-1"></i>Eliminar empresa
+          </button>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-secondary" data-edit-cancel="#companyDatosForm">Cancelar</button>
+            <button class="btn btn-primary"><i class="fa fa-save me-1"></i>Guardar</button>
+          </div>
         </div>
       </form>
+      <form id="companyDeleteForm" method="post" action="{{ url_for('company_delete', cid=company.id) }}" class="d-none"></form>
+    {% endif %}
+  </div>
+
+  {# ---------- Logos ---------- #}
+  <div class="ficha-section mt-3">
+    <h5 class="mb-1"><i class="fa fa-image me-2 text-danger"></i>Logos</h5>
+    <div class="text-muted small mb-3">El logo de la empresa, para descargarlo o mandárselo a quien lo pida.</div>
+    {% if company.logo_url %}
+      <div class="co-logo">
+        <div class="co-logo__box">
+          <img src="{{ company.logo_url }}" alt="{{ company.name }}">
+        </div>
+        <div class="d-flex flex-column gap-2">
+          <div class="fw-semibold">{{ company.name }}</div>
+          <div class="d-flex gap-2 flex-wrap">
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('company_logo_png', cid=company.id) }}" title="Descargar en PNG"><i class="fa fa-download me-1"></i>PNG</a>
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-share="mail" data-share-title="Logo de {{ company.name }}" data-share-url="{{ logo_url }}" title="Enviar por correo"><i class="fa fa-envelope"></i></button>
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-share="wa" data-share-title="Logo de {{ company.name }}" data-share-url="{{ logo_url }}" title="Enviar por WhatsApp"><i class="fa-brands fa-whatsapp"></i></button>
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-share="sms" data-share-title="Logo de {{ company.name }}" data-share-url="{{ logo_url }}" title="Enviar por SMS"><i class="fa fa-comment-sms"></i></button>
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-share="copy" data-share-url="{{ logo_url }}" title="Copiar el enlace del logo"><i class="fa fa-link"></i></button>
+          </div>
+        </div>
+      </div>
+    {% else %}
+      <div class="alert alert-light border mb-0 small">
+        <i class="fa fa-image me-1"></i>Esta empresa todavía no tiene logo.{% if can_edit_company %} Súbelo editando los datos.{% endif %}
+      </div>
     {% endif %}
   </div>
 
@@ -105,33 +134,24 @@
     <div class="text-muted small mb-3">El enlace que se le manda a un proveedor y el código para poner ese mismo formulario en la web de la empresa.</div>
 
     {% if invoice_urls.link %}
-      <div class="row g-3">
-        <div class="col-12 col-lg-7">
-          <div class="border rounded-3 p-3 h-100">
-            <div class="fw-semibold mb-2"><i class="fa fa-link me-1 text-muted"></i>Enlace de subida de facturas</div>
-            <div class="input-group">
-              <input class="form-control" id="companyInvoiceLink" value="{{ invoice_urls.link }}" readonly>
-              <button class="btn btn-outline-secondary" type="button" data-copy-target="#companyInvoiceLink" title="Copiar el enlace"><i class="fa fa-copy"></i></button>
-              <a class="btn btn-outline-secondary" href="{{ invoice_urls.link }}" target="_blank" rel="noopener" title="Abrirlo"><i class="fa fa-arrow-up-right-from-square"></i></a>
-            </div>
-            <div class="form-text">Solo se ven los datos de facturación de {{ company.name }}.</div>
-          </div>
-        </div>
-        <div class="col-12 col-lg-5">
-          <div class="border rounded-3 p-3 h-100">
-            <div class="fw-semibold mb-2"><i class="fa fa-code me-1 text-muted"></i>Insertarlo en la web</div>
-            <p class="small text-muted mb-2">Se pega tal cual en la web de la empresa. Sale igual que aquí pero <strong>sin el logo</strong> (ya está en la web) y con <strong>fondo transparente</strong>, y queda siempre actualizado con los cambios que hagamos.</p>
-            <button class="btn btn-danger w-100" type="button" id="companyEmbedBtn" data-url="{{ url_for('company_embed_code', cid=company.id) }}">
-              <i class="fa fa-code me-1"></i>Generar y copiar el código
-            </button>
-            <div class="small mt-2" id="companyEmbedMsg"></div>
-            <textarea class="form-control mt-2 d-none" id="companyEmbedCode" rows="7" readonly style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.74rem;"></textarea>
-            <div class="d-flex gap-2 mt-2 d-none" data-embed-extra>
-              <button class="btn btn-outline-secondary btn-sm flex-grow-1" type="button" data-copy-target="#companyEmbedCode"><i class="fa fa-copy me-1"></i>Copiar otra vez</button>
-              <a class="btn btn-outline-secondary btn-sm" href="{{ invoice_urls.embed_url }}" target="_blank" rel="noopener" title="Ver cómo queda"><i class="fa fa-eye"></i></a>
-            </div>
-          </div>
-        </div>
+      <div class="input-group">
+        <input class="form-control" id="companyInvoiceLink" value="{{ invoice_urls.link }}" readonly>
+        <button class="btn btn-outline-secondary" type="button" data-copy-target="#companyInvoiceLink" title="Copiar el enlace"><i class="fa fa-copy"></i></button>
+        <a class="btn btn-outline-secondary" href="{{ invoice_urls.link }}" target="_blank" rel="noopener" title="Abrir el enlace"><i class="fa fa-arrow-up-right-from-square"></i></a>
+        <button class="btn btn-outline-secondary" type="button" id="companyEmbedBtn"
+                data-url="{{ url_for('company_embed_code', cid=company.id) }}"
+                title="Generar y copiar el código para insertarlo en la web"><i class="fa fa-code"></i></button>
+        <a class="btn btn-outline-secondary" href="{{ invoice_urls.embed_url }}" target="_blank" rel="noopener" title="Ver cómo queda insertado"><i class="fa fa-eye"></i></a>
+      </div>
+      <div class="form-text">
+        Solo se ven los datos de facturación de {{ company.name }}. Con <i class="fa fa-code"></i> se copia el código para insertarlo
+        en su web: sale igual que aquí pero <strong>sin el logo</strong> (ya está en la web) y con <strong>fondo transparente</strong>,
+        y queda siempre actualizado con los cambios que hagamos.
+      </div>
+      <div class="small mt-2" id="companyEmbedMsg"></div>
+      <textarea class="form-control mt-2 d-none" id="companyEmbedCode" rows="7" readonly style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.74rem;"></textarea>
+      <div class="mt-2 d-none" data-embed-extra>
+        <button class="btn btn-outline-secondary btn-sm" type="button" data-copy-target="#companyEmbedCode"><i class="fa fa-copy me-1"></i>Copiar otra vez</button>
       </div>
     {% else %}
       <div class="alert alert-warning mb-0 small"><i class="fa fa-triangle-exclamation me-1"></i>La empresa necesita un nombre para poder generar su enlace de facturación.</div>

@@ -1,15 +1,15 @@
 {% extends "layout.html" %}
 {% block content %}
+{# EMPRESAS DEL GRUPO · listado simple: una debajo de otra, sin modo edición ni botones.
+   Al pinchar en una se va a su FICHA (datos, facturación y documentación). #}
 <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
-  <h4 class="mb-0">Empresas del grupo</h4>
-  <div class="d-flex align-items-center gap-2">
-    {% if CAN_EDIT_CATALOGS %}
-      <span class="badge text-bg-primary">Edición</span>
-      <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newCompanyModal"><i class="fa fa-plus me-1"></i>Añadir empresa</button>
-    {% else %}
-      <span class="badge text-bg-secondary">Lectura</span>
-    {% endif %}
+  <div>
+    <h4 class="mb-0">Empresas del grupo</h4>
+    <div class="text-muted small">Pincha en una empresa para abrir su ficha.</div>
   </div>
+  {% if CAN_EDIT_CATALOGS %}
+    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newCompanyModal"><i class="fa fa-plus me-1"></i>Añadir empresa</button>
+  {% endif %}
 </div>
 
 <div class="card mb-3">
@@ -55,63 +55,31 @@
 {% endif %}
 
 <div class="card">
-  <div class="card-body table-responsive">
-    <table class="table align-middle">
-      <thead>
-        <tr>
-          <th style="width:64px">Logo</th>
-          <th>Nombre</th>
-          <th>Datos fiscales</th>
-          <th class="text-end" style="width:{{ '180px' if CAN_EDIT_CATALOGS else '120px' }}">{{ 'Acciones' if CAN_EDIT_CATALOGS else 'Ficha' }}</th>
-        </tr>
-      </thead>
-      <tbody id="companiesTableBody">
-      {% for c in companies %}
-        <tr class="entity-row" data-search="{{ ((c.name or '') ~ ' ' ~ (c.tax_info or ''))|lower }}">
-          {% if CAN_EDIT_CATALOGS %}
-            <form method="post" enctype="multipart/form-data" action="{{ url_for('company_update', cid=c.id) }}">
-              <td>
-                {% if c.logo_url %}
-                  <img src="{{ c.logo_url }}" alt="logo" style="width:40px;height:40px;object-fit:contain" />
-                {% endif %}
-              </td>
-              <td style="min-width:220px"><input class="form-control" name="name" value="{{ c.name }}"></td>
-              <td style="min-width:260px"><input class="form-control" name="tax_info" value="{{ c.tax_info or '' }}"></td>
-              <td class="text-end">
-                <div class="d-flex justify-content-end gap-2 flex-wrap">
-                  <input type="file" name="logo" class="form-control form-control-sm" accept="image/*" style="max-width:220px" />
-                  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('company_detail', cid=c.id) }}" title="Ficha de la empresa (documentación y facturación)"><i class="fa fa-id-card-clip me-1"></i>Ficha</a>
-                  <button class="btn btn-outline-primary btn-sm">Guardar</button>
-                  <button class="btn btn-outline-danger btn-sm"
-                          formaction="{{ url_for('company_delete', cid=c.id) }}"
-                          onclick="return confirm('¿Borrar empresa?');">
-                    <i class="fa fa-trash"></i>
-                  </button>
-                  <div class="dropdown">
-                    <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown" title="Más acciones"><i class="fa fa-ellipsis-vertical"></i></button>
-                    <ul class="dropdown-menu dropdown-menu-end">
-                      <li><button type="button" class="dropdown-item" data-merge-open data-merge-label="Empresa del grupo" data-merge-id="{{ c.id }}" data-merge-name="{{ c.name|e }}" data-merge-photo="{{ c.logo_url or '' }}" data-merge-search="{{ url_for('merge_search_company') }}" data-merge-compare="{{ url_for('merge_compare_company') }}" data-merge-execute="{{ url_for('merge_execute_company') }}"><i class="fa fa-code-merge fa-fw me-1"></i>Fusionar con otra…</button></li>
-                    </ul>
-                  </div>
-                </div>
-              </td>
-            </form>
-          {% else %}
-            <td>
-              {% if c.logo_url %}
-                <img src="{{ c.logo_url }}" alt="logo" style="width:40px;height:40px;object-fit:contain" />
-              {% endif %}
-            </td>
-            <td class="fw-semibold">{{ c.name }}</td>
-            <td>{{ c.tax_info or '' }}</td>
-            <td class="text-end">
-              <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('company_detail', cid=c.id) }}" title="Ficha de la empresa (documentación y facturación)"><i class="fa fa-id-card-clip me-1"></i>Ficha</a>
-            </td>
+  <div class="list-group list-group-flush" id="companiesList">
+    {% for c in companies %}
+      <a class="list-group-item list-group-item-action co-row entity-row"
+         href="{{ url_for('company_detail', cid=c.id) }}"
+         data-search="{{ ((c.name or '') ~ ' ' ~ (c.tax_info or ''))|lower }}">
+        <div class="d-flex align-items-center gap-3">
+          <img class="co-row__logo" src="{{ c.logo_url or url_for('static', filename='img/logo_33_producciones.png') }}" alt="">
+          <div class="flex-grow-1 min-w-0">
+            <div class="fw-semibold text-truncate">{{ c.name }}</div>
+            {% if c.tax_info %}
+              <div class="small text-muted text-truncate">{{ c.tax_info.splitlines()|join(' · ') }}</div>
+            {% endif %}
+          </div>
+          {% set _docs = COMPANY_DOC_SUMMARY.get(c.id|string) if COMPANY_DOC_SUMMARY else None %}
+          {% if _docs and _docs.expired %}
+            <span class="badge text-bg-danger"><i class="fa fa-triangle-exclamation me-1"></i>{{ _docs.expired }} caducado{{ '' if _docs.expired == 1 else 's' }}</span>
+          {% elif _docs and _docs.total %}
+            <span class="badge text-bg-light border"><i class="fa fa-folder-open me-1"></i>{{ _docs.total }}</span>
           {% endif %}
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
+          <i class="fa fa-chevron-right text-muted"></i>
+        </div>
+      </a>
+    {% else %}
+      <div class="list-group-item text-muted">No hay empresas del grupo.</div>
+    {% endfor %}
   </div>
 </div>
 {% endblock %}
@@ -120,7 +88,7 @@
 <script>
 (function(){
   const input = document.getElementById('companiesSearchInput');
-  const rows = Array.from(document.querySelectorAll('#companiesTableBody .entity-row'));
+  const rows = Array.from(document.querySelectorAll('#companiesList .entity-row'));
   if (!input) return;
   const normalize = (v) => window.normalizeSearchText ? window.normalizeSearchText(v) : String(v || '').toLowerCase().trim();
   const apply = () => {
@@ -134,5 +102,4 @@
   apply();
 })();
 </script>
-{% if CAN_EDIT_CATALOGS %}{% include '_merge_modal.html' %}{% endif %}
 {% endblock %}

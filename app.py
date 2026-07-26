@@ -28508,8 +28508,19 @@ def companies_view():
             session.close()
         return redirect(url_for("companies_view"))
     companies = session.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+    # Resumen de documentación por empresa (para la pastilla de «caducados» del listado).
+    doc_summary = {}
+    try:
+        for co in companies:
+            rows = _company_doc_rows(session, co.id)
+            doc_summary[str(co.id)] = {
+                "total": len(rows),
+                "expired": len([r for r in rows if r["state"] == "EXPIRED"]),
+            }
+    except Exception:
+        doc_summary = {}
     session.close()
-    return render_template("companies.html", companies=companies)
+    return render_template("companies.html", companies=companies, COMPANY_DOC_SUMMARY=doc_summary)
 
 @app.post("/empresas/<cid>/update")
 @admin_required
@@ -28687,7 +28698,10 @@ def company_detail(cid):
             doc_rows=doc_rows,
             docs_expired=[r for r in doc_rows if r["state"] == "EXPIRED"],
             invoice_urls=_company_invoice_urls(co),
-            can_edit_docs=is_master(),          # los documentos, solo dirección
+            # Editar la empresa, eliminarla y subir/editar documentos: SOLO dirección.
+            can_edit_docs=is_master(),
+            can_edit_company=is_master(),
+            logo_url=_absolute_media_url(co.logo_url or ""),
         )
     finally:
         session_db.close()
@@ -28793,6 +28807,39 @@ def company_embed_code(cid):
         return jsonify({"ok": True, "code": code, **_company_invoice_urls(co)})
     finally:
         session_db.close()
+
+
+@app.get("/empresas/<cid>/logo.png", endpoint="company_logo_png")
+@admin_required
+def company_logo_png(cid):
+    """Descarga el logo de la empresa en PNG (lo convierta o no el original)."""
+    session_db = db()
+    try:
+        co = session_db.get(GroupCompany, to_uuid(cid))
+        if not co or not (co.logo_url or "").strip():
+            abort(404)
+        url = _absolute_media_url(co.logo_url)
+        name = re.sub(r"[^\w\-. ]", "", (co.name or "logo")).strip() or "logo"
+    finally:
+        session_db.close()
+    try:
+        # urlopen (no `requests`: en este módulo `requests` es un nombre de variable en otras rutas).
+        with urlopen(Request(url, headers={"User-Agent": "app33"}), timeout=20) as r:
+            data = r.read()
+    except Exception:
+        abort(502)
+    try:
+        from PIL import Image
+        img = Image.open(io.BytesIO(data))
+        if img.mode not in ("RGBA", "RGB"):
+            img = img.convert("RGBA")
+        out = io.BytesIO()
+        img.save(out, format="PNG")
+        data = out.getvalue()
+    except Exception:
+        pass                                  # si no se puede convertir, se manda tal cual
+    return send_file(io.BytesIO(data), mimetype="image/png", as_attachment=True,
+                     download_name=f"{name}.png")
 
 
 # =====================
@@ -37530,7 +37577,7 @@ def prl_request_docs(entity_type, entity_id):
         sent, wa_links, errors = 0, [], []
         for person, st in targets:
             req = _prl_get_or_create_request(session_db, row, person)
-            link = url_for("public_prl_upload", token=req.public_token, _external=True)
+            link = _external_url_for("public_prl_upload", token=req.public_token)
             name = st.get("full_name") or person.get("name") or ""
             if channel == "wa":
                 phone = re.sub(r"[^0-9]", "", st.get("phone") or "")
@@ -37799,7 +37846,7 @@ def prl_doc_reject(doc_id):
                        .filter(PrlUploadRequest.person_ref == doc.owner_id, PrlUploadRequest.status == "ACTIVE")
                        .order_by(PrlUploadRequest.created_at.desc()).first())
                 if req:
-                    link = url_for("public_prl_upload", token=req.public_token, _external=True)
+                    link = _external_url_for("public_prl_upload", token=req.public_token)
                     if not concert:
                         concert = session_db.get(Concert, req.concert_id)
                 body = ""
@@ -38455,23 +38502,27 @@ def _prl_admin_altas_context(session_db) -> dict:
 
 def _home_my_expenses_summary() -> dict:
     """Panel de Inicio: mis facturas y gastos de Pleo sin asignar a una bolsa, con la cuenta atrás.
-    A dirección «pura» no se le reclama (la regla no les aplica)."""
+
+    El módulo se muestra SIEMPRE (también a dirección y sin nada pendiente: entonces dice «sin gastos
+    pendientes de asignar»), así se sabe que la sección existe. Lo que no aplica a dirección es la
+    RECLAMACIÓN por correo ni el escalado (eso lo decide el cron, ver `cron_unassigned_expenses`).
+    """
+    empty = {"rows": [], "overdue": 0, "total": 0, "visible": bool(session.get("user_id"))}
     uid = session.get("user_id")
     if not uid:
-        return {"rows": [], "overdue": 0, "total": 0}
+        return empty
     session_db = db()
     try:
-        if _user_is_direccion(session_db, uid):
-            return {"rows": [], "overdue": 0, "total": 0}
         rows = _personal_expenses_for(session_db, uid, status=("PENDING", "IN_BAG"))
         return {
             "rows": rows[:8],
             "total": len(rows),
             "overdue": len([r for r in rows if r["overdue"]]),
             "amount": sum((r["amount_gross"] for r in rows), Decimal("0")),
+            "visible": True,
         }
     except Exception:
-        return {"rows": [], "overdue": 0, "total": 0}
+        return empty
     finally:
         session_db.close()
 
@@ -40519,10 +40570,11 @@ def _build_nav_menu() -> list[dict]:
             items.append(item)
         elif has_access_key(item["key"], include_descendants=True):
             items.append({"type": "link", "key": item["key"], "label": item["label"], "url": _resource_default_url(item["key"])})
-    # «Mis gastos» es personal (son SUS facturas y gastos): lo ve cualquiera con sesión, sin
-    # depender de permisos de sección. Solo se oculta a dirección «pura», a quien no se le reclama.
+    # «Mis gastos» es personal (son SUS facturas y gastos): lo ve CUALQUIERA con sesión, dirección
+    # incluida (también le mandan facturas), sin depender de permisos de sección. Lo que no aplica a
+    # dirección es la reclamación por correo, no la sección.
     try:
-        if session.get("user_id") and int(current_role() or 0) != 10:
+        if session.get("user_id"):
             items.append({"type": "link", "key": "mis_gastos", "label": "Mis gastos",
                           "url": url_for("my_expenses_view")})
     except Exception:
@@ -48839,7 +48891,8 @@ def bag_request_invoices(bag_id):
             req.expense_ids = [it["id"] for it in row["items"]]
             req.required_docs = required_docs
             session_db.flush()
-            link = url_for("public_bag_invoice_upload", token=req.public_token, _external=True)
+            # Dominio NUEVO siempre (host canónico), nunca el de la petición: ver _public_base_url.
+            link = _external_url_for("public_bag_invoice_upload", token=req.public_token)
             emails = [e["email"] for e in _bag_provider_email_suggestions(session_db, SimpleNamespace(provider=row["provider"], provider_id=row["provider"].id))]
             if not emails:
                 errors.append(f"{row['name']}: sin correo")

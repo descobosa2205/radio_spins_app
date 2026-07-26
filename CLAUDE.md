@@ -556,7 +556,10 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   desaparece al vaciarse). Panel de Inicio `HOME_MY_EXPENSES` con la cuenta atrás
   (`_expense_days_left`, `EXPENSE_ASSIGN_DAYS`=7) y cron `/cron/gastos-sin-asignar` que avisa a la
   persona al vencer y escala a dirección a los `EXPENSE_ESCALATE_DAYS`=15. **A dirección (role 10) no
-  se le reclama.** ⚠️ Sus endpoints están en **`PERSONAL_ENDPOINTS`**: los deja pasar cualquier
+  se le RECLAMA** (solo el correo; la sección y el módulo los ve todo el mundo). La sección sale en el
+  menú de secciones **y** en el menú de la propia persona (`layout.html`), y el módulo de Inicio se
+  muestra siempre: sin nada pendiente dice «Sin gastos pendientes de asignar» (`visible` en
+  `_home_my_expenses_summary`). ⚠️ Sus endpoints están en **`PERSONAL_ENDPOINTS`**: los deja pasar cualquier
   sesión (son datos propios) y la comprobación de propiedad se hace dentro del endpoint.
 - **Pleo (importación de gastos del personal)**: cliente en `pleo_utils.py` (`PleoClient`, Basic auth con la
   key como usuario y contraseña vacía, paginación por cursor, backoff en 429/5xx). Base `https://external.pleo.io`;
@@ -591,13 +594,21 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   nº y la fecha de emisión del PDF para que el proveedor los confirme antes de enviar.
 
 - **Ficha de la empresa del grupo** (`company_detail`, `/empresas/<cid>`): pestaña **Datos** (datos de
-  `GroupCompany` inline + enlace `/facturacion_<slug>` con copiar + botón que genera y copia el código
-  de inserción vía `company_embed_code` → `_company_embed_snippet`) y pestaña **Documentación**
+  `GroupCompany` inline + bloque **Logos** —descarga PNG por `company_logo_png`, que baja el original y
+  lo convierte con Pillow, + compartir correo/WhatsApp/SMS— + enlace `/facturacion_<slug>` con copiar,
+  abrir, **copiar el código de inserción (icono `</>`)** vía `company_embed_code` → `_company_embed_snippet`
+  y previsualizar) y pestaña **Documentación**
   (`GroupCompanyDocument`: nombre + `expiry_date`; `_company_doc_row` da la etiqueta
   **VALID/EXPIRED/NONE** → `.co-doc-st--valid/--expired/--none`, caducados primero). Guardado/borrado
   (`company_document_save`/`_delete`) **solo dirección** (`is_master()`), el resto ve/descarga/comparte
-  (correo·WhatsApp·SMS). Permisos: los endpoints `company_*` ya caen en `databases.group_companies` por
-  prefijo en `_coarse_endpoint_resource`, no hay que mapearlos a mano.
+  (correo·WhatsApp·SMS); **editar la empresa y eliminarla también son solo dirección**
+  (`can_edit_company`, el botón *Eliminar empresa* vive dentro del formulario de edición). Permisos: los
+  endpoints `company_*` ya caen en `databases.group_companies` por prefijo en `_coarse_endpoint_resource`,
+  no hay que mapearlos a mano. El **listado** `/empresas` es una lista simple sin botones: cada fila
+  enlaza a su ficha (`companies.html`, clases `.co-row*`).
+- ⚠️ **Todo enlace que se comparte va con `_external_url_for`** (host canónico), NUNCA con
+  `url_for(..., _external=True)`: con el host de la petición los enlaces salían con el dominio antiguo
+  de Render. Ya corregidos los de bolsa (`public_bag_invoice_upload`) y PRL (`public_prl_upload`).
 - **Componente insertable en otra web** (`public_invoice_embed`, `/facturacion_<slug>/embed`): es la
   MISMA `public_invoice_landing.html` con `inv_embed=True` (sin logo de la empresa, título en su propia
   viñeta `.inv-embed-head`) + `embed_mode=True`, flag que **`layout.html`** usa para dejar

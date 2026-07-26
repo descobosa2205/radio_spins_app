@@ -189,6 +189,27 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-07-26 — Empresas del grupo en modo lista, logos, y «Mis gastos» visible
+
+- **Empresas del grupo**: el listado pasa a ser una **lista simple**, una empresa debajo de otra, **sin
+  modo edición y sin botones**. Se pincha en cualquier fila y se abre su **ficha** (donde se edita).
+- Los **enlaces de subida de facturas** salen siempre con el **dominio nuevo**, nunca con el de la
+  petición: se ha corregido el enlace que se manda al proveedor desde una **bolsa** y los dos de
+  **PRL**, que usaban el host de la visita.
+- En la ficha, el botón para **copiar el código de inserción** es ahora un **icono** al lado del de
+  copiar el enlace (junto a abrir y previsualizar), y los **datos de facturación** tienen su propio
+  botón para **copiarlos**.
+- **Solo dirección** ve en la ficha *Editar*, *Eliminar empresa* y *Subir/editar documentos*. El resto
+  lo ve todo en lectura, con descarga y compartir.
+- Nuevo bloque **Logos** en la pestaña Datos: el logo con botón para **descargarlo en PNG** (lo
+  convierte el servidor) y para **compartirlo por correo, WhatsApp o SMS** o copiar su enlace.
+- **«Mis gastos» ya se ve**: estaba oculta para dirección y ahora la tiene **todo el mundo** (también
+  en el menú de la propia persona, para que no se pierda entre las secciones). El **módulo de Inicio**
+  aparece siempre y, cuando no hay nada pendiente, dice **«Sin gastos pendientes de asignar»**. Lo que
+  sigue sin aplicarse a dirección es la **reclamación por correo**, no la sección.
+
+
+
 ### 2026-07-26 — Pleo: los gastos de cada persona entran solos en «Mis gastos»
 
 - **Integración con Pleo** (Integraciones → *Pleo*) con una **subpestaña por empresa del grupo**: cada una

@@ -128,6 +128,9 @@
               <li><hr class="dropdown-divider"></li>
               <li><a class="dropdown-item" href="#" id="pushToggle" onclick="event.preventDefault();"><i class="fa fa-bell me-2"></i><span data-push-label>Activar notificaciones</span></a></li>
               <li><a class="dropdown-item" href="{{ url_for('home') }}"><i class="fa fa-house me-2"></i> Inicio</a></li>
+              {# «Mis gastos» es personal y lo tiene cualquiera: también aquí, para que se vea siempre
+                 (en el menú de secciones puede quedar escondido en «más» si tienes muchas). #}
+              <li><a class="dropdown-item" href="{{ url_for('my_expenses_view') }}"><i class="fa fa-receipt me-2"></i> Mis gastos</a></li>
               {% if has_access_key('personal', include_descendants=True) %}
                 <li><a class="dropdown-item" href="{{ url_for('personnel_view') }}"><i class="fa fa-users-cog me-2"></i> Personal</a></li>
               {% endif %}

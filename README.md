@@ -189,6 +189,26 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-07-26 — Royalties: generar/descargar todas · «Generando documento» · arreglo de A favor
+
+- **Royalties, acciones en bloque en dos pasos**: mientras queden liquidaciones sin generar el botón
+  es **«Generar todas»** (las crea y quedan **Generadas**); cuando ya están todas pasa a
+  **«Descargar todas»**, que baja en un único PDF continuo las que no se han enviado y las deja
+  marcadas como **Descargadas**. Estados nuevos en los filtros: **Sin generar** y **Descargadas**.
+  «Enviar todas» adopta la estética del botón «Enviar liquidación» de cada fila (verde outline) y se
+  desactiva cuando no hay nada pendiente de enviar.
+- **ARREGLADO: «Royalties → A favor» daba error y salía la página de mantenimiento.** La plantilla
+  hacía `g.items` sobre un diccionario, así que Jinja devolvía el *método* `.items()` en vez de las
+  líneas y la página reventaba en cuanto había algún grupo. Corregido ahí y también en la lista de
+  plantillas de gastos de las simulaciones, que tenía el mismo problema latente.
+- **Aviso «Generando documento»**: los PDF/Excel se generan al vuelo y tardan unos segundos. Antes,
+  un enlace que abría pestaña nueva dejaba una **ventana en blanco** (parecía un fallo). Ahora la
+  pestaña se abre al instante con una pantalla corporativa (iconos animados + barra de estado) y,
+  cuando el documento está listo, se muestra en esa misma pestaña; en las descargas normales se usa
+  el loader de la app con el progreso real. Si algo falla se cae al comportamiento de siempre.
+- La página de «estamos trabajando» tiene ahora **botón «Volver»** junto a «Reintentar ahora», para
+  cuando solo falla una sección y el resto de la app funciona.
+
 ### 2026-07-26 — Bolsa y presupuesto rediseñados · facturación de proveedores · royalties
 
 **Bolsa dentro de la ficha de la actividad**

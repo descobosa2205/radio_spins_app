@@ -6446,6 +6446,11 @@ def _apply_royalty_liquidation_meta(bucket: dict, rec: RoyaltyLiquidation | None
         bucket['last_sent_at_label'] = ''
         bucket['last_sent_pdf_url'] = ''
         bucket['last_sent_signature'] = ''
+        # Sin fila de liquidación todavía NO está generada.
+        bucket['liquidation_status'] = 'PENDING'
+        lbl, color = _royalty_status_meta('PENDING')
+        bucket['liquidation_label'] = lbl
+        bucket['liquidation_color'] = color
         return
 
     bucket['liquidation_status'] = getattr(rec, 'status', None)
@@ -6465,8 +6470,19 @@ def _apply_royalty_liquidation_meta(bucket: dict, rec: RoyaltyLiquidation | None
     bucket['has_sent_info'] = bool(bucket['last_sent_at'] and bucket['last_sent_pdf_url'])
 
 
+# Estados de una liquidación de royalties, en orden de flujo. PENDING = todavía NO generada (no
+# existe su fila); DOWNLOADED = ya generada y descargada (pero sin enviar).
+ROYALTY_STATUS_FLOW = ["PENDING", "GENERATED", "DOWNLOADED", "SENT", "INVOICED", "PAID"]
+# Estados en los que la liquidación aún NO se ha enviado al beneficiario.
+ROYALTY_NOT_SENT_STATUSES = {"GENERATED", "DOWNLOADED"}
+
+
 def _royalty_status_meta(status: str | None) -> tuple[str, str]:
-    s = (status or "GENERATED").upper()
+    s = (status or "PENDING").upper()
+    if s == "PENDING":
+        return ("Sin generar", "light")
+    if s == "DOWNLOADED":
+        return ("Descargada", "info")
     if s == "SENT":
         return ("Enviada", "primary")
     if s == "INVOICED":
@@ -9329,6 +9345,8 @@ def discografica_view():
     royalty_filter_artists: list[Artist] = []
     royalty_selected_artist_id = ""
     royalty_selected_statuses: list[str] = []
+    royalty_pending_generate = 0      # liquidaciones aún sin generar (botón «Generar todas»)
+    royalty_pending_send = 0          # generadas/descargadas sin enviar («Descargar/Enviar todas»)
     royalty_tab = "liquidaciones"
     afavor_groups: list[dict] = []
     afavor_total = Decimal("0")
@@ -9646,7 +9664,7 @@ def discografica_view():
         if royalty_selected_artist_id and not selected_artist_uuid:
             royalty_selected_artist_id = ""
 
-        allowed_royalty_statuses = ["GENERATED", "SENT", "INVOICED", "PAID"]
+        allowed_royalty_statuses = list(ROYALTY_STATUS_FLOW)
         royalty_selected_statuses = [(value or "").strip().upper() for value in request.args.getlist("roy_status") if (value or "").strip()]
         royalty_selected_statuses = [value for value in royalty_selected_statuses if value in allowed_royalty_statuses]
         if not royalty_selected_statuses:
@@ -9681,8 +9699,17 @@ def discografica_view():
         royalty_filter_artists = royalty_payload.get("filter_artists") or []
 
         def _match_royalty_status(bucket: dict) -> bool:
-            bucket_status = (bucket.get("liquidation_status") or "GENERATED").upper()
+            bucket_status = (bucket.get("liquidation_status") or "PENDING").upper()
             return bucket_status in set(royalty_selected_statuses or [])
+
+        # Antes de filtrar: cuántas quedan por GENERAR y cuántas sin enviar (para los botones de
+        # acción en bloque: primero «Generar todas» y, cuando ya están todas, «Descargar todas»).
+        _all_buckets = list(royalty_beneficiaries_artists) + list(royalty_beneficiaries_others)
+        royalty_pending_generate = sum(
+            1 for b in _all_buckets if (b.get("liquidation_status") or "PENDING").upper() == "PENDING")
+        royalty_pending_send = sum(
+            1 for b in _all_buckets
+            if (b.get("liquidation_status") or "PENDING").upper() in ROYALTY_NOT_SENT_STATUSES)
 
         royalty_beneficiaries_artists = [bucket for bucket in royalty_beneficiaries_artists if _match_royalty_status(bucket)]
         royalty_beneficiaries_others = [bucket for bucket in royalty_beneficiaries_others if _match_royalty_status(bucket)]
@@ -10667,6 +10694,8 @@ def discografica_view():
         royalty_filter_artists=royalty_filter_artists,
         royalty_selected_artist_id=royalty_selected_artist_id,
         royalty_selected_statuses=royalty_selected_statuses,
+        royalty_pending_generate=royalty_pending_generate,
+        royalty_pending_send=royalty_pending_send,
         royalty_tab=royalty_tab,
         afavor_groups=afavor_groups,
         afavor_total=afavor_total,
@@ -13617,10 +13646,47 @@ def _royalty_pending_buckets(session_db, sem_start, sem_end, statuses=("GENERATE
     want = {str(x).upper() for x in statuses}
     out = []
     for bucket in list(payload.get("artists") or []) + list(payload.get("others") or []):
-        st = (bucket.get("liquidation_status") or "GENERATED").upper()
+        st = (bucket.get("liquidation_status") or "PENDING").upper()
         if st in want:
             out.append(bucket)
     return out
+
+
+@app.post("/discografica/royalties/liquidaciones/generar-todas", endpoint="royalty_liquidations_generate_all")
+@admin_required
+def royalty_liquidations_generate_all():
+    """Genera TODAS las liquidaciones del semestre que aún no están generadas: crea su fila y las
+    deja en estado «Generada»."""
+    sem_key = (request.form.get("s") or "").strip()
+    parsed = _parse_semester_key(sem_key)
+    if not parsed:
+        flash("Semestre no válido.", "warning")
+        return redirect(safe_next_or(url_for("discografica_view", section="royalties")))
+    sem_year, sem_half = parsed
+    sem_start, sem_end = _semester_range(sem_year, sem_half)
+    created, errors = 0, []
+    with get_db() as session_db:
+        for bucket in _royalty_pending_buckets(session_db, sem_start, sem_end, statuses=("PENDING",)):
+            name = bucket.get("name") or "Beneficiario"
+            try:
+                bid = to_uuid(str(bucket.get("id")))
+                if not bid:
+                    continue
+                _ensure_royalty_liquidation_row(session_db, (bucket.get("kind") or "").upper(), bid, sem_start, sem_end)
+                session_db.commit()
+                created += 1
+            except Exception as exc:
+                session_db.rollback()
+                errors.append(f"{name}: {exc}")
+    if created:
+        flash(f"Generadas {created} liquidacion{'es' if created != 1 else ''}."
+              + (f" Incidencias: {'; '.join(errors[:5])}" if errors else ""),
+              "warning" if errors else "success")
+    elif errors:
+        flash("No se pudo generar ninguna: " + "; ".join(errors[:5]), "danger")
+    else:
+        flash("Ya estaban todas generadas.", "info")
+    return redirect(safe_next_or(url_for("discografica_view", section="royalties", s=sem_key)))
 
 
 @app.get("/discografica/royalties/liquidaciones/descargar-todas", endpoint="royalty_liquidations_download_all")
@@ -13640,23 +13706,33 @@ def royalty_liquidations_download_all():
         flash("Falta la librería de PDF en el servidor.", "danger")
         return redirect(url_for("discografica_view", section="royalties", s=sem_key))
     with get_db() as session_db:
-        buckets = _royalty_pending_buckets(session_db, sem_start, sem_end)
+        buckets = _royalty_pending_buckets(session_db, sem_start, sem_end,
+                                           statuses=tuple(ROYALTY_NOT_SENT_STATUSES))
         if not buckets:
-            flash("No hay liquidaciones pendientes de enviar en este semestre.", "info")
+            flash("No hay liquidaciones sin enviar en este semestre.", "info")
             return redirect(url_for("discografica_view", section="royalties", s=sem_key))
         writer = PdfWriter()
         added = 0
+        now_dt = datetime.now(TZ_MADRID)
         for bucket in buckets:
             try:
+                kind = (bucket.get("kind") or "").upper()
                 pdf_bytes, _fn, _ben = _build_royalty_liquidation_pdf_bytes(
-                    session_db, (bucket.get("kind") or "").upper(), bucket.get("id"),
+                    session_db, kind, bucket.get("id"),
                     sem_year, sem_half, touch_liquidation=False,
                 )
                 for page in PdfReader(BytesIO(pdf_bytes)).pages:
                     writer.add_page(page)
                 added += 1
+                # Al descargarla queda marcada como DESCARGADA (sigue sin enviar).
+                bid = to_uuid(str(bucket.get("id")))
+                rec = _royalty_liquidation_record(session_db, kind, bid, sem_start) if bid else None
+                if rec is not None and (rec.status or "").upper() in ROYALTY_NOT_SENT_STATUSES:
+                    rec.status = "DOWNLOADED"
+                    rec.updated_at = now_dt
             except Exception:
                 app.logger.exception("[royalties] no se pudo añadir la liquidación de %s", bucket.get("name"))
+        session_db.commit()
         if not added:
             flash("No se pudo generar ninguna liquidación.", "warning")
             return redirect(url_for("discografica_view", section="royalties", s=sem_key))
@@ -13682,7 +13758,8 @@ def royalty_liquidations_send_all():
     now_dt = datetime.now(TZ_MADRID)
     sent, errors = 0, []
     with get_db() as session_db:
-        for bucket in _royalty_pending_buckets(session_db, sem_start, sem_end):
+        for bucket in _royalty_pending_buckets(session_db, sem_start, sem_end,
+                                               statuses=tuple(ROYALTY_NOT_SENT_STATUSES)):
             kind = (bucket.get("kind") or "").upper()
             bid = bucket.get("id")
             name = bucket.get("name") or "Beneficiario"

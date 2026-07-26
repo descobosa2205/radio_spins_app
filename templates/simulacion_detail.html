@@ -1106,7 +1106,7 @@
                 <span class="flex-grow-1">
                   <span class="fw-semibold">{{ t.name }}</span>
                   <span class="badge text-bg-light border ms-1">{{ {'VENUE':'Recinto','ARTIST':'Artista','EVENT':'Evento'}.get(t.owner, t.owner) }} · {{ t.owner_label }}</span>
-                  <div class="small text-muted">Modificada el {{ t.updated_label or '—' }} · {{ t.items|length }} líneas</div>
+                  <div class="small text-muted">Modificada el {{ t.updated_label or '—' }} · {{ t['items']|length }} líneas</div>
                 </span>
               </label>
             {% endfor %}

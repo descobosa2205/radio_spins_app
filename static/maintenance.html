@@ -100,6 +100,8 @@
   .btn:hover{background:var(--red-d);transform:translateY(-2px);box-shadow:0 16px 34px rgba(227,61,72,.38)}
   .btn:active{transform:translateY(0)}
   .btn svg{width:17px;height:17px;fill:currentColor}
+  .btns{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+  .btn--ghost{background:#fff!important;color:#111!important;border:1px solid rgba(0,0,0,.14)!important}
   .cd{margin-top:16px;font-size:13px;color:var(--muted)}
   .cd b{color:var(--teal-d);font-variant-numeric:tabular-nums}
 
@@ -133,10 +135,28 @@
     <p class="lead">Estamos trabajando en cosas muy chulas que pronto podrás disfrutar.</p>
     <p class="sub">Inténtalo de nuevo en un rato.</p>
 
-    <button class="btn" type="button" onclick="location.reload()">
-      <svg viewBox="0 0 512 512" aria-hidden="true"><path d="M463.5 224H472c13.3 0 24-10.7 24-24V72c0-9.7-5.8-18.5-14.8-22.2s-19.3-1.7-26.2 5.2L413.4 96.6c-87.6-86.5-228.7-86.2-315.8 1c-87.5 87.5-87.5 229.3 0 316.8s229.3 87.5 316.8 0c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0c-62.5 62.5-163.8 62.5-226.3 0s-62.5-163.8 0-226.3c62.2-62.2 162.7-62.5 225.3-1L327 183c-6.9 6.9-8.9 17.2-5.2 26.2s12.5 14.8 22.2 14.8H463.5z"/></svg>
-      Reintentar ahora
-    </button>
+    <div class="btns">
+      <!-- Volver: útil cuando solo falla ESTA sección y el resto de la app sí funciona. -->
+      <button class="btn btn--ghost" type="button" id="btnBack">
+        <svg viewBox="0 0 448 512" aria-hidden="true"><path d="M9.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.2 288 416 288c17.7 0 32-14.3 32-32s-14.3-32-32-32l-306.7 0L214.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg>
+        Volver
+      </button>
+      <button class="btn" type="button" onclick="location.reload()">
+        <svg viewBox="0 0 512 512" aria-hidden="true"><path d="M463.5 224H472c13.3 0 24-10.7 24-24V72c0-9.7-5.8-18.5-14.8-22.2s-19.3-1.7-26.2 5.2L413.4 96.6c-87.6-86.5-228.7-86.2-315.8 1c-87.5 87.5-87.5 229.3 0 316.8s229.3 87.5 316.8 0c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0c-62.5 62.5-163.8 62.5-226.3 0s-62.5-163.8 0-226.3c62.2-62.2 162.7-62.5 225.3-1L327 183c-6.9 6.9-8.9 17.2-5.2 26.2s12.5 14.8 22.2 14.8H463.5z"/></svg>
+        Reintentar ahora
+      </button>
+    </div>
+    <script>
+      (function(){
+        var b = document.getElementById('btnBack');
+        if (!b) return;
+        b.addEventListener('click', function(){
+          // A la página anterior; si no hay historial (o es esta misma), al inicio.
+          if (window.history.length > 1) { window.history.back(); setTimeout(function(){ if (document.visibilityState === 'visible') window.location.href = '/'; }, 900); }
+          else window.location.href = '/';
+        });
+      })();
+    </script>
 
     <p class="cd" id="cdWrap">Reintentaremos solos en <b id="cd">30</b> s</p>
   </main>

@@ -505,6 +505,20 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   Para aplicar el esquema en el entorno de prueba hay que **borrar el cerrojo y llamarla en primer
   plano** (ver el kit en la sección de verificación). En Render no afecta: cada deploy trae /tmp limpio.
 
+- **Descarga de documentos generados** (`static/js/doc_download.js`, GLOBAL, cargado en `layout.html`
+  ANTES del bloque del loader): intercepta los enlaces same-origin de documentos (por extensión o por
+  las rutas `/pdf`, `/xlsx`, `/descargar`, `/export`…; excluir con `data-no-doc-loader`). Con
+  `target="_blank"` abre la pestaña **de forma síncrona** (si no, el navegador la bloquea) pintando
+  una pantalla propia «Generando documento…» con iconos y barra, y al terminar la reemplaza por el
+  fichero (blob); sin `_blank` usa `window.appLoader.progress`. Si el `Content-Type` no es de
+  documento (p. ej. un error devuelve HTML) NO lo da por bueno y cae al enlace normal.
+- ⚠️ **`static/maintenance.html` es HTML PURO** (no pasa por Jinja): un comentario `{# … #}` se
+  vería en pantalla — usar `<!-- … -->`. Tiene botón **Volver** (`history.back()` con fallback a `/`)
+  junto a «Reintentar ahora», para cuando solo falla una sección.
+- ⚠️ **Dicts en plantillas**: `d.items`/`d.keys`/`d.values` en Jinja devuelven el **método**, no la
+  clave → hay que escribir `d['items']`. Ha causado dos 500 reales (el set list del concierto y
+  «Royalties → A favor»). El checker de esprima NO lo detecta: revisar el HTML servido con curl.
+
 ## Despliegue
 - GitHub `descobosa2205/radio_spins_app` → **Render** (Pro Plus, **Frankfurt**) auto-deploy de
   `main`. **Supabase** Pro (**Frankfurt**, proyecto `gyezqnqyxpwxxevdjhgf`; migrado desde Estocolmo

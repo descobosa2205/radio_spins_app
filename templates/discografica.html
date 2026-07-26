@@ -1642,4 +1642,9 @@
 })();
 </script>
 
+{# Llegada desde las acciones rápidas de Inicio (?open=song): abre «Añadir canción» solo. #}
+{% if request.args.get('open') == 'song' %}
+<script>window.app33AutoOpenModal && window.app33AutoOpenModal('addSongModal');</script>
+{% endif %}
+
 {% endblock %}

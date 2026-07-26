@@ -528,4 +528,8 @@
 })();
 </script>
 {% endif %}
+{# Llegada desde las acciones rápidas de Inicio (?open=sim): abre el asistente solo. #}
+{% if request.args.get('open') == 'sim' %}
+<script>window.app33AutoOpenModal && window.app33AutoOpenModal('simWizardModal');</script>
+{% endif %}
 {% endblock %}

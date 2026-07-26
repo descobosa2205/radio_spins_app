@@ -189,6 +189,26 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-07-26 — Inicio: acciones rápidas por departamento · invitaciones a juego
+
+- **Botones de acciones directas en Inicio**, justo bajo la cabecera del personal y con el mismo
+  lenguaje visual que las tarjetas de sección. Salen **según el departamento** de cada persona:
+  **Contratación** → + Actividad · + Petición · + Simulación · Cuadrantes · + Pedir invitaciones;
+  **Sello** → + Actividad · + Petición · + Pedir invitaciones; **Registros** → + Petición ·
+  + Nuevo single · + Pedir invitaciones. Quien no está en esos departamentos ve lo transversal
+  (+ Petición y + Pedir invitaciones) y **dirección lo ve todo**. Cada botón se **filtra por
+  permisos**: nunca aparece uno que llevaría a un «sin acceso».
+- **+ Actividad abre el asistente en la propia pantalla de Inicio** (sin navegar); el resto llevan a
+  su pantalla con el asistente correspondiente **ya abierto** (simulación, nueva canción, pedir
+  invitaciones). Se retiran el botón «Añadir petición» y el módulo **«Tus áreas»**.
+- Arreglada de paso la **auto-apertura de modales por URL**, que no funcionaba: Jinja escapaba las
+  comillas del identificador y la llamada dejaba de ser JavaScript válido. Ahora hay un helper
+  global (`app33AutoOpenModal`) que además espera a que Bootstrap esté cargado.
+- **Invitaciones**: el botón «Gestionar invitaciones» de la ficha pasa a tener la **misma estética**
+  que los de su lado, y la cabecera de **Gestionar invitaciones** muestra los mismos contadores que
+  la ficha — **Por contrato · Subidas · Solicitadas · Totales** (subidas − solicitadas), con sus
+  iconos y el total en verde/rojo.
+
 ### 2026-07-26 — Revisión: repertorio arreglado, M&G, «Editar ficha» global, PDF visual y bolsa
 
 - **Repertorio ARREGLADO de verdad** (daba error 500 y por eso salía la página de «estamos

@@ -12,19 +12,43 @@
   </div>
 </div>
 
-{# Botón global para cualquier miembro de la oficina: crear una petición eligiendo para qué es. #}
-<div class="d-flex justify-content-end mb-3">
-  <div class="dropdown">
-    <button class="btn btn-danger dropdown-toggle" type="button" data-bs-toggle="dropdown"><i class="fa fa-plus me-1"></i>Añadir petición</button>
-    <ul class="dropdown-menu dropdown-menu-end">
-      <li class="dropdown-header">¿Para qué es?</li>
-      <li><button type="button" class="dropdown-item" data-peticion-new><i class="fa fa-file-signature fa-fw me-1 text-danger"></i>Contratación (concierto/actividad)</button></li>
-      <li><button type="button" class="dropdown-item" data-peticion-new data-peticion-dept="PROMO" data-peticion-activity="EVENTO_PROMOCIONAL"><i class="fa fa-microphone-lines fa-fw me-1 text-danger"></i>Promoción (entrevista)</button></li>
-      <li><button type="button" class="dropdown-item" data-peticion-new data-peticion-activity="MARCA"><i class="fa fa-tags fa-fw me-1 text-danger"></i>Acción con marca</button></li>
-      <li><button type="button" class="dropdown-item" data-peticion-new data-peticion-dept="DISENO"><i class="fa fa-palette fa-fw me-1 text-danger"></i>Diseño</button></li>
-    </ul>
-  </div>
+{# Acciones rápidas según el DEPARTAMENTO de la persona (contratación / sello / registros…):
+   lo que hace a diario, de un clic y sin buscarlo por el menú. Mismo estilo que las tarjetas
+   de sección. Se filtran por permisos en `_build_home_quick_actions`. #}
+{% if HOME_QUICK_ACTIONS %}
+<div class="dash-quick mb-4">
+  {% for qa in HOME_QUICK_ACTIONS %}
+    {% if qa.modal %}
+      {# Se abre AQUÍ mismo si el modal está en la página; si no, navega a su pantalla. #}
+      <button type="button" class="dash-quick__btn" data-quick-modal="{{ qa.modal }}" data-quick-url="{{ qa.url }}" title="{{ qa.hint }}">
+        <span class="dash-quick__icon"><i class="fa {{ qa.icon }}"></i></span>
+        <span class="dash-quick__label">{% if qa.plus %}<i class="fa fa-plus dash-quick__plus"></i>{% endif %}{{ qa.label }}</span>
+      </button>
+    {% elif qa.url %}
+      <a class="dash-quick__btn" href="{{ qa.url }}" title="{{ qa.hint }}">
+        <span class="dash-quick__icon"><i class="fa {{ qa.icon }}"></i></span>
+        <span class="dash-quick__label">{% if qa.plus %}<i class="fa fa-plus dash-quick__plus"></i>{% endif %}{{ qa.label }}</span>
+      </a>
+    {% else %}
+      <button type="button" class="dash-quick__btn" {{ qa.attrs|safe if qa.attrs }} title="{{ qa.hint }}">
+        <span class="dash-quick__icon"><i class="fa {{ qa.icon }}"></i></span>
+        <span class="dash-quick__label">{% if qa.plus %}<i class="fa fa-plus dash-quick__plus"></i>{% endif %}{{ qa.label }}</span>
+      </button>
+    {% endif %}
+  {% endfor %}
 </div>
+<script>
+// «+ Actividad»: abre el asistente en la propia home si está embebido; si no, navega.
+document.addEventListener('click', function (ev) {
+  var btn = ev.target.closest('[data-quick-modal]');
+  if (!btn) return;
+  var el = document.querySelector(btn.getAttribute('data-quick-modal'));
+  if (el && window.bootstrap) { bootstrap.Modal.getOrCreateInstance(el).show(); return; }
+  var url = btn.getAttribute('data-quick-url');
+  if (url) window.location.href = url;
+});
+</script>
+{% endif %}
 
 {% if HOME_AGENDA is not none %}
 <div class="card mb-4">
@@ -39,10 +63,12 @@
 </div>
 {% set agenda_add_artists = AGENDA_ARTIST_OPTIONS %}
 {% include '_agenda_add_modal.html' %}
-{# Asistente de concierto embebido: permite crear una «Actividad» del «+» de la agenda IN SITU
-   (sin navegar a /conciertos). Solo si hay contexto (wizard_available). #}
-{% if wizard_available %}{% include '_concert_wizard_modal.html' %}{% endif %}
 {% endif %}
+
+{# Asistente de concierto embebido: permite crear una «Actividad» IN SITU (sin navegar a
+   /conciertos), tanto desde el «+» de la agenda como desde el botón «+ Actividad» de las
+   acciones rápidas. Solo si hay contexto (wizard_available). #}
+{% if wizard_available %}{% include '_concert_wizard_modal.html' %}{% endif %}
 
 {% if HOME_PENDING_PETICIONES %}
 <div class="card mb-4">
@@ -254,29 +280,6 @@
     </div>
   </div>
 </div>
-{% endif %}
-
-<h5 class="dash-section-title mb-3">Tus áreas</h5>
-{% if HOME_SECTIONS %}
-  <div class="row g-3">
-    {% for section in HOME_SECTIONS %}
-      <div class="col-12 col-md-6 col-xl-4">
-        <a href="{{ section.url }}" class="text-decoration-none">
-          <div class="dash-tile h-100">
-            <div class="d-flex align-items-center gap-3">
-              <div class="dash-tile__icon"><i class="fa {{ section.icon }}"></i></div>
-              <div>
-                <div class="dash-tile__title">{{ section.label }}</div>
-                <div class="dash-tile__text">Acceso directo a la sección</div>
-              </div>
-            </div>
-          </div>
-        </a>
-      </div>
-    {% endfor %}
-  </div>
-{% else %}
-  <div class="alert alert-light border">Tu usuario todavía no tiene áreas asignadas. Puedes iniciar sesión y permanecer en inicio hasta que se te concedan permisos.</div>
 {% endif %}
 
 {% include "_quick_create_modals.html" %}

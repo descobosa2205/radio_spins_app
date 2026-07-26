@@ -351,11 +351,13 @@
             {% for artist in event.artists %}<span class="artist-chip"{% if artist.id %} data-artist-link="{{ artist.id }}"{% endif %}><img src="{{ artist.photo_url }}" alt="">{{ artist.name }}</span>{% endfor %}
           </div>
         </div>
+        {# Mismos contadores (y estética) que «Invitaciones disponibles» de la ficha de la
+           actividad: Por contrato · Subidas · Solicitadas · Totales (subidas − solicitadas). #}
         <div class="invitation-counts invitation-counts--large">
-          <div><span>{{ event.counts.configured }}</span><small>Disponibles</small></div>
-          <div><span>{{ event.counts.committed }}</span><small>Compromisos</small></div>
-          <div><span>{{ event.counts.requested_all if event.counts.requested_all is defined else event.counts.requested }}</span><small>Invitaciones solicitadas</small></div>
-          <div class="{% if event.counts.result < 0 %}text-danger{% else %}text-success{% endif %}"><span>{{ event.counts.result }}</span><small>Resultado</small></div>
+          <div><span>{{ header_counts.contract if header_counts else event.counts.configured }}</span><small><i class="fa fa-file-signature me-1"></i>Por contrato</small></div>
+          <div><span>{{ header_counts.uploaded if header_counts else 0 }}</span><small><i class="fa fa-upload me-1"></i>Subidas</small></div>
+          <div><span>{{ header_counts.requested if header_counts else event.counts.requested }}</span><small><i class="fa fa-envelope-open-text me-1"></i>Solicitadas</small></div>
+          <div class="{% if header_counts and header_counts.total < 0 %}text-danger{% else %}text-success{% endif %}"><span>{{ header_counts.total if header_counts else event.counts.result }}</span><small><i class="fa fa-ticket me-1"></i>Totales</small></div>
         </div>
       </div>
     </div>
@@ -4717,21 +4719,17 @@
 
 {% if request.args.get('open_wizard') %}
 <script>
-  // Auto-apertura del asistente de PEDIR invitaciones (botón «Pedir invitaciones» de Inicio,
-  // ?open_wizard=1). En DOMContentLoaded porque Bootstrap se carga después del contenido.
-  document.addEventListener('DOMContentLoaded', function(){
-    var el = document.getElementById('invitationRequestModal');
-    if (el && window.bootstrap) bootstrap.Modal.getOrCreateInstance(el).show();
-  });
+  // Auto-apertura del asistente de PEDIR invitaciones (?open_wizard=1). Con reintentos:
+  // en esta pantalla Bootstrap puede no estar listo aún en DOMContentLoaded.
+  window.app33AutoOpenModal && window.app33AutoOpenModal('invitationRequestModal');
 </script>
 {% endif %}
 {% if request.args.get('open') in ['commitment', 'request'] %}
 <script>
-  // Auto-apertura desde la ficha del evento (botones «Añadir compromiso»/«Añadir petición»).
-  document.addEventListener('DOMContentLoaded', function(){
-    var el = document.getElementById({{ "'commitmentModal'" if request.args.get('open') == 'commitment' else "'invitationRequestModal'" }});
-    if (el && window.bootstrap) bootstrap.Modal.getOrCreateInstance(el).show();
-  });
+  // Auto-apertura desde la ficha de la actividad («Añadir compromiso»/«Añadir petición») y
+  // desde las acciones rápidas de Inicio («+ Pedir invitaciones»).
+  // Ojo con el |safe del literal: sin él Jinja escapa las comillas y la llamada deja de ser JS válido.
+  window.app33AutoOpenModal && window.app33AutoOpenModal({{ ("'commitmentModal'" if request.args.get('open') == 'commitment' else "'invitationRequestModal'")|safe }});
 </script>
 {% endif %}
 {% endblock %}

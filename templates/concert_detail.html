@@ -1664,7 +1664,7 @@
               {% if invitation_open_for_requests %}
                 <a class="btn btn-sm btn-outline-success" href="{{ url_for('invitation_event_detail', concert_id=concert.id, open='commitment', **{'from': 'ficha'}) }}"><i class="fa fa-handshake me-1"></i>Añadir compromiso</a>
                 <a class="btn btn-sm btn-outline-primary" href="{{ url_for('invitation_event_detail', concert_id=concert.id, open='request', **{'from': 'ficha'}) }}"><i class="fa fa-envelope-open-text me-1"></i>Añadir petición</a>
-                <a class="btn btn-sm btn-danger" href="{{ url_for('invitation_event_detail', concert_id=concert.id, **{'from': 'ficha'}) }}"><i class="fa fa-arrow-up-right-from-square me-1"></i>Gestionar invitaciones</a>
+                <a class="btn btn-sm btn-outline-danger" href="{{ url_for('invitation_event_detail', concert_id=concert.id, **{'from': 'ficha'}) }}"><i class="fa fa-arrow-up-right-from-square me-1"></i>Gestionar invitaciones</a>
                 <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#concertInvitationCategoryModal"><i class="fa fa-gear me-1"></i>Configurar</button>
               {% else %}
                 <span class="badge text-bg-secondary align-self-center">Evento pasado</span>
@@ -1682,7 +1682,7 @@
           <div><span>{{ invitation_header_counts.contract if invitation_header_counts else invitation_totals.total }}</span><small><i class="fa fa-file-signature me-1"></i>Por contrato</small></div>
           <div><span>{{ invitation_header_counts.uploaded if invitation_header_counts else 0 }}</span><small><i class="fa fa-upload me-1"></i>Subidas</small></div>
           <div><span>{{ invitation_header_counts.requested if invitation_header_counts else 0 }}</span><small><i class="fa fa-envelope-open-text me-1"></i>Solicitadas</small></div>
-          <div class="{% if invitation_header_counts and invitation_header_counts.total < 0 %}text-danger{% else %}text-success{% endif %}"><span>{{ invitation_header_counts.total if invitation_header_counts else invitation_totals.total }}</span><small><i class="fa fa-ticket me-1"></i>Total</small></div>
+          <div class="{% if invitation_header_counts and invitation_header_counts.total < 0 %}text-danger{% else %}text-success{% endif %}"><span>{{ invitation_header_counts.total if invitation_header_counts else invitation_totals.total }}</span><small><i class="fa fa-ticket me-1"></i>Totales</small></div>
         </div>
         {% if invitation_categories_summary %}
           <div class="row g-3">

@@ -2470,3 +2470,43 @@ img.docs-id__face { width:100%; height:100%; object-fit:cover; display:block; cu
 .intake-choice__t { font-weight:800; }
 .intake-choice__s { font-size:.82rem; color:#8a9199; }
 @media (max-width:520px){ .intake-choices { grid-template-columns:1fr; } }
+
+/* =========================================================
+   INICIO · Acciones rápidas por departamento
+   Botones directos bajo la cabecera del personal, con el mismo lenguaje visual
+   que las tarjetas de sección (.dash-tile): tarjeta blanca redondeada, icono en
+   cuadrado teñido y etiqueta en negrita. Sustituyen al módulo «Tus áreas».
+   ========================================================= */
+.dash-quick{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(190px, 1fr));
+  gap:.75rem;
+}
+.dash-quick__btn{
+  display:flex; align-items:center; gap:.75rem;
+  width:100%; text-align:left; text-decoration:none;
+  padding:.8rem .9rem;
+  background:#fff;
+  border:1px solid var(--line-2, rgba(0,0,0,.08));
+  border-radius:14px;
+  box-shadow:var(--shadow-sm-2, 0 .125rem .25rem rgba(0,0,0,.05));
+  color:inherit;
+  transition:transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+}
+.dash-quick__btn:hover{
+  box-shadow:var(--shadow-md-2, 0 .5rem 1rem rgba(0,0,0,.08));
+  transform:translateY(-3px);
+  border-color:transparent;
+  color:inherit;
+}
+.dash-quick__icon{
+  width:44px; height:44px; flex:0 0 44px;
+  border-radius:12px;
+  display:inline-flex; align-items:center; justify-content:center;
+  background:rgba(227,61,72,.10);
+  color:var(--brand-primary, #E33D48);
+  font-size:1.05rem;
+}
+.dash-quick__label{ font-weight:700; line-height:1.15; }
+.dash-quick__plus{ font-size:.72em; margin-right:.3rem; color:var(--brand-primary, #E33D48); }
+@media (max-width:520px){ .dash-quick{ grid-template-columns:1fr 1fr; } }

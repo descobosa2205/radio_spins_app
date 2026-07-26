@@ -105,6 +105,19 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   bloqueados/eliminados; `logout` limpia las claves.
 - **Iconos de sección**: dict `SECTION_ICONS` en `app.py`, inyectado al contexto; usado en el menú
   (`layout.html`) y en permisos.
+- **Inicio · acciones rápidas por departamento**: botones bajo la cabecera del personal
+  (`HOME_QUICK_ACTIONS` ← `_build_home_quick_actions`, catálogo `_home_quick_action_defs`, reparto
+  `_HOME_QUICK_BY_DEPARTMENT` por `UserProfile.departments`: Contratación/Sello/Registros; el resto
+  ve `_HOME_QUICK_DEFAULT`, dirección lo ve todo). Cada acción se filtra por su `access` (nunca sale
+  un botón que daría 403). Estilos `.dash-quick*` en `styles.css`. Sustituyen al botón «Añadir
+  petición» y al módulo «Tus áreas» (eliminados). Las que viven en un modal de OTRA pantalla se
+  abren con un parámetro de URL (`?open=sim` simulaciones · `?open=song` discográfica ·
+  `?open=request` invitaciones) que dispara **`window.app33AutoOpenModal(id)`** — helper definido
+  **inline en `layout.html` ANTES del `{% block content %}`** (los scripts en línea de las
+  plantillas se ejecutan antes de Bootstrap y de `scripts.js`; reintenta hasta que existan modal y
+  Bootstrap). ⚠️ Al emitir el id desde Jinja hace falta **`|safe`**: sin él escapa las comillas
+  (`&#39;`) y la llamada deja de ser JS válido (bug real). «+ Actividad» abre el asistente **in situ**
+  en la propia home (`_concert_wizard_modal.html` se incluye siempre que haya `wizard_available`).
 - **Select2 con logos**: `initSelect2()` (scripts.js) pinta la imagen de cada opción desde
   `data-photo`/`data-logo`. El `<select>` debe llevar una clase: `select-providers` (terceros),
   `select-venues` (recintos), `select-with-thumbs` (ticketeras/editoriales, miniatura cuadrada),

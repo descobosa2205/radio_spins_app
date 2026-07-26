@@ -39274,20 +39274,86 @@ def _build_home_quick_links(limit: int = 6) -> list[dict]:
         session_db.close()
 
 
-def _build_home_sections() -> list[dict]:
-    sections = [
-        ("discografica", "Discográfica", _resource_default_url("discografica"), "fa-compact-disc"),
-        ("contratacion", "Contratación", _resource_default_url("contratacion"), "fa-music"),
-        ("promocion", "Marketing", _resource_default_url("promocion"), "fa-bullhorn"),
-        ("invitaciones", "Invitaciones", _resource_default_url("invitaciones"), "fa-ticket-alt"),
-        ("contabilidad", "Contabilidad", _resource_default_url("contabilidad"), "fa-file-invoice-dollar"),
-        ("databases", "Bases de datos", _resource_default_url("databases.venues"), "fa-database"),
-        ("personal", "Personal", _resource_default_url("personal"), "fa-users-cog"),
-    ]
+# ---------------------------------------------------------------------------
+#  Inicio · ACCIONES RÁPIDAS por departamento (botones bajo la cabecera).
+#  Sustituyen al botón «Añadir petición» y al módulo «Tus áreas»: cada persona
+#  ve de un clic lo que hace a diario según su departamento. Todo se filtra por
+#  permisos (nunca sale un botón que llevaría a un 403).
+# ---------------------------------------------------------------------------
+
+def _home_quick_action_defs() -> dict:
+    """Catálogo de acciones rápidas. `modal` abre in situ; `url` navega (con el modal
+    de destino autoabierto por su parámetro)."""
+    return {
+        "actividad": {
+            "key": "actividad", "label": "Actividad", "plus": True, "icon": "fa-guitar",
+            "hint": "Dar de alta un concierto o actividad", "access": "contratacion.conciertos",
+            "modal": "#concertWizardModal", "url": url_for("concerts_view", open_wizard=1),
+        },
+        "peticion": {
+            "key": "peticion", "label": "Petición", "plus": True, "icon": "fa-inbox",
+            "hint": "Pedir algo a otro departamento", "access": None,
+            "attrs": 'data-peticion-new', "url": None,
+        },
+        "simulacion": {
+            "key": "simulacion", "label": "Simulación", "plus": True, "icon": "fa-chart-line",
+            "hint": "Empezar una simulación económica", "access": "contratacion.simulaciones",
+            "url": url_for("contracting_view", section="simulaciones", open="sim"),
+        },
+        "cuadrantes": {
+            "key": "cuadrantes", "label": "Cuadrantes", "plus": False, "icon": "fa-table-cells",
+            "hint": "Planificación de la actividad", "access": "contratacion.cuadrantes",
+            "url": url_for("quadrantes_view"),
+        },
+        "single": {
+            "key": "single", "label": "Nuevo single", "plus": True, "icon": "fa-compact-disc",
+            "hint": "Añadir una canción nueva", "access": "discografica.canciones",
+            "url": url_for("discografica_view", section="canciones", rep_tab="canciones", open="song"),
+        },
+        "invitaciones": {
+            "key": "invitaciones", "label": "Pedir invitaciones", "plus": True, "icon": "fa-envelope-open-text",
+            "hint": "Solicitar invitaciones para un evento", "access": "invitaciones.pedir",
+            "url": url_for("invitations_view", tab="pedir", open="request"),
+        },
+    }
+
+
+# Orden canónico (así cada departamento sale en el orden pedido).
+_HOME_QUICK_ORDER = ["actividad", "peticion", "simulacion", "cuadrantes", "single", "invitaciones"]
+
+# Acciones por DEPARTAMENTO (nombres tal cual en PERSONNEL_DEPARTMENTS).
+_HOME_QUICK_BY_DEPARTMENT = {
+    "Contratación": ["actividad", "peticion", "simulacion", "cuadrantes", "invitaciones"],
+    "Sello": ["actividad", "peticion", "invitaciones"],
+    "Registros": ["peticion", "single", "invitaciones"],
+}
+# Quien no está en ninguno de los departamentos de arriba ve lo transversal.
+_HOME_QUICK_DEFAULT = ["peticion", "invitaciones"]
+
+
+def _build_home_quick_actions() -> list[dict]:
+    state = _current_user_state()
+    depts = [str(d).strip() for d in (state.get("departments") or []) if str(d).strip()]
+    wanted: set = set()
+    for dept in depts:
+        for k in _HOME_QUICK_BY_DEPARTMENT.get(dept, []):
+            wanted.add(k)
+    if is_master():
+        wanted = set(_HOME_QUICK_ORDER)     # dirección lo ve todo
+    elif not wanted:
+        wanted = set(_HOME_QUICK_DEFAULT)
+    defs = _home_quick_action_defs()
     out = []
-    for key, label, url, icon in sections:
-        if has_access_key(key, include_descendants=True):
-            out.append({"key": key, "label": label, "url": url, "icon": icon})
+    for key in _HOME_QUICK_ORDER:
+        if key not in wanted:
+            continue
+        row = defs.get(key)
+        if not row:
+            continue
+        access = row.get("access")
+        if access and not has_access_key(access, include_descendants=True):
+            continue
+        out.append(row)
     return out
 
 
@@ -39373,7 +39439,7 @@ def inject_personnel_globals():
         "CURRENT_USER": current_user,
         "NAV_MENU": _build_nav_menu() if session.get("user_id") else [],
         "HOME_QUICK_LINKS": [],
-        "HOME_SECTIONS": _build_home_sections() if request.endpoint == "home" and session.get("user_id") else [],
+        "HOME_QUICK_ACTIONS": _build_home_quick_actions() if request.endpoint == "home" and session.get("user_id") else [],
         "HOME_INVITATIONS": _home_invitation_requests_for_current_user() if request.endpoint == "home" and session.get("user_id") and "_home_invitation_requests_for_current_user" in globals() else [],
         "HOME_INVITATIONS_TO_MANAGE": _home_invitations_to_manage() if request.endpoint == "home" and session.get("user_id") and "_home_invitations_to_manage" in globals() and has_access_key("invitaciones.gestionar", include_descendants=True) else [],
         "HOME_REGISTROS_PENDING": _home_registros_pending() if request.endpoint == "home" and session.get("user_id") and "_home_registros_pending" in globals() and has_access_key("registros") else [],
@@ -53954,6 +54020,8 @@ def invitation_event_detail(concert_id):
             back_to_ficha=back_to_ficha,
             group_promoted=_concert_is_group_promoted(session_db, concert),
             event=_invitation_event_payload(session_db, concert, include_counts=True),
+            # Cabecera con los MISMOS contadores que la ficha de la actividad.
+            header_counts=_invitation_ficha_header_counts(session_db, concert),
             concert=concert,
             categories=cat_payloads,
             commitments=commitments,

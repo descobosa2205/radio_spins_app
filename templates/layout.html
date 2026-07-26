@@ -170,6 +170,22 @@
     {% endfor %}
   {% endif %}
   {% endwith %}
+  {# Auto-apertura de modales al llegar por URL (?open=…): se define AQUÍ, antes del contenido,
+     porque los scripts en línea de las plantillas se ejecutan antes de Bootstrap y de scripts.js.
+     Reintenta hasta que existan el modal y Bootstrap, así no depende del orden de carga. #}
+  <script>
+  window.app33AutoOpenModal = function (modalId, attempts) {
+    var tries = 0, max = attempts || 60;   // ~6 s como máximo
+    (function attempt() {
+      tries += 1;
+      var el = document.getElementById(modalId);
+      if (el && window.bootstrap && window.bootstrap.Modal) {
+        try { window.bootstrap.Modal.getOrCreateInstance(el).show(); return; } catch (e) {}
+      }
+      if (tries < max) setTimeout(attempt, 100);
+    })();
+  };
+  </script>
   {% block content %}{% endblock %}
 </main>
 

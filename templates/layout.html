@@ -163,7 +163,17 @@
 </nav>
 {% endif %}
 
-<main class="container-fluid app-main my-4 pb-5">
+{# Componente INSERTABLE en otra web (`<iframe>`): fondo transparente y sin márgenes, para que solo
+   se vean las viñetas sobre el fondo de la web que lo incrusta. #}
+{% if embed_mode %}
+<style>
+  html, body { background: transparent !important; }
+  body { padding: 0 !important; }
+  main.app-main { margin: 0 !important; padding: 0 !important; }
+</style>
+{% endif %}
+
+<main class="container-fluid app-main {{ 'm-0 p-0' if embed_mode else 'my-4 pb-5' }}">
   {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
     {% for category, message in messages %}

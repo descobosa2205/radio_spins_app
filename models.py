@@ -865,6 +865,38 @@ class GroupCompany(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class GroupCompanyDocument(Base):
+    """Documentación de una EMPRESA DEL GRUPO (pestaña «Documentación» de su ficha).
+
+    Cada documento lleva su nombre y su fecha de caducidad: si no ha caducado sale con etiqueta verde
+    («Vigente») y si ha caducado en rojo («Caducado»). Sin fecha = sin caducidad. Solo dirección los
+    sube o edita; el resto los ve, los descarga y los comparte.
+    """
+
+    __tablename__ = "group_company_documents"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    company_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("group_companies.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name = Column(Text, nullable=False)
+    file_url = Column(Text, nullable=False)
+    original_name = Column(Text)
+    expiry_date = Column(Date)                 # NULL = sin caducidad
+    notes = Column(Text)
+    uploaded_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    company = relationship("GroupCompany")
+
+    __table_args__ = (
+        Index("idx_group_company_docs_company", "company_id", "expiry_date"),
+    )
+
+
 class PublishingCompany(Base):
     """Compañías editoriales (copyright publishing)."""
 
@@ -5919,6 +5951,22 @@ def ensure_third_party_and_contract_sheet_schema():
         """,
         'CREATE INDEX IF NOT EXISTS idx_person_compliance_owner ON person_compliance_docs(owner_type, owner_id);',
         'CREATE INDEX IF NOT EXISTS idx_person_compliance_type ON person_compliance_docs(doc_type);',
+        # Documentación de las EMPRESAS DEL GRUPO (ficha de la empresa, pestaña «Documentación»).
+        """
+        CREATE TABLE IF NOT EXISTS group_company_documents (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            company_id uuid NOT NULL REFERENCES group_companies(id) ON DELETE CASCADE,
+            name text NOT NULL,
+            file_url text NOT NULL,
+            original_name text,
+            expiry_date date,
+            notes text,
+            uploaded_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_group_company_docs_company ON group_company_documents(company_id, expiry_date);',
         # Datos de facturación que el proveedor rellena una vez en /facturacion.
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS bank_account text;",
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS fiscal_address text;",

@@ -564,6 +564,22 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (personal con departamento; dirección solo si tiene además otro) y `_detect_invoice_meta` lee el
   nº y la fecha de emisión del PDF para que el proveedor los confirme antes de enviar.
 
+- **Ficha de la empresa del grupo** (`company_detail`, `/empresas/<cid>`): pestaña **Datos** (datos de
+  `GroupCompany` inline + enlace `/facturacion_<slug>` con copiar + botón que genera y copia el código
+  de inserción vía `company_embed_code` → `_company_embed_snippet`) y pestaña **Documentación**
+  (`GroupCompanyDocument`: nombre + `expiry_date`; `_company_doc_row` da la etiqueta
+  **VALID/EXPIRED/NONE** → `.co-doc-st--valid/--expired/--none`, caducados primero). Guardado/borrado
+  (`company_document_save`/`_delete`) **solo dirección** (`is_master()`), el resto ve/descarga/comparte
+  (correo·WhatsApp·SMS). Permisos: los endpoints `company_*` ya caen en `databases.group_companies` por
+  prefijo en `_coarse_endpoint_resource`, no hay que mapearlos a mano.
+- **Componente insertable en otra web** (`public_invoice_embed`, `/facturacion_<slug>/embed`): es la
+  MISMA `public_invoice_landing.html` con `inv_embed=True` (sin logo de la empresa, título en su propia
+  viñeta `.inv-embed-head`) + `embed_mode=True`, flag que **`layout.html`** usa para dejar
+  `html/body/main` **transparentes y sin márgenes** (con `hide_backoffice_nav`). El alto lo comunica al
+  `<iframe>` por `postMessage({app33:'facturacion-alto'})`. Al ser la landing real, cualquier cambio sale
+  en la web de la empresa sin tocarla. ⚠️ No hay `X-Frame-Options`/CSP en la app: si algún día se añaden,
+  hay que dejar este endpoint enmarcable.
+
 ## Despliegue
 - GitHub `descobosa2205/radio_spins_app` → **Render** (Pro Plus, **Frankfurt**) auto-deploy de
   `main`. **Supabase** Pro (**Frankfurt**, proyecto `gyezqnqyxpwxxevdjhgf`; migrado desde Estocolmo

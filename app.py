@@ -193,6 +193,7 @@ from models import (
     BookingRequest,
     TicketSale,
     GroupCompany,
+    GroupCompanyDocument,
     ConcertPromoterShare,
     ConcertCompanyShare,
     ConcertZoneAgent,
@@ -28547,6 +28548,250 @@ def company_delete(cid):
         session.close()
     return redirect(url_for("companies_view"))
 
+
+# =====================================================================================
+# FICHA DE LA EMPRESA DEL GRUPO
+# -------------------------------------------------------------------------------------
+# Pestaña «Datos» (datos de la empresa + enlace de subida de facturas y código para
+# insertarlo en su web) y pestaña «Documentación» (documentos con nombre y caducidad:
+# verde «Vigente» / rojo «Caducado»). Los documentos SOLO los sube o edita dirección;
+# el resto los ve, los descarga y los comparte por correo, WhatsApp o SMS.
+# =====================================================================================
+
+def _company_doc_icon(name: str) -> str:
+    """Icono según el tipo de archivo (para que la lista se lea de un vistazo)."""
+    low = (name or "").lower()
+    if low.endswith(".pdf"):
+        return "fa-file-pdf"
+    if low.endswith((".jpg", ".jpeg", ".png", ".webp", ".heic", ".gif")):
+        return "fa-file-image"
+    if low.endswith((".xls", ".xlsx", ".csv")):
+        return "fa-file-excel"
+    if low.endswith((".doc", ".docx")):
+        return "fa-file-word"
+    if low.endswith((".zip", ".rar", ".7z")):
+        return "fa-file-zipper"
+    return "fa-file-lines"
+
+
+def _company_doc_row(doc) -> dict:
+    """Fila de documento con su etiqueta de vigencia (verde vigente / rojo caducado)."""
+    today = date.today()
+    exp = getattr(doc, "expiry_date", None)
+    if exp is None:
+        state, label, cls, badge_icon = "NONE", "Sin caducidad", "co-doc-st--none", "fa-infinity"
+    elif exp < today:
+        state, label, cls, badge_icon = "EXPIRED", "Caducado", "co-doc-st--expired", "fa-triangle-exclamation"
+    else:
+        state, label, cls, badge_icon = "VALID", "Vigente", "co-doc-st--valid", "fa-circle-check"
+    days_left = (exp - today).days if exp else None
+    return {
+        "id": str(doc.id),
+        "name": (doc.name or "Documento"),
+        "file_url": _absolute_media_url(doc.file_url or ""),
+        "original_name": (doc.original_name or ""),
+        "expiry_date": exp,
+        "expiry_label": (exp.strftime("%d/%m/%Y") if exp else ""),
+        "notes": (doc.notes or ""),
+        "state": state,
+        "state_label": label,
+        "state_class": cls,
+        "badge_icon": badge_icon,
+        "days_left": days_left,
+        "icon": _company_doc_icon(doc.original_name or doc.file_url or ""),
+        "uploaded_by_nick": (doc.uploaded_by_nick or ""),
+        "created_at": doc.created_at,
+    }
+
+
+def _company_doc_rows(session_db, company_id) -> list[dict]:
+    """Documentos de la empresa: primero los caducados (hay que renovarlos), luego por caducidad."""
+    rows = [
+        _company_doc_row(d)
+        for d in session_db.query(GroupCompanyDocument)
+        .filter(GroupCompanyDocument.company_id == to_uuid(str(company_id)))
+        .all()
+    ]
+    order = {"EXPIRED": 0, "VALID": 1, "NONE": 2}
+    rows.sort(key=lambda r: (order.get(r["state"], 3), r["expiry_date"] or date.max, r["name"].lower()))
+    return rows
+
+
+def _company_invoice_urls(company) -> dict:
+    """Enlace público de subida de facturas de la empresa y URL del componente insertable."""
+    slug = _company_slug(getattr(company, "name", "") or "")
+    if not slug:
+        return {"slug": "", "link": "", "embed_url": ""}
+    return {
+        "slug": slug,
+        "link": _external_url_for("public_invoice_landing_company", company_slug=slug),
+        "embed_url": _external_url_for("public_invoice_embed", company_slug=slug),
+    }
+
+
+def _company_embed_snippet(company) -> str:
+    """Código para insertar la subida de facturas en la web de la empresa.
+
+    Va en un `<iframe>` al propio back office: así lo que se ve en la web es SIEMPRE la landing
+    actual (cualquier cambio que hagamos aquí sale allí sin tocar la web). El fondo es transparente
+    —solo cada viñeta lleva el suyo— y el alto se ajusta solo con un mensaje del propio componente.
+    """
+    urls = _company_invoice_urls(company)
+    if not urls["embed_url"]:
+        return ""
+    dom_id = "facturacion-" + (urls["slug"] or "empresa")
+    name = (getattr(company, "name", "") or "").strip()
+    return (
+        f'<!-- Subida de facturas · {name} · se actualiza solo desde el back office -->\n'
+        f'<div id="{dom_id}" style="max-width:940px;margin:0 auto;">\n'
+        f'  <iframe src="{urls["embed_url"]}" title="Subida de facturas"\n'
+        f'          style="width:100%;min-height:900px;border:0;background:transparent;"\n'
+        f'          loading="lazy" allowtransparency="true"></iframe>\n'
+        f'</div>\n'
+        f'<script>\n'
+        f'(function(){{\n'
+        f'  var box = document.getElementById("{dom_id}");\n'
+        f'  var frame = box && box.querySelector("iframe");\n'
+        f'  if (!frame) return;\n'
+        f'  window.addEventListener("message", function(ev){{\n'
+        f'    var d = ev.data;\n'
+        f'    if (!d || d.app33 !== "facturacion-alto" || typeof d.alto !== "number") return;\n'
+        f'    frame.style.height = (d.alto + 24) + "px";\n'
+        f'  }});\n'
+        f'}})();\n'
+        f'</script>'
+    )
+
+
+@app.get("/empresas/<cid>", endpoint="company_detail")
+@admin_required
+def company_detail(cid):
+    """Ficha de la empresa del grupo: datos + documentación."""
+    session_db = db()
+    try:
+        co = session_db.get(GroupCompany, to_uuid(cid))
+        if not co:
+            flash("Empresa no encontrada.", "warning")
+            return redirect(url_for("companies_view"))
+        tab = (request.args.get("tab") or "datos").strip().lower()
+        if tab not in ("datos", "documentacion"):
+            tab = "datos"
+        doc_rows = _company_doc_rows(session_db, co.id)
+        return render_template(
+            "company_detail.html",
+            company=co,
+            tab=tab,
+            doc_rows=doc_rows,
+            docs_expired=[r for r in doc_rows if r["state"] == "EXPIRED"],
+            invoice_urls=_company_invoice_urls(co),
+            can_edit_docs=is_master(),          # los documentos, solo dirección
+        )
+    finally:
+        session_db.close()
+
+
+@app.post("/empresas/<cid>/documentos", endpoint="company_document_save")
+@admin_required
+def company_document_save(cid):
+    """Sube o edita un documento de la empresa. Solo dirección."""
+    if not is_master():
+        return forbid("Solo dirección puede subir o editar la documentación de las empresas.")
+    session_db = db()
+    try:
+        co = session_db.get(GroupCompany, to_uuid(cid))
+        if not co:
+            flash("Empresa no encontrada.", "warning")
+            return redirect(url_for("companies_view"))
+        doc_id = (request.form.get("doc_id") or "").strip()
+        name = (request.form.get("name") or "").strip()
+        notes = (request.form.get("notes") or "").strip()
+        expiry = parse_optional_date(request.form.get("expiry_date"))
+        file_storage = request.files.get("file")
+        row = session_db.get(GroupCompanyDocument, to_uuid(doc_id)) if doc_id else None
+        if row is not None and str(row.company_id) != str(co.id):
+            row = None
+        try:
+            file_url = None
+            if file_storage and file_storage.filename:
+                file_url = upload_file(file_storage, "company_docs")
+                if not file_url:
+                    flash("No se pudo subir el archivo.", "danger")
+                    return redirect(url_for("company_detail", cid=co.id, tab="documentacion"))
+            if row is None:
+                if not file_url:
+                    flash("Elige el archivo del documento.", "warning")
+                    return redirect(url_for("company_detail", cid=co.id, tab="documentacion"))
+                session_db.add(GroupCompanyDocument(
+                    company_id=co.id,
+                    name=(name or (file_storage.filename or "Documento")),
+                    file_url=file_url,
+                    original_name=(file_storage.filename or None),
+                    expiry_date=expiry,
+                    notes=(notes or None),
+                    uploaded_by_nick=session.get("nick"),
+                ))
+                msg = "Documento subido."
+            else:
+                if name:
+                    row.name = name
+                row.expiry_date = expiry
+                row.notes = (notes or None)
+                if file_url:
+                    row.file_url = file_url
+                    row.original_name = (file_storage.filename or None)
+                row.updated_at = _now_madrid()
+                msg = "Documento actualizado."
+            session_db.commit()
+            flash(msg, "success")
+        except Exception as e:
+            session_db.rollback()
+            flash(f"No se pudo guardar el documento: {e}", "danger")
+        return redirect(url_for("company_detail", cid=co.id, tab="documentacion"))
+    finally:
+        session_db.close()
+
+
+@app.post("/empresas/<cid>/documentos/<doc_id>/eliminar", endpoint="company_document_delete")
+@admin_required
+def company_document_delete(cid, doc_id):
+    """Borra un documento de la empresa. Solo dirección."""
+    if not is_master():
+        return forbid("Solo dirección puede eliminar la documentación de las empresas.")
+    session_db = db()
+    try:
+        row = session_db.get(GroupCompanyDocument, to_uuid(doc_id))
+        if row is not None and str(row.company_id) == str(to_uuid(cid)):
+            session_db.delete(row)
+            session_db.commit()
+            flash("Documento eliminado.", "success")
+        else:
+            flash("Documento no encontrado.", "warning")
+        return redirect(url_for("company_detail", cid=cid, tab="documentacion"))
+    except Exception as e:
+        session_db.rollback()
+        flash(f"No se pudo eliminar: {e}", "danger")
+        return redirect(url_for("company_detail", cid=cid, tab="documentacion"))
+    finally:
+        session_db.close()
+
+
+@app.get("/empresas/<cid>/codigo-insercion", endpoint="company_embed_code")
+@admin_required
+def company_embed_code(cid):
+    """Genera el código para insertar la subida de facturas en la web de la empresa."""
+    session_db = db()
+    try:
+        co = session_db.get(GroupCompany, to_uuid(cid))
+        if not co:
+            return jsonify({"ok": False, "error": "Empresa no encontrada"}), 404
+        code = _company_embed_snippet(co)
+        if not code:
+            return jsonify({"ok": False, "error": "La empresa necesita un nombre para generar el enlace"}), 400
+        return jsonify({"ok": True, "code": code, **_company_invoice_urls(co)})
+    finally:
+        session_db.close()
+
+
 # =====================
 # BASES DE DATOS: EDITORIALES (Publishing Companies)
 # =====================
@@ -47933,6 +48178,38 @@ def public_invoice_landing_company(company_slug):
             inv_mode="LANDING",
             brand_only=True,                 # logo de la empresa a la derecha, sin bañera
             hide_backoffice_nav=True,
+            companies=[company],
+            company=company,
+            cert_docs=INVOICE_CERT_DOCS,
+            request_row=None,
+            request_rows=[],
+            target_people=_invoice_target_people(session_db),
+        )
+    finally:
+        session_db.close()
+
+
+@app.get('/facturacion_<company_slug>/embed', endpoint='public_invoice_embed')
+def public_invoice_embed(company_slug):
+    """La MISMA subida de facturas, preparada para insertarla en la web de la empresa.
+
+    Va dentro de un `<iframe>` (ver `_company_embed_snippet`), así que se sirve sin la cabecera del
+    back office y **sin el logo de la empresa** (ya está en su web), con el fondo transparente: solo
+    cada viñeta lleva el suyo, para que se diferencie sobre el fondo de la web. Al ser la landing de
+    verdad, cualquier cambio que hagamos aquí sale allí sin tocar la web.
+    """
+    session_db = db()
+    try:
+        company = _find_group_company_by_slug(session_db, company_slug)
+        if company is None:
+            abort(404)
+        return render_template(
+            "public_invoice_landing.html",
+            inv_mode="LANDING",
+            brand_only=True,                 # una sola empresa: solo sus datos de facturación
+            inv_embed=True,                  # sin logo, fondo transparente y alto autoajustable
+            hide_backoffice_nav=True,
+            embed_mode=True,
             companies=[company],
             company=company,
             cert_docs=INVOICE_CERT_DOCS,

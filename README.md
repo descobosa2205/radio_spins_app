@@ -189,6 +189,22 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-07-26 — Ficha de cada empresa del grupo: datos, documentación y formulario insertable
+
+- **Ficha por empresa del grupo** (Bases de datos → Empresas del grupo → *Ficha*) con dos pestañas.
+- **Datos**: logo, nombre y datos de facturación (edición en la propia ficha), el **enlace de subida de
+  facturas** de esa empresa con botón para **copiarlo**, y un botón que **genera y copia el código para
+  insertar ese mismo formulario en la web de la empresa**. El código se pega tal cual: se ve igual que
+  aquí pero **sin el logo** (ya está en la web) y con **fondo transparente**, solo cada viñeta lleva el
+  suyo para que se diferencie. Al ser el formulario de verdad, **queda siempre actualizado** con los
+  cambios que hagamos, y el alto se ajusta solo.
+- **Documentación**: documentos con **nombre** y **fecha de caducidad**. Los que están en plazo salen con
+  etiqueta verde **«Vigente»** y los pasados en rojo **«Caducado»** (los caducados van primero, y avisa
+  en la cabecera de la ficha); si no caducan, etiqueta neutra. **Solo dirección puede subirlos o
+  editarlos**: el resto los ve, los **descarga** y los **comparte por correo, WhatsApp o SMS**.
+
+
+
 ### 2026-07-26 — En los enlaces y selectores, solo el personal actual
 
 - En el **enlace público de subida de facturas**, el paso «¿Para quién es la factura?» ya solo ofrece al

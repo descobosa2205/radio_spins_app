@@ -62,7 +62,7 @@
           <th style="width:64px">Logo</th>
           <th>Nombre</th>
           <th>Datos fiscales</th>
-          {% if CAN_EDIT_CATALOGS %}<th class="text-end" style="width:180px">Acciones</th>{% endif %}
+          <th class="text-end" style="width:{{ '180px' if CAN_EDIT_CATALOGS else '120px' }}">{{ 'Acciones' if CAN_EDIT_CATALOGS else 'Ficha' }}</th>
         </tr>
       </thead>
       <tbody id="companiesTableBody">
@@ -80,6 +80,7 @@
               <td class="text-end">
                 <div class="d-flex justify-content-end gap-2 flex-wrap">
                   <input type="file" name="logo" class="form-control form-control-sm" accept="image/*" style="max-width:220px" />
+                  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('company_detail', cid=c.id) }}" title="Ficha de la empresa (documentación y facturación)"><i class="fa fa-id-card-clip me-1"></i>Ficha</a>
                   <button class="btn btn-outline-primary btn-sm">Guardar</button>
                   <button class="btn btn-outline-danger btn-sm"
                           formaction="{{ url_for('company_delete', cid=c.id) }}"
@@ -103,6 +104,9 @@
             </td>
             <td class="fw-semibold">{{ c.name }}</td>
             <td>{{ c.tax_info or '' }}</td>
+            <td class="text-end">
+              <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('company_detail', cid=c.id) }}" title="Ficha de la empresa (documentación y facturación)"><i class="fa fa-id-card-clip me-1"></i>Ficha</a>
+            </td>
           {% endif %}
         </tr>
       {% endfor %}

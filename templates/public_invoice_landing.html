@@ -5,19 +5,24 @@
      TODAS las empresas del grupo.
    · inv_mode = REQUEST  → logo de la empresa del grupo que corresponda arriba a la DERECHA, solo
      sus datos de facturación, y hay que CONFIRMAR que la factura está emitida a esos datos. #}
-<div class="container py-4">
+<div class="container {{ 'py-2 inv-embed' if inv_embed else 'py-4' }}">
   <div class="mx-auto" style="max-width:920px;">
 
     {# Con una empresa concreta (petición o subenlace /facturacion_<empresa>): SU logo arriba a la
-       derecha. En el enlace genérico no se repite ningún logo: ya está la bañera del back office. #}
-    {% if company and (inv_mode == 'REQUEST' or brand_only) %}
+       derecha. En el enlace genérico no se repite ningún logo: ya está la bañera del back office.
+       Insertado en la web de la empresa (inv_embed) TAMPOCO: su logo ya está en esa web. #}
+    {% if company and (inv_mode == 'REQUEST' or brand_only) and not inv_embed %}
       <div class="text-end mb-2">
         <img src="{{ company.logo_url or url_for('static', filename='img/logo.png') }}" alt="{{ company.name }}" style="max-height:56px;max-width:220px;object-fit:contain;">
       </div>
     {% endif %}
 
+    {# Insertado en otra web el fondo es TRANSPARENTE, así que el título también va en su viñeta:
+       si no, sobre un fondo oscuro no se leería. #}
+    {% if inv_embed %}<div class="inv-embed-head">{% endif %}
     <h3 class="text-center mb-1">Subida de Facturas</h3>
-    <p class="text-center text-muted small mb-4">{{ 'Cuatro' if inv_mode == 'LANDING' else 'Tres' }} pasos y listo. Los datos solo hay que rellenarlos una vez.</p>
+    <p class="text-center text-muted small {{ 'mb-0' if inv_embed else 'mb-4' }}">{{ 'Cuatro' if inv_mode == 'LANDING' else 'Tres' }} pasos y listo. Los datos solo hay que rellenarlos una vez.</p>
+    {% if inv_embed %}</div>{% endif %}
 
     {% if inv_mode == 'REQUEST' and request_rows %}
       {# Conceptos concretos que se le piden (petición desde una bolsa o una liquidación). #}
@@ -556,4 +561,33 @@
   }
 })();
 </script>
+
+{% if inv_embed %}
+<script>
+/* Insertado en la web de la empresa: le decimos al `<iframe>` cuánto alto necesitamos, así crece y
+   se encoge solo (al desbloquearse un paso, al abrirse el formulario de datos…) y nunca sale una
+   barra de scroll dentro del componente. */
+(function(){
+  var last = 0;
+  function alto(){
+    var d = document.documentElement, b = document.body;
+    return Math.max(d.scrollHeight, d.offsetHeight, b ? b.scrollHeight : 0, b ? b.offsetHeight : 0);
+  }
+  function avisar(){
+    var h = alto();
+    if (Math.abs(h - last) < 8) return;
+    last = h;
+    try { window.parent.postMessage({app33: 'facturacion-alto', alto: h}, '*'); } catch (e) {}
+  }
+  window.addEventListener('load', avisar);
+  window.addEventListener('resize', avisar);
+  document.addEventListener('click', function(){ setTimeout(avisar, 60); setTimeout(avisar, 400); });
+  if (window.MutationObserver) {
+    new MutationObserver(function(){ avisar(); }).observe(document.body, {childList: true, subtree: true, attributes: true});
+  }
+  setInterval(avisar, 1200);
+  avisar();
+})();
+</script>
+{% endif %}
 {% endblock %}

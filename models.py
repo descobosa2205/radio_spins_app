@@ -1817,6 +1817,46 @@ class ConcertArtworkAsset(Base):
 
 # --- NOTAS (contratación / generales) ---
 
+class AfavorLiquidation(Base):
+    """Liquidación de royalties «A FAVOR» nuestro: lo que nos tiene que liquidar una compañía
+    externa por nuestras colaboraciones, por semestre. Lleva el estado del ciclo completo:
+    PENDING (pendiente) → REQUESTED (solicitado) → PENDING_INVOICE (pendiente de facturación) →
+    INVOICED (facturado) → COLLECTED (cobrado)."""
+
+    __tablename__ = "afavor_liquidations"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    # Compañía externa a la que se le solicita (se guarda como tercero).
+    company_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="CASCADE"), nullable=False)
+    period_start = Column(Date, nullable=False)
+    period_end = Column(Date, nullable=False)
+    status = Column(Text, nullable=False, server_default=text("'PENDING'"))
+    # Solicitud de la liquidación (correo a la compañía).
+    requested_at = Column(DateTime(timezone=True))
+    requested_by_nick = Column(Text)
+    requested_to = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # Factura que emitimos nosotros (la sube administración).
+    invoice_requested_at = Column(DateTime(timezone=True))
+    invoice_requested_by_nick = Column(Text)
+    invoice_url = Column(Text)
+    invoice_name = Column(Text)
+    invoice_number = Column(Text)
+    invoice_amount = Column(Numeric)
+    invoice_sent_at = Column(DateTime(timezone=True))
+    invoice_sent_to = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    collected_at = Column(DateTime(timezone=True))
+    notes = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    company = relationship("Promoter")
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "period_start", name="uq_afavor_company_period"),
+        Index("idx_afavor_liquidations_period", "period_start", "status"),
+    )
+
+
 class SupplierInvoice(Base):
     """Factura subida por un proveedor: por la landing genérica (/facturacion) o desde una
     petición concreta de una bolsa. Queda pendiente de validar por administración."""
@@ -5837,6 +5877,33 @@ def ensure_third_party_and_contract_sheet_schema():
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS fiscal_address text;",
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS data_consent_at timestamptz;",
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS billing_updated_at timestamptz;",
+        # Liquidaciones «A FAVOR» nuestro (lo que nos liquidan las compañías externas).
+        """
+        CREATE TABLE IF NOT EXISTS afavor_liquidations (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            company_id uuid NOT NULL REFERENCES promoters(id) ON DELETE CASCADE,
+            period_start date NOT NULL,
+            period_end date NOT NULL,
+            status text NOT NULL DEFAULT 'PENDING',
+            requested_at timestamptz,
+            requested_by_nick text,
+            requested_to jsonb NOT NULL DEFAULT '[]'::jsonb,
+            invoice_requested_at timestamptz,
+            invoice_requested_by_nick text,
+            invoice_url text,
+            invoice_name text,
+            invoice_number text,
+            invoice_amount numeric,
+            invoice_sent_at timestamptz,
+            invoice_sent_to jsonb NOT NULL DEFAULT '[]'::jsonb,
+            collected_at timestamptz,
+            notes text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+            CONSTRAINT uq_afavor_company_period UNIQUE (company_id, period_start)
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_afavor_liquidations_period ON afavor_liquidations(period_start, status);',
         # Facturas subidas por los proveedores (landing genérica o petición concreta).
         """
         CREATE TABLE IF NOT EXISTS supplier_invoices (

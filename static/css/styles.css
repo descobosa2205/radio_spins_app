@@ -2556,3 +2556,26 @@ img.docs-id__face { width:100%; height:100%; object-fit:cover; display:block; cu
 .inv-step.is-locked .inv-step__head{ background:#f4f5f7; color:#6c757d; }
 .inv-step.is-locked .inv-step__sub{ color:#9aa1a9; }
 .inv-missing input{ border-color:#E33D48; box-shadow:0 0 0 .15rem rgba(227,61,72,.12); }
+
+/* =========================================================
+   ROYALTIES «A FAVOR»: bloque por compañía dentro de la tarjeta del artista y
+   etiquetas de estado en gama AZUL → VERDE (pendiente → cobrado).
+   ========================================================= */
+.afavor-company{ border:1px solid var(--line-2, rgba(0,0,0,.08)); border-radius:14px; overflow:hidden; background:#fff; }
+.afavor-company__head{
+  display:flex; align-items:center; gap:.6rem; flex-wrap:wrap;
+  padding:.6rem .8rem; background:#f8f9fb; border-bottom:1px solid var(--line-2, rgba(0,0,0,.06));
+}
+.afavor-table th{ font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; color:#6b7280; }
+.afavor-table td{ vertical-align:middle; }
+
+/* Etiquetas de estado: del azul (pendiente) al verde (cobrado), con intermedios en orden. */
+.afavor-st{
+  display:inline-flex; align-items:center; white-space:nowrap;
+  padding:.28rem .6rem; border-radius:999px; font-size:.76rem; font-weight:700; border:1px solid transparent;
+}
+.afavor-st--pending{   background:#e7f0ff; color:#1b4fa0; border-color:#c9dcff; }
+.afavor-st--requested{ background:#e4f1fb; color:#116b8f; border-color:#c3e2f2; }
+.afavor-st--pendinv{   background:#e2f5f3; color:#0f7168; border-color:#bfe8e2; }
+.afavor-st--invoiced{  background:#e6f6ea; color:#1a7f4b; border-color:#c6eacf; }
+.afavor-st--collected{ background:#198754; color:#fff; border-color:#198754; }

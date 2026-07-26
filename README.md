@@ -189,6 +189,33 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-07-26 — Royalties «A favor»: ciclo completo (solicitud, estados y factura)
+
+- **La pestaña «A favor» se ve como las liquidaciones normales**: tarjeta por **artista** (con su
+  foto) y, dentro, un bloque por **compañía** con la portada de cada canción, artista y
+  colaboradores, fecha de publicación, ISRC y el % a favor nuestro, todo alineado. **Los importes no
+  se muestran aquí**: se cargan en «Ingresos».
+- **Estados por liquidación** con etiquetas en gama **azul → verde**: Pendiente · Solicitado ·
+  Pendiente de facturación · Facturado · Cobrado.
+- **Solicitar liquidación** (a una compañía o a todas las pendientes de golpe). El correo lleva el
+  logo de **PIES arriba a la derecha**, el título centrado «Solicitud Liquidación de Royalties», una
+  cabecera con el logo de la compañía a la que se solicita (mismo borde que las liquidaciones), la
+  etiqueta del **periodo (semestre)** y el listado de canciones a favor nuestro de esa compañía con
+  artista y colaboradores, fecha de publicación, ISRC y porcentaje. Termina con la nota de responder
+  al correo o escribir a music@piesrecords.com, y el **Reply-To es quien envía la solicitud**.
+- **Solicitar factura** (disponible cuando ya hay importes cargados): llega a **Administración →
+  Pendiente → De facturación** con la liquidación a la izquierda y, a la derecha, los datos de
+  facturación y la empresa del grupo que factura (siempre la misma). Administración sube la factura
+  arrastrando o eligiéndola y, al **enviarla**, la liquidación pasa a **Facturado**, se manda a la
+  persona de la compañía y queda pendiente de cobro. En los **3 puntos**: reenviar factura (correo,
+  WhatsApp o SMS), descargar factura y **descargar la liquidación en PDF**.
+- **Las colaboraciones externas ya cuentan en la liquidación del artista**: se reparte lo que nos
+  ingresa la compañía (ingreso × nuestro %) aplicando el porcentaje del artista **según su tipo**
+  (discográfico o catálogo), con etiqueta **«Colaboración externa»**; y si un **tercero** tiene
+  porcentaje sobre los ingresos discográficos del artista, también participa en esa proporción.
+  Comprobado con números: 1.000 € de la compañía con nuestro 30 % → 300 € a repartir → 150 € al
+  artista (50 %) y 30 € al tercero (10 %).
+
 ### 2026-07-26 — Royalties: generar/descargar todas · «Generando documento» · arreglo de A favor
 
 - **Royalties, acciones en bloque en dos pasos**: mientras queden liquidaciones sin generar el botón

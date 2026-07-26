@@ -1,0 +1,137 @@
+{% extends "layout.html" %}
+{% block content %}
+{# Emitir la factura de una liquidación A FAVOR: la liquidación a la IZQUIERDA y, a la DERECHA, los
+   datos de facturación (la empresa del grupo que factura es siempre la misma) y la subida. #}
+<div class="mb-2">
+  <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('administracion_view', tab='pendiente', subtab='facturacion') }}" title="Volver a pendientes" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
+</div>
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <div>
+    <h5 class="mb-0"><i class="fa fa-file-invoice me-2 text-danger"></i>Emitir factura de royalties</h5>
+    <div class="small text-muted">{{ company.nick if company else 'Compañía' }} · {{ period_label }}</div>
+  </div>
+  <span class="afavor-st {{ status.cls }}"><i class="fa {{ status.icon }} me-1"></i>{{ status.label }}</span>
+</div>
+
+<div class="row g-3">
+  {# ---------- IZQUIERDA: la liquidación ---------- #}
+  <div class="col-12 col-lg-7">
+    <div class="card h-100">
+      <div class="card-header bg-white"><strong><i class="fa fa-percent me-1 text-danger"></i>Liquidación</strong></div>
+      <div class="card-body">
+        <div class="afavor-company__head mb-3 rounded-3">
+          <img src="{{ (company.logo_url if company else None) or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1" style="width:38px;height:38px;object-fit:contain;border-radius:8px;border:1px solid #e5e9f0;background:#fff">
+          <div class="flex-grow-1 min-w-0">
+            <div class="fw-semibold text-truncate">{{ company.nick if company else 'Compañía' }}</div>
+            <div class="small text-muted">Periodo de liquidación: {{ period_label }}</div>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0 afavor-table">
+            <thead class="table-light">
+              <tr><th style="width:48px;"></th><th>Canción</th><th>Colaboradores</th><th class="text-nowrap">Publicación</th><th>ISRC</th><th class="text-end">A favor</th></tr>
+            </thead>
+            <tbody>
+              {% for it in songs %}
+                <tr>
+                  <td><img src="{{ it.cover_url or DEFAULT_COVER_URL }}" alt="" data-default-cover="1" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid #eee;background:#fff"></td>
+                  <td><span class="fw-semibold">{{ it.title }}</span>{% if it.artist_name %}<span class="d-block small text-muted">{{ it.artist_name }}</span>{% endif %}</td>
+                  <td class="small text-muted">{{ it.collaborators or '—' }}</td>
+                  <td class="small text-nowrap">{{ it.release_date or '—' }}</td>
+                  <td class="small text-muted font-monospace">{{ it.isrc or '—' }}</td>
+                  <td class="text-end text-nowrap"><span class="fw-semibold">{{ it.our_pct }}%</span> <span class="small text-muted">{{ it.base_label }}</span></td>
+                </tr>
+              {% else %}
+                <tr><td colspan="6" class="text-muted small">Sin canciones en este periodo.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <a class="btn btn-outline-dark btn-sm mt-3" href="{{ url_for('afavor_liquidation_pdf', liq_id=rec.id) }}"><i class="fa fa-file-pdf me-1"></i>Descargar liquidación</a>
+      </div>
+    </div>
+  </div>
+
+  {# ---------- DERECHA: datos de facturación + subir y enviar ---------- #}
+  <div class="col-12 col-lg-5">
+    <div class="card mb-3">
+      <div class="card-header bg-white"><strong><i class="fa fa-building me-1 text-danger"></i>Datos de facturación</strong></div>
+      <div class="card-body">
+        <div class="small text-muted mb-1">Factura la empresa del grupo</div>
+        <div class="d-flex align-items-center gap-2 mb-3">
+          <img src="{{ (billing_company.logo_url if billing_company else None) or url_for('static', filename='img/logo.png') }}" alt="" style="width:46px;height:46px;object-fit:contain;border-radius:10px;border:1px solid #e5e9f0;background:#fff">
+          <div class="fw-semibold">{{ billing_company.name if billing_company else '—' }}</div>
+        </div>
+        {% if billing_company and billing_company.tax_info %}
+          <div class="small text-muted mb-3" style="white-space:pre-line;">{{ billing_company.tax_info }}</div>
+        {% endif %}
+        <div class="small text-muted mb-1">Se factura a</div>
+        <div class="ficha-fields">
+          <div><div class="ficha-field__label">Compañía</div><div class="ficha-field__value">{{ company.nick if company else '—' }}</div></div>
+          {% if company and company.tax_id %}<div><div class="ficha-field__label">CIF</div><div class="ficha-field__value">{{ company.tax_id }}</div></div>{% endif %}
+          {% if company and (company.fiscal_address or company.address) %}<div><div class="ficha-field__label">Dirección fiscal</div><div class="ficha-field__value">{{ company.fiscal_address or company.address }}</div></div>{% endif %}
+          {% if company and company.contact_email %}<div><div class="ficha-field__label">Email</div><div class="ficha-field__value">{{ company.contact_email }}</div></div>{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header bg-white"><strong><i class="fa fa-cloud-arrow-up me-1 text-danger"></i>Factura</strong></div>
+      <div class="card-body">
+        {% if rec.invoice_url %}
+          <div class="d-flex align-items-center gap-2 border rounded p-2 mb-3 flex-wrap">
+            <i class="fa fa-file-pdf text-danger"></i>
+            <a class="small flex-grow-1 text-truncate" href="{{ rec.invoice_url }}" target="_blank" rel="noopener">{{ rec.invoice_name or 'Factura' }}</a>
+            {% if rec.invoice_sent_at %}<span class="badge text-bg-success">Enviada el {{ rec.invoice_sent_at.strftime('%d/%m/%Y') }}</span>{% else %}<span class="badge text-bg-warning text-dark">Sin enviar</span>{% endif %}
+          </div>
+        {% endif %}
+        <form method="post" action="{{ url_for('administration_afavor_invoice_upload', liq_id=rec.id) }}" enctype="multipart/form-data" class="mb-3" id="afavorInvForm">
+          <div class="row g-2">
+            <div class="col-7"><label class="form-label small mb-1">Nº de factura</label><input class="form-control form-control-sm" name="invoice_number" value="{{ rec.invoice_number or '' }}"></div>
+            <div class="col-5"><label class="form-label small mb-1">Importe</label><input class="form-control form-control-sm" name="invoice_amount" inputmode="decimal" value="{{ rec.invoice_amount or '' }}"></div>
+          </div>
+          <div class="inv-drop border border-2 border-dashed rounded-3 p-3 text-center text-muted mt-2" id="afavorDrop" style="cursor:pointer;">
+            <i class="fa fa-cloud-arrow-up me-1"></i><span data-drop-text>Arrastra aquí la factura o pulsa para elegirla</span>
+            <input type="file" name="file" class="d-none" accept="application/pdf,image/*">
+          </div>
+          <div class="text-end mt-2"><button class="btn btn-outline-primary btn-sm"><i class="fa fa-upload me-1"></i>Subir factura</button></div>
+        </form>
+
+        {% if rec.invoice_url %}
+          <form method="post" action="{{ url_for('administration_afavor_invoice_send', liq_id=rec.id) }}" class="border-top pt-3">
+            <input type="hidden" name="next" value="{{ url_for('administracion_view', tab='pendiente', subtab='facturacion') }}">
+            <label class="form-label small">¿A quién se la enviamos?</label>
+            {% if recipients %}
+              {% for r in recipients %}
+                <label class="d-block border rounded p-2 mb-1"><input type="checkbox" name="recipients" value="{{ r.email }}" class="form-check-input me-2" {% if loop.first %}checked{% endif %}>{{ r.label }} · {{ r.email }}</label>
+              {% endfor %}
+            {% endif %}
+            <input class="form-control form-control-sm mt-1" name="extra_emails" placeholder="Otros correos separados por comas">
+            <div class="text-end mt-2">
+              <button class="btn btn-success btn-sm" onclick="return confirm('¿Enviar la factura? La liquidación pasará a FACTURADO y la factura quedará pendiente de cobro.');"><i class="fa fa-paper-plane me-1"></i>Enviar factura</button>
+            </div>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var drop = document.getElementById('afavorDrop');
+  if (!drop) return;
+  var input = drop.querySelector('input[type=file]');
+  var txt = drop.querySelector('[data-drop-text]');
+  drop.addEventListener('click', function(){ input.click(); });
+  drop.addEventListener('dragover', function(e){ e.preventDefault(); drop.classList.add('bg-light'); });
+  drop.addEventListener('dragleave', function(){ drop.classList.remove('bg-light'); });
+  drop.addEventListener('drop', function(e){
+    e.preventDefault(); drop.classList.remove('bg-light');
+    if (e.dataTransfer.files && e.dataTransfer.files.length) { input.files = e.dataTransfer.files; txt.textContent = e.dataTransfer.files[0].name; }
+  });
+  input.addEventListener('change', function(){ if (input.files.length) txt.textContent = input.files[0].name; });
+})();
+</script>
+{% endblock %}

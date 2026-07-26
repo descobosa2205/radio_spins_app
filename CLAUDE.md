@@ -519,6 +519,24 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   clave → hay que escribir `d['items']`. Ha causado dos 500 reales (el set list del concierto y
   «Royalties → A favor»). El checker de esprima NO lo detecta: revisar el HTML servido con curl.
 
+- **Royalties «A FAVOR»** (lo que nos liquidan las compañías externas): modelo `AfavorLiquidation`
+  (una fila por **compañía + semestre**, UNIQUE) con el flujo `AFAVOR_STATUS_FLOW`
+  PENDING → REQUESTED → PENDING_INVOICE → INVOICED → COLLECTED (etiquetas `.afavor-st--*` en gama
+  azul→verde). `_build_afavor_groups` agrupa por **artista** y, dentro, por **compañía** (que es
+  quien lleva el estado) e incluye portada/ISRC/fecha/colaboradores; **sin importes** (van en
+  Ingresos). Endpoints: `afavor_request_liquidation` (correo con logo PIES a la derecha, cabecera de
+  la compañía y listado; `_afavor_request_email_html`), `afavor_request_invoice`,
+  `administration_afavor_invoice(_upload/_send)` (Administración → Pendiente → De facturación:
+  liquidación izquierda / datos de facturación y subida derecha; la empresa que factura la da
+  `_afavor_pies_company`), `afavor_invoice_resend`, `afavor_mark_collected`, `afavor_liquidation_pdf`.
+  ⚠️ Sus endpoints NO llevan prefijo `discografica_`: están mapeados a mano en
+  `_resolve_request_resource_key`/`_coarse_endpoint_resource` (si no, solo dirección podría usarlos).
+- **Colaboraciones externas en la liquidación del ARTISTA**: `_build_royalty_beneficiaries` ya NO las
+  excluye. `_royalty_external_collab_income(song, gross, net)` devuelve lo que nos ingresa la
+  compañía (ingreso × `Song.our_pct`, sobre bruto o neto según `our_pct_base`) y ese importe es la
+  base sobre la que se aplican el % del contrato del artista (por concepto discográfico/catálogo) y
+  el de los terceros de `SongRoyaltyBeneficiary`. La etiqueta la pone `_royalty_item_ownership_label`.
+
 ## Despliegue
 - GitHub `descobosa2205/radio_spins_app` → **Render** (Pro Plus, **Frankfurt**) auto-deploy de
   `main`. **Supabase** Pro (**Frankfurt**, proyecto `gyezqnqyxpwxxevdjhgf`; migrado desde Estocolmo

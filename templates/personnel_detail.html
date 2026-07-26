@@ -60,6 +60,7 @@
             {% if profile.birth_date %}<div><span class="psum-k">Fecha de nacimiento</span><span class="psum-v">{{ profile.birth_date.strftime('%d/%m/%Y') }}</span></div>{% endif %}
             {% if profile.address %}<div><span class="psum-k">Domicilio</span><span class="psum-v">{{ profile.address }}</span></div>{% endif %}
             {% for phone in profile.mobile_phones or [] %}{% if phone.phone %}<div><span class="psum-k">{{ phone.label or 'Móvil' }}</span><span class="psum-v">{{ phone.phone }}</span></div>{% endif %}{% endfor %}
+            {% if profile.integration_emails %}<div><span class="psum-k">Otros correos de empresa</span><span class="psum-v">{{ profile.integration_emails|join(' · ') }}</span></div>{% endif %}
           </dl>
           {% if profile.departments %}<div class="d-flex flex-wrap gap-1 mt-3">{% for dept in profile.departments %}<span class="badge text-bg-light border">{{ dept }}</span>{% endfor %}</div>{% endif %}
           <div data-docs-section="LOYALTY" class="docs-section d-none mt-3">
@@ -100,6 +101,15 @@
         <div class="col-md-4"><label class="form-label">Fecha de nacimiento</label><input type="date" name="birth_date" class="form-control" value="{{ profile.birth_date.isoformat() if profile.birth_date else '' }}"></div>
         <div class="col-md-4"><label class="form-label">Foto</label><input type="file" name="photo" class="form-control" accept="image/*"></div>
         <div class="col-12"><label class="form-label">Domicilio</label><input type="text" name="address" class="form-control" value="{{ profile.address or '' }}"></div>
+        <div class="col-12">
+          <label class="form-label">Otros correos de empresa</label>
+          <textarea name="integration_emails" class="form-control" rows="2" placeholder="nombre@otraempresa.com&#10;nombre@terceraempresa.com">{{ (profile.integration_emails or [])|join('\n') }}</textarea>
+          <div class="form-text">
+            <i class="fa fa-plug me-1"></i>Uno por línea. <strong>No sirven para entrar en la app</strong> (el acceso es siempre el email de arriba):
+            se usan solo para <strong>identificar a esta persona en las integraciones</strong>. En Pleo hay una cuenta por empresa del grupo
+            y en cada una puede estar con un correo distinto: pon aquí esos correos y sus gastos se le asignarán solos.
+          </div>
+        </div>
         <div class="col-12">
           <label class="form-label d-block">Departamentos</label>
           <div class="row g-2">

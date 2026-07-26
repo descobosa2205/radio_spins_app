@@ -264,6 +264,9 @@ from models import (
     SupplierInvoice,
     AfavorLiquidation,
     PersonalExpense,
+    PleoAccount,
+    PleoEmployeeLink,
+    ensure_pleo_schema,
 )
 import sim_calc  # motor de cálculo puro de Simulaciones
 import seatmap_calc  # motor puro del mapa de butacas del recinto (conteos/plantillas)
@@ -700,7 +703,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "cron_unassigned_expenses", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher"}
+    allowed = {"landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher"}
     if request.endpoint in allowed:
         return
 
@@ -35707,6 +35710,7 @@ def _bootstrap_schema_bg():
         (ensure_chartmetric_schema, "ensure_chartmetric_schema"),
         (ensure_venue_seatmap_schema, "ensure_venue_seatmap_schema"),
         (ensure_enterticket_schema, "ensure_enterticket_schema"),
+        (ensure_pleo_schema, "ensure_pleo_schema"),
         (ensure_push_schema, "ensure_push_schema"),
         (ensure_app_settings_schema, "ensure_app_settings_schema"),
     ]:
@@ -39136,7 +39140,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -39381,6 +39385,9 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         "songs_view": "discografica.canciones", "song_update": "discografica.canciones",
         "song_delete": "discografica.canciones", "playlisting_view": "playlisting",
         "integrations_view": "integraciones",
+        # Pleo se configura por empresa desde Integraciones (los endpoints exigen además dirección).
+        "pleo_account_save": "integraciones", "pleo_account_test": "integraciones",
+        "pleo_account_sync": "integraciones", "pleo_employee_link_save": "integraciones",
     }
     if endpoint in fixed:
         return fixed[endpoint]
@@ -40058,7 +40065,7 @@ def _resolve_request_resource_key() -> str | None:
         return "discografica.canciones"
     if endpoint == "playlisting_view":
         return "playlisting"
-    if endpoint == "integrations_view":
+    if endpoint == "integrations_view" or endpoint.startswith("pleo_"):
         return "integraciones"
     auto_key = f"auto.{endpoint}"
     if auto_key in _ACCESS_RESOURCE_MAP:
@@ -44493,6 +44500,9 @@ def personnel_detail_view(user_id):
                 profile.birth_date = parse_optional_date(request.form.get("birth_date"))
                 profile.address = (request.form.get("address") or "").strip() or None
                 profile.mobile_phones = _parse_phone_rows_from_form(request.form)
+                # Otros correos de empresa: solo para identificar a la persona en las integraciones
+                # (en Pleo cada empresa del grupo puede tenerla con un correo distinto).
+                profile.integration_emails = _parse_integration_emails(request.form.get("integration_emails"))
                 profile.departments = _normalize_departments(request.form.getlist("departments"))
                 _prod_ids = _normalize_assigned_artist_ids(request.form.getlist("assigned_artist_ids_produccion"))
                 _sello_ids = _normalize_assigned_artist_ids(request.form.getlist("assigned_artist_ids_sello"))
@@ -47443,6 +47453,960 @@ def cron_unassigned_expenses():
         session_db.close()
 
 
+# ===========================================================================
+#  PLEO · importación automática de los gastos del personal
+#  ------------------------------------------------------------------------
+#  Hay una cuenta de Pleo POR EMPRESA del grupo (`PleoAccount`, se configura en
+#  Integraciones → Pleo, una subpestaña por empresa) y cada persona tiene su
+#  usuario en cada una. El sondeo:
+#    1. refresca los empleados de la empresa y los empareja con el personal por
+#       CORREO (el principal o cualquiera de los «correos de integraciones» de su
+#       ficha); lo que no cuadra queda para vincular a mano.
+#    2. trae los apuntes de una ventana de días y los deja en «Mis gastos» de su
+#       dueño, con importe, comercio, nota, etiquetas y justificante.
+#    3. repesca los que siguen incompletos (sin justificante o sin liquidar)
+#       aunque sean viejos: en Pleo la foto del ticket llega días después.
+#  ANTIDUPLICADOS: `personal_expenses.pleo_entry_id` tiene índice UNIQUE, así que
+#  ni dos sondeos simultáneos ni volver a gestionar el archivo pueden duplicar
+#  nada. Un gasto ya tipificado NUNCA se reescribe: como mucho se le engancha el
+#  justificante que faltaba o se anota un aviso.
+#  Pleo no tiene webhooks de gastos, por eso esto va por sondeo (cron + botón).
+# ===========================================================================
+
+PLEO_DEFAULT_WINDOW_DAYS = 45      # días hacia atrás que revisa cada sondeo
+PLEO_CHASE_LIMIT = 250             # tope de repescas individuales por sondeo
+PLEO_RECEIPTS_MAX = 6              # justificantes que se bajan por gasto
+PLEO_EMPLOYEES_TTL_H = 12          # cada cuánto se refrescan los empleados
+PLEO_CATALOG_TTL_H = 24            # cada cuánto se refresca el catálogo (IVA, etiquetas)
+
+
+def _pleo_norm_email(value) -> str:
+    return (value or "").strip().lower()
+
+
+def _pleo_fmt_dt(value) -> str:
+    try:
+        return value.strftime("%d/%m/%Y %H:%M") if value else ""
+    except Exception:
+        return ""
+
+
+def _pleo_not_newer(remote, stored) -> bool:
+    """True si el apunte de Pleo no es más nuevo que lo que ya tenemos (comparación a prueba de tz)."""
+    if not remote or not stored:
+        return False
+    try:
+        a, b = remote, stored
+        if getattr(a, "tzinfo", None) is None and getattr(b, "tzinfo", None) is not None:
+            a = a.replace(tzinfo=b.tzinfo)
+        elif getattr(b, "tzinfo", None) is None and getattr(a, "tzinfo", None) is not None:
+            b = b.replace(tzinfo=a.tzinfo)
+        return a <= b
+    except Exception:
+        return False
+
+
+@contextmanager
+def _pleo_pg_lock(key: str):
+    """Exclusión ENTRE workers/procesos con un advisory lock de Postgres (igual que Enterticket).
+
+    yields False si otro proceso ya está sincronizando esa cuenta (hay que saltarse el trabajo).
+    Si la BD no responde, yields True: mejor sincronizar sin cerrojo que no sincronizar.
+    """
+    from models import engine as _pleo_engine
+    conn = None
+    got = True
+    try:
+        conn = _pleo_engine.connect()
+        got = bool(conn.exec_driver_sql("SELECT pg_try_advisory_lock(hashtext(%s))", (key,)).scalar())
+    except Exception:
+        got = True
+    try:
+        yield got
+    finally:
+        if conn is not None:
+            try:
+                if got:
+                    conn.exec_driver_sql("SELECT pg_advisory_unlock(hashtext(%s))", (key,))
+            except Exception:
+                pass
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _pleo_client_for(acc):
+    """Cliente de Pleo de una cuenta. Import perezoso: un fallo del módulo no toca el arranque."""
+    import pleo_utils
+    return pleo_utils.PleoClient((getattr(acc, "api_key", "") or settings.PLEO_API_KEY or "").strip())
+
+
+def _pleo_email_index(session_db) -> dict:
+    """{correo → user_id} de TODO el personal actual.
+
+    Incluye el correo de acceso (`User.email`) y los «correos de integraciones» de la ficha
+    (`UserProfile.integration_emails`), que existen justo para esto: en Pleo la gente suele estar
+    con el correo de otra de las empresas del grupo. El principal manda si hay choque.
+    Se excluyen los eliminados (sus gastos quedan huérfanos y los ve dirección).
+    """
+    out = {}
+    dead = set()
+    try:
+        for (uid,) in (session_db.query(UserSecurity.user_id)
+                       .filter(UserSecurity.is_deleted.is_(True)).all()):
+            if uid:
+                dead.add(str(uid))
+    except Exception:
+        dead = set()
+    try:
+        for uid, email in session_db.query(User.id, User.email).all():
+            if str(uid) in dead:
+                continue
+            e = _pleo_norm_email(email)
+            if e:
+                out.setdefault(e, uid)
+    except Exception:
+        return out
+    try:
+        for prof in session_db.query(UserProfile).all():
+            if not prof.user_id or str(prof.user_id) in dead:
+                continue
+            for item in (getattr(prof, "integration_emails", None) or []):
+                e = _pleo_norm_email(item if isinstance(item, str) else (item or {}).get("email"))
+                if e:
+                    out.setdefault(e, prof.user_id)
+    except Exception:
+        pass
+    return out
+
+
+def _parse_integration_emails(raw) -> list:
+    """Normaliza los «correos de integraciones» de la ficha (uno por línea, coma o punto y coma)."""
+    if isinstance(raw, (list, tuple)):
+        items = list(raw)
+    else:
+        items = re.split(r"[\n,;]+", str(raw or ""))
+    out = []
+    for item in items:
+        e = _pleo_norm_email(item)
+        if not e or "@" not in e:
+            continue
+        if e not in out:
+            out.append(e)
+    return out[:20]
+
+
+def _pleo_refresh_employees(session_db, acc, client) -> tuple:
+    """Trae los empleados de la empresa en Pleo y los empareja por correo.
+
+    Un vínculo puesto a MANO (o descartado) NO se pisa nunca con el automático.
+    Devuelve (total, sin_vincular).
+    """
+    emails = _pleo_email_index(session_db)
+    total = unresolved = 0
+    for emp in client.employees(acc.pleo_company_id):
+        pid = str(emp.get("id") or "").strip()
+        if not pid:
+            continue
+        total += 1
+        link = (session_db.query(PleoEmployeeLink)
+                .filter(PleoEmployeeLink.account_id == acc.id,
+                        PleoEmployeeLink.pleo_employee_id == pid).first())
+        if link is None:
+            link = PleoEmployeeLink(account_id=acc.id, pleo_employee_id=pid)
+            session_db.add(link)
+        link.email = _pleo_norm_email(emp.get("email")) or None
+        link.first_name = (emp.get("firstName") or "").strip() or None
+        link.last_name = (emp.get("lastName") or "").strip() or None
+        link.code = (emp.get("code") or "").strip() or None
+        link.last_seen_at = _now_madrid()
+        link.updated_at = _now_madrid()
+        if (link.match_mode or "NONE").upper() not in {"MANUAL", "IGNORED"}:
+            uid = emails.get(link.email or "")
+            link.user_id = uid
+            link.match_mode = "AUTO_EMAIL" if uid else "NONE"
+        if not link.user_id and (link.match_mode or "").upper() != "IGNORED":
+            unresolved += 1
+    acc.last_employees_sync_at = _now_madrid()
+    acc.updated_at = _now_madrid()
+    session_db.flush()
+    return (total, unresolved)
+
+
+def _pleo_refresh_catalog(session_db, acc, client) -> None:
+    """Cachea el IVA (para desglosar la base) y las etiquetas (para MOSTRARLAS con su nombre).
+
+    Best-effort: si a la credencial le falta el permiso de alguno de los dos, la importación sigue
+    funcionando igual (sin desglose de IVA o sin nombres de etiqueta).
+    """
+    try:
+        taxes = {}
+        for tc in client.tax_codes(acc.pleo_company_id):
+            tid = str(tc.get("id") or "").strip()
+            if not tid:
+                continue
+            taxes[tid] = {
+                "rate": str(tc.get("rate") or "0"),
+                "type": (tc.get("type") or "").strip().lower(),
+                "name": (tc.get("name") or "").strip(),
+                "code": (tc.get("code") or "").strip(),
+            }
+        if taxes:
+            acc.tax_codes = taxes
+    except Exception as exc:
+        app.logger.info("[pleo] no se pudieron leer los códigos de IVA: %s", exc)
+    try:
+        tags = {}
+        for tg in client.tags_catalog(acc.pleo_company_id):
+            tid = str(tg.get("id") or "").strip()
+            if not tid:
+                continue
+            grp = tg.get("group") or {}
+            tags[tid] = {
+                "group": (grp.get("name") or "").strip(),
+                "value": (tg.get("name") or "").strip(),
+            }
+        if tags:
+            acc.tag_catalog = tags
+    except Exception as exc:
+        app.logger.info("[pleo] no se pudo leer el catálogo de etiquetas: %s", exc)
+    acc.last_catalog_sync_at = _now_madrid()
+    acc.updated_at = _now_madrid()
+
+
+def _pleo_amounts(entry, tax_codes) -> tuple:
+    """(bruto, neto, IVA, divisa) de un apunte, en Decimal.
+
+    El BRUTO es siempre lo que se pagó de verdad (`transactionValue`): no se inventa nada. Si el
+    código de IVA del apunte lleva tipo, se deduce la base; con IVA invertido (`reverse`) o sin
+    código, base = bruto y que lo ajuste quien lo tipifique.
+    """
+    from decimal import ROUND_HALF_UP
+    import pleo_utils
+    tv = entry.get("transactionValue") or {}
+    gross = pleo_utils.money_to_decimal(tv)
+    currency = (tv.get("currency") or "EUR").upper()
+    if not gross:
+        bill = entry.get("totalBillValue") or {}
+        if bill:
+            gross = pleo_utils.money_to_decimal(bill)
+            currency = (bill.get("currency") or currency).upper()
+    info = (tax_codes or {}).get(str(entry.get("taxCodeId") or "")) or {}
+    try:
+        rate = Decimal(str(info.get("rate") or "0"))
+    except (InvalidOperation, ValueError):
+        rate = Decimal("0")
+    kind = (info.get("type") or "").lower()
+    gross = gross.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if rate > 0 and kind in {"inclusive", "exclusive"}:
+        net = (gross / (Decimal(1) + rate)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    else:
+        net = gross
+    return (gross, net, (gross - net), currency)
+
+
+# MCC (código de categoría del comercio) → módulo de gasto sugerido de la bolsa. Es solo una
+# SUGERENCIA para que tipificar sea un clic: quien lo asigna puede soltarlo donde quiera.
+def _pleo_suggest_category(mcc: str, merchant: str, note: str) -> str:
+    code = (mcc or "").strip()
+    n = int(code) if code.isdigit() else 0
+    if n:
+        if 3500 <= n <= 3999 or n == 7011:
+            return "ALOJAMIENTO"
+        if (3000 <= n <= 3499) or n in {4111, 4112, 4121, 4131, 4457, 4468, 4511, 4582, 4789,
+                                        5541, 5542, 5983, 7512, 7513, 7519, 7523, 7524}:
+            return "LOGISTICA"
+        if n in {5811, 5812, 5813, 5814}:
+            return "PERSONAL"
+        if n in {5733, 5735, 7841}:
+            return "MUSICOS"
+        if n in {7311, 7392, 5968, 2741, 7333, 7338, 7339}:
+            return "MARKETING"
+        if n in {9211, 9222, 9311, 9399, 9402, 9405}:
+            return "PERMISOS"
+        if 4900 <= n <= 4999:
+            return "RECINTO"
+        if n in {7922, 7929, 7932, 7933, 7996, 7999}:
+            return "SONIDO_LUCES"
+    txt = _norm_text_key(" ".join([merchant or "", note or ""]))
+    for words, cat in (
+        (("hotel", "hostal", "apartament", "airbnb", "booking", "pension", "albergue"), "ALOJAMIENTO"),
+        (("renfe", "iberia", "vueling", "ryanair", "taxi", "uber", "cabify", "gasolin", "repsol",
+          "cepsa", "galp", "shell", "bp ", "peaje", "parking", "aparcamiento", "autopista",
+          "avis", "hertz", "europcar", "alsa", "blablacar", "flixbus", "aena", "furgo"), "LOGISTICA"),
+        (("catering", "rider", "agua", "fruta"), "RIDER"),
+        (("restaurant", "cafeteria", "cerveceria", "menu", "comida", "bar ", "tapas"), "PERSONAL"),
+        (("cuerdas", "baqueta", "parche", "instrument", "backline", "amplificador"), "MUSICOS"),
+        (("sonido", "luces", "iluminacion", "escenario", "truss", "estructura", "vallas"), "SONIDO_LUCES"),
+        (("publicidad", "meta ", "facebook", "instagram", "google ads", "imprenta", "cartel",
+          "flyer", "merch", "fotografo"), "MARKETING"),
+        (("sgae", "aie", "tasa", "licencia", "ayuntamiento", "seguro", "notaria"), "PERMISOS"),
+    ):
+        for w in words:
+            if w in txt:
+                return cat
+    return "OTROS"
+
+
+def _pleo_tag_rows(entry, tag_catalog) -> list:
+    """Etiquetas del apunte con su nombre legible (los apuntes solo traen los IDs).
+
+    No se usan para clasificar nada: se MUESTRAN en «Mis gastos» y en la bolsa para que asignar el
+    gasto sea más fácil.
+    """
+    out = []
+    for tag in (entry.get("tags") or []):
+        tid = str((tag or {}).get("tagId") or "").strip()
+        if not tid:
+            continue
+        info = (tag_catalog or {}).get(tid) or {}
+        value = (info.get("value") or "").strip()
+        if not value:
+            continue
+        out.append({"group": (info.get("group") or "").strip(), "value": value})
+    return out
+
+
+def _pleo_document_type(entry) -> str:
+    """FACTURA si Pleo tiene los datos fiscales del proveedor; si no, TICKET."""
+    sup = entry.get("supplier") or {}
+    if (sup.get("documentType") or "").upper() == "FACTURA" or (sup.get("documentNumber") or "").strip():
+        return "FACTURA"
+    return "TICKET"
+
+
+def _pleo_concept(entry) -> str:
+    merchant = ((entry.get("merchant") or {}).get("name") or "").strip()
+    note = (entry.get("note") or "").strip()
+    fam = (entry.get("family") or "").upper()
+    base = merchant or note or {"MILEAGE": "Kilometraje", "PER_DIEM": "Dietas"}.get(fam, "Gasto de Pleo")
+    return base[:200]
+
+
+def _pleo_sync_receipts(session_db, acc, client, row, entry) -> int:
+    """Baja los justificantes NUEVOS y los guarda en nuestro Storage.
+
+    Nunca vuelve a bajar uno ya guardado (`pleo_receipt_ids`): por eso «gestionar el archivo» no
+    duplica nada. Si el gasto ya estaba tipificado y su gasto de la bolsa no tenía adjunto, se le
+    engancha ahora (es el caso típico: el cargo llega hoy y la foto del ticket, tres días después).
+    """
+    import pleo_utils
+    ids = [str(x) for x in (entry.get("receiptIds") or []) if x]
+    if not ids:
+        row.needs_receipt = True
+        return 0
+    have = {str(x) for x in (row.pleo_receipt_ids or [])}
+    todo = [x for x in ids if x not in have]
+    if not todo:
+        row.needs_receipt = not bool(row.file_url)
+        return 0
+    metas = {}
+    try:
+        for rc in client.receipts(str(entry.get("id") or "")):
+            rid = str(rc.get("id") or "")
+            if rid:
+                metas[rid] = rc
+    except pleo_utils.PleoError as exc:
+        app.logger.info("[pleo] justificantes de %s no disponibles: %s", entry.get("id"), exc)
+        return 0
+    files = list(row.pleo_files or [])
+    added = 0
+    stem = _norm_text_key(row.provider_name or "gasto").replace(" ", "-")[:40] or "gasto"
+    for rid in todo[:PLEO_RECEIPTS_MAX]:
+        rc = metas.get(rid) or {}
+        url = (rc.get("url") or "").strip()
+        if not url:
+            continue
+        try:
+            data, ctype = client.download(url)
+        except pleo_utils.PleoError as exc:
+            app.logger.info("[pleo] no se pudo bajar el justificante %s: %s", rid, exc)
+            continue
+        if not data:
+            continue
+        mime = (rc.get("mimeType") or ctype or "application/pdf").split(";")[0].strip()
+        ext = pleo_utils.ext_for_mime(mime)
+        try:
+            stored = _absolute_media_url(_upload_bytes(data, "pleo/%s.%s" % (uuid.uuid4().hex, ext), mime))
+        except Exception as exc:
+            app.logger.warning("[pleo] no se pudo guardar el justificante %s: %s", rid, exc)
+            continue
+        date_part = (row.expense_date.isoformat() if row.expense_date else date.today().isoformat())
+        files.append({
+            "url": stored,
+            "name": "pleo-%s-%s.%s" % (date_part, stem, ext),
+            "mime": mime,
+            "receipt_id": rid,
+            "source": (rc.get("source") or ""),
+        })
+        have.add(rid)
+        added += 1
+    row.pleo_files = files
+    row.pleo_receipt_ids = sorted(have)
+    if files and not (row.file_url or "").strip():
+        row.file_url = files[0]["url"]
+        row.original_name = files[0]["name"]
+    row.needs_receipt = not bool((row.file_url or "").strip())
+    # Ya tipificado y sin adjunto: se le pone el justificante que faltaba (sin tocar nada más).
+    if row.bag_expense_id and (row.file_url or "").strip():
+        be = session_db.get(BagExpense, row.bag_expense_id)
+        if be is not None and not (be.attachment_url or "").strip():
+            be.attachment_url = row.file_url
+            be.attachment_name = row.original_name
+            be.attachment_mime = (files[0].get("mime") if files else None)
+            if (be.consolidation_status or "PENDIENTE").upper() == "PENDIENTE":
+                be.consolidation_status = "PENDIENTE_VALIDAR"
+            be.updated_at = _now_madrid()
+    return added
+
+
+def _pleo_upsert_entry(session_db, acc, entry, links, client, stats) -> None:
+    """Crea o actualiza el «gasto personal» de un apunte de Pleo. Idempotente."""
+    import pleo_utils
+    eid = str(entry.get("id") or "").strip()
+    if not eid:
+        return
+    fam = (entry.get("family") or "").upper()
+    sub = (entry.get("subFamily") or "").upper()
+    st = (entry.get("status") or "").upper()
+    if fam not in set(pleo_utils.PERSONAL_FAMILIES) or sub in pleo_utils.SKIP_SUBFAMILIES:
+        stats["skipped"] += 1
+        return
+    # populate_existing: si la fila ya estaba cargada en esta sesión (p. ej. porque la persona la ha
+    # asignado a una bolsa mientras corría el sondeo), se relee de la BD. Así nunca se decide sobre
+    # un estado viejo (y por tanto no se reescribe algo que ya está tipificado).
+    row = (session_db.query(PersonalExpense).populate_existing()
+           .filter(PersonalExpense.pleo_entry_id == eid).first())
+    # --- Anulado o borrado en Pleo ---
+    if entry.get("deletedAt") or st in pleo_utils.DEAD_STATUSES:
+        if row is None:
+            stats["skipped"] += 1
+            return
+        if (row.status or "PENDING") == "PENDING" and not row.bag_id:
+            session_db.delete(row)                     # nunca llegó a ser un gasto: fuera
+        else:
+            row.is_cancelled = True
+            row.sync_warning = ("Pleo lo ha anulado o borrado DESPUÉS de asignarlo. "
+                                "Revísalo con administración.")
+            row.last_synced_at = _now_madrid()
+        stats["cancelled"] += 1
+        return
+    # --- ¿De quién es? ---
+    emp_id = str(entry.get("employeeId") or "").strip()
+    link = links.get(emp_id)
+    user_id = getattr(link, "user_id", None) if link else None
+    if not user_id:
+        # Sin dueño no se puede guardar (`user_id` es obligatorio). Se cuenta y sale en
+        # Integraciones; al vincular a la persona se importan sus gastos de golpe.
+        stats["orphans"] += 1
+        return
+    gross, net, tax, currency = _pleo_amounts(entry, acc.tax_codes or {})
+    merchant = ((entry.get("merchant") or {}).get("name") or "").strip()
+    note = (entry.get("note") or "").strip()
+    performed = _pleo_date(entry.get("performedAt")) or _pleo_date(entry.get("bookkeepingDate"))
+    updated = _pleo_dt(entry.get("updatedAt"))
+    concept = _pleo_concept(entry)
+    if gross < 0:
+        concept = ("Abono · " + concept)[:200]
+    is_new = row is None
+    if is_new:
+        # Con «solo con justificante» activado, el gasto no entra hasta que Pleo tenga la foto o la
+        # factura (se comprueba ANTES de crearlo para no dejar rastro ni tener que borrarlo luego).
+        if bool(getattr(acc, "require_receipt", False)) and not (entry.get("receiptIds") or []):
+            stats["skipped"] += 1
+            return
+        row = PersonalExpense(user_id=user_id, source="PLEO", pleo_entry_id=eid, status="PENDING")
+        session_db.add(row)
+    else:
+        # Ya está tipificado: NO se reescribe nada. Solo se avisa si el importe ha cambiado y se
+        # aprovecha para engancharle el justificante que faltara (más abajo).
+        if (row.status or "") == "ASSIGNED":
+            if row.amount_gross is not None and _money_or_zero(row.amount_gross) != gross:
+                row.sync_warning = ("El importe ha cambiado en Pleo (%s → %s) después de asignarlo."
+                                    % (_money_or_zero(row.amount_gross), gross))
+            row.pleo_updated_at = updated or row.pleo_updated_at
+            row.pleo_status = st or row.pleo_status
+            row.pleo_review_status = (entry.get("reviewStatus") or "").upper() or row.pleo_review_status
+            row.last_synced_at = _now_madrid()
+            stats["receipts"] += _pleo_sync_receipts(session_db, acc, client, row, entry)
+            stats["updated"] += 1
+            return
+        # Sin cambios en Pleo y con justificante ya bajado: nada que hacer.
+        if _pleo_not_newer(updated, row.pleo_updated_at) and not row.needs_receipt:
+            return
+    row.user_id = user_id
+    row.pleo_account_id = acc.id
+    row.pleo_company_id = acc.pleo_company_id
+    row.pleo_employee_id = emp_id or None
+    row.pleo_updated_at = updated
+    row.pleo_status = st or None
+    row.pleo_family = fam or None
+    row.pleo_subfamily = sub or None
+    row.pleo_review_status = (entry.get("reviewStatus") or "").upper() or None
+    row.pleo_note = note or None
+    row.pleo_tags = _pleo_tag_rows(entry, acc.tag_catalog or {})
+    row.pleo_account_code = (entry.get("accountCode") or "").strip() or None
+    row.merchant_mcc = ((entry.get("merchant") or {}).get("merchantCategoryCode") or "").strip() or None
+    row.concept = concept
+    row.provider_name = merchant or None
+    row.expense_date = performed
+    row.amount_gross = gross
+    row.amount_net = net
+    row.amount_tax = tax
+    row.currency = currency
+    row.document_type = _pleo_document_type(entry)
+    row.invoice_number = ((entry.get("supplier") or {}).get("documentNumber") or "").strip() or None
+    row.suggested_category = _pleo_suggest_category(row.merchant_mcc, merchant, note)
+    row.is_cancelled = False
+    row.last_synced_at = _now_madrid()
+    row.updated_at = _now_madrid()
+    session_db.flush()
+    stats["receipts"] += _pleo_sync_receipts(session_db, acc, client, row, entry)
+    stats["created" if is_new else "updated"] += 1
+
+
+def _pleo_date(value):
+    """Fecha de un campo ISO de Pleo (acepta fecha o fecha-hora, con o sin Z)."""
+    if not value:
+        return None
+    txt = str(value).strip()
+    try:
+        return datetime.fromisoformat(txt.replace("Z", "+00:00")).date()
+    except ValueError:
+        pass
+    try:
+        return date.fromisoformat(txt[:10])
+    except ValueError:
+        return None
+
+
+def _pleo_dt(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _pleo_sync_account(session_db, acc, *, window_days=None, employee_ids=None,
+                       since=None, chase=True) -> dict:
+    """Sincroniza UNA empresa. Devuelve el recuento de lo que ha hecho.
+
+    Estrategia: ventana móvil por `performedAt` (la API de Pleo no permite filtrar por `updatedAt`)
+    + repesca individual de los gastos que siguen incompletos, aunque queden fuera de la ventana.
+    """
+    from sqlalchemy.exc import IntegrityError
+    import pleo_utils
+    stats = {"seen": 0, "created": 0, "updated": 0, "receipts": 0,
+             "orphans": 0, "cancelled": 0, "skipped": 0, "errors": 0, "chased": 0}
+    if not (acc.pleo_company_id or "").strip():
+        raise pleo_utils.PleoError("Falta el ID de empresa de Pleo (company_id).")
+    client = _pleo_client_for(acc)
+    # Empleados y catálogo, con su propio TTL para no gastar llamadas de más.
+    if _pleo_stale(acc.last_employees_sync_at, PLEO_EMPLOYEES_TTL_H):
+        _pleo_refresh_employees(session_db, acc, client)
+    if _pleo_stale(acc.last_catalog_sync_at, PLEO_CATALOG_TTL_H):
+        _pleo_refresh_catalog(session_db, acc, client)
+    session_db.commit()
+    links = {l.pleo_employee_id: l for l in
+             session_db.query(PleoEmployeeLink).filter(PleoEmployeeLink.account_id == acc.id).all()}
+    days = int(window_days or acc.sync_window_days or PLEO_DEFAULT_WINDOW_DAYS)
+    frm = since or (date.today() - timedelta(days=max(1, days)))
+    for entry in client.search_entries(acc.pleo_company_id,
+                                       performed_from=frm.isoformat(),
+                                       statuses=pleo_utils.LIVE_STATUSES + sorted(pleo_utils.DEAD_STATUSES),
+                                       employee_ids=employee_ids):
+        stats["seen"] += 1
+        try:
+            with session_db.begin_nested():        # savepoint por gasto: uno malo no tira el resto
+                _pleo_upsert_entry(session_db, acc, entry, links, client, stats)
+        except IntegrityError:
+            stats["skipped"] += 1                  # ya existía (lo impide el UNIQUE): perfecto
+        except Exception as exc:
+            stats["errors"] += 1
+            app.logger.warning("[pleo] gasto %s: %s", entry.get("id"), exc)
+        if stats["seen"] % 50 == 0:
+            session_db.commit()
+    session_db.commit()
+    # --- Repesca: los que siguen sin justificante o sin liquidar, por viejos que sean ---
+    if chase and not employee_ids:
+        pend = (session_db.query(PersonalExpense)
+                .filter(PersonalExpense.pleo_account_id == acc.id,
+                        PersonalExpense.pleo_entry_id.isnot(None),
+                        PersonalExpense.is_cancelled == False,        # noqa: E712
+                        or_(PersonalExpense.needs_receipt == True,    # noqa: E712
+                            PersonalExpense.pleo_status == "PENDING"),
+                        or_(PersonalExpense.expense_date < frm,
+                            PersonalExpense.expense_date.is_(None)))
+                .order_by(PersonalExpense.last_synced_at.asc().nullsfirst())
+                .limit(PLEO_CHASE_LIMIT).all())
+        for row in pend:
+            try:
+                entry = client.entry(row.pleo_entry_id)
+                if not entry:
+                    continue
+                stats["chased"] += 1
+                with session_db.begin_nested():
+                    _pleo_upsert_entry(session_db, acc, entry, links, client, stats)
+            except Exception as exc:
+                stats["errors"] += 1
+                app.logger.info("[pleo] repesca de %s: %s", row.pleo_entry_id, exc)
+        session_db.commit()
+    return stats
+
+
+def _pleo_stale(ts, hours) -> bool:
+    """True si `ts` es None o tiene más de `hours` horas (comparación a prueba de tz)."""
+    if not ts:
+        return True
+    try:
+        now = _now_madrid()
+        ref = ts
+        if getattr(ref, "tzinfo", None) is None and getattr(now, "tzinfo", None) is not None:
+            ref = ref.replace(tzinfo=now.tzinfo)
+        return (now - ref) > timedelta(hours=hours)
+    except Exception:
+        return True
+
+
+def _pleo_sync_all(*, window_days=None) -> dict:
+    """Sondea TODAS las empresas activas. Cada una con su cerrojo, y un fallo no para a las demás."""
+    out = {"accounts": 0, "ok": 0, "failed": 0, "created": 0, "updated": 0,
+           "receipts": 0, "orphans": 0}
+    session_db = db()
+    try:
+        accounts = (session_db.query(PleoAccount)
+                    .filter(PleoAccount.is_active == True)          # noqa: E712
+                    .all())
+        for acc in accounts:
+            if not (acc.api_key or settings.PLEO_API_KEY or "").strip():
+                continue
+            out["accounts"] += 1
+            with _pleo_pg_lock("pleo:%s" % acc.id) as got:
+                if not got:
+                    continue                     # otro worker ya está con esta empresa
+                try:
+                    stats = _pleo_sync_account(session_db, acc, window_days=window_days)
+                    acc.last_sync_at = _now_madrid()
+                    acc.last_sync_ok = True
+                    acc.last_error = None
+                    acc.last_stats = stats
+                    acc.updated_at = _now_madrid()
+                    session_db.commit()
+                    out["ok"] += 1
+                    for k in ("created", "updated", "receipts", "orphans"):
+                        out[k] += int(stats.get(k) or 0)
+                except Exception as exc:
+                    session_db.rollback()
+                    out["failed"] += 1
+                    try:
+                        acc.last_sync_at = _now_madrid()
+                        acc.last_sync_ok = False
+                        acc.last_error = str(exc)[:500]
+                        session_db.commit()
+                    except Exception:
+                        session_db.rollback()
+                    app.logger.warning("[pleo] empresa %s: %s", acc.group_company_id, exc)
+    finally:
+        session_db.close()
+    return out
+
+
+def _pleo_import_for_link(session_db, link) -> dict:
+    """Importa los gastos de UNA persona en UNA empresa (al vincularla a mano).
+
+    Así los gastos que quedaron huérfanos por un correo que no cuadraba entran de golpe, sin
+    esperar al siguiente sondeo ni depender de la ventana de días.
+    """
+    acc = session_db.get(PleoAccount, link.account_id)
+    if acc is None or not link.user_id:
+        return {}
+    days = max(int(acc.sync_window_days or PLEO_DEFAULT_WINDOW_DAYS), 180)
+    since = acc.backfill_from or (date.today() - timedelta(days=days))
+    return _pleo_sync_account(session_db, acc, since=since,
+                              employee_ids=[link.pleo_employee_id], chase=False)
+
+
+def _pleo_account_rows(session_db) -> list:
+    """Una fila por EMPRESA DEL GRUPO para la pestaña Pleo de Integraciones (subpestaña por empresa).
+
+    Las empresas sin cuenta salen igual, con los campos vacíos listos para pegar la credencial.
+    """
+    companies = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+    accounts = {str(a.group_company_id): a for a in session_db.query(PleoAccount).all()}
+    rows = []
+    for comp in companies:
+        acc = accounts.get(str(comp.id))
+        employees, pending_links = [], 0
+        counts = {"total": 0, "pending": 0, "no_receipt": 0, "warnings": 0}
+        if acc is not None:
+            links = (session_db.query(PleoEmployeeLink)
+                     .filter(PleoEmployeeLink.account_id == acc.id)
+                     .order_by(PleoEmployeeLink.email.asc().nullslast()).all())
+            people = {}
+            for uid, nick in (session_db.query(UserProfile.user_id, UserProfile.nick).all()):
+                people[str(uid)] = nick
+            for l in links:
+                mode = (l.match_mode or "NONE").upper()
+                if not l.user_id and mode != "IGNORED":
+                    pending_links += 1
+                employees.append({
+                    "id": str(l.id),
+                    "email": (l.email or ""),
+                    "name": (" ".join([x for x in [(l.first_name or ""), (l.last_name or "")] if x]).strip()),
+                    "user_id": (str(l.user_id) if l.user_id else ""),
+                    "user_nick": people.get(str(l.user_id), "") if l.user_id else "",
+                    "mode": mode,
+                })
+            counts["total"] = (session_db.query(func.count(PersonalExpense.id))
+                               .filter(PersonalExpense.pleo_account_id == acc.id).scalar()) or 0
+            counts["pending"] = (session_db.query(func.count(PersonalExpense.id))
+                                 .filter(PersonalExpense.pleo_account_id == acc.id,
+                                         PersonalExpense.status == "PENDING").scalar()) or 0
+            counts["no_receipt"] = (session_db.query(func.count(PersonalExpense.id))
+                                    .filter(PersonalExpense.pleo_account_id == acc.id,
+                                            PersonalExpense.needs_receipt == True).scalar()) or 0   # noqa: E712
+            counts["warnings"] = (session_db.query(func.count(PersonalExpense.id))
+                                  .filter(PersonalExpense.pleo_account_id == acc.id,
+                                          PersonalExpense.sync_warning.isnot(None)).scalar()) or 0
+        stats = (acc.last_stats if acc is not None else None) or {}
+        rows.append({
+            "company_id": str(comp.id),
+            "company_name": (comp.name or "Empresa"),
+            "company_logo": (comp.logo_url or ""),
+            "slug": re.sub(r"[^a-z0-9]+", "-", (comp.name or "empresa").lower()).strip("-") or "empresa",
+            "has_account": acc is not None,
+            "pleo_company_id": (getattr(acc, "pleo_company_id", "") or ""),
+            "pleo_organization_id": (getattr(acc, "pleo_organization_id", "") or ""),
+            "has_key": bool((getattr(acc, "api_key", "") or "").strip()),
+            "key_hint": (("…" + (acc.api_key or "")[-6:]) if acc is not None and (acc.api_key or "") else ""),
+            "is_active": bool(getattr(acc, "is_active", False)),
+            "require_receipt": bool(getattr(acc, "require_receipt", False)),
+            "sync_window_days": int(getattr(acc, "sync_window_days", 0) or PLEO_DEFAULT_WINDOW_DAYS),
+            "backfill_from": (acc.backfill_from.isoformat() if acc is not None and acc.backfill_from else ""),
+            "last_sync": (_pleo_fmt_dt(acc.last_sync_at) if acc is not None else ""),
+            "last_ok": (getattr(acc, "last_sync_ok", None)),
+            "last_error": (getattr(acc, "last_error", "") or ""),
+            "last_stats": stats,
+            "orphans": int(stats.get("orphans") or 0),
+            "employees": employees,
+            "pending_links": pending_links,
+            "counts": counts,
+        })
+    return rows
+
+
+def _pleo_configured_any(session_db) -> bool:
+    """True si alguna empresa tiene la integración lista (para el badge de la pestaña)."""
+    try:
+        for acc in session_db.query(PleoAccount).filter(PleoAccount.is_active == True).all():   # noqa: E712
+            if (acc.api_key or settings.PLEO_API_KEY or "").strip() and (acc.pleo_company_id or "").strip():
+                return True
+    except Exception:
+        return False
+    return False
+
+
+def _pleo_get_or_create_account(session_db, company_id):
+    comp = session_db.get(GroupCompany, to_uuid(str(company_id)) or uuid.uuid4())
+    if comp is None:
+        return (None, None)
+    acc = (session_db.query(PleoAccount)
+           .filter(PleoAccount.group_company_id == comp.id).first())
+    if acc is None:
+        acc = PleoAccount(group_company_id=comp.id)
+        session_db.add(acc)
+        session_db.flush()
+    return (comp, acc)
+
+
+def _pleo_back():
+    return redirect(url_for("integrations_view") + "#tab-pleo")
+
+
+@app.post("/integraciones/pleo/<company_id>/guardar", endpoint="pleo_account_save")
+@admin_required
+def pleo_account_save(company_id):
+    """Guarda la configuración de Pleo de UNA empresa del grupo."""
+    if not is_master():
+        return forbid("Solo dirección puede configurar las integraciones.")
+    session_db = db()
+    try:
+        comp, acc = _pleo_get_or_create_account(session_db, company_id)
+        if comp is None:
+            flash("Empresa no encontrada.", "warning")
+            return _pleo_back()
+        acc.pleo_company_id = (request.form.get("pleo_company_id") or "").strip() or None
+        acc.pleo_organization_id = (request.form.get("pleo_organization_id") or "").strip() or None
+        # La credencial solo se toca si escriben una nueva (el campo va vacío por seguridad).
+        new_key = (request.form.get("api_key") or "").strip()
+        if new_key:
+            acc.api_key = new_key
+        if request.form.get("clear_key") == "1":
+            acc.api_key = None
+        acc.is_active = (request.form.get("is_active") == "1")
+        acc.require_receipt = (request.form.get("require_receipt") == "1")
+        try:
+            acc.sync_window_days = max(1, min(int(request.form.get("sync_window_days") or PLEO_DEFAULT_WINDOW_DAYS), 400))
+        except (TypeError, ValueError):
+            acc.sync_window_days = PLEO_DEFAULT_WINDOW_DAYS
+        acc.backfill_from = parse_optional_date(request.form.get("backfill_from"))
+        acc.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Pleo · %s: configuración guardada." % (comp.name or "empresa"), "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo guardar la configuración de Pleo: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return _pleo_back()
+
+
+@app.post("/integraciones/pleo/<company_id>/probar", endpoint="pleo_account_test")
+@admin_required
+def pleo_account_test(company_id):
+    """Prueba la credencial de una empresa contra la API real de Pleo."""
+    if not is_master():
+        return forbid("Solo dirección puede configurar las integraciones.")
+    session_db = db()
+    try:
+        comp, acc = _pleo_get_or_create_account(session_db, company_id)
+        if comp is None:
+            flash("Empresa no encontrada.", "warning")
+            return _pleo_back()
+        session_db.commit()
+        client = _pleo_client_for(acc)
+        ok, msg = client.ping((acc.pleo_company_id or "").strip() or None)
+        flash("Pleo · %s: %s" % (comp.name or "empresa", msg), "success" if ok else "danger")
+    except Exception as exc:
+        session_db.rollback()
+        flash("Error probando Pleo: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return _pleo_back()
+
+
+@app.post("/integraciones/pleo/<company_id>/sincronizar", endpoint="pleo_account_sync")
+@admin_required
+def pleo_account_sync(company_id):
+    """Sondea ahora una empresa. Con `full=1` usa el histórico configurado en vez de la ventana."""
+    if not is_master():
+        return forbid("Solo dirección puede configurar las integraciones.")
+    session_db = db()
+    try:
+        comp, acc = _pleo_get_or_create_account(session_db, company_id)
+        if comp is None:
+            flash("Empresa no encontrada.", "warning")
+            return _pleo_back()
+        session_db.commit()
+        full = (request.form.get("full") == "1")
+        since = (acc.backfill_from if full else None)
+        with _pleo_pg_lock("pleo:%s" % acc.id) as got:
+            if not got:
+                flash("Pleo · %s: ya se está sincronizando en este momento." % (comp.name or "empresa"), "info")
+                return _pleo_back()
+            stats = _pleo_sync_account(session_db, acc, since=since)
+            acc.last_sync_at = _now_madrid()
+            acc.last_sync_ok = True
+            acc.last_error = None
+            acc.last_stats = stats
+            acc.updated_at = _now_madrid()
+            session_db.commit()
+        msg = ("%s gastos revisados · %s nuevos · %s actualizados · %s justificantes"
+               % (stats.get("seen", 0), stats.get("created", 0), stats.get("updated", 0), stats.get("receipts", 0)))
+        if stats.get("orphans"):
+            msg += " · ⚠ %s sin dueño (vincula a esas personas más abajo)" % stats["orphans"]
+        flash("Pleo · %s: %s" % (comp.name or "empresa", msg), "success")
+    except Exception as exc:
+        session_db.rollback()
+        try:
+            comp2, acc2 = _pleo_get_or_create_account(session_db, company_id)
+            if acc2 is not None:
+                acc2.last_sync_at = _now_madrid()
+                acc2.last_sync_ok = False
+                acc2.last_error = str(exc)[:500]
+                session_db.commit()
+        except Exception:
+            session_db.rollback()
+        flash("Pleo: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return _pleo_back()
+
+
+@app.post("/integraciones/pleo/empleado/<link_id>/vincular", endpoint="pleo_employee_link_save")
+@admin_required
+def pleo_employee_link_save(link_id):
+    """Vincula a mano un empleado de Pleo con una persona de la app (o lo descarta).
+
+    Al vincularlo se importan de inmediato SUS gastos, que hasta ahora quedaban sin dueño.
+    """
+    if not is_master():
+        return forbid("Solo dirección puede configurar las integraciones.")
+    session_db = db()
+    try:
+        link = session_db.get(PleoEmployeeLink, to_uuid(str(link_id)) or uuid.uuid4())
+        if link is None:
+            flash("Empleado de Pleo no encontrado.", "warning")
+            return _pleo_back()
+        action = (request.form.get("link_action") or "link").strip().lower()
+        if action == "ignore":
+            link.user_id = None
+            link.match_mode = "IGNORED"
+            link.updated_at = _now_madrid()
+            session_db.commit()
+            flash("Empleado de Pleo descartado: sus gastos no se importarán.", "info")
+            return _pleo_back()
+        uid = to_uuid((request.form.get("user_id") or "").strip())
+        if not uid or session_db.get(User, uid) is None:
+            flash("Elige a la persona con la que vincularlo.", "warning")
+            return _pleo_back()
+        link.user_id = uid
+        link.match_mode = "MANUAL"
+        link.updated_at = _now_madrid()
+        session_db.commit()
+        stats = {}
+        try:
+            stats = _pleo_import_for_link(session_db, link) or {}
+            session_db.commit()
+        except Exception as exc:
+            session_db.rollback()
+            app.logger.warning("[pleo] import tras vincular: %s", exc)
+        created = int(stats.get("created") or 0)
+        flash("Empleado vinculado.%s" % (" Se han importado %s gastos suyos." % created if created else ""), "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo vincular: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return _pleo_back()
+
+
+@app.get("/cron/pleo/refresh", endpoint="cron_pleo_refresh")
+def cron_pleo_refresh():
+    """Sondeo periódico de Pleo (tarea programada externa con ?key=). Sin sesión.
+
+    Pleo no manda webhooks de gastos, así que este cron es lo que hace que la importación sea
+    AUTOMÁTICA. Recomendado cada 30-60 minutos.
+    """
+    expected = (settings.PLEO_CRON_KEY or settings.CHARTMETRIC_CRON_KEY or "").strip()
+    key = (request.args.get("key") or "").strip()
+    if not expected or key != expected:
+        return ("forbidden", 403)
+    try:
+        window = int(request.args.get("dias") or 0) or None
+    except (TypeError, ValueError):
+        window = None
+    try:
+        out = _pleo_sync_all(window_days=window)
+    except Exception as exc:
+        app.logger.exception("[pleo] cron falló")
+        return (jsonify({"ok": False, "error": str(exc)}), 500)
+    return jsonify({"ok": True, **out})
+
+
 @app.get('/mis-gastos', endpoint='my_expenses_view')
 @admin_required
 def my_expenses_view():
@@ -47526,19 +48490,40 @@ def bag_imported_expense_assign(bag_id, expense_id):
             return jsonify({"ok": False, "error": "Categoría no válida"}), 400
         gross = _money_or_zero(row.amount_gross)
         net = _money_or_zero(row.amount_net) or gross
+        tax = _money_or_zero(getattr(row, "amount_tax", None))
+        if not tax and gross and net and gross >= net:
+            tax = gross - net
+        is_pleo = (row.source or "") == "PLEO"
+        # El tipo de documento lo trae Pleo (FACTURA si tiene los datos fiscales del proveedor).
+        doc_type = (getattr(row, "document_type", "") or "").upper()
+        if doc_type not in {"FACTURA", "TICKET"}:
+            doc_type = "FACTURA" if (row.source or "") == "INVOICE" else "TICKET"
         expense = BagExpense(
             bag_id=bag.id, category=category,
             concept=(row.concept or "Gasto importado"),
-            document_type=("FACTURA" if (row.source or "") == "INVOICE" else "TICKET"),
+            document_type=doc_type,
             invoice_number=row.invoice_number,
             issue_date=row.expense_date,
             amount_net=net, amount_gross=gross,
-            amount_tax=(gross - net if gross and net and gross >= net else Decimal("0")),
+            amount_tax=tax,
             attachment_url=row.file_url, attachment_name=row.original_name,
             consolidation_status=("PENDIENTE_VALIDAR" if row.file_url else "PENDIENTE"),
         )
+        # Todo lo que viene de PLEO ya está pagado (con la tarjeta Pleo): entra marcado como PAGADO
+        # y con «Pleo» como método de pago, para que no se reclame ni se vuelva a pagar.
+        if is_pleo:
+            expense.payment_status = "PAGADO"
+            expense.paid_amount = gross
+            expense.payment_method = "Pleo"
         session_db.add(expense)
         session_db.flush()
+        if is_pleo and gross:
+            # Queda el rastro del pago para que en la bolsa se vea cuándo y cómo se pagó.
+            session_db.add(BagPaymentInteraction(
+                expense_id=expense.id, kind="PAGO_REGISTRADO",
+                description="Pagado con la tarjeta Pleo (importado de Pleo).",
+                amount=gross, method="Pleo",
+            ))
         row.bag_id = bag.id
         row.bag_expense_id = expense.id
         row.status = "ASSIGNED"
@@ -47615,6 +48600,19 @@ def _expense_days_left(row) -> int:
 
 def _personal_expense_row(row) -> dict:
     days = _expense_days_left(row)
+    is_pleo = (row.source or "") == "PLEO"
+    # Etiquetas y nota de Pleo: NO clasifican nada, se muestran para que asignar el gasto a su
+    # bolsa y tipificarlo sea más fácil (a menudo la nota dice el concierto o el artista).
+    tags = []
+    for t in (getattr(row, "pleo_tags", None) or []):
+        if not isinstance(t, dict):
+            continue
+        value = (t.get("value") or "").strip()
+        if not value:
+            continue
+        tags.append({"group": (t.get("group") or "").strip(), "value": value})
+    files = [f for f in (getattr(row, "pleo_files", None) or []) if isinstance(f, dict) and f.get("url")]
+    cat = (getattr(row, "suggested_category", "") or "").upper()
     return {
         "id": str(row.id),
         "source": (row.source or "INVOICE"),
@@ -47631,6 +48629,20 @@ def _personal_expense_row(row) -> dict:
         "days_left": days,
         "overdue": days < 0,
         "urgent": 0 <= days <= EXPENSE_ASSIGN_DAYS,
+        # --- Pleo ---
+        "is_pleo": is_pleo,
+        "note": (getattr(row, "pleo_note", "") or ""),
+        "tags": tags,
+        "files": files,
+        "currency": (getattr(row, "currency", "") or "EUR"),
+        "document_type": (getattr(row, "document_type", "") or ""),
+        "needs_receipt": bool(getattr(row, "needs_receipt", False)) and is_pleo,
+        "sync_warning": (getattr(row, "sync_warning", "") or ""),
+        "is_cancelled": bool(getattr(row, "is_cancelled", False)),
+        "suggested_category": cat,
+        "suggested_label": BAG_EXPENSE_CATEGORY_LABELS.get(cat, ""),
+        "suggested_icon": BAG_EXPENSE_CATEGORY_ICONS.get(cat, "fa-shapes"),
+        "paid_label": ("Pagado con Pleo" if is_pleo else ""),
     }
 
 
@@ -63400,14 +64412,11 @@ def integrations_view():
     if not is_master():
         return forbid("Solo dirección puede acceder a las integraciones.")
     # Import perezoso: si por lo que sea un módulo de integración fallara, no afecta al arranque.
-    import pleo_utils
     import chartmetric_utils
     if request.method == "POST":
         action = (request.form.get("action") or "").strip()
-        if action == "ping_pleo":
-            ok, msg = pleo_utils.pleo_ping()
-            flash(f"Pleo: {msg}", "success" if ok else "danger")
-        elif action == "ping_chartmetric":
+        # Pleo va por empresa del grupo y tiene sus propios endpoints (pleo_account_*).
+        if action == "ping_chartmetric":
             ok, msg = chartmetric_utils.chartmetric_ping()
             flash(f"Chartmetric: {msg}", "success" if ok else "danger")
         elif action == "refresh_chartmetric_test":
@@ -63685,10 +64694,33 @@ def integrations_view():
             pass
         finally:
             s.close()
+    # --- Pleo: una subpestaña por EMPRESA del grupo (credencial, estado y empleados) ---
+    pleo_rows, pleo_people, pleo_any = [], [], False
+    s = db()
+    try:
+        pleo_rows = _pleo_account_rows(s)
+        pleo_any = _pleo_configured_any(s)
+        # Selector para vincular a mano un empleado de Pleo con una persona (solo personal actual).
+        _inactive = _inactive_user_ids(s)
+        for prof in (s.query(UserProfile).order_by(UserProfile.nick.asc()).all()):
+            if not prof.user_id or prof.user_id in _inactive:
+                continue
+            u = s.get(User, prof.user_id)
+            pleo_people.append({
+                "id": str(prof.user_id),
+                "label": "%s%s" % ((prof.nick or "Usuario"), (" · " + u.email) if u and u.email else ""),
+            })
+    except Exception:
+        pass
+    finally:
+        s.close()
     return render_template(
         "integraciones.html",
         title="Integraciones",
-        pleo_configured=pleo_utils.pleo_configured(),
+        pleo_configured=pleo_any,
+        pleo_rows=pleo_rows,
+        pleo_people=pleo_people,
+        pleo_default_window=PLEO_DEFAULT_WINDOW_DAYS,
         chartmetric_configured=chartmetric_utils.chartmetric_configured(),
         enterticket_configured=et_configured,
         et_meta=et_meta,

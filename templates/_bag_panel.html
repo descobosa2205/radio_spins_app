@@ -389,7 +389,7 @@
         <span class="badge text-bg-warning text-dark" data-imported-count>{{ _imported|length }}</span>
       </div>
       <div class="card-body bag-imported__body">
-        <div class="small text-muted mb-2">Arrástralos al módulo de gasto que les corresponda.</div>
+        <div class="small text-muted mb-2">Arrástralos al módulo de gasto que les corresponda. Los de Pleo entran ya <strong>pagados</strong>.</div>
         {% for e in _imported %}
           <div class="assign-exp border rounded p-2 mb-2" draggable="true" data-imported-id="{{ e.id }}">
             <div class="d-flex align-items-center gap-2">
@@ -397,10 +397,22 @@
               <span class="d-inline-flex align-items-center justify-content-center flex-shrink-0" style="width:32px;height:32px;border-radius:9px;background:rgba(227,61,72,.10);color:#E33D48;"><i class="fa {{ e.source_icon }} small"></i></span>
               <div class="flex-grow-1 min-w-0">
                 <div class="fw-semibold small text-truncate">{{ e.concept }}</div>
-                <div class="small text-muted text-truncate">{{ e.source_label }}{% if e.date_label %} · {{ e.date_label }}{% endif %}</div>
+                <div class="small text-muted text-truncate">{{ e.source_label }}{% if e.provider_name %} · {{ e.provider_name }}{% endif %}{% if e.date_label %} · {{ e.date_label }}{% endif %}</div>
               </div>
-              <span class="fw-semibold small">{{ e.amount_gross|eur }}</span>
+              <div class="text-end">
+                <span class="fw-semibold small d-block">{{ e.amount_gross|eur }}</span>
+                {% if e.file_url %}<a class="small" href="{{ e.file_url }}" target="_blank" rel="noopener" title="Ver justificante"><i class="fa fa-paperclip"></i></a>{% endif %}
+              </div>
             </div>
+            {# Sugerencia de módulo + nota y etiquetas de Pleo: para saber dónde soltarlo. #}
+            {% if e.suggested_label or e.tags or e.note %}
+              <div class="d-flex flex-wrap align-items-center gap-1 mt-1 ps-4">
+                {% if e.suggested_label %}<span class="badge text-bg-light border" title="Módulo sugerido"><i class="fa {{ e.suggested_icon }} me-1"></i>{{ e.suggested_label }}</span>{% endif %}
+                {% for t in e.tags %}<span class="badge text-bg-info-subtle text-dark border">{% if t.group %}{{ t.group }}: {% endif %}{{ t.value }}</span>{% endfor %}
+                {% if e.note %}<span class="small text-muted text-truncate"><i class="fa fa-quote-left me-1"></i>{{ e.note }}</span>{% endif %}
+              </div>
+            {% endif %}
+            {% if e.needs_receipt %}<div class="small text-warning-emphasis ps-4"><i class="fa fa-camera me-1"></i>Sin justificante en Pleo</div>{% endif %}
           </div>
         {% endfor %}
         <div class="text-muted small text-center py-3 d-none" data-imported-empty><i class="fa fa-circle-check me-1 text-success"></i>Todos tipificados.</div>

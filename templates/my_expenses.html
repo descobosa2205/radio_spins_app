@@ -2,37 +2,67 @@
 {% block content %}
 {# MIS GASTOS: facturas que me han mandado por el formulario de facturación y gastos importados de
    Pleo que todavía no están asignados a una bolsa. #}
-{% macro expense_row(e, show_bag=False) %}
-  <div class="d-flex align-items-center gap-3 border rounded p-2 flex-wrap">
-    <span class="d-inline-flex align-items-center justify-content-center flex-shrink-0" style="width:40px;height:40px;border-radius:10px;background:rgba(227,61,72,.10);color:#E33D48;"><i class="fa {{ e.source_icon }}"></i></span>
-    <div class="flex-grow-1 min-w-0">
-      <div class="fw-semibold text-truncate">{{ e.concept }}</div>
-      <div class="small text-muted text-truncate">
-        {{ e.source_label }}{% if e.provider_name %} · {{ e.provider_name }}{% endif %}{% if e.invoice_number %} · nº {{ e.invoice_number }}{% endif %}{% if e.date_label %} · {{ e.date_label }}{% endif %}
-      </div>
-    </div>
-    <div class="text-end">
-      <div class="fw-semibold">{{ e.amount_gross|eur }}</div>
-      {% if e.status == 'PENDING' %}
-        {% if e.overdue %}
-          <span class="badge text-bg-danger"><i class="fa fa-triangle-exclamation me-1"></i>Fuera de plazo</span>
-        {% else %}
-          <span class="badge text-bg-warning text-dark"><i class="fa fa-hourglass-half me-1"></i>{{ e.days_left }} día{{ '' if e.days_left == 1 else 's' }} para asignarlo</span>
-        {% endif %}
-      {% elif e.status == 'IN_BAG' %}
-        <span class="badge text-bg-info"><i class="fa fa-sack-dollar me-1"></i>En la bolsa, sin tipificar</span>
-      {% else %}
-        <span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Asignado</span>
+{# La nota y las etiquetas que la persona puso en Pleo se muestran tal cual: no clasifican nada,
+   pero suelen decir a qué concierto o artista era el gasto, y así asignarlo es inmediato. #}
+{% macro pleo_hints(e) %}
+  {% if e.note or e.tags or e.suggested_label %}
+    <div class="d-flex flex-wrap align-items-center gap-1 mt-1">
+      {% if e.suggested_label %}
+        <span class="badge text-bg-light border" title="Módulo de gasto sugerido (puedes cambiarlo al tipificarlo)"><i class="fa {{ e.suggested_icon }} me-1"></i>{{ e.suggested_label }}</span>
       {% endif %}
+      {% for t in e.tags %}
+        <span class="badge text-bg-info-subtle text-dark border">{% if t.group %}{{ t.group }}: {% endif %}{{ t.value }}</span>
+      {% endfor %}
+      {% if e.note %}<span class="small text-muted"><i class="fa fa-quote-left me-1"></i>{{ e.note }}</span>{% endif %}
     </div>
-    {% if e.file_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ e.file_url }}" target="_blank" rel="noopener" title="Ver documento"><i class="fa fa-eye"></i></a>{% endif %}
+  {% endif %}
+{% endmacro %}
+
+{% macro expense_row(e, show_bag=False) %}
+  <div class="border rounded p-2">
+    <div class="d-flex align-items-center gap-3 flex-wrap">
+      <span class="d-inline-flex align-items-center justify-content-center flex-shrink-0" style="width:40px;height:40px;border-radius:10px;background:rgba(227,61,72,.10);color:#E33D48;"><i class="fa {{ e.source_icon }}"></i></span>
+      <div class="flex-grow-1 min-w-0">
+        <div class="fw-semibold text-truncate">{{ e.concept }}</div>
+        <div class="small text-muted text-truncate">
+          {{ e.source_label }}{% if e.provider_name %} · {{ e.provider_name }}{% endif %}{% if e.invoice_number %} · nº {{ e.invoice_number }}{% endif %}{% if e.date_label %} · {{ e.date_label }}{% endif %}{% if e.is_pleo %} · <i class="fa fa-circle-check text-success"></i> {{ e.paid_label }}{% endif %}
+        </div>
+      </div>
+      <div class="text-end">
+        <div class="fw-semibold">{{ e.amount_gross|eur }}</div>
+        {% if e.status == 'PENDING' %}
+          {% if e.overdue %}
+            <span class="badge text-bg-danger"><i class="fa fa-triangle-exclamation me-1"></i>Fuera de plazo</span>
+          {% else %}
+            <span class="badge text-bg-warning text-dark"><i class="fa fa-hourglass-half me-1"></i>{{ e.days_left }} día{{ '' if e.days_left == 1 else 's' }} para asignarlo</span>
+          {% endif %}
+        {% elif e.status == 'IN_BAG' %}
+          <span class="badge text-bg-info"><i class="fa fa-sack-dollar me-1"></i>En la bolsa, sin tipificar</span>
+        {% else %}
+          <span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Asignado</span>
+        {% endif %}
+      </div>
+      {% if e.file_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ e.file_url }}" target="_blank" rel="noopener" title="Ver justificante"><i class="fa fa-eye"></i></a>{% endif %}
+    </div>
+    {{ pleo_hints(e) }}
+    {% if e.needs_receipt %}
+      <div class="small text-warning-emphasis mt-1"><i class="fa fa-camera me-1"></i>Falta la foto o la factura: súbela en Pleo y aquí se engancha sola.</div>
+    {% endif %}
+    {% if e.files|length > 1 %}
+      <div class="small mt-1">
+        {% for f in e.files[1:] %}<a class="me-2" href="{{ f.url }}" target="_blank" rel="noopener"><i class="fa fa-paperclip me-1"></i>Otro justificante</a>{% endfor %}
+      </div>
+    {% endif %}
+    {% if e.sync_warning %}
+      <div class="alert alert-warning py-1 px-2 small mb-0 mt-2"><i class="fa fa-triangle-exclamation me-1"></i>{{ e.sync_warning }}</div>
+    {% endif %}
   </div>
 {% endmacro %}
 
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
   <div>
     <h3 class="m-0"><i class="fa fa-receipt me-2 text-danger"></i>Mis gastos</h3>
-    <div class="text-muted small">Facturas que te han enviado y gastos de Pleo. Tienes {{ assign_days }} días para asignar cada uno a una bolsa.</div>
+    <div class="text-muted small">Facturas que te han enviado y gastos de Pleo (ya pagados con la tarjeta). Tienes {{ assign_days }} días para asignar cada uno a una bolsa.</div>
   </div>
   {% if pending %}
     <a class="btn btn-danger" href="{{ url_for('my_expenses_assign') }}"><i class="fa fa-arrows-turn-right me-1"></i>Asignar gastos <span class="badge text-bg-light border ms-1">{{ pending|length }}</span></a>

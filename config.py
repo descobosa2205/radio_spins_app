@@ -44,8 +44,13 @@ class Settings:
     # ⚠️ Estas credenciales NO deben ir en el .env versionado: ponerlas en el panel de Render.
     #
     # Pleo (gastos): "Standalone API Key" que Pleo habilita para uso interno (auth HTTP Basic).
+    # ⚠️ Hay UNA cuenta de Pleo por empresa del grupo: la credencial de cada una se guarda en BD
+    # (tabla `pleo_accounts`, se edita en Integraciones → Pleo), no aquí. PLEO_API_KEY queda solo
+    # como respaldo/heredado para instalaciones con una sola empresa.
     PLEO_API_KEY = os.getenv("PLEO_API_KEY")
     PLEO_API_BASE = os.getenv("PLEO_API_BASE", "https://external.pleo.io")
+    # Clave del endpoint /cron/pleo/refresh (si falta, se acepta la de Chartmetric).
+    PLEO_CRON_KEY = os.getenv("PLEO_CRON_KEY") or os.getenv("CHARTMETRIC_CRON_KEY")
     # Chartmetric (métricas): refresh token de larga duración que Chartmetric envía por email.
     CHARTMETRIC_REFRESH_TOKEN = os.getenv("CHARTMETRIC_REFRESH_TOKEN")
     CHARTMETRIC_API_BASE = os.getenv("CHARTMETRIC_API_BASE", "https://api.chartmetric.com")

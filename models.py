@@ -1864,15 +1864,40 @@ class PersonalExpense(Base):
     user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     source = Column(Text, nullable=False, server_default=text("'INVOICE'"))   # INVOICE | PLEO | MANUAL
     supplier_invoice_id = Column(PGUUID(as_uuid=True), ForeignKey("supplier_invoices.id", ondelete="SET NULL"))
-    pleo_entry_id = Column(Text)                       # id del apunte en Pleo (evita duplicados)
+    # id del apunte en Pleo. Lleva índice UNIQUE (ver ensure_pleo_schema): es LA garantía de que un
+    # gasto importado no se duplica nunca, ni con dos sondeos a la vez.
+    pleo_entry_id = Column(Text)
     concept = Column(Text)
     provider_name = Column(Text)
     expense_date = Column(Date)
     amount_net = Column(Numeric)
     amount_gross = Column(Numeric)
+    amount_tax = Column(Numeric)
+    currency = Column(Text, nullable=False, server_default=text("'EUR'"))
     invoice_number = Column(Text)
+    document_type = Column(Text)                       # FACTURA | TICKET (lo deduce Pleo)
     file_url = Column(Text)
     original_name = Column(Text)
+    # --- Datos que aporta Pleo (trazabilidad + ayuda para asignar y tipificar) ---
+    pleo_account_id = Column(PGUUID(as_uuid=True), ForeignKey("pleo_accounts.id", ondelete="SET NULL"))
+    pleo_company_id = Column(Text)
+    pleo_employee_id = Column(Text)
+    pleo_updated_at = Column(DateTime(timezone=True))  # para saltarse lo que no ha cambiado
+    pleo_status = Column(Text)
+    pleo_family = Column(Text)                         # CARD_PURCHASE, OUT_OF_POCKET, MILEAGE…
+    pleo_subfamily = Column(Text)
+    pleo_review_status = Column(Text)                  # WAITING_FOR_EXPENSE_OWNER = le falta algo
+    pleo_note = Column(Text)                           # nota que escribió la persona en Pleo
+    pleo_tags = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))       # [{group,value}]
+    pleo_receipt_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))  # ya bajados
+    pleo_files = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))      # justificantes
+    pleo_account_code = Column(Text)
+    merchant_mcc = Column(Text)                        # código de categoría del comercio
+    suggested_category = Column(Text)                  # módulo de gasto sugerido (solo sugerencia)
+    needs_receipt = Column(Boolean, nullable=False, server_default=text("false"))
+    sync_warning = Column(Text)                        # p. ej. cambió el importe tras asignarlo
+    is_cancelled = Column(Boolean, nullable=False, server_default=text("false"))
+    last_synced_at = Column(DateTime(timezone=True))
     # Asignación: primero a una BOLSA y luego a su módulo de gasto (bag_expense_id).
     bag_id = Column(PGUUID(as_uuid=True), ForeignKey("workflow_bags.id", ondelete="SET NULL"))
     bag_expense_id = Column(PGUUID(as_uuid=True), ForeignKey("bag_expenses.id", ondelete="SET NULL"))
@@ -2161,6 +2186,10 @@ class UserProfile(Base):
     address = Column(Text)            # domicilio (se autorrellena del DNI; editable)
     mobile_phones = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     departments = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # Otros correos de empresa de la persona. NO sirven para entrar en la app (el acceso es siempre
+    # `User.email`): existen solo para IDENTIFICARLA en las integraciones. En Pleo, por ejemplo, hay
+    # una cuenta por empresa del grupo y cada una puede tener a la persona con un correo distinto.
+    integration_emails = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     # Unión (compatibilidad). Las facetas separan qué artistas se asignan por Producción y por Sello
     # (una persona puede ser de ambos a la vez).
     assigned_artist_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
@@ -7936,3 +7965,173 @@ def ensure_enterticket_schema():
         # Tipos de entrada CREADOS por el espejo de Enterticket (solo esos se sobrescriben/borran).
         "ALTER TABLE IF EXISTS concert_ticket_types ADD COLUMN IF NOT EXISTS et_managed boolean NOT NULL DEFAULT false;",
     ], "enterticket")
+
+
+
+# ===========================================================================
+#  PLEO · importación automática de los gastos del personal
+#  ------------------------------------------------------------------------
+#  Hay UNA cuenta de Pleo por empresa del grupo y cada persona tiene su usuario
+#  en cada una de ellas. Por eso la credencial y el `company_id` se guardan por
+#  empresa (`PleoAccount`) y la correspondencia empleado-de-Pleo → usuario de la
+#  app se resuelve por CORREO y queda registrada (`PleoEmployeeLink`), para poder
+#  arreglar a mano los casos en que el correo de Pleo no es el de la app.
+#  Los gastos importados aterrizan en `personal_expenses` (source='PLEO'), con
+#  UNIQUE sobre `pleo_entry_id`: eso es lo que garantiza que nunca se dupliquen.
+# ===========================================================================
+
+class PleoAccount(Base):
+    """Credencial y estado de sincronización de la cuenta de Pleo de UNA empresa del grupo."""
+
+    __tablename__ = "pleo_accounts"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    group_company_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("group_companies.id", ondelete="CASCADE"),
+        nullable=False, unique=True,
+    )
+    # IDs de Pleo. `pleo_company_id` es obligatorio para poder pedir nada: TODA llamada de
+    # contabilidad va con el company_id de la entidad legal.
+    pleo_company_id = Column(Text)
+    pleo_organization_id = Column(Text)
+    # "Standalone API Key" (formato pls_…). Puede ser la MISMA en varias empresas si Pleo la emite
+    # con acceso a todas las entidades del grupo.
+    api_key = Column(Text)
+    is_active = Column(Boolean, nullable=False, server_default=text("false"))
+    # Si es true, un gasto solo entra en «Mis gastos» cuando ya tiene justificante en Pleo.
+    require_receipt = Column(Boolean, nullable=False, server_default=text("false"))
+    # Días hacia atrás que revisa cada sondeo (los antiguos incompletos se repescan aparte).
+    sync_window_days = Column(Integer, nullable=False, server_default=text("45"))
+    # Volcado histórico: desde cuándo queremos traer y hasta dónde se ha llegado ya.
+    backfill_from = Column(Date)
+    backfill_done_from = Column(Date)
+    # Estado del último sondeo (se muestra en Integraciones).
+    last_sync_at = Column(DateTime(timezone=True))
+    last_sync_ok = Column(Boolean)
+    last_error = Column(Text)
+    last_stats = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    last_employees_sync_at = Column(DateTime(timezone=True))
+    last_catalog_sync_at = Column(DateTime(timezone=True))
+    # Cachés del catálogo de la empresa (se refrescan a diario):
+    #   tax_codes: {tax_code_id: {"rate": "0.21", "type": "inclusive", "name": …, "code": …}}
+    #   tag_catalog: {tag_id: {"group": "Artista", "value": "Nombre"}}
+    tax_codes = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    tag_catalog = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    group_company = relationship("GroupCompany")
+
+
+class PleoEmployeeLink(Base):
+    """Empleado de Pleo (en UNA empresa) y a qué usuario de la app corresponde.
+
+    La misma persona tiene un `pleo_employee_id` distinto en cada empresa del grupo, así que hay una
+    fila por empresa y empleado. El emparejamiento normal es por correo (`AUTO_EMAIL`); si el correo
+    de Pleo no está en la app, la fila queda sin `user_id` y sale en Integraciones para vincularla a
+    mano (`MANUAL`) o descartarla (`IGNORED`).
+    """
+
+    __tablename__ = "pleo_employee_links"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    account_id = Column(PGUUID(as_uuid=True), ForeignKey("pleo_accounts.id", ondelete="CASCADE"), nullable=False)
+    pleo_employee_id = Column(Text, nullable=False)
+    email = Column(Text)
+    first_name = Column(Text)
+    last_name = Column(Text)
+    code = Column(Text)                    # ID externo del empleado en Pleo
+    user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    match_mode = Column(Text, nullable=False, server_default=text("'NONE'"))   # AUTO_EMAIL|MANUAL|IGNORED|NONE
+    last_seen_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    account = relationship("PleoAccount")
+    user = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("account_id", "pleo_employee_id", name="uq_pleo_employee"),
+        Index("idx_pleo_employee_links_user", "user_id"),
+    )
+
+
+def ensure_pleo_schema():
+    """Crea/actualiza el esquema de la integración con Pleo (idempotente, sin Alembic)."""
+    _create_all_once()
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        """
+        CREATE TABLE IF NOT EXISTS pleo_accounts (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            group_company_id uuid NOT NULL UNIQUE REFERENCES group_companies(id) ON DELETE CASCADE,
+            pleo_company_id text,
+            pleo_organization_id text,
+            api_key text,
+            is_active boolean NOT NULL DEFAULT false,
+            require_receipt boolean NOT NULL DEFAULT false,
+            sync_window_days integer NOT NULL DEFAULT 45,
+            backfill_from date,
+            backfill_done_from date,
+            last_sync_at timestamptz,
+            last_sync_ok boolean,
+            last_error text,
+            last_stats jsonb NOT NULL DEFAULT '{}'::jsonb,
+            last_employees_sync_at timestamptz,
+            last_catalog_sync_at timestamptz,
+            tax_codes jsonb NOT NULL DEFAULT '{}'::jsonb,
+            tag_catalog jsonb NOT NULL DEFAULT '{}'::jsonb,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS pleo_employee_links (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            account_id uuid NOT NULL REFERENCES pleo_accounts(id) ON DELETE CASCADE,
+            pleo_employee_id text NOT NULL,
+            email text,
+            first_name text,
+            last_name text,
+            code text,
+            user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            match_mode text NOT NULL DEFAULT 'NONE',
+            last_seen_at timestamptz,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+            CONSTRAINT uq_pleo_employee UNIQUE(account_id, pleo_employee_id)
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_pleo_employee_links_user ON pleo_employee_links(user_id);",
+        # --- Gastos personales: todo lo que aporta Pleo ---
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS pleo_account_id uuid REFERENCES pleo_accounts(id) ON DELETE SET NULL;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS pleo_company_id text;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS pleo_employee_id text;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS pleo_updated_at timestamptz;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS pleo_status text;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS pleo_family text;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS pleo_subfamily text;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS pleo_review_status text;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS pleo_note text;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS pleo_tags jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS pleo_receipt_ids jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS pleo_files jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS pleo_account_code text;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS merchant_mcc text;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS currency text NOT NULL DEFAULT 'EUR';",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS amount_tax numeric;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS document_type text;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS suggested_category text;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS needs_receipt boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS sync_warning text;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS is_cancelled boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS last_synced_at timestamptz;",
+        # ⚠️ ESTA es la garantía real de que un gasto de Pleo no se duplica nunca, ni con dos
+        # sondeos a la vez ni al volver a gestionar su justificante: lo impone la BD.
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_personal_expenses_pleo_entry ON personal_expenses(pleo_entry_id) WHERE pleo_entry_id IS NOT NULL;",
+        "CREATE INDEX IF NOT EXISTS idx_personal_expenses_pleo_pending ON personal_expenses(pleo_account_id, needs_receipt) WHERE pleo_entry_id IS NOT NULL;",
+        # --- Correos adicionales de la persona (solo para identificarla en integraciones) ---
+        "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS integration_emails jsonb NOT NULL DEFAULT '[]'::jsonb;",
+    ]
+    _exec_ddl_statements(stmts, "pleo_schema")

@@ -35,7 +35,7 @@
               <span class="d-inline-flex align-items-center justify-content-center flex-shrink-0" style="width:34px;height:34px;border-radius:9px;background:rgba(227,61,72,.10);color:#E33D48;"><i class="fa {{ e.source_icon }} small"></i></span>
               <div class="flex-grow-1 min-w-0">
                 <div class="fw-semibold small text-truncate">{{ e.concept }}</div>
-                <div class="small text-muted text-truncate">{{ e.source_label }}{% if e.date_label %} · {{ e.date_label }}{% endif %}</div>
+                <div class="small text-muted text-truncate">{{ e.source_label }}{% if e.provider_name %} · {{ e.provider_name }}{% endif %}{% if e.date_label %} · {{ e.date_label }}{% endif %}</div>
               </div>
               <div class="text-end">
                 <div class="fw-semibold small">{{ e.amount_gross|eur }}</div>
@@ -43,6 +43,14 @@
                 {% else %}<span class="badge text-bg-warning text-dark">{{ e.days_left }} d</span>{% endif %}
               </div>
             </div>
+            {# Nota y etiquetas de Pleo: es lo que dice a qué actividad era el gasto. #}
+            {% if e.note or e.tags %}
+              <div class="d-flex flex-wrap align-items-center gap-1 mt-1 ps-4">
+                {% for t in e.tags %}<span class="badge text-bg-info-subtle text-dark border">{% if t.group %}{{ t.group }}: {% endif %}{{ t.value }}</span>{% endfor %}
+                {% if e.note %}<span class="small text-muted text-truncate"><i class="fa fa-quote-left me-1"></i>{{ e.note }}</span>{% endif %}
+              </div>
+            {% endif %}
+            {% if e.needs_receipt %}<div class="small text-warning-emphasis ps-4"><i class="fa fa-camera me-1"></i>Sin justificante en Pleo</div>{% endif %}
           </div>
         {% endfor %}
         <div class="text-muted small text-center py-4 {% if pending %}d-none{% endif %}" data-pending-empty>

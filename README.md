@@ -189,6 +189,33 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-07-26 — Pleo: los gastos de cada persona entran solos en «Mis gastos»
+
+- **Integración con Pleo** (Integraciones → *Pleo*) con una **subpestaña por empresa del grupo**: cada una
+  tiene su credencial, su ID de empresa de Pleo, su interruptor de activación, la ventana de sondeo y la
+  fecha desde la que traer histórico. La página explica **paso a paso qué hay que crear en Pleo** (Settings
+  → API Keys, con los permisos `accounting-entries:read`, `users:read` y lectura de *companies* y *tax
+  codes*). Si no se sabe el ID de empresa, se pega solo la key y «Probar conexión» **devuelve las empresas**
+  a las que da acceso.
+- Los gastos aterrizan en el **«Mis gastos» de su dueño** con importe, IVA desglosado, comercio, número de
+  factura, nota, etiquetas y **su justificante descargado** (foto o factura), listos para arrastrarlos a una
+  bolsa. **Todo lo que viene de Pleo entra marcado como PAGADO y con método de pago «Pleo»**, para que no se
+  reclame ni se pague dos veces.
+- **A quién es cada gasto** se resuelve por **correo**: el de acceso o cualquiera de los nuevos **«Otros
+  correos de empresa»** de su ficha (Personal → *Datos*), que existen solo para identificar a la persona en
+  las integraciones — en Pleo hay una cuenta por empresa y cada una puede tenerla con un correo distinto.
+  Lo que no cuadre sale en Integraciones para vincularlo a mano, y **al vincularlo se importan sus gastos al
+  momento**.
+- **Nunca se duplican**: el ID del apunte de Pleo lleva índice **UNIQUE** en la base de datos, los
+  justificantes ya descargados no se vuelven a bajar y un gasto **ya tipificado no se reescribe** — como
+  mucho se le engancha el justificante que faltaba (el caso normal: el cargo llega hoy y la foto del ticket
+  tres días después) o se anota un aviso si en Pleo le cambian el importe.
+- **Automático**: tarea programada `/cron/pleo/refresh?key=…` (cada 30-60 min; Pleo no manda avisos de
+  gastos nuevos, así que va por sondeo) más los botones «Sincronizar ahora» y «Traer histórico».
+- Al asignar, se muestran la **nota y las etiquetas** que la persona puso en Pleo y un **módulo de gasto
+  sugerido** por el tipo de comercio: no clasifican nada por su cuenta, pero suelen decir de qué actividad
+  era el gasto y dejan el tipificado en un clic.
+
 ### 2026-07-26 — Ficha de cada empresa del grupo: datos, documentación y formulario insertable
 
 - **Ficha por empresa del grupo** (Bases de datos → Empresas del grupo → *Ficha*) con dos pestañas.

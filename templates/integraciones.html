@@ -25,27 +25,217 @@
 
 <div class="tab-content">
 
-  {# ============================ PLEO ============================ #}
+  {# ============================ PLEO ============================
+     Hay UNA cuenta de Pleo por empresa del grupo, así que dentro de esta pestaña va una
+     SUBPESTAÑA por empresa con su credencial, su ID de empresa y sus empleados. #}
   <div class="tab-pane fade show active" id="tab-pleo" role="tabpanel" aria-labelledby="tab-pleo-tab">
-    <div class="card">
+    <div class="card mb-3">
       <div class="card-body">
         <div class="d-flex align-items-center justify-content-between mb-2">
-          <h2 class="h5 mb-0">Pleo <span class="text-muted small fw-normal">· Gastos</span></h2>
+          <h2 class="h5 mb-0">Pleo <span class="text-muted small fw-normal">· Gastos del personal</span></h2>
           {% if pleo_configured %}<span class="badge text-bg-success">Configurada</span>{% else %}<span class="badge text-bg-secondary">Desactivada</span>{% endif %}
         </div>
-        <p class="text-muted small mb-3">Importar gastos y recibos de Pleo para cruzarlos con las bolsas.</p>
-        {% if pleo_configured %}
-          <form method="post" class="d-inline">
-            <button name="action" value="ping_pleo" class="btn btn-sm btn-outline-primary"><i class="fa fa-bolt me-1"></i>Probar conexión</button>
-          </form>
-        {% else %}
-          <div class="small text-muted">
-            Para activarla: pide a Pleo una <strong>Standalone API Key</strong> y añádela en Render como
-            <code>PLEO_API_KEY</code>.
+        <p class="text-muted small mb-2">
+          Importa automáticamente los gastos de Pleo de cada persona y los deja en su <strong>«Mis gastos»</strong>
+          con su importe, su comercio, su nota y su justificante, listos para arrastrarlos a una bolsa.
+          Todo lo que entra por aquí queda marcado como <strong>pagado</strong>, con método de pago <strong>Pleo</strong>.
+        </p>
+        <div class="alert alert-light border small mb-0">
+          <div class="fw-semibold mb-1"><i class="fa fa-key me-1"></i>Qué hay que crear en Pleo (una vez por empresa)</div>
+          <ol class="mb-2 ps-3">
+            <li>Pleo tiene que <strong>habilitaros las «Standalone API Keys»</strong> (están restringidas: hay que pedírselo a vuestro contacto).</li>
+            <li>En <a href="https://app.pleo.io/access" target="_blank" rel="noopener">app.pleo.io</a> → <strong>Settings → API Keys → Create API Key</strong>, con rol de admin o bookkeeper.</li>
+            <li>Marca los permisos (scopes): <code>accounting-entries:read</code>, <code>users:read</code> y lectura de <em>companies</em> y <em>tax codes</em>.</li>
+            <li>Elige caducidad y el acceso a la entidad correspondiente. <strong>Copia la key en ese momento</strong>: Pleo no la vuelve a mostrar.</li>
+            <li>Pégala abajo en su empresa junto al <strong>ID de empresa (company_id)</strong> de Pleo y pulsa «Probar conexión».</li>
+          </ol>
+          <div class="text-muted">
+            Si no sabes el <code>company_id</code>: pega solo la key, deja el ID vacío y pulsa «Probar conexión» —
+            Pleo devolverá las empresas a las que da acceso esa credencial. El refresco automático lo hace la tarea
+            programada de Render (<code>/cron/pleo/refresh?key=…</code>, cada 30-60 min); Pleo no manda avisos de gastos nuevos.
           </div>
-        {% endif %}
+        </div>
       </div>
     </div>
+
+    {% if not pleo_rows %}
+      <div class="alert alert-warning">
+        Todavía no hay <strong>empresas del grupo</strong> dadas de alta. Créalas en
+        <em>Bases de datos → Empresas del grupo</em> y aquí saldrá una subpestaña por cada una.
+      </div>
+    {% else %}
+      <ul class="nav nav-pills mb-3 flex-wrap" role="tablist">
+        {% for row in pleo_rows %}
+        <li class="nav-item">
+          <button class="nav-link {% if loop.first %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#pleo-{{ row.slug }}-{{ loop.index }}" type="button">
+            {% if row.company_logo %}<img src="{{ row.company_logo }}" alt="" style="width:18px;height:18px;object-fit:contain;margin-right:6px;vertical-align:-3px;">{% endif %}{{ row.company_name }}
+            {% if row.is_active and row.has_key %}<i class="fa fa-circle-check text-success ms-1" title="Activa"></i>
+            {% elif row.has_key %}<i class="fa fa-circle-pause text-muted ms-1" title="Configurada pero desactivada"></i>
+            {% else %}<i class="fa fa-circle-exclamation text-warning ms-1" title="Sin credencial"></i>{% endif %}
+            {% if row.pending_links %}<span class="badge text-bg-warning text-dark ms-1" title="Empleados de Pleo sin vincular">{{ row.pending_links }}</span>{% endif %}
+          </button>
+        </li>
+        {% endfor %}
+      </ul>
+
+      <div class="tab-content">
+      {% for row in pleo_rows %}
+        <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="pleo-{{ row.slug }}-{{ loop.index }}" role="tabpanel">
+          <div class="card mb-3">
+            <div class="card-body">
+              <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+                <h3 class="h6 mb-0">
+                  {% if row.company_logo %}<img src="{{ row.company_logo }}" alt="" style="width:22px;height:22px;object-fit:contain;margin-right:6px;vertical-align:-4px;">{% endif %}
+                  {{ row.company_name }}
+                </h3>
+                <div class="d-flex align-items-center gap-2">
+                  {% if row.last_sync %}
+                    <span class="small text-muted"><i class="fa fa-clock-rotate-left me-1"></i>{{ row.last_sync }}</span>
+                    {% if row.last_ok %}<span class="badge text-bg-success">Último sondeo OK</span>
+                    {% elif row.last_ok is not none %}<span class="badge text-bg-danger">Último sondeo con error</span>{% endif %}
+                  {% else %}<span class="small text-muted">Sin sincronizar todavía</span>{% endif %}
+                </div>
+              </div>
+
+              {% if row.last_error %}
+                <div class="alert alert-danger py-2 px-3 small"><i class="fa fa-triangle-exclamation me-1"></i>{{ row.last_error }}</div>
+              {% endif %}
+
+              <form method="post" action="{{ url_for('pleo_account_save', company_id=row.company_id) }}" class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label">API Key de Pleo</label>
+                  <input type="password" name="api_key" class="form-control" autocomplete="new-password"
+                         placeholder="{% if row.has_key %}Guardada ({{ row.key_hint }}) — escribe una nueva para cambiarla{% else %}pls_…{% endif %}">
+                  {% if row.has_key %}
+                    <div class="form-check mt-1">
+                      <input class="form-check-input" type="checkbox" name="clear_key" value="1" id="pleoClear{{ loop.index }}">
+                      <label class="form-check-label small text-danger" for="pleoClear{{ loop.index }}">Borrar la credencial guardada</label>
+                    </div>
+                  {% endif %}
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">ID de empresa en Pleo <span class="text-muted small">(company_id)</span></label>
+                  <input type="text" name="pleo_company_id" class="form-control" value="{{ row.pleo_company_id }}" placeholder="00000000-0000-0000-0000-000000000000">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">ID de organización <span class="text-muted small">(opcional)</span></label>
+                  <input type="text" name="pleo_organization_id" class="form-control" value="{{ row.pleo_organization_id }}">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Ventana de sondeo</label>
+                  <div class="input-group">
+                    <input type="number" name="sync_window_days" class="form-control" min="1" max="400" value="{{ row.sync_window_days or pleo_default_window }}">
+                    <span class="input-group-text">días</span>
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Importar desde <span class="text-muted small">(histórico)</span></label>
+                  <input type="date" name="backfill_from" class="form-control" value="{{ row.backfill_from }}">
+                </div>
+                <div class="col-12 d-flex flex-wrap gap-3">
+                  <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" name="is_active" value="1" id="pleoActive{{ loop.index }}" {% if row.is_active %}checked{% endif %}>
+                    <label class="form-check-label" for="pleoActive{{ loop.index }}">Integración activa (entra en el sondeo automático)</label>
+                  </div>
+                  <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" name="require_receipt" value="1" id="pleoReq{{ loop.index }}" {% if row.require_receipt %}checked{% endif %}>
+                    <label class="form-check-label" for="pleoReq{{ loop.index }}">Importar solo los gastos que ya tengan foto o factura</label>
+                  </div>
+                </div>
+                <div class="col-12">
+                  <button class="btn btn-primary"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+                </div>
+              </form>
+
+              <div class="d-flex flex-wrap gap-2 mt-3">
+                <form method="post" action="{{ url_for('pleo_account_test', company_id=row.company_id) }}" class="d-inline">
+                  <button class="btn btn-sm btn-outline-primary"><i class="fa fa-bolt me-1"></i>Probar conexión</button>
+                </form>
+                <form method="post" action="{{ url_for('pleo_account_sync', company_id=row.company_id) }}" class="d-inline">
+                  <button class="btn btn-sm btn-outline-secondary" {% if not row.has_key %}disabled{% endif %}><i class="fa fa-rotate me-1"></i>Sincronizar ahora</button>
+                </form>
+                <form method="post" action="{{ url_for('pleo_account_sync', company_id=row.company_id) }}" class="d-inline"
+                      onsubmit="return confirm('Traerá TODO el histórico desde la fecha «Importar desde». Puede tardar. ¿Continuar?');">
+                  <input type="hidden" name="full" value="1">
+                  <button class="btn btn-sm btn-outline-secondary" {% if not row.has_key or not row.backfill_from %}disabled{% endif %}><i class="fa fa-cloud-arrow-down me-1"></i>Traer histórico</button>
+                </form>
+              </div>
+
+              {% if row.has_account %}
+              <div class="d-flex flex-wrap gap-2 mt-3">
+                <div class="sim-stat"><div class="sim-stat__n">{{ row.counts.total|k }}</div><div class="sim-stat__l">Gastos importados</div></div>
+                <div class="sim-stat"><div class="sim-stat__n {{ 'text-danger' if row.counts.pending else '' }}">{{ row.counts.pending|k }}</div><div class="sim-stat__l">Sin asignar a bolsa</div></div>
+                <div class="sim-stat"><div class="sim-stat__n {{ 'text-warning' if row.counts.no_receipt else '' }}">{{ row.counts.no_receipt|k }}</div><div class="sim-stat__l">Sin justificante</div></div>
+                <div class="sim-stat"><div class="sim-stat__n {{ 'text-danger' if row.counts.warnings else '' }}">{{ row.counts.warnings|k }}</div><div class="sim-stat__l">Con aviso</div></div>
+                {% if row.orphans %}<div class="sim-stat"><div class="sim-stat__n text-danger">{{ row.orphans|k }}</div><div class="sim-stat__l">Sin dueño</div></div>{% endif %}
+              </div>
+              {% endif %}
+            </div>
+          </div>
+
+          {# ---- Empleados de Pleo de esta empresa y su persona en la app ---- #}
+          {% if row.employees %}
+          <div class="card">
+            <div class="card-body">
+              <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-1">
+                <h3 class="h6 mb-0"><i class="fa fa-users me-1 text-danger"></i>Personas en Pleo · {{ row.company_name }}</h3>
+                <span class="badge {{ 'text-bg-warning text-dark' if row.pending_links else 'text-bg-success' }}">
+                  {{ row.pending_links }} sin vincular
+                </span>
+              </div>
+              <p class="text-muted small mb-3">
+                Se emparejan solas por correo: el de acceso de cada persona o cualquiera de los
+                <strong>«otros correos de empresa»</strong> de su ficha. Si en Pleo alguien está con un correo que no tenemos,
+                añádelo en su ficha (Personal → Datos) o vincúlalo aquí a mano; al vincularlo se importan sus gastos al momento.
+              </p>
+              <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                  <thead class="table-light"><tr><th>En Pleo</th><th>Correo</th><th>Persona en la app</th><th class="text-end">Acciones</th></tr></thead>
+                  <tbody>
+                  {% for emp in row.employees %}
+                    <tr class="{{ 'opacity-50' if emp.mode == 'IGNORED' else '' }}">
+                      <td class="small">{{ emp.name or '—' }}</td>
+                      <td class="small">{{ emp.email or '—' }}</td>
+                      <td class="small">
+                        {% if emp.user_id %}
+                          <span class="badge {{ 'text-bg-success' if emp.mode == 'AUTO_EMAIL' else 'text-bg-primary' }}">
+                            {{ emp.user_nick or 'Vinculado' }}
+                          </span>
+                          <span class="text-muted">{{ 'por correo' if emp.mode == 'AUTO_EMAIL' else 'a mano' }}</span>
+                        {% elif emp.mode == 'IGNORED' %}
+                          <span class="badge text-bg-secondary">Descartado</span>
+                        {% else %}
+                          <span class="badge text-bg-warning text-dark">Sin vincular</span>
+                        {% endif %}
+                      </td>
+                      <td class="text-end">
+                        <form method="post" action="{{ url_for('pleo_employee_link_save', link_id=emp.id) }}" class="d-flex gap-1 justify-content-end mb-0">
+                          <select name="user_id" class="form-select form-select-sm" style="max-width:230px">
+                            <option value="">— Elegir persona —</option>
+                            {% for p in pleo_people %}<option value="{{ p.id }}" {% if p.id == emp.user_id %}selected{% endif %}>{{ p.label }}</option>{% endfor %}
+                          </select>
+                          <button name="link_action" value="link" class="btn btn-sm btn-success" title="Vincular e importar sus gastos"><i class="fa fa-link"></i></button>
+                          {% if emp.mode != 'IGNORED' %}
+                            <button name="link_action" value="ignore" class="btn btn-sm btn-outline-secondary" title="No importar los gastos de esta persona"><i class="fa fa-eye-slash"></i></button>
+                          {% endif %}
+                        </form>
+                      </td>
+                    </tr>
+                  {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          {% elif row.has_key %}
+            <div class="alert alert-light border small">
+              Aún no se han leído las personas de Pleo en esta empresa. Pulsa <strong>«Sincronizar ahora»</strong>.
+            </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+      </div>
+    {% endif %}
   </div>
 
   {# ========================= CHARTMETRIC ========================= #}
@@ -415,7 +605,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
 <div class="alert alert-light border mt-4 small mb-0">
   <i class="fa fa-shield-halved me-1"></i>
-  Las credenciales se configuran como variables de entorno en Render (nunca en el código). Mientras no
-  estén, cada integración queda <strong>desactivada</strong> y no afecta al resto de la web.
+  Las credenciales de Chartmetric y Enterticket se configuran como variables de entorno en Render (nunca en el
+  código). Las de <strong>Pleo van aquí</strong>, porque hay una por empresa del grupo: se guardan en la base de
+  datos, solo las ve dirección y nunca se vuelven a mostrar completas. Mientras una integración no tenga
+  credencial queda <strong>desactivada</strong> y no afecta al resto de la web.
 </div>
 {% endblock %}

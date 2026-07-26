@@ -1817,6 +1817,50 @@ class ConcertArtworkAsset(Base):
 
 # --- NOTAS (contratación / generales) ---
 
+class PersonalExpense(Base):
+    """Gasto o factura que llega a UNA PERSONA y todavía no está asignado a una bolsa.
+
+    Dos orígenes: facturas que un proveedor sube por el enlace público eligiendo a quién van
+    (`source='INVOICE'`) y gastos importados de Pleo (`source='PLEO'`). Cada uno tiene una semana
+    para asignarse a una bolsa; después salta el aviso y, a los 15 días, el escalado a dirección.
+    Al asignarlo a una bolsa queda pendiente de TIPIFICAR (elegir su módulo de gasto), y cuando se
+    tipifica se crea el BagExpense correspondiente."""
+
+    __tablename__ = "personal_expenses"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    source = Column(Text, nullable=False, server_default=text("'INVOICE'"))   # INVOICE | PLEO | MANUAL
+    supplier_invoice_id = Column(PGUUID(as_uuid=True), ForeignKey("supplier_invoices.id", ondelete="SET NULL"))
+    pleo_entry_id = Column(Text)                       # id del apunte en Pleo (evita duplicados)
+    concept = Column(Text)
+    provider_name = Column(Text)
+    expense_date = Column(Date)
+    amount_net = Column(Numeric)
+    amount_gross = Column(Numeric)
+    invoice_number = Column(Text)
+    file_url = Column(Text)
+    original_name = Column(Text)
+    # Asignación: primero a una BOLSA y luego a su módulo de gasto (bag_expense_id).
+    bag_id = Column(PGUUID(as_uuid=True), ForeignKey("workflow_bags.id", ondelete="SET NULL"))
+    bag_expense_id = Column(PGUUID(as_uuid=True), ForeignKey("bag_expenses.id", ondelete="SET NULL"))
+    # PENDING (sin bolsa) | IN_BAG (en bolsa, sin tipificar) | ASSIGNED (con su gasto creado)
+    status = Column(Text, nullable=False, server_default=text("'PENDING'"))
+    received_at = Column(DateTime(timezone=True), server_default=func.now())
+    assigned_at = Column(DateTime(timezone=True))
+    notified_at = Column(DateTime(timezone=True))       # aviso a la persona (1 semana)
+    escalated_at = Column(DateTime(timezone=True))      # aviso a dirección (15 días)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    bag = relationship("WorkflowBag")
+
+    __table_args__ = (
+        Index("idx_personal_expenses_user", "user_id", "status"),
+        Index("idx_personal_expenses_bag", "bag_id", "status"),
+    )
+
+
 class AfavorLiquidation(Base):
     """Liquidación de royalties «A FAVOR» nuestro: lo que nos tiene que liquidar una compañía
     externa por nuestras colaboraciones, por semestre. Lleva el estado del ciclo completo:
@@ -1876,7 +1920,10 @@ class SupplierInvoice(Base):
     artist_text = Column(Text)
     concept_text = Column(Text)
     invoice_number = Column(Text)
+    issue_date = Column(Date)                 # fecha de emisión (detectada del documento)
     amount_gross = Column(Numeric)
+    # A quién va dirigida cuando se sube por el enlace genérico (paso «¿para quién es la factura?»).
+    target_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     group_company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
     file_url = Column(Text, nullable=False)
     original_name = Column(Text)
@@ -5877,6 +5924,38 @@ def ensure_third_party_and_contract_sheet_schema():
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS fiscal_address text;",
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS data_consent_at timestamptz;",
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS billing_updated_at timestamptz;",
+        "ALTER TABLE IF EXISTS supplier_invoices ADD COLUMN IF NOT EXISTS issue_date date;",
+        "ALTER TABLE IF EXISTS supplier_invoices ADD COLUMN IF NOT EXISTS target_user_id uuid;",
+        # Gastos/facturas de una PERSONA pendientes de asignar a una bolsa (formulario y Pleo).
+        """
+        CREATE TABLE IF NOT EXISTS personal_expenses (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            source text NOT NULL DEFAULT 'INVOICE',
+            supplier_invoice_id uuid REFERENCES supplier_invoices(id) ON DELETE SET NULL,
+            pleo_entry_id text,
+            concept text,
+            provider_name text,
+            expense_date date,
+            amount_net numeric,
+            amount_gross numeric,
+            invoice_number text,
+            file_url text,
+            original_name text,
+            bag_id uuid REFERENCES workflow_bags(id) ON DELETE SET NULL,
+            bag_expense_id uuid REFERENCES bag_expenses(id) ON DELETE SET NULL,
+            status text NOT NULL DEFAULT 'PENDING',
+            received_at timestamptz DEFAULT now(),
+            assigned_at timestamptz,
+            notified_at timestamptz,
+            escalated_at timestamptz,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_personal_expenses_user ON personal_expenses(user_id, status);',
+        'CREATE INDEX IF NOT EXISTS idx_personal_expenses_bag ON personal_expenses(bag_id, status);',
+        'CREATE UNIQUE INDEX IF NOT EXISTS uq_personal_expenses_pleo ON personal_expenses(pleo_entry_id) WHERE pleo_entry_id IS NOT NULL;',
         # Liquidaciones «A FAVOR» nuestro (lo que nos liquidan las compañías externas).
         """
         CREATE TABLE IF NOT EXISTS afavor_liquidations (

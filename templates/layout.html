@@ -52,6 +52,9 @@
   <div class="gl-bar"><div class="gl-bar-fill"></div></div>
   <div class="gl-text">Cargando…</div>
 </div></div>
+{# Páginas públicas «de marca» (p. ej. la subida de facturas de una empresa concreta) piden
+   NO mostrar la cabecera del back office: solo su propio logo. #}
+{% if not hide_backoffice_nav %}
 <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm sticky-top">
   <div class="container-fluid">
     <a class="navbar-brand d-flex align-items-center" href="{{ url_for('home') if IS_ADMIN else url_for('landing') }}">
@@ -158,6 +161,7 @@
     </div>
   </div>
 </nav>
+{% endif %}
 
 <main class="container-fluid app-main my-4 pb-5">
   {% with messages = get_flashed_messages(with_categories=true) %}

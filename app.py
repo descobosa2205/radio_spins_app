@@ -262,6 +262,7 @@ from models import (
     BagInvoiceRequest,
     SupplierInvoice,
     AfavorLiquidation,
+    PersonalExpense,
 )
 import sim_calc  # motor de cálculo puro de Simulaciones
 import seatmap_calc  # motor puro del mapa de butacas del recinto (conteos/plantillas)
@@ -355,6 +356,7 @@ _CSRF_EXEMPT_ENDPOINTS = {
     "public_invoice_register",
     "public_invoice_docs_state",
     "public_invoice_upload",
+    "public_invoice_detect",
     "concert_artwork_public_submit",
     "public_sale_channels",
     "concert_contract_public_form",
@@ -697,7 +699,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher"}
+    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher"}
     if request.endpoint in allowed:
         return
 
@@ -38858,7 +38860,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_promoter_requests", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_promoter_requests", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -47375,6 +47377,163 @@ def _billing_profile_payload(session_db, promoter) -> dict:
     }
 
 
+def _company_slug(name: str) -> str:
+    """Slug de una empresa del grupo para la URL: sin acentos, minúsculas y sin separadores."""
+    base = unicodedata.normalize("NFD", (name or "")).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]", "", base.lower())
+
+
+def _find_group_company_by_slug(session_db, slug: str):
+    """Empresa del grupo cuyo nombre encaja con el slug de la URL (/facturacion_<empresa>)."""
+    want = _company_slug(slug)
+    if not want:
+        return None
+    companies = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+    for co in companies:
+        if _company_slug(co.name) == want:
+            return co
+    # Coincidencia parcial: /facturacion_pies encuentra «Pies Records SL».
+    for co in companies:
+        cs = _company_slug(co.name)
+        if want and (want in cs or cs.startswith(want)):
+            return co
+    return None
+
+
+def _invoice_target_people(session_db) -> list:
+    """Personal al que se le puede dirigir una factura del enlace genérico: los que tienen algún
+    DEPARTAMENTO. Se excluye a dirección… salvo que además tengan otro departamento asignado."""
+    rows = []
+    try:
+        q = (session_db.query(User, UserProfile)
+             .join(UserProfile, UserProfile.user_id == User.id)
+             .order_by(UserProfile.nick.asc()))
+        for user, profile in q.all():
+            if bool(getattr(user, "is_blocked", False)) or bool(getattr(user, "is_deleted", False)):
+                continue
+            depts = [str(d).strip() for d in (getattr(profile, "departments", None) or []) if str(d).strip()]
+            if not depts:
+                continue                                  # sin departamento: no se ofrece
+            others = [d for d in depts if d.lower() != "dirección" and d.lower() != "direccion"]
+            if int(getattr(user, "role", 0) or 0) == 10 and not others:
+                continue                                  # solo dirección: no se ofrece
+            if not others:
+                continue
+            rows.append({
+                "user_id": str(user.id),
+                "nick": (profile.nick or user.email or "Usuario"),
+                "photo_url": (profile.photo_url or ""),
+                "departments": others,
+            })
+    except Exception:
+        return rows
+    return rows
+
+
+_INV_NUM_RE = re.compile(
+    r"(?:n[ºo°]?\s*(?:de\s*)?factura|factura\s*n[ºo°]?|invoice\s*(?:no|number|#)|factura|invoice)"
+    r"\s*[:#nºo°\-]*\s*([A-Z0-9][A-Z0-9\-\/\._]{2,24})", re.IGNORECASE)
+_INV_DATE_RES = [
+    re.compile(r"(?:fecha(?:\s+de)?\s*(?:emisi[óo]n|factura)?|date)\s*[:\-]?\s*(\d{1,2})[/\-\.](\d{1,2})[/\-\.](\d{2,4})", re.IGNORECASE),
+    re.compile(r"\b(\d{1,2})[/\-\.](\d{1,2})[/\-\.](\d{4})\b"),
+]
+_INV_DATE_ISO_RE = re.compile(r"\b(\d{4})[/\-\.](\d{1,2})[/\-\.](\d{1,2})\b")
+
+
+def _detect_invoice_meta(data: bytes, is_pdf: bool) -> dict:
+    """Detecta el NÚMERO de factura y la FECHA DE EMISIÓN del documento (mejor esfuerzo). Lo que
+    salga se le muestra a la persona para que lo confirme o lo corrija a mano antes de enviar."""
+    out = {"invoice_number": "", "issue_date": "", "detected": False}
+    if not is_pdf:
+        return out
+    text = _pdf_extract_text_bytes(data)
+    if not text:
+        return out
+    m = _INV_NUM_RE.search(text)
+    if m:
+        num = (m.group(1) or "").strip(" .:-")
+        # Descartamos solo lo que sea claramente una FECHA o un IMPORTE (un número de factura como
+        # «2026/0147» es perfectamente válido y antes se colaba en el filtro).
+        looks_date = bool(re.fullmatch(r"\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}", num))
+        looks_amount = bool(re.search(r"\d,\d{2}$", num)) or num.upper().endswith(("EUR", "€"))
+        if num and not looks_date and not looks_amount:
+            out["invoice_number"] = num[:40]
+    for rx in _INV_DATE_RES:
+        m = rx.search(text)
+        if not m:
+            continue
+        d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if y < 100:
+            y += 2000
+        try:
+            out["issue_date"] = date(y, mo, d).isoformat()
+            break
+        except ValueError:
+            continue
+    if not out["issue_date"]:
+        m = _INV_DATE_ISO_RE.search(text)
+        if m:
+            try:
+                out["issue_date"] = date(int(m.group(1)), int(m.group(2)), int(m.group(3))).isoformat()
+            except ValueError:
+                pass
+    out["detected"] = bool(out["invoice_number"] or out["issue_date"])
+    return out
+
+
+def _personal_expense_from_invoice(session_db, inv, target_user_id) -> None:
+    """Crea el «gasto personal» de una factura dirigida a alguien (arranca el plazo de 1 semana)."""
+    uid = to_uuid(str(target_user_id)) if target_user_id else None
+    if not uid:
+        return
+    session_db.add(PersonalExpense(
+        user_id=uid, source="INVOICE", supplier_invoice_id=inv.id,
+        concept=(inv.concept_text or "Factura"),
+        provider_name=(inv.promoter.nick if getattr(inv, "promoter", None) else None),
+        expense_date=inv.issue_date,
+        amount_gross=inv.amount_gross,
+        invoice_number=inv.invoice_number,
+        file_url=inv.file_url, original_name=inv.original_name,
+        status="PENDING",
+    ))
+
+
+@app.get('/facturacion_<company_slug>', endpoint='public_invoice_landing_company')
+def public_invoice_landing_company(company_slug):
+    """Subenlace de facturación de UNA empresa del grupo: sin la cabecera del back office, con su
+    logo arriba a la derecha y solo sus datos de facturación."""
+    session_db = db()
+    try:
+        company = _find_group_company_by_slug(session_db, company_slug)
+        if company is None:
+            abort(404)
+        return render_template(
+            "public_invoice_landing.html",
+            inv_mode="LANDING",
+            brand_only=True,                 # logo de la empresa a la derecha, sin bañera
+            hide_backoffice_nav=True,
+            companies=[company],
+            company=company,
+            cert_docs=INVOICE_CERT_DOCS,
+            request_row=None,
+            request_rows=[],
+            target_people=_invoice_target_people(session_db),
+        )
+    finally:
+        session_db.close()
+
+
+@app.post('/facturacion/detectar', endpoint='public_invoice_detect')
+def public_invoice_detect():
+    """Lee el documento y devuelve el nº de factura y la fecha de emisión detectados."""
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"ok": False, "error": "Falta el archivo"}), 400
+    data = f.read()
+    is_pdf = (f.filename or "").lower().endswith(".pdf") or (f.mimetype or "") == "application/pdf"
+    return jsonify({"ok": True, **_detect_invoice_meta(data, is_pdf)})
+
+
 @app.get('/facturacion', endpoint='public_invoice_landing')
 def public_invoice_landing():
     """Landing pública de subida de facturas (3 pasos). Con `?liq=<token>` es la factura de una
@@ -47426,6 +47585,7 @@ def public_invoice_landing():
             cert_docs=INVOICE_CERT_DOCS,
             request_row=None,
             request_rows=[],
+            target_people=_invoice_target_people(session_db),
         )
     finally:
         session_db.close()
@@ -47674,15 +47834,23 @@ def public_invoice_upload():
             bag_req.updated_at = datetime.utcnow()
             session_db.commit()
             return jsonify({"ok": True, "kind": "invoice", "done": True, "linked": linked})
+        target_user_id = to_uuid(request.form.get("target_user_id") or "") or None
         inv = SupplierInvoice(
             promoter_id=promoter.id, source="LANDING",
             artist_text=(request.form.get("artist_text") or "").strip() or None,
             concept_text=(request.form.get("concept_text") or "").strip() or None,
             invoice_number=(request.form.get("invoice_number") or "").strip() or None,
+            issue_date=parse_optional_date(request.form.get("issue_date")),
+            target_user_id=target_user_id,
             group_company_id=to_uuid(request.form.get("group_company_id") or "") or None,
             file_url=url, original_name=filename[:200], mime_type=f.mimetype, status="PENDIENTE",
         )
         session_db.add(inv)
+        session_db.flush()
+        # La factura entra en «Mis gastos» de la persona elegida, con su plazo de una semana.
+        if target_user_id:
+            inv.promoter = promoter
+            _personal_expense_from_invoice(session_db, inv, target_user_id)
         session_db.commit()
         return jsonify({"ok": True, "kind": "invoice", "done": True})
     except Exception:

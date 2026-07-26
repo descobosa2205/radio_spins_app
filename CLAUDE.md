@@ -25,6 +25,23 @@ Detalle ampliado en `README.md`.
 - **Sin Alembic**: el esquema se crea/actualiza al arrancar con `init_db()` + `ensure_*_schema()`
   (idempotentes). Para cambios de modelo basta reiniciar; no hay migración manual.
 
+## Verificación local con la APP REAL (entorno completo de prueba)
+Esta máquina solo trae Python 3.9 (la app usa sintaxis 3.10+), pero se puede montar TODO en /tmp:
+```bash
+# 1) Python 3.12 standalone (arm64) + deps:   /tmp/python  (ya montado si existe)
+curl -sL -o /tmp/cpython.tar.gz "https://github.com/astral-sh/python-build-standalone/releases/download/20250712/cpython-3.12.11+20250712-aarch64-apple-darwin-install_only.tar.gz" && tar xzf /tmp/cpython.tar.gz -C /tmp
+/tmp/python/bin/python3 -m pip install -r requirements.txt
+# 2) Postgres embebido (zonky, sin brew):   /tmp/pg16 + /tmp/pgdata, puerto 54329
+#    initdb -U postgres -A trust; pg_ctl start; CREATE DATABASE radiotest; CREATE EXTENSION "uuid-ossp";
+# 3) Arrancar la app con BD de PRUEBA (¡nunca la real!):
+#    DATABASE_URL="postgresql://postgres@127.0.0.1:54329/radiotest?sslmode=disable" (config añade sslmode=require si falta)
+#    El esquema se crea al arrancar (hilo en background; para forzarlo síncrono llamar _bootstrap_schema_bg()).
+# 4) Sembrar usuario role 10 + artista/recinto/concierto vía modelos; login por curl con el token CSRF
+#    del <meta name="csrf-token"> (el form de login no lleva input csrf).
+# ⚠️ Los errores 500 muestran la página de MANTENIMIENTO (errorhandler 500 → maintenance.html):
+#    si el usuario dice «sale la página de cerrado por mantenimiento», es un 500 → buscar traceback en el log.
+```
+
 ## Verificación local (sin BD)
 ```bash
 # Entorno virtual: el wrapper .venv/bin/pip tiene shebang roto -> usar python -m pip

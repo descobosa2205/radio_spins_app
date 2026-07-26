@@ -201,6 +201,41 @@
 
           {# ============ PASO 4 (direct) · Detalle del evento promocional / TV / marca ============ #}
           <section class="wizard-step" data-step="4" data-mode="direct">
+            {# CONCIERTOS/FESTIVALES: qué tiene que hacer el artista = ¿hay Meet & Greet? #}
+            <div data-wz-panel data-step4-mg class="d-none">
+              <div class="wizard-card">
+                <div class="wizard-card__title"><i class="fa fa-handshake"></i>¿Hay Meet &amp; Greet?</div>
+                <div class="row g-3">
+                  <div class="col-6 col-md-3">
+                    <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                      <input class="form-check-input visually-hidden wizard-mg-radio" type="radio" name="meet_greet" value="1">
+                      <i class="fa fa-handshake d-block fs-3 mb-2 text-dark"></i>
+                      <span class="fw-semibold small">Sí, hay M&amp;G</span>
+                    </label>
+                  </div>
+                  <div class="col-6 col-md-3">
+                    <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                      <input class="form-check-input visually-hidden wizard-mg-radio" type="radio" name="meet_greet" value="0" checked>
+                      <i class="fa fa-handshake-slash d-block fs-3 mb-2 text-dark"></i>
+                      <span class="fw-semibold small">No hay</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="row g-3 mt-1 d-none" data-wz-panel id="wizardMgPanel">
+                  <div class="col-6 col-md-3">
+                    <label class="form-label">¿De cuántas personas?</label>
+                    <input type="number" min="1" class="form-control" name="meet_greet_quantity" placeholder="10">
+                  </div>
+                  <div class="col-12 col-md-9">
+                    <label class="form-label">Momento <span class="text-muted">(opcional)</span></label>
+                    <input class="form-control" name="meet_greet_moment" placeholder="antes del concierto, después de la prueba de sonido…">
+                  </div>
+                  <div class="col-12"><div class="form-text mb-0">Se apunta en la ficha y alimenta el Meet &amp; Greet de la hoja de ruta.</div></div>
+                </div>
+              </div>
+            </div>
+            {# ACTIVIDADES promocionales: en qué consiste + canta + formación #}
+            <div data-wz-panel data-step4-promo>
             <div class="wizard-card">
               <div class="wizard-card__title"><i class="fa fa-circle-info"></i>¿En qué consiste la actividad?</div>
               <textarea class="form-control" name="activity_description" id="wizard_activity_description" rows="3" placeholder="Describe la actividad: qué es, dónde encaja, qué se espera del artista…"></textarea>
@@ -260,6 +295,7 @@
                 </div>
               </div>
             </div>
+            </div>{# /data-step4-promo #}
           </section>
 
           {# ============================ PASO 5 (direct) · Economía + promotor ============================ #}
@@ -1517,8 +1553,9 @@
     function stepSequence(){
       // El PRIMER paso siempre es el artista (data-step 12), igual en conciertos y actividades.
       if(modeInput.value === 'request_sheet') return [12, 1, 2, 3, 4];
-      const seq = [12, 1, 2, 3];
-      if(isPromoActivity()) seq.push(4);
+      // El paso 4 existe SIEMPRE: en promocionales pregunta el detalle (descripción/canta/formación)
+      // y en conciertos/festivales pregunta el Meet & Greet.
+      const seq = [12, 1, 2, 3, 4];
       seq.push(5, 6, 8);
       if(!isPromoActivity() || artistSings()) seq.push(9);
       // Cartelería (data-step 7) es el paso PENÚLTIMO; el último es estado + anuncio.
@@ -1583,8 +1620,19 @@
       const target = document.querySelector(`.wizard-st-promo-radio[value="${want}"]`);
       if(target && !target.checked){ target.checked = true; target.dispatchEvent(new Event('change', { bubbles: true })); }
     }
+    function syncStep4Panels(){
+      // Paso 4: en promocionales el detalle (descripción/canta/formación); en conciertos el M&G.
+      const promo = isPromoActivity();
+      document.querySelector('[data-step4-promo]')?.classList.toggle('d-none', !promo);
+      document.querySelector('[data-step4-mg]')?.classList.toggle('d-none', promo);
+    }
+    function syncMgPanel(){
+      const yes = document.querySelector('.wizard-mg-radio:checked')?.value === '1';
+      document.getElementById('wizardMgPanel')?.classList.toggle('d-none', !yes);
+    }
     function syncEconomyCards(){
       const promo = isPromoActivity();
+      syncStep4Panels();
       document.getElementById('wizardEconomyCard')?.classList.toggle('d-none', promo);
       if(promo){
         // Al entrar en modo actividad, por defecto «Con caché» (VENDIDO) salvo que el usuario
@@ -2168,6 +2216,9 @@
     modeChoices.forEach(el => el.addEventListener('change', syncMode));
     knowsVenue?.addEventListener('change', toggleVenueKnown);
     document.querySelectorAll('input[name="activity_type"]').forEach(el => el.addEventListener('change', () => { syncFestivalName(); syncEconomyCards(); renderStepPills(); }));
+    document.querySelectorAll('.wizard-mg-radio').forEach(el => el.addEventListener('change', syncMgPanel));
+    syncStep4Panels();
+    syncMgPanel();
     document.querySelectorAll('.wizard-sale-type-radio').forEach(el => el.addEventListener('change', () => { syncPromoterVisibility(); syncCacheCards(); syncHasCacheDefault(); syncEntryDefault(); renderStepPills(); }));
     document.getElementById('wizard_artist_id')?.addEventListener('change', () => { checkArtistConflict(); filterTourCards(); lastMetaArtist=''; fetchArtistMeta(); });
     document.getElementById('wizard_date')?.addEventListener('change', checkArtistConflict);

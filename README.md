@@ -189,6 +189,32 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-07-26 — Revisión: repertorio arreglado, M&G, «Editar ficha» global, PDF visual y bolsa
+
+- **Repertorio ARREGLADO de verdad** (daba error 500 y por eso salía la página de «estamos
+  trabajando»): en `_setlist_panel.html`, `setlist.items` en Jinja devolvía el **método `.items()`
+  del dict** en vez de la clave, y el `tojson` reventaba. Reproducido y verificado con la app real
+  corriendo en local contra un Postgres de prueba.
+- **Meet & Greet**: nuevo bloque en el asistente (paso «¿Qué tiene que hacer el artista?»): en
+  **conciertos/festivales** pregunta **¿Hay Meet & Greet?** (Sí/No) y, si sí, **de cuántas
+  personas** y en qué momento. Se muestra en la franja-resumen de la ficha y en una sección propia
+  editable inline, y **alimenta el Meet & Greet de la hoja de ruta** (crea la actividad MG el día
+  del evento con el nº de personas como nota, sin duplicar ni pisar lo editado).
+- **«Editar ficha» global**: el botón de la ficha de contratación pone **TODA la ficha en modo
+  edición inline a la vez** (todas las secciones con todos los campos, también los vacíos), sin
+  pop-ups y sin salir de la página; segundo clic = cancelar todo.
+- **PDF de la ficha rediseñado**: misma **cabecera visual que la ficha** (foto del artista, estado
+  con color, tile de calendario para la fecha, recinto con dirección y aforo a la venta, logo de la
+  empresa, tipo, promotor con logo y sociedad, anuncio, salida a la venta, canta/formación y M&G) y
+  las **mismas secciones/cabeceras que la ficha** (Descripción, Más información, Colaboradores,
+  Comisionistas, Cachés con lo que cubre el promotor, Entradas y venta, Equipamiento, Plan de
+  facturación y Notas), solo campos rellenos. El botón «PDF ficha» está siempre disponible.
+- **Bolsa en la ficha, reordenada**: al abrir la pestaña Bolsa ahora salen PRIMERO la **cabecera y
+  los datos/notas/resumen de la bolsa** (el mismo panel completo de /bolsas) y después los ingresos
+  de la actividad, lo que cubre el promotor y los gastos.
+- **Permisos**: la pestaña **Altas** de Administración es ahora un recurso propio
+  (`administracion.altas`) como el resto de pestañas, con su descripción y URL en Accesos.
+
 ### 2026-07-25 — PRL y Altas: documentación de riesgos laborales del personal de eventos
 
 - **Modelos nuevos**: `PersonComplianceDoc` (documento de alta/PRL de una persona —tercero o

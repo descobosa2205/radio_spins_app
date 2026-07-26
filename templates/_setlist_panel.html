@@ -8,7 +8,8 @@
      data-tpl-items-base="{{ url_for('setlist_template_items', tid='__TID__') }}"
      data-pdf-url="{{ setlist.pdf_url }}">
 
-  <script type="application/json" data-setlist-items>{{ setlist.items|tojson }}</script>
+  {# OJO: setlist es un dict → `setlist.items` en Jinja es el MÉTODO .items(), hay que indexar. #}
+  <script type="application/json" data-setlist-items>{{ setlist['items']|tojson }}</script>
 
   <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
     <div class="d-flex flex-wrap gap-2 align-items-center">

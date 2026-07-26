@@ -31,15 +31,20 @@
 {# ---------- ACCESOS RÁPIDOS: justo debajo de la cabecera, con iconos ---------- #}
 <div class="ficha-quick mb-0">
   {% if CAN_EDIT_CONCERTS and tab == 'general' %}
-    <button class="btn btn-primary btn-sm" type="button" data-edit-toggle="#concert-datos-edit"><i class="fa fa-pen me-1"></i>Editar ficha</button>
+    {# Pone TODA la ficha en modo edición inline (todas las secciones con todos los campos,
+       también los vacíos), sin pop-ups ni salir de la página. Segundo clic = cancelar todo. #}
+    <button class="btn btn-primary btn-sm" type="button" id="fichaEditAllBtn"><i class="fa fa-pen me-1"></i>Editar ficha</button>
+    {# Toggle oculto del bloque de datos: lo pulsa «Editar ficha» para abrir también esa sección
+       con el mecanismo estándar de ficha_inline.js (oculta la vista, muestra el formulario). #}
+    <button class="d-none" type="button" data-edit-toggle="#concert-datos-edit" aria-hidden="true" tabindex="-1"></button>
   {% endif %}
   {% if CAN_EDIT_CONCERTS %}
     <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#requestContractSheetModal"><i class="fa fa-file-signature me-1"></i>Solicitar ficha al promotor</button>
   {% endif %}
   {% if concert.contract_sheet %}
     <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('concert_contract_sheet_edit', cid=concert.id) }}"><i class="fa fa-file-pen me-1"></i>Ficha interna</a>
-    <a class="btn btn-outline-dark btn-sm" href="{{ url_for('concert_contract_sheet_pdf', cid=concert.id) }}" target="_blank"><i class="fa fa-file-pdf me-1"></i>PDF ficha</a>
   {% endif %}
+  <a class="btn btn-outline-dark btn-sm" href="{{ url_for('concert_contract_sheet_pdf', cid=concert.id) }}" target="_blank"><i class="fa fa-file-pdf me-1"></i>PDF ficha</a>
   <a class="btn btn-outline-success btn-sm" href="{{ url_for('concert_detail_view', cid=concert.id, tab='produccion') }}"><i class="fa fa-clipboard-list me-1"></i>Producción</a>
   <a class="btn btn-outline-danger btn-sm" href="{{ url_for('concert_detail_view', cid=concert.id, tab='invitations') }}"><i class="fa fa-envelope-open-text me-1"></i>Invitaciones</a>
 </div>
@@ -262,6 +267,10 @@
       {% if cpay_g.get('formation') %}
       <div class="fs-item"><div class="fs-item__label"><i class="fa fa-users"></i>Formación</div><div class="fs-item__value fw-semibold">{{ cpay_g.get('formation') }}</div></div>
       {% endif %}
+      {% set mg_g = cpay_g.get('meet_greet') or {} %}
+      {% if mg_g.get('enabled') %}
+      <div class="fs-item"><div class="fs-item__label"><i class="fa fa-handshake"></i>M&amp;G</div><div class="fs-item__value"><span class="badge text-bg-success">Sí{% if mg_g.get('quantity') %} · {{ mg_g.get('quantity') }} pers.{% endif %}</span></div></div>
+      {% endif %}
     </div>
 
     {# ---------- Descripción de la actividad, primero ---------- #}
@@ -273,7 +282,7 @@
     {% endif %}
 
     {# ---------- Resto de la información cumplimentada (sin lo ya mostrado arriba) ---------- #}
-    {% set summary_labels = ['Artista/s', 'Tipo de actividad', 'Subtipo', 'Estado', 'Fecha', 'Empresa que factura', 'Promotor', 'Sociedad promotor', 'Salida a la venta', 'Aforo', 'En qué consiste', '¿El artista canta?', 'Formación', 'Anuncio'] %}
+    {% set summary_labels = ['Artista/s', 'Tipo de actividad', 'Subtipo', 'Estado', 'Fecha', 'Empresa que factura', 'Promotor', 'Sociedad promotor', 'Salida a la venta', 'Aforo', 'En qué consiste', '¿El artista canta?', 'Formación', 'Anuncio', 'Meet & Greet'] %}
     {% set resto_rows = contracting_general_rows|rejectattr('label', 'in', summary_labels)|list %}
     {% if resto_rows %}
     <div class="ficha-section">
@@ -390,6 +399,47 @@
               </div>
             </div>
           </div>
+        </div>
+        <div class="d-flex justify-content-end gap-2 mt-3"><button type="button" class="btn btn-outline-secondary btn-sm" data-edit-cancel>Cancelar</button><button class="btn btn-primary btn-sm"><i class="fa fa-check me-1"></i>Guardar</button></div>
+      </form>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if not is_promo_activity %}
+    {% set mg = cpay.get('meet_greet') or {} %}
+    <div class="ficha-section">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-handshake"></i>Meet &amp; Greet</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
+      <div class="ficha-section__body" data-section-view>
+        {% if mg.get('enabled') %}
+          <div class="ficha-fields">
+            <div><div class="ficha-field__label">Meet &amp; Greet</div><div class="ficha-field__value">Sí{% if mg.get('quantity') %} · {{ mg.get('quantity') }} personas{% endif %}</div></div>
+            {% if mg.get('moment') %}<div><div class="ficha-field__label">Momento</div><div class="ficha-field__value">{{ mg.get('moment') }}</div></div>{% endif %}
+          </div>
+        {% elif mg %}
+          <div class="ficha-fields"><div><div class="ficha-field__label">Meet &amp; Greet</div><div class="ficha-field__value">No hay</div></div></div>
+        {% else %}<div class="ficha-empty">Sin definir. Pulsa <i class="fa fa-pen"></i> para indicar si hay Meet &amp; Greet.</div>{% endif %}
+      </div>
+      {% if CAN_EDIT_CONCERTS %}
+      <form class="ficha-section__body d-none" data-section-form method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='actividad') }}" data-inline data-inline-target="#concert-general-zone">
+        <input type="hidden" name="meet_greet_present" value="1">
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label d-block">¿Hay Meet &amp; Greet?</label>
+            <div class="d-flex gap-2">
+              <label class="form-check-label border rounded px-3 py-2"><input class="form-check-input me-2" type="radio" name="meet_greet" value="1" data-mg-radio {% if mg.get('enabled') %}checked{% endif %}><i class="fa fa-handshake me-1"></i>Sí</label>
+              <label class="form-check-label border rounded px-3 py-2"><input class="form-check-input me-2" type="radio" name="meet_greet" value="0" data-mg-radio {% if not mg.get('enabled') %}checked{% endif %}><i class="fa fa-handshake-slash me-1"></i>No</label>
+            </div>
+          </div>
+          <div class="col-md-3 col-6 {% if not mg.get('enabled') %}d-none{% endif %}" data-mg-panel>
+            <label class="form-label">¿De cuántas personas?</label>
+            <input type="number" min="1" class="form-control" name="meet_greet_quantity" value="{{ mg.get('quantity') or '' }}">
+          </div>
+          <div class="col-md-5 {% if not mg.get('enabled') %}d-none{% endif %}" data-mg-panel>
+            <label class="form-label">Momento <span class="text-muted">(opcional)</span></label>
+            <input class="form-control" name="meet_greet_moment" value="{{ mg.get('moment') or '' }}" placeholder="antes del concierto, tras la prueba de sonido…">
+          </div>
+          <div class="col-12"><div class="form-text mb-0">Alimenta el Meet &amp; Greet de la hoja de ruta (se crea la actividad MG el día del evento).</div></div>
         </div>
         <div class="d-flex justify-content-end gap-2 mt-3"><button type="button" class="btn btn-outline-secondary btn-sm" data-edit-cancel>Cancelar</button><button class="btn btn-primary btn-sm"><i class="fa fa-check me-1"></i>Guardar</button></div>
       </form>
@@ -1194,6 +1244,9 @@
 
       <div class="tab-pane fade {% if ptab == 'bolsa' %}show active{% endif %}" id="prod-bolsa">
         {% if production_panel.bag %}
+          {# --- CABECERA y DATOS de la bolsa, PRIMERO (mismo panel que /bolsas/<id>) --- #}
+          {% with bag_hide_expenses = True %}{% include '_bag_panel.html' %}{% endwith %}
+
           {# --- INGRESOS de la actividad (configuración cargada del evento) --- #}
           {% set tpay_b = concert.ticketing_payload or {} %}
           {% set ttypes_b = entradas_ticket_rows or [] %}
@@ -1247,8 +1300,8 @@
             </div>
           </div>
 
-          {# --- BOLSA INTEGRADA: mismo panel completo que /bolsas/<id> --- #}
-          {% include '_bag_panel.html' %}
+          {# --- GASTOS de la bolsa (segunda mitad del panel, con sus modales y scripts) --- #}
+          {% with bag_hide_head = True %}{% include '_bag_panel.html' %}{% endwith %}
         {% else %}
           <div class="card mb-3">
             <div class="card-body">
@@ -1937,6 +1990,35 @@ document.addEventListener('DOMContentLoaded', function(){
     });
   });
 
+  // «Editar ficha»: pone TODA la ficha de contratación en modo edición inline a la vez
+  // (cada sección muestra su formulario con todos los campos, también los vacíos).
+  (function(){
+    const btn = document.getElementById('fichaEditAllBtn');
+    if (!btn) return;
+    function formFor(toggleBtn){
+      const sel = toggleBtn.getAttribute('data-edit-toggle');
+      if (sel) return document.querySelector(sel);
+      const sec = toggleBtn.closest('.ficha-section');
+      return sec ? sec.querySelector('[data-section-form]') : null;
+    }
+    let editing = false;
+    btn.addEventListener('click', function(){
+      editing = !editing;
+      document.querySelectorAll('[data-edit-toggle]').forEach(function(t){
+        if (t.id === 'fichaEditAllBtn') return;
+        const f = formFor(t);
+        if (!f) return;
+        const hidden = f.classList.contains('d-none');
+        if (editing && hidden) t.click();
+        if (!editing && !hidden) (f.querySelector('[data-edit-cancel]') || t).click();
+      });
+      btn.innerHTML = editing ? '<i class="fa fa-xmark me-1"></i>Cerrar edición' : '<i class="fa fa-pen me-1"></i>Editar ficha';
+      btn.classList.toggle('btn-primary', !editing);
+      btn.classList.toggle('btn-outline-secondary', editing);
+      if (editing) window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  })();
+
   // Toggles de las secciones nuevas de la ficha (Actividad / gastos del promotor / Entradas):
   // por delegación, para que funcionen también tras el refresco AJAX de la zona.
   document.addEventListener('change', function(ev){
@@ -1950,6 +2032,10 @@ document.addEventListener('DOMContentLoaded', function(){
     if (t.matches('[data-act-formation]') && form) {
       const fk = form.querySelector('[data-act-formation]:checked');
       form.querySelector('[data-act-formation-panel]')?.classList.toggle('d-none', !(fk && fk.value === 'PLUS'));
+    }
+    if (t.matches('[data-mg-radio]') && form) {
+      const mg = form.querySelector('[data-mg-radio]:checked');
+      form.querySelectorAll('[data-mg-panel]').forEach(p => p.classList.toggle('d-none', !(mg && mg.value === '1')));
     }
     if (t.matches('[data-pc-toggle]') && form) {
       form.querySelector('[data-pc-panel]')?.classList.toggle('d-none', !t.checked);

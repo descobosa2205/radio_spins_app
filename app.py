@@ -27244,13 +27244,24 @@ def concert_section_update_handler(cid, section):
             # Detalle de eventos promocionales/TV/marca/otros: descripción + actuación.
             is_promo = (c.activity_type or "").strip().upper() in ("EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS")
             payload = dict(c.contracting_payload or {})
-            payload["description"] = (request.form.get("activity_description") or "").strip()
-            performance = _wizard_performance_payload(session, request.form, is_promo)
-            payload["performance"] = performance
-            formation_label = _performance_formation_label(performance)
-            if formation_label or performance.get("sings") is not None:
-                payload["formation"] = formation_label
+            # El detalle (descripción/actuación) solo se toca si el formulario lo trae: la sección
+            # M&G de los conciertos postea a esta misma sección sin esos campos.
+            if "activity_description" in request.form:
+                payload["description"] = (request.form.get("activity_description") or "").strip()
+                performance = _wizard_performance_payload(session, request.form, is_promo)
+                payload["performance"] = performance
+                formation_label = _performance_formation_label(performance)
+                if formation_label or performance.get("sings") is not None:
+                    payload["formation"] = formation_label
+            # Meet & Greet (solo llega si el formulario lo incluye, para no pisar desde forms antiguos).
+            if request.form.get("meet_greet_present"):
+                payload["meet_greet"] = {
+                    "enabled": _truthy(request.form.get("meet_greet")),
+                    "quantity": (request.form.get("meet_greet_quantity") or "").strip(),
+                    "moment": (request.form.get("meet_greet_moment") or "").strip(),
+                }
             c.contracting_payload = payload
+            _sync_meet_greet_roadmap(c)
             session.commit()
             flash("Detalle de la actividad actualizado.", "success")
         elif section == "entradas":
@@ -33035,6 +33046,9 @@ def concert_wizard_create():
             except Exception:
                 app.logger.exception('[wizard] no se pudo copiar el presupuesto de la simulación')
 
+        # Meet & Greet marcado en el asistente → actividad MG en la hoja de ruta.
+        _sync_meet_greet_roadmap(concert)
+
         # Vínculo opcional a una gira comprada / ciclo o festival (paso del asistente).
         _ptid = (request.form.get('wizard_purchased_tour_id') or '').strip()
         _cfid = (request.form.get('wizard_cycle_festival_id') or '').strip()
@@ -33325,109 +33339,336 @@ def concert_contract_sheet_edit(cid):
 @app.get('/conciertos/<cid>/ficha-contratacion/pdf', endpoint='concert_contract_sheet_pdf')
 @admin_required
 def concert_contract_sheet_pdf(cid):
+    """PDF de la ficha de contratación: MISMA cabecera visual que la ficha (foto del artista,
+    estado con color, tile de calendario, recinto, logos de empresa y promotor, tipo, anuncio,
+    salida a la venta, canta/formación y M&G) + las mismas secciones/cabeceras que la ficha,
+    solo con los campos cumplimentados, compacto para caber en un A4."""
     if not REPORTLAB_AVAILABLE:
         return abort(503)
     session = db()
     try:
         concert = (
             session.query(Concert)
-            .options(selectinload(Concert.contract_sheet), joinedload(Concert.artist))
+            .options(
+                selectinload(Concert.contract_sheet), joinedload(Concert.artist),
+                joinedload(Concert.venue), joinedload(Concert.promoter),
+                joinedload(Concert.promoter_company), joinedload(Concert.billing_company),
+            )
             .filter(Concert.id == to_uuid(cid))
             .first()
         )
         if not concert:
             flash('No hay ficha de contratación para este concierto.', 'warning')
-            return redirect(url_for('concert_detail_view', cid=cid, tab='ficha'))
-        sheet = concert.contract_sheet or _ensure_internal_contract_sheet(session, concert)
-        data = _contract_sheet_prefill(concert, sheet)
+            return redirect(url_for('concert_detail_view', cid=cid, tab='general'))
+
+        cpay = concert.contracting_payload if isinstance(concert.contracting_payload, dict) else {}
+        perf = cpay.get('performance') if isinstance(cpay.get('performance'), dict) else {}
+        mg = cpay.get('meet_greet') if isinstance(cpay.get('meet_greet'), dict) else {}
+
         buf = BytesIO()
-        # Compacto para caber en UNA cara de A4: márgenes y tipografías reducidos, solo
-        # campos y secciones CUMPLIMENTADOS.
         doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=28, rightMargin=28, topMargin=22, bottomMargin=22)
         styles = getSampleStyleSheet()
         title_style = ParagraphStyle('ContractSheetTitle', parent=styles['Title'], alignment=TA_CENTER, fontSize=16, leading=19, spaceAfter=2)
-        head_style = ParagraphStyle('ContractSheetHead', parent=styles['Normal'], fontSize=9, leading=12)
-        head_big = ParagraphStyle('ContractSheetHeadBig', parent=styles['Normal'], fontSize=12, leading=14, fontName='Helvetica-Bold')
-        sec_style = ParagraphStyle('ContractSheetSec', parent=styles['Normal'], fontSize=9, leading=11, fontName='Helvetica-Bold', textColor=colors.HexColor('#E33D48'), spaceBefore=6, spaceAfter=2)
-        cell_lbl = ParagraphStyle('CellLbl', parent=styles['Normal'], fontSize=7.5, leading=9, textColor=colors.HexColor('#6b7280'))
+        cell_lbl = ParagraphStyle('CellLbl', parent=styles['Normal'], fontSize=6.6, leading=8, textColor=colors.HexColor('#6b7280'))
         cell_val = ParagraphStyle('CellVal', parent=styles['Normal'], fontSize=8, leading=10)
+        cell_val_b = ParagraphStyle('CellValB', parent=cell_val, fontName='Helvetica-Bold')
+        sec_txt = ParagraphStyle('SecTxt', parent=styles['Normal'], fontSize=9, leading=11, fontName='Helvetica-Bold', textColor=colors.HexColor('#E33D48'))
+        body_txt = ParagraphStyle('BodyTxt', parent=styles['Normal'], fontSize=8, leading=10.5)
         story = []
-        # Logo de la empresa del grupo arriba a la DERECHA.
-        logo_cell = ''
-        logo_url = (getattr(getattr(concert, 'billing_company', None), 'logo_url', None) or getattr(getattr(concert, 'group_company', None), 'logo_url', None) or '').strip()
-        if logo_url:
+
+        def _img(url, w, h):
+            u = (url or '').strip()
+            if not u:
+                return None
             try:
-                req = Request(logo_url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urlopen(req, timeout=25) as resp:
-                    img_bytes = resp.read()
-                logo_cell = RLImage(BytesIO(img_bytes), width=110, height=40, kind='proportional')
-                logo_cell.hAlign = 'RIGHT'
+                req = Request(u, headers={'User-Agent': 'Mozilla/5.0'})
+                with urlopen(req, timeout=20) as resp:
+                    return RLImage(BytesIO(resp.read()), width=w, height=h, kind='proportional')
             except Exception:
-                logo_cell = ''
+                return None
+
+        # ---- Logo empresa arriba a la DERECHA + título centrado (como la ficha/correos) ----
+        logo_url = (getattr(getattr(concert, 'billing_company', None), 'logo_url', None)
+                    or getattr(getattr(concert, 'group_company', None), 'logo_url', None) or '')
+        logo_cell = _img(logo_url, 110, 40) or ''
         logo_row = Table([['', logo_cell]], colWidths=[419, 120])
         logo_row.setStyle(TableStyle([('ALIGN', (1, 0), (1, 0), 'RIGHT'), ('VALIGN', (0, 0), (-1, -1), 'TOP')]))
         story.append(logo_row)
-        # Título centrado + cabecera del evento.
         story.append(Paragraph('Ficha de contratación', title_style))
-        prov = _concert_province_value(concert)
-        loc = ' · '.join([x for x in [_concert_venue_name(concert), _concert_city(concert), prov] if x])
-        event_lines = [Paragraph(concert.artist.name if concert.artist else 'Actividad', head_big)]
-        facts = ' · '.join([x for x in [
-            (concert.date.strftime('%d/%m/%Y') if concert.date else ''),
-            loc,
-            (f"Show {concert.show_time}" if concert.show_time else ('Show TBC' if concert.show_time_tbc else '')),
-            (f"Puertas {concert.doors_time}" if concert.doors_time else ''),
-        ] if x])
-        if facts:
-            event_lines.append(Paragraph(facts, head_style))
-        ev = Table([[line] for line in event_lines], colWidths=[539])
-        ev.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f8f9fb')),
-            ('BOX', (0, 0), (-1, -1), 0.6, colors.HexColor('#e5e7eb')),
-            ('LEFTPADDING', (0, 0), (-1, -1), 8), ('RIGHTPADDING', (0, 0), (-1, -1), 8),
-            ('TOPPADDING', (0, 0), (-1, -1), 3), ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        story.append(Spacer(1, 3))
+
+        # ---- CABECERA VISUAL (misma franja-resumen que la ficha) ----
+        def strip_cell(label, flow):
+            inner = Table([[Paragraph(label.upper(), cell_lbl)], [flow]], colWidths=[126])
+            inner.setStyle(TableStyle([
+                ('LEFTPADDING', (0, 0), (-1, -1), 4), ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+                ('TOPPADDING', (0, 0), (-1, -1), 1.5), ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ]))
+            return inner
+
+        status = (concert.status or '').strip().upper()
+        status_colors = {'CONFIRMADO': '#198754', 'CANCELADO': '#dc3545', 'ANULADO': '#dc3545',
+                         'BORRADOR': '#6c757d', 'RESERVA': '#f59f00', 'TBC': '#f59f00'}
+        st_style = ParagraphStyle('StVal', parent=cell_val_b, textColor=colors.HexColor(status_colors.get(status, '#334155')))
+        items = [('Estado', Paragraph(status or '—', st_style))]
+
+        art_img = _img(getattr(concert.artist, 'photo_url', None), 22, 22)
+        art_name = Paragraph(concert.artist.name if concert.artist else '—', cell_val_b)
+        items.append(('Artista', Table([[art_img or '', art_name]], colWidths=[24, 94],
+                                       style=TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                                                         ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                                                         ('RIGHTPADDING', (0, 0), (-1, -1), 2)]))))
+
+        if concert.date:
+            _MES = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC']
+            cal_tile = Table([
+                [Paragraph(f"<font color='white'><b>{_MES[concert.date.month - 1]} {concert.date.year}</b></font>",
+                           ParagraphStyle('CalM', parent=cell_lbl, alignment=1, fontSize=6, textColor=colors.white))],
+                [Paragraph(f"<b>{concert.date.day:02d}</b>", ParagraphStyle('CalD', parent=cell_val_b, alignment=1, fontSize=12, leading=13))],
+            ], colWidths=[40])
+            cal_tile.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (0, 0), colors.HexColor('#E33D48')),
+                ('BACKGROUND', (0, 1), (0, 1), colors.white),
+                ('BOX', (0, 0), (-1, -1), 0.6, colors.HexColor('#e5e7eb')),
+                ('TOPPADDING', (0, 0), (-1, -1), 1), ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
+            ]))
+            items.append(('Fecha', cal_tile))
+
+        venue_bits = [x for x in [_concert_venue_name(concert), _concert_city(concert), _concert_province_value(concert)] if x]
+        if venue_bits:
+            extra = ''
+            if not getattr(concert, 'no_capacity', False) and getattr(concert, 'capacity', None):
+                extra = f"<br/><font size=6.5 color='#6b7280'>Aforo a la venta: {concert.capacity}</font>"
+            items.append(('Recinto', Paragraph('<b>' + ' · '.join(venue_bits[:1]) + '</b><br/><font size=6.5 color="#6b7280">' + ' · '.join(venue_bits[1:]) + '</font>' + extra, cell_val)))
+
+        if getattr(concert, 'billing_company', None):
+            bc_img = _img(concert.billing_company.logo_url, 60, 22)
+            items.append(('Factura', bc_img or Paragraph(concert.billing_company.name, cell_val_b)))
+
+        type_label = QUAD_ACTIVITY_LABELS.get((concert.activity_type or '').strip().upper(),
+                                              (concert.activity_type or 'Concierto').replace('_', ' ').title())
+        items.append(('Tipo', Paragraph(f"{type_label}<br/><font size=6.5 color='#6b7280'>{(concert.sale_type or '').title()}</font>", cell_val_b)))
+
+        if getattr(concert, 'promoter', None):
+            pr_img = _img(concert.promoter.logo_url, 20, 20)
+            pr_txt = concert.promoter.nick or ''
+            if getattr(concert, 'promoter_company', None):
+                pr_txt += f"<br/><font size=6.5 color='#6b7280'>{getattr(concert.promoter_company, 'legal_name', None) or getattr(concert.promoter_company, 'name', '')}</font>"
+            items.append(('Promotor', Table([[pr_img or '', Paragraph(pr_txt, cell_val_b)]], colWidths=[22, 96],
+                                            style=TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                                                              ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                                                              ('RIGHTPADDING', (0, 0), (-1, -1), 2)]))))
+
+        if getattr(concert, 'do_not_announce', False):
+            items.append(('Anuncio', Paragraph('No anunciar', cell_val_b)))
+        elif getattr(concert, 'announcement_date', None):
+            items.append(('Anuncio', Paragraph(concert.announcement_date.strftime('%d/%m/%Y'), cell_val_b)))
+        else:
+            items.append(('Anuncio', Paragraph('TBC', cell_val)))
+        if getattr(concert, 'sale_start_tbc', False):
+            items.append(('A la venta', Paragraph('TBC', cell_val)))
+        elif getattr(concert, 'sale_start_date', None):
+            items.append(('A la venta', Paragraph(concert.sale_start_date.strftime('%d/%m/%Y'), cell_val_b)))
+        if perf.get('sings') is not None:
+            items.append(('¿Canta?', Paragraph('Sí' if perf.get('sings') else 'No', cell_val_b)))
+        if cpay.get('formation'):
+            items.append(('Formación', Paragraph(str(cpay.get('formation')), cell_val_b)))
+        if mg.get('enabled'):
+            mg_txt = 'Sí' + (f" · {mg.get('quantity')} pers." if (str(mg.get('quantity') or '')).strip() else '')
+            items.append(('Meet & Greet', Paragraph(mg_txt, cell_val_b)))
+        if getattr(concert, 'show_time', None) or getattr(concert, 'show_time_tbc', False):
+            items.append(('Hora show', Paragraph('TBC' if concert.show_time_tbc else str(concert.show_time), cell_val_b)))
+
+        per_row = 4
+        grid_rows = [[strip_cell(l, f) for (l, f) in items[i:i + per_row]] for i in range(0, len(items), per_row)]
+        for r in grid_rows:
+            while len(r) < per_row:
+                r.append('')
+        strip = Table(grid_rows, colWidths=[134.75] * per_row)
+        strip.setStyle(TableStyle([
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e5e7eb')),
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#fbfcfe')),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('TOPPADDING', (0, 0), (-1, -1), 2), ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
         ]))
-        story.append(ev)
-        story.append(Spacer(1, 4))
-        # Secciones: SOLO campos rellenos, en tabla de 2 columnas campo·valor (4 celdas por fila).
-        for section in _contract_sheet_sections(data):
-            filled = [(label, value) for label, value in (section.get('rows') or []) if value not in (None, '', [])]
-            ticket_rows = section.get('ticket_rows') or []
-            if not filled and not ticket_rows:
-                continue
-            story.append(Paragraph(section['title'], sec_style))
-            if filled:
-                cells = []
-                pair = []
-                for label, value in filled:
-                    pair.append(Paragraph(str(label), cell_lbl))
-                    pair.append(Paragraph(str(value), cell_val))
-                    if len(pair) == 4:
-                        cells.append(pair)
-                        pair = []
-                if pair:
-                    pair += [''] * (4 - len(pair))
+        story.append(strip)
+
+        # ---- Secciones con las MISMAS cabeceras que la ficha ----
+        def sec(title):
+            band = Table([[Paragraph(title, sec_txt)]], colWidths=[539])
+            band.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#fdeef0')),
+                ('LEFTPADDING', (0, 0), (-1, -1), 6), ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                ('TOPPADDING', (0, 0), (-1, -1), 2.5), ('BOTTOMPADDING', (0, 0), (-1, -1), 2.5),
+            ]))
+            story.append(Spacer(1, 5))
+            story.append(band)
+            story.append(Spacer(1, 2))
+
+        def pairs_table(pairs):
+            cells, pair = [], []
+            for label, value in pairs:
+                pair.append(Paragraph(str(label), cell_lbl))
+                pair.append(Paragraph(str(value), cell_val))
+                if len(pair) == 4:
                     cells.append(pair)
-                table = Table(cells, colWidths=[95, 175, 95, 174])
-                table.setStyle(TableStyle([
-                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                    ('LINEBELOW', (0, 0), (-1, -1), 0.3, colors.HexColor('#eceff3')),
-                    ('LEFTPADDING', (0, 0), (-1, -1), 2), ('RIGHTPADDING', (0, 0), (-1, -1), 6),
-                    ('TOPPADDING', (0, 0), (-1, -1), 1.5), ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
-                ]))
-                story.append(table)
+                    pair = []
+            if pair:
+                pair += [''] * (4 - len(pair))
+                cells.append(pair)
+            t = Table(cells, colWidths=[95, 175, 95, 174])
+            t.setStyle(TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('LINEBELOW', (0, 0), (-1, -1), 0.3, colors.HexColor('#eceff3')),
+                ('LEFTPADDING', (0, 0), (-1, -1), 2), ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                ('TOPPADDING', (0, 0), (-1, -1), 1.5), ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
+            ]))
+            story.append(t)
+
+        # Descripción de la actividad (primero, como en la ficha)
+        if (cpay.get('description') or '').strip():
+            sec('Descripción de la actividad')
+            story.append(Paragraph(str(cpay.get('description')), body_txt))
+
+        # Más información de la actividad (mismos campos y filtro que la ficha)
+        summary_labels = {'Artista/s', 'Tipo de actividad', 'Subtipo', 'Estado', 'Fecha', 'Empresa que factura',
+                          'Promotor', 'Sociedad promotor', 'Salida a la venta', 'Aforo', 'En qué consiste',
+                          '¿El artista canta?', 'Formación', 'Anuncio', 'Meet & Greet'}
+        info_pairs = [(r['label'], r['value']) for r in _concert_contracting_general_rows(session, concert)
+                      if r.get('label') not in summary_labels and r.get('kind', 'text') == 'text']
+        if info_pairs:
+            sec('Más información de la actividad')
+            pairs_table(info_pairs)
+
+        # Colaboradores
+        colab_pairs = []
+        for s in (getattr(concert, 'company_shares', None) or []):
+            val = f"{s.pct}% · {'Bruto' if s.pct_base == 'GROSS' else 'Neto'}" if s.pct else (f"{format_eur(s.amount)}" if s.amount else 'Participa')
+            colab_pairs.append((s.company.name if s.company else 'Empresa', val))
+        for s in (getattr(concert, 'promoter_shares', None) or []):
+            val = f"{s.pct}% · {'Bruto' if s.pct_base == 'GROSS' else 'Neto'}" if s.pct else (f"{format_eur(s.amount)}" if s.amount else 'Participa')
+            colab_pairs.append((s.promoter.nick if s.promoter else 'Tercero', val))
+        if colab_pairs:
+            sec('Colaboradores')
+            pairs_table(colab_pairs)
+
+        # Comisionistas
+        com_pairs = []
+        for z in (getattr(concert, 'zone_agents', None) or []):
+            name = (z.promoter.nick if z.promoter else 'Comisionista') + (f" · {z.concept}" if z.concept else '')
+            val = f"{z.commission_pct}% · {'Bruto' if z.commission_base == 'GROSS' else 'Neto'}" if z.commission_type == 'PERCENT' else format_eur(z.commission_amount)
+            com_pairs.append((name, val))
+        if com_pairs:
+            sec('Comisionistas')
+            pairs_table(com_pairs)
+
+        # Cachés + lo que cubre el promotor
+        cache_pairs = []
+        for ch in (getattr(concert, 'caches', None) or []):
+            lbl = 'Caché fijo' if ch.kind == 'FIXED' else ('Caché variable' if ch.kind == 'VARIABLE' else (ch.concept or 'Otros'))
+            if ch.kind == 'VARIABLE' and ch.pct:
+                val = f"{ch.pct}% · {'Bruto' if ch.pct_base == 'GROSS' else 'Neto'}"
+            else:
+                val = format_eur(ch.amount) if ch.amount else '—'
+            cache_pairs.append((lbl, val))
+        pc_rows = _promoter_costs_rows(getattr(concert, 'promoter_costs_payload', None))
+        for pc in pc_rows:
+            val = ('Facturamos nosotros' if pc.get('managed_by') == 'US' else 'Lo gestiona el promotor')
+            if pc.get('max_amount'):
+                val += f" · máx. {format_eur(pc.get('max_amount'))}"
+            if pc.get('note'):
+                val += f" · {pc.get('note')}"
+            cache_pairs.append((f"Promotor cubre: {pc.get('label')}", val))
+        if cache_pairs:
+            sec('Cachés')
+            pairs_table(cache_pairs)
+
+        # Entradas (tipos con importes e invitaciones, como la pestaña de la ficha)
+        ticket_rows = _concert_entradas_ticket_rows(concert)
+        tpay = concert.ticketing_payload if isinstance(concert.ticketing_payload, dict) else {}
+        entry_pairs = []
+        if (tpay.get('entry_mode') or '').upper() == 'FREE':
+            entry_pairs.append(('Entrada', 'Evento gratuito'))
+        elif tpay.get('entry_mode'):
+            entry_pairs.append(('Entrada', 'Venta de entradas'))
+        seller = tpay.get('sale_seller') if isinstance(tpay.get('sale_seller'), dict) else {}
+        if seller.get('label'):
+            entry_pairs.append(('Vende', seller.get('label')))
+        if tpay.get('invitations_total'):
+            entry_pairs.append(('Invitaciones por contrato', str(tpay.get('invitations_total'))))
+        if entry_pairs or ticket_rows:
+            sec('Entradas y venta')
+            if entry_pairs:
+                pairs_table(entry_pairs)
             if ticket_rows:
-                trows = [[Paragraph(x, cell_lbl) for x in ['Tipo', 'Entradas venta', 'Importe', 'Inv. totales', 'Inv. artista']]]
-                for row in ticket_rows:
-                    trows.append([Paragraph(str(row.get(k) or ''), cell_val) for k in ('name', 'qty_for_sale', 'amount', 'invites_total', 'invites_artist')])
-                t = Table(trows, colWidths=[199, 85, 85, 85, 85])
+                trows = [[Paragraph(x, cell_lbl) for x in ['Tipo', 'Importe', 'Entradas a la venta', 'Invitaciones']]]
+                for r in ticket_rows:
+                    trows.append([
+                        Paragraph(str(r.get('name') or 'Entrada'), cell_val),
+                        Paragraph(format_eur(r.get('price')), cell_val),
+                        Paragraph(str(r.get('qty_for_sale') or ''), cell_val),
+                        Paragraph(str(r.get('invites_total') or ''), cell_val),
+                    ])
+                t = Table(trows, colWidths=[200, 100, 130, 109])
                 t.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')),
                     ('GRID', (0, 0), (-1, -1), 0.3, colors.HexColor('#e5e7eb')),
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f8f9fb')),
                     ('LEFTPADDING', (0, 0), (-1, -1), 3), ('RIGHTPADDING', (0, 0), (-1, -1), 3),
                     ('TOPPADDING', (0, 0), (-1, -1), 1.5), ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
                 ]))
                 story.append(t)
+
+        # Equipamiento
+        eq = getattr(concert, 'equipment', None)
+        eq_lines = []
+        if eq is not None:
+            if getattr(eq, 'covered_by_promoter', False) and getattr(eq, 'covered_mode', '') == 'RIDER':
+                eq_lines.append('Rider de festival')
+            elif getattr(eq, 'covered_by_promoter', False):
+                eq_lines.append('Promotor cubre equipos')
+            elif getattr(eq, 'covered_mode', '') == 'ARTIST':
+                eq_lines.append('Equipo a cargo del artista')
+            elif getattr(eq, 'included', False) or getattr(eq, 'other', False):
+                eq_lines.append('Equipos incluidos')
+        for n in (getattr(concert, 'equipment_notes', None) or []):
+            if (n.body or '').strip():
+                eq_lines.append(n.body.strip())
+        if eq_lines:
+            sec('Equipamiento')
+            for line in eq_lines:
+                story.append(Paragraph(line, body_txt))
+
+        # Plan de facturación / cobro
+        payment_rows = _concert_payment_rows(concert, pending_only=False)
+        if payment_rows:
+            sec('Plan de facturación / cobro')
+            trows = [[Paragraph(x, cell_lbl) for x in ['Concepto', 'Importe', 'Fecha límite', 'Estado']]]
+            for r in payment_rows:
+                due = r.get('due_date')
+                due_txt = due if isinstance(due, str) else (due.strftime('%d/%m/%Y') if due else '')
+                trows.append([
+                    Paragraph(str(r.get('concept') or 'Pago'), cell_val),
+                    Paragraph(format_eur(r.get('amount')), cell_val),
+                    Paragraph(due_txt or '', cell_val),
+                    Paragraph(str(r.get('status') or ''), cell_val),
+                ])
+            t = Table(trows, colWidths=[230, 100, 100, 109])
+            t.setStyle(TableStyle([
+                ('GRID', (0, 0), (-1, -1), 0.3, colors.HexColor('#e5e7eb')),
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f8f9fb')),
+                ('LEFTPADDING', (0, 0), (-1, -1), 3), ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+                ('TOPPADDING', (0, 0), (-1, -1), 1.5), ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
+            ]))
+            story.append(t)
+
+        # Notas de contratación
+        note_lines = [(n.body or '').strip() for n in (getattr(concert, 'notes', None) or []) if (n.body or '').strip()]
+        if note_lines:
+            sec('Notas de contratación')
+            for line in note_lines:
+                story.append(Paragraph('· ' + line, body_txt))
+
         doc.build(story)
         buf.seek(0)
         filename = f"ficha_contratacion_{(concert.artist.name if concert.artist else 'concierto').replace(' ', '_')}.pdf"
@@ -34915,6 +35156,41 @@ def _roadmap_save(session_db, row, payload: dict) -> None:
     if hasattr(row, "updated_at"):
         row.updated_at = _now_madrid()
     session_db.commit()
+
+
+def _sync_meet_greet_roadmap(concert) -> None:
+    """Si la ficha marca que hay Meet & Greet, asegura una actividad MG en la hoja de ruta el día
+    del evento (con el nº de personas y el momento como nota). No duplica ni pisa lo editado."""
+    try:
+        contracting = concert.contracting_payload if isinstance(concert.contracting_payload, dict) else {}
+        mg = contracting.get("meet_greet") if isinstance(contracting.get("meet_greet"), dict) else {}
+        if not mg.get("enabled") or not getattr(concert, "date", None):
+            return
+        from sqlalchemy.orm.attributes import flag_modified
+        payload = _roadmap_load(concert)
+        agenda = payload.setdefault("agenda", [])
+        bits = []
+        if (str(mg.get("quantity") or "")).strip():
+            bits.append(f"{mg.get('quantity')} personas")
+        if (mg.get("moment") or "").strip():
+            bits.append(mg.get("moment").strip())
+        note = " · ".join(bits)
+        current = next((it for it in agenda if (it.get("kind") or "").upper() == "MG"), None)
+        if current is not None:
+            if note and not (current.get("note") or "").strip():
+                current["note"] = note
+        else:
+            agenda.append({
+                "id": _roadmap_new_id(), "kind": "MG", "title": "Meet & Greet",
+                "day": concert.date.isoformat(), "start_time": "", "end_time": "",
+                "tbc": True, "confirmed": True, "cancelled": False,
+                "location": "", "note": note, "order": 0, "contact": None, "attachments": [],
+            })
+        payload["version"] = 2
+        concert.roadmap_payload = payload
+        flag_modified(concert, "roadmap_payload")
+    except Exception:
+        pass
 
 
 def _roadmap_entity(session_db, entity_type: str, entity_id):
@@ -37534,12 +37810,13 @@ CURATED_ACCESS_RESOURCES = [
 
     {"key": "produccion", "label": "Producción", "section_key": "produccion", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 220, "description": "Producción técnica de eventos: tareas y logística de producción."},
 
-    {"key": "administracion", "label": "Administración", "section_key": "administracion", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 230, "description": "Administración económica: pendientes, liquidaciones, pagos, cobros y embargos."},
+    {"key": "administracion", "label": "Administración", "section_key": "administracion", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 230, "description": "Administración económica: pendientes, liquidaciones, pagos, cobros, embargos y altas."},
     {"key": "administracion.pendiente", "label": "Pendiente", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": True, "sort_order": 231, "description": "Tareas/movimientos pendientes de administración (importes)."},
     {"key": "administracion.liquidaciones", "label": "Liquidaciones", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": True, "sort_order": 232, "description": "Liquidaciones a artistas y terceros (importes)."},
     {"key": "administracion.pagos", "label": "Pagos", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": True, "sort_order": 233, "description": "Pagos a proveedores y terceros (importes)."},
     {"key": "administracion.cobros", "label": "Cobros", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": True, "sort_order": 234, "description": "Cobros pendientes y recibidos (importes)."},
     {"key": "administracion.embargos", "label": "Embargos", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": True, "sort_order": 235, "description": "Órdenes de embargo y su seguimiento (importes)."},
+    {"key": "administracion.altas", "label": "Altas", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": False, "sort_order": 236, "description": "ITA de las empresas del grupo: subirlos, ver su vigencia y las personas vinculadas."},
 
     {"key": "contabilidad", "label": "Contabilidad", "section_key": "contabilidad", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 240, "description": "Contabilidad del grupo: gastos e ingresos contables (importes)."},
 
@@ -38433,10 +38710,12 @@ def _resolve_request_resource_key() -> str | None:
         return "promo"
     if endpoint == "diseno_view" or endpoint.startswith("diseno_peticion"):
         return "diseno"
+    if endpoint == "admin_ita_upload":
+        return "administracion.altas"
     if endpoint in {"promocion_view", "marketing_view", "acciones_view", "action_detail_view", "produccion_view", "administracion_view", "contabilidad_view", "personnel_view", "personnel_detail_view", "personnel_bulk_access"}:
         if endpoint == "administracion_view":
             admin_tab = (request.args.get("tab") or "pendiente").strip().lower()
-            if admin_tab in {"pendiente", "liquidaciones", "pagos", "cobros", "embargos"}:
+            if admin_tab in {"pendiente", "liquidaciones", "pagos", "cobros", "embargos", "altas"}:
                 return f"administracion.{admin_tab}"
             return "administracion"
         mapping = {
@@ -38735,6 +39014,7 @@ def _resource_default_url(key: str) -> str:
         "administracion.pagos": url_for("administracion_view", tab="pagos"),
         "administracion.cobros": url_for("administracion_view", tab="cobros"),
         "administracion.embargos": url_for("administracion_view", tab="embargos"),
+        "administracion.altas": url_for("administracion_view", tab="altas"),
         "contabilidad": url_for("contabilidad_view"),
         "personal": url_for("personnel_view"),
         "personal.usuarios": url_for("personnel_view"),
@@ -44829,6 +45109,16 @@ def _concert_contracting_general_rows(session_db, concert):
     contracting = _json_loads_safe(getattr(concert, "contracting_payload", None), {})
     contracting = contracting if isinstance(contracting, dict) else {}
     add("En qué consiste", contracting.get("description"))
+    _mg = contracting.get("meet_greet") if isinstance(contracting.get("meet_greet"), dict) else {}
+    if _mg.get("enabled"):
+        _mg_txt = "Sí"
+        if (_mg.get("quantity") or "").strip():
+            _mg_txt += f" · {_mg.get('quantity')} personas"
+        if (_mg.get("moment") or "").strip():
+            _mg_txt += f" · {_mg.get('moment')}"
+        add("Meet & Greet", _mg_txt)
+    elif _mg:
+        add("Meet & Greet", "No")
     performance = contracting.get("performance") if isinstance(contracting.get("performance"), dict) else {}
     if performance.get("sings") is True:
         add("¿El artista canta?", "Sí")
@@ -44894,7 +45184,7 @@ def _concert_contracting_general_rows(session_db, concert):
         ("Datos de contratación", "formation"), ("Datos de contratación", "announcement_note"),
         ("Datos de contratación", "activity_type"), ("Datos de contratación", "activity_subtype"),
         ("Datos de contratación", "artist_ids"), ("Datos de contratación", "carteleria"),
-        ("Datos de contratación", "billing_plan"),
+        ("Datos de contratación", "billing_plan"), ("Datos de contratación", "meet_greet"),
         ("Ticketing", "entry_mode"), ("Ticketing", "sale_seller"), ("Ticketing", "sale_owner"),
         ("Ticketing", "ticket_types"), ("Ticketing", "invitations_mode"), ("Ticketing", "invitations_total"),
         ("Ticketing", "free_capacity_unlimited"), ("Ticketing", "invitations"), ("Ticketing", "channels"),

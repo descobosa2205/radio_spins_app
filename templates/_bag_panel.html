@@ -4,6 +4,9 @@
 {% set bag_next = request.full_path %}
 {% set bag_status_upper = (bag.status or '')|upper %}
 {% set can_edit_bag = bag_status_upper not in ['CERRADA', 'LIQUIDADA', 'ARCHIVADA'] %}
+{# En la ficha el panel se incluye en DOS mitades (bag_hide_expenses / bag_hide_head) para poder
+   intercalar los módulos de Ingresos y «Lo que cubre el promotor» entre los datos y los gastos. #}
+{% if not bag_hide_head %}
 <div class="d-flex justify-content-end align-items-center mb-3 flex-wrap gap-2">
   <div class="d-flex gap-2 flex-wrap">
     {% if not bag_embed %}{# en la ficha, el enlace a la página completa de la bolsa es opcional #}{% endif %}
@@ -135,6 +138,8 @@
   </div>
 </div>
 
+{% endif %}{# /bag_hide_head #}
+{% if not bag_hide_expenses %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <div>
     <h4 class="m-0">Gastos</h4>
@@ -485,3 +490,4 @@
     updateEmbargoWarning();
   });
 </script>
+{% endif %}{# /bag_hide_expenses #}

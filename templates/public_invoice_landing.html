@@ -197,6 +197,7 @@
 (function(){
   const MODE = {{ inv_mode|tojson }};
   const TOKEN = {{ (request_row.public_token if request_row else '')|tojson }};
+  const LIQ = {{ (liq_token if liq_token else '')|tojson }};
   const URL_IDENTIFY = {{ url_for('public_invoice_identify')|tojson }};
   const URL_REGISTER = {{ url_for('public_invoice_register')|tojson }};
   const URL_DOCS = {{ url_for('public_invoice_docs_state')|tojson }};
@@ -406,6 +407,7 @@
       fd.append('concept_text', (document.getElementById('invConcept')||{}).value || '');
       {% if inv_mode == 'REQUEST' and company %}fd.append('group_company_id', {{ (company.id|string)|tojson }});{% endif %}
       if (TOKEN) fd.append('token', TOKEN);
+      if (LIQ) fd.append('liq_token', LIQ);
     }
     const xhr = new XMLHttpRequest();
     xhr.open('POST', URL_UPLOAD);

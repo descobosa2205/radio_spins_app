@@ -1830,6 +1830,8 @@ class SupplierInvoice(Base):
     bag_id = Column(PGUUID(as_uuid=True), ForeignKey("workflow_bags.id", ondelete="SET NULL"))
     bag_expense_id = Column(PGUUID(as_uuid=True), ForeignKey("bag_expenses.id", ondelete="SET NULL"))
     invoice_request_id = Column(PGUUID(as_uuid=True))
+    # Si es la factura de una LIQUIDACIÓN DE ROYALTIES.
+    royalty_liquidation_id = Column(PGUUID(as_uuid=True), ForeignKey("royalty_liquidations.id", ondelete="SET NULL"))
     # Lo que declara el proveedor al subirla (artista y concepto vienen en la propia factura).
     artist_text = Column(Text)
     concept_text = Column(Text)
@@ -5844,6 +5846,7 @@ def ensure_third_party_and_contract_sheet_schema():
             bag_id uuid REFERENCES workflow_bags(id) ON DELETE SET NULL,
             bag_expense_id uuid REFERENCES bag_expenses(id) ON DELETE SET NULL,
             invoice_request_id uuid,
+            royalty_liquidation_id uuid REFERENCES royalty_liquidations(id) ON DELETE SET NULL,
             artist_text text,
             concept_text text,
             invoice_number text,
@@ -5860,6 +5863,7 @@ def ensure_third_party_and_contract_sheet_schema():
         );
         """,
         'CREATE INDEX IF NOT EXISTS idx_supplier_invoices_promoter ON supplier_invoices(promoter_id, status);',
+        "ALTER TABLE IF EXISTS supplier_invoices ADD COLUMN IF NOT EXISTS royalty_liquidation_id uuid;",
         # Peticiones de factura a proveedores de una bolsa (enlace público por proveedor).
         """
         CREATE TABLE IF NOT EXISTS bag_invoice_requests (

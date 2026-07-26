@@ -475,6 +475,36 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   Los docs en vigor NO se vuelven a pedir entre eventos («solicitar a todos» solo escribe a quien
   le falte algo). `pypdf` en requirements.
 
+- **Facturación de proveedores** (`/facturacion`, landing pública en 3 pasos): plantilla
+  `public_invoice_landing.html` + estilos `.inv-step*`. Un solo componente con dos modos:
+  `inv_mode=LANDING` (bañera del back office a la izquierda, todas las empresas del grupo) e
+  `inv_mode=REQUEST` (logo de la empresa del grupo a la DERECHA, solo sus datos y **confirmación
+  obligatoria** de que la factura está emitida a ellos). Lo usan `/factura/<token>` (petición de
+  bolsa, `BagInvoiceRequest`) y `/facturacion?liq=<token>` (liquidación de royalties). Backend:
+  `_tax_id_kind` (empresa si empieza por letra, particular si acaba en letra), `_billing_profile_payload`
+  (datos **enmascarados** con `_mask_value`: quien teclee un DNI ajeno no lee IBAN/email/teléfono),
+  `_billing_required_docs`/`_billing_docs_state` (factura + `CERT_AEAT` solo empresas + `CERT_SS`;
+  ambos en `INVOICE_MONTHLY_CERTS` → **caducan cada mes**, `_cert_month_range`), endpoints
+  `public_invoice_identify`/`_register`/`_docs_state`/`_upload`. Los certificados se guardan como
+  `PersonComplianceDoc` (mismo sistema que PRL) y las facturas como `SupplierInvoice`
+  (PENDIENTE/VALIDADA/RECHAZADA). Los enlaces oficiales de AEAT/Seguridad Social están en
+  `INVOICE_CERT_DOCS`.
+- **Royalties · facturación y validación**: el correo/PDF de cada liquidación enlaza a
+  `public_royalty_liquidation_view` (`/liquidacion/<token>`, reusa el token firmado de
+  `_make_public_royalty_liquidation_token`), que la muestra como el PDF y ofrece **Subir factura**
+  → al subirla se vincula (`SupplierInvoice.royalty_liquidation_id`) y la liquidación pasa a
+  `INVOICED`. Administración → Pendiente → De liquidación lista las facturas por validar
+  (`_royalty_invoice_pending_rows`) y `administration_royalty_invoice_review` muestra
+  **liquidación a la izquierda / factura a la derecha**: validar deja pendiente de pago, rechazar
+  avisa por correo con el motivo y devuelve la liquidación a `SENT`. Se contrasta con las **órdenes
+  de embargo vigentes** del proveedor y se avisa para no abonarle. Acciones en bloque:
+  `royalty_liquidations_download_all` (un PDF continuo con pypdf) y `royalty_liquidations_send_all`.
+- ⚠️ **Migraciones en local**: `_bootstrap_schema_bg` (a) corre en un hilo DAEMON al importar `app`
+  (muere con el proceso → migraciones a medias) y (b) usa un **cerrojo de fichero** en
+  `tempfile.gettempdir()/app33_schema_bootstrap.lock` que la hace salir sin hacer nada si ya existe.
+  Para aplicar el esquema en el entorno de prueba hay que **borrar el cerrojo y llamarla en primer
+  plano** (ver el kit en la sección de verificación). En Render no afecta: cada deploy trae /tmp limpio.
+
 ## Despliegue
 - GitHub `descobosa2205/radio_spins_app` → **Render** (Pro Plus, **Frankfurt**) auto-deploy de
   `main`. **Supabase** Pro (**Frankfurt**, proyecto `gyezqnqyxpwxxevdjhgf`; migrado desde Estocolmo

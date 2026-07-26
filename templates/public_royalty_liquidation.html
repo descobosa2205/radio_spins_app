@@ -1,0 +1,87 @@
+{% extends "layout.html" %}
+{% block content %}
+{# Landing pública de una LIQUIDACIÓN DE ROYALTIES: se muestra igual que en el PDF y abajo el
+   botón de subir la factura (mismo proceso de facturación, con los datos de la empresa del grupo). #}
+<div class="container py-4">
+  <div class="mx-auto" style="max-width:900px;">
+    <div class="text-end mb-2">
+      <img src="{{ (company.logo_url if company else None) or url_for('static', filename='img/logo.png') }}" alt="" style="max-height:56px;max-width:220px;object-fit:contain;">
+    </div>
+    <h3 class="text-center mb-1">Liquidación de royalties</h3>
+    <p class="text-center text-muted small mb-4">{{ period_label }}</p>
+
+    <div class="card shadow-sm mb-3">
+      <div class="card-body d-flex align-items-center gap-3 flex-wrap">
+        {% if beneficiary.get('photo_url') %}
+          <img src="{{ beneficiary.get('photo_url') }}" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:50%;border:1px solid #eee;">
+        {% endif %}
+        <div class="flex-grow-1">
+          <div class="fw-semibold fs-5">{{ beneficiary.get('name') or 'Beneficiario' }}</div>
+          <div class="small text-muted">Periodo {{ period_label }}</div>
+        </div>
+        <div class="text-end">
+          <div class="small text-muted">Total a facturar</div>
+          <div class="fw-bold fs-5">{{ (beneficiary.get('total') or 0)|eur }}</div>
+        </div>
+      </div>
+    </div>
+
+    {# Detalle igual que en el PDF #}
+    <div class="card shadow-sm mb-3">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead class="table-light"><tr><th>Concepto</th><th class="text-end">Importe</th></tr></thead>
+            <tbody>
+              {% for it in (beneficiary.get('items') or []) %}
+                <tr>
+                  <td>
+                    <div class="fw-semibold small">{{ it.get('title') or it.get('label') or 'Concepto' }}</div>
+                    {% if it.get('subtitle') %}<div class="small text-muted">{{ it.get('subtitle') }}</div>{% endif %}
+                  </td>
+                  <td class="text-end">{{ (it.get('amount') or 0)|eur }}</td>
+                </tr>
+              {% else %}
+                <tr><td colspan="2" class="text-muted small">No hay líneas de liquidación para este periodo.</td></tr>
+              {% endfor %}
+            </tbody>
+            <tfoot class="table-light"><tr><th>Total a facturar</th><th class="text-end">{{ (beneficiary.get('total') or 0)|eur }}</th></tr></tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="d-flex gap-2 flex-wrap mb-4">
+      <a class="btn btn-outline-dark btn-sm" href="{{ pdf_url }}" target="_blank" rel="noopener"><i class="fa fa-file-pdf me-1"></i>Descargar PDF</a>
+    </div>
+
+    {% if invoices %}
+      <div class="card shadow-sm mb-4">
+        <div class="card-body">
+          <h6 class="mb-2"><i class="fa fa-file-invoice me-2 text-danger"></i>Facturas recibidas</h6>
+          {% for inv in invoices %}
+            <div class="d-flex align-items-center gap-2 border rounded p-2 mb-2 flex-wrap">
+              <span class="small flex-grow-1">{{ inv.original_name or 'Factura' }}{% if inv.created_at %} · {{ inv.created_at.strftime('%d/%m/%Y') }}{% endif %}</span>
+              {% if inv.status == 'VALIDADA' %}<span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Validada · pendiente de pago</span>
+              {% elif inv.status == 'RECHAZADA' %}<span class="badge text-bg-danger"><i class="fa fa-circle-xmark me-1"></i>Rechazada</span>
+              {% else %}<span class="badge text-bg-warning text-dark"><i class="fa fa-clock me-1"></i>Pendiente de validar</span>{% endif %}
+            </div>
+            {% if inv.status == 'RECHAZADA' and inv.reject_reason %}
+              <div class="alert alert-danger small">Motivo del rechazo: {{ inv.reject_reason }} — vuelve a subirla corregida, por favor.</div>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
+    {# Subida de la factura: mismo proceso de facturación (3 pasos) #}
+    <div class="card shadow-sm">
+      <div class="card-body text-center">
+        <h6 class="mb-2"><i class="fa fa-cloud-arrow-up me-2 text-danger"></i>Sube tu factura</h6>
+        <p class="small text-muted mb-3">Emítela a nombre de <strong>{{ company.name if company else 'la empresa del grupo' }}</strong> por el importe total de esta liquidación, indicando claramente el artista y el concepto.</p>
+        <a class="btn btn-danger" href="{{ url_for('public_invoice_landing', liq=token) }}"><i class="fa fa-file-invoice-dollar me-1"></i>Subir factura</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

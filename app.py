@@ -696,7 +696,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher"}
+    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher"}
     if request.endpoint in allowed:
         return
 
@@ -8439,7 +8439,9 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
     return pdf_bytes, filename, beneficiary
 
 
-def _build_royalty_liquidation_email_body(beneficiary: dict, period_label: str, download_url: str, logo_url: str | None, beneficiary_photo_url: str | None) -> tuple[str, str]:
+def _build_royalty_liquidation_email_body(beneficiary: dict, period_label: str, download_url: str, logo_url: str | None, beneficiary_photo_url: str | None, upload_url: str | None = None) -> tuple[str, str]:
+    # `upload_url`: landing de la liquidación donde el beneficiario sube su factura.
+    upload_url = (upload_url or download_url)
     def _eur(value) -> str:
         try:
             return f"{float(value):,.2f} EUR".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -8573,7 +8575,7 @@ def _build_royalty_liquidation_email_body(beneficiary: dict, period_label: str, 
         </div>
         <div style="font-size:14px;color:#374151;margin-top:18px;">Emitir factura a nombre de &quot;{html.escape(invoice_name)}&quot;</div>
         <div style="margin:16px 0 8px 0;">
-          <a href="https://www.piesrecords.com/facturacion" style="display:inline-block;background:#ffffff;color:#111827;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;border:1px solid #d1d5db;">Subir factura</a>
+          <a href="{html.escape(upload_url)}" style="display:inline-block;background:#E33D48;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">Subir factura</a>
         </div>
         <div style="font-size:14px;color:#374151;margin-top:16px;">Si tiene alguna duda contacte con <a href="mailto:music@piesrecords.com">music@piesrecords.com</a></div>
       </div>
@@ -8588,7 +8590,7 @@ def _build_royalty_liquidation_email_body(beneficiary: dict, period_label: str, 
         f"Total a facturar: {total_amount}\n\n"
         f"Descargar PDF: {download_url}\n\n"
         f'Emitir factura a nombre de "{invoice_name}"\n'
-        "Subir factura: https://www.piesrecords.com/facturacion\n"
+        f"Subir factura: {upload_url}\n"
         "Si tiene alguna duda contacte con music@piesrecords.com"
     )
     return html_body, text_body
@@ -13484,7 +13486,8 @@ def discografica_royalties_liquidation_preview():
         subject = _royalty_liquidation_subject(sem_year, sem_half)
         public_token = _make_public_royalty_liquidation_token(kind, str(beneficiary_uuid), sem_key)
         download_url = _external_url_for('public_royalty_liquidation_pdf') + f'?token={quote_plus(public_token)}'
-        html_body, _text_body = _build_royalty_liquidation_email_body(beneficiary, period_label, download_url, logo_url, photo_url)
+        upload_url = _external_url_for('public_royalty_liquidation_view', token=public_token)
+        html_body, _text_body = _build_royalty_liquidation_email_body(beneficiary, period_label, download_url, logo_url, photo_url, upload_url=upload_url)
 
         current_snapshot = _royalty_liquidation_snapshot(beneficiary, sem_start, sem_end)
         current_signature = _royalty_liquidation_snapshot_signature(current_snapshot)
@@ -13560,6 +13563,178 @@ def discografica_royalties_liquidation_info():
         })
 
 
+@app.get("/liquidacion/<token>", endpoint="public_royalty_liquidation_view")
+def public_royalty_liquidation_view(token):
+    """Landing pública de una liquidación de royalties: la muestra tal cual el PDF y abajo el botón
+    de SUBIR FACTURA (mismo proceso de facturación, con el logo y los datos de la empresa del
+    grupo). Al subirla queda vinculada a la liquidación y pasa a «facturada»."""
+    payload = _parse_public_royalty_liquidation_token(token)
+    if not payload:
+        abort(404)
+    kind = (payload.get("kind") or "").strip().upper()
+    bid_raw = (payload.get("bid") or "").strip()
+    parsed_sem = _parse_semester_key((payload.get("s") or "").strip())
+    if kind not in ("ARTIST", "PROMOTER") or not bid_raw or not parsed_sem:
+        abort(404)
+    sem_year, sem_half = parsed_sem
+    sem_start, sem_end = _semester_range(sem_year, sem_half)
+    with get_db() as session_db:
+        try:
+            beneficiary, _s, _e, beneficiary_uuid = _get_royalty_liquidation_beneficiary_data(
+                session_db, kind, bid_raw, sem_year, sem_half)
+        except Exception:
+            abort(404)
+        rec = _royalty_liquidation_record(session_db, kind, beneficiary_uuid, sem_start)
+        company = None
+        try:
+            company = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).first()
+        except Exception:
+            company = None
+        # El proveedor de la factura: el propio beneficiario si es un tercero.
+        provider = session_db.get(Promoter, beneficiary_uuid) if kind == "PROMOTER" else None
+        invoices = (session_db.query(SupplierInvoice)
+                    .filter(SupplierInvoice.royalty_liquidation_id == (rec.id if rec else None))
+                    .order_by(SupplierInvoice.created_at.desc()).all()) if rec else []
+        return render_template(
+            "public_royalty_liquidation.html",
+            token=token,
+            beneficiary=beneficiary,
+            period_label=_royalty_liquidation_period_label_from_dates(sem_start, sem_end),
+            liquidation=rec,
+            company=company,
+            provider=provider,
+            provider_payload=(_billing_profile_payload(session_db, provider) if provider else None),
+            invoices=invoices,
+            pdf_url=(_external_url_for("public_royalty_liquidation_pdf") + f"?token={quote_plus(token)}"),
+            cert_docs=INVOICE_CERT_DOCS,
+        )
+
+
+def _royalty_pending_buckets(session_db, sem_start, sem_end, statuses=("GENERATED",)) -> list:
+    """Beneficiarios del semestre cuya liquidación está en uno de esos estados (por defecto, las
+    GENERADAS que todavía no se han enviado)."""
+    payload = _build_royalty_beneficiaries(session_db, sem_start, sem_end)
+    want = {str(x).upper() for x in statuses}
+    out = []
+    for bucket in list(payload.get("artists") or []) + list(payload.get("others") or []):
+        st = (bucket.get("liquidation_status") or "GENERATED").upper()
+        if st in want:
+            out.append(bucket)
+    return out
+
+
+@app.get("/discografica/royalties/liquidaciones/descargar-todas", endpoint="royalty_liquidations_download_all")
+@admin_required
+def royalty_liquidations_download_all():
+    """UN PDF continuo con TODAS las liquidaciones del semestre que aún no se han enviado."""
+    sem_key = (request.args.get("s") or "").strip()
+    parsed = _parse_semester_key(sem_key)
+    if not parsed:
+        flash("Semestre no válido.", "warning")
+        return redirect(url_for("discografica_view", section="royalties"))
+    sem_year, sem_half = parsed
+    sem_start, sem_end = _semester_range(sem_year, sem_half)
+    try:
+        from pypdf import PdfWriter, PdfReader
+    except Exception:
+        flash("Falta la librería de PDF en el servidor.", "danger")
+        return redirect(url_for("discografica_view", section="royalties", s=sem_key))
+    with get_db() as session_db:
+        buckets = _royalty_pending_buckets(session_db, sem_start, sem_end)
+        if not buckets:
+            flash("No hay liquidaciones pendientes de enviar en este semestre.", "info")
+            return redirect(url_for("discografica_view", section="royalties", s=sem_key))
+        writer = PdfWriter()
+        added = 0
+        for bucket in buckets:
+            try:
+                pdf_bytes, _fn, _ben = _build_royalty_liquidation_pdf_bytes(
+                    session_db, (bucket.get("kind") or "").upper(), bucket.get("id"),
+                    sem_year, sem_half, touch_liquidation=False,
+                )
+                for page in PdfReader(BytesIO(pdf_bytes)).pages:
+                    writer.add_page(page)
+                added += 1
+            except Exception:
+                app.logger.exception("[royalties] no se pudo añadir la liquidación de %s", bucket.get("name"))
+        if not added:
+            flash("No se pudo generar ninguna liquidación.", "warning")
+            return redirect(url_for("discografica_view", section="royalties", s=sem_key))
+        buf = BytesIO()
+        writer.write(buf)
+        buf.seek(0)
+        return send_file(buf, mimetype="application/pdf", as_attachment=True,
+                         download_name=f"liquidaciones_{sem_key}_{added}.pdf")
+
+
+@app.post("/discografica/royalties/liquidaciones/enviar-todas", endpoint="royalty_liquidations_send_all")
+@admin_required
+def royalty_liquidations_send_all():
+    """Envía por correo TODAS las liquidaciones generadas del semestre que aún no se han enviado."""
+    sem_key = (request.form.get("s") or "").strip()
+    parsed = _parse_semester_key(sem_key)
+    if not parsed:
+        flash("Semestre no válido.", "warning")
+        return redirect(safe_next_or(url_for("discografica_view", section="royalties")))
+    sem_year, sem_half = parsed
+    sem_start, sem_end = _semester_range(sem_year, sem_half)
+    subject = _royalty_liquidation_subject(sem_year, sem_half)
+    now_dt = datetime.now(TZ_MADRID)
+    sent, errors = 0, []
+    with get_db() as session_db:
+        for bucket in _royalty_pending_buckets(session_db, sem_start, sem_end):
+            kind = (bucket.get("kind") or "").upper()
+            bid = bucket.get("id")
+            name = bucket.get("name") or "Beneficiario"
+            try:
+                beneficiary_uuid = to_uuid(str(bid))
+                delivery = _beneficiary_email_delivery_data(session_db, kind, beneficiary_uuid)
+                recipients = _dedupe_valid_email_addresses(
+                    list(delivery.get("default_recipients") or []) or list(delivery.get("suggested_recipients") or [])
+                )
+                if not recipients:
+                    errors.append(f"{name}: sin email")
+                    continue
+                pdf_bytes, _fn, beneficiary = _build_royalty_liquidation_pdf_bytes(
+                    session_db, kind, beneficiary_uuid, sem_year, sem_half, touch_liquidation=True)
+                snapshot = _royalty_liquidation_snapshot(beneficiary, sem_start, sem_end)
+                logo_url, photo_url = _royalty_liquidation_brand_assets(session_db, beneficiary)
+                period_label = _royalty_liquidation_period_label_from_dates(sem_start, sem_end)
+                pdf_url = upload_pdf_bytes(pdf_bytes, "royalty_liquidations")
+                _pub_tok = _make_public_royalty_liquidation_token(kind, str(beneficiary_uuid), sem_key)
+                html_body, text_body = _build_royalty_liquidation_email_body(
+                    beneficiary, period_label, pdf_url, logo_url, photo_url,
+                    upload_url=_external_url_for('public_royalty_liquidation_view', token=_pub_tok))
+                ok, error = _send_optional_email(recipients, subject, html_body, text_body=text_body)
+                if not ok:
+                    errors.append(f"{name}: {error or 'error al enviar'}")
+                    continue
+                rec = _ensure_royalty_liquidation_row(session_db, kind, beneficiary_uuid, sem_start, sem_end)
+                rec.status = "SENT"
+                rec.updated_at = now_dt
+                rec.last_sent_at = now_dt
+                rec.last_sent_to = recipients
+                rec.last_sent_signature = _royalty_liquidation_snapshot_signature(snapshot)
+                rec.last_sent_snapshot = snapshot
+                rec.last_sent_pdf_url = pdf_url
+                if not getattr(rec, "generated_at", None):
+                    rec.generated_at = now_dt
+                session_db.commit()
+                sent += 1
+            except Exception as exc:
+                session_db.rollback()
+                errors.append(f"{name}: {exc}")
+    if sent:
+        flash(f"Enviadas {sent} liquidacion{'es' if sent != 1 else ''}."
+              + (f" Incidencias: {'; '.join(errors[:5])}" if errors else ""),
+              "warning" if errors else "success")
+    elif errors:
+        flash("No se pudo enviar ninguna: " + "; ".join(errors[:5]), "danger")
+    else:
+        flash("No había liquidaciones pendientes de enviar.", "info")
+    return redirect(safe_next_or(url_for("discografica_view", section="royalties", s=sem_key)))
+
+
 @app.post("/discografica/royalties/liquidacion/send")
 @admin_required
 def discografica_royalties_liquidation_send():
@@ -13622,7 +13797,10 @@ def discografica_royalties_liquidation_send():
             prev_start = parse_date(str(snapshot.get('period_start') or '').strip()) or sem_start
             prev_end = parse_date(str(snapshot.get('period_end') or '').strip()) or sem_end
             period_label = _royalty_liquidation_period_label_from_dates(prev_start, prev_end) or _royalty_liquidation_period_label_from_dates(sem_start, sem_end)
-            html_body, text_body = _build_royalty_liquidation_email_body(snapshot, period_label, pdf_url, logo_url, snapshot.get('photo_url') or photo_url)
+            _pub_tok = _make_public_royalty_liquidation_token(kind, str(beneficiary_uuid), sem_key)
+            html_body, text_body = _build_royalty_liquidation_email_body(
+                snapshot, period_label, pdf_url, logo_url, snapshot.get('photo_url') or photo_url,
+                upload_url=_external_url_for('public_royalty_liquidation_view', token=_pub_tok))
             ok, error = _send_optional_email(recipients, subject, html_body, text_body=text_body)
             if not ok:
                 return _royalty_send_response(False, f'No se pudo enviar la liquidación: {error}', redirect_url=next_url, status_code=400)
@@ -13670,7 +13848,10 @@ def discografica_royalties_liquidation_send():
         except Exception as exc:
             return _royalty_send_response(False, f'No se pudo guardar el PDF del envío: {exc}', redirect_url=next_url, status_code=500)
 
-        html_body, text_body = _build_royalty_liquidation_email_body(beneficiary, period_label, pdf_url, logo_url, photo_url)
+        _pub_tok = _make_public_royalty_liquidation_token(kind, str(beneficiary_uuid), sem_key)
+        html_body, text_body = _build_royalty_liquidation_email_body(
+            beneficiary, period_label, pdf_url, logo_url, photo_url,
+            upload_url=_external_url_for('public_royalty_liquidation_view', token=_pub_tok))
         ok, error = _send_optional_email(recipients, subject, html_body, text_body=text_body)
         if not ok:
             return _royalty_send_response(False, f'No se pudo enviar la liquidación: {error}', redirect_url=next_url, status_code=400)
@@ -37223,6 +37404,127 @@ def admin_ita_upload():
         session_db.close()
 
 
+def _royalty_invoice_pending_rows(session_db) -> list:
+    """Facturas de liquidaciones de royalties recibidas y PENDIENTES de validar (tarea de
+    administración). Incluye el aviso de EMBARGO vigente sobre el proveedor."""
+    rows = []
+    try:
+        invoices = (session_db.query(SupplierInvoice)
+                    .options(joinedload(SupplierInvoice.promoter))
+                    .filter(SupplierInvoice.status == "PENDIENTE")
+                    .filter(SupplierInvoice.royalty_liquidation_id.isnot(None))
+                    .order_by(SupplierInvoice.created_at.desc()).all())
+    except Exception:
+        return rows
+    for inv in invoices:
+        rec = session_db.get(RoyaltyLiquidation, inv.royalty_liquidation_id) if inv.royalty_liquidation_id else None
+        promoter = inv.promoter
+        embargos = []
+        if promoter is not None and "_active_embargo_orders_for_promoter" in globals():
+            try:
+                embargos = [_embargo_order_summary(o) for o in _active_embargo_orders_for_promoter(session_db, promoter)]
+            except Exception:
+                embargos = []
+        rows.append({
+            "invoice": inv,
+            "liquidation": rec,
+            "promoter": promoter,
+            "name": (promoter.nick if promoter else "Proveedor"),
+            "period_label": (_royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end) if rec else ""),
+            "embargos": embargos,
+            "url": url_for("administration_royalty_invoice_review", invoice_id=inv.id),
+        })
+    return rows
+
+
+@app.get('/administracion/royalties/factura/<invoice_id>', endpoint='administration_royalty_invoice_review')
+@admin_required
+def administration_royalty_invoice_review(invoice_id):
+    """Validación de la factura de una liquidación: la liquidación a la IZQUIERDA y la factura
+    (con la documentación exigida) a la DERECHA."""
+    session_db = db()
+    try:
+        inv = session_db.get(SupplierInvoice, to_uuid(invoice_id) or uuid.uuid4())
+        if not inv:
+            abort(404)
+        rec = session_db.get(RoyaltyLiquidation, inv.royalty_liquidation_id) if inv.royalty_liquidation_id else None
+        promoter = session_db.get(Promoter, inv.promoter_id)
+        beneficiary = None
+        if rec is not None:
+            try:
+                sem_half = 1 if rec.period_start.month <= 6 else 2
+                beneficiary, _s, _e, _bid = _get_royalty_liquidation_beneficiary_data(
+                    session_db, rec.beneficiary_kind, str(rec.beneficiary_id), rec.period_start.year, sem_half)
+            except Exception:
+                beneficiary = None
+        embargos = []
+        if promoter is not None and "_active_embargo_orders_for_promoter" in globals():
+            try:
+                embargos = [_embargo_order_summary(o) for o in _active_embargo_orders_for_promoter(session_db, promoter)]
+            except Exception:
+                embargos = []
+        docs = _billing_docs_state(session_db, promoter, _billing_profile_payload(session_db, promoter)["kind"]) if promoter else []
+        return render_template(
+            "administration_royalty_invoice.html",
+            inv=inv, liquidation=rec, promoter=promoter, beneficiary=beneficiary,
+            period_label=(_royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end) if rec else ""),
+            embargos=embargos,
+            required_docs=[d for d in docs if d["key"] != "INVOICE"],
+        )
+    finally:
+        session_db.close()
+
+
+@app.post('/administracion/royalties/factura/<invoice_id>/validar', endpoint='administration_royalty_invoice_validate')
+@admin_required
+def administration_royalty_invoice_validate(invoice_id):
+    """Acepta la factura (la liquidación queda pendiente de pago) o la rechaza con un motivo
+    (se avisa al proveedor y la liquidación vuelve a «enviada», pendiente de facturar)."""
+    session_db = db()
+    try:
+        inv = session_db.get(SupplierInvoice, to_uuid(invoice_id) or uuid.uuid4())
+        if not inv:
+            abort(404)
+        rec = session_db.get(RoyaltyLiquidation, inv.royalty_liquidation_id) if inv.royalty_liquidation_id else None
+        action = (request.form.get("action") or "").strip().lower()
+        nick = _email_to_nick(_current_user_email() or "")
+        if action == "reject":
+            reason = (request.form.get("reason") or "").strip()
+            inv.status = "RECHAZADA"
+            inv.reject_reason = reason
+            inv.validated_at = _now_madrid()
+            inv.validated_by_nick = nick
+            if rec is not None:
+                rec.status = "SENT"          # vuelve a «enviada» = pendiente de facturar
+                rec.updated_at = _now_madrid()
+            promoter = session_db.get(Promoter, inv.promoter_id)
+            email_to = (getattr(promoter, "contact_email", None) or "").strip() if promoter else ""
+            if email_to:
+                body = ("<p style='margin:0 0 10px;'>Tu factura de la liquidación de royalties "
+                        "<strong>ha sido rechazada</strong>, por favor vuelve a subirla.</p>")
+                if reason:
+                    body += f"<p style='margin:0 0 12px;'><strong>Motivo:</strong> {escape(reason)}</p>"
+                _send_optional_email(email_to, "Factura rechazada · liquidación de royalties", body)
+            session_db.commit()
+            flash("Factura rechazada y aviso enviado al proveedor.", "warning")
+        else:
+            inv.status = "VALIDADA"
+            inv.validated_at = _now_madrid()
+            inv.validated_by_nick = nick
+            if rec is not None:
+                rec.status = "INVOICED"      # facturada y validada = pendiente de pago
+                rec.updated_at = _now_madrid()
+            session_db.commit()
+            flash("Factura validada: la liquidación queda pendiente de pago.", "success")
+        return redirect(safe_next_or(url_for("administracion_view", tab="pendiente", subtab="liquidacion")))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo procesar la factura: {exc}", "danger")
+        return redirect(safe_next_or(url_for("administracion_view", tab="pendiente", subtab="liquidacion")))
+    finally:
+        session_db.close()
+
+
 def _prl_admin_altas_context(session_db) -> dict:
     """Contexto de la pestaña Altas de Administración: ITA vigente por empresa del grupo."""
     companies = session_db.query(GroupCompany).order_by(GroupCompany.name).all()
@@ -37924,7 +38226,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_promoter_requests", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_promoter_requests", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -42573,6 +42875,8 @@ def administracion_view():
             "embargos": len(embargo_rows) + len(embargo_active_orders),
         }
         altas_ctx = _prl_admin_altas_context(session_db) if tab == "altas" else {"altas_rows": [], "altas_today": date.today()}
+        royalty_invoice_rows = (_royalty_invoice_pending_rows(session_db)
+                                if (tab == "pendiente" and pending_subtab == "liquidacion") else [])
         return render_template(
             "administracion.html",
             tab=tab,
@@ -42581,6 +42885,7 @@ def administracion_view():
             **altas_ctx,
             pending_subtab=pending_subtab,
             pending_tabs=ADMINISTRATION_PENDING_TABS,
+            royalty_invoice_rows=royalty_invoice_rows,
             embargo_subtab=embargo_subtab,
             embargo_counts=embargo_counts,
             pending_counts=pending_counts,
@@ -46423,10 +46728,47 @@ def _billing_profile_payload(session_db, promoter) -> dict:
 
 @app.get('/facturacion', endpoint='public_invoice_landing')
 def public_invoice_landing():
-    """Landing pública de subida de facturas (3 pasos), sin petición previa."""
+    """Landing pública de subida de facturas (3 pasos). Con `?liq=<token>` es la factura de una
+    LIQUIDACIÓN DE ROYALTIES: se comporta como una petición (logo y datos de la empresa del grupo
+    que corresponda + confirmación de que la factura está emitida a ellos)."""
     session_db = db()
     try:
         companies = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+        liq_token = (request.args.get("liq") or "").strip()
+        payload = _parse_public_royalty_liquidation_token(liq_token) if liq_token else None
+        if payload:
+            kind = (payload.get("kind") or "").upper()
+            parsed_sem = _parse_semester_key((payload.get("s") or "").strip())
+            if parsed_sem:
+                sem_year, sem_half = parsed_sem
+                sem_start, sem_end = _semester_range(sem_year, sem_half)
+                try:
+                    beneficiary, _s, _e, beneficiary_uuid = _get_royalty_liquidation_beneficiary_data(
+                        session_db, kind, (payload.get("bid") or ""), sem_year, sem_half)
+                except Exception:
+                    beneficiary, beneficiary_uuid = None, None
+                provider = session_db.get(Promoter, beneficiary_uuid) if (kind == "PROMOTER" and beneficiary_uuid) else None
+                company = companies[0] if companies else None
+                rows = []
+                if beneficiary:
+                    rows = [{
+                        "concept": f"Liquidación de royalties · {_royalty_liquidation_period_label_from_dates(sem_start, sem_end)}",
+                        "category_label": "Royalties",
+                        "net": _money_or_zero(beneficiary.get("total")),
+                        "gross": _money_or_zero(beneficiary.get("total")),
+                    }]
+                return render_template(
+                    "public_invoice_landing.html",
+                    inv_mode="REQUEST",
+                    companies=[company] if company else companies,
+                    company=company,
+                    cert_docs=INVOICE_CERT_DOCS,
+                    request_row=None,
+                    request_rows=rows,
+                    provider=provider,
+                    provider_payload=(_billing_profile_payload(session_db, provider) if provider else None),
+                    liq_token=liq_token,
+                )
         return render_template(
             "public_invoice_landing.html",
             inv_mode="LANDING",
@@ -46628,6 +46970,32 @@ def public_invoice_upload():
         url = upload_pdf(f, "invoices") if is_pdf else upload_file(f, "invoices")
         if not url:
             return jsonify({"ok": False, "error": "No se pudo guardar la factura"}), 400
+        # Si es la factura de una LIQUIDACIÓN DE ROYALTIES: se vincula y pasa a «facturada».
+        liq_token = (request.form.get("liq_token") or "").strip()
+        liq_payload = _parse_public_royalty_liquidation_token(liq_token) if liq_token else None
+        if liq_payload:
+            kind = (liq_payload.get("kind") or "").upper()
+            parsed_sem = _parse_semester_key((liq_payload.get("s") or "").strip())
+            rec = None
+            if parsed_sem:
+                sem_start, _sem_end = _semester_range(*parsed_sem)
+                bid = to_uuid(str(liq_payload.get("bid") or ""))
+                if bid:
+                    rec = _royalty_liquidation_record(session_db, kind, bid, sem_start)
+            session_db.add(SupplierInvoice(
+                promoter_id=promoter.id, source="REQUEST",
+                royalty_liquidation_id=(rec.id if rec else None),
+                artist_text=(request.form.get("artist_text") or "").strip() or None,
+                concept_text=(request.form.get("concept_text") or "").strip() or "Liquidación de royalties",
+                invoice_number=(request.form.get("invoice_number") or "").strip() or None,
+                group_company_id=to_uuid(request.form.get("group_company_id") or "") or None,
+                file_url=url, original_name=filename[:200], mime_type=f.mimetype, status="PENDIENTE",
+            ))
+            if rec is not None:
+                rec.status = "INVOICED"
+                rec.updated_at = datetime.now(TZ_MADRID)
+            session_db.commit()
+            return jsonify({"ok": True, "kind": "invoice", "done": True})
         # Si viene de una PETICIÓN (bolsa), la factura se vincula a sus conceptos pendientes.
         token = (request.form.get("token") or "").strip()
         bag_req = (session_db.query(BagInvoiceRequest)

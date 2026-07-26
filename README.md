@@ -189,6 +189,65 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-07-26 — Bolsa y presupuesto rediseñados · facturación de proveedores · royalties
+
+**Bolsa dentro de la ficha de la actividad**
+- En fila, solo el **resumen económico** y las **etiquetas de estado**; la cabecera con foto, los
+  datos y las notas se quedan en la página completa de la bolsa.
+- **Ingresos de la actividad** y **lo que cubre el promotor** en **verde corporativo**, con iconos.
+- Debajo los gastos y, al final, un **«Gasto Total:»**.
+- Desaparecen «Página de la bolsa» y «Archivar». Ahora hay **Cerrar bolsa** (si cumple las reglas
+  pasa a administración para liquidación), **Cargar plantilla de gastos** (del artista, del recinto
+  o las dos, eligiendo entre las guardadas) y **Solicitar facturas a los proveedores**.
+
+**Solicitar facturas a los proveedores**
+- Se pide **solo a quien no ha subido factura**. El correo lleva la cabecera del evento y sus
+  conceptos con importes **con y sin IVA**, y un botón que abre una página donde arrastra la
+  factura de cada concepto y, si se le exige, la documentación adicional.
+
+**Presupuesto**
+- Ahora es **exactamente como los gastos de las simulaciones**: un bocadillo por categoría (todas
+  visibles), «Añadir gasto» en cada una, **cantidad e IVA por partida**, subtotal al pie,
+  «Gasto Total:» al final, **arrastrar partidas entre categorías** y **cargar plantillas** (artista
+  y/o recinto) igual que en la bolsa.
+
+**Facturación de proveedores (nuevo)**
+- Landing pública **app.33producciones.es/facturacion**: bañera del back office arriba a la
+  izquierda, título «Subida de Facturas» y **3 pasos numerados**: (1) datos de facturación de las
+  empresas del grupo con sus logos y aviso de que la factura debe indicar claramente **artista y
+  concepto**; (2) **identificación por DNI/CIF** —empresa si empieza por letra, particular si
+  termina en letra— con alta en un solo paso (o completar/actualizar lo que falte) y aceptación de
+  las condiciones de datos; (3) **factura + certificados obligatorios** (Agencia Tributaria y
+  Seguridad Social para empresas, Seguridad Social para particulares) con botón al portal oficial.
+  Los certificados **caducan cada mes** y los que están en vigor no se vuelven a pedir
+  («Documento ya subido anteriormente y en vigor»).
+- Cuando la factura viene de una **petición** (bolsa o liquidación de royalties) el proceso es el
+  mismo, pero con el **logo de la empresa del grupo arriba a la derecha**, solo sus datos de
+  facturación y una **confirmación obligatoria** de que la factura está emitida a ellos.
+- Por privacidad, al identificarse los datos del titular se muestran **enmascarados** (email,
+  teléfono, IBAN y dirección parciales), de forma que quien teclee un DNI ajeno no pueda leerlos.
+
+**Royalties**
+- Los filtros de estado pasan a **chips pequeños con icono** (como los de invitaciones) y se añaden
+  **Descargar todas** (un único PDF continuo con las liquidaciones que aún no se han enviado) y
+  **Enviar todas** (envía las generadas pendientes de envío).
+- El enlace del correo y del PDF lleva ahora a una **landing de la liquidación** que la muestra
+  igual que el PDF y ofrece **Subir factura**: al subirla queda **vinculada** a la liquidación y
+  esta pasa a **facturada**.
+- La factura recibida aparece en **Administración → Pendiente → De liquidación** como tarea. Al
+  abrirla se ve la **liquidación a la izquierda y la factura a la derecha** con su documentación
+  para validarla: al aceptar queda **pendiente de pago**; al rechazar se avisa al proveedor con el
+  motivo para que la vuelva a subir y la liquidación **vuelve a «enviada»**. Si el proveedor tiene
+  una **orden de embargo vigente** aparece una alerta destacada para no abonarle.
+
+**Ticketing y cartelería**
+- Las sugerencias de Enterticket solo muestran eventos **no vinculados y del mismo día**, con botón
+  de **descartar** para no volver a sugerirlos.
+- Cartelería: estado de la solicitud y etiquetas de **compartido con el artista** y (si los carteles
+  los hacemos nosotros y el promotor no es empresa del grupo) **con el promotor**. Sin peticiones ni
+  carteles, dos botones pequeños; el de diseño abre un **asistente en pop-up con una pregunta por
+  paso**.
+
 ### 2026-07-26 — Inicio: acciones rápidas por departamento · invitaciones a juego
 
 - **Botones de acciones directas en Inicio**, justo bajo la cabecera del personal y con el mismo

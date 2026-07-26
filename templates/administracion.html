@@ -111,6 +111,30 @@
       </div>
     </div>
   {% elif pending_subtab == 'liquidacion' %}
+    {# Facturas de LIQUIDACIONES DE ROYALTIES recibidas y pendientes de validar. #}
+    {% if royalty_invoice_rows %}
+      <div class="card mb-3 border-danger">
+        <div class="card-header bg-white d-flex align-items-center gap-2">
+          <strong><i class="fa fa-percent me-1 text-danger"></i>Liquidaciones de royalties · facturas por validar</strong>
+          <span class="badge text-bg-danger">{{ royalty_invoice_rows|length }}</span>
+        </div>
+        <div class="card-body p-0">
+          {% for r in royalty_invoice_rows %}
+            <a class="p-3 border-bottom d-flex justify-content-between gap-3 flex-wrap text-decoration-none text-reset" href="{{ r.url }}">
+              <div>
+                <div class="fw-semibold">{{ r.name }}</div>
+                <div class="small text-muted">{{ r.period_label }} · recibida el {{ r.invoice.created_at.strftime('%d/%m/%Y') if r.invoice.created_at else '—' }}</div>
+                {% if r.embargos %}<span class="badge text-bg-danger mt-1"><i class="fa fa-triangle-exclamation me-1"></i>Embargo vigente: no abonar</span>{% endif %}
+              </div>
+              <div class="d-flex align-items-center gap-2">
+                <span class="badge text-bg-warning text-dark"><i class="fa fa-clock me-1"></i>Pendiente de validar</span>
+                <span class="btn btn-sm btn-outline-primary"><i class="fa fa-file-invoice me-1"></i>Revisar</span>
+              </div>
+            </a>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
     <div class="card">
       <div class="card-header bg-white"><strong>Bolsas pendientes de liquidación</strong></div>
       <div class="card-body p-0">

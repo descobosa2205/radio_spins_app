@@ -264,30 +264,25 @@
   </div>
 {% endif %}
 
-<div class="card mb-3">
-  <div class="card-body">
-    <form method="get" class="row g-3 align-items-end">
-      <input type="hidden" name="section" value="royalties">
+{# Filtros de estado con la misma estética que los de invitaciones: chips pequeños con icono. #}
+{% set _roy_base = {'section': 'royalties', 's': royalty_semester_key, 'roy_tab': royalty_tab} %}
+<div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+  <a class="badge text-bg-light border mg-filter-chip text-decoration-none {% if not royalty_selected_statuses %}active{% endif %}"
+     href="{{ url_for('discografica_view', artist=royalty_selected_artist_id or None, **_roy_base) }}">Todas</a>
+  {% for value, label, icon in [('GENERATED','Generadas','fa-file-lines'),('SENT','Enviadas','fa-paper-plane'),('INVOICED','Facturadas','fa-file-invoice'),('PAID','Pagadas','fa-circle-check')] %}
+    <a class="badge text-bg-light border mg-filter-chip text-decoration-none {% if value in royalty_selected_statuses %}active{% endif %}"
+       href="{{ url_for('discografica_view', roy_status=value, artist=royalty_selected_artist_id or None, **_roy_base) }}"><i class="fa {{ icon }} me-1"></i>{{ label }}</a>
+  {% endfor %}
+  <span class="flex-grow-1"></span>
+  {% if CAN_EDIT_DISCOGRAFICA %}
+    {# Acciones en bloque sobre las liquidaciones que aún NO se han enviado. #}
+    <a class="btn btn-outline-dark btn-sm" href="{{ url_for('royalty_liquidations_download_all', s=royalty_semester_key) }}" target="_blank"><i class="fa fa-file-pdf me-1"></i>Descargar todas</a>
+    <form method="post" action="{{ url_for('royalty_liquidations_send_all') }}" onsubmit="return confirm('Se enviarán por correo TODAS las liquidaciones generadas que aún no se han enviado. ¿Continuar?');">
       <input type="hidden" name="s" value="{{ royalty_semester_key }}">
-      <input type="hidden" name="roy_tab" value="{{ royalty_tab }}">
-      {% if royalty_selected_artist_id %}<input type="hidden" name="artist" value="{{ royalty_selected_artist_id }}">{% endif %}
-      <div class="col-12">
-        <label class="form-label">Filtrar por estado de la liquidación</label>
-        <div class="d-flex flex-wrap gap-3">
-          {% for value, label in [('GENERATED','Generada'),('SENT','Enviada'),('INVOICED','Facturada'),('PAID','Pagado')] %}
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" name="roy_status" value="{{ value }}" id="royStatus_{{ value }}" {% if value in royalty_selected_statuses %}checked{% endif %}>
-              <label class="form-check-label" for="royStatus_{{ value }}">{{ label }}</label>
-            </div>
-          {% endfor %}
-        </div>
-      </div>
-      <div class="col-12 d-flex gap-2 flex-wrap">
-        <button class="btn btn-primary btn-sm"><i class="fa fa-filter"></i> Aplicar filtro</button>
-        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('discografica_view', section='royalties', s=royalty_semester_key, roy_tab=royalty_tab, artist=royalty_selected_artist_id or None) }}">Todos los estados</a>
-      </div>
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <button class="btn btn-danger btn-sm"><i class="fa fa-paper-plane me-1"></i>Enviar todas</button>
     </form>
-  </div>
+  {% endif %}
 </div>
 
 <div class="card mb-3">

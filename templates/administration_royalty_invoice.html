@@ -1,0 +1,118 @@
+{% extends "layout.html" %}
+{% block content %}
+{# Validación de la factura de una liquidación de royalties: la LIQUIDACIÓN a la izquierda y la
+   FACTURA (con su documentación) a la derecha. #}
+<div class="mb-2">
+  <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('administracion_view', tab='pendiente', subtab='liquidacion') }}" title="Volver a pendientes" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
+</div>
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <div>
+    <h5 class="mb-0"><i class="fa fa-file-invoice me-2 text-danger"></i>Validar factura de liquidación</h5>
+    <div class="small text-muted">{{ promoter.nick if promoter else 'Proveedor' }}{% if period_label %} · {{ period_label }}{% endif %}</div>
+  </div>
+  {% if inv.status == 'PENDIENTE' %}<span class="badge text-bg-warning text-dark"><i class="fa fa-clock me-1"></i>Pendiente de validar</span>
+  {% elif inv.status == 'VALIDADA' %}<span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Validada · pendiente de pago</span>
+  {% else %}<span class="badge text-bg-danger"><i class="fa fa-circle-xmark me-1"></i>Rechazada</span>{% endif %}
+</div>
+
+{% if embargos %}
+  <div class="alert alert-danger">
+    <strong><i class="fa fa-triangle-exclamation me-1"></i>ATENCIÓN: este proveedor tiene una orden de embargo vigente.</strong>
+    No se le puede abonar: {% for e in embargos %}{{ e.reference }}{% if e.date %} ({{ e.date }}){% endif %}{% if not loop.last %} · {% endif %}{% endfor %}
+  </div>
+{% endif %}
+
+<div class="row g-3">
+  {# ---------- IZQUIERDA: la liquidación ---------- #}
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <strong><i class="fa fa-percent me-1 text-danger"></i>Liquidación</strong>
+        {% if liquidation %}<span class="badge text-bg-light border">{{ liquidation.status }}</span>{% endif %}
+      </div>
+      <div class="card-body">
+        {% if beneficiary %}
+          <div class="d-flex align-items-center gap-2 mb-3">
+            {% if beneficiary.get('photo_url') %}<img src="{{ beneficiary.get('photo_url') }}" alt="" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:1px solid #eee;">{% endif %}
+            <div>
+              <div class="fw-semibold">{{ beneficiary.get('name') or '—' }}</div>
+              <div class="small text-muted">{{ period_label }}</div>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <thead class="table-light"><tr><th>Concepto</th><th class="text-end">Importe</th></tr></thead>
+              <tbody>
+                {% for it in (beneficiary.get('items') or []) %}
+                  <tr><td class="small">{{ it.get('title') or it.get('label') or 'Concepto' }}</td><td class="text-end">{{ (it.get('amount') or 0)|eur }}</td></tr>
+                {% else %}
+                  <tr><td colspan="2" class="text-muted small">Sin líneas.</td></tr>
+                {% endfor %}
+              </tbody>
+              <tfoot class="table-light"><tr><th>Total a facturar</th><th class="text-end">{{ (beneficiary.get('total') or 0)|eur }}</th></tr></tfoot>
+            </table>
+          </div>
+        {% else %}
+          <div class="text-muted small">No se pudieron recuperar los datos de la liquidación.</div>
+        {% endif %}
+        {% if liquidation and liquidation.last_sent_pdf_url %}
+          <a class="btn btn-outline-dark btn-sm mt-3" href="{{ liquidation.last_sent_pdf_url }}" target="_blank" rel="noopener"><i class="fa fa-file-pdf me-1"></i>PDF enviado</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {# ---------- DERECHA: la factura y su documentación ---------- #}
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header bg-white"><strong><i class="fa fa-file-invoice-dollar me-1 text-danger"></i>Factura recibida</strong></div>
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-2 flex-wrap mb-3">
+          <a class="btn btn-outline-primary btn-sm" href="{{ inv.file_url }}" target="_blank" rel="noopener"><i class="fa fa-eye me-1"></i>Ver factura</a>
+          <span class="small text-muted">{{ inv.original_name or 'Factura' }}{% if inv.created_at %} · recibida el {{ inv.created_at.strftime('%d/%m/%Y') }}{% endif %}</span>
+        </div>
+        <div class="ficha-fields mb-3">
+          {% if inv.invoice_number %}<div><div class="ficha-field__label">Nº de factura</div><div class="ficha-field__value">{{ inv.invoice_number }}</div></div>{% endif %}
+          {% if inv.artist_text %}<div><div class="ficha-field__label">Artista</div><div class="ficha-field__value">{{ inv.artist_text }}</div></div>{% endif %}
+          {% if inv.concept_text %}<div><div class="ficha-field__label">Concepto</div><div class="ficha-field__value">{{ inv.concept_text }}</div></div>{% endif %}
+          {% if promoter and promoter.tax_id %}<div><div class="ficha-field__label">DNI / CIF</div><div class="ficha-field__value">{{ promoter.tax_id }}</div></div>{% endif %}
+          {% if promoter and promoter.bank_account %}<div><div class="ficha-field__label">Cuenta bancaria</div><div class="ficha-field__value">{{ promoter.bank_account }}</div></div>{% endif %}
+        </div>
+
+        <div class="fw-semibold small text-muted mb-2"><i class="fa fa-file-shield me-1"></i>Documentación requerida</div>
+        <div class="d-grid gap-2 mb-3">
+          {% for d in required_docs %}
+            <div class="d-flex align-items-center gap-2 border rounded p-2">
+              <i class="fa {{ d.icon }} text-danger"></i>
+              <span class="small flex-grow-1">{{ d.label }}</span>
+              {% if d.ok %}
+                <span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>En vigor</span>
+                {% if d.existing_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ d.existing_url }}" target="_blank" rel="noopener"><i class="fa fa-eye"></i></a>{% endif %}
+              {% else %}
+                <span class="badge text-bg-danger">Falta o caducado</span>
+              {% endif %}
+            </div>
+          {% else %}
+            <div class="text-muted small">Sin documentación adicional exigida.</div>
+          {% endfor %}
+        </div>
+
+        {% if inv.status == 'PENDIENTE' %}
+          <form method="post" action="{{ url_for('administration_royalty_invoice_validate', invoice_id=inv.id) }}" class="border-top pt-3">
+            <input type="hidden" name="next" value="{{ url_for('administracion_view', tab='pendiente', subtab='liquidacion') }}">
+            <label class="form-label small">Motivo si la rechazas <span class="text-muted">(se le envía para que la vuelva a subir)</span></label>
+            <textarea class="form-control mb-2" name="reason" rows="2" placeholder="Falta el concepto, importe incorrecto, datos fiscales erróneos…"></textarea>
+            <div class="d-flex gap-2 justify-content-end">
+              <button class="btn btn-outline-danger btn-sm" name="action" value="reject"><i class="fa fa-circle-xmark me-1"></i>Rechazar</button>
+              <button class="btn btn-success btn-sm" name="action" value="accept" onclick="return confirm('¿Validar la factura? La liquidación quedará pendiente de pago.');"><i class="fa fa-circle-check me-1"></i>Validar</button>
+            </div>
+          </form>
+        {% elif inv.status == 'RECHAZADA' and inv.reject_reason %}
+          <div class="alert alert-danger small mb-0">Rechazada: {{ inv.reject_reason }}</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

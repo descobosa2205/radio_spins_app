@@ -189,6 +189,31 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-07-26 — «Mis gastos»: facturas y gastos de Pleo, con plazos y asignación a bolsas
+
+- **Nueva sección «Mis gastos»** (en el menú de cada persona) y **panel en Inicio**: reúne las
+  facturas que le han enviado por el formulario de facturación y los gastos importados de Pleo que
+  todavía **no están asignados a una bolsa**, con el importe y una **etiqueta de cuenta atrás** de
+  los días que quedan (en rojo cuando ya está fuera de plazo).
+- **Asignar gastos**: pantalla de dos columnas con **scroll independiente** — los gastos sin asignar
+  a la izquierda y a la derecha las **bolsas abiertas agrupadas por artista**, ordenadas por
+  proximidad de la actividad, con **buscador por artista** para ver las de otros. Se **arrastra** el
+  gasto a su bolsa y desaparece de la lista de pendientes. Se muestran todas las bolsas no cerradas,
+  aunque la actividad ya haya pasado.
+- **En la bolsa**, cuando hay gastos importados sin tipificar la pantalla **se parte**: los módulos
+  de gasto a la izquierda y los importados a la derecha, para arrastrar cada uno a su tipo. Al
+  tipificarlo se crea su gasto en la bolsa (con su factura adjunta si la tenía) y, cuando no queda
+  ninguno, el módulo desaparece y la bolsa vuelve a verse como antes.
+- **Plazos y avisos**: cada gasto tiene **una semana** para asignarse. Al vencer, aviso en Inicio y
+  **correo a la persona** con el listado e importes; a los **15 días** sin asignar, **correo a
+  dirección** con la persona (y su foto) y los gastos pendientes. **A dirección no se le reclama.**
+  Lo dispara la tarea programada `/cron/gastos-sin-asignar` (misma clave que los otros cron).
+- Los endpoints de «Mis gastos» son **personales**: cualquier persona con sesión puede asignar **sus**
+  gastos aunque no tenga permisos de edición en ninguna sección, y el servidor comprueba que el gasto
+  es suyo antes de moverlo.
+
+
+
 ### 2026-07-26 — Royalties «A favor»: ciclo completo (solicitud, estados y factura)
 
 - **La pestaña «A favor» se ve como las liquidaciones normales**: tarjeta por **artista** (con su

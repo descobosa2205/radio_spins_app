@@ -1,0 +1,86 @@
+{% extends "layout.html" %}
+{% block content %}
+{# MIS GASTOS: facturas que me han mandado por el formulario de facturación y gastos importados de
+   Pleo que todavía no están asignados a una bolsa. #}
+{% macro expense_row(e, show_bag=False) %}
+  <div class="d-flex align-items-center gap-3 border rounded p-2 flex-wrap">
+    <span class="d-inline-flex align-items-center justify-content-center flex-shrink-0" style="width:40px;height:40px;border-radius:10px;background:rgba(227,61,72,.10);color:#E33D48;"><i class="fa {{ e.source_icon }}"></i></span>
+    <div class="flex-grow-1 min-w-0">
+      <div class="fw-semibold text-truncate">{{ e.concept }}</div>
+      <div class="small text-muted text-truncate">
+        {{ e.source_label }}{% if e.provider_name %} · {{ e.provider_name }}{% endif %}{% if e.invoice_number %} · nº {{ e.invoice_number }}{% endif %}{% if e.date_label %} · {{ e.date_label }}{% endif %}
+      </div>
+    </div>
+    <div class="text-end">
+      <div class="fw-semibold">{{ e.amount_gross|eur }}</div>
+      {% if e.status == 'PENDING' %}
+        {% if e.overdue %}
+          <span class="badge text-bg-danger"><i class="fa fa-triangle-exclamation me-1"></i>Fuera de plazo</span>
+        {% else %}
+          <span class="badge text-bg-warning text-dark"><i class="fa fa-hourglass-half me-1"></i>{{ e.days_left }} día{{ '' if e.days_left == 1 else 's' }} para asignarlo</span>
+        {% endif %}
+      {% elif e.status == 'IN_BAG' %}
+        <span class="badge text-bg-info"><i class="fa fa-sack-dollar me-1"></i>En la bolsa, sin tipificar</span>
+      {% else %}
+        <span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Asignado</span>
+      {% endif %}
+    </div>
+    {% if e.file_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ e.file_url }}" target="_blank" rel="noopener" title="Ver documento"><i class="fa fa-eye"></i></a>{% endif %}
+  </div>
+{% endmacro %}
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+  <div>
+    <h3 class="m-0"><i class="fa fa-receipt me-2 text-danger"></i>Mis gastos</h3>
+    <div class="text-muted small">Facturas que te han enviado y gastos de Pleo. Tienes {{ assign_days }} días para asignar cada uno a una bolsa.</div>
+  </div>
+  {% if pending %}
+    <a class="btn btn-danger" href="{{ url_for('my_expenses_assign') }}"><i class="fa fa-arrows-turn-right me-1"></i>Asignar gastos <span class="badge text-bg-light border ms-1">{{ pending|length }}</span></a>
+  {% endif %}
+</div>
+
+<div class="card mb-4 {% if pending|selectattr('overdue')|list %}border-danger{% endif %}">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <h5 class="mb-0"><i class="fa fa-hourglass-half me-2 text-danger"></i>Sin asignar a una bolsa</h5>
+      <span class="badge {{ 'text-bg-danger' if pending|selectattr('overdue')|list else 'text-bg-warning text-dark' }}">{{ pending|length }}</span>
+    </div>
+    {% if pending %}
+      <div class="d-grid gap-2">
+        {% for e in pending %}{{ expense_row(e) }}{% endfor %}
+      </div>
+    {% else %}
+      <div class="alert alert-success mb-0"><i class="fa fa-circle-check me-1"></i>No tienes gastos pendientes de asignar. ¡Al día!</div>
+    {% endif %}
+  </div>
+</div>
+
+{% if in_bag %}
+  <div class="card mb-4">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <h5 class="mb-0"><i class="fa fa-sack-dollar me-2 text-danger"></i>En una bolsa, pendientes de tipificar</h5>
+        <span class="badge text-bg-info">{{ in_bag|length }}</span>
+      </div>
+      <div class="small text-muted mb-2">Entra en la bolsa y arrástralos al módulo de gasto que corresponda.</div>
+      <div class="d-grid gap-2">
+        {% for e in in_bag %}{{ expense_row(e, show_bag=True) }}{% endfor %}
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+{% if assigned %}
+  <div class="card">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <h5 class="mb-0"><i class="fa fa-circle-check me-2 text-success"></i>Ya asignados</h5>
+        <span class="badge text-bg-success">{{ assigned|length }}</span>
+      </div>
+      <div class="d-grid gap-2">
+        {% for e in assigned %}{{ expense_row(e, show_bag=True) }}{% endfor %}
+      </div>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}

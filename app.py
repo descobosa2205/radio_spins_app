@@ -699,7 +699,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher"}
+    allowed = {"landing", "admin_login", "cron_unassigned_expenses", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher"}
     if request.endpoint in allowed:
         return
 
@@ -38196,6 +38196,29 @@ def _prl_admin_altas_context(session_db) -> dict:
     return {"altas_rows": rows, "altas_today": today}
 
 
+def _home_my_expenses_summary() -> dict:
+    """Panel de Inicio: mis facturas y gastos de Pleo sin asignar a una bolsa, con la cuenta atrás.
+    A dirección «pura» no se le reclama (la regla no les aplica)."""
+    uid = session.get("user_id")
+    if not uid:
+        return {"rows": [], "overdue": 0, "total": 0}
+    session_db = db()
+    try:
+        if _user_is_direccion(session_db, uid):
+            return {"rows": [], "overdue": 0, "total": 0}
+        rows = _personal_expenses_for(session_db, uid, status=("PENDING", "IN_BAG"))
+        return {
+            "rows": rows[:8],
+            "total": len(rows),
+            "overdue": len([r for r in rows if r["overdue"]]),
+            "amount": sum((r["amount_gross"] for r in rows), Decimal("0")),
+        }
+    except Exception:
+        return {"rows": [], "overdue": 0, "total": 0}
+    finally:
+        session_db.close()
+
+
 def _home_admin_altas_pending() -> list:
     """Empresas del grupo con ITA caducado o sin ITA (tarea pendiente de Administración)."""
     session_db = db()
@@ -38860,7 +38883,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_promoter_requests", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -40110,6 +40133,7 @@ def _nav_item_usage_score(item: dict, scores: dict[str, int]) -> int:
 # Icono Font Awesome por sección (compartido por el menú principal y la pantalla de accesos).
 SECTION_ICONS = {
     "home": "fa-house",
+    "mis_gastos": "fa-receipt",
     "radio": "fa-tower-broadcast",
     "ventas": "fa-ticket",
     "artists": "fa-users",
@@ -40213,6 +40237,14 @@ def _build_nav_menu() -> list[dict]:
             items.append(item)
         elif has_access_key(item["key"], include_descendants=True):
             items.append({"type": "link", "key": item["key"], "label": item["label"], "url": _resource_default_url(item["key"])})
+    # «Mis gastos» es personal (son SUS facturas y gastos): lo ve cualquiera con sesión, sin
+    # depender de permisos de sección. Solo se oculta a dirección «pura», a quien no se le reclama.
+    try:
+        if session.get("user_id") and int(current_role() or 0) != 10:
+            items.append({"type": "link", "key": "mis_gastos", "label": "Mis gastos",
+                          "url": url_for("my_expenses_view")})
+    except Exception:
+        pass
     return _sort_nav_menu_for_user(items)
 
 
@@ -40446,6 +40478,7 @@ def inject_personnel_globals():
         "HOME_PENDING_PETICIONES": _home_pending_peticiones() if request.endpoint == "home" and session.get("user_id") and "_home_pending_peticiones" in globals() else [],
         "HOME_PRODUCCION_PENDING": _home_produccion_pending() if request.endpoint == "home" and session.get("user_id") and "_home_produccion_pending" in globals() and has_access_key("produccion", include_descendants=True) else [],
         "HOME_ADMIN_ALTAS_PENDING": _home_admin_altas_pending() if request.endpoint == "home" and session.get("user_id") and "_home_admin_altas_pending" in globals() and has_access_key("administracion", include_descendants=True) else [],
+        "HOME_MY_EXPENSES": _home_my_expenses_summary() if request.endpoint == "home" and session.get("user_id") and "_home_my_expenses_summary" in globals() else {"rows": [], "overdue": 0, "total": 0},
         "HOME_AFAVOR_ALERT": _home_afavor_alert() if request.endpoint == "home" and session.get("user_id") and "_home_afavor_alert" in globals() and has_access_key("registros") else None,
         "HOME_AGENDA": _home_agenda() if request.endpoint == "home" and session.get("user_id") and "_home_agenda" in globals() else None,
         "AGENDA_ARTIST_OPTIONS": _agenda_artist_options() if request.endpoint == "home" and session.get("user_id") and "_agenda_artist_options" in globals() else [],
@@ -40611,6 +40644,8 @@ SUPPORT_ACTION_ENDPOINTS = {
     "prl_request_docs", "prl_doc_upload", "prl_doc_reject", "prl_doc_delete", "prl_set_worker_type",
     # Bolsa: cargar plantillas de gastos y pedir facturas a los proveedores
     "bag_load_templates", "bag_request_invoices",
+    # Mis gastos: tipificar el gasto importado dentro de la bolsa (asignar a bolsa es personal)
+    "bag_imported_expense_assign",
     # Fotos / vídeos (galería transversal de conciertos y acciones)
     "fotos_upload", "fotos_reorder", "foto_update", "foto_delete", "foto_discard",
     "fotos_video_sign", "fotos_video_register",
@@ -40678,6 +40713,12 @@ def _user_is_actor(state: dict | None = None) -> bool:
     return False
 
 
+# Endpoints PERSONALES: trabajan solo con datos del propio usuario (sus gastos y facturas), así
+# que basta con tener sesión — no se exige permiso de edición en ninguna sección. La comprobación
+# de que el dato es SUYO se hace dentro de cada endpoint.
+PERSONAL_ENDPOINTS = {"my_expenses_view", "my_expenses_assign", "my_expense_assign_bag"}
+
+
 def _support_endpoint_decision(endpoint: str):
     """Resuelve un endpoint de apoyo.
 
@@ -40687,6 +40728,8 @@ def _support_endpoint_decision(endpoint: str):
     """
     if not endpoint:
         return (False, None)
+    if endpoint in PERSONAL_ENDPOINTS:
+        return (True, None)
     if endpoint in SUPPORT_READ_ENDPOINTS:
         return (True, None)  # lookups de solo lectura: cualquier sesión válida
     if endpoint in SUPPORT_ECON_READ_ENDPOINTS:
@@ -45368,6 +45411,12 @@ def _bag_panel_context(session_db, bag) -> dict:
         # Bolsa en la FICHA: plantillas de gastos disponibles y proveedores sin factura subida.
         bag_templates=_bag_available_templates(session_db, bag),
         bag_providers_pending=_bag_providers_pending_invoice(session_db, bag),
+        # Gastos importados (facturas recibidas / Pleo) asignados a esta bolsa y sin tipificar:
+        # mientras haya, la pantalla se parte y se arrastran a su módulo de gasto.
+        bag_imported_pending=[_personal_expense_row(r) for r in (
+            session_db.query(PersonalExpense)
+            .filter(PersonalExpense.bag_id == bag.id, PersonalExpense.status == "IN_BAG")
+            .order_by(PersonalExpense.received_at.asc()).all())],
         bag_required_doc_choices=[(k, v) for k, v in PRL_DOC_LABELS.items() if k != "ITA"],
     )
 
@@ -47002,6 +47051,233 @@ def _bag_load_expense_template(session_db, bag, template) -> int:
 #  facturas a los proveedores que aún no la han subido.
 # ---------------------------------------------------------------------------
 
+def _expense_alert_email(rows: list, title: str, intro: str, person=None) -> str:
+    """Correo de aviso con el listado de gastos e importes (y la foto de la persona al escalar)."""
+    lines = ""
+    total = Decimal("0")
+    for r in rows:
+        total += _money_or_zero(r.get("amount_gross"))
+        lines += (
+            "<tr>"
+            f"<td style='padding:7px 9px;border-bottom:1px solid #eceef1;font-size:13px;color:#111'>{escape(r.get('concept') or 'Gasto')}"
+            f"<br><span style='color:#6b7280;font-size:12px'>{escape(r.get('source_label') or '')}"
+            f"{(' · ' + escape(r.get('date_label'))) if r.get('date_label') else ''}</span></td>"
+            f"<td style='padding:7px 9px;border-bottom:1px solid #eceef1;font-size:13px;text-align:right;white-space:nowrap'>{format_eur(r.get('amount_gross'))}</td>"
+            "</tr>"
+        )
+    person_html = ""
+    if person is not None:
+        photo = (getattr(person, "photo_url", None) or "").strip()
+        person_html = (
+            "<div style='display:flex;align-items:center;gap:10px;margin:0 0 14px;'>"
+            + (f"<img src='{escape(photo)}' width='48' height='48' style='border-radius:50%;object-fit:cover'>" if photo else "")
+            + f"<div style='font-size:16px;font-weight:700;color:#111'>{escape(getattr(person, 'nick', '') or '')}</div></div>"
+        )
+    return f"""
+    <div style="font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;max-width:620px;margin:0 auto;">
+      <h2 style="font-size:19px;color:#111;margin:0 0 12px;">{escape(title)}</h2>
+      {person_html}
+      <p style="font-size:14px;color:#374151;margin:0 0 14px;">{intro}</p>
+      <table style="width:100%;border-collapse:collapse;margin:0 0 10px;">
+        <tbody>{lines}</tbody>
+        <tfoot><tr>
+          <td style="padding:8px 9px;font-size:13px;font-weight:700;color:#111">Total</td>
+          <td style="padding:8px 9px;font-size:13px;font-weight:700;text-align:right;white-space:nowrap">{format_eur(total)}</td>
+        </tr></tfoot>
+      </table>
+      <p style="text-align:center;margin:18px 0;">
+        <a href="{_external_url_for('my_expenses_assign')}" style="background:#E33D48;color:#fff;text-decoration:none;padding:12px 26px;border-radius:8px;font-weight:600;display:inline-block;">Asignar mis gastos</a>
+      </p>
+    </div>
+    """
+
+
+@app.get('/cron/gastos-sin-asignar', endpoint='cron_unassigned_expenses')
+def cron_unassigned_expenses():
+    """Avisos de gastos sin asignar: a la PERSONA cuando pasa la semana y a DIRECCIÓN a los 15 días.
+    No aplica a dirección. Lo llama una tarea programada (misma clave que los otros cron)."""
+    key = (request.args.get("key") or "").strip()
+    expected = (settings.ENTERTICKET_CRON_KEY or settings.CHARTMETRIC_CRON_KEY or "").strip()
+    if not expected or key != expected:
+        abort(404)
+    notified, escalated = 0, 0
+    session_db = db()
+    try:
+        rows = (session_db.query(PersonalExpense)
+                .filter(PersonalExpense.status.in_(("PENDING", "IN_BAG")))
+                .all())
+        by_user = {}
+        for r in rows:
+            by_user.setdefault(str(r.user_id), []).append(r)
+        for uid, items in by_user.items():
+            if _user_is_direccion(session_db, uid):
+                continue
+            profile = session_db.query(UserProfile).filter(UserProfile.user_id == to_uuid(uid)).first()
+            user = session_db.get(User, to_uuid(uid))
+            email_to = (getattr(user, "email", None) or "").strip()
+            overdue = [r for r in items if _expense_days_left(r) < 0]
+            if not overdue:
+                continue
+            # 1) Aviso a la persona (una vez por gasto).
+            fresh = [r for r in overdue if not r.notified_at]
+            if fresh and email_to:
+                ok, _err = _send_optional_email(
+                    email_to,
+                    f"Tienes {len(overdue)} gasto{'s' if len(overdue) != 1 else ''} sin asignar a una bolsa",
+                    _expense_alert_email(
+                        [_personal_expense_row(r) for r in overdue],
+                        "Gastos sin asignar",
+                        f"Tienes <strong>{len(overdue)}</strong> gasto{'s' if len(overdue) != 1 else ''} "
+                        f"sin asignar a una bolsa. Tienes <strong>una semana</strong> para asignarlos.",
+                    ),
+                )
+                if ok:
+                    for r in fresh:
+                        r.notified_at = _now_madrid()
+                    notified += 1
+            # 2) Escalado a dirección a los 15 días.
+            very_old = [r for r in overdue
+                        if not r.escalated_at
+                        and _expense_days_left(r) <= (EXPENSE_ASSIGN_DAYS - EXPENSE_ESCALATE_DAYS)]
+            if very_old:
+                dir_emails = [u.email for u in session_db.query(User).filter(User.role == 10).all() if (u.email or "").strip()]
+                if dir_emails:
+                    ok, _err = _send_optional_email(
+                        dir_emails[:5],
+                        f"{getattr(profile, 'nick', '') or 'Una persona'}: gastos sin asignar desde hace más de {EXPENSE_ESCALATE_DAYS} días",
+                        _expense_alert_email(
+                            [_personal_expense_row(r) for r in very_old],
+                            "Gastos sin asignar a una bolsa",
+                            f"tiene los siguientes gastos sin asignar a una bolsa desde hace más de "
+                            f"<strong>{EXPENSE_ESCALATE_DAYS} días</strong>.",
+                            person=profile,
+                        ),
+                    )
+                    if ok:
+                        for r in very_old:
+                            r.escalated_at = _now_madrid()
+                        escalated += 1
+        session_db.commit()
+        return jsonify({"ok": True, "notified": notified, "escalated": escalated})
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        session_db.close()
+
+
+@app.get('/mis-gastos', endpoint='my_expenses_view')
+@admin_required
+def my_expenses_view():
+    """MIS GASTOS: facturas que me han enviado por el formulario y gastos de Pleo sin asignar."""
+    session_db = db()
+    try:
+        uid = session.get("user_id")
+        pending = _personal_expenses_for(session_db, uid, status=("PENDING",))
+        in_bag = _personal_expenses_for(session_db, uid, status=("IN_BAG",))
+        assigned = _personal_expenses_for(session_db, uid, status=("ASSIGNED",))
+        return render_template(
+            "my_expenses.html",
+            pending=pending, in_bag=in_bag, assigned=assigned,
+            assign_days=EXPENSE_ASSIGN_DAYS,
+        )
+    finally:
+        session_db.close()
+
+
+@app.get('/mis-gastos/asignar', endpoint='my_expenses_assign')
+@admin_required
+def my_expenses_assign():
+    """Pantalla de asignación: gastos sin asignar a la izquierda y bolsas abiertas a la derecha."""
+    session_db = db()
+    try:
+        uid = session.get("user_id")
+        q = (request.args.get("q") or "").strip()
+        return render_template(
+            "my_expenses_assign.html",
+            pending=_personal_expenses_for(session_db, uid, status=("PENDING",)),
+            bag_groups=_open_bags_for_user(session_db, uid, artist_query=q),
+            q=q,
+        )
+    finally:
+        session_db.close()
+
+
+@app.post('/mis-gastos/<expense_id>/asignar', endpoint='my_expense_assign_bag')
+@admin_required
+def my_expense_assign_bag(expense_id):
+    """Asigna un gasto a una BOLSA (queda pendiente de tipificar dentro de ella)."""
+    session_db = db()
+    try:
+        row = session_db.get(PersonalExpense, to_uuid(expense_id) or uuid.uuid4())
+        if not row:
+            return jsonify({"ok": False, "error": "Gasto no encontrado"}), 404
+        # Solo se pueden mover los gastos PROPIOS (dirección puede ayudar con los de cualquiera).
+        if str(row.user_id) != str(session.get("user_id")) and not is_master():
+            return jsonify({"ok": False, "error": "Ese gasto no es tuyo"}), 403
+        bag = session_db.get(WorkflowBag, to_uuid(request.form.get("bag_id") or "") or uuid.uuid4())
+        if not bag:
+            return jsonify({"ok": False, "error": "Bolsa no encontrada"}), 404
+        row.bag_id = bag.id
+        row.status = "IN_BAG"
+        row.assigned_at = _now_madrid()
+        row.updated_at = _now_madrid()
+        session_db.commit()
+        if request.form.get("ajax"):
+            return jsonify({"ok": True, "bag_title": bag.title or "Bolsa"})
+        flash(f"Gasto asignado a «{bag.title or 'Bolsa'}».", "success")
+        return redirect(safe_next_or(url_for("my_expenses_assign")))
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post('/bolsas/<bag_id>/gastos-importados/<expense_id>/tipificar', endpoint='bag_imported_expense_assign')
+@admin_required
+def bag_imported_expense_assign(bag_id, expense_id):
+    """Tipifica un gasto importado dentro de la bolsa: crea su BagExpense en la categoría elegida."""
+    session_db = db()
+    try:
+        bag = session_db.get(WorkflowBag, to_uuid(bag_id) or uuid.uuid4())
+        row = session_db.get(PersonalExpense, to_uuid(expense_id) or uuid.uuid4())
+        if not bag or not row:
+            return jsonify({"ok": False, "error": "No encontrado"}), 404
+        category = (request.form.get("category") or "").strip().upper()
+        if category not in dict(BAG_EXPENSE_CATEGORIES):
+            return jsonify({"ok": False, "error": "Categoría no válida"}), 400
+        gross = _money_or_zero(row.amount_gross)
+        net = _money_or_zero(row.amount_net) or gross
+        expense = BagExpense(
+            bag_id=bag.id, category=category,
+            concept=(row.concept or "Gasto importado"),
+            document_type=("FACTURA" if (row.source or "") == "INVOICE" else "TICKET"),
+            invoice_number=row.invoice_number,
+            issue_date=row.expense_date,
+            amount_net=net, amount_gross=gross,
+            amount_tax=(gross - net if gross and net and gross >= net else Decimal("0")),
+            attachment_url=row.file_url, attachment_name=row.original_name,
+            consolidation_status=("PENDIENTE_VALIDAR" if row.file_url else "PENDIENTE"),
+        )
+        session_db.add(expense)
+        session_db.flush()
+        row.bag_id = bag.id
+        row.bag_expense_id = expense.id
+        row.status = "ASSIGNED"
+        row.updated_at = _now_madrid()
+        session_db.commit()
+        if request.form.get("ajax"):
+            return jsonify({"ok": True, "expense_id": str(expense.id), "category": category})
+        flash("Gasto añadido a la bolsa.", "success")
+        return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag.id)))
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
 @app.post('/bolsas/<bag_id>/cargar-plantillas', endpoint='bag_load_templates')
 @admin_required
 def bag_load_templates(bag_id):
@@ -47036,6 +47312,117 @@ def bag_load_templates(bag_id):
         return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
     finally:
         session_db.close()
+
+
+# ---------------------------------------------------------------------------
+#  MIS GASTOS · facturas recibidas por el formulario y gastos de Pleo que una
+#  persona todavía no ha asignado a una bolsa. Plazo de 1 semana; a los 15 días
+#  se escala a dirección (no aplica a dirección).
+# ---------------------------------------------------------------------------
+
+EXPENSE_ASSIGN_DAYS = 7          # plazo para asignar un gasto a una bolsa
+EXPENSE_ESCALATE_DAYS = 15       # a partir de aquí se avisa a dirección
+
+
+def _expense_days_left(row) -> int:
+    """Días que quedan para asignarlo (negativo = ya pasado el plazo)."""
+    ref = getattr(row, "received_at", None) or getattr(row, "created_at", None)
+    if not ref:
+        return EXPENSE_ASSIGN_DAYS
+    try:
+        ref_date = ref.date() if hasattr(ref, "date") else ref
+    except Exception:
+        return EXPENSE_ASSIGN_DAYS
+    return EXPENSE_ASSIGN_DAYS - (date.today() - ref_date).days
+
+
+def _personal_expense_row(row) -> dict:
+    days = _expense_days_left(row)
+    return {
+        "id": str(row.id),
+        "source": (row.source or "INVOICE"),
+        "source_label": {"PLEO": "Pleo", "INVOICE": "Factura recibida"}.get((row.source or ""), "Gasto"),
+        "source_icon": {"PLEO": "fa-credit-card", "INVOICE": "fa-file-invoice-dollar"}.get((row.source or ""), "fa-receipt"),
+        "concept": (row.concept or "Gasto"),
+        "provider_name": (row.provider_name or ""),
+        "invoice_number": (row.invoice_number or ""),
+        "date_label": (row.expense_date.strftime("%d/%m/%Y") if row.expense_date else ""),
+        "amount_gross": _money_or_zero(row.amount_gross),
+        "file_url": (row.file_url or ""),
+        "status": (row.status or "PENDING"),
+        "bag_id": (str(row.bag_id) if row.bag_id else ""),
+        "days_left": days,
+        "overdue": days < 0,
+        "urgent": 0 <= days <= EXPENSE_ASSIGN_DAYS,
+    }
+
+
+def _user_is_direccion(session_db, user_id) -> bool:
+    """Dirección «pura»: role 10 (la regla de plazos no les aplica)."""
+    try:
+        u = session_db.get(User, to_uuid(str(user_id)))
+        return bool(u) and int(getattr(u, "role", 0) or 0) == 10
+    except Exception:
+        return False
+
+
+def _personal_expenses_for(session_db, user_id, status=("PENDING",)) -> list:
+    uid = to_uuid(str(user_id)) if user_id else None
+    if not uid:
+        return []
+    q = (session_db.query(PersonalExpense)
+         .filter(PersonalExpense.user_id == uid))
+    if status:
+        q = q.filter(PersonalExpense.status.in_(list(status)))
+    return [_personal_expense_row(r) for r in q.order_by(PersonalExpense.received_at.asc()).all()]
+
+
+def _open_bags_for_user(session_db, user_id, artist_query: str = "") -> list:
+    """Bolsas NO cerradas agrupadas por artista, ordenadas por proximidad de la actividad.
+    Por defecto las del usuario (sus artistas asignados); con `artist_query` busca otras."""
+    closed = {"CERRADA", "LIQUIDADA", "ARCHIVADA"}
+    bags = (session_db.query(WorkflowBag)
+            .filter(WorkflowBag.is_archived == False)     # noqa: E712
+            .order_by(WorkflowBag.start_date.desc().nullslast())
+            .all())
+    assigned_ids = set()
+    if user_id and not _user_is_direccion(session_db, user_id):
+        prof = session_db.query(UserProfile).filter(UserProfile.user_id == to_uuid(str(user_id))).first()
+        assigned_ids = {str(x) for x in ((getattr(prof, "assigned_artist_ids", None) or []) if prof else [])}
+    want = _norm_text_key(artist_query or "")
+    groups = {}
+    for bag in bags:
+        if (bag.status or "").upper() in closed:
+            continue
+        artists = _bag_artist_rows(session_db, bag)
+        art = artists[0] if artists else None
+        aid = str(art.id) if art else ""
+        art_name = (art.name if art else "Sin artista")
+        if want:
+            if want not in _norm_text_key(art_name):
+                continue
+        elif assigned_ids and aid and aid not in assigned_ids:
+            continue
+        g = groups.setdefault(aid or "sin", {
+            "artist_id": aid, "artist_name": art_name,
+            "artist_photo": ((getattr(art, "photo_url", "") or "") if art else ""),
+            "bags": [],
+        })
+        g["bags"].append({
+            "id": str(bag.id),
+            "title": (bag.title or "Bolsa"),
+            "date": bag.start_date,
+            "date_label": (bag.start_date.strftime("%d/%m/%Y") if bag.start_date else ""),
+            "linked_title": (bag.linked_title or ""),
+            "status": (bag.status or ""),
+        })
+    out = list(groups.values())
+    today = date.today()
+    for g in out:
+        g["bags"].sort(key=lambda b: abs((b["date"] - today).days) if b["date"] else 99999)
+        g["next_date"] = g["bags"][0]["date"] if g["bags"] and g["bags"][0]["date"] else None
+    out.sort(key=lambda g: abs((g["next_date"] - today).days) if g["next_date"] else 99999)
+    return out
 
 
 def _bag_expense_has_invoice(expense) -> bool:

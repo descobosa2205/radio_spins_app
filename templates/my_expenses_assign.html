@@ -1,0 +1,135 @@
+{% extends "layout.html" %}
+{% block content %}
+{# ASIGNAR GASTOS: a la izquierda los gastos sin asignar y a la derecha las bolsas abiertas
+   agrupadas por artista. Cada columna hace scroll por separado y los gastos se arrastran a la
+   bolsa que corresponda (al soltarlos desaparecen de la izquierda). #}
+<div class="mb-2">
+  <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('my_expenses_view') }}" title="Volver a mis gastos" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
+</div>
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <div>
+    <h4 class="m-0"><i class="fa fa-arrows-turn-right me-2 text-danger"></i>Asignar gastos a bolsas</h4>
+    <div class="text-muted small">Arrastra cada gasto a su bolsa. Se muestran todas las bolsas abiertas, aunque la actividad ya haya pasado.</div>
+  </div>
+  <form method="get" class="d-flex gap-2" action="{{ url_for('my_expenses_assign') }}">
+    <input class="form-control form-control-sm" name="q" value="{{ q }}" placeholder="Buscar bolsas de otro artista…" style="min-width:220px;">
+    <button class="btn btn-outline-secondary btn-sm"><i class="fa fa-magnifying-glass"></i></button>
+    {% if q %}<a class="btn btn-outline-secondary btn-sm" href="{{ url_for('my_expenses_assign') }}">Mis artistas</a>{% endif %}
+  </form>
+</div>
+
+<div class="row g-3 assign-cols">
+  {# ---------------- IZQUIERDA: pendientes ---------------- #}
+  <div class="col-12 col-lg-5">
+    <div class="card h-100">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <strong><i class="fa fa-hourglass-half me-1 text-danger"></i>Sin asignar</strong>
+        <span class="badge text-bg-warning text-dark" data-pending-count>{{ pending|length }}</span>
+      </div>
+      <div class="card-body assign-scroll" id="pendingCol">
+        {% for e in pending %}
+          <div class="assign-exp border rounded p-2 mb-2" draggable="true" data-expense-id="{{ e.id }}">
+            <div class="d-flex align-items-center gap-2">
+              <i class="fa fa-grip-vertical text-muted"></i>
+              <span class="d-inline-flex align-items-center justify-content-center flex-shrink-0" style="width:34px;height:34px;border-radius:9px;background:rgba(227,61,72,.10);color:#E33D48;"><i class="fa {{ e.source_icon }} small"></i></span>
+              <div class="flex-grow-1 min-w-0">
+                <div class="fw-semibold small text-truncate">{{ e.concept }}</div>
+                <div class="small text-muted text-truncate">{{ e.source_label }}{% if e.date_label %} · {{ e.date_label }}{% endif %}</div>
+              </div>
+              <div class="text-end">
+                <div class="fw-semibold small">{{ e.amount_gross|eur }}</div>
+                {% if e.overdue %}<span class="badge text-bg-danger">Fuera de plazo</span>
+                {% else %}<span class="badge text-bg-warning text-dark">{{ e.days_left }} d</span>{% endif %}
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+        <div class="text-muted small text-center py-4 {% if pending %}d-none{% endif %}" data-pending-empty>
+          <i class="fa fa-circle-check me-1 text-success"></i>No queda ningún gasto sin asignar.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ---------------- DERECHA: bolsas abiertas ---------------- #}
+  <div class="col-12 col-lg-7">
+    <div class="card h-100">
+      <div class="card-header bg-white"><strong><i class="fa fa-sack-dollar me-1 text-danger"></i>Bolsas abiertas</strong></div>
+      <div class="card-body assign-scroll">
+        {% for g in bag_groups %}
+          <div class="mb-3">
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <img src="{{ g.artist_photo or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:1px solid #eee;">
+              <span class="fw-semibold">{{ g.artist_name }}</span>
+              <span class="badge text-bg-light border">{{ g.bags|length }}</span>
+            </div>
+            <div class="d-grid gap-2">
+              {% for b in g.bags %}
+                <div class="assign-bag border rounded p-2" data-bag-id="{{ b.id }}" data-bag-title="{{ b.title }}">
+                  <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <i class="fa fa-inbox text-muted"></i>
+                    <div class="flex-grow-1 min-w-0">
+                      <div class="fw-semibold small text-truncate">{{ b.title }}</div>
+                      <div class="small text-muted text-truncate">{{ b.linked_title }}{% if b.date_label %} · {{ b.date_label }}{% endif %}</div>
+                    </div>
+                    <span class="badge text-bg-light border">{{ b.status }}</span>
+                    <span class="badge text-bg-success d-none" data-bag-added>+1</span>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        {% else %}
+          <div class="alert alert-light border mb-0">No hay bolsas abiertas{% if q %} para «{{ q }}»{% endif %}. {% if not q %}Busca por artista para ver otras.{% endif %}</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var URL_TPL = {{ url_for('my_expense_assign_bag', expense_id='__ID__')|tojson }};
+  var dragId = null;
+
+  document.querySelectorAll('.assign-exp').forEach(function(el){
+    el.addEventListener('dragstart', function(){ dragId = el.getAttribute('data-expense-id'); el.classList.add('opacity-50'); });
+    el.addEventListener('dragend', function(){ el.classList.remove('opacity-50'); });
+  });
+
+  function refreshCount(){
+    var left = document.querySelectorAll('#pendingCol .assign-exp').length;
+    var badge = document.querySelector('[data-pending-count]');
+    if (badge) badge.textContent = left;
+    var empty = document.querySelector('[data-pending-empty]');
+    if (empty) empty.classList.toggle('d-none', left > 0);
+  }
+
+  document.querySelectorAll('.assign-bag').forEach(function(bag){
+    bag.addEventListener('dragover', function(e){ if (dragId) { e.preventDefault(); bag.classList.add('assign-bag--over'); } });
+    bag.addEventListener('dragleave', function(){ bag.classList.remove('assign-bag--over'); });
+    bag.addEventListener('drop', function(e){
+      e.preventDefault();
+      bag.classList.remove('assign-bag--over');
+      if (!dragId) return;
+      var expId = dragId; dragId = null;
+      var fd = new FormData();
+      fd.append('bag_id', bag.getAttribute('data-bag-id'));
+      fd.append('ajax', '1');
+      var meta = document.querySelector('meta[name="csrf-token"]');
+      fetch(URL_TPL.replace('__ID__', expId), {
+        method: 'POST', headers: meta ? {'X-CSRFToken': meta.getAttribute('content')} : {}, body: fd
+      }).then(function(r){ return r.json(); }).then(function(d){
+        if (!d || !d.ok) { alert((d && d.error) || 'No se pudo asignar el gasto'); return; }
+        var card = document.querySelector('.assign-exp[data-expense-id="' + expId + '"]');
+        if (card) card.remove();
+        var mark = bag.querySelector('[data-bag-added]');
+        if (mark) { mark.classList.remove('d-none'); setTimeout(function(){ mark.classList.add('d-none'); }, 1800); }
+        refreshCount();
+      });
+    });
+  });
+})();
+</script>
+{% endblock %}

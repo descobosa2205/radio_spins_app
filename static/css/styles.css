@@ -2527,3 +2527,32 @@ img.docs-id__face { width:100%; height:100%; object-fit:cover; display:block; cu
 .bag-embed-head__totals{ display:flex; gap:1.4rem; flex-wrap:wrap; }
 .bag-embed-head__totals > div{ display:flex; flex-direction:column; line-height:1.2; }
 .bag-embed-head__badges{ display:flex; gap:.4rem; flex-wrap:wrap; }
+
+/* =========================================================
+   FACTURACIÓN · landing pública de subida de facturas (/facturacion)
+   Tres pasos numerados, cada uno en su viñeta, con el siguiente atenuado
+   hasta que se completa el anterior.
+   ========================================================= */
+.inv-step{
+  background:#fff; border:1px solid var(--line-2, rgba(0,0,0,.08));
+  border-radius:16px; margin-bottom:1.1rem; overflow:hidden;
+  box-shadow:var(--shadow-sm-2, 0 .125rem .25rem rgba(0,0,0,.05));
+  transition:opacity .15s ease;
+}
+.inv-step__head{
+  display:flex; align-items:center; gap:.85rem;
+  padding:.8rem 1rem; background:#fdECED; color:#E33D48;
+}
+.inv-step__num{
+  width:34px; height:34px; flex:0 0 34px; border-radius:50%;
+  display:inline-flex; align-items:center; justify-content:center;
+  background:#E33D48; color:#fff; font-weight:800;
+}
+.inv-step__title{ font-weight:800; line-height:1.15; }
+.inv-step__sub{ color:#8a5b5f; font-size:.82rem; }
+.inv-step__body{ padding:1rem; }
+.inv-step.is-locked{ opacity:.5; pointer-events:none; }
+.inv-step.is-locked .inv-step__num{ background:#c9ced6; }
+.inv-step.is-locked .inv-step__head{ background:#f4f5f7; color:#6c757d; }
+.inv-step.is-locked .inv-step__sub{ color:#9aa1a9; }
+.inv-missing input{ border-color:#E33D48; box-shadow:0 0 0 .15rem rgba(227,61,72,.12); }

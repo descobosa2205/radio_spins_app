@@ -704,6 +704,11 @@ class Promoter(Base):
     hotel_notes = Column(Text)
     # Tipo de trabajador a efectos de PRL/altas: AUTONOMO | PUNTUAL (alta puntual) | EMPRESA (fijo).
     prl_type = Column(Text)
+    # Datos de facturación que el propio proveedor rellena una vez en /facturacion.
+    bank_account = Column(Text)          # IBAN / nº de cuenta
+    fiscal_address = Column(Text)        # dirección fiscal (particular o empresa)
+    data_consent_at = Column(DateTime(timezone=True))   # aceptó las condiciones de datos
+    billing_updated_at = Column(DateTime(timezone=True))
 
     # Redes sociales del tercero (p. ej. del fotógrafo) para menciones. Dict opcional:
     # {"instagram": ..., "tiktok": ..., "twitter": ..., "facebook": ..., "youtube": ...}.
@@ -1811,6 +1816,42 @@ class ConcertArtworkAsset(Base):
 
 
 # --- NOTAS (contratación / generales) ---
+
+class SupplierInvoice(Base):
+    """Factura subida por un proveedor: por la landing genérica (/facturacion) o desde una
+    petición concreta de una bolsa. Queda pendiente de validar por administración."""
+
+    __tablename__ = "supplier_invoices"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="CASCADE"), nullable=False)
+    source = Column(Text, nullable=False, server_default=text("'LANDING'"))   # LANDING | REQUEST
+    # Si viene de una petición de bolsa: a qué bolsa/concepto se refiere.
+    bag_id = Column(PGUUID(as_uuid=True), ForeignKey("workflow_bags.id", ondelete="SET NULL"))
+    bag_expense_id = Column(PGUUID(as_uuid=True), ForeignKey("bag_expenses.id", ondelete="SET NULL"))
+    invoice_request_id = Column(PGUUID(as_uuid=True))
+    # Lo que declara el proveedor al subirla (artista y concepto vienen en la propia factura).
+    artist_text = Column(Text)
+    concept_text = Column(Text)
+    invoice_number = Column(Text)
+    amount_gross = Column(Numeric)
+    group_company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
+    file_url = Column(Text, nullable=False)
+    original_name = Column(Text)
+    mime_type = Column(Text)
+    # PENDIENTE (recibida, sin validar) | VALIDADA | RECHAZADA
+    status = Column(Text, nullable=False, server_default=text("'PENDIENTE'"))
+    reject_reason = Column(Text)
+    validated_at = Column(DateTime(timezone=True))
+    validated_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    promoter = relationship("Promoter")
+
+    __table_args__ = (
+        Index("idx_supplier_invoices_promoter", "promoter_id", "status"),
+    )
+
 
 class BagInvoiceRequest(Base):
     """Petición de facturas a un PROVEEDOR de una bolsa: enlace público donde sube la factura de
@@ -5789,6 +5830,36 @@ def ensure_third_party_and_contract_sheet_schema():
         """,
         'CREATE INDEX IF NOT EXISTS idx_person_compliance_owner ON person_compliance_docs(owner_type, owner_id);',
         'CREATE INDEX IF NOT EXISTS idx_person_compliance_type ON person_compliance_docs(doc_type);',
+        # Datos de facturación que el proveedor rellena una vez en /facturacion.
+        "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS bank_account text;",
+        "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS fiscal_address text;",
+        "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS data_consent_at timestamptz;",
+        "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS billing_updated_at timestamptz;",
+        # Facturas subidas por los proveedores (landing genérica o petición concreta).
+        """
+        CREATE TABLE IF NOT EXISTS supplier_invoices (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            promoter_id uuid NOT NULL REFERENCES promoters(id) ON DELETE CASCADE,
+            source text NOT NULL DEFAULT 'LANDING',
+            bag_id uuid REFERENCES workflow_bags(id) ON DELETE SET NULL,
+            bag_expense_id uuid REFERENCES bag_expenses(id) ON DELETE SET NULL,
+            invoice_request_id uuid,
+            artist_text text,
+            concept_text text,
+            invoice_number text,
+            amount_gross numeric,
+            group_company_id uuid REFERENCES group_companies(id) ON DELETE SET NULL,
+            file_url text NOT NULL,
+            original_name text,
+            mime_type text,
+            status text NOT NULL DEFAULT 'PENDIENTE',
+            reject_reason text,
+            validated_at timestamptz,
+            validated_by_nick text,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_supplier_invoices_promoter ON supplier_invoices(promoter_id, status);',
         # Peticiones de factura a proveedores de una bolsa (enlace público por proveedor).
         """
         CREATE TABLE IF NOT EXISTS bag_invoice_requests (

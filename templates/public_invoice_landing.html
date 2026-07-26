@@ -1,0 +1,443 @@
+{% extends "layout.html" %}
+{% block content %}
+{# Landing pública de SUBIDA DE FACTURAS en 3 pasos.
+   · inv_mode = LANDING  → bañera del back office arriba a la IZQUIERDA y datos de facturación de
+     TODAS las empresas del grupo.
+   · inv_mode = REQUEST  → logo de la empresa del grupo que corresponda arriba a la DERECHA, solo
+     sus datos de facturación, y hay que CONFIRMAR que la factura está emitida a esos datos. #}
+<div class="container py-4">
+  <div class="mx-auto" style="max-width:920px;">
+
+    {% if inv_mode == 'REQUEST' and company %}
+      <div class="text-end mb-2">
+        <img src="{{ company.logo_url or url_for('static', filename='img/logo_33_producciones.png') }}" alt="{{ company.name }}" style="max-height:56px;max-width:220px;object-fit:contain;">
+      </div>
+    {% else %}
+      <div class="mb-2">
+        <img src="{{ url_for('static', filename='img/logo_33_producciones.png') }}" alt="33 Producciones · Back Office" style="max-height:52px;max-width:260px;object-fit:contain;">
+      </div>
+    {% endif %}
+
+    <h3 class="text-center mb-1">Subida de Facturas</h3>
+    <p class="text-center text-muted small mb-4">Tres pasos y listo. Los datos solo hay que rellenarlos una vez.</p>
+
+    {% if inv_mode == 'REQUEST' and request_rows %}
+      {# Conceptos concretos que se le piden (petición desde una bolsa o una liquidación). #}
+      <div class="card shadow-sm mb-4">
+        <div class="card-body">
+          <h6 class="mb-2"><i class="fa fa-list-check me-2 text-danger"></i>Lo que te pedimos</h6>
+          <div class="d-grid gap-2">
+            {% for r in request_rows %}
+              <div class="d-flex align-items-center gap-2 border rounded p-2 flex-wrap">
+                <span class="fw-semibold small flex-grow-1">{{ r.concept }}</span>
+                {% if r.category_label %}<span class="badge text-bg-light border">{{ r.category_label }}</span>{% endif %}
+                <span class="small text-muted">{{ r.net|eur }} sin IVA · <strong>{{ r.gross|eur }}</strong> con IVA</span>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
+    {# ============================ PASO 1 ============================ #}
+    <div class="inv-step" data-inv-step="1">
+      <div class="inv-step__head">
+        <span class="inv-step__num">1</span>
+        <div>
+          <div class="inv-step__title">Haz la factura</div>
+          <div class="inv-step__sub">Emítela a la empresa del grupo que corresponda.</div>
+        </div>
+      </div>
+      <div class="inv-step__body">
+        <div class="alert alert-warning small">
+          <i class="fa fa-triangle-exclamation me-1"></i>En la factura tienen que venir <strong>claros el ARTISTA y el CONCEPTO</strong>. Si no, no podremos tramitarla.
+        </div>
+        <div class="row g-3">
+          {% set _companies = [company] if (inv_mode == 'REQUEST' and company) else companies %}
+          {% for co in _companies %}
+            {% if co %}
+            <div class="col-12 {% if _companies|length > 1 %}col-md-6{% endif %}">
+              <div class="border rounded-3 p-3 h-100">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                  <img src="{{ co.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:52px;height:52px;object-fit:contain;background:#fff;border:1px solid #eee;border-radius:10px;">
+                  <div class="fw-semibold">{{ co.name }}</div>
+                </div>
+                {% if co.tax_info %}
+                  <div class="small text-muted" style="white-space:pre-line;">{{ co.tax_info }}</div>
+                {% else %}
+                  <div class="small text-muted fst-italic">Pide los datos de facturación a tu contacto en la oficina.</div>
+                {% endif %}
+              </div>
+            </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+        {% if inv_mode == 'REQUEST' and company %}
+          <label class="form-check-label border rounded px-3 py-2 mt-3 d-inline-flex align-items-center">
+            <input class="form-check-input me-2" type="checkbox" id="invBillingConfirm">
+            <span class="small">Confirmo que la factura está emitida a <strong>{{ company.name }}</strong> con estos datos de facturación.</span>
+          </label>
+        {% endif %}
+        <div class="text-end mt-3">
+          <button class="btn btn-danger" type="button" data-inv-next="2"><i class="fa fa-check me-1"></i>Ya tengo la factura</button>
+        </div>
+      </div>
+    </div>
+
+    {# ============================ PASO 2 ============================ #}
+    <div class="inv-step is-locked" data-inv-step="2">
+      <div class="inv-step__head">
+        <span class="inv-step__num">2</span>
+        <div>
+          <div class="inv-step__title">Identifícate</div>
+          <div class="inv-step__sub">Escribe tu DNI o CIF: si ya estás en nuestra base de datos, no tendrás que rellenar nada.</div>
+        </div>
+      </div>
+      <div class="inv-step__body">
+        <div class="row g-2 align-items-end">
+          <div class="col-12 col-md-5">
+            <label class="form-label">DNI / CIF</label>
+            <input class="form-control" id="invTaxId" placeholder="12345678A o B12345678" value="{{ (provider.tax_id if provider else '') or '' }}">
+          </div>
+          <div class="col-auto">
+            <button class="btn btn-outline-danger" type="button" id="invIdentifyBtn"><i class="fa fa-magnifying-glass me-1"></i>Comprobar</button>
+          </div>
+        </div>
+        <div class="small text-muted mt-2"><i class="fa fa-circle-info me-1"></i>Si empieza por letra lo tomamos como <strong>empresa</strong>; si termina en letra, como <strong>particular</strong>.</div>
+
+        <div class="mt-3 d-none" id="invIdentifyResult"></div>
+
+        {# Formulario de alta / actualización (se rellena por JS según el tipo) #}
+        <form class="mt-3 d-none" id="invRegisterForm" enctype="multipart/form-data">
+          <input type="hidden" name="tax_id" id="invRegTaxId">
+          <input type="hidden" name="kind" id="invRegKind">
+          <input type="hidden" name="promoter_id" id="invRegPromoterId">
+          <div class="alert alert-light border small" id="invRegIntro"></div>
+          <div class="row g-3">
+            <div class="col-12 col-md-6 d-none" data-reg-field="full_name">
+              <label class="form-label">Nombre y apellidos <span class="text-danger">*</span></label>
+              <input class="form-control" name="full_name">
+            </div>
+            <div class="col-12 col-md-6 d-none" data-reg-field="company_name">
+              <label class="form-label">Nombre de la empresa <span class="text-danger">*</span></label>
+              <input class="form-control" name="company_name">
+            </div>
+            <div class="col-12 col-md-6 d-none" data-reg-field="contact_name">
+              <label class="form-label">Nombre y apellidos del contacto <span class="text-danger">*</span></label>
+              <input class="form-control" name="contact_name">
+              <div class="form-text">Se guardará como persona de contacto vinculada a la empresa.</div>
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label" id="invRegTaxLabel">DNI <span class="text-danger">*</span></label>
+              <input class="form-control" id="invRegTaxShown" disabled>
+            </div>
+            <div class="col-12" data-reg-field="fiscal_address">
+              <label class="form-label">Dirección fiscal <span class="text-danger">*</span></label>
+              <input class="form-control" name="fiscal_address">
+            </div>
+            <div class="col-12 col-md-6" data-reg-field="email">
+              <label class="form-label">Email <span class="text-danger">*</span></label>
+              <input class="form-control" type="email" name="email">
+            </div>
+            <div class="col-12 col-md-6" data-reg-field="phone">
+              <label class="form-label">Teléfono de contacto <span class="text-danger">*</span></label>
+              <input class="form-control" name="phone">
+            </div>
+            <div class="col-12" data-reg-field="bank_account">
+              <label class="form-label">Número de cuenta bancaria <span class="text-danger">*</span></label>
+              <input class="form-control" name="bank_account" placeholder="ES00 0000 0000 0000 0000 0000">
+            </div>
+            <div class="col-12">
+              <label class="form-label" id="invRegPhotoLabel">Foto <span class="text-muted">(opcional)</span></label>
+              <div class="inv-drop border border-2 border-dashed rounded-3 p-3 text-center text-muted" id="invPhotoDrop" style="cursor:pointer;">
+                <i class="fa fa-image me-1"></i><span data-photo-text>Arrastra aquí la imagen o pulsa para elegirla</span>
+                <input type="file" name="photo" class="d-none" accept="image/*">
+              </div>
+            </div>
+            <div class="col-12">
+              <label class="form-check-label border rounded px-3 py-2 d-inline-flex align-items-center">
+                <input class="form-check-input me-2" type="checkbox" name="consent" value="1" id="invConsent">
+                <span class="small">Acepto las <strong>condiciones de protección y uso de mis datos</strong> para crear el registro.</span>
+              </label>
+            </div>
+          </div>
+          <div class="d-flex justify-content-end gap-2 mt-3">
+            <button class="btn btn-danger" type="submit"><i class="fa fa-floppy-disk me-1"></i>Guardar mis datos</button>
+          </div>
+          <div class="small mt-2" id="invRegMsg"></div>
+        </form>
+      </div>
+    </div>
+
+    {# ============================ PASO 3 ============================ #}
+    <div class="inv-step is-locked" data-inv-step="3">
+      <div class="inv-step__head">
+        <span class="inv-step__num">3</span>
+        <div>
+          <div class="inv-step__title">Sube la factura y la documentación</div>
+          <div class="inv-step__sub">Todos los documentos son obligatorios. Lo que ya tengas en vigor no se te vuelve a pedir.</div>
+        </div>
+      </div>
+      <div class="inv-step__body">
+        <div class="row g-2 mb-3" id="invInvoiceMeta">
+          <div class="col-12 col-md-4"><label class="form-label small">Nº de factura <span class="text-muted">(opcional)</span></label><input class="form-control form-control-sm" id="invNumber"></div>
+          <div class="col-12 col-md-4"><label class="form-label small">Artista <span class="text-muted">(como en la factura)</span></label><input class="form-control form-control-sm" id="invArtist"></div>
+          <div class="col-12 col-md-4"><label class="form-label small">Concepto</label><input class="form-control form-control-sm" id="invConcept"></div>
+        </div>
+        <div class="d-grid gap-3" id="invDocs"></div>
+        <div class="alert alert-success mt-3 d-none" id="invDone">
+          <i class="fa fa-circle-check me-1"></i>¡Factura recibida! La revisaremos y te avisaremos si falta algo. Muchas gracias.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const MODE = {{ inv_mode|tojson }};
+  const TOKEN = {{ (request_row.public_token if request_row else '')|tojson }};
+  const URL_IDENTIFY = {{ url_for('public_invoice_identify')|tojson }};
+  const URL_REGISTER = {{ url_for('public_invoice_register')|tojson }};
+  const URL_DOCS = {{ url_for('public_invoice_docs_state')|tojson }};
+  const URL_UPLOAD = {{ url_for('public_invoice_upload')|tojson }};
+  const PRESET = {{ (provider_payload if provider_payload else None)|tojson }};
+
+  let profile = PRESET || null;
+
+  function stepEl(n){ return document.querySelector('[data-inv-step="' + n + '"]'); }
+  function unlock(n){ const el = stepEl(n); if (el) { el.classList.remove('is-locked'); el.scrollIntoView({behavior:'smooth', block:'start'}); } }
+
+  // ---- Paso 1 → 2
+  document.querySelectorAll('[data-inv-next]').forEach(function(b){
+    b.addEventListener('click', function(){
+      const confirmBox = document.getElementById('invBillingConfirm');
+      if (confirmBox && !confirmBox.checked) {
+        alert('Confirma que la factura está emitida a los datos de la empresa que se muestran.');
+        return;
+      }
+      unlock(2);
+      if (profile) { applyProfile(profile); }
+    });
+  });
+
+  // ---- Paso 2 · identificar
+  const regForm = document.getElementById('invRegisterForm');
+  function showRegisterForm(kind, taxId, promoterId, missing, intro){
+    document.getElementById('invRegTaxId').value = taxId || '';
+    document.getElementById('invRegKind').value = kind || 'PARTICULAR';
+    document.getElementById('invRegPromoterId').value = promoterId || '';
+    document.getElementById('invRegTaxShown').value = taxId || '';
+    document.getElementById('invRegTaxLabel').innerHTML = (kind === 'EMPRESA' ? 'CIF' : 'DNI') + ' <span class="text-danger">*</span>';
+    document.getElementById('invRegPhotoLabel').innerHTML = (kind === 'EMPRESA' ? 'Logo' : 'Foto') + ' <span class="text-muted">(opcional)</span>';
+    document.getElementById('invRegIntro').innerHTML = intro || '';
+    const show = {
+      full_name: kind !== 'EMPRESA',
+      company_name: kind === 'EMPRESA',
+      contact_name: kind === 'EMPRESA'
+    };
+    regForm.querySelectorAll('[data-reg-field]').forEach(function(box){
+      const f = box.getAttribute('data-reg-field');
+      const visible = (f in show) ? show[f] : true;
+      box.classList.toggle('d-none', !visible);
+      const inp = box.querySelector('input');
+      if (inp) inp.required = visible;
+    });
+    if (missing && missing.length) {
+      regForm.querySelectorAll('[data-reg-field]').forEach(function(box){
+        const f = box.getAttribute('data-reg-field');
+        if (missing.indexOf(f) >= 0) box.classList.add('inv-missing');
+        else box.classList.remove('inv-missing');
+      });
+    }
+    regForm.classList.remove('d-none');
+  }
+
+  function applyProfile(p){
+    profile = p;
+    const box = document.getElementById('invIdentifyResult');
+    box.classList.remove('d-none');
+    box.innerHTML = '<div class="border rounded-3 p-3">'
+      + '<div class="d-flex align-items-center gap-2 flex-wrap"><span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Identificado</span>'
+      + '<span class="fw-semibold">' + (p.label || '') + '</span><span class="text-muted small">' + (p.tax_id || '') + '</span></div>'
+      + '<div class="small text-muted mt-2">Dirección fiscal: ' + (p.fiscal_address_masked || '—')
+      + ' · Email: ' + (p.email_masked || '—') + ' · Teléfono: ' + (p.phone_masked || '—')
+      + ' · Cuenta: ' + (p.bank_masked || '—') + '</div>'
+      + (p.complete
+          ? '<button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-inv-update><i class="fa fa-pen me-1"></i>Actualizar mis datos</button>'
+          : '<div class="alert alert-warning small mt-2 mb-0">Nos faltan datos obligatorios: complétalos para poder facturar.</div>')
+      + '</div>';
+    const upd = box.querySelector('[data-inv-update]');
+    if (upd) upd.addEventListener('click', function(){ showRegisterForm(p.kind, p.tax_id, p.id, [], 'Cambia solo lo que quieras actualizar.'); });
+    if (!p.complete) {
+      showRegisterForm(p.kind, p.tax_id, p.id, p.missing, 'Completa los datos que faltan (marcados) y guarda.');
+    } else {
+      regForm.classList.add('d-none');
+      loadDocs(p.id);
+      unlock(3);
+    }
+  }
+
+  document.getElementById('invIdentifyBtn').addEventListener('click', function(){
+    const tax = (document.getElementById('invTaxId').value || '').trim();
+    if (!tax) { alert('Escribe tu DNI o CIF.'); return; }
+    const fd = new FormData(); fd.append('tax_id', tax);
+    fetch(URL_IDENTIFY, {method:'POST', body:fd}).then(r => r.json()).then(function(d){
+      const box = document.getElementById('invIdentifyResult');
+      box.classList.remove('d-none');
+      if (!d || !d.ok) { box.innerHTML = '<div class="alert alert-danger small mb-0">' + ((d && d.error) || 'No se pudo comprobar') + '</div>'; return; }
+      if (d.found && d.matches.length === 1) { applyProfile(d.matches[0]); return; }
+      if (d.found && d.matches.length > 1) {
+        box.innerHTML = '<div class="small text-muted mb-2">Hemos encontrado varias coincidencias. Elige la tuya:</div>'
+          + d.matches.map(function(m, i){
+              return '<button type="button" class="btn btn-outline-secondary btn-sm me-2 mb-2" data-inv-pick="' + i + '">' + (m.label || m.tax_id) + '</button>';
+            }).join('');
+        box.querySelectorAll('[data-inv-pick]').forEach(function(b){
+          b.addEventListener('click', function(){ applyProfile(d.matches[Number(b.getAttribute('data-inv-pick'))]); });
+        });
+        return;
+      }
+      box.innerHTML = '<div class="alert alert-warning small mb-0"><i class="fa fa-circle-info me-1"></i>Todavía no estás en nuestra base de datos. Rellena tus datos aquí abajo: <strong>solo tendrás que hacerlo esta vez</strong>.</div>';
+      showRegisterForm(d.kind, d.tax_id, '', [], 'Datos de ' + (d.kind === 'EMPRESA' ? 'la empresa' : 'la persona') + ' para poder facturar.');
+    });
+  });
+
+  // Foto/logo arrastrable
+  (function(){
+    const drop = document.getElementById('invPhotoDrop');
+    if (!drop) return;
+    const input = drop.querySelector('input[type=file]');
+    const txt = drop.querySelector('[data-photo-text]');
+    drop.addEventListener('click', function(){ input.click(); });
+    drop.addEventListener('dragover', function(e){ e.preventDefault(); drop.classList.add('bg-light'); });
+    drop.addEventListener('dragleave', function(){ drop.classList.remove('bg-light'); });
+    drop.addEventListener('drop', function(e){
+      e.preventDefault(); drop.classList.remove('bg-light');
+      if (e.dataTransfer.files && e.dataTransfer.files.length) { input.files = e.dataTransfer.files; txt.textContent = e.dataTransfer.files[0].name; }
+    });
+    input.addEventListener('change', function(){ if (input.files.length) txt.textContent = input.files[0].name; });
+  })();
+
+  regForm.addEventListener('submit', function(ev){
+    ev.preventDefault();
+    const msg = document.getElementById('invRegMsg');
+    if (!document.getElementById('invConsent').checked) {
+      msg.className = 'small mt-2 text-danger';
+      msg.textContent = 'Tienes que aceptar las condiciones de protección de datos.';
+      return;
+    }
+    msg.className = 'small mt-2 text-muted'; msg.textContent = 'Guardando…';
+    fetch(URL_REGISTER, {method:'POST', body: new FormData(regForm)}).then(r => r.json()).then(function(d){
+      if (!d || !d.ok) {
+        msg.className = 'small mt-2 text-danger';
+        msg.textContent = (d && d.error) || 'No se pudieron guardar los datos';
+        return;
+      }
+      msg.className = 'small mt-2 text-success'; msg.textContent = 'Datos guardados.';
+      profile = d.profile;
+      applyProfile(d.profile);
+      renderDocs(d.docs);
+      unlock(3);
+    });
+  });
+
+  // ---- Paso 3 · documentos
+  function loadDocs(pid){
+    const fd = new FormData(); fd.append('promoter_id', pid);
+    fetch(URL_DOCS, {method:'POST', body:fd}).then(r => r.json()).then(function(d){
+      if (d && d.ok) renderDocs(d.docs);
+    });
+  }
+
+  function renderDocs(docs){
+    const wrap = document.getElementById('invDocs');
+    wrap.innerHTML = (docs || []).map(function(doc){
+      const okBadge = doc.ok
+        ? '<span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>' + (doc.note || 'En vigor') + '</span>'
+        : '<span class="badge text-bg-secondary">Pendiente</span>';
+      const linkBtn = doc.link
+        ? '<a class="btn btn-sm btn-outline-secondary" href="' + doc.link + '" target="_blank" rel="noopener"><i class="fa fa-arrow-up-right-from-square me-1"></i>Obtener certificado</a>'
+        : '';
+      return '<div class="border rounded-3 p-3 inv-doc" data-doc-key="' + doc.key + '">'
+        + '<div class="d-flex align-items-start gap-3 flex-wrap">'
+        + '<span class="d-inline-flex align-items-center justify-content-center flex-shrink-0" style="width:44px;height:44px;border-radius:12px;background:rgba(227,61,72,.10);color:#E33D48;"><i class="fa ' + (doc.icon || 'fa-file') + ' fa-lg"></i></span>'
+        + '<div class="flex-grow-1 min-w-0">'
+        +   '<div class="d-flex align-items-center flex-wrap gap-2"><span class="fw-semibold">' + doc.label + '</span>' + okBadge + linkBtn + '</div>'
+        +   '<div class="inv-drop mt-2 border border-2 border-dashed rounded-3 p-3 text-center text-muted' + (doc.ok ? ' d-none' : '') + '" style="cursor:pointer;">'
+        +     '<i class="fa fa-cloud-arrow-up me-1"></i>Arrastra aquí el archivo o pulsa para subirlo'
+        +     '<input type="file" class="d-none" accept="application/pdf,image/*">'
+        +   '</div>'
+        +   '<div class="inv-progress mt-2 d-none"><div class="progress" style="height:8px;"><div class="progress-bar bg-danger" style="width:0%"></div></div></div>'
+        +   '<div class="inv-msg small mt-2"></div>'
+        + '</div></div></div>';
+    }).join('');
+    wireDocs();
+  }
+
+  function wireDocs(){
+    document.querySelectorAll('.inv-doc').forEach(function(slot){
+      const drop = slot.querySelector('.inv-drop');
+      if (!drop) return;
+      const input = drop.querySelector('input[type=file]');
+      drop.addEventListener('click', function(){ input.click(); });
+      drop.addEventListener('dragover', function(e){ e.preventDefault(); drop.classList.add('bg-light'); });
+      drop.addEventListener('dragleave', function(){ drop.classList.remove('bg-light'); });
+      drop.addEventListener('drop', function(e){
+        e.preventDefault(); drop.classList.remove('bg-light');
+        if (e.dataTransfer.files && e.dataTransfer.files.length) uploadDoc(slot, e.dataTransfer.files[0]);
+      });
+      input.addEventListener('change', function(){ if (input.files.length) uploadDoc(slot, input.files[0]); });
+    });
+  }
+
+  function uploadDoc(slot, file){
+    const key = slot.getAttribute('data-doc-key');
+    const prog = slot.querySelector('.inv-progress');
+    const bar = prog.querySelector('.progress-bar');
+    const msg = slot.querySelector('.inv-msg');
+    prog.classList.remove('d-none'); msg.textContent = '';
+    const fd = new FormData();
+    fd.append('promoter_id', (profile && profile.id) || '');
+    fd.append('doc_key', key);
+    fd.append('file', file);
+    if (key === 'INVOICE') {
+      fd.append('invoice_number', (document.getElementById('invNumber')||{}).value || '');
+      fd.append('artist_text', (document.getElementById('invArtist')||{}).value || '');
+      fd.append('concept_text', (document.getElementById('invConcept')||{}).value || '');
+      {% if inv_mode == 'REQUEST' and company %}fd.append('group_company_id', {{ (company.id|string)|tojson }});{% endif %}
+      if (TOKEN) fd.append('token', TOKEN);
+    }
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', URL_UPLOAD);
+    xhr.upload.addEventListener('progress', function(e){ if (e.lengthComputable) bar.style.width = Math.round(e.loaded/e.total*100) + '%'; });
+    xhr.addEventListener('load', function(){
+      let resp = {};
+      try { resp = JSON.parse(xhr.responseText || '{}'); } catch(e){}
+      prog.classList.add('d-none');
+      if (xhr.status === 200 && resp.ok) {
+        if (resp.docs) renderDocs(resp.docs);
+        else {
+          slot.querySelector('.inv-drop').classList.add('d-none');
+          const b = slot.querySelector('.badge'); if (b) { b.className = 'badge text-bg-success'; b.innerHTML = '<i class="fa fa-circle-check me-1"></i>Recibida'; }
+        }
+        if (resp.done) document.getElementById('invDone').classList.remove('d-none');
+      } else {
+        msg.className = 'inv-msg small mt-2 text-danger';
+        msg.textContent = (resp && resp.error) || 'No se pudo subir el archivo';
+      }
+    });
+    xhr.addEventListener('error', function(){
+      prog.classList.add('d-none');
+      msg.className = 'inv-msg small mt-2 text-danger';
+      msg.textContent = 'Error de conexión';
+    });
+    xhr.send(fd);
+  }
+
+  // En modo PETICIÓN ya sabemos quién es: se salta la búsqueda.
+  if (MODE === 'REQUEST' && PRESET) {
+    document.getElementById('invTaxId').value = PRESET.tax_id || '';
+  }
+})();
+</script>
+{% endblock %}

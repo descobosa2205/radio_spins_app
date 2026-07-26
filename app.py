@@ -260,6 +260,7 @@ from models import (
     PersonComplianceDoc,
     PrlUploadRequest,
     BagInvoiceRequest,
+    SupplierInvoice,
 )
 import sim_calc  # motor de cálculo puro de Simulaciones
 import seatmap_calc  # motor puro del mapa de butacas del recinto (conteos/plantillas)
@@ -349,6 +350,10 @@ _CSRF_EXEMPT_ENDPOINTS = {
     "concert_artwork_public_upload",
     "public_prl_upload_post",
     "public_bag_invoice_upload_post",
+    "public_invoice_identify",
+    "public_invoice_register",
+    "public_invoice_docs_state",
+    "public_invoice_upload",
     "concert_artwork_public_submit",
     "public_sale_channels",
     "concert_contract_public_form",
@@ -691,7 +696,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher"}
+    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher"}
     if request.endpoint in allowed:
         return
 
@@ -36418,7 +36423,19 @@ PRL_DOC_LABELS = {
     "ITA": "Informe de trabajadores en alta (ITA)",
     "PRL_FORMACION": "PRL · Formación",
     "PRL_INFORMACION": "PRL · Información de riesgos",
+    # Certificados de facturación: CADUCAN CADA MES (solo valen para el mes en vigor).
+    "CERT_AEAT": "Certificado de la Agencia Tributaria",
+    "CERT_SS": "Certificado de corriente de pagos con la Seguridad Social",
 }
+# Certificados que exige facturación, con el enlace oficial para obtenerlos y a quién se le piden.
+INVOICE_CERT_DOCS = [
+    ("CERT_AEAT", "Certificado de la Agencia Tributaria", "fa-landmark", "empresa",
+     "https://www2.agenciatributaria.gob.es/wlpl/BUCV-JDIT/AutenticaDniNieContrasteh?ref=%2Fwlpl%2FOVCT%2DCXEW%2FSelectorAcceso%3Fref%3D%252Fwlpl%252FEMCE%2DJDIT%252FECOTInternetCiudadanosServlet%26aut%3DCP"),
+    ("CERT_SS", "Certificado de corriente de pagos con la Seguridad Social", "fa-shield-halved", "ambos",
+     "https://idp.seg-social.es/PGIS/Login"),
+]
+# Estos certificados solo valen el MES en vigor.
+INVOICE_MONTHLY_CERTS = {"CERT_AEAT", "CERT_SS"}
 # Documento de «alta» que corresponde a cada tipo de trabajador.
 PRL_ALTA_DOC_BY_TYPE = {"AUTONOMO": "AUTONOMO_RECIBO", "PUNTUAL": "ALTA_SS", "EMPRESA": "ITA"}
 _PRL_MESES_ES = {"enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
@@ -37907,7 +37924,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_promoter_requests", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_promoter_requests", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -46279,8 +46296,391 @@ def _bag_invoice_request_context(session_db, req):
     }
 
 
+# ---------------------------------------------------------------------------
+#  FACTURACIÓN · landing pública /facturacion (3 pasos) y su reutilización en
+#  las peticiones de factura (bolsa / liquidación de royalties).
+# ---------------------------------------------------------------------------
+
+def _tax_id_kind(value: str) -> str:
+    """EMPRESA si empieza por letra (CIF), PARTICULAR si termina en letra (DNI/NIE)."""
+    v = re.sub(r"[^0-9A-Za-z]", "", (value or "")).upper()
+    if not v:
+        return ""
+    if v[0].isalpha():
+        return "EMPRESA"
+    if v[-1].isalpha():
+        return "PARTICULAR"
+    return "PARTICULAR"
+
+
+def _mask_value(value: str, keep: int = 4) -> str:
+    """Enmascara un dato personal dejando solo los últimos caracteres a la vista: quien teclea un
+    DNI ajeno NO puede leer el IBAN, el correo ni el teléfono completos del titular."""
+    v = (value or "").strip()
+    if not v:
+        return ""
+    if "@" in v:
+        user, _, dom = v.partition("@")
+        head = user[:2] if len(user) > 2 else user[:1]
+        return f"{head}{'•' * max(3, len(user) - len(head))}@{dom}"
+    if len(v) <= keep:
+        return "•" * len(v)
+    return "•" * (len(v) - keep) + v[-keep:]
+
+
+def _cert_month_range(today=None):
+    """Vigencia de los certificados mensuales: del 1 al último día del mes en vigor."""
+    d = today or date.today()
+    return date(d.year, d.month, 1), _prl_month_end(d.year, d.month)
+
+
+def _billing_required_docs(kind: str) -> list:
+    """Documentos que se exigen para poder dejar la factura subida."""
+    out = [{"key": "INVOICE", "label": "Factura", "icon": "fa-file-invoice-dollar", "link": ""}]
+    for key, label, icon, who, link in INVOICE_CERT_DOCS:
+        if who == "ambos" or (who == "empresa" and kind == "EMPRESA"):
+            out.append({"key": key, "label": label, "icon": icon, "link": link})
+    return out
+
+
+def _billing_docs_state(session_db, promoter, kind: str) -> list:
+    """Estado de los documentos exigidos: los que ya están EN VIGOR no se vuelven a pedir."""
+    rows = []
+    valid_from, valid_until = _cert_month_range()
+    for doc in _billing_required_docs(kind):
+        if doc["key"] == "INVOICE":
+            rows.append({**doc, "ok": False, "existing_url": "", "note": ""})
+            continue
+        existing = None
+        if promoter is not None:
+            existing = (session_db.query(PersonComplianceDoc)
+                        .filter(PersonComplianceDoc.owner_type == "PROMOTER",
+                                PersonComplianceDoc.owner_id == promoter.id,
+                                PersonComplianceDoc.doc_type == doc["key"],
+                                PersonComplianceDoc.status == "APPROVED")
+                        .order_by(PersonComplianceDoc.created_at.desc()).first())
+        ok = bool(existing and (existing.valid_until or date.min) >= valid_until)
+        rows.append({
+            **doc,
+            "ok": ok,
+            "existing_url": (existing.file_url if (existing and ok) else ""),
+            "note": ("Documento ya subido anteriormente y en vigor" if ok
+                     else "Solo vale el del mes en vigor"),
+        })
+    return rows
+
+
+def _billing_profile_payload(session_db, promoter) -> dict:
+    """Datos de facturación del proveedor, con los personales ENMASCARADOS, y qué falta."""
+    kind = "EMPRESA" if (promoter.kind or "").lower() == "empresa" else _tax_id_kind(promoter.tax_id or "")
+    company = None
+    if kind == "EMPRESA":
+        company = (session_db.query(PromoterCompany)
+                   .filter(PromoterCompany.promoter_id == promoter.id)
+                   .order_by(PromoterCompany.created_at.asc()).first())
+    contact = (session_db.query(PromoterContact)
+               .filter(PromoterContact.promoter_id == promoter.id)
+               .order_by(PromoterContact.created_at.asc()).first())
+    full_name = " ".join([x for x in [(promoter.first_name or "").strip(), (promoter.last_name or "").strip()] if x]).strip()
+    contact_name = " ".join([x for x in [(contact.first_name or "").strip() if contact else "",
+                                         (contact.last_name or "").strip() if contact else ""] if x]).strip()
+    fiscal = (promoter.fiscal_address or getattr(company, "fiscal_address", None) or promoter.address or "").strip()
+    missing = []
+    if kind == "EMPRESA":
+        if not (promoter.nick or "").strip():
+            missing.append("company_name")
+        if not contact_name:
+            missing.append("contact_name")
+    else:
+        if not full_name:
+            missing.append("full_name")
+    if not fiscal:
+        missing.append("fiscal_address")
+    if not (promoter.contact_email or "").strip():
+        missing.append("email")
+    if not (promoter.contact_phone or "").strip():
+        missing.append("phone")
+    if not (promoter.bank_account or "").strip():
+        missing.append("bank_account")
+    return {
+        "id": str(promoter.id),
+        "kind": kind,
+        "tax_id": (promoter.tax_id or ""),
+        "label": (promoter.nick or full_name or "Proveedor"),
+        "full_name": full_name,
+        "company_name": (promoter.nick or ""),
+        "contact_name": contact_name,
+        # Enmascarados: se ven lo justo para reconocerse, no para copiarlos.
+        "fiscal_address_masked": _mask_value(fiscal, 6),
+        "email_masked": _mask_value(promoter.contact_email or ""),
+        "phone_masked": _mask_value(promoter.contact_phone or "", 3),
+        "bank_masked": _mask_value(promoter.bank_account or ""),
+        "has_fiscal": bool(fiscal),
+        "missing": missing,
+        "complete": not missing,
+    }
+
+
+@app.get('/facturacion', endpoint='public_invoice_landing')
+def public_invoice_landing():
+    """Landing pública de subida de facturas (3 pasos), sin petición previa."""
+    session_db = db()
+    try:
+        companies = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+        return render_template(
+            "public_invoice_landing.html",
+            inv_mode="LANDING",
+            companies=companies,
+            company=None,
+            cert_docs=INVOICE_CERT_DOCS,
+            request_row=None,
+            request_rows=[],
+        )
+    finally:
+        session_db.close()
+
+
+@app.post('/facturacion/identificar', endpoint='public_invoice_identify')
+def public_invoice_identify():
+    """Paso 2: busca el DNI/CIF en la base de datos y dice qué hacer."""
+    session_db = db()
+    try:
+        raw = (request.form.get("tax_id") or "").strip()
+        norm = _prl_norm_dni(raw)
+        if not norm:
+            return jsonify({"ok": False, "error": "Escribe tu DNI o CIF"}), 400
+        kind = _tax_id_kind(raw)
+        matches = []
+        for p in session_db.query(Promoter).filter(Promoter.tax_id.isnot(None)).all():
+            if _prl_norm_dni(p.tax_id) == norm:
+                matches.append(_billing_profile_payload(session_db, p))
+        # También por CIF de una sociedad del tercero.
+        if not matches:
+            for pc in session_db.query(PromoterCompany).filter(PromoterCompany.tax_id.isnot(None)).all():
+                if _prl_norm_dni(pc.tax_id) == norm:
+                    p = session_db.get(Promoter, pc.promoter_id)
+                    if p:
+                        matches.append(_billing_profile_payload(session_db, p))
+        return jsonify({"ok": True, "kind": kind, "tax_id": raw, "found": bool(matches), "matches": matches})
+    finally:
+        session_db.close()
+
+
+@app.post('/facturacion/registrar', endpoint='public_invoice_register')
+def public_invoice_register():
+    """Crea (o completa) los datos de facturación del proveedor. Solo hay que hacerlo una vez."""
+    session_db = db()
+    try:
+        raw_tax = (request.form.get("tax_id") or "").strip()
+        if not raw_tax:
+            return jsonify({"ok": False, "error": "Falta el DNI/CIF"}), 400
+        kind = (request.form.get("kind") or _tax_id_kind(raw_tax) or "PARTICULAR").upper()
+        if not _truthy(request.form.get("consent")):
+            return jsonify({"ok": False, "error": "Debes aceptar las condiciones de protección de datos"}), 400
+        existing_id = to_uuid(request.form.get("promoter_id") or "")
+        promoter = session_db.get(Promoter, existing_id) if existing_id else None
+        if promoter is None:
+            norm = _prl_norm_dni(raw_tax)
+            for p in session_db.query(Promoter).filter(Promoter.tax_id.isnot(None)).all():
+                if _prl_norm_dni(p.tax_id) == norm:
+                    promoter = p
+                    break
+        fields = {k: (request.form.get(k) or "").strip() for k in
+                  ("full_name", "company_name", "contact_name", "fiscal_address", "email", "phone", "bank_account")}
+        required = ["fiscal_address", "email", "phone", "bank_account"]
+        required += ["company_name", "contact_name"] if kind == "EMPRESA" else ["full_name"]
+        faltan = [f for f in required if not fields.get(f)]
+        if faltan and promoter is None:
+            return jsonify({"ok": False, "error": "Faltan datos obligatorios", "missing": faltan}), 400
+        if promoter is None:
+            nick = fields["company_name"] if kind == "EMPRESA" else fields["full_name"]
+            promoter = Promoter(nick=nick[:120], kind=("empresa" if kind == "EMPRESA" else None), tax_id=raw_tax)
+            session_db.add(promoter)
+            session_db.flush()
+        # Datos (solo se sobreescribe lo que llega relleno).
+        if kind == "PARTICULAR" and fields["full_name"]:
+            parts = fields["full_name"].split()
+            promoter.first_name = parts[0]
+            promoter.last_name = " ".join(parts[1:]) or None
+            if not (promoter.nick or "").strip():
+                promoter.nick = fields["full_name"][:120]
+        if kind == "EMPRESA" and fields["company_name"]:
+            promoter.nick = fields["company_name"][:120]
+            promoter.kind = "empresa"
+        promoter.tax_id = raw_tax
+        for attr, key in (("fiscal_address", "fiscal_address"), ("contact_email", "email"),
+                          ("contact_phone", "phone"), ("bank_account", "bank_account")):
+            if fields[key]:
+                setattr(promoter, attr, fields[key])
+        if fields["fiscal_address"] and not (promoter.address or "").strip():
+            promoter.address = fields["fiscal_address"]
+        promoter.data_consent_at = _now_madrid()
+        promoter.billing_updated_at = _now_madrid()
+        # Empresa: sociedad + contacto vinculado.
+        if kind == "EMPRESA":
+            company = (session_db.query(PromoterCompany)
+                       .filter(PromoterCompany.promoter_id == promoter.id)
+                       .order_by(PromoterCompany.created_at.asc()).first())
+            if not company:
+                company = PromoterCompany(promoter_id=promoter.id, legal_name=(fields["company_name"] or promoter.nick)[:200])
+                session_db.add(company)
+            company.tax_id = raw_tax
+            if fields["fiscal_address"]:
+                company.fiscal_address = fields["fiscal_address"]
+            if fields["contact_name"]:
+                parts = fields["contact_name"].split()
+                contact = (session_db.query(PromoterContact)
+                           .filter(PromoterContact.promoter_id == promoter.id)
+                           .order_by(PromoterContact.created_at.asc()).first())
+                if not contact:
+                    contact = PromoterContact(promoter_id=promoter.id, title="Contacto de facturación",
+                                              first_name=parts[0], last_name=" ".join(parts[1:]) or None)
+                    session_db.add(contact)
+                else:
+                    contact.first_name = parts[0]
+                    contact.last_name = " ".join(parts[1:]) or None
+                if fields["email"]:
+                    contact.email = fields["email"]
+                if fields["phone"]:
+                    contact.phone = fields["phone"]
+        # Foto / logo (opcional, cualquier formato).
+        f = request.files.get("photo")
+        if f and f.filename:
+            url = upload_image(f, "providers") or upload_file(f, "providers")
+            if url:
+                promoter.logo_url = url
+        session_db.commit()
+        payload = _billing_profile_payload(session_db, promoter)
+        return jsonify({"ok": True, "profile": payload,
+                        "docs": _billing_docs_state(session_db, promoter, payload["kind"])})
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("public_invoice_register")
+        return jsonify({"ok": False, "error": "No se pudieron guardar los datos"}), 500
+    finally:
+        session_db.close()
+
+
+@app.post('/facturacion/documentos', endpoint='public_invoice_docs_state')
+def public_invoice_docs_state():
+    """Estado de los documentos exigidos a un proveedor ya identificado."""
+    session_db = db()
+    try:
+        promoter = session_db.get(Promoter, to_uuid(request.form.get("promoter_id") or "") or uuid.uuid4())
+        if not promoter:
+            return jsonify({"ok": False, "error": "Proveedor no encontrado"}), 404
+        payload = _billing_profile_payload(session_db, promoter)
+        return jsonify({"ok": True, "profile": payload,
+                        "docs": _billing_docs_state(session_db, promoter, payload["kind"])})
+    finally:
+        session_db.close()
+
+
+def _billing_store_cert(session_db, promoter, doc_type: str, file_storage):
+    """Guarda un certificado de facturación con vigencia del MES EN VIGOR."""
+    filename = (file_storage.filename or "certificado").strip()
+    is_pdf = filename.lower().endswith(".pdf") or (file_storage.mimetype or "") == "application/pdf"
+    url = upload_pdf(file_storage, "documents") if is_pdf else upload_file(file_storage, "documents")
+    if not url:
+        return None
+    valid_from, valid_until = _cert_month_range()
+    doc = PersonComplianceDoc(
+        owner_type="PROMOTER", owner_id=promoter.id, doc_type=doc_type,
+        file_url=url, original_name=filename[:200], mime_type=file_storage.mimetype,
+        valid_from=valid_from, valid_until=valid_until, status="APPROVED",
+        detected_meta={"scope": "billing", "month": valid_from.strftime("%m/%Y")},
+        uploaded_via="PUBLIC",
+    )
+    session_db.add(doc)
+    session_db.flush()
+    return doc
+
+
+@app.post('/facturacion/subir', endpoint='public_invoice_upload')
+def public_invoice_upload():
+    """Sube la factura o uno de los certificados exigidos (landing genérica)."""
+    session_db = db()
+    try:
+        promoter = session_db.get(Promoter, to_uuid(request.form.get("promoter_id") or "") or uuid.uuid4())
+        if not promoter:
+            return jsonify({"ok": False, "error": "Identifícate primero"}), 400
+        doc_key = (request.form.get("doc_key") or "").strip().upper()
+        f = request.files.get("file")
+        if not f or not f.filename:
+            return jsonify({"ok": False, "error": "Falta el archivo"}), 400
+        if doc_key in INVOICE_MONTHLY_CERTS:
+            doc = _billing_store_cert(session_db, promoter, doc_key, f)
+            if not doc:
+                return jsonify({"ok": False, "error": "No se pudo guardar el certificado"}), 400
+            session_db.commit()
+            payload = _billing_profile_payload(session_db, promoter)
+            return jsonify({"ok": True, "kind": "cert", "doc_key": doc_key,
+                            "docs": _billing_docs_state(session_db, promoter, payload["kind"])})
+        if doc_key != "INVOICE":
+            return jsonify({"ok": False, "error": "Documento no válido"}), 400
+        payload = _billing_profile_payload(session_db, promoter)
+        pending = [d for d in _billing_docs_state(session_db, promoter, payload["kind"])
+                   if d["key"] != "INVOICE" and not d["ok"]]
+        if pending:
+            return jsonify({"ok": False, "error": "Antes sube: " + ", ".join(d["label"] for d in pending)}), 400
+        filename = (f.filename or "factura").strip()
+        is_pdf = filename.lower().endswith(".pdf") or (f.mimetype or "") == "application/pdf"
+        url = upload_pdf(f, "invoices") if is_pdf else upload_file(f, "invoices")
+        if not url:
+            return jsonify({"ok": False, "error": "No se pudo guardar la factura"}), 400
+        # Si viene de una PETICIÓN (bolsa), la factura se vincula a sus conceptos pendientes.
+        token = (request.form.get("token") or "").strip()
+        bag_req = (session_db.query(BagInvoiceRequest)
+                   .filter(BagInvoiceRequest.public_token == token).first()) if token else None
+        if bag_req is not None:
+            linked = 0
+            for exp_id in (bag_req.expense_ids or []):
+                expense = session_db.get(BagExpense, to_uuid(str(exp_id)) or uuid.uuid4())
+                if expense is None or _bag_expense_has_invoice(expense):
+                    continue
+                expense.attachment_url = url
+                expense.attachment_name = filename[:200]
+                expense.attachment_mime = f.mimetype
+                if (getattr(expense, "consolidation_status", "") or "").upper() not in BAG_CONSOLIDATED_STATUSES:
+                    expense.consolidation_status = "PENDIENTE_VALIDAR"
+                linked += 1
+            session_db.add(SupplierInvoice(
+                promoter_id=promoter.id, source="REQUEST", bag_id=bag_req.bag_id,
+                invoice_request_id=bag_req.id,
+                artist_text=(request.form.get("artist_text") or "").strip() or None,
+                concept_text=(request.form.get("concept_text") or "").strip() or None,
+                invoice_number=(request.form.get("invoice_number") or "").strip() or None,
+                group_company_id=to_uuid(request.form.get("group_company_id") or "") or None,
+                file_url=url, original_name=filename[:200], mime_type=f.mimetype, status="PENDIENTE",
+            ))
+            bag_req.status = "DONE"
+            bag_req.updated_at = datetime.utcnow()
+            session_db.commit()
+            return jsonify({"ok": True, "kind": "invoice", "done": True, "linked": linked})
+        inv = SupplierInvoice(
+            promoter_id=promoter.id, source="LANDING",
+            artist_text=(request.form.get("artist_text") or "").strip() or None,
+            concept_text=(request.form.get("concept_text") or "").strip() or None,
+            invoice_number=(request.form.get("invoice_number") or "").strip() or None,
+            group_company_id=to_uuid(request.form.get("group_company_id") or "") or None,
+            file_url=url, original_name=filename[:200], mime_type=f.mimetype, status="PENDIENTE",
+        )
+        session_db.add(inv)
+        session_db.commit()
+        return jsonify({"ok": True, "kind": "invoice", "done": True})
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("public_invoice_upload")
+        return jsonify({"ok": False, "error": "Error al subir el archivo"}), 500
+    finally:
+        session_db.close()
+
+
 @app.get('/factura/<token>', endpoint='public_bag_invoice_upload')
 def public_bag_invoice_upload(token):
+    """Petición de factura de una bolsa: MISMO proceso que la landing (/facturacion), pero con el
+    logo de la empresa del grupo que corresponda arriba a la derecha, solo sus datos de facturación
+    y confirmación de que la factura está emitida a ellos."""
     session_db = db()
     try:
         req = session_db.query(BagInvoiceRequest).filter(BagInvoiceRequest.public_token == token).first()
@@ -46289,7 +46689,27 @@ def public_bag_invoice_upload(token):
         ctx = _bag_invoice_request_context(session_db, req)
         if not ctx["bag"] or not ctx["provider"]:
             abort(404)
-        return render_template("public_bag_invoice_upload.html", **ctx)
+        concert = ctx.get("concert")
+        company = None
+        if concert is not None:
+            company = getattr(concert, "billing_company", None) or getattr(concert, "group_company", None)
+        if company is None and ctx["bag"] is not None:
+            company = getattr(ctx["bag"], "company", None)
+        provider = ctx["provider"]
+        return render_template(
+            "public_invoice_landing.html",
+            inv_mode="REQUEST",
+            company=company,
+            companies=[company] if company else session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all(),
+            cert_docs=INVOICE_CERT_DOCS,
+            request_row=req,
+            request_rows=ctx["rows"],
+            provider=provider,
+            provider_payload=_billing_profile_payload(session_db, provider),
+            concert=concert,
+            artist=ctx.get("artist"),
+            venue=ctx.get("venue"),
+        )
     finally:
         session_db.close()
 

@@ -247,18 +247,26 @@
 {% elif et_candidates %}
 <div class="card mb-3"><div class="card-body">
   <h5 class="mb-1"><i class="fa fa-ticket text-danger me-1"></i>Venta de entradas <span class="text-muted small fw-normal">· Enterticket</span></h5>
-  <p class="text-muted small mb-3">Este concierto es de una empresa del grupo y hay eventos en Enterticket que encajan por fecha.{% if CAN_EDIT_CONCERTS %} Vincúlalo para ver la venta en tiempo real.{% endif %}</p>
+  <p class="text-muted small mb-3">Eventos de Enterticket <strong>del mismo día</strong> que todavía no están vinculados a ninguna actividad.{% if CAN_EDIT_CONCERTS %} Vincúlalo para ver la venta en tiempo real, o descártalo para que no vuelva a aparecer.{% endif %}</p>
   {% for cand in et_candidates %}
-  <form method="post" action="{{ url_for('concert_et_link', cid=concert.id) }}" class="d-flex align-items-center gap-2 border rounded p-2 mb-2">
-    <input type="hidden" name="et_event_pk" value="{{ cand.pk }}">
+  <div class="d-flex align-items-center gap-2 border rounded p-2 mb-2">
     {% if cand.image %}<img src="{{ cand.image }}" alt="" style="width:38px;height:38px;border-radius:8px;object-fit:cover">{% endif %}
-    <div class="flex-grow-1">
+    <div class="flex-grow-1 min-w-0">
       <div class="fw-semibold small">{{ cand.name }}</div>
       <div class="small text-muted">{{ cand.date }} · {{ cand.venue }}{% if cand.town %} ({{ cand.town }}){% endif %}{% if cand.artists %} · {{ cand.artists }}{% endif %}</div>
     </div>
     {% if cand.score >= 4 %}<span class="badge text-bg-success">Coincidencia fuerte</span>{% endif %}
-    {% if CAN_EDIT_CONCERTS %}<button class="btn btn-sm btn-success"><i class="fa fa-link me-1"></i>Vincular</button>{% endif %}
-  </form>
+    {% if CAN_EDIT_CONCERTS %}
+      <form method="post" action="{{ url_for('concert_et_link', cid=concert.id) }}">
+        <input type="hidden" name="et_event_pk" value="{{ cand.pk }}">
+        <button class="btn btn-sm btn-success"><i class="fa fa-link me-1"></i>Vincular</button>
+      </form>
+      <form method="post" action="{{ url_for('concert_et_dismiss', cid=concert.id) }}" onsubmit="return confirm('¿Descartar esta sugerencia? No volverá a aparecer.');">
+        <input type="hidden" name="et_event_pk" value="{{ cand.pk }}">
+        <button class="btn btn-sm btn-outline-secondary" title="No volver a sugerirlo"><i class="fa fa-xmark"></i></button>
+      </form>
+    {% endif %}
+  </div>
   {% endfor %}
   {% if ROLE == 10 %}<div class="small text-muted">¿No está en la lista? Gestiona todos los eventos en <a href="{{ url_for('integrations_view') }}#tab-enterticket">Integraciones → Enterticket</a>.</div>{% endif %}
 </div></div>

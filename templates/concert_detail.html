@@ -747,10 +747,27 @@
     </div><!-- /concert-general-zone -->
   {% elif tab == 'carteleria' %}
     {% set art_status = (artwork_request.status if artwork_request else 'NONE')|upper %}
+    {# ¿Hay que enseñar también el «compartido con el promotor»? Solo si los carteles los hacemos
+       NOSOTROS y el promotor NO es una empresa del grupo. #}
+    {% set show_promoter_share = artwork_request and artwork_request.handled_by == 'OURS' and concert.promoter and not artwork_group_promoted %}
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
       <h5 class="mb-0">Cartelería</h5>
       <div class="d-flex gap-2 align-items-center flex-wrap">
         {% if artwork_badge %}<span class="badge {{ artwork_badge.class }}">{{ artwork_badge.label }}</span>{% endif %}
+        {% if artwork_request %}
+          {% if artwork_request.shared_with_artist_at %}
+            <span class="badge text-bg-success" title="Compartido el {{ artwork_request.shared_with_artist_at.strftime('%d/%m/%Y') }}"><i class="fa fa-circle-check me-1"></i>Compartido con el artista</span>
+          {% else %}
+            <span class="badge text-bg-light border text-muted"><i class="fa fa-circle-xmark me-1"></i>Sin compartir con el artista</span>
+          {% endif %}
+          {% if show_promoter_share %}
+            {% if artwork_request.shared_with_promoter_at %}
+              <span class="badge text-bg-success" title="Compartido el {{ artwork_request.shared_with_promoter_at.strftime('%d/%m/%Y') }}"><i class="fa fa-circle-check me-1"></i>Compartido con el promotor</span>
+            {% else %}
+              <span class="badge text-bg-light border text-muted"><i class="fa fa-circle-xmark me-1"></i>Sin compartir con el promotor</span>
+            {% endif %}
+          {% endif %}
+        {% endif %}
         {% if artwork_request and artwork_request.handled_by == 'OURS' and CAN_EDIT_CONCERTS %}
           <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('concert_detail_view', cid=concert.id, tab='carteleria', edit_artwork=1) }}"><i class="fa fa-pen me-1"></i>Editar solicitud</a>
         {% endif %}
@@ -771,28 +788,23 @@
       </div>
     {% endif %}
 
-    {# ---------- SIN SOLICITUD: elegir de forma visual cómo se hacen los carteles ---------- #}
-    {% if not artwork_request or artwork_edit %}
-      {% if not artwork_request and CAN_EDIT_CONCERTS %}
-        <div class="row g-3 mb-3">
-          <div class="col-md-6">
-            <div class="wizard-card h-100 mb-0 text-center">
-              <i class="fa fa-palette fs-2 text-danger d-block mb-2"></i>
-              <div class="fw-semibold mb-1">Los hacemos nosotros</div>
-              <div class="text-muted small mb-2">Solicitar los carteles a nuestro departamento de diseño.</div>
-              <a class="btn btn-primary btn-sm" href="#artworkRequestForm"><i class="fa fa-paper-plane me-1"></i>Solicitar carteles</a>
-            </div>
+    {# ---------- SIN PETICIONES NI CARTELES: dos botones pequeños, sin más ---------- #}
+    {% if not artwork_request and not current_artwork_assets and CAN_EDIT_CONCERTS %}
+      <div class="card mb-3">
+        <div class="card-body d-flex align-items-center gap-3 flex-wrap">
+          <i class="fa fa-palette fs-4 text-danger"></i>
+          <div class="flex-grow-1">
+            <div class="fw-semibold">Todavía no hay carteles ni peticiones.</div>
+            <div class="small text-muted">Pide los carteles a diseño o al promotor del evento.</div>
           </div>
-          <div class="col-md-6">
-            <div class="wizard-card h-100 mb-0 text-center">
-              <i class="fa fa-handshake fs-2 text-danger d-block mb-2"></i>
-              <div class="fw-semibold mb-1">Los hace el promotor</div>
-              <div class="text-muted small mb-2">Se le enviará un correo pidiéndole que suba los carteles del evento.</div>
-              <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkPromoterModal"><i class="fa fa-envelope me-1"></i>Solicitar carteles al promotor</button>
-            </div>
-          </div>
+          <button class="btn btn-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkWizardModal"><i class="fa fa-paper-plane me-1"></i>Solicitar a diseño</button>
+          <button class="btn btn-outline-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkPromoterModal"><i class="fa fa-handshake me-1"></i>Solicitar al promotor</button>
         </div>
-      {% endif %}
+      </div>
+    {% endif %}
+
+    {# ---------- Formulario completo (solo al EDITAR una solicitud existente) ---------- #}
+    {% if artwork_edit or (artwork_request and not artwork_request.id) %}
       <div class="card">
         <div class="card-body">
           {% if artwork_request and artwork_edit %}
@@ -1014,14 +1026,52 @@
               {% if visible_assets %}
                 <span class="badge text-bg-primary">{{ visible_assets|length }} formato(s)</span>
                 {% set share_text = ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto') ~ (' · ' ~ concert.date.strftime('%d/%m/%Y') if concert.date else '') ~ ':\n' ~ (visible_assets|map(attribute='file_url')|join('\n'))) %}
+                {# Al compartir se MARCA el estado (etiqueta «Compartido con…» de la cabecera). #}
                 <div class="dropdown">
                   <button class="btn btn-outline-danger btn-sm" data-bs-toggle="dropdown"><i class="fa fa-share-nodes me-1"></i>Compartir con el artista</button>
                   <ul class="dropdown-menu dropdown-menu-end">
-                    <li><a class="dropdown-item" href="mailto:?subject={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto'))|urlencode }}&body={{ share_text|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Por correo</a></li>
-                    <li><a class="dropdown-item" href="https://wa.me/?text={{ share_text|urlencode }}" target="_blank"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</a></li>
-                    <li><a class="dropdown-item" href="sms:?&body={{ share_text|urlencode }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Por SMS</a></li>
+                    <li><a class="dropdown-item" data-artwork-shared="artist" href="mailto:?subject={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto'))|urlencode }}&body={{ share_text|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Por correo</a></li>
+                    <li><a class="dropdown-item" data-artwork-shared="artist" href="https://wa.me/?text={{ share_text|urlencode }}" target="_blank"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</a></li>
+                    <li><a class="dropdown-item" data-artwork-shared="artist" href="sms:?&body={{ share_text|urlencode }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Por SMS</a></li>
+                    {% if artwork_request and artwork_request.shared_with_artist_at %}
+                      <li><hr class="dropdown-divider"></li>
+                      <li><button type="button" class="dropdown-item text-muted" data-artwork-unshared="artist"><i class="fa fa-rotate-left fa-fw me-1"></i>Marcar como NO compartido</button></li>
+                    {% endif %}
                   </ul>
                 </div>
+                {% if show_promoter_share %}
+                  {% set share_text_promo = share_text %}
+                  <div class="dropdown">
+                    <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="dropdown"><i class="fa fa-share-nodes me-1"></i>Compartir con el promotor</button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                      <li><a class="dropdown-item" data-artwork-shared="promoter" href="mailto:{{ concert.promoter.contact_email or '' }}?subject={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto'))|urlencode }}&body={{ share_text_promo|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Por correo</a></li>
+                      <li><a class="dropdown-item" data-artwork-shared="promoter" href="https://wa.me/?text={{ share_text_promo|urlencode }}" target="_blank"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</a></li>
+                      <li><a class="dropdown-item" data-artwork-shared="promoter" href="sms:?&body={{ share_text_promo|urlencode }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Por SMS</a></li>
+                      {% if artwork_request and artwork_request.shared_with_promoter_at %}
+                        <li><hr class="dropdown-divider"></li>
+                        <li><button type="button" class="dropdown-item text-muted" data-artwork-unshared="promoter"><i class="fa fa-rotate-left fa-fw me-1"></i>Marcar como NO compartido</button></li>
+                      {% endif %}
+                    </ul>
+                  </div>
+                {% endif %}
+                <script>
+                (function(){
+                  var URL_SHARED = {{ url_for('concert_artwork_mark_shared', cid=concert.id)|tojson }};
+                  function mark(who, undo){
+                    var fd = new FormData();
+                    fd.append('who', who); fd.append('ajax', '1');
+                    if (undo) fd.append('undo', '1');
+                    var meta = document.querySelector('meta[name="csrf-token"]');
+                    return fetch(URL_SHARED, { method: 'POST', headers: meta ? {'X-CSRFToken': meta.getAttribute('content')} : {}, body: fd });
+                  }
+                  document.querySelectorAll('[data-artwork-shared]').forEach(function(a){
+                    a.addEventListener('click', function(){ mark(a.getAttribute('data-artwork-shared'), false); });
+                  });
+                  document.querySelectorAll('[data-artwork-unshared]').forEach(function(b){
+                    b.addEventListener('click', function(){ mark(b.getAttribute('data-artwork-unshared'), true).then(function(){ window.location.reload(); }); });
+                  });
+                })();
+                </script>
               {% endif %}
             </div>
           </div>
@@ -1120,6 +1170,140 @@
           {% endif %}
         </div>
       </div>
+    {% endif %}
+
+    {# ---------- Modal-ASISTENTE: solicitar carteles A DISEÑO, una pregunta por paso ---------- #}
+    {% if CAN_EDIT_CONCERTS %}
+    <div class="modal fade" id="artworkWizardModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <form class="modal-content" method="post" action="{{ url_for('concert_artwork_save', cid=concert.id) }}" id="artworkWizardForm">
+          <input type="hidden" name="handled_by" value="OURS">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="fa fa-palette me-2 text-danger"></i>Solicitar carteles a diseño <span class="text-muted small fw-normal" data-awz-step-label></span></h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body">
+            {# Paso 1 · ¿Qué formatos? #}
+            <section class="awz-step" data-awz-step="1">
+              <h6 class="mb-3">¿Qué formatos necesitas?</h6>
+              <div class="row g-2">
+                {% for key, label, aspect in ARTWORK_FORMAT_CHOICES %}
+                  <div class="col-6 col-md-4 col-xl-3">
+                    <label class="activity-choice-card border rounded p-2 text-center h-100 w-100 d-block bg-white">
+                      <input class="form-check-input visually-hidden" type="checkbox" name="artwork_formats[]" value="{{ key }}">
+                      <span class="artfmt-box"><span class="artfmt-shape" style="aspect-ratio: {{ aspect }};"></span></span>
+                      <span class="fw-semibold small d-block">{{ label }}</span>
+                    </label>
+                  </div>
+                {% endfor %}
+              </div>
+              <div class="mt-3">
+                <label class="form-label small">Otros formatos <span class="text-muted">(separados por comas, tantos como quieras)</span></label>
+                <input class="form-control" name="artwork_formats_custom_text" placeholder="MUPI 120x180, pantalla LED del recinto…">
+              </div>
+            </section>
+
+            {# Paso 2 · ¿Qué logos? #}
+            <section class="awz-step d-none" data-awz-step="2">
+              <h6 class="mb-3">¿Qué logos deben aparecer?</h6>
+              <div class="row g-2">
+                {% for co in artwork_companies %}
+                  <div class="col-12 col-md-6">
+                    <label class="border rounded p-2 d-flex gap-2 align-items-center w-100">
+                      <input class="form-check-input" type="checkbox" name="group_company_ids[]" value="{{ co.id }}">
+                      <img src="{{ co.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:36px;height:36px;object-fit:contain;">
+                      <span>{{ co.name }}</span>
+                    </label>
+                  </div>
+                {% endfor %}
+              </div>
+              <div class="mt-3">
+                <label class="form-label small">Otros logos y notas</label>
+                <textarea class="form-control" name="logo_notes" rows="2" placeholder="Otros logos, orden, tamaño, versiones…"></textarea>
+              </div>
+            </section>
+
+            {# Paso 3 · ¿Qué ticketeras? #}
+            <section class="awz-step d-none" data-awz-step="3">
+              <h6 class="mb-3">¿Qué ticketeras hay que poner?</h6>
+              <div class="row g-2">
+                {% for ticketer in artwork_ticketers %}
+                  <div class="col-12 col-md-6">
+                    <label class="border rounded p-2 d-flex gap-2 align-items-center w-100">
+                      <input class="form-check-input" type="checkbox" name="ticketer_ids[]" value="{{ ticketer.id }}">
+                      <img src="{{ ticketer.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:36px;height:36px;object-fit:contain;">
+                      <span>{{ ticketer.name }}</span>
+                    </label>
+                  </div>
+                {% endfor %}
+              </div>
+              <div class="mt-3">
+                <label class="form-label small">Notas de ticketeras</label>
+                <textarea class="form-control" name="ticketer_notes" rows="2" placeholder="Links, textos legales, orden…"></textarea>
+              </div>
+            </section>
+
+            {# Paso 4 · ¿Para cuándo? #}
+            <section class="awz-step d-none" data-awz-step="4">
+              <h6 class="mb-3">¿Para cuándo los necesitas?</h6>
+              <div class="row g-3">
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Fecha máxima de entrega <span class="text-danger">*</span></label>
+                  <input type="date" class="form-control" name="delivery_deadline" required>
+                  <div class="form-text">Obligatoria: es la fecha con la que diseño se compromete.</div>
+                </div>
+                <div class="col-12">
+                  <label class="form-label">Otras indicaciones <span class="text-muted">(opcional)</span></label>
+                  <textarea class="form-control" name="other_notes" rows="3" placeholder="Referencias, tono, textos obligatorios…"></textarea>
+                </div>
+              </div>
+            </section>
+          </div>
+          <div class="modal-footer d-flex justify-content-between">
+            <button type="button" class="btn btn-outline-secondary" data-awz-prev><i class="fa fa-arrow-left me-1"></i>Atrás</button>
+            <div class="d-flex gap-2">
+              <span class="align-self-center small text-muted" data-awz-pills></span>
+              <button type="button" class="btn btn-primary" data-awz-next>Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
+              <button type="submit" class="btn btn-danger d-none" data-awz-submit><i class="fa fa-paper-plane me-1"></i>Solicitar a diseño</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+    <script>
+    (function(){
+      const form = document.getElementById('artworkWizardForm');
+      if (!form) return;
+      const steps = Array.from(form.querySelectorAll('[data-awz-step]'));
+      const label = form.querySelector('[data-awz-step-label]');
+      const pills = form.querySelector('[data-awz-pills]');
+      const btnPrev = form.querySelector('[data-awz-prev]');
+      const btnNext = form.querySelector('[data-awz-next]');
+      const btnSend = form.querySelector('[data-awz-submit]');
+      let cur = 1;
+      function show(n){
+        cur = Math.min(Math.max(n, 1), steps.length);
+        steps.forEach(s => s.classList.toggle('d-none', Number(s.getAttribute('data-awz-step')) !== cur));
+        if (label) label.textContent = 'Paso ' + cur + ' de ' + steps.length;
+        if (pills) pills.textContent = '';
+        btnPrev.classList.toggle('invisible', cur === 1);
+        btnNext.classList.toggle('d-none', cur === steps.length);
+        btnSend.classList.toggle('d-none', cur !== steps.length);
+      }
+      btnNext.addEventListener('click', function(){ show(cur + 1); });
+      btnPrev.addEventListener('click', function(){ show(cur - 1); });
+      form.addEventListener('submit', function(ev){
+        const dl = form.querySelector('input[name="delivery_deadline"]');
+        if (dl && !dl.value) {
+          ev.preventDefault();
+          show(steps.length);
+          dl.focus();
+          alert('Indica la fecha máxima de entrega: es obligatoria.');
+        }
+      });
+      show(1);
+    })();
+    </script>
     {% endif %}
 
     {# ---------- Modal: solicitar carteles AL PROMOTOR (destinatarios + previsualización) ---------- #}

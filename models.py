@@ -1768,6 +1768,10 @@ class ConcertArtworkRequest(Base):
     delivery_deadline = Column(Date)
     event_snapshot = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     needs_refresh = Column(Boolean, nullable=False, server_default=text("false"))
+    # Trazabilidad de COMPARTIDO (etiquetas de la pestaña Cartelería): con el artista y, cuando el
+    # cartel lo hacemos nosotros y el promotor NO es empresa del grupo, también con el promotor.
+    shared_with_artist_at = Column(DateTime(timezone=True))
+    shared_with_promoter_at = Column(DateTime(timezone=True))
     requested_at = Column(DateTime(timezone=True))
     uploaded_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -5993,6 +5997,9 @@ def ensure_concert_artwork_schema():
 
     stmts = [
         'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        # Trazabilidad de compartido (con el artista y con el promotor).
+        "ALTER TABLE IF EXISTS concert_artwork_requests ADD COLUMN IF NOT EXISTS shared_with_artist_at timestamptz;",
+        "ALTER TABLE IF EXISTS concert_artwork_requests ADD COLUMN IF NOT EXISTS shared_with_promoter_at timestamptz;",
 
         """
         CREATE TABLE IF NOT EXISTS concert_artwork_requests (

@@ -26207,6 +26207,8 @@ def concert_detail_view(cid):
             entradas_ticket_rows=_concert_entradas_ticket_rows(c),
             promoter_costs_rows=_promoter_costs_rows(getattr(c, "promoter_costs_payload", None)),
             artwork_requested_format_labels=_artwork_requested_format_labels(artwork_request) if artwork_request else [],
+            # ¿Promueve el evento una empresa del grupo? (decide si se enseña el «compartido con el promotor»)
+            artwork_group_promoted=_concert_is_group_promoted(session, c),
             bag_embed=True,
             **bag_panel_ctx,
         )
@@ -26972,6 +26974,37 @@ def concert_artwork_asset_download(cid, asset_id):
         except Exception as exc:
             flash(f'No se pudo descargar el formato: {exc}', 'danger')
             return redirect(url_for('concert_detail_view', cid=cid, tab='carteleria'))
+    finally:
+        session.close()
+
+
+@app.post('/conciertos/<cid>/carteleria/compartido', endpoint='concert_artwork_mark_shared')
+@admin_required
+def concert_artwork_mark_shared(cid):
+    """Marca la cartelería como COMPARTIDA con el artista o con el promotor (etiqueta de la
+    pestaña). Lo llama el propio menú de compartir al pulsar correo/WhatsApp/SMS."""
+    session = db()
+    try:
+        concert = session.get(Concert, to_uuid(cid))
+        if not concert:
+            return jsonify({"ok": False, "error": "Actividad no encontrada"}), 404
+        req = getattr(concert, 'artwork_request', None)
+        if not req:
+            return jsonify({"ok": False, "error": "Sin solicitud de cartelería"}), 404
+        who = (request.form.get('who') or 'artist').strip().lower()
+        undo = _truthy(request.form.get('undo'))
+        stamp = None if undo else _now_madrid()
+        if who == 'promoter':
+            req.shared_with_promoter_at = stamp
+        else:
+            req.shared_with_artist_at = stamp
+        session.commit()
+        if request.form.get('ajax'):
+            return jsonify({"ok": True, "who": who, "shared": not undo})
+        return redirect(safe_next_or(url_for('concert_detail_view', cid=cid, tab='carteleria')))
+    except Exception as exc:
+        session.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
     finally:
         session.close()
 
@@ -63062,8 +63095,10 @@ def _et_event_buyers(s, ev: EnterticketEvent, limit: int = 400) -> list:
     } for be, b in rows]
 
 
-def _et_concert_link_candidates(s, c: Concert, day_margin: int = 3) -> list:
-    """Eventos de ET sin vincular que encajan con este concierto (fecha ± margen; prioriza artista)."""
+def _et_concert_link_candidates(s, c: Concert, day_margin: int = 0) -> list:
+    """Eventos de ET que se ofrecen para vincular con este concierto. Solo los que NO están ya
+    enlazados a ninguna actividad y son del MISMO DÍA (los descartados con «no volver a
+    sugerirlo» quedan en link_status IGNORED y no vuelven a salir)."""
     if not c.date:
         return []
     rows = (s.query(EnterticketEvent)
@@ -63179,6 +63214,29 @@ def concert_et_link(cid):
     finally:
         s.close()
     return redirect(url_for("concert_detail_view", cid=cid, tab="ticketing"))
+
+
+@app.post("/conciertos/<cid>/ticketing/et/descartar", endpoint="concert_et_dismiss")
+@admin_required
+def concert_et_dismiss(cid):
+    """Descarta una sugerencia de vinculación: el evento de ET queda IGNORED y no se vuelve a
+    sugerir (ni aquí ni en otras actividades). Se puede recuperar en Integraciones."""
+    s = db()
+    try:
+        ev = s.get(EnterticketEvent, to_uuid(request.form.get("et_event_pk") or "") or uuid.uuid4())
+        if not ev:
+            flash("Evento de Enterticket no encontrado.", "warning")
+        else:
+            ev.link_status = "IGNORED"
+            s.commit()
+            flash(f"«{ev.name or 'Evento'}» ya no se sugerirá para vincular.", "success")
+        return redirect(safe_next_or(url_for("concert_detail_view", cid=cid, tab="ticketing")))
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo descartar: {exc}", "danger")
+        return redirect(safe_next_or(url_for("concert_detail_view", cid=cid, tab="ticketing")))
+    finally:
+        s.close()
 
 
 @app.post("/conciertos/<cid>/ticketing/et/desvincular", endpoint="concert_et_unlink")

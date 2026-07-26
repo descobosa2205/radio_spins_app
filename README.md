@@ -189,6 +189,20 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-07-26 — En los enlaces y selectores, solo el personal actual
+
+- En el **enlace público de subida de facturas**, el paso «¿Para quién es la factura?» ya solo ofrece al
+  **personal actual**: los eliminados y los bloqueados desaparecen. (El filtro que había no funcionaba:
+  leía `is_blocked`/`is_deleted` del usuario, donde no existen — están en su ficha de seguridad.)
+- Mismo criterio en el resto de sitios donde se ofrece o se escribe a personal: **selector de personal de
+  invitaciones**, **buscador de vinculaciones**, **correos internos** (destinatarios de equipo y el aviso a
+  dirección de los gastos sin asignar) y el **cruce de DNI del ITA** de PRL.
+- Las pantallas de **gestión de personal** (Personal y Accesos en bloque) siguen mostrando a los
+  bloqueados a propósito, para poder desbloquearlos y ajustarles los permisos. Los eliminados no
+  aparecen en ninguna parte.
+
+
+
 ### 2026-07-26 — «Mis gastos»: facturas y gastos de Pleo, con plazos y asignación a bolsas
 
 - **Nueva sección «Mis gastos»** (en el menú de cada persona) y **panel en Inicio**: reúne las

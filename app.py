@@ -4397,8 +4397,10 @@ def _artist_email_delivery_data(session_db, artist: Artist | None) -> dict:
 
 
 def _all_user_emails(session_db) -> list[str]:
-    rows = session_db.query(User.email).filter(User.email.isnot(None)).all()
-    return _dedupe_valid_email_addresses([email for (email,) in rows])
+    """Correos del equipo ACTUAL: no se escribe a quien ya está eliminado o bloqueado."""
+    _inactive = _inactive_user_ids(session_db)
+    rows = session_db.query(User.id, User.email).filter(User.email.isnot(None)).all()
+    return _dedupe_valid_email_addresses([email for (uid, email) in rows if uid not in _inactive])
 
 
 def _song_primary_artist(session_db, song: Song | None) -> Artist | None:
@@ -32141,8 +32143,11 @@ def api_entity_link_search():
                 if payload:
                     rows.append(payload)
         elif entity_type == "personal":
-            # Personal de la oficina (User + UserProfile).
+            # Personal de la oficina (User + UserProfile). Solo el ACTUAL: ni eliminados ni bloqueados.
             query = session_db.query(User, UserProfile).outerjoin(UserProfile, UserProfile.user_id == User.id)
+            _inactive = _inactive_user_ids(session_db)
+            if _inactive:
+                query = query.filter(~User.id.in_(list(_inactive)))
             if q:
                 query = query.filter(or_(
                     _sa_contains_text(User.email, q),
@@ -37702,7 +37707,10 @@ def _prl_ita_link_people(session_db, workers: list) -> list:
         if norm:
             by_dni[norm] = f"PROMOTER:{p.id}"
     try:
+        _inactive = _inactive_user_ids(session_db)          # ni eliminados ni bloqueados
         for u in session_db.query(UserProfile).filter(UserProfile.dni.isnot(None)).all():
+            if u.user_id in _inactive:
+                continue
             norm = _prl_norm_dni(u.dni)
             if norm and norm not in by_dni:
                 by_dni[norm] = f"USER:{u.user_id}"
@@ -39004,6 +39012,28 @@ def _profile_full_name(profile: UserProfile | None) -> str:
         (getattr(profile, "first_name", None) or "").strip(),
         (getattr(profile, "last_name", None) or "").strip(),
     ] if x]).strip()
+
+
+def _inactive_user_ids(session_db) -> set:
+    """UUIDs del personal ELIMINADO o BLOQUEADO.
+
+    Solo se ofrece/lista el personal ACTUAL: en los enlaces públicos (subida de facturas, PRL…),
+    en los selectores de invitaciones y en los buscadores de vinculaciones. `is_blocked`/`is_deleted`
+    viven en `UserSecurity` (no en `User`), así que hay que consultarlos aquí.
+    """
+    out = set()
+    try:
+        rows = (
+            session_db.query(UserSecurity.user_id)
+            .filter(or_(UserSecurity.is_deleted.is_(True), UserSecurity.is_blocked.is_(True)))
+            .all()
+        )
+        for (uid,) in rows:
+            if uid:
+                out.add(uid)
+    except Exception:
+        return set()
+    return out
 
 
 def _password_serializer() -> URLSafeTimedSerializer:
@@ -47140,7 +47170,9 @@ def cron_unassigned_expenses():
                         if not r.escalated_at
                         and _expense_days_left(r) <= (EXPENSE_ASSIGN_DAYS - EXPENSE_ESCALATE_DAYS)]
             if very_old:
-                dir_emails = [u.email for u in session_db.query(User).filter(User.role == 10).all() if (u.email or "").strip()]
+                _inactive_dir = _inactive_user_ids(session_db)
+                dir_emails = [u.email for u in session_db.query(User).filter(User.role == 10).all()
+                              if (u.email or "").strip() and u.id not in _inactive_dir]
                 if dir_emails:
                     ok, _err = _send_optional_email(
                         dir_emails[:5],
@@ -47789,14 +47821,16 @@ def _find_group_company_by_slug(session_db, slug: str):
 
 def _invoice_target_people(session_db) -> list:
     """Personal al que se le puede dirigir una factura del enlace genérico: los que tienen algún
-    DEPARTAMENTO. Se excluye a dirección… salvo que además tengan otro departamento asignado."""
+    DEPARTAMENTO. Se excluye a dirección… salvo que además tengan otro departamento asignado.
+    Solo personal ACTUAL: los eliminados o bloqueados no se ofrecen."""
     rows = []
     try:
+        _inactive = _inactive_user_ids(session_db)
         q = (session_db.query(User, UserProfile)
              .join(UserProfile, UserProfile.user_id == User.id)
              .order_by(UserProfile.nick.asc()))
         for user, profile in q.all():
-            if bool(getattr(user, "is_blocked", False)) or bool(getattr(user, "is_deleted", False)):
+            if user.id in _inactive:
                 continue
             depts = [str(d).strip() for d in (getattr(profile, "departments", None) or []) if str(d).strip()]
             if not depts:
@@ -54887,6 +54921,8 @@ def _invitation_event_artist_options(session_db) -> list[dict]:
 
 
 def _invitation_personnel_options(session_db) -> list[dict]:
+    """Personal ACTUAL (sin eliminados ni bloqueados) para pedir/asignar invitaciones."""
+    _inactive = _inactive_user_ids(session_db)
     rows = (
         session_db.query(User, UserProfile)
         .outerjoin(UserProfile, UserProfile.user_id == User.id)
@@ -54895,6 +54931,8 @@ def _invitation_personnel_options(session_db) -> list[dict]:
     )
     out = []
     for user, profile in rows:
+        if user.id in _inactive:
+            continue
         name = _profile_full_name(profile) if profile else ""
         nick = getattr(profile, "nick", None) if profile else None
         out.append({

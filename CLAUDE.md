@@ -103,6 +103,15 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `impersonate_stop` (`GET /salir-modo-vision`, **exento** del enforcement) — botón rojo en el navbar
   (`layout.html`, globales `IMPERSONATING`/`IMPERSONATOR_NICK`). No anidable, no a uno mismo, no a
   bloqueados/eliminados; `logout` limpia las claves.
+- **Solo personal ACTUAL en listas y selectores**: `is_blocked`/`is_deleted` viven en **`UserSecurity`**
+  (¡no en `User`! — un `getattr(user, "is_blocked")` es siempre `False` y no filtra nada: bug real).
+  Helper único **`_inactive_user_ids(session_db)`** (UUIDs de eliminados o bloqueados) aplicado en el
+  destinatario de la factura del enlace público (`_invoice_target_people`), el personal de invitaciones
+  (`_invitation_personnel_options`), el buscador de vinculaciones (`api_entity_link_search`, tipo
+  `personal`), los correos internos (`_all_user_emails`, dirección del escalado de gastos) y el cruce de
+  DNI del ITA (`_prl_ita_link_people`). Las pantallas de **gestión** de personal (`/personal`,
+  `/personal/accesos-bloque`) siguen mostrando a los bloqueados a propósito (hay que poder
+  desbloquearlos y arreglarles los permisos); los eliminados no salen en ninguna.
 - **Iconos de sección**: dict `SECTION_ICONS` en `app.py`, inyectado al contexto; usado en el menú
   (`layout.html`) y en permisos.
 - **Inicio · acciones rápidas por departamento**: botones bajo la cabecera del personal

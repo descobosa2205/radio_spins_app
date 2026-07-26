@@ -1808,6 +1808,34 @@ class ConcertArtworkAsset(Base):
 
 # --- NOTAS (contratación / generales) ---
 
+class BagInvoiceRequest(Base):
+    """Petición de facturas a un PROVEEDOR de una bolsa: enlace público donde sube la factura de
+    cada concepto pendiente (y la documentación adicional que se le exija)."""
+
+    __tablename__ = "bag_invoice_requests"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    public_token = Column(Text, nullable=False, unique=True)
+    bag_id = Column(PGUUID(as_uuid=True), ForeignKey("workflow_bags.id", ondelete="CASCADE"), nullable=False)
+    provider_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="CASCADE"), nullable=False)
+    # Conceptos (bag_expenses) que se le piden, congelados al enviar la petición.
+    expense_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # Documentación adicional exigida: ["ALTA_SS", "AUTONOMO_RECIBO", ...] (PRL_DOC_LABELS).
+    required_docs = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    recipients_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    status = Column(Text, nullable=False, server_default=text("'ACTIVE'"))  # ACTIVE | DONE | CANCELLED
+    last_sent_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    bag = relationship("WorkflowBag")
+    provider = relationship("Promoter")
+
+    __table_args__ = (
+        Index("idx_bag_invoice_requests_bag", "bag_id", "provider_id"),
+    )
+
+
 class PersonComplianceDoc(Base):
     """Documentación de ALTA y PRL de una persona (tercero o personal propio) o el ITA de una
     empresa del grupo. Tipos: AUTONOMO_RECIBO (recibo de autónomos del mes anterior), ALTA_SS
@@ -2225,6 +2253,10 @@ class ConcertBudgetItem(Base):
     concept = Column(Text, nullable=False)
     amount_net = Column(Numeric, nullable=False, server_default=text("0"))
     amount_gross = Column(Numeric, nullable=False, server_default=text("0"))
+    # Como en los gastos de las simulaciones: cantidad (el total es unitario × cantidad) e IVA.
+    quantity = Column(Numeric, nullable=False, server_default=text("1"))
+    iva_pct = Column(Numeric, nullable=False, server_default=text("21"))
+    iva_exempt = Column(Boolean, nullable=False, server_default=text("false"))
     sort_order = Column(Integer, nullable=False, server_default=text("0"))
     status = Column(Text, nullable=False, server_default=text("'ACTIVO'"))
     created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
@@ -5753,6 +5785,23 @@ def ensure_third_party_and_contract_sheet_schema():
         """,
         'CREATE INDEX IF NOT EXISTS idx_person_compliance_owner ON person_compliance_docs(owner_type, owner_id);',
         'CREATE INDEX IF NOT EXISTS idx_person_compliance_type ON person_compliance_docs(doc_type);',
+        # Peticiones de factura a proveedores de una bolsa (enlace público por proveedor).
+        """
+        CREATE TABLE IF NOT EXISTS bag_invoice_requests (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            public_token text NOT NULL UNIQUE,
+            bag_id uuid NOT NULL REFERENCES workflow_bags(id) ON DELETE CASCADE,
+            provider_id uuid NOT NULL REFERENCES promoters(id) ON DELETE CASCADE,
+            expense_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+            required_docs jsonb NOT NULL DEFAULT '[]'::jsonb,
+            recipients_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+            status text NOT NULL DEFAULT 'ACTIVE',
+            last_sent_at timestamptz,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_bag_invoice_requests_bag ON bag_invoice_requests(bag_id, provider_id);',
         """
         CREATE TABLE IF NOT EXISTS prl_upload_requests (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -6529,6 +6578,9 @@ def ensure_actions_contracting_admin_schema():
         );
         """,
         "CREATE INDEX IF NOT EXISTS idx_concert_budget_items_concert ON concert_budget_items(concert_id, category, sort_order);",
+        "ALTER TABLE IF EXISTS concert_budget_items ADD COLUMN IF NOT EXISTS quantity numeric NOT NULL DEFAULT 1;",
+        "ALTER TABLE IF EXISTS concert_budget_items ADD COLUMN IF NOT EXISTS iva_pct numeric NOT NULL DEFAULT 21;",
+        "ALTER TABLE IF EXISTS concert_budget_items ADD COLUMN IF NOT EXISTS iva_exempt boolean NOT NULL DEFAULT false;",
         "CREATE INDEX IF NOT EXISTS idx_concert_budget_items_status ON concert_budget_items(status);",
         """
         CREATE TABLE IF NOT EXISTS company_action_requests (

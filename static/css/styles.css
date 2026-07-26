@@ -2510,3 +2510,20 @@ img.docs-id__face { width:100%; height:100%; object-fit:cover; display:block; cu
 .dash-quick__label{ font-weight:700; line-height:1.15; }
 .dash-quick__plus{ font-size:.72em; margin-right:.3rem; color:var(--brand-primary, #E33D48); }
 @media (max-width:520px){ .dash-quick{ grid-template-columns:1fr 1fr; } }
+
+/* Variante VERDE corporativa de las tarjetas «bocadillo» (ingresos de la actividad y lo que
+   cubre el promotor en la bolsa de la ficha: mismo diseño que los gastos, pero en verde). */
+.sim-cat-card--green{ border-color:#cfe8d7; }
+.sim-cat-card--green .sim-cat-card__head{ background:#e8f6ec; color:#198754; }
+.sim-cat-card--green .sim-cat-card__foot{ border-top-color:#cfe8d7; background:#f6fdf8; }
+.sim-cat-card--green .badge.text-bg-light{ border-color:#cfe8d7 !important; }
+
+/* Bolsa EMBEBIDA en la ficha: cabecera reducida (resumen económico + estados, en fila). */
+.bag-embed-head{
+  display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;
+  background:#fff; border:1px solid var(--line-2, rgba(0,0,0,.08)); border-radius:14px;
+  padding:.7rem .9rem; box-shadow:var(--shadow-sm-2, 0 .125rem .25rem rgba(0,0,0,.05));
+}
+.bag-embed-head__totals{ display:flex; gap:1.4rem; flex-wrap:wrap; }
+.bag-embed-head__totals > div{ display:flex; flex-direction:column; line-height:1.2; }
+.bag-embed-head__badges{ display:flex; gap:.4rem; flex-wrap:wrap; }

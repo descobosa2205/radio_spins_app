@@ -1,0 +1,178 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="container py-4">
+  <div class="mx-auto" style="max-width:900px;">
+    {# Logo de la empresa del grupo arriba a la DERECHA + título centrado + cabecera del evento. #}
+    <div class="text-end mb-2">
+      <img src="{{ (concert.billing_company.logo_url if concert and concert.billing_company else None) or url_for('static', filename='img/logo.png') }}" alt="" style="max-height:56px;max-width:200px;object-fit:contain;">
+    </div>
+    <h3 class="text-center mb-3">Subir factura</h3>
+
+    {% if concert %}
+      <div class="card shadow-sm mb-3">
+        <div class="card-body d-flex flex-column flex-lg-row gap-3 align-items-start align-items-lg-center">
+          <img src="{{ (artist.photo_url if artist else None) or url_for('static', filename='img/logo.png') }}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:50%;border:1px solid #eee;background:#fff;">
+          <div class="flex-grow-1">
+            <h4 class="mb-1">{{ artist.name if artist else 'Actividad' }}</h4>
+            <div class="text-muted">
+              {% if concert.date %}{{ concert.date.strftime('%d/%m/%Y') }}{% endif %}
+              {% if venue %} · {{ venue.name }}{% elif concert.manual_venue_name %} · {{ concert.manual_venue_name }}{% endif %}
+              {% if venue and venue.municipality %} · {{ venue.municipality }}{% elif concert.manual_municipality %} · {{ concert.manual_municipality }}{% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
+    {# Cabecera del proveedor #}
+    <div class="card shadow-sm mb-4">
+      <div class="card-body d-flex align-items-center gap-3">
+        {% if provider.logo_url %}<img src="{{ provider.logo_url }}" alt="" style="width:54px;height:54px;object-fit:cover;border-radius:50%;border:1px solid #eee;">{% else %}<span class="d-inline-flex align-items-center justify-content-center" style="width:54px;height:54px;border-radius:50%;background:#f1f3f7;"><i class="fa fa-building text-muted fa-lg"></i></span>{% endif %}
+        <div class="flex-grow-1">
+          <div class="fw-semibold fs-5">{{ provider.nick }}</div>
+          {% if provider.tax_id %}<div class="small text-muted">{{ provider.tax_id }}</div>{% endif %}
+        </div>
+        <div class="text-end">
+          <div class="small text-muted">Total sin IVA</div>
+          <div class="fw-bold">{{ net_total|eur }}</div>
+          <div class="small text-muted mt-1">Con IVA: {{ gross_total|eur }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="alert alert-success d-none" data-all-done-msg>
+      <i class="fa fa-circle-check me-1"></i>¡Listo! Ya lo tenemos todo. Muchas gracias.
+    </div>
+
+    {# Conceptos: uno por fila, con su hueco de subida #}
+    <div class="card shadow-sm mb-4">
+      <div class="card-body">
+        <h6 class="mb-1"><i class="fa fa-receipt me-2 text-danger"></i>Conceptos a facturar</h6>
+        <p class="small text-muted mb-3">Sube la factura de cada concepto: arrastra el archivo o pulsa para elegirlo (PDF o foto).</p>
+        <div class="d-grid gap-3">
+          {% for r in rows %}
+            <div class="border rounded-3 p-3 inv-slot" data-expense-id="{{ r.id }}">
+              <div class="d-flex align-items-start gap-3 flex-wrap">
+                <span class="d-inline-flex align-items-center justify-content-center flex-shrink-0" style="width:44px;height:44px;border-radius:12px;background:rgba(227,61,72,.10);color:#E33D48;"><i class="fa fa-file-invoice-dollar fa-lg"></i></span>
+                <div class="flex-grow-1 min-w-0">
+                  <div class="d-flex align-items-center flex-wrap gap-2">
+                    <span class="fw-semibold">{{ r.concept }}</span>
+                    <span class="badge text-bg-light border">{{ r.category_label }}</span>
+                    <span class="badge text-bg-success inv-ok {% if not r.has_invoice %}d-none{% endif %}"><i class="fa fa-circle-check me-1"></i>Recibida</span>
+                  </div>
+                  <div class="small text-muted">{{ r.net|eur }} sin IVA · <strong>{{ r.gross|eur }}</strong> con IVA</div>
+                  <div class="inv-drop mt-2 border border-2 border-dashed rounded-3 p-3 text-center text-muted {% if r.has_invoice %}d-none{% endif %}" style="cursor:pointer;">
+                    <i class="fa fa-cloud-arrow-up me-1"></i>Arrastra aquí la factura o pulsa para subirla
+                    <input type="file" class="d-none" accept="application/pdf,image/*">
+                  </div>
+                  <div class="inv-progress mt-2 d-none"><div class="progress" style="height:8px;"><div class="progress-bar bg-danger" style="width:0%"></div></div></div>
+                  <div class="inv-file small mt-2 {% if not r.invoice_name %}d-none{% endif %}"><i class="fa fa-paperclip me-1"></i><span class="inv-file-name">{{ r.invoice_name }}</span></div>
+                  <div class="inv-msg small mt-2"></div>
+                </div>
+              </div>
+            </div>
+          {% else %}
+            <div class="text-muted small">No hay conceptos pendientes.</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    {% if required_docs %}
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h6 class="mb-1"><i class="fa fa-file-shield me-2 text-danger"></i>Documentación necesaria</h6>
+          <p class="small text-muted mb-3">Para poder pagarte la factura necesitamos también esto:</p>
+          <div class="d-grid gap-3">
+            {% for d in required_docs %}
+              <div class="border rounded-3 p-3 doc-slot" data-doc-type="{{ d.key }}">
+                <div class="d-flex align-items-start gap-3 flex-wrap">
+                  <span class="d-inline-flex align-items-center justify-content-center flex-shrink-0" style="width:44px;height:44px;border-radius:12px;background:rgba(0,124,162,.10);color:#007CA2;"><i class="fa fa-file-shield fa-lg"></i></span>
+                  <div class="flex-grow-1 min-w-0">
+                    <div class="d-flex align-items-center flex-wrap gap-2">
+                      <span class="fw-semibold">{{ d.label }}</span>
+                      <span class="badge text-bg-success doc-ok {% if not d.ok %}d-none{% endif %}"><i class="fa fa-circle-check me-1"></i>En vigor</span>
+                    </div>
+                    <div class="doc-drop mt-2 border border-2 border-dashed rounded-3 p-3 text-center text-muted {% if d.ok %}d-none{% endif %}" style="cursor:pointer;">
+                      <i class="fa fa-cloud-arrow-up me-1"></i>Arrastra aquí o pulsa para subirlo
+                      <input type="file" class="d-none" accept="application/pdf,image/*">
+                    </div>
+                    <div class="doc-progress mt-2 d-none"><div class="progress" style="height:8px;"><div class="progress-bar bg-danger" style="width:0%"></div></div></div>
+                    <div class="doc-msg small mt-2"></div>
+                  </div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+(function(){
+  var URL_POST = '/factura/' + {{ req.public_token|tojson }} + '/subir';
+
+  function wire(slot, kind){
+    var drop = slot.querySelector(kind === 'invoice' ? '.inv-drop' : '.doc-drop');
+    if (!drop) return;
+    var input = drop.querySelector('input[type=file]');
+    drop.addEventListener('click', function(){ input.click(); });
+    drop.addEventListener('dragover', function(e){ e.preventDefault(); drop.classList.add('bg-light'); });
+    drop.addEventListener('dragleave', function(){ drop.classList.remove('bg-light'); });
+    drop.addEventListener('drop', function(e){
+      e.preventDefault(); drop.classList.remove('bg-light');
+      if (e.dataTransfer.files && e.dataTransfer.files.length) upload(slot, kind, e.dataTransfer.files[0]);
+    });
+    input.addEventListener('change', function(){ if (input.files.length) upload(slot, kind, input.files[0]); });
+  }
+
+  function upload(slot, kind, file){
+    var isInv = kind === 'invoice';
+    var prog = slot.querySelector(isInv ? '.inv-progress' : '.doc-progress');
+    var bar = prog.querySelector('.progress-bar');
+    var msg = slot.querySelector(isInv ? '.inv-msg' : '.doc-msg');
+    prog.classList.remove('d-none');
+    msg.textContent = '';
+    var fd = new FormData();
+    fd.append('file', file);
+    if (isInv) fd.append('expense_id', slot.getAttribute('data-expense-id'));
+    else fd.append('doc_type', slot.getAttribute('data-doc-type'));
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', URL_POST);
+    xhr.upload.addEventListener('progress', function(e){
+      if (e.lengthComputable) bar.style.width = Math.round(e.loaded / e.total * 100) + '%';
+    });
+    xhr.addEventListener('load', function(){
+      var resp = {};
+      try { resp = JSON.parse(xhr.responseText || '{}'); } catch (e) {}
+      prog.classList.add('d-none');
+      if (xhr.status === 200 && resp.ok) {
+        slot.querySelector(isInv ? '.inv-drop' : '.doc-drop').classList.add('d-none');
+        slot.querySelector(isInv ? '.inv-ok' : '.doc-ok').classList.remove('d-none');
+        if (isInv) {
+          var fileBox = slot.querySelector('.inv-file');
+          slot.querySelector('.inv-file-name').textContent = resp.name || file.name;
+          fileBox.classList.remove('d-none');
+        }
+        if (resp.warning) { msg.className = (isInv ? 'inv-msg' : 'doc-msg') + ' small mt-2 text-warning'; msg.textContent = resp.warning; }
+        if (resp.all_done) document.querySelector('[data-all-done-msg]').classList.remove('d-none');
+      } else {
+        msg.className = (isInv ? 'inv-msg' : 'doc-msg') + ' small mt-2 text-danger';
+        msg.textContent = (resp && resp.error) || 'No se pudo subir el archivo';
+      }
+    });
+    xhr.addEventListener('error', function(){
+      prog.classList.add('d-none');
+      msg.className = (isInv ? 'inv-msg' : 'doc-msg') + ' small mt-2 text-danger';
+      msg.textContent = 'Error de conexión';
+    });
+    xhr.send(fd);
+  }
+
+  document.querySelectorAll('.inv-slot').forEach(function(s){ wire(s, 'invoice'); });
+  document.querySelectorAll('.doc-slot').forEach(function(s){ wire(s, 'doc'); });
+})();
+</script>
+{% endblock %}

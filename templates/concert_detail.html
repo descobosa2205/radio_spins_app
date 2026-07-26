@@ -1250,14 +1250,14 @@
           {# --- INGRESOS de la actividad (configuración cargada del evento) --- #}
           {% set tpay_b = concert.ticketing_payload or {} %}
           {% set ttypes_b = entradas_ticket_rows or [] %}
-          <div class="sim-cat-card">
+          <div class="sim-cat-card sim-cat-card--green">
             <div class="sim-cat-card__head"><div><i class="fa fa-coins me-1"></i>Ingresos de la actividad</div></div>
             <div class="sim-cat-card__body">
               <div class="row g-2">
                 {% for ch in concert.caches %}
                   <div class="col-6 col-md-3">
                     <div class="border rounded p-2 h-100">
-                      <div class="small text-muted"><i class="fa fa-coins me-1 text-danger"></i>{% if ch.kind == 'FIXED' %}Caché fijo{% elif ch.kind == 'VARIABLE' %}Caché variable{% else %}{{ ch.concept or 'Otros' }}{% endif %}</div>
+                      <div class="small text-muted"><i class="fa fa-coins me-1 text-success"></i>{% if ch.kind == 'FIXED' %}Caché fijo{% elif ch.kind == 'VARIABLE' %}Caché variable{% else %}{{ ch.concept or 'Otros' }}{% endif %}</div>
                       <div class="fw-semibold">{% if ch.kind == 'VARIABLE' and ch.pct %}{{ ch.pct }}% · {{ 'Bruto' if ch.pct_base=='GROSS' else 'Neto' }}{% elif ch.amount %}{{ ch.amount|eur }}{% else %}—{% endif %}</div>
                     </div>
                   </div>
@@ -1265,7 +1265,7 @@
                 {% for t in ttypes_b %}
                   <div class="col-6 col-md-3">
                     <div class="border rounded p-2 h-100">
-                      <div class="small text-muted"><i class="fa fa-ticket me-1 text-danger"></i>{{ t.get('name') or 'Entrada' }}</div>
+                      <div class="small text-muted"><i class="fa fa-ticket me-1 text-success"></i>{{ t.get('name') or 'Entrada' }}</div>
                       <div class="fw-semibold">{{ (t.get('price') or 0)|eur }}{% if t.get('qty_for_sale') %} · {{ t.get('qty_for_sale')|k }} uds{% endif %}</div>
                     </div>
                   </div>
@@ -1279,12 +1279,12 @@
 
           {# --- Lo que CUBRE EL PROMOTOR (equipos + otros extras), visual con iconos --- #}
           {% set eq_b = concert.equipment %}
-          <div class="sim-cat-card">
+          <div class="sim-cat-card sim-cat-card--green">
             <div class="sim-cat-card__head"><div><i class="fa fa-hand-holding-heart me-1"></i>Lo que cubre el promotor</div></div>
             <div class="sim-cat-card__body">
               <div class="d-flex flex-wrap gap-2">
                 {% if eq_b and eq_b.covered_by_promoter %}
-                  <span class="badge text-bg-light border px-3 py-2"><i class="fa fa-toolbox me-1 text-danger"></i>{{ 'Rider del festival' if eq_b.covered_mode == 'RIDER' else 'Equipos' }}</span>
+                  <span class="badge text-bg-light border px-3 py-2"><i class="fa fa-toolbox me-1 text-success"></i>{{ 'Rider del festival' if eq_b.covered_mode == 'RIDER' else 'Equipos' }}</span>
                 {% endif %}
                 {% for pc in promoter_costs_rows %}
                   <span class="badge text-bg-light border px-3 py-2" {% if pc.note %}title="{{ pc.note }}"{% endif %}>
@@ -1355,66 +1355,166 @@
       </div>
 
       <div class="tab-pane fade {% if ptab == 'presupuesto' %}show active{% endif %}" id="prod-budget">
+        {# Presupuesto con la MISMA estructura y estética que los gastos de las simulaciones:
+           un bocadillo por categoría (todas visibles), «Añadir gasto» por categoría, cantidad e
+           IVA por partida, subtotal al pie de cada bocadillo y «Gasto Total:» al final.
+           Se puede ARRASTRAR una partida de un bocadillo a otro. #}
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
           <div>
-            <h6 class="mb-0">Presupuesto</h6>
+            <h6 class="mb-0"><i class="fa fa-receipt me-1 text-danger"></i>Gastos por categorías</h6>
             <div class="small text-muted">Total sin IVA: {{ production_panel.budget_net_total|eur }} · Total con IVA: {{ production_panel.budget_gross_total|eur }}</div>
           </div>
           <div class="d-flex gap-2 flex-wrap">
+            {% if production_panel.artist_templates or production_panel.venue_templates %}
+              <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#budgetTemplatesModal"><i class="fa fa-folder-open me-1"></i>Cargar plantilla de gastos</button>
+            {% endif %}
             <form method="post" action="{{ url_for('concert_budget_request', cid=concert.id) }}">
               <input type="hidden" name="notes" value="Solicitud de presupuesto de producción">
               <button class="btn btn-outline-secondary btn-sm"><i class="fa fa-paper-plane me-1"></i>Solicitar presupuesto</button>
             </form>
           </div>
         </div>
-        {% if production_panel.artist_templates %}
-          <form method="post" action="{{ url_for('concert_budget_load_template', cid=concert.id) }}" class="d-flex flex-wrap gap-2 align-items-end mb-3 p-2 rounded" style="background:#f8f9fa;">
-            <div class="flex-grow-1" style="min-width:220px;">
-              <label class="form-label mb-1 small text-muted"><i class="fa fa-folder-open me-1"></i>Cargar presupuesto guardado del artista</label>
-              <select name="template_id" class="form-select form-select-sm" required>
-                <option value="">Selecciona una plantilla de gastos…</option>
-                {% for t in production_panel.artist_templates %}<option value="{{ t.id }}">{{ t.name }} ({{ t.count }} partida{{ '' if t.count == 1 else 's' }})</option>{% endfor %}
-              </select>
-            </div>
-            <button class="btn btn-outline-primary btn-sm"><i class="fa fa-download me-1"></i>Cargar como base</button>
-          </form>
-        {% endif %}
-        {# Presupuesto con la MISMA estética que los gastos de las simulaciones (categorías bocadillo). #}
+
         {% for cat_key, cat_label, cat_icon in SIM_EXPENSE_CATEGORIES %}
           {% set items_in_cat = production_panel.budget_by_cat.get(cat_key, []) %}
-          {% if items_in_cat %}
-          <div class="sim-cat-card">
-            <div class="sim-cat-card__head"><div><i class="fa {{ cat_icon }} me-1"></i>{{ cat_label }}</div>
-              {% set cat_net = items_in_cat|map(attribute='amount_net')|map('float')|sum %}
-              <span class="badge text-bg-light border">{{ cat_net|eur }}</span>
+          <div class="sim-cat-card" data-budget-cat="{{ cat_key }}">
+            <div class="sim-cat-card__head">
+              <span><i class="fa {{ cat_icon }} me-1"></i>{{ cat_label }}</span>
+              {% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-light border" data-budget-add="{{ cat_key }}" data-bs-toggle="modal" data-bs-target="#budgetAddModal"><i class="fa fa-plus me-1"></i>Añadir gasto</button>{% endif %}
             </div>
-            <div class="sim-cat-card__body p-0">
-              <table class="table table-sm align-middle mb-0">
-                <tbody>
-                  {% for item in items_in_cat %}
-                    <tr>
-                      <td>{{ item.concept }}</td>
-                      <td class="text-end text-muted small" style="width:120px;">{{ item.amount_net|eur }} <span class="text-muted">sin IVA</span></td>
-                      <td class="text-end small" style="width:120px;">{{ item.amount_gross|eur }} <span class="text-muted">con IVA</span></td>
-                      {% if CAN_EDIT_CONCERTS %}<td class="text-end" style="width:60px;"><form method="post" action="{{ url_for('concert_budget_item_delete', cid=concert.id, item_id=item.id) }}"><button class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="fa fa-trash"></i></button></form></td>{% endif %}
-                    </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
+            <div class="sim-cat-card__body">
+              {% for item in items_in_cat %}
+                <div class="card card-body p-2 mb-2 prod-row" data-budget-item="{{ item.id }}" {% if CAN_EDIT_CONCERTS %}draggable="true"{% endif %}>
+                  <div class="d-flex align-items-center gap-2 flex-wrap">
+                    {% if CAN_EDIT_CONCERTS %}<i class="fa fa-grip-vertical text-muted" title="Arrastra para cambiarlo de categoría"></i>{% endif %}
+                    <span class="flex-grow-1 min-w-0"><span class="fw-semibold">{{ item.concept }}</span>{% if item.quantity and item.quantity|float != 1 %}<span class="text-muted small ms-1">×{{ item.quantity|float|round(2)|int if item.quantity|float == item.quantity|float|round(0) else item.quantity }}</span>{% endif %}</span>
+                    <span class="text-end" style="min-width:110px;"><span class="sim-amt" title="Sin IVA">{{ item.amount_net|eur }}</span><span class="text-muted small ms-1">sin IVA</span></span>
+                    <span class="text-end" style="min-width:110px;"><span class="fw-semibold">{{ item.amount_gross|eur }}</span><span class="text-muted small ms-1">con IVA</span></span>
+                    <span class="badge text-bg-light border">{% if item.iva_exempt %}Exento{% else %}IVA {{ item.iva_pct|float|round(0)|int }}%{% endif %}</span>
+                    {% if CAN_EDIT_CONCERTS %}
+                      <form method="post" action="{{ url_for('concert_budget_item_delete', cid=concert.id, item_id=item.id) }}">
+                        <input type="hidden" name="next" value="{{ request.full_path }}">
+                        <button class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="fa fa-trash"></i></button>
+                      </form>
+                    {% endif %}
+                  </div>
+                </div>
+              {% else %}
+                <div class="text-muted small">Sin gastos en esta categoría.</div>
+              {% endfor %}
+            </div>
+            <div class="sim-cat-card__foot">
+              <span class="text-muted">Total {{ cat_label|lower }}</span>
+              <span class="fw-semibold"><span class="sim-amt" title="Sin IVA">{{ (items_in_cat|map(attribute='amount_net')|map('float')|sum)|eur }}</span></span>
             </div>
           </div>
-          {% endif %}
         {% endfor %}
+
+        <div class="d-flex justify-content-end align-items-baseline gap-2 border-top pt-2 mb-3 sim-gasto-total">
+          <span class="fw-bold text-uppercase text-muted" style="letter-spacing:.02em;">Gasto Total:</span>
+          <span class="sim-amt fw-bold fs-5" title="Sin IVA">{{ production_panel.budget_net_total|eur }}</span>
+        </div>
         {% if not production_panel.budget_items %}
-          <div class="alert alert-light border">Sin presupuesto todavía. Añade partidas abajo, carga una plantilla o conviértelo desde una simulación (sus gastos previstos pasan aquí automáticamente).</div>
+          <div class="alert alert-light border">Sin presupuesto todavía. Añade gastos en cada categoría, carga una plantilla o conviértelo desde una simulación (sus gastos previstos pasan aquí automáticamente).</div>
         {% endif %}
-        <form method="post" action="{{ url_for('concert_budget_item_create', cid=concert.id) }}" class="row g-2 align-items-end mt-2">
-          <div class="col-md-3"><label class="form-label">Categoría</label><select name="category" class="form-select">{% for value, label, icon in SIM_EXPENSE_CATEGORIES %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></div>
-          <div class="col-md-4"><label class="form-label">Concepto</label><input class="form-control" name="concept" required></div>
-          <div class="col-md-2"><label class="form-label">Sin IVA</label><input class="form-control" name="amount_net" inputmode="decimal"></div>
-          <div class="col-md-2"><label class="form-label">Con IVA</label><input class="form-control" name="amount_gross" inputmode="decimal"></div>
-          <div class="col-md-1"><button class="btn btn-primary w-100"><i class="fa fa-plus"></i></button></div>
-        </form>
+
+        {% if CAN_EDIT_CONCERTS %}
+        {# Modal: añadir gasto al presupuesto (mismos campos que un gasto de simulación) #}
+        <div class="modal fade" id="budgetAddModal" tabindex="-1" aria-hidden="true">
+          <div class="modal-dialog"><div class="modal-content">
+            <form method="post" action="{{ url_for('concert_budget_item_create', cid=concert.id) }}">
+              <input type="hidden" name="next" value="{{ request.full_path }}">
+              <div class="modal-header"><h5 class="modal-title"><i class="fa fa-plus me-2 text-danger"></i>Añadir gasto al presupuesto</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+              <div class="modal-body">
+                <div class="row g-3">
+                  <div class="col-12">
+                    <label class="form-label">Categoría</label>
+                    <select name="category" class="form-select" id="budgetAddCategory">
+                      {% for value, label, icon in SIM_EXPENSE_CATEGORIES %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                    </select>
+                  </div>
+                  <div class="col-12"><label class="form-label">Concepto</label><input class="form-control" name="concept" required placeholder="Furgoneta, técnico de sonido, hotel…"></div>
+                  <div class="col-6 col-md-4"><label class="form-label">Importe unitario</label><input class="form-control" name="amount_net" inputmode="decimal" placeholder="0,00"></div>
+                  <div class="col-6 col-md-4"><label class="form-label">Cantidad</label><input class="form-control" name="quantity" inputmode="decimal" value="1"></div>
+                  <div class="col-6 col-md-4"><label class="form-label">IVA %</label><input class="form-control" name="iva_pct" inputmode="decimal" value="21"></div>
+                  <div class="col-12"><label class="form-check-label border rounded px-3 py-2"><input class="form-check-input me-2" type="checkbox" name="iva_exempt" value="1">Exento de IVA</label></div>
+                  <div class="col-12"><div class="form-text">El total sin IVA es <strong>importe unitario × cantidad</strong>; el importe con IVA se calcula solo.</div></div>
+                </div>
+              </div>
+              <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary"><i class="fa fa-check me-1"></i>Añadir</button></div>
+            </form>
+          </div></div>
+        </div>
+
+        {% if production_panel.artist_templates or production_panel.venue_templates %}
+        <div class="modal fade" id="budgetTemplatesModal" tabindex="-1" aria-hidden="true">
+          <div class="modal-dialog modal-lg"><div class="modal-content">
+            <form method="post" action="{{ url_for('concert_budget_load_template', cid=concert.id) }}">
+              <input type="hidden" name="next" value="{{ request.full_path }}">
+              <div class="modal-header"><h5 class="modal-title"><i class="fa fa-folder-open me-2 text-danger"></i>Cargar plantilla de gastos</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+              <div class="modal-body">
+                <p class="small text-muted">Puedes cargar la del <strong>artista</strong>, la del <strong>recinto</strong> o <strong>las dos</strong>.</p>
+                <div class="row g-2">
+                  {% for t in production_panel.artist_templates %}
+                    <div class="col-12 col-md-6">
+                      <label class="activity-choice-card border rounded p-2 d-flex gap-2 align-items-center h-100 w-100 bg-white">
+                        <input class="form-check-input" type="checkbox" name="expense_template_ids[]" value="{{ t.id }}">
+                        <i class="fa fa-microphone-lines text-danger"></i>
+                        <span class="small"><span class="fw-semibold d-block">{{ t.name }}</span><span class="text-muted">Del artista · {{ t.count }} gasto{{ '' if t.count == 1 else 's' }}</span></span>
+                      </label>
+                    </div>
+                  {% endfor %}
+                  {% for t in production_panel.venue_templates %}
+                    <div class="col-12 col-md-6">
+                      <label class="activity-choice-card border rounded p-2 d-flex gap-2 align-items-center h-100 w-100 bg-white">
+                        <input class="form-check-input" type="checkbox" name="expense_template_ids[]" value="{{ t.id }}">
+                        <i class="fa fa-location-dot text-danger"></i>
+                        <span class="small"><span class="fw-semibold d-block">{{ t.name }}</span><span class="text-muted">Del recinto · {{ t.count }} gasto{{ '' if t.count == 1 else 's' }}</span></span>
+                      </label>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+              <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary"><i class="fa fa-download me-1"></i>Cargar</button></div>
+            </form>
+          </div></div>
+        </div>
+        {% endif %}
+
+        <script>
+        (function(){
+          // Categoría preseleccionada al pulsar «Añadir gasto» en un bocadillo concreto.
+          document.querySelectorAll('[data-budget-add]').forEach(function(b){
+            b.addEventListener('click', function(){
+              var sel = document.getElementById('budgetAddCategory');
+              if (sel) sel.value = b.getAttribute('data-budget-add');
+            });
+          });
+          // Arrastrar una partida de un bocadillo a otro (igual que los gastos de simulación).
+          var dragId = null;
+          document.querySelectorAll('[data-budget-item]').forEach(function(row){
+            row.addEventListener('dragstart', function(){ dragId = row.getAttribute('data-budget-item'); row.classList.add('opacity-50'); });
+            row.addEventListener('dragend', function(){ row.classList.remove('opacity-50'); });
+          });
+          document.querySelectorAll('[data-budget-cat]').forEach(function(card){
+            card.addEventListener('dragover', function(e){ if (dragId) { e.preventDefault(); card.classList.add('drag-over'); } });
+            card.addEventListener('dragleave', function(){ card.classList.remove('drag-over'); });
+            card.addEventListener('drop', function(e){
+              e.preventDefault(); card.classList.remove('drag-over');
+              if (!dragId) return;
+              var fd = new FormData();
+              fd.append('category', card.getAttribute('data-budget-cat'));
+              fd.append('ajax', '1');
+              var meta = document.querySelector('meta[name="csrf-token"]');
+              fetch('{{ url_for('concert_budget_item_move', cid=concert.id, item_id='__ID__') }}'.replace('__ID__', dragId), {
+                method: 'POST', headers: meta ? {'X-CSRFToken': meta.getAttribute('content')} : {}, body: fd
+              }).then(function(r){ return r.json(); }).then(function(d){ if (d && d.ok) window.location.reload(); });
+            });
+          });
+        })();
+        </script>
+        {% endif %}
+      </div>
       </div>
     </div>
 

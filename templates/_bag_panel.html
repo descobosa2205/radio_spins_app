@@ -7,10 +7,44 @@
 {# En la ficha el panel se incluye en DOS mitades (bag_hide_expenses / bag_hide_head) para poder
    intercalar los módulos de Ingresos y «Lo que cubre el promotor» entre los datos y los gastos. #}
 {% if not bag_hide_head %}
+{% if bag_embed %}
+  {# ---------- EN LA FICHA: solo el resumen económico + las etiquetas de estado, en fila ---------- #}
+  <div class="bag-embed-head mb-3">
+    <div class="bag-embed-head__totals">
+      <div><span class="small text-muted">Total bolsa</span><span class="fw-bold">{{ totals.bag|eur }}</span></div>
+      <div><span class="small text-muted">Total general</span><span class="fw-bold">{{ totals.all|eur }}</span></div>
+      <div><span class="small text-muted">Artista</span><span class="fw-semibold">{{ totals.artist|eur }}</span></div>
+      <div><span class="small text-muted">Promotor</span><span class="fw-semibold">{{ totals.promoter|eur }}</span></div>
+      <div><span class="small text-muted">Oficina</span><span class="fw-semibold">{{ totals.office|eur }}</span></div>
+    </div>
+    <div class="bag-embed-head__badges">
+      <span class="badge text-bg-light border"><i class="fa fa-sack-dollar me-1 text-danger"></i>{{ bag.status }}</span>
+      <span class="badge text-bg-light border">{{ bag.bag_type or 'GENERAL' }}</span>
+      <span class="badge text-bg-light border"><i class="fa fa-file-invoice-dollar me-1 text-danger"></i>{{ bag.liquidation_status or 'NO_INICIADA' }}</span>
+    </div>
+  </div>
+  {# ---------- Acciones de la bolsa en la ficha ---------- #}
+  {% if can_edit_bag %}
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    {% if can_close_bag %}
+      <form method="post" action="{{ url_for('bag_close', bag_id=bag.id) }}" onsubmit="return confirm('¿Cerrar esta bolsa? Ya no se podrá editar y pasará a administración para liquidación.');">
+        <input type="hidden" name="next" value="{{ bag_next }}">
+        <button class="btn btn-success btn-sm"><i class="fa fa-lock me-1"></i>Cerrar bolsa</button>
+      </form>
+    {% else %}
+      <button class="btn btn-outline-success btn-sm" type="button" disabled title="Para cerrarla no puede haber gastos sin consolidar (todos con factura o justificación)."><i class="fa fa-lock me-1"></i>Cerrar bolsa</button>
+    {% endif %}
+    {% if bag_templates %}
+      <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#bagTemplatesModal"><i class="fa fa-folder-open me-1"></i>Cargar plantilla de gastos</button>
+    {% endif %}
+    {% if bag_providers_pending %}
+      <button class="btn btn-outline-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#bagInvoicesModal"><i class="fa fa-file-invoice me-1"></i>Solicitar facturas a los proveedores <span class="badge text-bg-danger ms-1">{{ bag_providers_pending|length }}</span></button>
+    {% endif %}
+  </div>
+  {% endif %}
+{% else %}
 <div class="d-flex justify-content-end align-items-center mb-3 flex-wrap gap-2">
   <div class="d-flex gap-2 flex-wrap">
-    {% if not bag_embed %}{# en la ficha, el enlace a la página completa de la bolsa es opcional #}{% endif %}
-    {% if bag_embed %}<a class="btn btn-outline-secondary btn-sm" href="{{ url_for('bag_detail_view', bag_id=bag.id) }}" title="Abrir la bolsa en su página completa"><i class="fa fa-up-right-from-square me-1"></i>Página de la bolsa</a>{% endif %}
     {% if can_close_bag %}
       <form method="post" action="{{ url_for('bag_close', bag_id=bag.id) }}" onsubmit="return confirm('¿Cerrar esta bolsa? Ya no se podrá editar y pasará a administración para liquidación.');">
         <input type="hidden" name="next" value="{{ bag_next }}">
@@ -24,6 +58,8 @@
     {% endif %}
   </div>
 </div>
+{% endif %}
+{% if not bag_embed %}
 <div class="card shadow-sm mb-3 border-0" style="border-radius:18px;overflow:hidden;">
   <div class="card-body p-4 bg-light-subtle">
     <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
@@ -138,6 +174,67 @@
   </div>
 </div>
 
+{% endif %}{# /not bag_embed: en la ficha no se repiten cabecera, datos ni notas #}
+
+{# Modales de las acciones de la bolsa en la ficha (plantillas de gastos y petición de facturas). #}
+{% if bag_embed and can_edit_bag and bag_templates %}
+  <div class="modal fade" id="bagTemplatesModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <form method="post" action="{{ url_for('bag_load_templates', bag_id=bag.id) }}">
+        <input type="hidden" name="next" value="{{ bag_next }}">
+        <div class="modal-header"><h5 class="modal-title"><i class="fa fa-folder-open me-2 text-danger"></i>Cargar plantilla de gastos</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <p class="small text-muted">Puedes cargar la del <strong>artista</strong>, la del <strong>recinto</strong> o <strong>las dos</strong>: marca las que quieras y se añadirán sus gastos a la bolsa.</p>
+          <div class="row g-2">
+            {% for t in bag_templates %}
+              <div class="col-12 col-md-6">
+                <label class="activity-choice-card border rounded p-2 d-flex gap-2 align-items-center h-100 w-100 bg-white">
+                  <input class="form-check-input" type="checkbox" name="expense_template_ids[]" value="{{ t.id }}">
+                  <i class="fa {{ 'fa-microphone-lines' if t.scope == 'artist' else 'fa-location-dot' }} text-danger"></i>
+                  <span class="small"><span class="fw-semibold d-block">{{ t.name }}</span><span class="text-muted">{{ 'Del artista' if t.scope == 'artist' else 'Del recinto' }} · {{ t.count }} gasto{{ '' if t.count == 1 else 's' }}</span></span>
+                </label>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary"><i class="fa fa-download me-1"></i>Cargar en la bolsa</button></div>
+      </form>
+    </div></div>
+  </div>
+{% endif %}
+{% if bag_embed and can_edit_bag and bag_providers_pending %}
+  <div class="modal fade" id="bagInvoicesModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+      <form method="post" action="{{ url_for('bag_request_invoices', bag_id=bag.id) }}">
+        <input type="hidden" name="next" value="{{ bag_next }}">
+        <div class="modal-header"><h5 class="modal-title"><i class="fa fa-file-invoice me-2 text-danger"></i>Solicitar facturas</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <p class="small text-muted">Se enviará un correo (con la cabecera del evento y sus conceptos con importes con y sin IVA) <strong>solo a los proveedores que aún no han subido factura</strong>, con un enlace para subirla arrastrándola.</p>
+          <div class="d-grid gap-2 mb-3">
+            {% for p in bag_providers_pending %}
+              <div class="border rounded p-2 d-flex align-items-center gap-2">
+                <img src="{{ p.logo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1" style="width:34px;height:34px;border-radius:50%;object-fit:cover;">
+                <div class="flex-grow-1 min-w-0">
+                  <div class="fw-semibold small text-truncate">{{ p.name }}</div>
+                  <div class="small text-muted text-truncate">{{ p['items']|length }} concepto{{ '' if p['items']|length == 1 else 's' }} · {{ p.net|eur }} sin IVA · {{ p.gross|eur }} con IVA</div>
+                </div>
+                {% if p.email %}<span class="badge text-bg-light border">{{ p.email }}</span>{% else %}<span class="badge text-bg-warning text-dark">Sin correo</span>{% endif %}
+              </div>
+            {% endfor %}
+          </div>
+          <label class="form-label small fw-semibold">¿Les pedimos además documentación?</label>
+          <div class="d-flex flex-wrap gap-2">
+            {% for key, label in bag_required_doc_choices %}
+              <label class="form-check-label border rounded px-3 py-2"><input class="form-check-input me-2" type="checkbox" name="required_docs" value="{{ key }}">{{ label }}</label>
+            {% endfor %}
+          </div>
+          <div class="form-text">Si marcas alguno, no podrán dejar la factura subida sin adjuntarlo. Lo que ya tengan en vigor no se les vuelve a pedir.</div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-danger"><i class="fa fa-paper-plane me-1"></i>Enviar solicitudes</button></div>
+      </form>
+    </div></div>
+  </div>
+{% endif %}
 {% endif %}{# /bag_hide_head #}
 {% if not bag_hide_expenses %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
@@ -277,6 +374,12 @@
   </div>
   {% endif %}
 {% endfor %}
+
+{# TOTAL DE GASTOS al final de la bolsa (mismo remate que los gastos de las simulaciones). #}
+<div class="d-flex justify-content-end align-items-baseline gap-2 border-top pt-2 mb-3 sim-gasto-total">
+  <span class="fw-bold text-uppercase text-muted" style="letter-spacing:.02em;">Gasto Total:</span>
+  <span class="fw-bold fs-5">{{ totals.all|eur }}</span>
+</div>
 
 {% if invoices %}
 <div class="card mt-4">

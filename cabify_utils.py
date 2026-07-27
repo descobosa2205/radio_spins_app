@@ -255,12 +255,11 @@ def parse_sale(sale: dict) -> dict:
             return ""
         return (s.get("address") or s.get("city") or "").strip()
 
-    origen, destino = _addr(0), _addr(-1) if len(stops) > 1 else ""
+    origen, destino = _addr(0), (_addr(-1) if len(stops) > 1 else "")
     trayecto = " → ".join([x for x in (origen, destino) if x])
-    descripcion = (obj.get("description") or "").strip()
-    texto = descripcion or trayecto or "Viaje en Cabify"
-    if descripcion and trayecto:
-        texto = f"{descripcion} · {trayecto}"
+    # En «Mis gastos» solo interesan la fecha, el origen y el destino (la fecha va aparte). La
+    # descripción larga de Cabify no se usa como concepto: alarga la tarjeta sin aportar.
+    texto = trayecto or (obj.get("description") or "").strip() or "Viaje en Cabify"
     return {
         "code": (sale.get("code") or "").strip(),
         "currency": (sale.get("currency") or "EUR").upper(),
@@ -268,7 +267,9 @@ def parse_sale(sale: dict) -> dict:
         "journey_id": (obj.get("id") or obj.get("journey_id") or "").strip(),
         "charge_code": (obj.get("charge_code") or "").strip(),
         "start_at": (obj.get("start_at") or "").strip(),
-        "concept": texto[:300],
+        "concept": texto[:200],
+        "origin": origen,
+        "destination": destino,
         "amount_gross": gross,
         "amount_net": net,
         "amount_tax": (gross - net),

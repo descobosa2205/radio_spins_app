@@ -29,15 +29,23 @@
       </div>
       <div class="card-body assign-scroll" id="pendingCol">
         {% for e in pending %}
-          <div class="assign-exp border rounded p-2 mb-2" draggable="true" data-expense-id="{{ e.id }}">
+          <div class="assign-exp border rounded p-2 mb-2" draggable="true" data-expense-id="{{ e.id }}"
+               {% if e.file_url %}data-invoice-url="{{ e.file_url }}" title="Pincha para ver la factura"{% endif %}>
             <div class="d-flex align-items-center gap-2">
               <i class="fa fa-grip-vertical text-muted"></i>
               <span class="d-inline-flex align-items-center justify-content-center flex-shrink-0" style="width:34px;height:34px;border-radius:9px;background:rgba(227,61,72,.10);color:#E33D48;"><i class="fa {{ e.source_icon }} small"></i></span>
               <div class="flex-grow-1 min-w-0">
-                <div class="fw-semibold small text-truncate">{{ e.concept }}</div>
-                <div class="small text-muted text-truncate">{{ e.source_label }}{% if e.provider_name %} · {{ e.provider_name }}{% endif %}{% if e.date_label %} · {{ e.date_label }}{% endif %}</div>
+                <div class="fw-semibold small assign-exp__concept">{{ e.concept }}</div>
+                <div class="small text-muted assign-exp__meta">{{ e.source_label }}{% if e.provider_name %} · {{ e.provider_name }}{% endif %}{% if e.date_label %} · {{ e.date_label }}{% endif %}</div>
               </div>
-              <div class="text-end">
+              {# Semáforo de factura: verde si la trae, rojo si el gasto importado viene sin ella. #}
+              {% if e.file_url %}
+                <a class="assign-exp__inv assign-exp__inv--ok flex-shrink-0" href="{{ e.file_url }}"
+                   target="_blank" rel="noopener" title="Ver la factura adjunta"><i class="fa fa-file-invoice"></i></a>
+              {% else %}
+                <span class="assign-exp__inv assign-exp__inv--ko flex-shrink-0" title="Este gasto no trae factura"><i class="fa fa-file-circle-xmark"></i></span>
+              {% endif %}
+              <div class="text-end flex-shrink-0">
                 <div class="fw-semibold small">{{ e.amount_gross|eur }}</div>
                 {% if e.overdue %}<span class="badge text-bg-danger">Fuera de plazo</span>
                 {% else %}<span class="badge text-bg-warning text-dark">{{ e.days_left }} d</span>{% endif %}
@@ -46,8 +54,8 @@
             {# Nota y etiquetas de Pleo: es lo que dice a qué actividad era el gasto. #}
             {% if e.note or e.tags %}
               <div class="d-flex flex-wrap align-items-center gap-1 mt-1 ps-4">
-                {% for t in e.tags %}<span class="badge text-bg-info-subtle text-dark border">{% if t.group %}{{ t.group }}: {% endif %}{{ t.value }}</span>{% endfor %}
-                {% if e.note %}<span class="small text-muted text-truncate"><i class="fa fa-quote-left me-1"></i>{{ e.note }}</span>{% endif %}
+                {% for t in e.tags %}<span class="badge text-bg-info-subtle text-dark border assign-exp__tag">{% if t.group %}{{ t.group }}: {% endif %}{{ t.value }}</span>{% endfor %}
+                {% if e.note %}<span class="small text-muted assign-exp__note"><i class="fa fa-quote-left me-1"></i>{{ e.note }}</span>{% endif %}
               </div>
             {% endif %}
             {% if e.needs_receipt %}<div class="small text-warning-emphasis ps-4"><i class="fa fa-camera me-1"></i>Sin justificante en Pleo</div>{% endif %}
@@ -100,6 +108,18 @@
 (function(){
   var URL_TPL = {{ url_for('my_expense_assign_bag', expense_id='__ID__')|tojson }};
   var dragId = null;
+
+  /* Pinchar la tarjeta abre la factura, si la lleva. Se distingue del ARRASTRE mirando cuánto se
+     ha movido el puntero: si se ha arrastrado, no se abre nada. */
+  document.querySelectorAll('.assign-exp[data-invoice-url]').forEach(function(card){
+    var x0 = 0, y0 = 0;
+    card.addEventListener('pointerdown', function(ev){ x0 = ev.clientX; y0 = ev.clientY; });
+    card.addEventListener('click', function(ev){
+      if (ev.target.closest('a, button')) return;            // el icono ya abre por su cuenta
+      if (Math.abs(ev.clientX - x0) > 4 || Math.abs(ev.clientY - y0) > 4) return;   // ha sido un arrastre
+      window.open(card.getAttribute('data-invoice-url'), '_blank', 'noopener');
+    });
+  });
 
   document.querySelectorAll('.assign-exp').forEach(function(el){
     el.addEventListener('dragstart', function(){ dragId = el.getAttribute('data-expense-id'); el.classList.add('opacity-50'); });

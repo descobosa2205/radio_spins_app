@@ -42,7 +42,13 @@
           <span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Asignado</span>
         {% endif %}
       </div>
-      {% if e.file_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ e.file_url }}" target="_blank" rel="noopener" title="Ver justificante"><i class="fa fa-eye"></i></a>{% endif %}
+      {# Semáforo de factura: verde si el gasto trae su justificante, rojo si no. #}
+      {% if e.file_url %}
+        <a class="btn btn-sm btn-outline-success" href="{{ e.file_url }}" target="_blank" rel="noopener"
+           title="Ver la factura adjunta"><i class="fa fa-file-invoice"></i></a>
+      {% else %}
+        <span class="btn btn-sm btn-outline-danger disabled" title="Este gasto no trae factura"><i class="fa fa-file-circle-xmark"></i></span>
+      {% endif %}
     </div>
     {{ pleo_hints(e) }}
     {% if e.needs_receipt %}

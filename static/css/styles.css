@@ -2799,3 +2799,25 @@ img.docs-id__face { width:100%; height:100%; object-fit:cover; display:block; cu
 .promo-pick__avatar i{ font-size:1.2rem; color:#8b95a1; }
 /* Soltar una factura importada encima de un gasto concreto de la bolsa */
 .expense-row.drag-over{ outline:2px dashed var(--brand-primary,#E33D48); outline-offset:-3px; background:rgba(227,61,72,.05); }
+
+/* Tarjetas de gastos importados (Mis gastos y panel de la bolsa): con conceptos largos el texto
+   se salía de la tarjeta. Se parten las palabras largas y se limita a 2 líneas en vez de recortar
+   en una sola, para que se lea sin desbordar. */
+.assign-exp{ overflow: hidden; }
+.assign-exp__concept,
+.assign-exp__meta,
+.assign-exp__note{
+  display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden;
+  overflow-wrap: anywhere; word-break: break-word;
+}
+.assign-exp__concept{ -webkit-line-clamp: 2; }
+.assign-exp__meta{ -webkit-line-clamp: 2; }
+.assign-exp__note{ -webkit-line-clamp: 2; max-width: 100%; }
+.assign-exp__tag{ max-width: 100%; overflow-wrap: anywhere; white-space: normal; text-align: left; }
+/* Semáforo de factura en los gastos importados: verde si la trae, rojo si no. */
+.assign-exp__inv{ width:30px; height:30px; display:grid; place-items:center; border-radius:9px;
+  border:1px solid transparent; text-decoration:none; font-size:.95rem; }
+.assign-exp__inv--ok{ background:rgba(25,135,84,.10); border-color:rgba(25,135,84,.35); color:#198754; }
+.assign-exp__inv--ok:hover{ background:rgba(25,135,84,.18); color:#0f5132; }
+.assign-exp__inv--ko{ background:rgba(227,61,72,.10); border-color:rgba(227,61,72,.35); color:var(--brand-primary,#E33D48); }
+.assign-exp[data-invoice-url]{ cursor:pointer; }

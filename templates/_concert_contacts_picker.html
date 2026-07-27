@@ -1,0 +1,65 @@
+{# ============================================================================
+   Selector de CONTACTOS de la actividad (Producción / Ticketing / Comunicación).
+
+   Se usa igual en el asistente de alta y en la ficha. Muestra las personas que ya cuelgan del
+   promotor para elegirlas, y deja crear una nueva (nombre + email + teléfono, todo opcional salvo
+   el nombre) avisando de las que se le parecen para no duplicar. La misma persona puede cubrir
+   varias funciones.
+
+   Parámetros:
+     cc_promoter_input : selector CSS del <input hidden> con el promotor (asistente, cambia en vivo)
+     cc_promoter_id    : id fijo del promotor (ficha)
+     cc_selected       : dict {ROL: contact_id} ya asignado
+     cc_id             : sufijo único por si hay más de uno en la página
+   ============================================================================ #}
+{% set _ccid = cc_id | default('cc') %}
+<div class="cc-picker"
+     data-concert-contacts
+     id="{{ _ccid }}"
+     data-contacts-url="{{ url_for('api_promoter_contacts', promoter_id='__PID__') }}"
+     data-create-url="{{ url_for('api_promoter_contact_create') }}"
+     {% if cc_promoter_input %}data-promoter-input="{{ cc_promoter_input }}"{% endif %}
+     {% if cc_promoter_id %}data-promoter-id="{{ cc_promoter_id }}"{% endif %}
+     data-roles='{{ CONCERT_CONTACT_ROLES | map("list") | list | tojson }}'
+     data-selected='{{ (cc_selected or {}) | tojson }}'>
+
+  <div class="cc-empty small text-muted" data-cc-nopromoter>
+    <i class="fa fa-circle-info me-1"></i>Elige antes el promotor: las personas de contacto quedan vinculadas a él.
+  </div>
+
+  <div data-cc-body class="d-none">
+    <label class="d-inline-flex align-items-center gap-2 mb-2 small">
+      <input type="checkbox" class="form-check-input m-0" data-cc-same>
+      <span>La misma persona para las tres funciones</span>
+    </label>
+
+    <div class="cc-roles" data-cc-roles></div>
+
+    <div class="cc-new d-none" data-cc-new>
+      <div class="fw-semibold small mb-2"><i class="fa fa-user-plus me-1"></i>Nueva persona para <span data-cc-new-role></span></div>
+      <div class="row g-2">
+        <div class="col-12 col-md-4">
+          <input type="text" class="form-control form-control-sm" data-cc-new-name placeholder="Nombre y apellidos">
+        </div>
+        <div class="col-12 col-md-4">
+          <input type="email" class="form-control form-control-sm" data-cc-new-email placeholder="Email (opcional)">
+        </div>
+        <div class="col-12 col-md-4">
+          <input type="text" class="form-control form-control-sm" data-cc-new-phone placeholder="Teléfono (opcional)">
+        </div>
+      </div>
+      <div class="cc-dups d-none" data-cc-dups></div>
+      <div class="d-flex gap-2 mt-2">
+        <button type="button" class="btn btn-sm btn-primary" data-cc-new-save><i class="fa fa-check me-1"></i>Crear y asignar</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-cc-new-cancel>Cancelar</button>
+      </div>
+      <div class="small text-danger mt-1 d-none" data-cc-new-error></div>
+    </div>
+  </div>
+
+  {# Un campo por función: el backend lo lee con _parse_concert_contacts_form. #}
+  {% for key, label, icon in CONCERT_CONTACT_ROLES %}
+    <input type="hidden" name="contact_{{ key|lower }}_id" data-cc-input="{{ key }}"
+           value="{{ (cc_selected or {}).get(key, '') }}">
+  {% endfor %}
+</div>

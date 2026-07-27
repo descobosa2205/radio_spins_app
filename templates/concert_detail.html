@@ -447,6 +447,46 @@
     </div>
     {% endif %}
 
+    {# ---------- Contactos: una tarjeta por persona con TODAS sus etiquetas de función ---------- #}
+    <div class="ficha-section">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-address-book"></i>Contactos</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
+      <div class="ficha-section__body" data-section-view>
+        {% if concert_contacts %}
+          <div class="cc-list">
+            {% for p in concert_contacts %}
+              <div class="cc-card">
+                <div class="cc-card__avatar"><i class="fa fa-user"></i></div>
+                <div style="min-width:0;">
+                  <div class="cc-card__name">{{ p.name }}</div>
+                  {% if p.email or p.phone %}
+                    <div class="cc-card__meta">
+                      {% if p.email %}<a href="mailto:{{ p.email }}">{{ p.email }}</a>{% endif %}
+                      {% if p.email and p.phone %} · {% endif %}
+                      {% if p.phone %}<a href="tel:{{ p.phone }}">{{ p.phone }}</a>{% endif %}
+                    </div>
+                  {% endif %}
+                  {% if p.promoter_name %}<div class="cc-card__meta">{{ p.promoter_name }}</div>{% endif %}
+                  <div class="cc-tags">
+                    {% for r in p.roles %}<span class="cc-tag"><i class="fa {{ r.icon }}"></i>{{ r.label }}</span>{% endfor %}
+                  </div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="ficha-empty">Sin contactos. Pulsa <i class="fa fa-pen"></i> para asignar quién lleva producción, ticketing y comunicación.</div>
+        {% endif %}
+      </div>
+      {% if CAN_EDIT_CONCERTS %}
+      <form class="ficha-section__body d-none" data-section-form method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='contactos') }}" data-inline data-inline-target="#concert-general-zone">
+        {% with cc_id='fichaContacts', cc_promoter_id=(concert.promoter_id|string if concert.promoter_id else ''), cc_selected=concert_contacts_selected %}
+          {% include '_concert_contacts_picker.html' %}
+        {% endwith %}
+        <div class="d-flex justify-content-end gap-2 mt-2"><button type="button" class="btn btn-outline-secondary btn-sm" data-edit-cancel>Cancelar</button><button class="btn btn-primary btn-sm"><i class="fa fa-check me-1"></i>Guardar</button></div>
+      </form>
+      {% endif %}
+    </div>
+
     {% if concert.sale_type != 'VENDIDO' %}
     <div class="ficha-section">
       <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-handshake"></i>Colaboradores</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>

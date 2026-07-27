@@ -358,6 +358,15 @@
               </div>
             </div>
 
+            {# Personas de contacto del promotor: producción, ticketing y comunicación. #}
+            <div class="wizard-card" id="wizardContactsWrap">
+              <div class="wizard-card__title"><i class="fa fa-address-book"></i>Contactos</div>
+              <div class="wizard-card__hint">¿Con quién se habla para cada cosa? Elige entre las personas que ya tiene el promotor o crea una nueva. Puede ser la misma para todo.</div>
+              {% with cc_id='wizardContacts', cc_promoter_input='#wizard_promoter_id' %}
+                {% include '_concert_contacts_picker.html' %}
+              {% endwith %}
+            </div>
+
             {# Socios y comisionistas (en el mismo paso que el promotor; ocultos en no-concierto gratuito). #}
             <div id="wizardPartnersZone" data-wz-panel>
               <div class="wizard-card">
@@ -1660,6 +1669,9 @@
       document.getElementById('wizardPromoterWrap')?.classList.toggle('d-none', isEmpresa);
       const hasCompanies = updateCompanyCards();
       document.getElementById('wizardPromoterCompanyWrap')?.classList.toggle('d-none', isEmpresa || !selectedPromoter || selectedPromoter.kind !== 'promoter');
+      // Sin promotor no hay a quién colgar las personas de contacto: se oculta la tarjeta entera
+      // (al estar en .d-none, el envío también deshabilita sus campos y no llegan al backend).
+      document.getElementById('wizardContactsWrap')?.classList.toggle('d-none', isEmpresa);
       if(isEmpresa){ clearMainPromoter(); }
       updateSellerCards();
     }

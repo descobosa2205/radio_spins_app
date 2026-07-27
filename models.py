@@ -1395,6 +1395,12 @@ class Concert(Base):
         order_by="ConcertZoneAgent.created_at",
     )
 
+    contacts = relationship(
+        "ConcertContact",
+        cascade="all, delete-orphan",
+        order_by="ConcertContact.created_at",
+    )
+
     caches = relationship(
         "ConcertCache",
         cascade="all, delete-orphan",
@@ -1703,6 +1709,30 @@ class ConcertZoneAgent(Base):
 
     promoter = relationship("Promoter")
     promoter_company = relationship("PromoterCompany")
+
+
+class ConcertContact(Base):
+    """Persona de contacto asignada a una actividad, con la función (o funciones) que cumple.
+
+    La persona es un `PromoterContact` (vive colgando de su tercero), así que al asignarla aquí
+    queda vinculada al promotor para siempre. Una MISMA persona puede cubrir varias funciones:
+    por eso hay UNA fila por persona con la lista de roles, y no una fila por rol — así en la
+    ficha aparece una sola vez con varias etiquetas.
+    """
+
+    __tablename__ = "concert_contacts"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False, index=True)
+    contact_id = Column(PGUUID(as_uuid=True), ForeignKey("promoter_contacts.id", ondelete="CASCADE"), nullable=False, index=True)
+    # PRODUCCION | TICKETING | COMUNICACION (claves de CONCERT_CONTACT_ROLES en app.py)
+    roles = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    contact = relationship("PromoterContact")
+
+    __table_args__ = (
+        UniqueConstraint("concert_id", "contact_id", name="uq_concert_contact"),
+    )
 
 
 # --- CACHÉS ---

@@ -197,6 +197,7 @@ from models import (
     ConcertPromoterShare,
     ConcertCompanyShare,
     ConcertZoneAgent,
+    ConcertContact,
     ConcertCache,
     ConcertContract,
     ConcertContractSheet,
@@ -1207,6 +1208,7 @@ def inject_globals():
         artist_chip=artist_chip,
         artist_avatar=artist_avatar,
         linked_mini=linked_mini,
+        CONCERT_CONTACT_ROLES=CONCERT_CONTACT_ROLES,
         SIM_EXPENSE_CATEGORIES=SIM_EXPENSE_CATEGORIES,
         SIM_EXPENSE_CATEGORY_LABELS=SIM_EXPENSE_CATEGORY_LABELS,
         SIM_EXPENSE_CATEGORY_ICONS=SIM_EXPENSE_CATEGORY_ICONS,
@@ -16222,8 +16224,222 @@ def api_promoter_emails(promoter_id):
         for e in session_db.query(PromoterEmail).filter(PromoterEmail.promoter_id == p.id).order_by(PromoterEmail.created_at.asc()).all():
             _add(getattr(e, "email", None), (getattr(e, "concept", None) or "Email"))
         for c in session_db.query(PromoterContact).filter(PromoterContact.promoter_id == p.id, PromoterContact.email.isnot(None)).order_by(PromoterContact.created_at.asc()).all():
-            _add(getattr(c, "email", None), (getattr(c, "name", None) or "Contacto"))
+            _add(getattr(c, "email", None), _promoter_contact_name(c) or "Contacto")
         return jsonify(out)
+    finally:
+        session_db.close()
+
+
+# ==================== CONTACTOS DE LA ACTIVIDAD (producción / ticketing / comunicación) ====================
+# La persona de contacto es un `PromoterContact`: al asignarla a una actividad queda vinculada a su
+# tercero. Una misma persona puede cubrir varias funciones — se guarda UNA fila con varios roles.
+
+CONCERT_CONTACT_ROLES = [
+    ("PRODUCCION", "Producción", "fa-sliders"),
+    ("TICKETING", "Ticketing", "fa-ticket"),
+    ("COMUNICACION", "Comunicación", "fa-bullhorn"),
+]
+CONCERT_CONTACT_ROLE_KEYS = [k for k, _l, _i in CONCERT_CONTACT_ROLES]
+CONCERT_CONTACT_ROLE_META = {k: {"label": l, "icon": i} for k, l, i in CONCERT_CONTACT_ROLES}
+
+
+def _promoter_contact_name(contact) -> str:
+    if contact is None:
+        return ""
+    parts = [(getattr(contact, "first_name", None) or "").strip(),
+             (getattr(contact, "last_name", None) or "").strip()]
+    name = " ".join([p for p in parts if p]).strip()
+    return name or (getattr(contact, "title", None) or "").strip()
+
+
+def _promoter_contact_payload(contact, promoter=None) -> dict:
+    promoter = promoter if promoter is not None else getattr(contact, "promoter", None)
+    return {
+        "id": str(contact.id),
+        "name": _promoter_contact_name(contact),
+        "title": (getattr(contact, "title", None) or "").strip(),
+        "email": (getattr(contact, "email", None) or "").strip(),
+        "phone": (getattr(contact, "phone", None) or getattr(contact, "mobile", None) or "").strip(),
+        "promoter_id": (str(contact.promoter_id) if contact.promoter_id else ""),
+        "promoter_name": ((getattr(promoter, "nick", None) or "").strip() if promoter is not None else ""),
+    }
+
+
+def _promoter_contacts_for(session_db, promoter_id) -> list[dict]:
+    if not promoter_id:
+        return []
+    rows = (
+        session_db.query(PromoterContact)
+        .filter(PromoterContact.promoter_id == promoter_id)
+        .order_by(PromoterContact.created_at.asc())
+        .all()
+    )
+    return [_promoter_contact_payload(c) for c in rows]
+
+
+def _similar_promoter_contacts(session_db, name: str, email: str = "", phone: str = "",
+                               limit: int = 6) -> list[dict]:
+    """Personas que se parecen a la que se va a crear, para no duplicar.
+
+    Se mira en TODOS los terceros, no solo en el de la actividad: la misma persona puede estar ya
+    dada de alta colgando de otra empresa y lo que interesa es poder reutilizarla."""
+    name_key = _norm_text_key(name)
+    email_key = (email or "").strip().lower()
+    phone_key = re.sub(r"\D+", "", phone or "")
+    if not name_key and not email_key and not phone_key:
+        return []
+    conds = []
+    if email_key:
+        conds.append(func.lower(func.coalesce(PromoterContact.email, "")) == email_key)
+    if name_key:
+        # Primer apellido/nombre suelto ya vale como pista; el filtro fino se hace en Python.
+        for token in name_key.split()[:2]:
+            if len(token) >= 3:
+                conds.append(_sa_contains_text(PromoterContact.first_name, token))
+                conds.append(_sa_contains_text(PromoterContact.last_name, token))
+    if not conds:
+        conds.append(PromoterContact.phone.isnot(None))
+    rows = (
+        session_db.query(PromoterContact)
+        .options(joinedload(PromoterContact.promoter))
+        .filter(or_(*conds))
+        .limit(60)
+        .all()
+    )
+    out = []
+    for c in rows:
+        cand_name = _norm_text_key(_promoter_contact_name(c))
+        cand_email = (c.email or "").strip().lower()
+        cand_phone = re.sub(r"\D+", "", (c.phone or "") + (c.mobile or ""))
+        same_email = bool(email_key and cand_email == email_key)
+        same_phone = bool(phone_key and len(phone_key) >= 6 and phone_key in cand_phone)
+        similar_name = bool(
+            name_key and cand_name
+            and (name_key == cand_name
+                 or name_key in cand_name
+                 or cand_name in name_key
+                 or SequenceMatcher(None, name_key, cand_name).ratio() >= 0.82)
+        )
+        if same_email or same_phone or similar_name:
+            payload = _promoter_contact_payload(c)
+            payload["why"] = ("mismo correo" if same_email else
+                              "mismo teléfono" if same_phone else "nombre parecido")
+            out.append(payload)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _concert_contact_rows(concert) -> list[dict]:
+    """Contactos de la ficha: una entrada por PERSONA con todas sus etiquetas de función."""
+    rows = []
+    for link in (getattr(concert, "contacts", None) or []):
+        contact = getattr(link, "contact", None)
+        if contact is None:
+            continue
+        raw_roles = link.roles if isinstance(link.roles, list) else []
+        roles = [CONCERT_CONTACT_ROLE_META[r] | {"key": r} for r in CONCERT_CONTACT_ROLE_KEYS if r in raw_roles]
+        if not roles:
+            continue
+        payload = _promoter_contact_payload(contact)
+        payload["roles"] = roles
+        rows.append(payload)
+    order = {k: n for n, k in enumerate(CONCERT_CONTACT_ROLE_KEYS)}
+    rows.sort(key=lambda r: min(order.get(x["key"], 99) for x in r["roles"]))
+    return rows
+
+
+def _concert_contacts_selected_map(concert) -> dict:
+    """{ROL: contact_id} para rellenar el selector de la ficha al editar."""
+    out = {}
+    for link in (getattr(concert, "contacts", None) or []):
+        for role in (link.roles if isinstance(link.roles, list) else []):
+            if role in CONCERT_CONTACT_ROLE_KEYS and role not in out:
+                out[role] = str(link.contact_id)
+    return out
+
+
+def _parse_concert_contacts_form(form) -> dict:
+    """Del formulario (asistente o ficha) al mapa persona → roles.
+
+    Llega un campo por función (`contact_<rol>_id`); si se repite la misma persona en varias, se
+    acumulan sus etiquetas en una sola entrada."""
+    by_contact: dict = {}
+    for key in CONCERT_CONTACT_ROLE_KEYS:
+        raw = (form.get(f"contact_{key.lower()}_id") or "").strip()
+        cid = to_uuid(raw) if raw else None
+        if not cid:
+            continue
+        by_contact.setdefault(cid, [])
+        if key not in by_contact[cid]:
+            by_contact[cid].append(key)
+    return by_contact
+
+
+def _replace_concert_contacts(session_db, concert_id, by_contact: dict) -> None:
+    session_db.query(ConcertContact).filter_by(concert_id=concert_id).delete(synchronize_session=False)
+    session_db.flush()
+    for cid, roles in by_contact.items():
+        if not roles:
+            continue
+        session_db.add(ConcertContact(concert_id=concert_id, contact_id=cid, roles=list(roles)))
+
+
+@app.get("/api/promoters/<promoter_id>/contactos", endpoint="api_promoter_contacts")
+@admin_required
+def api_promoter_contacts(promoter_id):
+    """Personas ya vinculadas a un tercero, para elegirlas sin volver a teclearlas."""
+    session_db = db()
+    try:
+        pid = to_uuid(promoter_id) if promoter_id else None
+        return jsonify({"contacts": _promoter_contacts_for(session_db, pid) if pid else []})
+    finally:
+        session_db.close()
+
+
+@app.post("/api/contactos/crear", endpoint="api_promoter_contact_create")
+@admin_required
+def api_promoter_contact_create():
+    """Crea una persona de contacto vinculada al tercero.
+
+    Antes de crearla avisa de las que se le parecen (mismo correo, mismo teléfono o nombre
+    parecido) para poder VINCULAR la que ya existe en vez de duplicarla. Con `force=1` se crea
+    igualmente (el usuario ha dicho que no es la misma persona)."""
+    data = request.get_json(silent=True) or request.form
+    name = (data.get("name") or "").strip()
+    email = (data.get("email") or "").strip()
+    phone = (data.get("phone") or "").strip()
+    promoter_id = to_uuid((data.get("promoter_id") or "").strip() or None)
+    force = _truthy(data.get("force"))
+    if not name:
+        return jsonify({"ok": False, "error": "Indica al menos el nombre de la persona."}), 400
+    if not promoter_id:
+        return jsonify({"ok": False, "error": "Elige antes el promotor: la persona queda vinculada a él."}), 400
+    session_db = db()
+    try:
+        promoter = session_db.get(Promoter, promoter_id)
+        if not promoter:
+            return jsonify({"ok": False, "error": "El promotor ya no existe."}), 404
+        if not force:
+            dups = _similar_promoter_contacts(session_db, name, email, phone)
+            if dups:
+                return jsonify({"ok": False, "duplicates": dups})
+        parts = name.split()
+        contact = PromoterContact(
+            promoter_id=promoter.id,
+            title="Contacto",
+            first_name=parts[0],
+            last_name=(" ".join(parts[1:]) or None),
+            email=(email or None),
+            phone=(phone or None),
+        )
+        session_db.add(contact)
+        session_db.commit()
+        return jsonify({"ok": True, "contact": _promoter_contact_payload(contact, promoter)})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[contactos] no se pudo crear la persona")
+        return jsonify({"ok": False, "error": str(exc)}), 500
     finally:
         session_db.close()
 
@@ -26855,6 +27071,8 @@ def concert_detail_view(cid):
             payment_terms=payment_terms,
             payment_pending=payment_pending,
             payment_total_configured=payment_total_configured,
+            concert_contacts=_concert_contact_rows(c),
+            concert_contacts_selected=_concert_contacts_selected_map(c),
             artwork_request=artwork_request,
             artwork_badge=_artwork_request_badge(artwork_request, c),
             artwork_assets=artwork_assets,
@@ -28065,6 +28283,10 @@ def concert_section_update_handler(cid, section):
             _add_concert_notes_from_request(session, c.id)
             session.commit()
             flash("Notas actualizadas.", "success")
+        elif section == "contactos":
+            _replace_concert_contacts(session, c.id, _parse_concert_contacts_form(request.form))
+            session.commit()
+            flash("Contactos actualizados.", "success")
         else:
             raise ValueError("Sección no reconocida.")
     except Exception as e:
@@ -34352,6 +34574,9 @@ def concert_wizard_create():
 
         # Meet & Greet marcado en el asistente → actividad MG en la hoja de ruta.
         _sync_meet_greet_roadmap(concert)
+
+        # Personas de contacto elegidas en el asistente (producción / ticketing / comunicación).
+        _replace_concert_contacts(session, concert.id, _parse_concert_contacts_form(request.form))
 
         # Vínculo opcional a una gira comprada / ciclo o festival (paso del asistente).
         _ptid = (request.form.get('wizard_purchased_tour_id') or '').strip()
@@ -41447,6 +41672,8 @@ SUPPORT_ACTION_ENDPOINTS = {
     "repertoire_template_create", "repertoire_template_update", "repertoire_template_delete",
     # Set list / repertorio por concierto o actividad (pestaña Repertorio)
     "setlist_save", "setlist_save_template",
+    # Contactos de la actividad: crear una persona nueva colgando del promotor.
+    "api_promoter_contact_create",
     # Vinculaciones entre entidades (entity_links.js; usadas también al pedir invitaciones)
     "entity_link_create", "entity_link_update", "entity_link_delete",
     # Hoja de ruta v2 (conciertos / acciones / promociones)
@@ -41490,6 +41717,8 @@ SUPPORT_READ_ENDPOINTS = {
     # Royalties «a favor»: PDF de la liquidación.
     "afavor_liquidation_pdf",
     "api_get_promoter", "api_promoter_detail", "api_promoter_emails", "api_media_contacts",
+    # Contactos de la actividad: personas ya vinculadas al promotor (asistente y ficha).
+    "api_promoter_contacts",
     "api_concert_meta", "api_song_meta", "api_album_song_search",
     "api_concert_artist_conflicts", "api_embargo_check_third_party", "api_geocode",
     "api_song_editorial_share_detail", "api_plays_json",

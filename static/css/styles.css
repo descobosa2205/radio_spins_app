@@ -2661,3 +2661,70 @@ img.docs-id__face { width:100%; height:100%; object-fit:cover; display:block; cu
   border-color: var(--brand-primary) !important;
   color: #fff !important;
 }
+
+/* ===================== Contactos de la actividad (producción/ticketing/comunicación) ===================== */
+.cc-picker .cc-roles{ display:grid; grid-template-columns:1fr; gap:.5rem; }
+@media (min-width:768px){ .cc-picker .cc-roles{ grid-template-columns:repeat(3, minmax(0,1fr)); } }
+.cc-role__label{ display:flex; align-items:center; gap:.4rem; font-size:.82rem; font-weight:600; color:#42505f; margin-bottom:.2rem; }
+.cc-role__label i{ color:var(--brand-accent,#007CA2); width:1rem; text-align:center; }
+.cc-picker .cc-new{ border:1px dashed var(--line-2,#e3e6eb); border-radius:12px; padding:.7rem; margin-top:.7rem; background:#fbfcfd; }
+.cc-dups{ margin-top:.6rem; }
+.cc-dup{ display:flex; align-items:center; gap:.5rem; justify-content:space-between; flex-wrap:wrap;
+  border:1px solid var(--line-2,#e3e6eb); border-radius:10px; padding:.35rem .6rem; margin-bottom:.35rem; background:#fff; }
+.cc-dup__info{ min-width:0; }
+
+/* Módulo de contactos en la ficha: una tarjeta por PERSONA con sus etiquetas de función */
+.cc-list{ display:grid; grid-template-columns:1fr; gap:.5rem; }
+@media (min-width:768px){ .cc-list{ grid-template-columns:repeat(2, minmax(0,1fr)); } }
+.cc-card{ display:flex; align-items:flex-start; gap:.6rem; border:1px solid var(--line-2,#e3e6eb);
+  border-radius:12px; padding:.55rem .7rem; background:#fff; }
+.cc-card__avatar{ width:34px; height:34px; border-radius:50%; display:grid; place-items:center; flex:0 0 auto;
+  background:#f1f3f5; color:#8b95a1; }
+.cc-card__name{ font-weight:700; color:var(--ink,#18202b); line-height:1.2; }
+.cc-card__meta{ font-size:.82rem; color:var(--muted-2,#6c757d); word-break:break-word; }
+.cc-card__meta a{ color:inherit; text-decoration:none; }
+.cc-card__meta a:hover{ text-decoration:underline; }
+.cc-tags{ display:flex; flex-wrap:wrap; gap:.3rem; margin-top:.3rem; }
+.cc-tag{ display:inline-flex; align-items:center; gap:.3rem; font-size:.74rem; font-weight:600;
+  border-radius:999px; padding:.14rem .5rem; background:rgba(0,124,162,.10); color:#00627f; }
+.cc-tag i{ font-size:.7rem; }
+
+/* ===== Modales con scroll cuyo <form> envuelve el cuerpo y el pie =====
+   Bootstrap solo sabe hacer scroll de .modal-body si es hijo FLEX directo de .modal-content. En
+   varios modales de la app (p. ej. el asistente de actividad) el <form> envuelve .modal-body +
+   .modal-footer, así que el formulario crecía hasta su altura natural: el contenido se quedaba
+   recortado por el overflow:hidden y el pie con «Siguiente»/«Guardar» desaparecía de la pantalla
+   en los pasos con muchos campos. Se convierte el propio formulario en la columna flex. */
+.modal-dialog-scrollable .modal-content > form,
+.modal-fullscreen .modal-content > form,
+.modal-fullscreen-sm-down .modal-content > form,
+.modal-fullscreen-md-down .modal-content > form,
+.modal-fullscreen-lg-down .modal-content > form,
+.modal-fullscreen-xl-down .modal-content > form,
+.modal-fullscreen-xxl-down .modal-content > form{
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.modal-dialog-scrollable .modal-content > form > .modal-body,
+.modal-fullscreen .modal-content > form > .modal-body,
+.modal-fullscreen-sm-down .modal-content > form > .modal-body,
+.modal-fullscreen-md-down .modal-content > form > .modal-body,
+.modal-fullscreen-lg-down .modal-content > form > .modal-body,
+.modal-fullscreen-xl-down .modal-content > form > .modal-body,
+.modal-fullscreen-xxl-down .modal-content > form > .modal-body{
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.modal-dialog-scrollable .modal-content > form > .modal-footer,
+.modal-fullscreen .modal-content > form > .modal-footer,
+.modal-fullscreen-sm-down .modal-content > form > .modal-footer,
+.modal-fullscreen-md-down .modal-content > form > .modal-footer,
+.modal-fullscreen-lg-down .modal-content > form > .modal-footer,
+.modal-fullscreen-xl-down .modal-content > form > .modal-footer,
+.modal-fullscreen-xxl-down .modal-content > form > .modal-footer{
+  flex-shrink: 0;
+}

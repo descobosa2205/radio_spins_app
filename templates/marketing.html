@@ -7,7 +7,7 @@
   </div>
   {% if can_edit_promocion %}
     <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#marketingCreateModal">
-      <i class="fa fa-plus me-1"></i> Marketing
+      <i class="fa fa-plus me-1"></i> Añadir promoción
     </button>
   {% endif %}
 </div>
@@ -164,46 +164,158 @@
 {% endif %}
 
 {% if can_edit_promocion %}
+{# ============ ASISTENTE POR PASOS · NUEVA PROMOCIÓN ============
+   Pregunta de una cosa cada vez: artista → qué se promociona → cuál → tipo de promoción →
+   acciones → objetivos y presupuesto → plazos. Usa el asistente genérico (step_wizard.js),
+   con auto-avance en los pasos de una sola elección. #}
 <div class="modal fade" id="marketingCreateModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-xl modal-dialog-scrollable">
-    <form class="modal-content" method="post" action="{{ url_for('promotion_create') }}" id="marketingCreateForm">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <form class="modal-content" method="post" action="{{ url_for('promotion_create') }}" id="marketingCreateForm" data-step-wizard>
       <input type="hidden" name="next" value="{{ url_for('marketing_view', tab='active') }}">
       <input type="hidden" name="subject_id" id="marketingSubjectId">
-      <div class="modal-header"><h5 class="modal-title">Nueva campaña de marketing</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-bullhorn me-2"></i>Nueva promoción</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
       <div class="modal-body">
-        <div class="row g-4">
-          <div class="col-12 col-lg-4">
-            <label class="form-label">Artistas</label>
-            <input type="text" class="form-control mb-2" id="marketingArtistSearch" placeholder="Buscar artistas">
-            <div class="border rounded p-2" style="max-height:260px;overflow:auto;">
-              {% for artist in creator.artists or [] %}
-                <label class="d-flex align-items-center gap-2 py-1 js-marketing-artist" data-search="{{ artist.name|lower }}">
-                  <input type="checkbox" class="form-check-input js-marketing-artist-check" name="artist_ids" value="{{ artist.id }}">
-                  <img src="{{ artist.photo_url }}" alt="" style="width:28px;height:28px;object-fit:cover;border-radius:8px;"> {{ artist.name }}
-                </label>
-              {% endfor %}
+        <div data-sw-progress></div>
+
+        {# Paso 1 · Artista #}
+        <section class="sw-step" data-step="1" data-title="Artista">
+          <div class="sw-step__q"><i class="fa fa-microphone-lines me-2 text-danger"></i>¿Para qué artista es la promoción?</div>
+          <div class="sw-step__h">Puedes marcar varios si la promoción es conjunta.</div>
+          <input type="text" class="form-control mb-2" id="marketingArtistSearch" placeholder="Buscar artista…">
+          <div class="promo-pick-grid" id="marketingArtistGrid">
+            {% for artist in creator.artists or [] %}
+              <label class="promo-pick js-marketing-artist" data-search="{{ artist.name|lower }}">
+                <input type="checkbox" class="js-marketing-artist-check" name="artist_ids" value="{{ artist.id }}">
+                <span class="promo-pick__box">
+                  {# La app oculta el placeholder genérico: sin foto, un icono en su lugar. #}
+                  {% if artist.photo_url and 'placeholder_photo' not in artist.photo_url %}
+                    <img src="{{ artist.photo_url }}" alt="">
+                  {% else %}
+                    <span class="promo-pick__avatar"><i class="fa fa-user"></i></span>
+                  {% endif %}
+                  <span class="promo-pick__name">{{ artist.name }}</span>
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+          <div class="form-text mt-2" id="marketingArtistHint">Si no marcas ninguno, se listará todo lo que haya.</div>
+        </section>
+
+        {# Paso 2 · Qué se promociona #}
+        <section class="sw-step" data-step="2" data-title="Qué se promociona">
+          <div class="sw-step__q"><i class="fa fa-shapes me-2 text-danger"></i>¿Qué se promociona?</div>
+          <div class="sw-step__h">Al elegirlo se pasa solo al siguiente paso.</div>
+          <input type="hidden" name="subject_type" id="marketingSubjectType" value="ARTIST">
+          <div class="promo-pick-grid promo-pick-grid--wide">
+            {% for value, label, icon in [('ARTIST','Artista','fa-microphone-lines'), ('SONG','Canción','fa-music'),
+                                          ('ALBUM','Disco / EP','fa-compact-disc'), ('CONCERT','Concierto','fa-guitar'),
+                                          ('GIRA','Gira comprada','fa-route')] %}
+              <label class="promo-pick">
+                <input type="radio" name="subject_type_pick" value="{{ value }}" data-sw-advance {% if loop.first %}checked{% endif %}>
+                <span class="promo-pick__box">
+                  <i class="fa {{ icon }}"></i>
+                  <span class="promo-pick__name">{{ label }}</span>
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+        </section>
+
+        {# Paso 3 · Cuál en concreto #}
+        <section class="sw-step" data-step="3" data-title="Cuál">
+          <div class="sw-step__q"><i class="fa fa-list-check me-2 text-danger"></i><span id="marketingSubjectQuestion">¿Cuál?</span></div>
+          <div class="sw-step__h">Se muestra lo que corresponde a los artistas elegidos.</div>
+          <div class="d-none" id="marketingManualTitleWrap">
+            <label class="form-label">Nombre de la gira</label>
+            <input class="form-control" name="manual_title" id="marketingManualTitle" placeholder="Gira 2026">
+          </div>
+          <div id="marketingSubjectGrid" class="row g-2"></div>
+          <div id="marketingSubjectEmpty" class="alert alert-light border mt-2 mb-0">No hay nada que elegir con esos artistas. Puedes volver atrás y cambiarlos.</div>
+        </section>
+
+        {# Paso 4 · Tipo de promoción #}
+        <section class="sw-step" data-step="4" data-title="Tipo">
+          <div class="sw-step__q"><i class="fa fa-diagram-project me-2 text-danger"></i>¿Qué tipo de promoción es?</div>
+          <div class="sw-step__h">Al elegirlo se pasa solo al siguiente paso.</div>
+          <div class="promo-pick-grid promo-pick-grid--wide">
+            <label class="promo-pick">
+              <input type="radio" name="request_kind" value="PLAN" data-sw-advance checked>
+              <span class="promo-pick__box"><i class="fa fa-diagram-project"></i><span class="promo-pick__name">Plan completo</span>
+                <span class="promo-pick__hint">Toda la promoción del lanzamiento o del evento</span></span>
+            </label>
+            <label class="promo-pick">
+              <input type="radio" name="request_kind" value="ACTION" data-sw-advance>
+              <span class="promo-pick__box"><i class="fa fa-bullseye"></i><span class="promo-pick__name">Acción concreta</span>
+                <span class="promo-pick__hint">Una sola acción puntual</span></span>
+            </label>
+          </div>
+        </section>
+
+        {# Paso 5 · Acciones #}
+        <section class="sw-step" data-step="5" data-title="Acciones">
+          <div class="sw-step__q"><i class="fa fa-list me-2 text-danger"></i>¿Qué acciones incluye?</div>
+          <div class="sw-step__h">Marca todas las que hagan falta.</div>
+          <div class="promo-pick-grid promo-pick-grid--wide">
+            {% for key, label, icon in marketing_action_types %}
+              <label class="promo-pick">
+                <input type="checkbox" name="action_types" value="{{ key }}">
+                <span class="promo-pick__box"><i class="fa {{ icon }}"></i><span class="promo-pick__name">{{ label }}</span></span>
+              </label>
+            {% endfor %}
+          </div>
+        </section>
+
+        {# Paso 6 · Objetivos y presupuesto #}
+        <section class="sw-step" data-step="6" data-title="Objetivos y presupuesto">
+          <div class="sw-step__q"><i class="fa fa-bullseye me-2 text-danger"></i>Objetivos y presupuesto</div>
+          <div class="sw-step__h">¿Qué se busca con esta promoción y con cuánto se cuenta?</div>
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label">Objetivos</label>
+              <textarea class="form-control" name="objectives_notes" rows="3" placeholder="Qué se quiere conseguir, público al que va dirigido…"></textarea>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Presupuesto</label>
+              <select class="form-select" name="budget_mode">
+                <option value="REQUEST_BUDGET">Pedir presupuesto</option>
+                <option value="MAX_AMOUNT">Presupuesto máximo</option>
+              </select>
+            </div>
+            <div class="col-md-4"><label class="form-label">Máximo global</label><input type="number" step="0.01" name="budget_max" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label">Notas de presupuesto</label><input type="text" name="budget_notes" class="form-control"></div>
+            <div class="col-md-6">
+              <label class="form-label">Empresa</label>
+              <select class="form-select" name="company_id">
+                <option value="">Sin empresa específica</option>
+                {% for company in creator.companies or [] %}<option value="{{ company.id }}">{{ company.name }}</option>{% endfor %}
+              </select>
             </div>
           </div>
-          <div class="col-12 col-lg-8">
-            <div class="row g-3">
-              <div class="col-md-4"><label class="form-label">Qué se promociona</label><select class="form-select" name="subject_type" id="marketingSubjectType" required><option value="ARTIST">Artista</option><option value="SONG">Canción</option><option value="ALBUM">Disco / EP</option><option value="CONCERT">Concierto</option><option value="GIRA">Gira comprada</option></select></div>
-              <div class="col-md-8 d-none" id="marketingManualTitleWrap"><label class="form-label">Nombre de la gira</label><input class="form-control" name="manual_title" id="marketingManualTitle"></div>
-              <div class="col-12"><div id="marketingSubjectGrid" class="row g-2"></div><div id="marketingSubjectEmpty" class="alert alert-light border mt-2 mb-0">Selecciona artista y tipo para ver opciones.</div></div>
-              <div class="col-12"><label class="form-label">Tipo de solicitud</label><div class="row g-2"><div class="col-md-6"><label class="marketing-option-card w-100"><input type="radio" name="request_kind" value="PLAN" checked><i class="fa fa-diagram-project"></i>Plan de marketing completo</label></div><div class="col-md-6"><label class="marketing-option-card w-100"><input type="radio" name="request_kind" value="ACTION"><i class="fa fa-bullseye"></i>Acción concreta</label></div></div></div>
-              <div class="col-12"><label class="form-label">Acciones a incluir</label><div class="row g-2">{% for key,label,icon in marketing_action_types %}<div class="col-6 col-lg-4"><label class="marketing-option-card w-100"><input type="checkbox" name="action_types" value="{{ key }}"><i class="fa {{ icon }}"></i>{{ label }}</label></div>{% endfor %}</div></div>
-              <div class="col-12"><label class="form-label">Objetivos</label><textarea class="form-control" name="objectives_notes" rows="3"></textarea></div>
-              <div class="col-md-4"><label class="form-label">Presupuesto</label><select class="form-select" name="budget_mode"><option value="REQUEST_BUDGET">Pedir presupuesto</option><option value="MAX_AMOUNT">Presupuesto máximo</option></select></div>
-              <div class="col-md-4"><label class="form-label">Máximo global</label><input type="number" step="0.01" name="budget_max" class="form-control"></div>
-              <div class="col-md-4"><label class="form-label">Notas de presupuesto</label><input type="text" name="budget_notes" class="form-control"></div>
-              <div class="col-md-4"><label class="form-label">Desde</label><input type="date" name="starts_on" class="form-control"></div>
-              <div class="col-md-4"><label class="form-label">Hasta</label><input type="date" name="ends_on" class="form-control"></div>
-              <div class="col-md-4"><label class="form-label">Notas de plazo</label><input type="text" name="deadline_notes" class="form-control"></div>
-              <div class="col-md-6"><label class="form-label">Empresa</label><select class="form-select" name="company_id"><option value="">Sin empresa específica</option>{% for company in creator.companies or [] %}<option value="{{ company.id }}">{{ company.name }}</option>{% endfor %}</select></div>
-            </div>
+        </section>
+
+        {# Paso 7 · Plazos #}
+        <section class="sw-step" data-step="7" data-title="Plazos">
+          <div class="sw-step__q"><i class="fa fa-calendar-days me-2 text-danger"></i>¿Para cuándo?</div>
+          <div class="sw-step__h">Cuándo empieza y cuándo acaba la promoción.</div>
+          <div class="row g-3">
+            <div class="col-md-4"><label class="form-label">Desde</label><input type="date" name="starts_on" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label">Hasta</label><input type="date" name="ends_on" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label">Notas de plazo</label><input type="text" name="deadline_notes" class="form-control"></div>
           </div>
+          <div class="alert alert-light border mt-3 mb-0" id="marketingSummary"></div>
+        </section>
+      </div>
+      <div class="modal-footer d-flex justify-content-between">
+        <button type="button" class="btn btn-outline-secondary" data-sw-prev>Anterior</button>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-primary" data-sw-next>Siguiente</button>
+          <button class="btn btn-primary" data-sw-submit><i class="fa fa-check me-1"></i>Crear promoción</button>
         </div>
       </div>
-      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Crear campaña</button></div>
     </form>
   </div>
 </div>
@@ -214,6 +326,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/step_wizard.js', v=ASSET_V) }}"></script>
 <script>
 (function(){
   const data = {{ creator|tojson }};
@@ -221,35 +334,94 @@
   if (!modal) return;
   const grid = document.getElementById('marketingSubjectGrid');
   const empty = document.getElementById('marketingSubjectEmpty');
-  const subjectType = document.getElementById('marketingSubjectType');
+  const subjectType = document.getElementById('marketingSubjectType');   // hidden que se envía
   const subjectId = document.getElementById('marketingSubjectId');
   const manualWrap = document.getElementById('marketingManualTitleWrap');
+  const manualTitle = document.getElementById('marketingManualTitle');
+  const question = document.getElementById('marketingSubjectQuestion');
   const artistSearch = document.getElementById('marketingArtistSearch');
+  const artistHint = document.getElementById('marketingArtistHint');
+  const summary = document.getElementById('marketingSummary');
   const normalize = (v) => window.normalizeSearchText ? window.normalizeSearchText(v) : String(v || '').toLowerCase();
-  function selectedArtists(){ return Array.from(modal.querySelectorAll('.js-marketing-artist-check:checked')).map(el => el.value); }
+
+  const QUESTION = { ARTIST: '¿Sobre qué artista?', SONG: '¿Qué canción?', ALBUM: '¿Qué disco o EP?',
+                     CONCERT: '¿Qué concierto?', GIRA: '¿Cómo se llama la gira?' };
+
+  function selectedArtists(){
+    return Array.from(modal.querySelectorAll('.js-marketing-artist-check:checked')).map(el => el.value);
+  }
+  function selectedArtistNames(){
+    return Array.from(modal.querySelectorAll('.js-marketing-artist-check:checked'))
+      .map(el => (el.closest('.promo-pick').querySelector('.promo-pick__name') || {}).textContent || '').filter(Boolean);
+  }
+
   function renderSubjects(){
     const type = subjectType.value;
     subjectId.value = '';
-    manualWrap.classList.toggle('d-none', type !== 'GIRA');
+    if (question) question.textContent = QUESTION[type] || '¿Cuál?';
+    const isGira = type === 'GIRA';
+    manualWrap.classList.toggle('d-none', !isGira);
     grid.innerHTML = '';
-    if (type === 'GIRA') { empty.classList.add('d-none'); return; }
+    if (isGira) { empty.classList.add('d-none'); return; }
     const selected = selectedArtists();
-    const rows = ((data.subjects || {})[type] || []).filter(item => !selected.length || (item.artist_ids || []).some(id => selected.includes(id))).slice(0, 80);
+    const rows = ((data.subjects || {})[type] || [])
+      .filter(item => !selected.length || (item.artist_ids || []).some(id => selected.includes(id)))
+      .slice(0, 80);
     empty.classList.toggle('d-none', rows.length > 0);
     rows.forEach(item => {
       const col = document.createElement('div'); col.className = 'col-12 col-md-6';
-      col.innerHTML = `<button type="button" class="btn btn-outline-secondary w-100 text-start js-marketing-subject" data-id="${item.id}"><span class="d-flex gap-2 align-items-center"><img src="${item.cover_url}" style="width:40px;height:40px;object-fit:cover;border-radius:10px;"><span><strong>${item.title || ''}</strong><br><span class="small text-muted">${item.subtitle || ''} ${item.meta ? '· '+item.meta : ''}</span></span></span></button>`;
+      col.innerHTML = '<button type="button" class="btn btn-outline-secondary w-100 text-start js-marketing-subject" data-id="' + item.id + '">'
+        + '<span class="d-flex gap-2 align-items-center"><img src="' + item.cover_url + '" style="width:40px;height:40px;object-fit:cover;border-radius:10px;">'
+        + '<span><strong>' + (item.title || '') + '</strong><br><span class="small text-muted">' + (item.subtitle || '')
+        + (item.meta ? ' · ' + item.meta : '') + '</span></span></span></button>';
       grid.appendChild(col);
     });
     grid.querySelectorAll('.js-marketing-subject').forEach(btn => btn.addEventListener('click', function(){
       grid.querySelectorAll('.js-marketing-subject').forEach(x => x.classList.remove('active'));
-      btn.classList.add('active'); subjectId.value = btn.dataset.id || '';
+      btn.classList.add('active');
+      subjectId.value = btn.dataset.id || '';
     }));
   }
-  modal.querySelectorAll('.js-marketing-artist-check').forEach(el => el.addEventListener('change', renderSubjects));
-  subjectType.addEventListener('change', renderSubjects);
-  if (artistSearch) artistSearch.addEventListener('input', () => { const q = normalize(artistSearch.value); modal.querySelectorAll('.js-marketing-artist').forEach(row => row.classList.toggle('d-none', q && !normalize(row.dataset.search).includes(q))); });
+
+  // El paso 2 es de una sola elección: el radio alimenta el hidden que viaja al servidor.
+  modal.querySelectorAll('input[name="subject_type_pick"]').forEach(r => r.addEventListener('change', function(){
+    if (r.checked) { subjectType.value = r.value; renderSubjects(); }
+  }));
+  modal.querySelectorAll('.js-marketing-artist-check').forEach(el => el.addEventListener('change', function(){
+    renderSubjects();
+    const n = selectedArtists().length;
+    if (artistHint) artistHint.textContent = n ? (n + (n === 1 ? ' artista elegido.' : ' artistas elegidos.'))
+                                               : 'Si no marcas ninguno, se listará todo lo que haya.';
+  }));
+  if (artistSearch) artistSearch.addEventListener('input', () => {
+    const q = normalize(artistSearch.value);
+    modal.querySelectorAll('.js-marketing-artist').forEach(row =>
+      row.classList.toggle('d-none', q && !normalize(row.dataset.search).includes(q)));
+  });
+
+  // Resumen en el último paso, para revisar antes de crear.
+  function renderSummary(){
+    if (!summary) return;
+    const tipoLbl = (modal.querySelector('input[name="subject_type_pick"]:checked') || {}).parentElement;
+    const tipo = tipoLbl ? (tipoLbl.querySelector('.promo-pick__name') || {}).textContent : '';
+    const elegido = grid.querySelector('.js-marketing-subject.active');
+    const cual = manualWrap.classList.contains('d-none')
+      ? (elegido ? (elegido.querySelector('strong') || {}).textContent : '—')
+      : (manualTitle.value || '—');
+    const kind = (modal.querySelector('input[name="request_kind"]:checked') || {}).value === 'ACTION' ? 'Acción concreta' : 'Plan completo';
+    const acciones = Array.from(modal.querySelectorAll('input[name="action_types"]:checked'))
+      .map(el => (el.parentElement.querySelector('.promo-pick__name') || {}).textContent).filter(Boolean);
+    const artistas = selectedArtistNames();
+    summary.innerHTML = '<div class="fw-semibold mb-1"><i class="fa fa-clipboard-check me-1"></i>Resumen</div>'
+      + '<div class="small">Artistas: ' + (artistas.length ? artistas.join(', ') : 'todos') + '</div>'
+      + '<div class="small">Se promociona: ' + (tipo || '—') + ' · ' + (cual || '—') + '</div>'
+      + '<div class="small">Tipo: ' + kind + (acciones.length ? ' · ' + acciones.join(', ') : '') + '</div>';
+  }
+  modal.addEventListener('change', renderSummary);
+  modal.addEventListener('click', function(e){ if (e.target.closest('[data-sw-next], [data-sw-prev]')) setTimeout(renderSummary, 30); });
+
   renderSubjects();
+  renderSummary();
 })();
 
 document.querySelectorAll('.js-create-from-request').forEach(btn => btn.addEventListener('click', function(){

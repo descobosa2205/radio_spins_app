@@ -189,20 +189,19 @@
     {% set cpay_g = concert.contracting_payload or {} %}
     {% set perf_g = cpay_g.get('performance') or {} %}
     {# ---------- RESUMEN VISUAL: datos básicos seguidos, con iconos, solo lo cumplimentado ---------- #}
-    <div class="ficha-summary mb-3">
+    {# Orden pedido: estado · tipo · fecha · recinto · aforo · empresa que factura, y a
+       continuación promotor · anuncio · salida a la venta. Van en un solo flujo que envuelve
+       solo cuando no cabe, para que en pantallas anchas entren en una línea. #}
+    {% set _cap_free = concert.capacity if (concert.capacity and not capacity_sale) else 0 %}
+    <div class="ficha-summary ficha-summary--compact mb-3">
       <div class="fs-item">
         <div class="fs-item__label"><i class="fa fa-flag"></i>Estado</div>
         <div class="fs-item__value">{% with cs_id=concert.id, cs_status=concert.status %}{% include '_concert_status_badge.html' %}{% endwith %}</div>
       </div>
-      {% if concert.artist %}
-      <div class="fs-item" data-artist-link="{{ concert.artist.id }}">
-        <div class="fs-item__label"><i class="fa fa-microphone-lines"></i>Artista</div>
-        <div class="fs-item__value d-flex align-items-center gap-2">
-          <img src="{{ concert.artist.photo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1" style="width:34px;height:34px;border-radius:50%;object-fit:cover;">
-          <span class="fw-semibold">{{ concert.artist.name }}</span>
-        </div>
+      <div class="fs-item">
+        <div class="fs-item__label"><i class="fa fa-shapes"></i>Tipo</div>
+        <div class="fs-item__value"><span class="badge text-bg-light border">{{ activity_type_label }}</span> <span class="badge text-bg-light border">{{ sale_type_label }}</span></div>
       </div>
-      {% endif %}
       {% if concert.date %}
       <div class="fs-item">
         <div class="fs-item__label"><i class="fa fa-calendar-day"></i>Fecha</div>
@@ -215,35 +214,37 @@
       <div class="fs-item fs-item--wide">
         <div class="fs-item__label"><i class="fa fa-location-dot"></i>Recinto</div>
         <div class="fs-item__value d-flex align-items-center gap-2">
-          <img src="{{ (concert.venue.photo_url if concert.venue else None) or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:52px;height:40px;border-radius:10px;object-fit:cover;">
+          <img src="{{ (concert.venue.photo_url if concert.venue else None) or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:44px;height:34px;border-radius:9px;object-fit:cover;">
           <span>
             {% if concert.venue %}<a class="fw-semibold text-reset text-decoration-none" href="{{ url_for('venue_detail_view', vid=concert.venue.id) }}">{{ concert.venue.name }}</a>{% else %}<span class="fw-semibold">{{ concert.manual_venue_name }}</span>{% endif %}
-            <span class="d-block small text-muted">{{ (concert.venue.address if concert.venue else concert.manual_venue_address) or '' }}{% if location_summary %}{% if (concert.venue.address if concert.venue else concert.manual_venue_address) %} · {% endif %}{{ location_summary }}{% endif %}</span>
-            {% if capacity_sale %}<span class="d-block small"><i class="fa fa-people-group me-1 text-danger"></i>Aforo a la venta: <strong>{{ capacity_sale|k }}</strong></span>{% elif concert.no_capacity %}<span class="d-block small"><i class="fa fa-infinity me-1 text-danger"></i>Aforo libre</span>{% endif %}
+            {% if location_summary %}<span class="d-block small text-muted">{{ location_summary }}</span>{% endif %}
           </span>
         </div>
       </div>
       {% endif %}
-      {% if concert.billing_company and concert.billing_company.logo_url %}
+      {# Aforo como módulo propio: el que está a la venta o, en las gratuitas, el del recinto. #}
+      {% if capacity_sale or _cap_free or concert.no_capacity %}
       <div class="fs-item">
-        <div class="fs-item__label"><i class="fa fa-building"></i>Factura</div>
-        <div class="fs-item__value"><img src="{{ concert.billing_company.logo_url }}" alt="{{ concert.billing_company.name }}" title="{{ concert.billing_company.name }}" style="height:34px;max-width:110px;object-fit:contain;"></div>
-      </div>
-      {% elif concert.billing_company %}
-      <div class="fs-item">
-        <div class="fs-item__label"><i class="fa fa-building"></i>Factura</div>
-        <div class="fs-item__value fw-semibold">{{ concert.billing_company.name }}</div>
+        <div class="fs-item__label"><i class="fa fa-people-group"></i>{{ 'Aforo a la venta' if capacity_sale else 'Aforo' }}</div>
+        <div class="fs-item__value fw-semibold">
+          {% if capacity_sale %}{{ capacity_sale|k }}{% elif _cap_free %}{{ _cap_free|k }}{% else %}<span class="badge text-bg-light border"><i class="fa fa-infinity me-1"></i>Libre</span>{% endif %}
+        </div>
       </div>
       {% endif %}
+      {% if concert.billing_company %}
       <div class="fs-item">
-        <div class="fs-item__label"><i class="fa fa-shapes"></i>Tipo</div>
-        <div class="fs-item__value"><span class="badge text-bg-light border">{{ activity_type_label }}</span> <span class="badge text-bg-light border">{{ sale_type_label }}</span></div>
+        <div class="fs-item__label"><i class="fa fa-building"></i>Factura</div>
+        <div class="fs-item__value">
+          {% if concert.billing_company.logo_url %}<img src="{{ concert.billing_company.logo_url }}" alt="{{ concert.billing_company.name }}" title="{{ concert.billing_company.name }}" style="height:30px;max-width:104px;object-fit:contain;">
+          {% else %}<span class="fw-semibold">{{ concert.billing_company.name }}</span>{% endif %}
+        </div>
       </div>
+      {% endif %}
       {% if concert.promoter %}
       <div class="fs-item fs-item--wide">
         <div class="fs-item__label"><i class="fa fa-user-tie"></i>Promotor</div>
         <div class="fs-item__value d-flex align-items-center gap-2">
-          <img src="{{ concert.promoter.logo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:34px;height:34px;border-radius:50%;object-fit:cover;">
+          <img src="{{ concert.promoter.logo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:30px;height:30px;border-radius:50%;object-fit:cover;">
           <span><a class="fw-semibold text-reset text-decoration-none" href="{{ url_for('promoter_detail_view', pid=concert.promoter.id) }}">{{ concert.promoter.nick }}</a>
           {% if concert.promoter_company %}<span class="d-block small text-muted"><i class="fa fa-landmark me-1"></i>{{ concert.promoter_company.legal_name }}</span>{% endif %}</span>
         </div>

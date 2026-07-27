@@ -2752,3 +2752,11 @@ img.docs-id__face { width:100%; height:100%; object-fit:cover; display:block; cu
   background:rgba(227,61,72,.07); color:var(--brand-primary,#E33D48); box-shadow:0 0 0 .16rem rgba(227,61,72,.12); }
 .filter-chip:has(input:checked) i{ color:var(--brand-primary,#E33D48); }
 .filter-hint{ font-size:.8rem; color:var(--muted-2,#6c757d); }
+
+/* Datos básicos de la ficha de concierto: variante compacta para que quepan de una tirada
+   (estado · tipo · fecha · recinto · aforo · factura · promotor · anuncio · a la venta). */
+.ficha-summary--compact{ gap:.45rem; }
+.ficha-summary--compact .fs-item{ padding:.45rem .65rem; min-width:104px; }
+.ficha-summary--compact .fs-item--wide{ min-width:190px; }
+.ficha-summary--compact .fs-item__label{ font-size:.63rem; margin-bottom:.15rem; }
+.ficha-summary--compact .fs-item__value{ font-size:.86rem; }

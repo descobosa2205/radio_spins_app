@@ -2188,7 +2188,9 @@
         const email = form.querySelector('input[name="promoter_email"]').value.trim();
         if(!email){ alert('Debes indicar el email del promotor.'); return false; }
       }
-      if(step === 4 && modeInput.value === 'direct'){
+      if(step === 4 && modeInput.value === 'direct' && isPromoActivity()){
+        // Solo en actividades promocionales/TV/marca/otros: en un concierto o festival se canta
+        // siempre, así que ni se pregunta ni se puede exigir (el panel está oculto).
         if(!document.querySelector('input[name="artist_sings"]:checked')){ alert('Indica si el artista canta o no.'); return false; }
       }
       if(step === 7 && modeInput.value === 'direct'){

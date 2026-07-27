@@ -2535,6 +2535,12 @@ def _build_artwork_request_email(concert: Concert, row: ConcertArtworkRequest, s
     ticketers_txt = ', '.join(selected_ticketer_names) if selected_ticketer_names else 'No se han marcado ticketeras'
     format_labels = _artwork_requested_format_labels(row)
     formats_txt = ', '.join(format_labels) if format_labels else 'Formatos habituales (no se marcaron formatos concretos)'
+    _vfmt = _artwork_video_format_labels(row)
+    video_txt = ''
+    if getattr(row, 'video_requested', False):
+        video_txt = 'Sí · ' + (', '.join(_vfmt) if _vfmt else 'formato por concretar')
+        if getattr(row, 'video_notes', None):
+            video_txt += ' — ' + (row.video_notes or '')
     mod_html = '<p><span style="display:inline-block;background:#f59e0b;color:#111827;padding:4px 10px;border-radius:999px;font-weight:700;">MODIFICACIONES</span></p>' if is_update else ''
     mod_text = 'Solicitud actualizada de cartelería' if is_update else 'Solicitud de cartelería'
     html_body = (
@@ -2550,7 +2556,8 @@ def _build_artwork_request_email(concert: Concert, row: ConcertArtworkRequest, s
         f'<div>Hora puertas: {concert.doors_time or ("TBC" if concert.doors_time_tbc else "—")}</div>'
         f'</div></div></div>'
         f'<p><strong>Formatos solicitados:</strong> {formats_txt}</p>'
-        f'<p><strong>Logos empresas del grupo:</strong> {logos_txt}</p>'
+        + (f'<p><strong>Vídeo promocional:</strong> {escape(video_txt)}</p>' if video_txt else '')
+        + f'<p><strong>Logos empresas del grupo:</strong> {logos_txt}</p>'
         f'<p><strong>Notas de logos:</strong> {row.logo_notes or "—"}</p>'
         f'<p><strong>Ticketeras:</strong> {ticketers_txt}</p>'
         f'<p><strong>Notas de ticketeras:</strong> {row.ticketer_notes or "—"}</p>'
@@ -2656,6 +2663,12 @@ def _artwork_logo_lines_html(row: ConcertArtworkRequest) -> str:
     fmts = _artwork_requested_format_labels(row)
     if fmts:
         html += f'<p><strong>Formatos:</strong> {", ".join(fmts)}</p>'
+    if getattr(row, 'video_requested', False):
+        vfmt = _artwork_video_format_labels(row)
+        html += ('<p><strong>Vídeo promocional:</strong> '
+                 + (', '.join(vfmt) if vfmt else 'formato por concretar') + '</p>')
+        if getattr(row, 'video_notes', None):
+            html += f'<p style="white-space:pre-wrap;">{escape(row.video_notes)}</p>'
     if row.delivery_deadline:
         html += f'<p><strong>Fecha máxima de entrega:</strong> {row.delivery_deadline.strftime("%d/%m/%Y")}</p>'
     return html
@@ -2755,6 +2768,28 @@ ARTWORK_FORMAT_CHOICES = [
     ("BANNER", "Banner web", "4 / 1"),
 ]
 ARTWORK_FORMAT_LABELS = {key: label for key, label, _aspect in ARTWORK_FORMAT_CHOICES}
+
+# Vídeo promocional pedido a diseño: mismo tipo de tarjeta con la proporción dibujada.
+ARTWORK_VIDEO_FORMAT_CHOICES = [
+    ("VERTICAL", "Vertical (9:16)", "9 / 16"),
+    ("HORIZONTAL", "Horizontal (16:9)", "16 / 9"),
+]
+ARTWORK_VIDEO_FORMAT_LABELS = {key: label for key, label, _a in ARTWORK_VIDEO_FORMAT_CHOICES}
+
+
+def _parse_artwork_video(form) -> dict:
+    """Bloque de vídeo del formulario de cartelería (asistente y ficha)."""
+    keys = {k for k, _l, _a in ARTWORK_VIDEO_FORMAT_CHOICES}
+    formats = [(v or "").strip().upper() for v in form.getlist("artwork_video_formats[]")]
+    return {
+        "requested": _truthy(form.get("artwork_video")),
+        "notes": (form.get("artwork_video_notes") or "").strip() or None,
+        "formats": [k for k in ARTWORK_VIDEO_FORMAT_LABELS if k in formats] if keys else [],
+    }
+
+
+def _artwork_video_format_labels(row) -> list[str]:
+    return [ARTWORK_VIDEO_FORMAT_LABELS.get(k, k) for k in (getattr(row, "video_formats", None) or [])]
 
 
 def _artwork_requested_format_labels(row) -> list[str]:
@@ -27196,6 +27231,10 @@ def concert_artwork_save(cid):
         row.group_company_ids = _parse_uuid_list(request.form.getlist('group_company_ids[]'))
         row.ticketer_ids = _parse_uuid_list(request.form.getlist('ticketer_ids[]'))
         row.requested_formats = _parse_artwork_formats(request.form)
+        _vid = _parse_artwork_video(request.form)
+        row.video_requested = _vid["requested"]
+        row.video_notes = _vid["notes"]
+        row.video_formats = _vid["formats"]
         row.logo_notes = (request.form.get('logo_notes') or '').strip() or None
         row.ticketer_notes = (request.form.get('ticketer_notes') or '').strip() or None
         row.other_notes = (request.form.get('other_notes') or '').strip() or None
@@ -27421,6 +27460,10 @@ def concert_artwork_promoter_request(cid):
         row.recipients_json = emails
         row.group_company_ids = _parse_uuid_list(request.form.getlist('group_company_ids[]'))
         row.requested_formats = _parse_artwork_formats(request.form)
+        _vid = _parse_artwork_video(request.form)
+        row.video_requested = _vid["requested"]
+        row.video_notes = _vid["notes"]
+        row.video_formats = _vid["formats"]
         row.logo_notes = (request.form.get('logo_notes') or '').strip() or None
         row.other_notes = (request.form.get('other_notes') or '').strip() or None
         row.delivery_deadline = parse_optional_date(request.form.get('delivery_deadline'))
@@ -34645,6 +34688,10 @@ def concert_wizard_create():
                 artwork_row.group_company_ids = _parse_uuid_list(request.form.getlist('artwork_company_ids[]'))
                 artwork_row.ticketer_ids = _parse_uuid_list(request.form.getlist('artwork_ticketer_ids[]'))
                 artwork_row.requested_formats = _parse_artwork_formats(request.form)
+                _vid = _parse_artwork_video(request.form)
+                artwork_row.video_requested = _vid["requested"]
+                artwork_row.video_notes = _vid["notes"]
+                artwork_row.video_formats = _vid["formats"]
                 logo_others = (request.form.get('artwork_logo_others') or '').strip()
                 artwork_row.logo_notes = f'Otros logos: {logo_others}' if logo_others else None
                 artwork_row.other_notes = (request.form.get('artwork_notes') or '').strip() or None
@@ -41616,6 +41663,7 @@ def inject_personnel_globals():
         "PERSONNEL_DEPARTMENTS": PERSONNEL_DEPARTMENTS,
         # Catálogos del asistente de actividad y de la ficha (cartelería / gastos del promotor).
         "ARTWORK_FORMAT_CHOICES": ARTWORK_FORMAT_CHOICES,
+        "ARTWORK_VIDEO_FORMAT_CHOICES": ARTWORK_VIDEO_FORMAT_CHOICES,
         "PROMOTER_COST_ITEMS": PROMOTER_COST_ITEMS,
         "SECTION_STATS": _section_stats_counts() if request.endpoint in {"promocion_view", "marketing_view", "administracion_view", "contabilidad_view", "produccion_view", "acciones_view", "action_detail_view", "personnel_view", "invitations_view", "invitation_event_detail"} and session.get("user_id") else {},
         "has_access_key": has_access_key,

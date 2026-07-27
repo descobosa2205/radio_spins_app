@@ -611,6 +611,31 @@
                     </div>
                     {% endfor %}
                   </div>
+                  {# VÍDEO promocional: se pide aquí mismo, con su descripción y su formato. #}
+                  <div class="border rounded p-2 mb-3">
+                    <label class="d-inline-flex align-items-center gap-2 mb-0">
+                      <input class="form-check-input m-0" type="checkbox" name="artwork_video" value="1" id="wizardArtworkVideo">
+                      <span class="fw-semibold small"><i class="fa fa-film me-1"></i>Pedir también un vídeo promocional</span>
+                    </label>
+                    <div class="d-none mt-2" data-wz-panel id="wizardArtworkVideoPanel">
+                      <label class="form-label small">¿Qué vídeo hace falta?</label>
+                      <textarea class="form-control" name="artwork_video_notes" rows="2"
+                                placeholder="Describe el vídeo: qué tiene que contar, duración aproximada, música, imágenes de las que partir…"></textarea>
+                      <div class="fw-semibold small text-muted mt-2 mb-1">Formato del vídeo</div>
+                      <div class="row g-2">
+                        {% for key, label, aspect in ARTWORK_VIDEO_FORMAT_CHOICES %}
+                        <div class="col-6 col-md-3">
+                          <label class="activity-choice-card border rounded p-2 text-center h-100 w-100 d-block bg-white">
+                            <input class="form-check-input visually-hidden" type="checkbox" name="artwork_video_formats[]" value="{{ key }}">
+                            <span class="artfmt-box"><span class="artfmt-shape" style="aspect-ratio: {{ aspect }};"></span></span>
+                            <span class="fw-semibold small d-block">{{ label }}</span>
+                          </label>
+                        </div>
+                        {% endfor %}
+                      </div>
+                    </div>
+                  </div>
+
                   {# Formatos PERSONALIZADOS: tantos como se quiera, sobre la marcha. #}
                   <div class="row g-2 mb-3 align-items-end">
                     <div class="col-lg-5">
@@ -1931,6 +1956,15 @@
       window.__wzRecalcCache?.();
       syncPromoSaleFromCache();
     }));
+
+    /* Vídeo promocional: el detalle solo aparece si se pide. */
+    (function(){
+      const chk = document.getElementById('wizardArtworkVideo');
+      const panel = document.getElementById('wizardArtworkVideoPanel');
+      if(!chk || !panel) return;
+      const sync = () => panel.classList.toggle('d-none', !chk.checked);
+      chk.addEventListener('change', sync); sync();
+    })();
 
     /* Formatos de cartelería PERSONALIZADOS: chips con hidden artwork_formats_custom[]. */
     function wizardAddCustomFormatChip(text){

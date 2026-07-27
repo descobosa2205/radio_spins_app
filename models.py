@@ -1834,6 +1834,11 @@ class ConcertArtworkRequest(Base):
     other_notes = Column(Text)
     # Formatos solicitados a diseño (claves de ARTWORK_FORMAT_CHOICES o texto personalizado)
     requested_formats = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # VÍDEO promocional: se pide junto a la cartelería, con su descripción y su formato
+    # (claves de ARTWORK_VIDEO_FORMAT_CHOICES: VERTICAL | HORIZONTAL).
+    video_requested = Column(Boolean, nullable=False, server_default=text("false"))
+    video_notes = Column(Text)
+    video_formats = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     # Correos a los que se pidió (promotor): se reutilizan para correcciones/cambios de datos.
     recipients_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     # Nota de rechazo de diseño (qué hay que corregir antes de volver a subir).
@@ -6334,6 +6339,10 @@ def ensure_concert_artwork_schema():
         # Trazabilidad de compartido (con el artista y con el promotor).
         "ALTER TABLE IF EXISTS concert_artwork_requests ADD COLUMN IF NOT EXISTS shared_with_artist_at timestamptz;",
         "ALTER TABLE IF EXISTS concert_artwork_requests ADD COLUMN IF NOT EXISTS shared_with_promoter_at timestamptz;",
+        # Vídeo promocional pedido a diseño (descripción + formato vertical/horizontal).
+        "ALTER TABLE IF EXISTS concert_artwork_requests ADD COLUMN IF NOT EXISTS video_requested boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE IF EXISTS concert_artwork_requests ADD COLUMN IF NOT EXISTS video_notes text;",
+        "ALTER TABLE IF EXISTS concert_artwork_requests ADD COLUMN IF NOT EXISTS video_formats jsonb NOT NULL DEFAULT '[]'::jsonb;",
 
         """
         CREATE TABLE IF NOT EXISTS concert_artwork_requests (

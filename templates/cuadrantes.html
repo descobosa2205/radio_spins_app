@@ -190,7 +190,18 @@
   /* ================= PRINT / PDF (horizontal) ================= */
   .print-only{ display:none; }
   @media print{
-    @page{ size: A4 landscape; margin: 8mm; }
+    /* El navegador pinta SU cabecera y SU pie (título de la pestaña, fecha/hora, URL y nº de hoja)
+       DENTRO del margen de @page. Con margen 0 no tiene dónde ponerlos y desaparecen; el aire se
+       recupera con padding propio en cada hoja y el número de página lo ponemos nosotros. */
+    @page{ size: A4 landscape; margin: 0; }
+    html{ counter-reset: quadpage; }
+    body{ margin:0 !important; }
+    main.container, main.container-fluid{ padding-left:0 !important; padding-right:0 !important; }
+    .quad-print-header{ padding-left:9mm !important; padding-right:9mm !important; padding-top:7mm !important; }
+    .print-page{ padding:0 9mm 11mm !important; box-sizing:border-box; position:relative;
+      counter-increment: quadpage; }
+    .print-page::after{ content:"Página " counter(quadpage); position:absolute; right:9mm; bottom:4mm;
+      font-size:8.5px; color:#8b95a1; letter-spacing:.02em; }
     nav.navbar{ display:none !important; }
     .no-print{ display:none !important; }
     .print-only{ display:block !important; }

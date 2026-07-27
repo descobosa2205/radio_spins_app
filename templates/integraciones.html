@@ -8,6 +8,7 @@
    sumarla a esta lista y crear su panel `#tab-<key>` más abajo. #}
 {% set integrations = [
   {'key': 'pleo', 'name': 'Pleo', 'subtitle': 'Gastos', 'icon': 'fa-receipt', 'configured': pleo_configured},
+  {'key': 'cabify', 'name': 'Cabify', 'subtitle': 'Gastos de viajes', 'icon': 'fa-taxi', 'configured': cabify_configured},
   {'key': 'chartmetric', 'name': 'Chartmetric', 'subtitle': 'Métricas', 'icon': 'fa-chart-line', 'configured': chartmetric_configured},
   {'key': 'enterticket', 'name': 'Enterticket', 'subtitle': 'Ticketing', 'icon': 'fa-ticket', 'configured': enterticket_configured},
 ] %}
@@ -230,6 +231,179 @@
           {% elif row.has_key %}
             <div class="alert alert-light border small">
               Aún no se han leído las personas de Pleo en esta empresa. Pulsa <strong>«Sincronizar ahora»</strong>.
+            </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+
+  {# ============================ CABIFY ============================
+     Igual que Pleo: UNA cuenta por empresa del grupo, con una SUBPESTAÑA por empresa. La gente
+     está en Cabify con el correo de esa empresa, así que el emparejamiento es por correo. #}
+  <div class="tab-pane fade" id="tab-cabify" role="tabpanel" aria-labelledby="tab-cabify-tab">
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
+          <h2 class="h5 mb-0"><i class="fa fa-taxi me-2 text-danger"></i>Cabify · gastos de viajes</h2>
+          {% if cabify_configured %}<span class="badge text-bg-success">Configurada</span>{% else %}<span class="badge text-bg-secondary">Desactivada</span>{% endif %}
+        </div>
+        <p class="text-muted mb-2">
+          Trae los viajes de cada persona a <strong>«Mis gastos»</strong>, con su fecha, su base, su IVA y su total,
+          para que los asigne a la bolsa que toque. Hay <strong>una cuenta por empresa del grupo</strong>.
+        </p>
+        <div class="small text-muted">
+          <ol class="mb-2 ps-3">
+            <li>Pide el acceso de API a Cabify (<a href="https://developers.cabify.com/docs" target="_blank" rel="noopener">developers.cabify.com</a>) y genera la clave: te dan un <strong>client_id</strong> y un <strong>client_secret</strong>.</li>
+            <li>La <strong>URL base</strong> de producción te la da Cabify al conceder el acceso; para pruebas, <code>https://cabify-sandbox.com</code>.</li>
+            <li>Pega las credenciales en la empresa que corresponda, activa la cuenta y pulsa <strong>«Probar conexión»</strong>.</li>
+          </ol>
+          <div class="alert alert-warning small mb-0">
+            <i class="fa fa-circle-info me-1"></i><strong>El PDF de cada viaje no lo da la API.</strong> Se importa el gasto
+            con todo su detalle fiscal (nº de venta, fecha, base, IVA y total), pero el justificante hay que seguir
+            sacándolo de la factura mensual de Cabify. Si Cabify publica el documento por viaje, se adjuntará solo.
+          </div>
+          <div class="mt-2">La importación es automática con la tarea programada <code>/cron/cabify/refresh?key=…</code> (cada 1-2 h): Cabify no avisa de gastos nuevos.</div>
+        </div>
+      </div>
+    </div>
+
+    {% if not cabify_rows %}
+      <div class="alert alert-light border">No hay empresas del grupo dadas de alta todavía.</div>
+    {% else %}
+      <ul class="nav nav-pills mb-3 flex-wrap" role="tablist">
+        {% for row in cabify_rows %}
+        <li class="nav-item" role="presentation">
+          <button class="nav-link {% if loop.first %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#cabify-{{ loop.index }}" type="button">
+            {{ row.company.name }}
+            {% if row.account and row.account.is_active %}<span class="badge text-bg-success ms-1">Activa</span>
+            {% elif row.account %}<span class="badge text-bg-secondary ms-1">Parada</span>{% endif %}
+            {% if row.pending_links %}<span class="badge text-bg-warning text-dark ms-1">{{ row.pending_links }}</span>{% endif %}
+          </button>
+        </li>
+        {% endfor %}
+      </ul>
+      <div class="tab-content">
+      {% for row in cabify_rows %}
+        <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="cabify-{{ loop.index }}" role="tabpanel">
+          <div class="card mb-3">
+            <div class="card-body">
+              <h3 class="h6 mb-3"><i class="fa fa-key me-1 text-danger"></i>Credenciales de {{ row.company.name }}</h3>
+              <form method="post" action="{{ url_for('cabify_account_save') }}" class="row g-3">
+                <input type="hidden" name="group_company_id" value="{{ row.company.id }}">
+                <div class="col-md-5">
+                  <label class="form-label">URL base</label>
+                  <input class="form-control" name="base_url" value="{{ row.base_url }}" placeholder="https://cabify-sandbox.com">
+                  <div class="form-text">La de producción la da Cabify al conceder el acceso.</div>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">client_id</label>
+                  <input class="form-control" name="client_id" value="{{ row.account.client_id if row.account else '' }}" placeholder="OAUTH_ID">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">client_secret</label>
+                  <input class="form-control" name="client_secret" value="{{ '••••••••••••' if (row.account and row.account.client_secret) else '' }}" placeholder="CLIENT_SECRET">
+                  <div class="form-text">Se guarda solo si escribes uno nuevo.</div>
+                </div>
+                <div class="col-6 col-md-2">
+                  <label class="form-label">Moneda</label>
+                  <input class="form-control" name="currency" value="{{ (row.account.currency if row.account else 'EUR') }}" maxlength="3">
+                </div>
+                <div class="col-6 col-md-3">
+                  <label class="form-label">Días que revisa</label>
+                  <input type="number" min="1" class="form-control" name="sync_window_days" value="{{ row.account.sync_window_days if row.account else 45 }}">
+                </div>
+                <div class="col-6 col-md-3">
+                  <label class="form-label">Importar desde</label>
+                  <input type="date" class="form-control" name="backfill_from" value="{{ row.account.backfill_from.isoformat() if (row.account and row.account.backfill_from) else '' }}">
+                </div>
+                <div class="col-6 col-md-2 d-flex align-items-end">
+                  <label class="d-inline-flex align-items-center gap-2 mb-2">
+                    <input class="form-check-input m-0" type="checkbox" name="is_active" value="1" {% if row.account and row.account.is_active %}checked{% endif %}>
+                    <span>Activa</span>
+                  </label>
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                  <button class="btn btn-primary w-100 mb-2"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+                </div>
+              </form>
+
+              <div class="d-flex flex-wrap gap-2 mt-3">
+                <form method="post" action="{{ url_for('cabify_account_test', company_id=row.company.id) }}" class="d-inline">
+                  <button class="btn btn-sm btn-outline-primary" {% if not row.account %}disabled{% endif %}><i class="fa fa-bolt me-1"></i>Probar conexión</button>
+                </form>
+                <form method="post" action="{{ url_for('cabify_account_sync', company_id=row.company.id) }}" class="d-inline">
+                  <button class="btn btn-sm btn-outline-secondary" {% if not row.account %}disabled{% endif %}><i class="fa fa-rotate me-1"></i>Sincronizar ahora</button>
+                </form>
+              </div>
+
+              {% if row.account %}
+                <div class="d-flex flex-wrap gap-2 mt-3">
+                  <div class="sim-stat"><div class="sim-stat__n">{{ row.expenses|k }}</div><div class="sim-stat__l">Gastos importados</div></div>
+                  <div class="sim-stat"><div class="sim-stat__n">{{ row.users|length|k }}</div><div class="sim-stat__l">Personas en Cabify</div></div>
+                  <div class="sim-stat"><div class="sim-stat__n {{ 'text-danger' if row.pending_links else '' }}">{{ row.pending_links|k }}</div><div class="sim-stat__l">Sin vincular</div></div>
+                </div>
+                {% if row.account.last_sync_at %}
+                  <div class="small text-muted mt-2">
+                    Último sondeo: {{ row.account.last_sync_at.strftime('%d/%m/%Y %H:%M') }}
+                    {% if row.account.last_sync_ok %}<span class="text-success">· correcto</span>
+                    {% else %}<span class="text-danger">· con error: {{ row.account.last_error }}</span>{% endif %}
+                  </div>
+                {% endif %}
+              {% endif %}
+            </div>
+          </div>
+
+          {% if row.users %}
+          <div class="card">
+            <div class="card-body">
+              <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-1">
+                <h3 class="h6 mb-0"><i class="fa fa-users me-1 text-danger"></i>Personas en Cabify · {{ row.company.name }}</h3>
+                <span class="badge {{ 'text-bg-warning text-dark' if row.pending_links else 'text-bg-success' }}">{{ row.pending_links }} sin vincular</span>
+              </div>
+              <p class="text-muted small mb-3">
+                Se emparejan solas por correo: el de acceso de cada persona o cualquiera de los
+                <strong>«otros correos de empresa»</strong> de su ficha. Al vincular a alguien a mano se importan sus gastos al momento.
+              </p>
+              <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                  <thead class="table-light"><tr><th>En Cabify</th><th>Correo</th><th>Persona en la app</th><th class="text-end">Acciones</th></tr></thead>
+                  <tbody>
+                  {% for u in row.users %}
+                    <tr class="{{ 'opacity-50' if u.mode == 'IGNORED' else '' }}">
+                      <td class="small">{{ u.name or '—' }}</td>
+                      <td class="small">{{ u.email or '—' }}</td>
+                      <td class="small">
+                        {% if u.user_id %}<span class="badge text-bg-success">{{ u.user_nick or 'Vinculado' }}</span>
+                        {% elif u.mode == 'IGNORED' %}<span class="badge text-bg-secondary">Descartado</span>
+                        {% else %}<span class="badge text-bg-warning text-dark">Sin vincular</span>{% endif %}
+                      </td>
+                      <td class="text-end">
+                        <form method="post" action="{{ url_for('cabify_user_link_save', link_id=u.id) }}" class="d-inline-flex gap-1 align-items-center">
+                          <select name="user_id" class="form-select form-select-sm" style="max-width:220px;">
+                            <option value="">— sin vincular —</option>
+                            {% for p in personnel_options or [] %}
+                              <option value="{{ p.id }}" {% if u.user_id == (p.id|string) %}selected{% endif %}>{{ p.nick }}</option>
+                            {% endfor %}
+                          </select>
+                          <button class="btn btn-sm btn-outline-primary" title="Vincular"><i class="fa fa-link"></i></button>
+                        </form>
+                        <form method="post" action="{{ url_for('cabify_user_link_save', link_id=u.id) }}" class="d-inline">
+                          <input type="hidden" name="action" value="ignore">
+                          <button class="btn btn-sm btn-outline-secondary" title="Descartar"><i class="fa fa-ban"></i></button>
+                        </form>
+                      </td>
+                    </tr>
+                  {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          {% elif row.account %}
+            <div class="alert alert-light border small">
+              Aún no se han leído las personas de Cabify en esta empresa. Pulsa <strong>«Sincronizar ahora»</strong>.
             </div>
           {% endif %}
         </div>

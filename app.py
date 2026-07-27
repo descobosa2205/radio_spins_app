@@ -268,7 +268,10 @@ from models import (
     BagExpenseInvoice,
     PleoAccount,
     PleoEmployeeLink,
+    CabifyAccount,
+    CabifyUserLink,
     ensure_pleo_schema,
+    ensure_cabify_schema,
 )
 import sim_calc  # motor de cálculo puro de Simulaciones
 import seatmap_calc  # motor puro del mapa de butacas del recinto (conteos/plantillas)
@@ -705,7 +708,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher"}
+    allowed = {"landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher"}
     if request.endpoint in allowed:
         return
 
@@ -36792,6 +36795,7 @@ def _bootstrap_schema_bg():
         (ensure_venue_seatmap_schema, "ensure_venue_seatmap_schema"),
         (ensure_enterticket_schema, "ensure_enterticket_schema"),
         (ensure_pleo_schema, "ensure_pleo_schema"),
+        (ensure_cabify_schema, "ensure_cabify_schema"),
         (ensure_push_schema, "ensure_push_schema"),
         (ensure_app_settings_schema, "ensure_app_settings_schema"),
     ]:
@@ -40479,7 +40483,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -40727,6 +40731,8 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         # Pleo se configura por empresa desde Integraciones (los endpoints exigen además dirección).
         "pleo_account_save": "integraciones", "pleo_account_test": "integraciones",
         "pleo_account_sync": "integraciones", "pleo_employee_link_save": "integraciones",
+        "cabify_account_save": "integraciones", "cabify_account_test": "integraciones",
+        "cabify_account_sync": "integraciones", "cabify_user_link_save": "integraciones",
     }
     if endpoint in fixed:
         return fixed[endpoint]
@@ -41404,7 +41410,7 @@ def _resolve_request_resource_key() -> str | None:
         return "discografica.canciones"
     if endpoint == "playlisting_view":
         return "playlisting"
-    if endpoint == "integrations_view" or endpoint.startswith("pleo_"):
+    if endpoint == "integrations_view" or endpoint.startswith("pleo_") or endpoint.startswith("cabify_"):
         return "integraciones"
     auto_key = f"auto.{endpoint}"
     if auto_key in _ACCESS_RESOURCE_MAP:
@@ -49777,6 +49783,343 @@ def pleo_employee_link_save(link_id):
     return _pleo_back()
 
 
+# ============================ INTEGRACIÓN CON CABIFY ============================
+# Una cuenta por EMPRESA DEL GRUPO. La gente de la cuenta de empresa está en Cabify con su correo
+# de esa empresa, así que el emparejamiento es por correo contra `User.email` y los «correos de
+# integraciones» de la ficha — el mismo índice que ya usa Pleo (`_pleo_email_index`).
+#
+# La API de Cabify NO tiene webhooks de gastos ni permite filtrar por «modificado desde», así que
+# se sondea con una ventana móvil de días, usuario por usuario (el listado global de ventas no dice
+# de quién es cada una; el de usuario, sí).
+#
+# ⚠️ El esquema documentado de la API no expone un PDF por viaje: se importa el gasto con todo su
+# detalle fiscal y, si algún día Cabify publica el documento, `CabifyClient.sale_receipt_url` lo
+# recoge y se adjunta solo.
+CABIFY_DEFAULT_WINDOW_DAYS = 45
+
+
+def _cabify_client(acc):
+    from cabify_utils import CabifyClient
+    return CabifyClient(acc.client_id or "", acc.client_secret or "", acc.base_url or None)
+
+
+def _cabify_sync_account(session_db, acc, since=None, user_ids=None) -> dict:
+    """Trae los gastos de UNA cuenta de Cabify y los mete en «Mis gastos» de cada persona."""
+    from cabify_utils import CabifyClient, CabifyError, parse_sale   # noqa: F401
+    from sqlalchemy.exc import IntegrityError
+
+    stats = {"users": 0, "linked": 0, "sales": 0, "created": 0, "skipped": 0, "unmatched": 0}
+    if not acc or not acc.is_active:
+        return stats
+    client = _cabify_client(acc)
+    hoy = today_local()
+    desde = since or (hoy - timedelta(days=int(acc.sync_window_days or CABIFY_DEFAULT_WINDOW_DAYS)))
+    email_index = _pleo_email_index(session_db)
+
+    # 1) Empleados de la cuenta → filas de enlace, emparejando por correo.
+    enlaces = {}
+    for row in client.users(state="active"):
+        cid = str(row.get("id") or "").strip()
+        if not cid:
+            continue
+        stats["users"] += 1
+        email = _pleo_norm_email(row.get("email"))
+        link = (session_db.query(CabifyUserLink)
+                .filter(CabifyUserLink.account_id == acc.id,
+                        CabifyUserLink.cabify_user_id == cid).first())
+        if link is None:
+            link = CabifyUserLink(account_id=acc.id, cabify_user_id=cid)
+            session_db.add(link)
+        link.email = email or link.email
+        link.first_name = (row.get("name") or "").strip() or link.first_name
+        link.last_name = (row.get("surname") or "").strip() or link.last_name
+        link.last_seen_at = datetime.now(TZ_MADRID)
+        # Solo se auto-empareja lo que no se haya tocado a mano ni descartado.
+        if (link.match_mode or "NONE").upper() in ("NONE", "AUTO_EMAIL"):
+            uid = email_index.get(email) if email else None
+            link.user_id = uid
+            link.match_mode = "AUTO_EMAIL" if uid else "NONE"
+        if link.user_id:
+            stats["linked"] += 1
+            enlaces[cid] = link
+        elif (link.match_mode or "").upper() != "IGNORED":
+            stats["unmatched"] += 1
+    session_db.flush()
+
+    # 2) Gastos de cada persona vinculada.
+    objetivo = {k: v for k, v in enlaces.items() if not user_ids or k in set(user_ids)}
+    for cid, link in objetivo.items():
+        for venta in client.user_sales(cid, desde, hoy, acc.currency or "EUR"):
+            datos = parse_sale(venta)
+            code = datos["code"]
+            if not code:
+                continue
+            stats["sales"] += 1
+            # Antiduplicados: índice UNIQUE en personal_expenses.cabify_sale_code + savepoint por
+            # gasto, para que un choque no tire el resto de la importación.
+            existe = (session_db.query(PersonalExpense.id)
+                      .filter(PersonalExpense.cabify_sale_code == code).first())
+            if existe:
+                stats["skipped"] += 1
+                continue
+            try:
+                fecha = date.fromisoformat(datos["invoice_date"][:10]) if datos["invoice_date"] else hoy
+            except ValueError:
+                fecha = hoy
+            try:
+                with session_db.begin_nested():
+                    session_db.add(PersonalExpense(
+                        user_id=link.user_id,
+                        source="CABIFY",
+                        cabify_sale_code=code,
+                        concept=datos["concept"],
+                        provider_name="Cabify",
+                        expense_date=fecha,
+                        amount_net=datos["amount_net"],
+                        amount_gross=datos["amount_gross"],
+                        amount_tax=datos["amount_tax"],
+                        currency=datos["currency"],
+                        invoice_number=code,
+                        document_type="FACTURA",
+                        file_url=(datos["receipt_url"] or None),
+                        status="PENDING",
+                    ))
+                stats["created"] += 1
+            except IntegrityError:
+                session_db.rollback()
+                stats["skipped"] += 1
+
+    acc.last_sync_at = datetime.now(TZ_MADRID)
+    acc.last_sync_ok = True
+    acc.last_error = None
+    acc.last_stats = stats
+    if acc.backfill_from and (not acc.backfill_done_from or acc.backfill_done_from > desde):
+        acc.backfill_done_from = desde
+    session_db.commit()
+    return stats
+
+
+def _cabify_sync_all(window_days: int | None = None) -> dict:
+    """Sondea TODAS las cuentas activas de Cabify. Cada empresa por su lado; si una falla, sigue."""
+    out = {"accounts": 0, "created": 0, "errors": []}
+    session_db = db()
+    try:
+        cuentas = session_db.query(CabifyAccount).filter(CabifyAccount.is_active.is_(True)).all()
+        for acc in cuentas:
+            with _pleo_pg_lock(f"cabify:{acc.id}") as libre:
+                if not libre:
+                    continue
+                out["accounts"] += 1
+                try:
+                    desde = None
+                    if window_days:
+                        desde = today_local() - timedelta(days=int(window_days))
+                    stats = _cabify_sync_account(session_db, acc, since=desde)
+                    out["created"] += int(stats.get("created") or 0)
+                except Exception as exc:
+                    session_db.rollback()
+                    acc.last_sync_at = datetime.now(TZ_MADRID)
+                    acc.last_sync_ok = False
+                    acc.last_error = str(exc)[:500]
+                    session_db.commit()
+                    out["errors"].append({"company_id": str(acc.group_company_id), "error": str(exc)[:200]})
+        return out
+    finally:
+        session_db.close()
+
+
+def _cabify_account_rows(session_db) -> list:
+    """Una fila por EMPRESA DEL GRUPO para la pestaña Cabify de Integraciones."""
+    from cabify_utils import SANDBOX_BASE_URL
+    companies = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+    accounts = {str(a.group_company_id): a for a in session_db.query(CabifyAccount).all()}
+    people = {str(uid): nick for uid, nick in session_db.query(UserProfile.user_id, UserProfile.nick).all()}
+    rows = []
+    for comp in companies:
+        acc = accounts.get(str(comp.id))
+        usuarios, pendientes, total_gastos = [], 0, 0
+        if acc is not None:
+            for l in (session_db.query(CabifyUserLink)
+                      .filter(CabifyUserLink.account_id == acc.id)
+                      .order_by(CabifyUserLink.email.asc().nullslast()).all()):
+                mode = (l.match_mode or "NONE").upper()
+                if not l.user_id and mode != "IGNORED":
+                    pendientes += 1
+                usuarios.append({
+                    "id": str(l.id), "email": (l.email or ""),
+                    "name": " ".join([x for x in [(l.first_name or ""), (l.last_name or "")] if x]).strip(),
+                    "user_id": (str(l.user_id) if l.user_id else ""),
+                    "user_nick": people.get(str(l.user_id), "") if l.user_id else "",
+                    "mode": mode,
+                })
+            total_gastos = (session_db.query(func.count(PersonalExpense.id))
+                            .filter(PersonalExpense.source == "CABIFY",
+                                    PersonalExpense.user_id.in_(
+                                        [to_uuid(u["user_id"]) for u in usuarios if u["user_id"]] or [uuid.uuid4()]
+                                    )).scalar()) or 0
+        rows.append({
+            "company": comp, "account": acc,
+            "base_url": (getattr(acc, "base_url", None) or SANDBOX_BASE_URL),
+            "users": usuarios, "pending_links": pendientes, "expenses": total_gastos,
+        })
+    return rows
+
+
+@app.post('/integraciones/cabify/cuenta', endpoint='cabify_account_save')
+@admin_required
+def cabify_account_save():
+    """Guarda la credencial de Cabify de UNA empresa del grupo."""
+    if not is_master():
+        flash("Solo dirección puede configurar las integraciones.", "warning")
+        return redirect(url_for("integrations_view", tab="cabify"))
+    session_db = db()
+    try:
+        cid = to_uuid(request.form.get("group_company_id") or "")
+        comp = session_db.get(GroupCompany, cid) if cid else None
+        if not comp:
+            flash("Empresa no válida.", "warning")
+            return redirect(url_for("integrations_view", tab="cabify"))
+        acc = (session_db.query(CabifyAccount)
+               .filter(CabifyAccount.group_company_id == comp.id).first())
+        if acc is None:
+            acc = CabifyAccount(group_company_id=comp.id)
+            session_db.add(acc)
+        acc.base_url = (request.form.get("base_url") or "").strip() or None
+        acc.client_id = (request.form.get("client_id") or "").strip() or None
+        # El secreto solo se pisa si escriben uno nuevo (en pantalla va enmascarado).
+        nuevo_secreto = (request.form.get("client_secret") or "").strip()
+        if nuevo_secreto and not nuevo_secreto.startswith("•"):
+            acc.client_secret = nuevo_secreto
+        acc.currency = (request.form.get("currency") or "EUR").strip().upper()[:3] or "EUR"
+        acc.is_active = _truthy(request.form.get("is_active"))
+        try:
+            acc.sync_window_days = max(int(request.form.get("sync_window_days") or CABIFY_DEFAULT_WINDOW_DAYS), 1)
+        except (TypeError, ValueError):
+            acc.sync_window_days = CABIFY_DEFAULT_WINDOW_DAYS
+        acc.backfill_from = parse_optional_date(request.form.get("backfill_from"))
+        acc.updated_at = datetime.now(TZ_MADRID)
+        session_db.commit()
+        flash(f"Cuenta de Cabify de {comp.name} guardada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo guardar la cuenta de Cabify: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("integrations_view", tab="cabify"))
+
+
+@app.post('/integraciones/cabify/<company_id>/probar', endpoint='cabify_account_test')
+@admin_required
+def cabify_account_test(company_id):
+    """Comprueba que las credenciales valen (pide la primera página de usuarios)."""
+    if not is_master():
+        return jsonify({"ok": False, "error": "Solo dirección."}), 403
+    session_db = db()
+    try:
+        acc = (session_db.query(CabifyAccount)
+               .filter(CabifyAccount.group_company_id == to_uuid(company_id)).first())
+        if not acc:
+            return jsonify({"ok": False, "error": "Esta empresa aún no tiene cuenta de Cabify."}), 404
+        try:
+            info = _cabify_client(acc).ping()
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)})
+        return jsonify({"ok": True, **info})
+    finally:
+        session_db.close()
+
+
+@app.post('/integraciones/cabify/<company_id>/sincronizar', endpoint='cabify_account_sync')
+@admin_required
+def cabify_account_sync(company_id):
+    """Sondeo manual de una cuenta desde Integraciones."""
+    if not is_master():
+        flash("Solo dirección puede sincronizar.", "warning")
+        return redirect(url_for("integrations_view", tab="cabify"))
+    session_db = db()
+    try:
+        acc = (session_db.query(CabifyAccount)
+               .filter(CabifyAccount.group_company_id == to_uuid(company_id)).first())
+        if not acc:
+            flash("Esta empresa aún no tiene cuenta de Cabify.", "warning")
+            return redirect(url_for("integrations_view", tab="cabify"))
+        stats = _cabify_sync_account(session_db, acc)
+        flash(f"Cabify: {stats.get('created', 0)} gasto(s) nuevo(s) · "
+              f"{stats.get('linked', 0)} persona(s) vinculada(s) · "
+              f"{stats.get('unmatched', 0)} sin emparejar.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo sincronizar con Cabify: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("integrations_view", tab="cabify"))
+
+
+@app.post('/integraciones/cabify/enlace/<link_id>', endpoint='cabify_user_link_save')
+@admin_required
+def cabify_user_link_save(link_id):
+    """Vincula a mano un usuario de Cabify con una persona de la app (o lo descarta).
+
+    Al vincularlo se importan sus gastos en el momento, sin esperar al siguiente sondeo.
+    """
+    if not is_master():
+        flash("Solo dirección puede tocar los enlaces.", "warning")
+        return redirect(url_for("integrations_view", tab="cabify"))
+    session_db = db()
+    try:
+        link = session_db.get(CabifyUserLink, to_uuid(link_id) or uuid.uuid4())
+        if not link:
+            abort(404)
+        accion = (request.form.get("action") or "link").strip().lower()
+        if accion == "ignore":
+            link.user_id = None
+            link.match_mode = "IGNORED"
+            session_db.commit()
+            flash("Usuario de Cabify descartado: sus gastos no se importarán.", "success")
+            return redirect(url_for("integrations_view", tab="cabify"))
+        uid = to_uuid(request.form.get("user_id") or "")
+        link.user_id = uid
+        link.match_mode = "MANUAL" if uid else "NONE"
+        session_db.commit()
+        if uid:
+            acc = session_db.get(CabifyAccount, link.account_id)
+            dias = max(int(getattr(acc, "sync_window_days", 0) or CABIFY_DEFAULT_WINDOW_DAYS), 180)
+            desde = (getattr(acc, "backfill_from", None) or (today_local() - timedelta(days=dias)))
+            stats = _cabify_sync_account(session_db, acc, since=desde, user_ids=[link.cabify_user_id])
+            flash(f"Vinculado. Se han importado {stats.get('created', 0)} gasto(s) suyos.", "success")
+        else:
+            flash("Enlace actualizado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo actualizar el enlace: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("integrations_view", tab="cabify"))
+
+
+@app.get("/cron/cabify/refresh", endpoint="cron_cabify_refresh")
+def cron_cabify_refresh():
+    """Sondeo periódico de Cabify (tarea programada externa con ?key=). Sin sesión.
+
+    Cabify no manda webhooks de gastos, así que este cron es lo que hace que la importación sea
+    automática. Recomendado cada 1-2 horas."""
+    expected = (getattr(settings, "CABIFY_CRON_KEY", "") or settings.PLEO_CRON_KEY
+                or settings.CHARTMETRIC_CRON_KEY or "").strip()
+    key = (request.args.get("key") or "").strip()
+    if not expected or key != expected:
+        return ("forbidden", 403)
+    try:
+        window = int(request.args.get("dias") or 0) or None
+    except (TypeError, ValueError):
+        window = None
+    try:
+        out = _cabify_sync_all(window_days=window)
+    except Exception as exc:
+        app.logger.exception("[cabify] cron falló")
+        return (jsonify({"ok": False, "error": str(exc)}), 500)
+    return jsonify({"ok": True, **out})
+
+
 @app.get("/cron/pleo/refresh", endpoint="cron_pleo_refresh")
 def cron_pleo_refresh():
     """Sondeo periódico de Pleo (tarea programada externa con ?key=). Sin sesión.
@@ -50147,8 +50490,10 @@ def _personal_expense_row(row) -> dict:
     return {
         "id": str(row.id),
         "source": (row.source or "INVOICE"),
-        "source_label": {"PLEO": "Pleo", "INVOICE": "Factura recibida"}.get((row.source or ""), "Gasto"),
-        "source_icon": {"PLEO": "fa-credit-card", "INVOICE": "fa-file-invoice-dollar"}.get((row.source or ""), "fa-receipt"),
+        "source_label": {"PLEO": "Pleo", "INVOICE": "Factura recibida",
+                         "CABIFY": "Cabify"}.get((row.source or ""), "Gasto"),
+        "source_icon": {"PLEO": "fa-credit-card", "INVOICE": "fa-file-invoice-dollar",
+                        "CABIFY": "fa-taxi"}.get((row.source or ""), "fa-receipt"),
         "concept": (row.concept or "Gasto"),
         "provider_name": (row.provider_name or ""),
         "invoice_number": (row.invoice_number or ""),
@@ -66325,12 +66670,25 @@ def integrations_view():
         pass
     finally:
         s.close()
+    # Cabify: mismas subpestañas por empresa del grupo (best-effort, no debe tumbar la pantalla).
+    cabify_rows, cabify_any = [], False
+    s2 = db()
+    try:
+        cabify_rows = _cabify_account_rows(s2)
+        cabify_any = any((r.get("account") is not None and r["account"].is_active) for r in cabify_rows)
+    except Exception:
+        cabify_rows, cabify_any = [], False
+    finally:
+        s2.close()
     return render_template(
         "integraciones.html",
         title="Integraciones",
         pleo_configured=pleo_any,
         pleo_rows=pleo_rows,
         pleo_people=pleo_people,
+        cabify_configured=cabify_any,
+        cabify_rows=cabify_rows,
+        personnel_options=[{"id": p["id"], "nick": p["label"]} for p in pleo_people],
         pleo_default_window=PLEO_DEFAULT_WINDOW_DAYS,
         chartmetric_configured=chartmetric_utils.chartmetric_configured(),
         enterticket_configured=et_configured,

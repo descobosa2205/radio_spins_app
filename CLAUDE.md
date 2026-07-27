@@ -669,6 +669,24 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `{% if active_tab == 'vista' %}` nunca se cumple. Antes de tocar una plantilla, comprobar con
   `grep -n "<fichero>.html" app.py` que se renderiza y desde dónde.
 
+- **Cabify (gastos de viajes)**: cliente en `cabify_utils.py`. **OAuth2 client_credentials** contra
+  `{base}/auth/api/authorization` (`grant_type/client_id/client_secret` → `access_token` Bearer,
+  `expires_in` ~30 días, cacheado y renovado solo). API en `{base}/api/v4`. ⚠️ La **URL base de
+  producción NO es pública** (la da Cabify al conceder el acceso) → es un campo por cuenta;
+  sandbox `https://cabify-sandbox.com`. **UNA cuenta por empresa del grupo** (`CabifyAccount`,
+  se edita en Integraciones → Cabify, subpestaña por `GroupCompany`). Personas:
+  `GET /api/v4/users?state=&page=&per=` (paginado `{data,page,pages,per,total}`) → `CabifyUserLink`
+  emparejado por CORREO reutilizando `_pleo_email_index` (correo de acceso + `integration_emails`);
+  sin correo conocido queda para vincular a mano y al hacerlo importa sus gastos al momento.
+  Gastos: se usa `GET /api/v4/user/{id}/sales?from&to&currency&page&per` y **no** el global
+  `/api/v4/sales`, porque el global NO dice de quién es cada venta. Importes en **CÉNTIMOS** y con
+  impuestos (`price_details.total`, base despejada con `tax_rate`). Antiduplicados: índice UNIQUE en
+  `personal_expenses.cabify_sale_code` + savepoint por gasto. Sin webhooks → cron
+  `/cron/cabify/refresh?key=CABIFY_CRON_KEY` (acepta la de Pleo/Chartmetric).
+  ⚠️ **La API documentada NO expone el PDF por viaje**: se importa el detalle fiscal completo y el
+  justificante sigue saliendo de la factura mensual. Si Cabify lo publica, el único sitio a tocar es
+  `CabifyClient.sale_receipt_url`.
+
 ## Despliegue
 - GitHub `descobosa2205/radio_spins_app` → **Render** (Pro Plus, **Frankfurt**) auto-deploy de
   `main`. **Supabase** Pro (**Frankfurt**, proyecto `gyezqnqyxpwxxevdjhgf`; migrado desde Estocolmo

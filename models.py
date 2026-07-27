@@ -1915,6 +1915,9 @@ class PersonalExpense(Base):
     # id del apunte en Pleo. Lleva índice UNIQUE (ver ensure_pleo_schema): es LA garantía de que un
     # gasto importado no se duplica nunca, ni con dos sondeos a la vez.
     pleo_entry_id = Column(Text)
+    # Código de la venta en Cabify. Lleva índice UNIQUE (ver ensure_cabify_schema): es LA
+    # garantía de que un viaje importado no se duplica, ni con dos sondeos a la vez.
+    cabify_sale_code = Column(Text)
     concept = Column(Text)
     provider_name = Column(Text)
     expense_date = Column(Date)
@@ -8170,6 +8173,85 @@ class PleoEmployeeLink(Base):
         UniqueConstraint("account_id", "pleo_employee_id", name="uq_pleo_employee"),
         Index("idx_pleo_employee_links_user", "user_id"),
     )
+
+
+class CabifyAccount(Base):
+    """Credencial y estado de sincronización de la cuenta de Cabify de UNA empresa del grupo.
+
+    Una cuenta por empresa: cada una tiene sus credenciales, sus empleados y su facturación.
+    `base_url` es editable porque la URL de PRODUCCIÓN la entrega Cabify al conceder el acceso y no
+    es pública (la de sandbox sí: https://cabify-sandbox.com).
+    """
+
+    __tablename__ = "cabify_accounts"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    group_company_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("group_companies.id", ondelete="CASCADE"),
+        nullable=False, unique=True,
+    )
+    base_url = Column(Text)
+    client_id = Column(Text)
+    client_secret = Column(Text)
+    currency = Column(Text, nullable=False, server_default=text("'EUR'"))
+    is_active = Column(Boolean, nullable=False, server_default=text("false"))
+    # Días hacia atrás que revisa cada sondeo.
+    sync_window_days = Column(Integer, nullable=False, server_default=text("45"))
+    # Volcado histórico: desde cuándo traer y hasta dónde se ha llegado ya.
+    backfill_from = Column(Date)
+    backfill_done_from = Column(Date)
+    last_sync_at = Column(DateTime(timezone=True))
+    last_sync_ok = Column(Boolean)
+    last_error = Column(Text)
+    last_stats = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    company = relationship("GroupCompany")
+
+
+class CabifyUserLink(Base):
+    """Empleado de Cabify (en UNA cuenta) y a qué usuario de la app corresponde.
+
+    El emparejamiento normal es por CORREO (`AUTO_EMAIL`): la gente de la cuenta de empresa está
+    dada de alta en Cabify con su correo de la empresa del grupo. Si ese correo no está en la app,
+    la fila queda sin `user_id` y sale en Integraciones para vincularla a mano o descartarla.
+    """
+
+    __tablename__ = "cabify_user_links"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    account_id = Column(PGUUID(as_uuid=True), ForeignKey("cabify_accounts.id", ondelete="CASCADE"), nullable=False)
+    cabify_user_id = Column(Text, nullable=False)
+    email = Column(Text)
+    first_name = Column(Text)
+    last_name = Column(Text)
+    user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    match_mode = Column(Text, nullable=False, server_default=text("'NONE'"))   # AUTO_EMAIL|MANUAL|IGNORED|NONE
+    last_seen_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    account = relationship("CabifyAccount")
+    user = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("account_id", "cabify_user_id", name="uq_cabify_user"),
+        Index("idx_cabify_user_links_user", "user_id"),
+    )
+
+
+def ensure_cabify_schema():
+    """Crea/actualiza el esquema de la integración con Cabify (idempotente, sin Alembic)."""
+    _create_all_once()
+    _exec_ddl_statements([
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS cabify_sale_code text;",
+        # Antiduplicados de verdad: el mismo viaje no puede entrar dos veces.
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_personal_expenses_cabify "
+        "ON personal_expenses(cabify_sale_code) WHERE cabify_sale_code IS NOT NULL;",
+    ], "cabify")
 
 
 def ensure_pleo_schema():

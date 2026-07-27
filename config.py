@@ -51,6 +51,8 @@ class Settings:
     PLEO_API_BASE = os.getenv("PLEO_API_BASE", "https://external.pleo.io")
     # Clave del endpoint /cron/pleo/refresh (si falta, se acepta la de Chartmetric).
     PLEO_CRON_KEY = os.getenv("PLEO_CRON_KEY") or os.getenv("CHARTMETRIC_CRON_KEY")
+    # Cabify: si no se define la suya, vale la de Pleo/Chartmetric (una sola clave de cron).
+    CABIFY_CRON_KEY = os.getenv("CABIFY_CRON_KEY") or os.getenv("PLEO_CRON_KEY") or os.getenv("CHARTMETRIC_CRON_KEY")
     # Chartmetric (métricas): refresh token de larga duración que Chartmetric envía por email.
     CHARTMETRIC_REFRESH_TOKEN = os.getenv("CHARTMETRIC_REFRESH_TOKEN")
     CHARTMETRIC_API_BASE = os.getenv("CHARTMETRIC_API_BASE", "https://api.chartmetric.com")

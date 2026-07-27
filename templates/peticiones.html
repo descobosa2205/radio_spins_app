@@ -45,7 +45,10 @@
         <div class="flex-grow-1" style="min-width:0;">
           <div class="d-flex align-items-start justify-content-between gap-2">
             <div style="min-width:0;">
-              <div class="fw-semibold text-truncate">{{ r.subject or r.artist_name or 'Petición sin título' }}</div>
+              <div class="fw-semibold text-truncate">
+                <a class="text-reset text-decoration-none" href="{{ url_for('booking_request_detail_view', rid=r.id, next=request.full_path) }}"
+                   title="Abrir la ficha de la petición">{{ r.subject or r.artist_name or 'Petición sin título' }}</a>
+              </div>
               <div class="small text-muted text-truncate">
                 {% if r.artist_name %}<span data-artist-link="{{ r.artist_id }}">{{ r.artist_name }}</span>{% endif %}
                 {% if r.date_label %} · <i class="fa fa-calendar-day me-1"></i>{{ r.date_label }}{% endif %}

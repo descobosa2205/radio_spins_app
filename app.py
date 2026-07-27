@@ -22097,6 +22097,113 @@ def booking_request_delete(rid):
     return redirect(request.form.get("next") or url_for("contracting_view", section="peticiones"))
 
 
+def _booking_request_detail(session_db, r) -> dict:
+    """Todo lo que se sabe de una petición, para su ficha: datos, quién la pide, contexto y
+    los departamentos a los que va."""
+    pay = r.payload if isinstance(r.payload, dict) else {}
+    dept_labels = {"CONTRATACION": "Contratación", "SELLO": "Sello", "PROMO": "Promoción", "DISENO": "Diseño"}
+    depts = [str(d).strip().upper() for d in (pay.get("departments") or ["CONTRATACION"])]
+    label, badge = _booking_status_meta(r.status)
+    fecha = ""
+    if r.requested_date:
+        fecha = r.requested_date.strftime("%d/%m/%Y")
+    elif (r.date_text or "").strip():
+        fecha = (r.date_text or "").strip()
+    elif pay.get("range_start"):
+        fecha = f"Entre {pay.get('range_start')} y {pay.get('range_end') or '—'}"
+    elif pay.get("month"):
+        fecha = f"Durante {pay.get('month')}"
+    venue = session_db.get(Venue, r.venue_id) if r.venue_id else None
+    promoter = session_db.get(Promoter, r.promoter_id) if r.promoter_id else None
+    lugar = " · ".join([x for x in [(venue.name if venue else ""), (r.municipality or ""), (r.province or "")] if x])
+    act_type = (pay.get("activity_type") or "CONCIERTO").strip().upper()
+    # Solo se muestran los campos con contenido: la ficha enseña lo que hay, no huecos.
+    campos = [
+        ("Asunto", (r.subject or "").strip(), "fa-tag"),
+        ("Fecha pedida", fecha, "fa-calendar-day"),
+        ("Lugar", lugar, "fa-location-dot"),
+        ("Importe orientativo", (r.fee_text or "").strip(), "fa-euro-sign"),
+        ("¿Cómo llegó?", dict(BOOKING_SOURCE_CHOICES).get((r.source or "").upper(), (r.source or "")), "fa-inbox"),
+        ("Quién lo pide", " · ".join([x for x in [(r.contact_name or ""), (r.contact_email or ""), (r.contact_phone or "")] if x]), "fa-user"),
+        ("Tercero", (promoter.nick if promoter else ""), "fa-user-tie"),
+    ]
+    return {
+        "row": r,
+        "status_label": label,
+        "status_badge": badge,
+        "is_open": (r.status or "NUEVA").upper() in BOOKING_OPEN_STATUSES,
+        "departments": [dept_labels.get(d, d) for d in depts],
+        "activity_type": act_type,
+        "activity_label": QUAD_ACTIVITY_LABELS.get(act_type, "Actividad"),
+        "no_cache": bool(pay.get("no_cache")),
+        "fields": [{"label": l, "value": v, "icon": i} for l, v, i in campos if (v or "").strip()],
+        "artist": r.artist,
+        "venue": venue,
+        "promoter": promoter,
+        "notes": (r.notes or "").strip(),
+    }
+
+
+@app.get("/peticiones/<rid>", endpoint="booking_request_detail_view")
+@admin_required
+def booking_request_detail_view(rid):
+    """Ficha de una petición: los datos que haya y las acciones para gestionarla (cerrarla con
+    su motivo o convertirla en la actividad que corresponda)."""
+    session_db = db()
+    try:
+        r = (
+            session_db.query(BookingRequest)
+            .options(joinedload(BookingRequest.artist))
+            .filter(BookingRequest.id == to_uuid(rid))
+            .first()
+        )
+        if not r:
+            abort(404)
+        # Solo la ve quien lleva alguno de sus departamentos (o dirección).
+        depts = _current_user_peticion_departments()
+        if not is_master() and not any(_booking_in_department(r, d) for d in depts):
+            flash("Esta petición es de otro departamento.", "warning")
+            return redirect(url_for("home"))
+        return render_template(
+            "peticion_detail.html",
+            **_booking_request_detail(session_db, r),
+            activity_choices=QUAD_ACTIVITY_CHOICES,
+            back_url=safe_next_or(url_for("contracting_view", section="peticiones")),
+        )
+    finally:
+        session_db.close()
+
+
+@app.post("/peticiones/<rid>/cerrar", endpoint="booking_request_close")
+@admin_required
+def booking_request_close(rid):
+    """Cerrar una petición dejando por escrito POR QUÉ se cierra."""
+    session_db = db()
+    next_url = safe_next_or(url_for("booking_request_detail_view", rid=rid))
+    try:
+        r = session_db.get(BookingRequest, to_uuid(rid))
+        if not r:
+            abort(404)
+        note = (request.form.get("close_note") or "").strip()
+        if not note:
+            flash("Escribe por qué se cierra la petición.", "warning")
+            return redirect(next_url)
+        st = _current_user_state()
+        r.status = "DESCARTADA"
+        r.rejection_reason = note
+        r.reviewed_by_user_id = to_uuid(st.get("user_id")) if st.get("user_id") else None
+        r.reviewed_by_nick = st.get("nick") or st.get("email") or ""
+        session_db.commit()
+        flash("Petición cerrada.", "success")
+        return redirect(next_url)
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo cerrar la petición: {exc}", "danger")
+        return redirect(next_url)
+    finally:
+        session_db.close()
+
+
 @app.post("/peticiones/<rid>/aprobar", endpoint="booking_request_approve")
 @admin_required
 def booking_request_approve(rid):
@@ -22114,7 +22221,9 @@ def booking_request_approve(rid):
             flash("Añade un artista a la petición antes de aprobarla (edítala).", "warning")
             return redirect(request.form.get("next") or url_for("contracting_view", section="peticiones"))
         pay = r.payload if isinstance(r.payload, dict) else {}
-        activity_type = (pay.get("activity_type") or "CONCIERTO").strip().upper()
+        # El tipo puede venir del botón «Crear nuevo …» de la ficha; si no, el de la petición.
+        _wanted = (request.form.get("activity_type") or "").strip().upper()
+        activity_type = _wanted if _wanted in QUAD_ACTIVITY_LABELS else (pay.get("activity_type") or "CONCIERTO").strip().upper()
         no_cache = bool(pay.get("no_cache"))
         the_date = r.requested_date
         if not the_date:
@@ -22443,16 +22552,9 @@ def _home_pending_peticiones(limit=12):
             pay = r.payload if isinstance(r.payload, dict) else {}
             _pet_depts = [str(d).strip().upper() for d in (pay.get("departments") or ["CONTRATACION"])]
             row["dept_labels"] = [dept_labels.get(d, d) for d in _pet_depts]
-            # Enlace para GESTIONARLA: la bandeja del departamento (priorizando los del usuario),
-            # con ancla a la propia petición (#pet-<id> en la página de destino).
-            _inbox_urls = {
-                "CONTRATACION": url_for("contracting_view", section="peticiones"),
-                "PROMO": url_for("promo_view"),
-                "DISENO": url_for("diseno_view"),
-            }
-            _dest = next((d for d in _pet_depts if d in depts and d in _inbox_urls),
-                         next((d for d in _pet_depts if d in _inbox_urls), None))
-            row["manage_url"] = (_inbox_urls[_dest] + f"#pet-{r.id}") if _dest else ""
+            # Al pinchar se abre la FICHA de la petición: allí están los datos disponibles y las
+            # acciones (cerrarla con su motivo o convertirla en la actividad que toque).
+            row["manage_url"] = url_for("booking_request_detail_view", rid=r.id)
             out.append(row)
             if len(out) >= limit:
                 break
@@ -26833,7 +26935,12 @@ def concerts_page():
                 )
                 # Solo las de Contratación (con caché o legado sin departamento).
                 _pending = [r for r in _pending if _booking_in_department(r, "CONTRATACION")][:50]
-                pending_booking_rows = [_booking_request_row(r) for r in _pending]
+                pending_booking_rows = []
+                for _r in _pending:
+                    _row = _booking_request_row(_r)
+                    # Al pinchar se abre la ficha de la petición, con sus datos y sus acciones.
+                    _row["manage_url"] = url_for("booking_request_detail_view", rid=_r.id)
+                    pending_booking_rows.append(_row)
             except Exception:
                 pending_booking_rows = []
 

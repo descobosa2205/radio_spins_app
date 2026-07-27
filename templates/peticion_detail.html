@@ -1,0 +1,106 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<div class="mb-2">
+  <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ back_url }}" title="Volver a peticiones" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
+</div>
+
+<div class="ficha-hero">
+  <img class="ficha-hero__media ficha-hero__media--round"
+       src="{{ (artist.photo_url if artist else None) or url_for('static', filename='img/logo.png') }}"
+       alt="" data-default-photo="1"{% if artist %} data-artist-link="{{ artist.id }}"{% endif %}>
+  <div class="ficha-hero__body">
+    <div class="ficha-hero__eyebrow">Petición · {{ activity_label }}</div>
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <h1 class="ficha-hero__title">{{ artist.name if artist else (row.subject or 'Petición') }}</h1>
+      <span class="badge {{ status_badge }}">{{ status_label }}</span>
+      {% if no_cache %}<span class="badge text-bg-light border"><i class="fa fa-gift me-1"></i>Sin caché</span>{% endif %}
+    </div>
+    {% if artist %}{{ linked_mini('artist', artist.id) }}{% endif %}
+    <div class="ficha-hero__facts">
+      {% for d in departments %}<span><i class="fa fa-people-group"></i>{{ d }}</span>{% endfor %}
+      {% if row.received_at %}<span><i class="fa fa-inbox"></i>Recibida el {{ row.received_at.strftime('%d/%m/%Y') }}</span>{% endif %}
+      {% if row.created_by_nick %}<span><i class="fa fa-user-pen"></i>{{ row.created_by_nick }}</span>{% endif %}
+    </div>
+  </div>
+</div>
+
+{% if row.concert_id %}
+  <div class="alert alert-success d-flex align-items-center gap-2 flex-wrap">
+    <i class="fa fa-circle-check"></i>
+    <span class="flex-grow-1">Esta petición ya se convirtió en una actividad.</span>
+    <a class="btn btn-sm btn-outline-success" href="{{ url_for('concert_detail_view', cid=row.concert_id) }}">
+      <i class="fa fa-arrow-up-right-from-square me-1"></i>Ir a la actividad
+    </a>
+  </div>
+{% elif not is_open %}
+  <div class="alert alert-secondary">
+    <strong>Petición cerrada.</strong>
+    {% if row.rejection_reason %} Motivo: {{ row.rejection_reason }}{% endif %}
+    {% if row.reviewed_by_nick %} <span class="text-muted small">· {{ row.reviewed_by_nick }}</span>{% endif %}
+  </div>
+{% endif %}
+
+{# ---------- Datos disponibles de la petición ---------- #}
+<div class="ficha-summary ficha-summary--compact mb-3">
+  {% for f in fields %}
+    <div class="fs-item{% if f.value|length > 30 %} fs-item--wide{% endif %}">
+      <div class="fs-item__label"><i class="fa {{ f.icon }}"></i>{{ f.label }}</div>
+      <div class="fs-item__value">{{ f.value }}</div>
+    </div>
+  {% endfor %}
+</div>
+
+{% if notes %}
+  <div class="ficha-section mb-3">
+    <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-note-sticky"></i>Notas</h6></div>
+    <div class="ficha-section__body" style="white-space:pre-wrap;">{{ notes }}</div>
+  </div>
+{% endif %}
+
+{% if is_open %}
+{# ---------- Gestión: convertir en actividad o cerrar con su motivo ---------- #}
+<div class="row g-3">
+  <div class="col-12 col-lg-7">
+    <div class="ficha-section h-100">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-wand-magic-sparkles"></i>Convertir en actividad</h6></div>
+      <div class="ficha-section__body">
+        <p class="text-muted small">Se crea el borrador con lo que ya sabemos de la petición y se abre su ficha para completarlo. La petición queda enlazada a la actividad.</p>
+        {% if not row.artist_id %}
+          <div class="alert alert-warning mb-0"><i class="fa fa-triangle-exclamation me-1"></i>Falta el artista: edita la petición antes de convertirla.</div>
+        {% else %}
+          <div class="d-flex flex-wrap gap-2">
+            {% for key, label, icon in activity_choices %}
+              <form method="post" action="{{ url_for('booking_request_approve', rid=row.id) }}">
+                <input type="hidden" name="activity_type" value="{{ key }}">
+                <input type="hidden" name="next" value="{{ request.full_path }}">
+                <button class="btn {{ 'btn-danger' if key == activity_type else 'btn-outline-secondary' }}" type="submit">
+                  <i class="fa {{ icon }} me-1"></i>Crear {{ 'nuevo' if key in ['CONCIERTO','FESTIVAL','EVENTO_PROMOCIONAL'] else 'nueva' }} {{ label|lower }}
+                </button>
+              </form>
+            {% endfor %}
+          </div>
+          <div class="form-text mt-2">El tipo que venía en la petición aparece marcado; puedes crear otro si toca.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-5">
+    <div class="ficha-section h-100">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-circle-xmark"></i>Cerrar petición</h6></div>
+      <form class="ficha-section__body" method="post" action="{{ url_for('booking_request_close', rid=row.id) }}">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <label class="form-label">¿Por qué se cierra?</label>
+        <textarea class="form-control" name="close_note" rows="3" required
+                  placeholder="No hay fechas libres, el caché no encaja, el promotor lo retira…"></textarea>
+        <div class="form-text">Queda guardado en la petición para saber qué pasó.</div>
+        <div class="d-flex justify-content-end mt-2">
+          <button class="btn btn-outline-danger"><i class="fa fa-circle-xmark me-1"></i>Cerrar petición</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

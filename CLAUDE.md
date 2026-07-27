@@ -652,6 +652,23 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   en la web de la empresa sin tocarla. ⚠️ No hay `X-Frame-Options`/CSP en la app: si algún día se añaden,
   hay que dejar este endpoint enmarcable.
 
+- **Facturas imputadas a gastos de bolsa** (`BagExpenseInvoice`): relación N:N entre una factura y
+  los gastos que cubre, con el **importe imputado** a cada uno. Las filas de la MISMA factura física
+  comparten `group_key`. El adjunto del `BagExpense` se sigue rellenando (compatibilidad con
+  validación/PDF/avisos). Motor: `_bag_expense_invoice_apply` · `_bag_expense_invoice_rows` ·
+  `_personal_expense_allocated`. **Petición al proveedor**: en el enlace público marca con casillas
+  qué conceptos cubre la factura (una por concepto o una que englobe varios); el total se reparte a
+  prorrata y la petición solo pasa a DONE cuando TODOS tienen factura. **Desde «Mis gastos»**: además
+  de soltar en un módulo (crea gasto), se puede soltar **encima de un gasto existente**
+  (`bag_imported_expense_link`): si la factura vale más, pregunta `update_amount` (el gasto pasa a
+  valer la factura) o `split` (imputa lo que cabe y deja el resto para otro gasto, hasta repartirlo).
+  ⚠️ `templates/public_bag_invoice_upload.html` es **código muerto**: `/factura/<token>` renderiza
+  `public_invoice_landing.html` con `inv_mode='REQUEST'`.
+- ⚠️ **Plantillas que parecen vivas y no lo son**: además de la anterior, `concerts.html` solo se
+  usa en la pestaña **Facturación** (la vista de conciertos es `concerts_vista.html`), y su bloque
+  `{% if active_tab == 'vista' %}` nunca se cumple. Antes de tocar una plantilla, comprobar con
+  `grep -n "<fichero>.html" app.py` que se renderiza y desde dónde.
+
 ## Despliegue
 - GitHub `descobosa2205/radio_spins_app` → **Render** (Pro Plus, **Frankfurt**) auto-deploy de
   `main`. **Supabase** Pro (**Frankfurt**, proyecto `gyezqnqyxpwxxevdjhgf`; migrado desde Estocolmo

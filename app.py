@@ -22503,6 +22503,9 @@ def _render_department_inbox(dept_key: str, title: str, icon: str, subtitle: str
             archived_rows=[_booking_request_row(r) for r in archived],
             booking_status_meta=BOOKING_STATUS_META,
             artists=artists,
+            # Promoción lleva además el asistente de «Añadir promoción» (el mismo de Marketing).
+            promotion_creator_datasets=(_promotion_creator_datasets(s) if dept_key == "PROMO" else {}),
+            can_edit_promocion=(can_edit_marketing() if dept_key == "PROMO" else False),
         )
     finally:
         s.close()

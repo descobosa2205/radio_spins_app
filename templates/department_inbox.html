@@ -6,8 +6,24 @@
     <h2 class="mb-1"><i class="fa {{ icon }} me-2 text-danger"></i>{{ title }}</h2>
     <div class="text-muted">{{ subtitle }}</div>
   </div>
-  <button class="btn btn-primary" type="button" data-peticion-new data-peticion-dept="{{ dept_key }}"><i class="fa fa-plus me-1"></i> Nueva petición</button>
+  <div class="d-flex gap-2 flex-wrap">
+    {# En PROMOCIÓN, además de registrar una petición entrante, se puede crear la promoción. #}
+    {% if dept_key == 'PROMO' and can_edit_promocion %}
+      <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#marketingCreateModal"><i class="fa fa-plus me-1"></i> Añadir promoción</button>
+    {% endif %}
+    <button class="btn btn-outline-primary" type="button" data-peticion-new data-peticion-dept="{{ dept_key }}"><i class="fa fa-inbox me-1"></i> Nueva petición</button>
+  </div>
 </div>
+
+{% if dept_key == 'PROMO' and can_edit_promocion %}
+  {# Mismo asistente que en Marketing: crea la promoción y la deja en Marketing → Activas. #}
+  {% include '_promotion_wizard_modal.html' %}
+  <div class="alert alert-light border small">
+    <i class="fa fa-circle-info me-1"></i>Las promociones que crees aquí se gestionan en
+    <a href="{{ url_for('marketing_view', tab='active') }}">Marketing → Activas</a>, con su plan,
+    sus acciones y su presupuesto. Esta bandeja es para las <strong>peticiones</strong> que llegan.
+  </div>
+{% endif %}
 
 {% macro peticion_rows(rows, empty_text) %}
   {% if rows %}

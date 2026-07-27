@@ -2112,6 +2112,26 @@ def _concert_venue_name(concert: Concert | None) -> str:
     return (getattr(concert, 'manual_venue_name', None) or '').strip()
 
 
+# Tipos de actividad en los que SIEMPRE se canta (no hace falta preguntarlo en el asistente).
+CONCERT_SINGING_ACTIVITY_TYPES = {'CONCIERTO', 'FESTIVAL'}
+
+
+def _concert_has_singing(concert: Concert | None) -> bool:
+    """¿Hubo actuación cantada? Conciertos y festivales siempre; en el resto de actividades
+    (promocional, TV, marca, otros) solo si en el asistente se marcó «¿canta?» = Sí
+    (`contracting_payload.performance.sings`). Es el criterio que decide la pestaña Repertorio
+    y qué actividades hay que declarar en Registros."""
+    if concert is None:
+        return False
+    if (getattr(concert, 'activity_type', None) or 'CONCIERTO').strip().upper() in CONCERT_SINGING_ACTIVITY_TYPES:
+        return True
+    payload = getattr(concert, 'contracting_payload', None)
+    payload = payload if isinstance(payload, dict) else {}
+    performance = payload.get('performance')
+    performance = performance if isinstance(performance, dict) else {}
+    return bool(performance.get('sings'))
+
+
 def _concert_venue_address(concert: Concert | None) -> str:
     if not concert:
         return ''
@@ -26593,9 +26613,7 @@ def concert_detail_view(cid):
         # Ticketing: SIN pestaña si el evento es gratuito (entrada FREE o sale_type GRATUITO).
         show_ticketing_tab = not _concert_is_free_event(c)
         # Repertorio: solo conciertos/festivales o actividades donde se marcó que el artista canta.
-        _cpay_probe = c.contracting_payload if isinstance(c.contracting_payload, dict) else {}
-        _perf_probe = _cpay_probe.get('performance') if isinstance(_cpay_probe.get('performance'), dict) else {}
-        show_repertorio_tab = ((c.activity_type or 'CONCIERTO').strip().upper() in ('CONCIERTO', 'FESTIVAL')) or bool(_perf_probe.get('sings'))
+        show_repertorio_tab = _concert_has_singing(c)
         sale_channels = _concert_sale_channel_rows(c)
         sale_channel_request = session.query(ConcertSaleChannelRequest).filter_by(concert_id=c.id).first()
         sale_seller = _concert_sale_seller(c)
@@ -35280,7 +35298,8 @@ def _registros_date_badge(target_date: date | None) -> dict:
         return {'label': f'Faltan {delta} día' + ('' if delta == 1 else 's'), 'class': 'text-bg-warning text-dark', 'days': delta}
     if delta == 0:
         return {'label': 'Sale hoy', 'class': 'text-bg-warning text-dark', 'days': 0}
-    return {'label': f'{delta} días', 'class': 'text-bg-danger', 'days': delta}
+    ago = -delta
+    return {'label': f'Hace {ago} día' + ('' if ago == 1 else 's'), 'class': 'text-bg-danger', 'days': delta}
 
 
 def _registros_song_artist_meta(song: Song) -> dict:
@@ -35521,16 +35540,31 @@ def _build_registros_agedi_pending(session_db) -> list[dict]:
 
 
 def _build_registros_concerts_pending(session_db) -> list[dict]:
+    """Actividades pendientes de declarar: solo las que YA HAN PASADO y en las que se cantó
+    (conciertos y festivales siempre; el resto, si en el asistente se marcó «¿canta?» = Sí).
+    Lo que aún no se ha celebrado no se puede declarar, así que no aparece."""
+    today = today_local()  # Madrid, no la del servidor (Render va en UTC)
+    # Prefiltro en SQL a propósito PERMISIVO en la parte del JSONB (deja fuera solo lo que dice
+    # explícitamente que NO se canta o no lo declara); quien decide de verdad es
+    # `_concert_has_singing` en Python, que es el mismo criterio que la pestaña Repertorio.
+    sings_maybe = Concert.contracting_payload['performance']['sings'].astext.notin_(('false', 'False'))
     concerts = (
         session_db.query(Concert)
         .options(joinedload(Concert.artist), joinedload(Concert.venue), joinedload(Concert.billing_company), joinedload(Concert.group_company))
         .filter(or_(Concert.registration_declared_done.is_(False), Concert.registration_declared_done.is_(None)))
+        .filter(Concert.date.isnot(None), Concert.date < today)
+        .filter(or_(
+            func.upper(func.coalesce(Concert.activity_type, 'CONCIERTO')).in_(sorted(CONCERT_SINGING_ACTIVITY_TYPES)),
+            sings_maybe,
+        ))
         .order_by(Concert.date.desc())
         .limit(300)
         .all()
     )
     rows = []
     for concert in concerts:
+        if not _concert_has_singing(concert):
+            continue
         artist = getattr(concert, 'artist', None)
         rows.append({
             'kind': 'CONCERT',

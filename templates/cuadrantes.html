@@ -110,6 +110,12 @@
   .quad-check{ width:1.05rem; height:1.05rem; cursor:pointer; }
   tr.quad-row.is-excluded td{ opacity:.32; }
   tr.quad-row.is-excluded td .quad-check{ opacity:1; }
+  /* Ojo para ocultar una actividad del cuadrante */
+  .quad-eye{ border:1px solid var(--line-2,#e3e6eb); background:#fff; color:#6c757d; border-radius:8px;
+    width:28px; height:28px; display:grid; place-items:center; padding:0; line-height:1; transition:all .12s; }
+  .quad-eye:hover{ border-color:var(--brand-accent,#007CA2); color:var(--brand-accent,#007CA2); }
+  .quad-eye.is-off{ background:#fdecee; border-color:var(--brand-primary,#E33D48); color:var(--brand-primary,#E33D48); }
+  tr.quad-row.is-excluded td .quad-eye{ opacity:1; }
 
   /* Estados (mismos criterios que Conciertos) */
   .status-hablado{ background:#ffe8a1; color:#7a5b00; }
@@ -219,8 +225,9 @@
     .quad-col-include{ display:none !important; }
     tr.quad-row.is-excluded{ display:none !important; }
 
-    /* Calendario + mapa en la misma hoja horizontal */
-    .print-calmap-page{ break-inside:avoid !important; }
+    /* Calendario + mapa SIEMPRE en la misma hoja horizontal: el bloque empieza en página nueva y
+       no se parte por dentro, así que nunca se van a hojas distintas. */
+    .print-calmap-page{ break-inside:avoid !important; break-before:page !important; }
     .print-calmap-row.print-both{ display:flex !important; flex-wrap:nowrap !important; gap:6mm !important; align-items:stretch !important; margin:0 !important; }
     .print-calmap-row.print-both > [class*="col"]{ padding:0 !important; margin:0 !important; float:none !important; }
     .print-calmap-row.print-both .print-col-calendar{ flex:0 0 40% !important; max-width:40% !important; }
@@ -236,16 +243,20 @@
     .print-col-calendar .day-more{ line-height:12px !important; font-size:8px !important; }
     .print-col-map #quad-map{ height:150mm !important; width:100% !important; }
 
-    /* VARIOS AÑOS: 24 meses no caben en la media hoja de al lado del mapa. El calendario pasa a
-       ocupar su propia hoja a lo ancho (6 meses por fila) y el mapa se va a la siguiente. */
-    .print-calmap-page.is-multiyear{ break-inside:auto !important; }
-    .print-calmap-page.is-multiyear .print-calmap-row.print-both{ display:block !important; }
-    .print-calmap-page.is-multiyear .print-calmap-row.print-both > [class*="col"]{
-      flex:none !important; max-width:100% !important; width:100% !important; }
-    .print-calmap-page.is-multiyear .print-col-calendar{ break-after:page !important; }
+    /* VARIOS AÑOS: los 24 meses tienen que caber igualmente al lado del mapa (calendario y mapa
+       van juntos SIEMPRE). Se aprieta el calendario en vez de mandarlo a otra hoja. */
+    .print-calmap-page.is-multiyear .print-calmap-row.print-both .print-col-calendar{
+      flex:0 0 46% !important; max-width:46% !important; }
+    .print-calmap-page.is-multiyear .print-calmap-row.print-both .print-col-map{
+      flex:1 1 54% !important; max-width:54% !important; }
     .print-calmap-page.is-multiyear .print-col-calendar .year-grid{
-      grid-template-columns:repeat(6, minmax(0,1fr)) !important; }
-    .print-calmap-page.is-multiyear .quad-cal-year{ font-size:9px !important; margin:1mm 0 .5mm !important; }
+      grid-template-columns:repeat(4, minmax(0,1fr)) !important; gap:1mm !important; }
+    .print-calmap-page.is-multiyear .print-col-calendar table.month-table td{ height:9px !important; }
+    .print-calmap-page.is-multiyear .print-col-calendar table.month-table{ font-size:5.5px !important; }
+    .print-calmap-page.is-multiyear .print-col-calendar .month-title{ font-size:6.5px !important; }
+    .print-calmap-page.is-multiyear .print-col-calendar .day-num{ font-size:6px !important; }
+    .print-calmap-page.is-multiyear .print-col-calendar .day-badge{ width:8px !important; height:8px !important; font-size:6px !important; border-width:1.5px !important; }
+    .print-calmap-page.is-multiyear .quad-cal-year{ font-size:8px !important; margin:.6mm 0 .3mm !important; }
   }
 </style>
 
@@ -519,12 +530,15 @@
                 {% set st = (e.status or 'BORRADOR') %}
                 {% set sm = STATUS_META.get(st, STATUS_META['BORRADOR']) %}
                 <tr class="quad-row clickable-row" role="button" tabindex="0"
+                    data-quad-key="{{ e.artist_id }}:{{ e.n }}" data-quad-artist="{{ e.artist_id }}"
                     data-href="{{ url_for('concert_detail_view', cid=e.concert_id) }}">
                   <td class="quad-col-include no-print" onclick="event.stopPropagation();">
-                    <input type="checkbox" class="quad-check quad-include" checked>
+                    {# Ojo: oculta la actividad del cuadrante (y del calendario, el mapa y el PDF). #}
+                    <button type="button" class="quad-eye" data-quad-eye aria-pressed="false"
+                            title="Ocultar esta actividad del cuadrante"><i class="fa fa-eye"></i></button>
                   </td>
                   <td class="num-cell">
-                    <span class="quad-num {{ sm.cls }}" style="border-color: {{ e.artist_color }};">{{ e.n }}</span>
+                    <span class="quad-num {{ sm.cls }}" style="border-color: {{ e.artist_color }};" data-quad-num>{{ e.n }}</span>
                   </td>
                   <td data-col="date"><span class="quad-date"><i class="fa fa-calendar-days"></i>{{ e.date_es }}</span></td>
                   <td data-col="concept">
@@ -622,12 +636,15 @@
                                 <td>
                                   <div class="day-num">{{ day }}</div>
                                   {% if marks and marks|length > 0 %}
-                                    <div class="day-badges">
-                                      {% for it in marks[:4] %}
+                                    {# Se pintan TODAS y el JS deja a la vista las 4 primeras visibles
+                                       y ajusta el «+N»: al ocultar actividades con el ojo, el conteo
+                                       tiene que cuadrar con lo que queda. #}
+                                    <div class="day-badges" data-day-badges>
+                                      {% for it in marks %}
                                         {% set stc = STATUS_META.get((it.status or 'BORRADOR'), STATUS_META['BORRADOR']).cls %}
-                                        <span class="day-badge {{ stc }}" style="border-color: {{ it.artist_color or '#0d6efd' }};" title="{{ it.title or it.artist_name or '' }}">{{ it.n }}</span>
+                                        <span class="day-badge {{ stc }}" style="border-color: {{ it.artist_color or '#0d6efd' }};" title="{{ it.title or it.artist_name or '' }}" data-quad-key="{{ it.artist_id }}:{{ it.n }}" data-quad-num>{{ it.n }}</span>
                                       {% endfor %}
-                                      {% if marks|length > 4 %}<span class="day-more">+{{ marks|length - 4 }}</span>{% endif %}
+                                      <span class="day-more d-none" data-day-more></span>
                                     </div>
                                   {% endif %}
                                 </td>
@@ -736,34 +753,114 @@
     });
   });
 
-  /* ---- Selección de actividades (qué se incluye en el PDF) ---- */
+  /* ---- Mostrar / ocultar actividades (ojo) + RENUMERACIÓN de las visibles ----
+     Al ocultar una actividad no basta con atenuar la fila: el número deja de cuadrar. Se
+     renumera 1..N por ARTISTA (que es como numera el backend) y se propaga el nuevo número al
+     calendario y a las chinchetas del mapa, para que los tres hablen del mismo. */
+  const quadHidden = new Set();                 // claves "artistId:nOriginal" ocultas
+  window.__quadHidden = quadHidden;
+
+  function quadRows(){ return Array.from(document.querySelectorAll('tr.quad-row[data-quad-key]')); }
+
   function refreshInclCount(){
-    const all = document.querySelectorAll('.quad-include');
-    const on = document.querySelectorAll('.quad-include:checked');
+    const all = quadRows();
+    const on = all.filter(r => !quadHidden.has(r.getAttribute('data-quad-key')));
     const lbl = document.getElementById('quadInclCount');
     if (lbl) lbl.textContent = on.length + ' de ' + all.length + ' incluidas';
   }
-  function bindRow(cb){
-    const row = cb.closest('tr.quad-row');
-    const sync = () => { if (row) row.classList.toggle('is-excluded', !cb.checked); refreshInclCount(); };
-    cb.addEventListener('change', sync); sync();
+
+  function quadRenumber(){
+    // 1) Filas: número correlativo por artista, saltando las ocultas.
+    const perArtist = {};
+    const numByKey = {};
+    quadRows().forEach(row => {
+      const key = row.getAttribute('data-quad-key');
+      const aid = row.getAttribute('data-quad-artist') || '';
+      const hidden = quadHidden.has(key);
+      row.classList.toggle('is-excluded', hidden);
+      const eye = row.querySelector('[data-quad-eye]');
+      if (eye){
+        eye.setAttribute('aria-pressed', hidden ? 'true' : 'false');
+        eye.classList.toggle('is-off', hidden);
+        eye.innerHTML = '<i class="fa ' + (hidden ? 'fa-eye-slash' : 'fa-eye') + '"></i>';
+        eye.title = hidden ? 'Volver a mostrar esta actividad' : 'Ocultar esta actividad del cuadrante';
+      }
+      if (hidden){
+        // Sin número mientras está oculta: dejar el viejo confunde (ya no le corresponde).
+        const b = row.querySelector('[data-quad-num]');
+        if (b) b.textContent = '–';
+        return;
+      }
+      perArtist[aid] = (perArtist[aid] || 0) + 1;
+      numByKey[key] = perArtist[aid];
+      const badge = row.querySelector('[data-quad-num]');
+      if (badge) badge.textContent = perArtist[aid];
+    });
+
+    // 2) Calendario: mismo número, y las ocultas desaparecen del día. El «+N» se recalcula
+    //    sobre las que quedan (si no, contaría actividades que ya no se ven).
+    document.querySelectorAll('[data-day-badges]').forEach(box => {
+      const badges = Array.from(box.querySelectorAll('.day-badge[data-quad-key]'));
+      let shown = 0;
+      badges.forEach(b => {
+        const key = b.getAttribute('data-quad-key');
+        const visible = !quadHidden.has(key);
+        if (visible) b.textContent = numByKey[key] != null ? numByKey[key] : b.textContent;
+        const fits = visible && shown < 4;
+        b.classList.toggle('d-none', !fits);
+        if (visible) shown += 1;
+      });
+      const extra = badges.filter(b => !quadHidden.has(b.getAttribute('data-quad-key'))).length - Math.min(shown, 4);
+      const more = box.querySelector('[data-day-more]');
+      if (more){
+        more.textContent = '+' + extra;
+        more.classList.toggle('d-none', extra <= 0);
+      }
+    });
+
+    // 3) Mapa: se le pide que repinte las chinchetas con la numeración nueva.
+    if (typeof window.__quadRefreshMarkers === 'function') window.__quadRefreshMarkers(numByKey, quadHidden);
+    refreshInclCount();
   }
-  document.querySelectorAll('.quad-include').forEach(bindRow);
+  window.__quadRenumber = quadRenumber;
+
+  function setHidden(row, hidden){
+    const key = row.getAttribute('data-quad-key');
+    if (!key) return;
+    if (hidden) quadHidden.add(key); else quadHidden.delete(key);
+  }
+
+  // Directo en cada botón, NO delegado en document: la celda que lo contiene lleva un
+  // onclick="event.stopPropagation()" (para que pinchar ahí no abra la ficha) y el evento nunca
+  // llegaría al documento.
+  document.querySelectorAll('[data-quad-eye]').forEach(eye => {
+    eye.addEventListener('click', (ev) => {
+      ev.preventDefault(); ev.stopPropagation();
+      const row = eye.closest('tr.quad-row');
+      if (!row) return;
+      setHidden(row, !quadHidden.has(row.getAttribute('data-quad-key')));
+      quadRenumber();
+    });
+  });
 
   document.querySelectorAll('[data-quad-group]').forEach(box => {
     const gid = box.getAttribute('data-quad-group');
     const table = document.querySelector('[data-quad-group-table="' + CSS.escape(gid) + '"]');
-    const setAll = (val) => { if(!table) return; table.querySelectorAll('.quad-include').forEach(cb => { cb.checked = val; cb.dispatchEvent(new Event('change')); }); };
+    const setAll = (visible) => {
+      if(!table) return;
+      table.querySelectorAll('tr.quad-row[data-quad-key]').forEach(r => setHidden(r, !visible));
+      quadRenumber();
+    };
     box.querySelector('[data-quad-all]')?.addEventListener('click', () => setAll(true));
     box.querySelector('[data-quad-none]')?.addEventListener('click', () => setAll(false));
   });
   document.querySelector('[data-quad-all-global]')?.addEventListener('click', () => {
-    document.querySelectorAll('.quad-include').forEach(cb => { cb.checked = true; cb.dispatchEvent(new Event('change')); });
+    quadRows().forEach(r => setHidden(r, false)); quadRenumber();
   });
   document.querySelector('[data-quad-none-global]')?.addEventListener('click', () => {
-    document.querySelectorAll('.quad-include').forEach(cb => { cb.checked = false; cb.dispatchEvent(new Event('change')); });
+    quadRows().forEach(r => setHidden(r, true)); quadRenumber();
   });
-  refreshInclCount();
+  quadRenumber();
 
   /* ---- Filtro de # dependiente de los artistas seleccionados ---- */
   function refreshConcertTagOptions(){
@@ -851,10 +948,12 @@
     const grouped = {};
     geocodedEvents.forEach((e) => { const key = `${Number(e.lat).toFixed(5)}|${Number(e.lng).toFixed(5)}`; grouped[key] = grouped[key] || []; grouped[key].push(e); });
     const bounds = [];
+    const markers = [];   // {key, e, marker, pos} para poder renumerar y ocultar con el ojo
     Object.values(grouped).forEach((group) => {
       group.forEach((e, idx) => {
         const pos = offsetCoords(Number(e.lat), Number(e.lng), group.length, idx);
         const marker = L.marker([pos.lat, pos.lng], {icon: eventIcon(e.n, e.status, e.artist_color)}).addTo(map);
+        markers.push({ key: (e.artist_id || '') + ':' + e.n, e, marker, pos });
         const detailUrl = detailBase.replace('__CID__', e.concert_id || '');
         const tags = e.hashtags_text ? `<div class="small text-muted">${escapeHtml(e.hashtags_text)}</div>` : '';
         const saleType = e.sale_type_label ? `<div class="small text-muted">${escapeHtml(e.sale_type_label)}</div>` : '';
@@ -873,6 +972,22 @@
       });
     });
     if (bounds.length) map.fitBounds(bounds, {padding: [20, 20]});
+
+    // Repintar las chinchetas cuando se oculta/muestra algo con el ojo: número nuevo y, si está
+    // oculta, fuera del mapa. Lo llama quadRenumber().
+    window.__quadRefreshMarkers = function (numByKey, hidden) {
+      const visibles = [];
+      markers.forEach(({ key, e, marker, pos }) => {
+        if (hidden && hidden.has(key)) { map.removeLayer(marker); return; }
+        if (!map.hasLayer(marker)) marker.addTo(map);
+        const n = (numByKey && numByKey[key] != null) ? numByKey[key] : e.n;
+        marker.setIcon(eventIcon(n, e.status, e.artist_color));
+        visibles.push([pos.lat, pos.lng]);
+      });
+      if (visibles.length) { try { map.fitBounds(visibles, { padding: [20, 20] }); } catch (err) {} }
+    };
+    // Por si ya había algo oculto antes de que el mapa terminara de cargar (es asíncrono).
+    if (typeof window.__quadRenumber === 'function') window.__quadRenumber();
   })();
 </script>
 

@@ -1221,6 +1221,7 @@ def inject_globals():
         CAN_EDIT_RADIO=can_edit_radio(),
         CAN_EDIT_SALES=can_edit_sales(),
         CAN_EDIT_CONCERTS=can_edit_concerts(),
+        CAN_VIEW_CONCERT_CONTRACTS=can_view_concert_contracts(),
         CAN_EDIT_CATALOGS=can_edit_catalogs(),
         CAN_EDIT_SONGS_PROMOTERS=(can_edit_catalogs() or can_edit_discografica()),
         CAN_EDIT_DISCOGRAFICA=can_edit_discografica(),
@@ -28280,6 +28281,8 @@ def concert_section_update_handler(cid, section):
             session.commit()
             flash("Equipamiento actualizado.", "success")
         elif section == "contratos":
+            if not can_view_concert_contracts():
+                raise ValueError("Los contratos solo los gestionan dirección, contratación y administración.")
             _add_contracts_from_request(session, c.id)
             session.commit()
             flash("Contratos actualizados.", "success")
@@ -28840,6 +28843,10 @@ def concert_equipment_note_delete(cid, nid=None, note_id=None):
 def concert_contract_delete(cid, ctid):
     session = db()
     next_url = (request.form.get("next") or "").strip() or url_for("concert_detail_view", cid=cid, tab="general")
+    if not can_view_concert_contracts():
+        session.close()
+        flash("Los contratos solo los gestionan dirección, contratación y administración.", "warning")
+        return redirect(next_url)
     try:
         ct = session.get(ConcertContract, to_uuid(ctid))
         if ct:
@@ -40953,6 +40960,17 @@ def can_edit_radio() -> bool:
 
 def can_edit_concerts() -> bool:
     return has_access_key("contratacion", edit=True, include_descendants=True) or current_role() in (5, 6, 10)
+
+
+def can_view_concert_contracts() -> bool:
+    """Los contratos de una actividad son confidenciales: solo DIRECCIÓN, CONTRATACIÓN y
+    ADMINISTRACIÓN. El resto de la oficina ve la ficha entera menos esa sección (y tampoco puede
+    descargarlos: el mismo check protege los endpoints de subida/borrado y el PDF)."""
+    return (
+        is_master()
+        or has_access_key("contratacion", include_descendants=True)
+        or has_access_key("administracion", include_descendants=True)
+    )
 
 
 def can_edit_simulations() -> bool:

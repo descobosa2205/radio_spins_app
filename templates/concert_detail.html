@@ -752,6 +752,8 @@
       {% endif %}
     </div>
 
+    {# Contratos: confidenciales. Solo dirección, contratación y administración. #}
+    {% if CAN_VIEW_CONCERT_CONTRACTS %}
     <div class="ficha-section">
       <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-file-contract"></i>Contratos</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Añadir contrato"><i class="fa fa-plus"></i></button>{% endif %}</div>
       <div class="ficha-section__body" data-section-view>
@@ -767,6 +769,7 @@
       </form>
       {% endif %}
     </div>
+    {% endif %}{# /CAN_VIEW_CONCERT_CONTRACTS #}
 
     <div class="ficha-section">
       <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-note-sticky"></i>Notas de contratación</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Añadir nota"><i class="fa fa-plus"></i></button>{% endif %}</div>

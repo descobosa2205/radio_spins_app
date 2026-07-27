@@ -40987,9 +40987,12 @@ def _build_nav_menu() -> list[dict]:
         {"type": "link", "key": "produccion", "label": "Producción", "url": _resource_default_url("produccion")},
         {"type": "link", "key": "administracion", "label": "Administración", "url": _resource_default_url("administracion")},
         {"type": "link", "key": "contabilidad", "label": "Contabilidad", "url": _resource_default_url("contabilidad")},
-        {"type": "link", "key": "personal", "label": "Personal", "url": _resource_default_url("personal")},
         {"type": "link", "key": "integraciones", "label": "Integraciones", "url": _resource_default_url("integraciones")},
+        # «Personal» y «Terceros» viven aquí dentro aunque su recurso de permisos siga siendo una
+        # SECCIÓN propia: el menú agrupa por dónde lo busca la gente, no por el árbol de accesos
+        # (renombrar las claves borraría en cascada los permisos ya concedidos).
         {"type": "dropdown", "key": "databases", "label": "Bases de datos", "children": [
+            {"key": "personal", "label": "Personal", "url": _resource_default_url("personal")},
             {"key": "third_parties", "label": "Terceros", "url": _resource_default_url("third_parties")},
             {"key": "databases.venues", "label": "Recintos", "url": _resource_default_url("databases.venues")},
             {"key": "databases.ticketers", "label": "Ticketeras", "url": _resource_default_url("databases.ticketers")},

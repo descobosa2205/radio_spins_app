@@ -20,6 +20,7 @@
   'CONFIRMADO':{'ico':'fa-circle-check','label':'Confirmado','cls':'status-confirmado','dot':'#198754'}
 } %}
 {% set ANN_META = {
+  'NONE':{'ico':'fa-circle-question','label':'Sin definir'},
   'NO_ANNOUNCE':{'ico':'fa-eye-slash','label':'No anunciar'},
   'UPCOMING':{'ico':'fa-bullhorn','label':'Próximamente'},
   'ANNOUNCED':{'ico':'fa-circle-check','label':'Ya anunciado'}
@@ -135,7 +136,19 @@
   .quad-date{ display:inline-flex; align-items:center; gap:.4rem; font-weight:600; white-space:nowrap; }
   .quad-date i{ color:var(--brand-accent,#007CA2); }
 
+  /* Selector de años: casillas con aspecto de pastilla (se marcan varios sin ctrl/cmd) */
+  .quad-year-chips{ display:flex; flex-wrap:wrap; gap:.35rem; }
+  .quad-year-chip{ margin:0; cursor:pointer; }
+  .quad-year-chip input{ position:absolute; opacity:0; width:0; height:0; }
+  .quad-year-chip span{ display:inline-block; padding:.34rem .6rem; border:1px solid var(--line-2,#e3e6eb);
+    border-radius:999px; background:#fff; font-size:.85rem; font-weight:600; color:#42505f; line-height:1.2;
+    transition:all .12s; }
+  .quad-year-chip input:checked + span{ background:var(--brand-primary,#E33D48); border-color:var(--brand-primary,#E33D48); color:#fff; }
+  .quad-year-chip input:focus-visible + span{ box-shadow:0 0 0 .2rem rgba(227,61,72,.25); }
+  .quad-year-chip span:hover{ border-color:var(--brand-accent,#007CA2); }
+
   /* Calendario */
+  .quad-cal-year{ font-weight:800; color:var(--ink,#18202b); font-size:.95rem; margin:.2rem 0 .45rem; }
   .year-grid{ display:grid; grid-template-columns:repeat(1, minmax(0,1fr)); gap:.7rem; }
   @media (min-width:768px){ .year-grid{ grid-template-columns:repeat(2, minmax(0,1fr)); } }
   @media (min-width:1400px){ .year-grid{ grid-template-columns:repeat(3, minmax(0,1fr)); } }
@@ -222,6 +235,17 @@
     .print-col-calendar .day-badge{ width:12px !important; height:12px !important; font-size:9px !important; border-width:2px !important; }
     .print-col-calendar .day-more{ line-height:12px !important; font-size:8px !important; }
     .print-col-map #quad-map{ height:150mm !important; width:100% !important; }
+
+    /* VARIOS AÑOS: 24 meses no caben en la media hoja de al lado del mapa. El calendario pasa a
+       ocupar su propia hoja a lo ancho (6 meses por fila) y el mapa se va a la siguiente. */
+    .print-calmap-page.is-multiyear{ break-inside:auto !important; }
+    .print-calmap-page.is-multiyear .print-calmap-row.print-both{ display:block !important; }
+    .print-calmap-page.is-multiyear .print-calmap-row.print-both > [class*="col"]{
+      flex:none !important; max-width:100% !important; width:100% !important; }
+    .print-calmap-page.is-multiyear .print-col-calendar{ break-after:page !important; }
+    .print-calmap-page.is-multiyear .print-col-calendar .year-grid{
+      grid-template-columns:repeat(6, minmax(0,1fr)) !important; }
+    .print-calmap-page.is-multiyear .quad-cal-year{ font-size:9px !important; margin:1mm 0 .5mm !important; }
   }
 </style>
 
@@ -256,7 +280,7 @@
   <div class="quad-panel">
     <div class="quad-panel__body">
       <div class="row g-2 align-items-end">
-        <div class="col-12 col-lg-6">
+        <div class="col-12 col-lg-5">
           <label class="form-label mb-1 fw-semibold"><i class="fa fa-users me-1 text-danger"></i>Artistas <span class="text-muted fw-normal small">(añade varios al mismo cuadrante)</span></label>
           <select name="artist_id" multiple class="form-select select-artists" data-placeholder="Selecciona uno o varios artistas...">
             {% for a in artists %}
@@ -266,24 +290,36 @@
           </select>
         </div>
         <div class="col-6 col-lg-2">
-          <label class="form-label mb-1 fw-semibold"><i class="fa fa-calendar me-1 text-danger"></i>Año</label>
-          <select name="year" class="form-select">
+          <label class="form-label mb-1 fw-semibold"><i class="fa fa-calendar me-1 text-danger"></i>Año(s)</label>
+          {# Casillas y no un <select multiple>: se marcan varios años de un clic, sin ctrl/cmd. #}
+          <div class="quad-year-chips">
             {% for y in year_options %}
-              <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
+              <label class="quad-year-chip">
+                <input type="checkbox" name="year" value="{{ y }}" {% if y in years %}checked{% endif %}>
+                <span>{{ y }}</span>
+              </label>
             {% endfor %}
+          </div>
+        </div>
+        <div class="col-6 col-lg-2">
+          <label class="form-label mb-1 fw-semibold"><i class="fa fa-clock me-1 text-danger"></i>Cuándo</label>
+          <select name="when" class="form-select">
+            <option value="all" {% if when == 'all' %}selected{% endif %}>Todo el periodo</option>
+            <option value="past" {% if when == 'past' %}selected{% endif %}>Solo pasadas</option>
+            <option value="future" {% if when == 'future' %}selected{% endif %}>Solo próximas</option>
           </select>
         </div>
-        <div class="col-12 col-lg-4 d-flex gap-2">
+        <div class="col-12 col-lg-3 d-flex gap-2">
           <button type="button" class="btn btn-outline-danger flex-fill" data-quad-requires-artist data-bs-toggle="modal" data-bs-target="#quadFiltersModal">
-            <i class="fa fa-sliders me-1"></i> Filtros y columnas
+            <i class="fa fa-sliders me-1"></i> Filtros
           </button>
           <button type="submit" class="btn btn-danger flex-fill quad-apply" data-quad-requires-artist>
-            <i class="fa fa-eye me-1"></i> Ver cuadrante
+            <i class="fa fa-eye me-1"></i> Ver
           </button>
         </div>
       </div>
       <div class="quad-hint small mt-2" data-quad-hint>
-        <i class="fa fa-circle-info me-1"></i>Selecciona al menos un artista para configurar y ver el cuadrante. El resto de filtros y columnas se ajustan en «Filtros y columnas».
+        <i class="fa fa-circle-info me-1"></i>Selecciona al menos un artista para configurar y ver el cuadrante. Puedes marcar <strong>varios años</strong> (para una gira que cruza el cambio de año) y quedarte solo con lo ya celebrado o con lo que viene. El resto de filtros y columnas se ajustan en «Filtros y columnas».
       </div>
     </div>
   </div>
@@ -554,51 +590,57 @@
 
 <!-- ===================== CALENDARIO + MAPA ===================== -->
 {% if (show_calendar or show_map) and events and events|length > 0 %}
-  <div class="print-page print-calmap-page" id="quadCalMap">
+  <div class="print-page print-calmap-page{% if (calendar_years|length) > 1 %} is-multiyear{% endif %}" id="quadCalMap">
     <div class="row g-3 print-calmap-row {% if show_calendar and show_map %}print-both{% else %}print-single{% endif %}">
       {% if show_calendar %}
       <div class="col-12 {% if show_map %}col-lg-6{% endif %} print-col-calendar" data-view-block="calendar">
         <div class="card h-100">
           <div class="card-header d-flex align-items-center justify-content-between">
-            <span class="fw-semibold"><i class="fa fa-calendar-days text-danger me-1"></i>Calendario {{ year }}</span>
+            <span class="fw-semibold"><i class="fa fa-calendar-days text-danger me-1"></i>Calendario {{ period_label }}</span>
             <span class="text-muted small">El número = orden de la actividad</span>
           </div>
           <div class="card-body">
-            <div class="year-grid">
-              {% for m in months %}
-                <div class="month-card">
-                  <div class="month-title">{{ m.name }}</div>
-                  <table class="month-table">
-                    <thead><tr>{% for d in dow %}<th>{{ d }}</th>{% endfor %}</tr></thead>
-                    <tbody>
-                      {% for week in m.weeks %}
-                        <tr>
-                          {% for day in week %}
-                            {% if day == 0 %}<td></td>
-                            {% else %}
-                              {% set date_str = "%04d-%02d-%02d"|format(year, m.num, day) %}
-                              {% set marks = marks_by_date.get(date_str, []) %}
-                              <td>
-                                <div class="day-num">{{ day }}</div>
-                                {% if marks and marks|length > 0 %}
-                                  <div class="day-badges">
-                                    {% for it in marks[:4] %}
-                                      {% set stc = STATUS_META.get((it.status or 'BORRADOR'), STATUS_META['BORRADOR']).cls %}
-                                      <span class="day-badge {{ stc }}" style="border-color: {{ it.artist_color or '#0d6efd' }};" title="{{ it.title or it.artist_name or '' }}">{{ it.n }}</span>
-                                    {% endfor %}
-                                    {% if marks|length > 4 %}<span class="day-more">+{{ marks|length - 4 }}</span>{% endif %}
-                                  </div>
-                                {% endif %}
-                              </td>
-                            {% endif %}
-                          {% endfor %}
-                        </tr>
-                      {% endfor %}
-                    </tbody>
-                  </table>
-                </div>
-              {% endfor %}
-            </div>
+            {# Un calendario completo por cada año elegido; con uno solo se ve igual que antes. #}
+            {% for cy in calendar_years %}
+              {% if calendar_years|length > 1 %}
+                <div class="quad-cal-year">{{ cy.year }}</div>
+              {% endif %}
+              <div class="year-grid{% if not loop.last %} mb-3{% endif %}">
+                {% for m in cy.months %}
+                  <div class="month-card">
+                    <div class="month-title">{{ m.name }}</div>
+                    <table class="month-table">
+                      <thead><tr>{% for d in dow %}<th>{{ d }}</th>{% endfor %}</tr></thead>
+                      <tbody>
+                        {% for week in m.weeks %}
+                          <tr>
+                            {% for day in week %}
+                              {% if day == 0 %}<td></td>
+                              {% else %}
+                                {% set date_str = "%04d-%02d-%02d"|format(cy.year, m.num, day) %}
+                                {% set marks = marks_by_date.get(date_str, []) %}
+                                <td>
+                                  <div class="day-num">{{ day }}</div>
+                                  {% if marks and marks|length > 0 %}
+                                    <div class="day-badges">
+                                      {% for it in marks[:4] %}
+                                        {% set stc = STATUS_META.get((it.status or 'BORRADOR'), STATUS_META['BORRADOR']).cls %}
+                                        <span class="day-badge {{ stc }}" style="border-color: {{ it.artist_color or '#0d6efd' }};" title="{{ it.title or it.artist_name or '' }}">{{ it.n }}</span>
+                                      {% endfor %}
+                                      {% if marks|length > 4 %}<span class="day-more">+{{ marks|length - 4 }}</span>{% endif %}
+                                    </div>
+                                  {% endif %}
+                                </td>
+                              {% endif %}
+                            {% endfor %}
+                          </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                {% endfor %}
+              </div>
+            {% endfor %}
           </div>
         </div>
       </div>
@@ -638,7 +680,7 @@
 
   /* ---- Descargar / Imprimir PDF (el diálogo del navegador incluye el mapa) ---- */
   (function(){
-    const fname = {{ (("Cuadrante - " ~ (selected_artists | map(attribute='name') | join(', ')) ~ " - " ~ (year|string)) if selected_artists else "Cuadrante") | tojson }};
+    const fname = {{ (("Cuadrante - " ~ (selected_artists | map(attribute='name') | join(', ')) ~ " - " ~ (period_label|string)) if selected_artists else "Cuadrante") | tojson }};
     let prevTitle = null;
     function quadPrint(){
       prevTitle = document.title;

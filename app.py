@@ -35317,11 +35317,6 @@ def quadrantes_view():
             key=lambda x: _norm_text_key(x),
         ) if selected_uuids else []
 
-        try:
-            year = int(request.args.get("year") or today_local().year)
-        except Exception:
-            year = today_local().year
-
         years_rows = (
             session_db.query(func.extract("year", Concert.date))
             .distinct()
@@ -35332,7 +35327,30 @@ def quadrantes_view():
         if not year_options:
             year_options = [today_local().year]
 
-        months = _build_year_calendar(year)
+        # AÑO(S): el selector admite varios, para sacar un cuadrante que cruce el cambio de año
+        # (p. ej. una gira de octubre a marzo). Sin nada elegido, el año en curso.
+        years = []
+        for raw in request.args.getlist("year"):
+            try:
+                y = int((raw or "").strip())
+            except Exception:
+                continue
+            if 1900 <= y <= 2999 and y not in years:
+                years.append(y)
+        years.sort()
+        if not years:
+            years = [today_local().year]
+        year = years[0]  # año «principal»: nombre del PDF y compatibilidad de plantilla
+
+        # CUÁNDO: por defecto TODO el periodo; se puede acotar a lo ya celebrado o a lo que viene.
+        when = (request.args.get("when") or "all").strip().lower()
+        if when not in ("all", "past", "future"):
+            when = "all"
+
+        calendar_years = [{"year": y, "months": _build_year_calendar(y)} for y in years]
+        months = calendar_years[0]["months"]  # compatibilidad
+        years_label = " · ".join(str(y) for y in years)
+        period_label = years_label + {"past": " · pasadas", "future": " · próximas"}.get(when, "")
 
         allowed_status = {"BORRADOR", "HABLADO", "RESERVADO", "CONFIRMADO"}
         f_statuses = [s for s in request.args.getlist("status") if s in allowed_status]
@@ -35356,7 +35374,10 @@ def quadrantes_view():
         if not f_sale_types:
             f_sale_types = list(CONCERT_SALE_TYPES_ALL)
 
-        allowed_announcements = {"NO_ANNOUNCE", "UPCOMING", "ANNOUNCED"}
+        # ⚠️ «NONE» (sin fecha de anuncio) TIENE que estar: `_announcement_state` lo devuelve para
+        # toda actividad a la que no se le ha puesto anuncio, que es lo normal. Al no estar en la
+        # lista, el filtro por defecto las descartaba TODAS y no aparecían nunca en el cuadrante.
+        allowed_announcements = {"NONE", "NO_ANNOUNCE", "UPCOMING", "ANNOUNCED"}
         f_announcements = [
             (a or "").strip().upper()
             for a in (request.args.getlist("announcement") or [])
@@ -35364,7 +35385,7 @@ def quadrantes_view():
         ]
         f_announcements = [a for a in f_announcements if a in allowed_announcements]
         if not f_announcements:
-            f_announcements = ["NO_ANNOUNCE", "UPCOMING", "ANNOUNCED"]
+            f_announcements = ["NONE", "NO_ANNOUNCE", "UPCOMING", "ANNOUNCED"]
 
         def _flag(name: str, default: bool = True) -> bool:
             vals = request.args.getlist(name)
@@ -35429,10 +35450,16 @@ def quadrantes_view():
                     joinedload(Concert.billing_company),
                     joinedload(Concert.contract_sheet),
                 )
-                .filter(func.extract("year", Concert.date) == year)
+                .filter(func.extract("year", Concert.date).in_(years))
                 .order_by(Concert.date.asc())
                 .all()
             )
+            if when != "all":
+                _hoy = today_local()
+                concerts = [
+                    c for c in concerts
+                    if c.date and ((c.date < _hoy) if when == "past" else (c.date >= _hoy))
+                ]
             # Filtro en dos niveles (no en SQL, porque el tipo de actividades
             # multiartista se deriva de varios campos):
             #  1) CONCEPTO (tipo de actividad): concierto / evento / TV / marca…
@@ -35598,7 +35625,7 @@ def quadrantes_view():
                     "artist_photo": a.photo_url or "",
                     "artist_color": artist_color.get(aid, "#0d6efd"),
                     "events": evs,
-                    "year": year,
+                    "year": period_label,
                     "n_conc": n_conc,
                     "n_other": len(evs) - n_conc,
                     "capacity_total": cap_total,
@@ -35630,8 +35657,13 @@ def quadrantes_view():
             selected_artist_ids=[str(u) for u in selected_uuids],
             selected_artists=selected_artists,
             year=year,
+            years=years,
+            when=when,
+            years_label=years_label,
+            period_label=period_label,
             year_options=year_options,
             months=months,
+            calendar_years=calendar_years,
             dow=DOW_ES,
             marks_by_date=marks_by_date,
             events_by_artist=events_by_artist,

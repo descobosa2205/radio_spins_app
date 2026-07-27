@@ -46,6 +46,14 @@ _RETRIES = 3
 _BACKOFF = 1.7
 
 SANDBOX_BASE_URL = "https://cabify-sandbox.com"
+# La URL de PRODUCCIÓN no está publicada (Cabify la entrega al conceder el acceso). Estas son las
+# candidatas que se prueban al pulsar «Probar conexión», en orden; la que responda se guarda sola.
+BASE_URL_CANDIDATES = [
+    "https://cabify.com",
+    "https://api.cabify.com",
+    "https://empresas.cabify.com",
+    SANDBOX_BASE_URL,
+]
 # Monedas que admite el endpoint de ventas.
 CURRENCIES = ["EUR", "CLP", "PEN", "MXN", "COP", "USD", "BRL", "ARS"]
 
@@ -193,6 +201,32 @@ class CabifyClient:
             if value:
                 return value
         return ""
+
+
+def find_working_base_url(client_id: str, client_secret: str, preferred: str | None = None):
+    """Busca contra qué host responden estas credenciales.
+
+    La URL de producción no es pública, así que en vez de obligar a adivinarla se prueba la que haya
+    configurada y, si no va, las candidatas conocidas. Devuelve (base_url, info) o lanza CabifyError
+    con el último fallo si ninguna responde.
+    """
+    intentos = []
+    orden = []
+    if (preferred or "").strip():
+        orden.append(preferred.strip().rstrip("/"))
+    for cand in BASE_URL_CANDIDATES:
+        if cand not in orden:
+            orden.append(cand)
+    ultimo = None
+    for base in orden:
+        cliente = CabifyClient(client_id, client_secret, base)
+        try:
+            info = cliente.ping()
+            return base, info
+        except CabifyError as exc:
+            ultimo = exc
+            intentos.append(f"{base}: {exc}")
+    raise CabifyError("Ninguna URL respondió con estas credenciales.\n" + "\n".join(intentos)) from ultimo
 
 
 def parse_sale(sale: dict) -> dict:

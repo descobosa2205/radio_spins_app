@@ -50020,11 +50020,19 @@ def cabify_account_test(company_id):
                .filter(CabifyAccount.group_company_id == to_uuid(company_id)).first())
         if not acc:
             return jsonify({"ok": False, "error": "Esta empresa aún no tiene cuenta de Cabify."}), 404
+        # La URL de producción no la publica Cabify: se prueba la configurada y, si no responde, las
+        # candidatas conocidas. La que funcione se guarda, para que no haya que adivinarla.
+        from cabify_utils import find_working_base_url
         try:
-            info = _cabify_client(acc).ping()
+            base, info = find_working_base_url(acc.client_id or "", acc.client_secret or "", acc.base_url)
         except Exception as exc:
             return jsonify({"ok": False, "error": str(exc)})
-        return jsonify({"ok": True, **info})
+        cambiada = (base or "").rstrip("/") != (acc.base_url or "").rstrip("/")
+        if cambiada:
+            acc.base_url = base
+            acc.updated_at = datetime.now(TZ_MADRID)
+            session_db.commit()
+        return jsonify({"ok": True, "base_url": base, "base_url_changed": cambiada, **info})
     finally:
         session_db.close()
 

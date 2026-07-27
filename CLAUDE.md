@@ -672,8 +672,11 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
 - **Cabify (gastos de viajes)**: cliente en `cabify_utils.py`. **OAuth2 client_credentials** contra
   `{base}/auth/api/authorization` (`grant_type/client_id/client_secret` → `access_token` Bearer,
   `expires_in` ~30 días, cacheado y renovado solo). API en `{base}/api/v4`. ⚠️ La **URL base de
-  producción NO es pública** (la da Cabify al conceder el acceso) → es un campo por cuenta;
-  sandbox `https://cabify-sandbox.com`. **UNA cuenta por empresa del grupo** (`CabifyAccount`,
+  producción NO es pública** (la da Cabify al conceder el acceso) → **se detecta sola**:
+  «Probar conexión» prueba la configurada y luego `BASE_URL_CANDIDATES` (`find_working_base_url`) y
+  GUARDA la que responda; sandbox `https://cabify-sandbox.com`. En el panel de Cabify los dos
+  códigos se llaman **UUID** y **Secreto** = `client_id` y `client_secret` (así están etiquetados en
+  Integraciones, para que se peguen sin pensar). **UNA cuenta por empresa del grupo** (`CabifyAccount`,
   se edita en Integraciones → Cabify, subpestaña por `GroupCompany`). Personas:
   `GET /api/v4/users?state=&page=&per=` (paginado `{data,page,pages,per,total}`) → `CabifyUserLink`
   emparejado por CORREO reutilizando `_pleo_email_index` (correo de acceso + `integration_emails`);

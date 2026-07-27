@@ -255,9 +255,10 @@
         </p>
         <div class="small text-muted">
           <ol class="mb-2 ps-3">
-            <li>Pide el acceso de API a Cabify (<a href="https://developers.cabify.com/docs" target="_blank" rel="noopener">developers.cabify.com</a>) y genera la clave: te dan un <strong>client_id</strong> y un <strong>client_secret</strong>.</li>
-            <li>La <strong>URL base</strong> de producción te la da Cabify al conceder el acceso; para pruebas, <code>https://cabify-sandbox.com</code>.</li>
-            <li>Pega las credenciales en la empresa que corresponda, activa la cuenta y pulsa <strong>«Probar conexión»</strong>.</li>
+            <li>En el panel de Cabify de cada empresa, <strong>Integraciones → Generar claves de API</strong>: te da dos códigos, el <strong>UUID</strong> y el <strong>Secreto</strong>.</li>
+            <li>Pégalos aquí en la empresa que corresponda y marca <strong>Activa</strong>.</li>
+            <li>Pulsa <strong>«Probar conexión»</strong>: además de comprobar las claves, <strong>busca y guarda sola la URL de la API</strong> (Cabify no la publica).</li>
+            <li>Pulsa <strong>«Sincronizar ahora»</strong> y revisa abajo que la gente queda vinculada por su correo.</li>
           </ol>
           <div class="alert alert-warning small mb-0">
             <i class="fa fa-circle-info me-1"></i><strong>El PDF de cada viaje no lo da la API.</strong> Se importa el gasto
@@ -293,18 +294,18 @@
               <form method="post" action="{{ url_for('cabify_account_save') }}" class="row g-3">
                 <input type="hidden" name="group_company_id" value="{{ row.company.id }}">
                 <div class="col-md-5">
-                  <label class="form-label">URL base</label>
-                  <input class="form-control" name="base_url" value="{{ row.base_url }}" placeholder="https://cabify-sandbox.com">
-                  <div class="form-text">La de producción la da Cabify al conceder el acceso.</div>
+                  <label class="form-label">UUID <span class="text-muted fw-normal small">(el primer código que te da Cabify)</span></label>
+                  <input class="form-control" name="client_id" value="{{ row.account.client_id if row.account else '' }}" placeholder="Pega aquí el UUID">
                 </div>
                 <div class="col-md-4">
-                  <label class="form-label">client_id</label>
-                  <input class="form-control" name="client_id" value="{{ row.account.client_id if row.account else '' }}" placeholder="OAUTH_ID">
+                  <label class="form-label">Secreto <span class="text-muted fw-normal small">(el segundo)</span></label>
+                  <input class="form-control" name="client_secret" value="{{ '••••••••••••' if (row.account and row.account.client_secret) else '' }}" placeholder="Pega aquí el Secreto">
+                  <div class="form-text">Solo se guarda si escribes uno nuevo.</div>
                 </div>
                 <div class="col-md-3">
-                  <label class="form-label">client_secret</label>
-                  <input class="form-control" name="client_secret" value="{{ '••••••••••••' if (row.account and row.account.client_secret) else '' }}" placeholder="CLIENT_SECRET">
-                  <div class="form-text">Se guarda solo si escribes uno nuevo.</div>
+                  <label class="form-label">URL de la API <span class="text-muted fw-normal small">(se detecta sola)</span></label>
+                  <input class="form-control" name="base_url" value="{{ row.account.base_url if (row.account and row.account.base_url) else '' }}" placeholder="Se rellena al probar">
+                  <div class="form-text">Déjalo vacío: al pulsar «Probar conexión» se busca y se guarda.</div>
                 </div>
                 <div class="col-6 col-md-2">
                   <label class="form-label">Moneda</label>
@@ -330,9 +331,10 @@
               </form>
 
               <div class="d-flex flex-wrap gap-2 mt-3">
-                <form method="post" action="{{ url_for('cabify_account_test', company_id=row.company.id) }}" class="d-inline">
-                  <button class="btn btn-sm btn-outline-primary" {% if not row.account %}disabled{% endif %}><i class="fa fa-bolt me-1"></i>Probar conexión</button>
-                </form>
+                <button type="button" class="btn btn-sm btn-outline-primary js-cabify-test"
+                        data-url="{{ url_for('cabify_account_test', company_id=row.company.id) }}"
+                        {% if not row.account %}disabled{% endif %}><i class="fa fa-bolt me-1"></i>Probar conexión</button>
+                <span class="small align-self-center" data-cabify-test-msg></span>
                 <form method="post" action="{{ url_for('cabify_account_sync', company_id=row.company.id) }}" class="d-inline">
                   <button class="btn btn-sm btn-outline-secondary" {% if not row.account %}disabled{% endif %}><i class="fa fa-rotate me-1"></i>Sincronizar ahora</button>
                 </form>
@@ -784,4 +786,36 @@ document.addEventListener('DOMContentLoaded', function () {
   datos, solo las ve dirección y nunca se vuelven a mostrar completas. Mientras una integración no tenga
   credencial queda <strong>desactivada</strong> y no afecta al resto de la web.
 </div>
+<script>
+/* «Probar conexión» de Cabify: además de validar las claves, el servidor busca la URL de la API
+   (que Cabify no publica) y la guarda. Aquí solo se cuenta el resultado. */
+document.querySelectorAll('.js-cabify-test').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var msg = btn.parentElement.querySelector('[data-cabify-test-msg]');
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    btn.disabled = true;
+    if (msg) { msg.className = 'small align-self-center text-muted'; msg.textContent = 'Probando…'; }
+    fetch(btn.dataset.url, { method: 'POST', headers: meta ? { 'X-CSRFToken': meta.getAttribute('content') } : {} })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        btn.disabled = false;
+        if (!msg) return;
+        if (d && d.ok) {
+          msg.className = 'small align-self-center text-success';
+          msg.textContent = 'Conecta · ' + (d.total_users || 0) + ' persona(s) en Cabify'
+            + (d.base_url_changed ? ' · URL guardada: ' + d.base_url : '');
+          if (d.base_url_changed) setTimeout(function () { location.reload(); }, 1800);
+        } else {
+          msg.className = 'small align-self-center text-danger';
+          msg.textContent = (d && d.error) ? String(d.error).split('\n')[0] : 'No conecta';
+          if (d && d.error) console.warn('[cabify]', d.error);
+        }
+      })
+      .catch(function () {
+        btn.disabled = false;
+        if (msg) { msg.className = 'small align-self-center text-danger'; msg.textContent = 'Error de conexión'; }
+      });
+  });
+});
+</script>
 {% endblock %}

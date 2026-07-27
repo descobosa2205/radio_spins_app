@@ -35310,6 +35310,75 @@ def _cache_amount_total(cache_rows: list) -> float:
     return total
 
 
+# ============ Límite de facturación por empresa del grupo y año ============
+# Aviso al crear una actividad con caché: si la empresa que factura ya tiene comprometidos
+# 3.500.000 € ese año (o se acerca), hay que verlo ANTES de cerrar la fecha, con la opción de
+# cambiar de empresa. El «previsto» es la suma de los cachés fijos de sus actividades del año
+# (incluidas las que están en borrador: es justo lo que hay comprometido).
+COMPANY_BILLING_LIMIT = Decimal("3500000")
+COMPANY_BILLING_WARN_MARGIN = Decimal("200000")
+
+
+def _company_year_billing_forecast(session_db, company_id, year: int) -> Decimal:
+    if not company_id or not year:
+        return Decimal("0")
+    rows = (
+        session_db.query(ConcertCache.amount)
+        .join(Concert, Concert.id == ConcertCache.concert_id)
+        .filter(Concert.billing_company_id == company_id)
+        .filter(func.extract("year", Concert.date) == year)
+        .all()
+    )
+    total = Decimal("0")
+    for (amount,) in rows:
+        if amount in (None, ""):
+            continue
+        try:
+            total += Decimal(str(amount))
+        except Exception:
+            pass
+    return total
+
+
+def _company_billing_limit_state(session_db, company_id, year: int, extra=Decimal("0")) -> dict:
+    """Estado del límite para una empresa y año, contando además el caché que se va a añadir."""
+    company = session_db.get(GroupCompany, company_id) if company_id else None
+    if not company or not year:
+        return {"state": "ok", "total": 0.0, "limit": float(COMPANY_BILLING_LIMIT), "company": ""}
+    extra = extra if isinstance(extra, Decimal) else Decimal(str(extra or 0))
+    total = _company_year_billing_forecast(session_db, company.id, year) + extra
+    if total >= COMPANY_BILLING_LIMIT:
+        state = "over"
+    elif total >= (COMPANY_BILLING_LIMIT - COMPANY_BILLING_WARN_MARGIN):
+        state = "near"
+    else:
+        state = "ok"
+    return {
+        "state": state,
+        "total": float(total),
+        "limit": float(COMPANY_BILLING_LIMIT),
+        "remaining": float(max(COMPANY_BILLING_LIMIT - total, Decimal("0"))),
+        "company": company.name or "",
+        "year": year,
+    }
+
+
+@app.get("/api/empresas/<company_id>/limite-facturacion", endpoint="api_company_billing_limit")
+@admin_required
+def api_company_billing_limit(company_id):
+    """¿La empresa que factura se pasa (o se acerca) del límite anual con este caché?"""
+    try:
+        year = int((request.args.get("year") or "").strip() or today_local().year)
+    except Exception:
+        year = today_local().year
+    extra = _money_or_zero(request.args.get("extra") or 0)
+    session_db = db()
+    try:
+        return jsonify(_company_billing_limit_state(session_db, to_uuid(company_id) if company_id else None, year, extra))
+    finally:
+        session_db.close()
+
+
 def _promoter_display(concert: Concert):
     """Promotora/empresa principal visible en cuadrantes."""
     if getattr(concert, "promoter", None):
@@ -41741,6 +41810,8 @@ SUPPORT_READ_ENDPOINTS = {
     "api_get_promoter", "api_promoter_detail", "api_promoter_emails", "api_media_contacts",
     # Contactos de la actividad: personas ya vinculadas al promotor (asistente y ficha).
     "api_promoter_contacts",
+    # Aviso del límite de facturación anual por empresa del grupo (asistente de actividad).
+    "api_company_billing_limit",
     "api_concert_meta", "api_song_meta", "api_album_song_search",
     "api_concert_artist_conflicts", "api_embargo_check_third_party", "api_geocode",
     "api_song_editorial_share_detail", "api_plays_json",
@@ -43748,6 +43819,9 @@ def produccion_view():
             .limit(250)
             .all()
         )
+        # Las fechas de una gira comprada que promueve un tercero (no una empresa del grupo) no
+        # las producimos nosotros: fuera del listado de Producción.
+        production_concerts_db = [c for c in production_concerts_db if _concert_needs_production(c)]
         active_rows.extend([_production_concert_row(session_db, concert) for concert in production_concerts_db])
         production_actions_db = []
         try:
@@ -47716,8 +47790,25 @@ def _create_bag_for_concert(session_db, concert, import_budget=False):
     return bag
 
 
+def _concert_needs_production(concert) -> bool:
+    """¿Esta actividad tiene que aparecer en Producción?
+
+    En una GIRA COMPRADA hay fechas que promovemos nosotros y otras que se venden a un promotor
+    de fuera: de esas últimas no nos ocupamos de la producción, así que no generan aviso. El
+    criterio es quién promueve: si hay un tercero como promotor, no es una empresa del grupo.
+    Fuera de las giras compradas no cambia nada.
+    """
+    if concert is None:
+        return False
+    if not getattr(concert, "purchased_tour_id", None):
+        return True
+    return not getattr(concert, "promoter_id", None)
+
+
 def _ensure_production_request_for_concert(session_db, concert):
     if not concert:
+        return None
+    if not _concert_needs_production(concert):
         return None
     existing = (
         session_db.query(ProductionRequest)

@@ -448,6 +448,24 @@
             </div>
 
             <div class="d-none" data-wz-panel id="wizardCacheOptions">
+            {# Aviso de límite de facturación de la empresa del grupo que factura (3.500.000 €/año). #}
+            <div class="alert d-none" id="wizardBillingLimit" role="alert">
+              <div class="d-flex align-items-start gap-2 flex-wrap">
+                <i class="fa fa-triangle-exclamation mt-1"></i>
+                <div class="flex-grow-1" style="min-width:220px;">
+                  <div id="wizardBillingLimitText"></div>
+                  <div class="small mt-1" id="wizardBillingLimitDetail"></div>
+                </div>
+                <div class="d-flex gap-2 flex-wrap">
+                  <button type="button" class="btn btn-sm btn-outline-dark" id="wizardBillingLimitChange">
+                    <i class="fa fa-building me-1"></i>Cambiar de empresa
+                  </button>
+                  <button type="button" class="btn btn-sm btn-outline-secondary" id="wizardBillingLimitSkip">
+                    Omitir aviso
+                  </button>
+                </div>
+              </div>
+            </div>
             <div class="wizard-card" id="wizardCacheCard">
               <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
                 <div class="wizard-card__title mb-0"><i class="fa fa-coins"></i>Cachés</div>
@@ -2108,6 +2126,68 @@
       }
     }
     window.__wzRecalcCache = recalcCacheTotals;
+
+    /* ---- Aviso de límite de facturación de la empresa del grupo (3.500.000 €/año) ----
+       Se consulta con la empresa que factura, el año de la actividad y el caché que se está
+       metiendo. Dos salidas: cambiar de empresa (lleva al paso de la empresa) u omitir. */
+    (function(){
+      const box = document.getElementById('wizardBillingLimit');
+      if(!box) return;
+      const txt = document.getElementById('wizardBillingLimitText');
+      const detail = document.getElementById('wizardBillingLimitDetail');
+      const LIMIT_URL = '{{ url_for("api_company_billing_limit", company_id="__CID__") }}';
+      let skipped = false, lastKey = '', busy = false;
+
+      document.getElementById('wizardBillingLimitSkip')?.addEventListener('click', () => {
+        skipped = true; box.classList.add('d-none');
+      });
+      document.getElementById('wizardBillingLimitChange')?.addEventListener('click', () => {
+        // Paso 2 = «¿Qué empresa del grupo?» (showStep vive en este mismo cierre)
+        if (typeof showStep === 'function') showStep(2);
+      });
+
+      function currentCache(){
+        let total = 0;
+        document.querySelectorAll('#wizardCaches .cache-fixed input[name="cache_amount[]"]').forEach(inp => {
+          const row = inp.closest('.border');
+          if ((row?.querySelector('select[name="cache_kind[]"]')?.value || 'FIXED') === 'VARIABLE') return;
+          const v = parseFloat(inp.value); if(!isNaN(v)) total += v;
+        });
+        return total;
+      }
+
+      function checkLimit(){
+        if (skipped) return;
+        const company = document.querySelector('input[name="billing_company_id"]:checked');
+        const dateVal = (document.querySelector('input[name="date"]')?.value || '').trim();
+        const cache = currentCache();
+        if (!company || !dateVal || cache <= 0){ box.classList.add('d-none'); return; }
+        const year = dateVal.slice(0, 4);
+        const key = company.value + '|' + year + '|' + cache.toFixed(2);
+        if (key === lastKey || busy) return;
+        lastKey = key; busy = true;
+        fetch(LIMIT_URL.replace('__CID__', encodeURIComponent(company.value)) + '?year=' + year + '&extra=' + cache, {headers:{'Accept':'application/json'}})
+          .then(r => r.json())
+          .then(d => {
+            busy = false;
+            if (!d || d.state === 'ok'){ box.classList.add('d-none'); return; }
+            const money = n => (Math.round(n)).toLocaleString('es-ES') + ' €';
+            box.classList.remove('d-none', 'alert-warning', 'alert-danger');
+            box.classList.add(d.state === 'over' ? 'alert-danger' : 'alert-warning');
+            txt.innerHTML = d.state === 'over'
+              ? '<strong>' + d.company + '</strong> ya ha superado los ' + money(d.limit) + ' de facturación en ' + d.year + '.'
+              : '<strong>' + d.company + '</strong> está próxima al límite de ' + money(d.limit) + ' de facturación en ' + d.year + '.';
+            detail.textContent = 'Con este caché sumaría ' + money(d.total) +
+              (d.state === 'over' ? '.' : ' · le quedan ' + money(d.remaining) + '.');
+          })
+          .catch(() => { busy = false; });
+      }
+      window.__wzCheckBillingLimit = checkLimit;
+      document.getElementById('wizardCacheStep')?.addEventListener('input', () => setTimeout(checkLimit, 350));
+      document.querySelectorAll('input[name="billing_company_id"]').forEach(r =>
+        r.addEventListener('change', () => { skipped = false; lastKey = ''; checkLimit(); }));
+    })();
+
     document.getElementById('wizardCacheStep')?.addEventListener('input', recalcCacheTotals);
     document.getElementById('wizardCacheStep')?.addEventListener('click', () => setTimeout(recalcCacheTotals, 30));
     document.getElementById('wzAddRemainingBtn')?.addEventListener('click', function(){

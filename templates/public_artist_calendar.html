@@ -58,6 +58,9 @@
     <div class="card border-0 shadow-sm mb-4">
       <div class="card-body">
         <h2 class="h6 text-uppercase text-muted">Próximas fechas</h2>
+        {% if not kinds_all %}
+          <div class="small text-muted mb-2"><i class="fa fa-filter me-1"></i>Este calendario incluye: {{ kinds_label }}.</div>
+        {% endif %}
         <ul class="list-unstyled mb-0">
           {% for e in upcoming %}
           <li class="d-flex gap-2 py-2 border-bottom">

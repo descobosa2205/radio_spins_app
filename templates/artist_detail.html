@@ -960,9 +960,24 @@
         </div>
         <div class="modal-body">
           <p class="text-muted small">Genera un enlace para que alguien se suscriba al calendario de <strong>{{ artist.name }}</strong> en su iPhone/Android. El enlace abre una <strong>página con instrucciones</strong> y el botón para suscribirse; verá todas las fechas y se le actualiza solo. Puedes anular un enlace cuando quieras para retirarle el acceso.</p>
-          <form method="post" action="{{ url_for('artist_calendar_link_create', artist_id=artist.id) }}" class="row g-2 align-items-end mb-3">
-            <div class="col"><label class="form-label">¿Para quién es?</label><input class="form-control" name="label" placeholder="Nombre de la persona" required></div>
-            <div class="col-auto"><button class="btn btn-primary"><i class="fa fa-plus me-1"></i>Generar enlace</button></div>
+          <form method="post" action="{{ url_for('artist_calendar_link_create', artist_id=artist.id) }}" class="mb-3">
+            <div class="row g-2 align-items-end">
+              <div class="col"><label class="form-label">¿Para quién es?</label><input class="form-control" name="label" placeholder="Nombre de la persona" required></div>
+              <div class="col-auto"><button class="btn btn-primary"><i class="fa fa-plus me-1"></i>Generar enlace</button></div>
+            </div>
+            {# Qué puede ver: sin marcar nada (o marcándolo todo) ve la agenda entera. #}
+            <div class="mt-2">
+              <label class="form-label mb-1">¿Qué puede ver? <span class="text-muted fw-normal small">(sin marcar nada, todo)</span></label>
+              <div class="d-flex flex-wrap gap-2">
+                {% for k in AGENDA_KIND_ORDER %}
+                  {% set meta = AGENDA_KIND_META[k] %}
+                  <label class="quad-year-chip">
+                    <input type="checkbox" name="kinds" value="{{ k }}">
+                    <span><i class="fa {{ meta.icon }} me-1"></i>{{ meta.label }}</span>
+                  </label>
+                {% endfor %}
+              </div>
+            </div>
           </form>
           <h6 class="small text-muted text-uppercase">Enlaces activos</h6>
           {% if calendar_links %}
@@ -972,6 +987,9 @@
                   <div class="d-flex align-items-center gap-2 flex-wrap">
                     <div class="flex-grow-1 min-w-0" style="min-width:200px;">
                       <div class="fw-semibold">{{ cl.label }}</div>
+                      <div class="small {{ 'text-muted' if cl.kinds_all else '' }}">
+                        <i class="fa fa-filter me-1"></i>{{ cl.kinds_label }}
+                      </div>
                       <input class="form-control form-control-sm mt-1" readonly value="{{ cl.page_url }}" onclick="this.select()">
                       <div class="form-text">Este es el enlace que envías a la persona (lleva a las instrucciones).</div>
                     </div>

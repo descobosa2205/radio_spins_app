@@ -1209,6 +1209,8 @@ def inject_globals():
         artist_avatar=artist_avatar,
         linked_mini=linked_mini,
         CONCERT_CONTACT_ROLES=CONCERT_CONTACT_ROLES,
+        AGENDA_KIND_ORDER=AGENDA_KIND_ORDER,
+        AGENDA_KIND_META=AGENDA_KIND_META,
         SIM_EXPENSE_CATEGORIES=SIM_EXPENSE_CATEGORIES,
         SIM_EXPENSE_CATEGORY_LABELS=SIM_EXPENSE_CATEGORY_LABELS,
         SIM_EXPENSE_CATEGORY_ICONS=SIM_EXPENSE_CATEGORY_ICONS,
@@ -1681,6 +1683,8 @@ def artist_detail_view(artist_id):
                 {"id": str(l.id), "label": l.label or "Sin nombre",
                  "page_url": _external_url_for("public_artist_calendar_view", token=l.token),
                  "ics_url": _artist_calendar_subscribe_url(l.token),
+                 "kinds_label": _agenda_kinds_label(l.kinds),
+                 "kinds_all": not [k for k in (l.kinds or []) if k in AGENDA_KIND_ORDER],
                  "created_by": l.created_by_nick or ""}
                 for l in _artist_calendar_links(session_db, artist.id, only_active=True)
             ]
@@ -63874,6 +63878,33 @@ def _artist_calendar_subscribe_url(token: str) -> str:
     return _external_url_for("public_artist_calendar_ics", token=token)
 
 
+def _parse_agenda_kinds(values) -> list[str]:
+    """Tipos de actividad válidos de un formulario. Vacío (o todos marcados) = sin filtro."""
+    picked = [(v or "").strip().lower() for v in (values or []) if (v or "").strip()]
+    picked = [k for k in AGENDA_KIND_ORDER if k in picked]
+    return [] if len(picked) == len(AGENDA_KIND_ORDER) else picked
+
+
+def _agenda_filter_kinds(agenda_data: dict, kinds) -> dict:
+    """Deja en la agenda solo los tipos elegidos para ese enlace. Lista vacía = todo."""
+    allowed = [k for k in (kinds or []) if k in AGENDA_KIND_ORDER]
+    if not allowed:
+        return agenda_data
+    allowed_set = set(allowed)
+    data = dict(agenda_data or {})
+    data["activities"] = [it for it in (data.get("activities") or []) if it.get("kind") in allowed_set]
+    data["kinds"] = [k for k in (data.get("kinds") or []) if k.get("key") in allowed_set]
+    return data
+
+
+def _agenda_kinds_label(kinds) -> str:
+    """«Todas las actividades» o la lista de las elegidas, para enseñarlo junto al enlace."""
+    allowed = [k for k in (kinds or []) if k in AGENDA_KIND_ORDER]
+    if not allowed:
+        return "Todas las actividades"
+    return " · ".join(AGENDA_KIND_META[k]["label"] for k in AGENDA_KIND_ORDER if k in allowed)
+
+
 def _ics_escape(value) -> str:
     s = str(value or "")
     s = s.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,")
@@ -63978,6 +64009,8 @@ def public_artist_calendar_ics(token):
             abort(404)
         today = today_local()
         agenda_data = _agenda_build(session_db, [str(artist.id)], today - timedelta(weeks=13), today + timedelta(weeks=78), today)
+        # El enlace puede estar limitado a ciertos tipos (p. ej. solo conciertos).
+        agenda_data = _agenda_filter_kinds(agenda_data, link.kinds)
         ics = _artist_calendar_ics(agenda_data, artist)
     finally:
         session_db.close()
@@ -64007,10 +64040,16 @@ def public_artist_calendar_view(token):
         webcal_url = re.sub(r'^https?://', 'webcal://', ics_url)
         today = today_local()
         agenda = _agenda_build(session_db, [str(artist.id)], today, today + timedelta(weeks=26), today)
+        # La vista previa tiene que enseñar lo mismo que el feed: si el enlace está limitado a
+        # ciertos tipos, aquí tampoco se ve el resto.
+        agenda = _agenda_filter_kinds(agenda, link.kinds)
+        kinds_label = _agenda_kinds_label(link.kinds)
+        kinds_all = not [k for k in (link.kinds or []) if k in AGENDA_KIND_ORDER]
         upcoming = sorted((agenda.get("activities") or []), key=lambda x: x.get("date") or "")[:6]
     finally:
         session_db.close()
-    return render_template("public_artist_calendar.html", artist=artist, ics_url=ics_url, webcal_url=webcal_url, upcoming=upcoming)
+    return render_template("public_artist_calendar.html", artist=artist, ics_url=ics_url, webcal_url=webcal_url,
+                           upcoming=upcoming, kinds_label=kinds_label, kinds_all=kinds_all)
 
 
 @app.get("/caldav/guia", endpoint="public_caldav_guide")
@@ -64040,6 +64079,7 @@ def artist_calendar_link_create(artist_id):
             token=_uuid_token(),
             label=label or "Sin nombre",
             status="ACTIVE",
+            kinds=_parse_agenda_kinds(request.form.getlist("kinds")),
             created_by_user_id=_safe_uuid(session.get("user_id")),
             created_by_nick=state.get("nick") or _email_to_nick(state.get("email") or ""),
         ))

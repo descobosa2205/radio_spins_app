@@ -157,6 +157,9 @@ class ArtistCalendarLink(Base):
     token = Column(Text, nullable=False, unique=True)
     label = Column(Text)                     # para quién es el enlace
     status = Column(Text, nullable=False, server_default=text("'ACTIVE'"))  # ACTIVE | CANCELLED
+    # Tipos de actividad que puede ver este enlace (claves de AGENDA_KIND_ORDER).
+    # Lista VACÍA = todos (comportamiento de siempre, y el de los enlaces ya generados).
+    kinds = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     created_by_user_id = Column(PGUUID(as_uuid=True))
     created_by_nick = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -175,6 +178,9 @@ def ensure_artist_calendar_schema():
     _exec_ddl_statements([
         "ALTER TABLE IF EXISTS artist_agenda_items ADD COLUMN IF NOT EXISTS caldav_uid text;",
         "ALTER TABLE IF EXISTS artist_agenda_items ADD COLUMN IF NOT EXISTS caldav_href text;",
+        "ALTER TABLE IF EXISTS artist_calendar_links ADD COLUMN IF NOT EXISTS kinds jsonb DEFAULT '[]'::jsonb;",
+        "UPDATE artist_calendar_links SET kinds = '[]'::jsonb WHERE kinds IS NULL;",
+        "ALTER TABLE IF EXISTS artist_calendar_links ALTER COLUMN kinds SET DEFAULT '[]'::jsonb;",
     ], "artist_calendar")
 
 

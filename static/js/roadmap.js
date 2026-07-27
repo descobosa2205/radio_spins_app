@@ -797,6 +797,7 @@
       return '<ul class="nav nav-pills nav-sm mb-2" data-psub-bar>'
         + '<li class="nav-item"><button type="button" class="nav-link py-1 px-3' + (psub === 'list' ? ' active' : '') + '" data-psub="list"><i class="fa fa-users me-1"></i>Personal</button></li>'
         + '<li class="nav-item"><button type="button" class="nav-link py-1 px-3' + (psub === 'prl' ? ' active' : '') + '" data-psub="prl"><i class="fa fa-helmet-safety me-1"></i>PRL</button></li>'
+        + '<li class="nav-item"><button type="button" class="nav-link py-1 px-3' + (psub === 'viaje' ? ' active' : '') + '" data-psub="viaje"><i class="fa fa-plane-departure me-1"></i>Viaje</button></li>'
         + '</ul>';
     }
     function wirePersonalSubtabs() {
@@ -804,8 +805,64 @@
         b.addEventListener('click', function () { psub = b.getAttribute('data-psub'); renderPersonal(); });
       });
     }
+    // ---------------------------------------------------------------- VIAJE
+    // Mismo estilo que el listado de Personal, pero con las necesidades de viaje de cada
+    // pasajero (equipaje, asiento, extras, categoría y puntos de salida) y, opcionalmente,
+    // la foto del DNI o el pasaporte para tenerla a mano al sacar los billetes.
+    var TRAVEL_SHOW_DOC = false;
+    function renderViaje() {
+      view.innerHTML = personalSubtabs() + '<div class="rm-empty">Cargando…</div>';
+      wirePersonalSubtabs();
+      fetch(ep('/viaje'), { headers: { 'Accept': 'application/json' } })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          var rows = (data && data.rows) || [];
+          var html = personalSubtabs()
+            + '<div class="rm-toolbar"><div class="text-muted small">Listado de viaje · ' + rows.length + ' pasajero' + (rows.length === 1 ? '' : 's') + '</div>'
+            + '<span><label class="btn btn-sm btn-outline-secondary py-0 mb-0"><input type="checkbox" class="me-1" data-travel-doc' + (TRAVEL_SHOW_DOC ? ' checked' : '') + '>Incluir foto del DNI/pasaporte</label></span></div>';
+          if (!rows.length) html += '<div class="rm-empty">No hay personal en la actividad todavía.</div>';
+          rows.forEach(function (p) {
+            var t = p.travel || {};
+            var marcas = (t.marks || []).map(function (m) {
+              return '<span class="badge text-bg-light border me-1 mb-1"><i class="fa ' + esc(m.icon) + ' me-1"></i>' + esc(m.label) + '</span>';
+            }).join('');
+            var salidas = '';
+            if (t.departure_flight) salidas += '<div class="small text-muted"><i class="fa fa-plane-departure me-1"></i>' + esc(t.departure_flight) + '</div>';
+            if (t.departure_train) salidas += '<div class="small text-muted"><i class="fa fa-train me-1"></i>' + esc(t.departure_train) + '</div>';
+            var datos = '';
+            if (p.dni) datos += '<div class="small text-muted">DNI/NIF: ' + esc(p.dni) + '</div>';
+            if (p.birth_date) datos += '<div class="small text-muted">Nacimiento: ' + esc(p.birth_date) + '</div>';
+            if (p.phone || p.email) datos += '<div class="small text-muted">' + esc([p.phone, p.email].filter(Boolean).join(' · ')) + '</div>';
+            var doc = '';
+            if (TRAVEL_SHOW_DOC && (p.doc_front || p.doc_back)) {
+              doc = '<div class="d-flex gap-2 mt-2 flex-wrap">'
+                + (p.doc_front ? '<img src="' + esc(p.doc_front) + '" alt="" style="height:74px;border-radius:8px;border:1px solid #e5e8ee;object-fit:cover;">' : '')
+                + (p.doc_back ? '<img src="' + esc(p.doc_back) + '" alt="" style="height:74px;border-radius:8px;border:1px solid #e5e8ee;object-fit:cover;">' : '')
+                + (p.doc_number ? '<div class="small text-muted align-self-center">' + esc(p.doc_kind) + ' ' + esc(p.doc_number) + (p.doc_expiry ? ' · caduca ' + esc(p.doc_expiry) : '') + '</div>' : '')
+                + '</div>';
+            }
+            html += '<div class="rm-person align-items-start"><span class="av">' + avatar(p.photo_url) + '</span>'
+              + '<div class="flex-grow-1"><div class="nm">' + esc(p.name) + '</div>'
+              + '<div class="rl">' + esc(p.role || '') + '</div>'
+              + datos
+              + (marcas ? '<div class="mt-1">' + marcas + '</div>' : '')
+              + salidas
+              + (t.notes ? '<div class="small mt-1" style="white-space:pre-wrap;">' + esc(t.notes) + '</div>' : '')
+              + (!t.has_any ? '<div class="small text-muted fst-italic mt-1">Sin necesidades de viaje anotadas en su ficha.</div>' : '')
+              + doc
+              + '</div></div>';
+          });
+          view.innerHTML = html;
+          wirePersonalSubtabs();
+          var chk = view.querySelector('[data-travel-doc]');
+          if (chk) chk.addEventListener('change', function () { TRAVEL_SHOW_DOC = chk.checked; renderViaje(); });
+        })
+        .catch(function () { view.innerHTML = personalSubtabs() + '<div class="rm-empty">No se pudo cargar el listado de viaje.</div>'; wirePersonalSubtabs(); });
+    }
+
     function renderPersonal() {
       if (psub === 'prl') { renderPrl(); return; }
+      if (psub === 'viaje') { renderViaje(); return; }
       var groups = {};
       P.personnel.forEach(function (p) { var g = (p.role || 'Sin función').trim() || 'Sin función'; (groups[g] = groups[g] || []).push(p); });
       var addBtn = RO ? '' : '<button class="rm-add" data-add><i class="fa fa-plus"></i> Añadir</button>';

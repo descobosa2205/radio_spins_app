@@ -708,6 +708,13 @@ class Promoter(Base):
     address = Column(Text)            # domicilio (se autorrellena del DNI; editable)
     # Petición especial de HOTELES (aparece como nota junto a la persona en las rooming lists).
     hotel_notes = Column(Text)
+    # Necesidades de VIAJE (se muestran en el listado de Viaje de la hoja de ruta):
+    # nota libre + equipaje/asiento/extras/categoría marcados, y puntos de salida habituales.
+    travel_notes = Column(Text)
+    travel_prefs = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    travel_departure_flight = Column(Text)
+    travel_departure_train = Column(Text)
+
     # Tipo de trabajador a efectos de PRL/altas: AUTONOMO | PUNTUAL (alta puntual) | EMPRESA (fijo).
     prl_type = Column(Text)
     # Datos de facturación que el propio proveedor rellena una vez en /facturacion.
@@ -2237,6 +2244,12 @@ class UserProfile(Base):
     assigned_artist_ids_produccion = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     assigned_artist_ids_sello = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     legacy_permissions_seeded = Column(Boolean, nullable=False, server_default=text("false"))
+    # Necesidades de VIAJE (mismas que en los terceros): nota libre, marcas de equipaje/asiento/
+    # extras/categoría y puntos de salida habituales de vuelo y tren.
+    travel_notes = Column(Text)
+    travel_prefs = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    travel_departure_flight = Column(Text)
+    travel_departure_train = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -5995,6 +6008,15 @@ def ensure_third_party_and_contract_sheet_schema():
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS address text;",
         # Petición especial de hoteles (nota junto a la persona en las rooming lists).
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS hotel_notes text;",
+        # Necesidades de viaje (terceros y personal).
+        "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS travel_notes text;",
+        "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS travel_prefs jsonb NOT NULL DEFAULT '{}'::jsonb;",
+        "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS travel_departure_flight text;",
+        "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS travel_departure_train text;",
+        "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS travel_notes text;",
+        "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS travel_prefs jsonb NOT NULL DEFAULT '{}'::jsonb;",
+        "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS travel_departure_flight text;",
+        "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS travel_departure_train text;",
         # Tipo de trabajador a efectos de PRL (autónomo / alta puntual / empresa fija).
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS prl_type text;",
         # Documentación de alta y PRL (personas y empresas del grupo) + peticiones de subida.

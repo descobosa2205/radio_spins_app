@@ -351,6 +351,11 @@
           <div class="col-md-6"><label class="form-label">Email principal</label><input type="email" class="form-control" name="contact_email" value="{{ promoter.contact_email or '' }}"></div>
           <div class="col-md-6"><label class="form-label">Teléfono</label><input class="form-control" name="contact_phone" value="{{ promoter.contact_phone or '' }}"></div>
           <div class="col-12"><label class="form-label">Domicilio</label><input class="form-control" name="address" value="{{ promoter.address or '' }}"></div>
+          <div class="col-12">
+            <hr class="my-2">
+            <input type="hidden" name="travel_prefs_present" value="1">
+            {% with tp_prefs=travel_prefs, tp_row=promoter, tp_can_edit=True %}{% include '_travel_prefs_panel.html' %}{% endwith %}
+          </div>
           <div class="col-12"><label class="form-label"><i class="fa fa-bed me-1 text-danger"></i>Petición especial de hoteles <span class="text-muted small fw-normal">(aparece como nota en las rooming lists)</span></label><input class="form-control" name="hotel_notes" value="{{ promoter.hotel_notes or '' }}" placeholder="Ej.: habitación individual, planta baja, alergias…"></div>
           {% set sl = promoter.social_links or {} %}
           <div class="col-12"><label class="form-label mb-1">Redes sociales <span class="text-muted small fw-normal">(opcional, para menciones)</span></label>

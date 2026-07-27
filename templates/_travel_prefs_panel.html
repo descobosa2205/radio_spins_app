@@ -1,0 +1,63 @@
+{# ============================================================================
+   Necesidades de VIAJE de una persona (tercero o personal de la empresa).
+   Se rellenan aquí y se ven en el listado de Viaje de la hoja de ruta.
+
+   Parámetros:
+     tp_prefs     : dict {CLAVE: bool} con lo marcado
+     tp_row       : la fila (para las notas y los puntos de salida)
+     tp_can_edit  : si se puede editar
+   ============================================================================ #}
+{% set _prefs = tp_prefs or {} %}
+<div class="travel-prefs">
+  <div class="row g-3">
+    <div class="col-12">
+      <label class="form-label">Necesidades de viaje <span class="text-muted fw-normal small">(nota libre)</span></label>
+      {% if tp_can_edit %}
+        <textarea class="form-control" name="travel_notes" rows="2"
+                  placeholder="Necesita asiento con espacio extra, viaja con acompañante, alergias…">{{ tp_row.travel_notes or '' }}</textarea>
+      {% else %}
+        <div>{{ tp_row.travel_notes or '—' }}</div>
+      {% endif %}
+    </div>
+
+    {% for group, group_label, options in TRAVEL_PREF_GROUPS %}
+      <div class="col-12 col-md-6 col-xl-3">
+        <div class="filter-label"><i class="fa fa-suitcase"></i>{{ group_label }}</div>
+        <div class="filter-chips">
+          {% for key, label, icon in options %}
+            {% if tp_can_edit %}
+              <label class="filter-chip">
+                {% if group == 'cabin' %}
+                  {# La categoría es una sola: radios en vez de casillas. #}
+                  <input type="radio" name="travel_cabin" value="{{ key }}" {% if _prefs.get(key) %}checked{% endif %}>
+                {% else %}
+                  <input type="checkbox" name="travel_prefs" value="{{ key }}" {% if _prefs.get(key) %}checked{% endif %}>
+                {% endif %}
+                <i class="fa {{ icon }}"></i>{{ label }}
+              </label>
+            {% elif _prefs.get(key) %}
+              <span class="filter-chip" style="cursor:default;"><i class="fa {{ icon }}"></i>{{ label }}</span>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+    {% endfor %}
+
+    <div class="col-12 col-md-6">
+      <label class="form-label"><i class="fa fa-plane-departure me-1 text-danger"></i>Punto de salida para vuelos</label>
+      {% if tp_can_edit %}
+        <input class="form-control" name="travel_departure_flight" value="{{ tp_row.travel_departure_flight or '' }}" placeholder="Madrid-Barajas (MAD)">
+      {% else %}
+        <div>{{ tp_row.travel_departure_flight or '—' }}</div>
+      {% endif %}
+    </div>
+    <div class="col-12 col-md-6">
+      <label class="form-label"><i class="fa fa-train me-1 text-danger"></i>Punto de salida para trenes</label>
+      {% if tp_can_edit %}
+        <input class="form-control" name="travel_departure_train" value="{{ tp_row.travel_departure_train or '' }}" placeholder="Madrid-Puerta de Atocha">
+      {% else %}
+        <div>{{ tp_row.travel_departure_train or '—' }}</div>
+      {% endif %}
+    </div>
+  </div>
+</div>

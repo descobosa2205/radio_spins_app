@@ -20545,6 +20545,12 @@ def promoter_update(pid):
         p.address = (request.form.get("address") or "").strip() or None
     if "hotel_notes" in request.form:
         p.hotel_notes = (request.form.get("hotel_notes") or "").strip() or None
+    # Necesidades de viaje (solo si el formulario las trae, para no pisarlas desde otras pantallas).
+    if request.form.get("travel_prefs_present"):
+        p.travel_notes = (request.form.get("travel_notes") or "").strip() or None
+        p.travel_prefs = _parse_travel_prefs_form(request.form)
+        p.travel_departure_flight = (request.form.get("travel_departure_flight") or "").strip() or None
+        p.travel_departure_train = (request.form.get("travel_departure_train") or "").strip() or None
     if "kind" in request.form:
         _kind = (request.form.get("kind") or "").strip().lower()
         p.kind = _kind if _kind in ("empresa", "institucion") else None
@@ -33525,6 +33531,8 @@ def promoter_detail_view(pid):
             'promoter_detail.html',
             promoter=promoter,
             tab=tab,
+            travel_prefs=_travel_prefs_of(promoter),
+            travel_summary=_travel_summary(promoter),
             contacts_by_title=sorted(grouped.items(), key=lambda x: _norm_text_key(x[0])),
             promoter_email_addresses=promoter_email_addresses,
             promoter_invitations_count=promoter_invitations_count,
@@ -37036,9 +37044,17 @@ def _roadmap_int(value, default=0):
 
 def _roadmap_load(row) -> dict:
     """Payload v2 tolerante: si es esquema viejo o inválido, arranca vacío."""
-    data = _json_loads_safe(getattr(row, "roadmap_payload", None), {})
+    raw = _json_loads_safe(getattr(row, "roadmap_payload", None), {})
+    data = raw
     if not isinstance(data, dict) or _roadmap_int(data.get("version")) != 2:
+        # Al descartar un payload viejo hay que CONSERVAR lo que no es contenido de la hoja:
+        # las etiquetas general/técnica y el token del enlace técnico. Si no, guardar la hoja de
+        # ruta las borraría (y el enlace técnico dejaría de funcionar).
         data = {"version": 2}
+        if isinstance(raw, dict):
+            for key in ("kinds", "tech_token"):
+                if raw.get(key) is not None:
+                    data[key] = raw[key]
     data["version"] = 2
     for key in ("personnel", "hotels", "agenda"):
         if not isinstance(data.get(key), list):
@@ -38517,6 +38533,67 @@ def _prl_rows_for_concert(session_db, kind, row_entity) -> list:
             for p in (payload.get("personnel") or [])]
 
 
+def _travel_person_row(session_db, person: dict) -> dict:
+    """Una persona del listado de VIAJE: sus datos + las necesidades de viaje de su ficha y,
+    si se pide, la foto del documento (DNI o pasaporte) para enseñarla al comprar billetes."""
+    kind = (person.get("kind") or "MANUAL").upper()
+    ref = to_uuid(person.get("ref_id") or "") if person.get("ref_id") else None
+    entity = None
+    doc_row = None
+    if kind == "PROMOTER" and ref:
+        entity = session_db.get(Promoter, ref)
+        owner_type = "PROMOTER"
+    elif kind == "USER" and ref:
+        entity = session_db.query(UserProfile).filter(UserProfile.user_id == ref).first()
+        owner_type = "USER"
+    else:
+        owner_type = None
+    if ref and owner_type:
+        doc_row = (
+            session_db.query(PersonDocument)
+            .filter(PersonDocument.owner_type == owner_type, PersonDocument.owner_id == ref)
+            .filter(PersonDocument.kind.in_(["DNI", "PASSPORT"]))
+            .order_by(PersonDocument.created_at.desc())
+            .first()
+        )
+    travel = _travel_summary(entity) if entity is not None else {
+        "notes": "", "marks": [], "departure_flight": "", "departure_train": "", "has_any": False}
+    return {
+        "id": person.get("id") or "",
+        "name": (person.get("name") or "").strip(),
+        "role": (person.get("role") or "").strip(),
+        "photo_url": (person.get("photo_url") or ""),
+        "phone": (person.get("phone") or ""),
+        "email": (person.get("email") or ""),
+        "dni": ((getattr(entity, "tax_id", None) or getattr(entity, "dni", None) or "") if entity is not None else ""),
+        "birth_date": (getattr(entity, "birth_date", None).isoformat() if getattr(entity, "birth_date", None) else ""),
+        "travel": travel,
+        "doc_kind": (getattr(doc_row, "kind", "") or ""),
+        "doc_front": (getattr(doc_row, "front_url", "") or ""),
+        "doc_back": (getattr(doc_row, "back_url", "") or ""),
+        "doc_number": (getattr(doc_row, "doc_number", "") or ""),
+        "doc_expiry": (getattr(doc_row, "expiry_date", None).isoformat() if getattr(doc_row, "expiry_date", None) else ""),
+    }
+
+
+@app.get('/hoja-ruta/<entity_type>/<entity_id>/viaje', endpoint='roadmap_travel_json')
+@admin_required
+def roadmap_travel_json(entity_type, entity_id):
+    """Listado de VIAJE: el personal de la actividad con sus necesidades de viaje."""
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        payload = _roadmap_load(row)
+        return jsonify({
+            "ok": True,
+            "rows": [_travel_person_row(session_db, p) for p in (payload.get("personnel") or [])],
+        })
+    finally:
+        session_db.close()
+
+
 @app.get('/hoja-ruta/<entity_type>/<entity_id>/prl', endpoint='prl_status_json')
 @admin_required
 def prl_status_json(entity_type, entity_id):
@@ -39748,6 +39825,66 @@ def roadmap_days_save(entity_type, entity_id):
 # Cada actividad marca qué hojas de ruta tiene (por defecto las dos). Cada una se comparte con su
 # propio enlace: la general usa el token de siempre y la técnica uno propio en el payload, para no
 # tocar el esquema de las tres entidades que tienen hoja de ruta.
+# ---------- Necesidades de viaje (terceros y personal) ----------
+# Se rellenan en la ficha y se ven en el listado de Viaje de la hoja de ruta.
+TRAVEL_PREF_GROUPS = [
+    ("baggage", "Equipaje", [
+        ("CHECKED", "Maleta facturada", "fa-suitcase-rolling"),
+        ("INSTRUMENT_SEAT", "Extra seat para instrumento", "fa-guitar"),
+        ("HOLD_EXTRA_SEAT", "Maleta bodega extra seat", "fa-boxes-packing"),
+    ]),
+    ("seat", "Asiento", [
+        ("WINDOW", "Ventanilla", "fa-window-maximize"),
+        ("AISLE", "Pasillo", "fa-arrows-left-right"),
+    ]),
+    ("extras", "Extras", [
+        ("FAST_TRACK", "Fast Track", "fa-bolt"),
+        ("PRIORITY", "Embarque prioritario", "fa-person-walking-luggage"),
+    ]),
+    ("cabin", "Categoría", [
+        ("TURISTA", "Turista", "fa-chair"),
+        ("TURISTA_PREMIUM", "Turista Premium", "fa-star-half-stroke"),
+        ("BUSINESS", "Business", "fa-star"),
+    ]),
+]
+TRAVEL_PREF_LABELS = {k: l for _g, _gl, opts in TRAVEL_PREF_GROUPS for k, l, _i in opts}
+TRAVEL_PREF_ICONS = {k: i for _g, _gl, opts in TRAVEL_PREF_GROUPS for k, _l, i in opts}
+TRAVEL_PREF_KEYS = set(TRAVEL_PREF_LABELS)
+
+
+def _parse_travel_prefs_form(form) -> dict:
+    """Marcas de viaje del formulario. La categoría es única; el resto se pueden combinar."""
+    picked = {(v or "").strip().upper() for v in form.getlist("travel_prefs")}
+    out = {k: (k in picked) for k in TRAVEL_PREF_KEYS}
+    cabin_keys = [k for g, _gl, opts in TRAVEL_PREF_GROUPS if g == "cabin" for k, _l, _i in opts]
+    cabin = (form.get("travel_cabin") or "").strip().upper()
+    for k in cabin_keys:
+        out[k] = (k == cabin)
+    return out
+
+
+def _travel_prefs_of(row) -> dict:
+    prefs = getattr(row, "travel_prefs", None)
+    prefs = prefs if isinstance(prefs, dict) else {}
+    return {k: bool(prefs.get(k)) for k in TRAVEL_PREF_KEYS}
+
+
+def _travel_summary(row) -> dict:
+    """Resumen legible de las necesidades de viaje de una persona (ficha y listado de Viaje)."""
+    prefs = _travel_prefs_of(row)
+    marcas = [{"key": k, "label": TRAVEL_PREF_LABELS[k], "icon": TRAVEL_PREF_ICONS[k]}
+              for _g, _gl, opts in TRAVEL_PREF_GROUPS for k, _l, _i in opts if prefs.get(k)]
+    return {
+        "notes": (getattr(row, "travel_notes", None) or "").strip(),
+        "marks": marcas,
+        "departure_flight": (getattr(row, "travel_departure_flight", None) or "").strip(),
+        "departure_train": (getattr(row, "travel_departure_train", None) or "").strip(),
+        "has_any": bool(marcas or (getattr(row, "travel_notes", None) or "").strip()
+                        or (getattr(row, "travel_departure_flight", None) or "").strip()
+                        or (getattr(row, "travel_departure_train", None) or "").strip()),
+    }
+
+
 ROADMAP_KINDS = [("GENERAL", "Hoja de ruta general", "fa-route"),
                  ("TECNICA", "Hoja de ruta técnica", "fa-sliders")]
 ROADMAP_KIND_LABELS = {k: l for k, l, _i in ROADMAP_KINDS}
@@ -41931,6 +42068,7 @@ def inject_personnel_globals():
         "ARTWORK_FORMAT_CHOICES": ARTWORK_FORMAT_CHOICES,
         "ARTWORK_VIDEO_FORMAT_CHOICES": ARTWORK_VIDEO_FORMAT_CHOICES,
         "ROADMAP_KINDS": ROADMAP_KINDS,
+        "TRAVEL_PREF_GROUPS": TRAVEL_PREF_GROUPS,
         "PROMOTER_COST_ITEMS": PROMOTER_COST_ITEMS,
         "SECTION_STATS": _section_stats_counts() if request.endpoint in {"promocion_view", "marketing_view", "administracion_view", "contabilidad_view", "produccion_view", "acciones_view", "action_detail_view", "personnel_view", "invitations_view", "invitation_event_detail"} and session.get("user_id") else {},
         "has_access_key": has_access_key,
@@ -42120,6 +42258,8 @@ SUPPORT_READ_ENDPOINTS = {
     "roadmap_rooming_pdf", "roadmap_rooming_xlsx", "roadmap_personnel_pdf", "roadmap_personnel_xlsx",
     # PRL: estado por persona y listado exportable.
     "prl_status_json", "prl_export_pdf", "prl_export_xlsx",
+    # Listado de VIAJE de la hoja de ruta (necesidades de viaje del personal).
+    "roadmap_travel_json",
     # Royalties «a favor»: PDF de la liquidación.
     "afavor_liquidation_pdf",
     "api_get_promoter", "api_promoter_detail", "api_promoter_emails", "api_media_contacts",
@@ -45672,6 +45812,12 @@ def personnel_detail_view(user_id):
                 profile.dni = (request.form.get("dni") or "").strip() or None
                 profile.birth_date = parse_optional_date(request.form.get("birth_date"))
                 profile.address = (request.form.get("address") or "").strip() or None
+                # Necesidades de viaje (solo si el formulario las trae).
+                if request.form.get("travel_prefs_present"):
+                    profile.travel_notes = (request.form.get("travel_notes") or "").strip() or None
+                    profile.travel_prefs = _parse_travel_prefs_form(request.form)
+                    profile.travel_departure_flight = (request.form.get("travel_departure_flight") or "").strip() or None
+                    profile.travel_departure_train = (request.form.get("travel_departure_train") or "").strip() or None
                 profile.mobile_phones = _parse_phone_rows_from_form(request.form)
                 # Otros correos de empresa: solo para identificar a la persona en las integraciones
                 # (en Pleo cada empresa del grupo puede tenerla con un correo distinto).
@@ -45732,6 +45878,8 @@ def personnel_detail_view(user_id):
             profile=profile,
             security=security,
             tab=tab,
+            travel_prefs=_travel_prefs_of(profile),
+            travel_summary=_travel_summary(profile),
             access_rows=access_rows,
             grants=grants,
             artists=artists,

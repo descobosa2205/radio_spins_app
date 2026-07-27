@@ -102,6 +102,12 @@
         <div class="col-md-4"><label class="form-label">Foto</label><input type="file" name="photo" class="form-control" accept="image/*"></div>
         <div class="col-12"><label class="form-label">Domicilio</label><input type="text" name="address" class="form-control" value="{{ profile.address or '' }}"></div>
         <div class="col-12">
+          <hr class="my-2">
+          <input type="hidden" name="travel_prefs_present" value="1">
+          {% with tp_prefs=travel_prefs, tp_row=profile, tp_can_edit=True %}{% include '_travel_prefs_panel.html' %}{% endwith %}
+          <hr class="my-2">
+        </div>
+        <div class="col-12">
           <label class="form-label">Otros correos de empresa</label>
           <textarea name="integration_emails" class="form-control" rows="2" placeholder="nombre@otraempresa.com&#10;nombre@terceraempresa.com">{{ (profile.integration_emails or [])|join('\n') }}</textarea>
           <div class="form-text">

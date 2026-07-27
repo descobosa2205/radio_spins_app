@@ -2728,3 +2728,27 @@ img.docs-id__face { width:100%; height:100%; object-fit:cover; display:block; cu
 .modal-fullscreen-xxl-down .modal-content > form > .modal-footer{
   flex-shrink: 0;
 }
+
+/* ===================== Filtros con pastillas (reutilizable) =====================
+   Mismo lenguaje visual que los filtros de Cuadrantes, sacado aquí para poder usarlo en otras
+   pantallas (Conciertos, etc.) sin duplicar el CSS en cada plantilla. */
+.filter-panel{ border:1px solid var(--line-2,#e3e6eb); border-radius:16px; background:#fff;
+  box-shadow:var(--shadow-sm-2, 0 1px 2px rgba(20,25,35,.06)); overflow:hidden; }
+.filter-panel__body{ padding:1.1rem 1.15rem; }
+.filter-group{ margin-top:1rem; }
+.filter-group:first-child{ margin-top:0; }
+.filter-label{ display:flex; align-items:center; gap:.45rem; font-size:.72rem; font-weight:700;
+  text-transform:uppercase; letter-spacing:.04em; color:var(--muted-2,#6c757d); margin-bottom:.55rem; }
+.filter-label i{ color:var(--brand-accent,#007CA2); }
+.filter-chips{ display:flex; flex-wrap:wrap; gap:.5rem; }
+.filter-chip{ position:relative; display:inline-flex; align-items:center; gap:.45rem;
+  border:1px solid var(--line-2,#e3e6eb); border-radius:999px; padding:.42rem .8rem; background:#fff;
+  cursor:pointer; font-size:.85rem; font-weight:600; color:#42505f; transition:.15s ease; user-select:none; margin:0; }
+.filter-chip i{ color:#9aa4b0; transition:.15s ease; font-size:.9rem; }
+.filter-chip .filter-dot{ width:9px; height:9px; border-radius:50%; flex:0 0 auto; }
+.filter-chip input{ position:absolute; opacity:0; pointer-events:none; }
+.filter-chip:hover{ border-color:var(--brand-primary,#E33D48); }
+.filter-chip:has(input:checked){ border-color:var(--brand-primary,#E33D48);
+  background:rgba(227,61,72,.07); color:var(--brand-primary,#E33D48); box-shadow:0 0 0 .16rem rgba(227,61,72,.12); }
+.filter-chip:has(input:checked) i{ color:var(--brand-primary,#E33D48); }
+.filter-hint{ font-size:.8rem; color:var(--muted-2,#6c757d); }

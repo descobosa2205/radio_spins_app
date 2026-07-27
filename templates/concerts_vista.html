@@ -86,17 +86,134 @@
     <span class="badge text-bg-light border">{{ concerts|length }}</span>
   </div>
 
-  {# Filtro visual por tipo #}
+  {# ---------- Filtros con iconos (mismo lenguaje que Cuadrantes) ----------
+       «Cuándo» va en la barra porque es lo primero que se mira: futuros marcado por defecto,
+       pasados sin marcar. El resto (tipo, estado, anuncio, etiquetas) en el popup. #}
+  {% set TYPE_ICON = {'EMPRESA':'fa-building','GRATUITO':'fa-gift','GIRAS_COMPRADAS':'fa-route',
+                      'PARTICIPADOS':'fa-handshake','CADIZ':'fa-star','VENDIDO':'fa-tag'} %}
+  {% set ST_META = {
+    'BORRADOR':{'label':'Borrador','icon':'fa-pen-ruler','dot':'#1d4ed8'},
+    'HABLADO':{'label':'Hablado','icon':'fa-comments','dot':'#7a5b00'},
+    'RESERVADO':{'label':'Reservado','icon':'fa-bookmark','dot':'#084298'},
+    'CONFIRMADO':{'label':'Confirmado','icon':'fa-circle-check','dot':'#0f5132'}
+  } %}
+  {% set ANN_META = {
+    'NONE':{'label':'Sin definir','icon':'fa-circle-question'},
+    'NO_ANNOUNCE':{'label':'No anunciar','icon':'fa-eye-slash'},
+    'UPCOMING':{'label':'Próximamente','icon':'fa-bullhorn'},
+    'ANNOUNCED':{'label':'Ya anunciado','icon':'fa-circle-check'}
+  } %}
   {% set base_args = {'tab':'vista'} %}
   {% if drill_artist %}{% set _ = base_args.update({'artist': drill_artist.id}) %}{% else %}{% set _ = base_args.update({'all':'1'}) %}{% endif %}
-  <div class="d-flex gap-2 flex-wrap mb-3">
-    <a href="{{ url_for('concerts_view', **base_args) }}" class="badge {{ 'text-bg-dark' if not f_sale_types else 'text-bg-light border' }} text-decoration-none py-2 px-3">Todos</a>
-    {% for value, label in type_choices %}
-      {% if type_counts.get(value) or value in f_sale_types %}
-      <a href="{{ url_for('concerts_view', type=value, **base_args) }}" class="badge {{ 'text-bg-danger' if value in f_sale_types else 'text-bg-light border' }} text-decoration-none py-2 px-3">{{ label }} <span class="opacity-75">{{ type_counts.get(value, 0) }}</span></a>
-      {% endif %}
-    {% endfor %}
-  </div>
+  {% set W = f_when or [] %}
+  {% set T = f_sale_types or [] %}
+  {% set S = f_statuses or [] %}
+  {% set A = f_announcements or [] %}
+  {% set TAGS = f_concert_tags or [] %}
+  {% set extra_count = (T|length) + (S|length) + (A|length) + (TAGS|length) %}
+
+  <form method="get" action="{{ url_for('concerts_view') }}" class="mb-3">
+    <input type="hidden" name="tab" value="vista">
+    {% if drill_artist %}<input type="hidden" name="artist" value="{{ drill_artist.id }}">{% else %}<input type="hidden" name="all" value="1">{% endif %}
+    <div class="filter-panel">
+      <div class="filter-panel__body">
+        <div class="d-flex align-items-end gap-3 flex-wrap">
+          <div>
+            <div class="filter-label"><i class="fa fa-clock"></i>Cuándo</div>
+            <div class="filter-chips">
+              <label class="filter-chip">
+                <input type="checkbox" name="when" value="FUTURE" {% if 'FUTURE' in W %}checked{% endif %}>
+                <i class="fa fa-forward"></i>Futuros
+              </label>
+              <label class="filter-chip">
+                <input type="checkbox" name="when" value="PAST" {% if 'PAST' in W %}checked{% endif %}>
+                <i class="fa fa-backward"></i>Pasados
+              </label>
+            </div>
+          </div>
+          <div class="ms-auto d-flex gap-2">
+            <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#concertsFiltersModal">
+              <i class="fa fa-sliders me-1"></i>Filtros{% if extra_count %} <span class="badge text-bg-danger ms-1">{{ extra_count }}</span>{% endif %}
+            </button>
+            <button class="btn btn-danger" type="submit"><i class="fa fa-eye me-1"></i>Ver</button>
+            {% if extra_count or 'PAST' in W %}
+              <a class="btn btn-outline-secondary" href="{{ url_for('concerts_view', **base_args) }}" title="Quitar todos los filtros"><i class="fa fa-rotate-left"></i></a>
+            {% endif %}
+          </div>
+        </div>
+        <div class="filter-hint mt-2">
+          <i class="fa fa-circle-info me-1"></i>Se muestran los <strong>conciertos futuros</strong>; marca «Pasados» para ver también los ya celebrados.
+        </div>
+      </div>
+    </div>
+
+    <div class="modal fade" id="concertsFiltersModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="fa fa-sliders me-2 text-danger"></i>Filtros</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="filter-group">
+              <div class="filter-label"><i class="fa fa-tag"></i>Tipo</div>
+              <div class="filter-chips">
+                {% for value, label in type_choices %}
+                  {% if type_counts.get(value) or value in T %}
+                  <label class="filter-chip">
+                    <input type="checkbox" name="type" value="{{ value }}" {% if value in T %}checked{% endif %}>
+                    <i class="fa {{ TYPE_ICON.get(value, 'fa-circle') }}"></i>{{ label }}
+                    <span class="opacity-75">{{ type_counts.get(value, 0) }}</span>
+                  </label>
+                  {% endif %}
+                {% endfor %}
+              </div>
+            </div>
+            <div class="filter-group">
+              <div class="filter-label"><i class="fa fa-flag"></i>Estado</div>
+              <div class="filter-chips">
+                {% for key, meta in ST_META.items() %}
+                  <label class="filter-chip">
+                    <input type="checkbox" name="status" value="{{ key }}" {% if key in S %}checked{% endif %}>
+                    <span class="filter-dot" style="background: {{ meta.dot }};"></span>
+                    <i class="fa {{ meta.icon }}"></i>{{ meta.label }}
+                  </label>
+                {% endfor %}
+              </div>
+            </div>
+            <div class="filter-group">
+              <div class="filter-label"><i class="fa fa-bullhorn"></i>Anuncio</div>
+              <div class="filter-chips">
+                {% for key, meta in ANN_META.items() %}
+                  <label class="filter-chip">
+                    <input type="checkbox" name="announcement" value="{{ key }}" {% if key in A %}checked{% endif %}>
+                    <i class="fa {{ meta.icon }}"></i>{{ meta.label }}
+                  </label>
+                {% endfor %}
+              </div>
+            </div>
+            {% if all_concert_tags %}
+            <div class="filter-group">
+              <div class="filter-label"><i class="fa fa-hashtag"></i>Etiquetas</div>
+              <div class="filter-chips">
+                {% for tag in all_concert_tags %}
+                  <label class="filter-chip">
+                    <input type="checkbox" name="concert_tag" value="{{ tag }}" {% if tag in TAGS %}checked{% endif %}>
+                    <i class="fa fa-hashtag"></i>{{ tag }}
+                  </label>
+                {% endfor %}
+              </div>
+            </div>
+            {% endif %}
+          </div>
+          <div class="modal-footer d-flex justify-content-between">
+            <a class="btn btn-outline-secondary" href="{{ url_for('concerts_view', **base_args) }}">Limpiar todo</a>
+            <button class="btn btn-danger" type="submit"><i class="fa fa-eye me-1"></i>Ver resultados</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </form>
 
   {% if concerts %}
   <div class="card"><div class="list-group list-group-flush">

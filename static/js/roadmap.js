@@ -1069,26 +1069,47 @@
     }
 
     // ================================================================ COMPARTIR
+    // Dos hojas de ruta: GENERAL y TÉCNICA, cada una con su enlace independiente. Solo se ofrece
+    // la que esté activada en la actividad (etiquetas que se marcan al darla de alta).
+    var RM_KINDS = [['GENERAL', 'Hoja de ruta general', 'fa-route'], ['TECNICA', 'Hoja de ruta técnica', 'fa-sliders']];
+
     function openShareModal() {
-      var m = openModal('rmShareModal', 'modal-md', 'Compartir hoja de ruta', '<div class="text-muted small mb-2">Enlace de <strong>solo lectura</strong>: se ve todo (agenda, logística, hoteles y personal) y se pueden descargar los adjuntos, sin poder editar nada.</div><div data-share-body class="small">Cargando…</div>', []);
-      var body = m.querySelector('[data-share-body]');
-      function render(resp) {
-        if (!resp || !resp.ok) { body.innerHTML = '<div class="text-danger">No se pudo generar el enlace.</div>'; return; }
-        if (!resp.url) {
-          body.innerHTML = '<div class="mb-2 text-muted">No hay ningún enlace activo.</div>';
-          body.appendChild(btn('Generar enlace', 'btn-primary btn-sm', function () { act('ensure'); }));
-          return;
-        }
-        body.innerHTML = '<div class="input-group mb-2"><input class="form-control" readonly value="' + esc(resp.url) + '"><button class="btn btn-outline-secondary" type="button" data-copy><i class="fa fa-copy"></i></button></div>'
-          + '<div class="d-flex gap-2 flex-wrap"><a class="btn btn-sm btn-outline-primary" href="' + esc(resp.url) + '" target="_blank"><i class="fa fa-arrow-up-right-from-square me-1"></i>Abrir</a>'
-          + '<button class="btn btn-sm btn-outline-secondary" type="button" data-regen><i class="fa fa-rotate me-1"></i>Regenerar</button>'
-          + '<button class="btn btn-sm btn-outline-danger" type="button" data-revoke><i class="fa fa-ban me-1"></i>Anular</button></div>';
-        body.querySelector('[data-copy]').addEventListener('click', function () { var inp = body.querySelector('input'); inp.select(); try { if (navigator.clipboard) navigator.clipboard.writeText(resp.url); else document.execCommand('copy'); } catch (_) {} this.innerHTML = '<i class="fa fa-check"></i>'; });
-        body.querySelector('[data-regen]').addEventListener('click', function () { if (!confirm('¿Regenerar el enlace? El anterior dejará de funcionar.')) return; act('regenerate'); });
-        body.querySelector('[data-revoke]').addEventListener('click', function () { if (!confirm('¿Anular el enlace? Dejará de funcionar.')) return; act('revoke'); });
+      var activos = (P.kinds && typeof P.kinds === 'object') ? P.kinds : { GENERAL: true, TECNICA: true };
+      var disponibles = RM_KINDS.filter(function (k) { return activos[k[0]] !== false; });
+      if (!disponibles.length) {
+        openModal('rmShareModal', 'modal-md', 'Compartir hoja de ruta',
+          '<div class="text-muted">Esta actividad no tiene ninguna hoja de ruta activada. Actívala en la ficha para poder compartirla.</div>', []);
+        return;
       }
-      function act(action) { body.innerHTML = '<div class="text-muted small">Un momento…</div>'; postJson(ep('/enlace'), { action: action }).then(render); }
-      act('ensure');
+      var html = '<div class="text-muted small mb-2">Enlace de <strong>solo lectura</strong>: se ve todo y se pueden descargar los adjuntos, sin poder editar nada.</div>';
+      disponibles.forEach(function (k) {
+        html += '<div class="border rounded p-2 mb-2" data-share-kind="' + k[0] + '">'
+          + '<div class="fw-semibold small mb-1"><i class="fa ' + k[2] + ' me-1"></i>' + esc(k[1]) + '</div>'
+          + '<div data-share-body class="small">Cargando…</div></div>';
+      });
+      var m = openModal('rmShareModal', 'modal-md', 'Compartir hoja de ruta', html, []);
+
+      disponibles.forEach(function (k) {
+        var box = m.querySelector('[data-share-kind="' + k[0] + '"]');
+        var body = box.querySelector('[data-share-body]');
+        function render(resp) {
+          if (!resp || !resp.ok) { body.innerHTML = '<div class="text-danger">No se pudo generar el enlace.</div>'; return; }
+          if (!resp.url) {
+            body.innerHTML = '<div class="mb-2 text-muted">No hay ningún enlace activo.</div>';
+            body.appendChild(btn('Generar enlace', 'btn-primary btn-sm', function () { act('ensure'); }));
+            return;
+          }
+          body.innerHTML = '<div class="input-group input-group-sm mb-2"><input class="form-control" readonly value="' + esc(resp.url) + '"><button class="btn btn-outline-secondary" type="button" data-copy><i class="fa fa-copy"></i></button></div>'
+            + '<div class="d-flex gap-2 flex-wrap"><a class="btn btn-sm btn-outline-primary" href="' + esc(resp.url) + '" target="_blank"><i class="fa fa-arrow-up-right-from-square me-1"></i>Abrir</a>'
+            + '<button class="btn btn-sm btn-outline-secondary" type="button" data-regen><i class="fa fa-rotate me-1"></i>Regenerar</button>'
+            + '<button class="btn btn-sm btn-outline-danger" type="button" data-revoke><i class="fa fa-ban me-1"></i>Anular</button></div>';
+          body.querySelector('[data-copy]').addEventListener('click', function () { var inp = body.querySelector('input'); inp.select(); try { if (navigator.clipboard) navigator.clipboard.writeText(resp.url); else document.execCommand('copy'); } catch (_) {} this.innerHTML = '<i class="fa fa-check"></i>'; });
+          body.querySelector('[data-regen]').addEventListener('click', function () { if (!confirm('¿Regenerar el enlace? El anterior dejará de funcionar.')) return; act('regenerate'); });
+          body.querySelector('[data-revoke]').addEventListener('click', function () { if (!confirm('¿Anular el enlace? Dejará de funcionar.')) return; act('revoke'); });
+        }
+        function act(action) { body.innerHTML = '<div class="text-muted small">Un momento…</div>'; postJson(ep('/enlace'), { action: action, kind: k[0] }).then(render); }
+        act('ensure');
+      });
     }
 
     // ================================================================ CONFIGURAR DÍAS

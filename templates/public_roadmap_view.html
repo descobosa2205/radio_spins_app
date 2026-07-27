@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Hoja de ruta · {{ title }}</title>
+  <title>{{ roadmap_kind_label }} · {{ title }}</title>
   <meta property="og:type" content="website">
-  <meta property="og:title" content="Hoja de ruta · {{ title }}">
+  <meta property="og:title" content="{{ roadmap_kind_label }} · {{ title }}">
   {% if og and og.description %}<meta property="og:description" content="{{ og.description }}"><meta name="twitter:description" content="{{ og.description }}">{% endif %}
   {% set _og_img = (og.image if og else '') or artist_photo %}
   {% if _og_img %}<meta property="og:image" content="{{ _og_img }}"><meta name="twitter:image" content="{{ _og_img }}">{% endif %}
@@ -26,6 +26,7 @@
             {% if artist_label and artist_label != title %}<div class="text-muted">{{ artist_label }}</div>{% endif %}
           </div>
         </div>
+        <span class="badge text-bg-light border py-2"><i class="fa {{ "fa-sliders" if roadmap_kind == "TECNICA" else "fa-route" }} me-1 text-danger"></i>{{ roadmap_kind_label }}</span>
         <span class="badge text-bg-light border py-2"><i class="fa fa-eye me-1 text-danger"></i>Solo lectura</span>
       </div>
       <h2 class="text-center h5 mb-3 text-muted">Hoja de ruta</h2>

@@ -930,6 +930,20 @@
 
           {# ============================ PASO 11 (direct) · Estado + anuncio ============================ #}
           <section class="wizard-step" data-step="11" data-mode="direct">
+            {# Hojas de ruta que tendrá la actividad: etiquetas, las dos activas por defecto. #}
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-route"></i>Hojas de ruta</div>
+              <div class="wizard-card__hint">Cada una se comparte con su propio enlace. Desmarca la que no vaya a hacer falta.</div>
+              <input type="hidden" name="roadmap_kinds_present" value="1">
+              <div class="filter-chips">
+                {% for key, label, icon in ROADMAP_KINDS %}
+                  <label class="filter-chip">
+                    <input type="checkbox" name="roadmap_kinds" value="{{ key }}" checked>
+                    <i class="fa {{ icon }}"></i>{{ label }}
+                  </label>
+                {% endfor %}
+              </div>
+            </div>
             <div class="wizard-card">
               <div class="wizard-card__title"><i class="fa fa-flag"></i>Estado de la actividad</div>
               <div class="row g-2">

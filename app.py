@@ -34824,6 +34824,9 @@ def concert_wizard_create():
         # Personas de contacto elegidas en el asistente (producción / ticketing / comunicación).
         _replace_concert_contacts(session, concert.id, _parse_concert_contacts_form(request.form))
 
+        # Hojas de ruta que tendrá la actividad (general / técnica). Por defecto, las dos.
+        _set_roadmap_kinds(concert, _parse_roadmap_kinds_form(request.form))
+
         # Vínculo opcional a una gira comprada / ciclo o festival (paso del asistente).
         _ptid = (request.form.get('wizard_purchased_tour_id') or '').strip()
         _cfid = (request.form.get('wizard_cycle_festival_id') or '').strip()
@@ -39741,8 +39744,50 @@ def roadmap_days_save(entity_type, entity_id):
         session_db.close()
 
 
-def _ensure_roadmap_token(session_db, row) -> str:
-    """Devuelve el token público de la hoja de ruta, creándolo si no existe."""
+# ---------- Hoja de ruta GENERAL y TÉCNICA ----------
+# Cada actividad marca qué hojas de ruta tiene (por defecto las dos). Cada una se comparte con su
+# propio enlace: la general usa el token de siempre y la técnica uno propio en el payload, para no
+# tocar el esquema de las tres entidades que tienen hoja de ruta.
+ROADMAP_KINDS = [("GENERAL", "Hoja de ruta general", "fa-route"),
+                 ("TECNICA", "Hoja de ruta técnica", "fa-sliders")]
+ROADMAP_KIND_LABELS = {k: l for k, l, _i in ROADMAP_KINDS}
+
+
+def _roadmap_kinds(row) -> dict:
+    """Qué hojas de ruta tiene activas la actividad. Sin nada guardado, las DOS."""
+    pay = getattr(row, "roadmap_payload", None)
+    pay = pay if isinstance(pay, dict) else {}
+    saved = pay.get("kinds")
+    if not isinstance(saved, dict):
+        return {k: True for k, _l, _i in ROADMAP_KINDS}
+    return {k: bool(saved.get(k, True)) for k, _l, _i in ROADMAP_KINDS}
+
+
+def _set_roadmap_kinds(row, kinds: dict) -> None:
+    pay = dict(getattr(row, "roadmap_payload", None) or {})
+    pay["kinds"] = {k: bool(kinds.get(k)) for k, _l, _i in ROADMAP_KINDS}
+    row.roadmap_payload = pay
+
+
+def _parse_roadmap_kinds_form(form) -> dict:
+    """Etiquetas del formulario. Si el formulario no las trae (altas antiguas), las dos activas."""
+    if not form.get("roadmap_kinds_present"):
+        return {k: True for k, _l, _i in ROADMAP_KINDS}
+    picked = {(v or "").strip().upper() for v in form.getlist("roadmap_kinds")}
+    return {k: (k in picked) for k, _l, _i in ROADMAP_KINDS}
+
+
+def _ensure_roadmap_token(session_db, row, kind: str = "GENERAL") -> str:
+    """Devuelve el token público de la hoja de ruta pedida, creándolo si no existe."""
+    if (kind or "GENERAL").upper() == "TECNICA":
+        pay = dict(getattr(row, "roadmap_payload", None) or {})
+        token = (pay.get("tech_token") or "").strip()
+        if not token:
+            token = _uuid_token()
+            pay["tech_token"] = token
+            row.roadmap_payload = pay
+            session_db.flush()
+        return token
     token = (getattr(row, "roadmap_public_token", None) or "").strip()
     if not token:
         token = _uuid_token()
@@ -39752,20 +39797,28 @@ def _ensure_roadmap_token(session_db, row) -> str:
 
 
 def _roadmap_by_token(session_db, token: str):
-    """Busca la entidad (concert/action/promotion) por su token público de hoja de ruta."""
+    """Busca la entidad (concert/action/promotion) por su token público de hoja de ruta.
+
+    Devuelve (fila, tipo, clase) — la clase es GENERAL o TECNICA según con qué enlace se entra."""
     token = (token or "").strip()
     if not token:
-        return None, None
-    row = session_db.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue)).filter(Concert.roadmap_public_token == token).first()
-    if row:
-        return row, "concert"
-    row = session_db.query(CompanyAction).options(joinedload(CompanyAction.venue)).filter(CompanyAction.roadmap_public_token == token).first()
-    if row:
-        return row, "action"
-    row = session_db.query(Promotion).options(joinedload(Promotion.company)).filter(Promotion.roadmap_public_token == token).first()
-    if row:
-        return row, "promotion"
-    return None, None
+        return None, None, "GENERAL"
+    for model, kind, opts in (
+        (Concert, "concert", (joinedload(Concert.artist), joinedload(Concert.venue))),
+        (CompanyAction, "action", (joinedload(CompanyAction.venue),)),
+        (Promotion, "promotion", (joinedload(Promotion.company),)),
+    ):
+        row = session_db.query(model).options(*opts).filter(model.roadmap_public_token == token).first()
+        if row:
+            return row, kind, "GENERAL"
+        row = (
+            session_db.query(model).options(*opts)
+            .filter(model.roadmap_payload["tech_token"].astext == token)
+            .first()
+        )
+        if row:
+            return row, kind, "TECNICA"
+    return None, None, "GENERAL"
 
 
 @app.post('/hoja-ruta/<entity_type>/<entity_id>/enlace', endpoint='roadmap_public_link')
@@ -39781,15 +39834,29 @@ def roadmap_public_link(entity_type, entity_id):
             abort(404)
         data = request.get_json(silent=True) or {}
         action = (data.get("action") or "ensure").strip().lower()
+        kind = (data.get("kind") or "GENERAL").strip().upper()
+        if kind not in ROADMAP_KIND_LABELS:
+            kind = "GENERAL"
+        is_tech = kind == "TECNICA"
         if action == "revoke":
-            row.roadmap_public_token = None
+            if is_tech:
+                _pay = dict(getattr(row, "roadmap_payload", None) or {})
+                _pay.pop("tech_token", None)
+                row.roadmap_payload = _pay
+            else:
+                row.roadmap_public_token = None
             session_db.commit()
-            return jsonify({"ok": True, "url": "", "token": ""})
+            return jsonify({"ok": True, "url": "", "token": "", "kind": kind})
         if action == "regenerate":
-            row.roadmap_public_token = _uuid_token()
-        token = _ensure_roadmap_token(session_db, row)
+            if is_tech:
+                _pay = dict(getattr(row, "roadmap_payload", None) or {})
+                _pay["tech_token"] = _uuid_token()
+                row.roadmap_payload = _pay
+            else:
+                row.roadmap_public_token = _uuid_token()
+        token = _ensure_roadmap_token(session_db, row, kind)
         session_db.commit()
-        return jsonify({"ok": True, "url": _external_url_for("public_roadmap_view", token=token), "token": token})
+        return jsonify({"ok": True, "url": _external_url_for("public_roadmap_view", token=token), "token": token, "kind": kind})
     except Exception as exc:
         session_db.rollback()
         return jsonify({"ok": False, "error": str(exc)}), 400
@@ -39803,11 +39870,16 @@ def public_roadmap_view(token):
     información y descargar los adjuntos, sin poder editar nada."""
     session_db = db()
     try:
-        row, entity_type = _roadmap_by_token(session_db, token)
+        row, entity_type, roadmap_kind = _roadmap_by_token(session_db, token)
         if not row:
+            abort(404)
+        # Si esa hoja de ruta se ha desactivado en la actividad, el enlace deja de servir.
+        if not _roadmap_kinds(row).get(roadmap_kind, True):
             abort(404)
         ctx = _roadmap_context(session_db, entity_type, row)
         ctx["readonly"] = True
+        ctx["kind"] = roadmap_kind
+        ctx["kind_label"] = ROADMAP_KIND_LABELS.get(roadmap_kind, "Hoja de ruta")
         artists = _artists_from_ids(session_db, _roadmap_artist_ids(row))
         title = ctx.get("title") or "Hoja de ruta"
         # Previsualización (og): cartel principal / foto del artista + 2ª fila con los detalles.
@@ -39831,6 +39903,8 @@ def public_roadmap_view(token):
         return render_template(
             'public_roadmap_view.html',
             rm=ctx,
+            roadmap_kind=roadmap_kind,
+            roadmap_kind_label=ROADMAP_KIND_LABELS.get(roadmap_kind, "Hoja de ruta"),
             title=title,
             artist_label=ctx.get("artist_label") or "",
             artist_photo=(getattr(artists[0], "photo_url", "") if artists else ""),
@@ -41856,6 +41930,7 @@ def inject_personnel_globals():
         # Catálogos del asistente de actividad y de la ficha (cartelería / gastos del promotor).
         "ARTWORK_FORMAT_CHOICES": ARTWORK_FORMAT_CHOICES,
         "ARTWORK_VIDEO_FORMAT_CHOICES": ARTWORK_VIDEO_FORMAT_CHOICES,
+        "ROADMAP_KINDS": ROADMAP_KINDS,
         "PROMOTER_COST_ITEMS": PROMOTER_COST_ITEMS,
         "SECTION_STATS": _section_stats_counts() if request.endpoint in {"promocion_view", "marketing_view", "administracion_view", "contabilidad_view", "produccion_view", "acciones_view", "action_detail_view", "personnel_view", "invitations_view", "invitation_event_detail"} and session.get("user_id") else {},
         "has_access_key": has_access_key,

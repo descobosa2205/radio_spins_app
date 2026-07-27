@@ -669,86 +669,161 @@
 
 {# ===================== FACTURACIÓN ===================== #}
 {% if active_tab == 'facturacion' %}
-  <div class="card mb-3">
-    <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
-      <div>
-        <h5 class="mb-0">Pagos pendientes de facturar o cobrar</h5>
-        <div class="text-muted small">Se listan los conciertos con pagos pendientes. Cuando un pago ya está cobrado desaparece automáticamente del listado.</div>
+  {% set PST_META = {
+    'PENDING_INVOICE': {'label':'Por facturar','icon':'fa-file-circle-plus','dot':'#1d4ed8'},
+    'PENDING_COLLECTION': {'label':'Por cobrar','icon':'fa-hourglass-half','dot':'#7a5b00'},
+    'COLLECTED': {'label':'Cobrado','icon':'fa-circle-check','dot':'#0f5132'}
+  } %}
+  {% set PS = f_pay_status or [] %}
+  {% set BC = f_bill_companies or [] %}
+
+  {# ---------- Contador del año: total facturado por empresa del grupo, en una sola fila ---------- #}
+  <div class="bill-counter mb-3">
+    <div class="bill-counter__title"><i class="fa fa-file-invoice-dollar"></i>Facturado en {{ billing_year }}</div>
+    {% if billing_company_totals %}
+      <div class="bill-counter__row">
+        {% for co in billing_company_totals %}
+          <div class="bill-pill" title="{{ co.name }} · cobrado {{ co.collected|eur }}">
+            {% if co.logo_url %}<img src="{{ co.logo_url }}" alt="{{ co.name }}">
+            {% else %}<span class="bill-pill__ph"><i class="fa fa-building"></i></span>{% endif %}
+            <span class="bill-pill__body">
+              <span class="bill-pill__name">{{ co.name }}</span>
+              <span class="bill-pill__amount">{{ co.invoiced|eur }}</span>
+            </span>
+          </div>
+        {% endfor %}
       </div>
-      <span class="badge text-bg-primary">{{ billing_items|length }} concierto(s)</span>
-    </div>
+    {% else %}
+      <div class="text-muted small">Todavía no hay nada facturado este año.</div>
+    {% endif %}
   </div>
 
-  {% if billing_items %}
-    {% for item in billing_items %}
-      {% set c = item.concert %}
-      <div class="card mb-3" id="billing-{{ c.id }}">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
-            <div class="d-flex gap-3 align-items-start flex-grow-1">
-              <img src="{{ (c.artist.photo_url if c.artist else None) or url_for('static', filename='img/logo.png') }}" alt="" style="width:58px;height:58px;border-radius:50%;object-fit:cover;">
-              <div class="flex-grow-1">
-                <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
-                  <a class="fw-semibold text-decoration-none" href="{{ url_for('concert_detail_view', cid=c.id) }}">{{ c.artist.name if c.artist else 'Concierto' }}</a>
-                  {% if c.artist %}{{ linked_mini('artist', c.artist.id) }}{% endif %}
-                  <span class="badge text-bg-light border">{{ c.sale_type_label or c.sale_type }}</span>
-                  {% if c.festival_name %}<span class="badge badge-festival">{{ c.festival_name }}</span>{% endif %}
+  {# ---------- Filtros con pastillas, como en el resto de la app ---------- #}
+  <form method="get" action="{{ url_for('concerts_view') }}" class="mb-3">
+    <input type="hidden" name="tab" value="facturacion">
+    <div class="filter-panel">
+      <div class="filter-panel__body">
+        <div class="row g-2 align-items-end">
+          <div class="col-12 col-lg-5">
+            <label class="form-label mb-1 fw-semibold"><i class="fa fa-users me-1 text-danger"></i>Artistas</label>
+            <select name="artist" class="form-select select-artists" multiple data-placeholder="Todos los artistas...">
+              {% for a in artists %}
+                <option value="{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}"
+                        {% if (a.id|string) in f_artist_ids %}selected{% endif %}>{{ a.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12 col-lg-7">
+            <div class="filter-label"><i class="fa fa-flag"></i>Estado del pago</div>
+            <div class="filter-chips">
+              {% for key, label, icon in billing_payment_status_choices %}
+                <label class="filter-chip">
+                  <input type="checkbox" name="pstatus" value="{{ key }}" {% if key in PS %}checked{% endif %}>
+                  <span class="filter-dot" style="background: {{ PST_META[key].dot }};"></span>
+                  <i class="fa {{ icon }}"></i>{{ label }}
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+        <div class="filter-group">
+          <div class="filter-label"><i class="fa fa-building"></i>Empresa que factura</div>
+          <div class="filter-chips">
+            {% for co in billing_companies %}
+              <label class="filter-chip">
+                <input type="checkbox" name="bcompany" value="{{ co.id }}" {% if (co.id|string) in BC %}checked{% endif %}>
+                {% if co.logo_url %}<img src="{{ co.logo_url }}" alt="" style="height:18px;max-width:54px;object-fit:contain;">{% else %}<i class="fa fa-building"></i>{% endif %}
+                {{ co.name }}
+              </label>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="d-flex justify-content-end gap-2 mt-3">
+          <a class="btn btn-outline-secondary" href="{{ url_for('concerts_view', tab='facturacion') }}">Limpiar</a>
+          <button class="btn btn-danger" type="submit"><i class="fa fa-eye me-1"></i>Ver</button>
+        </div>
+      </div>
+    </div>
+  </form>
+
+  {# ---------- Listado agrupado por artista, al estilo del de cuadrantes ---------- #}
+  {% if billing_groups %}
+    {% for g in billing_groups %}
+      <div class="card mb-3">
+        <div class="card-header bg-white d-flex align-items-center gap-2 flex-wrap">
+          {{ artist_chip(g.artist_name, g.artist_photo, artist_id=(g.artist_id or None)) }}
+          <span class="badge text-bg-light border">{{ g['items']|length }} actividad{{ '' if g['items']|length == 1 else 'es' }}</span>
+          <span class="ms-auto d-flex gap-2 flex-wrap">
+            {% if g.pending_total %}<span class="badge text-bg-warning text-dark">Pendiente: {{ g.pending_total|eur }}</span>{% endif %}
+            <span class="badge text-bg-light border">Total mostrado: {{ g.shown_total|eur }}</span>
+          </span>
+        </div>
+        <div class="list-group list-group-flush">
+          {% for item in g['items'] %}
+            {% set c = item.concert %}
+            <div class="list-group-item" id="billing-{{ c.id }}">
+              <div class="d-flex align-items-center gap-3 flex-wrap">
+                <div class="text-center flex-shrink-0" style="width:52px;">
+                  {% if c.date %}<div class="fw-bold" style="font-size:1.1rem;line-height:1;">{{ c.date.strftime('%d') }}</div><div class="small text-danger text-uppercase fw-semibold">{{ c.date.strftime('%b') }}</div><div class="small text-muted">{{ c.date.strftime('%Y') }}</div>{% else %}<i class="fa fa-calendar text-muted"></i>{% endif %}
                 </div>
-                <div class="text-muted small mb-2">
-                  {{ c.date.strftime('%d/%m/%Y') if c.date else '—' }}
-                  {% if c.venue %} · {{ c.venue.municipality }} · {{ c.venue.province }} · {{ c.venue.name }}
-                  {% elif c.manual_municipality or c.manual_province or c.manual_venue_name %} · {{ c.manual_municipality }} · {{ c.manual_province }}{% if c.manual_venue_name %} · {{ c.manual_venue_name }}{% endif %}
-                  {% endif %}
+                <div class="flex-grow-1" style="min-width:0;">
+                  <div class="fw-semibold text-truncate">
+                    <a class="text-reset text-decoration-none" href="{{ url_for('concert_detail_view', cid=c.id) }}">{{ c.festival_name or (c.venue.name if c.venue else 'Actividad') }}</a>
+                  </div>
+                  <div class="small text-muted text-truncate">{{ c.location_summary or '' }}</div>
                 </div>
-                <div class="d-flex flex-wrap gap-2">
-                  <span class="badge text-bg-light border">Ingreso total: {{ item.income_total|eur }}</span>
-                  <span class="badge text-bg-primary">Pendiente: {{ item.pending_total|eur }}</span>
-                </div>
+                {% if c.billing_company %}
+                  <span class="badge text-bg-light border d-inline-flex align-items-center gap-1">
+                    {% if c.billing_company.logo_url %}<img src="{{ c.billing_company.logo_url }}" alt="" style="height:16px;max-width:52px;object-fit:contain;">{% else %}<i class="fa fa-building"></i>{% endif %}
+                    {{ c.billing_company.name }}
+                  </span>
+                {% endif %}
+                <span class="badge text-bg-light border">{{ c.sale_type_label or c.sale_type }}</span>
+                {% if item.pending_total %}<span class="badge text-bg-warning text-dark">Pendiente: {{ item.pending_total|eur }}</span>{% endif %}
+              </div>
+
+              <div class="table-responsive mt-2">
+                <table class="table table-sm align-middle mb-0">
+                  <thead class="table-light"><tr><th>Pago</th><th class="text-end">Importe</th><th>Vencimiento</th><th>Estado</th><th class="text-end">Acciones</th></tr></thead>
+                  <tbody>
+                    {% for row in item.payment_rows %}
+                      <tr>
+                        <td>
+                          <div class="fw-semibold">{{ row.concept }}</div>
+                          {% if row.invoice_url %}<a href="{{ row.invoice_url }}" target="_blank" class="small">{{ row.invoice_name or 'Factura' }}</a>{% endif %}
+                        </td>
+                        <td class="text-end">{{ row.amount|eur }}</td>
+                        <td>{{ row.due_date or '—' }}</td>
+                        <td><span class="badge {{ row.badge.class }}">{{ row.badge.label }}</span></td>
+                        <td class="text-end">
+                          <div class="d-flex justify-content-end gap-2 flex-wrap">
+                            {% if row.can_upload_invoice %}
+                              <form method="post" action="{{ url_for('concert_payment_upload_invoice', cid=c.id, payment_idx=row.idx) }}" enctype="multipart/form-data" class="d-inline invoice-upload-form">
+                                <input type="hidden" name="next" value="{{ request.full_path }}#billing-{{ c.id }}">
+                                <input type="file" name="invoice_file" accept="application/pdf" class="d-none invoice-file-input">
+                                <button type="button" class="btn btn-sm btn-outline-primary trigger-invoice-upload">Subir factura</button>
+                              </form>
+                            {% endif %}
+                            {% if row.can_mark_collected %}
+                              <form method="post" action="{{ url_for('concert_payment_mark_collected', cid=c.id, payment_idx=row.idx) }}" class="d-inline">
+                                <input type="hidden" name="next" value="{{ request.full_path }}#billing-{{ c.id }}">
+                                <button class="btn btn-sm btn-outline-success">Marcar cobrado</button>
+                              </form>
+                            {% endif %}
+                          </div>
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
               </div>
             </div>
-            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_detail_view', cid=c.id) }}">Abrir ficha</a>
-          </div>
-
-          <div class="table-responsive mt-3">
-            <table class="table align-middle mb-0">
-              <thead class="table-light"><tr><th>Pago pendiente</th><th class="text-end">Importe</th><th>Vencimiento</th><th>Estado</th><th class="text-end">Acciones</th></tr></thead>
-              <tbody>
-                {% for row in item.payment_rows %}
-                  <tr>
-                    <td>
-                      <div class="fw-semibold">{{ row.concept }}</div>
-                      {% if row.invoice_url %}<a href="{{ row.invoice_url }}" target="_blank" class="small">{{ row.invoice_name or 'Factura' }}</a>{% endif %}
-                    </td>
-                    <td class="text-end">{{ row.amount|eur }}</td>
-                    <td>{{ row.due_date or '—' }}</td>
-                    <td><span class="badge {{ row.badge.class }}">{{ row.badge.label }}</span></td>
-                    <td class="text-end">
-                      <div class="d-flex justify-content-end gap-2 flex-wrap">
-                        {% if row.can_upload_invoice %}
-                          <form method="post" action="{{ url_for('concert_payment_upload_invoice', cid=c.id, payment_idx=row.idx) }}" enctype="multipart/form-data" class="d-inline invoice-upload-form">
-                            <input type="hidden" name="next" value="{{ url_for('concerts_view', tab='facturacion') }}#billing-{{ c.id }}">
-                            <input type="file" name="invoice_file" accept="application/pdf" class="d-none invoice-file-input">
-                            <button type="button" class="btn btn-sm btn-outline-primary trigger-invoice-upload">Subir factura</button>
-                          </form>
-                        {% endif %}
-                        {% if row.can_mark_collected %}
-                          <form method="post" action="{{ url_for('concert_payment_mark_collected', cid=c.id, payment_idx=row.idx) }}" class="d-inline">
-                            <input type="hidden" name="next" value="{{ url_for('concerts_view', tab='facturacion') }}#billing-{{ c.id }}">
-                            <button class="btn btn-sm btn-outline-success">Marcar cobrado</button>
-                          </form>
-                        {% endif %}
-                      </div>
-                    </td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
+          {% endfor %}
         </div>
       </div>
     {% endfor %}
   {% else %}
-    <div class="alert alert-light border">No hay pagos pendientes de facturar o cobrar.</div>
+    <div class="alert alert-light border">No hay pagos con estos filtros.</div>
   {% endif %}
 {% endif %}
 

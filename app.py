@@ -2969,6 +2969,69 @@ def _concert_payment_total(concert: Concert | None, pending_only: bool = False) 
     return sum(float(x.get('amount') or 0) for x in rows)
 
 
+# ---------- Facturación de Contratación: estados de pago, agrupación y contador anual ----------
+BILLING_PAYMENT_STATUS_CHOICES = [
+    ("PENDING_INVOICE", "Por facturar", "fa-file-circle-plus"),
+    ("PENDING_COLLECTION", "Por cobrar", "fa-hourglass-half"),
+    ("COLLECTED", "Cobrado", "fa-circle-check"),
+]
+BILLING_PAYMENT_STATUSES = {k for k, _l, _i in BILLING_PAYMENT_STATUS_CHOICES}
+
+
+def _billing_group_by_artist(items: list[dict]) -> list[dict]:
+    """Agrupa las actividades por ARTISTA, como el listado de cuadrantes."""
+    groups: dict = {}
+    for it in items:
+        c = it["concert"]
+        artist = getattr(c, "artist", None)
+        key = str(getattr(c, "artist_id", "") or "sin")
+        g = groups.get(key)
+        if not g:
+            g = {
+                "artist_id": (str(c.artist_id) if getattr(c, "artist_id", None) else ""),
+                "artist_name": (getattr(artist, "name", None) or "Sin artista"),
+                "artist_photo": (getattr(artist, "photo_url", None) or ""),
+                "items": [], "pending_total": 0.0, "shown_total": 0.0,
+            }
+            groups[key] = g
+        g["items"].append(it)
+        g["pending_total"] += float(it.get("pending_total") or 0)
+        g["shown_total"] += float(it.get("shown_total") or 0)
+    out = list(groups.values())
+    out.sort(key=lambda g: (g["artist_name"] or "").lower())
+    return out
+
+
+def _billing_year_by_company(session_db, year: int) -> list[dict]:
+    """Total FACTURADO en el año por empresa del grupo: los pagos que ya se han facturado
+    (esperando cobro o ya cobrados) de las actividades de ese año."""
+    concerts = (
+        session_db.query(Concert)
+        .options(joinedload(Concert.billing_company))
+        .filter(func.extract("year", Concert.date) == year)
+        .filter(Concert.billing_company_id.isnot(None))
+        .all()
+    )
+    acc: dict = {}
+    for c in concerts:
+        company = getattr(c, "billing_company", None)
+        if company is None:
+            continue
+        key = str(company.id)
+        slot = acc.setdefault(key, {
+            "id": key, "name": company.name or "", "logo_url": company.logo_url or "",
+            "invoiced": 0.0, "collected": 0.0,
+        })
+        for row in _concert_payment_rows(c, pending_only=False):
+            if row["status"] in ("PENDING_COLLECTION", "COLLECTED"):
+                slot["invoiced"] += float(row.get("amount") or 0)
+            if row["status"] == "COLLECTED":
+                slot["collected"] += float(row.get("amount") or 0)
+    out = [v for v in acc.values() if v["invoiced"]]
+    out.sort(key=lambda x: -x["invoiced"])
+    return out
+
+
 def _concert_billing_sort_key(concert: Concert | None, today: date | None = None):
     today = today or today_local()
     if not concert or not getattr(concert, 'date', None):
@@ -26858,18 +26921,33 @@ def concerts_page():
             setattr(c, 'contract_sheet_status', _contract_sheet_status(getattr(c, 'contract_sheet', None)))
             setattr(c, 'location_summary', _concert_location_summary(c))
 
+        # ---------- FACTURACIÓN ----------
+        # Filtros propios de la pestaña: estado del pago y empresa del grupo que factura.
+        f_pay_status = [(x or '').strip().upper() for x in request.args.getlist('pstatus') if (x or '').strip()]
+        f_pay_status = [x for x in f_pay_status if x in BILLING_PAYMENT_STATUSES]
+        if not f_pay_status:
+            f_pay_status = ['PENDING_INVOICE', 'PENDING_COLLECTION']   # lo que hay por hacer
+        f_bill_companies = [x for x in (to_uuid(v) for v in request.args.getlist('bcompany') if (v or '').strip()) if x]
+
         billing_items = []
         for c in concerts:
-            pending_rows = _concert_payment_rows(c, pending_only=True)
-            if not pending_rows:
+            if f_bill_companies and getattr(c, 'billing_company_id', None) not in f_bill_companies:
+                continue
+            rows = [r for r in _concert_payment_rows(c, pending_only=False) if r['status'] in f_pay_status]
+            if not rows:
                 continue
             billing_items.append({
                 'concert': c,
-                'payment_rows': pending_rows,
-                'pending_total': sum(float(x.get('amount') or 0) for x in pending_rows),
+                'payment_rows': rows,
+                'pending_total': sum(float(x.get('amount') or 0) for x in rows if x['status'] != 'COLLECTED'),
+                'shown_total': sum(float(x.get('amount') or 0) for x in rows),
                 'income_total': _concert_payment_total(c, pending_only=False),
             })
         billing_items.sort(key=lambda item: _concert_billing_sort_key(item['concert'], today))
+        billing_groups = _billing_group_by_artist(billing_items)
+        billing_year = today.year
+        billing_company_totals = _billing_year_by_company(s, billing_year)
+        billing_companies = s.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
 
         sections = {k: [] for k in CONCERTS_SECTION_ORDER}
         for c in concerts:
@@ -26963,6 +27041,13 @@ def concerts_page():
             companies=companies,
             concerts=concerts,
             billing_items=billing_items,
+            billing_groups=billing_groups,
+            billing_year=billing_year,
+            billing_company_totals=billing_company_totals,
+            billing_companies=billing_companies,
+            billing_payment_status_choices=BILLING_PAYMENT_STATUS_CHOICES,
+            f_pay_status=f_pay_status,
+            f_bill_companies=[str(x) for x in f_bill_companies],
             sections=sections,
             order=CONCERTS_SECTION_ORDER,
             titles=CONCERTS_SECTION_TITLE,

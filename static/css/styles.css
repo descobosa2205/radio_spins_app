@@ -2760,3 +2760,19 @@ img.docs-id__face { width:100%; height:100%; object-fit:cover; display:block; cu
 .ficha-summary--compact .fs-item--wide{ min-width:190px; }
 .ficha-summary--compact .fs-item__label{ font-size:.63rem; margin-bottom:.15rem; }
 .ficha-summary--compact .fs-item__value{ font-size:.86rem; }
+
+/* ===== Facturación (Contratación): contador anual por empresa del grupo ===== */
+.bill-counter{ border:1px solid var(--line-2,#e3e6eb); border-radius:16px; background:#fff; padding:.85rem 1rem;
+  box-shadow:var(--shadow-sm-2, 0 1px 2px rgba(20,25,35,.06)); }
+.bill-counter__title{ display:flex; align-items:center; gap:.45rem; font-size:.72rem; font-weight:700;
+  text-transform:uppercase; letter-spacing:.04em; color:var(--muted-2,#6c757d); margin-bottom:.6rem; }
+.bill-counter__title i{ color:var(--brand-primary,#E33D48); }
+/* Todas las empresas en UNA fila: si no caben, se desplaza en horizontal (no envuelve). */
+.bill-counter__row{ display:flex; gap:.6rem; overflow-x:auto; padding-bottom:.2rem; scrollbar-width:thin; }
+.bill-pill{ display:inline-flex; align-items:center; gap:.55rem; flex:0 0 auto;
+  border:1px solid var(--line-2,#e3e6eb); border-radius:999px; padding:.4rem .85rem .4rem .5rem; background:#fff; }
+.bill-pill img{ height:28px; max-width:64px; object-fit:contain; }
+.bill-pill__ph{ width:28px; height:28px; border-radius:50%; display:grid; place-items:center; background:#f1f3f5; color:#8b95a1; }
+.bill-pill__body{ display:flex; flex-direction:column; line-height:1.15; }
+.bill-pill__name{ font-size:.72rem; color:var(--muted-2,#6c757d); white-space:nowrap; }
+.bill-pill__amount{ font-weight:800; color:var(--ink,#18202b); white-space:nowrap; }

@@ -965,7 +965,7 @@
           + '<li><button class="dropdown-item text-danger" data-pdel="' + esc(row.personnel_id) + '"><i class="fa fa-trash fa-fw me-1"></i>Eliminar del personal</button></li></ul></div>';
         html += '<div class="rm-person align-items-center"><span class="av">' + avatar(row.photo_url) + '</span>'
           + '<div class="flex-grow-1 min-w-0"><div class="nm">' + esc(row.full_name || row.name) + '</div><div class="rl">' + esc(row.role || '') + (row.dni ? ' · ' + esc(row.dni) : '') + '</div><div class="mt-1">' + typeBadge + '</div></div>'
-          + '<div class="d-flex align-items-start gap-3 text-center me-1">' + prlIcon(row, 'alta', 'Alta') + prlIcon(row, 'informacion', 'Información') + prlIcon(row, 'formacion', 'Formación') + '</div>'
+          + '<div class="d-flex align-items-start gap-3 text-center me-1">' + prlIcon(row, 'alta', 'Alta') + prlIcon(row, 'informacion', 'Información') + prlIcon(row, 'formacion', 'Formación') + prlIcon(row, 'epis', 'EPIs') + ((row.renuncia_medico && row.renuncia_medico.required) ? prlIcon(row, 'renuncia_medico', 'Renuncia médico') : '') + '</div>'
           + menu + '</div>';
       });
       html += '</div>';
@@ -1044,6 +1044,8 @@
       });
     }
     function prlDocTypeFor(row, slotKey) {
+      if (slotKey === 'epis') return 'EPIS';
+      if (slotKey === 'renuncia_medico') return 'RENUNCIA_MEDICO';
       if (slotKey === 'informacion') return 'PRL_INFORMACION';
       if (slotKey === 'formacion') return 'PRL_FORMACION';
       return PRL_ALTA_BY_TYPE[row.worker_type] || '';

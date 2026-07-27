@@ -38299,6 +38299,10 @@ PRL_DOC_LABELS = {
     "ITA": "Informe de trabajadores en alta (ITA)",
     "PRL_FORMACION": "PRL · Formación",
     "PRL_INFORMACION": "PRL · Información de riesgos",
+    # Entrega de EPIs: sin caducidad. Renuncia al examen médico: caduca al año de su emisión y
+    # solo se le pide a quien va por cuenta ajena (alta puntual y personal de la oficina).
+    "EPIS": "Entrega de EPIs",
+    "RENUNCIA_MEDICO": "Renuncia al examen médico",
     # Certificados de facturación: CADUCAN CADA MES (solo valen para el mes en vigor).
     "CERT_AEAT": "Certificado de la Agencia Tributaria",
     "CERT_SS": "Certificado de corriente de pagos con la Seguridad Social",
@@ -38314,6 +38318,9 @@ INVOICE_CERT_DOCS = [
 INVOICE_MONTHLY_CERTS = {"CERT_AEAT", "CERT_SS"}
 # Documento de «alta» que corresponde a cada tipo de trabajador.
 PRL_ALTA_DOC_BY_TYPE = {"AUTONOMO": "AUTONOMO_RECIBO", "PUNTUAL": "ALTA_SS", "EMPRESA": "ITA"}
+# La renuncia al examen médico solo se pide a quien va por CUENTA AJENA: alta puntual y el
+# personal propio de la oficina. A autónomos y a empleados de otra empresa, no.
+PRL_MEDICAL_WAIVER_TYPES = {"PUNTUAL"}
 _PRL_MESES_ES = {"enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
                  "julio": 7, "agosto": 8, "septiembre": 9, "setiembre": 9, "octubre": 10,
                  "noviembre": 11, "diciembre": 12}
@@ -38409,13 +38416,53 @@ def _prl_detect(doc_type: str, text: str, event_date) -> dict:
                     detected = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
                 except ValueError:
                     detected = None
+        # BAJA: un alta puntual puede ser de varios días. Si el documento trae la fecha de baja,
+        # el alta cubre TODO el periodo (y sirve para cualquier evento que caiga dentro).
+        baja = None
+        mb = re.search(r"baja[^0-9]{0,80}?(\d{1,2})\s+de\s+([a-záéíóú]+)\s+de\s+(\d{4})", t, re.IGNORECASE)
+        if mb and _PRL_MESES_ES.get(mb.group(2).lower()):
+            try:
+                baja = date(int(mb.group(3)), _PRL_MESES_ES[mb.group(2).lower()], int(mb.group(1)))
+            except ValueError:
+                baja = None
+        if not baja:
+            mb = re.search(r"baja[^0-9]{0,60}?(\d{1,2})[\-/](\d{1,2})[\-/](\d{4})", t, re.IGNORECASE)
+            if mb:
+                try:
+                    baja = date(int(mb.group(3)), int(mb.group(2)), int(mb.group(1)))
+                except ValueError:
+                    baja = None
         if detected:
             out["valid_from"] = detected
-            out["valid_until"] = detected
+            out["valid_until"] = baja if (baja and baja >= detected) else detected
             out["meta"] = {"detected": True, "fecha_efectos": detected.isoformat()}
+            if baja and baja >= detected:
+                out["meta"]["fecha_baja"] = baja.isoformat()
             if event_date:
-                out["meta"]["match_event"] = (detected == event_date)
-    # Formación/Información: sin caducidad (valid_until NULL).
+                # Cuadra si la fecha del evento cae DENTRO del periodo de alta, no solo si es el
+                # mismo día: un alta de varios días cubre todo lo que pase en ese rango.
+                out["meta"]["match_event"] = (out["valid_from"] <= event_date <= out["valid_until"])
+    elif doc_type == "RENUNCIA_MEDICO":
+        # Caduca al año de la fecha de emisión que se detecte en el documento.
+        emitido = None
+        m = re.search(r"(\d{1,2})\s+de\s+([a-záéíóú]+)\s+de\s+(\d{4})", t, re.IGNORECASE)
+        if m and _PRL_MESES_ES.get(m.group(2).lower()):
+            try:
+                emitido = date(int(m.group(3)), _PRL_MESES_ES[m.group(2).lower()], int(m.group(1)))
+            except ValueError:
+                emitido = None
+        if not emitido:
+            m = re.search(r"(\d{1,2})[\-/](\d{1,2})[\-/](\d{4})", t)
+            if m:
+                try:
+                    emitido = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+                except ValueError:
+                    emitido = None
+        if emitido:
+            out["valid_from"] = emitido
+            out["valid_until"] = _add_months(emitido, 12) - timedelta(days=1)
+            out["meta"] = {"detected": True, "emitido": emitido.isoformat()}
+    # Formación/Información/EPIs: sin caducidad (valid_until NULL).
     return out
 
 
@@ -38465,7 +38512,11 @@ def _prl_person_status(session_db, concert, person: dict, event_date, ita_docs=N
         "worker_type": (getattr(promoter, "prl_type", None) or "") if promoter else "",
         "worker_type_label": "",
         "alta": {"ok": False, "doc": None}, "informacion": {"ok": False, "doc": None},
-        "formacion": {"ok": False, "doc": None}, "docs": [],
+        "formacion": {"ok": False, "doc": None},
+        # EPIs: a todo el mundo. Renuncia al examen médico: solo por cuenta ajena.
+        "epis": {"ok": False, "doc": None},
+        "renuncia_medico": {"ok": False, "doc": None, "required": False},
+        "docs": [],
     }
     row["worker_type_label"] = PRL_WORKER_TYPE_LABELS.get(row["worker_type"], "")
     if not promoter:
@@ -38474,7 +38525,8 @@ def _prl_person_status(session_db, concert, person: dict, event_date, ita_docs=N
             .filter(PersonComplianceDoc.owner_type == "PROMOTER", PersonComplianceDoc.owner_id == promoter.id)
             .order_by(PersonComplianceDoc.created_at.desc()).all())
     row["docs"] = [_prl_doc_json(d) for d in docs]
-    for slot, dt in (("informacion", "PRL_INFORMACION"), ("formacion", "PRL_FORMACION")):
+    for slot, dt in (("informacion", "PRL_INFORMACION"), ("formacion", "PRL_FORMACION"),
+                     ("epis", "EPIS"), ("renuncia_medico", "RENUNCIA_MEDICO")):
         for d in docs:
             if d.doc_type == dt:
                 if _prl_doc_valid_on(d, event_date):
@@ -38484,6 +38536,7 @@ def _prl_person_status(session_db, concert, person: dict, event_date, ita_docs=N
                 if row[slot]["ok"]:
                     break
     wt = row["worker_type"]
+    row["renuncia_medico"]["required"] = wt in PRL_MEDICAL_WAIVER_TYPES
     if wt == "AUTONOMO":
         for d in docs:
             if d.doc_type == "AUTONOMO_RECIBO":
@@ -38802,6 +38855,7 @@ def public_prl_upload(token):
             worker_type=worker_type if worker_type in PRL_ALTA_DOC_BY_TYPE else "",
             worker_types=PRL_WORKER_TYPES, doc_labels=PRL_DOC_LABELS,
             alta_doc_by_type=PRL_ALTA_DOC_BY_TYPE,
+            medical_waiver_types=sorted(PRL_MEDICAL_WAIVER_TYPES),
         )
     finally:
         session_db.close()

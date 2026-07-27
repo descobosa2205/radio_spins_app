@@ -31,13 +31,22 @@ Esta máquina solo trae Python 3.9 (la app usa sintaxis 3.10+), pero se puede mo
 # 1) Python 3.12 standalone (arm64) + deps:   /tmp/python  (ya montado si existe)
 curl -sL -o /tmp/cpython.tar.gz "https://github.com/astral-sh/python-build-standalone/releases/download/20250712/cpython-3.12.11+20250712-aarch64-apple-darwin-install_only.tar.gz" && tar xzf /tmp/cpython.tar.gz -C /tmp
 /tmp/python/bin/python3 -m pip install -r requirements.txt
-# 2) Postgres embebido (zonky, sin brew):   /tmp/pg16 + /tmp/pgdata, puerto 54329
-#    initdb -U postgres -A trust; pg_ctl start; CREATE DATABASE radiotest; CREATE EXTENSION "uuid-ossp";
+# 2) Postgres embebido (zonky, sin brew): bajar el JAR de embedded-postgres-binaries-darwin-arm64v8
+#    (repo1.maven.org), unzip → postgres-darwin-arm_64.txz → tar xf en /tmp/pg16.
+#    ⚠️ El paquete SOLO trae initdb/pg_ctl/postgres: NO hay psql ni pg_isready → usar psycopg2.
+#    initdb -D /tmp/pgdata -U postgres -A trust ; pg_ctl -D /tmp/pgdata -o "-p 54329" -l /tmp/pg.log start
+#    ⚠️ CREAR LA BD EN UTF-8 A MANO: sin LANG utf-8 el clúster sale SQL_ASCII y create_all revienta con
+#       UnicodeEncodeError en la primera 'ñ'  →  CREATE DATABASE radiotest ENCODING 'UTF8'
+#       LC_COLLATE 'C' LC_CTYPE 'C' TEMPLATE template0;  luego CREATE EXTENSION "uuid-ossp";
 # 3) Arrancar la app con BD de PRUEBA (¡nunca la real!):
 #    DATABASE_URL="postgresql://postgres@127.0.0.1:54329/radiotest?sslmode=disable" (config añade sslmode=require si falta)
-#    El esquema se crea al arrancar (hilo en background; para forzarlo síncrono llamar _bootstrap_schema_bg()).
-# 4) Sembrar usuario role 10 + artista/recinto/concierto vía modelos; login por curl con el token CSRF
-#    del <meta name="csrf-token"> (el form de login no lleva input csrf).
+#    ⚠️ Para APLICAR el esquema no vale borrar el cerrojo y llamar a _bootstrap_schema_bg(): el hilo
+#       demonio que arranca al importar `app` YA tiene el cerrojo y la llamada sale sin hacer nada.
+#       Hay que ESPERAR al hilo:  import app; [t.join() for t in threading.enumerate() if t is not main]
+#       (tarda >10 min; con ~158 tablas creadas ya se puede trabajar aunque se corte al final).
+# 4) Sembrar usuario role 10 + artista/recinto/concierto vía modelos (User exige password_hash);
+#    lo más cómodo es `app.test_client()` + `session_transaction()` en vez de login por curl.
+#    Para conceder permisos hace falta sembrar antes UserAccessResource desde CURATED_ACCESS_RESOURCES.
 # ⚠️ Los errores 500 muestran la página de MANTENIMIENTO (errorhandler 500 → maintenance.html):
 #    si el usuario dice «sale la página de cerrado por mantenimiento», es un 500 → buscar traceback en el log.
 ```
@@ -112,6 +121,11 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   DNI del ITA (`_prl_ita_link_people`). Las pantallas de **gestión** de personal (`/personal`,
   `/personal/accesos-bloque`) siguen mostrando a los bloqueados a propósito (hay que poder
   desbloquearlos y arreglarles los permisos); los eliminados no salen en ninguna.
+- **Menú superior (`_build_nav_menu`)**: el agrupamiento del menú es INDEPENDIENTE del árbol de
+  permisos. **Personal** y **Terceros** se muestran dentro del desplegable «Bases de datos» aunque
+  sus recursos sigan siendo las SECCIONES `personal` / `third_parties` (no `databases.*`).
+  ⚠️ No renombrar esas claves para «colocarlas» en el árbol: `_sync_access_resources` poda los
+  huérfanos **en cascada** y se llevaría por delante todos los permisos ya concedidos.
 - **Iconos de sección**: dict `SECTION_ICONS` en `app.py`, inyectado al contexto; usado en el menú
   (`layout.html`) y en permisos.
 - **Inicio · acciones rápidas por departamento**: botones bajo la cabecera del personal
@@ -274,6 +288,27 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   por fecha (precio medio · empate · beneficio potencial) y chinchetas del mapa numeradas por orden
   de fecha; el nombre por defecto de cada fecha es el municipio del recinto.
 - **Simulaciones — ajustes ago 2026**: números sueltos con punto de miles (`|k` en plantilla + `toLocaleString('es-ES')` en JS; importes ya con filtro `eur`). Gastos: cabecera de categoría (bocadillo) en **rojo corporativo** sobre franja clara; **arrastrar** un gasto entre categorías (HTML5 DnD, re-renderiza la fila en destino); categorías **ALOJAMIENTO/LOGISTICA/PERSONAL/MUSICOS** (`SIM_EXPENSE_QTY_CATEGORIES`) llevan **cantidad** → total = importe unitario · cantidad (`SimulationProductionItem.quantity`/`ExpenseTemplateItem.quantity`, el motor multiplica); nueva categoría **PERMISOS** «Permisos y licencias». En Gastos, las biñetas de resumen van a la derecha y el total es «Gasto Total:» destacado. Módulo de socios (`sim_partners.js`): tabla con columna **Participación**, nombre completo sin cortar, cabeceras a 2 líneas y filas altas; mismo módulo y **mismo título** («Socios: beneficio y riesgo») en Resumen/Socios/Resultado. Cabecera de fecha: la tarjeta central solo muestra la fecha (sin nombre).
+- **Simulaciones — conversión y archivado (jul 2026)**: convertir una simulación **vuelca** los datos,
+  no solo crea el contenedor. `simulation_convert` crea el destino (`PurchasedTour`/`CycleFestival`, o
+  nada en «concierto») y **una fecha simulada = un `Concert` real en BORRADOR** vía
+  `_simulation_dump_activity`: recinto, artista (`_sim_activity_artist_id`), empresa del grupo, aforo y
+  `ConcertTicketType` (`_sim_ticket_rows`, nombres únicos porque hay UNIQUE(concert_id,name) y en la
+  simulación se repite «General» en Pista/Grada), invitaciones en `ticketing_payload.ticket_types`
+  (de ahí las lee `_invitation_category_legacy_rows`), `ConcertCache` (`_sim_cache_rows`: los VARIABLE
+  se traducen a la `config.option` de la ficha —PCT_FROM_TICKETS / PCT_FROM_REVENUE /
+  FIXED_PER_TICKET_FROM— y los matices fiscales que el concierto no modela se guardan en `config`),
+  `ConcertZoneAgent` (`_sim_commission_rows`, un MEDIO se espeja a tercero con
+  `_ensure_promoter_for_media`), participaciones sobre **PROFIT** (`_sim_partner_share_rows`) y
+  `ConcertBudgetItem` (`_sim_budget_rows`). ⚠️ En `ConcertBudgetItem`, `amount_net`/`amount_gross` son
+  el **TOTAL** de la partida (así los suma la ficha); `quantity` es solo informativo — no multiplicar.
+  Los gastos del contenedor `is_shared` van a `payload.general.expenses` del grupo. `sale_type`:
+  GIRAS_COMPRADAS en gira, si no `_sim_sale_type` (PARTICIPADOS si hay socios de verdad).
+  **Archivado**: `Simulation.status='ARCHIVED'` + `settings['converted']` {kind,target_id,target_name,
+  concert_ids,at} (`_simulation_mark_converted`). El listado muestra por defecto solo las activas;
+  botón **«Ver archivadas»** (`?archivadas=1`) y, en los 3 puntitos, **Archivar/Restaurar**
+  (`simulation_archive`, archivar ≠ borrar). `_simulation_converted_info` resuelve el enlace a lo
+  creado y avisa si ya no existe. **Si no se pudo crear NINGUNA fecha** (todas por confirmar o sin
+  artista) se hace rollback: ni se archiva ni queda un contenedor vacío.
 - **Asistentes por pasos (UX)**: cuando se pincha una opción de un paso que **no requiere más datos**,
   **auto-avanzar** al siguiente paso sin pulsar "Siguiente" (menos clics). Implementado en el asistente
   de invitaciones (`invitaciones.html`, helpers `goStep`/`getStep`): pasos de artista, evento,

@@ -222,6 +222,92 @@
   <a class="btn {% if royalty_tab == 'afavor' %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="{{ url_for('discografica_view', section='royalties', s=royalty_semester_key, artist=royalty_selected_artist_id or None, roy_tab='afavor') }}"><i class="fa fa-hand-holding-dollar me-1"></i>A favor</a>
 </div>
 
+{# ---------- Selector de PERIODO (semestres), común a las tres pestañas ---------- #}
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div class="fw-semibold">Semestres</div>
+      <div class="small text-muted">Periodo activo: <span class="fw-semibold">{{ royalty_period_label }}</span></div>
+    </div>
+
+    <div class="d-flex align-items-center gap-2 mt-2">
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="royaltySemesterPrevBtn" onclick="scrollRoyaltySemesters(-1)">
+        <i class="fa fa-chevron-left"></i>
+      </button>
+      <div class="flex-grow-1 overflow-hidden">
+        <div class="d-flex flex-nowrap gap-2" id="royaltySemesterScroller" style="overflow:auto;scroll-behavior:smooth;">
+          {% for t in royalty_semester_tabs %}
+            <a class="btn btn-sm {% if t.is_active %}btn-dark{% else %}btn-outline-secondary{% endif %} flex-shrink-0" href="{{ t.url }}">{{ t.label }}</a>
+          {% endfor %}
+        </div>
+      </div>
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="royaltySemesterNextBtn" onclick="scrollRoyaltySemesters(1)">
+        <i class="fa fa-chevron-right"></i>
+      </button>
+    </div>
+  </div>
+</div>
+
+{% if royalty_filter_artists and (royalty_filter_artists|length) > 0 %}
+  <div class="card mb-3">
+    <div class="card-body">
+      <label class="form-label">Filtrar por artistas</label>
+      <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-sm {% if not royalty_selected_artist_id %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="{{ url_for('discografica_view', section='royalties', s=royalty_semester_key, roy_tab=royalty_tab) }}">Todos</a>
+        {% for artist in royalty_filter_artists %}
+          <a class="btn btn-sm d-inline-flex align-items-center gap-2 {% if royalty_selected_artist_id == (artist.id|string) %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="{{ url_for('discografica_view', section='royalties', s=royalty_semester_key, artist=artist.id, roy_tab=royalty_tab) }}">
+            <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-mini" alt="">
+            <span>{{ artist.name }}</span>
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+{% if royalty_tab != 'afavor' %}
+  {# Filtros de estado con la misma estética que los de invitaciones: chips pequeños con icono.
+     El backend rellena royalty_selected_statuses con TODOS cuando no se filtra, así que para saber
+     si hay filtro activo hay que mirar los argumentos de la petición. #}
+  {% set _roy_base = {'section': 'royalties', 's': royalty_semester_key, 'roy_tab': royalty_tab} %}
+  {% set _roy_status_args = request.args.getlist('roy_status') %}
+  <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+    <a class="badge text-bg-light border mg-filter-chip text-decoration-none {% if not _roy_status_args %}active{% endif %}"
+       href="{{ url_for('discografica_view', artist=royalty_selected_artist_id or None, **_roy_base) }}">Todas</a>
+    {% for value, label, icon in [('PENDING','Sin generar','fa-hourglass-half'),('GENERATED','Generadas','fa-file-lines'),('DOWNLOADED','Descargadas','fa-download'),('SENT','Enviadas','fa-paper-plane'),('INVOICED','Facturadas','fa-file-invoice'),('PAID','Pagadas','fa-circle-check')] %}
+      <a class="badge text-bg-light border mg-filter-chip text-decoration-none {% if value in _roy_status_args %}active{% endif %}"
+         href="{{ url_for('discografica_view', roy_status=value, artist=royalty_selected_artist_id or None, **_roy_base) }}"><i class="fa {{ icon }} me-1"></i>{{ label }}</a>
+    {% endfor %}
+    <span class="flex-grow-1"></span>
+    {% if CAN_EDIT_DISCOGRAFICA %}
+      {# Acciones en bloque, con la misma estética que los botones de cada liquidación:
+         mientras queden sin generar → «Generar todas»; cuando ya están todas → «Descargar todas»
+         (y al descargarlas quedan marcadas como descargadas). #}
+      {% if royalty_pending_generate %}
+        <form method="post" action="{{ url_for('royalty_liquidations_generate_all') }}">
+          <input type="hidden" name="s" value="{{ royalty_semester_key }}">
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <button class="btn btn-outline-primary btn-sm"><i class="fa fa-file-pdf me-1"></i>Generar todas <span class="badge text-bg-light border ms-1">{{ royalty_pending_generate }}</span></button>
+        </form>
+      {% else %}
+        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('royalty_liquidations_download_all', s=royalty_semester_key) }}"><i class="fa fa-download me-1"></i>Descargar todas{% if royalty_pending_send %} <span class="badge text-bg-light border ms-1">{{ royalty_pending_send }}</span>{% endif %}</a>
+      {% endif %}
+      <form method="post" action="{{ url_for('royalty_liquidations_send_all') }}" onsubmit="return confirm('Se enviarán por correo TODAS las liquidaciones que aún no se han enviado. ¿Continuar?');">
+        <input type="hidden" name="s" value="{{ royalty_semester_key }}">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <button class="btn btn-outline-success btn-sm"{% if not royalty_pending_send %} disabled title="No hay liquidaciones pendientes de enviar"{% endif %}><i class="fa fa-paper-plane me-1"></i>Enviar todas{% if royalty_pending_send %} <span class="badge text-bg-light border ms-1">{{ royalty_pending_send }}</span>{% endif %}</button>
+      </form>
+    {% endif %}
+  </div>
+{% endif %}
+
+<div class="card mb-3">
+  <div class="card-body">
+    <label class="form-label">Buscar</label>
+    <input type="search" class="form-control" id="royaltySearchInput" placeholder="Buscar por beneficiario, canción, álbum, código, etiqueta o periodo...">
+  </div>
+</div>
+
 {% if royalty_tab == 'afavor' %}
   {# ---------- A FAVOR: misma estética que las liquidaciones, agrupado por ARTISTA y, dentro,
        por COMPAÑÍA (que es a quien se le solicita y quien lleva el estado). Los importes NO van

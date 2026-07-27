@@ -29,15 +29,26 @@
       <div class="card shadow-sm mb-4">
         <div class="card-body">
           <h6 class="mb-2"><i class="fa fa-list-check me-2 text-danger"></i>Lo que te pedimos</h6>
+          {% if request_rows|length > 1 %}
+            <div class="small text-muted mb-2">
+              Marca lo que cubre la factura que vas a subir. Puedes hacer <strong>una factura por
+              concepto</strong> (subiéndola varias veces) o <strong>una sola que los englobe</strong>.
+            </div>
+          {% endif %}
           <div class="d-grid gap-2">
             {% for r in request_rows %}
-              <div class="d-flex align-items-center gap-2 border rounded p-2 flex-wrap">
+              <label class="d-flex align-items-center gap-2 border rounded p-2 flex-wrap{% if r.has_invoice %} bg-light-subtle{% endif %}"
+                     {% if not r.has_invoice %}style="cursor:pointer;"{% endif %}>
+                <input type="checkbox" class="form-check-input m-0 js-inv-expense" value="{{ r.id }}"
+                       {% if r.has_invoice %}disabled{% else %}checked{% endif %}>
                 <span class="fw-semibold small flex-grow-1">{{ r.concept }}</span>
+                {% if r.has_invoice %}<span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Ya recibida</span>{% endif %}
                 {% if r.category_label %}<span class="badge text-bg-light border">{{ r.category_label }}</span>{% endif %}
                 <span class="small text-muted">{{ r.net|eur }} sin IVA · <strong>{{ r.gross|eur }}</strong> con IVA</span>
-              </div>
+              </label>
             {% endfor %}
           </div>
+          <div class="small text-danger mt-2 d-none" id="invExpenseWarn">Marca al menos un concepto para esta factura.</div>
         </div>
       </div>
     {% endif %}
@@ -527,6 +538,8 @@
       {% if inv_mode == 'REQUEST' and company %}fd.append('group_company_id', {{ (company.id|string)|tojson }});{% endif %}
       if (TOKEN) fd.append('token', TOKEN);
       if (LIQ) fd.append('liq_token', LIQ);
+      // Conceptos que cubre esta factura (petición de bolsa): uno, varios o todos.
+      document.querySelectorAll('.js-inv-expense:checked').forEach(function(c){ fd.append('expense_ids', c.value); });
     }
     const xhr = new XMLHttpRequest();
     xhr.open('POST', URL_UPLOAD);
@@ -540,6 +553,17 @@
         else {
           slot.querySelector('.inv-drop').classList.add('d-none');
           const b = slot.querySelector('.badge'); if (b) { b.className = 'badge text-bg-success'; b.innerHTML = '<i class="fa fa-circle-check me-1"></i>Recibida'; }
+        }
+        // Con la petición de bolsa: si quedan conceptos por facturar, se puede subir otra factura.
+        if (resp.pending) {
+          document.querySelectorAll('.js-inv-expense').forEach(function(c){
+            if (c.checked) { c.checked = false; c.disabled = true;
+              var lbl = c.closest('label'); if (lbl) lbl.classList.add('bg-light-subtle'); }
+          });
+          const drop = slot.querySelector('.inv-drop');
+          if (drop) { drop.classList.remove('d-none'); }
+          const b2 = slot.querySelector('.badge');
+          if (b2) { b2.className = 'badge text-bg-warning text-dark'; b2.innerHTML = '<i class="fa fa-clock me-1"></i>Quedan ' + resp.pending + ' concepto(s)'; }
         }
         if (resp.done) document.getElementById('invDone').classList.remove('d-none');
       } else {

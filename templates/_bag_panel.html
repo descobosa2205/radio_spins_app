@@ -389,7 +389,7 @@
         <span class="badge text-bg-warning text-dark" data-imported-count>{{ _imported|length }}</span>
       </div>
       <div class="card-body bag-imported__body">
-        <div class="small text-muted mb-2">Arrástralos al módulo de gasto que les corresponda. Los de Pleo entran ya <strong>pagados</strong>.</div>
+        <div class="small text-muted mb-2">Arrástralos al <strong>módulo</strong> que les corresponda para crear el gasto, o directamente <strong>encima de un gasto ya existente</strong> para vincularles la factura. Los de Pleo entran ya <strong>pagados</strong>.</div>
         {% for e in _imported %}
           <div class="assign-exp border rounded p-2 mb-2" draggable="true" data-imported-id="{{ e.id }}">
             <div class="d-flex align-items-center gap-2">
@@ -431,23 +431,80 @@
     el.addEventListener('dragstart', function(){ dragId = el.getAttribute('data-imported-id'); el.classList.add('opacity-50'); });
     el.addEventListener('dragend', function(){ el.classList.remove('opacity-50'); });
   });
+  function csrfHeaders(){
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? {'X-CSRFToken': meta.getAttribute('content')} : {};
+  }
+
+  // --- Soltar en un MÓDULO: crea un gasto nuevo en esa categoría (comportamiento de siempre) ---
   document.querySelectorAll('#bagExpenseModules .expense-module').forEach(function(card){
     card.addEventListener('dragover', function(e){ if (dragId) { e.preventDefault(); card.classList.add('drag-over'); } });
     card.addEventListener('dragleave', function(){ card.classList.remove('drag-over'); });
     card.addEventListener('drop', function(e){
       e.preventDefault(); card.classList.remove('drag-over');
       if (!dragId) return;
+      // Si se ha soltado encima de un gasto CONCRETO, manda ese otro manejador.
+      if (e.target.closest && e.target.closest('.expense-row')) return;
       var id = dragId; dragId = null;
       var fd = new FormData();
       fd.append('category', card.getAttribute('data-category'));
       fd.append('ajax', '1');
-      var meta = document.querySelector('meta[name="csrf-token"]');
-      fetch(URL_TPL.replace('__ID__', id), {
-        method: 'POST', headers: meta ? {'X-CSRFToken': meta.getAttribute('content')} : {}, body: fd
-      }).then(function(r){ return r.json(); }).then(function(d){
-        if (!d || !d.ok) { alert((d && d.error) || 'No se pudo añadir el gasto'); return; }
-        window.location.reload();   // se recarga para que el gasto salga ya en su módulo
-      });
+      fetch(URL_TPL.replace('__ID__', id), { method: 'POST', headers: csrfHeaders(), body: fd })
+        .then(function(r){ return r.json(); }).then(function(d){
+          if (!d || !d.ok) { alert((d && d.error) || 'No se pudo añadir el gasto'); return; }
+          window.location.reload();   // se recarga para que el gasto salga ya en su módulo
+        });
+    });
+  });
+
+  // --- Soltar en un GASTO EXISTENTE: vincula la factura a ese gasto ---
+  // Si la factura vale más que el gasto, se pregunta: subir el importe del gasto o repartirla
+  // entre varios. Al repartir, la tarjeta se queda con lo que falta para soltarla en otro gasto.
+  var LINK_TPL = {{ url_for('bag_imported_expense_link', bag_id=bag.id, expense_id='__ID__', target_id='__T__')|tojson }};
+  function money(n){ return (Number(n) || 0).toLocaleString('es-ES', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' €'; }
+
+  function linkTo(importedId, targetId, mode){
+    var fd = new FormData();
+    if (mode) fd.append('mode', mode);
+    return fetch(LINK_TPL.replace('__ID__', importedId).replace('__T__', targetId), {
+      method: 'POST', headers: csrfHeaders(), body: fd
+    }).then(function(r){ return r.json(); });
+  }
+
+  function handleLink(importedId, targetId, mode){
+    linkTo(importedId, targetId, mode).then(function(d){
+      if (!d || !d.ok) { alert((d && d.error) || 'No se pudo vincular la factura'); return; }
+      if (d.needs_decision) {
+        var txt = 'La factura (' + money(d.pending) + ') es mayor que «' + d.expense_concept + '» (' + money(d.expense_amount) + ').\n\n'
+                + 'Aceptar = poner el gasto en ' + money(d.pending) + ' (actualizar importe)\n'
+                + 'Cancelar = aplicar ' + money(d.expense_amount) + ' aquí y repartir el resto (' + money(d.rest) + ') en otro gasto';
+        handleLink(importedId, targetId, confirm(txt) ? 'update_amount' : 'split');
+        return;
+      }
+      if (d.done) { window.location.reload(); return; }
+      // Queda factura por repartir: se avisa y la tarjeta sigue ahí para el siguiente gasto.
+      var card = document.querySelector('[data-imported-id="' + importedId + '"]');
+      if (card) {
+        var aviso = card.querySelector('[data-imported-rest]');
+        if (!aviso) {
+          aviso = document.createElement('div');
+          aviso.className = 'small text-warning-emphasis ps-4';
+          aviso.setAttribute('data-imported-rest', '1');
+          card.appendChild(aviso);
+        }
+        aviso.innerHTML = '<i class="fa fa-scissors me-1"></i>Quedan ' + money(d.remaining) + ' por repartir: suéltala en otro gasto.';
+      }
+    });
+  }
+
+  document.querySelectorAll('#bagExpenseModules .expense-row[data-expense-id]').forEach(function(row){
+    row.addEventListener('dragover', function(e){ if (dragId) { e.preventDefault(); e.stopPropagation(); row.classList.add('drag-over'); } });
+    row.addEventListener('dragleave', function(){ row.classList.remove('drag-over'); });
+    row.addEventListener('drop', function(e){
+      if (!dragId) return;
+      e.preventDefault(); e.stopPropagation(); row.classList.remove('drag-over');
+      var id = dragId; dragId = null;
+      handleLink(id, row.getAttribute('data-expense-id'), '');
     });
   });
 })();

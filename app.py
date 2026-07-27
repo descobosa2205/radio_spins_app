@@ -265,6 +265,7 @@ from models import (
     SupplierInvoice,
     AfavorLiquidation,
     PersonalExpense,
+    BagExpenseInvoice,
     PleoAccount,
     PleoEmployeeLink,
     ensure_pleo_schema,
@@ -49867,6 +49868,144 @@ def my_expense_assign_bag(expense_id):
         session_db.close()
 
 
+# ==================== FACTURAS IMPUTADAS A GASTOS DE LA BOLSA ====================
+# Una factura puede cubrir VARIOS gastos y un gasto puede necesitar varias facturas. La relación
+# vive en `bag_expense_invoices` con el importe imputado a cada gasto; las filas de la misma
+# factura física comparten `group_key`.
+
+def _bag_expense_invoice_apply(session_db, expense, *, file_url, file_name=None, file_mime=None,
+                               invoice_number=None, amount=None, group_key=None,
+                               supplier_invoice_id=None, personal_expense_id=None):
+    """Imputa una factura a UN gasto. Devuelve la fila creada."""
+    row = BagExpenseInvoice(
+        bag_expense_id=expense.id,
+        group_key=(group_key or uuid.uuid4().hex),
+        supplier_invoice_id=supplier_invoice_id,
+        personal_expense_id=personal_expense_id,
+        file_url=file_url,
+        file_name=(file_name or "")[:200] or None,
+        file_mime=file_mime,
+        invoice_number=(invoice_number or "")[:80] or None,
+        amount=_money_or_zero(amount),
+    )
+    session_db.add(row)
+    # El adjunto del gasto sigue apuntando a la factura, para que todo lo que ya lo lee (validación,
+    # PDF de la bolsa, avisos) siga funcionando igual.
+    expense.attachment_url = file_url
+    expense.attachment_name = row.file_name
+    expense.attachment_mime = file_mime
+    if row.invoice_number:
+        expense.invoice_number = row.invoice_number
+    if (getattr(expense, "consolidation_status", "") or "").upper() not in BAG_CONSOLIDATED_STATUSES:
+        expense.consolidation_status = "PENDIENTE_VALIDAR"
+    return row
+
+
+def _bag_expense_invoice_rows(session_db, expense_id) -> list[dict]:
+    """Facturas imputadas a un gasto, para enseñarlas en la bolsa."""
+    rows = (session_db.query(BagExpenseInvoice)
+            .filter(BagExpenseInvoice.bag_expense_id == expense_id)
+            .order_by(BagExpenseInvoice.created_at.asc()).all())
+    out = []
+    for r in rows:
+        shared = (session_db.query(func.count(BagExpenseInvoice.id))
+                  .filter(BagExpenseInvoice.group_key == r.group_key).scalar() or 1)
+        out.append({
+            "id": str(r.id), "url": r.file_url, "name": r.file_name or "Factura",
+            "invoice_number": r.invoice_number or "", "amount": float(_money_or_zero(r.amount)),
+            "shared_with": max(int(shared) - 1, 0),   # a cuántos gastos MÁS cubre esta misma factura
+        })
+    return out
+
+
+def _personal_expense_allocated(session_db, personal_expense_id) -> Decimal:
+    """Cuánto de un gasto importado ya se ha imputado a gastos de bolsa."""
+    total = (session_db.query(func.coalesce(func.sum(BagExpenseInvoice.amount), 0))
+             .filter(BagExpenseInvoice.personal_expense_id == personal_expense_id).scalar())
+    return _money_or_zero(total)
+
+
+@app.post('/bolsas/<bag_id>/gastos-importados/<expense_id>/vincular/<target_id>', endpoint='bag_imported_expense_link')
+@admin_required
+def bag_imported_expense_link(bag_id, expense_id, target_id):
+    """Vincula un gasto importado (una factura que llegó a «Mis gastos») a un gasto YA EXISTENTE
+    de la bolsa, en vez de crear uno nuevo.
+
+    Si la factura vale MÁS que el gasto al que se suelta, no se decide por el usuario: se le
+    devuelve la situación para que elija entre subir el importe del gasto o repartir la factura
+    entre varios gastos. Con `mode`:
+      - (vacío)        → solo pregunta si hace falta decidir; si cuadra, imputa y termina.
+      - update_amount  → el gasto pasa a valer lo que la factura.
+      - split          → imputa al gasto lo que le corresponde y deja el resto pendiente para
+                         soltarlo en otro gasto, hasta repartirlo todo.
+    """
+    session_db = db()
+    try:
+        bag = session_db.get(WorkflowBag, to_uuid(bag_id) or uuid.uuid4())
+        row = session_db.get(PersonalExpense, to_uuid(expense_id) or uuid.uuid4())
+        target = session_db.get(BagExpense, to_uuid(target_id) or uuid.uuid4())
+        if not bag or not row or not target or target.bag_id != bag.id:
+            return jsonify({"ok": False, "error": "No encontrado"}), 404
+        if not row.file_url:
+            return jsonify({"ok": False, "error": "Este gasto no trae ninguna factura que vincular."}), 400
+
+        total = _money_or_zero(row.amount_gross)
+        ya = _personal_expense_allocated(session_db, row.id)
+        pendiente = total - ya
+        if pendiente <= 0:
+            return jsonify({"ok": False, "error": "Esta factura ya está repartida del todo."}), 400
+        hueco = _money_or_zero(target.amount_gross)
+        mode = (request.form.get("mode") or "").strip().lower()
+
+        # Si sobra factura para ese gasto y aún no se ha decidido qué hacer, se pregunta.
+        if mode not in ("update_amount", "split") and hueco and pendiente > hueco:
+            return jsonify({
+                "ok": True, "needs_decision": True,
+                "pending": float(pendiente), "expense_amount": float(hueco),
+                "expense_concept": (target.concept or "Gasto"),
+                "rest": float(pendiente - hueco),
+            })
+
+        if mode == "update_amount" or not hueco:
+            # El gasto pasa a valer lo que queda de factura (o toda, si no tenía importe).
+            imputado = pendiente
+            target.amount_gross = pendiente
+            if _money_or_zero(target.amount_net) == 0:
+                target.amount_net = pendiente
+        else:
+            # Reparto: a este gasto le entra como mucho lo que vale.
+            imputado = min(pendiente, hueco)
+
+        group_key = None
+        prev = (session_db.query(BagExpenseInvoice)
+                .filter(BagExpenseInvoice.personal_expense_id == row.id).first())
+        if prev:
+            group_key = prev.group_key
+        _bag_expense_invoice_apply(
+            session_db, target, file_url=row.file_url, file_name=row.original_name,
+            file_mime=getattr(row, "mime_type", None), invoice_number=row.invoice_number,
+            amount=imputado, group_key=group_key,
+            supplier_invoice_id=getattr(row, "supplier_invoice_id", None), personal_expense_id=row.id,
+        )
+        session_db.flush()
+        restante = total - _personal_expense_allocated(session_db, row.id)
+        if restante <= 0:
+            row.status = "ASSIGNED"
+            row.bag_expense_id = target.id
+        session_db.commit()
+        return jsonify({
+            "ok": True, "needs_decision": False,
+            "applied": float(imputado), "remaining": float(max(restante, Decimal("0"))),
+            "done": restante <= 0, "expense_id": str(target.id),
+        })
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("bag_imported_expense_link")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        session_db.close()
+
+
 @app.post('/bolsas/<bag_id>/gastos-importados/<expense_id>/tipificar', endpoint='bag_imported_expense_assign')
 @admin_required
 def bag_imported_expense_assign(bag_id, expense_id):
@@ -50913,30 +51052,59 @@ def public_invoice_upload():
         bag_req = (session_db.query(BagInvoiceRequest)
                    .filter(BagInvoiceRequest.public_token == token).first()) if token else None
         if bag_req is not None:
-            linked = 0
-            for exp_id in (bag_req.expense_ids or []):
-                expense = session_db.get(BagExpense, to_uuid(str(exp_id)) or uuid.uuid4())
-                if expense is None or _bag_expense_has_invoice(expense):
-                    continue
-                expense.attachment_url = url
-                expense.attachment_name = filename[:200]
-                expense.attachment_mime = f.mimetype
-                if (getattr(expense, "consolidation_status", "") or "").upper() not in BAG_CONSOLIDATED_STATUSES:
-                    expense.consolidation_status = "PENDIENTE_VALIDAR"
-                linked += 1
-            session_db.add(SupplierInvoice(
+            # El proveedor puede marcar QUÉ conceptos cubre esta factura: uno, varios o todos. Si no
+            # marca nada (o el formulario es antiguo), se aplica a todo lo que siga pendiente.
+            permitidos = [str(x) for x in (bag_req.expense_ids or [])]
+            marcados = [x for x in request.form.getlist("expense_ids") if x in permitidos]
+            objetivo = marcados or permitidos
+            inv_num = (request.form.get("invoice_number") or "").strip() or None
+            invoice = SupplierInvoice(
                 promoter_id=promoter.id, source="REQUEST", bag_id=bag_req.bag_id,
                 invoice_request_id=bag_req.id,
                 artist_text=(request.form.get("artist_text") or "").strip() or None,
                 concept_text=(request.form.get("concept_text") or "").strip() or None,
-                invoice_number=(request.form.get("invoice_number") or "").strip() or None,
+                invoice_number=inv_num,
+                amount_gross=(_money_or_zero(request.form.get("amount_gross")) or None),
                 group_company_id=to_uuid(request.form.get("group_company_id") or "") or None,
                 file_url=url, original_name=filename[:200], mime_type=f.mimetype, status="PENDIENTE",
-            ))
-            bag_req.status = "DONE"
+            )
+            session_db.add(invoice)
+            session_db.flush()
+            gastos = []
+            for exp_id in objetivo:
+                expense = session_db.get(BagExpense, to_uuid(str(exp_id)) or uuid.uuid4())
+                if expense is None:
+                    continue
+                # Si no se marcó nada, no se pisa lo que ya tiene factura.
+                if not marcados and _bag_expense_has_invoice(expense):
+                    continue
+                gastos.append(expense)
+            total = _money_or_zero(request.form.get("amount_gross"))
+            previstos = [_money_or_zero(e.amount_gross) for e in gastos]
+            suma_prev = sum(previstos, Decimal("0"))
+            group_key = uuid.uuid4().hex
+            for expense, prev in zip(gastos, previstos):
+                if total and suma_prev:
+                    trozo = (total * prev / suma_prev).quantize(Decimal("0.01"))
+                elif total:
+                    trozo = (total / Decimal(len(gastos))).quantize(Decimal("0.01"))
+                else:
+                    trozo = prev
+                _bag_expense_invoice_apply(
+                    session_db, expense, file_url=url, file_name=filename, file_mime=f.mimetype,
+                    invoice_number=inv_num, amount=trozo, group_key=group_key,
+                    supplier_invoice_id=invoice.id,
+                )
+            session_db.flush()
+            # La petición solo se cierra cuando TODOS sus conceptos tienen factura.
+            pendientes = [x for x in permitidos
+                          if not _bag_expense_has_invoice(session_db.get(BagExpense, to_uuid(x) or uuid.uuid4()))]
+            if not pendientes:
+                bag_req.status = "DONE"
             bag_req.updated_at = datetime.utcnow()
             session_db.commit()
-            return jsonify({"ok": True, "kind": "invoice", "done": True, "linked": linked})
+            return jsonify({"ok": True, "kind": "invoice", "done": not pendientes,
+                            "linked": len(gastos), "pending": len(pendientes)})
         target_user_id = to_uuid(request.form.get("target_user_id") or "") or None
         inv = SupplierInvoice(
             promoter_id=promoter.id, source="LANDING",
@@ -51029,33 +51197,47 @@ def public_bag_invoice_upload_post(token):
             ctx = _bag_invoice_request_context(session_db, req)
             return jsonify({"ok": True, "warning": warning, "kind": "doc", "doc_type": doc_type,
                             "all_done": ctx["all_done"]})
-        # Factura de un concepto concreto de la bolsa.
-        exp_id = to_uuid(request.form.get("expense_id") or "")
-        if not exp_id or str(exp_id) not in [str(x) for x in (req.expense_ids or [])]:
+        # Factura de UNO o VARIOS conceptos de la bolsa: el proveedor puede marcar varios y subir
+        # una sola factura que los englobe. El importe se reparte a prorrata de lo previsto.
+        allowed = {str(x) for x in (req.expense_ids or [])}
+        raw_ids = request.form.getlist("expense_id") or []
+        exp_ids = [to_uuid(x) for x in raw_ids if x and str(to_uuid(x) or "") in allowed]
+        exp_ids = [x for x in exp_ids if x]
+        if not exp_ids:
             return jsonify({"ok": False, "error": "Concepto no válido"}), 400
-        expense = session_db.get(BagExpense, exp_id)
-        if not expense:
+        expenses = [e for e in (session_db.get(BagExpense, x) for x in exp_ids) if e]
+        if not expenses:
             return jsonify({"ok": False, "error": "Concepto no encontrado"}), 404
         filename = (f.filename or "factura").strip()
         is_pdf = filename.lower().endswith(".pdf") or (f.mimetype or "") == "application/pdf"
         url = upload_pdf(f, "invoices") if is_pdf else upload_file(f, "invoices")
         if not url:
             return jsonify({"ok": False, "error": "No se pudo guardar el archivo"}), 400
-        expense.attachment_url = url
-        expense.attachment_name = filename[:200]
-        expense.attachment_mime = f.mimetype
-        if (getattr(expense, "consolidation_status", "") or "").upper() not in BAG_CONSOLIDATED_STATUSES:
-            expense.consolidation_status = "PENDIENTE_VALIDAR"
-        inv_num = (request.form.get("invoice_number") or "").strip()
-        if inv_num:
-            expense.invoice_number = inv_num[:80]
+        inv_num = (request.form.get("invoice_number") or "").strip() or None
+        total = _money_or_zero(request.form.get("amount_gross") or 0)
+        previstos = [_money_or_zero(e.amount_gross) for e in expenses]
+        suma_prev = sum(previstos, Decimal("0"))
+        group_key = uuid.uuid4().hex
+        for e, prev in zip(expenses, previstos):
+            if total and suma_prev:
+                trozo = (total * prev / suma_prev).quantize(Decimal("0.01"))
+            elif total:
+                trozo = (total / Decimal(len(expenses))).quantize(Decimal("0.01"))
+            else:
+                trozo = prev
+            _bag_expense_invoice_apply(
+                session_db, e, file_url=url, file_name=filename, file_mime=f.mimetype,
+                invoice_number=inv_num, amount=trozo, group_key=group_key,
+            )
         req.updated_at = datetime.utcnow()
         session_db.commit()
         ctx = _bag_invoice_request_context(session_db, req)
         if ctx["all_done"]:
             req.status = "DONE"
             session_db.commit()
-        return jsonify({"ok": True, "kind": "invoice", "expense_id": str(expense.id),
+        return jsonify({"ok": True, "kind": "invoice",
+                        "expense_id": str(expenses[0].id),
+                        "expense_ids": [str(e.id) for e in expenses],
                         "name": filename, "url": url, "all_done": ctx["all_done"]})
     except Exception:
         session_db.rollback()

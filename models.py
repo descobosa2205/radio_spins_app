@@ -3233,6 +3233,35 @@ class BagExpenseAlert(Base):
     )
 
 
+class BagExpenseInvoice(Base):
+    """Imputación de UNA factura a UN gasto de la bolsa.
+
+    Una misma factura puede cubrir VARIOS gastos (y un gasto puede necesitar varias facturas), así
+    que la relación va en su propia tabla con el importe imputado a cada uno. Todas las filas de la
+    misma factura física comparten `group_key`, que es lo que permite saber «esta factura cubre
+    estos tres conceptos» y no repetir el archivo tres veces como si fueran facturas distintas.
+    """
+
+    __tablename__ = "bag_expense_invoices"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    bag_expense_id = Column(PGUUID(as_uuid=True), ForeignKey("bag_expenses.id", ondelete="CASCADE"), nullable=False, index=True)
+    # Identifica la factura física: las filas con el mismo group_key son el mismo documento.
+    group_key = Column(Text, nullable=False, index=True)
+    # De dónde vino: factura subida por la landing genérica o gasto que llegó a «Mis gastos».
+    supplier_invoice_id = Column(PGUUID(as_uuid=True), ForeignKey("supplier_invoices.id", ondelete="SET NULL"))
+    personal_expense_id = Column(PGUUID(as_uuid=True), ForeignKey("personal_expenses.id", ondelete="SET NULL"), index=True)
+    file_url = Column(Text, nullable=False)
+    file_name = Column(Text)
+    file_mime = Column(Text)
+    invoice_number = Column(Text)
+    # Importe de la factura imputado a ESTE gasto (la suma de todas sus filas = total de la factura).
+    amount = Column(Numeric, nullable=False, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    expense = relationship("BagExpense")
+
+
 class BagPaymentInteraction(Base):
     __tablename__ = "bag_payment_interactions"
 
@@ -6634,6 +6663,25 @@ def ensure_bag_expense_schema():
     _create_all_once()
     stmts = [
         'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        # Imputación de facturas a gastos (una factura puede cubrir varios gastos).
+        """
+        CREATE TABLE IF NOT EXISTS bag_expense_invoices (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            bag_expense_id uuid NOT NULL REFERENCES bag_expenses(id) ON DELETE CASCADE,
+            group_key text NOT NULL,
+            supplier_invoice_id uuid REFERENCES supplier_invoices(id) ON DELETE SET NULL,
+            personal_expense_id uuid REFERENCES personal_expenses(id) ON DELETE SET NULL,
+            file_url text NOT NULL,
+            file_name text,
+            file_mime text,
+            invoice_number text,
+            amount numeric NOT NULL DEFAULT 0,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_bag_expense_invoices_expense ON bag_expense_invoices(bag_expense_id);",
+        "CREATE INDEX IF NOT EXISTS idx_bag_expense_invoices_group ON bag_expense_invoices(group_key);",
+        "CREATE INDEX IF NOT EXISTS idx_bag_expense_invoices_personal ON bag_expense_invoices(personal_expense_id);",
         """
         ALTER TABLE IF EXISTS workflow_bags
             ADD COLUMN IF NOT EXISTS artist_ids jsonb NOT NULL DEFAULT '[]'::jsonb,

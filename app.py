@@ -22617,7 +22617,13 @@ def purchased_tour_detail(tid):
         label, badge = _group_status_meta(t.status)
         artists = s.query(Artist).order_by(Artist.name.asc()).all()
         companies = s.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
-        simulations = s.query(Simulation).options(joinedload(Simulation.artist)).order_by(Simulation.created_at.desc()).limit(200).all()
+        # Selector de simulaciones a vincular: solo las ACTIVAS (las archivadas ya se
+        # convirtieron o se guardaron aparte; las que YA estén vinculadas siguen viéndose).
+        simulations = (
+            s.query(Simulation).options(joinedload(Simulation.artist))
+            .filter(func.upper(func.coalesce(Simulation.status, "ACTIVE")) != "ARCHIVED")
+            .order_by(Simulation.created_at.desc()).limit(200).all()
+        )
         return render_template(
             "activity_group_detail.html",
             group_kind="TOUR", group=t, concerts=rows, general=general,
@@ -22875,7 +22881,13 @@ def cycle_festival_detail(cfid):
         artists = s.query(Artist).order_by(Artist.name.asc()).all()
         companies = s.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
         venues = s.query(Venue).order_by(Venue.name.asc()).all()
-        simulations = s.query(Simulation).options(joinedload(Simulation.artist)).order_by(Simulation.created_at.desc()).limit(200).all()
+        # Selector de simulaciones a vincular: solo las ACTIVAS (las archivadas ya se
+        # convirtieron o se guardaron aparte; las que YA estén vinculadas siguen viéndose).
+        simulations = (
+            s.query(Simulation).options(joinedload(Simulation.artist))
+            .filter(func.upper(func.coalesce(Simulation.status, "ACTIVE")) != "ARCHIVED")
+            .order_by(Simulation.created_at.desc()).limit(200).all()
+        )
         return render_template(
             "activity_group_detail.html",
             group_kind=(cf.kind or "FESTIVAL").upper(), group=cf, concerts=rows, general=general,
@@ -23012,15 +23024,24 @@ def cycle_festival_delete(cfid):
 @app.post("/contratacion/simulaciones/<sid>/convertir", endpoint="simulation_convert")
 @admin_required
 def simulation_convert(sid):
-    """Convierte una simulación en la entidad operativa correspondiente: concierto (abre el
-    asistente), gira comprada, ciclo o festival. Copia sujeto, empresa del grupo y rango de fechas;
-    la economía por fecha se completa en cada ficha. Guarda el vínculo a la simulación de origen."""
+    """Convierte una simulación en la entidad operativa correspondiente: concierto, gira comprada,
+    ciclo o festival, VOLCANDO lo que ya estaba simulado —cada fecha se crea como un concierto real
+    con su recinto, aforo y entradas, cachés, comisionistas, socios y presupuesto—.
+
+    Al terminar, la simulación queda ARCHIVADA con el vínculo a lo creado (deja de estorbar en el
+    listado, pero no se borra). Si no se ha podido crear nada, la simulación se queda como estaba."""
     s = db()
     try:
         sim = s.get(Simulation, to_uuid(sid))
         if not sim:
             abort(404)
+        if (sim.status or "").strip().upper() == "ARCHIVED":
+            flash("Esta simulación ya está archivada. Restáurala si quieres volver a convertirla.", "warning")
+            return redirect(url_for("simulation_detail_view", sid=sid))
         target = (request.form.get("target") or "").strip().lower()
+        if target not in ("concert", "tour", "cycle", "festival"):
+            flash("Destino de conversión no válido.", "warning")
+            return redirect(url_for("simulation_detail_view", sid=sid))
         name = (sim.title or (sim.artist.name if sim.artist else None) or (sim.event.name if sim.event else None) or "Actividad").strip()
         acts = [a for a in (sim.activities or []) if not getattr(a, "is_shared", False)]
         dts = sorted([a.event_date for a in acts if getattr(a, "event_date", None) and not getattr(a, "date_unknown", False)])
@@ -23029,40 +23050,111 @@ def simulation_convert(sid):
         stt = _current_user_state()
         uid = to_uuid(stt.get("user_id")) if stt.get("user_id") else None
         nick = stt.get("nick") or None
-        if target == "concert":
-            aid = str(sim.artist_id) if sim.artist_id else ""
-            # El asistente recibirá wizard_sim: al crear el concierto, los GASTOS PREVISTOS de la
-            # simulación pasan automáticamente a ser su PRESUPUESTO (misma categoría/estructura).
-            return redirect(url_for("concerts_view", tab="vista", open_wizard=1, wizard_artist=aid, wizard_sim=str(sim.id)))
+
+        tour = cycle = None
         if target == "tour":
-            t = PurchasedTour(
+            tour = PurchasedTour(
                 name=name, managing_company_id=sim.managing_company_id, artist_id=sim.artist_id,
                 artist_ids=([str(sim.artist_id)] if sim.artist_id else []), start_date=start, end_date=end,
-                status="ACTIVA", payload={"general": {"simulation_ids": [str(sim.id)]}},
+                status="ACTIVA",
+                payload={"general": {"simulation_ids": [str(sim.id)],
+                                     "expenses": _simulation_general_expenses(sim)}},
                 created_by_user_id=uid, created_by_nick=nick,
             )
-            s.add(t)
-            s.commit()
-            flash("Simulación convertida en gira comprada. Añade/vincula las fechas y su producción general.", "success")
-            return redirect(url_for("purchased_tour_detail", tid=str(t.id)))
-        if target in ("cycle", "festival"):
+            s.add(tour)
+            s.flush()
+            sale_type, activity_type, group_name = "GIRAS_COMPRADAS", "CONCIERTO", tour.name
+        elif target in ("cycle", "festival"):
             kind = "CICLO" if target == "cycle" else "FESTIVAL"
-            cf = CycleFestival(
+            cycle = CycleFestival(
                 name=name, kind=kind, managing_company_id=sim.managing_company_id,
                 logo_url=(sim.event.logo_url if sim.event else None), start_date=start, end_date=end,
-                status="ACTIVO", payload={"general": {"simulation_ids": [str(sim.id)]}},
+                status="ACTIVO",
+                payload={"general": {"simulation_ids": [str(sim.id)],
+                                     "expenses": _simulation_general_expenses(sim)}},
                 created_by_user_id=uid, created_by_nick=nick,
             )
-            s.add(cf)
-            s.commit()
-            flash("Simulación convertida en " + ("ciclo" if kind == "CICLO" else "festival") + ". Añade sus fechas/artistas y la producción general.", "success")
-            return redirect(url_for("cycle_festival_detail", cfid=str(cf.id)))
-        flash("Destino de conversión no válido.", "warning")
-        return redirect(url_for("simulation_detail_view", sid=sid))
+            s.add(cycle)
+            s.flush()
+            sale_type = _sim_sale_type(sim)
+            activity_type = "FESTIVAL" if kind == "FESTIVAL" else "CONCIERTO"
+            group_name = cycle.name
+        else:
+            sale_type, activity_type, group_name = _sim_sale_type(sim), "CONCIERTO", None
+
+        created, skipped = [], []
+        for act in acts:
+            concert, reason = _simulation_dump_activity(
+                s, sim, act, sale_type=sale_type, group_name=group_name,
+                activity_type=activity_type, tour=tour, cycle=cycle,
+            )
+            if concert is None:
+                skipped.append(reason)
+            else:
+                created.append(concert)
+
+        if not created:
+            # Nada que crear: no se archiva ni se deja un contenedor vacío a medias.
+            s.rollback()
+            detail = (" " + "; ".join(skipped)) if skipped else ""
+            flash("No se ha podido crear ninguna fecha: hacen falta fecha concreta y artista." + detail, "warning")
+            return redirect(url_for("simulation_detail_view", sid=sid))
+
+        kind_label = {"tour": "gira comprada", "cycle": "ciclo", "festival": "festival", "concert": "concierto"}[target]
+        target_obj = tour or cycle or created[0]
+        _simulation_mark_converted(
+            sim, kind=target.upper(), target_id=target_obj.id, target_name=name,
+            concert_ids=[c.id for c in created],
+        )
+        s.commit()
+
+        msg = f"Simulación convertida en {kind_label}: {len(created)} fecha{'s' if len(created) != 1 else ''} creada{'s' if len(created) != 1 else ''} con su recinto, entradas, cachés, comisionistas, socios y presupuesto."
+        if skipped:
+            msg += " Sin crear: " + "; ".join(skipped) + "."
+        flash(msg + " La simulación pasa a «Archivadas».", "success")
+        if tour is not None:
+            return redirect(url_for("purchased_tour_detail", tid=str(tour.id)))
+        if cycle is not None:
+            return redirect(url_for("cycle_festival_detail", cfid=str(cycle.id)))
+        return redirect(url_for("concert_detail_view", cid=str(created[0].id)))
     except Exception as exc:
         s.rollback()
+        app.logger.exception("[simulacion] conversión fallida")
         flash(f"No se pudo convertir la simulación: {exc}", "danger")
         return redirect(url_for("simulation_detail_view", sid=sid))
+    finally:
+        s.close()
+
+
+@app.post("/contratacion/simulaciones/<sid>/archivar", endpoint="simulation_archive")
+@admin_required
+def simulation_archive(sid):
+    """Archivar / restaurar una simulación. Archivar NO es borrar: la simulación se guarda entera
+    y se puede consultar (y restaurar) desde «Ver archivadas»."""
+    if not can_edit_simulations():
+        flash("No tienes permisos para archivar simulaciones.", "warning")
+        return redirect(url_for("contracting_view", section="simulaciones"))
+    s = db()
+    try:
+        sim = s.get(Simulation, to_uuid(sid))
+        if not sim:
+            abort(404)
+        restore = (request.form.get("state") or "").strip().lower() == "restore"
+        if restore:
+            sim.status = "ACTIVE"
+            settings = dict(sim.settings or {})
+            settings.pop("converted", None)
+            sim.settings = settings
+            flash("Simulación restaurada.", "success")
+        else:
+            sim.status = "ARCHIVED"
+            flash("Simulación archivada. La tienes en «Ver archivadas».", "success")
+        s.commit()
+        return redirect(safe_next_or(url_for("contracting_view", section="simulaciones", **({} if restore else {"archivadas": 1}))))
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo archivar la simulación: {exc}", "danger")
+        return redirect(url_for("contracting_view", section="simulaciones"))
     finally:
         s.close()
 
@@ -24557,21 +24649,62 @@ def _sim_expense_templates_payload(s, sim, activity):
     return out
 
 
+def _simulation_converted_info(session_db, sim) -> dict | None:
+    """Qué se creó a partir de una simulación archivada (para enlazarlo desde «Archivadas»).
+
+    Si lo creado ya no existe se devuelve el nombre guardado sin enlace: la simulación sigue
+    archivada, pero el usuario ve que su destino desapareció y puede restaurarla."""
+    info = (sim.settings or {}).get("converted") if isinstance(sim.settings, dict) else None
+    if not isinstance(info, dict):
+        return None
+    kind = (info.get("kind") or "").strip().upper()
+    target_id = info.get("target_id")
+    labels = {"TOUR": "Gira comprada", "CYCLE": "Ciclo", "FESTIVAL": "Festival", "CONCERT": "Concierto"}
+    out = {
+        "kind": kind,
+        "label": labels.get(kind, "Actividad"),
+        "name": (info.get("target_name") or "").strip() or "Actividad",
+        "dates": len(info.get("concert_ids") or []),
+        "url": "",
+        "missing": True,
+    }
+    try:
+        uid = to_uuid(target_id) if target_id else None
+        if uid and kind == "TOUR" and session_db.get(PurchasedTour, uid):
+            out.update(url=url_for("purchased_tour_detail", tid=str(uid)), missing=False)
+        elif uid and kind in ("CYCLE", "FESTIVAL") and session_db.get(CycleFestival, uid):
+            out.update(url=url_for("cycle_festival_detail", cfid=str(uid)), missing=False)
+        elif uid and kind == "CONCERT" and session_db.get(Concert, uid):
+            out.update(url=url_for("concert_detail_view", cid=str(uid)), missing=False)
+    except Exception:
+        pass
+    return out
+
+
 def _render_simulations_list():
-    """Listado de simulaciones agrupadas por artista (solo artistas con simulaciones)."""
+    """Listado de simulaciones agrupadas por artista (solo artistas con simulaciones).
+
+    Por defecto solo las ACTIVAS: al convertir una simulación en gira/ciclo/festival/concierto
+    pasa a ARCHIVED y desaparece de aquí, pero se puede consultar con «Ver archivadas»."""
     s = db()
     try:
+        show_archived = _truthy(request.args.get("archivadas"))
+        base = s.query(Simulation).options(
+            joinedload(Simulation.artist),
+            joinedload(Simulation.event),
+            joinedload(Simulation.managing_company),
+            selectinload(Simulation.activities).joinedload(SimulationActivity.venue),
+        )
+        archived_cond = func.upper(func.coalesce(Simulation.status, "ACTIVE")) == "ARCHIVED"
         sims = (
-            s.query(Simulation)
-            .options(
-                joinedload(Simulation.artist),
-                joinedload(Simulation.event),
-                joinedload(Simulation.managing_company),
-                selectinload(Simulation.activities).joinedload(SimulationActivity.venue),
-            )
+            base.filter(archived_cond if show_archived else ~archived_cond)
             .order_by(Simulation.created_at.desc())
             .all()
         )
+        archived_count = (
+            s.query(func.count(Simulation.id)).filter(archived_cond).scalar() or 0
+        )
+        converted = {str(sim.id): _simulation_converted_info(s, sim) for sim in sims} if show_archived else {}
         groups = {}
         for sim in sims:
             a = sim.artist
@@ -24600,6 +24733,9 @@ def _render_simulations_list():
             total_sims=len(sims),
             artists=artists,
             companies=companies,
+            show_archived=show_archived,
+            archived_count=archived_count,
+            converted=converted,
             CAN_EDIT=can_edit_simulations(),
         )
     finally:
@@ -24935,6 +25071,8 @@ def _simulation_detail_response(s, sim, public=False, public_token=""):
     return render_template(
         "simulacion_detail.html",
         sim=sim,
+        sim_archived=((sim.status or "").strip().upper() == "ARCHIVED"),
+        converted_info=(None if public else _simulation_converted_info(s, sim)),
         subject=subject,
         activities=activities,
         active_activity=active_activity,
@@ -33467,52 +33605,326 @@ def _performance_formation_label(perf: dict | None) -> str:
     return ''
 
 
+# ==================== SIMULACIÓN → ACTIVIDADES REALES (volcado de datos) ====================
+# Convertir una simulación NO es empezar de cero: las fechas simuladas se crean como conciertos
+# reales con todo lo que ya estaba pensado (recinto, artista, empresa, aforo y tipos de entrada,
+# cachés con sus condiciones, comisionistas, socios y presupuesto). La simulación no se borra:
+# queda ARCHIVADA con el vínculo a lo que se creó, para poder consultar de dónde salió.
+
+def _sim_budget_rows(act) -> list[dict]:
+    """Gastos previstos de una fecha de la simulación, en el formato del presupuesto del concierto.
+
+    OJO: en `ConcertBudgetItem`, `amount_net`/`amount_gross` son el TOTAL de la partida (así los
+    suma la ficha de producción); `quantity` viaja solo como dato informativo."""
+    rows = []
+    for it in sorted((act.production_items or []), key=lambda x: (x.sort_order or 0)):
+        qty = _sim_d(getattr(it, "quantity", 1) or 1)
+        if qty <= 0:
+            qty = Decimal("1")
+        unit = _sim_d(getattr(it, "amount_net", 0) or 0)
+        total = unit * qty
+        iva = _sim_d(getattr(it, "iva_pct", 21) or 0)
+        concept = (it.concept or "").strip() or "Gasto"
+        iva_exempt = bool(getattr(it, "iva_exempt", False))
+        if getattr(it, "is_variable", False):
+            # El presupuesto del concierto no tiene gastos variables: la línea se deja a 0 con la
+            # condición escrita en el concepto para no perder el dato.
+            vt = (it.var_type or "").upper()
+            vdesc = f"{_sim_d(it.var_value or 0)}%" if vt == "PERCENT" else f"{_sim_d(it.var_value or 0)} €/entrada"
+            concept = f"{concept} (variable: {vdesc})"
+            net = gross = Decimal("0")
+            qty = Decimal("1")
+        elif iva_exempt:
+            net = gross = total
+        elif getattr(it, "includes_iva", False):
+            gross = total
+            net = (total / (Decimal("1") + iva / Decimal("100"))) if iva else total
+        else:
+            net = total
+            gross = total * (Decimal("1") + iva / Decimal("100")) if iva else total
+        rows.append({
+            "category": _sim_expense_cat(it.category),
+            "concept": concept,
+            "amount_net": net.quantize(Decimal("0.01")),
+            "amount_gross": gross.quantize(Decimal("0.01")),
+            "quantity": qty,
+            "iva_pct": (Decimal("0") if iva_exempt else iva),
+            "iva_exempt": iva_exempt,
+        })
+    return rows
+
+
+def _sim_add_budget_rows(session, concert_id, rows, start_order: int = 0) -> int:
+    for n, r in enumerate(rows or []):
+        session.add(ConcertBudgetItem(
+            concert_id=concert_id,
+            category=r["category"],
+            concept=r["concept"],
+            amount_net=r["amount_net"],
+            amount_gross=r["amount_gross"],
+            quantity=r.get("quantity") or Decimal("1"),
+            iva_pct=r.get("iva_pct") if r.get("iva_pct") is not None else Decimal("21"),
+            iva_exempt=bool(r.get("iva_exempt")),
+            sort_order=start_order + n * 10,
+        ))
+    return len(rows or [])
+
+
 def _copy_simulation_budget_to_concert(session, sim_id, concert_id) -> int:
-    """Al convertir una simulación en evento: sus GASTOS PREVISTOS pasan a ser el PRESUPUESTO
-    del concierto (ConcertBudgetItem con las MISMAS categorías de simulación). Los gastos
-    variables se conservan como línea informativa (importe 0) para no perder nada."""
+    """Todos los gastos previstos de la simulación → presupuesto de UN concierto (lo usa el
+    asistente cuando se crea el concierto desde una simulación de una sola fecha)."""
     sim = session.get(Simulation, sim_id)
     if not sim:
         return 0
-    copied = 0
-    order = 0
+    rows = []
     for act in (sim.activities or []):
         if getattr(act, "is_shared", False):
             continue
-        for it in sorted((act.production_items or []), key=lambda x: (x.sort_order or 0)):
-            qty = _sim_d(getattr(it, "quantity", 1) or 1)
-            unit = _sim_d(getattr(it, "amount_net", 0) or 0)
-            total = unit * (qty if qty > 0 else Decimal("1"))
-            iva = _sim_d(getattr(it, "iva_pct", 21) or 0)
-            concept = (it.concept or "").strip() or "Gasto"
-            if qty and qty != 1:
-                concept = f"{concept} (x{qty.normalize()})"
-            if getattr(it, "is_variable", False):
-                vt = (it.var_type or "").upper()
-                vdesc = f"{_sim_d(it.var_value or 0)}%" if vt == "PERCENT" else f"{_sim_d(it.var_value or 0)} €/entrada"
-                concept = f"{concept} (variable: {vdesc})"
-                net = Decimal("0")
-                gross = Decimal("0")
-            elif getattr(it, "iva_exempt", False):
-                net = total
-                gross = total
-            elif getattr(it, "includes_iva", False):
-                gross = total
-                net = (total / (Decimal("1") + iva / Decimal("100"))) if iva else total
+        rows.extend(_sim_budget_rows(act))
+    return _sim_add_budget_rows(session, concert_id, rows)
+
+
+def _sim_ticket_rows(act) -> list[dict]:
+    """Categorías de entrada simuladas → tipos de entrada reales. Los nombres se hacen únicos
+    porque `concert_ticket_types` tiene UNIQUE(concert_id, name) y en la simulación puede haber
+    la misma categoría en Pista y en Grada."""
+    zone_labels = {"PISTA": "Pista", "GRADA": "Grada", "PALCO": "Palco"}
+    rows, used = [], set()
+    for cat in sorted((act.ticket_categories or []), key=lambda x: (x.sort_order or 0)):
+        zone = (cat.zone or "PISTA").strip().upper()
+        base = (cat.name or "").strip() or zone_labels.get(zone, zone.capitalize())
+        name = base
+        if name.casefold() in used:
+            name = f"{base} · {zone_labels.get(zone, zone.capitalize())}"
+        n = 2
+        while name.casefold() in used:
+            name = f"{base} ({n})"
+            n += 1
+        used.add(name.casefold())
+        rows.append({
+            "name": name,
+            "qty_for_sale": int(cat.quantity or 0),
+            "price": _sim_d(cat.price_net or 0),
+            "invites_total": int(cat.invitations or 0),
+            "zone": zone,
+        })
+    return rows
+
+
+def _sim_cache_rows(act) -> list[dict]:
+    """Cachés simulados → `ConcertCache`. Los fijos van tal cual; los variables se traducen a la
+    condición equivalente de la ficha (`config.option`) y se guarda el original en `config` para
+    no perder los matices fiscales que el concierto no modela."""
+    rows = []
+    for ch in sorted((act.caches or []), key=lambda x: (x.sort_order or 0)):
+        origin = {
+            "from_simulation": True,
+            "label": (ch.label or None),
+            "includes_iva": bool(ch.includes_iva),
+            "includes_retention": bool(ch.includes_retention),
+            "retention_exempt": bool(ch.retention_exempt),
+        }
+        mode = (ch.mode or "FIXED").strip().upper()
+        if mode != "VARIABLE":
+            amount = _sim_d(ch.amount or 0)
+            if amount == 0:
+                continue
+            rows.append({
+                "kind": "FIXED", "concept": None, "amount": amount,
+                "pct": None, "pct_base": None, "config": origin,
+            })
+            continue
+        value = _sim_d(ch.var_value or 0)
+        if value == 0:
+            continue
+        thr_type = (ch.var_threshold_type or "").strip().upper()
+        thr_value = _sim_d(ch.var_threshold_value or 0)
+        cfg = dict(origin)
+        if (ch.var_type or "").strip().upper() == "PERCENT":
+            cfg["mode"] = "PERCENT"
+            if thr_type == "TICKETS":
+                cfg["option"] = "PCT_FROM_TICKETS"
+                cfg["min_tickets"] = int(thr_value)
             else:
-                net = total
-                gross = total * (Decimal("1") + iva / Decimal("100")) if iva else total
-            session.add(ConcertBudgetItem(
-                concert_id=concert_id,
-                category=(it.category or "OTROS").strip().upper(),
-                concept=concept,
-                amount_net=net.quantize(Decimal("0.01")),
-                amount_gross=gross.quantize(Decimal("0.01")),
-                sort_order=order,
-            ))
-            order += 10
-            copied += 1
-    return copied
+                cfg["option"] = "PCT_FROM_REVENUE"
+                cfg["min_revenue"] = float(thr_value)
+            rows.append({
+                "kind": "VARIABLE", "concept": None, "amount": None,
+                "pct": value, "pct_base": "GROSS", "config": cfg,
+            })
+        else:
+            # PER_TICKET: importe fijo por entrada vendida a partir de la entrada X.
+            cfg["mode"] = "FIXED"
+            cfg["option"] = "FIXED_PER_TICKET_FROM"
+            cfg["from_ticket"] = int(thr_value) if thr_type == "TICKETS" and thr_value > 0 else 1
+            if thr_type == "AMOUNT" and thr_value > 0:
+                cfg["min_revenue"] = float(thr_value)
+            rows.append({
+                "kind": "VARIABLE", "concept": None, "amount": value,
+                "pct": None, "pct_base": None, "config": cfg,
+            })
+    return rows
+
+
+def _sim_commission_rows(session, act) -> list[dict]:
+    """Comisionistas simulados → `ConcertZoneAgent`. Un comisionista que sea un MEDIO se espeja a
+    tercero (la FK apunta a `promoters`), igual que hace el asistente."""
+    rows = []
+    for cm in sorted((act.commissions or []), key=lambda x: (x.sort_order or 0)):
+        promoter_id = cm.promoter_id
+        if not promoter_id and cm.media_outlet_id:
+            mirror = _ensure_promoter_for_media(session, cm.media_outlet_id)
+            if mirror is not None:
+                session.flush()
+                promoter_id = mirror.id
+        if not promoter_id:
+            continue
+        concept = (cm.name or "").strip() or None
+        exempt = _sim_d(cm.exempt_amount or 0)
+        if (cm.mode or "FIXED").strip().upper() == "VARIABLE" and (cm.var_type or "").strip().upper() == "PERCENT":
+            pct = _sim_d(cm.var_value or 0)
+            if pct == 0:
+                continue
+            rows.append({
+                "id": str(promoter_id), "commission_type": "PERCENT", "commission_pct": pct,
+                "commission_base": "GROSS", "commission_amount": None,
+                "exempt_amount": (exempt or None), "concept": concept,
+            })
+            continue
+        amount = _sim_d(cm.amount or 0) or _sim_d(cm.var_value or 0)
+        if amount == 0:
+            continue
+        rows.append({
+            "id": str(promoter_id), "commission_type": "AMOUNT", "commission_pct": None,
+            "commission_base": None, "commission_amount": amount,
+            "exempt_amount": (exempt or None), "concept": concept,
+        })
+    return rows
+
+
+def _sim_partner_share_rows(sim, act) -> tuple[list[dict], list[dict]]:
+    """Socios → participaciones del concierto. Reparten el RESULTADO, así que la base es PROFIT."""
+    companies, promoters = [], []
+    for p in _sim_partners_for_activity(sim, act):
+        pct = _sim_d(p.pct or 0)
+        if pct <= 0:
+            continue
+        pct_int = int(pct.quantize(Decimal("1")))
+        if pct_int <= 0:
+            continue
+        if p.company_id:
+            companies.append({"id": str(p.company_id), "pct": pct_int, "pct_base": "PROFIT",
+                              "amount": None, "amount_base": None})
+        elif p.promoter_id:
+            promoters.append({"id": str(p.promoter_id), "pct": pct_int, "pct_base": "PROFIT",
+                              "amount": None, "amount_base": None})
+    return companies, promoters
+
+
+def _sim_sale_type(sim, default: str = "EMPRESA") -> str:
+    """Tipo de venta del concierto que sale de la simulación: PARTICIPADOS si hay socios de
+    verdad (un tercero, o más de una empresa repartiéndose), si no el que llegue por defecto."""
+    rows = [p for p in (sim.partners or []) if _sim_d(p.pct or 0) > 0]
+    if any(p.promoter_id for p in rows) or len({(str(p.company_id), str(p.promoter_id)) for p in rows}) > 1:
+        return "PARTICIPADOS"
+    return default
+
+
+def _sim_activity_artist_id(sim, act):
+    """Artista de la fecha: el suyo, el de la simulación o el primero del lineup (festivales)."""
+    if getattr(act, "artist_id", None):
+        return act.artist_id
+    if sim.artist_id:
+        return sim.artist_id
+    for row in (sim.lineup or []):
+        if row.artist_id:
+            return row.artist_id
+    return None
+
+
+def _simulation_dump_activity(session, sim, act, *, sale_type, group_name=None,
+                              activity_type="CONCIERTO", tour=None, cycle=None) -> tuple[object | None, str]:
+    """Crea el CONCIERTO real de una fecha simulada con todo lo que la simulación ya sabía.
+
+    Devuelve (concierto, motivo). Si no se puede crear devuelve (None, motivo) — el concierto
+    exige fecha y artista, así que una fecha «por definir» o sin artista no se puede materializar
+    y se deja constancia para avisar al usuario."""
+    label = (act.label or "").strip()
+    if act.date_unknown or not act.event_date:
+        return None, f"«{label or 'Fecha sin nombre'}»: sin fecha concreta"
+    artist_id = _sim_activity_artist_id(sim, act)
+    if not artist_id:
+        return None, f"«{label or act.event_date.strftime('%d/%m/%Y')}»: sin artista"
+
+    tickets = _sim_ticket_rows(act)
+    capacity = sum(int(t["qty_for_sale"] or 0) for t in tickets)
+    venue = act.venue if not act.venue_unknown else None
+    concert = Concert(
+        date=act.event_date,
+        festival_name=(label or group_name or None),
+        venue_id=(venue.id if venue else None),
+        manual_venue_name=(None if venue else (label or None)),
+        sale_type=sale_type,
+        artist_id=artist_id,
+        artist_ids=[str(artist_id)],
+        activity_type=activity_type,
+        capacity=capacity,
+        status="BORRADOR",
+        group_company_id=sim.managing_company_id,
+        billing_company_id=sim.managing_company_id,
+        purchased_tour_id=(tour.id if tour is not None else None),
+        cycle_festival_id=(cycle.id if cycle is not None else None),
+        contracting_payload={"simulation_id": str(sim.id), "simulation_activity_id": str(act.id)},
+        ticketing_payload={"ticket_types": [
+            {"name": t["name"], "price": float(t["price"]), "qty_for_sale": t["qty_for_sale"],
+             "invites_total": t["invites_total"], "zone": t["zone"]}
+            for t in tickets
+        ]},
+    )
+    session.add(concert)
+    session.flush()
+
+    if tickets:
+        _replace_concert_ticket_types_manual(session, concert.id, tickets)
+    cache_rows = _sim_cache_rows(act)
+    if cache_rows:
+        _replace_concert_caches(session, concert.id, cache_rows)
+    zone_rows = _sim_commission_rows(session, act)
+    if zone_rows:
+        _replace_concert_zone_agents(session, concert.id, zone_rows)
+    company_rows, promoter_rows = _sim_partner_share_rows(sim, act)
+    if company_rows:
+        _replace_concert_company_shares(session, concert.id, company_rows)
+    if promoter_rows:
+        _replace_concert_promoter_shares(session, concert.id, promoter_rows)
+    _sim_add_budget_rows(session, concert.id, _sim_budget_rows(act))
+    return concert, ""
+
+
+def _simulation_general_expenses(sim) -> list[dict]:
+    """Gastos generales del contenedor compartido (ciclo/gira) → bloque «Producción general»."""
+    out = []
+    for act in (sim.activities or []):
+        if not getattr(act, "is_shared", False):
+            continue
+        for r in _sim_budget_rows(act):
+            out.append({"concept": r["concept"], "amount": float(r["amount_net"])})
+    return out
+
+
+def _simulation_mark_converted(sim, *, kind: str, target_id, target_name: str, concert_ids: list) -> None:
+    """La simulación pasa a ARCHIVADA con el vínculo a lo que se creó. No se borra nada: se puede
+    consultar desde «Archivadas» y restaurar si hiciera falta."""
+    settings = dict(sim.settings or {})
+    settings["converted"] = {
+        "kind": kind,
+        "target_id": (str(target_id) if target_id else None),
+        "target_name": target_name,
+        "concert_ids": [str(x) for x in (concert_ids or [])],
+        "at": datetime.now(TZ_MADRID).isoformat(),
+    }
+    sim.settings = settings
+    sim.status = "ARCHIVED"
 
 
 def _parse_wizard_promoter_share_rows(form) -> list[dict]:

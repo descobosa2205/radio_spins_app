@@ -24,12 +24,27 @@
 
 <div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
   <div>
-    <h4 class="mb-1">Contratación · Simulaciones</h4>
-    <div class="text-muted">Viabilidad y potencial de conciertos y giras. Datos mostrados al 100% de aforo vendido.</div>
+    <h4 class="mb-1">Contratación · Simulaciones{% if show_archived %} · Archivadas{% endif %}</h4>
+    <div class="text-muted">
+      {% if show_archived %}
+        Simulaciones archivadas: las que ya se convirtieron en una actividad real y las que archivaste a mano. No se borran; puedes consultarlas y restaurarlas.
+      {% else %}
+        Viabilidad y potencial de conciertos y giras. Datos mostrados al 100% de aforo vendido.
+      {% endif %}
+    </div>
   </div>
-  {% if CAN_EDIT %}
-    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#simWizardModal"><i class="fa fa-plus me-1"></i>Nueva simulación</button>
-  {% endif %}
+  <div class="d-flex gap-2 flex-wrap">
+    {% if show_archived %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('contracting_view', section='simulaciones') }}"><i class="fa fa-arrow-left me-1"></i>Ver activas</a>
+    {% else %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('contracting_view', section='simulaciones', archivadas=1) }}">
+        <i class="fa fa-box-archive me-1"></i>Ver archivadas{% if archived_count %} <span class="badge text-bg-light border ms-1">{{ archived_count }}</span>{% endif %}
+      </a>
+    {% endif %}
+    {% if CAN_EDIT and not show_archived %}
+      <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#simWizardModal"><i class="fa fa-plus me-1"></i>Nueva simulación</button>
+    {% endif %}
+  </div>
 </div>
 
 <ul class="nav nav-pills mb-3">
@@ -81,13 +96,44 @@
                     · {% if act.venue_unknown or not act.venue %}Recinto por definir{% else %}{{ act.venue.name }}{% endif %}
                   {% else %}Sin actividad{% endif %}
                 </div>
+                {% set conv = converted.get(sim.id|string) if show_archived else None %}
+                {% if conv %}
+                  <div class="small text-truncate">
+                    <i class="fa fa-arrow-turn-up fa-rotate-90 me-1 text-muted"></i>
+                    {% if conv.missing %}
+                      <span class="text-muted">{{ conv.label }} «{{ conv.name }}» — ya no existe</span>
+                    {% else %}
+                      Convertida en {{ conv.label|lower }} <span class="fw-semibold">{{ conv.name }}</span>
+                      {% if conv.dates %}<span class="text-muted">· {{ conv.dates }} {{ 'fecha' if conv.dates == 1 else 'fechas' }}</span>{% endif %}
+                    {% endif %}
+                  </div>
+                {% endif %}
               </div>
               {% if sim.managing_company %}<span class="badge text-bg-light border d-none d-md-inline">{{ sim.managing_company.name }}</span>{% endif %}
             </a>
+            {% set conv = converted.get(sim.id|string) if show_archived else None %}
+            {% if conv and conv.url %}
+              {# Fuera del <a> de la fila: un enlace dentro de otro no es HTML válido. #}
+              <a class="btn btn-sm btn-outline-primary flex-shrink-0" href="{{ conv.url }}" title="Ir a {{ conv.label|lower }} «{{ conv.name }}»">
+                <i class="fa fa-arrow-up-right-from-square me-1"></i><span class="d-none d-md-inline">Ir a {{ conv.label|lower }}</span>
+              </a>
+            {% endif %}
             {% if CAN_EDIT %}
             <div class="dropdown flex-shrink-0">
               <button class="btn btn-sm btn-outline-secondary border-0" type="button" data-bs-toggle="dropdown" aria-label="Acciones"><i class="fa fa-ellipsis-vertical"></i></button>
               <ul class="dropdown-menu dropdown-menu-end">
+                <li>
+                  <form method="post" action="{{ url_for('simulation_archive', sid=sim.id) }}">
+                    <input type="hidden" name="state" value="{{ 'restore' if show_archived else 'archive' }}">
+                    <input type="hidden" name="next" value="{{ request.full_path }}">
+                    {% if show_archived %}
+                      <button class="dropdown-item" type="submit"><i class="fa fa-rotate-left fa-fw me-2"></i>Restaurar simulación</button>
+                    {% else %}
+                      <button class="dropdown-item" type="submit"><i class="fa fa-box-archive fa-fw me-2"></i>Archivar simulación</button>
+                    {% endif %}
+                  </form>
+                </li>
+                <li><hr class="dropdown-divider"></li>
                 <li>
                   <form method="post" action="{{ url_for('simulation_delete', sid=sim.id) }}" onsubmit="return confirm('¿Eliminar la simulación «{{ (sim.title or (sim.artist.name if sim.artist else (sim.event.name if sim.event else 'Simulación')))|e }}»? No se puede deshacer.');">
                     <button class="dropdown-item text-danger" type="submit"><i class="fa fa-trash fa-fw me-2"></i>Eliminar simulación</button>
@@ -105,9 +151,14 @@
   {% endfor %}
 {% else %}
   <div class="card"><div class="card-body text-center text-muted py-5">
-    <div class="mb-2"><i class="fa fa-chart-line fa-2x text-muted"></i></div>
-    <div class="fw-semibold">Aún no hay simulaciones</div>
-    <div class="small">{% if CAN_EDIT %}Pulsa «Nueva simulación» para crear la primera.{% else %}No tienes permiso para crearlas.{% endif %}</div>
+    <div class="mb-2"><i class="fa {{ 'fa-box-archive' if show_archived else 'fa-chart-line' }} fa-2x text-muted"></i></div>
+    {% if show_archived %}
+      <div class="fw-semibold">No hay simulaciones archivadas</div>
+      <div class="small">Aquí llegan las que se convierten en una actividad real y las que archives a mano.</div>
+    {% else %}
+      <div class="fw-semibold">Aún no hay simulaciones</div>
+      <div class="small">{% if CAN_EDIT %}Pulsa «Nueva simulación» para crear la primera.{% else %}No tienes permiso para crearlas.{% endif %}</div>
+    {% endif %}
   </div></div>
 {% endif %}
 

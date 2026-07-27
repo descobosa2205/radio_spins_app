@@ -227,18 +227,18 @@
       <ul class="dropdown-menu dropdown-menu-end">
         {% if CAN_EDIT %}<li><button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#simConfigModal"><i class="fa fa-pen fa-fw me-2"></i>Editar configuración</button></li>{% endif %}
         <li><a class="dropdown-item" href="{{ url_for('simulation_print', sid=sim.id) }}" target="_blank" rel="noopener" data-no-loader><i class="fa fa-file-pdf fa-fw me-2"></i>Exportar PDF (A4)</a></li>
-        {% if CAN_EDIT %}
+        {% if CAN_EDIT and not sim_archived %}
         <li><hr class="dropdown-divider"></li>
         {% set _k = (sim.kind or 'CONCERT')|upper %}
-        {% if _k == 'TOUR' %}
-        <li><form method="post" action="{{ url_for('simulation_convert', sid=sim.id) }}"><input type="hidden" name="target" value="tour"><button class="dropdown-item" type="submit"><i class="fa fa-route fa-fw me-2"></i>Convertir en gira comprada</button></form></li>
-        {% elif _k == 'CYCLE' %}
-        <li><form method="post" action="{{ url_for('simulation_convert', sid=sim.id) }}"><input type="hidden" name="target" value="cycle"><button class="dropdown-item" type="submit"><i class="fa fa-repeat fa-fw me-2"></i>Convertir en ciclo</button></form></li>
-        {% elif _k == 'FESTIVAL' %}
-        <li><form method="post" action="{{ url_for('simulation_convert', sid=sim.id) }}"><input type="hidden" name="target" value="festival"><button class="dropdown-item" type="submit"><i class="fa fa-star fa-fw me-2"></i>Convertir en festival</button></form></li>
-        {% else %}
-        <li><form method="post" action="{{ url_for('simulation_convert', sid=sim.id) }}"><input type="hidden" name="target" value="concert"><button class="dropdown-item" type="submit"><i class="fa fa-guitar fa-fw me-2"></i>Convertir en concierto</button></form></li>
-        {% endif %}
+        {% set _ct = {'TOUR': ('tour', 'fa-route', 'gira comprada'), 'CYCLE': ('cycle', 'fa-repeat', 'ciclo'),
+                      'FESTIVAL': ('festival', 'fa-star', 'festival')}.get(_k, ('concert', 'fa-guitar', 'concierto')) %}
+        <li>
+          <form method="post" action="{{ url_for('simulation_convert', sid=sim.id) }}"
+                onsubmit="return confirm('Se creará {{ _ct[2] }} con todas las fechas de la simulación (recinto, entradas, cachés, comisionistas, socios y presupuesto). La simulación pasará a «Archivadas». ¿Continuar?');">
+            <input type="hidden" name="target" value="{{ _ct[0] }}">
+            <button class="dropdown-item" type="submit"><i class="fa {{ _ct[1] }} fa-fw me-2"></i>Convertir en {{ _ct[2] }}</button>
+          </form>
+        </li>
         {% endif %}
         {% if CAN_EDIT and public_link %}
         <li><hr class="dropdown-divider"></li>
@@ -251,6 +251,16 @@
         {% if CAN_EDIT %}
         <li><hr class="dropdown-divider"></li>
         <li>
+          <form method="post" action="{{ url_for('simulation_archive', sid=sim.id) }}">
+            <input type="hidden" name="state" value="{{ 'restore' if sim_archived else 'archive' }}">
+            {% if sim_archived %}
+              <button class="dropdown-item" type="submit"><i class="fa fa-rotate-left fa-fw me-2"></i>Restaurar simulación</button>
+            {% else %}
+              <button class="dropdown-item" type="submit"><i class="fa fa-box-archive fa-fw me-2"></i>Archivar simulación</button>
+            {% endif %}
+          </form>
+        </li>
+        <li>
           <form method="post" action="{{ url_for('simulation_delete', sid=sim.id) }}" onsubmit="return confirm('¿Eliminar esta simulación? No se puede deshacer.');">
             <button class="dropdown-item text-danger" type="submit"><i class="fa fa-trash fa-fw me-2"></i>Eliminar simulación</button>
           </form>
@@ -261,6 +271,27 @@
   </div>
   {% endif %}{# /PUBLIC_VIEW #}
 </div>
+
+{% if sim_archived and not PUBLIC_VIEW %}
+  <div class="alert alert-secondary d-flex align-items-center gap-2 flex-wrap">
+    <i class="fa fa-box-archive"></i>
+    <div class="flex-grow-1">
+      <strong>Simulación archivada.</strong>
+      {% if converted_info %}
+        {% if converted_info.missing %}
+          Se convirtió en {{ converted_info.label|lower }} «{{ converted_info.name }}», que ya no existe.
+        {% else %}
+          Se convirtió en {{ converted_info.label|lower }} <strong>{{ converted_info.name }}</strong>{% if converted_info.dates %}, con {{ converted_info.dates }} {{ 'fecha' if converted_info.dates == 1 else 'fechas' }} creada{{ '' if converted_info.dates == 1 else 's' }}{% endif %}.
+        {% endif %}
+      {% else %}
+        No aparece en el listado de simulaciones; sigue aquí entera por si la necesitas.
+      {% endif %}
+    </div>
+    {% if converted_info and converted_info.url %}
+      <a class="btn btn-sm btn-outline-primary" href="{{ converted_info.url }}"><i class="fa fa-arrow-up-right-from-square me-1"></i>Ir a {{ converted_info.label|lower }}</a>
+    {% endif %}
+  </div>
+{% endif %}
 
 {% if CAN_EDIT and public_link %}
 {# Modal de compartir por correo / a socios con VISTA PREVIA (iframe del enlace público) #}

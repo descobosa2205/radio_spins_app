@@ -42882,6 +42882,32 @@ def _promotion_request_snapshot_from_source(session_db, source_type, source_id, 
             "company_id": str(concert.billing_company_id) if getattr(concert, "billing_company_id", None) else None,
             "company_label": (getattr(getattr(concert, "billing_company", None), "name", None) or "").strip(),
         }
+    if source_type == "EVENT":
+        # Evento propio (Bases de datos → Eventos): no cuelga de un artista, así que los artistas
+        # son los que se marquen en el asistente (puede no haber ninguno).
+        ev = session_db.get(AppEvent, to_uuid(source_id)) if source_id else None
+        if not ev:
+            return None
+        artist_ids = _promotion_normalized_artist_ids(manual_artist_ids or [])
+        artist_rows = []
+        if artist_ids:
+            artist_rows = (session_db.query(Artist)
+                           .filter(Artist.id.in_([to_uuid(x) for x in artist_ids]))
+                           .order_by(Artist.name.asc()).all())
+        artist_label = ", ".join([a.name for a in artist_rows]) or "—"
+        return {
+            "source_type": "EVENT",
+            "source_id": str(ev.id),
+            "kind_label": "Evento",
+            "title": (ev.name or "Evento").strip(),
+            "subtitle": artist_label if artist_rows else "Evento",
+            "artist_label": artist_label,
+            "artist_ids": artist_ids,
+            "cover_url": (ev.logo_url or default_cover),
+            "detail_url": url_for("event_detail_view", eid=ev.id),
+            "company_id": None,
+            "company_label": "",
+        }
     if source_type == "GIRA":
         artist_ids = _promotion_normalized_artist_ids(manual_artist_ids or [])
         artist_rows = []
@@ -43102,6 +43128,19 @@ def _promotion_creator_datasets(session_db):
             "default_company_id": str(concert.billing_company_id) if getattr(concert, 'billing_company_id', None) else '',
         })
 
+    # Eventos propios (Bases de datos → Eventos): no cuelgan de ningún artista, así que se listan
+    # siempre, sin filtrar por los artistas marcados.
+    event_items = [{
+        "id": str(ev.id),
+        "artist_ids": [],
+        "title": (ev.name or "Evento"),
+        "subtitle": "Evento",
+        "meta": "",
+        "cover_url": (ev.logo_url or default_cover),
+        "date": "",
+        "any_artist": True,
+    } for ev in session_db.query(AppEvent).order_by(AppEvent.name.asc()).all()]
+
     company_items = [{"id": str(c.id), "name": c.name} for c in session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()]
 
     return {
@@ -43111,6 +43150,7 @@ def _promotion_creator_datasets(session_db):
             "SONG": song_items,
             "ALBUM": album_items,
             "CONCERT": concert_items,
+            "EVENT": event_items,
             "GIRA": [],
         },
         "companies": company_items,
@@ -43454,7 +43494,7 @@ def promotion_create():
                 objectives_notes = (getattr(source_request, 'objectives_notes', None) or '').strip() or None
             if not budget_notes:
                 budget_notes = (getattr(source_request, 'budget_notes', None) or '').strip() or None
-        if subject_type not in {'ARTIST', 'SONG', 'ALBUM', 'CONCERT', 'GIRA'}:
+        if subject_type not in {'ARTIST', 'SONG', 'ALBUM', 'CONCERT', 'GIRA', 'EVENT'}:
             flash('Debes seleccionar qué se promociona.', 'warning')
             return redirect(next_url)
         snapshot = _promotion_request_snapshot_from_source(session_db, subject_type, subject_id, manual_title=manual_title, manual_artist_ids=artist_ids)
@@ -49885,6 +49925,10 @@ def _cabify_sync_account(session_db, acc, since=None, user_ids=None) -> dict:
                         invoice_number=code,
                         document_type="FACTURA",
                         file_url=(datos["receipt_url"] or None),
+                        # La etiqueta del viaje (charge code) se guarda como etiqueta del gasto:
+                        # es lo que dice a qué actividad iba, y se pinta igual que las de Pleo.
+                        pleo_tags=([{"group": "", "value": datos["charge_code"]}]
+                                   if datos.get("charge_code") else []),
                         status="PENDING",
                     ))
                 stats["created"] += 1

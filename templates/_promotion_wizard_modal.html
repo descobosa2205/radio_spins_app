@@ -48,6 +48,7 @@
           <div class="promo-pick-grid promo-pick-grid--wide">
             {% for value, label, icon in [('ARTIST','Artista','fa-microphone-lines'), ('SONG','Canción','fa-music'),
                                           ('ALBUM','Disco / EP','fa-compact-disc'), ('CONCERT','Concierto','fa-guitar'),
+                                          ('EVENT','Evento','fa-masks-theater'),
                                           ('GIRA','Gira comprada','fa-route')] %}
               <label class="promo-pick">
                 <input type="radio" name="subject_type_pick" value="{{ value }}" data-sw-advance {% if loop.first %}checked{% endif %}>
@@ -70,6 +71,10 @@
           </div>
           <div id="marketingSubjectGrid" class="row g-2"></div>
           <div id="marketingSubjectEmpty" class="alert alert-light border mt-2 mb-0">No hay nada que elegir con esos artistas. Puedes volver atrás y cambiarlos.</div>
+          <div class="form-text d-none" id="marketingEventHint">
+            Los eventos salen todos: no dependen del artista. Se dan de alta en
+            <a href="{{ url_for('events_view') }}" target="_blank" rel="noopener">Bases de datos → Eventos</a>.
+          </div>
         </section>
 
         {# Paso 4 · Tipo de promoción #}
@@ -175,7 +180,7 @@
   const normalize = (v) => window.normalizeSearchText ? window.normalizeSearchText(v) : String(v || '').toLowerCase();
 
   const QUESTION = { ARTIST: '¿Sobre qué artista?', SONG: '¿Qué canción?', ALBUM: '¿Qué disco o EP?',
-                     CONCERT: '¿Qué concierto?', GIRA: '¿Cómo se llama la gira?' };
+                     CONCERT: '¿Qué concierto?', EVENT: '¿Qué evento?', GIRA: '¿Cómo se llama la gira?' };
 
   function selectedArtists(){
     return Array.from(modal.querySelectorAll('.js-marketing-artist-check:checked')).map(el => el.value);
@@ -191,11 +196,13 @@
     if (question) question.textContent = QUESTION[type] || '¿Cuál?';
     const isGira = type === 'GIRA';
     manualWrap.classList.toggle('d-none', !isGira);
+    const hint = document.getElementById('marketingEventHint');
+    if (hint) hint.classList.toggle('d-none', type !== 'EVENT');
     grid.innerHTML = '';
     if (isGira) { empty.classList.add('d-none'); return; }
     const selected = selectedArtists();
     const rows = ((data.subjects || {})[type] || [])
-      .filter(item => !selected.length || (item.artist_ids || []).some(id => selected.includes(id)))
+      .filter(item => item.any_artist || !selected.length || (item.artist_ids || []).some(id => selected.includes(id)))
       .slice(0, 80);
     empty.classList.toggle('d-none', rows.length > 0);
     rows.forEach(item => {

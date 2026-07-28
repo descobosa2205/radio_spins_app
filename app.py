@@ -28290,9 +28290,11 @@ def concert_artwork_promoter_request(cid):
 
 
 def _can_validate_artwork() -> bool:
-    """Validación de carteles: diseño gráfico (sección diseño), quien edita conciertos o dirección."""
+    """Aprobar carteles es COSA DE DISEÑO (y de dirección). Al resto —contratación incluida— los
+    carteles que sube alguien que no es diseño le aparecen como «pendientes de aprobación», sin
+    botones para darles el OK."""
     try:
-        return bool(is_master() or has_access_key('diseno', include_descendants=True) or can_edit_concerts())
+        return bool(is_master() or has_access_key('diseno', include_descendants=True))
     except Exception:
         return False
 
@@ -28350,7 +28352,9 @@ def concert_artwork_upload_direct(cid):
                 mime_type=mime_type,
                 width=_parse_optional_positive_int((anchos[i] if i < len(anchos) else "") or ""),
                 height=_parse_optional_positive_int((altos[i] if i < len(altos) else "") or ""),
-                validation_status='PENDING',          # hasta que diseño dé el OK no se puede usar
+                # Lo que sube DISEÑO (o dirección) ya está aprobado; lo que sube cualquier otro
+                # queda pendiente de su OK y no se puede usar hasta entonces.
+                validation_status=('APPROVED' if _can_validate_artwork() else 'PENDING'),
                 uploaded_by_user_id=to_uuid(estado.get("user_id")),
                 uploaded_by_nick=(estado.get("nick") or "").strip() or None,
             )
@@ -28359,9 +28363,14 @@ def concert_artwork_upload_direct(cid):
             subidos.append({"id": str(asset.id), "label": asset.format_label, "url": asset.file_url})
         if not subidos:
             return jsonify({"ok": False, "error": "No se pudo subir ningún archivo."}), 400
-        # Quedan a la espera del visto bueno de diseño (misma etiqueta que los del promotor).
-        if (row.status or 'DRAFT').upper() in ('DRAFT', 'PROMOTER', 'REQUESTED', 'CORRECTIONS', 'UPLOADED'):
+        # Solo se marca «en revisión» si de verdad queda algo pendiente de aprobar.
+        hay_pendientes = any((a.validation_status or 'APPROVED') == 'PENDING'
+                             for a in (row.assets or []) if not a.is_archived)
+        if hay_pendientes and (row.status or 'DRAFT').upper() in ('DRAFT', 'PROMOTER', 'REQUESTED', 'CORRECTIONS', 'UPLOADED'):
             row.status = 'REVIEW'
+        elif not hay_pendientes and (row.status or 'DRAFT').upper() in ('DRAFT', 'REVIEW'):
+            row.status = 'UPLOADED'
+            _artwork_pick_primary_by_squareness(row)
         row.updated_at = datetime.now(ZoneInfo('Europe/Madrid'))
         session_db.commit()
         return jsonify({"ok": True, "assets": subidos, "count": len(subidos)})

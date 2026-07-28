@@ -2025,9 +2025,16 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
    propia app; si no hay historial, sigue su href (página padre) como respaldo. Global. */
 (function () {
   'use strict';
-  function sameOriginReferrer() {
-    try { return !!document.referrer && new URL(document.referrer).origin === window.location.origin; }
-    catch (e) { return false; }
+  function referrerUtil() {
+    // Referrer de la PROPIA app y distinto de esta misma página (tras guardar con POST+redirect el
+    // referrer es la propia ficha: ahí retroceder no llevaría «a la página de la que venías»).
+    try {
+      if (!document.referrer) return '';
+      var u = new URL(document.referrer);
+      if (u.origin !== window.location.origin) return '';
+      if (u.href === window.location.href) return '';
+      return u.href;
+    } catch (e) { return ''; }
   }
   function isBackLink(a) {
     if (!a) return false;
@@ -2036,17 +2043,25 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
     // una "edición ya hecha" en vez de en la pantalla anterior real).
     if (a.hasAttribute('data-no-smart-back')) return false;
     if (a.hasAttribute('data-smart-back')) return true;
+    // La flecha homogénea de volver (solo el icono, sin texto) y cualquier enlace cuyo texto,
+    // title o aria-label sea «Volver…»/«Atrás»: en TODA la app deben llevar a la página de la que
+    // venías, no a un destino fijo (ese queda como respaldo en el href).
+    if (a.classList && a.classList.contains('btn-volver')) return true;
+    var etiqueta = ((a.getAttribute('aria-label') || a.getAttribute('title') || '')).trim().toLowerCase();
+    if (etiqueta.indexOf('volver') === 0 || etiqueta.indexOf('atrás') === 0 || etiqueta.indexOf('atras') === 0) return true;
     var txt = (a.textContent || '').trim().toLowerCase();
     return !!a.querySelector('.fa-arrow-left') && txt.indexOf('volver') === 0;
   }
   document.addEventListener('click', function (e) {
     var a = e.target.closest ? e.target.closest('a') : null;
     if (!isBackLink(a)) return;
-    if (sameOriginReferrer() && window.history.length > 1) {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;   // abrir en otra pestaña
+    if (referrerUtil() && window.history.length > 1) {
       e.preventDefault();
       window.history.back();  // el navegador restaura la posición de scroll
     }
-    // Si no hay historial de la app, se sigue el href (fallback a la página padre).
+    // Si no venimos de otra página de la app (enlace directo, pestaña nueva o recarga tras guardar),
+    // se sigue el href: el destino «padre» de esa pantalla.
   });
 })();
 

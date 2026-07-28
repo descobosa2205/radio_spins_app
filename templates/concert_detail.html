@@ -1125,7 +1125,27 @@
           </div>
         </div>
       {% elif art_status == 'REVIEW' %}
-        <div class="alert alert-warning mt-3"><i class="fa fa-clock me-1"></i>Los carteles subidos están pendientes de validación por diseño gráfico.</div>
+        {# Sin permisos de diseño: se VEN los carteles pendientes (para saber que están subidos) pero
+           no se pueden aprobar ni usar hasta que diseño les dé el OK. #}
+        {% set pendientes = current_artwork_assets|selectattr('validation_status', 'equalto', 'PENDING')|list %}
+        <div class="card border-warning mt-3">
+          <div class="card-body">
+            <h6 class="mb-2"><i class="fa fa-clock me-1 text-warning"></i>Carteles pendientes de aprobación por diseño</h6>
+            <div class="small text-muted mb-3">Están subidos pero todavía no se pueden usar: los aprueba <strong>diseño</strong>.</div>
+            <div class="row g-3">
+              {% for asset in pendientes %}
+                <div class="col-6 col-md-4 col-xl-3">
+                  <div class="border rounded p-2 h-100 text-center">
+                    {% if (asset.mime_type or '')[:5] == 'image' %}<img src="{{ asset.file_url }}" alt="" style="max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;opacity:.75;">{% else %}<i class="fa fa-file-pdf fs-1 text-danger"></i>{% endif %}
+                    <div class="fw-semibold small mt-2 text-truncate">{{ asset.format_label }}</div>
+                    <span class="badge text-bg-warning text-dark mt-1"><i class="fa fa-clock me-1"></i>Pendiente</span>
+                    {% if asset.uploaded_by_nick %}<div class="small text-muted mt-1">Subido por {{ asset.uploaded_by_nick }}</div>{% endif %}
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
       {% endif %}
 
       {# ---------- FORMATOS SUBIDOS ----------

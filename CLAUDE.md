@@ -462,7 +462,10 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   dice con qué base está calculado. ⚠️ El **aviso amarillo salta SOLO si el de contratación NO cuadra**
   con el calculado (`mismatch`): si coinciden, o si nadie lo ha puesto a mano, no se avisa de nada. Sin
   ticketing ni previsión de ingresos no se muestra nada.
-- **Cartelería · petición, subida a mano y aprobación de diseño**: con el evento sin peticiones se
+- **Cartelería · petición, subida a mano y aprobación de diseño** (aprobar es SOLO de diseño y
+  dirección: `_can_validate_artwork` = `is_master() or has_access_key('diseno')`; lo que sube diseño
+  entra ya APROBADO y lo que sube cualquier otro queda PENDIENTE —al resto se le enseñan atenuados con
+  la etiqueta «Pendiente», sin botones de aprobar): con el evento sin peticiones se
   dice «Sin peticiones» y sale **UNA sola** opción según quién promueve (empresa del grupo →
   *Realizar petición a diseño*; promotor externo → *Solicitar al promotor*, usando
   `_concert_is_group_promoted`), más **Subir carteles**. La subida a mano
@@ -479,6 +482,14 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   formatos, vídeo, logos, ticketeras y notas — no hay módulo «Detalle de la solicitud» aparte) aparece
   únicamente si hay una petición de verdad (`requested_at` o estado REQUESTED/PROMOTER/CORRECTIONS);
   «Formatos subidos», solo si hay carteles (aprobados, rechazados o antiguos).
+
+- **Flecha de VOLVER (toda la app)**: la flecha gris de arriba a la izquierda (`.btn-volver`) y
+  cualquier enlace cuyo texto, `title` o `aria-label` empiece por «Volver»/«Atrás» llevan **a la
+  página de la que venías**, no a un destino fijo: el bloque «volver inteligente» de `scripts.js`
+  hace `history.back()` cuando el `document.referrer` es de la propia app **y distinto de la página
+  actual** (tras un POST+redirect el referrer es la propia ficha, y ahí retroceder no serviría).
+  Si no hay de dónde volver (enlace directo, pestaña nueva) se sigue el `href`, que es el destino
+  «padre» de esa pantalla. Opt-out: `data-no-smart-back`. Cmd/Ctrl/⇧/clic central no lo interceptan.
 
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).

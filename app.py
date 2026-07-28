@@ -27827,6 +27827,13 @@ def concert_detail_view(cid):
         production_panel = _concert_production_panel(session, c)
         roadmap_ctx = _roadmap_context(session, "concert", c)
         result_ctx = _concert_result_context(session, c) if tab == "resultado" else None
+        # Punto de empate: manda lo que puso contratación; si no, los gastos CONSOLIDADOS de la
+        # bolsa; y si tampoco, el presupuesto. Se avisa en la ficha de con qué está calculado.
+        break_even_info = None
+        try:
+            break_even_info = _concert_break_even_info(session, c)
+        except Exception:
+            break_even_info = None
         fotos_ctx = _build_fotos_context(session, "CONCERT", c.id) if tab == "fotos" else None
         setlist_ctx = _build_setlist_context(session, "CONCERT", c.id, concert=c) if tab == "repertorio" else None
 
@@ -27922,6 +27929,7 @@ def concert_detail_view(cid):
             promoter_email_suggestions=promoter_email_suggestions,
             production_panel=production_panel,
             roadmap_ctx=roadmap_ctx,
+            break_even_info=break_even_info,
             result_calc=(result_ctx["calc"] if result_ctx else None),
             result_module=(result_ctx["module"] if result_ctx else None),
             result_et_income=(result_ctx.get("et_income") if result_ctx else False),
@@ -49879,6 +49887,97 @@ def _concert_result_module_payload(s, concert, calc, label=None):
         commissions_meta.append({"name": name, "logo": ((a.promoter.logo_url if a.promoter else "") or ""), "desc": ""})
     return {"label": label or "", "partners": partners, "commissions": commissions_meta, "series": fine,
             "sellable": (calc["ticketing"]["sellable"] if calc else 0), "break_even_pct": be_pct, "break_even_tickets": be_tickets}
+
+
+def _concert_bag_expense_totals(session_db, concert):
+    """Gastos de PRODUCCIÓN de la bolsa de esta actividad, por categoría: lo CONSOLIDADO (con su
+    factura o con la falta de factura ya justificada) y el total metido en la bolsa. El punto de
+    empate se recalcula solo según se van consolidando."""
+    bag = (session_db.query(WorkflowBag)
+           .filter(WorkflowBag.linked_type == "CONCERT", WorkflowBag.linked_id == concert.id)
+           .order_by(WorkflowBag.created_at.desc()).first())
+    if bag is None:
+        return None
+    filas = (session_db.query(BagExpense)
+             .filter(BagExpense.bag_id == bag.id).all())
+    por_categoria, consolidado, total = {}, Decimal("0"), Decimal("0")
+    n_cons = 0
+    for e in filas:
+        neto = _money_or_zero(getattr(e, "amount_net", 0))
+        total += neto
+        if (getattr(e, "consolidation_status", "") or "").upper() == "CONSOLIDADO":
+            consolidado += neto
+            n_cons += 1
+            cat = (e.category or "OTROS")
+            por_categoria[cat] = por_categoria.get(cat, Decimal("0")) + neto
+    return {"bag": bag, "by_category": por_categoria, "consolidated": consolidado,
+            "total": total, "count": len(filas), "consolidated_count": n_cons}
+
+
+def _concert_break_even_from(s, concert, production_rows):
+    """Punto de empate (entradas y % de aforo) usando ESOS gastos de producción."""
+    try:
+        data = _concert_build_calc_data(s, concert)
+        data["production"] = production_rows
+        calc = sim_calc.compute(data)
+        return {"tickets": calc.get("break_even_tickets"), "pct": calc.get("break_even_pct"),
+                "sellable": (calc.get("ticketing") or {}).get("sellable")}
+    except Exception:
+        return None
+
+
+def _concert_break_even_info(s, concert):
+    """De dónde sale el PUNTO DE EMPATE de la actividad y cuánto da con cada base.
+
+    Manda, por este orden:
+      1. **Contratación**, si lo ha puesto a mano (`Concert.break_even_ticket`).
+      2. Los gastos de la **bolsa** que ya están CONSOLIDADOS (se va actualizando solo según se
+         consolidan).
+      3. El **presupuesto** de gastos (el que trae la simulación o el del evento).
+    Devuelve None si no hay con qué calcularlo (sin ticketing o sin previsión de ingresos).
+    """
+    presupuesto = [
+        {"category": (b.category or "OTROS"), "amount_net": float(_money_or_zero(b.amount_net)),
+         "quantity": 1, "iva_pct": 21, "includes_iva": False, "iva_exempt": False, "is_variable": False}
+        for b in (s.query(ConcertBudgetItem)
+                  .filter(ConcertBudgetItem.concert_id == concert.id,
+                          ConcertBudgetItem.status != "ELIMINADO").all())
+    ]
+    bolsa = _concert_bag_expense_totals(s, concert)
+    filas_bolsa = None
+    if bolsa and bolsa["consolidated_count"]:
+        filas_bolsa = [
+            {"category": cat, "amount_net": float(imp), "quantity": 1, "iva_pct": 21,
+             "includes_iva": False, "iva_exempt": False, "is_variable": False}
+            for cat, imp in bolsa["by_category"].items()
+        ]
+    calc_pres = _concert_break_even_from(s, concert, presupuesto) if presupuesto else None
+    calc_bolsa = _concert_break_even_from(s, concert, filas_bolsa) if filas_bolsa else None
+    manual = getattr(concert, "break_even_ticket", None)
+    sellable = ((calc_bolsa or calc_pres or {}) or {}).get("sellable") or 0
+
+    if manual:
+        fuente, tickets = "MANUAL", int(manual)
+        pct = (round(tickets * 100.0 / sellable, 1) if sellable else None)
+    elif calc_bolsa and calc_bolsa.get("tickets") is not None:
+        fuente, tickets, pct = "BOLSA", calc_bolsa["tickets"], calc_bolsa["pct"]
+    elif calc_pres and calc_pres.get("tickets") is not None:
+        fuente, tickets, pct = "PRESUPUESTO", calc_pres["tickets"], calc_pres["pct"]
+    else:
+        return None
+    return {
+        "source": fuente,
+        "tickets": tickets,
+        "pct": pct,
+        "sellable": sellable,
+        "manual": (int(manual) if manual else None),
+        "budget": calc_pres,
+        "bag": calc_bolsa,
+        "bag_consolidated": (float(bolsa["consolidated"]) if bolsa else 0.0),
+        "bag_total": (float(bolsa["total"]) if bolsa else 0.0),
+        "bag_pending": (int(bolsa["count"] - bolsa["consolidated_count"]) if bolsa else 0),
+        "budget_total": float(sum((_money_or_zero(x["amount_net"]) for x in presupuesto), Decimal("0"))),
+    }
 
 
 def _concert_result_context(s, concert):

@@ -63,6 +63,41 @@
 </ul>
 
 <div class="ficha-tabpane">
+  {# ============ PUNTO DE EMPATE ============
+     Se calcula solo (presupuesto de gastos + ticketing + previsión de ingresos) y se va actualizando
+     con los gastos de la bolsa según se consolidan. Si contratación lo pone a mano, manda el suyo.
+     El aviso dice con qué está calculado y cuánto daría con las otras bases. #}
+  {% if break_even_info %}
+    {% set be = break_even_info %}
+    <div class="alert alert-warning d-flex flex-wrap gap-3 align-items-center">
+      <div class="flex-grow-1" style="min-width:240px;">
+        <div class="fw-semibold">
+          <i class="fa fa-scale-balanced me-1"></i>Punto de empate:
+          {% if be.tickets is none %}no se alcanza{% else %}{{ be.tickets|k }} entradas{% if be.pct is not none %} · {{ be.pct }}% del aforo{% endif %}{% endif %}
+        </div>
+        <div class="small">
+          {% if be.source == 'MANUAL' %}
+            Lo ha puesto <strong>contratación a mano</strong>, así que manda sobre el calculado.
+          {% elif be.source == 'BOLSA' %}
+            Calculado con los <strong>gastos consolidados de la bolsa</strong> ({{ be.bag_consolidated|eur }}{% if be.bag_pending %} · quedan {{ be.bag_pending }} gasto{{ '' if be.bag_pending == 1 else 's' }} por consolidar{% endif %}). Se actualiza solo según se consolidan.
+          {% else %}
+            Calculado con el <strong>presupuesto de gastos</strong> ({{ be.budget_total|eur }}). Cuando la bolsa tenga gastos consolidados, pasará a calcularse con ellos.
+          {% endif %}
+        </div>
+      </div>
+      <div class="small text-end">
+        {% if be.budget and be.budget.tickets is not none %}
+          <div><span class="text-muted">Con el presupuesto:</span> <strong>{{ be.budget.tickets|k }}</strong>{% if be.budget.pct is not none %} · {{ be.budget.pct }}%{% endif %}</div>
+        {% endif %}
+        {% if be.bag and be.bag.tickets is not none %}
+          <div><span class="text-muted">Con la bolsa:</span> <strong>{{ be.bag.tickets|k }}</strong>{% if be.bag.pct is not none %} · {{ be.bag.pct }}%{% endif %}</div>
+        {% endif %}
+        {% if be.manual %}
+          <div><span class="text-muted">Contratación:</span> <strong>{{ be.manual|k }}</strong></div>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
   {% if tab == 'general' %}
     <div id="concert-general-zone" data-inline-zone>
     {% if contract_sheet_status == 'RECEIVED' %}

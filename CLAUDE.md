@@ -507,6 +507,12 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `.rm-tag.sheet` en la fila y en el detalle (solo en el back office). La pestaña Logística se nutre de
   los ítems de transporte, así que hereda el filtro; Hoteles y Personal salen en las dos hojas.
   `roadmap_item_save` conserva las etiquetas si el cliente no las manda (JS viejo en caché).
+- **Actividades de un EVENTO** (`AppEvent`): una actividad (`Concert`) exige artista (`artist_id` NOT
+  NULL) y un evento no lo es, así que al convertir una simulación de EVENTO se espeja el evento como
+  artista con `_ensure_artist_for_event` (`Artist.event_id`, único; hereda nombre y logo) y la
+  actividad guarda además `Concert.event_id`. El espejo se excluye del listado `/artistas`. ⚠️ Sigue
+  saliendo en OTROS selectores de artista que consultan `query(Artist)` sin filtrar (~60 sitios): es
+  cosmético, se va filtrando donde moleste. Mismo patrón que `_ensure_promoter_for_media`.
 - **PRL / Altas (riesgos laborales del personal de eventos)**: modelos `PersonComplianceDoc`
   (polimórfico: owner PROMOTER/USER/COMPANY; `doc_type` AUTONOMO_RECIBO/ALTA_SS/ITA/PRL_FORMACION/
   PRL_INFORMACION; `valid_from/valid_until` —NULL = sin caducidad—, status APPROVED/REJECTED,
@@ -530,7 +536,15 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `HOME_ADMIN_ALTAS_PENDING` (ITA caducado/sin subir). Endpoints en `SUPPORT_ACTION/READ_ENDPOINTS`;
   públicos en las 3 listas (`allowed`, `PUBLIC_ENDPOINTS_EXTRA`, `_CSRF_EXEMPT_ENDPOINTS`).
   Los docs en vigor NO se vuelven a pedir entre eventos («solicitar a todos» solo escribe a quien
-  le falte algo). `pypdf` en requirements.
+  le falte algo, contando también EPIs/renuncia/baja de quien los necesite). `pypdf` en requirements.
+  **A quién se le pide cada cosa**: `PRL_EPIS_TYPES` y `PRL_MEDICAL_WAIVER_TYPES` = **por cuenta
+  ajena** (alta `PUNTUAL` + `PRL_OWN_STAFF_TYPE` «OFICINA», el personal propio), `PRL_BAJA_TYPES` =
+  solo `PUNTUAL`. El **alta puntual exige también la BAJA** (`BAJA_SS`, cierra el periodo; el alta de
+  varios días ya cubre cualquier evento dentro del rango). El **personal de la oficina** (persona de
+  la hoja de ruta con `kind='USER'`) sí tiene estado PRL: sus documentos cuelgan del usuario
+  (`PersonComplianceDoc` owner_type USER) y su alta la cubre el ITA de la empresa del grupo por
+  vínculo `USER:<id>` o por DNI. Los semáforos, la página pública y las exportaciones (PDF/Excel)
+  solo piden/pintan lo que le toca a cada uno («—» o en gris si no aplica).
 
 - **Facturación de proveedores** (`/facturacion`, landing pública en 3 pasos): plantilla
   `public_invoice_landing.html` + estilos `.inv-step*`. Un solo componente con dos modos:
@@ -699,6 +713,11 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   en la web de la empresa sin tocarla. ⚠️ No hay `X-Frame-Options`/CSP en la app: si algún día se añaden,
   hay que dejar este endpoint enmarcable.
 
+- **Contratos de actividad: el PDF va por un endpoint con permiso** (`concert_contract_download`,
+  `/conciertos/<cid>/contratos/<ctid>/ver`): exige sesión y `can_view_concert_contracts()` y sirve el
+  fichero desde el servidor. ⚠️ Los contratos viven en el bucket PÚBLICO de Storage: la ficha ya no
+  publica `pdf_url`, pero **las URL directas de los ya subidos siguen funcionando** para quien las
+  tenga guardadas (cerrarlo del todo pide bucket privado o URLs firmadas, que afecta a todo el resto).
 - **Facturas imputadas a gastos de bolsa** (`BagExpenseInvoice`): relación N:N entre una factura y
   los gastos que cubre, con el **importe imputado** a cada uno. Las filas de la MISMA factura física
   comparten `group_key`. El adjunto del `BagExpense` se sigue rellenando (compatibilidad con
@@ -709,6 +728,11 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   de soltar en un módulo (crea gasto), se puede soltar **encima de un gasto existente**
   (`bag_imported_expense_link`): si la factura vale más, pregunta `update_amount` (el gasto pasa a
   valer la factura) o `split` (imputa lo que cabe y deja el resto para otro gasto, hasta repartirlo).
+  ⚠️ Al soltar en un MÓDULO una factura ya repartida en parte, solo entra **lo que queda**
+  (`_personal_expense_allocated`; el neto y el IVA se prorratean) y se anota la imputación: si no, el
+  importe se contaba dos veces. El «Solicitar factura» de un gasto manda al proveedor el enlace con
+  **todos sus conceptos pendientes** de la bolsa (mismo flujo que el botón agrupado, disponible ya en
+  las dos vistas de la bolsa).
   ⚠️ `templates/public_bag_invoice_upload.html` es **código muerto**: `/factura/<token>` renderiza
   `public_invoice_landing.html` con `inv_mode='REQUEST'`.
 - ⚠️ **Plantillas que parecen vivas y no lo son**: además de la anterior, `concerts.html` solo se

@@ -1,0 +1,23 @@
+{# ============================================================================
+   Necesidades de VIAJE en modo LECTURA (solo lo que está rellenado).
+   Va en la ficha de personal («Datos») y de tercero («Información general»), fuera del formulario:
+   antes solo se veían entrando en modo edición.
+   Parámetro: `ts` = _travel_summary(row)
+   ============================================================================ #}
+{% if ts and ts.has_any %}
+  <div class="travel-view mt-3">
+    <h6 class="psum-docs__title"><i class="fa fa-suitcase-rolling me-1"></i>Necesidades de viaje</h6>
+    {% if ts.marks %}
+      <div class="filter-chips mb-2">
+        {% for m in ts.marks %}
+          <span class="filter-chip is-on" style="cursor:default;"><i class="fa {{ m.icon }}"></i>{{ m.label }}</span>
+        {% endfor %}
+      </div>
+    {% endif %}
+    <dl class="psum-list">
+      {% if ts.departure_flight %}<div><span class="psum-k"><i class="fa fa-plane-departure me-1"></i>Vuelos desde</span><span class="psum-v">{{ ts.departure_flight }}</span></div>{% endif %}
+      {% if ts.departure_train %}<div><span class="psum-k"><i class="fa fa-train me-1"></i>Trenes desde</span><span class="psum-v">{{ ts.departure_train }}</span></div>{% endif %}
+      {% if ts.notes %}<div><span class="psum-k">Nota</span><span class="psum-v">{{ ts.notes }}</span></div>{% endif %}
+    </dl>
+  </div>
+{% endif %}

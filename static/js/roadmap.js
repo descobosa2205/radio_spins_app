@@ -990,7 +990,12 @@
           + '<li><button class="dropdown-item text-danger" data-pdel="' + esc(row.personnel_id) + '"><i class="fa fa-trash fa-fw me-1"></i>Eliminar del personal</button></li></ul></div>';
         html += '<div class="rm-person align-items-center"><span class="av">' + avatar(row.photo_url) + '</span>'
           + '<div class="flex-grow-1 min-w-0"><div class="nm">' + esc(row.full_name || row.name) + '</div><div class="rl">' + esc(row.role || '') + (row.dni ? ' · ' + esc(row.dni) : '') + '</div><div class="mt-1">' + typeBadge + '</div></div>'
-          + '<div class="d-flex align-items-start gap-3 text-center me-1">' + prlIcon(row, 'alta', 'Alta') + prlIcon(row, 'informacion', 'Información') + prlIcon(row, 'formacion', 'Formación') + prlIcon(row, 'epis', 'EPIs') + ((row.renuncia_medico && row.renuncia_medico.required) ? prlIcon(row, 'renuncia_medico', 'Renuncia médico') : '') + '</div>'
+          // Baja, EPIs y renuncia médica: solo se enseñan a quien se le piden (cuenta ajena).
+          + '<div class="d-flex align-items-start gap-3 text-center me-1">' + prlIcon(row, 'alta', 'Alta')
+          + ((row.baja && row.baja.required) ? prlIcon(row, 'baja', 'Baja') : '')
+          + prlIcon(row, 'informacion', 'Información') + prlIcon(row, 'formacion', 'Formación')
+          + ((row.epis && row.epis.required) ? prlIcon(row, 'epis', 'EPIs') : '')
+          + ((row.renuncia_medico && row.renuncia_medico.required) ? prlIcon(row, 'renuncia_medico', 'Renuncia médico') : '') + '</div>'
           + menu + '</div>';
       });
       html += '</div>';

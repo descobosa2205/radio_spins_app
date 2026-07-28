@@ -72,6 +72,8 @@
   const DOC_LABELS = {{ doc_labels|tojson }};
   const ALTA_BY_TYPE = {{ alta_doc_by_type|tojson }};
   const MEDICAL_WAIVER_TYPES = {{ medical_waiver_types|tojson }};
+  const EPIS_TYPES = {{ epis_types|tojson }};
+  const BAJA_TYPES = {{ baja_types|tojson }};
   let STATUS = {{ status_row|tojson }};
   let currentType = {{ worker_type|tojson }};
 
@@ -82,12 +84,13 @@
     'PRL_FORMACION': 'Acreditación de la formación en prevención de riesgos laborales.',
     'PRL_INFORMACION': 'Justificante de haber recibido la información de riesgos del puesto.',
     'EPIS': 'Justificante de la entrega de los equipos de protección individual (EPIs).',
+    'BAJA_SS': 'Documento de BAJA en la Seguridad Social del alta puntual (cierra el periodo de alta).',
     'RENUNCIA_MEDICO': 'Renuncia al reconocimiento médico firmada. Caduca al año de la fecha de firma.'
   };
   const DOC_ICONS = {
     'AUTONOMO_RECIBO': 'fa-file-invoice-dollar', 'ALTA_SS': 'fa-file-signature', 'ITA': 'fa-file-shield',
     'PRL_FORMACION': 'fa-graduation-cap', 'PRL_INFORMACION': 'fa-circle-info',
-    'EPIS': 'fa-helmet-safety', 'RENUNCIA_MEDICO': 'fa-file-medical'
+    'EPIS': 'fa-helmet-safety', 'RENUNCIA_MEDICO': 'fa-file-medical', 'BAJA_SS': 'fa-user-minus'
   };
 
   function slotState(docType){
@@ -96,6 +99,7 @@
     if (docType === 'PRL_FORMACION') slot = STATUS.formacion;
     else if (docType === 'PRL_INFORMACION') slot = STATUS.informacion;
     else if (docType === 'EPIS') slot = STATUS.epis;
+    else if (docType === 'BAJA_SS') slot = STATUS.baja;
     else if (docType === 'RENUNCIA_MEDICO') slot = STATUS.renuncia_medico;
     else if (STATUS.worker_type === currentType) slot = STATUS.alta;
     else {
@@ -152,8 +156,12 @@
   function docTypesFor(type){
     const alta = ALTA_BY_TYPE[type];
     if (!alta) return [];
-    // La renuncia al examen médico solo se pide por CUENTA AJENA (alta puntual).
-    const base = [alta, 'PRL_INFORMACION', 'PRL_FORMACION', 'EPIS'];
+    // Por CUENTA AJENA (alta puntual) hace falta también la BAJA, los EPIs y la renuncia médica.
+    // A un autónomo o a un empleado de otra empresa, esos tres NO se le piden.
+    const base = [alta];
+    if (BAJA_TYPES.indexOf(type) >= 0) base.push('BAJA_SS');
+    base.push('PRL_INFORMACION', 'PRL_FORMACION');
+    if (EPIS_TYPES.indexOf(type) >= 0) base.push('EPIS');
     if (MEDICAL_WAIVER_TYPES.indexOf(type) >= 0) base.push('RENUNCIA_MEDICO');
     return base;
   }

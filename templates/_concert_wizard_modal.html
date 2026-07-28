@@ -2195,10 +2195,11 @@
       });
 
       function currentCache(){
+        // TODOS los cachés cuentan para el límite de facturación (fijos y variables con importe),
+        // igual que los suma el servidor: si aquí solo se contaran los fijos, el importe del aviso
+        // («con este caché sumaría X») no cuadraría con el que decide si se avisa o no.
         let total = 0;
-        document.querySelectorAll('#wizardCaches .cache-fixed input[name="cache_amount[]"]').forEach(inp => {
-          const row = inp.closest('.border');
-          if ((row?.querySelector('select[name="cache_kind[]"]')?.value || 'FIXED') === 'VARIABLE') return;
+        document.querySelectorAll('#wizardCaches input[name="cache_amount[]"]').forEach(inp => {
           const v = parseFloat(inp.value); if(!isNaN(v)) total += v;
         });
         return total;

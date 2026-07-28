@@ -2760,6 +2760,10 @@ img.docs-id__face { width:100%; height:100%; object-fit:cover; display:block; cu
 .filter-chip:has(input:checked){ border-color:var(--brand-primary,#E33D48);
   background:rgba(227,61,72,.07); color:var(--brand-primary,#E33D48); box-shadow:0 0 0 .16rem rgba(227,61,72,.12); }
 .filter-chip:has(input:checked) i{ color:var(--brand-primary,#E33D48); }
+/* Chip marcado en modo LECTURA (no lleva input dentro, p. ej. las necesidades de viaje de la ficha). */
+.filter-chip.is-on{ border-color:var(--brand-primary,#E33D48); background:rgba(227,61,72,.07);
+  color:var(--brand-primary,#E33D48); }
+.filter-chip.is-on i{ color:var(--brand-primary,#E33D48); }
 .filter-hint{ font-size:.8rem; color:var(--muted-2,#6c757d); }
 
 /* Datos básicos de la ficha de concierto: variante compacta para que quepan de una tirada

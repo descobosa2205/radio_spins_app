@@ -88,6 +88,7 @@
             <h6 class="psum-docs__title">Vehículos</h6>
             <div class="docs-pills" data-docs-grid="PLATE"></div>
           </div>
+          {% with ts=travel_summary %}{% include '_travel_summary_view.html' %}{% endwith %}
         </div>
         <div class="col-lg-5 col-xl-4">
           <div data-docs-section="DNI" class="docs-section d-none">

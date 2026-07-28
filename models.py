@@ -78,6 +78,13 @@ class Artist(Base):
     # (ArtistPerson.birth_date); si no, del propio artista (Artist.birth_date).
     is_group = Column(Boolean, nullable=False, server_default=text("false"))
     birth_date = Column(Date)
+    # ESPEJO DE UN EVENTO. Las actividades (Concert) exigen un artista (artist_id NOT NULL) y un
+    # EVENTO no lo tiene, así que al convertir una simulación de evento en actividades se crea (una
+    # sola vez) este artista espejo con el nombre y el logo del evento. Se reconoce por `event_id` y
+    # se deja FUERA del listado de artistas y de sus buscadores: el evento sigue viviendo en Bases de
+    # datos → Eventos. Mismo patrón que el espejo medio→tercero (`_ensure_promoter_for_media`).
+    event_id = Column(PGUUID(as_uuid=True), ForeignKey("app_events.id", ondelete="CASCADE"),
+                      unique=True, index=True)
     social_links = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     onesheet_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     onesheet_public_token = Column(Text)
@@ -1289,6 +1296,9 @@ class Concert(Base):
 
     artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="RESTRICT"), nullable=False)
     artist_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # Si la actividad es de un EVENTO (no de un artista), aquí queda de qué evento es; el artista
+    # que lleva es su espejo (`Artist.event_id`), porque `artist_id` no puede ir vacío.
+    event_id = Column(PGUUID(as_uuid=True), ForeignKey("app_events.id", ondelete="SET NULL"), index=True)
 
     # Tipo de actividad de contratación: CONCIERTO | FESTIVAL | EVENTO_PROMOCIONAL | TV | MARCA | OTROS
     activity_type = Column(Text, nullable=False, server_default=text("'CONCIERTO'"))
@@ -5048,6 +5058,12 @@ def ensure_artist_feature_schema():
         # Grupo vs individual + fecha de nacimiento (para cumpleaños en la agenda).
         "ALTER TABLE IF EXISTS artists ADD COLUMN IF NOT EXISTS is_group boolean NOT NULL DEFAULT false;",
         "ALTER TABLE IF EXISTS artists ADD COLUMN IF NOT EXISTS birth_date date;",
+        # Artista ESPEJO de un evento (para que un evento pueda tener actividades) y evento de la
+        # actividad. Ver los comentarios de los modelos.
+        "ALTER TABLE IF EXISTS artists ADD COLUMN IF NOT EXISTS event_id uuid REFERENCES app_events(id) ON DELETE CASCADE;",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_artists_event ON artists (event_id) WHERE event_id IS NOT NULL;",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS event_id uuid REFERENCES app_events(id) ON DELETE SET NULL;",
+        "CREATE INDEX IF NOT EXISTS ix_concerts_event ON concerts (event_id);",
         "ALTER TABLE IF EXISTS artist_people ADD COLUMN IF NOT EXISTS birth_date date;",
         # Entradas libres de la agenda del artista (bloqueos / notas).
         """

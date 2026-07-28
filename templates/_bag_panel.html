@@ -51,6 +51,9 @@
         <button class="btn btn-success btn-sm"><i class="fa fa-lock me-1"></i>Cerrar bolsa</button>
       </form>
     {% endif %}
+    {% if can_edit_bag and bag_providers_pending %}
+      <button class="btn btn-outline-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#bagInvoicesModal"><i class="fa fa-file-invoice me-1"></i>Solicitar facturas a los proveedores <span class="badge text-bg-danger ms-1">{{ bag_providers_pending|length }}</span></button>
+    {% endif %}
     {% if bag.is_archived %}
       <form method="post" action="{{ url_for('bag_restore', bag_id=bag.id) }}"><input type="hidden" name="next" value="{{ bag_next }}"><button class="btn btn-outline-success btn-sm">Reactivar</button></form>
     {% else %}
@@ -202,7 +205,8 @@
     </div></div>
   </div>
 {% endif %}
-{% if bag_embed and can_edit_bag and bag_providers_pending %}
+{# El modal de solicitar facturas vale para las dos vistas de la bolsa (embebida y su página). #}
+{% if can_edit_bag and bag_providers_pending %}
   <div class="modal fade" id="bagInvoicesModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
       <form method="post" action="{{ url_for('bag_request_invoices', bag_id=bag.id) }}">

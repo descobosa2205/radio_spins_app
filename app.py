@@ -1506,7 +1506,9 @@ def artists_view():
             session_db.close()
         return redirect(url_for("artists_view"))
     show_inactive = _truthy(request.args.get("show_inactive"))
-    all_artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
+    # Los artistas ESPEJO de un evento no son artistas: no salen en esta base de datos.
+    all_artists = (session_db.query(Artist).filter(Artist.event_id.is_(None))
+                   .order_by(Artist.name.asc()).all())
     active_ids = _active_artist_ids(session_db)
     active_count = sum(1 for a in all_artists if str(a.id) in active_ids)
     inactive_count = len(all_artists) - active_count
@@ -21696,6 +21698,39 @@ def _replace_concert_caches(session, concert_id, rows):
         )
 
 
+@app.get("/conciertos/<cid>/contratos/<ctid>/ver", endpoint="concert_contract_download")
+@admin_required
+def concert_contract_download(cid, ctid):
+    """Sirve el PDF de un contrato COMPROBANDO EL PERMISO (administración, contratación o dirección).
+
+    ⚠️ Por qué existe: los contratos se guardan en el almacenamiento PÚBLICO, así que enlazar
+    directamente a `pdf_url` deja el documento accesible a cualquiera que tenga la URL, aunque en
+    pantalla esté oculto. Ahora la ficha enlaza aquí: hay que tener sesión y permiso, y el fichero se
+    sirve desde el servidor (la URL del almacenamiento no se le da al navegador).
+    """
+    if not can_view_concert_contracts():
+        return forbid("Los contratos solo los ven administración, contratación y dirección.")
+    session_db = db()
+    try:
+        contrato = (session_db.query(ConcertContract)
+                    .filter(ConcertContract.id == to_uuid(ctid),
+                            ConcertContract.concert_id == to_uuid(cid)).first())
+        if not contrato or not (contrato.pdf_url or "").strip():
+            abort(404)
+        nombre = (contrato.original_name or f"{contrato.concept or 'contrato'}.pdf").strip()
+        try:
+            datos, ctype = _download_remote_content(contrato.pdf_url)
+        except Exception:
+            app.logger.exception("concert_contract_download")
+            abort(404)
+        resp = send_file(BytesIO(datos), mimetype=(ctype or "application/pdf"),
+                         as_attachment=False, download_name=nombre)
+        resp.headers["Cache-Control"] = "private, max-age=0, no-store"
+        return resp
+    finally:
+        session_db.close()
+
+
 def _add_contracts_from_request(session, concert_id):
     concepts = request.form.getlist("contract_concept[]")
     files = request.files.getlist("contract_file[]")
@@ -22567,7 +22602,7 @@ def _home_produccion_pending(limit=12):
         q = (s.query(Concert)
              .options(joinedload(Concert.artist), joinedload(Concert.venue))
              .filter(func.upper(func.coalesce(Concert.status, '')) == 'CONFIRMADO')
-             .filter(Concert.date >= date.today()))
+             .filter(Concert.date >= today_local()))
         if assigned:
             assigned_uuids = [to_uuid(a) for a in assigned if to_uuid(a)]
             if assigned_uuids:
@@ -22576,6 +22611,10 @@ def _home_produccion_pending(limit=12):
         # Solo las que NO tienen bolsa abierta (producción sin arrancar).
         out = []
         for c in rows:
+            # Las fechas de gira comprada que NO promueve una empresa del grupo no generan aviso de
+            # producción (mismo criterio que `_ensure_production_request_for_concert` y el listado).
+            if not _concert_needs_production(c):
+                continue
             has_bag = (s.query(WorkflowBag.id)
                        .filter(WorkflowBag.linked_type.in_(("CONCERT", "concert")), WorkflowBag.linked_id == c.id)
                        .first()) is not None
@@ -23490,11 +23529,18 @@ def simulation_convert(sid):
         uid = to_uuid(stt.get("user_id")) if stt.get("user_id") else None
         nick = stt.get("nick") or None
 
+        # Sujeto de lo que se crea: el artista de la simulación o, si es de un EVENTO, su espejo
+        # (`_ensure_artist_for_event`), para que la gira/ciclo salga con el nombre y el logo del evento.
+        sujeto_id = sim.artist_id
+        if not sujeto_id and getattr(sim, "event_id", None):
+            _espejo = _ensure_artist_for_event(s, sim.event or s.get(AppEvent, sim.event_id))
+            sujeto_id = _espejo.id if _espejo is not None else None
+
         tour = cycle = None
         if target == "tour":
             tour = PurchasedTour(
-                name=name, managing_company_id=sim.managing_company_id, artist_id=sim.artist_id,
-                artist_ids=([str(sim.artist_id)] if sim.artist_id else []), start_date=start, end_date=end,
+                name=name, managing_company_id=sim.managing_company_id, artist_id=sujeto_id,
+                artist_ids=([str(sujeto_id)] if sujeto_id else []), start_date=start, end_date=end,
                 status="ACTIVA",
                 payload={"general": {"simulation_ids": [str(sim.id)],
                                      "expenses": _simulation_general_expenses(sim)}},
@@ -23536,7 +23582,8 @@ def simulation_convert(sid):
             # Nada que crear: no se archiva ni se deja un contenedor vacío a medias.
             s.rollback()
             detail = (" " + "; ".join(skipped)) if skipped else ""
-            flash("No se ha podido crear ninguna fecha: hacen falta fecha concreta y artista." + detail, "warning")
+            flash("No se ha podido crear ninguna fecha: hace falta una fecha concreta y un artista "
+                  "o un evento." + detail, "warning")
             return redirect(url_for("simulation_detail_view", sid=sid))
 
         kind_label = {"tour": "gira comprada", "cycle": "ciclo", "festival": "festival", "concert": "concierto"}[target]
@@ -34318,8 +34365,44 @@ def _sim_sale_type(sim, default: str = "EMPRESA") -> str:
     return default
 
 
-def _sim_activity_artist_id(sim, act):
-    """Artista de la fecha: el suyo, el de la simulación o el primero del lineup (festivales)."""
+def _ensure_artist_for_event(session, event):
+    """Artista ESPEJO de un evento, creándolo la primera vez.
+
+    Una actividad (Concert) exige artista y un EVENTO no lo es, así que para que una simulación de
+    evento se pueda convertir en actividades se espeja el evento como artista con su nombre y su
+    logo. Se reconoce por `Artist.event_id` y NO sale en el listado de artistas ni en sus buscadores
+    (el evento sigue estando en Bases de datos → Eventos). Mismo patrón que `_ensure_promoter_for_media`.
+    """
+    if event is None:
+        return None
+    existente = session.query(Artist).filter(Artist.event_id == event.id).first()
+    if existente is not None:
+        # Si al evento le cambian el nombre o el logo, el espejo lo sigue.
+        nombre = (event.name or "").strip()
+        if nombre and existente.name != nombre and not (
+                session.query(Artist.id).filter(func.lower(Artist.name) == nombre.lower(),
+                                                Artist.id != existente.id).first()):
+            existente.name = nombre
+        if event.logo_url and not (existente.photo_url or "").strip():
+            existente.photo_url = event.logo_url
+        return existente
+    nombre = (event.name or "Evento").strip()[:200]
+    # `Artist.name` es ÚNICO: si ya hay un artista con ese nombre, el espejo lleva sufijo.
+    if session.query(Artist.id).filter(func.lower(Artist.name) == nombre.lower()).first():
+        nombre = f"{nombre} (evento)"[:200]
+    espejo = Artist(name=nombre, photo_url=event.logo_url, event_id=event.id)
+    session.add(espejo)
+    session.flush()
+    return espejo
+
+
+def _sim_activity_artist_id(sim, act, session=None):
+    """Artista de la fecha: el suyo, el de la simulación o el primero del lineup (festivales).
+
+    Si la simulación es de un EVENTO (no hay artista en ninguna parte), se usa el artista ESPEJO del
+    evento: así la conversión a actividades funciona igual y en las pantallas se ve el nombre y el
+    logo del evento donde iría el artista.
+    """
     if getattr(act, "artist_id", None):
         return act.artist_id
     if sim.artist_id:
@@ -34327,6 +34410,11 @@ def _sim_activity_artist_id(sim, act):
     for row in (sim.lineup or []):
         if row.artist_id:
             return row.artist_id
+    if session is not None and getattr(sim, "event_id", None):
+        evento = getattr(sim, "event", None) or session.get(AppEvent, sim.event_id)
+        espejo = _ensure_artist_for_event(session, evento)
+        if espejo is not None:
+            return espejo.id
     return None
 
 
@@ -34340,9 +34428,11 @@ def _simulation_dump_activity(session, sim, act, *, sale_type, group_name=None,
     label = (act.label or "").strip()
     if act.date_unknown or not act.event_date:
         return None, f"«{label or 'Fecha sin nombre'}»: sin fecha concreta"
-    artist_id = _sim_activity_artist_id(sim, act)
+    # En una simulación de EVENTO no hay artista: se usa el espejo del evento (ver
+    # `_ensure_artist_for_event`), así la conversión funciona igual con el evento como sujeto.
+    artist_id = _sim_activity_artist_id(sim, act, session)
     if not artist_id:
-        return None, f"«{label or act.event_date.strftime('%d/%m/%Y')}»: sin artista"
+        return None, f"«{label or act.event_date.strftime('%d/%m/%Y')}»: sin artista ni evento"
 
     tickets = _sim_ticket_rows(act)
     capacity = sum(int(t["qty_for_sale"] or 0) for t in tickets)
@@ -34362,6 +34452,7 @@ def _simulation_dump_activity(session, sim, act, *, sale_type, group_name=None,
         billing_company_id=sim.managing_company_id,
         purchased_tour_id=(tour.id if tour is not None else None),
         cycle_festival_id=(cycle.id if cycle is not None else None),
+        event_id=getattr(sim, "event_id", None),
         contracting_payload={"simulation_id": str(sim.id), "simulation_activity_id": str(act.id)},
         ticketing_payload={"ticket_types": [
             {"name": t["name"], "price": float(t["price"]), "qty_for_sale": t["qty_for_sale"],
@@ -35582,6 +35673,8 @@ COMPANY_BILLING_WARN_MARGIN = Decimal("200000")
 
 
 def _company_year_billing_forecast(session_db, company_id, year: int) -> Decimal:
+    """Facturación PREVISTA de una empresa del grupo en un año: la suma de TODOS los cachés de sus
+    actividades (fijos y variables con importe), que es lo que se contrasta con el límite."""
     if not company_id or not year:
         return Decimal("0")
     rows = (
@@ -38341,6 +38434,8 @@ PRL_WORKER_TYPES = [
     ("EMPRESA", "Empleado de empresa", "fa-building-user", "Empresa con ITA en vigor + PRL"),
 ]
 PRL_WORKER_TYPE_LABELS = {k: v for k, v, _i, _d in PRL_WORKER_TYPES}
+# El personal PROPIO de la oficina no elige tipo (no es un tercero), pero sí tiene etiqueta.
+PRL_WORKER_TYPE_LABELS["OFICINA"] = "Personal de la oficina"
 PRL_DOC_LABELS = {
     "AUTONOMO_RECIBO": "Recibo de autónomos",
     "ALTA_SS": "Alta en la Seguridad Social",
@@ -38351,6 +38446,9 @@ PRL_DOC_LABELS = {
     # solo se le pide a quien va por cuenta ajena (alta puntual y personal de la oficina).
     "EPIS": "Entrega de EPIs",
     "RENUNCIA_MEDICO": "Renuncia al examen médico",
+    # Un alta PUNTUAL (por cuenta ajena) tiene que traer también su BAJA: es lo que cierra el
+    # periodo de alta. Sin caducidad propia: vale la fecha de efectos que se detecte.
+    "BAJA_SS": "Baja en la Seguridad Social",
     # Certificados de facturación: CADUCAN CADA MES (solo valen para el mes en vigor).
     "CERT_AEAT": "Certificado de la Agencia Tributaria",
     "CERT_SS": "Certificado de corriente de pagos con la Seguridad Social",
@@ -38366,9 +38464,15 @@ INVOICE_CERT_DOCS = [
 INVOICE_MONTHLY_CERTS = {"CERT_AEAT", "CERT_SS"}
 # Documento de «alta» que corresponde a cada tipo de trabajador.
 PRL_ALTA_DOC_BY_TYPE = {"AUTONOMO": "AUTONOMO_RECIBO", "PUNTUAL": "ALTA_SS", "EMPRESA": "ITA"}
-# La renuncia al examen médico solo se pide a quien va por CUENTA AJENA: alta puntual y el
-# personal propio de la oficina. A autónomos y a empleados de otra empresa, no.
-PRL_MEDICAL_WAIVER_TYPES = {"PUNTUAL"}
+# Tipo de «trabajador» del personal PROPIO de la oficina (no es un tercero: va por cuenta ajena
+# con nosotros y su alta la cubre el ITA de la empresa del grupo).
+PRL_OWN_STAFF_TYPE = "OFICINA"
+# La renuncia al examen médico y la entrega de EPIs solo se piden a quien va por CUENTA AJENA: alta
+# puntual y el personal propio de la oficina. A autónomos y a empleados de otra empresa, NO.
+PRL_MEDICAL_WAIVER_TYPES = {"PUNTUAL", PRL_OWN_STAFF_TYPE}
+PRL_EPIS_TYPES = {"PUNTUAL", PRL_OWN_STAFF_TYPE}
+# La BAJA solo la trae el alta puntual (es la que cierra su periodo de alta).
+PRL_BAJA_TYPES = {"PUNTUAL"}
 _PRL_MESES_ES = {"enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
                  "julio": 7, "agosto": 8, "septiembre": 9, "setiembre": 9, "octubre": 10,
                  "noviembre": 11, "diciembre": 12}
@@ -38490,6 +38594,27 @@ def _prl_detect(doc_type: str, text: str, event_date) -> dict:
                 # Cuadra si la fecha del evento cae DENTRO del periodo de alta, no solo si es el
                 # mismo día: un alta de varios días cubre todo lo que pase en ese rango.
                 out["meta"]["match_event"] = (out["valid_from"] <= event_date <= out["valid_until"])
+    elif doc_type == "BAJA_SS":
+        # «La fecha de efectos de la baja es … 15 de junio de 2026» (o dd/mm/aaaa).
+        baja = None
+        m = re.search(r"(\d{1,2})\s+de\s+([a-záéíóú]+)\s+de\s+(\d{4})", t, re.IGNORECASE)
+        if m and _PRL_MESES_ES.get(m.group(2).lower()):
+            try:
+                baja = date(int(m.group(3)), _PRL_MESES_ES[m.group(2).lower()], int(m.group(1)))
+            except ValueError:
+                baja = None
+        if not baja:
+            m = re.search(r"(\d{1,2})[\-/](\d{1,2})[\-/](\d{4})", t)
+            if m:
+                try:
+                    baja = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+                except ValueError:
+                    baja = None
+        if baja:
+            # La baja no «caduca»: certifica el final del periodo de alta. Se guarda su fecha para
+            # poder cuadrarla con el alta y con la fecha del evento.
+            out["valid_from"] = baja
+            out["meta"] = {"detected": True, "fecha_baja": baja.isoformat()}
     elif doc_type == "RENUNCIA_MEDICO":
         # Caduca al año de la fecha de emisión que se detecte en el documento.
         emitido = None
@@ -38548,9 +38673,16 @@ def _prl_person_status(session_db, concert, person: dict, event_date, ita_docs=N
     """Estado de alta y PRL de una persona del personal del evento: tipo de trabajador y
     3 semáforos (alta / información / formación) con sus documentos."""
     info = _rooming_person_info(session_db, person)
+    kind = (person.get("kind") or "").upper()
     promoter = None
-    if (person.get("kind") or "").upper() == "PROMOTER" and to_uuid(person.get("ref_id") or ""):
+    if kind == "PROMOTER" and to_uuid(person.get("ref_id") or ""):
         promoter = session_db.get(Promoter, to_uuid(person.get("ref_id")))
+    # PERSONAL PROPIO DE LA OFICINA: no es un tercero, pero también va por cuenta ajena, así que se
+    # le piden información, formación, EPIs y renuncia al examen médico. Sus documentos cuelgan del
+    # usuario (`PersonComplianceDoc` owner_type='USER') y su alta la cubre el ITA de la empresa.
+    own_user = None
+    if kind == "USER" and to_uuid(person.get("ref_id") or ""):
+        own_user = session_db.get(User, to_uuid(person.get("ref_id")))
     row = {
         "personnel_id": person.get("id") or "",
         "name": info["name"], "full_name": info["full_name"], "role": info["role"],
@@ -38561,20 +38693,28 @@ def _prl_person_status(session_db, concert, person: dict, event_date, ita_docs=N
         "worker_type_label": "",
         "alta": {"ok": False, "doc": None}, "informacion": {"ok": False, "doc": None},
         "formacion": {"ok": False, "doc": None},
-        # EPIs: a todo el mundo. Renuncia al examen médico: solo por cuenta ajena.
-        "epis": {"ok": False, "doc": None},
+        # EPIs y renuncia al examen médico: solo a quien va por CUENTA AJENA (alta puntual y
+        # personal de la oficina). La BAJA, solo al alta puntual.
+        "epis": {"ok": False, "doc": None, "required": False},
         "renuncia_medico": {"ok": False, "doc": None, "required": False},
+        "baja": {"ok": False, "doc": None, "required": False},
         "docs": [],
     }
+    if own_user is not None:
+        row["promoter_id"] = ""
+        row["worker_type"] = PRL_OWN_STAFF_TYPE
     row["worker_type_label"] = PRL_WORKER_TYPE_LABELS.get(row["worker_type"], "")
-    if not promoter:
+    if not promoter and own_user is None:
         return row
+    owner_type = "PROMOTER" if promoter is not None else "USER"
+    owner_id = promoter.id if promoter is not None else own_user.id
     docs = (session_db.query(PersonComplianceDoc)
-            .filter(PersonComplianceDoc.owner_type == "PROMOTER", PersonComplianceDoc.owner_id == promoter.id)
+            .filter(PersonComplianceDoc.owner_type == owner_type, PersonComplianceDoc.owner_id == owner_id)
             .order_by(PersonComplianceDoc.created_at.desc()).all())
     row["docs"] = [_prl_doc_json(d) for d in docs]
     for slot, dt in (("informacion", "PRL_INFORMACION"), ("formacion", "PRL_FORMACION"),
-                     ("epis", "EPIS"), ("renuncia_medico", "RENUNCIA_MEDICO")):
+                     ("epis", "EPIS"), ("renuncia_medico", "RENUNCIA_MEDICO"),
+                     ("baja", "BAJA_SS")):
         for d in docs:
             if d.doc_type == dt:
                 if _prl_doc_valid_on(d, event_date):
@@ -38585,6 +38725,21 @@ def _prl_person_status(session_db, concert, person: dict, event_date, ita_docs=N
                     break
     wt = row["worker_type"]
     row["renuncia_medico"]["required"] = wt in PRL_MEDICAL_WAIVER_TYPES
+    row["epis"]["required"] = wt in PRL_EPIS_TYPES
+    row["baja"]["required"] = wt in PRL_BAJA_TYPES
+    if wt == PRL_OWN_STAFF_TYPE:
+        # Su alta la cubre el ITA de la empresa del grupo (Administración → Altas): se busca por
+        # vínculo o por DNI, igual que con los empleados de una empresa.
+        dni_norm = _prl_norm_dni(info["dni"])
+        uid_txt = str(own_user.id) if own_user is not None else ""
+        for d in (ita_docs if ita_docs is not None else _prl_company_ita_docs(session_db)):
+            linked = [str(x) for x in (d.linked_person_ids or [])]
+            by_link = bool(uid_txt) and (f"USER:{uid_txt}" in linked or uid_txt in linked)
+            by_dni = bool(dni_norm) and any(_prl_norm_dni(w.get("ipf") or "") == dni_norm
+                                            for w in ((d.detected_meta or {}).get("workers") or []))
+            if (by_link or by_dni) and _prl_doc_valid_on(d, event_date):
+                row["alta"] = {"ok": True, "doc": _prl_doc_json(d)}
+                break
     if wt == "AUTONOMO":
         for d in docs:
             if d.doc_type == "AUTONOMO_RECIBO":
@@ -38773,8 +38928,17 @@ def prl_request_docs(entity_type, entity_id):
             if target_id and pid != target_id:
                 continue
             st = statuses.get(pid) or {}
-            missing = not (st.get("alta", {}).get("ok") and st.get("informacion", {}).get("ok")
-                           and st.get("formacion", {}).get("ok"))
+            # Le falta algo si no tiene en verde CUALQUIERA de los documentos que le tocan
+            # (incluidos los EPIs, la renuncia médica y la baja, que solo se piden a quien
+            # corresponde: si no se miraran, a quien solo le faltase uno de esos no se le pediría).
+            _pend = [not st.get("alta", {}).get("ok"),
+                     not st.get("informacion", {}).get("ok"),
+                     not st.get("formacion", {}).get("ok")]
+            for _slot in ("epis", "renuncia_medico", "baja"):
+                _st = st.get(_slot) or {}
+                if _st.get("required") and not _st.get("ok"):
+                    _pend.append(True)
+            missing = any(_pend)
             if target_id or missing:
                 targets.append((person, st))
         sent, wa_links, errors = 0, [], []
@@ -38904,6 +39068,8 @@ def public_prl_upload(token):
             worker_types=PRL_WORKER_TYPES, doc_labels=PRL_DOC_LABELS,
             alta_doc_by_type=PRL_ALTA_DOC_BY_TYPE,
             medical_waiver_types=sorted(PRL_MEDICAL_WAIVER_TYPES),
+            epis_types=sorted(PRL_EPIS_TYPES),
+            baja_types=sorted(PRL_BAJA_TYPES),
         )
     finally:
         session_db.close()
@@ -39127,16 +39293,26 @@ def prl_export_pdf(entity_type, entity_id):
         if facts:
             story.append(Paragraph(facts, small))
         story.append(Spacer(1, 6))
-        data = [["Nombre y apellidos", "DNI", "Función", "Tipo de alta", "Alta", "Información", "Formación"]]
+        def _mark(slot):
+            """SÍ / NO, o «—» si ese documento no se le pide a esta persona."""
+            if not slot.get("required", True):
+                return "—"
+            return "SÍ" if slot.get("ok") else "NO"
+
+        data = [["Nombre y apellidos", "DNI", "Función", "Tipo de alta", "Alta", "Baja",
+                 "Información", "Formación", "EPIs", "Renuncia méd."]]
         for r in rows:
             data.append([
                 Paragraph(escape(r["full_name"]), small), r["dni"], Paragraph(escape(r["role"]), small),
                 r["worker_type_label"] or "—",
                 "SÍ" if r["alta"]["ok"] else "NO",
+                _mark(r.get("baja") or {}),
                 "SÍ" if r["informacion"]["ok"] else "NO",
                 "SÍ" if r["formacion"]["ok"] else "NO",
+                _mark(r.get("epis") or {}),
+                _mark(r.get("renuncia_medico") or {}),
             ])
-        tbl = Table(data, colWidths=[150, 70, 90, 85, 45, 55, 45], repeatRows=1)
+        tbl = Table(data, colWidths=[128, 62, 74, 74, 38, 38, 58, 52, 34, 52], repeatRows=1)
         style_cmds = [
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E33D48")),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -39146,10 +39322,14 @@ def prl_export_pdf(entity_type, entity_id):
             ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f7f8fa")]),
         ]
         for idx, r in enumerate(rows, start=1):
-            for col, key in ((4, "alta"), (5, "informacion"), (6, "formacion")):
-                ok = r[key]["ok"]
-                style_cmds.append(("TEXTCOLOR", (col, idx), (col, idx),
-                                   colors.HexColor("#1a7f37") if ok else colors.HexColor("#c62828")))
+            for col, key in ((4, "alta"), (5, "baja"), (6, "informacion"), (7, "formacion"),
+                             (8, "epis"), (9, "renuncia_medico")):
+                slot = r.get(key) or {}
+                if not slot.get("required", True):
+                    color = colors.HexColor("#8a93a0")          # no se le pide: en gris
+                else:
+                    color = colors.HexColor("#1a7f37") if slot.get("ok") else colors.HexColor("#c62828")
+                style_cmds.append(("TEXTCOLOR", (col, idx), (col, idx), color))
         tbl.setStyle(TableStyle(style_cmds))
         story.append(tbl)
         docpdf.build(story)
@@ -39175,17 +39355,32 @@ def prl_export_xlsx(entity_type, entity_id):
         ws.title = "PRL"
         ws.append([f"Listado de Alta y PRL · {header['title']} · {header['date']}"])
         ws.append([])
-        ws.append(["Nombre y apellidos", "DNI", "Función", "Tipo de alta", "Alta OK", "Información OK",
-                   "Formación OK", "Doc alta", "Doc información", "Doc formación"])
+        ws.append(["Nombre y apellidos", "DNI", "Función", "Tipo de alta", "Alta OK", "Baja OK",
+                   "Información OK", "Formación OK", "EPIs OK", "Renuncia médica OK",
+                   "Doc alta", "Doc baja", "Doc información", "Doc formación", "Doc EPIs",
+                   "Doc renuncia médica"])
+
+        def _xmark(slot):
+            """SÍ / NO, o vacío si ese documento no se le pide a esta persona."""
+            if not slot.get("required", True):
+                return ""
+            return "SÍ" if slot.get("ok") else "NO"
+
         for r in rows:
             ws.append([
                 r["full_name"], r["dni"], r["role"], r["worker_type_label"] or "",
                 "SÍ" if r["alta"]["ok"] else "NO",
+                _xmark(r.get("baja") or {}),
                 "SÍ" if r["informacion"]["ok"] else "NO",
                 "SÍ" if r["formacion"]["ok"] else "NO",
+                _xmark(r.get("epis") or {}),
+                _xmark(r.get("renuncia_medico") or {}),
                 (r["alta"]["doc"] or {}).get("file_url", ""),
+                ((r.get("baja") or {}).get("doc") or {}).get("file_url", ""),
                 (r["informacion"]["doc"] or {}).get("file_url", ""),
                 (r["formacion"]["doc"] or {}).get("file_url", ""),
+                ((r.get("epis") or {}).get("doc") or {}).get("file_url", ""),
+                ((r.get("renuncia_medico") or {}).get("doc") or {}).get("file_url", ""),
             ])
         buf = BytesIO()
         wb.save(buf)
@@ -47436,11 +47631,45 @@ def bag_expense_request_invoice(bag_id, expense_id):
             for chunk in re.split(r"[;,\n]+", extra):
                 if _looks_like_email_address(chunk):
                     recipients.append(chunk.strip())
-        token = _make_bag_expense_upload_token(expense.id)
-        upload_url = _external_url_for("public_bag_expense_document_upload", token=token)
-        subject, html_body, text_body = _bag_expense_request_invoice_email(expense, bag, upload_url)
-        ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body)
+        # FLUJO NUEVO: al proveedor se le manda el enlace con TODOS sus conceptos pendientes de esta
+        # bolsa (puede subir una factura por gasto o una que englobe varios y marcar cuáles cubre),
+        # en vez del enlace de un solo concepto. Si no se escribe ningún correo, se usan los suyos.
+        provider = expense.provider
+        if provider is None:
+            flash("Ese gasto no tiene proveedor: asígnale uno para poder pedirle la factura.", "warning")
+            return redirect(safe_next_or(next_url))
+        fila = next((r for r in _bag_providers_pending_invoice(session_db, bag)
+                     if str(r["provider"].id) == str(provider.id)), None)
+        if fila is None:
+            flash("Ese proveedor ya tiene subidas todas sus facturas de esta bolsa.", "info")
+            return redirect(safe_next_or(next_url))
+        req = (session_db.query(BagInvoiceRequest)
+               .filter(BagInvoiceRequest.bag_id == bag.id,
+                       BagInvoiceRequest.provider_id == provider.id,
+                       BagInvoiceRequest.status == "ACTIVE").first())
+        if not req:
+            req = BagInvoiceRequest(public_token=uuid.uuid4().hex, bag_id=bag.id,
+                                    provider_id=provider.id, status="ACTIVE")
+            session_db.add(req)
+        req.expense_ids = [it["id"] for it in fila["items"]]
+        session_db.flush()
+        upload_url = _external_url_for("public_bag_invoice_upload", token=req.public_token)
+        if not recipients:
+            recipients = [e["email"] for e in _bag_provider_email_suggestions(
+                session_db, SimpleNamespace(provider=provider, provider_id=provider.id))][:3]
+        if not recipients:
+            flash("Ese proveedor no tiene ningún correo: escríbelo al pedirle la factura.", "warning")
+            return redirect(safe_next_or(next_url))
+        concert = (session_db.get(Concert, bag.linked_id)
+                   if (bag.linked_type or "").upper() == "CONCERT" and bag.linked_id else None)
+        ok, err = _send_optional_email(
+            recipients,
+            f"Solicitud de factura · {(concert.artist.name + ' · ' if concert is not None and concert.artist else '')}{bag.title or 'Bolsa'}",
+            _bag_invoice_request_email_html(bag, concert, fila, upload_url, list(req.required_docs or [])),
+        )
         if ok:
+            req.last_sent_at = _now_madrid()
+            req.recipients_json = recipients
             session_db.add(BagPaymentInteraction(expense_id=expense.id, kind="SOLICITUD_FACTURA", description="Factura/ticket solicitada al proveedor.", created_by_user_id=_bag_current_user_audit()["user_id"], created_by_nick=_bag_current_user_audit()["nick"]))
             session_db.commit()
             flash("Solicitud de factura enviada.", "success")
@@ -50765,6 +50994,20 @@ def bag_imported_expense_assign(bag_id, expense_id):
         tax = _money_or_zero(getattr(row, "amount_tax", None))
         if not tax and gross and net and gross >= net:
             tax = gross - net
+        # ⚠️ REPARTO: si esta factura ya se imputó en parte a otros gastos (se soltó encima de uno y
+        # se eligió «repartir»), aquí solo entra lo que QUEDA. Si no se descontara, el importe se
+        # contaría dos veces en la bolsa (una en el gasto al que se imputó y otra completa aquí).
+        ya_imputado = _personal_expense_allocated(session_db, row.id)
+        if ya_imputado > 0:
+            resto = gross - ya_imputado
+            if resto <= 0:
+                return jsonify({"ok": False, "error": "Esta factura ya está repartida por completo "
+                                                     "entre otros gastos de la bolsa."}), 400
+            # El neto y el IVA se ajustan a la misma proporción que el importe que queda.
+            proporcion = (resto / gross) if gross else Decimal("0")
+            net = (net * proporcion).quantize(Decimal("0.01"))
+            tax = (resto - net) if resto >= net else Decimal("0")
+            gross = resto
         is_pleo = (row.source or "") == "PLEO"
         # El tipo de documento lo trae Pleo (FACTURA si tiene los datos fiscales del proveedor).
         doc_type = (getattr(row, "document_type", "") or "").upper()
@@ -50789,6 +51032,14 @@ def bag_imported_expense_assign(bag_id, expense_id):
             expense.payment_method = "Pleo"
         session_db.add(expense)
         session_db.flush()
+        # Se anota la imputación de esta factura a este gasto: así el «ya imputado» del reparto
+        # sigue cuadrando si la misma factura se reparte entre más gastos.
+        if row.file_url:
+            _bag_expense_invoice_apply(
+                session_db, expense, file_url=row.file_url, file_name=row.original_name,
+                file_mime=getattr(row, "file_mime", None), invoice_number=row.invoice_number,
+                amount=gross, personal_expense_id=row.id,
+            )
         if is_pleo and gross:
             # Queda el rastro del pago para que en la bolsa se vea cuándo y cómo se pagó.
             session_db.add(BagPaymentInteraction(

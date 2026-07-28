@@ -607,6 +607,10 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `PersonComplianceDoc` (mismo sistema que PRL) y las facturas como `SupplierInvoice`
   (PENDIENTE/VALIDADA/RECHAZADA). Los enlaces oficiales de AEAT/Seguridad Social están en
   `INVOICE_CERT_DOCS`.
+  ⚠️ **Los números de paso se DEDUCEN del DOM** (`stepNumOf`): en el enlace de una petición no existe
+  el paso «¿para quién es la factura?», así que la numeración (1,3,4) NO es la de la landing (1,2,3,4).
+  Cuando estaba a mano, el enlace del proveedor desbloqueaba un paso inexistente y el de escribir el
+  DNI se quedaba con `pointer-events:none`: al pulsar «Comprobar» no pasaba nada (bug real).
 - **Royalties · facturación y validación**: el correo/PDF de cada liquidación enlaza a
   `public_royalty_liquidation_view` (`/liquidacion/<token>`, reusa el token firmado de
   `_make_public_royalty_liquidation_token`), que la muestra como el PDF y ofrece **Subir factura**

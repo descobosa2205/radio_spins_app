@@ -93,7 +93,7 @@
           </label>
         {% endif %}
         <div class="text-end mt-3">
-          <button class="btn btn-danger" type="button" data-inv-next="{{ 2 if inv_mode == 'LANDING' else 3 }}"><i class="fa fa-check me-1"></i>Ya tengo la factura</button>
+          <button class="btn btn-danger" type="button" data-inv-next="{{ 2 if inv_mode == 'LANDING' else 3 }}" data-inv-next-ident="{{ '0' if inv_mode == 'LANDING' else '1' }}"><i class="fa fa-check me-1"></i>Ya tengo la factura</button>
         </div>
       </div>
     </div>
@@ -261,11 +261,18 @@
   function unlock(n){ const el = stepEl(n); if (el) { el.classList.remove('is-locked'); el.scrollIntoView({behavior:'smooth', block:'start'}); } }
 
   // ---- Navegación entre pasos
-  const IDENT_STEP = (MODE === 'LANDING') ? 3 : 2;   // el paso de identificarse
-  const UPLOAD_STEP = (MODE === 'LANDING') ? 4 : 3;  // el paso de subir la factura
+  // Los números de paso se DEDUCEN del propio HTML: en el enlace de una petición no existe el paso
+  // «¿para quién es la factura?», así que la numeración no es la misma que en la landing. Cuando esto
+  // estaba a mano, el enlace del proveedor desbloqueaba un paso que no existía y el de escribir el
+  // DNI se quedaba bloqueado: al pulsar «Comprobar» no pasaba nada (bug real).
+  function stepNumOf(el){ var st = el ? el.closest('[data-inv-step]') : null; return st ? Number(st.getAttribute('data-inv-step')) : 0; }
+  const IDENT_STEP = stepNumOf(document.getElementById('invTaxId')) || 3;
+  const UPLOAD_STEP = stepNumOf(document.getElementById('invInvoiceMeta')) || (IDENT_STEP + 1);
   document.querySelectorAll('[data-inv-next]').forEach(function(b){
     b.addEventListener('click', function(){
-      const target = Number(b.getAttribute('data-inv-next'));
+      // Si el botón lleva al paso de identificarse, se usa el número REAL de ese paso.
+      const target = b.getAttribute('data-inv-next-ident') === '1'
+        ? IDENT_STEP : Number(b.getAttribute('data-inv-next'));
       // Paso 1: en las peticiones hay que confirmar los datos de facturación.
       if (target !== IDENT_STEP || MODE === 'LANDING') {
         const confirmBox = document.getElementById('invBillingConfirm');

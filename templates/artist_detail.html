@@ -383,9 +383,15 @@
               <span class="input-group-text"><i class="fa fa-magnifying-glass"></i></span>
               <input type="text" class="form-control" id="apsInput" autocomplete="off"
                      placeholder="Busca a la persona en terceros: nombre, DNI, email, teléfono…">
+              {# El + está SIEMPRE, aunque la búsqueda traiga resultados: es para cuando no es ninguno
+                 de los que salen y hay que darla de alta. #}
+              <button type="button" class="btn btn-primary" id="apsAdd"
+                      title="Añadirla como tercero nuevo (si no es ninguna de las que salen)">
+                <i class="fa fa-plus"></i>
+              </button>
             </div>
             <div class="aps__results dropdown-menu w-100" id="apsResults"></div>
-            <div class="form-text">Si no está, escribe su nombre y te ofrecerá <strong>crearla</strong>.</div>
+            <div class="form-text">Si no es ninguna de las que salen, escribe su nombre y pulsa el <strong>+</strong> para darla de alta.</div>
           </div>
         </form>
       </div>
@@ -472,6 +478,16 @@
           var a = caja.querySelector('a:not(.disabled)');
           if (a) a.click();
         }
+      });
+      // Botón + : crea la persona con lo escrito (no es ninguna de las que salen en la búsqueda).
+      document.getElementById('apsAdd').addEventListener('click', function () {
+        var txt = input.value.trim();
+        if (!txt) { input.focus(); input.classList.add('is-invalid'); setTimeout(function () { input.classList.remove('is-invalid'); }, 1200); return; }
+        var partes = txt.split(/\s+/);
+        fFirst.value = partes.shift() || '';
+        fLast.value = partes.join(' ');
+        fId.value = '';
+        form.submit();
       });
     })();
     </script>

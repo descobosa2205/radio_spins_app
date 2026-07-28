@@ -89,7 +89,9 @@
 
           <div class="form-check mt-2 d-none" data-doc-apply-wrap>
             <input class="form-check-input" type="checkbox" name="apply_to_profile" value="1" checked id="docApplyProfile">
-            <label class="form-check-label small" for="docApplyProfile">Rellenar los datos vacíos de la ficha con lo detectado (nombre, DNI, fecha de nacimiento)</label>
+            <label class="form-check-label small" for="docApplyProfile">Poner en la ficha los <strong>datos oficiales</strong> del documento
+              (nombre, apellidos, DNI, nacimiento y domicilio). Lo que esté vacío se rellena y, si algo no coincide, se pregunta
+              cuál se queda. El <strong>nick</strong> no se toca.</label>
           </div>
         </div>
         <div class="modal-footer">
@@ -97,6 +99,30 @@
           <button type="submit" class="btn btn-primary" data-doc-submit><i class="fa fa-check me-1"></i>Guardar</button>
         </div>
       </form>
+    </div>
+  </div>
+</div>
+
+{# ---- No coincidencias entre el DOCUMENTO y la ficha ----
+   Al subir un DNI/pasaporte, los datos oficiales del documento manda: lo que estaba vacío se rellena
+   solo y, si algo NO COINCIDE, se pregunta aquí cuál se queda (por defecto, el del documento).
+   ⚠️ El NICK no aparece nunca: no es un dato oficial (es como llamamos a la persona o a la empresa). #}
+<div class="modal fade" id="personDocConflictModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-code-compare me-2"></i>Datos que no coinciden</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted">El documento dice una cosa y la ficha otra. Elige cuál se queda en
+          cada caso (por defecto se queda <strong>lo que dice el documento</strong>).</p>
+        <div data-doc-conflicts></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Dejar la ficha como está</button>
+        <button type="button" class="btn btn-primary" data-doc-conflicts-save><i class="fa fa-check me-1"></i>Guardar lo elegido</button>
+      </div>
     </div>
   </div>
 </div>

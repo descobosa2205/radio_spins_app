@@ -473,7 +473,9 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   foto redonda, correo/teléfono y las vinculaciones); quien ya está sale marcado «ya está» y no se
   puede elegir dos veces (el servidor también lo comprueba); si no hay coincidencias, la última fila
   ofrece **crear** la persona con lo escrito (y su ficha de tercero). Al elegir un tercero, el nombre
-  lo saca el servidor de su ficha (no hay que teclearlo). Estilos `.aps*` en `styles.css`, JS en línea
+  lo saca el servidor de su ficha (no hay que teclearlo). Al final de la barra hay **siempre un botón +**
+  que da de alta a la persona con lo escrito, aunque la búsqueda esté trayendo resultados (es para cuando
+  no es ninguna de las que salen). Estilos `.aps*` en `styles.css`, JS en línea
   en la pestaña. En «Datos» queda solo el listado con el botón *Ver y editar*.
 - **Documentos personales (pestaña «Documentos» en ficha de personal, de tercero y de las PERSONAS DE
   UN ARTISTA)**: modelo
@@ -497,9 +499,19 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (CDN bajo demanda): MRZ **TD1** (DNI/carnet, `parseMrz`) o **TD3** (pasaporte, `parseMrzTd3`) → nº
   (DNI validado mod-23 `findDni`; pasaporte del MRZ), nombre, nacimiento, caducidad; la **emisión del
   pasaporte NO está en el MRZ** → best-effort del texto impreso o estimada (`findIssueDate`, ~10 años
-  antes de la caducidad). Rellena el documento y los campos VACÍOS de la ficha
-  (`_person_doc_apply_to_profile`: `UserProfile.dni`/`birth_date`/nombre o `Promoter.tax_id`/nombre;
-  el nº solo va a DNI/NIF cuando el documento es un DNI, no en carnet/pasaporte).
+  antes de la caducidad).
+  **El DOCUMENTO manda en los DATOS OFICIALES de la ficha** (`_person_doc_apply_to_profile`, campos en
+  `PERSON_DOC_OFFICIAL_LABELS` → `_person_doc_official_target`: nombre, apellidos, DNI/NIF
+  (`UserProfile.dni` / `Promoter.tax_id`), nacimiento (solo personal) y domicilio; el nº solo vale como
+  DNI/NIF si el documento es un DNI): lo que está **vacío** se rellena solo; lo que **no coincide** se
+  devuelve como `conflicts` y el modal `#personDocConflictModal` pregunta cuál se queda (por defecto el
+  del documento) → segunda llamada con `resolve_only=1` + `apply_choices` y recarga de la ficha.
+  Comparación tolerante (`_person_doc_same_value`: mayúsculas, acentos y puntos del DNI dan igual, así
+  no molesta con avisos falsos). ⚠️ **El NICK nunca se toca**: es como llamamos a la persona (o a la
+  empresa), no un dato oficial. Los endpoints `*_document_save` devuelven `{document, applied, conflicts}`.
+  A quien YA tenía DNI/pasaporte subido se le volcaron los datos oficiales del documento una sola vez en
+  el arranque (`_person_docs_backfill_official_data`, marca `AppSetting` `person_docs_official_backfill_v1`;
+  manda el DNI sobre el pasaporte y el más reciente de cada tipo).
   Fidelización = **pastilla** (`.docs-pill`, contenedor `.docs-pills` en fila) de color de marca
   (`PERSON_LOYALTY_BRANDS`, casada por nombre, con `icon` del **tipo**: avión/tren/hotel/gasolina/
   compras — blanco en círculo translúcido) + nombre + nº; **al pinchar copia el número** (funciona

@@ -2185,8 +2185,10 @@ def artist_person_document_save(person_id):
         promoter = _ensure_promoter_for_artist_person(session_db, person)
         if promoter is None:
             return jsonify({"ok": False, "error": "Ponle nombre a la persona antes de subir documentos."}), 400
-        payload = _person_document_save(session_db, "PROMOTER", promoter)
-        return jsonify({"ok": True, "document": payload})
+        payload, aplicados, conflictos = _person_document_save(session_db, "PROMOTER", promoter)
+        # `aplicados` = datos oficiales que se han rellenado o sustituido; `conflictos` = los que NO
+        # coinciden con la ficha, para que quien sube el documento decida cuál se queda.
+        return jsonify({"ok": True, "document": payload, "applied": aplicados, "conflicts": conflictos})
     except Exception as e:
         session_db.rollback()
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -37369,6 +37371,12 @@ def _bootstrap_schema_bg():
         _safe_ensure(_fn, _name)
     # Índices de rendimiento (claves foráneas sin índice): idempotente, solo crea los que falten.
     _safe_ensure(ensure_performance_indexes, "ensure_performance_indexes")
+    # Una sola vez: a quien ya tenía DNI o pasaporte subido, se le ponen en la ficha los datos
+    # OFICIALES del documento (el nick no se toca). Ver `_person_docs_backfill_official_data`.
+    # ⚠️ Se resuelve por `globals()` porque este hilo arranca DURANTE el import: la función se define
+    # mucho más abajo y referenciarla aquí por nombre podría dar NameError.
+    _safe_ensure(lambda: globals()["_person_docs_backfill_official_data"](),
+                 "_person_docs_backfill_official_data")
 
 # En el host «solo CalDAV» NO tocamos el esquema de producción (ya lo mantiene el host principal):
 # nos limitamos a leer/escribir notas de agenda. Por eso se salta este arranque de DDL.
@@ -46949,47 +46957,108 @@ def _person_documents_for(session_db, owner_type, owner_id):
     return [_person_document_payload(r) for r in rows]
 
 
-def _person_doc_apply_to_profile(session_db, ot, owner, doc, first_override=None, last_override=None):
-    """DNI/carnet/pasaporte: rellena los campos VACÍOS de la ficha con lo detectado (no pisa lo ya
-    puesto). El nº solo se usa como DNI/NIF cuando es un DNI (el nº de pasaporte/carnet no es el DNI).
-    `first_override`/`last_override`: frontera nombre/apellidos que el MRZ ya conoce (el cliente la
-    envía); tiene prioridad sobre partir `full_name` por heurística (que falla con nombres extranjeros
-    de varios nombres de pila + un solo apellido)."""
-    if doc.kind not in {"DNI", "LICENSE", "PASSPORT"}:
-        return
-    apply_number_as_dni = (doc.kind == "DNI")
-    doc_address = (getattr(doc, "address", None) or "").strip()
+# Datos OFICIALES de una persona: los que salen del DNI/pasaporte/carnet. ⚠️ El **nick** NO es un
+# dato oficial: es como llamamos a esa persona (o a la empresa), así que NUNCA se toca al escanear un
+# documento. Lo oficial es nombre + apellidos + nº de DNI/NIF + nacimiento + domicilio.
+PERSON_DOC_OFFICIAL_LABELS = {
+    "first_name": "Nombre",
+    "last_name": "Apellidos",
+    "id_number": "DNI / NIF",
+    "birth_date": "Fecha de nacimiento",
+    "address": "Domicilio",
+}
 
-    def _name_parts():
-        fo = (first_override or "").strip()
-        lo = (last_override or "").strip()
-        if fo or lo:  # el MRZ trae la frontera exacta: úsala tal cual (pareja), sin heurística
-            return fo.title(), lo.title()
-        return _split_full_name(doc.full_name) if doc.full_name else ("", "")
 
+def _person_doc_official_target(session_db, ot, owner):
+    """(fila donde viven los datos oficiales, {campo lógico: atributo}). El nick queda fuera."""
     if ot == "USER":
         profile = _ensure_user_profile(session_db, owner, legacy_full_seed=False)
-        if apply_number_as_dni and doc.doc_number and not (profile.dni or "").strip():
-            profile.dni = doc.doc_number
-        if doc.birth_date and not profile.birth_date:
-            profile.birth_date = doc.birth_date
-        if doc_address and not (getattr(profile, "address", None) or "").strip():
-            profile.address = doc_address
-        first, last = _name_parts()
-        if first and not (profile.first_name or "").strip():
-            profile.first_name = first
-        if last and not (profile.last_name or "").strip():
-            profile.last_name = last
-    elif ot == "PROMOTER":
-        if apply_number_as_dni and doc.doc_number and not (owner.tax_id or "").strip():
-            owner.tax_id = doc.doc_number
-        if doc_address and not (getattr(owner, "address", None) or "").strip():
-            owner.address = doc_address
-        first, last = _name_parts()
-        if first and not (owner.first_name or "").strip():
-            owner.first_name = first
-        if last and not (owner.last_name or "").strip():
-            owner.last_name = last
+        return profile, {"first_name": "first_name", "last_name": "last_name", "id_number": "dni",
+                         "birth_date": "birth_date", "address": "address"}
+    if ot == "PROMOTER":
+        # El tercero no guarda fecha de nacimiento (se queda en el documento).
+        return owner, {"first_name": "first_name", "last_name": "last_name", "id_number": "tax_id",
+                       "address": "address"}
+    return None, {}
+
+
+def _person_doc_official_values(doc, first_override=None, last_override=None) -> dict:
+    """Datos oficiales que trae el documento. El nº solo vale como DNI/NIF cuando es un DNI (el de
+    pasaporte o carnet no lo es). `first_override`/`last_override`: frontera nombre/apellidos que el
+    MRZ ya conoce (la manda el cliente); tiene prioridad sobre partir `full_name` por heurística (que
+    falla con nombres extranjeros de varios nombres de pila y un solo apellido)."""
+    fo = (first_override or "").strip()
+    lo = (last_override or "").strip()
+    if fo or lo:
+        first, last = fo.title(), lo.title()
+    else:
+        first, last = _split_full_name(doc.full_name) if doc.full_name else ("", "")
+    return {
+        "first_name": first or "",
+        "last_name": last or "",
+        "id_number": (doc.doc_number or "").strip() if doc.kind == "DNI" else "",
+        "birth_date": doc.birth_date,
+        "address": (getattr(doc, "address", None) or "").strip(),
+    }
+
+
+def _person_doc_same_value(a, b) -> bool:
+    """¿Es el mismo dato? En texto, sin distinguir mayúsculas ni acentos (y en el DNI, sin puntos)."""
+    if isinstance(a, date) or isinstance(b, date):
+        return a == b
+    sa, sb = (a or ""), (b or "")
+    if not sa and not sb:
+        return True
+    return _prl_norm_dni(sa) == _prl_norm_dni(sb) or _norm_text_key(sa) == _norm_text_key(sb)
+
+
+def _person_doc_apply_to_profile(session_db, ot, owner, doc, first_override=None, last_override=None,
+                                 choices=None):
+    """DNI/carnet/pasaporte → datos OFICIALES de la ficha.
+
+    - Campo VACÍO en la ficha: se rellena con lo del documento sin preguntar.
+    - Campo que NO COINCIDE: se devuelve como **conflicto** para que la persona decida cuál se queda
+      (el documento manda por defecto, pero se puede conservar el de la ficha). Con `choices`
+      (`{campo: 'doc'|'ficha'}`) se aplica lo decidido.
+    - El **nick** no se toca nunca: no es un dato oficial.
+
+    Devuelve `(aplicados, conflictos)`: listas de dicts con campo, etiqueta y valores.
+    """
+    if doc.kind not in {"DNI", "LICENSE", "PASSPORT"}:
+        return [], []
+    fila, campos = _person_doc_official_target(session_db, ot, owner)
+    if fila is None:
+        return [], []
+    detectado = _person_doc_official_values(doc, first_override, last_override)
+    choices = choices or {}
+    aplicados, conflictos = [], []
+    for campo, attr in campos.items():
+        nuevo = detectado.get(campo)
+        if not nuevo:
+            continue                                  # el documento no trae ese dato
+        actual = getattr(fila, attr, None)
+        vacio = (actual is None) or (isinstance(actual, str) and not actual.strip())
+        info = {
+            "field": campo,
+            "label": PERSON_DOC_OFFICIAL_LABELS.get(campo, campo),
+            "current": (actual.isoformat() if isinstance(actual, date) else (actual or "")),
+            "detected": (nuevo.isoformat() if isinstance(nuevo, date) else nuevo),
+        }
+        if vacio:
+            setattr(fila, attr, nuevo)
+            aplicados.append(info)
+            continue
+        if _person_doc_same_value(actual, nuevo):
+            continue                                  # ya coincide: nada que decidir
+        elegido = (choices.get(campo) or "").strip().lower()
+        if elegido == "doc":
+            setattr(fila, attr, nuevo)
+            aplicados.append(info)
+        elif elegido == "ficha":
+            pass                                      # se queda lo que había
+        else:
+            conflictos.append(info)                    # que lo decida quien está subiendo el documento
+    return aplicados, conflictos
 
 
 def _split_full_name(full):
@@ -47009,12 +47078,33 @@ def _split_full_name(full):
 
 
 def _person_document_save(session_db, ot, owner):
-    """Crea o actualiza un documento de la persona desde el form multipart. Devuelve el payload."""
+    """Crea o actualiza un documento de la persona desde el form multipart.
+
+    Devuelve `(payload, aplicados, conflictos)`: lo que se ha volcado a los datos oficiales de la
+    ficha y lo que NO COINCIDE (para que quien sube el documento decida cuál se queda).
+    Con `resolve_only=1` no toca el documento: solo aplica lo decidido (`apply_choices`).
+    """
     state = _current_user_state()
     doc_id = to_uuid(request.form.get("doc_id"))
     doc = session_db.get(PersonDocument, doc_id) if doc_id else None
     if doc and (doc.owner_type != ot or str(doc.owner_id) != str(owner.id)):
         doc = None
+
+    # Segunda vuelta: la persona ya ha decidido qué se queda en cada campo que no coincidía.
+    if _truthy(request.form.get("resolve_only")) and doc is not None:
+        try:
+            elegido = json.loads(request.form.get("apply_choices") or "{}")
+        except Exception:
+            elegido = {}
+        aplicados, _pend = _person_doc_apply_to_profile(
+            session_db, ot, owner, doc,
+            first_override=(request.form.get("doc_first_name") or "").strip() or None,
+            last_override=(request.form.get("doc_last_name") or "").strip() or None,
+            choices={k: v for k, v in (elegido or {}).items()},
+        )
+        session_db.commit()
+        return _person_document_payload(doc), aplicados, []
+
     creating = doc is None
     if creating:
         base = (
@@ -47053,15 +47143,74 @@ def _person_document_save(session_db, ot, owner):
     elif request.form.get("back_url_clear") == "1":
         doc.back_url = None
 
+    aplicados, conflictos = [], []
     if _truthy(request.form.get("apply_to_profile", "1")):
-        _person_doc_apply_to_profile(
+        aplicados, conflictos = _person_doc_apply_to_profile(
             session_db, ot, owner, doc,
             first_override=(request.form.get("doc_first_name") or "").strip() or None,
             last_override=(request.form.get("doc_last_name") or "").strip() or None,
         )
 
     session_db.commit()
-    return _person_document_payload(doc)
+    return _person_document_payload(doc), aplicados, conflictos
+
+
+PERSON_DOCS_BACKFILL_KEY = "person_docs_official_backfill_v1"
+
+
+def _person_docs_backfill_official_data():
+    """UNA SOLA VEZ: a quien YA tenía un DNI o un pasaporte subido, se le ponen en la ficha los datos
+    OFICIALES del documento (nombre, apellidos, DNI/NIF, nacimiento y domicilio), sustituyendo lo que
+    hubiera. El **nick** no se toca (no es un dato oficial) y un campo que el documento no traiga se
+    queda como está. Si una persona tiene varios, manda el DNI (y el más reciente de cada tipo).
+
+    Se ejecuta en el arranque, con marca en `AppSetting` para no repetirse. Best-effort: si algo falla
+    se anota en el log y la app sigue.
+    """
+    if (_get_app_setting(PERSON_DOCS_BACKFILL_KEY) or "").strip() == "done":
+        return
+    session_db = db()
+    tocados, revisados = 0, 0
+    try:
+        docs = (session_db.query(PersonDocument)
+                .filter(PersonDocument.kind.in_(("DNI", "PASSPORT")))
+                .order_by(PersonDocument.created_at.asc())
+                .all())
+        # Por persona, el mejor documento: DNI antes que pasaporte; dentro de cada tipo, el último.
+        mejor = {}
+        for d in docs:
+            clave = (d.owner_type, str(d.owner_id))
+            actual = mejor.get(clave)
+            if actual is None or (actual.kind != "DNI" and d.kind == "DNI") or (actual.kind == d.kind):
+                mejor[clave] = d
+        for (ot, owner_id), doc in mejor.items():
+            revisados += 1
+            owner, ot_ok = _person_doc_owner(session_db, ot, owner_id)
+            if owner is None or not ot_ok:
+                continue
+            fila, campos = _person_doc_official_target(session_db, ot_ok, owner)
+            if fila is None:
+                continue
+            valores = _person_doc_official_values(doc)
+            cambio = False
+            for campo, attr in campos.items():
+                nuevo = valores.get(campo)
+                if not nuevo:
+                    continue
+                if not _person_doc_same_value(getattr(fila, attr, None), nuevo):
+                    setattr(fila, attr, nuevo)
+                    cambio = True
+            if cambio:
+                tocados += 1
+        session_db.commit()
+        _set_app_setting(PERSON_DOCS_BACKFILL_KEY, "done")
+        app.logger.info("Datos oficiales desde documentos: %s fichas actualizadas de %s con DNI/pasaporte.",
+                        tocados, revisados)
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("_person_docs_backfill_official_data")
+    finally:
+        session_db.close()
 
 
 def _person_document_delete_one(session_db, ot, owner, doc_id):
@@ -47128,8 +47277,10 @@ def personnel_document_save(user_id):
         user = session_db.get(User, to_uuid(user_id))
         if not user:
             return jsonify({"ok": False, "error": "Usuario no encontrado."}), 404
-        payload = _person_document_save(session_db, "USER", user)
-        return jsonify({"ok": True, "document": payload})
+        payload, aplicados, conflictos = _person_document_save(session_db, "USER", user)
+        # `aplicados` = datos oficiales que se han rellenado o sustituido; `conflictos` = los que NO
+        # coinciden con la ficha, para que quien sube el documento decida cuál se queda.
+        return jsonify({"ok": True, "document": payload, "applied": aplicados, "conflicts": conflictos})
     except Exception as e:
         session_db.rollback()
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -47221,8 +47372,10 @@ def promoter_document_save(pid):
         promoter = session_db.get(Promoter, to_uuid(pid))
         if not promoter:
             return jsonify({"ok": False, "error": "Tercero no encontrado."}), 404
-        payload = _person_document_save(session_db, "PROMOTER", promoter)
-        return jsonify({"ok": True, "document": payload})
+        payload, aplicados, conflictos = _person_document_save(session_db, "PROMOTER", promoter)
+        # `aplicados` = datos oficiales que se han rellenado o sustituido; `conflictos` = los que NO
+        # coinciden con la ficha, para que quien sube el documento decida cuál se queda.
+        return jsonify({"ok": True, "document": payload, "applied": aplicados, "conflicts": conflictos})
     except Exception as e:
         session_db.rollback()
         return jsonify({"ok": False, "error": str(e)}), 500

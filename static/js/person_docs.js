@@ -264,6 +264,63 @@
   }
 
   /* =======================================================================
+     NO COINCIDENCIAS entre el documento y la ficha
+     Los datos OFICIALES del documento manda; lo que no coincide se pregunta (por defecto se queda el
+     del documento). El NICK no entra aquí: no es un dato oficial.
+     ======================================================================= */
+  function recargarFicha() {
+    // La ficha (nombre, DNI, domicilio…) la pinta el servidor: hay que recargar para verla al día.
+    try { window.location.reload(); } catch (e) {}
+  }
+
+  function askConflicts(conflicts, doc, target) {
+    var modalEl = document.getElementById('personDocConflictModal');
+    if (!modalEl || !window.bootstrap) { recargarFicha(); return; }
+    var zona = modalEl.querySelector('[data-doc-conflicts]');
+    zona.innerHTML = conflicts.map(function (c, i) {
+      var nD = 'cf_' + i;
+      return '<div class="border rounded-3 p-2 mb-2" data-cf="' + esc(c.field) + '">' +
+        '<div class="fw-semibold small mb-1">' + esc(c.label) + '</div>' +
+        '<div class="form-check">' +
+          '<input class="form-check-input" type="radio" name="' + nD + '" value="doc" id="' + nD + '_d" checked>' +
+          '<label class="form-check-label small" for="' + nD + '_d"><span class="text-muted">Documento:</span> <strong>' + esc(c.detected || '—') + '</strong></label>' +
+        '</div>' +
+        '<div class="form-check">' +
+          '<input class="form-check-input" type="radio" name="' + nD + '" value="ficha" id="' + nD + '_f">' +
+          '<label class="form-check-label small" for="' + nD + '_f"><span class="text-muted">Ficha:</span> ' + esc(c.current || '—') + '</label>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+    var bs = window.bootstrap.Modal.getOrCreateInstance(modalEl);
+    var btn = modalEl.querySelector('[data-doc-conflicts-save]');
+    var nuevo = btn.cloneNode(true);            // sin listeners de la vez anterior
+    btn.parentNode.replaceChild(nuevo, btn);
+    nuevo.addEventListener('click', function () {
+      var choices = {};
+      zona.querySelectorAll('[data-cf]').forEach(function (box) {
+        var sel = box.querySelector('input[type=radio]:checked');
+        choices[box.getAttribute('data-cf')] = sel ? sel.value : 'doc';
+      });
+      var fd = new FormData();
+      fd.append('resolve_only', '1');
+      fd.append('doc_id', doc.id);
+      fd.append('apply_choices', JSON.stringify(choices));
+      nuevo.disabled = true; nuevo.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Guardando…';
+      fetch(target.saveUrl, {
+        method: 'POST', body: fd,
+        headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': csrfToken() }
+      }).then(function (r) { return r.json().catch(function () { return {}; }); })
+        .then(function () { bs.hide(); recargarFicha(); })
+        .catch(function () { bs.hide(); recargarFicha(); });
+    });
+    // Si se cierra sin elegir, la ficha se queda como estaba (no se aplica nada).
+    modalEl.addEventListener('hidden.bs.modal', function una() {
+      modalEl.removeEventListener('hidden.bs.modal', una);
+    });
+    bs.show();
+  }
+
+  /* =======================================================================
      EL MODAL (uno solo en la página; trabaja sobre el panel ACTIVO)
      ======================================================================= */
   function openModal(state, kind, doc) {
@@ -400,6 +457,12 @@
         if (xhr.status >= 200 && xhr.status < 300 && j.ok && j.document) {
           target.onSaved(j.document);
           if (bsModal) bsModal.hide();
+          // Los datos OFICIALES del documento manda: lo que estaba vacío ya se ha rellenado y lo que
+          // NO COINCIDE se pregunta. En los dos casos hay que refrescar la ficha (los datos de arriba
+          // los pinta el servidor).
+          var conflictos = j.conflicts || [];
+          if (conflictos.length) askConflicts(conflictos, j.document, target);
+          else if ((j.applied || []).length) recargarFicha();
         } else {
           alert((j && j.error) || 'No se pudo guardar el documento.');
         }

@@ -166,6 +166,9 @@
             <div class="row g-2">{{ dropzone('passport', 'Página de datos') }}</div>
           </div>
 
+          {# El CARNET DE CONDUCIR no se pide en el alta: solo cuando se le pide expresamente desde
+             la ficha del tercero (botón «Solicitar carnet de conducir»), que manda su propio enlace. #}
+          {% if ask_license %}
           <div class="intake-block">
             <div class="intake-block__t"><i class="fa fa-id-card-clip"></i>Carnet de conducir</div>
             <div class="filter-chips mb-2">
@@ -180,6 +183,7 @@
               {{ dropzone('license_back', 'Reverso') }}
             </div>
           </div>
+          {% endif %}
         </section>
 
         {# ---------------- Paso 3b · Personas de contacto (solo empresas) ---------------- #}

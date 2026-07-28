@@ -509,6 +509,21 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   está confirmada y sin responsable). Se guarda con `concert_production_owner_save` y se ve en la
   cabecera de la ficha.
 
+- **Documentos CADUCADOS: aviso automático y renovación por enlace** (`PersonDocRequest`): un cron
+  diario (`/cron/documentos-caducados?key=DOCS_CRON_KEY`, acepta también la de gastos/Chartmetric)
+  repasa DNI, carnets y pasaportes con `expiry_date` pasada y le escribe a cada persona
+  (`_person_docs_expired_sweep`; no insiste: un correo por documento cada `PERSON_DOC_REMIND_DAYS`
+  = 30 días). El correo lleva un botón al enlace público **`/documento/<token>`**
+  (`public_document_renew`, standalone, exento de login y CSRF): sube las dos caras (una en el
+  pasaporte), `DocScan` recorta y lee **número, nacimiento, caducidad y expedición**, se le enseñan
+  para que dé el visto bueno y al enviarlo el documento nuevo **SUSTITUYE al anterior** (se borra) y
+  sus datos oficiales pasan a la ficha. El enlace se marca DONE y no se puede reutilizar.
+  **El CARNET DE CONDUCIR no se pide nunca solo**: ni en el alta desde documento (que solo ofrece DNI
+  y pasaporte) ni en el alta pública de terceros (el bloque va tras `ask_license`); se pide
+  expresamente desde la pestaña Documentos de la ficha con **«Solicitar carnet de conducir»**
+  (endpoint `person_doc_request_send`, en `SUPPORT_ACTION_ENDPOINTS`; hay también «Solicitar DNI» y
+  «Solicitar pasaporte»). Si no hay SMTP o falla el correo, la respuesta trae el enlace para copiarlo.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

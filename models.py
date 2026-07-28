@@ -4609,6 +4609,37 @@ class PersonDocument(Base):
     )
 
 
+class PersonDocRequest(Base):
+    """Petición a una persona (o tercero) para que suba un DOCUMENTO: la renovación de uno caducado
+    (DNI, carnet o pasaporte) o el carnet de conducir cuando se le pide expresamente.
+
+    Se le manda un enlace público: sube las dos caras, se leen el número y las fechas, las confirma y
+    el documento nuevo SUSTITUYE al anterior.
+    """
+
+    __tablename__ = "person_doc_requests"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    token = Column(Text, nullable=False, unique=True)
+    owner_type = Column(Text, nullable=False)          # USER | PROMOTER
+    owner_id = Column(PGUUID(as_uuid=True), nullable=False)
+    kind = Column(Text, nullable=False)                # DNI | LICENSE | PASSPORT
+    # Documento que hay que sustituir (el caducado), si lo hay.
+    document_id = Column(PGUUID(as_uuid=True), ForeignKey("person_documents.id", ondelete="SET NULL"))
+    reason = Column(Text)                              # EXPIRED | REQUESTED
+    status = Column(Text, nullable=False, server_default=text("'ACTIVE'"))   # ACTIVE | DONE | CANCELLED
+    requested_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    requested_by_nick = Column(Text)
+    sent_to = Column(Text)
+    last_sent_at = Column(DateTime(timezone=True))
+    done_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_person_doc_requests_owner", "owner_type", "owner_id", "status"),
+    )
+
+
 def ensure_person_documents_schema():
     """Crea/actualiza la tabla de documentos personales (idempotente, sin Alembic)."""
     _create_all_once()
@@ -4639,6 +4670,26 @@ def ensure_person_documents_schema():
         "ALTER TABLE IF EXISTS person_documents ADD COLUMN IF NOT EXISTS issue_date date;",
         "ALTER TABLE IF EXISTS person_documents ADD COLUMN IF NOT EXISTS address text;",
         "CREATE INDEX IF NOT EXISTS idx_person_documents_owner ON person_documents(owner_type, owner_id, sort_order);",
+        # Peticiones de documento (renovar uno caducado o pedir el carnet de conducir).
+        """
+        CREATE TABLE IF NOT EXISTS person_doc_requests (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            token text NOT NULL UNIQUE,
+            owner_type text NOT NULL,
+            owner_id uuid NOT NULL,
+            kind text NOT NULL,
+            document_id uuid REFERENCES person_documents(id) ON DELETE SET NULL,
+            reason text,
+            status text NOT NULL DEFAULT 'ACTIVE',
+            requested_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            requested_by_nick text,
+            sent_to text,
+            last_sent_at timestamptz,
+            done_at timestamptz,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_person_doc_requests_owner ON person_doc_requests(owner_type, owner_id, status);',
     ]
     _exec_ddl_statements(stmts, "person_documents_schema")
 

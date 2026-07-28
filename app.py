@@ -272,6 +272,7 @@ from models import (
     CabifyUserLink,
     ensure_pleo_schema,
     ensure_cabify_schema,
+    PersonDocRequest,
     ThirdPartyIntakeLink,
     ensure_third_party_intake_schema,
     ArtistTemplate,
@@ -392,6 +393,7 @@ _CSRF_EXEMPT_ENDPOINTS = {
     "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash",
     "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource",
     "public_caldav_rootdiscovery",
+    "public_document_renew",
 }
 
 
@@ -716,7 +718,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher"}
+    allowed = {"landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_expired_documents", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher"}
     if request.endpoint in allowed:
         return
 
@@ -42362,7 +42364,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -44263,6 +44265,9 @@ def _require_login_v2():
 # búsqueda no debe exigir permiso en la sección de destino (rompería flujos cruzados como
 # «pedir invitaciones» + buscar/crear un tercero).
 SUPPORT_ACTION_ENDPOINTS = {
+    # Pedirle a alguien un documento (carnet de conducir, o el DNI/pasaporte caducado): es una
+    # herramienta transversal, se usa desde la ficha del tercero y desde la del personal.
+    "person_doc_request_send",
     # Alta rápida de entidades (modales superpuestos: quick_create.js)
     "api_create_artist", "api_create_promoter", "api_create_venue", "api_create_ticketer",
     "api_create_publishing_company", "api_create_media_outlet", "api_media_contact_create",
@@ -54555,6 +54560,248 @@ def _intake_link_create(session_db, promoter=None, kind: str = "ALTA") -> ThirdP
     return link
 
 
+# ---------------------------------------------------------------------------
+#  PETICIONES DE DOCUMENTO: renovar uno CADUCADO (DNI, carnet o pasaporte) o pedir el carnet de
+#  conducir expresamente. Se manda un enlace: la persona sube las dos caras, se leen el número y las
+#  fechas, las confirma y el documento nuevo SUSTITUYE al anterior.
+# ---------------------------------------------------------------------------
+PERSON_DOC_RENEW_KINDS = {"DNI": "DNI", "LICENSE": "carnet de conducir", "PASSPORT": "pasaporte"}
+# No se le vuelve a escribir a la misma persona por el mismo documento hasta pasados estos días.
+PERSON_DOC_REMIND_DAYS = 30
+
+
+def _person_doc_owner_contact(session_db, owner_type: str, owner_id):
+    """(nombre, correo) de quien tiene el documento (personal de la casa o tercero)."""
+    ot = (owner_type or "").upper()
+    if ot == "USER":
+        u = session_db.get(User, owner_id)
+        prof = session_db.query(UserProfile).filter(UserProfile.user_id == owner_id).first() if u else None
+        nombre = ((prof.nick if prof else "") or (u.email if u else "") or "").strip()
+        return nombre, ((u.email if u else "") or "").strip()
+    if ot == "PROMOTER":
+        p = session_db.get(Promoter, owner_id)
+        if p is None:
+            return "", ""
+        nombre = " ".join(x for x in [(p.first_name or "").strip(), (p.last_name or "").strip()] if x).strip()
+        return (nombre or (p.nick or "").strip()), (p.contact_email or "").strip()
+    return "", ""
+
+
+def _person_doc_request_create(session_db, owner_type: str, owner_id, kind: str, doc=None,
+                               reason: str = "REQUESTED"):
+    """Crea (o reutiliza) la petición ACTIVA de ese documento para esa persona."""
+    ot, k = (owner_type or "").upper(), (kind or "").upper()
+    if k not in PERSON_DOC_RENEW_KINDS:
+        return None
+    fila = (session_db.query(PersonDocRequest)
+            .filter(PersonDocRequest.owner_type == ot, PersonDocRequest.owner_id == owner_id,
+                    PersonDocRequest.kind == k, PersonDocRequest.status == "ACTIVE").first())
+    if fila is None:
+        try:
+            estado = _current_user_state()          # el cron corre sin usuario: no pasa nada
+        except Exception:
+            estado = {}
+        fila = PersonDocRequest(token=uuid.uuid4().hex, owner_type=ot, owner_id=owner_id, kind=k,
+                                document_id=(doc.id if doc is not None else None), reason=reason,
+                                requested_by_user_id=to_uuid(estado.get("user_id")),
+                                requested_by_nick=(estado.get("nick") or "").strip() or None)
+        session_db.add(fila)
+        session_db.flush()
+    elif doc is not None and not fila.document_id:
+        fila.document_id = doc.id
+    return fila
+
+
+def _person_doc_request_email_html(req, url: str, nombre: str, caducado_el=None) -> str:
+    """Correo pidiendo el documento nuevo: cabecera del back office, qué documento y el botón."""
+    etiqueta = PERSON_DOC_RENEW_KINDS.get((req.kind or "").upper(), "documento")
+    banner = _external_url_for("static", filename="img/Banner.png")
+    hola = "Hola" + (f", {escape(nombre)}" if nombre else "")
+    if (req.reason or "").upper() == "EXPIRED":
+        titulo = f"Tu {etiqueta} ha caducado"
+        texto = (f"Nos consta que tu <strong>{escape(etiqueta)}</strong> "
+                 + (f"caducó el <strong>{caducado_el.strftime('%d/%m/%Y')}</strong>. " if caducado_el else "está caducado. ")
+                 + "Súbenos el nuevo para tenerlo al día.")
+    else:
+        titulo = f"Nos falta tu {etiqueta}"
+        texto = f"Necesitamos una copia de tu <strong>{escape(etiqueta)}</strong>."
+    dos_caras = (req.kind or "").upper() != "PASSPORT"
+    detalle = ("Solo tienes que hacer una foto de las <strong>dos caras</strong>"
+               if dos_caras else "Solo tienes que hacer una foto de la <strong>página de datos</strong>")
+    return f"""
+    <div style="font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;max-width:620px;margin:0 auto;padding:8px 4px;">
+      <div style="margin-bottom:10px;">
+        <img src="{escape(banner)}" alt="Back Office" style="max-height:44px;max-width:280px;object-fit:contain;">
+      </div>
+      <h2 style="text-align:center;font-size:20px;color:#111;margin:0 0 18px;">{escape(titulo)}</h2>
+      <div style="border:1px solid #e5e7eb;border-radius:14px;padding:18px;background:#f9fafb;">
+        <p style="font-size:15px;color:#111;margin:0 0 10px;">{hola}:</p>
+        <p style="font-size:15px;color:#111;margin:0 0 16px;">{texto}</p>
+        <p style="font-size:14px;color:#374151;margin:0 0 16px;">{detalle}: leemos solos el número y las fechas
+          y te los enseñamos para que les des el visto bueno. El documento nuevo sustituye al anterior.</p>
+        <p style="margin:0;">
+          <a href="{escape(url)}" style="display:inline-block;background:#E33D48;color:#fff;text-decoration:none;
+             font-weight:700;font-size:15px;padding:12px 22px;border-radius:10px;">Subir mi {escape(etiqueta)}</a>
+        </p>
+      </div>
+      <p style="color:#6b7280;font-size:12px;margin:14px 0 0;">Si ya nos lo has mandado, no hace falta que hagas nada.</p>
+    </div>
+    """
+
+
+def _person_doc_request_send(session_db, req, nombre: str = "", correo: str = "", caducado_el=None):
+    """Manda (o reenvía) el correo con el enlace para subir el documento."""
+    if not correo:
+        nombre_c, correo = _person_doc_owner_contact(session_db, req.owner_type, req.owner_id)
+        nombre = nombre or nombre_c
+    if not correo:
+        return False, "sin correo"
+    url = _external_url_for("public_document_renew", token=req.token)
+    etiqueta = PERSON_DOC_RENEW_KINDS.get((req.kind or "").upper(), "documento")
+    asunto = (f"Tu {etiqueta} ha caducado" if (req.reason or "").upper() == "EXPIRED"
+              else f"Nos falta tu {etiqueta}")
+    ok, err = _send_optional_email(correo, asunto,
+                                   _person_doc_request_email_html(req, url, nombre, caducado_el),
+                                   text_body=f"Sube tu {etiqueta} aquí: {url}")
+    if ok:
+        req.sent_to = correo
+        req.last_sent_at = _now_madrid()
+    return ok, err
+
+
+def _person_docs_expired_sweep(limit: int = 200) -> dict:
+    """Repasa los DNI, carnets y pasaportes CADUCADOS y le escribe a cada persona para que suba el
+    nuevo. No insiste: como mucho un correo por documento cada `PERSON_DOC_REMIND_DAYS` días."""
+    session_db = db()
+    enviados, saltados, errores = 0, 0, []
+    try:
+        hoy = today_local()
+        docs = (session_db.query(PersonDocument)
+                .filter(PersonDocument.kind.in_(tuple(PERSON_DOC_RENEW_KINDS)),
+                        PersonDocument.expiry_date.isnot(None),
+                        PersonDocument.expiry_date < hoy)
+                .order_by(PersonDocument.expiry_date.asc()).limit(limit).all())
+        for doc in docs:
+            req = _person_doc_request_create(session_db, doc.owner_type, doc.owner_id, doc.kind,
+                                             doc=doc, reason="EXPIRED")
+            if req is None:
+                continue
+            if req.last_sent_at and (_now_madrid() - req.last_sent_at).days < PERSON_DOC_REMIND_DAYS:
+                saltados += 1
+                continue
+            nombre, correo = _person_doc_owner_contact(session_db, doc.owner_type, doc.owner_id)
+            ok, err = _person_doc_request_send(session_db, req, nombre, correo, doc.expiry_date)
+            if ok:
+                enviados += 1
+            else:
+                errores.append(f"{nombre or doc.owner_id}: {err}")
+        session_db.commit()
+    except Exception as exc:
+        session_db.rollback()
+        errores.append(str(exc))
+    finally:
+        session_db.close()
+    return {"enviados": enviados, "saltados": saltados, "errores": errores[:10]}
+
+
+@app.get("/cron/documentos-caducados", endpoint="cron_expired_documents")
+def cron_expired_documents():
+    """Cron diario: avisa por correo a quien tenga el DNI, el carnet o el pasaporte caducado."""
+    clave = (request.args.get("key") or "").strip()
+    esperada = (os.getenv("DOCS_CRON_KEY") or os.getenv("EXPENSE_CRON_KEY")
+                or os.getenv("CHARTMETRIC_CRON_KEY") or "").strip()
+    if not esperada or clave != esperada:
+        abort(404)
+    return jsonify({"ok": True, **_person_docs_expired_sweep()})
+
+
+@app.post("/documentos/pedir", endpoint="person_doc_request_send")
+@admin_required
+def person_doc_request_send_view():
+    """Pide un documento a una persona o tercero (p. ej. «Solicitar carnet de conducir» desde su
+    ficha, o volver a pedir uno caducado). Devuelve el enlace por si se prefiere compartirlo a mano."""
+    session_db = db()
+    try:
+        ot = (request.form.get("owner_type") or "").upper()
+        oid = to_uuid((request.form.get("owner_id") or "").strip() or "")
+        kind = (request.form.get("kind") or "").upper()
+        if ot not in ("USER", "PROMOTER") or not oid or kind not in PERSON_DOC_RENEW_KINDS:
+            return jsonify({"ok": False, "error": "Petición no válida."}), 400
+        req = _person_doc_request_create(session_db, ot, oid, kind, reason="REQUESTED")
+        nombre, correo = _person_doc_owner_contact(session_db, ot, oid)
+        correo = (request.form.get("email") or "").strip() or correo
+        ok, err = _person_doc_request_send(session_db, req, nombre, correo)
+        session_db.commit()
+        url = _external_url_for("public_document_renew", token=req.token)
+        if not ok:
+            return jsonify({"ok": True, "sent": False, "error": err, "url": url,
+                            "message": f"No se pudo enviar el correo ({err}). Copia el enlace y mándaselo."})
+        return jsonify({"ok": True, "sent": True, "url": url,
+                        "message": f"Le hemos pedido el {PERSON_DOC_RENEW_KINDS[kind]} a {nombre or 'la persona'} ({correo})."})
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        session_db.close()
+
+
+@app.route("/documento/<token>", methods=["GET", "POST"], endpoint="public_document_renew")
+def public_document_renew(token):
+    """Página pública para subir el documento nuevo (las dos caras). Se leen el número y las fechas en
+    el navegador, la persona las confirma y lo guardado SUSTITUYE al documento anterior."""
+    session_db = db()
+    try:
+        req = (session_db.query(PersonDocRequest)
+               .filter(PersonDocRequest.token == (token or "").strip()).first())
+        if req is None:
+            abort(404)
+        nombre, _correo = _person_doc_owner_contact(session_db, req.owner_type, req.owner_id)
+        etiqueta = PERSON_DOC_RENEW_KINDS.get((req.kind or "").upper(), "documento")
+        if request.method == "POST":
+            if (req.status or "ACTIVE").upper() != "ACTIVE":
+                return jsonify({"ok": False, "error": "Este enlace ya se ha usado."}), 400
+            front = _store_doc_image_from_dataurl(request.form.get("front_b64"))
+            back = _store_doc_image_from_dataurl(request.form.get("back_b64"))
+            if not (front or back):
+                return jsonify({"ok": False, "error": "Sube al menos una cara del documento."}), 400
+            owner, ot = _person_doc_owner(session_db, req.owner_type, req.owner_id)
+            if owner is None:
+                return jsonify({"ok": False, "error": "No encontramos tu ficha."}), 404
+            antiguo = session_db.get(PersonDocument, req.document_id) if req.document_id else None
+            doc = PersonDocument(
+                owner_type=ot, owner_id=owner.id, kind=(req.kind or "DNI").upper(),
+                doc_number=(request.form.get("doc_number") or "").strip() or None,
+                full_name=(request.form.get("full_name") or "").strip() or None,
+                birth_date=parse_optional_date(request.form.get("birth_date")),
+                expiry_date=parse_optional_date(request.form.get("expiry_date")),
+                issue_date=parse_optional_date(request.form.get("issue_date")),
+                address=(request.form.get("address") or "").strip() or None,
+                front_url=front, back_url=back,
+                sort_order=(antiguo.sort_order if antiguo is not None else 0),
+                created_by_nick="El propio interesado",
+            )
+            session_db.add(doc)
+            session_db.flush()
+            # El nuevo SUSTITUYE al anterior.
+            if antiguo is not None:
+                session_db.delete(antiguo)
+            # Y sus datos oficiales pasan a la ficha (los ha confirmado la propia persona).
+            try:
+                _person_doc_apply_to_profile(session_db, ot, owner, doc,
+                                             choices={k: "doc" for k in PERSON_DOC_OFFICIAL_LABELS})
+            except Exception:
+                pass
+            req.status = "DONE"
+            req.done_at = _now_madrid()
+            session_db.commit()
+            return jsonify({"ok": True})
+        return render_template("public_document_renew.html", req=req, person_name=nombre,
+                               kind_label=etiqueta, two_faces=((req.kind or "").upper() != "PASSPORT"),
+                               done=((req.status or "ACTIVE").upper() != "ACTIVE"))
+    finally:
+        session_db.close()
+
+
 def _intake_email_html(link, url: str, nombre: str, quien: str, nota: str = "") -> str:
     """Correo con la cabecera del back office, el título que toque, el texto y el botón."""
     es_update = (link.kind or "").upper() == "UPDATE"
@@ -54807,6 +55054,9 @@ def public_third_party_intake(token):
             page_title=INTAKE_PAGE_TITLES.get((link.kind or "ALTA").upper(), INTAKE_PAGE_TITLES["ALTA"]),
             share_title=info["title"],
             profile=perfil,
+            # El carnet de conducir NO se pide en el alta: solo si se ha pedido expresamente (el
+            # enlace lo dice) o si esa persona ya nos lo tenía subido.
+            ask_license=bool((link.data or {}).get("ask_license")) or ("LICENSE" in (perfil.get("docs") or [])),
             person_label=info["person"],
             loyalty_brands=PERSON_LOYALTY_BRANDS,
             contact_roles=CONCERT_CONTACT_ROLES,

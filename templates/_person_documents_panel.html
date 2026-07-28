@@ -19,7 +19,25 @@
     <button type="button" class="btn btn-sm btn-outline-primary" data-doc-add="PASSPORT"><i class="fa fa-passport me-1"></i>Pasaporte</button>
     <button type="button" class="btn btn-sm btn-outline-primary" data-doc-add="LOYALTY"><i class="fa fa-credit-card me-1"></i>Tarjeta de fidelización</button>
     <button type="button" class="btn btn-sm btn-outline-primary" data-doc-add="PLATE"><i class="fa fa-car me-1"></i>Matrícula de coche</button>
+    {# Pedirle a la persona que lo suba ella (enlace por correo). El CARNET solo se pide desde aquí:
+       ni en el alta ni al subir una factura se le pregunta por él. #}
+    {% if person_docs_owner_type and person_docs_owner_id %}
+      <span class="vr d-none d-md-inline"></span>
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-doc-ask="LICENSE"
+              data-owner-type="{{ person_docs_owner_type }}" data-owner-id="{{ person_docs_owner_id }}">
+        <i class="fa fa-id-card-clip me-1"></i>Solicitar carnet de conducir
+      </button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-doc-ask="DNI"
+              data-owner-type="{{ person_docs_owner_type }}" data-owner-id="{{ person_docs_owner_id }}">
+        <i class="fa fa-id-card me-1"></i>Solicitar DNI
+      </button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-doc-ask="PASSPORT"
+              data-owner-type="{{ person_docs_owner_type }}" data-owner-id="{{ person_docs_owner_id }}">
+        <i class="fa fa-passport me-1"></i>Solicitar pasaporte
+      </button>
+    {% endif %}
   </div>
+  <div class="alert alert-light border small d-none" data-doc-ask-msg></div>
   {% endif %}
 
   {# Zonas por tipo; person_docs.js pinta las tarjetas dentro de cada grid. #}
@@ -54,4 +72,38 @@
    artista) se pasa `person_docs_modal=False` a cada panel y se incluye el modal una sola vez. #}
 {% if person_docs_can_edit and (person_docs_modal is not defined or person_docs_modal) %}
   {% include '_person_doc_modal.html' %}
+{% endif %}
+
+{% if person_docs_can_edit %}
+<script>
+/* «Solicitar …»: le manda a la persona un enlace para que suba el documento (las dos caras); al
+   subirlo se leen el número y las fechas, las confirma y sustituye al que hubiera. */
+(function () {
+  var URL_PEDIR = {{ url_for('person_doc_request_send')|tojson }};
+  function csrf() { var m = document.querySelector('meta[name="csrf-token"]'); return m ? m.getAttribute('content') : ''; }
+  document.querySelectorAll('[data-doc-ask]').forEach(function (b) {
+    if (b.__ready) return; b.__ready = true;
+    b.addEventListener('click', function () {
+      var caja = b.closest('.docs-panel') ? b.closest('.docs-panel').querySelector('[data-doc-ask-msg]') : null;
+      var fd = new FormData();
+      fd.append('kind', b.getAttribute('data-doc-ask'));
+      fd.append('owner_type', b.getAttribute('data-owner-type'));
+      fd.append('owner_id', b.getAttribute('data-owner-id'));
+      b.disabled = true;
+      fetch(URL_PEDIR, { method: 'POST', headers: { 'X-CSRFToken': csrf(), 'X-Requested-With': 'XMLHttpRequest' }, body: fd })
+        .then(function (r) { return r.json().catch(function () { return {}; }); })
+        .then(function (j) {
+          b.disabled = false;
+          if (!caja) { alert((j && (j.message || j.error)) || 'Hecho.'); return; }
+          caja.classList.remove('d-none');
+          caja.innerHTML = (j && j.ok)
+            ? '<i class="fa fa-circle-check text-success me-1"></i>' + (j.message || 'Petición enviada.') +
+              (j.url ? ' <button type="button" class="btn btn-sm btn-outline-secondary ms-2 copy-link-btn" data-copy-url="' + j.url + '"><i class="fa fa-link me-1"></i>Copiar enlace</button>' : '')
+            : '<i class="fa fa-triangle-exclamation text-danger me-1"></i>' + ((j && j.error) || 'No se pudo pedir.');
+        })
+        .catch(function () { b.disabled = false; });
+    });
+  });
+})();
+</script>
 {% endif %}

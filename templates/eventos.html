@@ -1,0 +1,103 @@
+{% extends "layout.html" %}
+{% block content %}
+{# ============================================================================
+   Contratación · EVENTOS. Funciona como la pestaña de Conciertos, pero agrupado por EVENTO en vez
+   de por artista (un evento no tiene artista). Las actividades de un evento salen SOLO aquí, no en
+   Conciertos. Pinchando un evento se ven sus actividades; cada una abre su ficha normal.
+   ============================================================================ #}
+<div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
+  <div>
+    <h4 class="mb-1">Contratación · Eventos</h4>
+    <div class="text-muted">Eventos propios (galas, ferias…) con sus actividades. Un evento puede ser de una fecha o de varias.</div>
+  </div>
+  {% if CAN_EDIT_CONCERTS %}
+    <div class="d-flex gap-2 flex-wrap">
+      <a class="btn btn-outline-secondary" href="{{ url_for('contracting_view', section='eventos', contenedores=1) }}"><i class="fa fa-layer-group me-1"></i>Contenedores</a>
+      <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#concertWizardModal"><i class="fa fa-plus me-1"></i>Actividad</button>
+    </div>
+  {% endif %}
+</div>
+
+{% with contracting_tab='eventos' %}{% include '_contracting_tabs.html' %}{% endwith %}
+
+{% if drill_event %}
+  {# ---------- Actividades de UN evento ---------- #}
+  <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+    <a class="btn btn-outline-secondary btn-volver" href="{{ url_for('contracting_view', section='eventos') }}" title="Volver a los eventos" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
+    <img src="{{ drill_event.logo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:46px;height:46px;object-fit:cover;border-radius:12px;">
+    <h5 class="mb-0">{{ drill_event.name }}</h5>
+    <span class="badge text-bg-light border">{{ rows|length }} actividad{{ '' if rows|length == 1 else 'es' }}</span>
+    {% if drill_group_id %}
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('cycle_festival_detail', cfid=drill_group_id) }}"><i class="fa fa-diagram-project me-1"></i>Ficha del evento</a>
+    {% endif %}
+  </div>
+{% endif %}
+
+<div class="d-flex gap-2 flex-wrap mb-3">
+  <a href="{{ url_for('contracting_view', section='eventos', event=(drill_event.id if drill_event else None)) }}"
+     class="badge {{ 'text-bg-dark' if not show_past else 'text-bg-light border' }} text-decoration-none py-2 px-3">
+    <i class="fa fa-forward me-1"></i>Activas
+  </a>
+  <a href="{{ url_for('contracting_view', section='eventos', event=(drill_event.id if drill_event else None), pasadas=1) }}"
+     class="badge {{ 'text-bg-dark' if show_past else 'text-bg-light border' }} text-decoration-none py-2 px-3">
+    <i class="fa fa-clock-rotate-left me-1"></i>Todas (con las pasadas)
+  </a>
+</div>
+
+{% if not drill_event %}
+  {# ---------- Rejilla de eventos ---------- #}
+  {% if event_groups %}
+    <div class="row g-3">
+      {% for g in event_groups %}
+        <div class="col-12 col-md-6 col-xl-4">
+          <a href="{{ url_for('contracting_view', section='eventos', event=g.id, pasadas=(1 if show_past else None)) }}"
+             class="card h-100 text-decoration-none text-reset">
+            <div class="card-body d-flex gap-3 align-items-center">
+              <img src="{{ g.logo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:58px;height:58px;object-fit:cover;border-radius:14px;">
+              <div class="flex-grow-1" style="min-width:0;">
+                <h5 class="mb-1 text-truncate">{{ g.name }}</h5>
+                <div class="d-flex gap-2 flex-wrap">
+                  <span class="badge text-bg-light border"><i class="fa fa-calendar-day me-1"></i>{{ g.count }} actividad{{ '' if g.count == 1 else 'es' }}</span>
+                  {% if g.date_range %}<span class="badge text-bg-light border"><i class="fa fa-calendar me-1"></i>{{ g.date_range }}</span>{% endif %}
+                </div>
+              </div>
+            </div>
+          </a>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="alert alert-light border">
+      Todavía no hay actividades de eventos. Créalas con <strong>+ Actividad</strong> (eligiendo el evento) o
+      convirtiendo una <a href="{{ url_for('contracting_view', section='simulaciones') }}">simulación de evento</a>.
+    </div>
+  {% endif %}
+{% else %}
+  {# ---------- Listado de actividades (mismo aspecto que Conciertos) ---------- #}
+  {% if rows %}
+    <div class="card"><div class="list-group list-group-flush">
+      {% for c in rows %}
+        <a href="{{ url_for('concert_detail_view', cid=c.id) }}" class="list-group-item list-group-item-action d-flex align-items-center gap-3">
+          <div class="text-center flex-shrink-0" style="width:52px;">
+            {% if c.date %}
+              <div class="fw-bold" style="font-size:1.15rem;line-height:1;">{{ c.date.strftime('%d') }}</div>
+              <div class="small text-danger text-uppercase fw-semibold">{{ c.date.strftime('%b') }}</div>
+              <div class="small text-muted">{{ c.date.strftime('%Y') }}</div>
+            {% else %}<i class="fa fa-calendar text-muted"></i>{% endif %}
+          </div>
+          <div class="flex-grow-1" style="min-width:0;">
+            <div class="fw-semibold text-truncate">{{ c.festival_name or c.title_label }}</div>
+            <div class="small text-muted text-truncate">{{ c.location_summary or (c.venue.name if c.venue else 'Sin recinto') }}</div>
+          </div>
+          <span class="badge text-bg-light border flex-shrink-0">{{ c.sale_type_label }}</span>
+          {% with cs_id=c.id, cs_status=c.status, cs_extra_class='flex-shrink-0' %}{% include '_concert_status_badge.html' %}{% endwith %}
+        </a>
+      {% endfor %}
+    </div></div>
+  {% else %}
+    <div class="alert alert-light border">Este evento no tiene actividades {{ 'todavía' if show_past else 'activas' }}.</div>
+  {% endif %}
+{% endif %}
+
+{% if wizard_available %}{% include "_concert_wizard_modal.html" %}{% endif %}
+{% endblock %}

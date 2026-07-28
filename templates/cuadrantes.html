@@ -271,16 +271,7 @@
   }
 </style>
 
-<ul class="nav nav-pills mb-3 no-print">
-  <li class="nav-item"><a class="nav-link" href="{{ url_for('concerts_view', tab='vista') }}">Conciertos</a></li>
-  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='giras-compradas') }}">Giras compradas</a></li>
-  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='festivales-ciclos') }}">Festivales / Ciclos</a></li>
-  <li class="nav-item"><a class="nav-link{{ ' active' if section == 'eventos' else '' }}" href="{{ url_for('contracting_view', section='eventos') }}">Eventos</a></li>
-  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='otras-actividades') }}">Otras actividades</a></li>
-  <li class="nav-item"><a class="nav-link active" href="{{ url_for('quadrantes_view') }}">Cuadrantes</a></li>
-  <li class="nav-item"><a class="nav-link" href="{{ url_for('concerts_view', tab='facturacion') }}">Facturación</a></li>
-  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='simulaciones') }}">Simulaciones</a></li>
-</ul>
+<div class="no-print">{% with contracting_tab='cuadrantes' %}{% include '_contracting_tabs.html' %}{% endwith %}</div>
 
 <!-- Cabecera de pantalla -->
 <div class="quad-head no-print">

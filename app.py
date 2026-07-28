@@ -22162,7 +22162,11 @@ def contracting_view():
     if section == "festivales-ciclos":
         return _render_cycle_festivals()
     if section == "eventos":
-        return _render_cycle_festivals(only_events=True)
+        # Por defecto, las ACTIVIDADES agrupadas por evento (como la pestaña de conciertos). Con
+        # `?contenedores=1`, la lista de contenedores de evento (para crearlos y ver su ficha).
+        if _truthy(request.args.get("contenedores")):
+            return _render_cycle_festivals(only_events=True)
+        return _render_event_activities()
     session_db = db()
     try:
         query = session_db.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue)).order_by(Concert.date.asc().nullslast(), Concert.created_at.desc())
@@ -23498,6 +23502,64 @@ def _cycle_concerts(s, cf_id):
 
 # Etiquetas de las categorías que agrupan fechas (contenedores de Contratación).
 CYCLE_FESTIVAL_KIND_LABELS = {"FESTIVAL": "Festival", "CICLO": "Ciclo", "EVENTO": "Evento"}
+
+
+def _render_event_activities():
+    """Pestaña EVENTOS: como la de Conciertos, pero agrupada por EVENTO (un evento no tiene artista).
+    Sus actividades salen SOLO aquí (en Conciertos se filtran). Rejilla de eventos → actividades."""
+    s = db()
+    try:
+        hoy = today_local()
+        show_past = _truthy(request.args.get("pasadas"))
+        drill_id = to_uuid(request.args.get("event") or "")
+        q = (s.query(Concert)
+             .options(joinedload(Concert.venue), joinedload(Concert.artist))
+             .filter(Concert.event_id.isnot(None)))
+        if not show_past:
+            q = q.filter(or_(Concert.date.is_(None), Concert.date >= hoy))
+        actividades = q.order_by(Concert.date.asc().nullslast(), Concert.created_at.desc()).all()
+
+        eventos = {str(e.id): e for e in s.query(AppEvent).all()}
+        grupos = {}
+        for c in actividades:
+            key = str(c.event_id)
+            g = grupos.setdefault(key, {"id": key, "name": "", "logo_url": "", "count": 0, "dates": []})
+            g["count"] += 1
+            if c.date:
+                g["dates"].append(c.date)
+        for key, g in grupos.items():
+            ev = eventos.get(key)
+            g["name"] = (getattr(ev, "name", "") or "Evento")
+            g["logo_url"] = (getattr(ev, "logo_url", "") or "")
+            g["date_range"] = _date_range_label(min(g["dates"]), max(g["dates"])) if g["dates"] else ""
+        event_groups = sorted(grupos.values(), key=lambda g: (g["name"] or "").lower())
+
+        rows, drill_event, drill_group_id = [], None, None
+        if drill_id:
+            drill_event = eventos.get(str(drill_id))
+            rows = [c for c in actividades if str(c.event_id) == str(drill_id)]
+            for c in rows:
+                setattr(c, "sale_type_label", _sale_type_label(c.sale_type))
+                setattr(c, "location_summary", _concert_location_summary(c))
+                # Un evento no tiene artista: el título es el del evento (o el nombre de la fecha).
+                setattr(c, "title_label", (getattr(drill_event, "name", "") or "Actividad"))
+            grupo = (s.query(CycleFestival)
+                     .filter(CycleFestival.event_id == drill_id)
+                     .order_by(CycleFestival.created_at.desc()).first())
+            drill_group_id = str(grupo.id) if grupo else None
+        return render_template(
+            "eventos.html",
+            section="eventos",
+            event_groups=event_groups,
+            rows=rows,
+            drill_event=drill_event,
+            drill_group_id=drill_group_id,
+            show_past=show_past,
+            CAN_EDIT_CONCERTS=can_edit_concerts(),
+            **_concert_wizard_context(s),
+        )
+    finally:
+        s.close()
 
 
 def _render_cycle_festivals(only_events: bool = False):
@@ -27411,6 +27473,8 @@ def concerts_page():
             q = q.filter(
                 ~func.upper(func.coalesce(Concert.sale_type, "")).in_(["GIRAS_COMPRADAS", "CADIZ"]),
                 ~func.upper(func.coalesce(Concert.activity_type, "CONCIERTO")).in_(["FESTIVAL", "GIRA", "EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS"]),
+                # Las actividades de un EVENTO viven en su propia pestaña, no aquí.
+                Concert.event_id.is_(None),
             )
         if f_artist_ids:
             q = q.filter(Concert.artist_id.in_(f_artist_ids))
@@ -27508,6 +27572,7 @@ def concerts_page():
                 .filter(
                     ~func.upper(func.coalesce(Concert.sale_type, "")).in_(["GIRAS_COMPRADAS", "CADIZ"]),
                     ~func.upper(func.coalesce(Concert.activity_type, "CONCIERTO")).in_(["FESTIVAL", "GIRA", "EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS"]),
+                    Concert.event_id.is_(None),      # los eventos tienen su pestaña
                 ).group_by(Concert.artist_id).all()
             )
             count_map = {aid: int(n) for aid, n in count_rows}
@@ -43364,6 +43429,60 @@ def _media_contact_display(contact: MediaContact | None) -> str:
     return " · ".join([p for p in pieces if p])
 
 
+# Pestañas de Contratación que llevan CONTADOR (las que agrupan actividades). Cuadrantes,
+# Facturación, Simulaciones y Giras compradas no llevan.
+CONTRACTING_COUNT_TABS = ("conciertos", "peticiones", "festivales-ciclos", "eventos", "otras-actividades")
+
+
+def _contracting_tab_counts() -> dict:
+    """Cuántas cosas ACTIVAS hay en cada pestaña de Contratación (lo que queda por delante):
+
+    - **conciertos**: actividades de la pestaña (sin giras, festivales, otras ni las de EVENTOS) de
+      hoy en adelante; las pasadas son historial y no cuentan.
+    - **peticiones**: solo las PENDIENTES. Las archivadas (aprobadas o descartadas) no se cuentan ni
+      se muestran en el número.
+    - **festivales-ciclos** / **eventos**: sus actividades activas (mismo criterio de fecha).
+    - **otras-actividades**: promocionales, TV, marca y otros, de hoy en adelante.
+    """
+    session_db = db()
+    try:
+        hoy = today_local()
+        vivas = or_(Concert.date.is_(None), Concert.date >= hoy)
+        no_agrupadas = and_(
+            ~func.upper(func.coalesce(Concert.sale_type, "")).in_(["GIRAS_COMPRADAS", "CADIZ"]),
+            ~func.upper(func.coalesce(Concert.activity_type, "CONCIERTO")).in_(
+                ["FESTIVAL", "GIRA", "EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS"]),
+        )
+        conciertos = (session_db.query(func.count(Concert.id))
+                      .filter(no_agrupadas, Concert.event_id.is_(None), vivas).scalar() or 0)
+        eventos = (session_db.query(func.count(Concert.id))
+                   .filter(Concert.event_id.isnot(None), vivas).scalar() or 0)
+        otras = (session_db.query(func.count(Concert.id))
+                 .filter(func.upper(func.coalesce(Concert.activity_type, "CONCIERTO"))
+                         .in_(["EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS"]),
+                         Concert.event_id.is_(None), vivas).scalar() or 0)
+        festivales = (session_db.query(func.count(Concert.id))
+                      .filter(or_(func.upper(func.coalesce(Concert.activity_type, "")) == "FESTIVAL",
+                                  Concert.cycle_festival_id.isnot(None)),
+                              Concert.event_id.is_(None), vivas).scalar() or 0)
+        peticiones = 0
+        try:
+            abiertas = (session_db.query(BookingRequest)
+                        .filter(func.upper(func.coalesce(BookingRequest.status, "NUEVA"))
+                                .in_(list(BOOKING_OPEN_STATUSES)))
+                        .limit(500).all())
+            peticiones = sum(1 for r in abiertas if _booking_in_department(r, "CONTRATACION"))
+        except Exception:
+            peticiones = 0
+        return {"conciertos": int(conciertos), "peticiones": int(peticiones),
+                "festivales-ciclos": int(festivales), "eventos": int(eventos),
+                "otras-actividades": int(otras)}
+    except Exception:
+        return {}
+    finally:
+        session_db.close()
+
+
 def _section_stats_counts() -> dict:
     session_db = db()
     try:
@@ -43421,6 +43540,10 @@ def inject_personnel_globals():
         "TRAVEL_PREF_GROUPS": TRAVEL_PREF_GROUPS,
         "PROMOTER_COST_ITEMS": PROMOTER_COST_ITEMS,
         "SECTION_STATS": _section_stats_counts() if request.endpoint in {"promocion_view", "marketing_view", "administracion_view", "contabilidad_view", "produccion_view", "acciones_view", "action_detail_view", "personnel_view", "invitations_view", "invitation_event_detail"} and session.get("user_id") else {},
+        # Nº de actividades ACTIVAS por pestaña de Contratación (la barra de pestañas es un parcial).
+        "CONTRACTING_COUNTS": (_contracting_tab_counts()
+                               if request.endpoint in {"contracting_view", "concerts_view", "quadrantes_view"}
+                               and session.get("user_id") else {}),
         "has_access_key": has_access_key,
         # Placeholder de PORTADA (canción/álbum) cuando no hay portada: disco gris sobre fondo gris
         # claro, para cubrir el hueco sin fingir que es la portada real.
@@ -49599,6 +49722,10 @@ def _concert_contracting_general_rows(session_db, concert):
         ("Datos de contratación", "activity_type"), ("Datos de contratación", "activity_subtype"),
         ("Datos de contratación", "artist_ids"), ("Datos de contratación", "carteleria"),
         ("Datos de contratación", "billing_plan"), ("Datos de contratación", "meet_greet"),
+        # Trazas internas de por dónde vino la actividad: no son un dato de la ficha.
+        ("Datos de contratación", "simulation_id"), ("Datos de contratación", "simulation_activity_id"),
+        ("Datos de contratación", "simulation_name"), ("Datos de contratación", "source"),
+        ("Datos de contratación", "booking_request_id"), ("Datos de contratación", "enterticket_event_id"),
         ("Ticketing", "entry_mode"), ("Ticketing", "sale_seller"), ("Ticketing", "sale_owner"),
         ("Ticketing", "ticket_types"), ("Ticketing", "invitations_mode"), ("Ticketing", "invitations_total"),
         ("Ticketing", "free_capacity_unlimited"), ("Ticketing", "invitations"), ("Ticketing", "channels"),

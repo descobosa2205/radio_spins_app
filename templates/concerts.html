@@ -23,16 +23,7 @@
 <div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
   <div>
     <h4 class="mb-2">Contratación · {{ 'Facturación' if active_tab == 'facturacion' else 'Conciertos' }}</h4>
-    <ul class="nav nav-pills">
-      <li class="nav-item"><a class="nav-link {% if active_tab == 'vista' %}active{% endif %}" href="{{ url_for('concerts_view', tab='vista') }}">Conciertos</a></li>
-      <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='giras-compradas') }}">Giras compradas</a></li>
-      <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='festivales-ciclos') }}">Festivales / Ciclos</a></li>
-      <li class="nav-item"><a class="nav-link{{ ' active' if section == 'eventos' else '' }}" href="{{ url_for('contracting_view', section='eventos') }}">Eventos</a></li>
-      <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='otras-actividades') }}">Otras actividades</a></li>
-      <li class="nav-item"><a class="nav-link" href="{{ url_for('quadrantes_view') }}">Cuadrantes</a></li>
-      <li class="nav-item"><a class="nav-link {% if active_tab == 'facturacion' %}active{% endif %}" href="{{ url_for('concerts_view', tab='facturacion') }}">Facturación</a></li>
-      <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='simulaciones') }}">Simulaciones</a></li>
-    </ul>
+    {% with contracting_tab='facturacion' if active_tab == 'facturacion' else 'conciertos' %}{% include '_contracting_tabs.html' %}{% endwith %}
   </div>
   {% if CAN_EDIT_CONCERTS and active_tab != 'facturacion' %}
     <div class="d-flex gap-2">

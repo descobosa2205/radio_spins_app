@@ -10,17 +10,7 @@
   {% endif %}
 </div>
 
-<ul class="nav nav-pills mb-3">
-  <li class="nav-item"><a class="nav-link" href="{{ url_for('concerts_view', tab='vista') }}">Conciertos</a></li>
-  <li class="nav-item"><a class="nav-link active" href="{{ url_for('contracting_view', section='peticiones') }}">Peticiones{% if booking_total %} <span class="badge text-bg-light">{{ booking_total }}</span>{% endif %}</a></li>
-  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='giras-compradas') }}">Giras compradas</a></li>
-  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='festivales-ciclos') }}">Festivales / Ciclos</a></li>
-  <li class="nav-item"><a class="nav-link{{ ' active' if section == 'eventos' else '' }}" href="{{ url_for('contracting_view', section='eventos') }}">Eventos</a></li>
-  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='otras-actividades') }}">Otras actividades</a></li>
-  <li class="nav-item"><a class="nav-link" href="{{ url_for('quadrantes_view') }}">Cuadrantes</a></li>
-  <li class="nav-item"><a class="nav-link" href="{{ url_for('concerts_view', tab='facturacion') }}">Facturación</a></li>
-  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='simulaciones') }}">Simulaciones</a></li>
-</ul>
+{% with contracting_tab='peticiones' %}{% include '_contracting_tabs.html' %}{% endwith %}
 
 {# Filtros: por defecto Pendientes; Archivadas = aprobadas/descartadas #}
 <div class="d-flex gap-2 flex-wrap mb-3">

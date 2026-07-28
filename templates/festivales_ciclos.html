@@ -5,22 +5,17 @@
     <h4 class="mb-1">Contratación · {{ page_title or 'Festivales / Ciclos' }}</h4>
     <div class="text-muted">{{ page_subtitle or 'Festivales y ciclos que organiza una empresa del grupo. Agrupan sus fechas/artistas y su producción general.' }}</div>
   </div>
-  {% if CAN_EDIT_CONCERTS %}
-  <button class="btn btn-primary" type="button" data-cf-new><i class="fa fa-plus me-1"></i> {{ 'Nuevo evento' if only_events else 'Nuevo ciclo / festival' }}</button>
-  {% endif %}
+  <div class="d-flex gap-2 flex-wrap">
+    {% if only_events %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('contracting_view', section='eventos') }}"><i class="fa fa-calendar-day me-1"></i>Ver actividades</a>
+    {% endif %}
+    {% if CAN_EDIT_CONCERTS %}
+    <button class="btn btn-primary" type="button" data-cf-new><i class="fa fa-plus me-1"></i> {{ 'Nuevo evento' if only_events else 'Nuevo ciclo / festival' }}</button>
+    {% endif %}
+  </div>
 </div>
 
-<ul class="nav nav-pills mb-3">
-  <li class="nav-item"><a class="nav-link" href="{{ url_for('concerts_view', tab='vista') }}">Conciertos</a></li>
-  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='peticiones') }}">Peticiones</a></li>
-  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='giras-compradas') }}">Giras compradas</a></li>
-  <li class="nav-item"><a class="nav-link{{ '' if only_events else ' active' }}" href="{{ url_for('contracting_view', section='festivales-ciclos') }}">Festivales / Ciclos</a></li>
-  <li class="nav-item"><a class="nav-link{{ ' active' if section == 'eventos' else '' }}" href="{{ url_for('contracting_view', section='eventos') }}">Eventos</a></li>
-  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='otras-actividades') }}">Otras actividades</a></li>
-  <li class="nav-item"><a class="nav-link" href="{{ url_for('quadrantes_view') }}">Cuadrantes</a></li>
-  <li class="nav-item"><a class="nav-link" href="{{ url_for('concerts_view', tab='facturacion') }}">Facturación</a></li>
-  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='simulaciones') }}">Simulaciones</a></li>
-</ul>
+{% with contracting_tab='eventos' if only_events else 'festivales-ciclos' %}{% include '_contracting_tabs.html' %}{% endwith %}
 
 {% if rows %}
 <div class="row g-3">

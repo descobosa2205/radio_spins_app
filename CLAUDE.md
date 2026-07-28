@@ -537,6 +537,13 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `.rm-tag.sheet` en la fila y en el detalle (solo en el back office). La pestaña Logística se nutre de
   los ítems de transporte, así que hereda el filtro; Hoteles y Personal salen en las dos hojas.
   `roadmap_item_save` conserva las etiquetas si el cliente no las manda (JS viejo en caché).
+- **Categoría EVENTOS de Contratación** (`CycleFestival.kind='EVENTO'` + `event_id` → `AppEvent`):
+  contenedor de un evento propio (gala, feria…) de **una fecha o varias**, que funciona igual que una
+  gira comprada (agrupa sus `Concert` por `cycle_festival_id`). Sección `?section=eventos` →
+  `_render_cycle_festivals(only_events=True)` (MISMA pantalla que Festivales/Ciclos, filtrada por kind;
+  las dos se excluyen entre sí). Recurso de permisos `contratacion.eventos`; la ficha es
+  `activity_group_detail.html` con `is_event`. Convertir una simulación de EVENTO: `target='event'`
+  (el botón de la simulación lo elige solo cuando el sujeto es un evento).
 - **Actividades de un EVENTO** (`AppEvent`): una actividad (`Concert`) exige artista (`artist_id` NOT
   NULL) y un evento no lo es, así que al convertir una simulación de EVENTO se espeja el evento como
   artista con `_ensure_artist_for_event` (`Artist.event_id`, único; hereda nombre y logo) y la

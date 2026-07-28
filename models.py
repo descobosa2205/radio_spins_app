@@ -3577,15 +3577,22 @@ class PurchasedTour(Base):
 
 
 class CycleFestival(Base):
-    """Ciclo o festival organizado por una empresa del grupo. Agrupa N conciertos
-    por FK real (Concert.cycle_festival_id)."""
+    """Ciclo, festival o EVENTO organizado por una empresa del grupo. Agrupa N conciertos por FK real
+    (`Concert.cycle_festival_id`), igual que una gira comprada agrupa sus fechas.
+
+    `kind='EVENTO'` es la categoría «Eventos» de Contratación: una gala, una feria, un evento propio…
+    Puede ser de una fecha o de varias y, cuando viene de una simulación de EVENTO, `event_id` apunta
+    al evento de Bases de datos → Eventos del que salió.
+    """
 
     __tablename__ = "cycle_festivals"
 
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     name = Column(Text, nullable=False)
-    # FESTIVAL | CICLO
+    # FESTIVAL | CICLO | EVENTO
     kind = Column(Text, nullable=False, server_default=text("'FESTIVAL'"))
+    # Evento de la base de datos del que sale (solo en kind='EVENTO').
+    event_id = Column(PGUUID(as_uuid=True), ForeignKey("app_events.id", ondelete="SET NULL"), index=True)
     managing_company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
     logo_url = Column(Text)
     edition = Column(Text)  # edición / año
@@ -5122,6 +5129,9 @@ def ensure_artist_feature_schema():
         "ALTER TABLE IF EXISTS artists ADD COLUMN IF NOT EXISTS event_id uuid REFERENCES app_events(id) ON DELETE CASCADE;",
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_artists_event ON artists (event_id) WHERE event_id IS NOT NULL;",
         "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS event_id uuid REFERENCES app_events(id) ON DELETE SET NULL;",
+        # Contenedor de EVENTO (categoría «Eventos» de Contratación): de qué evento sale.
+        "ALTER TABLE IF EXISTS cycle_festivals ADD COLUMN IF NOT EXISTS event_id uuid REFERENCES app_events(id) ON DELETE SET NULL;",
+        "CREATE INDEX IF NOT EXISTS ix_cycle_festivals_event ON cycle_festivals (event_id);",
         "CREATE INDEX IF NOT EXISTS ix_concerts_event ON concerts (event_id);",
         "ALTER TABLE IF EXISTS artist_people ADD COLUMN IF NOT EXISTS birth_date date;",
         # Entradas libres de la agenda del artista (bloqueos / notas).

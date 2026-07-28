@@ -2,11 +2,11 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
   <div>
-    <h4 class="mb-1">Contratación · Festivales / Ciclos</h4>
-    <div class="text-muted">Festivales y ciclos que organiza una empresa del grupo. Agrupan sus fechas/artistas y su producción general.</div>
+    <h4 class="mb-1">Contratación · {{ page_title or 'Festivales / Ciclos' }}</h4>
+    <div class="text-muted">{{ page_subtitle or 'Festivales y ciclos que organiza una empresa del grupo. Agrupan sus fechas/artistas y su producción general.' }}</div>
   </div>
   {% if CAN_EDIT_CONCERTS %}
-  <button class="btn btn-primary" type="button" data-cf-new><i class="fa fa-plus me-1"></i> Nuevo ciclo / festival</button>
+  <button class="btn btn-primary" type="button" data-cf-new><i class="fa fa-plus me-1"></i> {{ 'Nuevo evento' if only_events else 'Nuevo ciclo / festival' }}</button>
   {% endif %}
 </div>
 
@@ -14,7 +14,8 @@
   <li class="nav-item"><a class="nav-link" href="{{ url_for('concerts_view', tab='vista') }}">Conciertos</a></li>
   <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='peticiones') }}">Peticiones</a></li>
   <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='giras-compradas') }}">Giras compradas</a></li>
-  <li class="nav-item"><a class="nav-link active" href="{{ url_for('contracting_view', section='festivales-ciclos') }}">Festivales / Ciclos</a></li>
+  <li class="nav-item"><a class="nav-link{{ '' if only_events else ' active' }}" href="{{ url_for('contracting_view', section='festivales-ciclos') }}">Festivales / Ciclos</a></li>
+  <li class="nav-item"><a class="nav-link{{ ' active' if section == 'eventos' else '' }}" href="{{ url_for('contracting_view', section='eventos') }}">Eventos</a></li>
   <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='otras-actividades') }}">Otras actividades</a></li>
   <li class="nav-item"><a class="nav-link" href="{{ url_for('quadrantes_view') }}">Cuadrantes</a></li>
   <li class="nav-item"><a class="nav-link" href="{{ url_for('concerts_view', tab='facturacion') }}">Facturación</a></li>
@@ -62,7 +63,10 @@
       <div class="modal-body">
         <div data-sw-progress></div>
 
-        {# Paso 1 · Tipo #}
+        {# Paso 1 · Tipo. En la categoría EVENTOS no hay que elegir: ya se sabe que es un evento. #}
+        {% if only_events %}
+          <input type="hidden" name="kind" value="EVENTO">
+        {% else %}
         <section class="sw-step" data-step="1" data-title="Tipo">
           <div class="sw-step__q"><i class="fa fa-shapes me-2 text-danger"></i>¿Qué vas a crear?</div>
           <div class="sw-step__h">Un festival (cada pestaña será un artista) o un ciclo (varias fechas en el mismo recinto).</div>
@@ -73,6 +77,7 @@
             <label for="cfKindCycle"><i class="fa fa-repeat"></i><span class="sw-choice__t">Ciclo</span><span class="sw-choice__s">Varias fechas, mismo recinto</span></label>
           </div>
         </section>
+        {% endif %}
 
         {# Paso 2 · Identidad (evento + nombre + edición) #}
         <section class="sw-step" data-step="2" data-title="Nombre">

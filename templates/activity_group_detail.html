@@ -2,6 +2,8 @@
 {% block content %}
 {% set is_tour = group_kind == 'TOUR' %}
 {% set is_festival = group_kind == 'FESTIVAL' %}
+{# EVENTO: contenedor de la categoría «Eventos» (una fecha o varias), como una gira comprada. #}
+{% set is_event = group_kind == 'EVENTO' %}
 {% if is_tour %}
   {% set edit_url = url_for('purchased_tour_update', tid=group.id) %}
   {% set general_url = url_for('purchased_tour_general_save', tid=group.id) %}
@@ -16,8 +18,8 @@
   {% set link_url = url_for('cycle_festival_link_concert', cfid=group.id) %}
   {% set link_sim_url = url_for('cycle_festival_link_sim', cfid=group.id) %}
   {% set delete_url = url_for('cycle_festival_delete', cfid=group.id) %}
-  {% set back_url = url_for('contracting_view', section='festivales-ciclos') %}
-  {% set kind_label = 'Festival' if is_festival else 'Ciclo' %}
+  {% set back_url = url_for('contracting_view', section='eventos' if is_event else 'festivales-ciclos') %}
+  {% set kind_label = 'Evento' if is_event else ('Festival' if is_festival else 'Ciclo') %}
 {% endif %}
 {% set items_label = 'Artistas' if is_festival else 'Fechas' %}
 {% set logo = group.logo_url or (group.artist.photo_url if (is_tour and group.artist) else '') or (group.managing_company.logo_url if group.managing_company else '') or DEFAULT_PHOTO_URL %}

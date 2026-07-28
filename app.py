@@ -21917,7 +21917,8 @@ def contracting_view():
         return redirect(url_for("concerts_view", tab="facturacion"))
     if section == "cuadrantes":
         return redirect(url_for("quadrantes_view"))
-    valid_sections = {"peticiones", "giras-compradas", "festivales-ciclos", "otras-actividades", "simulaciones"}
+    valid_sections = {"peticiones", "giras-compradas", "festivales-ciclos", "eventos",
+                      "otras-actividades", "simulaciones"}
     if section not in valid_sections:
         section = "giras-compradas"
     if section == "simulaciones":
@@ -21928,6 +21929,8 @@ def contracting_view():
         return _render_purchased_tours()
     if section == "festivales-ciclos":
         return _render_cycle_festivals()
+    if section == "eventos":
+        return _render_cycle_festivals(only_events=True)
     session_db = db()
     try:
         query = session_db.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue)).order_by(Concert.date.asc().nullslast(), Concert.created_at.desc())
@@ -23261,13 +23264,21 @@ def _cycle_concerts(s, cf_id):
     )
 
 
-def _render_cycle_festivals():
+# Etiquetas de las categorías que agrupan fechas (contenedores de Contratación).
+CYCLE_FESTIVAL_KIND_LABELS = {"FESTIVAL": "Festival", "CICLO": "Ciclo", "EVENTO": "Evento"}
+
+
+def _render_cycle_festivals(only_events: bool = False):
+    """Listado de contenedores: «Festivales / Ciclos» o «Eventos» (misma pantalla, mismo trato)."""
     s = db()
     try:
-        items = (
-            s.query(CycleFestival).options(joinedload(CycleFestival.managing_company), joinedload(CycleFestival.venue))
-            .order_by(CycleFestival.status.asc(), CycleFestival.start_date.desc().nullslast(), CycleFestival.created_at.desc()).all()
-        )
+        q = (s.query(CycleFestival).options(joinedload(CycleFestival.managing_company), joinedload(CycleFestival.venue)))
+        if only_events:
+            q = q.filter(func.upper(func.coalesce(CycleFestival.kind, "")) == "EVENTO")
+        else:
+            q = q.filter(func.upper(func.coalesce(CycleFestival.kind, "")) != "EVENTO")
+        items = q.order_by(CycleFestival.status.asc(), CycleFestival.start_date.desc().nullslast(),
+                          CycleFestival.created_at.desc()).all()
         counts = dict(
             s.query(Concert.cycle_festival_id, func.count(Concert.id))
             .filter(Concert.cycle_festival_id.isnot(None)).group_by(Concert.cycle_festival_id).all()
@@ -23278,7 +23289,7 @@ def _render_cycle_festivals():
             rows.append({
                 "id": str(cf.id), "name": cf.name, "logo_url": (cf.logo_url or ""),
                 "kind": (cf.kind or "FESTIVAL").upper(),
-                "kind_label": ("Festival" if (cf.kind or "FESTIVAL").upper() == "FESTIVAL" else "Ciclo"),
+                "kind_label": CYCLE_FESTIVAL_KIND_LABELS.get((cf.kind or "FESTIVAL").upper(), "Festival"),
                 "edition": (cf.edition or ""),
                 "company": (cf.managing_company.name if cf.managing_company else ""),
                 "company_logo": (cf.managing_company.logo_url if cf.managing_company else ""),
@@ -23292,8 +23303,14 @@ def _render_cycle_festivals():
         events = s.query(AppEvent).order_by(AppEvent.name.asc()).all()
         venues = s.query(Venue).order_by(Venue.name.asc()).all()
         return render_template(
-            "festivales_ciclos.html", section="festivales-ciclos", rows=rows,
-            artists=artists, companies=companies, events=events, venues=venues,
+            "festivales_ciclos.html",
+            section=("eventos" if only_events else "festivales-ciclos"),
+            only_events=only_events,
+            page_title=("Eventos" if only_events else "Festivales / Ciclos"),
+            page_subtitle=("Eventos propios (galas, ferias…), de una fecha o de varias. Funcionan como una "
+                           "gira comprada: agrupan sus fechas." if only_events else
+                           "Festivales y ciclos organizados por el grupo, con sus conciertos."),
+            rows=rows, artists=artists, companies=companies, events=events, venues=venues,
             CAN_EDIT_CONCERTS=can_edit_concerts(),
         )
     finally:
@@ -23301,9 +23318,14 @@ def _render_cycle_festivals():
 
 
 def _apply_cycle_form(cf, form):
-    cf.name = (form.get("name") or "").strip() or "Ciclo / Festival"
     kind = (form.get("kind") or "FESTIVAL").strip().upper()
-    cf.kind = "CICLO" if kind == "CICLO" else "FESTIVAL"
+    cf.kind = kind if kind in CYCLE_FESTIVAL_KIND_LABELS else "FESTIVAL"
+    cf.name = ((form.get("name") or "").strip()
+               or ("Evento" if cf.kind == "EVENTO" else "Ciclo / Festival"))
+    # Categoría EVENTOS: queda enganchado al evento de la base de datos si se eligió.
+    _ev = (form.get("event_id") or "").strip()
+    if cf.kind == "EVENTO":
+        cf.event_id = to_uuid(_ev) if _ev else None
     cid = (form.get("managing_company_id") or "").strip()
     cf.managing_company_id = to_uuid(cid) if cid else None
     cf.edition = (form.get("edition") or "").strip() or None
@@ -23340,7 +23362,7 @@ def cycle_festival_create():
         s.add(cf)
         s.commit()
         cid = str(cf.id)
-        flash("Ciclo/Festival creado.", "success")
+        flash("Evento creado." if (cf.kind or "").upper() == "EVENTO" else "Ciclo/Festival creado.", "success")
     except Exception as exc:
         s.rollback()
         flash(f"No se pudo crear: {exc}", "danger")
@@ -23533,7 +23555,7 @@ def simulation_convert(sid):
             flash("Esta simulación ya está archivada. Restáurala si quieres volver a convertirla.", "warning")
             return redirect(url_for("simulation_detail_view", sid=sid))
         target = (request.form.get("target") or "").strip().lower()
-        if target not in ("concert", "tour", "cycle", "festival"):
+        if target not in ("concert", "tour", "cycle", "festival", "event"):
             flash("Destino de conversión no válido.", "warning")
             return redirect(url_for("simulation_detail_view", sid=sid))
         name = (sim.title or (sim.artist.name if sim.artist else None) or (sim.event.name if sim.event else None) or "Actividad").strip()
@@ -23565,10 +23587,12 @@ def simulation_convert(sid):
             s.add(tour)
             s.flush()
             sale_type, activity_type, group_name = "GIRAS_COMPRADAS", "CONCIERTO", tour.name
-        elif target in ("cycle", "festival"):
-            kind = "CICLO" if target == "cycle" else "FESTIVAL"
+        elif target in ("cycle", "festival", "event"):
+            kind = {"cycle": "CICLO", "festival": "FESTIVAL", "event": "EVENTO"}[target]
             cycle = CycleFestival(
                 name=name, kind=kind, managing_company_id=sim.managing_company_id,
+                # Si la simulación era de un EVENTO, el contenedor queda enganchado a ese evento.
+                event_id=(sim.event_id if kind == "EVENTO" else None),
                 logo_url=(sim.event.logo_url if sim.event else None), start_date=start, end_date=end,
                 status="ACTIVO",
                 payload={"general": {"simulation_ids": [str(sim.id)],
@@ -23602,7 +23626,8 @@ def simulation_convert(sid):
                   "o un evento." + detail, "warning")
             return redirect(url_for("simulation_detail_view", sid=sid))
 
-        kind_label = {"tour": "gira comprada", "cycle": "ciclo", "festival": "festival", "concert": "concierto"}[target]
+        kind_label = {"tour": "gira comprada", "cycle": "ciclo", "festival": "festival",
+                      "event": "evento", "concert": "concierto"}[target]
         target_obj = tour or cycle or created[0]
         _simulation_mark_converted(
             sim, kind=target.upper(), target_id=target_obj.id, target_name=name,
@@ -25244,7 +25269,8 @@ def _simulation_converted_info(session_db, sim) -> dict | None:
         return None
     kind = (info.get("kind") or "").strip().upper()
     target_id = info.get("target_id")
-    labels = {"TOUR": "Gira comprada", "CYCLE": "Ciclo", "FESTIVAL": "Festival", "CONCERT": "Concierto"}
+    labels = {"TOUR": "Gira comprada", "CYCLE": "Ciclo", "FESTIVAL": "Festival",
+              "EVENT": "Evento", "CONCERT": "Concierto"}
     out = {
         "kind": kind,
         "label": labels.get(kind, "Actividad"),
@@ -25257,7 +25283,7 @@ def _simulation_converted_info(session_db, sim) -> dict | None:
         uid = to_uuid(target_id) if target_id else None
         if uid and kind == "TOUR" and session_db.get(PurchasedTour, uid):
             out.update(url=url_for("purchased_tour_detail", tid=str(uid)), missing=False)
-        elif uid and kind in ("CYCLE", "FESTIVAL") and session_db.get(CycleFestival, uid):
+        elif uid and kind in ("CYCLE", "FESTIVAL", "EVENT") and session_db.get(CycleFestival, uid):
             out.update(url=url_for("cycle_festival_detail", cfid=str(uid)), missing=False)
         elif uid and kind == "CONCERT" and session_db.get(Concert, uid):
             out.update(url=url_for("concert_detail_view", cid=str(uid)), missing=False)
@@ -25376,7 +25402,7 @@ def simulation_create():
                 flash("Debes seleccionar un artista para la simulación.", "warning")
                 return redirect(url_for("contracting_view", section="simulaciones"))
         kind = (request.form.get("kind") or "CONCERT").strip().upper()
-        if kind not in ("CONCERT", "TOUR", "CYCLE", "FESTIVAL"):
+        if kind not in ("CONCERT", "TOUR", "CYCLE", "FESTIVAL", "EVENT"):
             kind = "CONCERT"
         sim = Simulation(
             artist_id=artist_id,
@@ -25746,7 +25772,8 @@ def _simulation_share_meta(sim):
     - descripción secundaria: si hay VARIAS fechas, el número de eventos; si es UNA sola, la fecha y
       el recinto."""
     subject = _sim_subject(sim)
-    kind_label = {"CONCERT": "Concierto", "TOUR": "Gira", "CYCLE": "Ciclo", "FESTIVAL": "Festival"}.get((sim.kind or "").upper(), "Concierto")
+    kind_label = {"CONCERT": "Concierto", "TOUR": "Gira", "CYCLE": "Ciclo", "FESTIVAL": "Festival",
+                 "EVENT": "Evento"}.get((sim.kind or "").upper(), "Concierto")
     image_src = (sim.poster_url or "").strip() or (subject.get("photo") or "").strip() or url_for("static", filename="img/logo_33_producciones.png")
     image_raw = _absolute_media_url(image_src)
     if sim.public_token:
@@ -25850,7 +25877,8 @@ def _simulation_print_context(s, sim):
                     "city": (v.municipality or "").strip(), "province": (v.province or "").strip(),
                     "date": (r["activity"].event_date.strftime("%d/%m/%Y") if (r["activity"].event_date and not r["activity"].date_unknown) else ""),
                 })
-    kind_label = {"CONCERT": "Concierto", "TOUR": "Gira", "CYCLE": "Ciclo", "FESTIVAL": "Festival"}.get(kind, "Concierto")
+    kind_label = {"CONCERT": "Concierto", "TOUR": "Gira", "CYCLE": "Ciclo", "FESTIVAL": "Festival",
+                 "EVENT": "Evento"}.get(kind, "Concierto")
     lineup_sorted = sorted(sim.lineup or [], key=lambda x: x.sort_order or 0)
     festival_breakdown = _sim_festival_breakdown(activities[0], blocks[0]["calc"], artist_intl_map, lineup_sorted) if (is_festival and blocks) else None
     # ¿Hay nombres de fecha en la gira? Si no, la tabla de resumen no pinta una columna vacía.
@@ -26196,7 +26224,7 @@ def simulation_config_update(sid):
         sim.title = (request.form.get("title") or "").strip() or None
         sim.managing_company_id = _sim_safe_uuid(request.form.get("managing_company_id"))
         kind = (request.form.get("kind") or sim.kind or "CONCERT").strip().upper()
-        if kind in ("CONCERT", "TOUR", "CYCLE", "FESTIVAL"):
+        if kind in ("CONCERT", "TOUR", "CYCLE", "FESTIVAL", "EVENT"):
             sim.kind = kind
         subject_kind = (request.form.get("subject_kind") or "").strip().upper()
         if subject_kind == "EVENT":
@@ -41265,6 +41293,7 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "contratacion.giras", "label": "Giras compradas", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 172, "description": "Pestaña «Giras compradas» (importes)."},
     {"key": "contratacion.giras.onesheet", "label": "One-sheet de giras", "section_key": "contratacion", "parent_key": "contratacion.giras", "level": "SUBTAB", "economic_capable": False, "sort_order": 173, "description": "One-sheet de giras: dossier público de la gira."},
     {"key": "contratacion.festivales", "label": "Festivales / Ciclos", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 174, "description": "Pestaña «Festivales / Ciclos» (importes)."},
+    {"key": "contratacion.eventos", "label": "Eventos", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 175, "description": "Pestaña «Eventos»: eventos propios (galas, ferias…) con sus fechas, como una gira comprada (importes)."},
     {"key": "contratacion.otras", "label": "Otras actividades", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 175, "description": "Pestaña «Otras actividades» (importes)."},
     {"key": "contratacion.cuadrantes", "label": "Cuadrantes", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": False, "sort_order": 176, "description": "Cuadrantes de planificación de la actividad/gira."},
     {"key": "contratacion.facturacion", "label": "Facturación", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 177, "description": "Facturación de conciertos y actividades (importes)."},
@@ -42218,6 +42247,7 @@ def _resolve_request_resource_key() -> str | None:
             "peticiones": "contratacion.peticiones",
             "giras-compradas": "contratacion.giras",
             "festivales-ciclos": "contratacion.festivales",
+            "eventos": "contratacion.eventos",
             "otras-actividades": "contratacion.otras",
             "cuadrantes": "contratacion.cuadrantes",
             "facturacion": "contratacion.facturacion",
@@ -42242,6 +42272,9 @@ def _resolve_request_resource_key() -> str | None:
         return _activity_read_resource_key("contratacion.conciertos")
     if endpoint == "quadrantes_view":
         return "contratacion.cuadrantes"
+    # Contenedores de fechas: el detalle de ciclo/festival y de EVENTO comparten pantalla.
+    if endpoint.startswith("cycle_festival"):
+        return "contratacion.festivales"
     if endpoint.startswith("simulation_") or endpoint.startswith("api_simulation_"):
         return "contratacion.simulaciones"
     if endpoint == "events_view" or endpoint.startswith("event_"):
@@ -42555,6 +42588,7 @@ def _resource_default_url(key: str) -> str:
         "contratacion.peticiones": url_for("contracting_view", section="peticiones"),
         "contratacion.giras": url_for("contracting_view", section="giras-compradas"),
         "contratacion.festivales": url_for("contracting_view", section="festivales-ciclos"),
+        "contratacion.eventos": url_for("contracting_view", section="eventos"),
         "contratacion.otras": url_for("contracting_view", section="otras-actividades"),
         "contratacion.cuadrantes": url_for("quadrantes_view"),
         "contratacion.facturacion": url_for("concerts_view", tab="facturacion"),
@@ -42736,6 +42770,7 @@ def _build_nav_menu() -> list[dict]:
             {"key": "contratacion.peticiones", "label": "Peticiones", "url": _resource_default_url("contratacion.peticiones")},
             {"key": "contratacion.giras", "label": "Giras compradas", "url": _resource_default_url("contratacion.giras")},
             {"key": "contratacion.festivales", "label": "Festivales / Ciclos", "url": _resource_default_url("contratacion.festivales")},
+            {"key": "contratacion.eventos", "label": "Eventos", "url": _resource_default_url("contratacion.eventos")},
             {"key": "contratacion.otras", "label": "Otras actividades", "url": _resource_default_url("contratacion.otras")},
             {"key": "contratacion.cuadrantes", "label": "Cuadrantes", "url": _resource_default_url("contratacion.cuadrantes")},
             {"key": "contratacion.facturacion", "label": "Facturación", "url": _resource_default_url("contratacion.facturacion")},

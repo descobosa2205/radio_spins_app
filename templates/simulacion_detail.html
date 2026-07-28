@@ -230,8 +230,11 @@
         {% if CAN_EDIT and not sim_archived %}
         <li><hr class="dropdown-divider"></li>
         {% set _k = (sim.kind or 'CONCERT')|upper %}
+        {# El sujeto manda: una simulación de EVENTO se convierte en EVENTO (una fecha o varias). #}
         {% set _ct = {'TOUR': ('tour', 'fa-route', 'gira comprada'), 'CYCLE': ('cycle', 'fa-repeat', 'ciclo'),
-                      'FESTIVAL': ('festival', 'fa-star', 'festival')}.get(_k, ('concert', 'fa-guitar', 'concierto')) %}
+                      'FESTIVAL': ('festival', 'fa-star', 'festival'),
+                      'EVENT': ('event', 'fa-masks-theater', 'evento')}.get(_k, ('concert', 'fa-guitar', 'concierto')) %}
+        {% if sim.event_id and _k not in ['EVENT'] %}{% set _ct = ('event', 'fa-masks-theater', 'evento') %}{% endif %}
         <li>
           <form method="post" action="{{ url_for('simulation_convert', sid=sim.id) }}"
                 onsubmit="return confirm('Se creará {{ _ct[2] }} con todas las fechas de la simulación (recinto, entradas, cachés, comisionistas, socios y presupuesto). La simulación pasará a «Archivadas». ¿Continuar?');">

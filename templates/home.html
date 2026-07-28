@@ -241,7 +241,9 @@ document.addEventListener('click', function (ev) {
         {% endif %}
       </div>
     </div>
-    {% if HOME_MY_EXPENSES.overdue %}
+    {% if HOME_MY_EXPENSES.deadline_paused %}
+      <div class="alert alert-secondary small py-2"><i class="fa fa-circle-pause me-1"></i>{{ HOME_MY_EXPENSES.deadline_paused_label }}: no corre la cuenta atrás para asignarlos.</div>
+    {% elif HOME_MY_EXPENSES.overdue %}
       <div class="alert alert-danger small py-2"><i class="fa fa-triangle-exclamation me-1"></i>Tienes <strong>{{ HOME_MY_EXPENSES.overdue }}</strong> gasto{{ '' if HOME_MY_EXPENSES.overdue == 1 else 's' }} fuera de plazo. Asígnalos a su bolsa cuanto antes.</div>
     {% endif %}
     <div class="d-grid gap-2 {{ 'd-none' if not HOME_MY_EXPENSES.total }}">
@@ -256,6 +258,8 @@ document.addEventListener('click', function (ev) {
             <span class="fw-semibold small">{{ e.amount_gross|eur }}</span>
             {% if e.status == 'IN_BAG' %}
               <span class="badge text-bg-info">En la bolsa, sin tipificar</span>
+            {% elif e.deadline_paused %}
+              <span class="badge text-bg-secondary" title="Mientras esté parado no corre el plazo"><i class="fa fa-circle-pause me-1"></i>Plazo parado</span>
             {% elif e.overdue %}
               <span class="badge text-bg-danger">Fuera de plazo</span>
             {% else %}

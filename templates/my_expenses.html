@@ -31,7 +31,10 @@
       <div class="text-end">
         <div class="fw-semibold">{{ e.amount_gross|eur }}</div>
         {% if e.status == 'PENDING' %}
-          {% if e.overdue %}
+          {# Si el plazo está parado no hay cuenta atrás (ni se reclama). #}
+          {% if e.deadline_paused %}
+            <span class="badge text-bg-secondary" title="Mientras esté parado no corre el plazo ni se reclama"><i class="fa fa-circle-pause me-1"></i>{{ e.deadline_paused_label }}</span>
+          {% elif e.overdue %}
             <span class="badge text-bg-danger"><i class="fa fa-triangle-exclamation me-1"></i>Fuera de plazo</span>
           {% else %}
             <span class="badge text-bg-warning text-dark"><i class="fa fa-hourglass-half me-1"></i>{{ e.days_left }} día{{ '' if e.days_left == 1 else 's' }} para asignarlo</span>
@@ -68,7 +71,11 @@
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
   <div>
     <h3 class="m-0"><i class="fa fa-receipt me-2 text-danger"></i>Mis gastos</h3>
-    <div class="text-muted small">Facturas que te han enviado y gastos de Pleo (ya pagados con la tarjeta). Tienes {{ assign_days }} días para asignar cada uno a una bolsa.</div>
+    <div class="text-muted small">Facturas que te han enviado y gastos de Pleo (ya pagados con la tarjeta).
+      {% if expense_pause and expense_pause.paused %}
+        <span class="badge text-bg-secondary"><i class="fa fa-circle-pause me-1"></i>{{ 'Plazo parado para todo el personal' if expense_pause.all_paused else 'Tienes el plazo parado' }}</span>
+      {% else %}Tienes {{ assign_days }} días para asignar cada uno a una bolsa.{% endif %}
+    </div>
   </div>
   {% if pending %}
     <a class="btn btn-danger" href="{{ url_for('my_expenses_assign') }}"><i class="fa fa-arrows-turn-right me-1"></i>Asignar gastos <span class="badge text-bg-light border ms-1">{{ pending|length }}</span></a>

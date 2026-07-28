@@ -10,7 +10,11 @@
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
   <div>
     <h4 class="m-0"><i class="fa fa-arrows-turn-right me-2 text-danger"></i>Asignar gastos a bolsas</h4>
-    <div class="text-muted small">Arrastra cada gasto a su bolsa. Se muestran todas las bolsas abiertas, aunque la actividad ya haya pasado.</div>
+    <div class="text-muted small">Arrastra cada gasto a su bolsa. Se muestran todas las bolsas abiertas, aunque la actividad ya haya pasado.
+      {% if expense_pause and expense_pause.paused %}
+        <span class="badge text-bg-secondary"><i class="fa fa-circle-pause me-1"></i>{{ 'Plazo parado para todo el personal' if expense_pause.all_paused else 'Plazo parado' }}</span>
+      {% endif %}
+    </div>
   </div>
   <form method="get" class="d-flex gap-2" action="{{ url_for('my_expenses_assign') }}">
     <input class="form-control form-control-sm" name="q" value="{{ q }}" placeholder="Buscar bolsas de otro artista…" style="min-width:220px;">
@@ -47,7 +51,8 @@
               {% endif %}
               <div class="text-end flex-shrink-0">
                 <div class="fw-semibold small">{{ e.amount_gross|eur }}</div>
-                {% if e.overdue %}<span class="badge text-bg-danger">Fuera de plazo</span>
+                {% if e.deadline_paused %}<span class="badge text-bg-secondary" title="{{ e.deadline_paused_label }}"><i class="fa fa-circle-pause"></i></span>
+                {% elif e.overdue %}<span class="badge text-bg-danger">Fuera de plazo</span>
                 {% else %}<span class="badge text-bg-warning text-dark">{{ e.days_left }} d</span>{% endif %}
               </div>
             </div>

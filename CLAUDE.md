@@ -596,6 +596,15 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   muestra siempre: sin nada pendiente dice «Sin gastos pendientes de asignar» (`visible` en
   `_home_my_expenses_summary`). ⚠️ Sus endpoints están en **`PERSONAL_ENDPOINTS`**: los deja pasar cualquier
   sesión (son datos propios) y la comprobación de propiedad se hace dentro del endpoint.
+  **PARAR EL PLAZO** (solo dirección, `is_master()`): por persona (`UserProfile.expense_deadline_paused`
+  + `expense_paused_since` + `expense_pause_log`, botón en la ficha y en el menú de tres puntos del
+  listado → `personnel_expense_deadline_toggle`) y para TODO el personal (ajustes globales
+  `EXPENSE_PAUSE_ALL_*` vía `_get/_set_app_setting`, botón en la cabecera de `/personal` →
+  `personnel_expense_deadline_toggle_all`). Mientras está parado: no corre la cuenta atrás, la pastilla
+  dice «Plazo parado» y el cron no reclama ni escala. Los tramos parados se guardan y
+  `_expense_paused_days` los **descuenta** del plazo de cada gasto (días completos: parar hoy no regala
+  un día), así al reactivar no aparecen todos fuera de plazo de golpe. Punto único de cálculo:
+  `_expense_pause_context(session_db, user_id)` → se pasa a `_expense_days_left`/`_personal_expense_row`.
 - **Pleo (importación de gastos del personal)**: cliente en `pleo_utils.py` (`PleoClient`, Basic auth con la
   key como usuario y contraseña vacía, paginación por cursor, backoff en 429/5xx). Base `https://external.pleo.io`;
   endpoints reales: `POST /v1/accounting-entries:search` (**`company_id` en la QUERY STRING** y filtros en el
@@ -686,9 +695,20 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   impuestos (`price_details.total`, base despejada con `tax_rate`). Antiduplicados: índice UNIQUE en
   `personal_expenses.cabify_sale_code` + savepoint por gasto. Sin webhooks → cron
   `/cron/cabify/refresh?key=CABIFY_CRON_KEY` (acepta la de Pleo/Chartmetric).
-  ⚠️ **La API documentada NO expone el PDF por viaje**: se importa el detalle fiscal completo y el
-  justificante sigue saliendo de la factura mensual. Si Cabify lo publica, el único sitio a tocar es
-  `CabifyClient.sale_receipt_url`.
+  ⚠️ Origen y destino salen de `concept.type_object.pickup`/`.dropoff` (campos `addr`/`num`/`city`/
+  `name`), **no** de una lista de paradas — `stops` queda solo como respaldo; `tax_rate` puede venir en
+  % o en fracción y `parse_sale` lo normaliza. La **etiqueta** del viaje (`charge_code`) se guarda en
+  `pleo_tags` para que se pinte igual que las de Pleo.
+  ⚠️ **JUSTIFICANTE POR VIAJE: lo generamos nosotros.** La API documentada NO expone ningún PDF
+  (comprobado endpoint por endpoint: `sales`, `user/{id}/sales`, `journey/{id}/sales` solo dan el
+  detalle económico), así que `_cabify_receipt_pdf` + `_cabify_attach_receipt` (app.py) crean un
+  **justificante de viaje** en el estilo de la casa (logo de la empresa arriba a la derecha, pastillas,
+  bloques de trayecto e importe) y lo suben a Storage `cabify/` → `PersonalExpense.file_url`, para que
+  el semáforo de factura de «Mis gastos» salga en verde. **NO es la factura fiscal** (esa es la mensual
+  que Cabify emite a la empresa); el propio PDF lo dice en el pie. Los viajes ya importados sin
+  justificante lo reciben en el siguiente sondeo (rama `skipped` de `_cabify_sync_account`, contador
+  `receipts`). Si Cabify publica algún día el documento por viaje, `CabifyClient.sale_receipt_url` lo
+  devuelve y se adjunta ese en su lugar (tiene prioridad); no hay nada más que tocar.
 
 ## Despliegue
 - GitHub `descobosa2205/radio_spins_app` → **Render** (Pro Plus, **Frankfurt**) auto-deploy de

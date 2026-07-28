@@ -4,7 +4,23 @@
   <div>
     <h3 class="m-0">Personal</h3>
   </div>
-  <div class="d-flex gap-2 flex-wrap">
+  <div class="d-flex gap-2 flex-wrap align-items-center">
+    {# PLAZO DE GASTOS PARA TODOS: para o reactiva de golpe la cuenta atrás de asignar gastos a
+       bolsas de TODO el personal (agosto, cierre de mes…). Cada persona se puede parar aparte
+       desde su ficha o desde su menú de tres puntos. #}
+    {% if can_pause_expense_deadline %}
+      {% if expense_pause_all and expense_pause_all.paused %}
+        <span class="badge text-bg-warning text-dark"><i class="fa fa-circle-pause me-1"></i>Plazo de gastos parado para todos{% if expense_pause_all.since %} desde el {{ expense_pause_all.since.strftime('%d/%m/%Y') }}{% endif %}</span>
+      {% endif %}
+      <form method="post" action="{{ url_for('personnel_expense_deadline_toggle_all') }}" class="m-0">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        {% if expense_pause_all and expense_pause_all.paused %}
+          <button class="btn btn-outline-success" title="Vuelve a contar el plazo para asignar gastos a bolsas. Los días parados no cuentan."><i class="fa fa-circle-play me-1"></i>Reactivar plazo de gastos (todos)</button>
+        {% else %}
+          <button class="btn btn-outline-secondary" title="Deja de contar el plazo para asignar gastos a bolsas de todo el personal y de reclamarlos"><i class="fa fa-circle-pause me-1"></i>Parar plazo de gastos (todos)</button>
+        {% endif %}
+      </form>
+    {% endif %}
     {% if IS_MASTER %}
     <a class="btn btn-outline-primary" href="{{ url_for('personnel_bulk_access') }}"><i class="fa fa-users-gear me-1"></i> Accesos en bloque</a>
     {% endif %}
@@ -31,6 +47,9 @@
                 {% if security and security.is_blocked %}
                   <span class="badge text-bg-danger mt-2">Bloqueado</span>
                 {% endif %}
+                {% if profile and profile.expense_deadline_paused %}
+                  <span class="badge text-bg-warning text-dark mt-2" title="No se le reclaman los gastos sin asignar a una bolsa"><i class="fa fa-circle-pause me-1"></i>Plazo de gastos parado</span>
+                {% endif %}
               </div>
             </a>
             <div class="dropdown">
@@ -48,6 +67,19 @@
                     <button class="dropdown-item">Crear nueva contraseña</button>
                   </form>
                 </li>
+                {% if can_pause_expense_deadline %}
+                  <li><hr class="dropdown-divider"></li>
+                  <li>
+                    <form method="post" action="{{ url_for('personnel_expense_deadline_toggle', user_id=user.id) }}">
+                      <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+                      {% if profile and profile.expense_deadline_paused %}
+                        <button class="dropdown-item"><i class="fa fa-circle-play me-2 text-success"></i>Reactivar plazo de gastos</button>
+                      {% else %}
+                        <button class="dropdown-item"><i class="fa fa-circle-pause me-2 text-muted"></i>Parar plazo de gastos</button>
+                      {% endif %}
+                    </form>
+                  </li>
+                {% endif %}
                 <li><hr class="dropdown-divider"></li>
                 {% if security and security.is_blocked %}
                   <li>

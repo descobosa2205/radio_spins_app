@@ -39678,12 +39678,17 @@ def _home_my_expenses_summary() -> dict:
     session_db = db()
     try:
         rows = _personal_expenses_for(session_db, uid, status=("PENDING", "IN_BAG"))
+        pause = _expense_pause_context(session_db, uid)
         return {
             "rows": rows[:8],
             "total": len(rows),
             "overdue": len([r for r in rows if r["overdue"]]),
             "amount": sum((r["amount_gross"] for r in rows), Decimal("0")),
             "visible": True,
+            # Plazo parado (para esta persona o para todos): se dice y no se mete prisa.
+            "deadline_paused": pause["paused"],
+            "deadline_paused_label": ("Plazo de gastos parado para todo el personal" if pause["all_paused"]
+                                      else "Tienes el plazo de gastos parado" if pause["paused"] else ""),
         }
     except Exception:
         return empty
@@ -40767,7 +40772,9 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return "contabilidad"
     if endpoint == "personnel_view":
         return "personal.usuarios"
-    if endpoint in {"personnel_detail_view", "personnel_bulk_access", "personnel_document_save", "personnel_document_delete"}:
+    if endpoint in {"personnel_detail_view", "personnel_bulk_access", "personnel_document_save",
+                    "personnel_document_delete", "personnel_expense_deadline_toggle",
+                    "personnel_expense_deadline_toggle_all"}:
         return "personal.usuarios.accesos"
     if endpoint == "events_view" or endpoint.startswith("event_"):
         return "databases.events"
@@ -41365,7 +41372,8 @@ def _resolve_request_resource_key() -> str | None:
         return "diseno"
     if endpoint == "admin_ita_upload":
         return "administracion.altas"
-    if endpoint in {"promocion_view", "marketing_view", "acciones_view", "action_detail_view", "produccion_view", "administracion_view", "contabilidad_view", "personnel_view", "personnel_detail_view", "personnel_bulk_access"}:
+    if endpoint in {"promocion_view", "marketing_view", "acciones_view", "action_detail_view", "produccion_view", "administracion_view", "contabilidad_view", "personnel_view", "personnel_detail_view", "personnel_bulk_access",
+                    "personnel_expense_deadline_toggle", "personnel_expense_deadline_toggle_all"}:
         if endpoint == "administracion_view":
             admin_tab = (request.args.get("tab") or "pendiente").strip().lower()
             if admin_tab in {"pendiente", "liquidaciones", "pagos", "cobros", "embargos", "altas"}:
@@ -41383,6 +41391,9 @@ def _resolve_request_resource_key() -> str | None:
             "personnel_bulk_access": "personal.usuarios.accesos",
             "personnel_document_save": "personal.usuarios.accesos",
             "personnel_document_delete": "personal.usuarios.accesos",
+            # Parar/reactivar el plazo de gastos: además exigen dirección dentro del endpoint.
+            "personnel_expense_deadline_toggle": "personal.usuarios.accesos",
+            "personnel_expense_deadline_toggle_all": "personal.usuarios.accesos",
         }
         return mapping.get(endpoint)
     if endpoint.startswith("action_") or endpoint.startswith("acciones_"):
@@ -45519,7 +45530,11 @@ def personnel_view():
         for _user, profile, _security in users:
             ids = list(getattr(profile, "assigned_artist_ids", None) or []) if profile else []
             assigned_artist_map[str(_user.id)] = [str(x) for x in ids]
-        return render_template("personnel.html", users=users, access_rows=access_rows, artists=artists, assigned_artist_map=assigned_artist_map)
+        return render_template("personnel.html", users=users, access_rows=access_rows, artists=artists,
+                               assigned_artist_map=assigned_artist_map,
+                               # Parada GENERAL del plazo de gastos (todo el personal, solo dirección).
+                               expense_pause_all=_expense_pause_global(),
+                               can_pause_expense_deadline=is_master())
     finally:
         session_db.close()
 
@@ -45854,6 +45869,65 @@ def personnel_document_delete(user_id, doc_id):
         session_db.close()
 
 
+@app.post("/personal/<user_id>/plazo-gastos", endpoint="personnel_expense_deadline_toggle")
+@admin_required
+def personnel_expense_deadline_toggle(user_id):
+    """PARA o REACTIVA el plazo para asignar gastos a bolsas de UNA persona (solo dirección).
+
+    Al reanudar se guarda el tramo parado para descontarlo del plazo: si a alguien se le paró
+    tres semanas, al volver no le aparecen los gastos de golpe fuera de plazo.
+    """
+    if not is_master():
+        abort(403)
+    session_db = db()
+    try:
+        user = session_db.get(User, to_uuid(user_id))
+        if not user:
+            abort(404)
+        profile = _ensure_user_profile(session_db, user)
+        hoy = today_local()
+        if getattr(profile, "expense_deadline_paused", False):
+            log = list(profile.expense_pause_log or [])
+            log.append({"from": (profile.expense_paused_since or hoy).isoformat(), "to": hoy.isoformat()})
+            profile.expense_pause_log = log[-40:]          # histórico acotado
+            profile.expense_deadline_paused = False
+            profile.expense_paused_since = None
+            flash("Plazo de gastos reactivado. Los días que ha estado parado no cuentan.", "success")
+        else:
+            profile.expense_deadline_paused = True
+            profile.expense_paused_since = hoy
+            flash("Plazo de gastos parado: no se le reclamará hasta que lo reactives.", "info")
+        session_db.commit()
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo cambiar el plazo: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(request.form.get("next") or url_for("personnel_detail_view", user_id=user_id))
+
+
+@app.post("/personal/plazo-gastos-todos", endpoint="personnel_expense_deadline_toggle_all")
+@admin_required
+def personnel_expense_deadline_toggle_all():
+    """PARA o REACTIVA el plazo de gastos para TODO el personal a la vez (solo dirección)."""
+    if not is_master():
+        abort(403)
+    estado = _expense_pause_global()
+    hoy = today_local()
+    if estado["paused"]:
+        log = [{"from": d.isoformat(), "to": h.isoformat()} for d, h in estado["log"]]
+        log.append({"from": (estado["since"] or hoy).isoformat(), "to": hoy.isoformat()})
+        _set_app_setting(EXPENSE_PAUSE_ALL_LOG_KEY, json.dumps(log[-40:]))
+        _set_app_setting(EXPENSE_PAUSE_ALL_KEY, "0")
+        _set_app_setting(EXPENSE_PAUSE_ALL_SINCE_KEY, "")
+        flash("Plazo de gastos reactivado para todo el personal.", "success")
+    else:
+        _set_app_setting(EXPENSE_PAUSE_ALL_KEY, "1")
+        _set_app_setting(EXPENSE_PAUSE_ALL_SINCE_KEY, hoy.isoformat())
+        flash("Plazo de gastos parado para todo el personal.", "info")
+    return redirect(request.form.get("next") or url_for("personnel_view"))
+
+
 @app.post("/promotores/<pid>/documentos/guardar", endpoint="promoter_document_save")
 @admin_required
 def promoter_document_save(pid):
@@ -45984,6 +46058,10 @@ def personnel_detail_view(user_id):
             tab=tab,
             travel_prefs=_travel_prefs_of(profile),
             travel_summary=_travel_summary(profile),
+            # Plazo para asignar gastos a bolsas: se puede parar para esta persona (solo dirección).
+            expense_pause=_expense_pause_context(session_db, user.id, profile=profile),
+            expense_assign_days=EXPENSE_ASSIGN_DAYS,
+            can_pause_expense_deadline=is_master(),
             access_rows=access_rows,
             grants=grants,
             artists=artists,
@@ -47123,7 +47201,8 @@ def _bag_panel_context(session_db, bag) -> dict:
         bag_providers_pending=_bag_providers_pending_invoice(session_db, bag),
         # Gastos importados (facturas recibidas / Pleo) asignados a esta bolsa y sin tipificar:
         # mientras haya, la pantalla se parte y se arrastran a su módulo de gasto.
-        bag_imported_pending=[_personal_expense_row(r) for r in (
+        bag_imported_pending=[_personal_expense_row(r, _expense_pause_context(session_db, r.user_id))
+                              for r in (
             session_db.query(PersonalExpense)
             .filter(PersonalExpense.bag_id == bag.id, PersonalExpense.status == "IN_BAG")
             .order_by(PersonalExpense.received_at.asc()).all())],
@@ -48836,13 +48915,20 @@ def cron_unassigned_expenses():
         by_user = {}
         for r in rows:
             by_user.setdefault(str(r.user_id), []).append(r)
+        pause_all = _expense_pause_global()
+        if pause_all["paused"]:
+            # Plazo parado para todo el personal: no se reclama nada a nadie.
+            return jsonify({"ok": True, "notified": 0, "escalated": 0, "paused": "ALL"})
         for uid, items in by_user.items():
             if _user_is_direccion(session_db, uid):
                 continue
             profile = session_db.query(UserProfile).filter(UserProfile.user_id == to_uuid(uid)).first()
+            pause = _expense_pause_context(session_db, uid, pause_all, profile)
+            if pause["paused"]:
+                continue                      # a esta persona se le ha parado el plazo
             user = session_db.get(User, to_uuid(uid))
             email_to = (getattr(user, "email", None) or "").strip()
-            overdue = [r for r in items if _expense_days_left(r) < 0]
+            overdue = [r for r in items if _expense_days_left(r, pause) < 0]
             if not overdue:
                 continue
             # 1) Aviso a la persona (una vez por gasto).
@@ -48852,7 +48938,7 @@ def cron_unassigned_expenses():
                     email_to,
                     f"Tienes {len(overdue)} gasto{'s' if len(overdue) != 1 else ''} sin asignar a una bolsa",
                     _expense_alert_email(
-                        [_personal_expense_row(r) for r in overdue],
+                        [_personal_expense_row(r, pause) for r in overdue],
                         "Gastos sin asignar",
                         f"Tienes <strong>{len(overdue)}</strong> gasto{'s' if len(overdue) != 1 else ''} "
                         f"sin asignar a una bolsa. Tienes <strong>una semana</strong> para asignarlos.",
@@ -48865,7 +48951,7 @@ def cron_unassigned_expenses():
             # 2) Escalado a dirección a los 15 días.
             very_old = [r for r in overdue
                         if not r.escalated_at
-                        and _expense_days_left(r) <= (EXPENSE_ASSIGN_DAYS - EXPENSE_ESCALATE_DAYS)]
+                        and _expense_days_left(r, pause) <= (EXPENSE_ASSIGN_DAYS - EXPENSE_ESCALATE_DAYS)]
             if very_old:
                 _inactive_dir = _inactive_user_ids(session_db)
                 dir_emails = [u.email for u in session_db.query(User).filter(User.role == 10).all()
@@ -48875,7 +48961,7 @@ def cron_unassigned_expenses():
                         dir_emails[:5],
                         f"{getattr(profile, 'nick', '') or 'Una persona'}: gastos sin asignar desde hace más de {EXPENSE_ESCALATE_DAYS} días",
                         _expense_alert_email(
-                            [_personal_expense_row(r) for r in very_old],
+                            [_personal_expense_row(r, pause) for r in very_old],
                             "Gastos sin asignar a una bolsa",
                             f"tiene los siguientes gastos sin asignar a una bolsa desde hace más de "
                             f"<strong>{EXPENSE_ESCALATE_DAYS} días</strong>.",
@@ -49846,12 +49932,203 @@ def _cabify_client(acc):
     return CabifyClient(acc.client_id or "", acc.client_secret or "", acc.base_url or None)
 
 
+def _cabify_dt_label(raw: str) -> str:
+    """«2026-07-20T09:30:34.831Z» → «20/07/2026 11:30» (hora de Madrid)."""
+    txt = (raw or "").strip()
+    if not txt:
+        return ""
+    try:
+        momento = datetime.fromisoformat(txt.replace("Z", "+00:00"))
+    except ValueError:
+        return txt[:16].replace("T", " ")
+    try:
+        momento = momento.astimezone(TZ_MADRID)
+    except Exception:
+        pass
+    return momento.strftime("%d/%m/%Y %H:%M")
+
+
+def _cabify_receipt_pdf(datos: dict, person_name: str, company) -> bytes:
+    """Justificante de UN viaje de Cabify, con todo su detalle fiscal, en el estilo de la casa.
+
+    ⚠️ Qué es y qué NO es: la API de Cabify **no expone** el PDF de cada viaje (lo he comprobado
+    endpoint por endpoint: `sales`, `user/{id}/sales` y `journey/{id}/sales` devuelven el detalle
+    económico, ningún documento). La factura FISCAL de estos viajes es la mensual que Cabify emite a
+    la empresa del grupo. Este documento es el JUSTIFICANTE del viaje: lleva el nº de venta, la
+    fecha, el trayecto, la persona, la etiqueta y el desglose de base/IVA/total, que es lo que hace
+    falta para imputar el gasto a su bolsa y para cuadrarlo con la factura mensual. Lo dice en el
+    pie, para que nadie lo confunda con una factura.
+    """
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib import colors
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    from reportlab.pdfgen import canvas
+
+    BRAND = colors.HexColor("#E33D48")
+    GREY = colors.HexColor("#6b7683")
+    page_w, page_h = A4
+    margin = 16 * mm
+    buf = BytesIO()
+    pdf = canvas.Canvas(buf, pagesize=A4)
+    pdf.setTitle(f"Justificante de viaje {datos.get('code') or ''}".strip())
+
+    # ---- Logo de la empresa del grupo, arriba a la DERECHA (estilo de casa) ----
+    logo = None
+    url_logo = (getattr(company, "logo_url", "") or "").strip()
+    if url_logo.lower().startswith("http"):
+        try:
+            import urllib.request
+            logo = ImageReader(BytesIO(urllib.request.urlopen(url_logo, timeout=6).read()))
+        except Exception:
+            logo = None
+    y = page_h - margin
+    if logo is not None:
+        try:
+            iw, ih = logo.getSize()
+            alto = 16 * mm
+            ancho = min(alto * (iw / float(ih or 1)), 55 * mm)
+            pdf.drawImage(logo, page_w - margin - ancho, y - alto, width=ancho, height=alto,
+                          mask="auto", preserveAspectRatio=True)
+        except Exception:
+            pass
+
+    # ---- Título centrado ----
+    pdf.setFillColor(colors.HexColor("#212529"))
+    pdf.setFont("Helvetica-Bold", 17)
+    pdf.drawCentredString(page_w / 2, y - 12 * mm, "Justificante de viaje")
+    pdf.setFont("Helvetica", 9.5)
+    pdf.setFillColor(GREY)
+    sub = "Cabify"
+    if datos.get("code"):
+        sub += f" · nº {datos['code']}"
+    if getattr(company, "name", ""):
+        sub += f" · {company.name}"
+    pdf.drawCentredString(page_w / 2, y - 18 * mm, sub)
+    y = y - 26 * mm
+
+    # ---- Pastillas de datos ----
+    pastillas = []
+    fecha = (datos.get("invoice_date") or "")[:10]
+    if fecha:
+        try:
+            pastillas.append("Fecha: " + date.fromisoformat(fecha).strftime("%d/%m/%Y"))
+        except ValueError:
+            pastillas.append("Fecha: " + fecha)
+    if person_name:
+        pastillas.append("Pasajero: " + person_name)
+    if datos.get("charge_code"):
+        pastillas.append("Etiqueta: " + datos["charge_code"])
+    if datos.get("region"):
+        pastillas.append("Ciudad: " + datos["region"].title())
+    x, fila_h = margin, 15.0
+    for texto in pastillas:
+        ancho = stringWidth(texto, "Helvetica", 8.5) + 14
+        if x + ancho > page_w - margin:
+            x, y = margin, y - (fila_h + 5)
+        pdf.setFillColor(colors.HexColor("#f6f8fa"))
+        pdf.setStrokeColor(colors.HexColor("#c9d2dc"))
+        pdf.roundRect(x, y - fila_h, ancho, fila_h, 5, stroke=1, fill=1)
+        pdf.setFillColor(colors.HexColor("#212529"))
+        pdf.setFont("Helvetica", 8.5)
+        pdf.drawString(x + 7, y - fila_h + 4.5, texto)
+        x += ancho + 5
+    y -= (fila_h + 12)
+
+    def bloque(titulo, filas):
+        """Rótulo de sección + filas «etiqueta: valor»."""
+        nonlocal y
+        pdf.setFillColor(BRAND)
+        pdf.setFont("Helvetica-Bold", 9)
+        pdf.drawString(margin, y, titulo.upper())
+        y -= 6
+        pdf.setStrokeColor(colors.HexColor("#e6ebf1"))
+        pdf.line(margin, y, page_w - margin, y)
+        y -= 14
+        for etiqueta, valor in filas:
+            if not valor:
+                continue
+            pdf.setFont("Helvetica", 9)
+            pdf.setFillColor(GREY)
+            pdf.drawString(margin, y, etiqueta)
+            pdf.setFont("Helvetica-Bold", 9.5)
+            pdf.setFillColor(colors.HexColor("#212529"))
+            pdf.drawString(margin + 45 * mm, y, str(valor)[:120])
+            y -= 14
+        y -= 8
+
+    bloque("El viaje", [
+        ("Origen", datos.get("origin_full") or datos.get("origin") or "—"),
+        ("Destino", datos.get("destination_full") or datos.get("destination") or "—"),
+        ("Salida", _cabify_dt_label(datos.get("start_at"))),
+        ("Llegada", _cabify_dt_label(datos.get("end_at"))),
+        ("Descripción", datos.get("description") or ""),
+    ])
+
+    moneda = datos.get("currency") or "EUR"
+    tipo = datos.get("tax_rate") or Decimal("0")
+    bloque("Importe", [
+        ("Base imponible", f"{_money_or_zero(datos.get('amount_net')):.2f} {moneda}".replace(".", ",")),
+        (f"{datos.get('tax_type') or 'IVA'} ({tipo:g}%)",
+         f"{_money_or_zero(datos.get('amount_tax')):.2f} {moneda}".replace(".", ",")),
+        ("Descuento", (f"{_money_or_zero(datos.get('discount')):.2f} {moneda}".replace(".", ",")
+                       if _money_or_zero(datos.get("discount")) > 0 else "")),
+        ("TOTAL", f"{_money_or_zero(datos.get('amount_gross')):.2f} {moneda}".replace(".", ",")),
+    ])
+
+    # ---- Pie: qué es este documento (y qué no) ----
+    pdf.setFont("Helvetica-Oblique", 7.6)
+    pdf.setFillColor(GREY)
+    pie = [
+        "Justificante del viaje generado con los datos de la API de Cabify (nº de venta, fecha, trayecto e importes).",
+        "La factura fiscal de estos viajes es la factura mensual que Cabify emite a "
+        + ((getattr(company, "name", "") or "la empresa").rstrip(".")) + ".",
+    ]
+    yy = margin + 10
+    for linea in reversed(pie):
+        pdf.drawString(margin, yy, linea)
+        yy += 10
+    pdf.showPage()
+    pdf.save()
+    return buf.getvalue()
+
+
+def _cabify_person_name(session_db, link) -> str:
+    """Nombre para el justificante: el de la ficha de la app y, si no hay, el que tiene en Cabify."""
+    prof = None
+    if getattr(link, "user_id", None):
+        prof = (session_db.query(UserProfile)
+                .filter(UserProfile.user_id == link.user_id).first())
+    if prof:
+        completo = " ".join([x for x in [(prof.first_name or "").strip(),
+                                         (prof.last_name or "").strip()] if x]).strip()
+        if completo:
+            return completo
+        if (prof.nick or "").strip():
+            return prof.nick.strip()
+    return " ".join([x for x in [(getattr(link, "first_name", "") or "").strip(),
+                                 (getattr(link, "last_name", "") or "").strip()] if x]).strip()
+
+
+def _cabify_attach_receipt(datos: dict, person_name: str, company) -> str:
+    """Sube el justificante del viaje a Storage y devuelve su URL ('' si no se pudo)."""
+    try:
+        from supabase_utils import upload_pdf_bytes
+        return upload_pdf_bytes(_cabify_receipt_pdf(datos, person_name, company), "cabify") or ""
+    except Exception as exc:                      # best-effort: el gasto se importa igual
+        app.logger.warning("Cabify: no se pudo generar el justificante de %s: %s",
+                           datos.get("code") or "?", exc)
+        return ""
+
+
 def _cabify_sync_account(session_db, acc, since=None, user_ids=None) -> dict:
     """Trae los gastos de UNA cuenta de Cabify y los mete en «Mis gastos» de cada persona."""
     from cabify_utils import CabifyClient, CabifyError, parse_sale   # noqa: F401
     from sqlalchemy.exc import IntegrityError
 
-    stats = {"users": 0, "linked": 0, "sales": 0, "created": 0, "skipped": 0, "unmatched": 0}
+    stats = {"users": 0, "linked": 0, "sales": 0, "created": 0, "skipped": 0, "unmatched": 0,
+             "receipts": 0}
     if not acc or not acc.is_active:
         return stats
     client = _cabify_client(acc)
@@ -49891,7 +50168,9 @@ def _cabify_sync_account(session_db, acc, since=None, user_ids=None) -> dict:
 
     # 2) Gastos de cada persona vinculada.
     objetivo = {k: v for k, v in enlaces.items() if not user_ids or k in set(user_ids)}
+    empresa = getattr(acc, "company", None) or session_db.get(GroupCompany, acc.group_company_id)
     for cid, link in objetivo.items():
+        quien = _cabify_person_name(session_db, link)
         for venta in client.user_sales(cid, desde, hoy, acc.currency or "EUR"):
             datos = parse_sale(venta)
             code = datos["code"]
@@ -49900,11 +50179,21 @@ def _cabify_sync_account(session_db, acc, since=None, user_ids=None) -> dict:
             stats["sales"] += 1
             # Antiduplicados: índice UNIQUE en personal_expenses.cabify_sale_code + savepoint por
             # gasto, para que un choque no tire el resto de la importación.
-            existe = (session_db.query(PersonalExpense.id)
+            existe = (session_db.query(PersonalExpense)
                       .filter(PersonalExpense.cabify_sale_code == code).first())
             if existe:
                 stats["skipped"] += 1
+                # Los viajes que se importaron sin justificante (o cuyo PDF falló) lo reciben ahora:
+                # así ningún gasto de Cabify se queda con el semáforo de factura en rojo.
+                if not (existe.file_url or "").strip():
+                    url = (datos["receipt_url"] or "").strip() or _cabify_attach_receipt(datos, quien, empresa)
+                    if url:
+                        existe.file_url = url
+                        stats["receipts"] += 1
                 continue
+            justificante = (datos["receipt_url"] or "").strip() or _cabify_attach_receipt(datos, quien, empresa)
+            if justificante:
+                stats["receipts"] += 1
             try:
                 fecha = date.fromisoformat(datos["invoice_date"][:10]) if datos["invoice_date"] else hoy
             except ValueError:
@@ -49924,7 +50213,7 @@ def _cabify_sync_account(session_db, acc, since=None, user_ids=None) -> dict:
                         currency=datos["currency"],
                         invoice_number=code,
                         document_type="FACTURA",
-                        file_url=(datos["receipt_url"] or None),
+                        file_url=(justificante or None),
                         # La etiqueta del viaje (charge code) se guarda como etiqueta del gasto:
                         # es lo que dice a qué actividad iba, y se pinta igual que las de Pleo.
                         pleo_tags=([{"group": "", "value": datos["charge_code"]}]
@@ -50212,6 +50501,7 @@ def my_expenses_view():
             "my_expenses.html",
             pending=pending, in_bag=in_bag, assigned=assigned,
             assign_days=EXPENSE_ASSIGN_DAYS,
+            expense_pause=_expense_pause_context(session_db, uid),
         )
     finally:
         session_db.close()
@@ -50229,6 +50519,7 @@ def my_expenses_assign():
             "my_expenses_assign.html",
             pending=_personal_expenses_for(session_db, uid, status=("PENDING",)),
             bag_groups=_open_bags_for_user(session_db, uid, artist_query=q),
+            expense_pause=_expense_pause_context(session_db, uid),
             q=q,
         )
     finally:
@@ -50514,9 +50805,110 @@ def bag_load_templates(bag_id):
 EXPENSE_ASSIGN_DAYS = 7          # plazo para asignar un gasto a una bolsa
 EXPENSE_ESCALATE_DAYS = 15       # a partir de aquí se avisa a dirección
 
+# --- PARAR EL PLAZO -------------------------------------------------------------------------
+# El plazo se puede PARAR por persona (`UserProfile.expense_deadline_paused`) o para TODO el
+# personal a la vez (ajuste global, mismas claves que el «modo trabajo»). Mientras está parado:
+# no corre la cuenta atrás, no se reclama por correo y no se escala a dirección.
+# Los tramos parados se guardan para DESCONTARLOS del plazo al reanudar; si no, al volver a
+# activarlo todos los gastos aparecerían de golpe fuera de plazo.
+EXPENSE_PAUSE_ALL_KEY = "expense_deadline_pause_all"
+EXPENSE_PAUSE_ALL_SINCE_KEY = "expense_deadline_pause_all_since"
+EXPENSE_PAUSE_ALL_LOG_KEY = "expense_deadline_pause_all_log"
 
-def _expense_days_left(row) -> int:
-    """Días que quedan para asignarlo (negativo = ya pasado el plazo)."""
+
+def _expense_pause_parse_log(raw) -> list:
+    """Tramos parados guardados: [{"from": "AAAA-MM-DD", "to": "AAAA-MM-DD"}] → [(desde, hasta)]."""
+    if isinstance(raw, str):
+        raw = _json_loads_safe(raw, [])
+    out = []
+    for item in (raw or []):
+        if not isinstance(item, dict):
+            continue
+        try:
+            desde = date.fromisoformat(str(item.get("from") or "")[:10])
+        except ValueError:
+            continue
+        try:
+            hasta = date.fromisoformat(str(item.get("to") or "")[:10])
+        except ValueError:
+            hasta = desde
+        out.append((desde, max(hasta, desde)))
+    return out
+
+
+def _expense_pause_merge(tramos) -> list:
+    """Une los tramos que se solapan y los corta a hoy (un tramo sin fin = sigue parado)."""
+    hoy = today_local()
+    limpio = []
+    for desde, hasta in tramos:
+        if not desde:
+            continue
+        fin = min(hasta or hoy, hoy)
+        if fin >= desde:
+            limpio.append((desde, fin))
+    limpio.sort()
+    out = []
+    for desde, hasta in limpio:
+        if out and desde <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], hasta))
+        else:
+            out.append((desde, hasta))
+    return out
+
+
+def _expense_paused_days(ref_date, ranges) -> int:
+    """Días parados que caen DESPUÉS de recibirse el gasto: los que no cuentan para su plazo."""
+    if not ref_date or not ranges:
+        return 0
+    hoy = today_local()
+    total = 0
+    for desde, hasta in ranges:
+        ini, fin = max(desde, ref_date), min(hasta, hoy)
+        if fin > ini:
+            # Días COMPLETOS congelados: parar hoy no regala un día, pero parar hace 5 descuenta 5.
+            total += (fin - ini).days
+    return total
+
+
+def _expense_pause_global() -> dict:
+    """Parada GENERAL del plazo (todo el personal), guardada en los ajustes globales."""
+    activa = str(_get_app_setting(EXPENSE_PAUSE_ALL_KEY, "0") or "0") == "1"
+    try:
+        desde = date.fromisoformat(str(_get_app_setting(EXPENSE_PAUSE_ALL_SINCE_KEY, "") or "")[:10])
+    except ValueError:
+        desde = None
+    return {"paused": activa, "since": desde,
+            "log": _expense_pause_parse_log(_get_app_setting(EXPENSE_PAUSE_ALL_LOG_KEY, "[]"))}
+
+
+def _expense_pause_context(session_db, user_id, global_state=None, profile=None) -> dict:
+    """Estado del plazo de UNA persona: su parada, la general, y los tramos a descontar."""
+    g = global_state if global_state is not None else _expense_pause_global()
+    prof = profile
+    if prof is None and user_id:
+        prof = (session_db.query(UserProfile)
+                .filter(UserProfile.user_id == to_uuid(str(user_id))).first())
+    propia = bool(getattr(prof, "expense_deadline_paused", False))
+    desde_propia = getattr(prof, "expense_paused_since", None)
+    tramos = list(g["log"]) + _expense_pause_parse_log(getattr(prof, "expense_pause_log", None))
+    if g["paused"]:
+        tramos.append((g["since"] or today_local(), None))
+    if propia:
+        tramos.append((desde_propia or today_local(), None))
+    return {
+        "paused": bool(propia or g["paused"]),
+        "person_paused": propia,
+        "all_paused": bool(g["paused"]),
+        "since": (desde_propia if propia else None) or (g["since"] if g["paused"] else None),
+        "ranges": _expense_pause_merge(tramos),
+    }
+
+
+def _expense_days_left(row, pause=None) -> int:
+    """Días que quedan para asignarlo (negativo = ya pasado el plazo).
+
+    Los días en los que el plazo estuvo PARADO no cuentan.
+    """
     ref = getattr(row, "received_at", None) or getattr(row, "created_at", None)
     if not ref:
         return EXPENSE_ASSIGN_DAYS
@@ -50524,11 +50916,14 @@ def _expense_days_left(row) -> int:
         ref_date = ref.date() if hasattr(ref, "date") else ref
     except Exception:
         return EXPENSE_ASSIGN_DAYS
-    return EXPENSE_ASSIGN_DAYS - (date.today() - ref_date).days
+    transcurrido = (today_local() - ref_date).days
+    transcurrido -= _expense_paused_days(ref_date, (pause or {}).get("ranges") or [])
+    return EXPENSE_ASSIGN_DAYS - max(transcurrido, 0)
 
 
-def _personal_expense_row(row) -> dict:
-    days = _expense_days_left(row)
+def _personal_expense_row(row, pause=None) -> dict:
+    days = _expense_days_left(row, pause)
+    parado = bool((pause or {}).get("paused"))
     is_pleo = (row.source or "") == "PLEO"
     # Etiquetas y nota de Pleo: NO clasifican nada, se muestran para que asignar el gasto a su
     # bolsa y tipificarlo sea más fácil (a menudo la nota dice el concierto o el artista).
@@ -50558,8 +50953,12 @@ def _personal_expense_row(row) -> dict:
         "status": (row.status or "PENDING"),
         "bag_id": (str(row.bag_id) if row.bag_id else ""),
         "days_left": days,
-        "overdue": days < 0,
-        "urgent": 0 <= days <= EXPENSE_ASSIGN_DAYS,
+        "overdue": days < 0 and not parado,
+        "urgent": 0 <= days <= EXPENSE_ASSIGN_DAYS and not parado,
+        # Plazo parado: no hay cuenta atrás ni «fuera de plazo» (se dice por qué).
+        "deadline_paused": parado,
+        "deadline_paused_label": ("Plazo parado para todos" if (pause or {}).get("all_paused")
+                                 else "Plazo parado" if parado else ""),
         # --- Pleo ---
         "is_pleo": is_pleo,
         "note": (getattr(row, "pleo_note", "") or ""),
@@ -50594,7 +50993,8 @@ def _personal_expenses_for(session_db, user_id, status=("PENDING",)) -> list:
          .filter(PersonalExpense.user_id == uid))
     if status:
         q = q.filter(PersonalExpense.status.in_(list(status)))
-    return [_personal_expense_row(r) for r in q.order_by(PersonalExpense.received_at.asc()).all()]
+    pause = _expense_pause_context(session_db, uid)
+    return [_personal_expense_row(r, pause) for r in q.order_by(PersonalExpense.received_at.asc()).all()]
 
 
 def _open_bags_for_user(session_db, user_id, artist_query: str = "") -> list:

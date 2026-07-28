@@ -261,9 +261,12 @@
             <li>Pulsa <strong>«Sincronizar ahora»</strong> y revisa abajo que la gente queda vinculada por su correo.</li>
           </ol>
           <div class="alert alert-warning small mb-0">
-            <i class="fa fa-circle-info me-1"></i><strong>El PDF de cada viaje no lo da la API.</strong> Se importa el gasto
-            con todo su detalle fiscal (nº de venta, fecha, base, IVA y total), pero el justificante hay que seguir
-            sacándolo de la factura mensual de Cabify. Si Cabify publica el documento por viaje, se adjuntará solo.
+            <i class="fa fa-circle-info me-1"></i><strong>Cada viaje llega con su justificante.</strong> La API de Cabify no
+            entrega un PDF por viaje, así que el back office <strong>genera el justificante</strong> con los datos que sí da
+            (nº de venta, fecha, trayecto, pasajero, etiqueta y desglose de base, IVA y total) y lo adjunta al gasto: por eso
+            el semáforo de factura de «Mis gastos» sale en verde. La <strong>factura fiscal</strong> de estos viajes sigue
+            siendo la <strong>mensual</strong> que Cabify emite a la empresa. Si algún día publican el documento por viaje,
+            se adjuntará ese en su lugar sin tocar nada.
           </div>
           <div class="mt-2">La importación es automática con la tarea programada <code>/cron/cabify/refresh?key=…</code> (cada 1-2 h): Cabify no avisa de gastos nuevos.</div>
         </div>

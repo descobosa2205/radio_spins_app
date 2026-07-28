@@ -2253,6 +2253,14 @@ class UserProfile(Base):
     travel_prefs = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     travel_departure_flight = Column(Text)
     travel_departure_train = Column(Text)
+    # PLAZO PARA ASIGNAR GASTOS A BOLSAS: se puede PARAR para esta persona (baja, vacaciones, un
+    # artista cuya bolsa aún no está abierta…). Mientras está parado no corre la cuenta atrás, no
+    # se le reclama y no se escala a dirección. `expense_pause_log` guarda los tramos parados
+    # [{"from": "AAAA-MM-DD", "to": "AAAA-MM-DD"}] para poder DESCONTARLOS del plazo al reanudar,
+    # en vez de que los gastos aparezcan de golpe fuera de plazo.
+    expense_deadline_paused = Column(Boolean, nullable=False, server_default=text("false"))
+    expense_paused_since = Column(Date)
+    expense_pause_log = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -6049,6 +6057,10 @@ def ensure_third_party_and_contract_sheet_schema():
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS travel_prefs jsonb NOT NULL DEFAULT '{}'::jsonb;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS travel_departure_flight text;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS travel_departure_train text;",
+        # Plazo para asignar gastos a bolsas: parada por persona + histórico de tramos parados.
+        "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS expense_deadline_paused boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS expense_paused_since date;",
+        "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS expense_pause_log jsonb NOT NULL DEFAULT '[]'::jsonb;",
         # Tipo de trabajador a efectos de PRL (autónomo / alta puntual / empresa fija).
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS prl_type text;",
         # Documentación de alta y PRL (personas y empresas del grupo) + peticiones de subida.

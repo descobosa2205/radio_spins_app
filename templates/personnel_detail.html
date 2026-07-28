@@ -4,6 +4,23 @@
   <a href="{{ url_for('personnel_view') }}" class="btn btn-outline-secondary btn-volver" title="Volver a personal" aria-label="Volver a personal"><i class="fa fa-arrow-left"></i></a>
   <div class="d-flex align-items-center gap-2 flex-wrap">
     {% if security and security.is_blocked %}<span class="badge text-bg-danger">Bloqueado</span>{% endif %}
+    {# PLAZO PARA ASIGNAR GASTOS A BOLSAS: se puede parar para esta persona (baja, vacaciones…).
+       Mientras está parado no corre la cuenta atrás, no se le reclama y no se escala a dirección. #}
+    {% if expense_pause and expense_pause.all_paused %}
+      <span class="badge text-bg-secondary" title="Está parado para todo el personal desde el listado de personal"><i class="fa fa-circle-pause me-1"></i>Plazo de gastos parado para todos</span>
+    {% elif expense_pause and expense_pause.person_paused %}
+      <span class="badge text-bg-warning text-dark" title="No se le reclaman los gastos sin asignar"><i class="fa fa-circle-pause me-1"></i>Plazo de gastos parado{% if expense_pause.since %} desde el {{ expense_pause.since.strftime('%d/%m/%Y') }}{% endif %}</span>
+    {% endif %}
+    {% if can_pause_expense_deadline %}
+      <form method="post" action="{{ url_for('personnel_expense_deadline_toggle', user_id=user.id) }}" class="m-0">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        {% if expense_pause and expense_pause.person_paused %}
+          <button class="btn btn-outline-success" title="Vuelve a contar el plazo de {{ expense_assign_days }} días. Los días parados no cuentan."><i class="fa fa-circle-play me-1"></i>Reactivar plazo de gastos</button>
+        {% else %}
+          <button class="btn btn-outline-secondary" title="Deja de contar el plazo de {{ expense_assign_days }} días para asignar sus gastos a una bolsa y de reclamárselos"><i class="fa fa-circle-pause me-1"></i>Parar plazo de gastos</button>
+        {% endif %}
+      </form>
+    {% endif %}
     {% if IS_MASTER and not IMPERSONATING and CURRENT_USER and (CURRENT_USER.id|string) != (user.id|string) %}
       <form method="post" action="{{ url_for('impersonate_start', user_id=user.id) }}" class="m-0">
         <button class="btn btn-outline-primary" title="Ver y usar la app como esta persona"><i class="fa fa-user-secret me-1"></i>Ver como {{ profile.nick }}</button>

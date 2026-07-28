@@ -229,10 +229,37 @@ def find_working_base_url(client_id: str, client_secret: str, preferred: str | N
     raise CabifyError("Ninguna URL respondió con estas credenciales.\n" + "\n".join(intentos)) from ultimo
 
 
+def _place_labels(node) -> tuple:
+    """De una parada de Cabify saca (corto, largo).
+
+    El esquema real trae `pickup`/`dropoff` con `addr` (calle), `num`, `city` y `name` (el alias que
+    la persona tenga guardado: «Casa», «Oficina»). El corto es para la tarjeta del gasto; el largo,
+    con ciudad, para el justificante.
+    """
+    if not isinstance(node, dict):
+        return "", ""
+    calle = (node.get("addr") or node.get("address") or "").strip()
+    num = str(node.get("num") or "").strip()
+    ciudad = (node.get("city") or "").strip()
+    alias = (node.get("name") or "").strip()
+    corto = calle
+    if corto and num:
+        corto = f"{corto}, {num}"
+    if not corto:
+        corto = alias or ciudad
+    largo = corto
+    if ciudad and ciudad.lower() not in largo.lower():
+        largo = f"{largo} ({ciudad})" if largo else ciudad
+    return corto, largo
+
+
 def parse_sale(sale: dict) -> dict:
     """Normaliza una venta de Cabify a lo que necesita «Mis gastos».
 
     `price_details.total` viene en céntimos y CON impuestos; con `tax_rate` se despeja la base.
+    ⚠️ El origen y el destino están en `concept.type_object.pickup` / `.dropoff` (así viene en el
+    esquema real de la API), no en una lista de paradas; se deja `stops` como respaldo por si en
+    algún viaje con paradas intermedias apareciera.
     """
     price = sale.get("price_details") or {}
     gross = money_from_cents(price.get("total"))
@@ -240,6 +267,9 @@ def parse_sale(sale: dict) -> dict:
         tax_rate = Decimal(str(price.get("tax_rate") or 0))
     except (InvalidOperation, ValueError, TypeError):
         tax_rate = Decimal("0")
+    # El tipo puede venir como porcentaje (21) o como fracción (0.21): se normaliza a porcentaje.
+    if Decimal("0") < tax_rate <= Decimal("1"):
+        tax_rate = tax_rate * Decimal("100")
     if tax_rate > 0:
         net = (gross / (Decimal("1") + tax_rate / Decimal("100"))).quantize(Decimal("0.01"))
     else:
@@ -247,15 +277,10 @@ def parse_sale(sale: dict) -> dict:
     concept = sale.get("concept") or {}
     obj = concept.get("type_object") or {}
     stops = obj.get("stops") or []
-
-    def _addr(i):
-        try:
-            s = stops[i] or {}
-        except (IndexError, TypeError):
-            return ""
-        return (s.get("address") or s.get("city") or "").strip()
-
-    origen, destino = _addr(0), (_addr(-1) if len(stops) > 1 else "")
+    subida = obj.get("pickup") or (stops[0] if stops else None)
+    bajada = obj.get("dropoff") or (stops[-1] if len(stops) > 1 else None)
+    origen, origen_full = _place_labels(subida)
+    destino, destino_full = _place_labels(bajada)
     trayecto = " → ".join([x for x in (origen, destino) if x])
     # En «Mis gastos» solo interesan la fecha, el origen y el destino (la fecha va aparte). La
     # descripción larga de Cabify no se usa como concepto: alarga la tarjeta sin aportar.
@@ -267,12 +292,19 @@ def parse_sale(sale: dict) -> dict:
         "journey_id": (obj.get("id") or obj.get("journey_id") or "").strip(),
         "charge_code": (obj.get("charge_code") or "").strip(),
         "start_at": (obj.get("start_at") or "").strip(),
+        "end_at": (obj.get("end_at") or "").strip(),
+        "region": (obj.get("region") or "").strip(),
+        "description": (obj.get("description") or "").strip(),
         "concept": texto[:200],
         "origin": origen,
         "destination": destino,
+        "origin_full": origen_full,
+        "destination_full": destino_full,
         "amount_gross": gross,
         "amount_net": net,
         "amount_tax": (gross - net),
         "tax_rate": tax_rate,
+        "tax_type": (price.get("tax_type") or "").strip().upper(),
+        "discount": money_from_cents(price.get("discount")),
         "receipt_url": CabifyClient.sale_receipt_url(sale),
     }

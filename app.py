@@ -22257,6 +22257,10 @@ def booking_request_close(rid):
         r = session_db.get(BookingRequest, to_uuid(rid))
         if not r:
             abort(404)
+        # La cierra quien lleva alguno de sus departamentos (o dirección), igual que la ficha.
+        if not is_master() and not any(_booking_in_department(r, d) for d in _current_user_peticion_departments()):
+            flash("Esta petición es de otro departamento.", "warning")
+            return redirect(url_for("home"))
         note = (request.form.get("close_note") or "").strip()
         if not note:
             flash("Escribe por qué se cierra la petición.", "warning")
@@ -22469,13 +22473,8 @@ def peticion_wizard_create():
 
 # ================= SECCIONES PROMOCIÓN / DISEÑO (bandejas de peticiones por departamento) =========
 # Secciones nuevas del menú (aparte de "Marketing"). Cada una es la bandeja de peticiones que le
-# corresponden a ese departamento. El reparto de peticiones por departamento se define en un lote
-# posterior (campo payload['department'] de BookingRequest); aquí ya quedan listas para recibirlas.
-def _booking_request_department(r) -> str:
-    payload = r.payload if isinstance(getattr(r, "payload", None), dict) else {}
-    return (payload.get("department") or "").strip().upper()
-
-
+# corresponden a ese departamento. ⚠️ El reparto vive en payload['departments'] (LISTA: una petición
+# puede tocar a varios) y se lee SIEMPRE con `_booking_in_department`; no hay ningún campo singular.
 def _render_department_inbox(dept_key: str, title: str, icon: str, subtitle: str):
     s = db()
     try:
@@ -22487,7 +22486,7 @@ def _render_department_inbox(dept_key: str, title: str, icon: str, subtitle: str
                 .limit(500)
                 .all()
             )
-            mine = [r for r in rows_all if _booking_request_department(r) == dept_key]
+            mine = [r for r in rows_all if _booking_in_department(r, dept_key)]
         except Exception:
             mine = []
         pending = [r for r in mine if (r.status or "NUEVA").upper() in {"NUEVA", "EN_TRAMITE"}]
@@ -42359,9 +42358,11 @@ SUPPORT_ACTION_ENDPOINTS = {
     # limita el reparto por departamento, no el gate de sección.
     "peticion_wizard_create", "booking_request_create", "booking_request_update",
     "booking_request_status", "booking_request_delete", "booking_request_approve",
-    "booking_request_convert",
+    "booking_request_convert", "booking_request_close",
 }
 SUPPORT_READ_ENDPOINTS = {
+    # Ficha de una petición: la abre quien lleva su departamento (lo comprueba el endpoint).
+    "booking_request_detail_view",
     "api_media_artist_activities",
     "api_search_promoters", "api_search_publishing_companies", "api_search_ticketers",
     "api_search_venues", "api_search_events", "api_entity_link_search", "api_search_commission_entities",
@@ -50260,7 +50261,9 @@ def _cabify_sync_account(session_db, acc, since=None, user_ids=None) -> dict:
                     ))
                 stats["created"] += 1
             except IntegrityError:
-                session_db.rollback()
+                # Ya existía (lo impide el UNIQUE). ⚠️ NO se llama a session_db.rollback(): el
+                # savepoint lo deshace ya el `with begin_nested()`, y un rollback aquí tiraría la
+                # transacción ENTERA (todo lo importado antes en este sondeo). Igual que en Pleo.
                 stats["skipped"] += 1
 
     acc.last_sync_at = datetime.now(TZ_MADRID)
@@ -50962,6 +50965,9 @@ def _expense_days_left(row, pause=None) -> int:
 def _personal_expense_row(row, pause=None) -> dict:
     days = _expense_days_left(row, pause)
     parado = bool((pause or {}).get("paused"))
+    # En Cabify el proveedor ES Cabify y el nº de venta no dice nada a quien asigna el gasto: la
+    # línea de datos se queda en «Cabify · fecha» (+ trayecto en el concepto y la etiqueta del viaje).
+    es_cabify = (row.source or "") == "CABIFY"
     is_pleo = (row.source or "") == "PLEO"
     # Etiquetas y nota de Pleo: NO clasifican nada, se muestran para que asignar el gasto a su
     # bolsa y tipificarlo sea más fácil (a menudo la nota dice el concierto o el artista).
@@ -50983,8 +50989,8 @@ def _personal_expense_row(row, pause=None) -> dict:
         "source_icon": {"PLEO": "fa-credit-card", "INVOICE": "fa-file-invoice-dollar",
                         "CABIFY": "fa-taxi"}.get((row.source or ""), "fa-receipt"),
         "concept": (row.concept or "Gasto"),
-        "provider_name": (row.provider_name or ""),
-        "invoice_number": (row.invoice_number or ""),
+        "provider_name": ("" if es_cabify else (row.provider_name or "")),
+        "invoice_number": ("" if es_cabify else (row.invoice_number or "")),
         "date_label": (row.expense_date.strftime("%d/%m/%Y") if row.expense_date else ""),
         "amount_gross": _money_or_zero(row.amount_gross),
         "file_url": (row.file_url or ""),

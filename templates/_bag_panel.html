@@ -413,7 +413,7 @@
             {% if e.suggested_label or e.tags or e.note %}
               <div class="d-flex flex-wrap align-items-center gap-1 mt-1 ps-4">
                 {% if e.suggested_label %}<span class="badge text-bg-light border" title="Módulo sugerido"><i class="fa {{ e.suggested_icon }} me-1"></i>{{ e.suggested_label }}</span>{% endif %}
-                {% for t in e.tags %}<span class="badge text-bg-info-subtle text-dark border assign-exp__tag">{% if t.group %}{{ t.group }}: {% endif %}{{ t.value }}</span>{% endfor %}
+                {% for t in e.tags %}<span class="badge bg-info-subtle text-info-emphasis border assign-exp__tag">{% if t.group %}{{ t.group }}: {% endif %}{{ t.value }}</span>{% endfor %}
                 {% if e.note %}<span class="small text-muted assign-exp__note"><i class="fa fa-quote-left me-1"></i>{{ e.note }}</span>{% endif %}
               </div>
             {% endif %}

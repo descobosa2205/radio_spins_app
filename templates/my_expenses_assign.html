@@ -59,7 +59,7 @@
             {# Nota y etiquetas de Pleo: es lo que dice a qué actividad era el gasto. #}
             {% if e.note or e.tags %}
               <div class="d-flex flex-wrap align-items-center gap-1 mt-1 ps-4">
-                {% for t in e.tags %}<span class="badge text-bg-info-subtle text-dark border assign-exp__tag">{% if t.group %}{{ t.group }}: {% endif %}{{ t.value }}</span>{% endfor %}
+                {% for t in e.tags %}<span class="badge bg-info-subtle text-info-emphasis border assign-exp__tag">{% if t.group %}{{ t.group }}: {% endif %}{{ t.value }}</span>{% endfor %}
                 {% if e.note %}<span class="small text-muted assign-exp__note"><i class="fa fa-quote-left me-1"></i>{{ e.note }}</span>{% endif %}
               </div>
             {% endif %}

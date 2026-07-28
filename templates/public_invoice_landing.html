@@ -319,9 +319,17 @@
     profile = p;
     const box = document.getElementById('invIdentifyResult');
     box.classList.remove('d-none');
+    // Si es una persona del artista (o alguien vinculado a él), se dice de quién forma parte y se
+    // rellena solo el ARTISTA de la factura (el dato que administración necesita para tramitarla).
+    var artistBadge = p.artist_label
+      ? '<span class="badge bg-info-subtle text-info-emphasis"><i class="fa fa-microphone-lines me-1"></i>'
+          + (p.artist_is_member ? 'De ' : 'Vinculado a ') + p.artist_label + '</span>'
+      : '';
+    var invArtist = document.getElementById('invArtist');
+    if (invArtist && p.artist_label && !invArtist.value) invArtist.value = (p.artist_names || [])[0] || p.artist_label;
     box.innerHTML = '<div class="border rounded-3 p-3">'
       + '<div class="d-flex align-items-center gap-2 flex-wrap"><span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Identificado</span>'
-      + '<span class="fw-semibold">' + (p.label || '') + '</span><span class="text-muted small">' + (p.tax_id || '') + '</span></div>'
+      + '<span class="fw-semibold">' + (p.label || '') + '</span><span class="text-muted small">' + (p.tax_id || '') + '</span>' + artistBadge + '</div>'
       + '<div class="small text-muted mt-2">Dirección fiscal: ' + (p.fiscal_address_masked || '—')
       + ' · Email: ' + (p.email_masked || '—') + ' · Teléfono: ' + (p.phone_masked || '—')
       + ' · Cuenta: ' + (p.bank_masked || '—') + '</div>'
@@ -352,7 +360,10 @@
       if (d.found && d.matches.length > 1) {
         box.innerHTML = '<div class="small text-muted mb-2">Hemos encontrado varias coincidencias. Elige la tuya:</div>'
           + d.matches.map(function(m, i){
-              return '<button type="button" class="btn btn-outline-secondary btn-sm me-2 mb-2" data-inv-pick="' + i + '">' + (m.label || m.tax_id) + '</button>';
+              return '<button type="button" class="btn btn-outline-secondary btn-sm me-2 mb-2" data-inv-pick="' + i + '">'
+                + (m.label || m.tax_id)
+                + (m.artist_label ? ' <span class="text-muted">· ' + m.artist_label + '</span>' : '')
+                + '</button>';
             }).join('');
         box.querySelectorAll('[data-inv-pick]').forEach(function(b){
           b.addEventListener('click', function(){ applyProfile(d.matches[Number(b.getAttribute('data-inv-pick'))]); });

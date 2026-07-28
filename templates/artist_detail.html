@@ -57,6 +57,14 @@
       </a>
     </li>
   {% endif %}
+  {% if has_access_key('artists.datos', include_descendants=True) %}
+    <li class="nav-item">
+      <a class="nav-link {% if tab=='personas' %}active{% endif %}"
+         href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='personas') }}">
+        Personas
+      </a>
+    </li>
+  {% endif %}
   {% if has_access_key('artists.contratos', include_descendants=True) %}
     <li class="nav-item">
       <a class="nav-link {% if tab=='contratos' %}active{% endif %}"
@@ -318,83 +326,229 @@
 
     <div class="col-12 col-lg-7">
       <div class="ficha-section">
-        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-users"></i>Personas</h6><span class="small text-muted">varias si es un grupo</span></div>
+        <div class="ficha-section__head">
+          <h6 class="ficha-section__title"><i class="fa fa-users"></i>Personas</h6>
+          <a class="btn btn-sm btn-outline-primary" href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='personas') }}">
+            <i class="fa fa-arrow-right me-1"></i>Ver y editar
+          </a>
+        </div>
         <div class="ficha-section__body">
-
+          {# Las personas (y TODOS sus datos: DNI, pasaporte, carnet, tarjetas, viaje, banco) se
+             gestionan en la pestaña «Personas»: cada una es un tercero que forma parte del artista. #}
           {% if people and (people|length) > 0 %}
-            <div class="table-responsive">
-              <table class="table table-sm align-middle">
-                <thead>
-                  <tr>
-                    <th>Nombre</th>
-                    <th>Apellidos</th>
-                    <th>Cumpleaños</th>
-                    <th class="text-end">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for p in people %}
-                    <form id="person-update-{{ p.id }}" method="post" action="{{ url_for('artist_person_update', person_id=p.id) }}">
-                      <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos') }}">
-                    </form>
-                    <form id="person-delete-{{ p.id }}" method="post" action="{{ url_for('artist_person_delete', person_id=p.id) }}" onsubmit="return confirm('¿Borrar esta persona?');">
-                      <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos') }}">
-                    </form>
-                    <tr>
-                      <td>
-                        <input form="person-update-{{ p.id }}" name="first_name" class="form-control form-control-sm" value="{{ p.first_name }}" {% if not CAN_EDIT_ARTISTS_STATIONS %}disabled{% endif %} required>
-                      </td>
-                      <td>
-                        <input form="person-update-{{ p.id }}" name="last_name" class="form-control form-control-sm" value="{{ p.last_name }}" {% if not CAN_EDIT_ARTISTS_STATIONS %}disabled{% endif %}>
-                      </td>
-                      <td>
-                        <input form="person-update-{{ p.id }}" type="date" name="birth_date" class="form-control form-control-sm" value="{{ p.birth_date.isoformat() if p.birth_date else '' }}" {% if not CAN_EDIT_ARTISTS_STATIONS %}disabled{% endif %}>
-                      </td>
-                      <td class="text-end">
-                        {% if CAN_EDIT_ARTISTS_STATIONS %}
-                          <button form="person-update-{{ p.id }}" class="btn btn-outline-primary btn-sm"><i class="fa fa-save"></i></button>
-                          <button form="person-delete-{{ p.id }}" class="btn btn-outline-danger btn-sm"><i class="fa fa-trash"></i></button>
-                        {% else %}
-                          <span class="text-muted">—</span>
-                        {% endif %}
-                      </td>
-                    </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
+            <ul class="list-unstyled mb-0">
+              {% for p in people %}
+                <li class="d-flex flex-wrap gap-2 align-items-center py-1 border-bottom">
+                  <span class="fw-semibold">{{ ((p.first_name or '') ~ ' ' ~ (p.last_name or ''))|trim }}</span>
+                  {% if p.birth_date %}<span class="text-muted small"><i class="fa fa-cake-candles me-1"></i>{{ p.birth_date.strftime('%d/%m/%Y') }}</span>{% endif %}
+                  {% if p.promoter_id %}<span class="badge bg-success-subtle text-success-emphasis"><i class="fa fa-id-card me-1"></i>con ficha de tercero</span>{% endif %}
+                </li>
+              {% endfor %}
+            </ul>
           {% else %}
             <div class="text-muted">Aún no hay personas asociadas a este artista.</div>
           {% endif %}
-
-          {% if CAN_EDIT_ARTISTS_STATIONS %}
-            <hr>
-            <h6 class="mb-2">Añadir persona</h6>
-            <form method="post" action="{{ url_for('artist_person_add', artist_id=artist.id) }}" class="row g-2 align-items-end">
-              <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos') }}">
-              <div class="col-md-3">
-                <label class="form-label">Nombre</label>
-                <input name="first_name" class="form-control" required>
-              </div>
-              <div class="col-md-4">
-                <label class="form-label">Apellidos</label>
-                <input name="last_name" class="form-control">
-              </div>
-              <div class="col-md-3">
-                <label class="form-label">Cumpleaños</label>
-                <input type="date" name="birth_date" class="form-control">
-              </div>
-              <div class="col-md-2 d-grid">
-                <button class="btn btn-primary"><i class="fa fa-plus"></i> Añadir</button>
-              </div>
-            </form>
-          {% endif %}
-
         </div>
       </div>
     </div>
   </div>
   </div><!-- /artist-datos-zone -->
+
+{# ===================== TAB: PERSONAS ===================== #}
+{% elif tab == 'personas' %}
+  {# Cada persona del artista ES UN TERCERO que forma parte de él: tiene los mismos datos que un
+     tercero particular (DNI, pasaporte, carnet, tarjetas de fidelización, matrículas, necesidades de
+     viaje, cuenta bancaria, dirección fiscal…) y se rellenan aquí, sin salir de la ficha. Los
+     documentos usan el MISMO panel (con escaneo y OCR) que la ficha del tercero y del personal. #}
+  <div class="alert alert-light border small">
+    <i class="fa fa-circle-info me-1"></i>Cada persona del artista es un <strong>tercero que forma parte de él</strong>:
+    lo que rellenes aquí es su ficha (DNI, pasaporte, carnet, tarjetas, viaje, cuenta bancaria) y se ve
+    también en Terceros, en las hojas de ruta y en la subida de facturas.
+  </div>
+
+  {% for c in person_cards %}
+    <div class="ficha-section mb-3">
+      <div class="ficha-section__head">
+        <h6 class="ficha-section__title">
+          <i class="fa fa-user"></i>{{ c.name }}
+          {% if c.person.birth_date %}<span class="text-muted fw-normal small ms-2"><i class="fa fa-cake-candles me-1"></i>{{ c.person.birth_date.strftime('%d/%m/%Y') }}</span>{% endif %}
+        </h6>
+        <div class="d-flex gap-2 align-items-center">
+          {% if c.promoter %}
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('promoter_detail_view', pid=c.promoter.id) }}"
+               title="Abrir su ficha completa de tercero"><i class="fa fa-id-card me-1"></i>Ficha de tercero</a>
+          {% endif %}
+          {% if c.can_edit %}
+            <button type="button" class="btn btn-sm btn-outline-primary" data-edit-toggle="#personaForm-{{ c.id }}"
+                    data-view="#personaView-{{ c.id }}"><i class="fa fa-pen me-1"></i>Editar</button>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="ficha-section__body">
+        {# ---------- Vista consolidada (solo lo que está relleno) ---------- #}
+        <div id="personaView-{{ c.id }}" data-section-view>
+          <div class="row g-4">
+            <div class="col-lg-7 col-xl-8">
+              {% set pr = c.promoter %}
+              {% if pr and (pr.tax_id or pr.contact_email or pr.contact_phone or pr.address or pr.fiscal_address or pr.bank_account) %}
+                <dl class="psum-list">
+                  {% if pr.tax_id %}<div><span class="psum-k">DNI / NIF</span><span class="psum-v">{{ pr.tax_id }}</span></div>{% endif %}
+                  {% if pr.contact_email %}<div><span class="psum-k">Email</span><span class="psum-v">{{ pr.contact_email }}</span></div>{% endif %}
+                  {% if pr.contact_phone %}<div><span class="psum-k">Teléfono</span><span class="psum-v">{{ pr.contact_phone }}</span></div>{% endif %}
+                  {% if pr.address %}<div><span class="psum-k">Domicilio</span><span class="psum-v">{{ pr.address }}</span></div>{% endif %}
+                  {% if pr.fiscal_address %}<div><span class="psum-k">Dirección fiscal</span><span class="psum-v">{{ pr.fiscal_address }}</span></div>{% endif %}
+                  {% if pr.bank_account %}<div><span class="psum-k">Cuenta bancaria</span><span class="psum-v">{{ pr.bank_account }}</span></div>{% endif %}
+                </dl>
+              {% elif not pr %}
+                <div class="text-muted">Todavía no tiene datos. Pulsa <strong>Editar</strong> para rellenarlos o
+                  sube su DNI aquí abajo: se le crea la ficha de tercero sola.</div>
+              {% endif %}
+              {% if pr and pr.hotel_notes %}
+                <div class="mt-2 small"><span class="text-muted"><i class="fa fa-bed me-1"></i>Hoteles:</span> {{ pr.hotel_notes }}</div>
+              {% endif %}
+              {% with ts=c.travel_summary %}{% include '_travel_summary_view.html' %}{% endwith %}
+            </div>
+            <div class="col-lg-5 col-xl-4"></div>
+          </div>
+        </div>
+
+        {# ---------- Formulario (todos los campos) ---------- #}
+        {% if c.can_edit %}
+          <form id="personaForm-{{ c.id }}" class="d-none" method="post" action="{{ c.data_url }}">
+            <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='personas') }}">
+            <div class="row g-3">
+              <div class="col-md-4">
+                <label class="form-label">Nombre</label>
+                <input class="form-control" name="first_name" value="{{ c.person.first_name or '' }}" required>
+              </div>
+              <div class="col-md-5">
+                <label class="form-label">Apellidos</label>
+                <input class="form-control" name="last_name" value="{{ c.person.last_name or '' }}">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Cumpleaños</label>
+                <input type="date" class="form-control" name="birth_date" value="{{ c.person.birth_date.isoformat() if c.person.birth_date else '' }}">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">DNI / NIF</label>
+                <input class="form-control" name="tax_id" value="{{ c.promoter.tax_id if c.promoter else '' }}">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Email</label>
+                <input type="email" class="form-control" name="contact_email" value="{{ c.promoter.contact_email if c.promoter else '' }}">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Teléfono</label>
+                <input class="form-control" name="contact_phone" value="{{ c.promoter.contact_phone if c.promoter else '' }}">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Domicilio</label>
+                <input class="form-control" name="address" value="{{ c.promoter.address if c.promoter else '' }}">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Dirección fiscal</label>
+                <input class="form-control" name="fiscal_address" value="{{ c.promoter.fiscal_address if c.promoter else '' }}">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Cuenta bancaria (IBAN)</label>
+                <input class="form-control" name="bank_account" value="{{ c.promoter.bank_account if c.promoter else '' }}">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Petición especial de hoteles</label>
+                <input class="form-control" name="hotel_notes" value="{{ c.promoter.hotel_notes if c.promoter else '' }}"
+                       placeholder="Cama grande, planta baja, no fumador…">
+              </div>
+              {% if not c.promoter %}
+                <div class="col-12">
+                  <label class="form-label">¿Ya está en Terceros? Vincúlalo para no duplicarlo</label>
+                  <select class="form-select select-providers" name="link_promoter_id">
+                    <option value="">— crearle una ficha nueva —</option>
+                    {% for op in person_promoter_options %}
+                      <option value="{{ op.id }}" data-photo="{{ op.logo }}">{{ op.nick }}</option>
+                    {% endfor %}
+                  </select>
+                  <div class="form-text">Si lo dejas vacío se le crea su ficha de tercero con este nombre.</div>
+                </div>
+              {% endif %}
+              <div class="col-12">
+                <hr class="my-1">
+                <input type="hidden" name="travel_prefs_present" value="1">
+                {% with tp_prefs=c.travel_prefs, tp_row=(c.promoter or c.person), tp_can_edit=True %}
+                  {% include '_travel_prefs_panel.html' %}
+                {% endwith %}
+              </div>
+            </div>
+            <div class="d-flex justify-content-end gap-2 mt-3">
+              <button type="button" class="btn btn-outline-secondary" data-edit-cancel="#personaForm-{{ c.id }}">Cancelar</button>
+              <button class="btn btn-primary"><i class="fa fa-check me-1"></i>Guardar</button>
+            </div>
+          </form>
+        {% endif %}
+
+        {# ---------- Documentos (mismo panel, con escaneo y OCR) ---------- #}
+        <hr>
+        <h6 class="mb-2"><i class="fa fa-folder-open me-1"></i>Documentos de {{ c.name }}</h6>
+        {% with person_documents=c.documents,
+                person_docs_owner_type='PROMOTER',
+                person_docs_owner_name=c.name,
+                person_docs_save_url=c.docs_save_url,
+                person_docs_delete_base=c.docs_delete_base,
+                person_docs_can_edit=c.can_edit,
+                person_docs_modal=False %}
+          {% include '_person_documents_panel.html' %}
+        {% endwith %}
+
+        {% if c.can_edit %}
+          <form method="post" action="{{ url_for('artist_person_delete', person_id=c.id) }}" class="mt-2"
+                onsubmit="return confirm('¿Quitar a esta persona del artista? Su ficha de tercero NO se borra.');">
+            <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='personas') }}">
+            <button class="btn btn-sm btn-outline-danger"><i class="fa fa-user-minus me-1"></i>Quitar del artista</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+  {% else %}
+    <div class="alert alert-light border">Este artista todavía no tiene personas.</div>
+  {% endfor %}
+
+  {% if CAN_EDIT_ARTISTS_STATIONS %}
+    <div class="ficha-section">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-user-plus"></i>Añadir persona</h6></div>
+      <div class="ficha-section__body">
+        <form method="post" action="{{ url_for('artist_person_add', artist_id=artist.id) }}" class="row g-2 align-items-end">
+          <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='personas') }}">
+          <div class="col-md-3">
+            <label class="form-label">Nombre</label>
+            <input name="first_name" class="form-control" required>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Apellidos</label>
+            <input name="last_name" class="form-control">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Cumpleaños</label>
+            <input type="date" name="birth_date" class="form-control">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">¿Ya es tercero?</label>
+            <select class="form-select select-providers" name="link_promoter_id">
+              <option value="">No / crearla</option>
+              {% for op in person_promoter_options %}
+                <option value="{{ op.id }}" data-photo="{{ op.logo }}">{{ op.nick }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-2 d-grid">
+            <button class="btn btn-primary"><i class="fa fa-plus"></i> Añadir</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  {% endif %}
+
+  {# El modal de documentos es UNO para todas las personas de la página. #}
+  {% if CAN_EDIT_ARTISTS_STATIONS %}{% include '_person_doc_modal.html' %}{% endif %}
 
 {# ===================== TAB: CONTRATOS ===================== #}
 {% elif tab == 'contratos' %}

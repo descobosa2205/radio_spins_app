@@ -1,8 +1,13 @@
 /* Documentos personales (DNI, carnet de conducir, tarjetas de fidelización, matrículas) en la
-   ficha de personal y de tercero. Renderiza las tarjetas desde el JSON embebido, gestiona el alta
-   /edición por modal (subida XHR con progreso y CSRF) y el OCR del DNI/carnet en el navegador
-   (tesseract.js cargado bajo demanda: lee el MRZ del reverso y autorrellena nº, nombre, fecha de
-   nacimiento y caducidad). No hace nada si la página no incluye el panel [data-person-docs]. */
+   ficha de personal, de tercero y de las PERSONAS DE UN ARTISTA. Renderiza las tarjetas desde el
+   JSON embebido, gestiona el alta/edición por modal (subida XHR con progreso y CSRF) y el OCR del
+   DNI/carnet en el navegador (tesseract.js cargado bajo demanda: lee el MRZ del reverso y
+   autorrellena nº, nombre, fecha de nacimiento y caducidad). No hace nada si la página no incluye
+   ningún panel [data-person-docs].
+
+   ⚠️ PUEDE HABER VARIOS PANELES EN LA MISMA PÁGINA (una persona del artista por tarjeta): cada
+   [data-person-docs] se inicializa por separado con SU url de guardado y SUS documentos, y el modal
+   (uno solo en el DOM) se ata una única vez y trabaja sobre el panel ACTIVO (el que lo abrió). */
 (function () {
   'use strict';
   function ready(fn) { if (document.readyState !== 'loading') fn(); else document.addEventListener('DOMContentLoaded', fn); }
@@ -21,10 +26,23 @@
     var p = String(iso).split('-'); if (p.length !== 3) return iso;
     return p[2] + '/' + p[1] + '/' + p[0];
   }
+  function show(el, on) { if (el) el.classList.toggle('d-none', !on); }
+
+  var ACTIVE = null;        // panel que abrió el modal
+  var MODAL = null;         // API del modal (se ata una sola vez)
 
   ready(function () {
-    var root = document.querySelector('[data-person-docs]');
-    if (!root) return;
+    var roots = Array.prototype.slice.call(document.querySelectorAll('[data-person-docs]'));
+    if (!roots.length) return;
+    roots.forEach(initRoot);
+  });
+
+  /* =======================================================================
+     UN PANEL
+     ======================================================================= */
+  function initRoot(root) {
+    if (root.__personDocsReady) return;
+    root.__personDocsReady = true;
     var saveUrl = root.dataset.saveUrl || '';
     var deleteBase = root.dataset.deleteBase || '';
     var canEdit = root.dataset.canEdit === '1';
@@ -33,12 +51,14 @@
     var compact = root.hasAttribute('data-docs-compact');
     var ownerName = (root.dataset.ownerName || '').trim();   // para el nombre del fichero al arrastrar
     var docs = readJSON(root, '[data-person-docs-json]');
+    // Las marcas pueden venir en el propio panel o, si no, en cualquier otro de la página (son las mismas).
     var brands = readJSON(root, '[data-loyalty-brands-json]');
+    if (!brands.length) {
+      var any = document.querySelector('[data-loyalty-brands-json]');
+      if (any) { try { brands = JSON.parse(any.textContent || '[]') || []; } catch (e) { brands = []; } }
+    }
     var brandByKey = {};
     brands.forEach(function (b) { brandByKey[b.key] = b; });
-
-    var modalEl = document.getElementById('personDocModal');
-    var bsModal = (modalEl && window.bootstrap) ? new window.bootstrap.Modal(modalEl) : null;
 
     /* ------------------- Render ------------------- */
     function render() {
@@ -142,33 +162,6 @@
       '</div>';
     }
 
-    function copyNumber(el) {
-      var num = el.getAttribute('data-doc-copy') || '';
-      if (!num) return;
-      var done = function () { el.classList.add('is-copied'); setTimeout(function () { el.classList.remove('is-copied'); }, 1200); };
-      var fallback = function () {
-        try {
-          var ta = document.createElement('textarea');
-          ta.value = num; ta.style.position = 'fixed'; ta.style.opacity = '0';
-          document.body.appendChild(ta); ta.focus(); ta.select();
-          document.execCommand('copy'); document.body.removeChild(ta);
-        } catch (e) {}
-      };
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(num).then(done, function () { fallback(); done(); });
-      } else { fallback(); done(); }
-    }
-
-    // Ampliar la imagen de un documento (DNI/pasaporte/carnet) a pantalla completa.
-    function openLightbox(url) {
-      if (!url) return;
-      var ov = document.createElement('div');
-      ov.className = 'docs-lightbox';
-      ov.innerHTML = '<img src="' + esc(url) + '" alt=""><button type="button" class="docs-lightbox__x" aria-label="Cerrar"><i class="fa fa-xmark"></i></button>';
-      ov.addEventListener('click', function () { ov.remove(); });
-      document.body.appendChild(ov);
-    }
-
     // Matrícula = PASTILLA con estética de placa española (banda azul EU + número), del tamaño de las
     // tarjetas de fidelización y en fila. Al pinchar copia la matrícula.
     function plateHtml(d) {
@@ -209,8 +202,82 @@
 
     if (!canEdit) return;   // sin permisos: solo lectura (pero copiar/ampliar/arrastrar siguen activos)
 
-    /* ------------------- Modal (alta / edición) ------------------- */
+    // Estado que necesita el modal compartido para trabajar sobre ESTE panel.
+    var state = {
+      saveUrl: saveUrl,
+      onSaved: function (d) {
+        var i = docs.findIndex(function (x) { return x.id === d.id; });
+        if (i >= 0) docs[i] = d; else docs.push(d);
+        render();
+      },
+    };
+
+    function deleteDoc(id) {
+      if (!window.confirm('¿Eliminar este documento? No se puede deshacer.')) return;
+      fetch(deleteBase.replace('__ID__', encodeURIComponent(id)), {
+        method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': csrfToken() }
+      }).then(function (r) { return r.json().catch(function () { return {}; }); })
+        .then(function (j) {
+          if (j && j.ok) { docs = docs.filter(function (x) { return x.id !== id; }); render(); }
+          else alert((j && j.error) || 'No se pudo eliminar.');
+        }).catch(function () { alert('No se pudo eliminar.'); });
+    }
+
+    root.querySelectorAll('[data-doc-add]').forEach(function (btn) {
+      btn.addEventListener('click', function () { openModal(state, btn.getAttribute('data-doc-add'), null); });
+    });
+
+    // Editar / eliminar (delegado en el root, se re-renderiza el HTML)
+    root.addEventListener('click', function (e) {
+      var ed = e.target.closest('[data-doc-edit]');
+      if (ed) { var d = docs.find(function (x) { return x.id === ed.getAttribute('data-doc-edit'); }); if (d) openModal(state, d.kind, d); return; }
+      var dl = e.target.closest('[data-doc-del]');
+      if (dl) { deleteDoc(dl.getAttribute('data-doc-del')); return; }
+    });
+  }
+
+  function copyNumber(el) {
+    var num = el.getAttribute('data-doc-copy') || '';
+    if (!num) return;
+    var done = function () { el.classList.add('is-copied'); setTimeout(function () { el.classList.remove('is-copied'); }, 1200); };
+    var fallback = function () {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = num; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.focus(); ta.select();
+        document.execCommand('copy'); document.body.removeChild(ta);
+      } catch (e) {}
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(num).then(done, function () { fallback(); done(); });
+    } else { fallback(); done(); }
+  }
+
+  // Ampliar la imagen de un documento (DNI/pasaporte/carnet) a pantalla completa.
+  function openLightbox(url) {
+    if (!url) return;
+    var ov = document.createElement('div');
+    ov.className = 'docs-lightbox';
+    ov.innerHTML = '<img src="' + esc(url) + '" alt=""><button type="button" class="docs-lightbox__x" aria-label="Cerrar"><i class="fa fa-xmark"></i></button>';
+    ov.addEventListener('click', function () { ov.remove(); });
+    document.body.appendChild(ov);
+  }
+
+  /* =======================================================================
+     EL MODAL (uno solo en la página; trabaja sobre el panel ACTIVO)
+     ======================================================================= */
+  function openModal(state, kind, doc) {
+    if (!MODAL) MODAL = initModal();
+    if (!MODAL) return;
+    ACTIVE = state;
+    MODAL.open(kind, doc);
+  }
+
+  function initModal() {
+    var modalEl = document.getElementById('personDocModal');
     var form = modalEl ? modalEl.querySelector('[data-doc-form]') : null;
+    if (!form) return null;
+    var bsModal = window.bootstrap ? new window.bootstrap.Modal(modalEl) : null;
     // Recortes ya generados (front/back) para subirlos aunque el navegador no deje fijar input.files
     // (p. ej. iOS): se inyectan en el FormData al enviar. Se vacía al abrir el modal.
     var pendingFiles = {};
@@ -259,9 +326,8 @@
       if (pdfHint) pdfHint.classList.toggle('d-none', !isDoc);
       form.querySelector('[data-doc-ocr]').classList.add('d-none');
     }
-    function show(el, on) { if (el) el.classList.toggle('d-none', !on); }
 
-    function openModal(kind, doc) {
+    function open(kind, doc) {
       form.reset();
       pendingFiles = {};
       faceSources = {};
@@ -288,20 +354,9 @@
         setPreview('front', '');
         setPreview('back', '');
       }
+      if (!bsModal && window.bootstrap) bsModal = new window.bootstrap.Modal(modalEl);
       if (bsModal) bsModal.show();
     }
-
-    root.querySelectorAll('[data-doc-add]').forEach(function (btn) {
-      btn.addEventListener('click', function () { openModal(btn.getAttribute('data-doc-add'), null); });
-    });
-
-    // Editar / eliminar (delegado en el root, se re-renderiza el HTML)
-    root.addEventListener('click', function (e) {
-      var ed = e.target.closest('[data-doc-edit]');
-      if (ed) { var d = docs.find(function (x) { return x.id === ed.getAttribute('data-doc-edit'); }); if (d) openModal(d.kind, d); return; }
-      var dl = e.target.closest('[data-doc-del]');
-      if (dl) { deleteDoc(dl.getAttribute('data-doc-del')); return; }
-    });
 
     // Previsualización + recorte + OCR al elegir foto o PDF.
     form.querySelectorAll('[data-doc-file]').forEach(function (inp) {
@@ -320,19 +375,9 @@
       });
     });
 
-    function deleteDoc(id) {
-      if (!window.confirm('¿Eliminar este documento? No se puede deshacer.')) return;
-      fetch(deleteBase.replace('__ID__', encodeURIComponent(id)), {
-        method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': csrfToken() }
-      }).then(function (r) { return r.json().catch(function () { return {}; }); })
-        .then(function (j) {
-          if (j && j.ok) { docs = docs.filter(function (x) { return x.id !== id; }); render(); }
-          else alert((j && j.error) || 'No se pudo eliminar.');
-        }).catch(function () { alert('No se pudo eliminar.'); });
-    }
-
-    if (form) form.addEventListener('submit', function (e) {
+    form.addEventListener('submit', function (e) {
       e.preventDefault();
+      if (!ACTIVE) return;
       var submit = form.querySelector('[data-doc-submit]');
       var orig = submit.innerHTML;
       submit.disabled = true; submit.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Guardando…';
@@ -344,17 +389,16 @@
       if ((scanNames.first || scanNames.last) && fnEl && fnEl.value.trim() === (scanNames.full || '').trim()) {
         fd.set('doc_first_name', scanNames.first); fd.set('doc_last_name', scanNames.last);
       }
+      var target = ACTIVE;
       var xhr = new XMLHttpRequest();
-      xhr.open('POST', saveUrl);
+      xhr.open('POST', target.saveUrl);
       xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
       xhr.setRequestHeader('X-CSRFToken', csrfToken());
       xhr.onload = function () {
         submit.disabled = false; submit.innerHTML = orig;
         var j = {}; try { j = JSON.parse(xhr.responseText || '{}'); } catch (_e) {}
         if (xhr.status >= 200 && xhr.status < 300 && j.ok && j.document) {
-          var d = j.document, i = docs.findIndex(function (x) { return x.id === d.id; });
-          if (i >= 0) docs[i] = d; else docs.push(d);
-          render();
+          target.onSaved(j.document);
           if (bsModal) bsModal.hide();
         } else {
           alert((j && j.error) || 'No se pudo guardar el documento.');
@@ -445,5 +489,7 @@
         reOcrFace(which, c, input('kind').value);
       });
     });
-  });
+
+    return { open: open };
+  }
 })();

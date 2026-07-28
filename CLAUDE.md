@@ -455,12 +455,33 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   pasarela). El fotógrafo es un tercero (`Promoter`) con alta rápida (`quick_create.js` sobre un
   `<select>` oculto) o «Desconocido».
 
-- **Documentos personales (pestaña «Documentos» en ficha de personal y de tercero)**: modelo
+- **PERSONAS DEL ARTISTA = TERCEROS que forman parte de él** (`ArtistPerson.promoter_id`): un miembro
+  de un grupo (o el solista) es un **tercero particular** con exactamente los mismos datos (DNI,
+  pasaporte, carnet, tarjetas de fidelización, matrículas, necesidades de viaje, cuenta bancaria,
+  dirección fiscal…), que se rellenan en la **pestaña «Personas»** de la ficha del artista sin salir.
+  No se duplica nada: los datos viven en su `Promoter` + `PersonDocument`, así que el mismo músico
+  puede estar en dos grupos y, cuando factura, la búsqueda por DNI/CIF lo encuentra.
+  Helpers `_artist_person_full_name` / `_artist_person_promoter` / `_ensure_promoter_for_artist_person`
+  (crea el tercero o **vincula** uno existente por `link_promoter_id`, reutilizando el que tenga ese
+  nombre exacto — mismo patrón que `_ensure_promoter_for_media`) / `_artist_person_cards`. Endpoints
+  `artist_person_data_save` (datos + viaje, crea el tercero si falta), `artist_person_document_save` /
+  `_delete` (delegan en `_person_document_save`/`_delete_one` con owner PROMOTER) — mapeados a
+  `artists` por prefijo `artist_person` en `_resolve_request_resource_key`/`_coarse_endpoint_resource`,
+  y la pestaña `personas` hereda el permiso de `artists.datos` (no hay recurso nuevo que conceder).
+  El alta de persona acepta «¿ya es tercero?» para no duplicar. En «Datos» queda solo el listado con
+  el botón *Ver y editar*.
+- **Documentos personales (pestaña «Documentos» en ficha de personal, de tercero y de las PERSONAS DE
+  UN ARTISTA)**: modelo
   polimórfico `PersonDocument` (`owner_type` USER|PROMOTER, `kind` DNI|LICENSE|PASSPORT|LOYALTY|PLATE,
   `front_url`/`back_url`, `doc_number`, `full_name`, `birth_date`, `expiry_date`, `issue_date`
   (emisión, pasaporte), `company`, `label`, `extra`) + `ensure_person_documents_schema`. Panel
   reutilizable `templates/_person_documents_panel.html` + `static/js/person_docs.js` (GLOBAL en layout,
-  no-op sin `[data-person-docs]`) + estilos `.docs-*`. DNI/carnet = tarjeta de **dos caras**;
+  no-op sin `[data-person-docs]`) + estilos `.docs-*`. ⚠️ **Puede haber VARIOS paneles en la misma
+  página** (una persona del artista por tarjeta): `person_docs.js` inicializa **cada** `[data-person-docs]`
+  con su url de guardado y sus documentos, y el **modal es UNO** (`templates/_person_doc_modal.html`,
+  que el panel incluye salvo que se le pase `person_docs_modal=False`) atado una sola vez y trabajando
+  sobre el panel ACTIVO (el que lo abrió). Antes usaba `querySelector` y solo funcionaba el primero.
+  DNI/carnet = tarjeta de **dos caras**;
   **pasaporte = una sola cara** (fa-passport) + fecha de **emisión**.
   **Subida foto O PDF + recorte + OCR, todo en cliente** (el servidor no renderiza PDF): al elegir
   archivo, `processIdFile` renderiza (pdf.js `pdfToCanvases`/imágenes), **auto-recorta el fondo**
@@ -596,14 +617,23 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
 - **Facturación de proveedores** (`/facturacion`, landing pública en 3 pasos): plantilla
   `public_invoice_landing.html` + estilos `.inv-step*`. Un solo componente con dos modos:
   `inv_mode=LANDING` (bañera del back office a la izquierda, todas las empresas del grupo) e
-  `inv_mode=REQUEST` (logo de la empresa del grupo a la DERECHA, solo sus datos y **confirmación
-  obligatoria** de que la factura está emitida a ellos). Lo usan `/factura/<token>` (petición de
-  bolsa, `BagInvoiceRequest`) y `/facturacion?liq=<token>` (liquidación de royalties). Backend:
+  `inv_mode=REQUEST` (logo de la empresa del grupo a la DERECHA y solo sus datos; **sin casilla de
+  confirmación**: los datos están a la vista y basta con «Continuar»). Lo usan `/factura/<token>`
+  (petición de bolsa, `BagInvoiceRequest`) y `/facturacion?liq=<token>` (liquidación de royalties;
+  la empresa es **PIES**, ver abajo). Backend:
   `_tax_id_kind` (empresa si empieza por letra, particular si acaba en letra), `_billing_profile_payload`
   (datos **enmascarados** con `_mask_value`: quien teclee un DNI ajeno no lee IBAN/email/teléfono),
   `_billing_required_docs`/`_billing_docs_state` (factura + `CERT_AEAT` solo empresas + `CERT_SS`;
   ambos en `INVOICE_MONTHLY_CERTS` → **caducan cada mes**, `_cert_month_range`), endpoints
-  `public_invoice_identify`/`_register`/`_docs_state`/`_upload`. Los certificados se guardan como
+  `public_invoice_identify`/`_register`/`_docs_state`/`_upload`. **La búsqueda por DNI/CIF mira TRES
+  sitios** (todas las vías, sin cortar en la primera: si dos fichas comparten el número se ofrecen las
+  dos y elige quien factura): `Promoter.tax_id`, `PromoterCompany.tax_id` y el **nº del DNI/pasaporte
+  ESCANEADO** (`PersonDocument.doc_number`) — los artistas y sus personas suelen tener el documento
+  subido aunque nadie haya rellenado el campo DNI/NIF, y sin esto se les pedía darse de alta otra vez
+  y salía un tercero duplicado. Cada coincidencia lleva su **artista** (`_promoter_artist_context`:
+  persona del artista vía `ArtistPerson.promoter_id`, o vinculado a él por `ThirdPartyLink`), que se
+  muestra como pastilla («De Los X» / «Vinculado a Los X»), sale en el selector cuando hay varias y
+  **rellena solo el ARTISTA de la factura**. Los certificados se guardan como
   `PersonComplianceDoc` (mismo sistema que PRL) y las facturas como `SupplierInvoice`
   (PENDIENTE/VALIDADA/RECHAZADA). Los enlaces oficiales de AEAT/Seguridad Social están en
   `INVOICE_CERT_DOCS`.
@@ -611,7 +641,10 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   el paso «¿para quién es la factura?», así que la numeración (1,3,4) NO es la de la landing (1,2,3,4).
   Cuando estaba a mano, el enlace del proveedor desbloqueaba un paso inexistente y el de escribir el
   DNI se quedaba con `pointer-events:none`: al pulsar «Comprobar» no pasaba nada (bug real).
-- **Royalties · facturación y validación**: el correo/PDF de cada liquidación enlaza a
+- **Royalties · facturación y validación**: las liquidaciones se facturan **a nombre de PIES**
+  (el sello), no de la primera empresa del grupo por orden alfabético — helper `_pies_group_company`
+  (del que ya tira `_afavor_pies_company`), usado por `public_royalty_liquidation_view` y por
+  `/facturacion?liq=`. El correo/PDF de cada liquidación enlaza a
   `public_royalty_liquidation_view` (`/liquidacion/<token>`, reusa el token firmado de
   `_make_public_royalty_liquidation_token`), que la muestra como el PDF y ofrece **Subir factura**
   → al subirla se vincula (`SupplierInvoice.royalty_liquidation_id`) y la liquidación pasa a

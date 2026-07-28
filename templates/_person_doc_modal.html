@@ -1,0 +1,102 @@
+{# Modal de alta/edición de un DOCUMENTO personal (uno solo por página: person_docs.js lo
+   comparte entre TODOS los paneles [data-person-docs] de la página y trabaja sobre el que lo
+   abrió). Lo incluye `_person_documents_panel.html` salvo que se le pase
+   `person_docs_modal=False` (varias personas en la misma pantalla: se incluye una sola vez). #}
+{# ---- Modal de alta/edición (uno solo, se adapta al tipo) ---- #}
+<div class="modal fade" id="personDocModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <form data-doc-form enctype="multipart/form-data">
+        <div class="modal-header">
+          <h5 class="modal-title" data-doc-modal-title>Documento</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" name="kind" data-doc-kind>
+          <input type="hidden" name="doc_id" data-doc-id>
+
+          {# --- Imágenes (DNI/carnet: dos caras; fidelización: foto opcional) --- #}
+          <div class="row g-3" data-doc-images>
+            <div class="col-md-6" data-doc-front-wrap>
+              <label class="form-label small text-muted" data-doc-front-label>Anverso (cara con la foto)</label>
+              <label class="docs-drop" data-doc-drop="front">
+                <input type="file" name="front" accept="image/*,application/pdf" class="d-none" data-doc-file="front">
+                <img class="docs-drop__img d-none" data-doc-preview="front" alt="">
+                <span class="docs-drop__hint"><i class="fa fa-camera me-1"></i>Subir foto o PDF</span>
+              </label>
+              <input type="hidden" name="front_url_clear" value="" data-doc-clear="front">
+              <button type="button" class="btn btn-sm btn-outline-secondary mt-1 d-none" data-doc-crop="front"><i class="fa fa-crop-simple me-1"></i>Ajustar recorte</button>
+            </div>
+            <div class="col-md-6" data-doc-back-wrap>
+              <label class="form-label small text-muted">Reverso (cara con el MRZ ‹‹‹)</label>
+              <label class="docs-drop" data-doc-drop="back">
+                <input type="file" name="back" accept="image/*,application/pdf" class="d-none" data-doc-file="back">
+                <img class="docs-drop__img d-none" data-doc-preview="back" alt="">
+                <span class="docs-drop__hint"><i class="fa fa-camera me-1"></i>Subir foto o PDF</span>
+              </label>
+              <input type="hidden" name="back_url_clear" value="" data-doc-clear="back">
+              <button type="button" class="btn btn-sm btn-outline-secondary mt-1 d-none" data-doc-crop="back"><i class="fa fa-crop-simple me-1"></i>Ajustar recorte</button>
+            </div>
+          </div>
+
+          <div class="small text-muted mt-2" data-doc-pdf-hint>
+            <i class="fa fa-circle-info me-1"></i>Puedes subir una <b>foto</b> o un <b>PDF</b>. Si el PDF trae las
+            <b>dos caras</b> (en dos páginas o en la misma), se separan y recortan solas. Revisa el recorte antes de guardar.
+          </div>
+
+          <div class="docs-ocr small text-muted mt-2 d-none" data-doc-ocr>
+            <i class="fa fa-wand-magic-sparkles me-1"></i><span data-doc-ocr-msg>Detectando datos del documento…</span>
+          </div>
+
+          {# --- Campos según tipo --- #}
+          <div class="row g-3 mt-1">
+            <div class="col-md-6" data-doc-field="full_name">
+              <label class="form-label">Nombre y apellidos</label>
+              <input type="text" name="full_name" class="form-control">
+            </div>
+            <div class="col-md-6" data-doc-field="doc_number">
+              <label class="form-label" data-doc-number-label>Número</label>
+              <input type="text" name="doc_number" class="form-control">
+            </div>
+            <div class="col-md-6" data-doc-field="birth_date">
+              <label class="form-label">Fecha de nacimiento</label>
+              <input type="date" name="birth_date" class="form-control">
+            </div>
+            <div class="col-md-6" data-doc-field="expiry_date">
+              <label class="form-label">Caducidad</label>
+              <input type="date" name="expiry_date" class="form-control">
+            </div>
+            <div class="col-md-6" data-doc-field="issue_date">
+              <label class="form-label">Fecha de expedición</label>
+              <input type="date" name="issue_date" class="form-control">
+            </div>
+            <div class="col-12" data-doc-field="address">
+              <label class="form-label">Domicilio</label>
+              <input type="text" name="address" class="form-control" placeholder="Se autorrellena del DNI; se puede editar">
+            </div>
+            <div class="col-md-6" data-doc-field="company">
+              <label class="form-label">Compañía</label>
+              <input type="text" name="company" class="form-control" list="loyaltyBrandsList" placeholder="Renfe, Iberia, Repsol…">
+              <datalist id="loyaltyBrandsList">
+                {% for b in loyalty_brands %}<option value="{{ b.label }}">{% endfor %}
+              </datalist>
+            </div>
+            <div class="col-md-6" data-doc-field="label">
+              <label class="form-label" data-doc-label-label>Etiqueta</label>
+              <input type="text" name="label" class="form-control">
+            </div>
+          </div>
+
+          <div class="form-check mt-2 d-none" data-doc-apply-wrap>
+            <input class="form-check-input" type="checkbox" name="apply_to_profile" value="1" checked id="docApplyProfile">
+            <label class="form-check-label small" for="docApplyProfile">Rellenar los datos vacíos de la ficha con lo detectado (nombre, DNI, fecha de nacimiento)</label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-primary" data-doc-submit><i class="fa fa-check me-1"></i>Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

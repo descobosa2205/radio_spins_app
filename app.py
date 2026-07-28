@@ -1565,6 +1565,9 @@ def artist_detail_view(artist_id):
             "fotos",
             "plantilla-gastos",
             "plantillas",
+            # Personas del artista: cada una es un TERCERO que forma parte de él, con sus datos
+            # personales completos (DNI, pasaporte, carnet, tarjetas, viaje, cuenta bancaria…).
+            "personas",
         }
         if tab not in allowed_tabs:
             tab = "datos"
@@ -1743,6 +1746,15 @@ def artist_detail_view(artist_id):
             artist_fotos_groups=artist_fotos_groups,
             disc_tab=disc_tab,
             people=people,
+            # Pestaña «Personas»: cada persona con su ficha de tercero (documentos + viaje + banco).
+            person_cards=(_artist_person_cards(session_db, artist, can_edit_artists_stations())
+                          if tab == "personas" else []),
+            person_promoter_options=([
+                {"id": str(pid), "nick": nick or "", "logo": logo or ""}
+                for pid, nick, logo in session_db.query(Promoter.id, Promoter.nick, Promoter.logo_url)
+                                                 .order_by(Promoter.nick.asc()).all()
+            ] if tab == "personas" else []),
+            loyalty_brands=PERSON_LOYALTY_BRANDS,
             artist_email_addresses=artist_email_addresses,
             contracts=contracts,
             songs=songs,
@@ -1928,6 +1940,10 @@ def artist_person_add(artist_id):
         p = ArtistPerson(artist_id=a.id, first_name=first_name, last_name=last_name or "",
                          birth_date=parse_optional_date(request.form.get("birth_date")))
         session_db.add(p)
+        session_db.flush()
+        # La persona del artista ES un tercero: se vincula al que ya existe (si lo eligieron) o se le
+        # crea su ficha, para que pueda tener DNI, pasaporte, viaje, cuenta bancaria…
+        _ensure_promoter_for_artist_person(session_db, p, request.form.get("link_promoter_id") or None)
         session_db.commit()
         flash("Persona añadida.", "success")
         return redirect(safe_next_or(url_for("artist_detail_view", artist_id=a.id, tab="datos")))
@@ -1989,6 +2005,200 @@ def artist_person_delete(person_id):
         session_db.rollback()
         flash(f"Error eliminando persona: {e}", "danger")
         return redirect(safe_next_or(url_for("artists_view")))
+    finally:
+        session_db.close()
+
+
+# ---------- ARTISTAS: LA PERSONA DEL ARTISTA ES UN TERCERO ----------
+# Una persona de un artista (los miembros de un grupo, el propio artista solista) es en realidad un
+# TERCERO que forma parte del artista: tiene exactamente los mismos datos que un tercero particular
+# (DNI, pasaporte, carnet de conducir, tarjetas de fidelización, matrículas, necesidades de viaje,
+# cuenta bancaria, dirección fiscal…) y se rellenan desde la propia ficha del artista, sin salir.
+# El vínculo es `ArtistPerson.promoter_id`; los datos NO se duplican (así el mismo músico puede
+# estar en dos grupos) y, cuando factura, la búsqueda por DNI/CIF de /facturacion lo encuentra.
+
+def _artist_person_full_name(person) -> str:
+    if person is None:
+        return ""
+    return " ".join(x for x in [(person.first_name or "").strip(),
+                                (person.last_name or "").strip()] if x).strip()
+
+
+def _artist_person_promoter(session_db, person):
+    """El tercero de esta persona del artista (None si todavía no tiene ficha)."""
+    if person is None or not getattr(person, "promoter_id", None):
+        return None
+    return session_db.get(Promoter, person.promoter_id)
+
+
+def _artist_person_sync_names(person, promoter):
+    """Nombre y apellidos: cada lado rellena lo que el otro no tenga (nunca pisa lo escrito)."""
+    if person is None or promoter is None:
+        return
+    if not (promoter.first_name or "").strip():
+        promoter.first_name = (person.first_name or "").strip() or None
+    if not (promoter.last_name or "").strip():
+        promoter.last_name = (person.last_name or "").strip() or None
+    if not (person.first_name or "").strip() and (promoter.first_name or "").strip():
+        person.first_name = promoter.first_name
+    if not (person.last_name or "").strip() and (promoter.last_name or "").strip():
+        person.last_name = promoter.last_name
+
+
+def _ensure_promoter_for_artist_person(session_db, person, link_promoter_id=None):
+    """Devuelve el TERCERO de la persona, creándolo o vinculando uno que ya existe.
+
+    - `link_promoter_id`: vincular a un tercero que ya está en la base de datos (no duplicar a quien
+      ya estaba dado de alta).
+    - Si no: se reutiliza el tercero cuyo nick sea exactamente su nombre completo (mismo criterio que
+      el espejo de medios) y, si no existe, se crea uno nuevo.
+    """
+    if person is None:
+        return None
+    if link_promoter_id:
+        p = session_db.get(Promoter, to_uuid(str(link_promoter_id)) or uuid.uuid4())
+        if p is not None:
+            person.promoter_id = p.id
+            _artist_person_sync_names(person, p)
+            session_db.flush()
+            return p
+    existing = _artist_person_promoter(session_db, person)
+    if existing is not None:
+        return existing
+    nombre = _artist_person_full_name(person)
+    if not nombre:
+        return None
+    match = (session_db.query(Promoter)
+             .filter(func.lower(Promoter.nick) == nombre.lower())
+             .first())
+    if match is None:
+        match = Promoter(nick=_intake_unique_nick(session_db, nombre),
+                         first_name=(person.first_name or "").strip() or None,
+                         last_name=(person.last_name or "").strip() or None)
+        session_db.add(match)
+        session_db.flush()
+    person.promoter_id = match.id
+    _artist_person_sync_names(person, match)
+    session_db.flush()
+    return match
+
+
+def _artist_person_cards(session_db, artist, can_edit: bool) -> list:
+    """Personas del artista con TODO lo de su ficha de tercero, para pintarlas en la ficha del
+    artista (documentos con OCR, tarjetas, viaje y datos de facturación)."""
+    cards = []
+    for p in (artist.people or []):
+        pr = _artist_person_promoter(session_db, p)
+        cards.append({
+            "person": p,
+            "id": str(p.id),
+            "name": _artist_person_full_name(p) or "Sin nombre",
+            "promoter": pr,
+            "promoter_id": (str(pr.id) if pr else ""),
+            "documents": (_person_documents_for(session_db, "PROMOTER", pr.id) if pr else []),
+            "travel_prefs": (_travel_prefs_of(pr) if pr else _travel_prefs_of(None)),
+            "travel_summary": (_travel_summary(pr) if pr else _travel_summary(None)),
+            "docs_save_url": url_for("artist_person_document_save", person_id=p.id),
+            "docs_delete_base": url_for("artist_person_document_delete", person_id=p.id, doc_id="__ID__"),
+            "data_url": url_for("artist_person_data_save", person_id=p.id),
+            "can_edit": bool(can_edit),
+        })
+    return cards
+
+
+@app.post("/artistas/person/<person_id>/datos", endpoint="artist_person_data_save")
+@admin_required
+def artist_person_data_save(person_id):
+    """Guarda los datos de tercero de una persona del artista (los mismos que un tercero particular).
+    Si todavía no tenía ficha de tercero, se le crea al guardar."""
+    session_db = db()
+    try:
+        person = session_db.get(ArtistPerson, to_uuid(person_id))
+        if not person:
+            flash("Persona no encontrada.", "warning")
+            return redirect(safe_next_or(url_for("artists_view")))
+        volver = safe_next_or(url_for("artist_detail_view", artist_id=person.artist_id, tab="personas"))
+        if not can_edit_artists_stations():
+            abort(403)
+        # Nombre, apellidos y cumpleaños son de la persona (y se copian al tercero si le faltan).
+        if "first_name" in request.form:
+            nuevo = (request.form.get("first_name") or "").strip()
+            if not nuevo:
+                flash("El nombre es obligatorio.", "warning")
+                return redirect(volver)
+            person.first_name = nuevo
+            person.last_name = (request.form.get("last_name") or "").strip() or ""
+        if "birth_date" in request.form:
+            person.birth_date = parse_optional_date(request.form.get("birth_date"))
+        promoter = _ensure_promoter_for_artist_person(
+            session_db, person, request.form.get("link_promoter_id") or None)
+        if promoter is None:
+            flash("Ponle nombre a la persona antes de guardar sus datos.", "warning")
+            return redirect(volver)
+        for attr, campo in (("tax_id", "tax_id"), ("contact_email", "contact_email"),
+                            ("contact_phone", "contact_phone"), ("address", "address"),
+                            ("fiscal_address", "fiscal_address"), ("bank_account", "bank_account"),
+                            ("hotel_notes", "hotel_notes")):
+            if campo in request.form:
+                setattr(promoter, attr, (request.form.get(campo) or "").strip() or None)
+        # Necesidades de viaje (mismo panel que en tercero y personal).
+        if request.form.get("travel_prefs_present"):
+            promoter.travel_notes = (request.form.get("travel_notes") or "").strip() or None
+            promoter.travel_prefs = _parse_travel_prefs_form(request.form)
+            promoter.travel_departure_flight = (request.form.get("travel_departure_flight") or "").strip() or None
+            promoter.travel_departure_train = (request.form.get("travel_departure_train") or "").strip() or None
+        session_db.commit()
+        flash("Datos de la persona guardados.", "success")
+        return redirect(volver)
+    except Exception as e:
+        session_db.rollback()
+        flash(f"No se pudieron guardar los datos: {e}", "danger")
+        return redirect(safe_next_or(url_for("artists_view")))
+    finally:
+        session_db.close()
+
+
+@app.post("/artistas/person/<person_id>/documentos/guardar", endpoint="artist_person_document_save")
+@admin_required
+def artist_person_document_save(person_id):
+    """Alta/edición de un documento (DNI, pasaporte, carnet, tarjeta, matrícula) de una persona del
+    artista. Es el MISMO motor que en la ficha del tercero: se guarda en su tercero (creándolo si
+    hace falta, para que subir el DNI aquí ya le dé de alta)."""
+    session_db = db()
+    try:
+        person = session_db.get(ArtistPerson, to_uuid(person_id))
+        if not person:
+            return jsonify({"ok": False, "error": "Persona no encontrada."}), 404
+        if not can_edit_artists_stations():
+            return jsonify({"ok": False, "error": "Sin permiso para editar artistas."}), 403
+        promoter = _ensure_promoter_for_artist_person(session_db, person)
+        if promoter is None:
+            return jsonify({"ok": False, "error": "Ponle nombre a la persona antes de subir documentos."}), 400
+        payload = _person_document_save(session_db, "PROMOTER", promoter)
+        return jsonify({"ok": True, "document": payload})
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        session_db.close()
+
+
+@app.post("/artistas/person/<person_id>/documentos/<doc_id>/eliminar", endpoint="artist_person_document_delete")
+@admin_required
+def artist_person_document_delete(person_id, doc_id):
+    session_db = db()
+    try:
+        person = session_db.get(ArtistPerson, to_uuid(person_id))
+        promoter = _artist_person_promoter(session_db, person)
+        if not person or promoter is None:
+            return jsonify({"ok": False, "error": "Persona no encontrada."}), 404
+        if not can_edit_artists_stations():
+            return jsonify({"ok": False, "error": "Sin permiso para editar artistas."}), 403
+        ok = _person_document_delete_one(session_db, "PROMOTER", promoter, doc_id)
+        return jsonify({"ok": ok}) if ok else (jsonify({"ok": False, "error": "No encontrado."}), 404)
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
     finally:
         session_db.close()
 
@@ -7876,13 +8086,20 @@ def _afavor_liquidation_row(session_db, company_id, sem_start: date, sem_end: da
     return rec
 
 
-def _afavor_pies_company(session_db):
-    """Empresa del grupo que factura las colaboraciones a favor: PIES (siempre la misma)."""
+def _pies_group_company(session_db):
+    """La empresa del grupo del SELLO (PIES). Es la que factura todo lo discográfico: las
+    colaboraciones a favor y las liquidaciones de royalties (que se emiten a nombre de PIES, no de
+    33 Producciones). Si no hay ninguna con «PIES» en el nombre, cae a la primera del grupo."""
     companies = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
     for co in companies:
         if "PIES" in (co.name or "").upper():
             return co
     return companies[0] if companies else None
+
+
+def _afavor_pies_company(session_db):
+    """Empresa del grupo que factura las colaboraciones a favor: PIES (siempre la misma)."""
+    return _pies_group_company(session_db)
 
 
 def _build_afavor_groups(session_db, sem_start: date, selected_artist_id=None) -> dict:
@@ -13900,9 +14117,11 @@ def public_royalty_liquidation_view(token):
         except Exception:
             abort(404)
         rec = _royalty_liquidation_record(session_db, kind, beneficiary_uuid, sem_start)
+        # Las liquidaciones de royalties se facturan A NOMBRE DE PIES (el sello), no de la primera
+        # empresa del grupo por orden alfabético (que era 33 Producciones).
         company = None
         try:
-            company = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).first()
+            company = _pies_group_company(session_db)
         except Exception:
             company = None
         # El proveedor de la factura: el propio beneficiario si es un tercero.
@@ -41740,8 +41959,9 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return fixed[endpoint]
     if endpoint in {"artists_view", "artist_update", "artist_delete", "artist_create"}:
         return "artists"
-    # Plantillas del artista (personal / rooming / hoja de ruta): viven en su ficha.
-    if endpoint.startswith("artist_template"):
+    # Plantillas del artista (personal / rooming / hoja de ruta) y las PERSONAS del artista (que son
+    # terceros que forman parte de él): viven en su ficha.
+    if endpoint.startswith("artist_template") or endpoint.startswith("artist_person"):
         return "artists"
     if endpoint in {"registros_view", "registros_concert_declare", "registros_repertoire_link"}:
         return "registros.pendiente"
@@ -42287,11 +42507,14 @@ def _resolve_request_resource_key() -> str | None:
         return "ventas.actualizar"
     if endpoint in {"artists_view", "artist_update", "artist_delete", "artist_create"}:
         return "artists"
-    # Plantillas del artista (personal / rooming / hoja de ruta): viven en su ficha.
-    if endpoint.startswith("artist_template"):
+    # Plantillas del artista (personal / rooming / hoja de ruta) y las PERSONAS del artista (que son
+    # terceros que forman parte de él): viven en su ficha.
+    if endpoint.startswith("artist_template") or endpoint.startswith("artist_person"):
         return "artists"
     if endpoint == "artist_detail_view":
         tab = (request.args.get("tab") or "datos").strip().lower()
+        if tab == "personas":
+            return "artists.datos"
         if tab in {"datos", "contratos", "conciertos", "discografica", "agenda", "promocion", "marketing", "liquidaciones"}:
             return "artists.promocion" if tab == "marketing" else f"artists.{tab}"
         return "artists"
@@ -52470,6 +52693,49 @@ def _billing_docs_state(session_db, promoter, kind: str) -> list:
     return rows
 
 
+def _promoter_artist_context(session_db, promoter) -> dict:
+    """¿De qué ARTISTA forma parte este tercero? Se mira por partida doble:
+    - es una PERSONA de un artista (`ArtistPerson.promoter_id`: miembro del grupo, el propio solista);
+    - está VINCULADO a un artista por vinculaciones (mánager, técnico, la sociedad que le factura…).
+
+    Sirve para que quien sube una factura se reconozca («Miembro de Los X») y para rellenar solo el
+    ARTISTA de la factura, que es el dato que administración necesita para tramitarla.
+    """
+    if promoter is None:
+        return {"names": [], "label": "", "is_member": False}
+    nombres, es_miembro = [], False
+    try:
+        for (nombre,) in (session_db.query(Artist.name)
+                          .join(ArtistPerson, ArtistPerson.artist_id == Artist.id)
+                          .filter(ArtistPerson.promoter_id == promoter.id)
+                          .order_by(Artist.name.asc()).all()):
+            if nombre and nombre not in nombres:
+                nombres.append(nombre)
+                es_miembro = True
+    except Exception:
+        pass
+    try:
+        ids = set()
+        for link in (session_db.query(ThirdPartyLink)
+                     .filter(ThirdPartyLink.is_active.is_(True))
+                     .filter(or_(and_(ThirdPartyLink.source_type == "promoter",
+                                      ThirdPartyLink.source_id == promoter.id,
+                                      ThirdPartyLink.target_type == "artist"),
+                                 and_(ThirdPartyLink.target_type == "promoter",
+                                      ThirdPartyLink.target_id == promoter.id,
+                                      ThirdPartyLink.source_type == "artist"))).all()):
+            ids.add(link.target_id if link.target_type == "artist" else link.source_id)
+        if ids:
+            for (nombre,) in (session_db.query(Artist.name)
+                              .filter(Artist.id.in_(list(ids)))
+                              .order_by(Artist.name.asc()).all()):
+                if nombre and nombre not in nombres:
+                    nombres.append(nombre)
+    except Exception:
+        pass
+    return {"names": nombres, "label": " · ".join(nombres), "is_member": es_miembro}
+
+
 def _billing_profile_payload(session_db, promoter) -> dict:
     """Datos de facturación del proveedor, con los personales ENMASCARADOS, y qué falta."""
     kind = "EMPRESA" if (promoter.kind or "").lower() == "empresa" else _tax_id_kind(promoter.tax_id or "")
@@ -52518,6 +52784,9 @@ def _billing_profile_payload(session_db, promoter) -> dict:
         "has_fiscal": bool(fiscal),
         "missing": missing,
         "complete": not missing,
+        # Artista del que forma parte (miembro del grupo o vinculado): se muestra al identificarse y
+        # rellena el artista de la factura.
+        **{f"artist_{k}": v for k, v in _promoter_artist_context(session_db, promoter).items()},
     }
 
 
@@ -52734,7 +53003,8 @@ def public_invoice_landing():
                 except Exception:
                     beneficiary, beneficiary_uuid = None, None
                 provider = session_db.get(Promoter, beneficiary_uuid) if (kind == "PROMOTER" and beneficiary_uuid) else None
-                company = companies[0] if companies else None
+                # Royalties = sello: la factura va a nombre de PIES.
+                company = _pies_group_company(session_db) or (companies[0] if companies else None)
                 rows = []
                 if beneficiary:
                     rows = [{
@@ -52779,17 +53049,33 @@ def public_invoice_identify():
         if not norm:
             return jsonify({"ok": False, "error": "Escribe tu DNI o CIF"}), 400
         kind = _tax_id_kind(raw)
-        matches = []
+        matches, vistos = [], set()
+
+        def _añadir(p):
+            if p is None or str(p.id) in vistos:
+                return
+            vistos.add(str(p.id))
+            matches.append(_billing_profile_payload(session_db, p))
+
+        # Se buscan TODAS las vías (sin cortar en la primera que acierte: si dos fichas comparten el
+        # número, se ofrecen las dos y elige quien está facturando).
         for p in session_db.query(Promoter).filter(Promoter.tax_id.isnot(None)).all():
             if _prl_norm_dni(p.tax_id) == norm:
-                matches.append(_billing_profile_payload(session_db, p))
+                _añadir(p)
         # También por CIF de una sociedad del tercero.
-        if not matches:
-            for pc in session_db.query(PromoterCompany).filter(PromoterCompany.tax_id.isnot(None)).all():
-                if _prl_norm_dni(pc.tax_id) == norm:
-                    p = session_db.get(Promoter, pc.promoter_id)
-                    if p:
-                        matches.append(_billing_profile_payload(session_db, p))
+        for pc in session_db.query(PromoterCompany).filter(PromoterCompany.tax_id.isnot(None)).all():
+            if _prl_norm_dni(pc.tax_id) == norm:
+                _añadir(session_db.get(Promoter, pc.promoter_id))
+        # Y por el número del DNI/pasaporte ESCANEADO: los artistas y las personas de los artistas
+        # (que son terceros que forman parte de ellos) suelen tener el documento subido en su ficha
+        # aunque nadie haya rellenado a mano el campo DNI/NIF. Sin esto se les pedía darse de alta
+        # otra vez y salía un tercero duplicado.
+        for doc in (session_db.query(PersonDocument)
+                    .filter(PersonDocument.owner_type == "PROMOTER",
+                            PersonDocument.kind.in_(("DNI", "PASSPORT")),
+                            PersonDocument.doc_number.isnot(None)).all()):
+            if _prl_norm_dni(doc.doc_number) == norm:
+                _añadir(session_db.get(Promoter, doc.owner_id))
         return jsonify({"ok": True, "kind": kind, "tax_id": raw, "found": bool(matches), "matches": matches})
     finally:
         session_db.close()

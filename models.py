@@ -116,9 +116,18 @@ class ArtistPerson(Base):
     last_name = Column(Text, nullable=False, server_default=text("''"))
     birth_date = Column(Date)
 
+    # LA PERSONA DE UN ARTISTA ES UN TERCERO que forma parte de él: aquí solo queda el vínculo y
+    # todos sus datos personales (DNI/pasaporte/carnet, tarjetas de fidelización, matrículas,
+    # necesidades de viaje, cuenta bancaria, dirección fiscal…) viven en su ficha de tercero
+    # (`Promoter` + `PersonDocument`), que se edita desde la propia ficha del artista. Así el mismo
+    # músico puede estar en dos grupos sin duplicar datos y, cuando factura, la búsqueda por DNI/CIF
+    # de la subida de facturas lo encuentra.
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"), index=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     artist = relationship("Artist", back_populates="people")
+    promoter = relationship("Promoter")
 
 
 class ArtistAgendaItem(Base):
@@ -5134,6 +5143,11 @@ def ensure_artist_feature_schema():
         "CREATE INDEX IF NOT EXISTS ix_cycle_festivals_event ON cycle_festivals (event_id);",
         "CREATE INDEX IF NOT EXISTS ix_concerts_event ON concerts (event_id);",
         "ALTER TABLE IF EXISTS artist_people ADD COLUMN IF NOT EXISTS birth_date date;",
+        # Cada persona del artista ES UN TERCERO que forma parte de él: sus datos (DNI, pasaporte,
+        # carnet, tarjetas de fidelización, viaje, cuenta bancaria…) viven en su ficha de tercero y
+        # se editan desde la propia ficha del artista.
+        "ALTER TABLE IF EXISTS artist_people ADD COLUMN IF NOT EXISTS promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL;",
+        "CREATE INDEX IF NOT EXISTS ix_artist_people_promoter ON artist_people (promoter_id);",
         # Entradas libres de la agenda del artista (bloqueos / notas).
         """
         CREATE TABLE IF NOT EXISTS artist_agenda_items (

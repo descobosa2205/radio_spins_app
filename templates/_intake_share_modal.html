@@ -73,7 +73,9 @@
     q('data-intake-modal-title').textContent = link.kind === 'UPDATE' ? 'Solicitar actualización' : 'Link de alta';
     q('data-intake-title-preview').textContent = link.title;
     q('data-intake-person').textContent = link.person || 'Todavía no sabemos quién es: lo rellenará él mismo.';
-    q('data-intake-photo').src = link.photo;
+    // Sin foto ni logo: el símbolo de «sin foto» (así se ve lo mismo que llegará por WhatsApp).
+    q('data-intake-photo').src = link.has_photo ? link.photo : link.photo_placeholder;
+    q('data-intake-photo').classList.toggle('p-1', !link.has_photo);
     q('data-intake-url').value = link.url;
     q('data-intake-wa').href = link.whatsapp;
     q('data-intake-sms').href = link.sms;

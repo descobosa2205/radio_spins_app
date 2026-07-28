@@ -52342,9 +52342,10 @@ def _intake_link_payload(session_db, link) -> dict:
         cuerpo = (f"Hola{(' ' + nombre) if nombre else ''}: {quien or 'el equipo'} te pide que "
                   f"te des de alta en nuestro Back Office.\n\n{url}")
     # ⚠️ og:image SIEMPRE por nuestro endpoint (JPEG 1200×630): WhatsApp descarta las imágenes
-    # grandes o sin dimensiones declaradas. La fuente es el logo/foto del tercero y, si no tiene,
-    # el logo de 33 Producciones.
+    # grandes o sin dimensiones declaradas. La fuente es el logo/foto del tercero y, si no tiene
+    # (un alta nueva no sabe todavía quién es), el símbolo de «sin foto», NO el logo de la casa.
     foto = _external_url_for("public_intake_og_image", token=link.public_token)
+    tiene_foto = bool((getattr(promoter, "logo_url", "") or "").strip())
     return {
         "id": str(link.id),
         "token": link.public_token,
@@ -52354,6 +52355,8 @@ def _intake_link_payload(session_db, link) -> dict:
         "subject": asunto,
         "person": nombre,
         "photo": foto,
+        "has_photo": tiene_foto,
+        "photo_placeholder": _external_url_for("static", filename="img/placeholder_photo.png"),
         "text": cuerpo,
         "whatsapp": "https://wa.me/?text=" + quote(cuerpo),
         "sms": "sms:?&body=" + quote(cuerpo),
@@ -52752,9 +52755,10 @@ def public_intake_og_image(token):
         src = _absolute_media_url((getattr(promoter, "logo_url", "") or "").strip()) or ""
     finally:
         session_db.close()
+    # Sin foto ni logo (alta nueva): el símbolo de «sin foto», no el logo de 33 Producciones.
     if not src:
-        src = "/static/img/logo_33_producciones.png"
-    data = _og_image_jpeg_bytes(src) or _og_image_jpeg_bytes("/static/img/logo_33_producciones.png")
+        src = "/static/img/placeholder_photo.png"
+    data = _og_image_jpeg_bytes(src) or _og_image_jpeg_bytes("/static/img/placeholder_photo.png")
     if not data:
         return redirect(src)
     resp = send_file(BytesIO(data), mimetype="image/jpeg")

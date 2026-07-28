@@ -129,9 +129,28 @@
       view.insertBefore(box, view.firstChild);
       setTimeout(function () { box.remove(); }, 4500);
     }
-    function loadTemplate(kind, tid, mode) {
+    function askRoomingDays(tid, cb) {
+      // El reparto de la plantilla es de UNA NOCHE: aquí se decide a qué días se aplica.
+      var dias = (DAYS || []).map(function (d) {
+        return '<label class="filter-chip"><input type="checkbox" value="' + esc(d.date) + '" checked><i class="fa fa-calendar-day"></i>' + esc(d.label) + '</label>';
+      }).join('');
+      var body = '<p class="mb-2">¿Para qué días es este reparto de habitaciones?</p>'
+        + '<div class="filter-chips mb-2" id="rmTplDays">' + (dias || '<span class="text-muted">Esta actividad no tiene días.</span>') + '</div>'
+        + '<div class="small text-muted">Por defecto, todos. Desmarca los que no.</div>';
+      var m = openModal('rmTplModal', 'modal-md', 'Cargar rooming list', body, [
+        btn('Cancelar', 'btn-outline-secondary', function () { var i = bs('rmTplModal'); if (i) i.hide(); }),
+        btn('Cargar', 'btn-primary', function () {
+          var sel = Array.prototype.slice.call(document.querySelectorAll('#rmTplDays input:checked')).map(function (c) { return c.value; });
+          if (!sel.length) { alert('Marca al menos un día.'); return; }
+          cb(sel);
+        }),
+      ]);
+      return m;
+    }
+    function loadTemplate(kind, tid, mode, dias) {
       var fd = new FormData();
       if (mode) fd.append('mode', mode);
+      (dias || []).forEach(function (d) { fd.append('days', d); });
       return postForm(ep('/plantillas/' + tid + '/cargar'), fd).then(function (resp) {
         if (!resp || !resp.ok) { alert((resp && resp.error) || 'No se pudo cargar la plantilla.'); return; }
         if (resp.needs_decision) {
@@ -144,8 +163,8 @@
             + '<p class="mb-0 small text-muted">Puedes añadirlas al personal (y quedan repartidas en sus habitaciones) o '
             + 'dejarlas fuera (se cargan las habitaciones sin ellas). Quien esté en el personal y no en la plantilla se queda sin habitación.</p>';
           openModal('rmTplModal', 'modal-md', 'Cargar rooming list', body, [
-            btn('Dejarlas fuera', 'btn-outline-secondary', function () { var i = bs('rmTplModal'); if (i) i.hide(); loadTemplate(kind, tid, 'skip_missing'); }),
-            btn('Añadirlas al personal', 'btn-primary', function () { var i = bs('rmTplModal'); if (i) i.hide(); loadTemplate(kind, tid, 'add_missing'); }),
+            btn('Dejarlas fuera', 'btn-outline-secondary', function () { var i = bs('rmTplModal'); if (i) i.hide(); loadTemplate(kind, tid, 'skip_missing', dias); }),
+            btn('Añadirlas al personal', 'btn-primary', function () { var i = bs('rmTplModal'); if (i) i.hide(); loadTemplate(kind, tid, 'add_missing', dias); }),
           ]);
           return;
         }
@@ -174,7 +193,11 @@
         var m = openModal('rmTplModal', 'modal-md', 'Plantillas de ' + LABEL, body,
                           [btn('Cerrar', 'btn-outline-secondary', function () { var i = bs('rmTplModal'); if (i) i.hide(); })]);
         m.querySelectorAll('[data-tpl-pick]').forEach(function (b2) {
-          b2.addEventListener('click', function () { loadTemplate(kind, b2.getAttribute('data-tpl-pick')); });
+          b2.addEventListener('click', function () {
+            var tid = b2.getAttribute('data-tpl-pick');
+            if (kind === 'ROOMING') { askRoomingDays(tid, function (dias) { loadTemplate(kind, tid, null, dias); }); return; }
+            loadTemplate(kind, tid);
+          });
         });
         var sv = m.querySelector('[data-tpl-save]');
         if (sv) sv.addEventListener('click', function () {
@@ -695,6 +718,9 @@
     }
     function roomTypeLabel(n) { return n === 1 ? 'DUI' : (n === 2 ? 'Doble' : (n === 3 ? 'Triple' : (n ? n + ' pers.' : 'Vacía'))); }
     function roomRangeLabel(r, ho) {
+      // En una plantilla no hay fechas: es de UNA NOCHE y lo que se guarda es el reparto. Los días
+      // se eligen al cargarla en la actividad (todos o los que se marquen).
+      if (IS_TPL) return '';
       var from = r.day_from || (ho.days || [])[0] || '';
       var to = r.day_to || (ho.days || [])[(ho.days || []).length - 1] || from;
       if (!from) return '';
@@ -778,7 +804,7 @@
             + '<div class="rm-room__head"><span class="fw-semibold">' + roomTypeLabel((r.occupant_ids || []).length) + '</span>'
             + '<span><label class="rm-sub me-1" title="Desayuno"><input type="checkbox" data-ebrk="' + i + '"' + (r.breakfast ? ' checked' : '') + '> <i class="fa fa-mug-saucer"></i></label>'
             + '<button type="button" class="btn btn-sm btn-link text-danger p-0" data-edelroom="' + i + '"><i class="fa fa-trash"></i></button></span></div>'
-            + '<div class="rm-sub mb-1">De <select class="form-select form-select-sm d-inline-block w-auto" data-efrom="' + i + '">' + dayOptions(r.day_from || hotelDays[0] || '') + '</select> a <select class="form-select form-select-sm d-inline-block w-auto" data-eto="' + i + '">' + dayOptions(r.day_to || hotelDays[hotelDays.length - 1] || '') + '</select></div>'
+            + (IS_TPL ? '' : '<div class="rm-sub mb-1">De <select class="form-select form-select-sm d-inline-block w-auto" data-efrom="' + i + '">' + dayOptions(r.day_from || hotelDays[0] || '') + '</select> a <select class="form-select form-select-sm d-inline-block w-auto" data-eto="' + i + '">' + dayOptions(r.day_to || hotelDays[hotelDays.length - 1] || '') + '</select></div>')
             + (occ || '<div class="rm-sub">Arrastra personas aquí</div>')
             + '</div>';
         });

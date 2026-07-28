@@ -38204,11 +38204,14 @@ def roadmap_hotel_rooms_save(entity_type, entity_id):
                 if oid in valid_person_ids and oid not in seen_occupants:
                     occupants.append(oid)
                     seen_occupants.add(oid)
+            # En una PLANTILLA de rooming no se guardan fechas: es de una noche y lo que vale es el
+            # reparto (los días se eligen al cargarla en la actividad).
+            es_plantilla = isinstance(row, ArtistTemplate)
             rooms.append({
                 "id": (str(raw.get("id") or "").strip() or _roadmap_new_id()),
                 "breakfast": bool(raw.get("breakfast")),
-                "day_from": _roadmap_clean_day(raw.get("day_from") or ""),
-                "day_to": _roadmap_clean_day(raw.get("day_to") or ""),
+                "day_from": ("" if es_plantilla else _roadmap_clean_day(raw.get("day_from") or "")),
+                "day_to": ("" if es_plantilla else _roadmap_clean_day(raw.get("day_to") or "")),
                 "occupant_ids": occupants,
             })
         hotel["rooms"] = rooms
@@ -40679,21 +40682,29 @@ def roadmap_template_load(entity_type, entity_id, tid):
                     actual = actuales.get(_artist_template_person_key(p))
                     if actual:
                         id_map[str(p.get("id"))] = str(actual.get("id"))
+            # ¿A qué días se aplica el reparto? La plantilla es de UNA NOCHE (solo guarda quién va
+            # con quién); aquí se eligen los días de la actividad (por defecto, todos).
+            dias_actividad = [d["date"] for d in _roadmap_days(row, payload)]
+            pedidos = [x for x in (request.form.getlist("days")
+                                   or ((request.get_json(silent=True) or {}).get("days") or []))
+                       if str(x)[:10] in dias_actividad]
+            dias = sorted({str(x)[:10] for x in pedidos}) or dias_actividad
             hoteles = payload.setdefault("hotels", [])
             copiados = 0
             for hotel in (origen.get("hotels") or []):
                 nuevo = dict(hotel)
                 nuevo["id"] = _roadmap_new_id()
                 nuevo["attachments"] = []
-                nuevo["days"] = [d["date"] for d in _roadmap_days(row, payload)][:1] or []
+                nuevo["days"] = list(dias)
                 nuevo["assignee_ids"] = [id_map[x] for x in (hotel.get("assignee_ids") or []) if x in id_map]
                 habitaciones = []
                 for hab in (hotel.get("rooms") or []):
                     h = dict(hab)
                     h["id"] = _roadmap_new_id()
                     h["occupant_ids"] = [id_map[x] for x in (hab.get("occupant_ids") or []) if x in id_map]
-                    h.pop("day_from", None)
-                    h.pop("day_to", None)
+                    # El mismo reparto para todos los días elegidos.
+                    h["day_from"] = dias[0] if dias else ""
+                    h["day_to"] = dias[-1] if dias else ""
                     habitaciones.append(h)
                 nuevo["rooms"] = habitaciones
                 hoteles.append(nuevo)
@@ -40702,9 +40713,11 @@ def roadmap_template_load(entity_type, entity_id, tid):
             sin_habitacion = [p for p in (payload.get("personnel") or [])
                               if not any(str(p.get("id")) in (hab.get("occupant_ids") or [])
                                          for h in hoteles for hab in (h.get("rooms") or []))]
-            resumen.update(hotels=copiados, unassigned=len(sin_habitacion),
+            _dias_txt = (f"{len(dias)} día{'s' if len(dias) != 1 else ''}"
+                         if len(dias) != len(dias_actividad) else "todos los días")
+            resumen.update(hotels=copiados, unassigned=len(sin_habitacion), days_applied=dias,
                            payload=payload, days=_roadmap_days(row, payload),
-                           message=(f"{copiados} hotel(es) con su reparto"
+                           message=(f"{copiados} hotel(es) con su reparto · {_dias_txt}"
                                     + (f" · {len(sin_habitacion)} sin habitación" if sin_habitacion else "")))
             return jsonify(resumen)
 
@@ -40746,10 +40759,19 @@ def roadmap_template_save_from(entity_type, entity_id):
         if kind in ("PERSONNEL", "ROOMING"):
             nuevo["personnel"] = [dict(p) for p in (payload.get("personnel") or [])]
         if kind == "ROOMING":
+            # Se guarda el REPARTO, no las fechas: la plantilla es de una noche y los días se
+            # eligen al cargarla.
             for hotel in (payload.get("hotels") or []):
                 h = dict(hotel)
                 h["attachments"] = []
-                h["rooms"] = [dict(r) for r in (hotel.get("rooms") or [])]
+                h["days"] = []
+                habitaciones = []
+                for r in (hotel.get("rooms") or []):
+                    hr = dict(r)
+                    hr.pop("day_from", None)
+                    hr.pop("day_to", None)
+                    habitaciones.append(hr)
+                h["rooms"] = habitaciones
                 nuevo["hotels"].append(h)
         if kind == "ROADMAP":
             # Los días reales se convierten en Día 1, 2, 3… (el anclaje de las plantillas).

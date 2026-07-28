@@ -23363,6 +23363,9 @@ def purchased_tour_detail(tid):
         )
         return render_template(
             "activity_group_detail.html",
+            # Cartelería de TODA la gira (una sola solicitud para todas sus fechas).
+            **_artwork_group_context(s, "TOUR", t.id),
+            can_validate_artwork=_can_validate_artwork(),
             group_kind="TOUR", group=t, concerts=rows, general=general,
             advance_share=advance_share, gen_total=gen_total,
             candidates=cand_rows, status_label=label, status_badge=badge,
@@ -23704,6 +23707,9 @@ def cycle_festival_detail(cfid):
         )
         return render_template(
             "activity_group_detail.html",
+            # Cartelería de TODO el ciclo/festival/evento.
+            **_artwork_group_context(s, "CYCLE", cf.id),
+            can_validate_artwork=_can_validate_artwork(),
             group_kind=(cf.kind or "FESTIVAL").upper(), group=cf, concerts=rows, general=general,
             advance_share=0.0, gen_total=gen_total, candidates=cand_rows,
             status_label=label, status_badge=badge, artists=artists, companies=companies,
@@ -27836,6 +27842,20 @@ def concert_detail_view(cid):
         # Punto de empate (solo donde se enseña: pestaña Resultado): manda lo que puso contratación;
         # si no, los gastos CONSOLIDADOS de la bolsa; y si tampoco, el presupuesto. El aviso salta
         # únicamente cuando el de contratación NO cuadra con el calculado.
+        # Carteles de TODA la gira/ciclo/evento al que pertenece la fecha: se ven aquí en su propio
+        # módulo, aparte de los carteles de esta fecha.
+        grupo_art = {}
+        if tab == "carteleria":
+            _gk, _gid = _concert_group_ref(c)
+            if _gk and _gid:
+                grupo_art = _artwork_group_context(session, _gk, _gid)
+        # Responsable de producción: en eventos y fechas sin artista de la casa hay que elegirlo al
+        # confirmar (si no, nadie de producción lo ve como suyo).
+        needs_prod_owner = False
+        try:
+            needs_prod_owner = _concert_needs_production_owner(session, c)
+        except Exception:
+            needs_prod_owner = False
         break_even_info = None
         if tab == "resultado":
             try:
@@ -27938,6 +27958,10 @@ def concert_detail_view(cid):
             production_panel=production_panel,
             roadmap_ctx=roadmap_ctx,
             break_even_info=break_even_info,
+            needs_production_owner=needs_prod_owner,
+            production_people=(_production_people(session) if needs_prod_owner else []),
+            production_owner_name=_concert_production_owner_name(session, c),
+            **grupo_art,
             result_calc=(result_ctx["calc"] if result_ctx else None),
             result_module=(result_ctx["module"] if result_ctx else None),
             result_et_income=(result_ctx.get("et_income") if result_ctx else False),
@@ -28309,6 +28333,289 @@ def _artwork_ensure_request(session_db, concert):
         session_db.add(row)
         session_db.flush()
     return row
+
+
+# ---------------------------------------------------------------------------
+#  CARTELERÍA DE TODO UN GRUPO (gira comprada · ciclo/festival · evento)
+#  Una sola solicitud para todas sus fechas. Sus carteles se ven además en cada fecha, en un módulo
+#  aparte del de la fecha, para que se sepa cuál es cuál. Mismo circuito: subir a mano → aprobación
+#  de diseño uno a uno → compartir/descargar.
+# ---------------------------------------------------------------------------
+ARTWORK_GROUP_KINDS = {"TOUR": "gira", "CYCLE": "ciclo"}
+
+
+def _artwork_group_owner(session_db, kind: str, gid):
+    """(objeto del grupo, etiqueta legible) para TOUR (gira comprada) o CYCLE (ciclo/festival/evento)."""
+    k = (kind or "").strip().upper()
+    gid = to_uuid(str(gid or "")) or None
+    if not gid:
+        return None, ""
+    if k == "TOUR":
+        row = session_db.get(PurchasedTour, gid)
+        return row, (getattr(row, "name", "") or "Gira")
+    if k == "CYCLE":
+        row = session_db.get(CycleFestival, gid)
+        etiqueta = CYCLE_FESTIVAL_KIND_LABELS.get((getattr(row, "kind", "") or "").upper(), "Ciclo")
+        return row, (getattr(row, "name", "") or etiqueta)
+    return None, ""
+
+
+def _artwork_group_request(session_db, kind: str, gid, create: bool = False):
+    """La solicitud de cartelería del grupo (se crea vacía si hace falta)."""
+    k = (kind or "").strip().upper()
+    gid = to_uuid(str(gid or "")) or None
+    if k not in ARTWORK_GROUP_KINDS or not gid:
+        return None
+    row = (session_db.query(ConcertArtworkRequest)
+           .filter(ConcertArtworkRequest.group_kind == k, ConcertArtworkRequest.group_id == gid)
+           .first())
+    if row is None and create:
+        row = ConcertArtworkRequest(concert_id=None, group_kind=k, group_id=gid,
+                                    public_token=uuid.uuid4().hex, handled_by="OURS", status="DRAFT")
+        session_db.add(row)
+        session_db.flush()
+    return row
+
+
+def _artwork_group_assets(session_db, kind: str, gid, only_approved: bool = True) -> list:
+    """Carteles del grupo (por defecto solo los aprobados, que son los que se pueden usar)."""
+    row = _artwork_group_request(session_db, kind, gid)
+    if row is None:
+        return []
+    salida = []
+    for a in (row.assets or []):
+        if getattr(a, "is_archived", False):
+            continue
+        if only_approved and (a.validation_status or "APPROVED") != "APPROVED":
+            continue
+        salida.append(a)
+    return sorted(salida, key=lambda x: (not bool(x.is_primary), x.created_at or datetime.min))
+
+
+def _concert_group_ref(concert):
+    """(kind, id) del grupo al que pertenece una actividad: su gira comprada o su ciclo/festival/evento."""
+    if getattr(concert, "purchased_tour_id", None):
+        return "TOUR", concert.purchased_tour_id
+    if getattr(concert, "cycle_festival_id", None):
+        return "CYCLE", concert.cycle_festival_id
+    return None, None
+
+
+def _artwork_group_context(session_db, kind: str, gid) -> dict:
+    """Contexto del panel de cartelería de un grupo (mismo panel en la ficha del grupo y, en modo
+    solo lectura, en cada fecha)."""
+    grupo, nombre = _artwork_group_owner(session_db, kind, gid)
+    row = _artwork_group_request(session_db, kind, gid)
+    todos = [a for a in ((row.assets if row else None) or []) if not a.is_archived]
+    return {
+        "gk_kind": (kind or "").upper(),
+        "gk_id": str(gid) if gid else "",
+        "gk_name": nombre,
+        "gk_request": row,
+        "gk_assets": [a for a in todos if (a.validation_status or "APPROVED") == "APPROVED"],
+        "gk_pending": [a for a in todos if (a.validation_status or "APPROVED") == "PENDING"],
+        "gk_rejected": [a for a in todos if (a.validation_status or "APPROVED") == "REJECTED"],
+    }
+
+
+@app.post('/conciertos/<cid>/responsable-produccion', endpoint='concert_production_owner_save')
+@admin_required
+def concert_production_owner_save(cid):
+    """Quién de producción se encarga de esta actividad (eventos y fechas sin artista de la casa)."""
+    session_db = db()
+    try:
+        c = session_db.get(Concert, to_uuid(cid))
+        if c is None:
+            return jsonify({"ok": False, "error": "Actividad no encontrada."}), 404
+        if not can_edit_concerts():
+            return jsonify({"ok": False, "error": "Sin permiso."}), 403
+        uid = to_uuid((request.form.get("user_id") or "").strip() or "")
+        c.production_owner_user_id = uid
+        session_db.commit()
+        nombre = _concert_production_owner_name(session_db, c)
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return jsonify({"ok": True, "name": nombre})
+        flash(f"Responsable de producción: {nombre or 'sin asignar'}.", "success")
+        return redirect(request.form.get("next") or url_for("concert_detail_view", cid=cid))
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        session_db.close()
+
+
+@app.post('/carteleria-grupo/<gkind>/<gid>/subir', endpoint='group_artwork_upload_direct')
+@admin_required
+def group_artwork_upload_direct(gkind, gid):
+    """Sube carteles de TODA la gira/evento (arrastrando archivos o carpetas). Igual que en una
+    fecha: quedan pendientes del OK de diseño salvo que los suba diseño."""
+    session_db = db()
+    try:
+        grupo, _n = _artwork_group_owner(session_db, gkind, gid)
+        if grupo is None:
+            return jsonify({"ok": False, "error": "Grupo no encontrado."}), 404
+        if not can_edit_concerts():
+            return jsonify({"ok": False, "error": "Sin permiso para subir carteles."}), 403
+        row = _artwork_group_request(session_db, gkind, gid, create=True)
+        estado = _current_user_state()
+        aprobado_ya = _can_validate_artwork()
+        ficheros = request.files.getlist("files") or request.files.getlist("file")
+        etiquetas = request.form.getlist("labels")
+        anchos, altos = request.form.getlist("widths"), request.form.getlist("heights")
+        subidos = []
+        for i, fs in enumerate(ficheros):
+            if not fs or not getattr(fs, "filename", ""):
+                continue
+            file_url, mime_type = _upload_artwork_file(fs)
+            if not file_url:
+                continue
+            nombre = (etiquetas[i] if i < len(etiquetas) else "") or fs.filename or "Cartel"
+            nombre = os.path.basename(str(nombre).replace("\\", "/")).strip() or "Cartel"
+            asset = ConcertArtworkAsset(
+                artwork_request_id=row.id, format_label=os.path.splitext(nombre)[0][:120],
+                file_url=file_url, original_name=nombre[:200], mime_type=mime_type,
+                width=_parse_optional_positive_int((anchos[i] if i < len(anchos) else "") or ""),
+                height=_parse_optional_positive_int((altos[i] if i < len(altos) else "") or ""),
+                validation_status=("APPROVED" if aprobado_ya else "PENDING"),
+                uploaded_by_user_id=to_uuid(estado.get("user_id")),
+                uploaded_by_nick=(estado.get("nick") or "").strip() or None,
+            )
+            session_db.add(asset)
+            session_db.flush()
+            subidos.append({"id": str(asset.id), "label": asset.format_label})
+        if not subidos:
+            return jsonify({"ok": False, "error": "No se pudo subir ningún archivo."}), 400
+        hay_pendientes = any((a.validation_status or "APPROVED") == "PENDING"
+                             for a in (row.assets or []) if not a.is_archived)
+        row.status = "REVIEW" if hay_pendientes else "UPLOADED"
+        if not hay_pendientes:
+            _artwork_pick_primary_by_squareness(row)
+        row.updated_at = datetime.now(ZoneInfo('Europe/Madrid'))
+        session_db.commit()
+        return jsonify({"ok": True, "assets": subidos, "count": len(subidos)})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("group_artwork_upload_direct")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        session_db.close()
+
+
+@app.post('/carteleria-grupo/<gkind>/<gid>/assets/<asset_id>/revisar', endpoint='group_artwork_asset_review')
+@admin_required
+def group_artwork_asset_review(gkind, gid, asset_id):
+    """Diseño aprueba o rechaza UN cartel de la gira/evento (con su nota de qué cambiar)."""
+    if not _can_validate_artwork():
+        return jsonify({"ok": False, "error": "Solo diseño puede aprobar carteles."}), 403
+    session_db = db()
+    try:
+        row = _artwork_group_request(session_db, gkind, gid)
+        asset = session_db.get(ConcertArtworkAsset, to_uuid(asset_id))
+        if row is None or asset is None or str(asset.artwork_request_id) != str(row.id):
+            return jsonify({"ok": False, "error": "Cartel no encontrado."}), 404
+        decision = (request.form.get("decision") or "").strip().upper()
+        nota = (request.form.get("note") or "").strip()
+        ahora = datetime.now(ZoneInfo('Europe/Madrid'))
+        if decision == "APPROVE":
+            asset.validation_status, asset.rejection_note = "APPROVED", None
+        elif decision == "REJECT":
+            if not nota:
+                return jsonify({"ok": False, "error": "Escribe qué hay que cambiar."}), 400
+            asset.validation_status, asset.rejection_note, asset.is_primary = "REJECTED", nota, False
+        else:
+            return jsonify({"ok": False, "error": "Decisión no válida."}), 400
+        asset.reviewed_at = ahora
+        asset.reviewed_by_nick = (_current_user_state().get("nick") or "").strip() or None
+        pendientes = [a for a in (row.assets or [])
+                      if not a.is_archived and (a.validation_status or "APPROVED") == "PENDING"]
+        aprobados = [a for a in (row.assets or [])
+                     if not a.is_archived and (a.validation_status or "APPROVED") == "APPROVED"]
+        if not pendientes:
+            row.status = "UPLOADED" if aprobados else "CORRECTIONS"
+        if aprobados:
+            _artwork_pick_primary_by_squareness(row)
+        row.updated_at = ahora
+        session_db.commit()
+        return jsonify({"ok": True, "status": asset.validation_status, "pending": len(pendientes)})
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        session_db.close()
+
+
+@app.post('/carteleria-grupo/<gkind>/<gid>/assets/<asset_id>/principal', endpoint='group_artwork_asset_primary')
+@admin_required
+def group_artwork_asset_primary(gkind, gid, asset_id):
+    session_db = db()
+    try:
+        row = _artwork_group_request(session_db, gkind, gid)
+        asset = session_db.get(ConcertArtworkAsset, to_uuid(asset_id))
+        if row is not None and asset is not None and str(asset.artwork_request_id) == str(row.id):
+            for otro in (row.assets or []):
+                otro.is_primary = (otro.id == asset.id)
+            session_db.commit()
+            flash('Cartel principal de la gira actualizado.', 'success')
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo marcar el principal: {exc}', 'danger')
+    finally:
+        session_db.close()
+    return redirect(request.form.get('next') or request.referrer or url_for('home'))
+
+
+@app.post('/carteleria-grupo/<gkind>/<gid>/assets/<asset_id>/eliminar', endpoint='group_artwork_asset_delete')
+@admin_required
+def group_artwork_asset_delete(gkind, gid, asset_id):
+    session_db = db()
+    try:
+        row = _artwork_group_request(session_db, gkind, gid)
+        asset = session_db.get(ConcertArtworkAsset, to_uuid(asset_id))
+        if row is not None and asset is not None and str(asset.artwork_request_id) == str(row.id):
+            session_db.delete(asset)
+            session_db.commit()
+            flash('Cartel eliminado.', 'success')
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo eliminar: {exc}', 'danger')
+    finally:
+        session_db.close()
+    return redirect(request.form.get('next') or request.referrer or url_for('home'))
+
+
+@app.get('/carteleria-grupo/<gkind>/<gid>/descargar-todos', endpoint='group_artwork_download_all')
+@admin_required
+def group_artwork_download_all(gkind, gid):
+    """Todos los carteles aprobados de la gira/evento en un ZIP."""
+    session_db = db()
+    try:
+        _grupo, nombre = _artwork_group_owner(session_db, gkind, gid)
+        assets = _artwork_group_assets(session_db, gkind, gid, only_approved=True)
+        if not assets:
+            flash('No hay carteles aprobados que descargar.', 'warning')
+            return redirect(request.referrer or url_for('home'))
+        buf, usados = BytesIO(), set()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for a in assets:
+                fichero = (a.original_name or a.format_label or 'cartel').strip()
+                base, ext = os.path.splitext(fichero)
+                n = 1
+                while fichero.lower() in usados:
+                    n += 1
+                    fichero = f"{base} ({n}){ext}"
+                usados.add(fichero.lower())
+                try:
+                    req = Request(a.file_url, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urlopen(req, timeout=25) as resp:
+                        zf.writestr(fichero, resp.read())
+                except Exception:
+                    continue
+        buf.seek(0)
+        etiqueta = re.sub(r"[\\/:*?\"<>|]+", " ", (nombre or "Carteleria")).strip() or "Carteleria"
+        return send_file(buf, mimetype="application/zip", as_attachment=True,
+                         download_name=f"Carteles {etiqueta}.zip")
+    finally:
+        session_db.close()
 
 
 @app.post('/conciertos/<cid>/carteleria/subir', endpoint='concert_artwork_upload_direct')
@@ -29773,8 +30080,17 @@ def concert_quick_status(cid):
         c.status = _norm_status(new_status)
         if c.status in {"RESERVADO", "CONFIRMADO"}:
             _ensure_production_request_for_concert(session, c)
+        # Al CONFIRMAR una actividad que no es de un artista de la casa (un evento, o una fecha de
+        # gira comprada que promueve una empresa nuestra) hay que decir quién de producción se
+        # encarga: el cliente abre el selector con lo que se devuelve aquí.
+        pedir_responsable = False
+        if c.status == "CONFIRMADO" and not getattr(c, "production_owner_user_id", None):
+            try:
+                pedir_responsable = _concert_needs_production_owner(session, c)
+            except Exception:
+                pedir_responsable = False
         session.commit()
-        return jsonify({"ok": True, "status": c.status})
+        return jsonify({"ok": True, "status": c.status, "needs_production_owner": pedir_responsable})
 
     except Exception as e:
         session.rollback()
@@ -42305,6 +42621,9 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
     # terceros que forman parte de él): viven en su ficha.
     if endpoint.startswith("artist_template") or endpoint.startswith("artist_person"):
         return "artists"
+    # Cartelería de TODA una gira / ciclo / evento: vive en su ficha, dentro de Contratación.
+    if endpoint.startswith("group_artwork"):
+        return "contratacion.conciertos"
     if endpoint in {"registros_view", "registros_concert_declare", "registros_repertoire_link"}:
         return "registros.pendiente"
     if endpoint in {"media_gallery_view", "media_artist_view", "media_panel_view", "api_media_artist_activities"}:
@@ -42853,6 +43172,9 @@ def _resolve_request_resource_key() -> str | None:
     # terceros que forman parte de él): viven en su ficha.
     if endpoint.startswith("artist_template") or endpoint.startswith("artist_person"):
         return "artists"
+    # Cartelería de TODA una gira / ciclo / evento: vive en su ficha, dentro de Contratación.
+    if endpoint.startswith("group_artwork"):
+        return "contratacion.conciertos"
     if endpoint == "artist_detail_view":
         tab = (request.args.get("tab") or "datos").strip().lower()
         if tab == "personas":
@@ -50141,6 +50463,63 @@ def _concert_result_module_payload(s, concert, calc, label=None):
         commissions_meta.append({"name": name, "logo": ((a.promoter.logo_url if a.promoter else "") or ""), "desc": ""})
     return {"label": label or "", "partners": partners, "commissions": commissions_meta, "series": fine,
             "sellable": (calc["ticketing"]["sellable"] if calc else 0), "break_even_pct": be_pct, "break_even_tickets": be_tickets}
+
+
+def _concert_needs_production_owner(session_db, concert) -> bool:
+    """¿Hay que decir A QUIÉN de producción le toca esta actividad?
+
+    Cuando la actividad es de un artista de la casa, producción sale sola por el artista asignado.
+    Pero si es un **EVENTO** (no es de ningún artista) o una fecha de **gira comprada promovida por
+    una empresa del grupo**, no hay artista del que colgar el trabajo: hay que elegir responsable.
+    """
+    if concert is None:
+        return False
+    if getattr(concert, "event_id", None):
+        return True
+    # Gira comprada cuyo promotor es una empresa NUESTRA.
+    if getattr(concert, "purchased_tour_id", None) and _concert_is_group_promoted(session_db, concert):
+        return True
+    # Artista sin nadie de la oficina asignado (no es «de la casa»).
+    aid = getattr(concert, "artist_id", None)
+    if not aid:
+        return True
+    try:
+        for (ids,) in session_db.query(UserProfile.assigned_artist_ids).filter(
+                UserProfile.assigned_artist_ids.isnot(None)).all():
+            if any(str(x) == str(aid) for x in (ids or [])):
+                return False
+        return True
+    except Exception:
+        return False
+
+
+def _production_people(session_db) -> list:
+    """Personas de PRODUCCIÓN (para elegir el responsable de una actividad). Sin bloqueados ni
+    eliminados: solo personal actual."""
+    fuera = _inactive_user_ids(session_db)
+    filas = (session_db.query(User, UserProfile)
+             .join(UserProfile, UserProfile.user_id == User.id)
+             .order_by(func.lower(func.coalesce(UserProfile.nick, User.email)).asc()).all())
+    salida = []
+    for u, prof in filas:
+        if u.id in fuera:
+            continue
+        deps = [str(d).strip().lower() for d in (getattr(prof, "departments", None) or [])]
+        if "producción" in deps or "produccion" in deps:
+            salida.append({"id": str(u.id), "name": (prof.nick or u.email or "").strip(),
+                           "photo_url": (getattr(prof, "photo_url", "") or "")})
+    return salida
+
+
+def _concert_production_owner_name(session_db, concert) -> str:
+    uid = getattr(concert, "production_owner_user_id", None)
+    if not uid:
+        return ""
+    prof = session_db.query(UserProfile).filter(UserProfile.user_id == uid).first()
+    if prof and (prof.nick or "").strip():
+        return prof.nick.strip()
+    u = session_db.get(User, uid)
+    return (u.email if u else "") or ""
 
 
 def _concert_bag_expense_totals(session_db, concert):

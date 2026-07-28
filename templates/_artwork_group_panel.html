@@ -1,0 +1,302 @@
+{# ============================================================================
+   CARTELERÍA DE TODA UNA GIRA / CICLO / EVENTO.
+   Una sola solicitud para todas sus fechas; sus carteles se ven también en cada fecha, en un módulo
+   aparte del de la propia fecha, para saber cuál es cuál.
+
+   Contexto (lo da `_artwork_group_context`): gk_kind, gk_id, gk_name, gk_request, gk_assets
+   (aprobados), gk_pending, gk_rejected. Con `gk_readonly` se pinta como MÓDULO de solo lectura
+   (dentro de la ficha de una fecha): sin subir, sin aprobar y sin borrar; compartir y descargar sí.
+   ============================================================================ #}
+{% set _puede_editar = (not gk_readonly) and CAN_EDIT_CONCERTS %}
+{% set _share_text = ('Carteles ' ~ gk_name ~ ':\n' ~ (gk_assets|map(attribute='file_url')|join('\n'))) %}
+
+<div class="card {{ 'mt-3' if gk_readonly else '' }}">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+      <h6 class="mb-0">
+        <i class="fa fa-images me-1 text-danger"></i>
+        {% if gk_readonly %}Carteles de {{ 'la gira' if gk_kind == 'TOUR' else 'todo el ciclo/evento' }}{% else %}Carteles{% endif %}
+        {% if gk_assets %}<span class="badge text-bg-primary ms-1">{{ gk_assets|length }}</span>{% endif %}
+      </h6>
+      <div class="d-flex gap-2 align-items-center flex-wrap">
+        {% if gk_assets %}
+          <div class="dropdown">
+            <button class="btn btn-outline-danger btn-sm" data-bs-toggle="dropdown"><i class="fa fa-share-nodes me-1"></i>Compartir estos</button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><a class="dropdown-item" href="mailto:?subject={{ ('Carteles ' ~ gk_name)|urlencode }}&body={{ _share_text|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Por correo</a></li>
+              <li><a class="dropdown-item" href="https://wa.me/?text={{ _share_text|urlencode }}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</a></li>
+              <li><a class="dropdown-item" href="sms:?&body={{ _share_text|urlencode }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Por SMS</a></li>
+              <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ gk_assets|map(attribute='file_url')|join('\n') }}"><i class="fa fa-link fa-fw me-1"></i>Copiar los enlaces</button></li>
+              <li><a class="dropdown-item" href="{{ url_for('group_artwork_download_all', gkind=gk_kind, gid=gk_id) }}"><i class="fa fa-file-zipper fa-fw me-1"></i>Descargar todos</a></li>
+            </ul>
+          </div>
+        {% endif %}
+        {% if _puede_editar %}
+          <button class="btn btn-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#groupArtworkUploadModal"><i class="fa fa-cloud-arrow-up me-1"></i>Subir carteles</button>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if not gk_assets and not gk_pending and not gk_rejected %}
+      <div class="text-muted small">
+        {% if gk_readonly %}Esta {{ 'gira' if gk_kind == 'TOUR' else 'programación' }} todavía no tiene carteles propios.
+        {% else %}Todavía no hay carteles de {{ 'la gira' if gk_kind == 'TOUR' else 'el ciclo/evento' }}. Súbelos y diseño les dará el visto bueno.{% endif %}
+      </div>
+    {% endif %}
+
+    {% if gk_assets %}
+      <div class="row g-3">
+        {% for asset in gk_assets %}
+          <div class="col-12 col-md-6 col-xl-4">
+            <div class="border rounded p-3 h-100">
+              <div class="d-flex gap-2 align-items-start">
+                {% if (asset.mime_type or '')[:5] == 'image' %}
+                  <img src="{{ asset.file_url }}" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid #eee;">
+                {% else %}
+                  <span class="d-inline-flex align-items-center justify-content-center border rounded" style="width:64px;height:64px;"><i class="fa fa-file-pdf fs-3 text-danger"></i></span>
+                {% endif %}
+                <div class="min-w-0 flex-grow-1">
+                  <div class="fw-semibold text-truncate">{{ asset.format_label }}{% if asset.is_primary %} <span class="badge text-bg-warning text-dark"><i class="fa fa-star me-1"></i>Principal</span>{% endif %}</div>
+                  {% if asset.width and asset.height %}<div class="small text-muted">{{ asset.width }}×{{ asset.height }} px</div>{% endif %}
+                  <div class="d-flex gap-2 mt-2 flex-wrap">
+                    <a class="btn btn-sm btn-outline-secondary" href="{{ asset.file_url }}" target="_blank" rel="noopener" download><i class="fa fa-download fa-fw me-1"></i>Descargar</a>
+                    <a class="btn btn-sm btn-outline-secondary" href="https://wa.me/?text={{ ('Cartel ' ~ asset.format_label ~ ' · ' ~ gk_name ~ ' ' ~ asset.file_url)|urlencode }}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>WhatsApp</a>
+                    <button type="button" class="btn btn-sm btn-outline-secondary copy-link-btn" data-copy-url="{{ asset.file_url }}"><i class="fa fa-link fa-fw me-1"></i>Copiar link</button>
+                  </div>
+                  {% if _puede_editar %}
+                    <div class="d-flex gap-2 mt-2 flex-wrap">
+                      {% if not asset.is_primary and gk_assets|length > 1 %}
+                        <form method="post" action="{{ url_for('group_artwork_asset_primary', gkind=gk_kind, gid=gk_id, asset_id=asset.id) }}">
+                          <button class="btn btn-sm btn-outline-secondary"><i class="fa fa-star me-1"></i>Principal</button>
+                        </form>
+                      {% endif %}
+                      <form method="post" action="{{ url_for('group_artwork_asset_delete', gkind=gk_kind, gid=gk_id, asset_id=asset.id) }}" onsubmit="return confirm('¿Eliminar este cartel?');">
+                        <button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash"></i></button>
+                      </form>
+                    </div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {# Pendientes del OK de diseño: se ven, pero no se pueden usar. Los botones, solo para diseño. #}
+    {% if gk_pending %}
+      <hr>
+      <h6 class="mb-2 text-warning-emphasis"><i class="fa fa-clock me-1"></i>Pendientes de aprobación por diseño</h6>
+      <div class="row g-3">
+        {% for asset in gk_pending %}
+          <div class="col-6 col-md-4 col-xl-3">
+            <div class="border rounded p-2 h-100 text-center">
+              {% if (asset.mime_type or '')[:5] == 'image' %}<img src="{{ asset.file_url }}" alt="" style="max-width:100%;max-height:130px;object-fit:contain;border-radius:8px;opacity:.75;">{% else %}<i class="fa fa-file-pdf fs-1 text-danger"></i>{% endif %}
+              <div class="fw-semibold small mt-2 text-truncate">{{ asset.format_label }}</div>
+              {% if asset.uploaded_by_nick %}<div class="small text-muted">Subido por {{ asset.uploaded_by_nick }}</div>{% endif %}
+              {% if can_validate_artwork and not gk_readonly %}
+                <div class="d-flex justify-content-center gap-2 mt-2">
+                  <button type="button" class="btn btn-success btn-sm" data-gart-ok="{{ asset.id }}" title="Aprobar"><i class="fa fa-check"></i></button>
+                  <button type="button" class="btn btn-outline-danger btn-sm" data-gart-no="{{ asset.id }}" title="Rechazar y pedir cambios"><i class="fa fa-xmark"></i></button>
+                </div>
+              {% else %}
+                <span class="badge text-bg-warning text-dark mt-1"><i class="fa fa-clock me-1"></i>Pendiente</span>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if gk_rejected and not gk_readonly %}
+      <hr>
+      <h6 class="mb-2 text-danger"><i class="fa fa-triangle-exclamation me-1"></i>Rechazados por diseño</h6>
+      <div class="row g-3">
+        {% for asset in gk_rejected %}
+          <div class="col-12 col-xl-6">
+            <div class="border border-danger rounded p-3 h-100 d-flex gap-2 align-items-start">
+              {% if (asset.mime_type or '')[:5] == 'image' %}<img src="{{ asset.file_url }}" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:10px;">{% else %}<i class="fa fa-file-pdf fs-3 text-danger"></i>{% endif %}
+              <div class="min-w-0">
+                <div class="fw-semibold text-truncate">{{ asset.format_label }}</div>
+                <div class="small text-danger">{{ asset.rejection_note or 'Hay que cambiarlo.' }}</div>
+                {% if _puede_editar %}
+                  <form method="post" action="{{ url_for('group_artwork_asset_delete', gkind=gk_kind, gid=gk_id, asset_id=asset.id) }}" class="mt-2" onsubmit="return confirm('¿Quitar este cartel rechazado?');">
+                    <button class="btn btn-sm btn-outline-secondary"><i class="fa fa-trash me-1"></i>Quitar</button>
+                  </form>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if _puede_editar %}
+  {# Subida (arrastrando archivos o carpetas enteras) + rechazo con nota, igual que en una fecha. #}
+  <div class="modal fade" id="groupArtworkUploadModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa fa-cloud-arrow-up me-2"></i>Subir carteles de {{ gk_name }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-warning small">
+            <i class="fa fa-clock me-1"></i>Quedan <strong>pendientes de aprobación por diseño</strong> (salvo que los subas tú siendo diseño).
+            Valen para <strong>todas las fechas</strong>: se verán en cada una, en su propio módulo.
+          </div>
+          <div class="fotos-dropzone" id="gartDropzone" data-file-drop="off">
+            <i class="fa fa-cloud-arrow-up fa-2x mb-2"></i>
+            <div>Arrastra aquí los carteles <span class="text-muted">(o carpetas enteras)</span>, o <span class="text-primary text-decoration-underline" data-gart-pick>pincha para elegirlos</span></div>
+            <input type="file" class="d-none" id="gartFiles" multiple accept="image/*,application/pdf">
+            <input type="file" class="d-none" id="gartFolder" webkitdirectory directory multiple>
+          </div>
+          <div class="d-flex justify-content-center gap-2 mt-2">
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-gart-pick><i class="fa fa-file me-1"></i>Elegir archivos</button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-gart-pick-folder><i class="fa fa-folder-open me-1"></i>Elegir una carpeta</button>
+          </div>
+          <div class="fotos-filelist mt-3" id="gartQueue"></div>
+          <div class="small mt-2" id="gartMsg"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-danger" id="gartUploadBtn" disabled><i class="fa fa-cloud-arrow-up me-1"></i>Subir</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="groupArtworkRejectModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">Rechazar este cartel</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <label class="form-label">¿Qué hay que cambiar?</label>
+          <textarea class="form-control" id="gartRejectNote" rows="3"></textarea>
+          <div class="form-text">Se le avisa a quien lo subió (le sale en sus tareas pendientes).</div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-danger" id="gartRejectBtn"><i class="fa fa-xmark me-1"></i>Rechazar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    var URL_SUBIR = {{ url_for('group_artwork_upload_direct', gkind=gk_kind, gid=gk_id)|tojson }};
+    var URL_REVISAR = {{ url_for('group_artwork_asset_review', gkind=gk_kind, gid=gk_id, asset_id='__ID__')|tojson }};
+    function csrf() { var m = document.querySelector('meta[name="csrf-token"]'); return m ? m.getAttribute('content') : ''; }
+
+    var zona = document.getElementById('gartDropzone');
+    if (zona) {
+      var cola = [], lista = document.getElementById('gartQueue'),
+          btn = document.getElementById('gartUploadBtn'), msg = document.getElementById('gartMsg'),
+          inputFiles = document.getElementById('gartFiles'), inputFolder = document.getElementById('gartFolder');
+      function pintar() {
+        lista.innerHTML = cola.map(function (f, i) {
+          return '<div class="fotos-fileitem"><span class="fotos-fileitem__thumb"><i class="fa fa-image"></i></span>' +
+            '<span class="fotos-fileitem__name text-truncate">' + (f.name || '') + '</span>' +
+            '<button type="button" class="btn btn-sm btn-link text-danger" data-gart-quitar="' + i + '"><i class="fa fa-xmark"></i></button></div>';
+        }).join('');
+        btn.disabled = !cola.length;
+        msg.textContent = cola.length ? (cola.length + ' archivo(s) listos para subir') : '';
+      }
+      function anadir(files) {
+        Array.prototype.forEach.call(files || [], function (f) {
+          if (!f || !f.name || f.name.charAt(0) === '.') return;
+          if (f.type && !/^image\//.test(f.type) && f.type !== 'application/pdf') return;
+          cola.push(f);
+        });
+        pintar();
+      }
+      function recorrer(entry) {
+        return new Promise(function (res) {
+          if (!entry) return res([]);
+          if (entry.isFile) return entry.file(function (f) { res([f]); }, function () { res([]); });
+          var reader = entry.createReader(), todos = [];
+          (function leer() {
+            reader.readEntries(function (entries) {
+              if (!entries.length) {
+                Promise.all(todos.map(recorrer)).then(function (arrs) { res([].concat.apply([], arrs)); });
+                return;
+              }
+              todos = todos.concat(Array.prototype.slice.call(entries));
+              leer();
+            }, function () { res([]); });
+          })();
+        });
+      }
+      zona.addEventListener('dragover', function (e) { e.preventDefault(); zona.classList.add('fotos-dropzone--over'); });
+      zona.addEventListener('dragleave', function () { zona.classList.remove('fotos-dropzone--over'); });
+      zona.addEventListener('drop', function (e) {
+        e.preventDefault(); zona.classList.remove('fotos-dropzone--over');
+        var items = e.dataTransfer && e.dataTransfer.items;
+        if (items && items.length && items[0].webkitGetAsEntry) {
+          var entradas = [];
+          for (var i = 0; i < items.length; i++) { var en = items[i].webkitGetAsEntry(); if (en) entradas.push(en); }
+          Promise.all(entradas.map(recorrer)).then(function (arrs) { anadir([].concat.apply([], arrs)); });
+        } else { anadir(e.dataTransfer.files); }
+      });
+      document.querySelectorAll('[data-gart-pick]').forEach(function (b) { b.addEventListener('click', function () { inputFiles.click(); }); });
+      document.querySelectorAll('[data-gart-pick-folder]').forEach(function (b) { b.addEventListener('click', function () { inputFolder.click(); }); });
+      inputFiles.addEventListener('change', function () { anadir(inputFiles.files); inputFiles.value = ''; });
+      inputFolder.addEventListener('change', function () { anadir(inputFolder.files); inputFolder.value = ''; });
+      lista.addEventListener('click', function (e) {
+        var q = e.target.closest('[data-gart-quitar]'); if (!q) return;
+        cola.splice(Number(q.getAttribute('data-gart-quitar')), 1); pintar();
+      });
+      btn.addEventListener('click', function () {
+        if (!cola.length) return;
+        var fd = new FormData();
+        cola.forEach(function (f) { fd.append('files', f, f.name); fd.append('labels', f.name); });
+        btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Subiendo…';
+        fetch(URL_SUBIR, { method: 'POST', headers: { 'X-CSRFToken': csrf() }, body: fd })
+          .then(function (r) { return r.json().catch(function () { return {}; }); })
+          .then(function (j) {
+            if (j && j.ok) window.location.reload();
+            else { btn.disabled = false; btn.innerHTML = 'Subir'; msg.className = 'small mt-2 text-danger'; msg.textContent = (j && j.error) || 'No se pudieron subir.'; }
+          })
+          .catch(function () { btn.disabled = false; btn.innerHTML = 'Subir'; msg.textContent = 'No se pudieron subir.'; });
+      });
+    }
+
+    function revisar(id, decision, nota) {
+      var fd = new FormData();
+      fd.append('decision', decision);
+      if (nota) fd.append('note', nota);
+      return fetch(URL_REVISAR.replace('__ID__', id), {
+        method: 'POST', headers: { 'X-CSRFToken': csrf(), 'X-Requested-With': 'XMLHttpRequest' }, body: fd
+      }).then(function (r) { return r.json().catch(function () { return {}; }); });
+    }
+    document.querySelectorAll('[data-gart-ok]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        b.disabled = true;
+        revisar(b.getAttribute('data-gart-ok'), 'APPROVE').then(function (j) {
+          if (j && j.ok) window.location.reload(); else { b.disabled = false; alert((j && j.error) || 'No se pudo aprobar.'); }
+        });
+      });
+    });
+    var idRechazo = null;
+    document.querySelectorAll('[data-gart-no]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        idRechazo = b.getAttribute('data-gart-no');
+        document.getElementById('gartRejectNote').value = '';
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('groupArtworkRejectModal')).show();
+      });
+    });
+    var btnNo = document.getElementById('gartRejectBtn');
+    if (btnNo) btnNo.addEventListener('click', function () {
+      var nota = (document.getElementById('gartRejectNote').value || '').trim();
+      if (!nota) { alert('Escribe qué hay que cambiar.'); return; }
+      btnNo.disabled = true;
+      revisar(idRechazo, 'REJECT', nota).then(function (j) {
+        if (j && j.ok) window.location.reload(); else { btnNo.disabled = false; alert((j && j.error) || 'No se pudo rechazar.'); }
+      });
+    });
+  })();
+  </script>
+{% endif %}

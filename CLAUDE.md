@@ -491,6 +491,24 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   Si no hay de dónde volver (enlace directo, pestaña nueva) se sigue el `href`, que es el destino
   «padre» de esa pantalla. Opt-out: `data-no-smart-back`. Cmd/Ctrl/⇧/clic central no lo interceptan.
 
+- **Cartelería de TODA una gira / ciclo / evento**: `ConcertArtworkRequest` admite dueño GRUPO
+  (`group_kind` TOUR|CYCLE + `group_id`, con `concert_id` NULL): una sola solicitud para todas sus
+  fechas. Panel reutilizable `templates/_artwork_group_panel.html` (contexto `_artwork_group_context`)
+  en la pestaña **Cartelería** de la ficha del grupo y, con `gk_readonly`, como **módulo aparte**
+  dentro de cada fecha, separado de los carteles de esa fecha. Endpoints `group_artwork_*`
+  (subir con carpetas, revisar uno a uno, principal, eliminar, descargar todos). Al haber dos módulos,
+  la cabecera de la pestaña de la fecha ofrece **«Compartir todos los carteles»** (los dos lotes) y cada
+  módulo mantiene el suyo.
+- **Módulo de CACHÉS solo si hay cachés**: un evento puede tener artistas con caché o solo socios, así
+  que si la actividad no trae ninguno (ni de la simulación ni del alta) no se pinta el módulo: queda un
+  botón discreto **«Añadir caché»** que abre el formulario (mismo `data-edit-toggle`).
+- **Responsable de PRODUCCIÓN** (`Concert.production_owner_user_id`): en un EVENTO (que no es de ningún
+  artista) o en una fecha de gira comprada que promueve una empresa del grupo no hay artista del que
+  colgar el trabajo, así que **al confirmar** se pregunta a quién de producción le toca
+  (`_concert_needs_production_owner` + `_production_people`, modal `#prodOwnerModal` que se abre solo si
+  está confirmada y sin responsable). Se guarda con `concert_production_owner_save` y se ve en la
+  cabecera de la ficha.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

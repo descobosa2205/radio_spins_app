@@ -1291,6 +1291,12 @@ class Concert(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     date = Column(Date, nullable=False)
 
+    # RESPONSABLE DE PRODUCCIÓN. En las actividades de un artista de la casa, producción sale sola por
+    # el artista asignado; pero en un EVENTO (que no es de ningún artista) o en una fecha de gira
+    # comprada promovida por una empresa del grupo hay que decir A QUIÉN de producción le toca, para
+    # que le aparezca. Se pregunta al confirmar la actividad.
+    production_owner_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+
     # nombre interno / festival
     festival_name = Column(Text)
 
@@ -1843,12 +1849,17 @@ class ConcertArtworkRequest(Base):
     __tablename__ = "concert_artwork_requests"
 
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    # La cartelería puede ser de UNA actividad o de TODO un grupo (gira comprada, ciclo/festival o
+    # evento): una sola solicitud para toda la gira, cuyos carteles se ven además en cada fecha en su
+    # propio módulo. Va uno de los dos: `concert_id` o (`group_kind`, `group_id`).
     concert_id = Column(
         PGUUID(as_uuid=True),
         ForeignKey("concerts.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         unique=True,
     )
+    group_kind = Column(Text)     # TOUR (gira comprada) | CYCLE (ciclo, festival o evento)
+    group_id = Column(PGUUID(as_uuid=True))
     public_token = Column(Text, nullable=False, unique=True)
     handled_by = Column(Text, nullable=False, server_default=text("'OURS'"))
     # DRAFT | PROMOTER | REQUESTED | REVIEW (subidos, pendientes de validar) | CORRECTIONS | UPLOADED
@@ -5145,6 +5156,9 @@ def ensure_artist_feature_schema():
         "ALTER TABLE IF EXISTS artists ADD COLUMN IF NOT EXISTS event_id uuid REFERENCES app_events(id) ON DELETE CASCADE;",
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_artists_event ON artists (event_id) WHERE event_id IS NOT NULL;",
         "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS event_id uuid REFERENCES app_events(id) ON DELETE SET NULL;",
+        # Responsable de producción de la actividad (eventos y fechas de gira sin artista de la casa).
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS production_owner_user_id uuid REFERENCES users(id) ON DELETE SET NULL;",
+        "CREATE INDEX IF NOT EXISTS ix_concerts_production_owner ON concerts (production_owner_user_id);",
         # Contenedor de EVENTO (categoría «Eventos» de Contratación): de qué evento sale.
         "ALTER TABLE IF EXISTS cycle_festivals ADD COLUMN IF NOT EXISTS event_id uuid REFERENCES app_events(id) ON DELETE SET NULL;",
         "CREATE INDEX IF NOT EXISTS ix_cycle_festivals_event ON cycle_festivals (event_id);",
@@ -6599,6 +6613,16 @@ def ensure_concert_artwork_schema():
         );
         """,
         'CREATE INDEX IF NOT EXISTS idx_concert_artwork_requests_status ON concert_artwork_requests(status);',
+        # Cartelería de TODO un grupo (gira comprada / ciclo / festival / evento): una sola solicitud
+        # para todas sus fechas. Entonces `concert_id` va vacío y manda (group_kind, group_id).
+        """
+        ALTER TABLE IF EXISTS concert_artwork_requests
+            ADD COLUMN IF NOT EXISTS group_kind text,
+            ADD COLUMN IF NOT EXISTS group_id uuid;
+        """,
+        "ALTER TABLE IF EXISTS concert_artwork_requests ALTER COLUMN concert_id DROP NOT NULL;",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_concert_artwork_group ON concert_artwork_requests (group_kind, group_id) WHERE group_id IS NOT NULL;",
+        "CREATE INDEX IF NOT EXISTS ix_concert_artwork_group ON concert_artwork_requests (group_id);",
         'CREATE INDEX IF NOT EXISTS idx_concert_artwork_requests_concert_id ON concert_artwork_requests(concert_id);',
 
         """

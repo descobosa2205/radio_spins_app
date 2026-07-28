@@ -19,6 +19,7 @@
       {% if concert.date %}<span><i class="fa fa-calendar-day"></i>{{ concert.date.strftime('%d/%m/%Y') }}</span>{% endif %}
       {% if location_summary %}<span><i class="fa fa-location-dot"></i>{{ location_summary }}</span>{% endif %}
       {% if concert.festival_name %}<span><i class="fa fa-star"></i>{{ concert.festival_name }}</span>{% endif %}
+      {% if production_owner_name %}<span title="Responsable de producción"><i class="fa fa-user-gear"></i>{{ production_owner_name }}</span>{% endif %}
     </div>
     {% if (concert.tags_clean or concert.hashtags or []) %}
       <div class="mt-2 d-flex flex-wrap gap-1">
@@ -511,30 +512,43 @@
     </div>
     {% endif %}
 
-    <div class="ficha-section">
-      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-coins"></i>Cachés</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
-      <div class="ficha-section__body" data-section-view>
-        {% if concert.caches %}<div class="ficha-fields">
-        {% for ch in concert.caches %}<div><div class="ficha-field__label">{% if ch.kind == 'FIXED' %}Caché fijo{% elif ch.kind == 'VARIABLE' %}Caché variable{% else %}{{ ch.concept or 'Otros' }}{% endif %}</div><div class="ficha-field__value">{% if ch.kind == 'VARIABLE' and ch.pct %}{{ ch.pct }}% · {{ 'Bruto' if ch.pct_base=='GROSS' else 'Neto' }}{% elif ch.amount %}{{ ch.amount|eur }}{% else %}—{% endif %}</div></div>{% endfor %}
-      </div>{% else %}<div class="ficha-empty">Sin cachés. Pulsa <i class="fa fa-pen"></i> para añadir.</div>{% endif %}
-        {% if promoter_costs_rows %}
-          <div class="fw-semibold small text-muted mt-3 mb-1"><i class="fa fa-hand-holding-heart me-1"></i>El promotor cubre otros gastos</div>
-          <div class="ficha-fields">
-            {% for pc in promoter_costs_rows %}
-              <div>
-                <div class="ficha-field__label">{{ pc.label }}</div>
-                <div class="ficha-field__value">
-                  {{ 'Lo gestionamos y facturamos nosotros' if pc.managed_by == 'US' else 'Lo gestiona el promotor' }}
-                  {% if pc.max_amount %} · Máx. {{ pc.max_amount|eur }}{% endif %}
-                  {% if pc.note %}<div class="small text-muted">{{ pc.note }}</div>{% endif %}
-                </div>
+    {# CACHÉS: un evento puede tener artistas con caché o solo socios. Si no hay ninguno configurado
+       (ni en la simulación ni en el alta) NO se enseña el módulo: queda solo un botón discreto para
+       añadir uno si más adelante hace falta. #}
+    {% set _hay_caches = concert.caches or promoter_costs_rows %}
+    <div id="concert-caches-view">
+      {% if _hay_caches %}
+        <div class="ficha-section">
+          <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-coins"></i>Cachés</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle="#concert-caches-form" data-view="#concert-caches-view" title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
+          <div class="ficha-section__body">
+            <div class="ficha-fields">
+            {% for ch in concert.caches %}<div><div class="ficha-field__label">{% if ch.kind == 'FIXED' %}Caché fijo{% elif ch.kind == 'VARIABLE' %}Caché variable{% else %}{{ ch.concept or 'Otros' }}{% endif %}</div><div class="ficha-field__value">{% if ch.kind == 'VARIABLE' and ch.pct %}{{ ch.pct }}% · {{ 'Bruto' if ch.pct_base=='GROSS' else 'Neto' }}{% elif ch.amount %}{{ ch.amount|eur }}{% else %}—{% endif %}</div></div>{% endfor %}
+            </div>
+            {% if promoter_costs_rows %}
+              <div class="fw-semibold small text-muted mt-3 mb-1"><i class="fa fa-hand-holding-heart me-1"></i>El promotor cubre otros gastos</div>
+              <div class="ficha-fields">
+                {% for pc in promoter_costs_rows %}
+                  <div>
+                    <div class="ficha-field__label">{{ pc.label }}</div>
+                    <div class="ficha-field__value">
+                      {{ 'Lo gestionamos y facturamos nosotros' if pc.managed_by == 'US' else 'Lo gestiona el promotor' }}
+                      {% if pc.max_amount %} · Máx. {{ pc.max_amount|eur }}{% endif %}
+                      {% if pc.note %}<div class="small text-muted">{{ pc.note }}</div>{% endif %}
+                    </div>
+                  </div>
+                {% endfor %}
               </div>
-            {% endfor %}
+            {% endif %}
           </div>
-        {% endif %}
-      </div>
-      {% if CAN_EDIT_CONCERTS %}
-      <form class="ficha-section__body d-none" data-section-form method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='caches') }}" data-inline data-inline-target="#concert-general-zone">
+        </div>
+      {% elif CAN_EDIT_CONCERTS %}
+        <button type="button" class="btn btn-sm btn-outline-secondary mb-3" data-edit-toggle="#concert-caches-form" data-view="#concert-caches-view">
+          <i class="fa fa-coins me-1"></i>Añadir caché
+        </button>
+      {% endif %}
+    </div>
+    {% if CAN_EDIT_CONCERTS %}
+      <form class="ficha-section ficha-section__body d-none" id="concert-caches-form" data-section-form data-view="#concert-caches-view" method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='caches') }}" data-inline data-inline-target="#concert-general-zone">
         <div data-rows="cache">{% for ch in concert.caches %}{% set cfg = ch.config or {} %}<script type="application/json" data-row-type="cache">{{ {'cache_kind': (ch.kind or 'FIXED'), 'cache_concept': (ch.concept or ''), 'cache_amount': (ch.amount|string if ch.amount is not none else ''), 'cache_pct': (ch.pct|string if ch.pct is not none else ''), 'cache_pct_base': (ch.pct_base or 'GROSS'), 'cache_var_mode': (cfg.get('mode') or 'FIXED'), 'cache_var_option': (cfg.get('option') or ''), 'cache_from_ticket': (cfg.get('from_ticket')|string if cfg.get('from_ticket') is not none else ''), 'cache_min_tickets': (cfg.get('min_tickets')|string if cfg.get('min_tickets') is not none else ''), 'cache_min_revenue': (cfg.get('min_revenue')|string if cfg.get('min_revenue') is not none else ''), 'cache_ticket_type': (cfg.get('ticket_type') or '')}|tojson }}</script>{% endfor %}</div>
         <button type="button" class="btn btn-sm btn-outline-primary mb-3" data-add-row="cache"><i class="fa fa-plus me-1"></i>Añadir caché</button>
 
@@ -820,6 +834,25 @@
         {% endif %}
         {% if CAN_EDIT_CONCERTS %}
           <button class="btn btn-outline-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkUploadModal"><i class="fa fa-cloud-arrow-up me-1"></i>Subir carteles</button>
+        {% endif %}
+        {% if gk_assets %}
+          {# Con carteles de la gira hay dos módulos: aquí se comparte TODO junto (los de la fecha y
+             los de la gira); cada módulo tiene además su propio «compartir». #}
+          {% set _todos_urls = (current_artwork_assets|rejectattr('validation_status', 'in', ['PENDING', 'REJECTED'])|map(attribute='file_url')|list) + (gk_assets|map(attribute='file_url')|list) %}
+          {% set _todos_txt = ('Carteles ' ~ (concert.artist.name if concert.artist else 'actividad') ~ (' · ' ~ concert.date.strftime('%d/%m/%Y') if concert.date else '') ~ ':\n' ~ (_todos_urls|join('\n'))) %}
+          <div class="dropdown">
+            <button class="btn btn-danger btn-sm" data-bs-toggle="dropdown"><i class="fa fa-share-nodes me-1"></i>Compartir todos los carteles</button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><h6 class="dropdown-header">Los de la fecha y los de {{ 'la gira' if gk_kind == 'TOUR' else 'el ciclo/evento' }}</h6></li>
+              <li><a class="dropdown-item" href="mailto:?subject={{ ('Carteles ' ~ (concert.artist.name if concert.artist else 'actividad'))|urlencode }}&body={{ _todos_txt|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Por correo</a></li>
+              <li><a class="dropdown-item" href="https://wa.me/?text={{ _todos_txt|urlencode }}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</a></li>
+              <li><a class="dropdown-item" href="sms:?&body={{ _todos_txt|urlencode }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Por SMS</a></li>
+              <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ _todos_urls|join('\n') }}"><i class="fa fa-link fa-fw me-1"></i>Copiar los enlaces</button></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><a class="dropdown-item" href="{{ url_for('concert_artwork_download_all', cid=concert.id) }}"><i class="fa fa-file-zipper fa-fw me-1"></i>Descargar los de la fecha</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('group_artwork_download_all', gkind=gk_kind, gid=gk_id) }}"><i class="fa fa-file-zipper fa-fw me-1"></i>Descargar los de {{ 'la gira' if gk_kind == 'TOUR' else 'el ciclo/evento' }}</a></li>
+            </ul>
+          </div>
         {% endif %}
       </div>
     </div>
@@ -1578,6 +1611,13 @@
         </div>
       </div>
     </div>
+    {% endif %}
+
+    {# ---------- CARTELES DE LA GIRA / CICLO / EVENTO ----------
+       Los de TODA la gira se ven también aquí, en su propio módulo y separados de los de esta fecha,
+       para saber cuál es cuál. Se pueden compartir estos, los de la fecha, o los dos juntos. #}
+    {% if gk_id %}
+      {% with gk_readonly = True %}{% include '_artwork_group_panel.html' %}{% endwith %}
     {% endif %}
 
     {# ---------- SUBIR CARTELES A MANO (arrastrando archivos o carpetas) ----------
@@ -2765,4 +2805,65 @@ document.addEventListener('DOMContentLoaded', function(){
 </script>
 <script src="{{ url_for('static', filename='js/concert_form.js', v=ASSET_V) }}"></script>
 {% if tab == 'resultado' %}<script src="{{ url_for('static', filename='js/sim_partners.js', v=ASSET_V) }}"></script>{% endif %}
+
+{# ---- RESPONSABLE DE PRODUCCIÓN ----
+   En un EVENTO (que no es de ningún artista) o en una fecha de gira comprada que promueve una
+   empresa nuestra no hay artista del que colgar el trabajo: al CONFIRMAR se pregunta a quién de
+   producción le toca, para que le aparezca como suyo. #}
+{% if needs_production_owner and CAN_EDIT_CONCERTS %}
+<div class="modal fade" id="prodOwnerModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-user-gear me-2"></i>¿Quién lleva la producción?</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted">Esta actividad no es de ningún artista de la casa, así que hay que
+          decir a quién de <strong>producción</strong> le toca: le aparecerá como suya.</p>
+        <div class="agenda-artist-picker">
+          {% for p in production_people %}
+            <button type="button" class="agenda-artist-card" data-prod-owner="{{ p.id }}" data-name="{{ p.name }}">
+              <img src="{{ p.photo_url or url_for('static', filename='img/logo.png') }}" alt="" loading="lazy">
+              <span>{{ p.name }}</span>
+            </button>
+          {% else %}
+            <div class="text-muted small">No hay nadie con el departamento de Producción.</div>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Ahora no</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var URL_RESP = {{ url_for('concert_production_owner_save', cid=concert.id)|tojson }};
+  var SIN_RESP = {{ (not concert.production_owner_user_id)|tojson }};
+  var CONFIRMADO = {{ ((concert.status or '')|upper == 'CONFIRMADO')|tojson }};
+  function csrf() { var m = document.querySelector('meta[name="csrf-token"]'); return m ? m.getAttribute('content') : ''; }
+  function abrir() {
+    var m = document.getElementById('prodOwnerModal');
+    if (m && window.bootstrap) bootstrap.Modal.getOrCreateInstance(m).show();
+  }
+  document.querySelectorAll('[data-prod-owner]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var fd = new FormData(); fd.append('user_id', b.getAttribute('data-prod-owner'));
+      b.disabled = true;
+      fetch(URL_RESP, { method: 'POST', headers: { 'X-CSRFToken': csrf(), 'X-Requested-With': 'XMLHttpRequest' }, body: fd })
+        .then(function (r) { return r.json().catch(function () { return {}; }); })
+        .then(function (j) { if (j && j.ok) window.location.reload(); else { b.disabled = false; alert((j && j.error) || 'No se pudo guardar.'); } });
+    });
+  });
+  // Ya está confirmada y nadie la lleva: se pregunta al entrar.
+  if (SIN_RESP && CONFIRMADO) setTimeout(abrir, 400);
+  // Y justo al confirmarla desde la etiqueta de estado.
+  document.addEventListener('concert:status-changed', function (ev) {
+    if (ev.detail && ev.detail.needs_production_owner) abrir();
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}

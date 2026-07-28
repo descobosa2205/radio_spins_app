@@ -233,22 +233,28 @@
       renderStage(list[idx]);
     }
     function decide(decision){
-      var it = byId[current]; if(!it || it.decision !== 'PENDING') return;
+      // Se puede cambiar de opinión: antes, si ya estaba votada, el pulgar no hacía nada.
+      var it = byId[current]; if(!it || it.decision === decision) return;
       var up = document.getElementById('paVoteUp'), down = document.getElementById('paVoteDown');
       up.disabled = down.disabled = true;
       fetch(data.decideUrl, {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ photo_id: it.id, decision: decision })
-      }).then(function(r){ return r.json(); }).then(function(d){
+      }).then(function(r){
+        return r.json().catch(function(){
+          return { ok:false, error: 'Error del servidor (' + r.status + '). Recarga la página y vuelve a intentarlo.' };
+        });
+      }).then(function(d){
         if(!d || !d.ok){ alert((d && d.error) || 'No se pudo guardar.'); up.disabled = down.disabled = false; return; }
         it.decision = decision;
         counts = d.counts || counts;
         var icon = document.querySelector('[data-pa-item="' + it.id + '"] [data-state-icon]');
         if(icon) icon.outerHTML = stateIconFor(decision);
         refreshCounts();
+        up.disabled = down.disabled = false;
         var list = pendingList();
         if(list.length) renderStage(list[0]);
-        else closePop();
+        else renderStage(current);   // ya no queda nada pendiente: se queda viendo lo decidido
       }).catch(function(){ alert('Error de red.'); up.disabled = down.disabled = false; });
     }
 

@@ -36656,7 +36656,8 @@ def _build_registros_concerts_pending(session_db) -> list[dict]:
         session_db.query(Concert)
         .options(joinedload(Concert.artist), joinedload(Concert.venue), joinedload(Concert.billing_company), joinedload(Concert.group_company))
         .filter(or_(Concert.registration_declared_done.is_(False), Concert.registration_declared_done.is_(None)))
-        .filter(Concert.date.isnot(None), Concert.date < today)
+        # Del histórico (antes del corte) no se declara nada: esas fechas ya no se procesan.
+        .filter(Concert.date.isnot(None), Concert.date < today, Concert.date >= LEGACY_ACTIVITY_CUTOFF)
         .filter(or_(
             func.upper(func.coalesce(Concert.activity_type, 'CONCIERTO')).in_(sorted(CONCERT_SINGING_ACTIVITY_TYPES)),
             sings_maybe,
@@ -41482,6 +41483,33 @@ def _infer_group_key_from_path(path: str) -> str | None:
     return None
 
 
+# Secciones cuyo TRABAJO vive dentro de la ficha de la actividad: producción monta la hoja de ruta,
+# administración la bolsa, promoción su marketing, registros lo que se declara… Todas ellas tienen que
+# poder ABRIR la actividad aunque no tengan la pestaña «Conciertos» de Contratación. Para MODIFICARLA
+# sigue haciendo falta el permiso de edición de su sección (esto solo afecta a la lectura).
+ACTIVITY_READ_ACCESS_KEYS = ("contratacion", "produccion", "administracion", "promocion",
+                             "registros", "contabilidad", "acciones", "invitaciones")
+
+
+def _activity_read_resource_key(default_key: str) -> str:
+    """Recurso con el que se comprueba el acceso de LECTURA a una actividad.
+
+    Devuelve la primera sección de `ACTIVITY_READ_ACCESS_KEYS` que el usuario tenga concedida; si no
+    tiene ninguna, el recurso por defecto (para que el 403 diga lo que le falta de verdad). Sin esto,
+    quien trabaja en Producción se comía un 403 al pinchar cualquier concierto: la ficha exigía la
+    pestaña «Conciertos» de Contratación, que no tiene por qué tener.
+    """
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        return default_key
+    try:
+        for key in ACTIVITY_READ_ACCESS_KEYS:
+            if has_access_key(key, include_descendants=True):
+                return key
+    except Exception:
+        pass
+    return default_key
+
+
 def _resolve_request_resource_key() -> str | None:
     endpoint = (request.endpoint or "").strip()
     if not endpoint:
@@ -41557,7 +41585,7 @@ def _resolve_request_resource_key() -> str | None:
     if endpoint == "companies_view" or endpoint.startswith("company_"):
         return "databases.group_companies"
     if endpoint == "activities_view":
-        return "actividades.todas"
+        return _activity_read_resource_key("actividades.todas")
     if endpoint == "contracting_view":
         section = (request.args.get("section") or "conciertos").strip().lower()
         mapping = {
@@ -41580,13 +41608,13 @@ def _resolve_request_resource_key() -> str | None:
     if endpoint == "concerts_view":
         tab = (request.args.get("tab") or "vista").strip().lower()
         if tab == "facturacion":
-            return "contratacion.facturacion"
-        return "contratacion.conciertos"
+            return "contratacion.facturacion"     # la facturación sí es de contratación
+        return _activity_read_resource_key("contratacion.conciertos")
     if endpoint == "concert_detail_view":
         tab = (request.args.get("tab") or "general").strip().lower()
         if tab in {"promocion", "marketing"}:
             return "promocion"
-        return "contratacion.conciertos"
+        return _activity_read_resource_key("contratacion.conciertos")
     if endpoint == "quadrantes_view":
         return "contratacion.cuadrantes"
     if endpoint.startswith("simulation_") or endpoint.startswith("api_simulation_"):
@@ -42737,7 +42765,13 @@ def _enforce_role_permissions_v2():
             return forbid("Tu usuario no tiene permisos para modificar datos en esta sección.")
     else:
         if key and key != "home" and not has_access_key(key, include_descendants=True):
-            return forbid("Tu usuario no tiene acceso a esta sección.")
+            # Se dice QUÉ acceso falta: si no, un 403 es imposible de diagnosticar sin mirar el código.
+            etiqueta = (_ACCESS_RESOURCE_MAP.get(key, {}) or {}).get("label") if isinstance(_ACCESS_RESOURCE_MAP.get(key), dict) else None
+            if not etiqueta:
+                _res = _ACCESS_RESOURCE_MAP.get(key)
+                etiqueta = getattr(_res, "label", None) or key
+            return forbid(f"Tu usuario no tiene acceso a esta sección: le falta «{etiqueta}». "
+                          "Pídeselo a dirección (Personal → Accesos).")
 
 
 def _admin_login_extended():
@@ -44614,7 +44648,10 @@ def produccion_view():
             .order_by(ProductionRequest.activity_date.asc().nullslast(), ProductionRequest.created_at.desc())
             .all()
         )
-        request_rows = [_production_request_row(session_db, req) for req in request_rows_db]
+        # Las solicitudes de actividades del HISTÓRICO (antes del corte) no se procesan: se quedan
+        # fuera del listado de Producción, que es lo que hay por hacer.
+        request_rows = [_production_request_row(session_db, req) for req in request_rows_db
+                        if not _is_legacy_activity_date(req.activity_date)]
 
         active_bags_db = (
             session_db.query(WorkflowBag)
@@ -48715,15 +48752,39 @@ def _create_bag_for_concert(session_db, concert, import_budget=False):
     return bag
 
 
+# FECHA DE CORTE DEL HISTÓRICO. Las actividades ANTERIORES a este día no se procesan: no generan
+# aviso de producción, ni bolsa, ni tareas pendientes, ni salen para declarar en Registros. Siguen
+# en el listado de actividades y en su ficha (el historial se conserva), simplemente no cuentan como
+# trabajo por hacer. Para mover el corte basta cambiar esta fecha.
+LEGACY_ACTIVITY_CUTOFF = date(2026, 7, 28)
+
+
+def _is_legacy_activity_date(value) -> bool:
+    """¿Esa fecha es anterior al corte del histórico?"""
+    try:
+        return bool(value) and value < LEGACY_ACTIVITY_CUTOFF
+    except TypeError:
+        return False
+
+
+def _concert_is_legacy(concert) -> bool:
+    """Actividad del histórico: se conserva, pero no genera trabajo (producción, bolsa, registros…)."""
+    return concert is not None and _is_legacy_activity_date(getattr(concert, "date", None))
+
+
 def _concert_needs_production(concert) -> bool:
     """¿Esta actividad tiene que aparecer en Producción?
 
-    En una GIRA COMPRADA hay fechas que promovemos nosotros y otras que se venden a un promotor
-    de fuera: de esas últimas no nos ocupamos de la producción, así que no generan aviso. El
-    criterio es quién promueve: si hay un tercero como promotor, no es una empresa del grupo.
-    Fuera de las giras compradas no cambia nada.
+    Dos motivos para que NO:
+      · es del HISTÓRICO (anterior a `LEGACY_ACTIVITY_CUTOFF`): no se procesa nada de antes;
+      · en una GIRA COMPRADA hay fechas que promovemos nosotros y otras que se venden a un promotor
+        de fuera: de esas últimas no nos ocupamos de la producción. El criterio es quién promueve:
+        si hay un tercero como promotor, no es una empresa del grupo.
+    Fuera de esos dos casos no cambia nada.
     """
     if concert is None:
+        return False
+    if _concert_is_legacy(concert):
         return False
     if not getattr(concert, "purchased_tour_id", None):
         return True
@@ -55427,7 +55488,10 @@ def _apply_photo_approval_state(session_db, photo, state, user_state):
             if approver:
                 approver.status = "PENDING" if n_pend else "SUBMITTED"
                 approver.submitted_at = None if n_pend else _now_madrid()
-    elif state != "PENDING":
+    else:
+        # Sin ninguna solicitud previa: se crea una mínima «cambio manual» para que el estado quede
+        # registrado (también cuando se pone PENDIENTE: antes esta rama solo entraba con aprobado o
+        # rechazado, así que «volver a pendiente» decía OK y no cambiaba nada).
         req = PhotoApprovalRequest(
             owner_type=photo.owner_type, owner_id=photo.owner_id,
             photo_ids=[str(photo.id)], status="ACTIVE",
@@ -55436,14 +55500,17 @@ def _apply_photo_approval_state(session_db, photo, state, user_state):
         )
         session_db.add(req)
         session_db.flush()
+        pendiente = state == "PENDING"
         approver = PhotoApprover(
             request_id=req.id, token=uuid.uuid4().hex, kind="CUSTOM",
             name=((user_state.get("nick") or "").strip() or "Equipo") + " (manual)",
-            status="SUBMITTED", submitted_at=_now_madrid(),
+            status=("PENDING" if pendiente else "SUBMITTED"),
+            submitted_at=(None if pendiente else _now_madrid()),
         )
         session_db.add(approver)
         session_db.flush()
-        session_db.add(PhotoApproval(approver_id=approver.id, photo_id=photo.id, decision=state, decided_at=_now_madrid()))
+        session_db.add(PhotoApproval(approver_id=approver.id, photo_id=photo.id, decision=state,
+                                     decided_at=(None if pendiente else _now_madrid())))
 
 
 @app.post("/fotos/photo/<photo_id>/estado-aprobacion", endpoint="foto_set_approval_state")
@@ -55467,6 +55534,7 @@ def foto_set_approval_state(photo_id):
         return jsonify({"ok": True, "photo": _photo_payload(photo, promo_map.get(photo.photographer_promoter_id), appr_map.get(str(photo.id)))})
     except Exception as e:
         session_db.rollback()
+        app.logger.exception("foto_set_approval_state")
         return jsonify({"ok": False, "error": str(e)}), 500
     finally:
         session_db.close()
@@ -55492,9 +55560,10 @@ def fotos_bulk_approval_state(owner_type, owner_id):
         for photo in photos:
             _apply_photo_approval_state(session_db, photo, state, user_state)
         session_db.commit()
-        return jsonify({"ok": True, "changed": len(photos)})
+        return jsonify({"ok": True, "changed": len(photos), "state": state})
     except Exception as e:
         session_db.rollback()
+        app.logger.exception("fotos_bulk_approval_state")
         return jsonify({"ok": False, "error": str(e)}), 500
     finally:
         session_db.close()
@@ -55773,6 +55842,7 @@ def photo_approval_public_decide(token):
         )
         if not ap:
             return jsonify({"ok": False, "error": "Contenido no encontrado."}), 404
+        # Se puede CAMBIAR una decisión ya tomada (antes el pulgar no respondía si ya estaba votada).
         ap.decision = decision
         ap.decided_at = _now_madrid()
         if note:

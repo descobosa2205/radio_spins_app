@@ -40,7 +40,18 @@
   function csrfToken() { var m = document.querySelector('meta[name="csrf-token"]'); return m ? (m.getAttribute('content') || '') : ''; }
   function esc(s) { var d = document.createElement('div'); d.textContent = (s == null ? '' : String(s)); return d.innerHTML; }
   function bsModal(id) { var el = document.getElementById(id); return (el && window.bootstrap) ? bootstrap.Modal.getOrCreateInstance(el) : null; }
-  function postJson(url, body) { return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) }).then(function (r) { return r.json().catch(function () { return {}; }); }); }
+  // Un POST que devuelva algo que NO sea JSON (un 500 con la página de mantenimiento, o la sesión
+  // caducada, que redirige) tiene que DECIRLO: antes se quedaba mudo y parecía que no pasaba nada.
+  function postJson(url, body) {
+    return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) })
+      .then(function (r) {
+        return r.json().catch(function () {
+          return { ok: false, error: r.status === 200 ? 'La respuesta del servidor no se entendió.'
+                                                      : ('Error del servidor (' + r.status + '). Recarga la página y vuelve a intentarlo.') };
+        });
+      })
+      .catch(function () { return { ok: false, error: 'Sin conexión con el servidor.' }; });
+  }
   function fmtDate(iso) { try { return new Date(iso).toLocaleDateString('es-ES'); } catch (e) { return ''; } }
   function avatar(url) { return '<span class="fotos-avatar">' + (url ? '<img src="' + esc(url) + '" alt="">' : '<i class="fa fa-user"></i>') + '</span>'; }
 
@@ -107,6 +118,16 @@
   }
 
   // =============================================================== render
+  // Enciende el chip de un estado (y lo deja marcado) para que lo que se acaba de marcar SIGA
+  // VIÉNDOSE: los filtros por defecto solo enseñan «aprobadas» y «sin solicitud», así que marcar
+  // algo como rechazado o pendiente lo hacía desaparecer de la galería y parecía que no se guardaba.
+  function showState(st) {
+    if (!st || filters[st]) return;
+    filters[st] = true;
+    var chip = document.querySelector('#fotosStateChips [data-state="' + st + '"]');
+    if (chip) chip.classList.add('active');
+  }
+
   function passesFilter(p) {
     if (!filters[p.approval_state || 'NONE']) return false;
     if (p.discarded && !showDiscarded) return false;
@@ -378,8 +399,9 @@
   document.getElementById('fotosDetailActions').addEventListener('click', function (e) {
     var st = e.target.closest('[data-detail-state]');
     if (st && detailPhotoId) {
-      postJson('/fotos/photo/' + detailPhotoId + '/estado-aprobacion', { state: st.getAttribute('data-detail-state') }).then(function (d) {
-        if (d && d.ok) { refresh(); openDetail(detailPhotoId); }
+      var nuevo = st.getAttribute('data-detail-state');
+      postJson('/fotos/photo/' + detailPhotoId + '/estado-aprobacion', { state: nuevo }).then(function (d) {
+        if (d && d.ok) { showState(nuevo); refresh(); openDetail(detailPhotoId); }
         else alert((d && d.error) || 'No se pudo cambiar el estado.');
       });
       return;
@@ -565,7 +587,7 @@
       // Marcado EN GRUPO del estado de aprobación de toda la selección.
       var st = action === 'state-approved' ? 'APPROVED' : (action === 'state-rejected' ? 'REJECTED' : 'PENDING');
       postJson(ownerBase + '/aprobacion-estado-bulk', { photo_ids: ids, state: st }).then(function (d) {
-        if (d && d.ok) { selected = {}; refresh(); }
+        if (d && d.ok) { showState(st); selected = {}; refresh(); }
         else alert((d && d.error) || 'No se pudo cambiar el estado.');
       });
     }

@@ -112,6 +112,18 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `impersonate_stop` (`GET /salir-modo-vision`, **exento** del enforcement) — botón rojo en el navbar
   (`layout.html`, globales `IMPERSONATING`/`IMPERSONATOR_NICK`). No anidable, no a uno mismo, no a
   bloqueados/eliminados; `logout` limpia las claves.
+- ⚠️ **La ficha y los listados de ACTIVIDAD se abren desde muchas secciones**: producción monta la
+  hoja de ruta, administración la bolsa, promoción su marketing… Por eso el acceso de LECTURA a
+  `concert_detail_view` / `activities_view` / `concerts_view` no exige la pestaña «Conciertos» de
+  Contratación: `_activity_read_resource_key` acepta la primera sección de
+  `ACTIVITY_READ_ACCESS_KEYS` que el usuario tenga. **Modificar sigue exigiendo edición en
+  contratación** (el helper solo actúa en GET). Sin esto, quien trabaja en Producción se comía un 403
+  al pinchar cualquier concierto (bug real). El 403 dice ahora **qué acceso falta**.
+- **Histórico de actividades**: `LEGACY_ACTIVITY_CUTOFF` (28-jul-2026). Las actividades ANTERIORES se
+  conservan en el listado y en su ficha, pero **no generan trabajo**: `_concert_needs_production`
+  devuelve False (ni aviso de producción, ni módulo de Inicio), no salen en el listado de Producción
+  ni para declarar en Registros. Helpers `_concert_is_legacy` / `_is_legacy_activity_date`. Crear una
+  bolsa a mano sigue siendo posible (es un clic deliberado); lo que no se genera es lo automático.
 - **Solo personal ACTUAL en listas y selectores**: `is_blocked`/`is_deleted` viven en **`UserSecurity`**
   (¡no en `User`! — un `getattr(user, "is_blocked")` es siempre `False` y no filtra nada: bug real).
   Helper único **`_inactive_user_ids(session_db)`** (UUIDs de eliminados o bloqueados) aplicado en el

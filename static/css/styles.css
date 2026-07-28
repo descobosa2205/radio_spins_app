@@ -2573,6 +2573,10 @@ img.docs-id__face { width:100%; height:100%; object-fit:cover; display:block; cu
 .inv-step.is-locked .inv-step__head{ background:#f4f5f7; color:#6c757d; }
 .inv-step.is-locked .inv-step__sub{ color:#9aa1a9; }
 .inv-missing input{ border-color:#E33D48; box-shadow:0 0 0 .15rem rgba(227,61,72,.12); }
+/* Dato que YA tenemos: se ve censurado y no se envía; al pinchar se ofrece actualizarlo. */
+.inv-locked{ cursor:pointer; }
+.inv-locked input{ background:#f6f8fa; border-style:dashed; color:#5b6672; pointer-events:none; }
+.inv-locked:hover input{ border-color:var(--brand-accent); background:#f0f9fc; }
 
 /* =========================================================
    ROYALTIES «A FAVOR»: bloque por compañía dentro de la tarjeta del artista y

@@ -192,7 +192,8 @@
               <label class="form-label">Número de cuenta bancaria <span class="text-danger">*</span></label>
               <input class="form-control" name="bank_account" placeholder="ES00 0000 0000 0000 0000 0000">
             </div>
-            <div class="col-12">
+            {# La foto/logo SOLO se pide si esa persona (o empresa) no tiene ninguna. #}
+            <div class="col-12 d-none" id="invRegPhotoBox">
               <label class="form-label" id="invRegPhotoLabel">Foto <span class="text-muted">(opcional)</span></label>
               <div class="inv-drop border border-2 border-dashed rounded-3 p-3 text-center text-muted" id="invPhotoDrop" style="cursor:pointer;">
                 <i class="fa fa-image me-1"></i><span data-photo-text>Arrastra aquí la imagen o pulsa para elegirla</span>
@@ -285,7 +286,55 @@
 
   // ---- Paso 2 · identificar
   const regForm = document.getElementById('invRegisterForm');
-  function showRegisterForm(kind, taxId, promoterId, missing, intro){
+  const REG_LABELS = {
+    full_name: 'nombre y apellidos', company_name: 'nombre de la empresa',
+    contact_name: 'nombre del contacto', fiscal_address: 'dirección fiscal',
+    email: 'email', phone: 'teléfono', bank_account: 'número de cuenta'
+  };
+
+  /* Bloquea un campo que YA tenemos: se ve el dato censurado (para saber que está y que el registro
+     está completo) y no se envía. Al pincharlo se pregunta si se va a actualizar y, si acepta, se
+     queda vacío y editable. */
+  function lockField(box, valorCensurado){
+    const inp = box.querySelector('input');
+    if (!inp) return;
+    inp.value = valorCensurado || '';
+    inp.readOnly = true;
+    inp.required = false;
+    inp.disabled = true;                 // deshabilitado = NO viaja al servidor (no se pisa con «•••»)
+    box.classList.remove('inv-missing');
+    box.classList.add('inv-locked');
+    if (!box.querySelector('[data-reg-hint]')) {
+      const hint = document.createElement('div');
+      hint.className = 'form-text';
+      hint.setAttribute('data-reg-hint', '1');
+      hint.innerHTML = '<i class="fa fa-lock me-1"></i>Ya lo tenemos. Pincha para actualizarlo.';
+      box.appendChild(hint);
+    }
+    box.querySelector('[data-reg-hint]').classList.remove('d-none');
+    if (box.__regClick) return;          // el listener se pone una sola vez
+    box.__regClick = true;
+    box.addEventListener('click', function(){
+      if (!box.classList.contains('inv-locked')) return;
+      const nombre = REG_LABELS[box.getAttribute('data-reg-field')] || 'este dato';
+      if (!window.confirm('Vas a actualizar el ' + nombre + '. ¿Continuar?')) return;
+      unlockField(box);
+    });
+  }
+
+  function unlockField(box){
+    const inp = box.querySelector('input');
+    if (!inp) return;
+    box.classList.remove('inv-locked');
+    inp.disabled = false;
+    inp.readOnly = false;
+    inp.value = '';
+    const hint = box.querySelector('[data-reg-hint]');
+    if (hint) hint.classList.add('d-none');
+    inp.focus();
+  }
+
+  function showRegisterForm(kind, taxId, promoterId, missing, intro, p){
     document.getElementById('invRegTaxId').value = taxId || '';
     document.getElementById('invRegKind').value = kind || 'PARTICULAR';
     document.getElementById('invRegPromoterId').value = promoterId || '';
@@ -293,6 +342,8 @@
     document.getElementById('invRegTaxLabel').innerHTML = (kind === 'EMPRESA' ? 'CIF' : 'DNI') + ' <span class="text-danger">*</span>';
     document.getElementById('invRegPhotoLabel').innerHTML = (kind === 'EMPRESA' ? 'Logo' : 'Foto') + ' <span class="text-muted">(opcional)</span>';
     document.getElementById('invRegIntro').innerHTML = intro || '';
+    const yaTenemos = (p && p.shown) || {};
+    const faltan = missing || [];
     const show = {
       full_name: kind !== 'EMPRESA',
       company_name: kind === 'EMPRESA',
@@ -303,15 +354,17 @@
       const visible = (f in show) ? show[f] : true;
       box.classList.toggle('d-none', !visible);
       const inp = box.querySelector('input');
-      if (inp) inp.required = visible;
+      if (!inp) return;
+      if (visible && yaTenemos[f]) {
+        lockField(box, yaTenemos[f]);            // ya lo tenemos: se ve censurado
+      } else {
+        unlockField(box);                        // falta: a rellenar
+        inp.required = visible;
+        box.classList.toggle('inv-missing', visible && faltan.indexOf(f) >= 0);
+      }
     });
-    if (missing && missing.length) {
-      regForm.querySelectorAll('[data-reg-field]').forEach(function(box){
-        const f = box.getAttribute('data-reg-field');
-        if (missing.indexOf(f) >= 0) box.classList.add('inv-missing');
-        else box.classList.remove('inv-missing');
-      });
-    }
+    // Foto/logo: solo si esa persona no tiene ninguna.
+    document.getElementById('invRegPhotoBox').classList.toggle('d-none', !!(p && p.has_photo));
     regForm.classList.remove('d-none');
   }
 
@@ -338,9 +391,9 @@
           : '<div class="alert alert-warning small mt-2 mb-0">Nos faltan datos obligatorios: complétalos para poder facturar.</div>')
       + '</div>';
     const upd = box.querySelector('[data-inv-update]');
-    if (upd) upd.addEventListener('click', function(){ showRegisterForm(p.kind, p.tax_id, p.id, [], 'Cambia solo lo que quieras actualizar.'); });
+    if (upd) upd.addEventListener('click', function(){ showRegisterForm(p.kind, p.tax_id, p.id, [], 'Pincha el dato que quieras cambiar; el resto se queda como está.', p); });
     if (!p.complete) {
-      showRegisterForm(p.kind, p.tax_id, p.id, p.missing, 'Completa los datos que faltan (marcados) y guarda.');
+      showRegisterForm(p.kind, p.tax_id, p.id, p.missing, 'Solo te pedimos lo que nos falta (marcado). Lo que ya tenemos se muestra censurado; pincha encima si quieres cambiarlo.', p);
     } else {
       regForm.classList.add('d-none');
       loadDocs(p.id);
@@ -371,7 +424,7 @@
         return;
       }
       box.innerHTML = '<div class="alert alert-warning small mb-0"><i class="fa fa-circle-info me-1"></i>Todavía no estás en nuestra base de datos. Rellena tus datos aquí abajo: <strong>solo tendrás que hacerlo esta vez</strong>.</div>';
-      showRegisterForm(d.kind, d.tax_id, '', [], 'Datos de ' + (d.kind === 'EMPRESA' ? 'la empresa' : 'la persona') + ' para poder facturar.');
+      showRegisterForm(d.kind, d.tax_id, '', [], 'Datos de ' + (d.kind === 'EMPRESA' ? 'la empresa' : 'la persona') + ' para poder facturar.', null);
     });
   });
 

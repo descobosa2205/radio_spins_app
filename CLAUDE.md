@@ -642,7 +642,13 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (datos **enmascarados** con `_mask_value`: quien teclee un DNI ajeno no lee IBAN/email/teléfono),
   `_billing_required_docs`/`_billing_docs_state` (factura + `CERT_AEAT` solo empresas + `CERT_SS`;
   ambos en `INVOICE_MONTHLY_CERTS` → **caducan cada mes**, `_cert_month_range`), endpoints
-  `public_invoice_identify`/`_register`/`_docs_state`/`_upload`. **La búsqueda por DNI/CIF mira TRES
+  `public_invoice_identify`/`_register`/`_docs_state`/`_upload`. **Al identificar a alguien al que le
+  faltan datos** solo se le piden los que faltan: los que ya tenemos se muestran en el formulario
+  **censurados y bloqueados** (`shown` del payload; el nombre en claro, el resto con `_mask_value`),
+  con candado y sin viajar al servidor (`disabled`, para no pisar el dato con «•••»). Pinchando encima
+  se pregunta «Vas a actualizar el <campo>. ¿Continuar?» y, al aceptar, queda vacío y editable
+  (clase `.inv-locked`). El hueco de **foto/logo solo aparece si esa persona no tiene ninguna**
+  (`has_photo`). **La búsqueda por DNI/CIF mira TRES
   sitios** (todas las vías, sin cortar en la primera: si dos fichas comparten el número se ofrecen las
   dos y elige quien factura): `Promoter.tax_id`, `PromoterCompany.tax_id` y el **nº del DNI/pasaporte
   ESCANEADO** (`PersonDocument.doc_number`) — los artistas y sus personas suelen tener el documento

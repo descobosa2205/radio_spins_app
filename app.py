@@ -52946,6 +52946,20 @@ def _billing_profile_payload(session_db, promoter) -> dict:
         "phone_masked": _mask_value(promoter.contact_phone or "", 3),
         "bank_masked": _mask_value(promoter.bank_account or ""),
         "has_fiscal": bool(fiscal),
+        # Solo se le pide FOTO (o logo) si no tiene ninguna: si ya la tiene, ese hueco no aparece.
+        "has_photo": bool((promoter.logo_url or "").strip()),
+        # Lo que YA tenemos, campo por campo, para MOSTRARLO en el formulario (censurado) en vez de
+        # dejarlo en blanco: así se ve el registro completo y solo se teclea lo que falta. El nombre
+        # se ve tal cual (ya sale en la cabecera); el resto, enmascarado.
+        "shown": {k: v for k, v in {
+            "full_name": full_name,
+            "company_name": ((promoter.nick or "").strip() if kind == "EMPRESA" else ""),
+            "contact_name": contact_name,
+            "fiscal_address": _mask_value(fiscal, 6),
+            "email": _mask_value(promoter.contact_email or ""),
+            "phone": _mask_value(promoter.contact_phone or "", 3),
+            "bank_account": _mask_value(promoter.bank_account or ""),
+        }.items() if v},
         "missing": missing,
         "complete": not missing,
         # Artista del que forma parte (miembro del grupo o vinculado): se muestra al identificarse y

@@ -274,6 +274,8 @@ from models import (
     ensure_cabify_schema,
     ThirdPartyIntakeLink,
     ensure_third_party_intake_schema,
+    ArtistTemplate,
+    ensure_artist_templates_schema,
 )
 import sim_calc  # motor de cálculo puro de Simulaciones
 import seatmap_calc  # motor puro del mapa de butacas del recinto (conteos/plantillas)
@@ -1125,6 +1127,18 @@ def format_thousands(n):
         return "0"
 
 
+@app.template_filter("exp_tpl_item")
+def _exp_tpl_item_filter(item):
+    """Línea de una plantilla de gastos en el formato que espera el editor del modal."""
+    return {
+        "category": (getattr(item, "category", "") or "OTROS"),
+        "concept": (getattr(item, "concept", "") or ""),
+        "amount": float(_money_or_zero(getattr(item, "amount_net", 0))),
+        "qty": float(_money_or_zero(getattr(item, "quantity", 1)) or 1),
+        "iva": float(_money_or_zero(getattr(item, "iva_pct", 21))),
+    }
+
+
 @app.template_filter("eur")
 def format_eur(n):
     """Formatea importes en EUR con separador español."""
@@ -1721,6 +1735,8 @@ def artist_detail_view(artist_id):
             repertoire_templates=_repertoire_templates_for(session_db, "ARTIST", artist.id),
             templates_owner_type="ARTIST",
             templates_owner_id=str(artist.id),
+            # Plantillas de personal / rooming / hoja de ruta del artista (pestaña «Plantillas»).
+            **_artist_templates_context(session_db, artist.id),
             agenda_data=agenda_data,
             calendar_links=calendar_links,
             caldav_server=caldav_server,
@@ -24093,6 +24109,89 @@ def api_create_distributor():
         s.close()
 
 
+@app.post("/plantillas-gastos/crear", endpoint="expense_template_create")
+@admin_required
+def expense_template_create():
+    """Crea una plantilla de gastos DESDE LA FICHA (artista / evento / recinto), sin pasar por una
+    simulación: nombre + líneas (categoría, concepto, importe unitario, cantidad, IVA)."""
+    session_db = db()
+    try:
+        ot = (request.form.get("owner_type") or "").strip().upper()
+        oid = to_uuid((request.form.get("owner_id") or "").strip())
+        if ot not in {"ARTIST", "EVENT", "VENUE"} or not oid:
+            flash("Falta a quién pertenece la plantilla.", "warning")
+            return redirect(safe_next_or(url_for("home")))
+        nombre = (request.form.get("name") or "").strip() or "Plantilla de gastos"
+        tpl = ExpenseTemplate(owner_type=ot, owner_id=oid, name=nombre[:160],
+                              notes=(request.form.get("notes") or "").strip() or None)
+        session_db.add(tpl)
+        session_db.flush()
+        _expense_template_replace_items(session_db, tpl)
+        session_db.commit()
+        flash(f"Plantilla de gastos «{tpl.name}» creada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("expense_template_create")
+        flash(f"No se pudo crear la plantilla: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("home")))
+
+
+@app.post("/plantillas-gastos/<tid>/lineas", endpoint="expense_template_update_items")
+@admin_required
+def expense_template_update_items(tid):
+    """Reemplaza las líneas (y el nombre) de una plantilla de gastos desde la ficha."""
+    session_db = db()
+    try:
+        tpl = session_db.get(ExpenseTemplate, to_uuid(tid))
+        if not tpl:
+            abort(404)
+        nombre = (request.form.get("name") or "").strip()
+        if nombre:
+            tpl.name = nombre[:160]
+        if request.form.get("notes") is not None:
+            tpl.notes = (request.form.get("notes") or "").strip() or None
+        _expense_template_replace_items(session_db, tpl)
+        tpl.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Plantilla de gastos guardada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("expense_template_update_items")
+        flash(f"No se pudo guardar la plantilla: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("home")))
+
+
+def _expense_template_replace_items(session_db, tpl) -> int:
+    """Deja en la plantilla EXACTAMENTE las líneas que llegan del formulario."""
+    session_db.query(ExpenseTemplateItem).filter(ExpenseTemplateItem.template_id == tpl.id).delete()
+    cats = request.form.getlist("item_category[]")
+    conceptos = request.form.getlist("item_concept[]")
+    importes = request.form.getlist("item_amount[]")
+    cantidades = request.form.getlist("item_qty[]")
+    ivas = request.form.getlist("item_iva[]")
+    n = 0
+    for i, concepto in enumerate(conceptos):
+        concepto = (concepto or "").strip()
+        cat = ((cats[i] if i < len(cats) else "") or "OTROS").strip().upper()
+        importe = _money_or_zero(importes[i] if i < len(importes) else 0)
+        if not concepto and importe == 0:
+            continue
+        if cat not in dict((k, l) for k, l, _i in SIM_EXPENSE_CATEGORIES):
+            cat = "OTROS"
+        session_db.add(ExpenseTemplateItem(
+            template_id=tpl.id, category=cat, concept=concepto[:200],
+            amount_net=importe,
+            quantity=(_money_or_zero(cantidades[i]) if i < len(cantidades) and (cantidades[i] or "").strip() else 1) or 1,
+            iva_pct=(_money_or_zero(ivas[i]) if i < len(ivas) and (ivas[i] or "").strip() else 21),
+        ))
+        n += 1
+    return n
+
+
 @app.post("/plantillas-gastos/<tid>/renombrar", endpoint="expense_template_rename")
 @admin_required
 def expense_template_rename(tid):
@@ -36899,6 +36998,7 @@ def _bootstrap_schema_bg():
         (ensure_pleo_schema, "ensure_pleo_schema"),
         (ensure_cabify_schema, "ensure_cabify_schema"),
         (ensure_third_party_intake_schema, "ensure_third_party_intake_schema"),
+        (ensure_artist_templates_schema, "ensure_artist_templates_schema"),
         (ensure_push_schema, "ensure_push_schema"),
         (ensure_app_settings_schema, "ensure_app_settings_schema"),
     ]:
@@ -36932,7 +37032,13 @@ SOCIAL_PLATFORM_ORDER = {row["key"]: idx for idx, row in enumerate(SOCIAL_PLATFO
 # Herramienta de producción por actividad (concierto / acción / promoción).
 # Datos en la columna JSONB `roadmap_payload` (esquema version=2); el panel se
 # renderiza en cliente (static/js/roadmap.js) y el CRUD va por endpoints JSON.
-ROADMAP_ENTITY_TYPES = {"concert", "action", "promotion"}
+# Dueños de una hoja de ruta. «template» es una PLANTILLA de artista (ArtistTemplate): así el
+# editor de plantillas es literalmente la hoja de ruta, con sus mismas funciones (y las que vengan).
+ROADMAP_ENTITY_TYPES = {"concert", "action", "promotion", "template"}
+# Días de una plantilla: no tienen fecha real, se numeran «Día 1, Día 2…». Se ancla en un lunes
+# cualquiera para reutilizar toda la maquinaria de días (que trabaja con fechas ISO).
+TEMPLATE_DAY_ANCHOR = date(2000, 1, 3)   # lunes
+TEMPLATE_MAX_DAYS = 30
 # Modos de transporte (comparten color; son el "kind" del item de agenda y la
 # vista de Logística los agrupa).
 ROADMAP_TRANSPORT_MODES = [
@@ -37221,7 +37327,10 @@ def _roadmap_entity(session_db, entity_type: str, entity_id):
     kind = (entity_type or "").strip().lower()
     if kind not in ROADMAP_ENTITY_TYPES:
         return kind, None
-    if kind == "concert":
+    if kind == "template":
+        row = (session_db.query(ArtistTemplate).options(joinedload(ArtistTemplate.artist))
+               .filter(ArtistTemplate.id == to_uuid(entity_id)).first())
+    elif kind == "concert":
         row = session_db.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue)).filter(Concert.id == to_uuid(entity_id)).first()
     elif kind == "action":
         row = session_db.query(CompanyAction).options(joinedload(CompanyAction.venue)).filter(CompanyAction.id == to_uuid(entity_id)).first()
@@ -37231,8 +37340,29 @@ def _roadmap_entity(session_db, entity_type: str, entity_id):
 
 
 # --- Días de la hoja de ruta ---------------------------------------------------
+# TIPOS DE PLANTILLA de artista. `tabs` son las pestañas del editor (las de la hoja de ruta) y
+# `copies` lo que se vuelca al cargarla en una actividad.
+ARTIST_TEMPLATE_KINDS = [
+    ("PERSONNEL", "Personal", "fa-users", ["personal"], "el personal"),
+    ("ROOMING", "Rooming list", "fa-hotel", ["personal", "hoteles"], "los hoteles y el reparto de habitaciones"),
+    ("ROADMAP", "Hoja de ruta", "fa-route", ["agenda", "logistica"], "los horarios de la agenda"),
+]
+ARTIST_TEMPLATE_LABELS = {k: l for k, l, _i, _t, _d in ARTIST_TEMPLATE_KINDS}
+ARTIST_TEMPLATE_ICONS = {k: i for k, _l, i, _t, _d in ARTIST_TEMPLATE_KINDS}
+ARTIST_TEMPLATE_TABS = {k: t for k, _l, _i, t, _d in ARTIST_TEMPLATE_KINDS}
+ARTIST_TEMPLATE_WHAT = {k: d for k, _l, _i, _t, d in ARTIST_TEMPLATE_KINDS}
+
+
+def _template_day_list(n: int) -> list[str]:
+    """Los N días de una plantilla, como fechas ISO ancladas (se muestran «Día 1, Día 2…»)."""
+    n = max(1, min(int(n or 1), TEMPLATE_MAX_DAYS))
+    return [(TEMPLATE_DAY_ANCHOR + timedelta(days=i)).isoformat() for i in range(n)]
+
+
 def _roadmap_base_days(row) -> list[str]:
     days = []
+    if isinstance(row, ArtistTemplate):
+        return _template_day_list(getattr(row, "day_count", 1))
     if isinstance(row, Concert):
         if getattr(row, "date", None):
             days.append(row.date.isoformat())
@@ -37280,8 +37410,15 @@ def _roadmap_days(row, payload: dict) -> list[dict]:
         day_set.add(today_local().isoformat())
     weekdays = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
     months = ["", "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+    es_plantilla = isinstance(row, ArtistTemplate)
     rows = []
-    for day in sorted(day_set):
+    for idx, day in enumerate(sorted(day_set), start=1):
+        if es_plantilla:
+            # Sin fecha real: se numeran. Al cargar la plantilla, el día 1 va al primer día de la
+            # actividad, el 2 al segundo, y así (ver `_template_agenda_for_days`).
+            rows.append({"date": day, "weekday": "Día", "day": idx, "month": "", "year": "",
+                         "label": f"Día {idx}"})
+            continue
         try:
             d = datetime.strptime(day, "%Y-%m-%d").date()
             rows.append({"date": day, "weekday": weekdays[d.weekday()], "day": d.day, "month": months[d.month], "year": d.year, "label": f"{weekdays[d.weekday()]} {d.day} {months[d.month]}"})
@@ -37292,6 +37429,8 @@ def _roadmap_days(row, payload: dict) -> list[dict]:
 
 # --- Canciones del artista (para el selector de entrevistas) -------------------
 def _roadmap_artist_ids(row) -> list[str]:
+    if isinstance(row, ArtistTemplate):
+        return [str(row.artist_id)] if row.artist_id else []
     if isinstance(row, Concert):
         return [str(x) for x in _concert_primary_artist_ids(row)]
     return [str(x) for x in (getattr(row, "artist_ids", None) or [])]
@@ -37317,6 +37456,8 @@ def _roadmap_artist_songs(session_db, row) -> list[dict]:
 
 # --- Contexto para la plantilla ------------------------------------------------
 def _roadmap_title(session_db, entity_type: str, row, artists) -> str:
+    if isinstance(row, ArtistTemplate):
+        return (row.name or "").strip() or ARTIST_TEMPLATE_LABELS.get(row.kind, "Plantilla")
     if isinstance(row, Concert):
         return getattr(row, "festival_name", None) or _artist_label_from_rows(artists) or "Actividad"
     if isinstance(row, CompanyAction):
@@ -37334,6 +37475,10 @@ def _roadmap_context(session_db, entity_type: str, row, **_ignored) -> dict:
         "entity_type": entity_type,
         "entity_id": str(getattr(row, "id", "")),
         "is_concert": entity_type == "concert",
+        # Plantilla de artista: solo sus pestañas (y el editor es la propia hoja de ruta).
+        "is_template": isinstance(row, ArtistTemplate),
+        "template_kind": (getattr(row, "kind", "") or "") if isinstance(row, ArtistTemplate) else "",
+        "tabs": (ARTIST_TEMPLATE_TABS.get(getattr(row, "kind", ""), []) if isinstance(row, ArtistTemplate) else []),
         "title": _roadmap_title(session_db, entity_type, row, artists),
         "artist_label": _artist_label_from_rows(artists),
         "payload": payload,
@@ -40188,6 +40333,458 @@ def _travel_summary(row) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+#  PLANTILLAS DE ARTISTA: personal · rooming list · hoja de ruta
+#  ------------------------------------------------------------------------
+#  Se crean y se editan en la ficha del artista (pestaña «Plantillas») y se CARGAN en la hoja de ruta
+#  de cualquier actividad. El editor de la plantilla ES la hoja de ruta (`entity_type='template'`),
+#  así que tiene exactamente las mismas funciones y las nuevas aparecen aquí solas.
+# ---------------------------------------------------------------------------
+
+def _artist_template_rows(session_db, artist_id, kind=None) -> list:
+    q = (session_db.query(ArtistTemplate)
+         .filter(ArtistTemplate.artist_id == to_uuid(str(artist_id))))
+    if kind:
+        q = q.filter(ArtistTemplate.kind == kind)
+    return q.order_by(ArtistTemplate.kind.asc(), ArtistTemplate.name.asc()).all()
+
+
+def _artist_template_summary(row) -> dict:
+    """Resumen para el listado de plantillas: cuánta gente, cuántas habitaciones, cuántos puntos."""
+    pay = _roadmap_load(row)
+    personas = len(pay.get("personnel") or [])
+    hoteles = pay.get("hotels") or []
+    habitaciones = sum(len(h.get("rooms") or []) for h in hoteles)
+    puntos = len(pay.get("agenda") or [])
+    if row.kind == "PERSONNEL":
+        detalle = f"{personas} persona{'s' if personas != 1 else ''}"
+    elif row.kind == "ROOMING":
+        detalle = (f"{habitaciones} {'habitaciones' if habitaciones != 1 else 'habitación'} · "
+                   f"{personas} persona{'s' if personas != 1 else ''}")
+    else:
+        detalle = (f"{puntos} punto{'s' if puntos != 1 else ''} · "
+                   f"{row.day_count} día{'s' if (row.day_count or 1) != 1 else ''}")
+    return {
+        "id": str(row.id),
+        "kind": row.kind,
+        "kind_label": ARTIST_TEMPLATE_LABELS.get(row.kind, row.kind),
+        "icon": ARTIST_TEMPLATE_ICONS.get(row.kind, "fa-clone"),
+        "name": (row.name or "").strip() or "Plantilla",
+        "detail": detalle,
+        "people": personas,
+        "rooms": habitaciones,
+        "items": puntos,
+        "day_count": int(row.day_count or 1),
+        "updated": (row.updated_at or row.created_at),
+        "url": url_for("artist_template_edit", tid=row.id),
+    }
+
+
+def _artist_templates_context(session_db, artist_id) -> dict:
+    """Plantillas del artista agrupadas por tipo (para la pestaña «Plantillas» de su ficha)."""
+    rows = _artist_template_rows(session_db, artist_id)
+    grupos = []
+    for key, label, icon, _tabs, _what in ARTIST_TEMPLATE_KINDS:
+        grupos.append({
+            "key": key, "label": label, "icon": icon,
+            "rows": [_artist_template_summary(r) for r in rows if r.kind == key],
+        })
+    personnel = [{"id": str(r.id), "name": (r.name or "Plantilla"),
+                  "people": len(_roadmap_load(r).get("personnel") or [])}
+                 for r in rows if r.kind == "PERSONNEL"]
+    return {"artist_template_groups": grupos, "artist_personnel_templates": personnel}
+
+
+def _artist_template_person_key(person: dict) -> str:
+    """Identidad de una persona para no duplicarla al cargar una plantilla: su ficha si la tiene
+    (tercero o usuario) y, si es manual, su nombre normalizado."""
+    kind = (person.get("kind") or "MANUAL").upper()
+    ref = str(person.get("ref_id") or "").strip()
+    if kind in {"PROMOTER", "USER", "MEMBER"} and ref:
+        return f"{kind}:{ref}"
+    return "NAME:" + _norm_text_key(person.get("name") or "")
+
+
+def _artist_template_copy_personnel(payload_origen: dict, payload_destino: dict) -> dict:
+    """Añade el personal de la plantilla al de la actividad, sin repetir a nadie.
+    Devuelve {added, skipped, id_map} (id_map: id en la plantilla → id en la actividad)."""
+    destino = payload_destino.setdefault("personnel", [])
+    ya = {_artist_template_person_key(p): p for p in destino}
+    added, skipped, id_map = 0, 0, {}
+    for persona in (payload_origen.get("personnel") or []):
+        clave = _artist_template_person_key(persona)
+        if clave in ya:
+            id_map[str(persona.get("id"))] = str(ya[clave].get("id"))
+            skipped += 1
+            continue
+        nueva = dict(persona)
+        nueva["id"] = _roadmap_new_id()
+        destino.append(nueva)
+        ya[clave] = nueva
+        id_map[str(persona.get("id"))] = nueva["id"]
+        added += 1
+    return {"added": added, "skipped": skipped, "id_map": id_map}
+
+
+def _template_agenda_for_days(payload_origen: dict, dias_destino: list) -> list:
+    """Copia los puntos de la agenda de una plantilla mapeando «Día 1, 2, 3…» a los días reales.
+
+    Los puntos del día 1 de la plantilla van al primer día de la actividad, los del 2 al segundo…
+    Si la plantilla tiene más días que la actividad, los que sobran se quedan en el último día (así
+    no se pierde nada y se puede recolocar arrastrando).
+    """
+    items = payload_origen.get("agenda") or []
+    dias_plantilla = sorted({str(it.get("day"))[:10] for it in items if it.get("day")})
+    fechas = [d["date"] for d in dias_destino] or [today_local().isoformat()]
+    salida = []
+    for it in items:
+        copia = dict(it)
+        copia["id"] = _roadmap_new_id()
+        copia["attachments"] = []          # los adjuntos no se copian: son de aquella actividad
+        try:
+            idx = dias_plantilla.index(str(it.get("day"))[:10])
+        except ValueError:
+            idx = 0
+        copia["day"] = fechas[min(idx, len(fechas) - 1)]
+        salida.append(copia)
+    return salida
+
+
+# --------------------------------------------------------------- back office (ficha del artista)
+@app.post("/artistas/<artist_id>/plantillas/crear", endpoint="artist_template_create")
+@admin_required
+def artist_template_create(artist_id):
+    """Crea una plantilla (personal / rooming / hoja de ruta) y abre su editor."""
+    session_db = db()
+    try:
+        artist = session_db.get(Artist, to_uuid(artist_id))
+        if not artist:
+            abort(404)
+        kind = (request.form.get("kind") or "").strip().upper()
+        if kind not in ARTIST_TEMPLATE_LABELS:
+            flash("Tipo de plantilla no válido.", "warning")
+            return redirect(url_for("artist_detail_view", artist_id=artist_id, tab="plantillas"))
+        nombre = (request.form.get("name") or "").strip() or f"{ARTIST_TEMPLATE_LABELS[kind]} de {artist.name}"
+        st = _current_user_state()
+        row = ArtistTemplate(
+            artist_id=artist.id, kind=kind, name=nombre[:160],
+            day_count=max(1, min(_roadmap_int(request.form.get("day_count"), 1) or 1, TEMPLATE_MAX_DAYS)),
+            roadmap_payload={"version": 2, "personnel": [], "hotels": [], "agenda": []},
+            created_by_user_id=to_uuid(st.get("user_id")) if st.get("user_id") else None,
+            created_by_nick=(st.get("nick") or "").strip() or None,
+        )
+        # ROOMING: se parte de una plantilla de PERSONAL para tener a la gente que repartir.
+        base_id = to_uuid((request.form.get("personnel_template_id") or "").strip())
+        if kind == "ROOMING" and base_id:
+            base = session_db.get(ArtistTemplate, base_id)
+            if base is not None and base.artist_id == artist.id:
+                row.personnel_template_id = base.id
+                row.roadmap_payload = {"version": 2, "hotels": [], "agenda": [],
+                                       "personnel": [dict(p) for p in (_roadmap_load(base).get("personnel") or [])]}
+        session_db.add(row)
+        session_db.commit()
+        return redirect(url_for("artist_template_edit", tid=row.id))
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("artist_template_create")
+        flash(f"No se pudo crear la plantilla: {exc}", "danger")
+        return redirect(url_for("artist_detail_view", artist_id=artist_id, tab="plantillas"))
+    finally:
+        session_db.close()
+
+
+@app.get("/plantillas/<tid>", endpoint="artist_template_edit")
+@admin_required
+def artist_template_edit(tid):
+    """Editor de una plantilla: ES la hoja de ruta, con las pestañas que le tocan a su tipo."""
+    session_db = db()
+    try:
+        row = (session_db.query(ArtistTemplate).options(joinedload(ArtistTemplate.artist))
+               .filter(ArtistTemplate.id == to_uuid(tid)).first())
+        if not row:
+            abort(404)
+        ctx = _roadmap_context(session_db, "template", row)
+        base = None
+        if row.personnel_template_id:
+            base = session_db.get(ArtistTemplate, row.personnel_template_id)
+        return render_template(
+            "artist_template_edit.html",
+            tpl=row, roadmap_ctx=ctx, artist=row.artist,
+            kind_label=ARTIST_TEMPLATE_LABELS.get(row.kind, "Plantilla"),
+            kind_icon=ARTIST_TEMPLATE_ICONS.get(row.kind, "fa-clone"),
+            personnel_base=base,
+            personnel_templates=[{"id": str(r.id), "name": (r.name or "Plantilla")}
+                                 for r in _artist_template_rows(session_db, row.artist_id, "PERSONNEL")],
+            title=f"{ARTIST_TEMPLATE_LABELS.get(row.kind, 'Plantilla')} · {row.name}",
+        )
+    finally:
+        session_db.close()
+
+
+@app.post("/plantillas/<tid>/guardar", endpoint="artist_template_update")
+@admin_required
+def artist_template_update(tid):
+    """Nombre, nº de días y (en rooming) recargar la gente de su plantilla de personal."""
+    session_db = db()
+    try:
+        row = session_db.get(ArtistTemplate, to_uuid(tid))
+        if not row:
+            abort(404)
+        nombre = (request.form.get("name") or "").strip()
+        if nombre:
+            row.name = nombre[:160]
+        if request.form.get("day_count"):
+            row.day_count = max(1, min(_roadmap_int(request.form.get("day_count"), 1) or 1, TEMPLATE_MAX_DAYS))
+        if _truthy(request.form.get("reload_personnel")) and row.kind == "ROOMING":
+            base_id = to_uuid((request.form.get("personnel_template_id") or "").strip()) or row.personnel_template_id
+            base = session_db.get(ArtistTemplate, base_id) if base_id else None
+            if base is not None and base.artist_id == row.artist_id:
+                payload = _roadmap_load(row)
+                res = _artist_template_copy_personnel(_roadmap_load(base), payload)
+                row.personnel_template_id = base.id
+                _roadmap_save(session_db, row, payload)
+                flash(f"Personal cargado de «{base.name}»: {res['added']} añadido(s).", "success")
+        row.updated_at = _now_madrid()
+        session_db.commit()
+        return redirect(url_for("artist_template_edit", tid=row.id))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo guardar: {exc}", "danger")
+        return redirect(url_for("artist_template_edit", tid=tid))
+    finally:
+        session_db.close()
+
+
+@app.post("/plantillas/<tid>/duplicar", endpoint="artist_template_duplicate")
+@admin_required
+def artist_template_duplicate(tid):
+    session_db = db()
+    try:
+        row = session_db.get(ArtistTemplate, to_uuid(tid))
+        if not row:
+            abort(404)
+        st = _current_user_state()
+        copia = ArtistTemplate(
+            artist_id=row.artist_id, kind=row.kind, name=(f"{row.name} (copia)")[:160],
+            notes=row.notes, personnel_template_id=row.personnel_template_id,
+            day_count=row.day_count, roadmap_payload=dict(_roadmap_load(row)),
+            created_by_user_id=to_uuid(st.get("user_id")) if st.get("user_id") else None,
+            created_by_nick=(st.get("nick") or "").strip() or None,
+        )
+        session_db.add(copia)
+        session_db.commit()
+        return redirect(url_for("artist_template_edit", tid=copia.id))
+    finally:
+        session_db.close()
+
+
+@app.post("/plantillas/<tid>/eliminar", endpoint="artist_template_delete")
+@admin_required
+def artist_template_delete(tid):
+    session_db = db()
+    try:
+        row = session_db.get(ArtistTemplate, to_uuid(tid))
+        if not row:
+            abort(404)
+        artist_id = row.artist_id
+        session_db.delete(row)
+        session_db.commit()
+        flash("Plantilla eliminada.", "success")
+        return redirect(safe_next_or(url_for("artist_detail_view", artist_id=artist_id, tab="plantillas")))
+    finally:
+        session_db.close()
+
+
+# --------------------------------------------------------------- cargar en una hoja de ruta
+def _roadmap_templates_for(session_db, row) -> dict:
+    """Plantillas disponibles para esta actividad: las de sus artistas, por tipo."""
+    ids = [to_uuid(x) for x in _roadmap_artist_ids(row) if to_uuid(x)]
+    if not ids:
+        return {k: [] for k, _l, _i, _t, _d in ARTIST_TEMPLATE_KINDS}
+    rows = (session_db.query(ArtistTemplate).options(joinedload(ArtistTemplate.artist))
+            .filter(ArtistTemplate.artist_id.in_(ids))
+            .order_by(ArtistTemplate.name.asc()).all())
+    out = {k: [] for k, _l, _i, _t, _d in ARTIST_TEMPLATE_KINDS}
+    for r in rows:
+        info = _artist_template_summary(r)
+        info["artist"] = getattr(r.artist, "name", "") or ""
+        out.setdefault(r.kind, []).append(info)
+    return out
+
+
+@app.get("/hoja-ruta/<entity_type>/<entity_id>/plantillas", endpoint="roadmap_templates_list")
+@admin_required
+def roadmap_templates_list(entity_type, entity_id):
+    """Plantillas del artista disponibles para cargar en esta hoja de ruta."""
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        return jsonify({"ok": True, "templates": _roadmap_templates_for(session_db, row)})
+    finally:
+        session_db.close()
+
+
+@app.post("/hoja-ruta/<entity_type>/<entity_id>/plantillas/<tid>/cargar", endpoint="roadmap_template_load")
+@admin_required
+def roadmap_template_load(entity_type, entity_id, tid):
+    """Carga una plantilla en la hoja de ruta de la actividad.
+
+    · PERSONAL: añade a la gente que no esté ya (no duplica).
+    · ROOMING: trae los hoteles con su reparto de habitaciones. Quien esté en la plantilla y NO en el
+      personal de la actividad se devuelve en `extras` para que se decida: añadirlo al personal o
+      dejarlo fuera (`mode=add_missing` / `mode=skip_missing`). Quien esté en el personal y no en la
+      plantilla se queda simplemente SIN habitación.
+    · HOJA DE RUTA: copia los puntos de la agenda mapeando Día 1, 2, 3… a los días de la actividad.
+    """
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        tpl = session_db.get(ArtistTemplate, to_uuid(tid))
+        if not row or not tpl:
+            return jsonify({"ok": False, "error": "No encontrado."}), 404
+        modo = (request.form.get("mode") or (request.get_json(silent=True) or {}).get("mode") or "").strip().lower()
+        payload = _roadmap_load(row)
+        origen = _roadmap_load(tpl)
+        resumen = {"ok": True, "kind": tpl.kind, "name": tpl.name}
+
+        if tpl.kind == "PERSONNEL":
+            res = _artist_template_copy_personnel(origen, payload)
+            _roadmap_save(session_db, row, payload)
+            resumen.update(added=res["added"], skipped=res["skipped"],
+                           payload=payload, days=_roadmap_days(row, payload),
+                           message=(f"{res['added']} persona(s) añadida(s)"
+                                    + (f", {res['skipped']} ya estaba(n)" if res["skipped"] else "")))
+            return jsonify(resumen)
+
+        if tpl.kind == "ROOMING":
+            # ¿Quién de la plantilla no está en el personal de la actividad?
+            actuales = {_artist_template_person_key(p): p for p in (payload.get("personnel") or [])}
+            faltan = [p for p in (origen.get("personnel") or [])
+                      if _artist_template_person_key(p) not in actuales]
+            if faltan and modo not in ("add_missing", "skip_missing"):
+                # Se pregunta antes de tocar nada.
+                return jsonify({"ok": True, "needs_decision": True, "kind": "ROOMING",
+                                "name": tpl.name,
+                                "missing": [{"name": (p.get("name") or "").strip() or "Sin nombre",
+                                             "role": (p.get("role") or "")} for p in faltan]})
+            id_map = {}
+            if modo == "add_missing":
+                res = _artist_template_copy_personnel(origen, payload)
+                id_map = res["id_map"]
+            else:
+                # Solo se mapea a quien ya está; el resto se cae del reparto.
+                for p in (origen.get("personnel") or []):
+                    actual = actuales.get(_artist_template_person_key(p))
+                    if actual:
+                        id_map[str(p.get("id"))] = str(actual.get("id"))
+            hoteles = payload.setdefault("hotels", [])
+            copiados = 0
+            for hotel in (origen.get("hotels") or []):
+                nuevo = dict(hotel)
+                nuevo["id"] = _roadmap_new_id()
+                nuevo["attachments"] = []
+                nuevo["days"] = [d["date"] for d in _roadmap_days(row, payload)][:1] or []
+                nuevo["assignee_ids"] = [id_map[x] for x in (hotel.get("assignee_ids") or []) if x in id_map]
+                habitaciones = []
+                for hab in (hotel.get("rooms") or []):
+                    h = dict(hab)
+                    h["id"] = _roadmap_new_id()
+                    h["occupant_ids"] = [id_map[x] for x in (hab.get("occupant_ids") or []) if x in id_map]
+                    h.pop("day_from", None)
+                    h.pop("day_to", None)
+                    habitaciones.append(h)
+                nuevo["rooms"] = habitaciones
+                hoteles.append(nuevo)
+                copiados += 1
+            _roadmap_save(session_db, row, payload)
+            sin_habitacion = [p for p in (payload.get("personnel") or [])
+                              if not any(str(p.get("id")) in (hab.get("occupant_ids") or [])
+                                         for h in hoteles for hab in (h.get("rooms") or []))]
+            resumen.update(hotels=copiados, unassigned=len(sin_habitacion),
+                           payload=payload, days=_roadmap_days(row, payload),
+                           message=(f"{copiados} hotel(es) con su reparto"
+                                    + (f" · {len(sin_habitacion)} sin habitación" if sin_habitacion else "")))
+            return jsonify(resumen)
+
+        # HOJA DE RUTA (horarios)
+        dias = _roadmap_days(row, payload)
+        nuevos = _template_agenda_for_days(origen, dias)
+        payload.setdefault("agenda", []).extend(nuevos)
+        _roadmap_save(session_db, row, payload)
+        resumen.update(items=len(nuevos), payload=payload, days=_roadmap_days(row, payload),
+                       message=f"{len(nuevos)} punto(s) añadido(s) a la agenda")
+        return jsonify(resumen)
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("roadmap_template_load")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        session_db.close()
+
+
+@app.post("/hoja-ruta/<entity_type>/<entity_id>/plantillas/guardar", endpoint="roadmap_template_save_from")
+@admin_required
+def roadmap_template_save_from(entity_type, entity_id):
+    """Guarda lo que hay en esta hoja de ruta COMO plantilla del artista (personal / rooming / agenda)."""
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            return jsonify({"ok": False, "error": "No encontrado."}), 404
+        data = request.get_json(silent=True) or request.form
+        kind = (data.get("kind") or "").strip().upper()
+        if kind not in ARTIST_TEMPLATE_LABELS:
+            return jsonify({"ok": False, "error": "Tipo no válido."}), 400
+        ids = [to_uuid(x) for x in _roadmap_artist_ids(row) if to_uuid(x)]
+        if not ids:
+            return jsonify({"ok": False, "error": "Esta actividad no tiene artista al que guardarle la plantilla."}), 400
+        payload = _roadmap_load(row)
+        dias = _roadmap_days(row, payload)
+        nuevo = {"version": 2, "personnel": [], "hotels": [], "agenda": []}
+        if kind in ("PERSONNEL", "ROOMING"):
+            nuevo["personnel"] = [dict(p) for p in (payload.get("personnel") or [])]
+        if kind == "ROOMING":
+            for hotel in (payload.get("hotels") or []):
+                h = dict(hotel)
+                h["attachments"] = []
+                h["rooms"] = [dict(r) for r in (hotel.get("rooms") or [])]
+                nuevo["hotels"].append(h)
+        if kind == "ROADMAP":
+            # Los días reales se convierten en Día 1, 2, 3… (el anclaje de las plantillas).
+            fechas = [d["date"] for d in dias]
+            anclas = _template_day_list(max(1, len(fechas)))
+            for it in (payload.get("agenda") or []):
+                copia = dict(it)
+                copia["attachments"] = []
+                try:
+                    idx = fechas.index(str(it.get("day"))[:10])
+                except ValueError:
+                    idx = 0
+                copia["day"] = anclas[min(idx, len(anclas) - 1)]
+                nuevo["agenda"].append(copia)
+        st = _current_user_state()
+        tpl = ArtistTemplate(
+            artist_id=ids[0], kind=kind,
+            name=((data.get("name") or "").strip() or f"{ARTIST_TEMPLATE_LABELS[kind]}")[:160],
+            day_count=max(1, min(len(dias) or 1, TEMPLATE_MAX_DAYS)),
+            roadmap_payload=nuevo,
+            created_by_user_id=to_uuid(st.get("user_id")) if st.get("user_id") else None,
+            created_by_nick=(st.get("nick") or "").strip() or None,
+        )
+        session_db.add(tpl)
+        session_db.commit()
+        return jsonify({"ok": True, "id": str(tpl.id), "name": tpl.name,
+                        "url": url_for("artist_template_edit", tid=tpl.id)})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("roadmap_template_save_from")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        session_db.close()
+
+
 ROADMAP_KINDS = [("GENERAL", "Hoja de ruta general", "fa-route"),
                  ("TECNICA", "Hoja de ruta técnica", "fa-sliders")]
 ROADMAP_KIND_LABELS = {k: l for k, l, _i in ROADMAP_KINDS}
@@ -40986,6 +41583,9 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return fixed[endpoint]
     if endpoint in {"artists_view", "artist_update", "artist_delete", "artist_create"}:
         return "artists"
+    # Plantillas del artista (personal / rooming / hoja de ruta): viven en su ficha.
+    if endpoint.startswith("artist_template"):
+        return "artists"
     if endpoint in {"registros_view", "registros_concert_declare", "registros_repertoire_link"}:
         return "registros.pendiente"
     if endpoint in {"media_gallery_view", "media_artist_view", "media_panel_view", "api_media_artist_activities"}:
@@ -41529,6 +42129,9 @@ def _resolve_request_resource_key() -> str | None:
     if endpoint == "sales_update_view":
         return "ventas.actualizar"
     if endpoint in {"artists_view", "artist_update", "artist_delete", "artist_create"}:
+        return "artists"
+    # Plantillas del artista (personal / rooming / hoja de ruta): viven en su ficha.
+    if endpoint.startswith("artist_template"):
         return "artists"
     if endpoint == "artist_detail_view":
         tab = (request.args.get("tab") or "datos").strip().lower()
@@ -42582,6 +43185,8 @@ SUPPORT_ACTION_ENDPOINTS = {
     "fotos_approval_create", "fotos_zip", "fotos_share_create", "fotos_share_email", "fotos_share_email_preview",
     # Agenda: bloqueos y notas libres (botón + del calendario, Inicio y ficha de artista)
     "agenda_block_create", "agenda_note_create", "agenda_item_delete",
+    # Plantillas del artista cargadas en la hoja de ruta (misma herramienta transversal).
+    "roadmap_template_load", "roadmap_template_save_from",
     "artist_calendar_link_create", "artist_calendar_link_cancel",
     # Peticiones: crear/gestionar es transversal (cualquier miembro de la oficina crea peticiones
     # desde el botón global; cada departamento gestiona las suyas en su bandeja). La visibilidad la
@@ -42593,6 +43198,7 @@ SUPPORT_ACTION_ENDPOINTS = {
 SUPPORT_READ_ENDPOINTS = {
     # Ficha de una petición: la abre quien lleva su departamento (lo comprueba el endpoint).
     "booking_request_detail_view",
+    "roadmap_templates_list",
     "api_media_artist_activities",
     "api_search_promoters", "api_search_publishing_companies", "api_search_ticketers",
     "api_search_venues", "api_search_events", "api_entity_link_search", "api_search_commission_entities",

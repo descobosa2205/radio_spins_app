@@ -25,7 +25,9 @@
     var RO = (root.getAttribute('data-readonly') === '1');   // modo solo lectura (enlace público)
     var BASE_DAYS = CTX.base_days || [];                      // días del evento (no se pueden quitar)
     var view = document.getElementById('rmView');
-    var tab = 'agenda';
+    // Pestaña de arranque: la primera que exista (una plantilla de personal solo tiene «personal»).
+    var TABS = (CTX.tabs && CTX.tabs.length) ? CTX.tabs : ['agenda', 'logistica', 'hoteles', 'personal'];
+    var tab = TABS[0];
     var dragId = null;
 
     // ---------------------------------------------------------------- helpers
@@ -114,6 +116,82 @@
       return postForm('/api/media/create', fd);
     }
 
+    // ============================================================ PLANTILLAS DEL ARTISTA
+    // Cargar una plantilla (personal / rooming / hoja de ruta) en esta actividad, o guardar lo que hay
+    // ahora COMO plantilla del artista. En el editor de una plantilla el botón no sale (IS_TPL).
+    var IS_TPL = !!CTX.is_template;
+    function tplBtn(kind) {
+      if (RO || IS_TPL) return '';
+      return '<button class="btn btn-sm btn-outline-secondary" data-tpl-open="' + kind + '" title="Plantillas del artista"><i class="fa fa-clone"></i> Plantillas</button>';
+    }
+    function rmToast(msg) {
+      var box = el('<div class="alert alert-success py-2 px-3 mb-2"><i class="fa fa-circle-check me-1"></i>' + esc(msg) + '</div>');
+      view.insertBefore(box, view.firstChild);
+      setTimeout(function () { box.remove(); }, 4500);
+    }
+    function loadTemplate(kind, tid, mode) {
+      var fd = new FormData();
+      if (mode) fd.append('mode', mode);
+      return postForm(ep('/plantillas/' + tid + '/cargar'), fd).then(function (resp) {
+        if (!resp || !resp.ok) { alert((resp && resp.error) || 'No se pudo cargar la plantilla.'); return; }
+        if (resp.needs_decision) {
+          // ROOMING: hay gente en la plantilla que NO está en el personal de esta actividad.
+          var lista = (resp.missing || []).map(function (m) {
+            return '<li>' + esc(m.name) + (m.role ? ' <span class="text-muted small">· ' + esc(m.role) + '</span>' : '') + '</li>';
+          }).join('');
+          var body = '<p class="mb-2">En «' + esc(resp.name) + '» hay <strong>' + (resp.missing || []).length
+            + ' persona(s)</strong> que no están en el personal de esta actividad:</p><ul class="mb-3">' + lista + '</ul>'
+            + '<p class="mb-0 small text-muted">Puedes añadirlas al personal (y quedan repartidas en sus habitaciones) o '
+            + 'dejarlas fuera (se cargan las habitaciones sin ellas). Quien esté en el personal y no en la plantilla se queda sin habitación.</p>';
+          openModal('rmTplModal', 'modal-md', 'Cargar rooming list', body, [
+            btn('Dejarlas fuera', 'btn-outline-secondary', function () { var i = bs('rmTplModal'); if (i) i.hide(); loadTemplate(kind, tid, 'skip_missing'); }),
+            btn('Añadirlas al personal', 'btn-primary', function () { var i = bs('rmTplModal'); if (i) i.hide(); loadTemplate(kind, tid, 'add_missing'); }),
+          ]);
+          return;
+        }
+        var inst = bs('rmTplModal'); if (inst) inst.hide();
+        if (apply(resp) && resp.message) rmToast(resp.message);
+      });
+    }
+    function openTemplates(kind) {
+      fetch(ep('/plantillas')).then(function (r) { return r.json(); }).then(function (d) {
+        var rows = ((d && d.templates) || {})[kind] || [];
+        var LABEL = { PERSONNEL: 'personal', ROOMING: 'rooming list', ROADMAP: 'hoja de ruta' }[kind] || '';
+        var body = '';
+        if (!rows.length) {
+          body = '<div class="text-muted mb-3">Este artista todavía no tiene plantillas de ' + LABEL
+            + '. Se crean en su ficha, en la pestaña <strong>Plantillas</strong>.</div>';
+        } else {
+          body = '<div class="list-group mb-3">' + rows.map(function (t) {
+            return '<button type="button" class="list-group-item list-group-item-action d-flex align-items-center gap-2" data-tpl-pick="' + esc(t.id) + '">'
+              + '<i class="fa ' + esc(t.icon) + ' text-muted"></i><span class="flex-grow-1 text-start"><span class="fw-semibold">' + esc(t.name) + '</span>'
+              + '<span class="text-muted small ms-2">' + esc(t.detail) + '</span></span><i class="fa fa-download text-muted"></i></button>';
+          }).join('') + '</div>';
+        }
+        body += '<div class="border-top pt-2"><div class="small text-muted mb-1">O guardar lo que hay ahora como plantilla del artista:</div>'
+          + '<div class="input-group input-group-sm"><input class="form-control" id="rmTplNewName" placeholder="Nombre de la plantilla">'
+          + '<button class="btn btn-outline-primary" type="button" data-tpl-save="1"><i class="fa fa-floppy-disk me-1"></i>Guardar</button></div></div>';
+        var m = openModal('rmTplModal', 'modal-md', 'Plantillas de ' + LABEL, body,
+                          [btn('Cerrar', 'btn-outline-secondary', function () { var i = bs('rmTplModal'); if (i) i.hide(); })]);
+        m.querySelectorAll('[data-tpl-pick]').forEach(function (b2) {
+          b2.addEventListener('click', function () { loadTemplate(kind, b2.getAttribute('data-tpl-pick')); });
+        });
+        var sv = m.querySelector('[data-tpl-save]');
+        if (sv) sv.addEventListener('click', function () {
+          var nombre = (m.querySelector('#rmTplNewName') || {}).value || '';
+          postJson(ep('/plantillas/guardar'), { kind: kind, name: nombre }).then(function (resp) {
+            if (!resp || !resp.ok) { alert((resp && resp.error) || 'No se pudo guardar la plantilla.'); return; }
+            var i = bs('rmTplModal'); if (i) i.hide();
+            rmToast('Plantilla «' + (resp.name || nombre) + '» guardada en la ficha del artista.');
+          });
+        });
+      });
+    }
+    view.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-tpl-open]');
+      if (b) openTemplates(b.getAttribute('data-tpl-open'));
+    });
+
     // ================================================================ AGENDA
     function agendaByDay() {
       var map = {}; DAYS.forEach(function (d) { map[d.date] = []; });
@@ -130,7 +208,7 @@
     }
     function renderAgenda() {
       var map = agendaByDay();
-      var tools = RO ? '' : '<div class="ms-auto d-flex gap-1"><button class="btn btn-sm btn-outline-secondary" data-share title="Compartir (solo lectura)"><i class="fa fa-share-nodes"></i></button><button class="btn btn-sm btn-outline-secondary" data-cfg title="Configurar días"><i class="fa fa-gear"></i></button></div>';
+      var tools = RO ? '' : '<div class="ms-auto d-flex gap-1">' + tplBtn('ROADMAP') + '<button class="btn btn-sm btn-outline-secondary" data-share title="Compartir (solo lectura)"><i class="fa fa-share-nodes"></i></button><button class="btn btn-sm btn-outline-secondary" data-cfg title="Configurar días"><i class="fa fa-gear"></i></button></div>';
       var html = '<div class="rm-toolbar"><div class="text-muted small">Agenda de la actividad</div>' + tools + '</div><div class="rm-agenda">';
       DAYS.forEach(function (d) { html += dayBlock(d, map[d.date] || []); });
       html += '</div>';
@@ -542,7 +620,7 @@
     // ================================================================ HOTELES
     function renderHoteles() {
       var addBtn = RO ? '' : '<button class="rm-add" data-add><i class="fa fa-plus"></i> Añadir hotel</button>';
-      var html = '<div class="rm-toolbar"><div class="text-muted small">Alojamientos</div>' + addBtn + '</div>';
+      var html = '<div class="rm-toolbar"><div class="text-muted small">Alojamientos</div><span class="ms-auto d-flex gap-1 align-items-center">' + tplBtn('ROOMING') + addBtn + '</span></div>';
       html += '<div class="d-flex flex-column gap-2">';
       if (!P.hotels.length) html += '<div class="rm-empty">Sin hoteles todavía.</div>';
       P.hotels.forEach(function (ho) { html += hotelCard(ho); });
@@ -898,7 +976,7 @@
         + '<li><button class="dropdown-item" data-pexp="email"><i class="fa fa-envelope fa-fw me-1"></i>Compartir por email</button></li>'
         + '<li><button class="dropdown-item" data-pexp="wa"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</button></li>'
         + '<li><button class="dropdown-item" data-pexp="sms"><i class="fa fa-comment-sms fa-fw me-1"></i>Por SMS</button></li></ul></div>';
-      var html = personalSubtabs() + '<div class="rm-toolbar"><div class="text-muted small">Personal de la actividad</div><span>' + exportBtns + addBtn + '</span></div>';
+      var html = personalSubtabs() + '<div class="rm-toolbar"><div class="text-muted small">Personal de la actividad</div><span>' + exportBtns + tplBtn('PERSONNEL') + addBtn + '</span></div>';
       if (!P.personnel.length) html += '<div class="rm-empty">Sin personal todavía.</div>';
       Object.keys(groups).sort().forEach(function (g) {
         html += '<div class="rm-group-title">' + esc(g) + '</div><div class="d-flex flex-column gap-2">';

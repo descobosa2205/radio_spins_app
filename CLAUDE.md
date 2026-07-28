@@ -506,6 +506,24 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `_store_doc_image_from_dataurl`). El **nick vacío ⇒ nombre oficial** (en `promoters_view`/
   `personnel_view`). Carga en `layout.html`: `doc_scan.js` ANTES de `person_docs.js` y `doc_intake.js`.
 
+- **PLANTILLAS DE ARTISTA** (`ArtistTemplate`, kind PERSONNEL|ROOMING|ROADMAP): se crean en la ficha
+  del artista (pestaña «Plantillas», `_templates_hub.html`) y se cargan en la hoja de ruta de cualquier
+  actividad. ⚠️ **El editor de una plantilla ES la hoja de ruta**: la columna se llama
+  `roadmap_payload` y `ROADMAP_ENTITY_TYPES` incluye **`template`**, así que TODOS los endpoints
+  `/hoja-ruta/template/<id>/...` (personal, hoteles/habitaciones, agenda, adjuntos, días) funcionan sin
+  duplicar código y **cualquier función nueva de la hoja de ruta aparece también en las plantillas**.
+  `ARTIST_TEMPLATE_KINDS` dice qué pestañas enseña cada tipo (`rm.tabs` → `_roadmap_panel.html`) y qué
+  se copia. Los días de una plantilla no tienen fecha: se anclan en `TEMPLATE_DAY_ANCHOR` y se pintan
+  «Día 1, Día 2…»; al cargarla, `_template_agenda_for_days` mapea Día N → N-ésimo día de la actividad
+  (si sobran días, se quedan en el último). Cargar: botón **Plantillas** en las barras de Agenda,
+  Hoteles y Personal (`roadmap.js`, `tplBtn`/`openTemplates`/`loadTemplate`) → `roadmap_template_load`;
+  también se puede **guardar lo que hay ahora como plantilla** (`roadmap_template_save_from`).
+  Personal: no duplica a nadie (`_artist_template_person_key`). **Rooming**: si la plantilla trae gente
+  que no está en el personal de la actividad, el endpoint devuelve `needs_decision` con la lista y el
+  modal pregunta (**añadirlas al personal** `mode=add_missing` / **dejarlas fuera** `skip_missing`);
+  quien esté en el personal y no en la plantilla se queda **sin habitación**. Las plantillas de
+  **gastos** y de **repertorio** se crean/editan desde el mismo hub (`expense_template_create` /
+  `_update_items` y el modal de repertorio que ya existía).
 - **Hoja de ruta: GENERAL y TÉCNICA** (`ROADMAP_KINDS`, `_roadmap_kinds`/`_set_roadmap_kinds`): cada
   actividad tiene las dos activas por defecto (etiquetas en el alta) y **un enlace público por hoja**
   (`roadmap_public_token` para la general, `roadmap_payload['tech_token']` para la técnica;

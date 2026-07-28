@@ -1,0 +1,78 @@
+{% extends "layout.html" %}
+{% block content %}
+{# EDITOR DE UNA PLANTILLA DE ARTISTA (personal / rooming / hoja de ruta).
+   El editor ES la hoja de ruta: se incluye el mismo panel con las pestañas que le tocan al tipo, así
+   que tiene exactamente las mismas funciones (y las nuevas aparecen aquí solas). #}
+<div class="mb-2">
+  <a class="btn btn-outline-secondary btn-volver" href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='plantillas') }}"
+     title="Volver a las plantillas de {{ artist.name }}" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
+</div>
+
+<div class="artist-hero mb-3">
+  <div class="d-flex flex-wrap gap-3 align-items-center">
+    <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-hero-photo" alt="">
+    <div class="flex-grow-1 min-w-0">
+      <div class="small text-muted"><i class="fa {{ kind_icon }} me-1"></i>Plantilla de {{ kind_label|lower }} · {{ artist.name }}</div>
+      <h3 class="m-0 text-truncate">{{ tpl.name }}</h3>
+      {% if tpl.kind == 'ROOMING' and personnel_base %}
+        <div class="small text-muted">Personal cargado de «{{ personnel_base.name }}»</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="card mb-3"><div class="card-body">
+  <form method="post" action="{{ url_for('artist_template_update', tid=tpl.id) }}" class="row g-2 align-items-end">
+    <div class="col-md-5">
+      <label class="form-label">Nombre de la plantilla</label>
+      <input class="form-control" name="name" value="{{ tpl.name }}" required>
+    </div>
+    {% if tpl.kind == 'ROADMAP' %}
+      <div class="col-md-3">
+        <label class="form-label">Días</label>
+        <input type="number" class="form-control" name="day_count" min="1" max="30" value="{{ tpl.day_count }}">
+        <div class="form-text">Los horarios se guardan por «Día 1, Día 2…».</div>
+      </div>
+    {% endif %}
+    {% if tpl.kind == 'ROOMING' %}
+      <div class="col-md-4">
+        <label class="form-label">Cargar personal de una plantilla</label>
+        <div class="input-group">
+          <select class="form-select" name="personnel_template_id">
+            {% for p in personnel_templates %}
+              <option value="{{ p.id }}" {{ 'selected' if personnel_base and (personnel_base.id|string) == p.id }}>{{ p.name }}</option>
+            {% endfor %}
+          </select>
+          <button class="btn btn-outline-secondary" name="reload_personnel" value="1" title="Traer su personal">
+            <i class="fa fa-people-arrows"></i>
+          </button>
+        </div>
+      </div>
+    {% endif %}
+    <div class="col-md-2 d-grid">
+      <button class="btn btn-primary"><i class="fa fa-check me-1"></i>Guardar</button>
+    </div>
+  </form>
+</div></div>
+
+{% if tpl.kind == 'ROOMING' and not (roadmap_ctx.payload.personnel or []) %}
+  <div class="alert alert-warning">
+    <i class="fa fa-triangle-exclamation me-1"></i>Esta plantilla todavía no tiene gente. Elige arriba una
+    <strong>plantilla de personal</strong> y pulsa el botón para traerla; luego añade las habitaciones y
+    arrastra a cada persona a la suya.
+  </div>
+{% endif %}
+
+{% include '_roadmap_panel.html' %}
+
+<div class="d-flex gap-2 mt-3">
+  <form method="post" action="{{ url_for('artist_template_duplicate', tid=tpl.id) }}">
+    <button class="btn btn-outline-secondary btn-sm"><i class="fa fa-copy me-1"></i>Duplicar</button>
+  </form>
+  <form method="post" action="{{ url_for('artist_template_delete', tid=tpl.id) }}"
+        onsubmit="return confirm('¿Eliminar esta plantilla? No se puede deshacer.');">
+    <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='plantillas') }}">
+    <button class="btn btn-outline-danger btn-sm"><i class="fa fa-trash me-1"></i>Eliminar</button>
+  </form>
+</div>
+{% endblock %}

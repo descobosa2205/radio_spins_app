@@ -6,11 +6,15 @@
 <div class="rm-panel" id="roadmapPanel"
      {% if rm.readonly %}data-readonly="1" data-base=""{% else %}data-base="{{ url_for('roadmap_item_save', entity_type=rm.entity_type, entity_id=rm.entity_id) }}"{% endif %}>
   <script type="application/json" id="roadmapData">{{ rm | tojson }}</script>
+  {# Con `rm.tabs` (plantillas de artista) solo se enseñan las pestañas que tocan; sin él, las cuatro. #}
+  {% set _tabs = rm.tabs or ['agenda', 'logistica', 'hoteles', 'personal'] %}
   <div class="rm-nav" role="tablist">
-    <button type="button" class="active" data-rm-tab="agenda"><i class="fa fa-calendar-day"></i> Agenda</button>
-    <button type="button" data-rm-tab="logistica"><i class="fa fa-route"></i> Logística</button>
-    <button type="button" data-rm-tab="hoteles"><i class="fa fa-hotel"></i> Hoteles</button>
-    <button type="button" data-rm-tab="personal"><i class="fa fa-users"></i> Personal</button>
+    {% for key, label, icon in [('agenda','Agenda','fa-calendar-day'), ('logistica','Logística','fa-route'),
+                                ('hoteles','Hoteles','fa-hotel'), ('personal','Personal','fa-users')] %}
+      {% if key in _tabs %}
+        <button type="button"{% if loop.first or key == _tabs[0] %} class="active"{% endif %} data-rm-tab="{{ key }}"><i class="fa {{ icon }}"></i> {{ label }}</button>
+      {% endif %}
+    {% endfor %}
   </div>
   <div id="rmView" class="rm-view"></div>
 </div>

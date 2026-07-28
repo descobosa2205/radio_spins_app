@@ -12,6 +12,55 @@
 <div class="tab-content">
   {# ---------- RESUMEN: todas las plantillas agrupadas por tipo ---------- #}
   <div class="tab-pane fade show active" id="tplHubOverview">
+    {# PERSONAL · ROOMING · HOJA DE RUTA: se editan con la propia hoja de ruta (mismas funciones). #}
+    {% if artist_template_groups is defined %}
+      {% for grp in artist_template_groups %}
+        <div class="ficha-section">
+          <div class="ficha-section__head">
+            <h6 class="ficha-section__title"><i class="fa {{ grp.icon }}"></i>{{ grp.label }}</h6>
+            {% if templates_can_edit %}
+              <button type="button" class="btn btn-sm btn-outline-primary" data-tpl-new="{{ grp.key }}">
+                <i class="fa fa-plus me-1"></i>Añadir
+              </button>
+            {% endif %}
+          </div>
+          <div class="ficha-section__body">
+            {% if grp.rows %}
+              <div class="list-group list-group-flush">
+                {% for t in grp.rows %}
+                  <div class="list-group-item d-flex align-items-center gap-2 px-0">
+                    <i class="fa {{ t.icon }} text-muted"></i>
+                    <a class="flex-grow-1 text-decoration-none text-reset min-w-0" href="{{ t.url }}">
+                      <span class="fw-semibold">{{ t.name }}</span>
+                      <span class="text-muted small ms-2">{{ t.detail }}{% if t.updated %} · {{ t.updated.strftime('%d/%m/%Y') }}{% endif %}</span>
+                    </a>
+                    {% if templates_can_edit %}
+                      <div class="dropdown">
+                        <button class="btn btn-sm btn-outline-secondary border-0" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-vertical"></i></button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                          <li><a class="dropdown-item" href="{{ t.url }}"><i class="fa fa-pen fa-fw me-2"></i>Editar</a></li>
+                          <li><form method="post" action="{{ url_for('artist_template_duplicate', tid=t.id) }}"><button class="dropdown-item"><i class="fa fa-copy fa-fw me-2"></i>Duplicar</button></form></li>
+                          <li><form method="post" action="{{ url_for('artist_template_delete', tid=t.id) }}" onsubmit="return confirm('¿Eliminar esta plantilla?');"><input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-2"></i>Eliminar</button></form></li>
+                        </ul>
+                      </div>
+                    {% endif %}
+                  </div>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="text-muted small">
+                Sin plantillas de {{ grp.label|lower }}.
+                {% if templates_can_edit %}Pulsa «Añadir»
+                  {%- if grp.key == 'PERSONNEL' %} y monta el equipo que suele ir de gira
+                  {%- elif grp.key == 'ROOMING' %} (primero eliges una plantilla de personal y luego reparte las habitaciones)
+                  {%- else %} y monta los horarios por días{% endif %}.
+                {% endif %}
+              </div>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    {% endif %}
     {% for grp in [
         {'key':'gastos','label':'Gastos','icon':'fa-receipt','rows':expense_templates,'target':'#tplHubGastos'},
         {'key':'repertorio','label':'Repertorio','icon':'fa-music','rows':repertoire_templates,'target':'#tplHubRepertorio'}
@@ -64,9 +113,14 @@
 
   {# ---------- GASTOS ---------- #}
   <div class="tab-pane fade" id="tplHubGastos">
+    {% if templates_can_edit %}
+      <div class="d-flex justify-content-end mb-2">
+        <button type="button" class="btn btn-sm btn-outline-primary" data-exp-new><i class="fa fa-plus me-1"></i>Añadir plantilla de gastos</button>
+      </div>
+    {% endif %}
     {% set expense_templates_can_edit = templates_can_edit %}
     {% include '_expense_templates_panel.html' %}
-    <div class="text-muted small"><i class="fa fa-circle-info me-1"></i>Las plantillas de gastos se crean y editan por categorías desde una simulación (pestaña Gastos → «Guardar como plantilla»). Aquí se listan, se renombran y se eliminan.</div>
+    <div class="text-muted small"><i class="fa fa-circle-info me-1"></i>Se pueden crear aquí mismo y también salen las que se guardan desde una simulación (pestaña Gastos → «Guardar como plantilla»).</div>
   </div>
 
   {# ---------- REPERTORIO ---------- #}
@@ -107,7 +161,124 @@
   </div>
 </div>
 
+{% if templates_can_edit and artist_template_groups is defined %}
+{# ---------- Modal: nueva plantilla de personal / rooming / hoja de ruta ---------- #}
+<div class="modal fade" id="tplNewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <form method="post" action="{{ url_for('artist_template_create', artist_id=templates_owner_id) }}">
+      <input type="hidden" name="kind" id="tplNewKind">
+      <div class="modal-header"><h5 class="modal-title"><i class="fa fa-clone me-2"></i>Nueva plantilla <span id="tplNewKindLabel" class="text-muted fw-normal"></span></h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <label class="form-label">Nombre *</label>
+        <input class="form-control mb-3" name="name" id="tplNewName" required placeholder="Ej: Equipo de gira 2027">
+        <div id="tplNewRooming" class="d-none mb-2">
+          <label class="form-label">Personal de partida *</label>
+          <select class="form-select" name="personnel_template_id" id="tplNewPersonnel">
+            {% for p in artist_personnel_templates or [] %}
+              <option value="{{ p.id }}">{{ p.name }} ({{ p.people }} persona{{ 's' if p.people != 1 else '' }})</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">Se carga su gente para poder repartirla en las habitaciones.</div>
+          {% if not (artist_personnel_templates or []) %}
+            <div class="alert alert-warning small mt-2 mb-0">Crea primero una <strong>plantilla de personal</strong>.</div>
+          {% endif %}
+        </div>
+        <div id="tplNewRoadmap" class="d-none">
+          <label class="form-label">¿De cuántos días?</label>
+          <input type="number" class="form-control" name="day_count" value="1" min="1" max="30">
+          <div class="form-text">Los horarios se montan por «Día 1, Día 2…» y al cargarla se colocan en los días reales de la actividad.</div>
+        </div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Crear y montar</button></div>
+    </form>
+  </div></div>
+</div>
+<script>
+(function(){
+  var m=document.getElementById('tplNewModal'); if(!m) return;
+  var LABELS={PERSONNEL:'de personal', ROOMING:'de rooming list', ROADMAP:'de hoja de ruta'};
+  document.addEventListener('click', function(e){
+    var b=e.target.closest('[data-tpl-new]'); if(!b) return;
+    var kind=b.getAttribute('data-tpl-new');
+    document.getElementById('tplNewKind').value=kind;
+    document.getElementById('tplNewKindLabel').textContent=LABELS[kind]||'';
+    document.getElementById('tplNewName').value='';
+    document.getElementById('tplNewRooming').classList.toggle('d-none', kind!=='ROOMING');
+    document.getElementById('tplNewRoadmap').classList.toggle('d-none', kind!=='ROADMAP');
+    var sel=document.getElementById('tplNewPersonnel');
+    if(sel) sel.disabled = (kind!=='ROOMING');
+    if(window.bootstrap) bootstrap.Modal.getOrCreateInstance(m).show();
+  });
+})();
+</script>
+{% endif %}
+
 {% if templates_can_edit %}
+{# ---------- Modal: plantilla de GASTOS (crear/editar líneas) ---------- #}
+<div class="modal fade" id="expTplModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
+    <form method="post" id="expTplForm">
+      <input type="hidden" name="owner_type" value="{{ templates_owner_type }}">
+      <input type="hidden" name="owner_id" value="{{ templates_owner_id }}">
+      <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+      <div class="modal-header"><h5 class="modal-title"><i class="fa fa-receipt me-2"></i>Plantilla de gastos</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <label class="form-label">Nombre *</label>
+        <input class="form-control mb-3" name="name" id="expTplName" required placeholder="Ej: Gastos tipo de concierto">
+        <div class="table-responsive"><table class="table table-sm align-middle mb-1">
+          <thead><tr><th style="min-width:170px">Categoría</th><th>Concepto</th><th style="width:120px">Importe</th><th style="width:90px">Cantidad</th><th style="width:80px">IVA %</th><th></th></tr></thead>
+          <tbody id="expTplRows"></tbody>
+        </table></div>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="expTplAdd"><i class="fa fa-plus me-1"></i>Añadir línea</button>
+        <div class="mt-3"><label class="form-label">Notas (opcional)</label><textarea class="form-control" name="notes" id="expTplNotes" rows="2"></textarea></div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary"><i class="fa fa-save me-1"></i>Guardar</button></div>
+    </form>
+  </div></div>
+</div>
+<script>
+(function(){
+  var m=document.getElementById('expTplModal'); if(!m) return;
+  var CATS={{ (SIM_EXPENSE_CATEGORIES or [])|map('list')|list|tojson }};
+  var rows=document.getElementById('expTplRows');
+  var form=document.getElementById('expTplForm');
+  var CREATE="{{ url_for('expense_template_create') }}";
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+  function row(d){
+    d=d||{};
+    var tr=document.createElement('tr');
+    var opts=CATS.map(function(c){ return '<option value="'+esc(c[0])+'"'+((d.category||'')===c[0]?' selected':'')+'>'+esc(c[1])+'</option>'; }).join('');
+    tr.innerHTML='<td><select class="form-select form-select-sm" name="item_category[]">'+opts+'</select></td>'
+      + '<td><input class="form-control form-control-sm" name="item_concept[]" value="'+esc(d.concept)+'" placeholder="Concepto"></td>'
+      + '<td><input type="number" step="0.01" class="form-control form-control-sm" name="item_amount[]" value="'+esc(d.amount)+'"></td>'
+      + '<td><input type="number" step="0.01" class="form-control form-control-sm" name="item_qty[]" value="'+esc(d.qty||1)+'"></td>'
+      + '<td><input type="number" step="0.01" class="form-control form-control-sm" name="item_iva[]" value="'+esc(d.iva==null?21:d.iva)+'"></td>'
+      + '<td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger" data-exp-del><i class="fa fa-xmark"></i></button></td>';
+    return tr;
+  }
+  rows.addEventListener('click', function(e){ var b=e.target.closest('[data-exp-del]'); if(b) b.closest('tr').remove(); });
+  document.getElementById('expTplAdd').addEventListener('click', function(){ rows.appendChild(row()); });
+  document.addEventListener('click', function(e){
+    var nb=e.target.closest('[data-exp-new]');
+    var eb=e.target.closest('[data-exp-edit]');
+    if(!nb && !eb) return;
+    rows.innerHTML='';
+    if(eb){
+      var data={}; try{ data=JSON.parse(document.querySelector('[data-exp-data="'+eb.getAttribute('data-exp-edit')+'"]').textContent); }catch(_){}
+      form.action="{{ url_for('expense_template_update_items', tid='TID') }}".replace('TID', data.id);
+      document.getElementById('expTplName').value=data.name||'';
+      document.getElementById('expTplNotes').value=data.notes||'';
+      (data.items||[]).forEach(function(it){ rows.appendChild(row(it)); });
+      if(!(data.items||[]).length) rows.appendChild(row());
+    } else {
+      form.action=CREATE;
+      document.getElementById('expTplName').value=''; document.getElementById('expTplNotes').value='';
+      rows.appendChild(row());
+    }
+    if(window.bootstrap) bootstrap.Modal.getOrCreateInstance(m).show();
+  });
+})();
+</script>
 {# Modal editor de plantilla de repertorio (crear/editar) #}
 <div class="modal fade" id="repTplModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">

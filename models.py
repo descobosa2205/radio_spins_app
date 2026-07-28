@@ -2136,6 +2136,65 @@ class PrlUploadRequest(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class ArtistTemplate(Base):
+    """PLANTILLAS de un artista: personal, rooming list y hoja de ruta.
+
+    ⚠️ El payload se llama `roadmap_payload` A PROPÓSITO: así TODA la maquinaria de la hoja de ruta
+    (endpoints de personal, hoteles/habitaciones, agenda, adjuntos, días…) funciona sobre una
+    plantilla sin duplicar una línea de código, y cualquier función NUEVA de la hoja de ruta aparece
+    también aquí automáticamente. Lo que cambia según el `kind` es qué pestañas se enseñan y qué se
+    copia al cargarla en una actividad:
+      · PERSONNEL → `payload['personnel']`
+      · ROOMING   → `payload['hotels']` (con sus habitaciones) + el personal que se usó para montarla
+      · ROADMAP   → `payload['agenda']` (los horarios), con los días como «Día 1, Día 2…»
+    """
+
+    __tablename__ = "artist_templates"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="CASCADE"),
+                       nullable=False, index=True)
+    kind = Column(Text, nullable=False)                 # PERSONNEL | ROOMING | ROADMAP
+    name = Column(Text, nullable=False, server_default=text("''"))
+    notes = Column(Text)
+    # Rooming: de qué plantilla de PERSONAL se partió (para poder recargarla).
+    personnel_template_id = Column(PGUUID(as_uuid=True),
+                                   ForeignKey("artist_templates.id", ondelete="SET NULL"))
+    # Nº de días de la plantilla de hoja de ruta (los horarios se guardan por día).
+    day_count = Column(Integer, nullable=False, server_default=text("1"))
+    roadmap_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    artist = relationship("Artist")
+
+
+def ensure_artist_templates_schema():
+    """Plantillas de personal / rooming / hoja de ruta por artista. Idempotente."""
+    _create_all_once()
+    _exec_ddl_statements([
+        """
+        CREATE TABLE IF NOT EXISTS artist_templates (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            artist_id uuid NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+            kind text NOT NULL,
+            name text NOT NULL DEFAULT '',
+            notes text,
+            personnel_template_id uuid REFERENCES artist_templates(id) ON DELETE SET NULL,
+            day_count integer NOT NULL DEFAULT 1,
+            roadmap_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS ix_artist_templates_artist_kind ON artist_templates (artist_id, kind);",
+    ])
+
+
 class ThirdPartyIntakeLink(Base):
     """Enlace público para que un TERCERO se dé de alta o actualice sus datos él mismo.
 

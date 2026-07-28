@@ -87,13 +87,12 @@
           {% endfor %}
         </div>
         {% if inv_mode == 'REQUEST' and company %}
-          <label class="form-check-label border rounded px-3 py-2 mt-3 d-inline-flex align-items-center">
-            <input class="form-check-input me-2" type="checkbox" id="invBillingConfirm">
-            <span class="small">Confirmo que la factura está emitida a <strong>{{ company.name }}</strong> con estos datos de facturación.</span>
-          </label>
+          {# Sin casilla de confirmación: los datos de facturación están arriba a la vista y basta con
+             continuar (antes había que marcarla y, si no, el botón soltaba un aviso). #}
+          <div class="small text-muted mt-3"><i class="fa fa-circle-info me-1"></i>La factura tiene que estar emitida a <strong>{{ company.name }}</strong> con estos datos.</div>
         {% endif %}
         <div class="text-end mt-3">
-          <button class="btn btn-danger" type="button" data-inv-next="{{ 2 if inv_mode == 'LANDING' else 3 }}" data-inv-next-ident="{{ '0' if inv_mode == 'LANDING' else '1' }}"><i class="fa fa-check me-1"></i>Ya tengo la factura</button>
+          <button class="btn btn-danger" type="button" data-inv-next="{{ 2 if inv_mode == 'LANDING' else 3 }}" data-inv-next-ident="{{ '0' if inv_mode == 'LANDING' else '1' }}"><i class="fa fa-arrow-right me-1"></i>Continuar</button>
         </div>
       </div>
     </div>
@@ -273,14 +272,6 @@
       // Si el botón lleva al paso de identificarse, se usa el número REAL de ese paso.
       const target = b.getAttribute('data-inv-next-ident') === '1'
         ? IDENT_STEP : Number(b.getAttribute('data-inv-next'));
-      // Paso 1: en las peticiones hay que confirmar los datos de facturación.
-      if (target !== IDENT_STEP || MODE === 'LANDING') {
-        const confirmBox = document.getElementById('invBillingConfirm');
-        if (confirmBox && !confirmBox.checked) {
-          alert('Confirma que la factura está emitida a los datos de la empresa que se muestran.');
-          return;
-        }
-      }
       // Paso 2 (solo landing): hay que elegir a quién va dirigida.
       if (target === IDENT_STEP && MODE === 'LANDING') {
         const chosen = document.querySelector('.inv-person-radio:checked');

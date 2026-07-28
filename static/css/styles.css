@@ -859,6 +859,8 @@ img.img-error-pending{ visibility: hidden; }
 .rm-tag.sing{background:#e5f3ff;color:#0d6efd;}
 .rm-tag.plus1{background:#e9f7ef;color:#198754;}
 .rm-tag.tbc{background:#fff3cd;color:#997404;}
+/* Punto de la agenda que NO va en las dos hojas de ruta (solo general / solo técnica / ninguna). */
+.rm-tag.sheet{background:#e8f1f5;color:#0b6e8f;}
 .rm-item .rm-meta{display:flex;gap:.5rem;align-items:center;color:#adb5bd;font-size:.8rem;}
 .rm-transport-line{display:flex;align-items:center;gap:.45rem;font-size:.83rem;color:#495057;margin-top:.15rem;flex-wrap:wrap;}
 .rm-transport-line img{height:16px;max-width:52px;object-fit:contain;}

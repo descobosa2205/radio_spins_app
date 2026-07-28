@@ -494,6 +494,19 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `_store_doc_image_from_dataurl`). El **nick vacío ⇒ nombre oficial** (en `promoters_view`/
   `personnel_view`). Carga en `layout.html`: `doc_scan.js` ANTES de `person_docs.js` y `doc_intake.js`.
 
+- **Hoja de ruta: GENERAL y TÉCNICA** (`ROADMAP_KINDS`, `_roadmap_kinds`/`_set_roadmap_kinds`): cada
+  actividad tiene las dos activas por defecto (etiquetas en el alta) y **un enlace público por hoja**
+  (`roadmap_public_token` para la general, `roadmap_payload['tech_token']` para la técnica;
+  `_ensure_roadmap_token`/`_roadmap_by_token`). **Quién ve cada cosa se decide punto por punto**: cada
+  ítem de la agenda lleva `sheets` `{GENERAL,TECNICA}` (`_roadmap_item_sheets`, las DOS por defecto —
+  también en los ítems antiguos sin el campo). El enlace de cada hoja solo muestra los ítems con su
+  etiqueta: filtra **`_roadmap_payload_for_kind`** en `public_roadmap_view` (⚠️ **en el servidor**: el
+  payload entero va al HTML dentro de `#roadmapData`, esconderlo en el navegador no serviría) y los días
+  se recalculan con lo que queda. Desmarcar las dos deja el punto **solo para dentro** («No se
+  comparte»). UI en `static/js/roadmap.js`: chips `.filter-chip` en el editor del ítem, etiqueta
+  `.rm-tag.sheet` en la fila y en el detalle (solo en el back office). La pestaña Logística se nutre de
+  los ítems de transporte, así que hereda el filtro; Hoteles y Personal salen en las dos hojas.
+  `roadmap_item_save` conserva las etiquetas si el cliente no las manda (JS viejo en caché).
 - **PRL / Altas (riesgos laborales del personal de eventos)**: modelos `PersonComplianceDoc`
   (polimórfico: owner PROMOTER/USER/COMPANY; `doc_type` AUTONOMO_RECIBO/ALTA_SS/ITA/PRL_FORMACION/
   PRL_INFORMACION; `valid_from/valid_until` —NULL = sin caducidad—, status APPROVED/REJECTED,

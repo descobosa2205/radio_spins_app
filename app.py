@@ -37276,6 +37276,35 @@ def _roadmap_clean_contact(contact) -> dict:
     return out if any(v for v in out.values()) else {}
 
 
+# ¿En qué hoja de ruta se ve cada punto de la agenda? Son las etiquetas del PROPIO punto (las dos
+# marcadas por defecto): quien entre por el enlace de la general ve los marcados como general, y por
+# el de la técnica los marcados como técnica. Desmarcar las dos deja el punto solo para dentro.
+ROADMAP_SHEET_KEYS = ("GENERAL", "TECNICA")
+ROADMAP_SHEET_SHORT = {"GENERAL": "General", "TECNICA": "Técnica"}
+
+
+def _roadmap_item_sheets(value) -> dict:
+    """Etiquetas de visibilidad de un punto de la agenda. Sin nada guardado, se ve en las DOS."""
+    if not isinstance(value, dict):
+        return {k: True for k in ROADMAP_SHEET_KEYS}
+    return {k: bool(value.get(k, True)) for k in ROADMAP_SHEET_KEYS}
+
+
+def _roadmap_payload_for_kind(payload: dict, kind: str) -> dict:
+    """Copia del payload con SOLO los puntos de la agenda que se ven en esa hoja de ruta.
+
+    El filtrado va en el servidor a propósito: la vista pública mete el payload entero en el HTML,
+    así que esconderlo en el navegador no serviría de nada.
+    """
+    k = (kind or "GENERAL").upper()
+    if k not in ROADMAP_SHEET_KEYS:
+        k = "GENERAL"
+    out = dict(payload or {})
+    out["agenda"] = [it for it in ((payload or {}).get("agenda") or [])
+                     if _roadmap_item_sheets(it.get("sheets")).get(k, True)]
+    return out
+
+
 def _roadmap_item_from_json(data: dict) -> dict:
     kind = (data.get("kind") or "OTROS").strip().upper()
     if kind not in ROADMAP_ALL_KINDS:
@@ -37283,6 +37312,7 @@ def _roadmap_item_from_json(data: dict) -> dict:
     item = {
         "id": _roadmap_new_id(),
         "kind": kind,
+        "sheets": _roadmap_item_sheets(data.get("sheets")),
         "title": (data.get("title") or "").strip(),
         "day": _roadmap_clean_day(data.get("day")),
         "start_time": _roadmap_clean_time(data.get("start_time")),
@@ -37758,6 +37788,10 @@ def roadmap_item_save(entity_type, entity_id):
         if current is not None:
             item["id"] = iid
             item["attachments"] = current.get("attachments") or []
+            # Si quien guarda no manda las etiquetas de visibilidad (un navegador con el JS viejo en
+            # caché), se conservan las que ya tenía en vez de devolverlo a «las dos».
+            if not isinstance(data.get("sheets"), dict):
+                item["sheets"] = _roadmap_item_sheets(current.get("sheets"))
             agenda[idx] = item
         else:
             agenda.append(item)
@@ -40081,6 +40115,10 @@ def public_roadmap_view(token):
         if not _roadmap_kinds(row).get(roadmap_kind, True):
             abort(404)
         ctx = _roadmap_context(session_db, entity_type, row)
+        # Solo los puntos de la agenda marcados para ESTA hoja de ruta (etiquetas del punto), y los
+        # días se recalculan con lo que queda para no enseñar días vacíos que no le tocan.
+        ctx["payload"] = _roadmap_payload_for_kind(ctx.get("payload") or {}, roadmap_kind)
+        ctx["days"] = _roadmap_days(row, ctx["payload"])
         ctx["readonly"] = True
         ctx["kind"] = roadmap_kind
         ctx["kind_label"] = ROADMAP_KIND_LABELS.get(roadmap_kind, "Hoja de ruta")

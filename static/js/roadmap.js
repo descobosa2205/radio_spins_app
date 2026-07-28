@@ -155,6 +155,7 @@
       var cls = 'rm-item' + (!it.confirmed ? ' provisional' : '') + (it.cancelled ? ' cancelled' : '');
       var tags = '';
       if (it.cancelled) tags += '<span class="rm-tag">Cancelado</span>';
+      if (!RO) { var shLbl = sheetsLabel(it); if (shLbl) tags += '<span class="rm-tag sheet"><i class="fa fa-share-nodes"></i> ' + esc(shLbl) + '</span>'; }
       var sub = '';
       if (it.kind === 'ENTREVISTA' && it.interview) {
         if (it.interview.type) tags += '<span class="rm-tag">' + esc(it.interview.type) + '</span>';
@@ -224,8 +225,24 @@
         });
       });
     }
+    // ¿Quién ve cada punto de la agenda? Etiquetas del propio punto, las dos marcadas por defecto.
+    var SHEETS = [{ key: 'GENERAL', label: 'General', icon: 'fa-route' },
+                  { key: 'TECNICA', label: 'Técnica', icon: 'fa-sliders' }];
+    function itemSheets(it) {
+      var v = (it && it.sheets) || {};
+      var out = {};
+      SHEETS.forEach(function (s) { out[s.key] = v[s.key] !== false; });
+      return out;
+    }
+    function sheetsLabel(it) {
+      var sh = itemSheets(it);
+      var on = SHEETS.filter(function (s) { return sh[s.key]; });
+      if (on.length === SHEETS.length) return '';                 // en las dos: no hace falta decirlo
+      if (!on.length) return 'No se comparte';
+      return 'Solo ' + on[0].label.toLowerCase();
+    }
     function newDraft(kind, day) {
-      var d = { id: '', kind: kind, day: day || (DAYS[0] ? DAYS[0].date : ''), start_time: '', end_time: '', tbc: false, confirmed: true, cancelled: false, title: '', location: '', note: '', contact: {}, attachments: [] };
+      var d = { id: '', kind: kind, day: day || (DAYS[0] ? DAYS[0].date : ''), start_time: '', end_time: '', tbc: false, confirmed: true, cancelled: false, title: '', location: '', note: '', contact: {}, attachments: [], sheets: { GENERAL: true, TECNICA: true } };
       if (kind === 'ENTREVISTA') d.interview = { type: '', media_id: '', media_name: '', sings: false, live: false, songs: [] };
       if (kindInfo(kind).transport) d.transport = { mode: kind, company: '', logo_url: '', number: '', origin: '', destination: '', duration: '', ends_next_day: false, same_locator: false, locator_all: '', passengers: [] };
       return d;
@@ -245,6 +262,11 @@
       h += '<div class="col-md-2 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" data-f="tbc" id="rmTbc"' + (draft.tbc ? ' checked' : '') + '><label class="form-check-label" for="rmTbc">TBC</label></div></div>';
       h += '<div class="col-12"><label class="form-label">Lugar</label><input class="form-control" data-f="location" value="' + esc(draft.location) + '"></div>';
       h += '<div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" data-f="confirmed" id="rmConf"' + (draft.confirmed ? ' checked' : '') + '><label class="form-check-label" for="rmConf">Confirmada (si no, se muestra como provisional)</label></div></div>';
+      // Quién lo ve: etiquetas de hoja de ruta (las dos activas por defecto).
+      var dsh = itemSheets(draft);
+      h += '<div class="col-12"><div class="filter-label"><i class="fa fa-share-nodes"></i>¿En qué hoja de ruta se ve?</div><div class="filter-chips">'
+        + SHEETS.map(function (sN) { return '<label class="filter-chip"><input type="checkbox" data-sheet="' + sN.key + '"' + (dsh[sN.key] ? ' checked' : '') + '><i class="fa ' + sN.icon + '"></i>' + sN.label + '</label>'; }).join('')
+        + '</div><div class="filter-hint">Las dos van marcadas. Si quitas una, este punto no sale en el enlace de esa hoja de ruta (si quitas las dos, se queda solo aquí dentro).</div></div>';
       h += '</div>';
 
       // Entrevista
@@ -449,6 +471,8 @@
       draft.end_time = m.querySelector('[data-f="end_time"]').value;
       draft.tbc = m.querySelector('[data-f="tbc"]').checked;
       draft.confirmed = m.querySelector('[data-f="confirmed"]').checked;
+      draft.sheets = {};
+      m.querySelectorAll('[data-sheet]').forEach(function (cb) { draft.sheets[cb.getAttribute('data-sheet')] = cb.checked; });
       draft.location = m.querySelector('[data-f="location"]').value.trim();
       draft.note = m.querySelector('[data-f="note"]').value.trim();
       draft.contact = draft.contact || {};
@@ -469,6 +493,7 @@
       var ki = kindInfo(it.kind);
       var h = '<div class="d-flex align-items-center gap-2 mb-2"><span class="rm-ico" style="background:' + esc(ki.color) + '"><i class="fa ' + esc(ki.icon) + '"></i></span><div><div class="fw-bold">' + esc(it.title || ki.label) + '</div><div class="rm-sub">' + esc(dayLabel(it.day)) + ' · ' + timeLabel(it) + '</div></div></div>';
       if (!it.confirmed) h += '<div class="rm-tag tbc mb-2 d-inline-block">Provisional</div> ';
+      if (!RO) { var shD = sheetsLabel(it); if (shD) h += '<div class="rm-tag sheet mb-2 d-inline-block"><i class="fa fa-share-nodes"></i> ' + esc(shD) + '</div> '; }
       if (it.cancelled) h += '<div class="rm-tag mb-2 d-inline-block">Cancelada</div>';
       if (it.location) h += '<div class="mb-1"><i class="fa fa-location-dot text-muted"></i> ' + esc(it.location) + '</div>';
       if (it.kind === 'ENTREVISTA' && it.interview) {
@@ -1140,7 +1165,7 @@
           '<div class="text-muted">Esta actividad no tiene ninguna hoja de ruta activada. Actívala en la ficha para poder compartirla.</div>', []);
         return;
       }
-      var html = '<div class="text-muted small mb-2">Enlace de <strong>solo lectura</strong>: se ve todo y se pueden descargar los adjuntos, sin poder editar nada.</div>';
+      var html = '<div class="text-muted small mb-2">Enlace de <strong>solo lectura</strong>: se pueden descargar los adjuntos, sin poder editar nada. Cada hoja de ruta muestra <strong>los puntos de la agenda marcados con su etiqueta</strong> (por defecto, todos).</div>';
       disponibles.forEach(function (k) {
         html += '<div class="border rounded p-2 mb-2" data-share-kind="' + k[0] + '">'
           + '<div class="fw-semibold small mb-1"><i class="fa ' + k[2] + ' me-1"></i>' + esc(k[1]) + '</div>'

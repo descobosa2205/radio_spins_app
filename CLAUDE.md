@@ -650,6 +650,31 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (personal con departamento; dirección solo si tiene además otro) y `_detect_invoice_meta` lee el
   nº y la fecha de emisión del PDF para que el proveedor los confirme antes de enviar.
 
+- **ALTA / ACTUALIZACIÓN de un tercero por ENLACE PÚBLICO** (`/alta/<token>`): en Terceros, botón
+  **«Link de alta»**; en los 3 puntitos de cada fila y en su ficha, **«Solicitar actualización»**.
+  Modelo `ThirdPartyIntakeLink` (token, `promoter_id` NULL = alta nueva, `kind` ALTA|UPDATE, `status`
+  ACTIVE|DONE|CANCELLED, quién lo pidió, por dónde se mandó, `data` de lo recibido) +
+  `ensure_third_party_intake_schema`. Modal reutilizable `_intake_share_modal.html` (Correo desde el
+  servidor con `_intake_email_html` —cabecera `img/Banner.png` + título + «X ha solicitado…» + botón—,
+  WhatsApp, SMS y copiar; `promoter_intake_link_create` **reutiliza** el enlace ACTIVO del tercero).
+  Página pública `public_third_party_intake.html`: **standalone a propósito** (layout.html no tiene
+  `{% block %}` en el `<head>` y hacen falta las `og:` para la miniatura de WhatsApp; la imagen la
+  sirve `public_intake_og_image` a 1200×630 desde nuestro dominio con `_og_image_jpeg_bytes`).
+  Pasos con `step_wizard.js`, al que se le añadió **`data-sw-when`** (paso condicional) +
+  `data-sw-mode` en el contenedor + `root.swRefresh()`: los pasos que no tocan se saltan, no cuentan
+  en la barra y **se deshabilitan sus inputs** (si no, el navegador se para a validar un `required`
+  oculto). Empresa→CIF / Particular→DNI; el paso 1 comprueba con `public_intake_identify`
+  (`_prl_norm_dni` contra `Promoter.tax_id` y `PromoterCompany.tax_id`) y si ya existe ofrece
+  actualizar **con los datos ENMASCARADOS** (`_mask_value`) salvo que sea su propio enlace.
+  Cada documento se sube en su hueco con `public_intake_upload` (`slot`) y solo viaja la URL; del
+  **certificado de titularidad** se lee el IBAN con pypdf + `_detect_iban_in_text` y se valida
+  **mod-97** (`_iban_is_valid`) antes de guardarlo en `Promoter.bank_account` (el PDF va a
+  `PersonComplianceDoc` `CERT_BANK`). Reutiliza los campos que ya existían de la landing de
+  facturación (`fiscal_address`, `bank_account`, `data_consent_at`) y crea `PromoterCompany`,
+  `PromoterContact` (función = texto libre), `PersonDocument` DNI/PASSPORT/LICENSE/LOYALTY y los
+  `travel_departure_*`. ⚠️ `Promoter.nick` es UNIQUE: `_intake_unique_nick` añade sufijo.
+  ⚠️ **Los colores de marca los inyectaba solo `layout.html`**: ahora `styles.css` los declara como
+  suelo en `:root` (sin eso, cualquier página pública standalone tenía los botones transparentes).
 - **Ficha de la empresa del grupo** (`company_detail`, `/empresas/<cid>`): pestaña **Datos** (datos de
   `GroupCompany` inline + bloque **Logos** —descarga PNG por `company_logo_png`, que baja el original y
   lo convierte con Pillow, + compartir correo/WhatsApp/SMS— + enlace `/facturacion_<slug>` con copiar,

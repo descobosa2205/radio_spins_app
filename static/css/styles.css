@@ -1444,6 +1444,13 @@ img.img-error-pending{ visibility: hidden; }
    (manteniendo colores #E33D48 / #007CA2 y la estructura Bootstrap)
    ========================================================= */
 :root{
+  /* ⚠️ COLORES DE MARCA POR DEFECTO. `layout.html` los inyecta en un <style> con los valores del
+     servidor, pero las páginas PÚBLICAS que no extienden el layout (alta de terceros, hoja de ruta
+     compartida…) solo cargan este fichero: sin estos valores, todo lo que usa var(--brand-primary)
+     se queda transparente (botones «Siguiente» invisibles, un bug real). Aquí son el suelo; el
+     layout sigue mandando cuando existe. */
+  --brand-primary:#E33D48;     /* rojo corporativo */
+  --brand-accent:#007CA2;      /* azul corporativo */
   --brand-primary-d:#c5313b;   /* rojo hover */
   --brand-accent-d:#016585;    /* teal hover */
   --ink:#1b2330;
@@ -2823,3 +2830,35 @@ img.docs-id__face { width:100%; height:100%; object-fit:cover; display:block; cu
 .assign-exp__inv--ok:hover{ background:rgba(25,135,84,.18); color:#0f5132; }
 .assign-exp__inv--ko{ background:rgba(227,61,72,.10); border-color:rgba(227,61,72,.35); color:var(--brand-primary,#E33D48); }
 .assign-exp[data-invoice-url]{ cursor:pointer; }
+
+/* ===== Alta / actualización de un tercero por enlace público (public_third_party_intake) ===== */
+/* Zona para arrastrar o elegir un archivo: una por cara del documento (si hubiera dos inputs en la
+   misma zona el arrastre sería ambiguo, mismo motivo que en el alta desde documento). */
+.intake-drop{ position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:.25rem; text-align:center; width:100%; min-height:126px; padding:.9rem .8rem; cursor:pointer;
+  border:2px dashed var(--line-2,#d7dce3); border-radius:14px; background:#fbfcfd; transition:.15s ease; }
+.intake-drop:hover{ border-color:var(--brand-primary,#E33D48); background:#fff; }
+.intake-drop.is-over{ border-color:var(--brand-primary,#E33D48); background:rgba(227,61,72,.06);
+  box-shadow:0 0 0 .2rem rgba(227,61,72,.12); }
+.intake-drop.is-done{ border-style:solid; border-color:#1e7e34; background:rgba(30,126,52,.05); }
+.intake-drop.is-error{ border-color:#dc3545; background:rgba(220,53,69,.05); }
+.intake-drop.is-busy{ opacity:.85; }
+.intake-drop__ico{ width:38px; height:38px; border-radius:11px; display:inline-flex; align-items:center;
+  justify-content:center; background:rgba(227,61,72,.10); color:var(--brand-primary,#E33D48); font-size:1.05rem; }
+.intake-drop.is-done .intake-drop__ico{ background:rgba(30,126,52,.12); color:#1e7e34; }
+.intake-drop__t{ font-weight:700; font-size:.9rem; color:#2b3440; }
+.intake-drop__h{ font-size:.76rem; color:var(--muted-2,#6c757d); overflow-wrap:anywhere; }
+.intake-drop__bar{ position:absolute; left:.8rem; right:.8rem; bottom:.6rem; height:5px; border-radius:99px;
+  background:#e9edf2; overflow:hidden; }
+.intake-drop__bar > span{ display:block; height:100%; width:4%; border-radius:99px;
+  background:var(--brand-primary,#E33D48); transition:width .15s ease; }
+.intake-drop__prev{ position:absolute; top:.4rem; right:.4rem; width:44px; height:44px; object-fit:cover;
+  border-radius:8px; border:1px solid #e5e7eb; background:#fff; }
+/* Bloque de documentos dentro de un paso */
+.intake-block{ border:1px solid var(--line-2,#e3e6eb); border-radius:14px; padding:.85rem; margin-bottom:.85rem; background:#fff; }
+.intake-block__t{ display:flex; align-items:center; gap:.45rem; font-size:.78rem; font-weight:700;
+  text-transform:uppercase; letter-spacing:.03em; color:#42505f; margin-bottom:.6rem; }
+.intake-block__t i{ color:var(--brand-accent,#007CA2); }
+/* Filas que se repiten (personas de contacto, tarjetas de fidelización) */
+.intake-row{ display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; margin-bottom:.4rem; }
+.intake-row > .form-control{ flex:1 1 150px; min-width:0; }

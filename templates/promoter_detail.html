@@ -18,8 +18,11 @@
         {% if promoter.contact_phone %}<span><i class="fa fa-phone me-1"></i>{{ promoter.contact_phone }}</span>{% endif %}
       </div>
     </div>
-    <div class="d-flex gap-2">
+    <div class="d-flex gap-2 flex-wrap">
       {% if CAN_EDIT_SONGS_PROMOTERS %}
+        {# Enlace para que el propio tercero revise y complete sus datos. #}
+        <button type="button" class="btn btn-outline-primary" data-intake-link="{{ promoter.id }}"
+                title="Enviar un enlace para que actualice sus datos"><i class="fa fa-rotate me-1"></i>Solicitar actualización</button>
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#editPromoterModal">Editar ficha</button>
       {% endif %}
     </div>
@@ -438,4 +441,6 @@
   {% endfor %}
 {% endfor %}
 {% endif %}
+
+{% if CAN_EDIT_SONGS_PROMOTERS %}{% include '_intake_share_modal.html' %}{% endif %}
 {% endblock %}

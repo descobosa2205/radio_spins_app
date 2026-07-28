@@ -8,6 +8,8 @@
   <div class="d-flex align-items-center gap-2">
     {% if CAN_EDIT_SONGS_PROMOTERS %}
       <span class="badge text-bg-primary">Edición</span>
+      {# Enlace para que el propio tercero se dé de alta (correo, WhatsApp, SMS o copiándolo). #}
+      <button type="button" class="btn btn-outline-primary" data-intake-link title="Enviar un enlace para que se dé de alta él mismo"><i class="fa fa-link me-1"></i>Link de alta</button>
       <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newPromoterModal"><i class="fa fa-plus me-1"></i>Añadir tercero</button>
     {% else %}
       <span class="badge text-bg-secondary">Lectura</span>
@@ -133,6 +135,7 @@
           <div class="dropdown ms-auto flex-shrink-0">
             <button class="btn btn-sm btn-light border" type="button" data-bs-toggle="dropdown" onclick="event.preventDefault();" title="Más acciones"><i class="fa fa-ellipsis-vertical"></i></button>
             <ul class="dropdown-menu dropdown-menu-end" onclick="event.preventDefault();">
+              <li><button type="button" class="dropdown-item" data-intake-link="{{ p.id }}"><i class="fa fa-rotate fa-fw me-1"></i>Solicitar actualización</button></li>
               <li><button type="button" class="dropdown-item" data-merge-open data-merge-label="Tercero" data-merge-id="{{ p.id }}" data-merge-name="{{ p.nick|e }}" data-merge-photo="{{ p.logo_url or '' }}" data-merge-search="{{ url_for('merge_search_promoter') }}" data-merge-compare="{{ url_for('merge_compare_promoter') }}" data-merge-execute="{{ url_for('merge_execute_promoter') }}"><i class="fa fa-code-merge fa-fw me-1"></i>Fusionar con otro…</button></li>
             </ul>
           </div>
@@ -147,6 +150,8 @@
     {% endfor %}
   </div>
 </div>
+
+{% include '_intake_share_modal.html' %}
 
 <script>
   (function(){

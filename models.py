@@ -2126,6 +2126,65 @@ class PrlUploadRequest(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class ThirdPartyIntakeLink(Base):
+    """Enlace público para que un TERCERO se dé de alta o actualice sus datos él mismo.
+
+    `promoter_id` vacío = alta nueva (todavía no sabemos quién es); con tercero = petición de
+    actualización de ESE tercero (el formulario sale con sus datos ya puestos). Si en un alta nueva
+    el CIF/DNI resulta ser de un tercero que ya existe, el enlace se «engancha» a él y pasa a ser una
+    actualización (`promoter_id` + `kind='UPDATE'`), que es justo lo que se le ofrece en pantalla.
+    """
+
+    __tablename__ = "third_party_intake_links"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    public_token = Column(Text, nullable=False, unique=True)
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="CASCADE"))
+    kind = Column(Text, nullable=False, server_default=text("'ALTA'"))      # ALTA | UPDATE
+    status = Column(Text, nullable=False, server_default=text("'ACTIVE'"))  # ACTIVE | DONE | CANCELLED
+    # Quién lo pidió (sale en el correo: «X ha solicitado que actualices tus datos»).
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    # Último envío: por dónde y a quién (para poder reenviar sin volver a buscarlo).
+    sent_channel = Column(Text)          # EMAIL | WHATSAPP | SMS | COPY
+    sent_to = Column(Text)
+    sent_at = Column(DateTime(timezone=True))
+    # Lo que se recibió por el formulario (traza de lo que rellenó el propio tercero).
+    data = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    submitted_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    promoter = relationship("Promoter")
+
+
+def ensure_third_party_intake_schema():
+    """Tabla del enlace público de alta/actualización de terceros. Idempotente."""
+    _create_all_once()
+    _exec_ddl_statements([
+        """
+        CREATE TABLE IF NOT EXISTS third_party_intake_links (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            public_token text NOT NULL UNIQUE,
+            promoter_id uuid REFERENCES promoters(id) ON DELETE CASCADE,
+            kind text NOT NULL DEFAULT 'ALTA',
+            status text NOT NULL DEFAULT 'ACTIVE',
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            sent_channel text,
+            sent_to text,
+            sent_at timestamptz,
+            data jsonb NOT NULL DEFAULT '{}'::jsonb,
+            submitted_at timestamptz,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS ix_tp_intake_promoter ON third_party_intake_links (promoter_id);",
+        "CREATE INDEX IF NOT EXISTS ix_tp_intake_status ON third_party_intake_links (status);",
+    ])
+
+
 class ConcertSaleChannelRequest(Base):
     """Petición al promotor para que configure los CANALES DE VENTA (links + ticketeras) de un
     concierto vendido por terceros. Mientras esté ACTIVE y auto_remind, se le recuerda por correo

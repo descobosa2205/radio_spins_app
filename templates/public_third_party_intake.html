@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="es">
+{# ============================================================================
+   ALTA / ACTUALIZACIÓN DE DATOS DE UN TERCERO (página pública, sin login).
+   Se entra por el enlace que genera Terceros → «Link de alta» / «Solicitar actualización».
+
+   ⚠️ Es una plantilla STANDALONE (no extiende layout.html) a propósito: layout.html no tiene
+   ningún {% block %} en el <head> y aquí hacen falta las etiquetas og: para que WhatsApp y SMS
+   pinten la miniatura con el logo del tercero. Bootstrap, Font Awesome y styles.css se cargan
+   desde NUESTRO dominio (el CDN de Font Awesome está bloqueado en algunas redes y los iconos
+   salían como «?»).
+   ============================================================================ #}
+{# ---------- Macros de los trozos que se repiten ---------- #}
+{% macro dropzone(slot, label, pdf=False, current='') %}
+  <div class="col">
+    <label class="intake-drop" data-slot="{{ slot }}" data-file-drop="off">
+      <input type="file" hidden accept="{{ 'image/*,application/pdf' if pdf else 'image/*' }}" data-intake-file>
+      <span class="intake-drop__ico"><i class="fa fa-cloud-arrow-up"></i></span>
+      <span class="intake-drop__t">{{ label }}</span>
+      <span class="intake-drop__h">Arrastra el archivo o pincha para elegirlo</span>
+      <span class="intake-drop__bar d-none"><span></span></span>
+      {% if current %}<img class="intake-drop__prev" src="{{ current }}" alt="">{% endif %}
+    </label>
+    <input type="hidden" name="{{ slot }}_url" value="{{ current or '' }}">
+  </div>
+{% endmacro %}
+
+{% macro contact_row(c=None) %}
+  <div class="intake-row" data-row>
+    <input class="form-control form-control-sm" name="contact_name" placeholder="Nombre y apellidos" value="{{ (c.name if c else '') or '' }}">
+    <input class="form-control form-control-sm" name="contact_title" placeholder="Función" list="contactRoles" value="{{ (c.title if c else '') or '' }}">
+    <input class="form-control form-control-sm" name="contact_email" placeholder="Email" value="{{ (c.email if c else '') or '' }}">
+    <input class="form-control form-control-sm" name="contact_phone" placeholder="Teléfono" value="{{ (c.phone if c else '') or '' }}">
+    <button type="button" class="btn btn-sm btn-outline-danger" data-remove-row><i class="fa fa-xmark"></i></button>
+  </div>
+{% endmacro %}
+
+{% macro loyalty_row(t=None) %}
+  <div class="intake-row" data-row>
+    <input class="form-control form-control-sm" name="loyalty_company" placeholder="Compañía (Renfe, Iberia…)" list="loyaltyBrands" value="{{ (t.company if t else '') or '' }}">
+    <input class="form-control form-control-sm" name="loyalty_number" placeholder="Número de tarjeta" value="{{ (t.number if t else '') or '' }}">
+    <button type="button" class="btn btn-sm btn-outline-danger" data-remove-row><i class="fa fa-xmark"></i></button>
+  </div>
+{% endmacro %}
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page_title }}{% if person_label %} · {{ person_label }}{% endif %}</title>
+  <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+  {# Previsualización de WhatsApp / SMS / correo: título («Alta nueva» o «Actualización de datos»),
+     debajo el nombre de la persona o empresa, y la miniatura con su logo (o el de 33 Producciones). #}
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="{{ share_title }}">
+  {% if og.description %}<meta property="og:description" content="{{ og.description }}">
+  <meta name="twitter:description" content="{{ og.description }}">{% endif %}
+  <meta property="og:image" content="{{ og.image }}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:image" content="{{ og.image }}">
+  <meta name="twitter:card" content="summary_large_image">
+  <link href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/styles.css', v=ASSET_V) }}" rel="stylesheet">
+</head>
+<body class="public-invitation-page">
+<main class="container py-4 py-md-5">
+  <div class="mx-auto" style="max-width:760px;">
+
+    {# Cabecera del back office arriba a la IZQUIERDA + título #}
+    <div class="mb-3">
+      <img src="{{ url_for('static', filename='img/Banner.png') }}" alt="Back Office" style="max-height:40px;max-width:260px;object-fit:contain;">
+    </div>
+    <h1 class="h3 mb-1">{{ page_title }}</h1>
+    <p class="text-muted">
+      {% if kind == 'UPDATE' %}Revisa y completa tus datos. Lo que ya tenemos aparece rellenado.
+      {% else %}Rellena tus datos para quedar dado de alta en nuestra base de datos.{% endif %}
+    </p>
+
+    {% if done %}
+      <div class="alert alert-success"><i class="fa fa-circle-check me-2"></i>
+        <strong>¡Listo!</strong> Ya hemos recibido tus datos. Si necesitas cambiar algo, pídenos un enlace nuevo.
+      </div>
+    {% else %}
+
+    <form class="card shadow-sm" id="intakeForm" data-step-wizard
+          data-sw-mode="{{ profile.kind or 'PARTICULAR' }}"
+          data-submit-url="{{ url_for('public_intake_submit', token=token) }}"
+          data-identify-url="{{ url_for('public_intake_identify', token=token) }}"
+          data-upload-url="{{ url_for('public_intake_upload', token=token) }}">
+      <div class="card-body">
+        <div data-sw-progress class="mb-3"></div>
+
+        {# ---------------- Paso 1 · Empresa o particular + identificación ---------------- #}
+        <section class="sw-step" data-step="1" data-title="Quién eres">
+          <div class="sw-step__q"><i class="fa fa-user-tag me-2 text-danger"></i>¿Eres una empresa o un particular?</div>
+          <div class="promo-pick-grid promo-pick-grid--wide mb-3">
+            {% for value, label, icon, hint in [
+                 ('EMPRESA','Empresa','fa-building','Sociedad, con CIF'),
+                 ('PARTICULAR','Particular','fa-user','Persona física, con DNI')] %}
+              <label class="promo-pick">
+                <input type="radio" name="entity_kind" value="{{ value }}"
+                       {% if (profile.kind or 'PARTICULAR') == value %}checked{% endif %} required>
+                <span class="promo-pick__box"><i class="fa {{ icon }}"></i>
+                  <span class="promo-pick__name">{{ label }}</span>
+                  <span class="promo-pick__hint">{{ hint }}</span></span>
+              </label>
+            {% endfor %}
+          </div>
+          <label class="form-label" id="taxLabel">CIF / DNI</label>
+          <div class="input-group">
+            <input class="form-control" name="tax_id" id="taxId" value="{{ profile.tax_id or '' }}"
+                   placeholder="B12345678 / 12345678Z" required autocomplete="off">
+            <button class="btn btn-outline-secondary" type="button" id="taxCheck">
+              <i class="fa fa-magnifying-glass me-1"></i>Comprobar
+            </button>
+          </div>
+          <div class="form-text">Lo comprobamos para no duplicarte en la base de datos.</div>
+          <div id="taxResult" class="mt-3"></div>
+          <input type="hidden" name="promoter_id" id="promoterId" value="{{ profile.id or '' }}">
+        </section>
+
+        {# ---------------- Paso 2 · Datos ---------------- #}
+        <section class="sw-step" data-step="2" data-title="Datos">
+          <div class="sw-step__q"><i class="fa fa-address-card me-2 text-danger"></i>Tus datos</div>
+          <div class="row g-3">
+            <div class="col-12" data-only="PARTICULAR">
+              <label class="form-label">Nombre y apellidos</label>
+              <input class="form-control" name="full_name" value="{{ profile.full_name or '' }}">
+            </div>
+            <div class="col-12" data-only="EMPRESA">
+              <label class="form-label">Nombre de la sociedad</label>
+              <input class="form-control" name="company_name" value="{{ profile.company_name or '' }}">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Dirección fiscal</label>
+              <input class="form-control" name="fiscal_address" value="{{ profile.fiscal_address or '' }}"
+                     placeholder="Calle, número, código postal y municipio">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Email</label>
+              <input class="form-control" type="email" name="email" value="{{ profile.email or '' }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Teléfono</label>
+              <input class="form-control" name="phone" value="{{ profile.phone or '' }}">
+            </div>
+          </div>
+        </section>
+
+        {# ---------------- Paso 3a · Documentación (solo particulares) ---------------- #}
+        <section class="sw-step" data-step="3" data-title="Documentación" data-sw-when="PARTICULAR">
+          <div class="sw-step__q"><i class="fa fa-id-card me-2 text-danger"></i>Ya te tenemos registrado. ¿Subes la documentación?</div>
+          <div class="sw-step__h">No es obligatorio, pero nos ahorra pedírtela más adelante.</div>
+
+          <div class="intake-block">
+            <div class="intake-block__t"><i class="fa fa-id-card"></i>DNI (las dos caras)</div>
+            <div class="row g-2">
+              {{ dropzone('dni_front', 'Anverso') }}
+              {{ dropzone('dni_back', 'Reverso') }}
+            </div>
+          </div>
+
+          <div class="intake-block">
+            <div class="intake-block__t"><i class="fa fa-passport"></i>Pasaporte</div>
+            <div class="row g-2">{{ dropzone('passport', 'Página de datos') }}</div>
+          </div>
+
+          <div class="intake-block">
+            <div class="intake-block__t"><i class="fa fa-id-card-clip"></i>Carnet de conducir</div>
+            <div class="filter-chips mb-2">
+              <label class="filter-chip">
+                <input type="checkbox" name="has_license" id="hasLicense" value="1"
+                       {% if 'LICENSE' in (profile.docs or []) %}checked{% endif %}>
+                <i class="fa fa-car"></i>Tengo carnet de conducir
+              </label>
+            </div>
+            <div class="row g-2 d-none" id="licenseWrap">
+              {{ dropzone('license_front', 'Anverso') }}
+              {{ dropzone('license_back', 'Reverso') }}
+            </div>
+          </div>
+        </section>
+
+        {# ---------------- Paso 3b · Personas de contacto (solo empresas) ---------------- #}
+        <section class="sw-step" data-step="4" data-title="Contactos" data-sw-when="EMPRESA">
+          <div class="sw-step__q"><i class="fa fa-users me-2 text-danger"></i>Ya te tenemos registrado. ¿Añadimos personas de contacto o departamentos?</div>
+          <div class="sw-step__h">Puedes añadir todas las que quieras.</div>
+          <div id="contactRows" data-rows>
+            {% for c in profile.contacts or [] %}
+              {{ contact_row(c) }}
+            {% endfor %}
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-add-contact>
+            <i class="fa fa-plus me-1"></i>Añadir persona
+          </button>
+        </section>
+
+        {# ---------------- Paso 4 · Fidelización y viaje (solo particulares) ---------------- #}
+        <section class="sw-step" data-step="5" data-title="Viaje" data-sw-when="PARTICULAR">
+          <div class="sw-step__q"><i class="fa fa-plane me-2 text-danger"></i>Tarjetas de fidelización y datos de viaje</div>
+          <div class="sw-step__h">Nos sirve para sacarte los billetes con tus puntos y desde donde te venga bien.</div>
+          <div id="loyaltyRows" data-rows>
+            {% for t in profile.loyalty or [] %}
+              {{ loyalty_row(t) }}
+            {% endfor %}
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-secondary mt-2 mb-3" data-add-loyalty>
+            <i class="fa fa-plus me-1"></i>Añadir tarjeta
+          </button>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label"><i class="fa fa-plane-departure me-1 text-danger"></i>Aeropuerto de origen</label>
+              <input class="form-control" name="travel_departure_flight"
+                     value="{{ profile.travel_departure_flight or '' }}" placeholder="Madrid-Barajas (MAD)">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label"><i class="fa fa-train me-1 text-danger"></i>Estación de origen</label>
+              <input class="form-control" name="travel_departure_train"
+                     value="{{ profile.travel_departure_train or '' }}" placeholder="Madrid-Puerta de Atocha">
+            </div>
+          </div>
+        </section>
+
+        {# ---------------- Paso 5 · Forma de pago ---------------- #}
+        <section class="sw-step" data-step="6" data-title="Pagos">
+          <div class="sw-step__q"><i class="fa fa-building-columns me-2 text-danger"></i>¿Configuramos la forma de pago?</div>
+          <div class="sw-step__h">Sube el certificado de titularidad bancaria y leemos el IBAN para que lo confirmes.</div>
+          <div class="row g-2 mb-3">{{ dropzone('bank_cert', 'Certificado de titularidad', pdf=True) }}</div>
+          <label class="form-label">IBAN</label>
+          <input class="form-control" name="bank_account" id="ibanField"
+                 value="{{ profile.bank_account or '' }}" placeholder="ES00 0000 0000 0000 0000 0000"
+                 autocomplete="off">
+          <div class="form-text" id="ibanNote">Si no lo detectamos del documento, escríbelo tú.</div>
+        </section>
+
+        {# ---------------- Paso 6 · Foto o logo ---------------- #}
+        <section class="sw-step" data-step="7" data-title="Foto">
+          <div class="sw-step__q"><i class="fa fa-image me-2 text-danger"></i>
+            <span data-photo-title>Sube tu foto</span>
+          </div>
+          <div class="sw-step__h">Así te identificamos más fácilmente. En JPG o PNG.</div>
+          <div class="row g-2">{{ dropzone('photo', 'Arrastra o selecciona', current=profile.logo_url) }}</div>
+        </section>
+
+        {# ---------------- Paso 7 · Condiciones ---------------- #}
+        <section class="sw-step" data-step="8" data-title="Condiciones">
+          <div class="sw-step__q"><i class="fa fa-shield-halved me-2 text-danger"></i>Antes de terminar</div>
+          <div class="alert alert-light border small">
+            Tus datos se guardan en nuestra base de datos interna para gestionar la relación
+            profesional (contratación, pagos, viajes y obligaciones legales). No se ceden a terceros
+            salvo obligación legal. Puedes pedirnos en cualquier momento que los corrijamos o los
+            eliminemos escribiendo a
+            <a href="mailto:info@33producciones.es">info@33producciones.es</a>.
+          </div>
+          <label class="filter-chip">
+            <input type="checkbox" name="consent" value="1" id="consentBox" required>
+            <i class="fa fa-check"></i>Acepto las condiciones para el tratamiento de mis datos
+          </label>
+          <div id="intakeError" class="alert alert-danger mt-3 d-none"></div>
+        </section>
+      </div>
+
+      <div class="card-footer d-flex justify-content-between align-items-center gap-2">
+        <button type="button" class="btn btn-outline-secondary" data-sw-prev>Anterior</button>
+        {# ms-auto: en el primer paso «Anterior» está oculto y si no los botones se irían a la izquierda. #}
+        <div class="d-flex gap-2 ms-auto">
+          <button type="button" class="btn btn-primary" data-sw-next>Siguiente</button>
+          <button type="submit" class="btn btn-primary" data-sw-submit>
+            <i class="fa fa-check me-1"></i>{{ 'Guardar mis datos' if kind == 'UPDATE' else 'Darme de alta' }}
+          </button>
+        </div>
+      </div>
+    </form>
+    {% endif %}
+  </div>
+</main>
+
+<datalist id="contactRoles">
+  {% for key, label, icon in contact_roles or [] %}<option value="{{ label }}"></option>{% endfor %}
+  <option value="Administración"></option><option value="Dirección"></option>
+  <option value="Gerencia"></option><option value="Facturación"></option>
+</datalist>
+<datalist id="loyaltyBrands">
+  {% for b in loyalty_brands or [] %}<option value="{{ b.label }}"></option>{% endfor %}
+</datalist>
+
+{# Plantillas para las filas que se añaden desde el navegador #}
+<template id="tplContact">{{ contact_row() }}</template>
+<template id="tplLoyalty">{{ loyalty_row() }}</template>
+
+<script src="{{ url_for('static', filename='vendor/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/step_wizard.js', v=ASSET_V) }}"></script>
+<script src="{{ url_for('static', filename='js/third_party_intake.js', v=ASSET_V) }}"></script>
+</body>
+</html>

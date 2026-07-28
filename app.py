@@ -272,6 +272,8 @@ from models import (
     CabifyUserLink,
     ensure_pleo_schema,
     ensure_cabify_schema,
+    ThirdPartyIntakeLink,
+    ensure_third_party_intake_schema,
 )
 import sim_calc  # motor de cálculo puro de Simulaciones
 import seatmap_calc  # motor puro del mapa de butacas del recinto (conteos/plantillas)
@@ -366,6 +368,10 @@ _CSRF_EXEMPT_ENDPOINTS = {
     "public_invoice_docs_state",
     "public_invoice_upload",
     "public_invoice_detect",
+    # Alta / actualización de un tercero por enlace público (el token es la credencial).
+    "public_intake_identify",
+    "public_intake_upload",
+    "public_intake_submit",
     "concert_artwork_public_submit",
     "public_sale_channels",
     "concert_contract_public_form",
@@ -708,7 +714,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher"}
+    allowed = {"landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher"}
     if request.endpoint in allowed:
         return
 
@@ -36798,6 +36804,7 @@ def _bootstrap_schema_bg():
         (ensure_enterticket_schema, "ensure_enterticket_schema"),
         (ensure_pleo_schema, "ensure_pleo_schema"),
         (ensure_cabify_schema, "ensure_cabify_schema"),
+        (ensure_third_party_intake_schema, "ensure_third_party_intake_schema"),
         (ensure_push_schema, "ensure_push_schema"),
         (ensure_app_settings_schema, "ensure_app_settings_schema"),
     ]:
@@ -40528,7 +40535,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -42461,7 +42468,11 @@ def _audit_access_coverage() -> dict:
     `tools/check_access_coverage.py` (para CI). Devuelve {"count", "offenders"}.
     """
     write_methods = {"POST", "PUT", "PATCH", "DELETE"}
-    public = {"static", "landing", "admin_login", "admin_logout"} | set(PUBLIC_ENDPOINTS_EXTRA)
+    # Los públicos por TOKEN que no llevan el prefijo `public_` hay que nombrarlos: si no, el
+    # chequeo salía siempre en rojo por ellos y un fallo de verdad pasaba inadvertido.
+    public = ({"static", "landing", "admin_login", "admin_logout",
+               "concert_artwork_public_upload", "concert_contract_public_form"}
+              | set(PUBLIC_ENDPOINTS_EXTRA))
     support = SUPPORT_ACTION_ENDPOINTS | SUPPORT_READ_ENDPOINTS | set(SUPPORT_ECON_READ_ENDPOINTS)
     offenders = []
     for rule in app.url_map.iter_rules():
@@ -51972,6 +51983,713 @@ def public_invoice_upload():
         session_db.rollback()
         app.logger.exception("public_invoice_upload")
         return jsonify({"ok": False, "error": "Error al subir el archivo"}), 500
+    finally:
+        session_db.close()
+
+
+# ---------------------------------------------------------------------------
+#  ALTA / ACTUALIZACIÓN DE UN TERCERO POR ENLACE PÚBLICO  (/alta/<token>)
+#  ------------------------------------------------------------------------
+#  Se genera desde Terceros («Link de alta») o desde un tercero concreto
+#  («Solicitar actualización») y se manda por correo, WhatsApp, SMS o copiando el enlace. El propio
+#  tercero rellena sus datos por pasos y al terminar se crea o se actualiza su ficha.
+#
+#  Reutiliza lo que ya existe de la landing de facturación: `_tax_id_kind` (CIF→empresa,
+#  DNI→particular), `_prl_norm_dni` para casar identificaciones, `_mask_value` para no destapar
+#  datos ajenos, y los campos que el proveedor ya rellenaba una vez (fiscal_address, bank_account,
+#  data_consent_at). Los documentos van a `PersonDocument` (DNI/pasaporte/carnet/fidelización) y el
+#  certificado bancario a `PersonComplianceDoc` (CERT_BANK), donde ya viven los certificados.
+# ---------------------------------------------------------------------------
+
+INTAKE_TITLES = {"ALTA": "Alta nueva", "UPDATE": "Actualización de datos"}
+INTAKE_PAGE_TITLES = {"ALTA": "Alta en base de datos", "UPDATE": "Actualizar datos"}
+INTAKE_MAX_ROWS = 20          # tope de contactos / tarjetas por envío (anti-abuso)
+
+
+# --------------------------------------------------------------- IBAN
+def _iban_clean(value) -> str:
+    return re.sub(r"[^0-9A-Za-z]", "", str(value or "")).upper()
+
+
+def _iban_is_valid(value) -> bool:
+    """Validación estándar mod-97 (ISO 13616). Evita dar por bueno un IBAN mal leído."""
+    iban = _iban_clean(value)
+    if not (15 <= len(iban) <= 34) or not iban[:2].isalpha() or not iban[2:4].isdigit():
+        return False
+    movido = iban[4:] + iban[:4]
+    numero = ""
+    for ch in movido:
+        numero += ch if ch.isdigit() else str(ord(ch) - 55)
+    try:
+        return int(numero) % 97 == 1
+    except ValueError:
+        return False
+
+
+def _iban_pretty(value) -> str:
+    iban = _iban_clean(value)
+    return " ".join(iban[i:i + 4] for i in range(0, len(iban), 4))
+
+
+def _detect_iban_in_text(text: str) -> str:
+    """Primer IBAN VÁLIDO que aparezca en el texto (con o sin espacios de por medio)."""
+    limpio = re.sub(r"[   ]", " ", str(text or ""))
+    for m in re.finditer(r"\b([A-Z]{2})\s?(\d{2})((?:\s?[A-Z0-9]){10,30})", limpio.upper()):
+        cand = _iban_clean(m.group(0))
+        # Se prueba recortando por la cola: el OCR/PDF suele pegar basura detrás.
+        for fin in range(len(cand), 14, -1):
+            if _iban_is_valid(cand[:fin]):
+                return cand[:fin]
+    return ""
+
+
+def _intake_file_text(storage) -> str:
+    """Texto de un PDF subido (pypdf). Si es una imagen o un PDF escaneado, devuelve ''."""
+    try:
+        nombre = (getattr(storage, "filename", "") or "").lower()
+        tipo = (getattr(storage, "mimetype", "") or "").lower()
+        if not (nombre.endswith(".pdf") or "pdf" in tipo):
+            return ""
+        from pypdf import PdfReader
+        storage.stream.seek(0)
+        datos = storage.stream.read()
+        storage.stream.seek(0)
+        lector = PdfReader(BytesIO(datos))
+        return "\n".join((p.extract_text() or "") for p in lector.pages[:6])
+    except Exception:
+        return ""
+
+
+# --------------------------------------------------------------- enlaces
+def _intake_title(kind: str) -> str:
+    return INTAKE_TITLES.get((kind or "ALTA").upper(), INTAKE_TITLES["ALTA"])
+
+
+def _intake_person_label(promoter) -> str:
+    if promoter is None:
+        return ""
+    nombre = " ".join([x for x in [(promoter.first_name or "").strip(),
+                                   (promoter.last_name or "").strip()] if x]).strip()
+    return (promoter.nick or "").strip() or nombre
+
+
+def _intake_link_payload(session_db, link) -> dict:
+    """Todo lo que necesita la pantalla para compartir el enlace (y la previsualización)."""
+    promoter = link.promoter or (session_db.get(Promoter, link.promoter_id) if link.promoter_id else None)
+    nombre = _intake_person_label(promoter)
+    titulo = _intake_title(link.kind)
+    url = _external_url_for("public_third_party_intake", token=link.public_token)
+    # Asunto del correo / texto de WhatsApp y SMS: el mismo título, en una línea.
+    asunto = titulo + (f" · {nombre}" if nombre else "")
+    quien = (link.created_by_nick or "").strip()
+    # ⚠️ El enlace va en su PROPIA línea (doble salto): es lo que hace que WhatsApp/SMS lo
+    # detecten como clicable (misma convención que `shareTextWithClickableUrl`).
+    if (link.kind or "").upper() == "UPDATE":
+        cuerpo = (f"Hola{(' ' + nombre) if nombre else ''}: {quien or 'el equipo'} te pide que "
+                  f"actualices tus datos en nuestro Back Office.\n\n{url}")
+    else:
+        cuerpo = (f"Hola{(' ' + nombre) if nombre else ''}: {quien or 'el equipo'} te pide que "
+                  f"te des de alta en nuestro Back Office.\n\n{url}")
+    # ⚠️ og:image SIEMPRE por nuestro endpoint (JPEG 1200×630): WhatsApp descarta las imágenes
+    # grandes o sin dimensiones declaradas. La fuente es el logo/foto del tercero y, si no tiene,
+    # el logo de 33 Producciones.
+    foto = _external_url_for("public_intake_og_image", token=link.public_token)
+    return {
+        "id": str(link.id),
+        "token": link.public_token,
+        "kind": (link.kind or "ALTA").upper(),
+        "url": url,
+        "title": titulo,
+        "subject": asunto,
+        "person": nombre,
+        "photo": foto,
+        "text": cuerpo,
+        "whatsapp": "https://wa.me/?text=" + quote(cuerpo),
+        "sms": "sms:?&body=" + quote(cuerpo),
+        "emails": ([e for e in [(getattr(promoter, "contact_email", "") or "").strip()] if e]
+                   if promoter is not None else []),
+        "phones": ([p for p in [(getattr(promoter, "contact_phone", "") or "").strip()] if p]
+                   if promoter is not None else []),
+        "sent_channel": (link.sent_channel or ""),
+        "sent_to": (link.sent_to or ""),
+        "status": (link.status or "ACTIVE"),
+    }
+
+
+def _intake_link_create(session_db, promoter=None, kind: str = "ALTA") -> ThirdPartyIntakeLink:
+    """Crea el enlace. Si ya hay uno ACTIVO para ese tercero, se reutiliza (no se llenan de tokens)."""
+    kind = "UPDATE" if promoter is not None else "ALTA"
+    if promoter is not None:
+        existente = (session_db.query(ThirdPartyIntakeLink)
+                     .filter(ThirdPartyIntakeLink.promoter_id == promoter.id,
+                             ThirdPartyIntakeLink.status == "ACTIVE")
+                     .order_by(ThirdPartyIntakeLink.created_at.desc()).first())
+        if existente is not None:
+            return existente
+    st = _current_user_state()
+    link = ThirdPartyIntakeLink(
+        public_token=_uuid_token(),
+        promoter_id=(promoter.id if promoter is not None else None),
+        kind=kind,
+        status="ACTIVE",
+        created_by_user_id=to_uuid(st.get("user_id")) if st.get("user_id") else None,
+        created_by_nick=(st.get("nick") or st.get("email") or "").strip() or None,
+    )
+    session_db.add(link)
+    session_db.flush()
+    return link
+
+
+def _intake_email_html(link, url: str, nombre: str, quien: str, nota: str = "") -> str:
+    """Correo con la cabecera del back office, el título que toque, el texto y el botón."""
+    es_update = (link.kind or "").upper() == "UPDATE"
+    titulo = _intake_title(link.kind)
+    banner = _external_url_for("static", filename="img/Banner.png")
+    boton = "Actualizar datos" if es_update else "Darme de alta"
+    texto = (f"<strong>{escape(quien or 'El equipo')}</strong> ha solicitado que "
+             + ("actualices tus datos del Back Office."
+                if es_update else "te des de alta en nuestro Back Office."))
+    hola = "Hola" + (f", {escape(nombre)}" if nombre else "")
+    extra = (f"<p style='font-size:14px;color:#374151;margin:0 0 14px;'>{escape(nota)}</p>"
+             if (nota or "").strip() else "")
+    return f"""
+    <div style="font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;max-width:620px;margin:0 auto;padding:8px 4px;">
+      <div style="margin-bottom:10px;">
+        <img src="{escape(banner)}" alt="Back Office" style="max-height:44px;max-width:280px;object-fit:contain;">
+      </div>
+      <h2 style="text-align:center;font-size:20px;color:#111;margin:0 0 18px;">{escape(titulo)}</h2>
+      <div style="border:1px solid #e5e7eb;border-radius:14px;padding:18px;background:#f9fafb;">
+        <p style="font-size:15px;color:#111;margin:0 0 10px;">{hola}:</p>
+        <p style="font-size:15px;color:#111;margin:0 0 16px;">{texto}</p>
+        {extra}
+        <p style="margin:0;">
+          <a href="{escape(url)}" style="display:inline-block;background:#E33D48;color:#fff;text-decoration:none;
+             font-weight:700;font-size:15px;padding:12px 22px;border-radius:10px;">{escape(boton)}</a>
+        </p>
+      </div>
+      <p style="font-size:12px;color:#6b7280;margin:14px 0 0;">Si el botón no funciona, copia este enlace:<br>
+        <a href="{escape(url)}" style="color:#007CA2;">{escape(url)}</a></p>
+    </div>
+    """
+
+
+# --------------------------------------------------------------- datos actuales
+def _intake_promoter_payload(session_db, promoter, masked: bool) -> dict:
+    """Datos actuales del tercero para pintar el formulario ya rellenado.
+
+    `masked=True` cuando quien mira NO es el dueño del enlace (en un alta nueva alguien teclea un
+    CIF/DNI que ya existe): se le dice que ya está creado y se le deja actualizar, pero sin
+    destaparle el correo, el teléfono ni la cuenta de otro.
+    """
+    if promoter is None:
+        return {}
+    kind = "EMPRESA" if (promoter.kind or "").lower() == "empresa" else _tax_id_kind(promoter.tax_id or "")
+    company = (session_db.query(PromoterCompany)
+               .filter(PromoterCompany.promoter_id == promoter.id)
+               .order_by(PromoterCompany.created_at.asc()).first()) if kind == "EMPRESA" else None
+    nombre = " ".join([x for x in [(promoter.first_name or "").strip(),
+                                   (promoter.last_name or "").strip()] if x]).strip()
+
+    def _v(value):
+        value = (value or "").strip()
+        return _mask_value(value) if (masked and value) else value
+
+    contactos = []
+    for c in (session_db.query(PromoterContact)
+              .filter(PromoterContact.promoter_id == promoter.id)
+              .order_by(PromoterContact.created_at.asc()).all()):
+        contactos.append({
+            "name": " ".join([x for x in [(c.first_name or "").strip(), (c.last_name or "").strip()] if x]).strip(),
+            "title": (c.title or ""),
+            "email": _v(c.email),
+            "phone": _v(c.phone or c.mobile),
+        })
+    tarjetas = []
+    for d in (session_db.query(PersonDocument)
+              .filter(PersonDocument.owner_type == "PROMOTER", PersonDocument.owner_id == promoter.id,
+                      PersonDocument.kind == "LOYALTY")
+              .order_by(PersonDocument.sort_order.asc(), PersonDocument.created_at.asc()).all()):
+        tarjetas.append({"company": (d.company or ""), "number": _v(d.doc_number)})
+    return {
+        "id": str(promoter.id),
+        "kind": kind or "PARTICULAR",
+        "masked": bool(masked),
+        "label": _intake_person_label(promoter),
+        "tax_id": (promoter.tax_id or ""),
+        "full_name": nombre,
+        "company_name": (promoter.nick or "") if kind == "EMPRESA" else "",
+        "fiscal_address": (promoter.fiscal_address or getattr(company, "fiscal_address", None)
+                           or promoter.address or ""),
+        "email": _v(promoter.contact_email),
+        "phone": _v(promoter.contact_phone),
+        "bank_account": (_mask_value(promoter.bank_account or "") if masked
+                         else _iban_pretty(promoter.bank_account or "")),
+        "has_bank": bool((promoter.bank_account or "").strip()),
+        "logo_url": (promoter.logo_url or ""),
+        "travel_departure_flight": (promoter.travel_departure_flight or ""),
+        "travel_departure_train": (promoter.travel_departure_train or ""),
+        "contacts": contactos,
+        "loyalty": tarjetas,
+        "docs": [d["kind"] for d in _person_documents_for(session_db, "PROMOTER", promoter.id)],
+    }
+
+
+def _intake_store_file(storage, carpeta: str):
+    """Sube un archivo del formulario público (imagen o PDF) y devuelve su URL."""
+    if not storage or not getattr(storage, "filename", ""):
+        return ""
+    nombre = (storage.filename or "").lower()
+    es_pdf = nombre.endswith(".pdf") or (getattr(storage, "mimetype", "") or "") == "application/pdf"
+    try:
+        return (upload_pdf(storage, carpeta) if es_pdf else
+                (upload_image(storage, carpeta) or upload_file(storage, carpeta))) or ""
+    except Exception:
+        app.logger.exception("intake upload")
+        return ""
+
+
+def _intake_save_document(session_db, promoter, kind: str, front_url, back_url=None, extra: dict | None = None):
+    """Guarda (o completa) un documento de identidad del tercero con lo que ya se subió.
+
+    `front_url`/`back_url` son las URLs que devolvió `public_intake_upload`: si una cara no se ha
+    subido, se deja la que hubiera (así actualizar solo el reverso no borra el anverso).
+    """
+    front_url = (front_url or "").strip()
+    back_url = (back_url or "").strip()
+    if not (front_url or back_url):
+        return None
+    doc = (session_db.query(PersonDocument)
+           .filter(PersonDocument.owner_type == "PROMOTER", PersonDocument.owner_id == promoter.id,
+                   PersonDocument.kind == kind)
+           .order_by(PersonDocument.created_at.desc()).first())
+    if doc is None:
+        doc = PersonDocument(owner_type="PROMOTER", owner_id=promoter.id, kind=kind, sort_order=0)
+        session_db.add(doc)
+    if front_url:
+        doc.front_url = front_url
+    if back_url:
+        doc.back_url = back_url
+    for campo, valor in (extra or {}).items():
+        if valor:
+            setattr(doc, campo, valor)
+    return doc
+
+
+def _intake_unique_nick(session_db, base: str, exclude_id=None) -> str:
+    """`Promoter.nick` es ÚNICO y aquí el nombre lo escribe gente de fuera: si ya está cogido se le
+    añade un sufijo en vez de reventar la inserción."""
+    base = (base or "Tercero").strip()[:120] or "Tercero"
+    intento, n = base, 1
+    while True:
+        q = session_db.query(Promoter.id).filter(func.lower(Promoter.nick) == intento.lower())
+        if exclude_id is not None:
+            q = q.filter(Promoter.id != exclude_id)
+        if q.first() is None:
+            return intento
+        n += 1
+        sufijo = f" ({n})"
+        intento = base[:120 - len(sufijo)] + sufijo
+
+
+def _intake_by_token(session_db, token: str):
+    return (session_db.query(ThirdPartyIntakeLink)
+            .filter(ThirdPartyIntakeLink.public_token == (token or "").strip()).first())
+
+
+# --------------------------------------------------------------- back office
+@app.post('/terceros/enlace-alta', endpoint='promoter_intake_link_create')
+@admin_required
+def promoter_intake_link_create():
+    """Crea (o reutiliza) el enlace de alta / de actualización y devuelve todo para compartirlo."""
+    session_db = db()
+    try:
+        pid = to_uuid((request.form.get("promoter_id") or request.args.get("promoter_id") or "").strip())
+        promoter = session_db.get(Promoter, pid) if pid else None
+        if pid and promoter is None:
+            return jsonify({"ok": False, "error": "Tercero no encontrado"}), 404
+        link = _intake_link_create(session_db, promoter)
+        session_db.commit()
+        return jsonify({"ok": True, "link": _intake_link_payload(session_db, link)})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("promoter_intake_link_create")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        session_db.close()
+
+
+@app.post('/terceros/enlace-alta/<lid>/correo', endpoint='promoter_intake_link_email')
+@admin_required
+def promoter_intake_link_email(lid):
+    """Manda el enlace por correo (con la cabecera del back office y el botón)."""
+    session_db = db()
+    try:
+        link = session_db.get(ThirdPartyIntakeLink, to_uuid(lid) or uuid.uuid4())
+        if not link:
+            return jsonify({"ok": False, "error": "Enlace no encontrado"}), 404
+        destino = [e.strip() for e in re.split(r"[,;\s]+", (request.form.get("to") or "")) if e.strip()]
+        if not destino:
+            return jsonify({"ok": False, "error": "Escribe a quién se lo mandamos"}), 400
+        info = _intake_link_payload(session_db, link)
+        html = _intake_email_html(link, info["url"], info["person"],
+                                  (link.created_by_nick or (_current_user_state().get("nick") or "")),
+                                  (request.form.get("note") or "").strip())
+        ok, err = _send_optional_email(destino, info["subject"], html)
+        if ok:
+            link.sent_channel = "EMAIL"
+            link.sent_to = ", ".join(destino)[:300]
+            link.sent_at = _now_madrid()
+            session_db.commit()
+        return jsonify({"ok": bool(ok), "error": (err or ""), "link": _intake_link_payload(session_db, link)})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("promoter_intake_link_email")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        session_db.close()
+
+
+@app.post('/terceros/enlace-alta/<lid>/enviado', endpoint='promoter_intake_link_sent')
+@admin_required
+def promoter_intake_link_sent(lid):
+    """Anota por dónde se ha mandado el enlace (WhatsApp / SMS / copiado)."""
+    session_db = db()
+    try:
+        link = session_db.get(ThirdPartyIntakeLink, to_uuid(lid) or uuid.uuid4())
+        if not link:
+            return jsonify({"ok": False, "error": "Enlace no encontrado"}), 404
+        canal = (request.form.get("channel") or "").strip().upper()
+        if canal in {"WHATSAPP", "SMS", "COPY"}:
+            link.sent_channel = canal
+            link.sent_to = (request.form.get("to") or "").strip()[:300] or link.sent_to
+            link.sent_at = _now_madrid()
+            session_db.commit()
+        return jsonify({"ok": True})
+    except Exception:
+        session_db.rollback()
+        return jsonify({"ok": False}), 500
+    finally:
+        session_db.close()
+
+
+# --------------------------------------------------------------- página pública
+@app.get('/alta/<token>', endpoint='public_third_party_intake')
+def public_third_party_intake(token):
+    """Formulario público por pasos para darse de alta o actualizar los datos."""
+    session_db = db()
+    try:
+        link = _intake_by_token(session_db, token)
+        if not link or (link.status or "") == "CANCELLED":
+            abort(404)
+        promoter = link.promoter or (session_db.get(Promoter, link.promoter_id) if link.promoter_id else None)
+        perfil = _intake_promoter_payload(session_db, promoter, masked=False) if promoter is not None else {}
+        info = _intake_link_payload(session_db, link)
+        return render_template(
+            'public_third_party_intake.html',
+            link=link,
+            token=link.public_token,
+            kind=(link.kind or "ALTA").upper(),
+            page_title=INTAKE_PAGE_TITLES.get((link.kind or "ALTA").upper(), INTAKE_PAGE_TITLES["ALTA"]),
+            share_title=info["title"],
+            profile=perfil,
+            person_label=info["person"],
+            loyalty_brands=PERSON_LOYALTY_BRANDS,
+            contact_roles=CONCERT_CONTACT_ROLES,
+            done=((link.status or "") == "DONE"),
+            og={"image": info["photo"], "title": info["title"], "description": info["person"]},
+            hide_backoffice_nav=True,
+        )
+    finally:
+        session_db.close()
+
+
+@app.post('/alta/<token>/identificar', endpoint='public_intake_identify')
+def public_intake_identify(token):
+    """Paso 1: ¿existe ya este CIF/DNI? Si existe, se avisa y se ofrece ACTUALIZAR sus datos."""
+    session_db = db()
+    try:
+        link = _intake_by_token(session_db, token)
+        if not link or (link.status or "") == "CANCELLED":
+            return jsonify({"ok": False, "error": "Enlace no válido"}), 404
+        raw = (request.form.get("tax_id") or "").strip()
+        norm = _prl_norm_dni(raw)
+        if not norm:
+            return jsonify({"ok": False, "error": "Escribe el CIF o el DNI"}), 400
+        encontrado = None
+        for p in session_db.query(Promoter).filter(Promoter.tax_id.isnot(None)).all():
+            if _prl_norm_dni(p.tax_id) == norm:
+                encontrado = p
+                break
+        if encontrado is None:
+            for pc in session_db.query(PromoterCompany).filter(PromoterCompany.tax_id.isnot(None)).all():
+                if _prl_norm_dni(pc.tax_id) == norm:
+                    encontrado = session_db.get(Promoter, pc.promoter_id)
+                    break
+        if encontrado is None:
+            return jsonify({"ok": True, "found": False, "kind": _tax_id_kind(raw), "tax_id": raw})
+        # Si el enlace ya es de ESA persona, ve sus datos completos; si no, enmascarados.
+        propio = bool(link.promoter_id) and str(link.promoter_id) == str(encontrado.id)
+        return jsonify({"ok": True, "found": True, "kind": _tax_id_kind(raw), "tax_id": raw,
+                        "profile": _intake_promoter_payload(session_db, encontrado, masked=not propio)})
+    finally:
+        session_db.close()
+
+
+INTAKE_UPLOAD_SLOTS = {
+    "dni_front": "documents", "dni_back": "documents",
+    "passport": "documents", "license_front": "documents", "license_back": "documents",
+    "bank_cert": "documents", "photo": "providers",
+}
+
+
+@app.post('/alta/<token>/subir', endpoint='public_intake_upload')
+def public_intake_upload(token):
+    """Sube UN archivo del formulario (cada hueco por su cuenta, con su barra de progreso).
+
+    Devuelve la URL, que el formulario guarda en un oculto: así el envío final es ligero y en el
+    móvil se ve subir cada documento en vez de esperar a un POST enorme al final. Del certificado
+    bancario se intenta LEER el IBAN para que la persona lo confirme.
+    """
+    session_db = db()
+    try:
+        link = _intake_by_token(session_db, token)
+        if not link or (link.status or "") == "CANCELLED":
+            return jsonify({"ok": False, "error": "Enlace no válido"}), 404
+        slot = (request.form.get("slot") or "").strip().lower()
+        if slot not in INTAKE_UPLOAD_SLOTS:
+            return jsonify({"ok": False, "error": "Hueco no válido"}), 400
+        f = request.files.get("file")
+        if not f or not f.filename:
+            return jsonify({"ok": False, "error": "Falta el archivo"}), 400
+        # Formato: imágenes siempre; PDF solo donde tiene sentido (certificado bancario).
+        nombre = (f.filename or "").lower()
+        ext = ("." + nombre.rsplit(".", 1)[-1]) if "." in nombre else ""
+        admitidas = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"} | ({".pdf"} if slot == "bank_cert" else set())
+        if ext not in admitidas:
+            return jsonify({"ok": False, "error": ("Formato no admitido: manda una foto (JPG o PNG)"
+                                                   + (" o un PDF" if slot == "bank_cert" else ""))}), 400
+        iban = _detect_iban_in_text(_intake_file_text(f)) if slot == "bank_cert" else ""
+        try:
+            url = _intake_store_file(f, INTAKE_UPLOAD_SLOTS[slot])
+        except StorageObjectTooLargeError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        if not url:
+            # El formato ya está comprobado: si falla aquí es el almacenamiento, no la persona.
+            return jsonify({"ok": False, "error": "No hemos podido guardar el archivo. "
+                                                  "Inténtalo otra vez en un momento."}), 400
+        return jsonify({"ok": True, "slot": slot, "file_url": url, "iban": iban,
+                        "iban_pretty": _iban_pretty(iban), "detected": bool(iban),
+                        "note": ("" if (iban or slot != "bank_cert")
+                                 else "No hemos podido leer el IBAN del documento: escríbelo tú.")})
+    except Exception:
+        app.logger.exception("public_intake_upload")
+        return jsonify({"ok": False, "error": "No se pudo subir el archivo"}), 500
+    finally:
+        session_db.close()
+
+
+@app.get('/alta/<token>/og.jpg', endpoint='public_intake_og_image')
+def public_intake_og_image(token):
+    """Miniatura de la previsualización (WhatsApp/SMS): logo de la empresa o foto de la persona y,
+    si no tiene, el logo de 33 Producciones. Servida desde nuestro dominio y a 1200×630."""
+    session_db = db()
+    try:
+        link = _intake_by_token(session_db, token)
+        if not link:
+            abort(404)
+        promoter = link.promoter or (session_db.get(Promoter, link.promoter_id) if link.promoter_id else None)
+        src = _absolute_media_url((getattr(promoter, "logo_url", "") or "").strip()) or ""
+    finally:
+        session_db.close()
+    if not src:
+        src = "/static/img/logo_33_producciones.png"
+    data = _og_image_jpeg_bytes(src) or _og_image_jpeg_bytes("/static/img/logo_33_producciones.png")
+    if not data:
+        return redirect(src)
+    resp = send_file(BytesIO(data), mimetype="image/jpeg")
+    resp.headers["Cache-Control"] = "public, max-age=3600"
+    return resp
+
+
+@app.post('/alta/<token>/guardar', endpoint='public_intake_submit')
+def public_intake_submit(token):
+    """Crea o actualiza el tercero con TODO lo que ha rellenado en los pasos."""
+    session_db = db()
+    try:
+        link = _intake_by_token(session_db, token)
+        if not link or (link.status or "") == "CANCELLED":
+            abort(404)
+        f = request.form
+        if not _truthy(f.get("consent")):
+            return jsonify({"ok": False, "error": "Hay que aceptar las condiciones de tratamiento de datos"}), 400
+        raw_tax = (f.get("tax_id") or "").strip()
+        if not raw_tax:
+            return jsonify({"ok": False, "error": "Falta el CIF o el DNI"}), 400
+        kind = (f.get("entity_kind") or _tax_id_kind(raw_tax) or "PARTICULAR").upper()
+        es_empresa = kind == "EMPRESA"
+
+        # ¿A quién actualizamos? El del enlace, el que diga el formulario o el que case por CIF/DNI.
+        promoter = session_db.get(Promoter, link.promoter_id) if link.promoter_id else None
+        if promoter is None:
+            pid = to_uuid((f.get("promoter_id") or "").strip())
+            promoter = session_db.get(Promoter, pid) if pid else None
+        if promoter is None:
+            norm = _prl_norm_dni(raw_tax)
+            for p in session_db.query(Promoter).filter(Promoter.tax_id.isnot(None)).all():
+                if _prl_norm_dni(p.tax_id) == norm:
+                    promoter = p
+                    break
+        nombre = (f.get("company_name") if es_empresa else f.get("full_name")) or ""
+        nombre = nombre.strip()
+        nuevo = promoter is None
+        if nuevo:
+            if not nombre:
+                return jsonify({"ok": False, "error": "Falta el nombre"}), 400
+            promoter = Promoter(nick=_intake_unique_nick(session_db, nombre[:120]),
+                               kind=("empresa" if es_empresa else None), tax_id=raw_tax)
+            session_db.add(promoter)
+            session_db.flush()
+        promoter.tax_id = raw_tax
+        if es_empresa:
+            promoter.kind = "empresa"
+            if nombre:
+                promoter.nick = _intake_unique_nick(session_db, nombre[:120], promoter.id)
+        elif nombre:
+            partes = nombre.split()
+            promoter.first_name = partes[0]
+            promoter.last_name = " ".join(partes[1:]) or None
+            if not (promoter.nick or "").strip():
+                promoter.nick = _intake_unique_nick(session_db, nombre[:120], promoter.id)
+        for attr, campo in (("fiscal_address", "fiscal_address"), ("contact_email", "email"),
+                            ("contact_phone", "phone")):
+            valor = (f.get(campo) or "").strip()
+            if valor:
+                setattr(promoter, attr, valor)
+        if (f.get("fiscal_address") or "").strip() and not (promoter.address or "").strip():
+            promoter.address = (f.get("fiscal_address") or "").strip()
+
+        # --- Cuenta bancaria + certificado de titularidad (ya subido en su paso) ---
+        iban = _iban_clean(f.get("bank_account"))
+        if iban:
+            if not _iban_is_valid(iban):
+                return jsonify({"ok": False, "error": "El IBAN no parece correcto: revísalo"}), 400
+            promoter.bank_account = _iban_pretty(iban)
+        cert_url = (f.get("bank_cert_url") or "").strip()
+        if cert_url:
+            doc = PersonComplianceDoc(
+                owner_type="PROMOTER", owner_id=promoter.id, doc_type="CERT_BANK",
+                file_url=cert_url, original_name="Certificado de titularidad bancaria",
+                status="APPROVED", detected_meta=({"iban": _iban_pretty(iban)} if iban else {}),
+            )
+            session_db.add(doc)
+
+        # --- Empresa: sociedad + personas de contacto / departamentos ---
+        if es_empresa:
+            company = (session_db.query(PromoterCompany)
+                       .filter(PromoterCompany.promoter_id == promoter.id)
+                       .order_by(PromoterCompany.created_at.asc()).first())
+            if company is None:
+                company = PromoterCompany(promoter_id=promoter.id,
+                                          legal_name=(nombre or promoter.nick or "")[:200])
+                session_db.add(company)
+            company.tax_id = raw_tax
+            if (f.get("fiscal_address") or "").strip():
+                company.fiscal_address = (f.get("fiscal_address") or "").strip()
+            nombres = f.getlist("contact_name")[:INTAKE_MAX_ROWS]
+            funciones = f.getlist("contact_title")[:INTAKE_MAX_ROWS]
+            correos = f.getlist("contact_email")[:INTAKE_MAX_ROWS]
+            telefonos = f.getlist("contact_phone")[:INTAKE_MAX_ROWS]
+            for i, nom in enumerate(nombres):
+                nom = (nom or "").strip()
+                if not nom:
+                    continue
+                partes = nom.split()
+                titulo = (funciones[i] if i < len(funciones) else "").strip() or "Contacto"
+                correo = (correos[i] if i < len(correos) else "").strip()
+                tel = (telefonos[i] if i < len(telefonos) else "").strip()
+                # No duplicar: se busca por nombre + función.
+                existente = None
+                for c in (session_db.query(PromoterContact)
+                          .filter(PromoterContact.promoter_id == promoter.id).all()):
+                    actual = " ".join([x for x in [(c.first_name or ""), (c.last_name or "")] if x]).strip()
+                    if _norm_text_key(actual) == _norm_text_key(nom):
+                        existente = c
+                        break
+                if existente is None:
+                    existente = PromoterContact(promoter_id=promoter.id, title=titulo[:120],
+                                                first_name=partes[0], last_name=" ".join(partes[1:]) or None)
+                    session_db.add(existente)
+                else:
+                    existente.title = titulo[:120]
+                if correo:
+                    existente.email = correo
+                if tel:
+                    existente.phone = tel
+
+        # --- Particular: documentos, tarjetas de fidelización y datos de viaje ---
+        if not es_empresa:
+            _intake_save_document(session_db, promoter, "DNI",
+                                  f.get("dni_front_url"), f.get("dni_back_url"),
+                                  extra={"full_name": nombre or None, "doc_number": raw_tax})
+            _intake_save_document(session_db, promoter, "PASSPORT",
+                                  f.get("passport_url"), None,
+                                  extra={"full_name": nombre or None})
+            if _truthy(f.get("has_license")):
+                _intake_save_document(session_db, promoter, "LICENSE",
+                                      f.get("license_front_url"), f.get("license_back_url"),
+                                      extra={"full_name": nombre or None})
+            marcas = f.getlist("loyalty_company")[:INTAKE_MAX_ROWS]
+            numeros = f.getlist("loyalty_number")[:INTAKE_MAX_ROWS]
+            for i, marca in enumerate(marcas):
+                marca = (marca or "").strip()
+                numero = (numeros[i] if i < len(numeros) else "").strip()
+                if not (marca or numero):
+                    continue
+                ya = None
+                for d in (session_db.query(PersonDocument)
+                          .filter(PersonDocument.owner_type == "PROMOTER",
+                                  PersonDocument.owner_id == promoter.id,
+                                  PersonDocument.kind == "LOYALTY").all()):
+                    if _norm_text_key(d.company or "") == _norm_text_key(marca):
+                        ya = d
+                        break
+                if ya is None:
+                    session_db.add(PersonDocument(owner_type="PROMOTER", owner_id=promoter.id,
+                                                  kind="LOYALTY", company=marca[:120],
+                                                  doc_number=numero[:60] or None, sort_order=i))
+                elif numero:
+                    ya.doc_number = numero[:60]
+            for attr, campo in (("travel_departure_flight", "travel_departure_flight"),
+                                ("travel_departure_train", "travel_departure_train")):
+                valor = (f.get(campo) or "").strip()
+                if valor:
+                    setattr(promoter, attr, valor)
+
+        # --- Foto o logo ---
+        if (f.get("photo_url") or "").strip():
+            promoter.logo_url = (f.get("photo_url") or "").strip()
+
+        promoter.data_consent_at = _now_madrid()
+        promoter.billing_updated_at = _now_madrid()
+        link.promoter_id = promoter.id
+        link.kind = "ALTA" if nuevo else "UPDATE"
+        link.status = "DONE"
+        link.submitted_at = _now_madrid()
+        link.data = {
+            "entity_kind": kind,
+            "tax_id": raw_tax,
+            "name": nombre,
+            "email": (f.get("email") or "").strip(),
+            "phone": (f.get("phone") or "").strip(),
+            "created": bool(nuevo),
+            "at": _now_madrid().isoformat(),
+        }
+        session_db.commit()
+        return jsonify({"ok": True, "created": bool(nuevo), "name": _intake_person_label(promoter)})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("public_intake_submit")
+        return jsonify({"ok": False, "error": f"No se pudieron guardar los datos: {exc}"}), 500
     finally:
         session_db.close()
 

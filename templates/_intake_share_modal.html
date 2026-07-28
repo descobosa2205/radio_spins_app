@@ -1,0 +1,148 @@
+{# ============================================================================
+   Compartir el enlace de ALTA o de ACTUALIZACIÓN de un tercero.
+   Se incluye en /terceros y en la ficha del tercero. Lo abre cualquier botón con:
+     data-intake-link                     -> alta nueva (sin tercero)
+     data-intake-link="<promoter_id>"     -> solicitar actualización de ESE tercero
+   El modal pide el enlace al servidor (lo crea o reutiliza) y ofrece Correo, WhatsApp, SMS y copiar.
+   ============================================================================ #}
+<div class="modal fade" id="intakeShareModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-link me-2"></i><span data-intake-modal-title>Link de alta</span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div data-intake-loading class="text-muted small"><i class="fa fa-spinner fa-spin me-1"></i>Generando el enlace…</div>
+
+        <div data-intake-body class="d-none">
+          <div class="alert alert-light border d-flex align-items-center gap-3 py-2">
+            <img data-intake-photo src="" alt="" style="width:46px;height:46px;object-fit:contain;background:#fff;border:1px solid #e5e7eb;border-radius:10px;">
+            <div class="min-w-0">
+              <div class="fw-semibold" data-intake-title-preview>Alta nueva</div>
+              <div class="small text-muted text-truncate" data-intake-person></div>
+            </div>
+          </div>
+
+          <label class="form-label small text-muted">Enlace</label>
+          <div class="input-group input-group-sm mb-3">
+            <input class="form-control" readonly data-intake-url>
+            <button class="btn btn-outline-secondary" type="button" data-intake-copy title="Copiar enlace"><i class="fa fa-copy"></i></button>
+          </div>
+
+          <div class="d-flex flex-wrap gap-2 mb-3">
+            <button type="button" class="btn btn-outline-primary btn-sm" data-intake-mail><i class="fa fa-envelope me-1"></i>Email</button>
+            <a class="btn btn-outline-success btn-sm" target="_blank" rel="noopener" data-intake-wa><i class="fa-brands fa-whatsapp me-1"></i>WhatsApp</a>
+            <a class="btn btn-outline-secondary btn-sm" data-intake-sms><i class="fa fa-comment-sms me-1"></i>SMS</a>
+          </div>
+
+          {# Envío por correo desde el servidor (con la cabecera del back office y el botón) #}
+          <div class="border rounded p-2 d-none" data-intake-mailbox>
+            <label class="form-label small">Para</label>
+            <input class="form-control form-control-sm mb-2" data-intake-to placeholder="correo@ejemplo.com">
+            <label class="form-label small">Nota (opcional)</label>
+            <textarea class="form-control form-control-sm mb-2" rows="2" data-intake-note placeholder="Si quieres decirle algo más…"></textarea>
+            <button type="button" class="btn btn-primary btn-sm" data-intake-send><i class="fa fa-paper-plane me-1"></i>Enviar</button>
+            <span class="small ms-2" data-intake-mailmsg></span>
+          </div>
+        </div>
+
+        <div class="alert alert-danger d-none mt-2" data-intake-error></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+/* Abre el modal, pide el enlace y prepara Correo / WhatsApp / SMS / copiar.
+   El texto del WhatsApp y del SMS lo compone el servidor (con el enlace en su propia línea, que es
+   lo que lo hace clicable). */
+(function () {
+  var modalEl = document.getElementById('intakeShareModal');
+  if (!modalEl || modalEl.__ready) return;
+  modalEl.__ready = true;
+  var CREATE = "{{ url_for('promoter_intake_link_create') }}";
+  var q = function (sel) { return modalEl.querySelector('[' + sel + ']'); };
+  var actual = null;
+
+  function show(el, on) { el.classList.toggle('d-none', !on); }
+
+  function pintar(link) {
+    actual = link;
+    q('data-intake-loading').classList.add('d-none');
+    show(q('data-intake-body'), true);
+    q('data-intake-modal-title').textContent = link.kind === 'UPDATE' ? 'Solicitar actualización' : 'Link de alta';
+    q('data-intake-title-preview').textContent = link.title;
+    q('data-intake-person').textContent = link.person || 'Todavía no sabemos quién es: lo rellenará él mismo.';
+    q('data-intake-photo').src = link.photo;
+    q('data-intake-url').value = link.url;
+    q('data-intake-wa').href = link.whatsapp;
+    q('data-intake-sms').href = link.sms;
+    q('data-intake-to').value = (link.emails && link.emails[0]) || '';
+    q('data-intake-mailmsg').textContent = '';
+    show(q('data-intake-mailbox'), false);
+  }
+
+  function marcar(canal) {
+    if (!actual) return;
+    var fd = new FormData(); fd.append('channel', canal);
+    fetch("{{ url_for('promoter_intake_link_sent', lid='__ID__') }}".replace('__ID__', actual.id),
+          { method: 'POST', body: fd }).catch(function () {});
+  }
+
+  document.addEventListener('click', function (ev) {
+    var btn = ev.target.closest('[data-intake-link]');
+    if (!btn) return;
+    ev.preventDefault();
+    var pid = btn.getAttribute('data-intake-link') || '';
+    q('data-intake-loading').classList.remove('d-none');
+    show(q('data-intake-body'), false);
+    show(q('data-intake-error'), false);
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    var fd = new FormData();
+    if (pid) fd.append('promoter_id', pid);
+    fetch(CREATE, { method: 'POST', body: fd })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (!j || !j.ok) throw new Error((j && j.error) || 'No se pudo generar el enlace');
+        pintar(j.link);
+      })
+      .catch(function (e) {
+        q('data-intake-loading').classList.add('d-none');
+        var err = q('data-intake-error');
+        err.textContent = e.message || 'No se pudo generar el enlace';
+        show(err, true);
+      });
+  });
+
+  q('data-intake-copy').addEventListener('click', function () {
+    var inp = q('data-intake-url');
+    inp.select();
+    try { if (navigator.clipboard) navigator.clipboard.writeText(inp.value); else document.execCommand('copy'); } catch (_) {}
+    this.innerHTML = '<i class="fa fa-check"></i>';
+    marcar('COPY');
+    var self = this;
+    setTimeout(function () { self.innerHTML = '<i class="fa fa-copy"></i>'; }, 1500);
+  });
+  q('data-intake-wa').addEventListener('click', function () { marcar('WHATSAPP'); });
+  q('data-intake-sms').addEventListener('click', function () { marcar('SMS'); });
+  q('data-intake-mail').addEventListener('click', function () {
+    show(q('data-intake-mailbox'), !q('data-intake-mailbox').classList.contains('d-none') ? false : true);
+  });
+  q('data-intake-send').addEventListener('click', function () {
+    if (!actual) return;
+    var msg = q('data-intake-mailmsg');
+    var fd = new FormData();
+    fd.append('to', q('data-intake-to').value);
+    fd.append('note', q('data-intake-note').value);
+    msg.textContent = 'Enviando…';
+    fetch("{{ url_for('promoter_intake_link_email', lid='__ID__') }}".replace('__ID__', actual.id),
+          { method: 'POST', body: fd })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        msg.className = 'small ms-2 ' + (j && j.ok ? 'text-success' : 'text-danger');
+        msg.textContent = (j && j.ok) ? 'Enviado' : ((j && j.error) || 'No se pudo enviar');
+      })
+      .catch(function () { msg.className = 'small ms-2 text-danger'; msg.textContent = 'No se pudo enviar'; });
+  });
+})();
+</script>

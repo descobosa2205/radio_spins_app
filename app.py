@@ -1749,11 +1749,6 @@ def artist_detail_view(artist_id):
             # Pestaña «Personas»: cada persona con su ficha de tercero (documentos + viaje + banco).
             person_cards=(_artist_person_cards(session_db, artist, can_edit_artists_stations())
                           if tab == "personas" else []),
-            person_promoter_options=([
-                {"id": str(pid), "nick": nick or "", "logo": logo or ""}
-                for pid, nick, logo in session_db.query(Promoter.id, Promoter.nick, Promoter.logo_url)
-                                                 .order_by(Promoter.nick.asc()).all()
-            ] if tab == "personas" else []),
             loyalty_brands=PERSON_LOYALTY_BRANDS,
             artist_email_addresses=artist_email_addresses,
             contracts=contracts,
@@ -1931,11 +1926,27 @@ def artist_person_add(artist_id):
             flash("Artista no encontrado.", "warning")
             return redirect(safe_next_or(url_for("artists_view")))
 
+        volver = safe_next_or(url_for("artist_detail_view", artist_id=a.id, tab="personas"))
+        # Se añade buscando en TERCEROS: si se eligió uno, el nombre sale de su ficha (quien busca no
+        # tiene por qué volver a teclearlo). Si no había coincidencias, se crea con lo escrito.
+        vinculado = session_db.get(Promoter, to_uuid(request.form.get("link_promoter_id") or "") or uuid.uuid4())
         first_name = (request.form.get("first_name") or "").strip()
         last_name = (request.form.get("last_name") or "").strip()
+        if vinculado is not None and not first_name:
+            first_name = (vinculado.first_name or "").strip()
+            last_name = (vinculado.last_name or "").strip()
+            if not first_name:
+                partes = (vinculado.nick or "").strip().split()
+                first_name = partes[0] if partes else ""
+                last_name = " ".join(partes[1:])
         if not first_name:
-            flash("El nombre es obligatorio.", "warning")
-            return redirect(safe_next_or(url_for("artist_detail_view", artist_id=a.id, tab="datos")))
+            flash("Escribe un nombre o elige un tercero de la lista.", "warning")
+            return redirect(volver)
+        if vinculado is not None and (session_db.query(ArtistPerson.id)
+                                      .filter(ArtistPerson.artist_id == a.id,
+                                              ArtistPerson.promoter_id == vinculado.id).first()):
+            flash(f"{vinculado.nick or first_name} ya está en las personas de {a.name}.", "info")
+            return redirect(volver)
 
         p = ArtistPerson(artist_id=a.id, first_name=first_name, last_name=last_name or "",
                          birth_date=parse_optional_date(request.form.get("birth_date")))
@@ -1943,10 +1954,10 @@ def artist_person_add(artist_id):
         session_db.flush()
         # La persona del artista ES un tercero: se vincula al que ya existe (si lo eligieron) o se le
         # crea su ficha, para que pueda tener DNI, pasaporte, viaje, cuenta bancaria…
-        _ensure_promoter_for_artist_person(session_db, p, request.form.get("link_promoter_id") or None)
+        _ensure_promoter_for_artist_person(session_db, p, (str(vinculado.id) if vinculado is not None else None))
         session_db.commit()
         flash("Persona añadida.", "success")
-        return redirect(safe_next_or(url_for("artist_detail_view", artist_id=a.id, tab="datos")))
+        return redirect(volver)
     except Exception as e:
         session_db.rollback()
         flash(f"Error añadiendo persona: {e}", "danger")

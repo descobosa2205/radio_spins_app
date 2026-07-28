@@ -1971,6 +1971,14 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 .fotos-detail-media__el{ max-width:100%; max-height:74vh; display:block; }
 .fotos-detail-table th{ white-space:nowrap; }
 
+/* Personas del artista · buscador de terceros con foto (resultados en vivo) */
+.aps__results{ max-height:340px; overflow:auto; }
+.aps__results .dropdown-item{ white-space:normal; }
+.aps__ph{ width:34px; height:34px; border-radius:50%; overflow:hidden; background:#eef1f4; display:inline-flex;
+  align-items:center; justify-content:center; color:#98a2b3; flex:0 0 auto; }
+.aps__ph img{ width:100%; height:100%; object-fit:cover; }
+.aps__ph--new{ background:var(--brand-primary); color:#fff; }
+
 /* Playlisting · toggles de plataforma (mostrar/ocultar) */
 .pl-platform-btn{
   display:inline-flex; align-items:center; gap:.45rem;

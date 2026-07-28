@@ -468,8 +468,13 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `_delete` (delegan en `_person_document_save`/`_delete_one` con owner PROMOTER) — mapeados a
   `artists` por prefijo `artist_person` en `_resolve_request_resource_key`/`_coarse_endpoint_resource`,
   y la pestaña `personas` hereda el permiso de `artists.datos` (no hay recurso nuevo que conceder).
-  El alta de persona acepta «¿ya es tercero?» para no duplicar. En «Datos» queda solo el listado con
-  el botón *Ver y editar*.
+  **Añadir persona = BUSCAR EN TERCEROS**: barra de búsqueda arriba de la pestaña con resultados
+  **en vivo desde el primer carácter** (`/api/search/promoters`, acento-insensible y por palabras, con
+  foto redonda, correo/teléfono y las vinculaciones); quien ya está sale marcado «ya está» y no se
+  puede elegir dos veces (el servidor también lo comprueba); si no hay coincidencias, la última fila
+  ofrece **crear** la persona con lo escrito (y su ficha de tercero). Al elegir un tercero, el nombre
+  lo saca el servidor de su ficha (no hay que teclearlo). Estilos `.aps*` en `styles.css`, JS en línea
+  en la pestaña. En «Datos» queda solo el listado con el botón *Ver y editar*.
 - **Documentos personales (pestaña «Documentos» en ficha de personal, de tercero y de las PERSONAS DE
   UN ARTISTA)**: modelo
   polimórfico `PersonDocument` (`owner_type` USER|PROMOTER, `kind` DNI|LICENSE|PASSPORT|LOYALTY|PLATE,

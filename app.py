@@ -1391,7 +1391,8 @@ def home():
     s = db()
     try:
         try:
-            artists = s.query(Artist).order_by(Artist.name.asc()).all()
+            # Sin los espejos de EVENTO (no son artistas de verdad; el asistente los elige aparte).
+            artists = s.query(Artist).filter(Artist.event_id.is_(None)).order_by(Artist.name.asc()).all()
         except Exception:
             artists = []
         # Contexto del asistente de concierto para abrirlo IN SITU desde el «+» de la agenda (sin
@@ -23092,7 +23093,10 @@ def _concert_wizard_context(session_db):
     )
     tours, cycles = _wizard_group_options(session_db)
     return {
-        "artists": session_db.query(Artist).order_by(Artist.name.asc()).all(),
+        # El espejo de un EVENTO no es un artista de verdad: el asistente lo elige en su paso de
+        # «¿de quién es la actividad?» (artista o evento), así que aquí no debe salir.
+        "artists": (session_db.query(Artist).filter(Artist.event_id.is_(None))
+                    .order_by(Artist.name.asc()).all()),
         "promoters": promoters,
         "promoters_payload": [
             {
@@ -27296,7 +27300,9 @@ def simulation_expenses_save(sid):
 def concerts_page():
     s = db()
     try:
-        artists = s.query(Artist).order_by(Artist.name.asc()).all()
+        # Sin los espejos de EVENTO: no son artistas de verdad y sus actividades viven en la pestaña
+        # Eventos (el asistente los elige en su propio paso).
+        artists = s.query(Artist).filter(Artist.event_id.is_(None)).order_by(Artist.name.asc()).all()
         venues = s.query(Venue).order_by(Venue.name.asc()).all()
         promoters = s.query(Promoter).options(selectinload(Promoter.companies)).order_by(Promoter.nick.asc()).all()
         companies = s.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
@@ -27827,13 +27833,15 @@ def concert_detail_view(cid):
         production_panel = _concert_production_panel(session, c)
         roadmap_ctx = _roadmap_context(session, "concert", c)
         result_ctx = _concert_result_context(session, c) if tab == "resultado" else None
-        # Punto de empate: manda lo que puso contratación; si no, los gastos CONSOLIDADOS de la
-        # bolsa; y si tampoco, el presupuesto. Se avisa en la ficha de con qué está calculado.
+        # Punto de empate (solo donde se enseña: pestaña Resultado): manda lo que puso contratación;
+        # si no, los gastos CONSOLIDADOS de la bolsa; y si tampoco, el presupuesto. El aviso salta
+        # únicamente cuando el de contratación NO cuadra con el calculado.
         break_even_info = None
-        try:
-            break_even_info = _concert_break_even_info(session, c)
-        except Exception:
-            break_even_info = None
+        if tab == "resultado":
+            try:
+                break_even_info = _concert_break_even_info(session, c)
+            except Exception:
+                break_even_info = None
         fotos_ctx = _build_fotos_context(session, "CONCERT", c.id) if tab == "fotos" else None
         setlist_ctx = _build_setlist_context(session, "CONCERT", c.id, concert=c) if tab == "repertorio" else None
 
@@ -35357,7 +35365,33 @@ def concert_wizard_create():
     session = db()
     try:
         mode = (request.form.get('wizard_mode') or 'direct').strip().lower()
-        raw_artist_ids = request.form.getlist('artist_id') + request.form.getlist('artist_ids')
+        # EL SUJETO puede ser un ARTISTA o un EVENTO (un evento funciona igual que un artista: las
+        # actividades son las mismas, solo que cuelgan del evento). Si el evento no existe todavía se
+        # crea aquí mismo con el nombre que se escriba. El artista de la actividad es el ESPEJO del
+        # evento (`_ensure_artist_for_event`), porque Concert.artist_id no puede ir vacío.
+        subject_kind = (request.form.get('subject_kind') or 'ARTIST').strip().upper()
+        event_uuid = None
+        if subject_kind == 'EVENT':
+            event_uuid = to_uuid((request.form.get('event_id') or '').strip() or None)
+            nuevo_evento = (request.form.get('new_event_name') or '').strip()
+            evento = session.get(AppEvent, event_uuid) if event_uuid else None
+            if evento is None and nuevo_evento:
+                evento = (session.query(AppEvent)
+                          .filter(func.lower(AppEvent.name) == nuevo_evento.lower()).first())
+                if evento is None:
+                    evento = AppEvent(name=nuevo_evento[:200])
+                    session.add(evento)
+                    session.flush()
+            if evento is None:
+                raise ValueError('Elige un evento o escribe el nombre del evento nuevo.')
+            event_uuid = evento.id
+            espejo = _ensure_artist_for_event(session, evento)
+            session.flush()
+            request_artist_ids = [str(espejo.id)]
+        else:
+            request_artist_ids = None
+        raw_artist_ids = (request_artist_ids if request_artist_ids is not None
+                          else request.form.getlist('artist_id') + request.form.getlist('artist_ids'))
         artist_ids = []
         for raw_artist_id in raw_artist_ids:
             raw_artist_id = (raw_artist_id or '').strip()
@@ -35370,7 +35404,8 @@ def concert_wizard_create():
             if uid and uid not in artist_ids:
                 artist_ids.append(uid)
         if not artist_ids:
-            raise ValueError('Debes seleccionar al menos un artista.')
+            raise ValueError('Debes seleccionar al menos un artista.' if subject_kind != 'EVENT'
+                             else 'No se pudo preparar el evento.')
         artist_id = artist_ids[0]
         artist_ids_payload = [str(uid) for uid in artist_ids]
         event_date = parse_date(request.form.get('date') or '')
@@ -35465,6 +35500,7 @@ def concert_wizard_create():
                 festival_name=festival_name,
                 venue_id=venue_id,
                 sale_type=sale_type,
+                event_id=event_uuid,
                 artist_id=artist_id,
                 artist_ids=artist_ids_payload,
                 activity_type=activity_type,
@@ -35622,6 +35658,7 @@ def concert_wizard_create():
             festival_name=festival_name,
             venue_id=venue_id,
             sale_type=sale_type,
+            event_id=event_uuid,
             promoter_id=promoter_id,
             promoter_company_id=promoter_company_id,
             artist_id=artist_id,
@@ -50173,10 +50210,18 @@ def _concert_break_even_info(s, concert):
         fuente, tickets, pct = "PRESUPUESTO", calc_pres["tickets"], calc_pres["pct"]
     else:
         return None
+    # ¿Lo que puso contratación NO cuadra con lo calculado? Solo entonces hay que avisar.
+    auto = (calc_bolsa or calc_pres or {}) or {}
+    auto_tickets = auto.get("tickets")
+    discrepa = bool(manual and auto_tickets is not None and int(manual) != int(auto_tickets))
     return {
         "source": fuente,
         "tickets": tickets,
         "pct": pct,
+        "mismatch": discrepa,
+        "auto_tickets": auto_tickets,
+        "auto_pct": auto.get("pct"),
+        "auto_source": ("BOLSA" if calc_bolsa else ("PRESUPUESTO" if calc_pres else "")),
         "sellable": sellable,
         "manual": (int(manual) if manual else None),
         "budget": calc_pres,
@@ -68112,10 +68157,18 @@ def _agenda_artist_options() -> list[dict]:
         if not (role == 10 or not assigned):
             q = q.filter(Artist.id.in_([to_uuid(x) for x in assigned]))
         active_ids = _agenda_active_artist_ids(session_db)
-        return [
-            {"id": str(a.id), "name": a.name or "—", "photo_url": a.photo_url or "", "active": (str(a.id) in active_ids)}
-            for a in q.all()
-        ]
+        out = []
+        for a in q.all():
+            activo = str(a.id) in active_ids
+            # Los EVENTOS salen en la agenda igual que un artista (su espejo lleva el nombre y el logo
+            # del evento), pero SOLO cuando tienen cosas activas: un evento sin actividades no se
+            # ofrece como si fuera un artista más.
+            if getattr(a, "event_id", None) and not activo:
+                continue
+            out.append({"id": str(a.id), "name": a.name or "—", "photo_url": a.photo_url or "",
+                        "active": activo, "is_event": bool(getattr(a, "event_id", None)),
+                        "event_id": (str(a.event_id) if getattr(a, "event_id", None) else "")})
+        return out
     except Exception:
         return []
     finally:

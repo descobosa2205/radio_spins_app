@@ -25,7 +25,8 @@
           <div class="agenda-artist-picker">
             {% for a in (agenda_add_artists or []) %}
               <button type="button" class="agenda-artist-card{% if not a.active %} agenda-artist-card--extra d-none{% endif %}"
-                      data-agenda-pick="{{ a.id }}" data-name="{{ a.name }}" data-search="{{ a.name|lower }}"{% if not a.active %} data-agenda-extra="1"{% endif %}>
+                      data-agenda-pick="{{ a.id }}" data-name="{{ a.name }}" data-search="{{ a.name|lower }}"
+                      data-event="{{ a.event_id or '' }}"{% if not a.active %} data-agenda-extra="1"{% endif %}>
                 <img src="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" alt="" loading="lazy">
                 <span>{{ a.name }}</span>
               </button>
@@ -133,6 +134,14 @@
       show('type');
     });
   });
+  // Un EVENTO sale en la agenda como si fuera un artista: aquí se guarda a qué evento corresponde
+  // cada tarjeta, para que el asistente se abra en modo EVENTO.
+  var artistEventMap = {}, artistNameMap = {};
+  modalEl.querySelectorAll('[data-agenda-pick]').forEach(function (b) {
+    var id = b.getAttribute('data-agenda-pick');
+    artistEventMap[id] = b.getAttribute('data-event') || '';
+    artistNameMap[id] = b.getAttribute('data-name') || '';
+  });
   var artistSearch = modalEl.querySelector('[data-agenda-artist-search]');
   var moreBtn = modalEl.querySelector('[data-agenda-more]');
   var hasExtras = pickerCards.some(function (c) { return c.hasAttribute('data-agenda-extra'); });
@@ -165,7 +174,27 @@
         var wm = document.getElementById('concertWizardModal');
         if (wm && window.bootstrap) {
           var openWizard = function () {
-            try { if (window.jQuery) jQuery('#wizard_artist_id').val([artistId]).trigger('change'); } catch (e) {}
+            var sel = document.getElementById('wizard_artist_id');
+            var esArtista = sel && sel.querySelector('option[value="' + artistId + '"]');
+            if (esArtista) {
+              try { if (window.jQuery) jQuery(sel).val([artistId]).trigger('change'); } catch (e) {}
+            } else {
+              // Lo elegido es un EVENTO (en la agenda salen como si fueran artistas): el asistente se
+              // abre con el sujeto en EVENTO y el evento ya puesto.
+              var rEv = document.querySelector('.wizard-subject-radio[value="EVENT"]');
+              if (rEv) { rEv.checked = true; rEv.dispatchEvent(new Event('change', { bubbles: true })); }
+              var selEv = document.getElementById('wizard_event_id');
+              var evId = (artistEventMap && artistEventMap[artistId]) || '';
+              if (selEv && evId) {
+                if (!selEv.querySelector('option[value="' + evId + '"]')) {
+                  var o = document.createElement('option'); o.value = evId;
+                  o.textContent = (artistNameMap && artistNameMap[artistId]) || 'Evento';
+                  selEv.appendChild(o);
+                }
+                selEv.value = evId;
+                try { if (window.jQuery) jQuery(selEv).trigger('change'); } catch (e) {}
+              }
+            }
             window.bootstrap.Modal.getOrCreateInstance(wm).show();
           };
           var inst = window.bootstrap.Modal.getInstance(modalEl);

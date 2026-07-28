@@ -440,19 +440,28 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `_contracting_tab_counts()` e inyectado como `CONTRACTING_COUNTS`. En **Peticiones** solo cuentan
   las PENDIENTES (las archivadas no). Uso: `{% with contracting_tab='conciertos' %}{% include
   '_contracting_tabs.html' %}{% endwith %}`.
+- **El asistente «+ Actividad» admite ARTISTA o EVENTO**: primer paso «¿De quién es la actividad?»
+  (`subject_kind` ARTIST|EVENT). Con EVENTO se busca en `api_search_events` o se crea al momento con el
+  `+` (`data-quick-create="event"`), y `concert_wizard_create` espeja el evento como artista
+  (`_ensure_artist_for_event`) y guarda `Concert.event_id`. Los espejos de evento se filtran de los
+  selectores de artista (asistente, /conciertos, Inicio). En los **calendarios** los eventos salen como
+  si fueran artistas (el espejo lleva nombre y logo del evento); en el selector del botón + de la
+  agenda solo aparecen los que tienen algo activo, y al elegir uno el asistente se abre ya en modo
+  EVENTO.
 - **Pestaña EVENTOS = actividades agrupadas por evento** (`_render_event_activities` +
   `templates/eventos.html`): funciona como la de Conciertos pero por EVENTO (un evento no tiene
   artista): rejilla de eventos con su nº de actividades → sus actividades, filtro Activas/Todas. Las
   actividades con `Concert.event_id` se excluyen de la pestaña de Conciertos (query y rejilla de
   artistas). Los CONTENEDORES de evento (`CycleFestival` kind EVENTO) siguen en
   `?section=eventos&contenedores=1`.
-- **Punto de empate de una actividad** (`_concert_break_even_info`, aviso amarillo arriba de la
-  ficha): manda **lo que ponga contratación a mano** (`Concert.break_even_ticket`); si no, los
+- **Punto de empate de una actividad** (`_concert_break_even_info`, en la pestaña **Resultado**, que es
+  donde se enseña): manda **lo que ponga contratación a mano** (`Concert.break_even_ticket`); si no, los
   **gastos CONSOLIDADOS de la bolsa** (`_concert_bag_expense_totals`, se actualiza solo según se
   consolidan); y si no, el **presupuesto** (`ConcertBudgetItem`). Se calcula con el mismo motor que
-  el Resultado (`_concert_build_calc_data` + `sim_calc`, sustituyendo la producción). El aviso dice
-  con cuál está calculado y cuánto daría con las otras. Sin ticketing ni previsión de ingresos no se
-  muestra nada.
+  el Resultado (`_concert_build_calc_data` + `sim_calc`, sustituyendo la producción). Bajo el número se
+  dice con qué base está calculado. ⚠️ El **aviso amarillo salta SOLO si el de contratación NO cuadra**
+  con el calculado (`mismatch`): si coinciden, o si nadie lo ha puesto a mano, no se avisa de nada. Sin
+  ticketing ni previsión de ingresos no se muestra nada.
 - **Cartelería · petición, subida a mano y aprobación de diseño**: con el evento sin peticiones se
   dice «Sin peticiones» y sale **UNA sola** opción según quién promueve (empresa del grupo →
   *Realizar petición a diseño*; promotor externo → *Solicitar al promotor*, usando
@@ -466,6 +475,10 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `HOME_ARTWORK_REJECTED` (`_home_artwork_rejected`). Compartir: por cartel (correo/WhatsApp/SMS/
   copiar enlace/descargar) y de todos (los mismos + **copiar los enlaces** + **descargar todos** en ZIP,
   `concert_artwork_download_all`). El principal se elige a mano o lo pone el más cuadrado al aprobar.
+  **Módulos que solo salen cuando toca**: «Solicitud realizada» (con el detalle de lo pedido DENTRO:
+  formatos, vídeo, logos, ticketeras y notas — no hay módulo «Detalle de la solicitud» aparte) aparece
+  únicamente si hay una petición de verdad (`requested_at` o estado REQUESTED/PROMOTER/CORRECTIONS);
+  «Formatos subidos», solo si hay carteles (aprobados, rechazados o antiguos).
 
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).

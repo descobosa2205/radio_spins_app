@@ -17,18 +17,50 @@
 
           {# ============================ PRIMER PASO · Artista (data-step 12, común a conciertos y actividades) ============================ #}
           <section class="wizard-step" data-step="12" data-mode="any">
+            {# El SUJETO de la actividad: un ARTISTA o un EVENTO. Un evento funciona igual que un
+               artista (las actividades son las mismas), solo que cuelgan del evento y salen en la
+               pestaña Eventos de Contratación. Si el evento no existe, se crea aquí con el +. #}
             <div class="wizard-card">
-              <div class="wizard-card__title"><i class="fa fa-microphone-lines"></i>¿Para qué artista es la actividad?</div>
-              <div class="input-group">
-                <select name="artist_id" id="wizard_artist_id" class="form-select select-artists" required multiple>
-                  {% for a in artists %}
-                    <option value="{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}">{{ a.name }}</option>
-                  {% endfor %}
-                </select>
-                {# Alta rápida GLOBAL (funciona en cualquier página donde se embeba el asistente). #}
-                <button type="button" class="btn btn-outline-secondary" data-quick-create="artist" data-target="wizard_artist_id"><i class="fa fa-plus"></i></button>
+              <div class="wizard-card__title"><i class="fa fa-microphone-lines"></i>¿De quién es la actividad?</div>
+              <div class="row g-3">
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-subject-radio" type="radio" name="subject_kind" value="ARTIST" checked>
+                    <i class="fa fa-microphone-lines d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">De un artista</span>
+                  </label>
+                </div>
+                <div class="col-6 col-md-3">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                    <input class="form-check-input visually-hidden wizard-subject-radio" type="radio" name="subject_kind" value="EVENT">
+                    <i class="fa fa-star d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">De un evento</span>
+                  </label>
+                </div>
               </div>
-              <div class="form-text">Puedes seleccionar varios artistas. El selector busca sin distinguir tildes, símbolos o mayúsculas.</div>
+
+              <div class="mt-3" data-wz-panel id="wizardSubjectArtist">
+                <label class="form-label">Artista</label>
+                <div class="input-group">
+                  <select name="artist_id" id="wizard_artist_id" class="form-select select-artists" required multiple>
+                    {% for a in artists %}
+                      <option value="{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}">{{ a.name }}</option>
+                    {% endfor %}
+                  </select>
+                  {# Alta rápida GLOBAL (funciona en cualquier página donde se embeba el asistente). #}
+                  <button type="button" class="btn btn-outline-secondary" data-quick-create="artist" data-target="wizard_artist_id"><i class="fa fa-plus"></i></button>
+                </div>
+                <div class="form-text">Puedes seleccionar varios artistas. El selector busca sin distinguir tildes, símbolos o mayúsculas.</div>
+              </div>
+
+              <div class="mt-3 d-none" data-wz-panel id="wizardSubjectEvent">
+                <label class="form-label">Evento</label>
+                <div class="input-group">
+                  <select name="event_id" id="wizard_event_id" class="form-select"></select>
+                  <button type="button" class="btn btn-outline-secondary" data-quick-create="event" data-target="wizard_event_id" title="Crear un evento nuevo"><i class="fa fa-plus"></i></button>
+                </div>
+                <div class="form-text">Busca el evento o créalo con el <i class="fa fa-plus"></i> (nombre y logo). La actividad quedará en la pestaña <strong>Eventos</strong>.</div>
+              </div>
             </div>
           </section>
 
@@ -1653,6 +1685,53 @@
       if(step === 10){ renderTagSuggestions(); }
     }
 
+    /* ---- SUJETO: artista o EVENTO (un evento funciona igual que un artista) ---- */
+    function subjectKind(){
+      const r = document.querySelector('.wizard-subject-radio:checked');
+      return r ? r.value : 'ARTIST';
+    }
+    function syncSubject(){
+      const esEvento = subjectKind() === 'EVENT';
+      const panelA = document.getElementById('wizardSubjectArtist');
+      const panelE = document.getElementById('wizardSubjectEvent');
+      if(!panelA || !panelE) return;
+      panelA.classList.toggle('d-none', esEvento);
+      panelE.classList.toggle('d-none', !esEvento);
+      // Solo el que esté a la vista es obligatorio (y el oculto no viaja al enviar).
+      const selA = document.getElementById('wizard_artist_id');
+      const selE = document.getElementById('wizard_event_id');
+      if(selA) selA.required = !esEvento;
+      if(selE) selE.required = esEvento;
+      if(esEvento) initEventSearch();
+    }
+    let eventSearchReady = false;
+    function initEventSearch(){
+      const sel = document.getElementById('wizard_event_id');
+      if(!sel || eventSearchReady || !window.jQuery || !jQuery.fn.select2) return;
+      eventSearchReady = true;
+      const modalEl = document.getElementById('concertWizardModal');
+      function fmt(d){
+        if(!d.id) return d.text;
+        const logo = d.logo_url || (d.element && jQuery(d.element).data('photo')) || '';
+        const img = logo ? '<img class="thumb" src="'+logo+'">' : '<span class="me-2"><i class="fa fa-star"></i></span>';
+        return jQuery('<span>'+img+(d.text || '')+'</span>');
+      }
+      jQuery(sel).select2({
+        width:'100%', dropdownParent: jQuery(modalEl), placeholder:'Busca el evento…',
+        allowClear:true, minimumInputLength:1,
+        ajax:{ url: {{ url_for('api_search_events')|tojson }}, dataType:'json', delay:200,
+          data:function(p){ return { q: p.term || '' }; },
+          processResults:function(data){ return { results:(data||[]).map(function(it){
+            return { id: it.id, text: it.label || it.name || it.text, logo_url: it.logo_url || it.photo_url || '' }; }) }; }
+        },
+        templateResult: fmt, templateSelection: fmt, escapeMarkup:function(m){ return m; }
+      });
+    }
+    document.querySelectorAll('.wizard-subject-radio').forEach(function(r){
+      r.addEventListener('change', syncSubject);
+    });
+    syncSubject();
+
     function syncMode(){
       const checked = document.querySelector('input[name="wizard_mode_choice"]:checked');
       modeInput.value = checked ? checked.value : 'direct';
@@ -2316,7 +2395,12 @@
 
     function validateStep(step){
       if(step === 12){
-        if(!document.getElementById('wizard_artist_id').value){ alert('Debes seleccionar un artista.'); return false; }
+        if(subjectKind() === 'EVENT'){
+          const ev = document.getElementById('wizard_event_id');
+          if(!ev || !(ev.value || '').trim()){ alert('Elige el evento (o créalo con el +).'); return false; }
+        } else if(!document.getElementById('wizard_artist_id').value){
+          alert('Debes seleccionar un artista.'); return false;
+        }
       }
       if(step === 3){
         if(!document.getElementById('wizard_date').value){ alert('Debes indicar la fecha de la actividad.'); return false; }
@@ -2475,7 +2559,23 @@
       if (!modalEl || typeof bootstrap === 'undefined') { return setTimeout(go, 80); }
       if (artistId) {
         var sel = document.getElementById('wizard_artist_id');
-        if (sel) {
+        // Si el «artista» de la agenda es en realidad un EVENTO (su espejo), se abre el asistente con
+        // el sujeto puesto en EVENTO y el evento ya elegido, no con un artista que no existe.
+        var opt = sel ? sel.querySelector('option[value="' + artistId + '"]') : null;
+        var eventId = params.get('wizard_event') || (opt ? '' : (window.__wzAgendaEventId || ''));
+        if (!opt && eventId) {
+          var rEv = document.querySelector('.wizard-subject-radio[value="EVENT"]');
+          if (rEv) { rEv.checked = true; rEv.dispatchEvent(new Event('change', { bubbles: true })); }
+          var selEv = document.getElementById('wizard_event_id');
+          if (selEv) {
+            if (!selEv.querySelector('option[value="' + eventId + '"]')) {
+              var o = document.createElement('option'); o.value = eventId;
+              o.textContent = params.get('wizard_event_name') || 'Evento'; selEv.appendChild(o);
+            }
+            selEv.value = eventId;
+            try { if (window.jQuery) jQuery(selEv).trigger('change'); } catch (e) {}
+          }
+        } else if (sel) {
           if (window.jQuery && jQuery(sel).data('select2')) jQuery(sel).val([artistId]).trigger('change');
           else { Array.prototype.forEach.call(sel.options, function (o) { if (o.value === artistId) o.selected = true; }); }
         }
@@ -2496,7 +2596,7 @@
       }
       bootstrap.Modal.getOrCreateInstance(modalEl).show();
       // Limpia los parámetros para que un refresco no reabra el asistente.
-      params.delete('open_wizard'); params.delete('wizard_artist'); params.delete('wizard_activity_type'); params.delete('wizard_group'); params.delete('wizard_sim');
+      params.delete('open_wizard'); params.delete('wizard_artist'); params.delete('wizard_event'); params.delete('wizard_event_name'); params.delete('wizard_activity_type'); params.delete('wizard_group'); params.delete('wizard_sim');
       var qs = params.toString();
       window.history.replaceState({}, '', window.location.pathname + (qs ? '?' + qs : ''));
     }

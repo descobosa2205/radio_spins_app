@@ -63,41 +63,6 @@
 </ul>
 
 <div class="ficha-tabpane">
-  {# ============ PUNTO DE EMPATE ============
-     Se calcula solo (presupuesto de gastos + ticketing + previsión de ingresos) y se va actualizando
-     con los gastos de la bolsa según se consolidan. Si contratación lo pone a mano, manda el suyo.
-     El aviso dice con qué está calculado y cuánto daría con las otras bases. #}
-  {% if break_even_info %}
-    {% set be = break_even_info %}
-    <div class="alert alert-warning d-flex flex-wrap gap-3 align-items-center">
-      <div class="flex-grow-1" style="min-width:240px;">
-        <div class="fw-semibold">
-          <i class="fa fa-scale-balanced me-1"></i>Punto de empate:
-          {% if be.tickets is none %}no se alcanza{% else %}{{ be.tickets|k }} entradas{% if be.pct is not none %} · {{ be.pct }}% del aforo{% endif %}{% endif %}
-        </div>
-        <div class="small">
-          {% if be.source == 'MANUAL' %}
-            Lo ha puesto <strong>contratación a mano</strong>, así que manda sobre el calculado.
-          {% elif be.source == 'BOLSA' %}
-            Calculado con los <strong>gastos consolidados de la bolsa</strong> ({{ be.bag_consolidated|eur }}{% if be.bag_pending %} · quedan {{ be.bag_pending }} gasto{{ '' if be.bag_pending == 1 else 's' }} por consolidar{% endif %}). Se actualiza solo según se consolidan.
-          {% else %}
-            Calculado con el <strong>presupuesto de gastos</strong> ({{ be.budget_total|eur }}). Cuando la bolsa tenga gastos consolidados, pasará a calcularse con ellos.
-          {% endif %}
-        </div>
-      </div>
-      <div class="small text-end">
-        {% if be.budget and be.budget.tickets is not none %}
-          <div><span class="text-muted">Con el presupuesto:</span> <strong>{{ be.budget.tickets|k }}</strong>{% if be.budget.pct is not none %} · {{ be.budget.pct }}%{% endif %}</div>
-        {% endif %}
-        {% if be.bag and be.bag.tickets is not none %}
-          <div><span class="text-muted">Con la bolsa:</span> <strong>{{ be.bag.tickets|k }}</strong>{% if be.bag.pct is not none %} · {{ be.bag.pct }}%{% endif %}</div>
-        {% endif %}
-        {% if be.manual %}
-          <div><span class="text-muted">Contratación:</span> <strong>{{ be.manual|k }}</strong></div>
-        {% endif %}
-      </div>
-    </div>
-  {% endif %}
   {% if tab == 'general' %}
     <div id="concert-general-zone" data-inline-zone>
     {% if contract_sheet_status == 'RECEIVED' %}
@@ -1029,18 +994,23 @@
         </div>
       </div>
     {% else %}
-      {# ---------- SOLICITUD EXISTENTE ---------- #}
-      <div class="row g-3">
-        <div class="col-12 col-xl-5">
-          <div class="card h-100">
-            <div class="card-body">
-              <div class="d-flex justify-content-between align-items-center mb-3">
-                <h6 class="mb-0">Solicitud</h6>
-              </div>
+      {# ---------- SOLICITUDES REALIZADAS ----------
+         Solo cuando hay una solicitud DE VERDAD (pedida a diseño o al promotor). Si la ficha solo
+         tiene carteles subidos a mano, aquí no hay nada que mostrar. El detalle de lo que se pidió
+         (formatos, vídeo, logos, ticketeras, notas) va DENTRO de la propia solicitud. #}
+      {% set _hay_solicitud = artwork_request and (artwork_request.requested_at or art_status in ['REQUESTED', 'PROMOTER', 'CORRECTIONS']) %}
+      {% if _hay_solicitud %}
+      <div class="card mb-3">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <h6 class="mb-0"><i class="fa fa-paper-plane me-1 text-danger"></i>Solicitud realizada</h6>
+            {% if artwork_badge %}<span class="badge {{ artwork_badge.class }}">{{ artwork_badge.label }}</span>{% endif %}
+          </div>
+          <div class="row g-4">
+            <div class="col-12 col-xl-5">
               <table class="table table-sm mb-0">
                 <tbody>
-                  <tr><th style="width:220px;">Quién hace los carteles</th><td>{{ 'Nosotros' if artwork_request.handled_by == 'OURS' else 'Promotor' }}</td></tr>
-                  <tr><th>Estado</th><td>{% if artwork_badge %}<span class="badge {{ artwork_badge.class }}">{{ artwork_badge.label }}</span>{% else %}—{% endif %}</td></tr>
+                  <tr><th style="width:200px;">Quién hace los carteles</th><td>{{ 'Nosotros (diseño)' if artwork_request.handled_by == 'OURS' else 'El promotor' }}</td></tr>
                   <tr><th>Fecha máxima de entrega</th><td>{{ artwork_request.delivery_deadline.strftime('%d/%m/%Y') if artwork_request.delivery_deadline else '—' }}</td></tr>
                   <tr><th>Solicitado el</th><td>{{ artwork_request.requested_at.strftime('%d/%m/%Y %H:%M') if artwork_request.requested_at else '—' }}</td></tr>
                   <tr><th>Última subida</th><td>{{ artwork_request.uploaded_at.strftime('%d/%m/%Y %H:%M') if artwork_request.uploaded_at else '—' }}</td></tr>
@@ -1050,20 +1020,15 @@
                 </tbody>
               </table>
               {% if artwork_upload_url %}
-                <hr>
-                <div class="small text-muted mb-2">Enlace de subida ({{ 'promotor' if artwork_request.handled_by == 'PROMOTER' else 'diseño' }})</div>
-                <div class="input-group">
+                <div class="small text-muted mt-3 mb-2">Enlace de subida ({{ 'promotor' if artwork_request.handled_by == 'PROMOTER' else 'diseño' }})</div>
+                <div class="input-group input-group-sm">
                   <input type="text" class="form-control" value="{{ artwork_upload_url }}" readonly>
                   <button type="button" class="btn btn-outline-secondary copy-link-btn" data-copy-url="{{ artwork_upload_url }}">Copiar</button>
                 </div>
               {% endif %}
             </div>
-          </div>
-        </div>
-        <div class="col-12 col-xl-7">
-          <div class="card h-100">
-            <div class="card-body">
-              <h6 class="mb-3">Detalle de la solicitud</h6>
+            <div class="col-12 col-xl-7">
+              {# Qué se pidió exactamente: forma parte de la solicitud, no de un módulo aparte. #}
               {% if artwork_requested_format_labels %}
                 <div class="mb-3">
                   <div class="small text-muted">Formatos solicitados</div>
@@ -1072,7 +1037,7 @@
                   </div>
                 </div>
               {% endif %}
-              {% if artwork_request and artwork_request.video_requested %}
+              {% if artwork_request.video_requested %}
                 <div class="mb-3">
                   <div class="small text-muted">Vídeo promocional</div>
                   <div class="d-flex flex-wrap gap-2 mt-2">
@@ -1083,23 +1048,24 @@
                   {% if artwork_request.video_notes %}<div class="small mt-1" style="white-space:pre-wrap;">{{ artwork_request.video_notes }}</div>{% endif %}
                 </div>
               {% endif %}
-              <div class="mb-3">
-                <div class="small text-muted">Logos seleccionados</div>
-                <div class="d-flex flex-wrap gap-2 mt-2">
-                  {% for co in artwork_companies if (co.id|string) in artwork_company_ids %}
-                    <span class="badge text-bg-light border d-inline-flex align-items-center gap-2 px-2 py-2">
-                      <img src="{{ co.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:26px;height:26px;object-fit:contain;">
-                      {{ co.name }}
-                    </span>
-                  {% else %}
-                    <span class="text-muted">No se han marcado logos de empresas del grupo.</span>
-                  {% endfor %}
+              {% set _logos = artwork_companies|selectattr('id', 'in', artwork_company_ids|map('string')|list)|list if artwork_company_ids else [] %}
+              {% if artwork_company_ids %}
+                <div class="mb-3">
+                  <div class="small text-muted">Logos seleccionados</div>
+                  <div class="d-flex flex-wrap gap-2 mt-2">
+                    {% for co in artwork_companies if (co.id|string) in artwork_company_ids %}
+                      <span class="badge text-bg-light border d-inline-flex align-items-center gap-2 px-2 py-2">
+                        <img src="{{ co.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:26px;height:26px;object-fit:contain;">
+                        {{ co.name }}
+                      </span>
+                    {% endfor %}
+                  </div>
                 </div>
-              </div>
+              {% endif %}
               {% if artwork_request.logo_notes %}
                 <div class="mb-3"><div class="small text-muted">Notas de logos</div><div>{{ artwork_request.logo_notes }}</div></div>
               {% endif %}
-              {% if artwork_request.handled_by == 'OURS' %}
+              {% if artwork_request.handled_by == 'OURS' and artwork_ticketer_ids %}
                 <div class="mb-3">
                   <div class="small text-muted">Ticketeras seleccionadas</div>
                   <div class="d-flex flex-wrap gap-2 mt-2">
@@ -1108,14 +1074,12 @@
                         <img src="{{ ticketer.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:26px;height:26px;object-fit:contain;">
                         {{ ticketer.name }}
                       </span>
-                    {% else %}
-                      <span class="text-muted">No se han marcado ticketeras.</span>
                     {% endfor %}
                   </div>
                 </div>
-                {% if artwork_request.ticketer_notes %}
-                  <div class="mb-3"><div class="small text-muted">Notas de ticketeras</div><div>{{ artwork_request.ticketer_notes }}</div></div>
-                {% endif %}
+              {% endif %}
+              {% if artwork_request.ticketer_notes %}
+                <div class="mb-3"><div class="small text-muted">Notas de ticketeras</div><div>{{ artwork_request.ticketer_notes }}</div></div>
               {% endif %}
               {% if artwork_request.other_notes %}
                 <div><div class="small text-muted">Otras notas</div><div>{{ artwork_request.other_notes }}</div></div>
@@ -1124,6 +1088,7 @@
           </div>
         </div>
       </div>
+      {% endif %}
 
       {# ---------- VALIDACIÓN por diseño (carteles del promotor pendientes) ---------- #}
       {% if art_status == 'REVIEW' and can_validate_artwork %}
@@ -1163,11 +1128,12 @@
         <div class="alert alert-warning mt-3"><i class="fa fa-clock me-1"></i>Los carteles subidos están pendientes de validación por diseño gráfico.</div>
       {% endif %}
 
-      {# ---------- FORMATOS SUBIDOS (validados) ---------- #}
-      {# Usables = los APROBADOS. Los pendientes esperan el OK de diseño y los rechazados salen aparte
-         con su aviso de qué hay que cambiar. #}
+      {# ---------- FORMATOS SUBIDOS ----------
+         Solo aparece cuando hay carteles (aprobados, rechazados o antiguos). Usables = los APROBADOS;
+         los pendientes esperan el OK de diseño y los rechazados salen en su bloque con el aviso. #}
       {% set visible_assets = current_artwork_assets|rejectattr('validation_status', 'in', ['PENDING', 'REJECTED'])|list %}
       {% set rejected_assets = current_artwork_assets|selectattr('validation_status', 'equalto', 'REJECTED')|list %}
+      {% if visible_assets or rejected_assets or archived_artwork_assets %}
       <div class="card mt-3">
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
@@ -1355,6 +1321,7 @@
           {% endif %}
         </div>
       </div>
+      {% endif %}   {# /módulo Formatos subidos: solo si hay carteles #}
     {% endif %}
 
     {# ---------- Modal-ASISTENTE: solicitar carteles A DISEÑO, una pregunta por paso ---------- #}
@@ -2281,12 +2248,33 @@
     </div></div>
   {% elif tab == 'resultado' %}
     <div class="card mb-3"><div class="card-body">
+      {# El aviso SOLO cuando el punto de empate que puso contratación NO cuadra con el calculado
+         (con los gastos consolidados de la bolsa o, si no hay, con el presupuesto). Si coinciden, o
+         si no lo ha puesto nadie a mano, no hay nada que advertir. #}
+      {% if break_even_info and break_even_info.mismatch %}
+        <div class="alert alert-warning">
+          <i class="fa fa-scale-balanced me-1"></i>
+          El punto de empate que ha puesto <strong>contratación</strong> es de
+          <strong>{{ break_even_info.manual|k }} entradas</strong>, pero con
+          {% if break_even_info.auto_source == 'BOLSA' %}los <strong>gastos consolidados de la bolsa</strong> ({{ break_even_info.bag_consolidated|eur }}){% else %}el <strong>presupuesto de gastos</strong> ({{ break_even_info.budget_total|eur }}){% endif %}
+          saldrían <strong>{{ break_even_info.auto_tickets|k }}</strong>{% if break_even_info.auto_pct is not none %} ({{ break_even_info.auto_pct }}% del aforo){% endif %}.
+          Manda el de contratación.
+        </div>
+      {% endif %}
       {% if result_calc %}
         <div class="d-flex flex-wrap gap-2 mb-3">
           <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if result_calc.at_100.resultado >= 0 else 'text-danger' }}">{{ result_calc.at_100.resultado|eur }}</div><div class="sim-stat__l">Resultado @100%</div></div>
           <div class="sim-stat"><div class="sim-stat__n">{{ result_calc.at_100.ingresos.total|eur }}</div><div class="sim-stat__l">Ingresos @100%{% if result_et_income %} <span class="badge text-bg-danger" title="Ingresos brutos REALES: recaudación total de la venta sincronizada con Enterticket (ese importe es el ingreso al 100%)">Enterticket</span>{% endif %}</div></div>
           <div class="sim-stat"><div class="sim-stat__n">{{ result_calc.at_100.gastos.total|eur }}</div><div class="sim-stat__l">Gastos @100%</div></div>
-          <div class="sim-stat"><div class="sim-stat__n">{% if result_calc.break_even_tickets is none %}No se alcanza{% else %}{{ result_calc.break_even_tickets|k }}{% if result_calc.break_even_pct is not none %} · {{ result_calc.break_even_pct }}%{% endif %}{% endif %}</div><div class="sim-stat__l">Punto de empate</div></div>
+          {% set be = break_even_info %}
+          <div class="sim-stat">
+            <div class="sim-stat__n">
+              {% if be and be.tickets is not none %}{{ be.tickets|k }}{% if be.pct is not none %} · {{ be.pct }}%{% endif %}
+              {% elif result_calc.break_even_tickets is none %}No se alcanza
+              {% else %}{{ result_calc.break_even_tickets|k }}{% if result_calc.break_even_pct is not none %} · {{ result_calc.break_even_pct }}%{% endif %}{% endif %}
+            </div>
+            <div class="sim-stat__l">Punto de empate{% if be %}{% if be.source == 'MANUAL' %} · lo puso contratación{% elif be.source == 'BOLSA' %} · según la bolsa{% else %} · según el presupuesto{% endif %}{% endif %}</div>
+          </div>
           <div class="sim-stat"><div class="sim-stat__n">{{ result_calc.avg_price_sin_iva|eur }}</div><div class="sim-stat__l">Precio medio (sin IVA)</div></div>
         </div>
         {% set maxabs = namespace(v=0.0) %}

@@ -1091,37 +1091,14 @@
         </div></div>
       </div>
 
-      {# --- Gastos por categorías (bocadillos) --- #}
-      <h6 class="mt-4 mb-2"><i class="fa fa-receipt me-1"></i>Gastos por categorías</h6>
-      {% for ckey, clabel, cicon in SIM_EXPENSE_CATEGORIES %}
-      <div class="sim-cat-card" data-cat-card="{{ ckey }}">
-        <div class="sim-cat-card__head">
-          <span><i class="fa {{ cicon }} me-1"></i>{{ clabel }}</span>
-          <button type="button" class="btn btn-sm btn-light border" data-cat-add="{{ ckey }}"><i class="fa fa-plus me-1"></i>Añadir gasto</button>
-        </div>
-        <div class="sim-cat-card__body">
-          <div data-cat-rows="{{ ckey }}"></div>
-          <div class="text-muted small d-none" data-cat-empty="{{ ckey }}">Sin gastos en esta categoría.</div>
-          {% if ckey == 'RECINTO' %}
-            <div class="text-muted small mt-1"><i class="fa fa-circle-info me-1"></i>Los gastos del recinto pueden ser <strong>fijos o variables</strong> (botón <i class="fa fa-chart-line"></i>); los variables admiten el condicionante «solo si se venden menos de X entradas» y no llevan retención.</div>
-          {% endif %}
-        </div>
-        <div class="sim-cat-card__foot">
-          <span class="text-muted">Total {{ clabel|lower }}</span>
-          <span class="fw-semibold"><span class="sim-amt" title="Sin IVA" data-cat-total="{{ ckey }}">0,00 €</span><span class="text-muted small ms-1" data-cat-var-note="{{ ckey }}"></span></span>
-        </div>
-      </div>
-      {% endfor %}
-      <div class="d-flex justify-content-end align-items-baseline gap-2 border-top pt-2 mb-3 sim-gasto-total">
-        <span class="fw-bold text-uppercase text-muted" style="letter-spacing:.02em;">Gasto Total:</span>
-        <span class="sim-amt" title="Sin IVA" id="gastosGrandTotal">0,00 €</span>
-      </div>
+      {% with exp_show_variable_note = True %}{% include '_expenses_categories.html' %}{% endwith %}
 
       <div class="d-flex justify-content-end align-items-center gap-3 mt-2">
         <span class="text-muted small" data-expenses-status><i class="fa fa-cloud me-1"></i>Se guarda automáticamente</span>
         <button class="btn btn-outline-primary" type="button" id="linkBudgetBtn"><i class="fa fa-link me-1"></i>Vincular presupuesto</button>
       </div>
     </form>
+    <script src="{{ url_for('static', filename='js/sim_expenses.js', v=ASSET_V) }}"></script>
     <script type="application/json" id="expensesData">{{ expenses_payload|tojson }}</script>
     <script type="application/json" id="festivalArtists">{{ festival_artists|tojson }}</script>
     <script type="application/json" id="expenseTemplatesData">{{ expense_templates_payload|tojson }}</script>
@@ -1814,82 +1791,24 @@ function numv(x){
     '</div>';
   }
 
-  // Categorías cuyo gasto se introduce por CANTIDAD (importe unitario × cantidad).
-  var QTY_CATS = {{ SIM_EXPENSE_QTY_CATEGORIES|tojson }};
-  function isQtyCat(k){ return QTY_CATS.indexOf(k) > -1; }
-
-  // --- Gasto de una categoría (sin selector de categoría: la da su tarjeta) ---
-  function prodRow(o, catKey){
-    o=o||{};
-    var isVar=!!o.is_variable;
-    var iva=(o.iva_pct!=null&&o.iva_pct!=='')?o.iva_pct:21;
-    var qty=(o.quantity!=null&&o.quantity!=='')?o.quantity:1;
-    var qtyCat=isQtyCat(catKey);
-    var qtyCol = qtyCat
-      ? '<div class="col-4 col-md-2"><label class="form-label small mb-0">Cantidad</label><input type="number" step="1" min="0" class="form-control form-control-sm pr-qty" value="'+val(qty)+'"></div>'
-      : '';
-    var totalCol = qtyCat
-      ? '<div class="col-12 mt-1"><span class="small text-muted">Total: </span><span class="fw-semibold sim-amt pr-row-total" title="Importe × cantidad (sin IVA)">0,00 €</span></div>'
-      : '';
-    return '<div class="card card-body p-2 mb-2 prod-row" data-cat="'+esc(catKey)+'" draggable="true">'+
-      '<div class="row g-2 align-items-end">'+
-        '<div class="col-auto d-flex align-items-end pb-1"><span class="prod-drag-handle" title="Arrastra para cambiar de categoría"><i class="fa fa-grip-vertical"></i></span></div>'+
-        '<div class="col '+(qtyCat?'col-md-4':'col-md-5')+'"><label class="form-label small mb-0">Concepto</label><input type="text" class="form-control form-control-sm pr-concept" value="'+esc(o.concept)+'"></div>'+
-        '<div class="col-'+(qtyCat?'4':'7')+' col-md-'+(qtyCat?'2':'3')+'"><label class="form-label small mb-0">'+(qtyCat?'Importe/ud.':'Importe')+'</label><div class="input-group input-group-sm"><input type="number" step="0.01" min="0" class="form-control pr-net" value="'+val(o.amount_net)+'"><span class="input-group-text">€</span></div></div>'+
-        qtyCol+
-        '<div class="col-12 col-md-'+(qtyCat?'3':'4')+' d-flex gap-1 justify-content-end align-items-center">'+
-          '<span class="badge text-bg-light border pr-iva-badge me-auto" title="Configura el IVA con la rueda"></span>'+
-          '<button type="button" class="btn btn-sm '+(isVar?'btn-primary':'btn-outline-secondary')+' pr-var-toggle" title="Importe variable"><i class="fa fa-chart-line"></i></button>'+
-          '<button type="button" class="btn btn-sm btn-outline-secondary pr-cfg-toggle" title="Configurar gasto (IVA)"><i class="fa fa-gear"></i></button>'+
-          '<button type="button" class="btn btn-sm btn-outline-danger prod-del" title="Quitar"><i class="fa fa-trash"></i></button>'+
-        '</div>'+
-        totalCol+
-      '</div>'+
-      '<div class="pr-cfg mt-2 d-none"><div class="d-flex flex-wrap gap-3 align-items-end border rounded p-2 bg-light">'+
-        '<div><label class="form-label small mb-0">IVA</label><div class="input-group input-group-sm" style="width:110px;"><input type="number" step="0.01" min="0" class="form-control pr-iva" value="'+iva+'"><span class="input-group-text">%</span></div></div>'+
-        '<label class="form-check small mb-1"><input type="checkbox" class="form-check-input pr-inciva" '+(o.includes_iva?'checked':'')+'> El importe incluye IVA</label>'+
-        '<label class="form-check small mb-1"><input type="checkbox" class="form-check-input pr-exempt" '+(o.iva_exempt?'checked':'')+'> Exento de IVA</label>'+
-      '</div></div>'+
-      '<div class="prod-var mt-2 '+(isVar?'':'d-none')+'">'+varFrag(o,{condUnder: catKey==='RECINTO'})+'</div>'+
-    '</div>';
-  }
-  function ivaBadge(row){
-    var b=row.querySelector('.pr-iva-badge'); if(!b) return;
-    var exempt=row.querySelector('.pr-exempt').checked;
-    var inc=row.querySelector('.pr-inciva').checked;
-    var iva=numv(row.querySelector('.pr-iva').value||'21')||0;
-    b.textContent = exempt ? 'Exento de IVA' : (inc ? ('IVA '+iva+'% incluido') : ('+ IVA '+iva+'%'));
-  }
+  // GASTOS POR CATEGORÍAS: los llevan el parcial `_expenses_categories.html` y el módulo
+  // `sim_expenses.js`, que es EL MISMO que usan las plantillas de gastos de una ficha.
+  var EXP = SimExpenses.init({
+    root: form,
+    rows: (data.production || []),
+    qtyCats: {{ SIM_EXPENSE_QTY_CATEGORIES|tojson }},
+    onChange: function () { if (window.__simExpensesAutosave) window.__simExpensesAutosave(); },
+  });
+  function recompute(){ if (EXP) EXP.recompute(); recomputeCosts(); }
+  function collectProduction(){ return EXP ? EXP.collect() : []; }
+  function addProd(cat, o){ return EXP ? EXP.addRow(cat, o) : null; }
+  // Los subtotales de cachés/comisiones son de esta pantalla (el módulo solo hace los de categorías).
+  function recomputeCosts(){}
 
   function appendHtml(c, html){ var d=document.createElement('div'); d.innerHTML=html; var el=d.firstElementChild; c.appendChild(el); return el; }
   var addCacheBtn=document.getElementById('addCache'); if(addCacheBtn) addCacheBtn.addEventListener('click', function(){ appendHtml(document.getElementById('cachesList'), cacheCard(null, true)); if(window.__simExpensesAutosave) window.__simExpensesAutosave(); });
 
-  function addProd(catKey, o){
-    var wrap=form.querySelector('[data-cat-rows="'+catKey+'"]');
-    if(!wrap) return null;
-    var el=appendHtml(wrap, prodRow(o, catKey));
-    ivaBadge(el);
-    recompute();
-    return el;
-  }
-  // Lee los valores actuales de una fila (para re-crearla al cambiar de categoría por arrastre).
-  function readProdRow(row){
-    var isVar=!row.querySelector('.prod-var').classList.contains('d-none');
-    var q=row.querySelector('.pr-qty');
-    var o={ concept:row.querySelector('.pr-concept').value||'',
-            amount_net:numv(row.querySelector('.pr-net').value||'0')||0,
-            quantity:(q?(numv(q.value||'1')||1):1),
-            iva_pct:numv(row.querySelector('.pr-iva').value||'21')||0,
-            includes_iva:row.querySelector('.pr-inciva').checked,
-            iva_exempt:row.querySelector('.pr-exempt').checked,
-            is_variable:isVar };
-    if(isVar) Object.assign(o, readVar(row.querySelector('.prod-var')));
-    return o;
-  }
-
   form.addEventListener('click', function(e){
-    var ca=e.target.closest('[data-cat-add]');
-    if(ca){ addProd(ca.getAttribute('data-cat-add'), null); return; }
     var mb=e.target.closest('.mode-btn');
     if(mb){
       var grp=mb.closest('.cost-mode'); grp.querySelectorAll('.mode-btn').forEach(function(b){ b.classList.toggle('active', b===mb); });
@@ -1902,14 +1821,9 @@ function numv(x){
     // Abrir/cerrar la configuración: por el menú ⋮ → Editar o pinchando el propio resumen.
     var sum=e.target.closest('.cost-summary'); if(sum){ var cc0=sum.closest('.cost-card'); form.querySelectorAll('.cost-card').forEach(function(o){ if(o!==cc0) collapseCostCard(o); }); var ed=cc0.querySelector('.cost-edit'); if(ed) ed.classList.remove('d-none'); return; }
     var del=e.target.closest('.cost-del'); if(del){ del.closest('.cost-card').remove(); recompute(); (window.__simExpensesSaveNow||window.__simExpensesAutosave||function(){})(); return; }
-    var pdel=e.target.closest('.prod-del'); if(pdel){ pdel.closest('.prod-row').remove(); recompute(); (window.__simExpensesSaveNow||window.__simExpensesAutosave||function(){})(); return; }
-    var pv=e.target.closest('.pr-var-toggle'); if(pv){ var row=pv.closest('.prod-row'); var on=row.querySelector('.prod-var').classList.toggle('d-none'); pv.classList.toggle('btn-primary', !on); pv.classList.toggle('btn-outline-secondary', on); recompute(); return; }
-    var pc=e.target.closest('.pr-cfg-toggle'); if(pc){ pc.closest('.prod-row').querySelector('.pr-cfg').classList.toggle('d-none'); return; }
     var ch=e.target.closest('.cost-art-chip'); if(ch){ ch.classList.toggle('btn-primary'); ch.classList.toggle('btn-outline-secondary'); var cc=ch.closest('.cost-card'); var nn=cc.querySelectorAll('.cost-art-chip.btn-primary').length; var note=cc.querySelector('.cost-art-note'); if(note) note.textContent = nn>1 ? ('· compartido entre '+nn+' (÷'+nn+')') : ''; if(window.__simExpensesAutosave) window.__simExpensesAutosave(); return; }
   });
-  form.addEventListener('input', function(e){
-    if(e.target.matches('.pr-net,.pr-iva,.pr-qty')) { var r=e.target.closest('.prod-row'); if(r) ivaBadge(r); recompute(); }
-  });
+
 
   // Plegar una tarjeta de coste a modo VISIONADO (oculta la edición y refresca el resumen).
   function collapseCostCard(card){
@@ -1928,38 +1842,6 @@ function numv(x){
   });
 
   // --- Arrastrar gastos entre categorías ---
-  var dragRow = null;
-  form.addEventListener('dragstart', function(e){
-    var row = e.target.closest('.prod-row'); if(!row) return;
-    dragRow = row; row.classList.add('dragging');
-    try{ e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain','row'); }catch(_){}
-  });
-  form.addEventListener('dragend', function(){
-    if(dragRow) dragRow.classList.remove('dragging');
-    form.querySelectorAll('.sim-cat-card.drag-over').forEach(function(c){ c.classList.remove('drag-over'); });
-    dragRow = null;
-  });
-  form.addEventListener('dragover', function(e){
-    if(!dragRow) return;
-    var card = e.target.closest('[data-cat-card]'); if(!card) return;
-    e.preventDefault();
-    form.querySelectorAll('.sim-cat-card.drag-over').forEach(function(c){ if(c!==card) c.classList.remove('drag-over'); });
-    card.classList.add('drag-over');
-  });
-  form.addEventListener('drop', function(e){
-    if(!dragRow) return;
-    var card = e.target.closest('[data-cat-card]'); if(!card) return;
-    e.preventDefault();
-    var newCat = card.getAttribute('data-cat-card');
-    var oldCat = dragRow.getAttribute('data-cat');
-    card.classList.remove('drag-over');
-    if(newCat === oldCat){ return; }
-    // Re-crear la fila en la categoría destino (el layout depende de si lleva cantidad).
-    var vals = readProdRow(dragRow);
-    dragRow.remove();
-    addProd(newCat, vals);
-    if(window.__simExpensesAutosave) window.__simExpensesAutosave();
-  });
   form.addEventListener('change', function(e){
     if(e.target.matches('.cv-type')){
       var wrap=e.target.closest('.cost-var, .prod-var');
@@ -1976,39 +1858,7 @@ function numv(x){
       if(thr2) thr2.classList.toggle('d-none', e.target.value==='NONE');
       return;
     }
-    if(e.target.matches('.pr-inciva,.pr-exempt')){ var r=e.target.closest('.prod-row'); if(r){ ivaBadge(r); } recompute(); }
   });
-
-  function rowNet(row){
-    var n=numv(row.querySelector('.pr-net').value||'0')||0;
-    var q=row.querySelector('.pr-qty');
-    var qty=q ? (numv(q.value||'1')||0) : 1;
-    n = n * qty;
-    var exempt=row.querySelector('.pr-exempt').checked;
-    var inc=row.querySelector('.pr-inciva').checked;
-    var iva=numv(row.querySelector('.pr-iva').value||'21')||0;
-    if(!exempt && inc && iva>0) n = n/(1+iva/100);
-    return n;
-  }
-  function recompute(){
-    var grand=0;
-    form.querySelectorAll('[data-cat-rows]').forEach(function(wrap){
-      var key=wrap.getAttribute('data-cat-rows');
-      var net=0, vars=0;
-      wrap.querySelectorAll('.prod-row').forEach(function(row){
-        if(row.querySelector('.prod-var').classList.contains('d-none')){
-          var rn=rowNet(row); net+=rn;
-          var rt=row.querySelector('.pr-row-total'); if(rt) rt.textContent=eur(rn);
-        }
-        else { vars++; }
-      });
-      grand+=net;
-      var t=form.querySelector('[data-cat-total="'+key+'"]'); if(t) t.textContent=eur(net);
-      var vn=form.querySelector('[data-cat-var-note="'+key+'"]'); if(vn) vn.textContent = vars ? ('+ '+vars+' variable'+(vars>1?'s':'')) : '';
-      var empty=form.querySelector('[data-cat-empty="'+key+'"]'); if(empty) empty.classList.toggle('d-none', wrap.children.length>0);
-    });
-    var g=document.getElementById('gastosGrandTotal'); if(g) g.textContent=eur(grand);
-  }
 
   function readVar(c){
     var cond=c.querySelector('.cv-cond');
@@ -2044,26 +1894,6 @@ function numv(x){
       else { row.amount=numv(c.querySelector('.cf-amount').value||'0')||0; row.includes_iva=c.querySelector('.cf-iva').checked; var ret=c.querySelector('.cf-ret'); row.includes_retention=ret?ret.checked:false; }
       row.artist_ids=cardArtistIds(c);
       out.push(row);
-    });
-    return out;
-  }
-  function collectProduction(){
-    var out=[];
-    form.querySelectorAll('[data-cat-rows]').forEach(function(wrap){
-      var key=wrap.getAttribute('data-cat-rows');
-      wrap.querySelectorAll('.prod-row').forEach(function(row){
-        var isVar=!row.querySelector('.prod-var').classList.contains('d-none');
-        var q=row.querySelector('.pr-qty');
-        var o={ category:key, concept:row.querySelector('.pr-concept').value||'',
-                amount_net:numv(row.querySelector('.pr-net').value||'0')||0,
-                quantity:(q?(numv(q.value||'1')||1):1),
-                iva_pct:numv(row.querySelector('.pr-iva').value||'21')||0,
-                includes_iva:row.querySelector('.pr-inciva').checked,
-                iva_exempt:row.querySelector('.pr-exempt').checked,
-                is_variable:isVar };
-        if(isVar) Object.assign(o, readVar(row.querySelector('.prod-var')));
-        out.push(o);
-      });
     });
     return out;
   }
@@ -2176,7 +2006,6 @@ function numv(x){
 
   (data.caches||[]).forEach(function(o){ appendHtml(document.getElementById('cachesList'), cacheCard(o)); });
   (data.commissions||[]).forEach(function(o){ appendHtml(document.getElementById('commissionsList'), commissionCard(o)); });
-  (data.production||[]).forEach(function(o){ addProd(o.category||'OTROS', o); });
   recompute();
 })();
 </script>

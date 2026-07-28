@@ -1,0 +1,30 @@
+{# ============================================================================
+   GASTOS POR CATEGORÍAS (los «bocadillos»). Mismo módulo en las simulaciones y en las PLANTILLAS de
+   gastos de una ficha, para que se comporten igual. El comportamiento lo pone `static/js/sim_expenses.js`.
+   Parámetro opcional: `exp_show_variable_note` (la nota de los gastos variables del recinto, que solo
+   tiene sentido dentro de una simulación).
+   ============================================================================ #}
+<h6 class="mt-4 mb-2"><i class="fa fa-receipt me-1"></i>Gastos por categorías</h6>
+{% for ckey, clabel, cicon in SIM_EXPENSE_CATEGORIES %}
+<div class="sim-cat-card" data-cat-card="{{ ckey }}">
+  <div class="sim-cat-card__head">
+    <span><i class="fa {{ cicon }} me-1"></i>{{ clabel }}</span>
+    <button type="button" class="btn btn-sm btn-light border" data-cat-add="{{ ckey }}"><i class="fa fa-plus me-1"></i>Añadir gasto</button>
+  </div>
+  <div class="sim-cat-card__body">
+    <div data-cat-rows="{{ ckey }}"></div>
+    <div class="text-muted small d-none" data-cat-empty="{{ ckey }}">Sin gastos en esta categoría.</div>
+    {% if ckey == 'RECINTO' and exp_show_variable_note %}
+      <div class="text-muted small mt-1"><i class="fa fa-circle-info me-1"></i>Los gastos del recinto pueden ser <strong>fijos o variables</strong> (botón <i class="fa fa-chart-line"></i>); los variables admiten el condicionante «solo si se venden menos de X entradas» y no llevan retención.</div>
+    {% endif %}
+  </div>
+  <div class="sim-cat-card__foot">
+    <span class="text-muted">Total {{ clabel|lower }}</span>
+    <span class="fw-semibold"><span class="sim-amt" title="Sin IVA" data-cat-total="{{ ckey }}">0,00 €</span><span class="text-muted small ms-1" data-cat-var-note="{{ ckey }}"></span></span>
+  </div>
+</div>
+{% endfor %}
+<div class="d-flex justify-content-end align-items-baseline gap-2 border-top pt-2 mb-3 sim-gasto-total">
+  <span class="fw-bold text-uppercase text-muted" style="letter-spacing:.02em;">Gasto Total:</span>
+  <span class="sim-amt" title="Sin IVA" id="gastosGrandTotal">0,00 €</span>
+</div>

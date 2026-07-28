@@ -159,4 +159,9 @@
   }
 
   window.MoneyInput = { num: num, toCanonical: toCanonical, display: display, scan: scan };
+  // `numv` GLOBAL: el parser tolerante que usa el JS de las pantallas con importes. Antes cada
+  // pantalla se lo definía por su cuenta y en algunas (la pestaña Gastos de una simulación) NO
+  // existía: cualquier lectura de un importe petaba con ReferenceError y el guardado moría en
+  // silencio. Definirlo aquí lo garantiza en TODA la app.
+  if (typeof window.numv !== 'function') window.numv = num;
 })();

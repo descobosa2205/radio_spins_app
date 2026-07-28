@@ -1,0 +1,59 @@
+{% extends "layout.html" %}
+{% block content %}
+{# PLANTILLA DE GASTOS: el MISMO módulo de gastos de las simulaciones (tarjetas por categoría, rueda de
+   IVA, cantidad, arrastrar entre categorías, subtotales y total). Solo cambia que aquí se guarda en la
+   plantilla en vez de en una simulación. #}
+<div class="mb-2">
+  <a class="btn btn-outline-secondary btn-volver" href="{{ back_url }}" title="Volver" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
+</div>
+
+<div class="artist-hero mb-3">
+  <div class="d-flex flex-wrap gap-3 align-items-center">
+    {% if owner_photo %}<img src="{{ owner_photo }}" class="artist-hero-photo" alt="">{% endif %}
+    <div class="flex-grow-1 min-w-0">
+      <div class="small text-muted"><i class="fa fa-receipt me-1"></i>Plantilla de gastos · {{ owner_name }}</div>
+      <h3 class="m-0 text-truncate">{{ tpl.name or 'Plantilla de gastos' }}</h3>
+    </div>
+  </div>
+</div>
+
+<form method="post" action="{{ url_for('expense_template_save', tid=tpl.id) }}" id="expensesForm">
+  <input type="hidden" name="production_json" id="productionJson">
+  <input type="hidden" name="next" value="{{ back_url }}">
+
+  <div class="card mb-3"><div class="card-body">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-8">
+        <label class="form-label">Nombre de la plantilla</label>
+        <input class="form-control" name="name" value="{{ tpl.name or '' }}" required placeholder="Ej: Gastos tipo de concierto">
+      </div>
+
+    </div>
+  </div></div>
+
+  {% include '_expenses_categories.html' %}
+
+  <div class="d-flex justify-content-end align-items-center gap-2 mt-2">
+    <span class="text-muted small">Se guarda al pulsar «Guardar plantilla».</span>
+    <button class="btn btn-primary" type="submit"><i class="fa fa-check me-1"></i>Guardar plantilla</button>
+  </div>
+</form>
+
+<script type="application/json" id="expensesData">{{ items_payload|tojson }}</script>
+<script src="{{ url_for('static', filename='js/sim_expenses.js', v=ASSET_V) }}"></script>
+<script>
+(function () {
+  var form = document.getElementById('expensesForm');
+  var rows = [];
+  try { rows = JSON.parse(document.getElementById('expensesData').textContent || '[]'); } catch (e) {}
+  var EXP = SimExpenses.init({
+    root: form,
+    rows: rows,
+    qtyCats: {{ SIM_EXPENSE_QTY_CATEGORIES|tojson }},
+  });
+  form.addEventListener('submit', function () {
+    document.getElementById('productionJson').value = JSON.stringify(EXP ? EXP.collect() : []);
+  });
+})();
+</script>
+{% endblock %}

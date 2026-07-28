@@ -24134,6 +24134,113 @@ def api_create_distributor():
         s.close()
 
 
+def _expense_template_owner(session_db, ot, oid):
+    """Nombre, foto y URL de vuelta del dueño de una plantilla de gastos."""
+    ot = (ot or "").upper()
+    if ot == "ARTIST":
+        row = session_db.get(Artist, oid)
+        return ((row.name if row else "Artista"), (getattr(row, "photo_url", "") or ""),
+                url_for("artist_detail_view", artist_id=str(oid), tab="plantillas"))
+    if ot == "EVENT":
+        row = session_db.get(AppEvent, oid)
+        return ((row.name if row else "Evento"), (getattr(row, "logo_url", "") or ""),
+                url_for("events_view"))
+    row = session_db.get(Venue, oid)
+    return ((row.name if row else "Recinto"), (getattr(row, "photo_url", "") or ""),
+            url_for("venue_detail_view", vid=str(oid)) if row else url_for("venues_view"))
+
+
+def _expense_template_items_payload(tpl) -> list:
+    """Las líneas de la plantilla en el formato que espera el módulo de gastos."""
+    out = []
+    for it in (tpl.items or []):
+        out.append({
+            "category": (it.category or "OTROS"),
+            "concept": (it.concept or ""),
+            "amount_net": float(_money_or_zero(it.amount_net)),
+            "quantity": float(_money_or_zero(it.quantity) or 1),
+            "iva_pct": float(_money_or_zero(it.iva_pct)),
+            "includes_iva": bool(it.includes_iva),
+            "iva_exempt": bool(it.iva_exempt),
+            "is_variable": bool(it.is_variable),
+            "var_type": (it.var_type or None),
+            "var_value": float(_money_or_zero(it.var_value)),
+        })
+    return out
+
+
+@app.get("/plantillas-gastos/<tid>", endpoint="expense_template_edit")
+@admin_required
+def expense_template_edit(tid):
+    """Pantalla de una plantilla de gastos: nombre + el módulo de gastos de las simulaciones."""
+    session_db = db()
+    try:
+        tpl = (session_db.query(ExpenseTemplate).options(selectinload(ExpenseTemplate.items))
+               .filter(ExpenseTemplate.id == to_uuid(tid)).first())
+        if not tpl:
+            abort(404)
+        nombre, foto, back = _expense_template_owner(session_db, tpl.owner_type, tpl.owner_id)
+        return render_template(
+            "expense_template_edit.html",
+            tpl=tpl, owner_name=nombre, owner_photo=foto, back_url=back,
+            items_payload=_expense_template_items_payload(tpl),
+            title=f"Plantilla de gastos · {tpl.name}",
+        )
+    finally:
+        session_db.close()
+
+
+@app.post("/plantillas-gastos/<tid>/guardar", endpoint="expense_template_save")
+@admin_required
+def expense_template_save(tid):
+    """Guarda la plantilla con lo que haya en el módulo de gastos (mismo formato que la simulación)."""
+    session_db = db()
+    try:
+        tpl = session_db.get(ExpenseTemplate, to_uuid(tid))
+        if not tpl:
+            abort(404)
+        nombre = (request.form.get("name") or "").strip()
+        if nombre:
+            tpl.name = nombre[:160]
+        filas = _json_loads_safe(request.form.get("production_json"), []) or []
+        session_db.query(ExpenseTemplateItem).filter(ExpenseTemplateItem.template_id == tpl.id).delete()
+        cats = {k for k, _l, _i in SIM_EXPENSE_CATEGORIES}
+        n = 0
+        for fila in filas:
+            if not isinstance(fila, dict):
+                continue
+            cat = (fila.get("category") or "OTROS").strip().upper()
+            if cat not in cats:
+                cat = "OTROS"
+            concepto = (fila.get("concept") or "").strip()
+            importe = _money_or_zero(fila.get("amount_net"))
+            if not concepto and importe == 0 and not fila.get("is_variable"):
+                continue
+            session_db.add(ExpenseTemplateItem(
+                template_id=tpl.id, category=cat, concept=concepto[:200],
+                amount_net=importe,
+                quantity=(_money_or_zero(fila.get("quantity")) or 1),
+                iva_pct=_money_or_zero(fila.get("iva_pct") if fila.get("iva_pct") is not None else 21),
+                includes_iva=bool(fila.get("includes_iva")),
+                iva_exempt=bool(fila.get("iva_exempt")),
+                is_variable=bool(fila.get("is_variable")),
+                var_type=((fila.get("var_type") or "").strip().upper() or None),
+                var_value=_money_or_zero(fila.get("var_value")),
+            ))
+            n += 1
+        if hasattr(tpl, "updated_at"):
+            tpl.updated_at = _now_madrid()
+        session_db.commit()
+        flash(f"Plantilla «{tpl.name}» guardada con {n} línea{'s' if n != 1 else ''}.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("expense_template_save")
+        flash(f"No se pudo guardar la plantilla: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("expense_template_edit", tid=tid)))
+
+
 @app.post("/plantillas-gastos/crear", endpoint="expense_template_create")
 @admin_required
 def expense_template_create():
@@ -24147,20 +24254,20 @@ def expense_template_create():
             flash("Falta a quién pertenece la plantilla.", "warning")
             return redirect(safe_next_or(url_for("home")))
         nombre = (request.form.get("name") or "").strip() or "Plantilla de gastos"
-        tpl = ExpenseTemplate(owner_type=ot, owner_id=oid, name=nombre[:160],
-                              notes=(request.form.get("notes") or "").strip() or None)
+        tpl = ExpenseTemplate(owner_type=ot, owner_id=oid, name=nombre[:160])
         session_db.add(tpl)
         session_db.flush()
-        _expense_template_replace_items(session_db, tpl)
         session_db.commit()
-        flash(f"Plantilla de gastos «{tpl.name}» creada.", "success")
+        nuevo_id = str(tpl.id)
     except Exception as exc:
         session_db.rollback()
         app.logger.exception("expense_template_create")
         flash(f"No se pudo crear la plantilla: {exc}", "danger")
+        return redirect(safe_next_or(url_for("home")))
     finally:
         session_db.close()
-    return redirect(safe_next_or(url_for("home")))
+    # Se abre su editor: nombre + el módulo de gastos de las simulaciones.
+    return redirect(url_for("expense_template_edit", tid=nuevo_id))
 
 
 @app.post("/plantillas-gastos/<tid>/lineas", endpoint="expense_template_update_items")
@@ -24175,10 +24282,9 @@ def expense_template_update_items(tid):
         nombre = (request.form.get("name") or "").strip()
         if nombre:
             tpl.name = nombre[:160]
-        if request.form.get("notes") is not None:
-            tpl.notes = (request.form.get("notes") or "").strip() or None
         _expense_template_replace_items(session_db, tpl)
-        tpl.updated_at = _now_madrid()
+        if hasattr(tpl, "updated_at"):
+            tpl.updated_at = _now_madrid()
         session_db.commit()
         flash("Plantilla de gastos guardada.", "success")
     except Exception as exc:

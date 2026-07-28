@@ -21,8 +21,7 @@
               </td>
               {% if expense_templates_can_edit %}
               <td class="text-end text-nowrap">
-                <button type="button" class="btn btn-sm btn-outline-primary" data-exp-edit="{{ t.id }}" title="Editar líneas"><i class="fa fa-pen"></i></button>
-                <script type="application/json" data-exp-data="{{ t.id }}">{{ {'id': t.id|string, 'name': t.name or '', 'notes': t.notes or '', 'items': (t.items | map('exp_tpl_item') | list)} | tojson }}</script>
+                <a class="btn btn-sm btn-outline-primary" href="{{ url_for('expense_template_edit', tid=t.id) }}" title="Editar la plantilla"><i class="fa fa-pen"></i></a>
                 <form method="post" action="{{ url_for('expense_template_rename', tid=t.id) }}" class="d-inline"
                       onsubmit="var n=prompt('Nuevo nombre de la plantilla', this.querySelector('[name=name]').value); if(!n) return false; this.querySelector('[name=name]').value=n; return true;">
                   <input type="hidden" name="name" value="{{ t.name }}">

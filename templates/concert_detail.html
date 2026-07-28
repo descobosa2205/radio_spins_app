@@ -853,6 +853,9 @@
         {% if artwork_request and artwork_request.handled_by == 'PROMOTER' and CAN_EDIT_CONCERTS and art_status in ['PROMOTER', 'REQUESTED', 'CORRECTIONS'] %}
           <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkPromoterModal"><i class="fa fa-paper-plane me-1"></i>{{ 'Reenviar solicitud' if art_status != 'PROMOTER' else 'Solicitar carteles al promotor' }}</button>
         {% endif %}
+        {% if CAN_EDIT_CONCERTS %}
+          <button class="btn btn-outline-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkUploadModal"><i class="fa fa-cloud-arrow-up me-1"></i>Subir carteles</button>
+        {% endif %}
       </div>
     </div>
 
@@ -867,17 +870,29 @@
       </div>
     {% endif %}
 
-    {# ---------- SIN PETICIONES NI CARTELES: dos botones pequeños, sin más ---------- #}
+    {# ---------- SIN PETICIONES: se dice y se ofrece UNA sola opción de petición ----------
+       Si el promotor es una empresa NUESTRA, los carteles los hace diseño; si es un promotor de
+       fuera, se le piden a él. Además siempre se pueden SUBIR los carteles a mano. #}
     {% if not artwork_request and not current_artwork_assets and CAN_EDIT_CONCERTS %}
       <div class="card mb-3">
         <div class="card-body d-flex align-items-center gap-3 flex-wrap">
           <i class="fa fa-palette fs-4 text-danger"></i>
           <div class="flex-grow-1">
-            <div class="fw-semibold">Todavía no hay carteles ni peticiones.</div>
-            <div class="small text-muted">Pide los carteles a diseño o al promotor del evento.</div>
+            <div class="fw-semibold">Sin peticiones de cartelería.</div>
+            <div class="small text-muted">
+              {% if artwork_group_promoted or not concert.promoter %}
+                El evento lo promueve una empresa del grupo: los carteles se piden a <strong>diseño</strong>.
+              {% else %}
+                El promotor es externo ({{ concert.promoter.nick }}): los carteles se le piden <strong>a él</strong>.
+              {% endif %}
+            </div>
           </div>
-          <button class="btn btn-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkWizardModal"><i class="fa fa-paper-plane me-1"></i>Solicitar a diseño</button>
-          <button class="btn btn-outline-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkPromoterModal"><i class="fa fa-handshake me-1"></i>Solicitar al promotor</button>
+          {% if artwork_group_promoted or not concert.promoter %}
+            <button class="btn btn-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkWizardModal"><i class="fa fa-paper-plane me-1"></i>Realizar petición a diseño</button>
+          {% else %}
+            <button class="btn btn-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkPromoterModal"><i class="fa fa-handshake me-1"></i>Solicitar al promotor</button>
+          {% endif %}
+          <button class="btn btn-outline-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkUploadModal"><i class="fa fa-cloud-arrow-up me-1"></i>Subir carteles</button>
         </div>
       </div>
     {% endif %}
@@ -1118,18 +1133,26 @@
               <h6 class="mb-0"><i class="fa fa-clipboard-check me-1 text-warning"></i>Carteles pendientes de validación</h6>
               <div class="d-flex gap-2">
                 <form method="post" action="{{ url_for('concert_artwork_validate', cid=concert.id) }}">
-                  <button class="btn btn-success btn-sm"><i class="fa fa-check me-1"></i>Validar todos</button>
+                  <button class="btn btn-success btn-sm"><i class="fa fa-check-double me-1"></i>Aprobar todos</button>
                 </form>
-                <button class="btn btn-outline-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkRejectModal"><i class="fa fa-xmark me-1"></i>Rechazar</button>
+                <button class="btn btn-outline-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#artworkRejectModal"><i class="fa fa-xmark me-1"></i>Rechazar todos</button>
               </div>
             </div>
             <div class="row g-3">
               {% for asset in current_artwork_assets if asset.validation_status == 'PENDING' %}
                 <div class="col-6 col-md-4 col-xl-3">
-                  <div class="border rounded p-2 h-100 text-center">
+                  <div class="border rounded p-2 h-100 text-center" data-art-asset="{{ asset.id }}">
                     {% if (asset.mime_type or '')[:5] == 'image' %}<img src="{{ asset.file_url }}" alt="" style="max-width:100%;max-height:140px;object-fit:contain;border-radius:8px;">{% else %}<i class="fa fa-file-pdf fs-1 text-danger"></i>{% endif %}
                     <div class="fw-semibold small mt-2 text-truncate">{{ asset.format_label }}</div>
                     {% if asset.width and asset.height %}<div class="small text-muted">{{ asset.width }}×{{ asset.height }} px</div>{% endif %}
+                    {% if asset.uploaded_by_nick %}<div class="small text-muted">Subido por {{ asset.uploaded_by_nick }}</div>{% endif %}
+                    {% if can_validate_artwork %}
+                      {# Uno a uno, como las fotos: en cuanto diseño le da el OK ya se puede usar. #}
+                      <div class="d-flex justify-content-center gap-2 mt-2">
+                        <button type="button" class="btn btn-success btn-sm" data-art-ok="{{ asset.id }}" title="Aprobar este cartel"><i class="fa fa-check"></i></button>
+                        <button type="button" class="btn btn-outline-danger btn-sm" data-art-no="{{ asset.id }}" title="Rechazar y pedir cambios"><i class="fa fa-xmark"></i></button>
+                      </div>
+                    {% endif %}
                   </div>
                 </div>
               {% endfor %}
@@ -1141,7 +1164,10 @@
       {% endif %}
 
       {# ---------- FORMATOS SUBIDOS (validados) ---------- #}
-      {% set visible_assets = current_artwork_assets|selectattr('validation_status', 'ne', 'PENDING')|list if art_status == 'REVIEW' else current_artwork_assets %}
+      {# Usables = los APROBADOS. Los pendientes esperan el OK de diseño y los rechazados salen aparte
+         con su aviso de qué hay que cambiar. #}
+      {% set visible_assets = current_artwork_assets|rejectattr('validation_status', 'in', ['PENDING', 'REJECTED'])|list %}
+      {% set rejected_assets = current_artwork_assets|selectattr('validation_status', 'equalto', 'REJECTED')|list %}
       <div class="card mt-3">
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
@@ -1149,6 +1175,7 @@
             <div class="d-flex gap-2 align-items-center flex-wrap">
               {% if visible_assets %}
                 <span class="badge text-bg-primary">{{ visible_assets|length }} formato(s)</span>
+                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('concert_artwork_download_all', cid=concert.id) }}"><i class="fa fa-file-zipper me-1"></i>Descargar todos</a>
                 {% set share_text = ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto') ~ (' · ' ~ concert.date.strftime('%d/%m/%Y') if concert.date else '') ~ ':\n' ~ (visible_assets|map(attribute='file_url')|join('\n'))) %}
                 {# Al compartir se MARCA el estado (etiqueta «Compartido con…» de la cabecera). #}
                 <div class="dropdown">
@@ -1157,6 +1184,8 @@
                     <li><a class="dropdown-item" data-artwork-shared="artist" href="mailto:?subject={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto'))|urlencode }}&body={{ share_text|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Por correo</a></li>
                     <li><a class="dropdown-item" data-artwork-shared="artist" href="https://wa.me/?text={{ share_text|urlencode }}" target="_blank"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Por WhatsApp</a></li>
                     <li><a class="dropdown-item" data-artwork-shared="artist" href="sms:?&body={{ share_text|urlencode }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Por SMS</a></li>
+                    <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ visible_assets|map(attribute='file_url')|join('\n') }}"><i class="fa fa-link fa-fw me-1"></i>Copiar los enlaces</button></li>
+                    <li><a class="dropdown-item" href="{{ url_for('concert_artwork_download_all', cid=concert.id) }}"><i class="fa fa-file-zipper fa-fw me-1"></i>Descargar todos</a></li>
                     {% if artwork_request and artwork_request.shared_with_artist_at %}
                       <li><hr class="dropdown-divider"></li>
                       <li><button type="button" class="dropdown-item text-muted" data-artwork-unshared="artist"><i class="fa fa-rotate-left fa-fw me-1"></i>Marcar como NO compartido</button></li>
@@ -1250,6 +1279,38 @@
             </div>
           {% else %}
             <div class="text-muted">Todavía no se ha subido ningún formato nuevo.</div>
+          {% endif %}
+
+          {% if rejected_assets %}
+            <hr>
+            <h6 class="mb-2 text-danger"><i class="fa fa-triangle-exclamation me-1"></i>Rechazados por diseño</h6>
+            <div class="row g-3">
+              {% for asset in rejected_assets %}
+                <div class="col-12 col-xl-6">
+                  <div class="border border-danger rounded p-3 h-100">
+                    <div class="d-flex gap-2 align-items-start">
+                      {% if (asset.mime_type or '')[:5] == 'image' %}<img src="{{ asset.file_url }}" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid #eee;">{% else %}<span class="d-inline-flex align-items-center justify-content-center border rounded" style="width:64px;height:64px;"><i class="fa fa-file-pdf fs-3 text-danger"></i></span>{% endif %}
+                      <div class="min-w-0">
+                        <div class="fw-semibold text-truncate">{{ asset.format_label }}</div>
+                        <div class="small text-danger">{{ asset.rejection_note or 'Hay que cambiarlo.' }}</div>
+                        <div class="small text-muted">
+                          {% if asset.uploaded_by_nick %}Lo subió {{ asset.uploaded_by_nick }}{% endif %}
+                          {% if asset.reviewed_by_nick %} · rechazado por {{ asset.reviewed_by_nick }}{% endif %}
+                        </div>
+                        {% if CAN_EDIT_CONCERTS %}
+                          <div class="d-flex gap-2 mt-2 flex-wrap">
+                            <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#artworkUploadModal"><i class="fa fa-cloud-arrow-up me-1"></i>Subir la versión corregida</button>
+                            <form method="post" action="{{ url_for('concert_artwork_asset_delete', cid=concert.id, asset_id=asset.id) }}" onsubmit="return confirm('¿Eliminar este cartel rechazado?');">
+                              <button class="btn btn-sm btn-outline-secondary"><i class="fa fa-trash me-1"></i>Quitar</button>
+                            </form>
+                          </div>
+                        {% endif %}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
           {% endif %}
 
           {% if archived_artwork_assets %}
@@ -1530,6 +1591,203 @@
         </div>
       </div>
     </div>
+    {% endif %}
+
+    {# ---------- SUBIR CARTELES A MANO (arrastrando archivos o carpetas) ----------
+       Lo subido queda PENDIENTE de que diseño le dé el OK: se ve, pero no se puede usar hasta
+       entonces. El que sea más cuadrado se marca como principal cuando se aprueba. #}
+    {% if CAN_EDIT_CONCERTS %}
+    <div class="modal fade" id="artworkUploadModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="fa fa-cloud-arrow-up me-2"></i>Subir carteles</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="alert alert-warning small">
+              <i class="fa fa-clock me-1"></i>Los carteles que subas quedan <strong>pendientes de aprobación por diseño</strong>:
+              se verán aquí, pero no se pueden usar hasta que les dé el visto bueno (uno a uno).
+            </div>
+            <div class="fotos-dropzone" id="artworkDropzone" data-file-drop="off">
+              <i class="fa fa-cloud-arrow-up fa-2x mb-2"></i>
+              <div>Arrastra aquí los carteles <span class="text-muted">(o carpetas enteras)</span>, o
+                <span class="text-primary text-decoration-underline" data-art-pick>pincha para elegirlos</span></div>
+              <div class="small text-muted mt-1">Se sube cada archivo que haya dentro de la carpeta, no la carpeta.</div>
+              <input type="file" class="d-none" id="artworkFiles" multiple accept="image/*,application/pdf">
+              <input type="file" class="d-none" id="artworkFolder" webkitdirectory directory multiple>
+            </div>
+            <div class="d-flex justify-content-center gap-2 mt-2">
+              <button type="button" class="btn btn-outline-secondary btn-sm" data-art-pick><i class="fa fa-file me-1"></i>Elegir archivos</button>
+              <button type="button" class="btn btn-outline-secondary btn-sm" data-art-pick-folder><i class="fa fa-folder-open me-1"></i>Elegir una carpeta</button>
+            </div>
+            <div class="fotos-filelist mt-3" id="artworkQueue"></div>
+            <div class="progress mt-3 d-none" id="artworkProgress"><div class="progress-bar" style="width:0%"></div></div>
+            <div class="small mt-2" id="artworkUploadMsg"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button type="button" class="btn btn-danger" id="artworkUploadBtn" disabled><i class="fa fa-cloud-arrow-up me-1"></i>Subir</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {# Rechazo de UN cartel: la nota va a quien lo subió (le sale en sus tareas pendientes). #}
+    <div class="modal fade" id="artworkAssetRejectModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header"><h5 class="modal-title">Rechazar este cartel</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+          <div class="modal-body">
+            <label class="form-label">¿Qué hay que cambiar?</label>
+            <textarea class="form-control" id="artworkAssetRejectNote" rows="3" placeholder="Ej: falta el logo de la ticketera, la fecha está mal…"></textarea>
+            <div class="form-text">Se le avisa a quien lo subió y le aparecerá en sus tareas pendientes.</div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button type="button" class="btn btn-danger" id="artworkAssetRejectBtn"><i class="fa fa-xmark me-1"></i>Rechazar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    (function () {
+      var URL_SUBIR = {{ url_for('concert_artwork_upload_direct', cid=concert.id)|tojson }};
+      var URL_REVISAR = {{ url_for('concert_artwork_asset_review', cid=concert.id, asset_id='__ID__')|tojson }};
+      function csrf() { var m = document.querySelector('meta[name="csrf-token"]'); return m ? m.getAttribute('content') : ''; }
+
+      /* ---------- Subida (archivos sueltos o carpetas enteras) ---------- */
+      var zona = document.getElementById('artworkDropzone');
+      if (zona) {
+        var inputFiles = document.getElementById('artworkFiles');
+        var inputFolder = document.getElementById('artworkFolder');
+        var cola = [], lista = document.getElementById('artworkQueue'),
+            btn = document.getElementById('artworkUploadBtn'), msg = document.getElementById('artworkUploadMsg');
+
+        function pintar() {
+          lista.innerHTML = cola.map(function (f, i) {
+            return '<div class="fotos-fileitem"><span class="fotos-fileitem__thumb"><i class="fa fa-image"></i></span>' +
+              '<span class="fotos-fileitem__name text-truncate">' + (f.name || 'archivo') + '</span>' +
+              '<button type="button" class="btn btn-sm btn-link text-danger" data-art-quitar="' + i + '"><i class="fa fa-xmark"></i></button></div>';
+          }).join('');
+          btn.disabled = !cola.length;
+          msg.textContent = cola.length ? (cola.length + ' archivo(s) listos para subir') : '';
+        }
+        function añadir(files) {
+          Array.prototype.forEach.call(files || [], function (f) {
+            if (!f || !f.name || f.name.charAt(0) === '.') return;          // .DS_Store y compañía
+            if (f.type && !/^image\//.test(f.type) && f.type !== 'application/pdf') return;
+            cola.push(f);
+          });
+          pintar();
+        }
+        // Carpetas arrastradas: se recorre el árbol y se suben los ARCHIVOS de dentro.
+        function recorrer(entry, ruta) {
+          return new Promise(function (res) {
+            if (!entry) return res([]);
+            if (entry.isFile) return entry.file(function (f) { res([f]); }, function () { res([]); });
+            var reader = entry.createReader(), todos = [];
+            (function leer() {
+              reader.readEntries(function (entries) {
+                if (!entries.length) {
+                  Promise.all(todos.map(function (e) { return recorrer(e, ruta); }))
+                    .then(function (arrs) { res([].concat.apply([], arrs)); });
+                  return;
+                }
+                todos = todos.concat(Array.prototype.slice.call(entries));
+                leer();
+              }, function () { res([]); });
+            })();
+          });
+        }
+        zona.addEventListener('dragover', function (e) { e.preventDefault(); zona.classList.add('fotos-dropzone--over'); });
+        zona.addEventListener('dragleave', function () { zona.classList.remove('fotos-dropzone--over'); });
+        zona.addEventListener('drop', function (e) {
+          e.preventDefault(); zona.classList.remove('fotos-dropzone--over');
+          var items = e.dataTransfer && e.dataTransfer.items;
+          if (items && items.length && items[0].webkitGetAsEntry) {
+            var entradas = [];
+            for (var i = 0; i < items.length; i++) { var en = items[i].webkitGetAsEntry(); if (en) entradas.push(en); }
+            Promise.all(entradas.map(function (en) { return recorrer(en, ''); })).then(function (arrs) {
+              añadir([].concat.apply([], arrs));
+            });
+          } else {
+            añadir(e.dataTransfer.files);
+          }
+        });
+        document.querySelectorAll('[data-art-pick]').forEach(function (b) {
+          b.addEventListener('click', function () { inputFiles.click(); });
+        });
+        document.querySelectorAll('[data-art-pick-folder]').forEach(function (b) {
+          b.addEventListener('click', function () { inputFolder.click(); });
+        });
+        inputFiles.addEventListener('change', function () { añadir(inputFiles.files); inputFiles.value = ''; });
+        inputFolder.addEventListener('change', function () { añadir(inputFolder.files); inputFolder.value = ''; });
+        lista.addEventListener('click', function (e) {
+          var q = e.target.closest('[data-art-quitar]'); if (!q) return;
+          cola.splice(Number(q.getAttribute('data-art-quitar')), 1); pintar();
+        });
+        btn.addEventListener('click', function () {
+          if (!cola.length) return;
+          var fd = new FormData();
+          cola.forEach(function (f) { fd.append('files', f, f.name); fd.append('labels', f.name); });
+          btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Subiendo…';
+          var barra = document.getElementById('artworkProgress');
+          barra.classList.remove('d-none');
+          var xhr = new XMLHttpRequest();
+          xhr.open('POST', URL_SUBIR);
+          xhr.setRequestHeader('X-CSRFToken', csrf());
+          xhr.upload.onprogress = function (ev) {
+            if (ev.lengthComputable) barra.querySelector('.progress-bar').style.width = Math.round(ev.loaded * 100 / ev.total) + '%';
+          };
+          xhr.onload = function () {
+            var j = {}; try { j = JSON.parse(xhr.responseText || '{}'); } catch (e) {}
+            if (j.ok) { window.location.reload(); }
+            else { btn.disabled = false; btn.innerHTML = '<i class="fa fa-cloud-arrow-up me-1"></i>Subir';
+                   msg.className = 'small mt-2 text-danger'; msg.textContent = j.error || 'No se pudieron subir.'; }
+          };
+          xhr.onerror = function () { btn.disabled = false; btn.innerHTML = 'Subir'; msg.textContent = 'No se pudieron subir.'; };
+          xhr.send(fd);
+        });
+      }
+
+      /* ---------- Aprobar / rechazar UNO A UNO ---------- */
+      function revisar(id, decision, nota) {
+        var fd = new FormData();
+        fd.append('decision', decision);
+        if (nota) fd.append('note', nota);
+        return fetch(URL_REVISAR.replace('__ID__', id), {
+          method: 'POST', headers: { 'X-CSRFToken': csrf(), 'X-Requested-With': 'XMLHttpRequest' }, body: fd
+        }).then(function (r) { return r.json().catch(function () { return {}; }); });
+      }
+      document.querySelectorAll('[data-art-ok]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          b.disabled = true;
+          revisar(b.getAttribute('data-art-ok'), 'APPROVE').then(function (j) {
+            if (j && j.ok) window.location.reload(); else { b.disabled = false; alert((j && j.error) || 'No se pudo aprobar.'); }
+          });
+        });
+      });
+      var idRechazo = null;
+      document.querySelectorAll('[data-art-no]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          idRechazo = b.getAttribute('data-art-no');
+          document.getElementById('artworkAssetRejectNote').value = '';
+          bootstrap.Modal.getOrCreateInstance(document.getElementById('artworkAssetRejectModal')).show();
+        });
+      });
+      var btnNo = document.getElementById('artworkAssetRejectBtn');
+      if (btnNo) btnNo.addEventListener('click', function () {
+        var nota = (document.getElementById('artworkAssetRejectNote').value || '').trim();
+        if (!nota) { alert('Escribe qué hay que cambiar.'); return; }
+        btnNo.disabled = true;
+        revisar(idRechazo, 'REJECT', nota).then(function (j) {
+          if (j && j.ok) window.location.reload(); else { btnNo.disabled = false; alert((j && j.error) || 'No se pudo rechazar.'); }
+        });
+      });
+    })();
+    </script>
     {% endif %}
 
   {% elif tab == 'produccion' %}

@@ -433,6 +433,40 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `/compradores` (`databases.buyers`, agrupada por eventos + CSV) y pestaña Enterticket en
   Integraciones (estado/acciones, solo dirección).
 
+- **Contratación · pestañas y contadores**: la barra de pestañas es un parcial único
+  (`templates/_contracting_tabs.html`; antes estaba copiada en 10 plantillas). Cada pestaña que
+  agrupa actividades lleva su **número de actividades ACTIVAS** (de hoy en adelante) —Conciertos,
+  Peticiones, Festivales/Ciclos, Eventos y Otras actividades—, calculado en
+  `_contracting_tab_counts()` e inyectado como `CONTRACTING_COUNTS`. En **Peticiones** solo cuentan
+  las PENDIENTES (las archivadas no). Uso: `{% with contracting_tab='conciertos' %}{% include
+  '_contracting_tabs.html' %}{% endwith %}`.
+- **Pestaña EVENTOS = actividades agrupadas por evento** (`_render_event_activities` +
+  `templates/eventos.html`): funciona como la de Conciertos pero por EVENTO (un evento no tiene
+  artista): rejilla de eventos con su nº de actividades → sus actividades, filtro Activas/Todas. Las
+  actividades con `Concert.event_id` se excluyen de la pestaña de Conciertos (query y rejilla de
+  artistas). Los CONTENEDORES de evento (`CycleFestival` kind EVENTO) siguen en
+  `?section=eventos&contenedores=1`.
+- **Punto de empate de una actividad** (`_concert_break_even_info`, aviso amarillo arriba de la
+  ficha): manda **lo que ponga contratación a mano** (`Concert.break_even_ticket`); si no, los
+  **gastos CONSOLIDADOS de la bolsa** (`_concert_bag_expense_totals`, se actualiza solo según se
+  consolidan); y si no, el **presupuesto** (`ConcertBudgetItem`). Se calcula con el mismo motor que
+  el Resultado (`_concert_build_calc_data` + `sim_calc`, sustituyendo la producción). El aviso dice
+  con cuál está calculado y cuánto daría con las otras. Sin ticketing ni previsión de ingresos no se
+  muestra nada.
+- **Cartelería · petición, subida a mano y aprobación de diseño**: con el evento sin peticiones se
+  dice «Sin peticiones» y sale **UNA sola** opción según quién promueve (empresa del grupo →
+  *Realizar petición a diseño*; promotor externo → *Solicitar al promotor*, usando
+  `_concert_is_group_promoted`), más **Subir carteles**. La subida a mano
+  (`concert_artwork_upload_direct`, modal `#artworkUploadModal`) admite **arrastrar carpetas enteras**
+  (se recorre el árbol con `webkitGetAsEntry` y se sube cada archivo, no la carpeta) y deja los
+  carteles en `validation_status='PENDING'`: se ven pero **no se pueden usar** hasta que diseño les dé
+  el OK **uno a uno** (`concert_artwork_asset_review`, igual que las fotos). Al rechazar se pide la
+  nota de qué cambiar: el cartel sale en su sección **«Rechazados por diseño»** con el aviso y a quien
+  lo subió (`ConcertArtworkAsset.uploaded_by_user_id`) le aparece en **Inicio** el módulo
+  `HOME_ARTWORK_REJECTED` (`_home_artwork_rejected`). Compartir: por cartel (correo/WhatsApp/SMS/
+  copiar enlace/descargar) y de todos (los mismos + **copiar los enlaces** + **descargar todos** en ZIP,
+  `concert_artwork_download_all`). El principal se elige a mano o lo pone el más cuadrado al aprobar.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

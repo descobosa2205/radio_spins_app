@@ -1909,6 +1909,13 @@ class ConcertArtworkAsset(Base):
     validation_status = Column(Text, nullable=False, server_default=text("'APPROVED'"))
     # Cartel principal (el que se muestra en cabeceras). Si solo hay uno, ese es el principal.
     is_primary = Column(Boolean, nullable=False, server_default=text("false"))
+    # Quién lo subió a mano desde la ficha (para avisarle si diseño lo rechaza) y el resultado de la
+    # revisión: nota de por qué hay que cambiarlo, cuándo se revisó y quién.
+    uploaded_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    uploaded_by_nick = Column(Text)
+    rejection_note = Column(Text)
+    reviewed_at = Column(DateTime(timezone=True))
+    reviewed_by_nick = Column(Text)
     is_archived = Column(Boolean, nullable=False, server_default=text("false"))
     archived_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -6629,6 +6636,17 @@ def ensure_concert_artwork_schema():
             ADD COLUMN IF NOT EXISTS height integer,
             ADD COLUMN IF NOT EXISTS validation_status text NOT NULL DEFAULT 'APPROVED';
         """,
+        # Carteles subidos a mano: quién los subió (para avisarle si diseño los rechaza) y el
+        # resultado de la revisión uno a uno.
+        """
+        ALTER TABLE IF EXISTS concert_artwork_assets
+            ADD COLUMN IF NOT EXISTS uploaded_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS uploaded_by_nick text,
+            ADD COLUMN IF NOT EXISTS rejection_note text,
+            ADD COLUMN IF NOT EXISTS reviewed_at timestamptz,
+            ADD COLUMN IF NOT EXISTS reviewed_by_nick text;
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_concert_artwork_assets_uploader ON concert_artwork_assets(uploaded_by_user_id, validation_status);',
         # Estados nuevos del flujo de validación (REVIEW/CORRECTIONS): rehacer el CHECK.
         """
         DO $$

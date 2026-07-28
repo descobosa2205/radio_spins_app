@@ -28289,6 +28289,168 @@ def _can_validate_artwork() -> bool:
         return False
 
 
+def _artwork_ensure_request(session_db, concert):
+    """La solicitud de cartelería de la actividad (se crea vacía si hace falta, para poder colgar de
+    ella los carteles subidos a mano)."""
+    row = getattr(concert, 'artwork_request', None)
+    if row is None:
+        row = ConcertArtworkRequest(concert_id=concert.id, public_token=uuid.uuid4().hex,
+                                    handled_by='OURS', status='DRAFT')
+        session_db.add(row)
+        session_db.flush()
+    return row
+
+
+@app.post('/conciertos/<cid>/carteleria/subir', endpoint='concert_artwork_upload_direct')
+@admin_required
+def concert_artwork_upload_direct(cid):
+    """Subida de carteles A MANO desde la ficha (arrastrando archivos o carpetas enteras).
+
+    Quedan **pendientes de aprobación por diseño**: se ven pero no se pueden usar hasta que diseño
+    les dé el OK uno a uno (igual que las fotos). Devuelve JSON para el modal.
+    """
+    session_db = db()
+    try:
+        concert = (session_db.query(Concert)
+                   .options(selectinload(Concert.artwork_request).selectinload(ConcertArtworkRequest.assets))
+                   .filter(Concert.id == to_uuid(cid)).first())
+        if concert is None:
+            return jsonify({"ok": False, "error": "Actividad no encontrada."}), 404
+        if not can_edit_concerts():
+            return jsonify({"ok": False, "error": "Sin permiso para subir carteles."}), 403
+        row = _artwork_ensure_request(session_db, concert)
+        estado = _current_user_state()
+        ficheros = request.files.getlist("files") or request.files.getlist("file")
+        etiquetas = request.form.getlist("labels")
+        anchos = request.form.getlist("widths")
+        altos = request.form.getlist("heights")
+        subidos = []
+        for i, fs in enumerate(ficheros):
+            if not fs or not getattr(fs, "filename", ""):
+                continue
+            file_url, mime_type = _upload_artwork_file(fs)
+            if not file_url:
+                continue
+            # De una carpeta llega la ruta completa: la etiqueta es el nombre del archivo.
+            nombre = (etiquetas[i] if i < len(etiquetas) else "") or fs.filename or "Cartel"
+            nombre = os.path.basename(str(nombre).replace("\\", "/")).strip() or "Cartel"
+            asset = ConcertArtworkAsset(
+                artwork_request_id=row.id,
+                format_label=os.path.splitext(nombre)[0][:120],
+                file_url=file_url,
+                original_name=nombre[:200],
+                mime_type=mime_type,
+                width=_parse_optional_positive_int((anchos[i] if i < len(anchos) else "") or ""),
+                height=_parse_optional_positive_int((altos[i] if i < len(altos) else "") or ""),
+                validation_status='PENDING',          # hasta que diseño dé el OK no se puede usar
+                uploaded_by_user_id=to_uuid(estado.get("user_id")),
+                uploaded_by_nick=(estado.get("nick") or "").strip() or None,
+            )
+            session_db.add(asset)
+            session_db.flush()
+            subidos.append({"id": str(asset.id), "label": asset.format_label, "url": asset.file_url})
+        if not subidos:
+            return jsonify({"ok": False, "error": "No se pudo subir ningún archivo."}), 400
+        # Quedan a la espera del visto bueno de diseño (misma etiqueta que los del promotor).
+        if (row.status or 'DRAFT').upper() in ('DRAFT', 'PROMOTER', 'REQUESTED', 'CORRECTIONS', 'UPLOADED'):
+            row.status = 'REVIEW'
+        row.updated_at = datetime.now(ZoneInfo('Europe/Madrid'))
+        session_db.commit()
+        return jsonify({"ok": True, "assets": subidos, "count": len(subidos)})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("concert_artwork_upload_direct")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        session_db.close()
+
+
+@app.post('/conciertos/<cid>/carteleria/assets/<asset_id>/revisar', endpoint='concert_artwork_asset_review')
+@admin_required
+def concert_artwork_asset_review(cid, asset_id):
+    """Diseño da el OK (o lo rechaza con una nota) a UN cartel. Los aprobados ya se pueden usar; los
+    rechazados se quedan a la vista con su aviso y se le reclaman a quien los subió."""
+    if not _can_validate_artwork():
+        return jsonify({"ok": False, "error": "Tu usuario no puede validar cartelería."}), 403
+    session_db = db()
+    try:
+        concert = (session_db.query(Concert)
+                   .options(joinedload(Concert.artist),
+                            selectinload(Concert.artwork_request).selectinload(ConcertArtworkRequest.assets))
+                   .filter(Concert.id == to_uuid(cid)).first())
+        row = getattr(concert, 'artwork_request', None) if concert else None
+        asset = session_db.get(ConcertArtworkAsset, to_uuid(asset_id))
+        if row is None or asset is None or str(asset.artwork_request_id) != str(row.id):
+            return jsonify({"ok": False, "error": "Cartel no encontrado."}), 404
+        decision = (request.form.get("decision") or "").strip().upper()
+        nota = (request.form.get("note") or "").strip()
+        ahora = datetime.now(ZoneInfo('Europe/Madrid'))
+        estado = _current_user_state()
+        if decision == "APPROVE":
+            asset.validation_status = "APPROVED"
+            asset.rejection_note = None
+        elif decision == "REJECT":
+            if not nota:
+                return jsonify({"ok": False, "error": "Escribe qué hay que cambiar."}), 400
+            asset.validation_status = "REJECTED"
+            asset.rejection_note = nota
+            asset.is_primary = False
+        else:
+            return jsonify({"ok": False, "error": "Decisión no válida."}), 400
+        asset.reviewed_at = ahora
+        asset.reviewed_by_nick = (estado.get("nick") or "").strip() or None
+        # Cuando ya no queda ninguno pendiente, la solicitud deja de estar «en revisión».
+        pendientes = [a for a in (row.assets or [])
+                      if not a.is_archived and (a.validation_status or 'APPROVED') == 'PENDING']
+        aprobados = [a for a in (row.assets or [])
+                     if not a.is_archived and (a.validation_status or 'APPROVED') == 'APPROVED']
+        if not pendientes:
+            row.status = 'UPLOADED' if aprobados else 'CORRECTIONS'
+        row.updated_at = ahora
+        if aprobados:
+            _artwork_pick_primary_by_squareness(row)
+        session_db.commit()
+        return jsonify({"ok": True, "status": asset.validation_status,
+                        "pending": len(pendientes), "approved": len(aprobados)})
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        session_db.close()
+
+
+def _home_artwork_rejected(user_id=None) -> list:
+    """Carteles que subió esta persona y que diseño ha RECHAZADO: salen en sus tareas pendientes de
+    Inicio con la nota de qué hay que cambiar."""
+    uid = to_uuid(user_id or session.get("user_id") or "")
+    if not uid:
+        return []
+    session_db = db()
+    try:
+        filas = (session_db.query(ConcertArtworkAsset, ConcertArtworkRequest, Concert)
+                 .join(ConcertArtworkRequest, ConcertArtworkAsset.artwork_request_id == ConcertArtworkRequest.id)
+                 .join(Concert, ConcertArtworkRequest.concert_id == Concert.id)
+                 .filter(ConcertArtworkAsset.uploaded_by_user_id == uid,
+                         ConcertArtworkAsset.validation_status == "REJECTED")
+                 .order_by(ConcertArtworkAsset.reviewed_at.desc().nullslast())
+                 .limit(20).all())
+        out = []
+        for asset, _row, concert in filas:
+            out.append({
+                "id": str(asset.id),
+                "label": asset.format_label or (asset.original_name or "Cartel"),
+                "note": asset.rejection_note or "",
+                "url": url_for("concert_detail_view", cid=concert.id, tab="carteleria"),
+                "event": " · ".join([x for x in [(concert.artist.name if concert.artist else ""),
+                                                 (concert.date.strftime("%d/%m/%Y") if concert.date else "")] if x]),
+            })
+        return out
+    except Exception:
+        return []
+    finally:
+        session_db.close()
+
+
 @app.post('/conciertos/<cid>/carteleria/validar', endpoint='concert_artwork_validate')
 @admin_required
 def concert_artwork_validate(cid):
@@ -28738,6 +28900,48 @@ def concert_artwork_asset_download(cid, asset_id):
             return redirect(url_for('concert_detail_view', cid=cid, tab='carteleria'))
     finally:
         session.close()
+
+
+@app.get('/conciertos/<cid>/carteleria/descargar-todos', endpoint='concert_artwork_download_all')
+@admin_required
+def concert_artwork_download_all(cid):
+    """Descarga TODOS los carteles aprobados de la actividad en un ZIP."""
+    session_db = db()
+    try:
+        concert = (session_db.query(Concert).options(joinedload(Concert.artist))
+                   .filter(Concert.id == to_uuid(cid)).first())
+        row = getattr(concert, 'artwork_request', None) if concert else None
+        assets = [a for a in ((row.assets if row else None) or [])
+                  if not a.is_archived and (a.validation_status or 'APPROVED') == 'APPROVED']
+        if not assets:
+            flash('No hay carteles aprobados que descargar.', 'warning')
+            return redirect(url_for('concert_detail_view', cid=cid, tab='carteleria'))
+        buf = BytesIO()
+        usados = set()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for a in assets:
+                nombre = (a.original_name or a.format_label or 'cartel').strip()
+                base, ext = os.path.splitext(nombre)
+                n = 1
+                while nombre.lower() in usados:          # dos ficheros con el mismo nombre
+                    n += 1
+                    nombre = f"{base} ({n}){ext}"
+                usados.add(nombre.lower())
+                try:
+                    req = Request(a.file_url, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urlopen(req, timeout=25) as resp:
+                        zf.writestr(nombre, resp.read())
+                except Exception:
+                    continue
+        buf.seek(0)
+        etiqueta = " ".join([x for x in [
+            (concert.artist.name if concert and concert.artist else "Carteleria"),
+            (concert.date.strftime("%Y-%m-%d") if concert and concert.date else "")] if x])
+        etiqueta = re.sub(r"[\\/:*?\"<>|]+", " ", etiqueta).strip() or "Carteleria"
+        return send_file(buf, mimetype="application/zip", as_attachment=True,
+                         download_name=f"Carteles {etiqueta}.zip")
+    finally:
+        session_db.close()
 
 
 @app.post('/conciertos/<cid>/carteleria/compartido', endpoint='concert_artwork_mark_shared')
@@ -43537,6 +43741,10 @@ def inject_personnel_globals():
         "HOME_PRODUCCION_PENDING": _home_produccion_pending() if request.endpoint == "home" and session.get("user_id") and "_home_produccion_pending" in globals() and has_access_key("produccion", include_descendants=True) else [],
         "HOME_ADMIN_ALTAS_PENDING": _home_admin_altas_pending() if request.endpoint == "home" and session.get("user_id") and "_home_admin_altas_pending" in globals() and has_access_key("administracion", include_descendants=True) else [],
         "HOME_MY_EXPENSES": _home_my_expenses_summary() if request.endpoint == "home" and session.get("user_id") and "_home_my_expenses_summary" in globals() else {"rows": [], "overdue": 0, "total": 0},
+        # Carteles que subió esta persona y diseño ha rechazado (con la nota de qué cambiar).
+        "HOME_ARTWORK_REJECTED": (_home_artwork_rejected()
+                                  if request.endpoint == "home" and session.get("user_id")
+                                  and "_home_artwork_rejected" in globals() else []),
         "HOME_AFAVOR_ALERT": _home_afavor_alert() if request.endpoint == "home" and session.get("user_id") and "_home_afavor_alert" in globals() and has_access_key("registros") else None,
         "HOME_AGENDA": _home_agenda() if request.endpoint == "home" and session.get("user_id") and "_home_agenda" in globals() else None,
         "AGENDA_ARTIST_OPTIONS": _agenda_artist_options() if request.endpoint == "home" and session.get("user_id") and "_agenda_artist_options" in globals() else [],

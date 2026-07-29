@@ -751,6 +751,13 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `PersonComplianceDoc` (mismo sistema que PRL) y las facturas como `SupplierInvoice`
   (PENDIENTE/VALIDADA/RECHAZADA). Los enlaces oficiales de AEAT/Seguridad Social están en
   `INVOICE_CERT_DOCS`.
+  ⚠️ **Ningún paso puede ser un callejón sin salida**: el paso «¿para quién es la factura?» PIDE elegir
+  destinatario pero **no bloquea** (si no se elige, se avisa en la propia página y se sigue: el
+  destinatario es opcional). Antes soltaba un `alert()` y, si no se veía, uno se quedaba atascado con
+  el paso del DNI cerrado y «Comprobar» sin hacer nada (bug real). Además, un paso bloqueado ya **no se
+  come los clics en silencio**: `.inv-step.is-locked` deja pasar el clic (el `pointer-events:none` es
+  solo del `__body`) y al pinchar dentro se lleva al paso pendiente con un destello
+  (`.inv-step--flash`).
   ⚠️ **Los números de paso se DEDUCEN del DOM** (`stepNumOf`): en el enlace de una petición no existe
   el paso «¿para quién es la factura?», así que la numeración (1,3,4) NO es la de la landing (1,2,3,4).
   Cuando estaba a mano, el enlace del proveedor desbloqueaba un paso inexistente y el de escribir el

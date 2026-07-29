@@ -122,7 +122,8 @@
             <div class="col-12"><div class="alert alert-light border small mb-0">No hay personal disponible: la factura se registrará sin destinatario.</div></div>
           {% endfor %}
         </div>
-        <div class="text-end mt-3">
+        <div class="d-flex justify-content-between align-items-center gap-2 mt-3 flex-wrap">
+          <div class="small text-muted" data-inv-person-hint></div>
           <button class="btn btn-danger" type="button" data-inv-next="3"><i class="fa fa-arrow-right me-1"></i>Continuar</button>
         </div>
       </div>
@@ -260,6 +261,20 @@
   function stepEl(n){ return document.querySelector('[data-inv-step="' + n + '"]'); }
   function unlock(n){ const el = stepEl(n); if (el) { el.classList.remove('is-locked'); el.scrollIntoView({behavior:'smooth', block:'start'}); } }
 
+  /* Un paso BLOQUEADO no debe comerse los clics sin decir nada: si se pincha dentro, se lleva a la
+     persona al primer paso que le falta y se le dice. (`pointer-events:none` impide el clic dentro,
+     así que se escucha en la fase de captura sobre el propio paso.) */
+  document.addEventListener('click', function(ev){
+    const paso = ev.target.closest ? ev.target.closest('.inv-step.is-locked') : null;
+    if (!paso) return;
+    const pendiente = document.querySelector('.inv-step:not(.is-locked)');
+    if (pendiente) {
+      pendiente.scrollIntoView({behavior:'smooth', block:'center'});
+      pendiente.classList.add('inv-step--flash');
+      setTimeout(function(){ pendiente.classList.remove('inv-step--flash'); }, 1600);
+    }
+  }, true);
+
   // ---- Navegación entre pasos
   // Los números de paso se DEDUCEN del propio HTML: en el enlace de una petición no existe el paso
   // «¿para quién es la factura?», así que la numeración no es la misma que en la landing. Cuando esto
@@ -273,11 +288,19 @@
       // Si el botón lleva al paso de identificarse, se usa el número REAL de ese paso.
       const target = b.getAttribute('data-inv-next-ident') === '1'
         ? IDENT_STEP : Number(b.getAttribute('data-inv-next'));
-      // Paso 2 (solo landing): hay que elegir a quién va dirigida.
+      // Paso «¿para quién es?» (solo landing): se pide elegir, pero NO se bloquea el proceso. Antes
+      // salía un alert() y, si no se veía, uno se quedaba atascado: el paso del DNI seguía cerrado y
+      // pulsar «Comprobar» no hacía nada (bug real). Ahora se avisa en la propia página y se puede
+      // seguir: el destinatario es opcional y se puede elegir después.
       if (target === IDENT_STEP && MODE === 'LANDING') {
         const chosen = document.querySelector('.inv-person-radio:checked');
         const anyPerson = document.querySelector('.inv-person-radio');
-        if (anyPerson && !chosen) { alert('Elige a la persona para la que es la factura.'); return; }
+        const hint = document.querySelector('[data-inv-person-hint]');
+        if (hint) {
+          hint.innerHTML = (anyPerson && !chosen)
+            ? '<i class="fa fa-circle-info me-1 text-danger"></i>No has elegido a nadie: la factura se registrará sin destinatario. Puedes elegirlo aquí arriba.'
+            : '';
+        }
       }
       unlock(target);
       if (target === IDENT_STEP && profile) { applyProfile(profile); }

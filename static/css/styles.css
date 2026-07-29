@@ -2568,7 +2568,11 @@ img.docs-id__face { width:100%; height:100%; object-fit:cover; display:block; cu
 .inv-step__title{ font-weight:800; line-height:1.15; }
 .inv-step__sub{ color:#8a5b5f; font-size:.82rem; }
 .inv-step__body{ padding:1rem; }
-.inv-step.is-locked{ opacity:.5; pointer-events:none; }
+.inv-step.is-locked{ opacity:.5; }
+/* Bloqueado: no se puede escribir dentro, pero el clic SÍ llega (se avisa de qué falta antes). */
+.inv-step.is-locked .inv-step__body{ pointer-events:none; }
+/* Destello del paso que toca cuando alguien pincha en uno cerrado. */
+.inv-step--flash{ box-shadow:0 0 0 .25rem rgba(227,61,72,.35) !important; }
 .inv-step.is-locked .inv-step__num{ background:#c9ced6; }
 .inv-step.is-locked .inv-step__head{ background:#f4f5f7; color:#6c757d; }
 .inv-step.is-locked .inv-step__sub{ color:#9aa1a9; }

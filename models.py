@@ -3343,6 +3343,31 @@ class PromotionActivity(Base):
     )
 
 
+class PromotionAlert(Base):
+    """Aviso a quien lleva la PRODUCCIÓN de una promoción cuando cambia algo que le afecta (fecha,
+    hora o sitio) o cuando se cancela: si no se entera, monta un viaje para una hora que ya no es."""
+
+    __tablename__ = "promotion_alerts"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    promotion_id = Column(PGUUID(as_uuid=True), ForeignKey("promotions.id", ondelete="CASCADE"), nullable=False)
+    activity_id = Column(PGUUID(as_uuid=True), ForeignKey("promotion_activities.id", ondelete="SET NULL"))
+    # CHANGE (cambió algo) | CANCELLED (se cae)
+    kind = Column(Text, nullable=False, server_default=text("'CHANGE'"))
+    message = Column(Text, nullable=False)
+    target_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    read_at = Column(DateTime(timezone=True))
+
+    promotion = relationship("Promotion")
+
+    __table_args__ = (
+        Index("idx_promotion_alerts_target", "target_user_id", "read_at"),
+        Index("idx_promotion_alerts_promotion", "promotion_id"),
+    )
+
+
 class WorkflowBag(Base):
     __tablename__ = "workflow_bags"
 
@@ -7335,6 +7360,21 @@ def ensure_promocion_prensa_schema():
             ADD COLUMN IF NOT EXISTS owner_user_id uuid REFERENCES users(id) ON DELETE SET NULL;
         """,
         'CREATE INDEX IF NOT EXISTS idx_production_requests_owner ON production_requests(owner_user_id, status);',
+        """
+        CREATE TABLE IF NOT EXISTS promotion_alerts (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            promotion_id uuid NOT NULL REFERENCES promotions(id) ON DELETE CASCADE,
+            activity_id uuid REFERENCES promotion_activities(id) ON DELETE SET NULL,
+            kind text NOT NULL DEFAULT 'CHANGE',
+            message text NOT NULL,
+            target_user_id uuid REFERENCES users(id) ON DELETE CASCADE,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            read_at timestamptz
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_promotion_alerts_target ON promotion_alerts(target_user_id, read_at);',
+        'CREATE INDEX IF NOT EXISTS idx_promotion_alerts_promotion ON promotion_alerts(promotion_id);',
         # Lo que ya había creado es marketing: la promoción de prensa nace con este lote.
         """
         UPDATE promotions

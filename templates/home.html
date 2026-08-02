@@ -222,6 +222,69 @@ document.addEventListener('click', function (ev) {
 </div>
 {% endif %}
 
+{# Avisos de una promoción que produces: han cambiado la fecha, la hora o el sitio, o se ha caído. #}
+{% if HOME_PROMO_ALERTS %}
+<div class="card mb-4 border-warning">
+  <div class="card-body">
+    <h5 class="mb-3"><i class="fa fa-triangle-exclamation text-warning me-2"></i>Cambios en promociones que produces
+      <span class="badge text-bg-warning text-dark ms-1">{{ HOME_PROMO_ALERTS|length }}</span></h5>
+    <div class="d-flex flex-column gap-2">
+      {% for a in HOME_PROMO_ALERTS %}
+        <div class="d-flex align-items-start gap-2 border rounded p-2">
+          <i class="fa {{ 'fa-ban text-danger' if a.kind == 'CANCELLED' else 'fa-pen-to-square text-warning' }} mt-1"></i>
+          <div class="flex-grow-1 min-w-0">
+            <a href="{{ a.url }}" class="fw-semibold text-decoration-none">{{ a.title }}</a>
+            <div class="small">{{ a.message }}</div>
+            <div class="small text-muted">{{ a.when_label }}{% if a.by %} · {{ a.by }}{% endif %}</div>
+          </div>
+          <form method="post" action="{{ url_for('promo_alert_read', alert_id=a.id) }}">
+            <input type="hidden" name="next" value="{{ request.full_path }}">
+            <button class="btn btn-sm btn-outline-secondary" title="Visto"><i class="fa fa-check"></i></button>
+          </form>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# Promociones que estás gestionando (promoción) o a las que acompañas al artista. #}
+{% if HOME_PROMO_TASKS %}
+<div class="card mb-4" style="border-color:#8e44ad;">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <div>
+        <h5 class="mb-0"><i class="fa fa-microphone-lines me-2" style="color:#8e44ad;"></i>Tareas pendientes · Promoción</h5>
+        <div class="small text-muted">Mientras se gestiona. Al cerrar la bolsa y mandarla a liquidación desaparece de aquí.</div>
+      </div>
+      <span class="badge" style="background:#8e44ad;">{{ HOME_PROMO_TASKS|length }}</span>
+    </div>
+    <div class="row g-3">
+      {% for row in HOME_PROMO_TASKS %}
+        <div class="col-12 col-lg-6">
+          <div class="d-flex align-items-center gap-3 border rounded p-2 h-100">
+            <img src="{{ row.artist_photo or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1" style="width:48px;height:48px;object-fit:cover;border-radius:50%;border:1px solid #eee;">
+            <div class="flex-grow-1 min-w-0">
+              <a href="{{ row.url }}" class="fw-semibold text-truncate d-block text-decoration-none text-reset">{{ row.title }}</a>
+              <div class="small text-muted text-truncate">
+                {{ row.artist_name }} · <i class="fa fa-calendar-day me-1"></i>{{ row.date_label }}
+                <span class="badge text-bg-light border ms-1">{{ row.role }}</span>
+              </div>
+            </div>
+            <div class="text-end">
+              <span class="badge {{ row.status_badge }}">{{ row.status_label }}</span>
+              {% if row.needs_bag_close and row.bag_url %}
+                <a href="{{ row.bag_url }}" class="btn btn-sm btn-outline-primary d-block mt-1"><i class="fa fa-sack-dollar me-1"></i>Cerrar bolsa</a>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {# Carteles subidos a mano que diseño ha RECHAZADO: hay que volver a subirlos con los cambios. #}
 {% if HOME_ARTWORK_REJECTED %}
 <div class="card mb-4 border-danger">

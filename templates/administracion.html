@@ -252,7 +252,7 @@
           {% if bag.liquidation_status in ADMIN_BAG_LIQUIDACION_STATUSES %}
             {% set totals = bag_totals.get(bag.id|string, {}) %}
             <div class="p-3 border-bottom d-flex justify-content-between gap-3 flex-wrap" id="admin-liqval-{{ bag.id }}" data-inline-zone>
-              <div><div class="fw-semibold">{{ bag.title }}</div><div class="small text-muted">{{ bag.artist.name if bag.artist else 'Sin artista' }} · Cerrada: {{ bag.closed_at.strftime('%d/%m/%Y') if bag.closed_at else '—' }}</div>{% if totals.get('unpaid', 0) %}<span class="badge text-bg-warning">Pagos pendientes</span>{% else %}<span class="badge text-bg-success">Sin pagos pendientes</span>{% endif %}</div>
+              <div><div class="fw-semibold">{{ bag.title }}</div><div class="small text-muted">{{ bag.artist.name if bag.artist else 'Sin artista' }} · Cerrada: {{ bag.closed_at.strftime('%d/%m/%Y') if bag.closed_at else '—' }}</div>{% if totals.get('unpaid', 0) %}<span class="badge text-bg-warning">Pagos pendientes</span>{% else %}<span class="badge text-bg-success">Sin pagos pendientes</span>{% endif %}{% if admin_promo_bag_ids and bag.id|string in admin_promo_bag_ids %}<span class="badge text-bg-info text-dark ms-1"><i class="fa fa-microphone-lines me-1"></i>Promoción · sin pagos</span>{% endif %}</div>
               <div class="d-flex gap-2 align-items-start"><a href="{{ url_for('bag_detail_view', bag_id=bag.id) }}" class="btn btn-sm btn-outline-primary">Revisar gastos</a><form method="post" action="{{ url_for('administration_bag_close_liquidation', bag_id=bag.id) }}" data-inline data-inline-target="#admin-liqval-{{ bag.id }}"><input type="hidden" name="mode" value="VALIDAR"><button class="btn btn-sm btn-success">Validar ingresos/gastos</button></form></div>
             </div>
           {% endif %}
@@ -268,7 +268,7 @@
             {% set totals = bag_totals.get(bag.id|string, {}) %}
             <div class="p-3 border-bottom" id="admin-liqclose-{{ bag.id }}" data-inline-zone>
               <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
-                <div><div class="fw-semibold">{{ bag.title }}</div><div class="small text-muted">{{ bag.artist.name if bag.artist else 'Sin artista' }} · Estado: {{ bag.liquidation_status }}</div><div class="fw-bold mt-2">Resultado provisional: {{ totals.get('bag', 0)|eur }}</div></div>
+                <div><div class="fw-semibold">{{ bag.title }} {% if admin_promo_bag_ids and bag.id|string in admin_promo_bag_ids %}<span class="badge text-bg-info text-dark ms-1"><i class="fa fa-microphone-lines me-1"></i>Promoción · sin pagos</span>{% endif %}</div><div class="small text-muted">{{ bag.artist.name if bag.artist else 'Sin artista' }} · Estado: {{ bag.liquidation_status }}</div><div class="fw-bold mt-2">Resultado provisional: {{ totals.get('bag', 0)|eur }}</div></div>
                 <div class="btn-group">
                   <a class="btn btn-sm btn-outline-primary" href="{{ url_for('bag_detail_view', bag_id=bag.id) }}">Ver liquidación</a>
                   <button class="btn btn-sm btn-outline-secondary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown"></button>

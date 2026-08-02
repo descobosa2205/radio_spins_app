@@ -1,0 +1,172 @@
+{# ============================================================================================
+   Petición de PROMOCIÓN. La puede crear cualquiera de la empresa y es a propósito CORTA: de quién
+   es, qué se pide, con qué medio, cuándo y dónde (cualquiera de las dos puede no saberse) y quién
+   la pide. Lo demás ya lo monta promoción cuando la gestione.
+   Necesita `promo_creator_datasets` (artistas, eventos y medios) en el contexto.
+   ============================================================================================ #}
+{% set creator = promo_creator_datasets or {} %}
+<div class="modal fade" id="promoPeticionModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <form class="modal-content" method="post" action="{{ url_for('promo_peticion_create') }}" data-step-wizard id="promoPeticionForm">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <input type="hidden" name="subject_kind" id="ppSubjectKind" value="ARTIST">
+      <input type="hidden" name="subject_id" id="ppSubjectId">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-microphone-lines me-2"></i>Pedir promoción</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div data-sw-progress></div>
+
+        {# 1 · ¿De quién? #}
+        <section class="sw-step" data-step="1" data-title="De quién">
+          <div class="sw-step__q"><i class="fa fa-microphone-lines me-2 text-danger"></i>¿De quién es la promoción?</div>
+          <div class="sw-step__h">Un artista o un evento. Al elegirlo se pasa solo al siguiente paso.</div>
+          <div class="d-flex gap-2 mb-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary active" data-pp-kind="ARTIST">Artistas</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-pp-kind="EVENT">Eventos</button>
+          </div>
+          <input type="text" class="form-control mb-2" id="ppSearch" placeholder="Buscar…">
+          <div class="promo-pick-grid" id="ppSubjectGrid"></div>
+          <div class="form-text mt-2" id="ppSubjectPicked"></div>
+        </section>
+
+        {# 2 · ¿Qué se pide? #}
+        <section class="sw-step" data-step="2" data-title="Qué se pide">
+          <div class="sw-step__q"><i class="fa fa-comments me-2 text-danger"></i>¿Qué se pide?</div>
+          <div class="sw-step__h">Al elegirlo se pasa solo al siguiente paso.</div>
+          <div class="promo-pick-grid promo-pick-grid--wide">
+            {% for key, label, icon in [('ENTREVISTA','Entrevista','fa-microphone-lines'),
+                                        ('JUNT','Junt de prensa','fa-users-rectangle'),
+                                        ('PHONER','Phoner','fa-phone-volume'),
+                                        ('ACTUACION','Actuación en un programa','fa-guitar'),
+                                        ('SESION','Sesión de fotos o vídeo','fa-camera'),
+                                        ('OTRA','Otra cosa','fa-asterisk')] %}
+              <label class="promo-pick">
+                <input type="radio" name="promo_kind" value="{{ key }}" data-sw-advance {% if loop.first %}checked{% endif %}>
+                <span class="promo-pick__box"><i class="fa {{ icon }}"></i><span class="promo-pick__name">{{ label }}</span></span>
+              </label>
+            {% endfor %}
+          </div>
+          <label class="form-label mt-3">Detalles</label>
+          <textarea class="form-control" name="description" rows="2" placeholder="Lo que haga falta contar: de qué va, quién lo pide, condiciones…"></textarea>
+        </section>
+
+        {# 3 · ¿Con qué medio? #}
+        <section class="sw-step" data-step="3" data-title="Medio">
+          <div class="sw-step__q"><i class="fa fa-tower-broadcast me-2 text-danger"></i>¿Con qué medio?</div>
+          <div class="sw-step__h">Si aún no se sabe, se deja en blanco.</div>
+          <div class="input-group">
+            <select class="form-select select-with-thumbs" name="media_id" id="ppMedia">
+              <option value="">Todavía no se sabe</option>
+              {% for m in creator.media or [] %}
+                <option value="{{ m.id }}" data-logo="{{ m.logo_url or '' }}">{{ m.name }} · {{ m.media_type }}</option>
+              {% endfor %}
+            </select>
+            <button class="btn btn-outline-secondary" type="button" data-quick-create="media" data-target="ppMedia" title="Nuevo medio"><i class="fa fa-plus"></i></button>
+          </div>
+          <label class="form-label mt-3">Programa o sección (si se sabe)</label>
+          <input class="form-control" name="program_name" placeholder="El programa de la mañana">
+        </section>
+
+        {# 4 · ¿Cuándo y dónde? #}
+        <section class="sw-step" data-step="4" data-title="Cuándo y dónde">
+          <div class="sw-step__q"><i class="fa fa-calendar-day me-2 text-danger"></i>¿Cuándo y dónde?</div>
+          <div class="sw-step__h">Cualquiera de las dos puede no saberse todavía.</div>
+          <div class="promo-pick-grid promo-pick-grid--wide mb-3">
+            {% for key, label, icon in [('EXACT','Un día concreto','fa-calendar-day'),
+                                        ('RANGE','Una franja de días','fa-calendar-week'),
+                                        ('UNKNOWN','Aún no se sabe','fa-circle-question')] %}
+              <label class="promo-pick">
+                <input type="radio" name="date_kind" value="{{ key }}" data-pp-date {% if loop.first %}checked{% endif %}>
+                <span class="promo-pick__box"><i class="fa {{ icon }}"></i><span class="promo-pick__name">{{ label }}</span></span>
+              </label>
+            {% endfor %}
+          </div>
+          <div data-pp-date-panel="EXACT"><input type="date" class="form-control" name="requested_date"></div>
+          <div data-pp-date-panel="RANGE" class="row g-2 d-none">
+            <div class="col"><label class="form-label small mb-0">Desde</label><input type="date" class="form-control" name="range_start"></div>
+            <div class="col"><label class="form-label small mb-0">Hasta</label><input type="date" class="form-control" name="range_end"></div>
+          </div>
+          <div data-pp-date-panel="UNKNOWN" class="d-none"><div class="small text-muted">Se apunta como «fecha sin definir».</div></div>
+          <label class="form-label mt-3">Lugar (si se sabe)</label>
+          <input class="form-control" name="place" placeholder="Estudios de la radio, Madrid…">
+        </section>
+
+        {# 5 · ¿Quién lo pide? #}
+        <section class="sw-step" data-step="5" data-title="Quién lo pide">
+          <div class="sw-step__q"><i class="fa fa-user me-2 text-danger"></i>¿Quién lo pide?</div>
+          <div class="sw-step__h">Por defecto, tú. Si lo pide alguien de fuera, pon su contacto.</div>
+          <div class="row g-3">
+            <div class="col-md-6"><label class="form-label">Nombre</label><input class="form-control" name="contact_name" placeholder="Quién lo pide o el contacto del medio"></div>
+            <div class="col-md-3"><label class="form-label">Email</label><input class="form-control" name="contact_email" type="email"></div>
+            <div class="col-md-3"><label class="form-label">Teléfono</label><input class="form-control" name="contact_phone"></div>
+          </div>
+          <div class="alert alert-light border mt-3 mb-0 small">
+            <i class="fa fa-circle-info me-1"></i>La petición le llega a <strong>Promoción</strong>. No ocupa sitio en
+            el calendario hasta que ellos la confirmen.
+          </div>
+        </section>
+      </div>
+      <div class="modal-footer d-flex justify-content-between">
+        <button type="button" class="btn btn-outline-secondary" data-sw-prev>Anterior</button>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-primary" data-sw-next>Siguiente</button>
+          <button class="btn btn-primary" data-sw-submit><i class="fa fa-check me-1"></i>Enviar petición</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/step_wizard.js', v=ASSET_V) }}"></script>
+<script>
+(function(){
+  const data = {{ creator|tojson }};
+  const modal = document.getElementById('promoPeticionModal');
+  if (!modal) return;
+  const grid = modal.querySelector('#ppSubjectGrid');
+  const kindInput = modal.querySelector('#ppSubjectKind');
+  const idInput = modal.querySelector('#ppSubjectId');
+  const search = modal.querySelector('#ppSearch');
+  const picked = modal.querySelector('#ppSubjectPicked');
+  const normalize = (v) => window.normalizeSearchText ? window.normalizeSearchText(v) : String(v || '').toLowerCase();
+
+  function rows(){
+    if (kindInput.value === 'EVENT') return ((data.subjects || {}).EVENT || []).map(e => ({id: e.id, name: e.title, photo: e.cover_url}));
+    return (data.artists || []).map(a => ({id: a.id, name: a.name, photo: a.photo_url}));
+  }
+  function render(){
+    const q = normalize(search.value);
+    grid.innerHTML = '';
+    rows().filter(r => !q || normalize(r.name).includes(q)).slice(0, 60).forEach(r => {
+      const label = document.createElement('label');
+      label.className = 'promo-pick';
+      label.innerHTML = '<input type="radio" name="_pp_subject" value="' + r.id + '" data-sw-advance>'
+        + '<span class="promo-pick__box">'
+        + (r.photo && r.photo.indexOf('placeholder_photo') < 0 ? '<img src="' + r.photo + '" alt="">' : '<span class="promo-pick__avatar"><i class="fa fa-user"></i></span>')
+        + '<span class="promo-pick__name">' + r.name + '</span></span>';
+      label.querySelector('input').addEventListener('change', function(){
+        idInput.value = r.id;
+        picked.textContent = 'Elegido: ' + r.name;
+      });
+      grid.appendChild(label);
+    });
+  }
+  modal.querySelectorAll('[data-pp-kind]').forEach(btn => btn.addEventListener('click', function(){
+    modal.querySelectorAll('[data-pp-kind]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    kindInput.value = btn.getAttribute('data-pp-kind');
+    idInput.value = ''; picked.textContent = '';
+    render();
+  }));
+  if (search) search.addEventListener('input', render);
+  modal.querySelectorAll('[data-pp-date]').forEach(el => el.addEventListener('change', function(){
+    const val = (modal.querySelector('[data-pp-date]:checked') || {}).value || 'EXACT';
+    modal.querySelectorAll('[data-pp-date-panel]').forEach(p =>
+      p.classList.toggle('d-none', p.getAttribute('data-pp-date-panel') !== val));
+  }));
+  render();
+})();
+</script>

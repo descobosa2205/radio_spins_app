@@ -1695,12 +1695,14 @@ def artist_detail_view(artist_id):
         promotion_requests_display = []
         promotion_entries_display = []
         promo_entity_rows = []
+        promo_spend = {"rows": [], "total": 0}
         promotion_source_snapshot = _promotion_request_snapshot_from_source(session_db, "ARTIST", artist.id)
         if tab in {"promocion", "marketing"}:
             promotion_request_rows, promotion_rows = _promotion_rows_for_artist(session_db, artist.id)
             promotion_requests_display = [_promotion_display_request(row) for row in promotion_request_rows]
             promotion_entries_display = [_promotion_display_promotion(row) for row in promotion_rows]
             promo_entity_rows = _promo_rows_for_subject(session_db, "ARTIST", artist.id)
+            promo_spend = _promo_spend_rows(session_db, artist_id=artist.id)
 
         social_links_display = _ordered_social_links(getattr(artist, "social_links", None))
         # Iconos de redes del hero: se toman de las URLs que trae Chartmetric (no manuales).
@@ -1786,6 +1788,7 @@ def artist_detail_view(artist_id):
             promotion_requests_display=promotion_requests_display,
             promotion_entries_display=promotion_entries_display,
             promo_entity_rows=promo_entity_rows,
+            promo_spend=promo_spend,
             promotion_source_type="ARTIST",
             promotion_source_id=str(artist.id),
             promotion_source_snapshot=promotion_source_snapshot,
@@ -15391,11 +15394,13 @@ def discografica_song_detail(song_id):
     promotion_requests_display = []
     promotion_entries_display = []
     promo_entity_rows = []
+    promo_spend = {"rows": [], "total": 0}
     promotion_source_snapshot = _promotion_request_snapshot_from_source(session_db, "SONG", s.id)
     if tab in {"promocion", "marketing"}:
         promotion_requests_display = [_promotion_display_request(row) for row in _promotion_entity_requests(session_db, "SONG", s.id)]
         promotion_entries_display = [_promotion_display_promotion(row) for row in _promotion_entity_promotions(session_db, "SONG", s.id)]
         promo_entity_rows = _promo_rows_for_subject(session_db, "SONG", s.id)
+        promo_spend = _promo_spend_rows(session_db, subject_type="SONG", subject_id=s.id)
 
     response = render_template(
         "song_detail.html",
@@ -15458,6 +15463,7 @@ def discografica_song_detail(song_id):
         promotion_requests_display=promotion_requests_display,
         promotion_entries_display=promotion_entries_display,
         promo_entity_rows=promo_entity_rows,
+        promo_spend=promo_spend,
         promotion_source_type="SONG",
         promotion_source_id=str(s.id),
         promotion_source_snapshot=promotion_source_snapshot,
@@ -19344,11 +19350,13 @@ def discografica_album_detail(album_id):
     promotion_requests_display = []
     promotion_entries_display = []
     promo_entity_rows = []
+    promo_spend = {"rows": [], "total": 0}
     promotion_source_snapshot = _promotion_request_snapshot_from_source(session_db, "ALBUM", album.id)
     if tab in {"promocion", "marketing"}:
         promotion_requests_display = [_promotion_display_request(row) for row in _promotion_entity_requests(session_db, "ALBUM", album.id)]
         promotion_entries_display = [_promotion_display_promotion(row) for row in _promotion_entity_promotions(session_db, "ALBUM", album.id)]
         promo_entity_rows = _promo_rows_for_subject(session_db, "ALBUM", album.id)
+        promo_spend = _promo_spend_rows(session_db, subject_type="ALBUM", subject_id=album.id)
 
     response = render_template(
         "album_detail.html",
@@ -19387,6 +19395,7 @@ def discografica_album_detail(album_id):
         promotion_requests_display=promotion_requests_display,
         promotion_entries_display=promotion_entries_display,
         promo_entity_rows=promo_entity_rows,
+        promo_spend=promo_spend,
         promotion_source_type="ALBUM",
         promotion_source_id=str(album.id),
         promotion_source_snapshot=promotion_source_snapshot,
@@ -22644,6 +22653,8 @@ def _render_booking_requests():
         return render_template(
             "peticiones.html",
             section="peticiones",
+            # «Pedir promoción» sale también aquí: lo puede hacer cualquiera de la empresa.
+            promo_creator_datasets=_promo_creator_datasets(s),
             booking_rows=payload,
             booking_counts=counts,
             booking_total=len(mine),
@@ -28279,11 +28290,13 @@ def concert_detail_view(cid):
         promotion_requests_display = []
         promotion_entries_display = []
         promo_entity_rows = []
+        promo_spend = {"rows": [], "total": 0}
         promotion_source_snapshot = _promotion_request_snapshot_from_source(session, "CONCERT", c.id)
         if tab in {"promocion", "marketing"}:
             promotion_requests_display = [_promotion_display_request(row) for row in _promotion_entity_requests(session, "CONCERT", c.id)]
             promotion_entries_display = [_promotion_display_promotion(row) for row in _promotion_entity_promotions(session, "CONCERT", c.id)]
             promo_entity_rows = _promo_rows_for_subject(session, "CONCERT", c.id)
+            promo_spend = _promo_spend_rows(session, subject_type="CONCERT", subject_id=c.id)
 
         contracting_general_rows = _concert_contracting_general_rows(session, c)
         promoter_email_suggestions = _concert_promoter_email_suggestions(session, c)
@@ -28402,6 +28415,7 @@ def concert_detail_view(cid):
             promotion_requests_display=promotion_requests_display,
             promotion_entries_display=promotion_entries_display,
             promo_entity_rows=promo_entity_rows,
+            promo_spend=promo_spend,
             promotion_source_type="CONCERT",
             promotion_source_id=str(c.id),
             promotion_source_snapshot=promotion_source_snapshot,
@@ -38465,6 +38479,7 @@ from models import (
     ProductionRequest,
     Promotion,
     PromotionActivity,
+    PromotionAlert,
     WorkflowBag,
     BagNote,
     BagExpense,
@@ -38611,6 +38626,9 @@ def _bootstrap_schema_bg():
     # No eran documentos de Cabify: se desenganchan del gasto y se borran de Storage.
     _safe_ensure(lambda: globals()["_cabify_purge_fake_receipts_bg"](),
                  "_cabify_purge_fake_receipts_bg")
+    # Una sola vez: dar acceso a la sección PROMOCIÓN a quien está en ese departamento (los recursos
+    # nuevos nacen desactivados y si no, no verían lo suyo).
+    _safe_ensure(lambda: globals()["_promo_access_seed"](), "_promo_access_seed")
     # A partir de aquí la instancia SÍ puede recibir tráfico. Se marca pase lo que pase (si alguna
     # migración falló, ya se ha anotado en el log): quedarse sin marcar dejaría la instancia
     # inservible, que es peor que arrancar con un aviso.
@@ -41716,6 +41734,41 @@ def _home_admin_altas_pending() -> list:
         session_db.close()
 
 
+def _admin_promo_bag_ids(session_db) -> set:
+    """Bolsas EN ADMINISTRACIÓN que son de una promoción de prensa y **no tienen nada que pagar**:
+    esas las liquida quien lleve «gastos de promoción sin pagos pendientes», no quien liquida bolsas."""
+    try:
+        bags = (session_db.query(WorkflowBag)
+                .filter(WorkflowBag.is_archived == False)  # noqa: E712
+                .filter(func.upper(func.coalesce(WorkflowBag.linked_type, '')) == 'PROMOTION')
+                .filter(or_(WorkflowBag.status == "CERRADA",
+                            WorkflowBag.liquidation_status.in_(ADMIN_BAG_LIQUIDACION_STATUSES + ADMIN_BAG_CIERRE_STATUSES)))
+                .limit(400).all())
+        return {str(bag.id) for bag in bags if not _bag_has_pending_payments(session_db, bag)}
+    except Exception:
+        return set()
+
+
+def _admin_promo_liquidation_counts(session_db) -> dict:
+    """Cuántas de esas bolsas hay en cada bandeja (liquidación / cierre)."""
+    ids = _admin_promo_bag_ids(session_db)
+    out = {"liquidacion": 0, "cierre": 0}
+    if not ids:
+        return out
+    try:
+        rows = (session_db.query(WorkflowBag.id, WorkflowBag.liquidation_status)
+                .filter(WorkflowBag.id.in_([to_uuid(x) for x in ids])).all())
+        for _bid, estado in rows:
+            estado = (estado or "").strip().upper()
+            if estado in ADMIN_BAG_LIQUIDACION_STATUSES:
+                out["liquidacion"] += 1
+            elif estado in ADMIN_BAG_CIERRE_STATUSES:
+                out["cierre"] += 1
+    except Exception:
+        pass
+    return out
+
+
 def _home_admin_pending() -> list:
     """Módulo de Inicio «Tareas pendientes · Administración»: un bloque por tipo de tarea, con su
     número y su enlace, y SOLO los tipos que le tocan a quien mira (los suyos, más los que no
@@ -41726,6 +41779,8 @@ def _home_admin_pending() -> list:
             return []
         datos = _admin_pending_counts(session_db)
         counts, pending = datos["counts"], datos["pending_counts"]
+        # Las bolsas de PROMOCIÓN sin nada que pagar son su propia tarea (y su propia persona).
+        promo_liq = _admin_promo_liquidation_counts(session_db)
         bloques = [
             ("GASTOS_SIN_TICKET", "Gastos sin ticket y pagos urgentes", "fa-receipt",
              pending.get("solicitudes", 0), url_for("administracion_view", tab="pendiente", subtab="solicitudes")),
@@ -41734,9 +41789,15 @@ def _home_admin_pending() -> list:
             ("FACTURAS_SOLICITADAS", "Pendiente de facturación", "fa-file-invoice",
              pending.get("facturacion", 0), url_for("administracion_view", tab="pendiente", subtab="facturacion")),
             ("LIQUIDACIONES", "Bolsas por liquidar", "fa-scale-balanced",
-             pending.get("liquidacion", 0), url_for("administracion_view", tab="pendiente", subtab="liquidacion")),
+             max(0, pending.get("liquidacion", 0) - promo_liq.get("liquidacion", 0)),
+             url_for("administracion_view", tab="pendiente", subtab="liquidacion")),
+            ("LIQUIDACIONES_PROMO", "Promoción sin pagos pendientes", "fa-microphone-lines",
+             promo_liq.get("liquidacion", 0), url_for("administracion_view", tab="pendiente", subtab="liquidacion")),
             ("LIQUIDACIONES", "Bolsas por cerrar", "fa-box-archive",
-             pending.get("cierre", 0), url_for("administracion_view", tab="pendiente", subtab="cierre")),
+             max(0, pending.get("cierre", 0) - promo_liq.get("cierre", 0)),
+             url_for("administracion_view", tab="pendiente", subtab="cierre")),
+            ("LIQUIDACIONES_PROMO", "Promoción por cerrar", "fa-box-archive",
+             promo_liq.get("cierre", 0), url_for("administracion_view", tab="pendiente", subtab="cierre")),
             ("ITA", "Altas e ITAs", "fa-id-card-clip",
              counts.get("altas", 0), url_for("administracion_view", tab="altas")),
             ("EMBARGOS", "Órdenes de embargo", "fa-gavel",
@@ -42726,6 +42787,9 @@ def tour_concert_link_existing(slug):
 # clave · etiqueta · icono · recurso de permiso con el que se corresponde
 ADMIN_RESPONSIBILITIES = [
     ("LIQUIDACIONES", "Liquidar bolsas", "fa-scale-balanced", "administracion"),
+    # Una bolsa de PROMOCIÓN sin nada que pagar solo hay que revisarla y cerrarla: es otro trabajo
+    # (y otra persona) que liquidar una bolsa con pagos pendientes.
+    ("LIQUIDACIONES_PROMO", "Liquidar gastos de promoción sin pagos pendientes", "fa-microphone-lines", "administracion"),
     ("FACTURAS_SOLICITADAS", "Facturas pedidas a proveedores", "fa-file-invoice", "administracion"),
     ("PAGOS", "Pagos pendientes", "fa-money-bill-transfer", "administracion"),
     ("GASTOS_OFICINA", "Validar gastos de oficina", "fa-building-columns", "administracion"),
@@ -44092,6 +44156,14 @@ def _resolve_request_resource_key() -> str | None:
     # Marketing: "promotion_create" no empieza por "promo_". Todo lo nuevo de promoción se llama
     # `promo_*` justamente para heredar el permiso de su sección sin mapear uno a uno.
     if endpoint == "promo_view" or endpoint.startswith("promo_"):
+        # ABRIR la ficha de una promoción lo tiene que poder hacer también quien la produce o quien
+        # viaja con el artista, que no tienen por qué tener la sección de Promoción (mismo criterio
+        # que `_activity_read_resource_key` con las actividades). Modificar sigue exigiendo `promo`:
+        # los endpoints de escritura comprueban `can_edit_promo()` por dentro.
+        if endpoint == "promo_detail_view" and request.method == "GET":
+            for clave in ("promo", "produccion", "promocion", "administracion"):
+                if has_access_key(clave, include_descendants=True):
+                    return clave
         return "promo"
     if endpoint == "diseno_view" or endpoint.startswith("diseno_peticion"):
         return "diseno"
@@ -45177,6 +45249,14 @@ def inject_personnel_globals():
                                and "_home_admin_pending" in globals()
                                and has_access_key("administracion", include_descendants=True) else []),
         "HOME_MY_EXPENSES": _home_my_expenses_summary() if request.endpoint == "home" and session.get("user_id") and "_home_my_expenses_summary" in globals() else {"rows": [], "overdue": 0, "total": 0},
+        # Promoción: lo que se está gestionando (a promoción y a quien viaja con el artista) y los
+        # avisos de cambios/cancelaciones para quien la produce.
+        "HOME_PROMO_TASKS": (_home_promo_tasks()
+                             if request.endpoint == "home" and session.get("user_id")
+                             and "_home_promo_tasks" in globals() else []),
+        "HOME_PROMO_ALERTS": (_home_promo_alerts()
+                              if request.endpoint == "home" and session.get("user_id")
+                              and "_home_promo_alerts" in globals() else []),
         # Carteles que subió esta persona y diseño ha rechazado (con la nota de qué cambiar).
         "HOME_ARTWORK_REJECTED": (_home_artwork_rejected()
                                   if request.endpoint == "home" and session.get("user_id")
@@ -45341,6 +45421,10 @@ SUPPORT_ACTION_ENDPOINTS = {
     # Pedirle a alguien un documento (carnet de conducir, o el DNI/pasaporte caducado): es una
     # herramienta transversal, se usa desde la ficha del tercero y desde la del personal.
     "person_doc_request_send",
+    # PEDIR promoción la puede hacer cualquiera de la empresa (como el resto de peticiones); quien la
+    # gestiona es promoción. Y dar por visto un aviso lo hace su destinatario (producción), que no
+    # tiene por qué tener la sección: el propio endpoint comprueba que el aviso es suyo.
+    "promo_peticion_create", "promo_alert_read",
     # Alta rápida de entidades (modales superpuestos: quick_create.js)
     "api_create_artist", "api_create_promoter", "api_create_venue", "api_create_ticketer",
     "api_create_publishing_company", "api_create_media_outlet", "api_media_contact_create",
@@ -47387,7 +47471,9 @@ PROMO_STATUS_META = {
     "HABLADO": ("Hablada", "text-bg-secondary"),
     "RESERVADO": ("Reservada", "text-bg-info text-dark"),
     "CONFIRMADO": ("Confirmada", "text-bg-success"),
+    "CANCELADO": ("Cancelada", "text-bg-danger"),
 }
+# El orden de los botones de estado (cancelar va aparte, con su propio botón y su aviso).
 PROMO_STATUS_ORDER = ["BORRADOR", "HABLADO", "RESERVADO", "CONFIRMADO"]
 
 # Icono por tipo de medio (`MEDIA_TYPES`), para que la hoja de ruta y los listados se lean de un
@@ -48354,6 +48440,7 @@ def promo_activity_save(promotion_id):
             activity = (session_db.query(PromotionActivity)
                         .filter(PromotionActivity.id == to_uuid(activity_id),
                                 PromotionActivity.promotion_id == promotion.id).first())
+        antes = None
         if activity is None:
             audit = _bag_current_user_audit() if "_bag_current_user_audit" in globals() else {"user_id": None, "nick": None}
             activity = PromotionActivity(promotion_id=promotion.id, activity_kind="PROMOCION",
@@ -48362,7 +48449,21 @@ def promo_activity_save(promotion_id):
                                          created_by_nick=audit.get("nick"))
             session_db.add(activity)
             session_db.flush()
+        else:
+            # Lo que le importa a producción: si cambia, hay que avisarle.
+            antes = {
+                "date": getattr(activity, "activity_date", None),
+                "start": (getattr(activity, "start_time", None) or "").strip(),
+                "end": (getattr(activity, "end_time", None) or "").strip(),
+                "place": " · ".join([x for x in [(getattr(activity, "location_name", None) or "").strip(),
+                                                 (getattr(activity, "location_address", None) or "").strip()] if x]),
+            }
         _promo_apply_activity_form(session_db, promotion, activity, request.form)
+        if antes is not None:
+            cambios = _promo_activity_change_summary(antes, activity)
+            if cambios:
+                _promo_alert_add(session_db, promotion, activity, "CHANGE",
+                                 f"Cambia «{_promo_activity_title(activity) or _promo_title(promotion)}» — {cambios}")
         promotion.updated_at = _now_madrid()
         session_db.commit()
         flash("Promoción guardada." if activity_id else "Promoción añadida.", "success")
@@ -48468,6 +48569,564 @@ def promo_api_media_meta(media_id):
             "contacts": contacts,
             "locations": _promo_media_locations_payload(session_db, [media.id]),
         })
+    finally:
+        session_db.close()
+
+
+# --------------- Bolsa de una promoción: quién la cierra y a quién le llega -----------------------
+def _promo_for_bag(session_db, bag):
+    """La promoción de una bolsa (si la bolsa es de una promoción de prensa)."""
+    if not bag or (getattr(bag, "linked_type", None) or "").strip().upper() != "PROMOTION":
+        return None
+    try:
+        row = session_db.get(Promotion, bag.linked_id) if getattr(bag, "linked_id", None) else None
+    except Exception:
+        row = None
+    return row if (row is not None and _promo_is_promo(row)) else None
+
+
+def _promo_bag_closer_ids(promotion) -> set:
+    """Quién puede CERRAR la bolsa y mandarla a liquidación.
+
+    Si la promoción lleva producción, la cierra quien la esté produciendo (es quien gestiona los
+    gastos). Si no, la cierra promoción o **la persona que viaja con el artista**."""
+    ids = set()
+    if bool(getattr(promotion, "production_needed", False)):
+        if getattr(promotion, "production_owner_user_id", None):
+            ids.add(str(promotion.production_owner_user_id))
+        return ids
+    if (getattr(promotion, "escort_kind", None) or "NONE").strip().upper() == "USER" and getattr(promotion, "escort_user_id", None):
+        ids.add(str(promotion.escort_user_id))
+    if getattr(promotion, "created_by_user_id", None):
+        ids.add(str(promotion.created_by_user_id))
+    return ids
+
+
+def _promo_bag_can_close(session_db, bag) -> bool:
+    """¿Puede el usuario actual cerrar ESTA bolsa de promoción? Dirección y administración siempre."""
+    promotion = _promo_for_bag(session_db, bag)
+    if promotion is None:
+        return True                       # no es una bolsa de promoción: como siempre
+    if is_master() or has_access_key("administracion", include_descendants=True):
+        return True
+    uid = str(session.get("user_id") or "")
+    if uid and uid in _promo_bag_closer_ids(promotion):
+        return True
+    # Con producción de por medio manda producción; si no, promoción.
+    if bool(getattr(promotion, "production_needed", False)):
+        return has_access_key("produccion", edit=True, include_descendants=True)
+    return can_edit_promo()
+
+
+def _bag_has_pending_payments(session_db, bag) -> bool:
+    """¿Queda algo por PAGAR en la bolsa? (lo que ya se pagó con tarjeta/Pleo no cuenta)."""
+    rows = (session_db.query(BagExpense)
+            .filter(BagExpense.bag_id == bag.id, BagExpense.status != "ELIMINADO").all())
+    for exp in rows:
+        estado = (getattr(exp, "payment_status", None) or "NO_PAGADO").strip().upper()
+        if estado not in {"PAGADO", "NO_APLICA"}:
+            return True
+    return False
+
+
+def _bag_liquidation_responsibility(session_db, bag) -> str:
+    """Qué responsabilidad de administración le toca a esta liquidación.
+
+    Una bolsa de PROMOCIÓN **sin pagos pendientes** es un caso aparte (no hay que pagar a nadie, solo
+    revisar y cerrar), así que va a su propia categoría; el resto, a «Liquidar bolsas»."""
+    promotion = _promo_for_bag(session_db, bag)
+    if promotion is not None and not _bag_has_pending_payments(session_db, bag):
+        return "LIQUIDACIONES_PROMO"
+    return "LIQUIDACIONES"
+
+
+# --------------- Lo gastado en una promoción, en la ficha del artista y del lanzamiento -----------
+def _promo_spend_rows(session_db, *, artist_id=None, subject_type=None, subject_id=None) -> dict:
+    """Gasto de promoción YA LIQUIDADO (bolsa cerrada por administración) que se le imputa a un
+    artista o a lo que se promocionaba (single, disco…).
+
+    ⚠️ Un mismo gasto sale en la ficha del ARTISTA y, si la promoción era de una canción o un disco,
+    también en la de esa canción o disco: es el mismo dinero visto desde dos sitios, así que cada
+    consulta devuelve su propio total y **no se suman entre sí**."""
+    query = (session_db.query(Promotion)
+             .filter(func.upper(func.coalesce(Promotion.kind, 'MARKETING')) == PROMO_KIND)
+             .filter(Promotion.bag_id.isnot(None)))
+    if subject_type and subject_id:
+        query = query.filter(Promotion.subject_type == (subject_type or "").strip().upper())
+        try:
+            query = query.filter(Promotion.subject_id == to_uuid(str(subject_id)))
+        except Exception:
+            return {"rows": [], "total": Decimal("0")}
+    promos = query.order_by(Promotion.starts_on.desc().nullslast()).limit(400).all()
+    if artist_id:
+        key = str(artist_id)
+        promos = [p for p in promos if key in set(_promotion_normalized_artist_ids(getattr(p, "artist_ids", None) or []))]
+    if not promos:
+        return {"rows": [], "total": Decimal("0")}
+    bag_ids = [p.bag_id for p in promos if getattr(p, "bag_id", None)]
+    bags = {}
+    if bag_ids:
+        for bag in session_db.query(WorkflowBag).filter(WorkflowBag.id.in_(bag_ids)).all():
+            bags[str(bag.id)] = bag
+    rows, total = [], Decimal("0")
+    for promo in promos:
+        bag = bags.get(str(getattr(promo, "bag_id", "")))
+        # Solo lo LIQUIDADO: mientras la bolsa esté abierta no es un gasto cerrado.
+        if bag is None or (getattr(bag, "liquidation_status", None) or "").strip().upper() != "CERRADA":
+            continue
+        importe = Decimal("0")
+        for exp in (session_db.query(BagExpense)
+                    .filter(BagExpense.bag_id == bag.id, BagExpense.status != "ELIMINADO").all()):
+            importe += _money_or_zero(getattr(exp, "amount_gross", 0))
+        if not importe:
+            continue
+        total += importe
+        snap = dict(getattr(promo, "snapshot", None) or {})
+        rows.append({
+            "id": str(promo.id),
+            "title": _promo_title(promo),
+            "subject_label": (snap.get("title") or "").strip(),
+            "date_label": (promo.starts_on or promo.target_date).strftime("%d/%m/%Y") if (promo.starts_on or promo.target_date) else "",
+            "amount_gross": importe,
+            "bag_url": url_for("bag_detail_view", bag_id=bag.id),
+            "detail_url": url_for("promo_detail_view", promotion_id=promo.id),
+        })
+    return {"rows": rows, "total": total}
+
+
+# --------------- Tareas de la promoción (Inicio) --------------------------------------------------
+def _promo_task_is_open(promotion, bag) -> bool:
+    """¿Sigue siendo trabajo? Deja de serlo cuando la bolsa se cierra y se manda a liquidación."""
+    if (getattr(promotion, "status", None) or "ACTIVE").strip().upper() != "ACTIVE":
+        return False
+    if (getattr(promotion, "promo_status", None) or "").strip().upper() == "CANCELADO":
+        return False
+    if bag is not None and (getattr(bag, "status", None) or "").strip().upper() in {"CERRADA", "ARCHIVADA"}:
+        return False
+    return True
+
+
+def _promo_last_day(promotion) -> "date | None":
+    return (getattr(promotion, "ends_on", None) or getattr(promotion, "starts_on", None)
+            or getattr(promotion, "target_date", None))
+
+
+def _home_promo_tasks(limit: int = 12) -> list:
+    """«Tus tareas» de una promoción.
+
+    Le sale a PROMOCIÓN mientras se está gestionando y a **la persona que viaja** con el artista.
+    Si la promoción lleva PRODUCCIÓN, a esos dos les desaparece **al día siguiente** de terminar (a
+    partir de ahí el trabajo es de producción); la bolsa sigue estando en «Mis gastos» por si hay que
+    asignar algo. Sin producción, se queda hasta que se cierra la bolsa y se manda a liquidación."""
+    uid = session.get("user_id")
+    if not uid:
+        return []
+    s = db()
+    try:
+        soy_promocion = can_edit_promo() or has_access_key("promo", include_descendants=True)
+        rows = (s.query(Promotion)
+                .filter(func.upper(func.coalesce(Promotion.kind, 'MARKETING')) == PROMO_KIND)
+                .filter(func.upper(func.coalesce(Promotion.status, 'ACTIVE')) == 'ACTIVE')
+                .order_by(Promotion.starts_on.asc().nullslast()).limit(120).all())
+        bag_ids = [r.bag_id for r in rows if getattr(r, "bag_id", None)]
+        bags = {}
+        if bag_ids:
+            for bag in s.query(WorkflowBag).filter(WorkflowBag.id.in_(bag_ids)).all():
+                bags[str(bag.id)] = bag
+        hoy = today_local()
+        out = []
+        for promo in rows:
+            bag = bags.get(str(getattr(promo, "bag_id", "")))
+            if not _promo_task_is_open(promo, bag):
+                continue
+            es_acompanante = ((promo.escort_kind or "NONE").strip().upper() == "USER"
+                              and str(promo.escort_user_id or "") == str(uid))
+            if not (soy_promocion or es_acompanante):
+                continue
+            # Con producción de por medio, a promoción y al acompañante se les cae al día siguiente.
+            if bool(getattr(promo, "production_needed", False)):
+                fin = _promo_last_day(promo)
+                if fin and hoy > fin:
+                    continue
+            artists = _artists_from_ids(s, _promotion_normalized_artist_ids(getattr(promo, "artist_ids", None) or []))
+            when = getattr(promo, "starts_on", None) or getattr(promo, "target_date", None)
+            out.append({
+                "id": str(promo.id),
+                "title": _promo_title(promo),
+                "artist_name": _artist_label_from_rows(artists),
+                "artist_photo": ((getattr(artists[0], "photo_url", None) or "") if artists else ""),
+                "date_label": when.strftime("%d/%m/%Y") if when else "Sin fecha",
+                "status_label": _promo_status_meta(getattr(promo, "promo_status", None))[0],
+                "status_badge": _promo_status_meta(getattr(promo, "promo_status", None))[1],
+                "role": "Acompañas al artista" if es_acompanante else "Promoción",
+                "needs_bag_close": bool(bag is not None and (bag.status or "ACTIVA").upper() == "ACTIVA"
+                                        and str(uid) in _promo_bag_closer_ids(promo)),
+                "bag_url": (url_for("bag_detail_view", bag_id=promo.bag_id) if getattr(promo, "bag_id", None) else ""),
+                "url": url_for("promo_detail_view", promotion_id=promo.id),
+            })
+            if len(out) >= limit:
+                break
+        return out
+    except Exception:
+        return []
+    finally:
+        s.close()
+
+
+# --------------- Avisos de cambio / cancelación a producción --------------------------------------
+def _promo_alert_add(session_db, promotion, activity, kind: str, message: str) -> None:
+    """Deja el aviso a quien lleva la producción de la promoción (si hay alguien)."""
+    target = getattr(promotion, "production_owner_user_id", None)
+    if not target or not bool(getattr(promotion, "production_needed", False)):
+        return
+    state = _current_user_state()
+    # No avisarse a uno mismo: quien hace el cambio ya lo sabe.
+    if str(target) == str(state.get("user_id") or ""):
+        return
+    session_db.add(PromotionAlert(
+        promotion_id=promotion.id,
+        activity_id=getattr(activity, "id", None),
+        kind=(kind or "CHANGE").strip().upper(),
+        message=message[:1000],
+        target_user_id=target,
+        created_by_nick=(state.get("nick") or state.get("email") or "").strip() or None,
+    ))
+
+
+def _promo_activity_change_summary(before: dict, activity) -> str:
+    """Qué ha cambiado de lo que le importa a producción: día, hora y sitio."""
+    after = {
+        "date": getattr(activity, "activity_date", None),
+        "start": (getattr(activity, "start_time", None) or "").strip(),
+        "end": (getattr(activity, "end_time", None) or "").strip(),
+        "place": " · ".join([x for x in [(getattr(activity, "location_name", None) or "").strip(),
+                                         (getattr(activity, "location_address", None) or "").strip()] if x]),
+    }
+    bits = []
+    if before.get("date") != after["date"]:
+        antes = before["date"].strftime("%d/%m/%Y") if before.get("date") else "sin fecha"
+        ahora = after["date"].strftime("%d/%m/%Y") if after["date"] else "sin fecha"
+        bits.append(f"fecha: {antes} → {ahora}")
+    if (before.get("start") or "") != after["start"] or (before.get("end") or "") != after["end"]:
+        antes = " - ".join([x for x in [before.get("start"), before.get("end")] if x]) or "sin hora"
+        ahora = " - ".join([x for x in [after["start"], after["end"]] if x]) or "sin hora"
+        bits.append(f"hora: {antes} → {ahora}")
+    if (before.get("place") or "") != after["place"]:
+        bits.append(f"sitio: {before.get('place') or 'sin sitio'} → {after['place'] or 'sin sitio'}")
+    return "; ".join(bits)
+
+
+def _home_promo_alerts(limit: int = 10) -> list:
+    """Avisos sin leer de promociones que produce esta persona."""
+    uid = session.get("user_id")
+    if not uid:
+        return []
+    s = db()
+    try:
+        rows = (s.query(PromotionAlert)
+                .options(joinedload(PromotionAlert.promotion))
+                .filter(PromotionAlert.target_user_id == to_uuid(str(uid)))
+                .filter(PromotionAlert.read_at.is_(None))
+                .order_by(PromotionAlert.created_at.desc()).limit(limit).all())
+        out = []
+        for row in rows:
+            promo = getattr(row, "promotion", None)
+            out.append({
+                "id": str(row.id),
+                "kind": (row.kind or "CHANGE").upper(),
+                "message": (row.message or "").strip(),
+                "title": _promo_title(promo) if promo is not None else "Promoción",
+                "by": (row.created_by_nick or "").strip(),
+                "when_label": row.created_at.strftime("%d/%m/%Y %H:%M") if row.created_at else "",
+                "url": (url_for("promo_detail_view", promotion_id=row.promotion_id) if row.promotion_id else ""),
+            })
+        return out
+    except Exception:
+        return []
+    finally:
+        s.close()
+
+
+@app.post("/promocion-prensa/avisos/<alert_id>/leido", endpoint="promo_alert_read")
+@admin_required
+def promo_alert_read(alert_id):
+    """Marcar un aviso como visto (solo su destinatario)."""
+    next_url = safe_next_or(request.form.get("next") or url_for("home"))
+    session_db = db()
+    try:
+        row = session_db.get(PromotionAlert, to_uuid(alert_id))
+        if row is not None and str(row.target_user_id or "") == str(session.get("user_id") or ""):
+            row.read_at = _now_madrid()
+            session_db.commit()
+    except Exception:
+        session_db.rollback()
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.post("/promocion-prensa/<promotion_id>/cancelar", endpoint="promo_cancel")
+@admin_required
+def promo_cancel(promotion_id):
+    """Cancelar una promoción: se avisa a quien la estuviera produciendo."""
+    if not can_edit_promo():
+        return forbid("No tienes permisos para cancelar promociones.")
+    next_url = safe_next_or(request.form.get("next") or url_for("promo_detail_view", promotion_id=promotion_id))
+    reason = (request.form.get("reason") or "").strip()
+    session_db = db()
+    try:
+        promotion = _promo_or_404(session_db, promotion_id)
+        if not promotion:
+            flash("Promoción no encontrada.", "warning")
+            return redirect(url_for("promo_view"))
+        promotion.promo_status = "CANCELADO"
+        promotion.updated_at = _now_madrid()
+        for row in (session_db.query(PromotionActivity)
+                    .filter(PromotionActivity.promotion_id == promotion.id)
+                    .filter(func.upper(func.coalesce(PromotionActivity.activity_kind, '')) == 'PROMOCION').all()):
+            row.status = "CANCELADO"
+            row.updated_at = _now_madrid()
+            _promo_roadmap_sync_item(session_db, promotion, row)
+        _promo_alert_add(session_db, promotion, None, "CANCELLED",
+                         f"Se ha CANCELADO «{_promo_title(promotion)}»" + (f": {reason}" if reason else "."))
+        session_db.commit()
+        flash("Promoción cancelada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo cancelar: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+# --------------- Permisos de la sección: se le dan al departamento de Promoción -------------------
+def _promo_access_seed() -> None:
+    """Da acceso a «Promoción» a quien está en ese departamento, una sola vez.
+
+    La sección es nueva y los recursos nuevos nacen DESACTIVADOS, así que sin esto el equipo de
+    promoción no vería lo suyo hasta que dirección fuese tocando permisos uno a uno. Dirección (role
+    10) no lo necesita: ya lo ve todo."""
+    session_db = db()
+    try:
+        if _get_app_setting("promo_access_seed_v1"):
+            return
+        resource = session_db.get(UserAccessResource, "promo")
+        if resource is None:
+            return                                   # aún no se ha sincronizado el catálogo
+        fuera = _inactive_user_ids(session_db)
+        tocados = 0
+        for user, profile in (session_db.query(User, UserProfile)
+                              .join(UserProfile, UserProfile.user_id == User.id).all()):
+            if user.id in fuera:
+                continue
+            deps = [str(d).strip().lower() for d in (getattr(profile, "departments", None) or [])]
+            if "promoción" not in deps and "promocion" not in deps:
+                continue
+            grant = (session_db.query(UserAccessGrant)
+                     .filter(UserAccessGrant.user_id == user.id, UserAccessGrant.resource_key == "promo").first())
+            if grant is None:
+                grant = UserAccessGrant(user_id=user.id, resource_key="promo")
+                session_db.add(grant)
+            if not (grant.can_view_basic and grant.can_edit):
+                grant.can_view_basic = True
+                grant.can_edit = True
+                tocados += 1
+        session_db.commit()
+        _set_app_setting("promo_access_seed_v1", "1")
+        if tocados:
+            app.logger.info("Promoción: acceso concedido a %s persona(s) del departamento.", tocados)
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.warning("No se pudo sembrar el acceso a Promoción: %s", exc)
+    finally:
+        session_db.close()
+
+
+# --------------- Peticiones de PROMOCIÓN (las crea cualquiera; las gestiona promoción) ------------
+PROMO_REQUEST_KINDS = [
+    ("ENTREVISTA", "Entrevista", "fa-microphone-lines"),
+    ("JUNT", "Junt de prensa", "fa-users-rectangle"),
+    ("PHONER", "Phoner", "fa-phone-volume"),
+    ("ACTUACION", "Actuación en un programa", "fa-guitar"),
+    ("SESION", "Sesión de fotos o vídeo", "fa-camera"),
+    ("OTRA", "Otra cosa", "fa-asterisk"),
+]
+PROMO_REQUEST_KIND_LABELS = {k: l for k, l, _i in PROMO_REQUEST_KINDS}
+
+
+@app.post("/promocion-prensa/peticiones/crear", endpoint="promo_peticion_create")
+@admin_required
+def promo_peticion_create():
+    """Petición de promoción: la puede crear CUALQUIERA de la empresa (no hace falta tener la
+    sección), como el resto de peticiones. Va a la bandeja de Promoción."""
+    next_url = safe_next_or(request.form.get("next") or url_for("promo_view"))
+    session_db = db()
+    try:
+        subject_kind = (request.form.get("subject_kind") or "ARTIST").strip().upper()
+        subject_id = (request.form.get("subject_id") or "").strip()
+        if not subject_id:
+            flash("Dinos de qué artista o evento es la promoción.", "warning")
+            return redirect(next_url)
+        promo_kind = (request.form.get("promo_kind") or "ENTREVISTA").strip().upper()
+        if promo_kind not in PROMO_REQUEST_KIND_LABELS:
+            promo_kind = "OTRA"
+        media_id = _safe_uuid(request.form.get("media_id")) if (request.form.get("media_id") or "").strip() else None
+        media = session_db.get(MediaOutlet, media_id) if media_id else None
+
+        row = BookingRequest(status="NUEVA", source="OTRO")
+        artist = None
+        event = None
+        if subject_kind == "EVENT":
+            event = session_db.get(AppEvent, to_uuid(subject_id))
+        else:
+            artist = session_db.get(Artist, to_uuid(subject_id))
+            if artist is not None:
+                row.artist_id = artist.id
+                row.artist_ids = [str(artist.id)]
+        if artist is None and event is None:
+            flash("No se ha encontrado el artista o el evento.", "warning")
+            return redirect(next_url)
+
+        kind = (request.form.get("date_kind") or "EXACT").strip().upper()
+        payload_dates = {}
+        if kind == "EXACT":
+            row.requested_date = parse_optional_date(request.form.get("requested_date"))
+            if not row.requested_date:
+                kind = "UNKNOWN"
+        if kind == "RANGE":
+            desde = (request.form.get("range_start") or "").strip()
+            hasta = (request.form.get("range_end") or "").strip()
+            payload_dates = {"range_start": desde, "range_end": hasta}
+            row.date_text = f"Franja: {desde or '?'} → {hasta or '?'}"
+        elif kind == "UNKNOWN":
+            row.date_text = "Fecha sin definir"
+
+        sujeto = (getattr(artist, "name", None) or getattr(event, "name", None) or "").strip()
+        row.subject = " · ".join([x for x in [PROMO_REQUEST_KIND_LABELS.get(promo_kind, "Promoción"), sujeto,
+                                              (getattr(media, "name", None) or "")] if x])[:500]
+        row.notes = (request.form.get("description") or "").strip() or None
+        row.municipality = (request.form.get("place") or "").strip() or None
+        row.contact_name = (request.form.get("contact_name") or "").strip() or None
+        row.contact_email = (request.form.get("contact_email") or "").strip() or None
+        row.contact_phone = (request.form.get("contact_phone") or "").strip() or None
+
+        state = _current_user_state()
+        if not row.contact_name:
+            row.contact_name = (state.get("nick") or state.get("email") or "").strip() or None
+        row.payload = {
+            # ⚠️ El reparto va SIEMPRE en payload['departments'] (lista); lo lee `_booking_in_department`.
+            "departments": ["PROMO"],
+            "origin": "PROMOCION",
+            "promo_request": True,
+            "promo_kind": promo_kind,
+            "subject_kind": subject_kind,
+            "subject_id": subject_id,
+            "media_id": str(media.id) if media is not None else "",
+            "media_name": (getattr(media, "name", None) or ""),
+            "program_name": (request.form.get("program_name") or "").strip(),
+            "place": row.municipality or "",
+            "date_kind": kind,
+            "description": row.notes or "",
+            **payload_dates,
+        }
+        row.created_by_user_id = to_uuid(state.get("user_id")) if state.get("user_id") else None
+        row.created_by_nick = (state.get("nick") or state.get("email") or "").strip() or None
+        session_db.add(row)
+        session_db.commit()
+        flash("Petición de promoción enviada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo crear la petición: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.post("/promocion-prensa/peticiones/<request_id>/crear-promocion", endpoint="promo_from_request")
+@admin_required
+def promo_from_request(request_id):
+    """Convierte una petición de promoción en una promoción de verdad, con lo que ya venía puesto.
+    Nace en BORRADOR (todavía no ocupa sitio en el calendario) para que promoción la termine."""
+    if not can_edit_promo():
+        return forbid("No tienes permisos para crear promociones.")
+    next_url = safe_next_or(request.form.get("next") or url_for("promo_view"))
+    session_db = db()
+    try:
+        peticion = session_db.get(BookingRequest, to_uuid(request_id))
+        if peticion is None:
+            flash("Petición no encontrada.", "warning")
+            return redirect(next_url)
+        payload = dict(getattr(peticion, "payload", None) or {})
+        subject_kind = (payload.get("subject_kind") or "ARTIST").strip().upper()
+        subject_id = (payload.get("subject_id") or "").strip()
+        artist_ids = []
+        if subject_kind == "EVENT" and subject_id:
+            snapshot_type, snapshot_id = "EVENT", subject_id
+        else:
+            snapshot_type = "ARTIST"
+            snapshot_id = subject_id or (str(peticion.artist_id) if peticion.artist_id else "")
+            if snapshot_id:
+                artist_ids = [snapshot_id]
+        snapshot = _promotion_request_snapshot_from_source(session_db, snapshot_type, snapshot_id,
+                                                           manual_artist_ids=artist_ids)
+        if not snapshot:
+            flash("La petición no dice de qué artista o evento es.", "warning")
+            return redirect(next_url)
+        if not artist_ids:
+            artist_ids = _promotion_normalized_artist_ids(snapshot.get("artist_ids") or [])
+        state = _current_user_state()
+        cuando = getattr(peticion, "requested_date", None)
+        promotion = Promotion(
+            kind=PROMO_KIND,
+            promo_status="BORRADOR",
+            subject_type=snapshot_type,
+            subject_id=to_uuid(snapshot_id) if snapshot_id else None,
+            artist_ids=artist_ids,
+            snapshot=snapshot,
+            objectives_notes=(payload.get("description") or getattr(peticion, "notes", None) or "").strip() or None,
+            request_kind="ACTION",
+            action_types=[],
+            budget_mode="REQUEST_BUDGET",
+            budget_by_action={},
+            starts_on=cuando,
+            ends_on=cuando,
+            target_date=cuando,
+            status="ACTIVE",
+            created_by_user_id=to_uuid(state.get("user_id")) if state.get("user_id") else None,
+            created_by_nick=(state.get("nick") or state.get("email") or "").strip() or None,
+        )
+        session_db.add(promotion)
+        session_db.flush()
+        _ensure_promo_bag(session_db, promotion)
+        # La entrevista con lo poco o mucho que traía la petición.
+        activity = PromotionActivity(
+            promotion_id=promotion.id,
+            activity_kind="PROMOCION",
+            activity_date=cuando or today_local(),
+            status="BORRADOR",
+            media_id=(to_uuid(payload.get("media_id")) if (payload.get("media_id") or "").strip() else None),
+            task_description=(payload.get("description") or "").strip() or None,
+            location_name=(payload.get("place") or "").strip() or None,
+            details_json={"program_name": (payload.get("program_name") or "").strip() or None,
+                          "from_request_id": str(peticion.id)},
+            created_by_user_id=promotion.created_by_user_id,
+            created_by_nick=promotion.created_by_nick,
+        )
+        session_db.add(activity)
+        session_db.flush()
+        _promo_roadmap_sync_item(session_db, promotion, activity)
+        peticion.status = "CONVERTIDA"
+        peticion.updated_at = _now_madrid()
+        pay = dict(getattr(peticion, "payload", None) or {})
+        pay["promotion_id"] = str(promotion.id)
+        peticion.payload = pay
+        session_db.commit()
+        flash("Promoción creada desde la petición.", "success")
+        return redirect(url_for("promo_detail_view", promotion_id=promotion.id))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo crear la promoción: {exc}", "danger")
+        return redirect(next_url)
     finally:
         session_db.close()
 
@@ -49858,6 +50517,12 @@ def administracion_view():
         _mias = set(_current_user_admin_responsibilities())
         admin_my_tabs = {k for k, r in ADMIN_TAB_RESPONSIBILITY.items() if r and r in _mias}
         admin_my_pending_tabs = {k for k, r in ADMIN_PENDING_TAB_RESPONSIBILITY.items() if r and r in _mias}
+        # Quien liquida las de PROMOCIÓN sin pagos pendientes trabaja en las mismas dos bandejas.
+        if "LIQUIDACIONES_PROMO" in _mias:
+            admin_my_pending_tabs |= {"liquidacion", "cierre"}
+        # Marca por fila: qué bolsas son «de promoción sin pagos pendientes».
+        admin_promo_bag_ids = (_admin_promo_bag_ids(session_db)
+                               if (tab == "pendiente" and pending_subtab in {"liquidacion", "cierre"}) else set())
         altas_ctx = _prl_admin_altas_context(session_db) if tab == "altas" else {"altas_rows": [], "altas_today": date.today()}
         royalty_invoice_rows = (_royalty_invoice_pending_rows(session_db)
                                 if (tab == "pendiente" and pending_subtab == "liquidacion") else [])
@@ -49876,6 +50541,7 @@ def administracion_view():
             ADMIN_BAG_CIERRE_STATUSES=ADMIN_BAG_CIERRE_STATUSES,
             admin_my_tabs=admin_my_tabs,
             admin_my_pending_tabs=admin_my_pending_tabs,
+            admin_promo_bag_ids=admin_promo_bag_ids,
             admin_list_limit=ADMIN_LIST_LIMIT,
             direct_pending=direct_pending,
             direct_no_invoice=direct_no_invoice,
@@ -52538,6 +53204,11 @@ def bag_close(bag_id):
         if not bag:
             flash("Bolsa no encontrada.", "warning")
             return redirect(url_for("bags_view"))
+        # En una bolsa de PROMOCIÓN manda quien la gestiona: producción si la promoción lleva
+        # producción y, si no, promoción o la persona que viaja con el artista.
+        if not _promo_bag_can_close(session_db, bag):
+            flash("Esta bolsa la cierra quien gestiona la promoción (producción, o promoción y quien acompaña al artista).", "warning")
+            return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag.id)))
         expenses = session_db.query(BagExpense).filter(BagExpense.bag_id == bag.id, BagExpense.status != "ELIMINADO").all()
         if not expenses:
             flash("No se puede cerrar una bolsa sin gastos.", "warning")
@@ -52546,13 +53217,17 @@ def bag_close(bag_id):
         if pending:
             flash("No se puede cerrar: hay gastos sin consolidar.", "warning")
             return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag.id)))
+        responsabilidad = _bag_liquidation_responsibility(session_db, bag)
         bag.status = "CERRADA"
         bag.closed_at = _now_madrid()
         bag.closed_by_user_id = _bag_current_user_audit()["user_id"]
         bag.liquidation_status = "PENDIENTE_ADMIN"
         bag.liquidation_requested_at = _now_madrid()
         session_db.commit()
-        flash("Bolsa cerrada y enviada a administración para liquidación.", "success")
+        if responsabilidad == "LIQUIDACIONES_PROMO":
+            flash("Bolsa cerrada. Como no queda nada por pagar, va a quien liquida los gastos de promoción.", "success")
+        else:
+            flash("Bolsa cerrada y enviada a administración para liquidación.", "success")
     finally:
         session_db.close()
     return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
@@ -56370,6 +57045,23 @@ def _artist_investment_rows(session_db, artist_id) -> dict:
             "file_url": (r.file_url or ""),
             "person": ((prof.nick if prof else "") or "").strip() or "",
             "paid": (r.payment_status or "").upper() == "PAGADO" or _personal_expense_is_prepaid(r),
+        })
+    # Lo gastado en PROMOCIÓN también es inversión en el artista: todo lo que se le imputa aparece
+    # aquí, aunque además se vea en la ficha del single o del disco que se promocionaba (allí es el
+    # mismo dinero visto desde otro sitio; el total de cada pantalla cuenta cada gasto UNA vez).
+    promo = _promo_spend_rows(session_db, artist_id=aid)
+    for row in promo.get("rows") or []:
+        total += row["amount_gross"]
+        out.append({
+            "id": row["id"],
+            "concept": f"Promoción · {row['title']}" + (f" ({row['subject_label']})" if row.get("subject_label") else ""),
+            "provider_name": "",
+            "date_label": row["date_label"],
+            "amount_gross": row["amount_gross"],
+            "file_url": "",
+            "person": "",
+            "paid": True,
+            "promo_url": row["detail_url"],
         })
     return {"rows": out, "total": total}
 
@@ -71576,10 +72268,13 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
     # ---- Promoción de prensa (entrevistas y planes) ----
     # Un PLAN sale como UNA franja de principio a fin (es una tanda de promoción, no N eventos
     # sueltos); una promoción PUNTUAL sale como su entrevista, en su día.
+    # ⚠️ En BORRADOR no sale: una promoción está en borrador mientras es una petición o una idea, y
+    # lo que no está hablado/confirmado no puede ocupar un día en el calendario de nadie.
     promo_rows = (
         session_db.query(Promotion)
         .filter(func.upper(func.coalesce(Promotion.kind, 'MARKETING')) == PROMO_KIND)
         .filter(func.upper(func.coalesce(Promotion.status, 'ACTIVE')) == 'ACTIVE')
+        .filter(func.upper(func.coalesce(Promotion.promo_status, 'BORRADOR')).notin_(['BORRADOR', 'CANCELADO']))
         .all()
     )
     promo_ids = [p.id for p in promo_rows]

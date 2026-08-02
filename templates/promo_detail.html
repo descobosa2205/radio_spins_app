@@ -66,6 +66,17 @@
             </form>
           {% endfor %}
         </div>
+        {% if promotion_display.status != 'CANCELADO' %}
+          {# Cancelar avisa a quien la esté produciendo, por eso va aparte de los demás estados. #}
+          <form method="post" action="{{ url_for('promo_cancel', promotion_id=promotion.id) }}" class="mt-2"
+                onsubmit="return confirm('¿Cancelar la promoción? Se avisará a quien la esté produciendo.');">
+            <input type="hidden" name="next" value="{{ request.url }}">
+            <div class="input-group input-group-sm">
+              <input class="form-control" name="reason" placeholder="Motivo (opcional)">
+              <button class="btn btn-outline-danger"><i class="fa fa-ban me-1"></i>Cancelar</button>
+            </div>
+          </form>
+        {% endif %}
       </div>
     {% endif %}
   </div>

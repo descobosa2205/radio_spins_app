@@ -7,10 +7,16 @@
     <h4 class="mb-1">Contratación · Peticiones</h4>
     <div class="text-muted">Buzón de peticiones que llegan a la oficina. Regístralas y tramítalas hasta convertirlas en concierto.</div>
   </div>
-  {% if CAN_EDIT_CONCERTS %}
-  <button class="btn btn-primary" type="button" data-peticion-new><i class="fa fa-plus me-1"></i> Nueva petición</button>
-  {% endif %}
+  <div class="d-flex gap-2 flex-wrap">
+    {# Pedir PROMOCIÓN (prensa) lo puede hacer cualquiera de la empresa, y es un asistente corto
+       aparte: no tiene nada que ver con una petición de contratación. #}
+    <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#promoPeticionModal"><i class="fa fa-microphone-lines me-1"></i> Pedir promoción</button>
+    {% if CAN_EDIT_CONCERTS %}
+    <button class="btn btn-primary" type="button" data-peticion-new><i class="fa fa-plus me-1"></i> Nueva petición</button>
+    {% endif %}
+  </div>
 </div>
+{% include '_promo_peticion_modal.html' %}
 
 {# Filtros: por defecto Pendientes; Archivadas = aprobadas/descartadas #}
 <div class="d-flex gap-2 flex-wrap mb-3">

@@ -558,6 +558,38 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (`registros_promo_declare`).
   · **Dónde se ve**: `_promo_rows_for_subject` + `_promo_entity_panel.html` en la ficha de
   canción, disco, artista y concierto.
+  · **Peticiones de promoción**: las crea **cualquiera** de la empresa (asistente corto propio
+  `_promo_peticion_modal.html`, botón «Pedir promoción» en Contratación → Peticiones y «Nueva
+  petición» en la sección Promoción): de quién es (artista o evento) · qué se pide
+  (`PROMO_REQUEST_KINDS`) · medio · cuándo y dónde (las dos pueden no saberse) · quién la pide.
+  Es un `BookingRequest` con `payload['departments']=['PROMO']`; `promo_peticion_create` está en
+  `SUPPORT_ACTION_ENDPOINTS` porque no exige tener la sección. Promoción la gestiona y con **«Crear
+  la promoción»** (`promo_from_request`) la vuelca en una promoción de verdad, que nace en BORRADOR.
+  · **En BORRADOR no sale en el calendario** (ni las canceladas): una petición o un borrador no
+  ocupa el día de nadie hasta que promoción lo confirma.
+  · **Quién CIERRA la bolsa** (`_promo_bag_can_close` + `_promo_bag_closer_ids`): si la promoción
+  lleva producción, quien la produce; si no, promoción o **la persona que viaja con el artista**.
+  Al cerrar, `_bag_liquidation_responsibility` decide a quién de administración le llega: con pagos
+  pendientes a **LIQUIDACIONES**; **sin nada que pagar**, a la categoría nueva
+  **`LIQUIDACIONES_PROMO`** («Liquidar gastos de promoción sin pagos pendientes»), que se ve en el
+  módulo de Inicio y marca las bandejas de liquidación/cierre como suyas.
+  · **Cuando administración CIERRA la liquidación** (`liquidation_status='CERRADA'`) el gasto pasa a
+  contar: `_promo_spend_rows` lo enseña en la **inversión del artista** (`_artist_investment_rows`)
+  y, si la promoción era de un single o un disco, también en la ficha de ese lanzamiento. ⚠️ Es el
+  mismo dinero visto desde dos sitios: **cada pantalla lo cuenta una vez y los totales no se suman
+  entre sí**.
+  · **Tareas** (`_home_promo_tasks`, módulo de Inicio): le salen a promoción y a quien viaja con el
+  artista mientras se gestiona; desaparecen al cerrar la bolsa, y si la promoción lleva PRODUCCIÓN
+  se les caen **al día siguiente** de la última fecha (a partir de ahí es trabajo de producción).
+  La bolsa sigue en «Mis gastos» para poder asignar lo que falte.
+  · **Avisos a producción** (`PromotionAlert` + `_promo_alert_add` + módulo de Inicio
+  `HOME_PROMO_ALERTS`): si cambia la **fecha, la hora o el sitio** de una promoción, o si se
+  **cancela** (`promo_cancel`, estado `CANCELADO`), le salta el aviso a quien la esté produciendo,
+  con el antes → después. No se avisa a uno mismo.
+  · **Permisos**: la sección es `promo`. `_promo_access_seed` (una vez, marca `promo_access_seed_v1`)
+  se lo concede al departamento **Promoción**. **Abrir** la ficha de una promoción lo puede hacer
+  también producción/administración (regla de lectura en `_resolve_request_resource_key`, como
+  `_activity_read_resource_key` con las actividades); **editar** sigue exigiendo `promo`.
   · UI: asistente `_promo_wizard_modal.html` (pasos condicionales con `data-sw-when="PLAN|ACTION"`),
   campos compartidos con la ficha en **`_promo_activity_fields.html`** (macros: un solo sitio para
   los nombres de campo, que lee `_promo_apply_activity_form`), paneles condicionales y datos del

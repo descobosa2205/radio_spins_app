@@ -15,11 +15,18 @@
     {% if dept_key == 'PROMO' and can_edit_promocion %}
       <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#marketingCreateModal"><i class="fa fa-bullhorn me-1"></i> Marketing</button>
     {% endif %}
-    <button class="btn btn-outline-primary" type="button" data-peticion-new data-peticion-dept="{{ dept_key }}"><i class="fa fa-inbox me-1"></i> Nueva petición</button>
+    {% if dept_key == 'PROMO' %}
+      {# La petición de promoción tiene su propio asistente, mucho más corto. #}
+      <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#promoPeticionModal"><i class="fa fa-inbox me-1"></i> Nueva petición</button>
+    {% else %}
+      <button class="btn btn-outline-primary" type="button" data-peticion-new data-peticion-dept="{{ dept_key }}"><i class="fa fa-inbox me-1"></i> Nueva petición</button>
+    {% endif %}
   </div>
 </div>
 
 {% if dept_key == 'PROMO' %}
+  {# Pedir promoción lo puede hacer cualquiera; crearla y gestionarla, solo promoción. #}
+  {% include '_promo_peticion_modal.html' %}
   {% if can_edit_promo %}
     {% include '_promo_wizard_modal.html' %}
     <script src="{{ url_for('static', filename='js/promo.js', v=ASSET_V) }}"></script>
@@ -92,6 +99,10 @@
           <div class="dropdown">
             <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
             <ul class="dropdown-menu dropdown-menu-end">
+              {% if dept_key == 'PROMO' and can_edit_promo and p.status != 'CONVERTIDA' %}
+              <li><form method="post" action="{{ url_for('promo_from_request', request_id=p.id) }}"><input type="hidden" name="next" value="{{ request.full_path }}"><button class="dropdown-item text-primary"><i class="fa fa-microphone-lines fa-fw me-1"></i>Crear la promoción</button></form></li>
+              <li><hr class="dropdown-divider"></li>
+              {% endif %}
               {% if p.status not in ['EN_TRAMITE','CONVERTIDA','DESCARTADA'] %}
               <li><form method="post" action="{{ url_for('booking_request_status', rid=p.id) }}"><input type="hidden" name="next" value="{{ request.full_path }}"><input type="hidden" name="status" value="EN_TRAMITE"><button class="dropdown-item"><i class="fa fa-comments fa-fw me-1"></i>Marcar en negociación</button></form></li>
               {% endif %}

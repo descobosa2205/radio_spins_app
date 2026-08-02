@@ -449,6 +449,9 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   abiertas son las tareas de **Peticiones**. Se filtra por los **artistas asignados** del usuario
   (sin artistas asignados, o dirección, se ve todo). Una actividad que sale en dos pestañas (p. ej.
   un concierto de un ciclo) genera la tarea en las dos: `_contracting_activity_tabs`.
+  **Una fila por ACTIVIDAD, con TODAS sus tareas dentro** (`row["tasks"]`,
+  `_contracting_task_badge`): si a un concierto le faltan el contrato, el anuncio y mandarlo a
+  producción se ve en una sola línea, no en tres. El NÚMERO sigue contando tareas, no filas.
   **Cada pestaña se abre con el módulo «Tareas pendientes»** (`templates/_contracting_tasks.html`,
   clases `.ctask*`), con la estética que tenía el módulo de peticiones (tarjeta + filas de lista);
   **debajo** va el filtro propio de la pestaña con su número: artistas (Conciertos y Otras
@@ -1102,16 +1105,28 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `name`), **no** de una lista de paradas — `stops` queda solo como respaldo; `tax_rate` puede venir en
   % o en fracción y `parse_sale` lo normaliza. La **etiqueta** del viaje (`charge_code`) se guarda en
   `pleo_tags` para que se pinte igual que las de Pleo.
-  ⚠️ **JUSTIFICANTE POR VIAJE: lo generamos nosotros.** La API documentada NO expone ningún PDF
-  (comprobado endpoint por endpoint: `sales`, `user/{id}/sales`, `journey/{id}/sales` solo dan el
-  detalle económico), así que `_cabify_receipt_pdf` + `_cabify_attach_receipt` (app.py) crean un
-  **justificante de viaje** en el estilo de la casa (logo de la empresa arriba a la derecha, pastillas,
-  bloques de trayecto e importe) y lo suben a Storage `cabify/` → `PersonalExpense.file_url`, para que
-  el semáforo de factura de «Mis gastos» salga en verde. **NO es la factura fiscal** (esa es la mensual
-  que Cabify emite a la empresa); el propio PDF lo dice en el pie. Los viajes ya importados sin
-  justificante lo reciben en el siguiente sondeo (rama `skipped` de `_cabify_sync_account`, contador
-  `receipts`). Si Cabify publica algún día el documento por viaje, `CabifyClient.sale_receipt_url` lo
-  devuelve y se adjunta ese en su lugar (tiene prioridad); no hay nada más que tocar.
+  ⚠️ **JUSTIFICANTE POR VIAJE: lo generamos nosotros.** La API NO expone ningún PDF —verificado
+  (ago 2026) contra el esquema PUBLICADO de los tres endpoints que podrían traerlo: `sales`,
+  `user/{id}/sales` y `journey/{id}/sales` solo devuelven `code`, `invoice_date`, `price_details` y
+  el trayecto; `journey/{id}` tiene `public_url`, que es el seguimiento en vivo, no un recibo—, así
+  que `_cabify_receipt_pdf` + `_cabify_attach_receipt` (app.py) crean un **justificante de viaje** en
+  el estilo de la casa y lo suben a Storage `cabify/` → `PersonalExpense.file_url`. **NO es la
+  factura fiscal** (esa es la mensual que Cabify emite a la empresa); el pie del PDF lo dice.
+  `CabifyClient.sale_receipt_url` rebusca el documento **también anidado** (objetos y listas): el día
+  que Cabify lo publique se adjunta ese y se deja de generar el nuestro, sin tocar nada más.
+  ⚠️ **Los viajes ANTIGUOS no los rescata el sondeo**: solo mira una ventana móvil de días, así que
+  lo importado antes de que existiera el justificante nunca se vuelve a visitar y se quedaba con el
+  semáforo de factura en rojo para siempre. Para eso está **`_cabify_backfill_receipts`** (repasa
+  TODOS los que no tienen `file_url`, sin ventana y sin llamar a la API: reconstruye el documento con
+  lo ya guardado), que corre en el **arranque** con tope de 300 y marca `AppSetting`
+  (`_cabify_backfill_receipts_bg`) y tiene botón propio en Integraciones → Cabify.
+  ⚠️ **Un VIAJE puede generar VARIAS ventas** (el trayecto y sus SUPLEMENTOS: espera, peaje,
+  limpieza). Se agrupan por `journey_id` → **un gasto por viaje** con el total sumado
+  (`PersonalExpense.cabify_journey_id` + `cabify_sale_codes`, que evita sumar dos veces el mismo
+  suplemento); un suplemento que llegue en un sondeo posterior se suma al viaje, y si el gasto ya
+  está asignado se avisa en `sync_warning` en vez de tocarlo. El **concepto** lo construimos siempre
+  nosotros: `dd/mm/aaaa · Origen → Destino` (fecha en formato de España). La `description` de Cabify
+  **no se usa nunca**: es donde vienen los suplementos y ensucia la información.
 
 - ⚠️ **Subida de archivos GRANDES (audio, vídeo, PDF) a Storage**: `storage3` solo admite `bytes`,
   `BufferedReader`/`FileIO` o una **ruta**. El stream de una subida de Flask es un

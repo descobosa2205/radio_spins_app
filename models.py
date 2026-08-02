@@ -1969,6 +1969,13 @@ class PersonalExpense(Base):
     # Código de la venta en Cabify. Lleva índice UNIQUE (ver ensure_cabify_schema): es LA
     # garantía de que un viaje importado no se duplica, ni con dos sondeos a la vez.
     cabify_sale_code = Column(Text)
+    # VIAJE de Cabify al que pertenece. Un mismo viaje puede generar VARIAS ventas (el trayecto y
+    # sus suplementos: espera, peaje, limpieza…). El gasto es UNO por viaje, con el total sumado:
+    # así en «Mis gastos» se ve un viaje, no cuatro líneas sueltas.
+    cabify_journey_id = Column(Text)
+    # Códigos de venta ya sumados a este gasto: sin esto, volver a ver un suplemento en el siguiente
+    # sondeo lo sumaría otra vez.
+    cabify_sale_codes = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     concept = Column(Text)
     provider_name = Column(Text)
     expense_date = Column(Date)
@@ -8566,6 +8573,11 @@ def ensure_cabify_schema():
     _exec_ddl_statements([
         'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
         "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS cabify_sale_code text;",
+        # Un VIAJE de Cabify puede generar varias ventas (trayecto + suplementos): el gasto es uno
+        # por viaje, con el total sumado y la lista de ventas ya aplicadas.
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS cabify_journey_id text;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS cabify_sale_codes jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        "CREATE INDEX IF NOT EXISTS idx_personal_expenses_cabify_journey ON personal_expenses(cabify_journey_id);",
         # Gastos DIRECTOS (no van a ninguna bolsa): gasto de oficina o inversión en un artista.
         "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS direct_target text;",
         "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS direct_artist_id uuid REFERENCES artists(id) ON DELETE SET NULL;",

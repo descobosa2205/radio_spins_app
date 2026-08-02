@@ -28,10 +28,17 @@
 #   · Cada `sale` trae: `code`, `invoice_date`, `currency`, `price_details{total, discount,
 #     tax_rate, tax_type}` (importes en CÉNTIMOS, con impuestos) y `concept.type_object` con los
 #     datos del viaje (descripción, start_at/end_at y paradas con dirección).
-#   ⚠️ La API documentada NO expone un PDF de factura/recibo por viaje. Se importa el gasto con todo
-#     su detalle fiscal (nº de venta, fecha, base, IVA y total), pero el justificante en PDF hay que
-#     seguir sacándolo de la factura mensual de Cabify. Si Cabify habilita un endpoint de documento,
-#     el único sitio a tocar es `sale_receipt_url()`.
+#   ⚠️ La API NO expone un PDF por viaje. Verificado (ago 2026) contra el esquema publicado de los
+#     TRES endpoints que podrían traerlo —`sales`, `user/{id}/sales` y `journey/{id}/sales`—: solo
+#     devuelven `code`, `invoice_date`, `price_details` y el detalle del trayecto; el único campo con
+#     pinta de documento es `invoice_date`, que es una fecha. `journey/{id}` tampoco: su `public_url`
+#     es el seguimiento en vivo del viaje, no un recibo. La factura FISCAL es la mensual que Cabify
+#     emite a la empresa. Por eso el justificante por viaje lo generamos nosotros
+#     (`_cabify_receipt_pdf` en app.py). `sale_receipt_url()` rebusca el documento —también anidado—
+#     por si el esquema crece: el día que aparezca se adjunta ese y se deja de generar el nuestro.
+#   · Un VIAJE puede generar VARIAS ventas: el trayecto y sus SUPLEMENTOS (espera, peaje, limpieza).
+#     Se agrupan por `journey_id` para que en «Mis gastos» salga un gasto por viaje con el total, y
+#     no una línea por suplemento.
 from __future__ import annotations
 
 import time
@@ -189,17 +196,43 @@ class CabifyClient:
             "currency": (currency or "EUR").upper(),
         })
 
-    @staticmethod
-    def sale_receipt_url(sale: dict) -> str:
-        """URL del justificante de la venta, si algún día la API la expone.
+    # Nombres de campo bajo los que podría venir el documento de la venta.
+    _RECEIPT_KEYS = ("receipt_url", "invoice_url", "document_url", "pdf_url", "receipt_pdf",
+                     "invoice_pdf", "url", "href", "link")
+    _RECEIPT_CONTAINERS = ("receipt", "invoice", "document", "documents", "receipts", "invoices",
+                           "files", "attachments")
 
-        Hoy el esquema documentado NO trae ningún documento; se dejan probados los nombres de campo
-        más plausibles para que, en cuanto Cabify lo publique, funcione sin tocar nada más.
+    @classmethod
+    def sale_receipt_url(cls, sale: dict) -> str:
+        """URL del documento de la venta, si la API la trae.
+
+        ⚠️ Comprobado contra el esquema PUBLICADO (ago 2026) de `sales`, `user/{id}/sales` y
+        `journey/{id}/sales`: **ninguno devuelve un PDF**; solo `invoice_date` y los importes. La
+        factura fiscal de estos viajes es la mensual que Cabify emite a la empresa. Aun así se
+        rebusca —también dentro de objetos y listas anidados— porque el esquema puede crecer: el día
+        que aparezca, se adjunta ese documento y se deja de generar el nuestro, sin tocar nada más.
         """
-        for key in ("receipt_url", "invoice_url", "document_url", "pdf_url"):
-            value = (sale.get(key) or "").strip() if isinstance(sale.get(key), str) else ""
-            if value:
-                return value
+        return cls._buscar_documento(sale, 0)
+
+    @classmethod
+    def _buscar_documento(cls, node, depth: int) -> str:
+        if depth > 3 or not isinstance(node, (dict, list)):
+            return ""
+        if isinstance(node, list):
+            for item in node:
+                found = cls._buscar_documento(item, depth + 1)
+                if found:
+                    return found
+            return ""
+        for key in cls._RECEIPT_KEYS:
+            value = node.get(key)
+            if isinstance(value, str) and value.strip().lower().startswith("http"):
+                return value.strip()
+        for key in cls._RECEIPT_CONTAINERS:
+            if key in node:
+                found = cls._buscar_documento(node.get(key), depth + 1)
+                if found:
+                    return found
         return ""
 
 
@@ -253,6 +286,21 @@ def _place_labels(node) -> tuple:
     return corto, largo
 
 
+def _iso_date(raw) -> str:
+    """De «2026-07-20T09:30:34.831Z» o «2026-07-20» saca «2026-07-20» ('' si no se puede)."""
+    txt = (raw or "").strip() if isinstance(raw, str) else ""
+    return txt[:10] if len(txt) >= 10 and txt[4] == "-" and txt[7] == "-" else ""
+
+
+def _spanish_date(raw) -> str:
+    """Fecha en formato de España: primero el día, luego el mes y luego el año (20/07/2026)."""
+    iso = _iso_date(raw)
+    if not iso:
+        return ""
+    y, m, d = iso.split("-")
+    return f"{d}/{m}/{y}"
+
+
 def parse_sale(sale: dict) -> dict:
     """Normaliza una venta de Cabify a lo que necesita «Mis gastos».
 
@@ -282,14 +330,26 @@ def parse_sale(sale: dict) -> dict:
     origen, origen_full = _place_labels(subida)
     destino, destino_full = _place_labels(bajada)
     trayecto = " → ".join([x for x in (origen, destino) if x])
-    # En «Mis gastos» solo interesan la fecha, el origen y el destino (la fecha va aparte). La
-    # descripción larga de Cabify no se usa como concepto: alarga la tarjeta sin aportar.
-    texto = trayecto or (obj.get("description") or "").strip() or "Viaje en Cabify"
+    # Una venta es una RECTIFICACIÓN si trae `rectified_sale_id` (corrige a otra) y es un
+    # SUPLEMENTO si va del mismo viaje pero sin trayecto propio (espera, peaje, limpieza…).
+    rectificacion = bool((obj.get("rectified_sale_id") or "").strip()) if isinstance(obj, dict) else False
+    suplemento = not rectificacion and not trayecto and bool((obj.get("id") or "").strip())
+    # CONCEPTO: fecha en formato de España (día/mes/año) y después el origen y el destino. NUNCA se
+    # usa la descripción larga de Cabify: es donde vienen los suplementos y ensucia la información.
+    fecha_viaje = _spanish_date(obj.get("start_at") or sale.get("invoice_date"))
+    partes = [x for x in (fecha_viaje, trayecto) if x]
+    texto = " · ".join(partes) if partes else "Viaje en Cabify"
+    if rectificacion:
+        texto = ("Corrección · " + texto) if partes else "Corrección de un viaje en Cabify"
     return {
         "code": (sale.get("code") or "").strip(),
         "currency": (sale.get("currency") or "EUR").upper(),
         "invoice_date": (sale.get("invoice_date") or "").strip(),
-        "journey_id": (obj.get("id") or obj.get("journey_id") or "").strip(),
+        "trip_date": _iso_date(obj.get("start_at") or sale.get("invoice_date")),
+        "date_label": fecha_viaje,
+        "is_rectification": rectificacion,
+        "is_supplement": suplemento,
+        "journey_id": (obj.get("id") or obj.get("journey_id") or obj.get("rectified_sale_id") or "").strip(),
         "charge_code": (obj.get("charge_code") or "").strip(),
         "start_at": (obj.get("start_at") or "").strip(),
         "end_at": (obj.get("end_at") or "").strip(),

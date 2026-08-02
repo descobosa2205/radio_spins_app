@@ -1729,9 +1729,10 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 
 /* Filas del módulo «Tareas pendientes» (mismo lenguaje que tenía el módulo de peticiones) */
 .ctask { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
-/* La etiqueta de la tarea a ancho fijo: así los nombres de todas las filas quedan alineados */
-.ctask__kind { flex-shrink: 0; }
-@media (min-width: 992px) { .ctask__kind { min-width: 205px; } }
+/* Las etiquetas de las tareas de una actividad, a ancho fijo y apiladas: así los nombres de todas
+   las filas quedan alineados aunque una actividad tenga varias cosas pendientes. */
+.ctask__kind { flex-shrink: 0; display: flex; flex-wrap: wrap; gap: .25rem; }
+@media (min-width: 992px) { .ctask__kind { min-width: 205px; max-width: 260px; } }
 .ctask__who { display: flex; align-items: center; gap: .5rem; min-width: 0; }
 .ctask__noart {
   display: inline-flex; align-items: center; justify-content: center;

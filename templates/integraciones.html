@@ -341,6 +341,11 @@
                 <form method="post" action="{{ url_for('cabify_account_sync', company_id=row.company.id) }}" class="d-inline">
                   <button class="btn btn-sm btn-outline-secondary" {% if not row.account %}disabled{% endif %}><i class="fa fa-rotate me-1"></i>Sincronizar ahora</button>
                 </form>
+                {# Rescata los viajes antiguos: el sondeo solo mira una ventana de días, así que lo
+                   importado antes de que existiera el justificante no se vuelve a visitar nunca. #}
+                <form method="post" action="{{ url_for('cabify_backfill_receipts') }}" class="d-inline">
+                  <button class="btn btn-sm btn-outline-secondary" title="Le pone su justificante a todos los viajes que se importaron sin él"><i class="fa fa-file-invoice me-1"></i>Poner los justificantes que falten</button>
+                </form>
               </div>
 
               {% if row.account %}

@@ -11,6 +11,8 @@
    Se enseñan las 6 primeras (lo más cercano en el tiempo) y el resto se despliega.
    ============================================================================ #}
 {% set _tasks = (CONTRACTING_TASKS or {}).get(contracting_tab) or [] %}
+{# Cada fila es una ACTIVIDAD y puede llevar varias tareas: el número es el de TAREAS. #}
+{% set _total = _tasks|sum(attribute='tasks_count') %}
 {% set _top = 6 %}
 {% set _max = 60 %}{# tope de filas PINTADAS; el número de la cabecera y de la pestaña es el real #}
 {% set _shown = _tasks[:_max] %}
@@ -18,7 +20,12 @@
 
 {% macro _task_row(t) -%}
   <a class="list-group-item list-group-item-action ctask" href="{{ t.url }}">
-    <span class="ctask__kind"><span class="badge {{ t.badge }}"><i class="fa {{ t.icon }} me-1"></i>{{ t.label }}</span></span>
+    {# Todas las tareas de esta actividad, juntas: así no se repite la misma fila varias veces. #}
+    <span class="ctask__kind">
+      {% for k in (t.tasks or [{'badge': t.badge, 'icon': t.icon, 'label': t.label}]) %}
+        <span class="badge {{ k.badge }}"><i class="fa {{ k.icon }} me-1"></i>{{ k.label }}</span>
+      {% endfor %}
+    </span>
     <span class="ctask__who">
       {% if t.artist_photo or t.artist_name %}
         {{ artist_avatar(t.artist_photo, t.artist_name) }}
@@ -41,12 +48,12 @@
   <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
     <span class="fw-semibold">
       <i class="fa fa-list-check text-danger me-2"></i>Tareas pendientes
-      {% if _tasks %}<span class="badge text-bg-danger ms-1">{{ _tasks|length }}</span>{% endif %}
+      {% if _tasks %}<span class="badge text-bg-danger ms-1">{{ _total }}</span>{% endif %}
     </span>
     {% if _tasks|length > _top %}
       <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="collapse"
               data-bs-target="#{{ _more_id }}" aria-expanded="false">
-        <i class="fa fa-chevron-down me-1"></i>Ver las {{ _tasks|length }}
+        <i class="fa fa-chevron-down me-1"></i>Ver las {{ _tasks|length }} actividades
       </button>
     {% endif %}
   </div>

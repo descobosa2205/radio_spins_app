@@ -38404,6 +38404,12 @@ def _bootstrap_schema_bg():
     # convertiría en EVENTO las giras y ciclos legítimos de un evento creados después.
     _safe_ensure(lambda: globals()["_cycle_festival_event_kind_repair"](),
                  "_cycle_festival_event_kind_repair")
+    # Los viajes de Cabify que se importaron sin justificante se lo llevan aquí: el sondeo solo mira
+    # una ventana de días y nunca vuelve a visitarlos. Va con TOPE por arranque (cada PDF se sube a
+    # Storage) y solo se da por terminado cuando no queda ninguno; el botón de Integraciones fuerza
+    # el resto. Corre en el hilo de arranque, así que no retrasa el puerto.
+    _safe_ensure(lambda: globals()["_cabify_backfill_receipts_bg"](),
+                 "_cabify_backfill_receipts_bg")
 
 # En el host «solo CalDAV» NO tocamos el esquema de producción (ya lo mantiene el host principal):
 # nos limitamos a leer/escribir notas de agenda. Por eso se salta este arranque de DDL.
@@ -44673,6 +44679,13 @@ def _contracting_task_artist_ids() -> set:
         return set()
 
 
+def _contracting_task_badge(kind: str) -> dict:
+    """La pastilla de UNA tarea (para poder poner varias en la misma fila de una actividad)."""
+    label, icon, badge, order = CONTRACTING_TASK_META.get(
+        kind, ("Pendiente", "fa-circle-exclamation", "text-bg-light border", 9))
+    return {"kind": kind, "label": label, "icon": icon, "badge": badge, "order": order}
+
+
 def _contracting_task_row(c, kind: str, payment: dict | None = None) -> dict:
     """Una fila del módulo de tareas: quién, cuándo, dónde y a dónde se va a resolverla."""
     label, icon, badge, order = CONTRACTING_TASK_META.get(
@@ -44756,10 +44769,13 @@ def _contracting_tasks_data() -> dict:
             if not kinds:
                 continue
             tabs = _contracting_activity_tabs(c)
-            for kind in kinds:
-                row = _contracting_task_row(c, kind)
-                for t in tabs:
-                    by_tab.setdefault(t, []).append(row)
+            # Una sola fila por ACTIVIDAD, con TODAS sus tareas dentro: si a un concierto le faltan
+            # el contrato, el anuncio y mandarlo a producción, se ve de un vistazo en una línea en
+            # vez de repetir la misma actividad tres veces.
+            row = _contracting_task_row(c, kinds[0])
+            row["tasks"] = [_contracting_task_badge(k) for k in kinds]
+            for t in tabs:
+                by_tab.setdefault(t, []).append(row)
 
         # ---- Facturación: pagos por facturar y por cobrar (también de fechas pasadas) ----
         try:
@@ -44776,7 +44792,9 @@ def _contracting_tasks_data() -> dict:
                 continue
             for p in _concert_payment_rows(c, pending_only=True):
                 kind = "INVOICE" if (p.get("status") or "") == "PENDING_INVOICE" else "COLLECT"
-                by_tab["facturacion"].append(_contracting_task_row(c, kind, payment=p))
+                fila = _contracting_task_row(c, kind, payment=p)
+                fila["tasks"] = [_contracting_task_badge(kind)]
+                by_tab["facturacion"].append(fila)
 
         # ---- Peticiones abiertas (las sin artista concreto las ve todo el mundo) ----
         try:
@@ -44806,15 +44824,26 @@ def _contracting_tasks_data() -> dict:
                 "extra": (row.get("fee_text") or ""),
                 "url": url_for("booking_request_detail_view", rid=r.id),
             })
+            row["tasks"] = [{"kind": "REQUEST", "label": row["label"], "icon": icon,
+                             "badge": row["badge"]}]
             by_tab["peticiones"].append(row)
     except Exception:
         pass
     finally:
         session_db.close()
     for rows in by_tab.values():
+        for r in rows:
+            if not r.get("tasks"):
+                r["tasks"] = [_contracting_task_badge(r.get("kind") or "")]
+            r["tasks_count"] = len(r["tasks"])
+            # La fila se ordena por su tarea MÁS urgente.
+            r["order"] = min((t.get("order") or 9) for t in r["tasks"])
         rows.sort(key=lambda r: (r.get("date") or date.max, r.get("order") or 9,
                                  (r.get("artist_name") or "").lower()))
-    data = {"tasks": by_tab, "counts": {k: len(v) for k, v in by_tab.items() if v}}
+    # El número de la pestaña sigue siendo el de TAREAS pendientes (no el de filas): una actividad
+    # con tres cosas por hacer cuenta tres, aunque se vea en una sola línea.
+    data = {"tasks": by_tab,
+            "counts": {k: sum(r["tasks_count"] for r in v) for k, v in by_tab.items() if v}}
     try:
         g._contracting_tasks_cache = data
     except Exception:
@@ -53417,7 +53446,8 @@ def _cabify_receipt_pdf(datos: dict, person_name: str, company) -> bytes:
 
     # ---- Pastillas de datos ----
     pastillas = []
-    fecha = (datos.get("invoice_date") or "")[:10]
+    # Fecha SIEMPRE en formato de España: primero el día, luego el mes y luego el año.
+    fecha = (datos.get("trip_date") or datos.get("invoice_date") or "")[:10]
     if fecha:
         try:
             pastillas.append("Fecha: " + date.fromisoformat(fecha).strftime("%d/%m/%Y"))
@@ -53465,17 +53495,21 @@ def _cabify_receipt_pdf(datos: dict, person_name: str, company) -> bytes:
             y -= 14
         y -= 8
 
+    # ⚠️ El ORIGEN y el DESTINO son lo primero que hay que ver. NO se pinta la «descripción» de
+    # Cabify: es donde vienen los suplementos (espera, peaje, limpieza…) y ensucia el documento; su
+    # importe ya está sumado en el total.
     bloque("El viaje", [
         ("Origen", datos.get("origin_full") or datos.get("origin") or "—"),
         ("Destino", datos.get("destination_full") or datos.get("destination") or "—"),
         ("Salida", _cabify_dt_label(datos.get("start_at"))),
         ("Llegada", _cabify_dt_label(datos.get("end_at"))),
-        ("Descripción", datos.get("description") or ""),
     ])
 
     moneda = datos.get("currency") or "EUR"
     tipo = datos.get("tax_rate") or Decimal("0")
+    _sup = int(datos.get("supplements") or 0)
     bloque("Importe", [
+        ("Incluye", (f"{_sup} suplemento{'' if _sup == 1 else 's'} del viaje" if _sup else "")),
         ("Base imponible", f"{_money_or_zero(datos.get('amount_net')):.2f} {moneda}".replace(".", ",")),
         (f"{datos.get('tax_type') or 'IVA'} ({tipo:g}%)",
          f"{_money_or_zero(datos.get('amount_tax')):.2f} {moneda}".replace(".", ",")),
@@ -53529,13 +53563,105 @@ def _cabify_attach_receipt(datos: dict, person_name: str, company) -> str:
         return ""
 
 
+def _cabify_backfill_receipts(session_db, limit: int | None = None) -> dict:
+    """Le pone su justificante a TODOS los gastos de Cabify que se importaron sin él.
+
+    ⚠️ Por qué hace falta: el sondeo solo mira una ventana móvil de días, así que un viaje que se
+    importó antes de que existiera el justificante (o cuyo PDF falló ese día) **no se vuelve a
+    visitar nunca** y se queda con el semáforo de factura en rojo para siempre. Esto los repasa
+    todos, sin ventana y sin llamar a la API: el documento se reconstruye con lo que ya está
+    guardado del viaje (nº de venta, fecha, trayecto e importes).
+    """
+    out = {"revisados": 0, "adjuntados": 0, "fallidos": 0}
+    filas = (session_db.query(PersonalExpense)
+             .filter(PersonalExpense.source == "CABIFY")
+             .filter(or_(PersonalExpense.file_url.is_(None), PersonalExpense.file_url == ""))
+             .order_by(PersonalExpense.expense_date.desc().nullslast()))
+    if limit:
+        filas = filas.limit(int(limit))
+    for row in filas.all():
+        out["revisados"] += 1
+        # El concepto guardado ya es «dd/mm/aaaa · Origen → Destino» (o solo el trayecto en los
+        # importados con la versión anterior): de ahí se recupera lo que se pueda.
+        concepto = (row.concept or "").strip()
+        trayecto = concepto.split(" · ")[-1] if " · " in concepto else concepto
+        origen, _, destino = trayecto.partition(" → ")
+        etiquetas = [t.get("value") for t in (row.pleo_tags or []) if isinstance(t, dict) and t.get("value")]
+        datos = {
+            "code": (row.cabify_sale_code or row.invoice_number or ""),
+            "currency": (row.currency or "EUR"),
+            "invoice_date": (row.expense_date.isoformat() if row.expense_date else ""),
+            "trip_date": (row.expense_date.isoformat() if row.expense_date else ""),
+            "charge_code": (etiquetas[0] if etiquetas else ""),
+            "region": "", "start_at": "", "end_at": "",
+            "concept": concepto,
+            "origin": origen.strip(), "destination": destino.strip(),
+            "origin_full": origen.strip(), "destination_full": destino.strip(),
+            "amount_gross": _money_or_zero(row.amount_gross),
+            "amount_net": _money_or_zero(row.amount_net),
+            "amount_tax": _money_or_zero(row.amount_tax),
+            "tax_rate": Decimal("0"), "tax_type": "IVA",
+            "discount": Decimal("0"), "receipt_url": "",
+            "supplements": max(0, len(row.cabify_sale_codes or []) - 1),
+        }
+        prof = session_db.query(UserProfile).filter(UserProfile.user_id == row.user_id).first()
+        quien = ((getattr(prof, "nick", "") or "").strip() or _profile_full_name(prof) or "")
+        empresa = None
+        try:
+            link = (session_db.query(CabifyUserLink)
+                    .filter(CabifyUserLink.user_id == row.user_id).first())
+            if link is not None:
+                cuenta = session_db.get(CabifyAccount, link.account_id)
+                empresa = session_db.get(GroupCompany, cuenta.group_company_id) if cuenta else None
+        except Exception:
+            empresa = None
+        url = _cabify_attach_receipt(datos, quien, empresa)
+        if url:
+            row.file_url = url
+            row.document_type = row.document_type or "JUSTIFICANTE"
+            out["adjuntados"] += 1
+        else:
+            out["fallidos"] += 1
+    session_db.commit()
+    return out
+
+
+CABIFY_RECEIPTS_BACKFILL_KEY = "cabify_receipts_backfill_v1"
+CABIFY_BACKFILL_PER_BOOT = 300
+
+
+def _cabify_backfill_receipts_bg():
+    """Repaso de justificantes en el ARRANQUE, con tope y marca (best-effort)."""
+    if (_get_app_setting(CABIFY_RECEIPTS_BACKFILL_KEY) or "").strip() == "done":
+        return
+    session_db = db()
+    try:
+        pendientes = (session_db.query(func.count(PersonalExpense.id))
+                      .filter(PersonalExpense.source == "CABIFY")
+                      .filter(or_(PersonalExpense.file_url.is_(None), PersonalExpense.file_url == ""))
+                      .scalar() or 0)
+        if not pendientes:
+            _set_app_setting(CABIFY_RECEIPTS_BACKFILL_KEY, "done")
+            return
+        out = _cabify_backfill_receipts(session_db, limit=CABIFY_BACKFILL_PER_BOOT)
+        app.logger.info("[cabify] justificantes: %d revisados, %d adjuntados, %d fallidos (quedaban %d)",
+                        out["revisados"], out["adjuntados"], out["fallidos"], pendientes)
+        if pendientes <= CABIFY_BACKFILL_PER_BOOT and not out["fallidos"]:
+            _set_app_setting(CABIFY_RECEIPTS_BACKFILL_KEY, "done")
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[cabify] no se pudo repasar los justificantes")
+    finally:
+        session_db.close()
+
+
 def _cabify_sync_account(session_db, acc, since=None, user_ids=None) -> dict:
     """Trae los gastos de UNA cuenta de Cabify y los mete en «Mis gastos» de cada persona."""
     from cabify_utils import CabifyClient, CabifyError, parse_sale   # noqa: F401
     from sqlalchemy.exc import IntegrityError
 
     stats = {"users": 0, "linked": 0, "sales": 0, "created": 0, "skipped": 0, "unmatched": 0,
-             "receipts": 0}
+             "receipts": 0, "supplements": 0}
     if not acc or not acc.is_active:
         return stats
     client = _cabify_client(acc)
@@ -53578,39 +53704,100 @@ def _cabify_sync_account(session_db, acc, since=None, user_ids=None) -> dict:
     empresa = getattr(acc, "company", None) or session_db.get(GroupCompany, acc.group_company_id)
     for cid, link in objetivo.items():
         quien = _cabify_person_name(session_db, link)
+        # Un VIAJE puede generar VARIAS ventas (el trayecto y sus suplementos: espera, peaje,
+        # limpieza…). Se agrupan por viaje para que en «Mis gastos» salga UNA línea con el total,
+        # no cuatro sueltas. La venta «principal» es la que trae el trayecto.
+        por_viaje: dict = {}
         for venta in client.user_sales(cid, desde, hoy, acc.currency or "EUR"):
             datos = parse_sale(venta)
-            code = datos["code"]
-            if not code:
+            if not datos["code"]:
                 continue
             stats["sales"] += 1
-            # Antiduplicados: índice UNIQUE en personal_expenses.cabify_sale_code + savepoint por
-            # gasto, para que un choque no tire el resto de la importación.
-            existe = (session_db.query(PersonalExpense)
-                      .filter(PersonalExpense.cabify_sale_code == code).first())
-            if existe:
+            clave = datos["journey_id"] or ("venta:" + datos["code"])
+            grupo = por_viaje.setdefault(clave, {"principal": None, "ventas": []})
+            grupo["ventas"].append(datos)
+            if grupo["principal"] is None or (not datos["is_supplement"] and not datos["is_rectification"]
+                                              and grupo["principal"]["is_supplement"]):
+                if not datos["is_supplement"] or grupo["principal"] is None:
+                    grupo["principal"] = datos
+
+        for clave, grupo in por_viaje.items():
+            principal = grupo["principal"] or grupo["ventas"][0]
+            codigos = [v["code"] for v in grupo["ventas"]]
+            journey = principal["journey_id"] or ""
+            bruto = sum((v["amount_gross"] for v in grupo["ventas"]), Decimal("0"))
+            neto = sum((v["amount_net"] for v in grupo["ventas"]), Decimal("0"))
+            iva = sum((v["amount_tax"] for v in grupo["ventas"]), Decimal("0"))
+            datos = dict(principal)
+            datos.update({"amount_gross": bruto, "amount_net": neto, "amount_tax": iva,
+                          "supplements": len([v for v in grupo["ventas"] if v["is_supplement"]])})
+
+            # ¿Ya está? Se busca por VIAJE (para poder engancharle suplementos que lleguen después)
+            # y, si no, por el código de la venta principal.
+            existe = None
+            if journey:
+                existe = (session_db.query(PersonalExpense)
+                          .filter(PersonalExpense.cabify_journey_id == journey).first())
+            if existe is None:
+                existe = (session_db.query(PersonalExpense)
+                          .filter(PersonalExpense.cabify_sale_code.in_(codigos)).first())
+            if existe is not None:
                 stats["skipped"] += 1
+                cambiado = False
+                # Suplementos que aún no se habían sumado (la lista de códigos evita sumar dos veces).
+                aplicados = set(getattr(existe, "cabify_sale_codes", None) or [])
+                if not aplicados:
+                    aplicados = {existe.cabify_sale_code} if existe.cabify_sale_code else set()
+                nuevos = [v for v in grupo["ventas"] if v["code"] not in aplicados]
+                if nuevos and existe.status in ("PENDING", "IN_BAG"):
+                    existe.amount_gross = _money_or_zero(existe.amount_gross) + sum(
+                        (v["amount_gross"] for v in nuevos), Decimal("0"))
+                    existe.amount_net = _money_or_zero(existe.amount_net) + sum(
+                        (v["amount_net"] for v in nuevos), Decimal("0"))
+                    existe.amount_tax = _money_or_zero(existe.amount_tax) + sum(
+                        (v["amount_tax"] for v in nuevos), Decimal("0"))
+                    aplicados.update(v["code"] for v in nuevos)
+                    existe.cabify_sale_codes = sorted(aplicados)
+                    existe.concept = datos["concept"]
+                    cambiado = True
+                    stats["supplements"] += len(nuevos)
+                elif nuevos:
+                    existe.sync_warning = ("Este viaje tiene suplementos posteriores por "
+                                           + format_eur(sum((v["amount_gross"] for v in nuevos), Decimal("0")))
+                                           + " que no se han sumado porque el gasto ya estaba asignado.")
+                    cambiado = True
+                if journey and not (existe.cabify_journey_id or ""):
+                    existe.cabify_journey_id = journey
+                    cambiado = True
                 # Los viajes que se importaron sin justificante (o cuyo PDF falló) lo reciben ahora:
                 # así ningún gasto de Cabify se queda con el semáforo de factura en rojo.
-                if not (existe.file_url or "").strip():
+                if not (existe.file_url or "").strip() or cambiado:
                     url = (datos["receipt_url"] or "").strip() or _cabify_attach_receipt(datos, quien, empresa)
                     if url:
                         existe.file_url = url
+                        existe.document_type = "FACTURA" if datos["receipt_url"] else "JUSTIFICANTE"
                         stats["receipts"] += 1
                 continue
+
             justificante = (datos["receipt_url"] or "").strip() or _cabify_attach_receipt(datos, quien, empresa)
             if justificante:
                 stats["receipts"] += 1
-            try:
-                fecha = date.fromisoformat(datos["invoice_date"][:10]) if datos["invoice_date"] else hoy
-            except ValueError:
-                fecha = hoy
+            fecha = hoy
+            for candidata in (datos.get("trip_date"), datos.get("invoice_date")):
+                try:
+                    if candidata:
+                        fecha = date.fromisoformat(str(candidata)[:10])
+                        break
+                except ValueError:
+                    continue
             try:
                 with session_db.begin_nested():
                     session_db.add(PersonalExpense(
                         user_id=link.user_id,
                         source="CABIFY",
-                        cabify_sale_code=code,
+                        cabify_sale_code=principal["code"],
+                        cabify_journey_id=(journey or None),
+                        cabify_sale_codes=sorted(set(codigos)),
                         concept=datos["concept"],
                         provider_name="Cabify",
                         expense_date=fecha,
@@ -53618,8 +53805,9 @@ def _cabify_sync_account(session_db, acc, since=None, user_ids=None) -> dict:
                         amount_gross=datos["amount_gross"],
                         amount_tax=datos["amount_tax"],
                         currency=datos["currency"],
-                        invoice_number=code,
-                        document_type="FACTURA",
+                        invoice_number=principal["code"],
+                        # Lo que se adjunta es NUESTRO justificante mientras Cabify no dé un PDF.
+                        document_type=("FACTURA" if datos["receipt_url"] else "JUSTIFICANTE"),
                         file_url=(justificante or None),
                         # La etiqueta del viaje (charge code) se guarda como etiqueta del gasto:
                         # es lo que dice a qué actividad iba, y se pinta igual que las de Pleo.
@@ -53797,12 +53985,44 @@ def cabify_account_sync(company_id):
             flash("Esta empresa aún no tiene cuenta de Cabify.", "warning")
             return redirect(url_for("integrations_view", tab="cabify"))
         stats = _cabify_sync_account(session_db, acc)
-        flash(f"Cabify: {stats.get('created', 0)} gasto(s) nuevo(s) · "
-              f"{stats.get('linked', 0)} persona(s) vinculada(s) · "
-              f"{stats.get('unmatched', 0)} sin emparejar.", "success")
+        aviso = (f"Cabify: {stats.get('created', 0)} gasto(s) nuevo(s) · "
+                 f"{stats.get('receipts', 0)} justificante(s) adjuntado(s) · "
+                 f"{stats.get('linked', 0)} persona(s) vinculada(s) · "
+                 f"{stats.get('unmatched', 0)} sin emparejar.")
+        if stats.get("supplements"):
+            aviso += f" Se sumaron {stats['supplements']} suplemento(s) a su viaje."
+        flash(aviso, "success")
     except Exception as exc:
         session_db.rollback()
         flash(f"No se pudo sincronizar con Cabify: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("integrations_view", tab="cabify"))
+
+
+@app.post('/integraciones/cabify/justificantes', endpoint='cabify_backfill_receipts')
+@admin_required
+def cabify_backfill_receipts():
+    """Repasa TODOS los gastos de Cabify que se quedaron sin justificante y se lo pone.
+
+    Es lo que rescata los viajes antiguos: el sondeo solo mira una ventana de días, así que lo que
+    se importó antes de que existiera el justificante no se vuelve a visitar nunca."""
+    if not is_master():
+        flash("Solo dirección puede hacerlo.", "warning")
+        return redirect(url_for("integrations_view", tab="cabify"))
+    session_db = db()
+    try:
+        out = _cabify_backfill_receipts(session_db)
+        if out["revisados"]:
+            flash(f"Cabify: se han repasado {out['revisados']} viaje(s) sin justificante y se le ha "
+                  f"puesto a {out['adjuntados']}."
+                  + (f" {out['fallidos']} no se pudieron generar." if out["fallidos"] else ""),
+                  "success" if out["adjuntados"] else "warning")
+        else:
+            flash("Cabify: todos los viajes importados ya tienen su justificante.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudieron generar los justificantes: {exc}", "danger")
     finally:
         session_db.close()
     return redirect(url_for("integrations_view", tab="cabify"))

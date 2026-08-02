@@ -918,6 +918,13 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
 - ⚠️ **`static/maintenance.html` es HTML PURO** (no pasa por Jinja): un comentario `{# … #}` se
   vería en pantalla — usar `<!-- … -->`. Tiene botón **Volver** (`history.back()` con fallback a `/`)
   junto a «Reintentar ahora», para cuando solo falla una sección.
+- ⚠️ **Funciones DUPLICADAS a nivel de módulo**: en Python la última `def` pisa a la anterior, así que
+  la primera es código muerto que no se ejecuta nunca (y engaña al leerlo). Había dos casos reales:
+  `_wants_json_response` (una miraba `X-Requested-With`, la otra `Accept`/`is_json` — ganaba la
+  segunda, así que quien dependía de la cabecera se llevaba HTML sin enterarse) y `_add_months` (una
+  devolvía el día 1 del mes, la otra conserva el día). Resueltos: hoy `_wants_json_response` es «el
+  cliente PIDE json» y **`_is_xhr_request()`** es «viene de un fetch/XHR del front». Comprobación:
+  `grep -oE "^def [a-zA-Z_][a-zA-Z0-9_]*" app.py | sort | uniq -d` **tiene que salir vacío**.
 - ⚠️ **Dicts en plantillas**: `d.items`/`d.keys`/`d.values` en Jinja devuelven el **método**, no la
   clave → hay que escribir `d['items']`. Ha causado dos 500 reales (el set list del concierto y
   «Royalties → A favor»). El checker de esprima NO lo detecta: revisar el HTML servido con curl.

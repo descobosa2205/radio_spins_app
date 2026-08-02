@@ -850,11 +850,15 @@ def _error_back_url():
         return "/"
 
 
-def _wants_json_response() -> bool:
-    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
-        return True
-    accept = (request.headers.get("Accept") or "")
-    return "application/json" in accept and "text/html" not in accept
+def _is_xhr_request() -> bool:
+    """¿La petición viene de un XHR/fetch del propio front? (cabecera `X-Requested-With`).
+
+    Es DISTINTO de `_wants_json_response()`, que mira si el cliente PIDE json (`Accept` / `is_json`).
+    Antes había dos funciones llamadas `_wants_json_response` con estas dos semánticas y, como en
+    Python la última `def` pisa a la anterior, esta de aquí no se ejecutaba nunca: quien dependía de
+    la cabecera se llevaba una respuesta HTML sin enterarse. Ahora cada cosa tiene su nombre.
+    """
+    return request.headers.get("X-Requested-With") == "XMLHttpRequest"
 
 
 def _render_error_page(code: int, title: str, default_message: str):
@@ -3987,13 +3991,6 @@ SPANISH_MONTH_ABBR = [
 
 def _month_start(d: date) -> date:
     return date(d.year, d.month, 1)
-
-
-def _add_months(d: date, delta_months: int) -> date:
-    """Return first day of month shifted by delta_months."""
-    y = d.year + (d.month - 1 + delta_months) // 12
-    m = (d.month - 1 + delta_months) % 12 + 1
-    return date(y, m, 1)
 
 
 def _month_end(d: date) -> date:
@@ -47483,32 +47480,57 @@ def _promoter_snapshot(promoter: Promoter | None) -> dict:
     }
 
 
+def _embargo_promoter_index(session_db):
+    """Terceros preparados para emparejar, UNA sola vez por petición.
+
+    Antes se recargaba la tabla entera de terceros (hasta 5.000, con sus empresas) y se
+    renormalizaban todas sus etiquetas **por cada PDF**. Subiendo una carpeta de órdenes eso
+    multiplicaba el trabajo por el número de ficheros y dejaba el worker bloqueado; ahora la lista y
+    sus claves se calculan una vez y se reutilizan para todos los PDF del mismo envío.
+    """
+    cache = getattr(g, "_embargo_promoter_index", None)
+    if cache is not None:
+        return cache
+    filas = (session_db.query(Promoter).options(selectinload(Promoter.companies))
+             .order_by(Promoter.nick.asc()).limit(5000).all())
+    index = []
+    for promoter in filas:
+        etiquetas = [promoter.nick, promoter.first_name, promoter.last_name, promoter.contact_email]
+        etiquetas.extend([getattr(c, "legal_name", None) for c in (promoter.companies or [])])
+        normalizadas = []
+        for etiqueta in etiquetas:
+            clave = _norm_text_key(etiqueta or "")
+            if clave and len(clave) >= 4:
+                normalizadas.append((clave, etiqueta or ""))
+        index.append((promoter, set(_promoter_tax_ids(promoter)), normalizadas))
+    try:
+        g._embargo_promoter_index = index
+    except Exception:
+        pass
+    return index
+
+
 def _match_embargo_promoter(session_db, text_value: str, tax_id: str | None = None, detected_name: str | None = None):
     """Busca tercero por DNI/CIF exacto y, si no existe, propone coincidencias de nombre."""
     tax_key = _embargo_norm_tax_id(tax_id)
     folded_text = _norm_text_key(text_value or "")
     detected_name_key = _norm_text_key(detected_name or "")
-    rows = session_db.query(Promoter).options(selectinload(Promoter.companies)).order_by(Promoter.nick.asc()).limit(5000).all()
+    index = _embargo_promoter_index(session_db)
     if tax_key:
-        for promoter in rows:
-            if tax_key in _promoter_tax_ids(promoter):
+        for promoter, tax_ids, _labels in index:
+            if tax_key in tax_ids:
                 return promoter, 1.0, tax_key, True
 
     best = (None, 0.0, "", False)
-    for promoter in rows:
-        labels = [promoter.nick, promoter.first_name, promoter.last_name, promoter.contact_email]
-        labels.extend([getattr(c, "legal_name", None) for c in (promoter.companies or [])])
-        for label in labels:
-            label_norm = _norm_text_key(label or "")
-            if not label_norm or len(label_norm) < 4:
-                continue
+    for promoter, _tax_ids, labels in index:
+        for label_norm, label in labels:
             score = 0.0
             if label_norm in folded_text:
                 score = max(score, 0.86)
             if detected_name_key:
                 score = max(score, SequenceMatcher(None, detected_name_key, label_norm).ratio())
             if score > best[1]:
-                best = (promoter, score, label or "", False)
+                best = (promoter, score, label, False)
     return best
 
 
@@ -47724,10 +47746,7 @@ def administration_embargo_upload():
     try:
         # `files` es el campo que manda el modal con arrastre (archivos sueltos o carpetas enteras);
         # el resto se conservan por compatibilidad con formularios antiguos.
-        # ⚠️ Comprobación propia: `_wants_json_response` está definido DOS veces en este fichero y
-        # gana la segunda (app.py:9342), que no mira `X-Requested-With`.
-        wants_json = (request.headers.get("X-Requested-With") == "XMLHttpRequest"
-                      or "application/json" in (request.headers.get("Accept") or "").lower())
+        wants_json = _is_xhr_request() or _wants_json_response()
         files = []
         for field in ("pdf", "order_pdf", "file", "pdfs", "orders", "files"):
             for candidate in request.files.getlist(field):
@@ -47844,7 +47863,7 @@ def administration_embargo_upload():
             flash("No se procesó ningún PDF válido.", "warning")
     except Exception as exc:
         session_db.rollback()
-        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        if _is_xhr_request():
             return jsonify({"ok": False, "error": str(exc)}), 500
         flash(f"No se pudo procesar la orden: {exc}", "danger")
     finally:

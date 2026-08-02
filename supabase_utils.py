@@ -1,5 +1,7 @@
 # supabase_utils.py
 import os
+import shutil
+import tempfile
 from pathlib import Path
 import mimetypes
 from uuid import uuid4
@@ -212,25 +214,52 @@ def _public_url(client: Client, key: str) -> str:
 
 
 def _upload_fileobj(file_obj, key: str, content_type: str) -> str:
-    """Sube usando el stream del archivo cuando la versión de supabase-py lo permite."""
+    """Sube el contenido de un stream a Storage SIN cargarlo en memoria.
+
+    ⚠️ `storage3` solo admite `bytes`, `BufferedReader`/`FileIO` o una **ruta**. El stream de una
+    subida grande de Flask es un `SpooledTemporaryFile` (werkzeug pasa a disco a partir de ~500 KB),
+    que no es ninguna de esas cosas: al pasarlo tal cual reventaba con «expected str, bytes or
+    os.PathLike object, not SpooledTemporaryFile» y por eso fallaban los masters .wav (bug real).
+    Se vuelca a un fichero temporal EN DISCO por trozos y se sube por ruta: sin límite práctico de
+    tamaño y sin riesgo de quedarse sin memoria.
+    """
     client = supabase_client()
     size_bytes = _stream_size(file_obj)
+    tmp_path = None
     try:
-        resp = client.storage.from_(settings.SUPABASE_BUCKET).upload(
-            path=key,
-            file=file_obj,
-            file_options={
-                "content-type": content_type,
-                "cache-control": "31536000",   # claves UUID inmutables: caché larga (ver _upload_bytes)
-                "upsert": "false",
-            },
-        )
-    except StorageObjectTooLargeError:
-        raise
-    except Exception as e:
-        _raise_storage_error(e, size_bytes=size_bytes)
-    _check_dict_response(resp, size_bytes)
-    return _public_url(client, key)
+        _rewind_stream(file_obj)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(key).suffix) as tmp:
+            tmp_path = tmp.name
+            shutil.copyfileobj(file_obj, tmp, length=1024 * 1024)
+        try:
+            resp = client.storage.from_(settings.SUPABASE_BUCKET).upload(
+                path=key,
+                file=tmp_path,
+                file_options={
+                    "content-type": content_type,
+                    "cache-control": "31536000",   # claves UUID inmutables: caché larga (ver _upload_bytes)
+                    "upsert": "false",
+                },
+            )
+        except StorageObjectTooLargeError:
+            raise
+        except Exception as e:
+            _raise_storage_error(e, size_bytes=size_bytes)
+        _check_dict_response(resp, size_bytes)
+        return _public_url(client, key)
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+
+def _rewind_stream(file_obj) -> None:
+    try:
+        file_obj.seek(0)
+    except Exception:
+        pass
 
 
 def _rewind_file_storage(file_storage) -> None:

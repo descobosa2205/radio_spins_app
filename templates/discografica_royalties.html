@@ -95,25 +95,53 @@
 {% endmacro %}
 
 {% macro render_actions(b) %}
+  {# Primero se GENERA y luego se ENVÍA: no se puede enviar sin generar. Cuando ya está generada, el
+     botón de la derecha pasa a ser «Enviar». Si cambian los ingresos vuelve a aparecer «Generar»
+     (con la comparativa antes de sustituirla), porque la liquidación generada NO se altera sola. #}
   <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
     {{ render_status_badge(b) }}
 
-    <button class="btn btn-sm {% if b.can_send_email %}btn-outline-success{% else %}btn-outline-warning{% endif %}"
-            type="button"
-            onclick="openRoyaltyLiquidationPreview('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')"
-            {% if not b.can_send_email %}title="Añade un email válido en la ficha del beneficiario para poder enviarla"{% endif %}>
-      <i class="fa fa-paper-plane"></i> Enviar liquidación
-    </button>
+    {% if b.needs_regeneration %}
+      <span class="badge text-bg-warning text-dark" title="Los ingresos han cambiado desde que se generó: la liquidación sigue con los datos de entonces.">
+        <i class="fa fa-triangle-exclamation me-1"></i>Ingresos actualizados
+      </span>
+    {% endif %}
 
     {% if b.has_sent_info %}
-      <button class="btn btn-outline-secondary btn-sm" type="button" onclick="showRoyaltyLiquidationInfo('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')">
-        <i class="fa fa-circle-info"></i> Información
+      <button class="btn btn-outline-secondary btn-sm" type="button" onclick="showRoyaltyLiquidationInfo('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')" title="Trazabilidad: generada, enviada, factura y cobro">
+        <i class="fa fa-circle-info"></i>
       </button>
     {% endif %}
 
-    <button class="btn btn-outline-primary btn-sm" type="button" onclick="downloadRoyaltyLiquidationPdf('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')">
-      <i class="fa fa-file-pdf"></i> Generar liquidación
-    </button>
+    {% if b.is_generated %}
+      <button class="btn btn-outline-primary btn-sm" type="button"
+              onclick="downloadRoyaltyLiquidationPdf('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}', true)"
+              title="Descargar la liquidación generada">
+        <i class="fa fa-file-pdf"></i>
+      </button>
+    {% endif %}
+
+    {% if b.is_generated and not b.needs_regeneration %}
+      <button class="btn btn-sm {% if b.can_send_email %}btn-success{% else %}btn-outline-warning{% endif %}"
+              type="button"
+              onclick="openRoyaltyLiquidationPreview('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')"
+              {% if not b.can_send_email %}title="Añade un email válido en la ficha del beneficiario para poder enviarla"{% endif %}>
+        <i class="fa fa-paper-plane"></i> Enviar liquidación
+      </button>
+    {% else %}
+      <button class="btn btn-danger btn-sm" type="button"
+              onclick="generateRoyaltyLiquidation('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')">
+        <i class="fa fa-file-pdf"></i> {{ 'Generar de nuevo' if b.is_generated else 'Generar liquidación' }}
+      </button>
+      {% if b.is_generated %}
+        <button class="btn btn-sm {% if b.can_send_email %}btn-outline-success{% else %}btn-outline-warning{% endif %}"
+                type="button"
+                onclick="openRoyaltyLiquidationPreview('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')"
+                title="Enviar la liquidación generada (con los datos con los que se generó)">
+          <i class="fa fa-paper-plane"></i> Enviar la generada
+        </button>
+      {% endif %}
+    {% endif %}
   </div>
 {% endmacro %}
 
@@ -523,25 +551,79 @@
   </div>
 </div>
 
+{# INFORMACIÓN = trazabilidad completa de esos royalties: cuándo se generó (y su PDF), cuándo y a
+   quién se envió, cuándo llegó la factura (y verla) y cuándo se pagó, con todo el historial. #}
 <div class="modal fade" id="royaltyLiquidationInfoModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Información del envío</h5>
+        <h5 class="modal-title"><i class="fa fa-clock-rotate-left me-2"></i>Seguimiento de la liquidación</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
-        <div class="mb-3">
-          <div class="small text-muted">Fecha de envío</div>
-          <div class="fw-semibold" id="royaltyInfoSentAt">—</div>
+        <div class="d-flex flex-wrap gap-3 mb-3">
+          <div><div class="small text-muted">Estado</div><div class="fw-semibold" id="royaltyInfoStatus">—</div></div>
+          <div><div class="small text-muted">Generada</div><div class="fw-semibold" id="royaltyInfoGeneratedAt">—</div></div>
+          <div><div class="small text-muted">Enviada</div><div class="fw-semibold" id="royaltyInfoSentAt">—</div></div>
+          <div><div class="small text-muted">Factura</div><div class="fw-semibold" id="royaltyInfoInvoiceAt">—</div></div>
+          <div><div class="small text-muted">Pagada</div><div class="fw-semibold" id="royaltyInfoPaidAt">—</div></div>
+        </div>
+        <div class="alert alert-warning d-none" id="royaltyInfoStale">
+          <i class="fa fa-triangle-exclamation me-1"></i>Los ingresos han cambiado desde que se generó.
+          La liquidación mantiene los datos con los que se generó; para actualizarla hay que generar una nueva.
         </div>
         <div class="mb-3">
-          <div class="small text-muted">Direcciones</div>
+          <div class="small text-muted">Enviada a</div>
           <ul class="mb-0" id="royaltyInfoRecipients"></ul>
         </div>
-        <a href="#" class="btn btn-outline-primary" id="royaltyInfoPdfLink" target="_blank" rel="noopener noreferrer">
-          <i class="fa fa-file-pdf"></i> Descargar PDF enviado
-        </a>
+        <div class="d-flex flex-wrap gap-2 mb-3">
+          <a href="#" class="btn btn-outline-primary btn-sm" id="royaltyInfoPdfLink" target="_blank" rel="noopener noreferrer">
+            <i class="fa fa-file-pdf me-1"></i>Descargar la liquidación enviada
+          </a>
+          <a href="#" class="btn btn-outline-secondary btn-sm d-none" id="royaltyInfoGenLink" target="_blank" rel="noopener noreferrer">
+            <i class="fa fa-file-pdf me-1"></i>Descargar la liquidación generada
+          </a>
+          <a href="#" class="btn btn-outline-danger btn-sm d-none" id="royaltyInfoInvoiceLink" target="_blank" rel="noopener noreferrer">
+            <i class="fa fa-file-invoice-dollar me-1"></i>Ver la factura
+          </a>
+        </div>
+        <h6 class="mb-2">Historial</h6>
+        <div class="list-group list-group-flush" id="royaltyInfoTimeline"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Comparativa antes de generar una liquidación NUEVA sobre otra ya generada. #}
+<div class="modal fade" id="royaltyCompareModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-code-compare me-2"></i>¿Generamos la liquidación nueva?</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3 mb-3">
+          <div class="col-6">
+            <div class="border rounded-3 p-3 h-100">
+              <div class="small text-muted">La que ya está generada</div>
+              <div class="fs-5 fw-semibold" id="royaltyCmpOldTotal">—</div>
+              <div class="small text-muted" id="royaltyCmpOldMeta"></div>
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="border border-danger rounded-3 p-3 h-100">
+              <div class="small text-muted">La nueva</div>
+              <div class="fs-5 fw-semibold text-danger" id="royaltyCmpNewTotal">—</div>
+              <div class="small text-muted" id="royaltyCmpNewMeta"></div>
+            </div>
+          </div>
+        </div>
+        <div id="royaltyCmpChanges"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Conservar la anterior</button>
+        <button type="button" class="btn btn-danger" id="royaltyCmpAccept"><i class="fa fa-check me-1"></i>Generar la nueva</button>
       </div>
     </div>
   </div>

@@ -762,6 +762,17 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   el paso «¿para quién es la factura?», así que la numeración (1,3,4) NO es la de la landing (1,2,3,4).
   Cuando estaba a mano, el enlace del proveedor desbloqueaba un paso inexistente y el de escribir el
   DNI se quedaba con `pointer-events:none`: al pulsar «Comprobar» no pasaba nada (bug real).
+- **Royalties · la liquidación GENERADA queda congelada**: al generar se guarda en
+  `RoyaltyLiquidation.snapshot` el detalle tal cual (+ `snapshot_signature` y `snapshot_pdf_url`), y
+  todo lo que se ve/envía/descarga después usa ESO (`_build_royalty_liquidation_pdf_bytes(use_frozen=True)`,
+  que es el valor por defecto; solo el botón de generar llama con `use_frozen=False`). Aunque cambien
+  los ingresos la liquidación no se altera: `_royalty_needs_regeneration` compara firmas y marca
+  «Ingresos actualizados», y al pulsar **Generar de nuevo** sale primero la **comparativa**
+  (`royalty_liquidation_compare`) para aceptarla o conservar la anterior. Botonera: sin generar solo
+  **Generar liquidación**; generada, **Enviar liquidación** (no se puede enviar sin generar) + descarga
+  del PDF generado. Toda la vida de la liquidación (generada, enviada, factura, cobro) se apunta en
+  `history` (`_royalty_history_add`) y se ve en el botón **i** (`/discografica/royalties/liquidacion/info`,
+  con enlaces para descargar lo enviado, lo generado y ver la factura).
 - **Royalties · facturación y validación**: las liquidaciones se facturan **a nombre de PIES**
   (el sello), no de la primera empresa del grupo por orden alfabético — helper `_pies_group_company`
   (del que ya tira `_afavor_pies_company`), usado por `public_royalty_liquidation_view` y por
@@ -772,7 +783,9 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `INVOICED`. Administración → Pendiente → De liquidación lista las facturas por validar
   (`_royalty_invoice_pending_rows`) y `administration_royalty_invoice_review` muestra
   **liquidación a la izquierda / factura a la derecha**: validar deja pendiente de pago, rechazar
-  avisa por correo con el motivo y devuelve la liquidación a `SENT`. Se contrasta con las **órdenes
+  avisa por correo con el motivo y devuelve la liquidación a `SENT`. ⚠️ Si alguien sube la factura por
+  el enlace **sin que la liquidación existiera**, se crea sola (congelando los datos de ese momento) y
+  queda como **facturada**: aparece en el listado de royalties y la factura, en la base de facturas. Se contrasta con las **órdenes
   de embargo vigentes** del proveedor y se avisa para no abonarle. Acciones en bloque:
   `royalty_liquidations_download_all` (un PDF continuo con pypdf) y `royalty_liquidations_send_all`.
 - ⚠️ **Migraciones en local**: `_bootstrap_schema_bg` (a) corre en un hilo DAEMON al importar `app`
@@ -978,6 +991,14 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   justificante lo reciben en el siguiente sondeo (rama `skipped` de `_cabify_sync_account`, contador
   `receipts`). Si Cabify publica algún día el documento por viaje, `CabifyClient.sale_receipt_url` lo
   devuelve y se adjunta ese en su lugar (tiene prioridad); no hay nada más que tocar.
+
+- ⚠️ **Subida de archivos GRANDES (audio, vídeo, PDF) a Storage**: `storage3` solo admite `bytes`,
+  `BufferedReader`/`FileIO` o una **ruta**. El stream de una subida de Flask es un
+  `SpooledTemporaryFile` (werkzeug pasa a disco a partir de ~500 KB), así que pasarlo tal cual
+  reventaba con «expected str, bytes or os.PathLike object, not SpooledTemporaryFile» y **fallaban
+  los masters .wav** (los pequeños colaban por el fallback en memoria, los grandes no). `_upload_fileobj`
+  vuelca el stream a un fichero temporal EN DISCO por trozos y sube por ruta: sin tope de tamaño y sin
+  cargar nada en memoria.
 
 ## Despliegue
 - GitHub `descobosa2205/radio_spins_app` → **Render** (Pro Plus, **Frankfurt**) auto-deploy de

@@ -1273,6 +1273,20 @@ class RoyaltyLiquidation(Base):
     last_sent_snapshot = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     last_sent_pdf_url = Column(Text)
 
+    # LO GENERADO QUEDA CONGELADO: al generar la liquidación se guarda aquí el detalle tal cual, con
+    # su firma y su PDF. Aunque después cambien los ingresos, la liquidación NO se altera (así no hay
+    # diferencias entre lo enviado y lo que registra el sistema); para actualizarla hay que generar
+    # una nueva, y antes se enseña la comparativa con la anterior.
+    snapshot = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    snapshot_signature = Column(Text)          # firma de los datos congelados
+    snapshot_pdf_url = Column(Text)            # PDF de la liquidación generada
+    # Trazabilidad completa: generada, enviada, facturada, pagada… (lista de eventos con fecha).
+    history = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # Factura que subió el beneficiario por su enlace y cobro.
+    invoice_id = Column(PGUUID(as_uuid=True))
+    invoice_uploaded_at = Column(DateTime(timezone=True))
+    paid_at = Column(DateTime(timezone=True))
+
     __table_args__ = (
         UniqueConstraint(
             "beneficiary_kind",
@@ -5922,6 +5936,17 @@ def ensure_royalty_liquidations_schema():
             ADD COLUMN IF NOT EXISTS last_sent_signature text,
             ADD COLUMN IF NOT EXISTS last_sent_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
             ADD COLUMN IF NOT EXISTS last_sent_pdf_url text;
+        """,
+        # Congelado de lo generado + trazabilidad (historial, factura y cobro).
+        """
+        ALTER TABLE IF EXISTS royalty_liquidations
+            ADD COLUMN IF NOT EXISTS snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+            ADD COLUMN IF NOT EXISTS snapshot_signature text,
+            ADD COLUMN IF NOT EXISTS snapshot_pdf_url text,
+            ADD COLUMN IF NOT EXISTS history jsonb NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS invoice_id uuid,
+            ADD COLUMN IF NOT EXISTS invoice_uploaded_at timestamptz,
+            ADD COLUMN IF NOT EXISTS paid_at timestamptz;
         """,
     ]
 

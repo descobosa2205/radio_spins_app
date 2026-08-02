@@ -6840,6 +6840,118 @@ def _royalty_liquidation_snapshot_signature(snapshot: dict) -> str:
 
 
 
+# ---------------------------------------------------------------------------
+#  LA LIQUIDACIÓN GENERADA QUEDA CONGELADA
+#  Al generar una liquidación se guarda el detalle tal cual (snapshot) con su firma y su PDF. Aunque
+#  después cambien los ingresos, lo generado NO se toca: para actualizarla hay que generar una nueva
+#  y antes se enseña la comparativa. Así nunca hay diferencia entre lo enviado y lo que registra el
+#  sistema. Todo lo que le pasa a esa liquidación (generada, enviada, factura subida, pagada) queda
+#  en su historial, que es lo que muestra el botón de Información.
+# ---------------------------------------------------------------------------
+ROYALTY_EVENT_LABELS = {
+    "GENERATED": "Liquidación generada",
+    "REGENERATED": "Liquidación regenerada",
+    "SENT": "Enviada al beneficiario",
+    "INVOICED": "Factura recibida",
+    "PAID": "Pagada",
+    "INVOICE_REJECTED": "Factura rechazada",
+}
+
+
+def _royalty_data_signature(beneficiary: dict) -> str:
+    """Firma de los datos ECONÓMICOS del beneficiario: cambia si cambian los ingresos o el detalle."""
+    if not isinstance(beneficiary, dict):
+        return ""
+    def _num(v):
+        try:
+            return float(_money_or_zero(v))
+        except Exception:
+            return 0.0
+    filas = []
+    for it in (beneficiary.get("items") or []):
+        if not isinstance(it, dict):
+            continue
+        filas.append([str(it.get("id") or it.get("title") or ""), _num(it.get("income")),
+                      _num(it.get("amount")), _num(it.get("pct"))])
+    filas.sort(key=lambda x: x[0])
+    base = {"total": _num(beneficiary.get("total")), "total_income": _num(beneficiary.get("total_income")),
+            "total_amount": _num(beneficiary.get("total_amount")), "items": filas}
+    return hashlib.sha256(json.dumps(base, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+def _royalty_history_add(rec, kind: str, **extra) -> None:
+    """Apunta un evento en la trazabilidad de la liquidación."""
+    if rec is None:
+        return
+    estado = {}
+    try:
+        estado = _current_user_state() or {}
+    except Exception:
+        estado = {}
+    evento = {"kind": (kind or "").upper(), "at": _now_madrid().isoformat(),
+              "by": (estado.get("nick") or "").strip() or None}
+    evento.update({k: v for k, v in (extra or {}).items() if v not in (None, "")})
+    hist = list(getattr(rec, "history", None) or [])
+    hist.append(evento)
+    rec.history = hist[-60:]
+
+
+def _royalty_freeze(session_db, rec, beneficiary: dict, pdf_url: str = "", regenerada: bool = False) -> None:
+    """Congela en la liquidación los datos con los que se ha generado."""
+    if rec is None or not isinstance(beneficiary, dict):
+        return
+    rec.snapshot = json.loads(json.dumps(beneficiary, default=str))
+    rec.snapshot_signature = _royalty_data_signature(beneficiary)
+    if pdf_url:
+        rec.snapshot_pdf_url = pdf_url
+    rec.generated_at = _now_madrid()
+    rec.updated_at = rec.generated_at
+    if (rec.status or "PENDING").upper() in ("", "PENDING"):
+        rec.status = "GENERATED"
+    _royalty_history_add(rec, "REGENERATED" if regenerada else "GENERATED",
+                         total=str(beneficiary.get("total") or ""), pdf_url=pdf_url or None)
+
+
+def _royalty_frozen_beneficiary(rec):
+    """Los datos CONGELADOS de la liquidación (o None si todavía no se ha generado)."""
+    snap = getattr(rec, "snapshot", None) if rec is not None else None
+    return snap if isinstance(snap, dict) and snap else None
+
+
+def _royalty_needs_regeneration(rec, live_beneficiary: dict) -> bool:
+    """¿Los ingresos han cambiado desde que se generó? Entonces hay que volver a generarla."""
+    if rec is None or not _royalty_frozen_beneficiary(rec):
+        return False
+    firma = (getattr(rec, "snapshot_signature", None) or "").strip()
+    return bool(firma) and firma != _royalty_data_signature(live_beneficiary or {})
+
+
+def _royalty_timeline(rec) -> list:
+    """Historial legible de la liquidación para el botón de Información."""
+    salida = []
+    for ev in (getattr(rec, "history", None) or []):
+        if not isinstance(ev, dict):
+            continue
+        cuando = ev.get("at")
+        try:
+            cuando_dt = datetime.fromisoformat(str(cuando)) if cuando else None
+        except Exception:
+            cuando_dt = None
+        salida.append({
+            "kind": (ev.get("kind") or "").upper(),
+            "label": ROYALTY_EVENT_LABELS.get((ev.get("kind") or "").upper(), (ev.get("kind") or "").title()),
+            "at_label": (_format_madrid_datetime_label(cuando_dt) if cuando_dt else (str(cuando or "")[:16].replace("T", " "))),
+            "by": ev.get("by") or "",
+            "pdf_url": ev.get("pdf_url") or "",
+            "file_url": ev.get("file_url") or "",
+            "note": ev.get("note") or "",
+            "total": ev.get("total") or "",
+            "to": ev.get("to") or "",
+        })
+    salida.reverse()          # lo más reciente arriba
+    return salida
+
+
 def _apply_royalty_liquidation_meta(bucket: dict, rec: RoyaltyLiquidation | None) -> None:
     if not bucket:
         return
@@ -6850,6 +6962,8 @@ def _apply_royalty_liquidation_meta(bucket: dict, rec: RoyaltyLiquidation | None
         bucket['last_sent_pdf_url'] = ''
         bucket['last_sent_signature'] = ''
         # Sin fila de liquidación todavía NO está generada.
+        bucket['is_generated'] = False
+        bucket['needs_regeneration'] = False
         bucket['liquidation_status'] = 'PENDING'
         lbl, color = _royalty_status_meta('PENDING')
         bucket['liquidation_label'] = lbl
@@ -6870,7 +6984,24 @@ def _apply_royalty_liquidation_meta(bucket: dict, rec: RoyaltyLiquidation | None
     bucket['last_sent_at_label'] = _format_madrid_datetime_label(bucket['last_sent_at'])
     bucket['last_sent_pdf_url'] = (getattr(rec, 'last_sent_pdf_url', None) or '').strip()
     bucket['last_sent_signature'] = (getattr(rec, 'last_sent_signature', None) or '').strip()
-    bucket['has_sent_info'] = bool(bucket['last_sent_at'] and bucket['last_sent_pdf_url'])
+    # La información se puede consultar SIEMPRE que exista la liquidación (no solo si se envió): ahí
+    # está toda la trazabilidad (generada, enviada, factura, cobro).
+    bucket['has_sent_info'] = True
+    congelada = _royalty_frozen_beneficiary(rec)
+    bucket['is_generated'] = bool(congelada)
+    bucket['generated_at_label'] = _format_madrid_datetime_label(getattr(rec, 'generated_at', None))
+    bucket['generated_pdf_url'] = (getattr(rec, 'snapshot_pdf_url', None) or '').strip()
+    bucket['invoice_uploaded_at_label'] = _format_madrid_datetime_label(getattr(rec, 'invoice_uploaded_at', None))
+    bucket['paid_at_label'] = _format_madrid_datetime_label(getattr(rec, 'paid_at', None))
+    if congelada:
+        # Los ingresos pueden haber cambiado; la liquidación NO se altera hasta generar una nueva.
+        bucket['needs_regeneration'] = _royalty_needs_regeneration(rec, bucket)
+        bucket['live_total'] = bucket.get('total')
+        for campo in ('total', 'total_income', 'total_amount', 'items'):
+            if campo in congelada:
+                bucket[campo] = congelada[campo]
+    else:
+        bucket['needs_regeneration'] = False
 
 
 # Estados de una liquidación de royalties, en orden de flujo. PENDING = todavía NO generada (no
@@ -8268,7 +8399,14 @@ def _get_royalty_liquidation_beneficiary_data(session_db, kind: str, beneficiary
     return beneficiary, sem_start, sem_end, bid
 
 
-def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, sem_year: int, sem_half: int, touch_liquidation: bool = True) -> tuple[bytes, str, dict]:
+def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, sem_year: int, sem_half: int,
+                                         touch_liquidation: bool = True, use_frozen: bool = True) -> tuple[bytes, str, dict]:
+    """PDF de la liquidación.
+
+    ⚠️ `use_frozen=True` (lo normal en todo lo que NO es generar): se usa lo CONGELADO al generarla,
+    para que el PDF que se ve, se envía o se descarga después sea exactamente el mismo aunque los
+    ingresos hayan cambiado. Al GENERAR se llama con `use_frozen=False` (datos en vivo) y se congela.
+    """
     beneficiary, sem_start, sem_end, bid = _get_royalty_liquidation_beneficiary_data(
         session_db,
         kind,
@@ -8277,6 +8415,15 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
         sem_half,
     )
     kind = (kind or "").strip().upper()
+
+    if use_frozen:
+        _rec_prev = (session_db.query(RoyaltyLiquidation)
+                     .filter(RoyaltyLiquidation.beneficiary_kind == kind,
+                             RoyaltyLiquidation.beneficiary_id == bid,
+                             RoyaltyLiquidation.period_start == sem_start).first())
+        _congelada = _royalty_frozen_beneficiary(_rec_prev)
+        if _congelada:
+            beneficiary = _congelada
 
     if touch_liquidation:
         now_dt = datetime.now(TZ_MADRID)
@@ -8287,7 +8434,9 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
             .filter(RoyaltyLiquidation.period_start == sem_start)
             .first()
         )
+        regenerada = False
         if rec:
+            regenerada = bool(_royalty_frozen_beneficiary(rec))
             rec.period_end = sem_end
             rec.generated_at = now_dt
             rec.updated_at = now_dt
@@ -8304,6 +8453,10 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
                 updated_at=now_dt,
             )
             session_db.add(rec)
+            session_db.flush()
+        # Generar CONGELA los datos: a partir de aquí la liquidación no cambia aunque cambien los
+        # ingresos (hasta que se genere una nueva).
+        _royalty_freeze(session_db, rec, beneficiary, regenerada=regenerada)
         session_db.commit()
 
     from reportlab.lib.pagesizes import A4
@@ -13937,6 +14090,7 @@ def discografica_royalties_liquidation_pdf():
 
     with get_db() as session_db:
         try:
+            # GENERAR: se calcula con los datos EN VIVO y se congela lo generado.
             pdf_bytes, filename, _beneficiary = _build_royalty_liquidation_pdf_bytes(
                 session_db,
                 kind,
@@ -13944,6 +14098,7 @@ def discografica_royalties_liquidation_pdf():
                 sem_year,
                 sem_half,
                 touch_liquidation=True,
+                use_frozen=False,
             )
         except LookupError:
             abort(404)
@@ -14078,6 +14233,66 @@ def discografica_royalties_liquidation_preview():
         })
 
 
+@app.get("/discografica/royalties/liquidacion/comparar", endpoint="royalty_liquidation_compare")
+@admin_required
+def royalty_liquidation_compare():
+    """Antes de generar una liquidación NUEVA sobre una que ya existe: qué cambia respecto a la
+    anterior, para poder aceptarla o conservar la que había."""
+    kind = (request.args.get('kind') or '').strip().upper()
+    bid_raw = (request.args.get('bid') or '').strip()
+    parsed_sem = _parse_semester_key((request.args.get('s') or '').strip())
+    if kind not in ('ARTIST', 'PROMOTER') or not parsed_sem:
+        return jsonify({'ok': False, 'message': 'Datos inválidos.'}), 400
+    sem_year, sem_half = parsed_sem
+    sem_start, _sem_end = _semester_range(sem_year, sem_half)
+    try:
+        bid = uuid.UUID(bid_raw)
+    except Exception:
+        return jsonify({'ok': False, 'message': 'Beneficiario inválido.'}), 400
+    with get_db() as session_db:
+        rec = _royalty_liquidation_record(session_db, kind, bid, sem_start)
+        anterior = _royalty_frozen_beneficiary(rec)
+        try:
+            nueva, _s, _e, _b = _get_royalty_liquidation_beneficiary_data(session_db, kind, bid, sem_year, sem_half)
+        except Exception:
+            return jsonify({'ok': False, 'message': 'No hay datos de royalties para este periodo.'}), 404
+        if not anterior:
+            return jsonify({'ok': True, 'first_time': True,
+                            'nueva': {'total': str(nueva.get('total') or ''), 'lineas': len(nueva.get('items') or [])}})
+
+        def _idx(datos):
+            fuera = {}
+            for it in (datos.get('items') or []):
+                if isinstance(it, dict):
+                    fuera[str(it.get('id') or it.get('title') or '')] = it
+            return fuera
+        ant_idx, nue_idx = _idx(anterior), _idx(nueva)
+        filas = []
+        for clave in sorted(set(ant_idx) | set(nue_idx)):
+            a, n = ant_idx.get(clave), nue_idx.get(clave)
+            imp_a = _money_or_zero((a or {}).get('amount'))
+            imp_n = _money_or_zero((n or {}).get('amount'))
+            if a is not None and n is not None and imp_a == imp_n:
+                continue                                   # sin cambios: no se enseña
+            filas.append({
+                'titulo': ((n or a) or {}).get('title') or clave,
+                'antes': (format_eur(imp_a) if a is not None else '—'),
+                'ahora': (format_eur(imp_n) if n is not None else '—'),
+                'estado': ('nueva' if a is None else ('quitada' if n is None else 'cambia')),
+            })
+        return jsonify({
+            'ok': True,
+            'first_time': False,
+            'anterior': {'total': format_eur(_money_or_zero(anterior.get('total'))),
+                         'generada': _format_madrid_datetime_label(getattr(rec, 'generated_at', None)),
+                         'lineas': len(anterior.get('items') or [])},
+            'nueva': {'total': format_eur(_money_or_zero(nueva.get('total'))),
+                      'lineas': len(nueva.get('items') or [])},
+            'cambios': filas[:60],
+            'sin_cambios': not filas,
+        })
+
+
 @app.get("/discografica/royalties/liquidacion/info")
 @admin_required
 def discografica_royalties_liquidation_info():
@@ -14100,14 +14315,43 @@ def discografica_royalties_liquidation_info():
 
     with get_db() as session_db:
         rec = _royalty_liquidation_record(session_db, kind, beneficiary_uuid, sem_start)
-        if not rec or not getattr(rec, 'last_sent_at', None):
+        if not rec:
             return jsonify({'ok': True, 'has_info': False})
+        # Trazabilidad COMPLETA de esos royalties: cuándo se generó (y su PDF), cuándo y a quién se
+        # envió, cuándo llegó la factura (con enlace para verla) y cuándo se pagó.
+        factura = None
+        inv_id = getattr(rec, 'invoice_id', None)
+        if inv_id:
+            inv = session_db.get(SupplierInvoice, inv_id)
+            if inv is not None:
+                factura = {
+                    'url': (inv.file_url or ''),
+                    'name': (inv.original_name or 'Factura'),
+                    'number': (inv.invoice_number or ''),
+                    'status': (inv.status or ''),
+                    'uploaded_at_label': _format_madrid_datetime_label(getattr(rec, 'invoice_uploaded_at', None) or inv.created_at),
+                }
+        live = None
+        try:
+            live, _s2, _e2, _b2 = _get_royalty_liquidation_beneficiary_data(session_db, kind, beneficiary_uuid, sem_year, sem_half)
+        except Exception:
+            live = None
         return jsonify({
             'ok': True,
             'has_info': True,
+            'status': (rec.status or 'PENDING'),
+            'status_label': _royalty_status_meta(rec.status)[0],
+            'generated_at_label': _format_madrid_datetime_label(getattr(rec, 'generated_at', None)),
+            'generated_pdf_url': (getattr(rec, 'snapshot_pdf_url', None) or '').strip(),
+            'is_generated': bool(_royalty_frozen_beneficiary(rec)),
+            'needs_regeneration': bool(live and _royalty_needs_regeneration(rec, live)),
+            'total': str((_royalty_frozen_beneficiary(rec) or {}).get('total') or ''),
             'sent_at_label': _format_madrid_datetime_label(getattr(rec, 'last_sent_at', None)),
             'sent_to': list(getattr(rec, 'last_sent_to', None) or []),
             'pdf_url': (getattr(rec, 'last_sent_pdf_url', None) or '').strip(),
+            'invoice': factura,
+            'paid_at_label': _format_madrid_datetime_label(getattr(rec, 'paid_at', None)),
+            'timeline': _royalty_timeline(rec),
         })
 
 
@@ -14466,6 +14710,7 @@ def royalty_liquidations_send_all():
                 rec.last_sent_pdf_url = pdf_url
                 if not getattr(rec, "generated_at", None):
                     rec.generated_at = now_dt
+                _royalty_history_add(rec, "SENT", to=", ".join(recipients), pdf_url=pdf_url)
                 session_db.commit()
                 sent += 1
             except Exception as exc:
@@ -14559,6 +14804,8 @@ def discografica_royalties_liquidation_send():
             rec.last_sent_to = recipients
             if not getattr(rec, 'last_sent_signature', None):
                 rec.last_sent_signature = _royalty_liquidation_snapshot_signature(snapshot)
+            _royalty_history_add(rec, 'SENT', to=', '.join(recipients),
+                                 pdf_url=(getattr(rec, 'last_sent_pdf_url', None) or ''))
             session_db.commit()
             return _royalty_send_response(
                 True,
@@ -14613,6 +14860,7 @@ def discografica_royalties_liquidation_send():
         rec.last_sent_pdf_url = pdf_url
         if not getattr(rec, 'generated_at', None):
             rec.generated_at = now_dt
+        _royalty_history_add(rec, 'SENT', to=', '.join(recipients), pdf_url=pdf_url)
         session_db.commit()
 
         return _royalty_send_response(
@@ -14681,7 +14929,10 @@ def discografica_royalties_liquidation_status():
             rec.status = status
             rec.period_end = sem_end
             rec.updated_at = now_dt
-
+        # Trazabilidad: el pago (y cualquier cambio de estado a mano) queda apuntado con su fecha.
+        if status == 'PAID':
+            rec.paid_at = now_dt
+        _royalty_history_add(rec, status)
         session_db.commit()
 
     return jsonify({'ok': True, 'status': status})
@@ -40715,6 +40966,7 @@ def administration_royalty_invoice_validate(invoice_id):
             if rec is not None:
                 rec.status = "SENT"          # vuelve a «enviada» = pendiente de facturar
                 rec.updated_at = _now_madrid()
+                _royalty_history_add(rec, "INVOICE_REJECTED", note=reason, file_url=(inv.file_url or ""))
             promoter = session_db.get(Promoter, inv.promoter_id)
             email_to = (getattr(promoter, "contact_email", None) or "").strip() if promoter else ""
             if email_to:
@@ -40732,6 +40984,11 @@ def administration_royalty_invoice_validate(invoice_id):
             if rec is not None:
                 rec.status = "INVOICED"      # facturada y validada = pendiente de pago
                 rec.updated_at = _now_madrid()
+                rec.invoice_id = inv.id
+                if not getattr(rec, "invoice_uploaded_at", None):
+                    rec.invoice_uploaded_at = getattr(inv, "created_at", None) or _now_madrid()
+                _royalty_history_add(rec, "INVOICED", note="validada por administración",
+                                     file_url=(inv.file_url or ""))
             session_db.commit()
             flash("Factura validada: la liquidación queda pendiente de pago.", "success")
         return redirect(safe_next_or(url_for("administracion_view", tab="pendiente", subtab="liquidacion")))
@@ -54297,15 +54554,31 @@ def public_invoice_upload():
         liq_token = (request.form.get("liq_token") or "").strip()
         liq_payload = _parse_public_royalty_liquidation_token(liq_token) if liq_token else None
         if liq_payload:
+            # FACTURA DE UNA LIQUIDACIÓN DE ROYALTIES. Los royalties YA son una liquidación en sí
+            # mismos: al subir la factura, la liquidación pasa directamente a «facturada» y, si
+            # todavía no existía su registro (alguien facturó sin que se hubiera generado), se crea
+            # al vuelo con los datos congelados para que aparezca como liquidación pendiente.
             kind = (liq_payload.get("kind") or "").upper()
             parsed_sem = _parse_semester_key((liq_payload.get("s") or "").strip())
             rec = None
-            if parsed_sem:
-                sem_start, _sem_end = _semester_range(*parsed_sem)
-                bid = to_uuid(str(liq_payload.get("bid") or ""))
-                if bid:
-                    rec = _royalty_liquidation_record(session_db, kind, bid, sem_start)
-            session_db.add(SupplierInvoice(
+            sem_start = sem_end = None
+            bid = to_uuid(str(liq_payload.get("bid") or ""))
+            if parsed_sem and bid:
+                sem_start, sem_end = _semester_range(*parsed_sem)
+                rec = _royalty_liquidation_record(session_db, kind, bid, sem_start)
+                if rec is None:
+                    rec = _ensure_royalty_liquidation_row(session_db, kind, bid, sem_start, sem_end)
+                    session_db.flush()
+                # Si nunca se generó, se congela lo que hay ahora para que la liquidación tenga sus
+                # datos y no dependa de lo que cambien luego los ingresos.
+                if not _royalty_frozen_beneficiary(rec):
+                    try:
+                        _benef, _s, _e, _b = _get_royalty_liquidation_beneficiary_data(
+                            session_db, kind, bid, parsed_sem[0], parsed_sem[1])
+                        _royalty_freeze(session_db, rec, _benef)
+                    except Exception:
+                        pass
+            invoice = SupplierInvoice(
                 promoter_id=promoter.id, source="REQUEST",
                 royalty_liquidation_id=(rec.id if rec else None),
                 artist_text=(request.form.get("artist_text") or "").strip() or None,
@@ -54313,10 +54586,16 @@ def public_invoice_upload():
                 invoice_number=(request.form.get("invoice_number") or "").strip() or None,
                 group_company_id=to_uuid(request.form.get("group_company_id") or "") or None,
                 file_url=url, original_name=filename[:200], mime_type=f.mimetype, status="PENDIENTE",
-            ))
+            )
+            session_db.add(invoice)
+            session_db.flush()
             if rec is not None:
                 rec.status = "INVOICED"
                 rec.updated_at = datetime.now(TZ_MADRID)
+                rec.invoice_id = invoice.id
+                rec.invoice_uploaded_at = _now_madrid()
+                _royalty_history_add(rec, "INVOICED", file_url=(invoice.file_url or ""),
+                                     note=(invoice.invoice_number or ""))
             session_db.commit()
             return jsonify({"ok": True, "kind": "invoice", "done": True})
         # Si viene de una PETICIÓN (bolsa), la factura se vincula a sus conceptos pendientes.

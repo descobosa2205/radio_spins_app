@@ -1608,6 +1608,48 @@ function _royaltyStatusMeta(status){
   return {label: 'Generada', color: 'secondary'};
 }
 
+/* GENERAR una liquidación. Si ya había una generada se enseña ANTES la comparativa (qué cambia
+   respecto a la anterior) para aceptarla o conservar la que había: lo generado no se pisa solo. */
+async function generateRoyaltyLiquidation(kind, bid, semesterKey){
+  try {
+    const r = await fetch(`/discografica/royalties/liquidacion/comparar?kind=${encodeURIComponent(kind)}&bid=${encodeURIComponent(bid)}&s=${encodeURIComponent(semesterKey)}`);
+    const js = await r.json().catch(() => ({}));
+    if (!r.ok || !js.ok) throw new Error((js && js.message) || 'No se pudo preparar la liquidación');
+    if (js.first_time) { return downloadRoyaltyLiquidationPdf(kind, bid, semesterKey); }
+
+    const modalEl = document.getElementById('royaltyCompareModal');
+    if (!modalEl || !window.bootstrap) { return downloadRoyaltyLiquidationPdf(kind, bid, semesterKey); }
+    document.getElementById('royaltyCmpOldTotal').textContent = js.anterior.total || '—';
+    document.getElementById('royaltyCmpOldMeta').textContent =
+      (js.anterior.generada ? ('Generada el ' + js.anterior.generada + ' · ') : '') + js.anterior.lineas + ' línea(s)';
+    document.getElementById('royaltyCmpNewTotal').textContent = js.nueva.total || '—';
+    document.getElementById('royaltyCmpNewMeta').textContent = js.nueva.lineas + ' línea(s)';
+    const cont = document.getElementById('royaltyCmpChanges');
+    cont.innerHTML = js.sin_cambios
+      ? '<div class="alert alert-light border mb-0">Los importes son los mismos: generar de nuevo no cambiaría nada.</div>'
+      : ('<div class="table-responsive"><table class="table table-sm align-middle mb-0">' +
+         '<thead><tr><th>Concepto</th><th class="text-end">Antes</th><th class="text-end">Ahora</th></tr></thead><tbody>' +
+         js.cambios.map(function(c){
+           const color = c.estado === 'nueva' ? 'text-success' : (c.estado === 'quitada' ? 'text-danger' : '');
+           return '<tr><td>' + c.titulo + ' <span class="badge text-bg-light border ' + color + '">' + c.estado + '</span></td>' +
+                  '<td class="text-end">' + c.antes + '</td><td class="text-end fw-semibold">' + c.ahora + '</td></tr>';
+         }).join('') + '</tbody></table></div>');
+    const bs = window.bootstrap.Modal.getOrCreateInstance(modalEl);
+    const btn = document.getElementById('royaltyCmpAccept');
+    const nuevoBtn = btn.cloneNode(true);
+    btn.parentNode.replaceChild(nuevoBtn, btn);
+    nuevoBtn.addEventListener('click', function(){
+      bs.hide();
+      downloadRoyaltyLiquidationPdf(kind, bid, semesterKey);
+    });
+    bs.show();
+  } catch (err) {
+    console.error(err);
+    alert('No se pudo generar la liquidación: ' + (err && err.message ? err.message : err));
+  }
+}
+window.generateRoyaltyLiquidation = generateRoyaltyLiquidation;
+
 async function downloadRoyaltyLiquidationPdf(kind, bid, semesterKey){
   try {
     const url = `/discografica/royalties/liquidacion/pdf?kind=${encodeURIComponent(kind)}&bid=${encodeURIComponent(bid)}&s=${encodeURIComponent(semesterKey)}`;
@@ -1909,11 +1951,17 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
       const js = await r.json().catch(() => ({}));
       if (!r.ok || !js.ok) throw new Error((js && js.message) || 'No se pudo cargar la información');
       if (!js.has_info) {
-        alert('Todavía no hay información de envío guardada para esta liquidación.');
+        alert('Todavía no hay nada que seguir: esta liquidación no se ha generado.');
         return;
       }
-      const sentAt = document.getElementById('royaltyInfoSentAt');
-      if (sentAt) sentAt.textContent = js.sent_at_label || '—';
+      const put = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt || '—'; };
+      put('royaltyInfoStatus', js.status_label);
+      put('royaltyInfoGeneratedAt', js.generated_at_label);
+      put('royaltyInfoSentAt', js.sent_at_label);
+      put('royaltyInfoInvoiceAt', js.invoice ? js.invoice.uploaded_at_label : '—');
+      put('royaltyInfoPaidAt', js.paid_at_label);
+      const stale = document.getElementById('royaltyInfoStale');
+      if (stale) stale.classList.toggle('d-none', !js.needs_regeneration);
       const recipientsWrap = document.getElementById('royaltyInfoRecipients');
       if (recipientsWrap) {
         recipientsWrap.innerHTML = '';
@@ -1922,11 +1970,35 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
           li.textContent = email;
           recipientsWrap.appendChild(li);
         });
+        if (!(js.sent_to || []).length) recipientsWrap.innerHTML = '<li class="text-muted">Todavía no se ha enviado.</li>';
       }
       const pdfLink = document.getElementById('royaltyInfoPdfLink');
       if (pdfLink) {
         pdfLink.href = js.pdf_url || '#';
         pdfLink.classList.toggle('disabled', !js.pdf_url);
+      }
+      const genLink = document.getElementById('royaltyInfoGenLink');
+      if (genLink) {
+        genLink.href = js.generated_pdf_url || '#';
+        genLink.classList.toggle('d-none', !js.generated_pdf_url);
+      }
+      const invLink = document.getElementById('royaltyInfoInvoiceLink');
+      if (invLink) {
+        invLink.href = (js.invoice && js.invoice.url) || '#';
+        invLink.classList.toggle('d-none', !(js.invoice && js.invoice.url));
+      }
+      const tl = document.getElementById('royaltyInfoTimeline');
+      if (tl) {
+        tl.innerHTML = (js.timeline || []).map(function(ev){
+          const extra = [ev.by ? ('por ' + ev.by) : '', ev.to ? ('a ' + ev.to) : '', ev.total ? ('total ' + ev.total) : '', ev.note || '']
+            .filter(Boolean).join(' · ');
+          const enlace = ev.pdf_url ? (' <a href="' + ev.pdf_url + '" target="_blank" rel="noopener"><i class="fa fa-file-pdf"></i></a>')
+                       : (ev.file_url ? (' <a href="' + ev.file_url + '" target="_blank" rel="noopener"><i class="fa fa-file-invoice-dollar"></i></a>') : '');
+          return '<div class="list-group-item px-0"><div class="d-flex justify-content-between gap-2">' +
+                 '<div><span class="fw-semibold">' + ev.label + '</span>' + enlace +
+                 (extra ? ('<div class="small text-muted">' + extra + '</div>') : '') + '</div>' +
+                 '<div class="small text-muted text-nowrap">' + (ev.at_label || '') + '</div></div></div>';
+        }).join('') || '<div class="text-muted small">Sin movimientos todavía.</div>';
       }
       const modal = getRoyaltyInfoModal();
       if (modal) modal.show();

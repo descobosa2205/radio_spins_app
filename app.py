@@ -491,6 +491,8 @@ def inject_country_helpers():
         "marketing_action_type_labels": globals().get("MARKETING_ACTION_TYPE_LABELS", {}),
         "marketing_exterior_subtypes": globals().get("MARKETING_EXTERIOR_SUBTYPES", []),
         "marketing_digital_platforms": globals().get("MARKETING_DIGITAL_PLATFORMS", []),
+        # `MEDIA_TYPES` es global porque el alta rápida de medios (modal transversal) lo necesita.
+        "MEDIA_TYPES": globals().get("MEDIA_TYPES", []),
         "DEFAULT_PHOTO_URL": url_for("static", filename="img/placeholder_photo.png"),
     }
 
@@ -1692,11 +1694,13 @@ def artist_detail_view(artist_id):
 
         promotion_requests_display = []
         promotion_entries_display = []
+        promo_entity_rows = []
         promotion_source_snapshot = _promotion_request_snapshot_from_source(session_db, "ARTIST", artist.id)
         if tab in {"promocion", "marketing"}:
             promotion_request_rows, promotion_rows = _promotion_rows_for_artist(session_db, artist.id)
             promotion_requests_display = [_promotion_display_request(row) for row in promotion_request_rows]
             promotion_entries_display = [_promotion_display_promotion(row) for row in promotion_rows]
+            promo_entity_rows = _promo_rows_for_subject(session_db, "ARTIST", artist.id)
 
         social_links_display = _ordered_social_links(getattr(artist, "social_links", None))
         # Iconos de redes del hero: se toman de las URLs que trae Chartmetric (no manuales).
@@ -1781,6 +1785,7 @@ def artist_detail_view(artist_id):
             f_when=sorted(list(f_when)),
             promotion_requests_display=promotion_requests_display,
             promotion_entries_display=promotion_entries_display,
+            promo_entity_rows=promo_entity_rows,
             promotion_source_type="ARTIST",
             promotion_source_id=str(artist.id),
             promotion_source_snapshot=promotion_source_snapshot,
@@ -15385,10 +15390,12 @@ def discografica_song_detail(song_id):
 
     promotion_requests_display = []
     promotion_entries_display = []
+    promo_entity_rows = []
     promotion_source_snapshot = _promotion_request_snapshot_from_source(session_db, "SONG", s.id)
     if tab in {"promocion", "marketing"}:
         promotion_requests_display = [_promotion_display_request(row) for row in _promotion_entity_requests(session_db, "SONG", s.id)]
         promotion_entries_display = [_promotion_display_promotion(row) for row in _promotion_entity_promotions(session_db, "SONG", s.id)]
+        promo_entity_rows = _promo_rows_for_subject(session_db, "SONG", s.id)
 
     response = render_template(
         "song_detail.html",
@@ -15450,6 +15457,7 @@ def discografica_song_detail(song_id):
         },
         promotion_requests_display=promotion_requests_display,
         promotion_entries_display=promotion_entries_display,
+        promo_entity_rows=promo_entity_rows,
         promotion_source_type="SONG",
         promotion_source_id=str(s.id),
         promotion_source_snapshot=promotion_source_snapshot,
@@ -19335,10 +19343,12 @@ def discografica_album_detail(album_id):
 
     promotion_requests_display = []
     promotion_entries_display = []
+    promo_entity_rows = []
     promotion_source_snapshot = _promotion_request_snapshot_from_source(session_db, "ALBUM", album.id)
     if tab in {"promocion", "marketing"}:
         promotion_requests_display = [_promotion_display_request(row) for row in _promotion_entity_requests(session_db, "ALBUM", album.id)]
         promotion_entries_display = [_promotion_display_promotion(row) for row in _promotion_entity_promotions(session_db, "ALBUM", album.id)]
+        promo_entity_rows = _promo_rows_for_subject(session_db, "ALBUM", album.id)
 
     response = render_template(
         "album_detail.html",
@@ -19376,6 +19386,7 @@ def discografica_album_detail(album_id):
         },
         promotion_requests_display=promotion_requests_display,
         promotion_entries_display=promotion_entries_display,
+        promo_entity_rows=promo_entity_rows,
         promotion_source_type="ALBUM",
         promotion_source_id=str(album.id),
         promotion_source_snapshot=promotion_source_snapshot,
@@ -23081,7 +23092,7 @@ def peticion_wizard_create():
 # Secciones nuevas del menú (aparte de "Marketing"). Cada una es la bandeja de peticiones que le
 # corresponden a ese departamento. ⚠️ El reparto vive en payload['departments'] (LISTA: una petición
 # puede tocar a varios) y se lee SIEMPRE con `_booking_in_department`; no hay ningún campo singular.
-def _render_department_inbox(dept_key: str, title: str, icon: str, subtitle: str):
+def _render_department_inbox(dept_key: str, title: str, icon: str, subtitle: str, promo_tab: str = "peticiones"):
     s = db()
     try:
         try:
@@ -23098,6 +23109,19 @@ def _render_department_inbox(dept_key: str, title: str, icon: str, subtitle: str
         pending = [r for r in mine if (r.status or "NUEVA").upper() in {"NUEVA", "EN_TRAMITE"}]
         archived = [r for r in mine if (r.status or "NUEVA").upper() in {"CONVERTIDA", "DESCARTADA"}]
         artists = s.query(Artist).order_by(Artist.name.asc()).all()
+        # PROMOCIÓN es además la sección donde viven las promociones de prensa (entrevistas y
+        # planes): la bandeja de peticiones es solo su primera pestaña.
+        promo_active, promo_archived = [], []
+        if dept_key == "PROMO":
+            promo_rows = (s.query(Promotion).options(joinedload(Promotion.company))
+                          .filter(func.upper(func.coalesce(Promotion.kind, 'MARKETING')) == PROMO_KIND)
+                          .order_by(Promotion.starts_on.desc().nullslast(), Promotion.created_at.desc())
+                          .limit(400).all())
+            counts = _promo_activity_counts(s, [r.id for r in promo_rows])
+            for row in promo_rows:
+                info = counts.get(str(row.id)) or {}
+                item = _promo_display(row, activity_count=info.get("total", 0), pending_count=info.get("pending", 0))
+                (promo_archived if item["archived"] else promo_active).append(item)
         return render_template(
             "department_inbox.html",
             dept_key=dept_key,
@@ -23108,9 +23132,20 @@ def _render_department_inbox(dept_key: str, title: str, icon: str, subtitle: str
             archived_rows=[_booking_request_row(r) for r in archived],
             booking_status_meta=BOOKING_STATUS_META,
             artists=artists,
-            # Promoción lleva además el asistente de «Añadir promoción» (el mismo de Marketing).
+            # Promoción lleva además el botón de MARKETING (campañas de pago, otra sección) y el
+            # asistente propio de «+ Promoción».
             promotion_creator_datasets=(_promotion_creator_datasets(s) if dept_key == "PROMO" else {}),
             can_edit_promocion=(can_edit_marketing() if dept_key == "PROMO" else False),
+            promo_tab=promo_tab,
+            promo_active=promo_active,
+            promo_archived=promo_archived,
+            promo_creator_datasets=(_promo_creator_datasets(s) if dept_key == "PROMO" else {}),
+            promo_modalities=PROMO_MODALITIES,
+            promo_formations=PROMO_FORMATIONS,
+            promoter_cost_items=PROMOTER_COST_ITEMS,
+            production_people=(_production_people(s) if dept_key == "PROMO" else []),
+            office_people=(_promo_office_people(s) if dept_key == "PROMO" else []),
+            can_edit_promo=(can_edit_promo() if dept_key == "PROMO" else False),
         )
     finally:
         s.close()
@@ -23119,9 +23154,13 @@ def _render_department_inbox(dept_key: str, title: str, icon: str, subtitle: str
 @app.get("/promocion-peticiones", endpoint="promo_view")
 @admin_required
 def promo_view():
+    tab = (request.args.get("tab") or "peticiones").strip().lower()
+    if tab not in {"peticiones", "activas", "archivadas"}:
+        tab = "peticiones"
     return _render_department_inbox(
         "PROMO", "Promoción", "fa-microphone-lines",
-        "Peticiones de promoción (entrevistas, medios, prensa). El equipo de promoción las gestiona aquí.",
+        "Entrevistas, junts de prensa y phoners: las promociones y las peticiones que llegan.",
+        promo_tab=tab,
     )
 
 
@@ -23196,6 +23235,32 @@ def _home_produccion_pending(limit=12):
             })
             if len(out) >= limit:
                 break
+        # Promociones de prensa que piden producción: le tocan a quien se le encargó (y dirección o
+        # quien no tiene reparto las ve todas), igual que el resto del módulo.
+        promo_q = (s.query(Promotion)
+                   .filter(func.upper(func.coalesce(Promotion.kind, 'MARKETING')) == PROMO_KIND)
+                   .filter(Promotion.production_needed.is_(True))
+                   .filter(func.upper(func.coalesce(Promotion.status, 'ACTIVE')) == 'ACTIVE'))
+        if not is_master():
+            promo_q = promo_q.filter(or_(Promotion.production_owner_user_id == to_uuid(uid),
+                                         Promotion.production_owner_user_id.is_(None)))
+        for promo in promo_q.order_by(Promotion.starts_on.asc().nullslast()).limit(30).all():
+            if len(out) >= limit:
+                break
+            request_row = s.get(ProductionRequest, promo.production_request_id) if promo.production_request_id else None
+            if request_row is not None and (getattr(request_row, "status", "") or "").upper() not in {"REQUESTED", "APPROVED"}:
+                continue
+            artists = _artists_from_ids(s, _promotion_normalized_artist_ids(getattr(promo, "artist_ids", None) or []))
+            when = getattr(promo, "starts_on", None) or getattr(promo, "target_date", None)
+            out.append({
+                "id": str(promo.id),
+                "artist_name": _artist_label_from_rows(artists),
+                "artist_photo": ((getattr(artists[0], "photo_url", None) or "") if artists else ""),
+                "date_label": when.strftime("%d/%m/%Y") if when else "",
+                "venue": _promo_title(promo),
+                "activity_label": "Promoción",
+                "url": url_for("promo_detail_view", promotion_id=promo.id),
+            })
         return out
     except Exception:
         return []
@@ -23676,6 +23741,8 @@ def purchased_tour_detail(tid):
             "activity_group_detail.html",
             # Cartelería de TODA la gira (una sola solicitud para todas sus fechas).
             **_artwork_group_context(s, "TOUR", t.id),
+            # Marketing de la gira entera: lo que se pidió y lo que ya hay creado.
+            **_promotion_panel_context(s, "GIRA", t.id),
             can_validate_artwork=_can_validate_artwork(),
             group_kind="TOUR", group_is_event=False, group=t, concerts=rows, general=general,
             advance_share=advance_share, gen_total=gen_total,
@@ -24039,6 +24106,8 @@ def cycle_festival_detail(cfid):
             "activity_group_detail.html",
             # Cartelería de TODO el ciclo/festival/evento.
             **_artwork_group_context(s, "CYCLE", cf.id),
+            # Marketing del ciclo/festival/evento entero.
+            **_promotion_panel_context(s, "CICLO", cf.id),
             can_validate_artwork=_can_validate_artwork(),
             group_kind=(cf.kind or "FESTIVAL").upper(),
             # Un contenedor es de un EVENTO por su tipo o por colgar de un AppEvent.
@@ -28209,10 +28278,12 @@ def concert_detail_view(cid):
 
         promotion_requests_display = []
         promotion_entries_display = []
+        promo_entity_rows = []
         promotion_source_snapshot = _promotion_request_snapshot_from_source(session, "CONCERT", c.id)
         if tab in {"promocion", "marketing"}:
             promotion_requests_display = [_promotion_display_request(row) for row in _promotion_entity_requests(session, "CONCERT", c.id)]
             promotion_entries_display = [_promotion_display_promotion(row) for row in _promotion_entity_promotions(session, "CONCERT", c.id)]
+            promo_entity_rows = _promo_rows_for_subject(session, "CONCERT", c.id)
 
         contracting_general_rows = _concert_contracting_general_rows(session, c)
         promoter_email_suggestions = _concert_promoter_email_suggestions(session, c)
@@ -28330,6 +28401,7 @@ def concert_detail_view(cid):
             artwork_upload_url=_external_url_for('concert_artwork_public_upload', token=artwork_request.public_token) if artwork_request else None,
             promotion_requests_display=promotion_requests_display,
             promotion_entries_display=promotion_entries_display,
+            promo_entity_rows=promo_entity_rows,
             promotion_source_type="CONCERT",
             promotion_source_id=str(c.id),
             promotion_source_snapshot=promotion_source_snapshot,
@@ -38182,14 +38254,71 @@ def _build_registros_concerts_pending(session_db) -> list[dict]:
     return rows
 
 
+def _build_registros_promos_pending(session_db) -> list[dict]:
+    """Promociones YA CELEBRADAS en las que se CANTÓ y están sin declarar, agrupadas por semestre.
+
+    Una entrevista en la que el artista canta se declara igual que un concierto; lo que aún no ha
+    pasado no se puede declarar, así que no aparece."""
+    today = today_local()
+    rows_db = (
+        session_db.query(PromotionActivity)
+        .options(joinedload(PromotionActivity.media), joinedload(PromotionActivity.promotion))
+        .filter(func.upper(func.coalesce(PromotionActivity.activity_kind, '')) == 'PROMOCION')
+        .filter(PromotionActivity.artist_performed.is_(True))
+        .filter(or_(PromotionActivity.registration_declared_done.is_(False),
+                    PromotionActivity.registration_declared_done.is_(None)))
+        .filter(PromotionActivity.activity_date.isnot(None),
+                PromotionActivity.activity_date < today,
+                PromotionActivity.activity_date >= LEGACY_ACTIVITY_CUTOFF)
+        .order_by(PromotionActivity.activity_date.desc())
+        .limit(300)
+        .all()
+    )
+    rows = []
+    for act in rows_db:
+        promotion = getattr(act, 'promotion', None)
+        if promotion is None or not _promo_is_promo(promotion):
+            continue
+        artist_ids = _promotion_normalized_artist_ids(getattr(promotion, 'artist_ids', None) or [])
+        artists = _artists_from_ids(session_db, artist_ids)
+        songs = []
+        for sid in _promotion_normalized_artist_ids(getattr(act, 'performed_song_ids', None) or []):
+            song = session_db.get(Song, to_uuid(sid))
+            if song is not None:
+                songs.append((song.title or '').strip())
+        when = getattr(act, 'activity_date', None)
+        half = 1 if when and when.month <= 6 else 2
+        rows.append({
+            'kind': 'PROMO',
+            'item_id': str(act.id),
+            'promotion_id': str(promotion.id),
+            'title': _promo_activity_title(act) or _promo_title(promotion),
+            'semester_key': _semester_key(when.year, half) if when else '',
+            'semester_label': _semester_label(when.year, half) if when else 'Sin fecha',
+            'cover_url': (getattr(artists[0], 'photo_url', None) or '').strip() if artists else '',
+            'artist_name': _artist_label_from_rows(artists),
+            'artist_photo': (getattr(artists[0], 'photo_url', None) or '').strip() if artists else '',
+            'collaborator': ', '.join([x for x in songs if x]),
+            'release_date': when,
+            'date_badge': _registros_date_badge(when),
+            'detail_url': url_for('promo_detail_view', promotion_id=promotion.id, tab='promociones'),
+            'declare_url': url_for('registros_promo_declare', activity_id=act.id),
+            'location': ' · '.join([x for x in [(getattr(getattr(act, 'media', None), 'name', None) or '').strip(),
+                                                _promo_modality_label(getattr(act, 'modality', None))] if x]),
+        })
+    return rows
+
+
 def _build_registros_context(session_db) -> dict:
     sgae = _build_registros_sgae_dataset(session_db)
     agedi_pending = _build_registros_agedi_pending(session_db)
     concerts_pending = _build_registros_concerts_pending(session_db)
+    promos_pending = _build_registros_promos_pending(session_db)
     pending = {
         'sgae': sgae.get('pending_songs') or [],
         'agedi': agedi_pending,
         'concerts': concerts_pending,
+        'promos': promos_pending,
     }
     return {
         'brand': sgae.get('brand') or _platforma_musical_brand_assets(session_db),
@@ -38235,6 +38364,32 @@ def registros_concert_declare(concert_id):
     except Exception as exc:
         session_db.rollback()
         flash(f'Error marcando concierto: {exc}', 'danger')
+    finally:
+        session_db.close()
+    return redirect(nxt)
+
+
+@app.post('/registros/promociones/<activity_id>/declarar', endpoint='registros_promo_declare')
+@admin_required
+def registros_promo_declare(activity_id):
+    """Marca como comunicada una promoción en la que se cantó (mismo gesto que con un concierto)."""
+    if not (can_edit_discografica() or can_edit_promo() or is_master()):
+        return forbid('No tienes permisos para marcar promociones como comunicadas.')
+    nxt = safe_next_or(request.form.get('next') or url_for('registros_view', tab='pendiente'))
+    session_db = db()
+    try:
+        act = session_db.get(PromotionActivity, to_uuid(activity_id))
+        if not act:
+            flash('Promoción no encontrada.', 'warning')
+            return redirect(nxt)
+        act.registration_declared_done = True
+        act.registration_declared_at = datetime.now(TZ_MADRID)
+        session_db.add(act)
+        session_db.commit()
+        flash('Promoción marcada como comunicada.', 'success')
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'Error marcando la promoción: {exc}', 'danger')
     finally:
         session_db.close()
     return redirect(nxt)
@@ -38304,6 +38459,7 @@ from models import (
     UserActivityLog,
     MediaOutlet,
     MediaContact,
+    MediaLocation,
     MediaPromotionRecord,
     PromotionRequest,
     ProductionRequest,
@@ -38324,6 +38480,7 @@ from models import (
     ensure_personnel_and_operations_schema,
     ensure_bag_expense_schema,
     ensure_marketing_country_schema,
+    ensure_promocion_prensa_schema,
     ensure_contracting_embargo_schema,
     ensure_actions_contracting_admin_schema,
     ensure_activities_grouping_schema,
@@ -38421,6 +38578,7 @@ def _bootstrap_schema_bg():
         # quedaba en blanco cargando. Un único ejecutor evita el choque de locks DDL.
         (ensure_bag_expense_schema, "ensure_bag_expense_schema"),
         (ensure_marketing_country_schema, "ensure_marketing_country_schema"),
+        (ensure_promocion_prensa_schema, "ensure_promocion_prensa_schema"),
         (ensure_contracting_embargo_schema, "ensure_contracting_embargo_schema"),
         (ensure_actions_contracting_admin_schema, "ensure_actions_contracting_admin_schema"),
         (ensure_activities_grouping_schema, "ensure_activities_grouping_schema"),
@@ -43257,7 +43415,7 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
     # Cartelería de TODA una gira / ciclo / evento: vive en su ficha, dentro de Contratación.
     if endpoint.startswith("group_artwork"):
         return "contratacion.conciertos"
-    if endpoint in {"registros_view", "registros_concert_declare", "registros_repertoire_link"}:
+    if endpoint in {"registros_view", "registros_concert_declare", "registros_promo_declare", "registros_repertoire_link"}:
         return "registros.pendiente"
     if endpoint in {"media_gallery_view", "media_artist_view", "media_panel_view", "api_media_artist_activities"}:
         return "fotos"
@@ -43271,6 +43429,9 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return "databases.publishing_companies"
     if endpoint == "companies_view" or endpoint.startswith("company_"):
         return "databases.group_companies"
+    # Promoción de prensa antes que Marketing: `promo_` no es `promotion_` (ver el enforcement).
+    if endpoint == "promo_view" or endpoint.startswith("promo_"):
+        return "promo"
     if endpoint in {"promocion_view", "marketing_view"} or endpoint.startswith("promotion_"):
         return "promocion"
     if endpoint in {"acciones_view", "action_detail_view"} or endpoint.startswith("action_") or endpoint.startswith("acciones_"):
@@ -43844,7 +44005,7 @@ def _resolve_request_resource_key() -> str | None:
             "gastos": "contabilidad",
         }
         return mapping.get(tab, "discografica.canciones")
-    if endpoint in {"registros_view", "registros_concert_declare", "registros_repertoire_link"}:
+    if endpoint in {"registros_view", "registros_concert_declare", "registros_promo_declare", "registros_repertoire_link"}:
         tab = (request.args.get("tab") or "pendiente").strip().lower()
         return "registros.sgae" if tab == "sgae" else "registros.pendiente"
     if endpoint == "discografica_album_detail":
@@ -43927,7 +44088,10 @@ def _resolve_request_resource_key() -> str | None:
         return "administracion.pendiente"
     if endpoint == "discografica_songs_bulk_update":
         return "discografica.canciones"
-    if endpoint == "promo_view" or endpoint.startswith("promo_peticion"):
+    # ⚠️ `promo_` (con guion bajo) es la PROMOCIÓN de prensa y NO pisa a `promotion_`, que es
+    # Marketing: "promotion_create" no empieza por "promo_". Todo lo nuevo de promoción se llama
+    # `promo_*` justamente para heredar el permiso de su sección sin mapear uno a uno.
+    if endpoint == "promo_view" or endpoint.startswith("promo_"):
         return "promo"
     if endpoint == "diseno_view" or endpoint.startswith("diseno_peticion"):
         return "diseno"
@@ -44158,6 +44322,12 @@ def can_edit_promocion() -> bool:
 
 def can_edit_marketing() -> bool:
     return can_edit_promocion()
+
+
+def can_edit_promo() -> bool:
+    """PROMOCIÓN de prensa (entrevistas, junts de prensa). Es su propia sección: quien lleva
+    marketing no tiene por qué llevar prensa, y al revés."""
+    return (has_access_key("promo", edit=True, include_descendants=True) or current_role() in (2, 5, 6, 10))
 
 
 def can_edit_artists_stations() -> bool:
@@ -45696,6 +45866,27 @@ def _promotion_normalized_artist_ids(values):
     return out
 
 
+def _promotion_group_subject(session_db, source_type, source_id):
+    """Contenedor de actividades elegido como sujeto: gira comprada (`GIRA` → `PurchasedTour`) o
+    festival/ciclo/evento (`CICLO` → `CycleFestival`). Devuelve la fila o None."""
+    try:
+        uid = to_uuid(source_id) if source_id else None
+    except Exception:
+        uid = None
+    if not uid:
+        return None
+    kind = (source_type or "").strip().upper()
+    if kind == "GIRA":
+        return (session_db.query(PurchasedTour)
+                .options(joinedload(PurchasedTour.artist), joinedload(PurchasedTour.managing_company))
+                .filter(PurchasedTour.id == uid).first())
+    if kind == "CICLO":
+        return (session_db.query(CycleFestival)
+                .options(joinedload(CycleFestival.managing_company))
+                .filter(CycleFestival.id == uid).first())
+    return None
+
+
 def _promotion_request_snapshot_from_source(session_db, source_type, source_id, *, manual_title=None, manual_artist_ids=None):
     source_type = (source_type or "").strip().upper()
     default_cover = url_for("static", filename="img/placeholder_photo.png")
@@ -45828,11 +46019,38 @@ def _promotion_request_snapshot_from_source(session_db, source_type, source_id, 
             "company_label": "",
         }
     if source_type == "GIRA":
+        # La gira se ELIGE entre las creadas en Contratación: así el marketing queda colgado de ella
+        # y se ve en su ficha. El nombre a mano es el respaldo (gira que aún no está dada de alta y
+        # las campañas antiguas, que se guardaron sin id y por eso no salían en ninguna ficha).
+        tour = _promotion_group_subject(session_db, "GIRA", source_id)
+        if tour is not None:
+            artist_ids = _promotion_normalized_artist_ids(
+                ([str(tour.artist_id)] if getattr(tour, "artist_id", None) else [])
+                + [str(x) for x in (getattr(tour, "artist_ids", None) or [])]
+            )
+            artist_rows = _artists_from_ids(session_db, artist_ids)
+            artist_label = ", ".join([a.name for a in artist_rows if getattr(a, "name", None)]) or "—"
+            subtitle = artist_label
+            if getattr(tour, "start_date", None):
+                subtitle = f"{tour.start_date.strftime('%d/%m/%Y')} · {artist_label}"
+            return {
+                "source_type": "GIRA",
+                "source_id": str(tour.id),
+                "kind_label": "Gira comprada",
+                "title": (tour.name or "Gira").strip() or "Gira",
+                "subtitle": subtitle,
+                "artist_label": artist_label,
+                "artist_ids": artist_ids,
+                "cover_url": ((tour.logo_url or "").strip()
+                              or (getattr(artist_rows[0], "photo_url", None) if artist_rows else None)
+                              or default_cover),
+                "detail_url": url_for("purchased_tour_detail", tid=tour.id),
+                "company_id": str(tour.managing_company_id) if getattr(tour, "managing_company_id", None) else None,
+                "company_label": (getattr(getattr(tour, "managing_company", None), "name", None) or "").strip(),
+            }
         artist_ids = _promotion_normalized_artist_ids(manual_artist_ids or [])
-        artist_rows = []
-        if artist_ids:
-            artist_rows = session_db.query(Artist).filter(Artist.id.in_([to_uuid(x) for x in artist_ids])).order_by(Artist.name.asc()).all()
-        artist_label = ", ".join([a.name for a in artist_rows]) or "—"
+        artist_rows = _artists_from_ids(session_db, artist_ids)
+        artist_label = ", ".join([a.name for a in artist_rows if getattr(a, "name", None)]) or "—"
         return {
             "source_type": "GIRA",
             "source_id": None,
@@ -45845,6 +46063,30 @@ def _promotion_request_snapshot_from_source(session_db, source_type, source_id, 
             "detail_url": "",
             "company_id": None,
             "company_label": "",
+        }
+    if source_type == "CICLO":
+        # Festival / ciclo / evento-contenedor de Contratación (`CycleFestival`).
+        cycle = _promotion_group_subject(session_db, "CICLO", source_id)
+        if cycle is None:
+            return None
+        artist_ids = _promotion_normalized_artist_ids(manual_artist_ids or [])
+        artist_rows = _artists_from_ids(session_db, artist_ids)
+        artist_label = ", ".join([a.name for a in artist_rows if getattr(a, "name", None)]) or "—"
+        kind_label = CYCLE_FESTIVAL_KIND_LABELS.get((getattr(cycle, "kind", None) or "FESTIVAL").upper(), "Ciclo")
+        subtitle_parts = [x for x in [(getattr(cycle, "edition", None) or "").strip(),
+                                      (getattr(cycle, "municipality", None) or "").strip()] if x]
+        return {
+            "source_type": "CICLO",
+            "source_id": str(cycle.id),
+            "kind_label": kind_label,
+            "title": (cycle.name or kind_label).strip() or kind_label,
+            "subtitle": " · ".join(subtitle_parts) or (artist_label if artist_rows else kind_label),
+            "artist_label": artist_label,
+            "artist_ids": artist_ids,
+            "cover_url": ((cycle.logo_url or "").strip() or default_cover),
+            "detail_url": url_for("cycle_festival_detail", cfid=cycle.id),
+            "company_id": str(cycle.managing_company_id) if getattr(cycle, "managing_company_id", None) else None,
+            "company_label": (getattr(getattr(cycle, "managing_company", None), "name", None) or "").strip(),
         }
     return None
 
@@ -45864,6 +46106,12 @@ def _promotion_target_date_from_source(session_db, source_type, source_id):
     if source_type == "CONCERT" and uid:
         row = session_db.get(Concert, uid)
         return getattr(row, "date", None) if row else None
+    if source_type == "GIRA" and uid:
+        row = session_db.get(PurchasedTour, uid)
+        return getattr(row, "start_date", None) if row else None
+    if source_type == "CICLO" and uid:
+        row = session_db.get(CycleFestival, uid)
+        return getattr(row, "start_date", None) if row else None
     return None
 
 
@@ -45891,6 +46139,20 @@ def _promotion_entity_promotions(session_db, source_type, source_id):
         .order_by(Promotion.target_date.asc().nullslast(), Promotion.created_at.desc())
         .all()
     )
+
+
+def _promotion_panel_context(session_db, source_type, source_id) -> dict:
+    """Contexto del panel «Marketing» de una ficha (`_promotion_entity_panel.html`): la solicitud, lo
+    que ya hay creado y el resumen del elemento. Un solo sitio para todas las fichas que lo enseñan."""
+    source_type = (source_type or "").strip().upper()
+    snapshot = _promotion_request_snapshot_from_source(session_db, source_type, source_id) or {}
+    return {
+        "promotion_source_type": source_type,
+        "promotion_source_id": str(source_id),
+        "promotion_source_snapshot": snapshot,
+        "promotion_requests_display": [_promotion_display_request(row) for row in _promotion_entity_requests(session_db, source_type, source_id)],
+        "promotion_entries_display": [_promotion_display_promotion(row) for row in _promotion_entity_promotions(session_db, source_type, source_id)],
+    }
 
 
 def _promotion_rows_for_artist(session_db, artist_id):
@@ -46060,6 +46322,36 @@ def _promotion_creator_datasets(session_db):
         "any_artist": True,
     } for ev in session_db.query(AppEvent).order_by(AppEvent.name.asc()).all()]
 
+    # Giras compradas y festivales/ciclos: se ELIGEN de las creadas en Contratación para que el
+    # marketing quede colgado del contenedor y se vea en su ficha (antes la gira era texto libre y
+    # la campaña se quedaba huérfana, sin aparecer en ningún sitio).
+    tour_items = [{
+        "id": str(t.id),
+        "artist_ids": _promotion_normalized_artist_ids(
+            ([str(t.artist_id)] if getattr(t, "artist_id", None) else []) + [str(x) for x in (getattr(t, "artist_ids", None) or [])]
+        ),
+        "title": (t.name or "Gira"),
+        "subtitle": (getattr(getattr(t, "artist", None), "name", None) or "Gira comprada"),
+        "meta": t.start_date.strftime('%d/%m/%Y') if getattr(t, "start_date", None) else "",
+        "cover_url": ((t.logo_url or "").strip() or (getattr(getattr(t, "artist", None), "photo_url", None) or default_cover)),
+        "date": t.start_date.isoformat() if getattr(t, "start_date", None) else "",
+        "default_company_id": str(t.managing_company_id) if getattr(t, "managing_company_id", None) else "",
+    } for t in (session_db.query(PurchasedTour)
+                .options(joinedload(PurchasedTour.artist))
+                .order_by(PurchasedTour.start_date.desc().nullslast(), PurchasedTour.created_at.desc()).all())]
+
+    cycle_items = [{
+        "id": str(cf.id),
+        "artist_ids": [],
+        "title": (cf.name or "Ciclo"),
+        "subtitle": CYCLE_FESTIVAL_KIND_LABELS.get((cf.kind or "FESTIVAL").upper(), "Ciclo"),
+        "meta": " · ".join([x for x in [(cf.edition or "").strip(), (cf.municipality or "").strip()] if x]),
+        "cover_url": ((cf.logo_url or "").strip() or default_cover),
+        "date": cf.start_date.isoformat() if getattr(cf, "start_date", None) else "",
+        "default_company_id": str(cf.managing_company_id) if getattr(cf, "managing_company_id", None) else "",
+        "any_artist": True,
+    } for cf in session_db.query(CycleFestival).order_by(CycleFestival.start_date.desc().nullslast(), CycleFestival.created_at.desc()).all()]
+
     company_items = [{"id": str(c.id), "name": c.name} for c in session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()]
 
     return {
@@ -46070,7 +46362,8 @@ def _promotion_creator_datasets(session_db):
             "ALBUM": album_items,
             "CONCERT": concert_items,
             "EVENT": event_items,
-            "GIRA": [],
+            "GIRA": tour_items,
+            "CICLO": cycle_items,
         },
         "companies": company_items,
     }
@@ -46130,6 +46423,42 @@ def _ensure_promotion_bag(session_db, promotion_row):
     session_db.add(bag)
     session_db.flush()
     promotion_row.bag_id = bag.id
+
+
+def _marketing_seed_action(session_db, promotion_row):
+    """Una «acción concreta» de marketing tiene que acabar CREADA y a gestionar.
+
+    Antes solo se creaba el contenedor (la campaña) y la pestaña Acciones salía vacía: no había nada
+    que gestionar ni nada que sumar en la ficha del artista / concierto / gira. Aquí se materializa la
+    acción con lo que ya dijo el asistente (tipo, fechas y objetivos), pendiente de consolidar."""
+    if (getattr(promotion_row, "request_kind", None) or "PLAN").strip().upper() != "ACTION":
+        return None
+    types = [str(x).strip().upper() for x in (getattr(promotion_row, "action_types", None) or []) if str(x).strip()]
+    action_type = next((x for x in types if x in MARKETING_ACTION_TYPE_LABELS), "OTRA")
+    starts_on = getattr(promotion_row, "starts_on", None)
+    ends_on = getattr(promotion_row, "ends_on", None)
+    # `activity_date` es NOT NULL: si no hay plazo se ancla en la fecha objetivo (o en hoy).
+    when = starts_on or getattr(promotion_row, "target_date", None) or today_local()
+    waves = []
+    if starts_on or ends_on:
+        waves = [{"start": starts_on.isoformat() if starts_on else None,
+                  "end": ends_on.isoformat() if ends_on else None, "note": None}]
+    row = PromotionActivity(
+        promotion_id=promotion_row.id,
+        activity_date=when,
+        activity_kind="MARKETING",
+        action_type=action_type,
+        execution_mode="PERIODO",
+        waves_json=waves,
+        details_json={"end_date": ends_on.isoformat() if ends_on else None,
+                      "seeded_from_wizard": True},
+        task_description=(getattr(promotion_row, "objectives_notes", None) or "").strip() or None,
+        consolidation_status="PENDIENTE",
+        created_by_user_id=getattr(promotion_row, "created_by_user_id", None),
+        created_by_nick=(getattr(promotion_row, "created_by_nick", None) or "").strip() or None,
+    )
+    session_db.add(row)
+    return row
 
 
 def _promotion_activity_time_sort(row):
@@ -46413,7 +46742,7 @@ def promotion_create():
                 objectives_notes = (getattr(source_request, 'objectives_notes', None) or '').strip() or None
             if not budget_notes:
                 budget_notes = (getattr(source_request, 'budget_notes', None) or '').strip() or None
-        if subject_type not in {'ARTIST', 'SONG', 'ALBUM', 'CONCERT', 'GIRA', 'EVENT'}:
+        if subject_type not in {'ARTIST', 'SONG', 'ALBUM', 'CONCERT', 'GIRA', 'CICLO', 'EVENT'}:
             flash('Debes seleccionar qué se promociona.', 'warning')
             return redirect(next_url)
         snapshot = _promotion_request_snapshot_from_source(session_db, subject_type, subject_id, manual_title=manual_title, manual_artist_ids=artist_ids)
@@ -46458,6 +46787,7 @@ def promotion_create():
         session_db.add(promotion)
         session_db.flush()
         _ensure_promotion_bag(session_db, promotion)
+        seeded_action = _marketing_seed_action(session_db, promotion)
         if source_request:
             source_request.status = 'APPROVED'
             source_request.reviewed_at = _now_madrid()
@@ -46465,6 +46795,9 @@ def promotion_create():
             source_request.reviewed_by_nick = (state.get('nick') or state.get('email') or '').strip() or None
             source_request.updated_at = _now_madrid()
         session_db.commit()
+        if seeded_action is not None:
+            flash('Acción de marketing creada. La tienes en «Acciones» para gestionarla.', 'success')
+            return redirect(url_for('promotion_detail_view', promotion_id=promotion.id, tab='acciones'))
         flash('Campaña de marketing creada.', 'success')
         return redirect(url_for('promotion_detail_view', promotion_id=promotion.id))
     except Exception as exc:
@@ -47022,6 +47355,1121 @@ def marketing_action_update(promotion_id, activity_id):
     finally:
         session_db.close()
     return redirect(next_url)
+
+
+# ==================== PROMOCIÓN DE PRENSA (entrevistas, junts de prensa, phoners) ================
+# ⚠️ MARKETING (arriba) son campañas de PAGO para promocionar algo. Esto es PRENSA: una entrevista,
+# un junt de prensa, un phoner. Comparten tablas (`Promotion` + `PromotionActivity`, separadas por
+# `Promotion.kind`), bolsa de gastos y hoja de ruta; son dos secciones y dos permisos distintos.
+PROMO_KIND = "PROMO"
+
+PROMO_MODALITIES = [
+    ("PRESENCIAL", "Presencial", "fa-location-dot"),
+    ("PHONER", "Phoner", "fa-phone-volume"),
+    ("ZOOM", "Zoom / vídeo", "fa-video"),
+    ("PREGUNTAS", "Preguntas por escrito", "fa-pen-to-square"),
+]
+PROMO_MODALITY_LABELS = {key: label for key, label, _icon in PROMO_MODALITIES}
+PROMO_MODALITY_ICONS = {key: icon for key, _label, icon in PROMO_MODALITIES}
+
+PROMO_FORMATIONS = [
+    ("FULL_PLAYBACK", "Full playback", "fa-compact-disc"),
+    ("HALF_PLAYBACK", "Half playback", "fa-sliders"),
+    ("DIRECTO", "Directo con músicos", "fa-guitar"),
+]
+PROMO_FORMATION_LABELS = {key: label for key, label, _icon in PROMO_FORMATIONS}
+PROMO_FORMATION_ICONS = {key: icon for key, _label, icon in PROMO_FORMATIONS}
+
+# Estados con los MISMOS códigos que un concierto (así valen tal cual el calendario,
+# `_agenda_status_meta` y las pastillas), con la etiqueta en femenino: «la promoción».
+PROMO_STATUS_META = {
+    "BORRADOR": ("Borrador", "text-bg-light border text-dark"),
+    "HABLADO": ("Hablada", "text-bg-secondary"),
+    "RESERVADO": ("Reservada", "text-bg-info text-dark"),
+    "CONFIRMADO": ("Confirmada", "text-bg-success"),
+}
+PROMO_STATUS_ORDER = ["BORRADOR", "HABLADO", "RESERVADO", "CONFIRMADO"]
+
+# Icono por tipo de medio (`MEDIA_TYPES`), para que la hoja de ruta y los listados se lean de un
+# vistazo: se ve qué medio es sin leer.
+MEDIA_TYPE_ICONS = {
+    "TV": "fa-tv",
+    "Radio": "fa-radio",
+    "Prensa": "fa-newspaper",
+    "Digital": "fa-globe",
+    "Agencia": "fa-briefcase",
+    "Podcast": "fa-podcast",
+}
+
+
+def _promo_status_meta(code):
+    return PROMO_STATUS_META.get((code or "BORRADOR").strip().upper(), PROMO_STATUS_META["BORRADOR"])
+
+
+def _media_type_icon(media_type) -> str:
+    # El alta rápida guarda el tipo en MAYÚSCULAS y los listados en capital: da igual cómo llegue.
+    key = (media_type or "").strip().casefold()
+    for name, icon in MEDIA_TYPE_ICONS.items():
+        if name.casefold() == key:
+            return icon
+    return "fa-bullhorn"
+
+
+def _promo_modality_label(value) -> str:
+    return PROMO_MODALITY_LABELS.get((value or "").strip().upper(), "")
+
+
+def _promo_formation_label(value) -> str:
+    return PROMO_FORMATION_LABELS.get((value or "").strip().upper(), "")
+
+
+def _promo_is_promo(row) -> bool:
+    return (getattr(row, "kind", None) or "MARKETING").strip().upper() == PROMO_KIND
+
+
+def _promo_title(row) -> str:
+    """Título de una promoción: el nombre del plan si lo tiene y, si no, lo que se promociona."""
+    name = (getattr(row, "name", None) or "").strip()
+    if name:
+        return name
+    snap = dict(getattr(row, "snapshot", None) or {})
+    return (snap.get("title") or "Promoción").strip() or "Promoción"
+
+
+def _promo_media_locations_payload(session_db, media_ids=None) -> list[dict]:
+    """Ubicaciones de los medios: son la SUGERENCIA al montar una entrevista presencial."""
+    query = session_db.query(MediaLocation)
+    ids = [to_uuid(x) for x in (media_ids or []) if x]
+    ids = [x for x in ids if x]
+    if ids:
+        query = query.filter(MediaLocation.media_id.in_(ids))
+    rows = query.order_by(MediaLocation.name.asc()).all()
+    return [{
+        "id": str(row.id),
+        "media_id": str(row.media_id),
+        "name": (row.name or "").strip(),
+        "address": (row.address or "").strip(),
+        "municipality": (row.municipality or "").strip(),
+        "province": (row.province or "").strip(),
+        "label": " · ".join([x for x in [(row.name or "").strip(), (row.address or "").strip(),
+                                         (row.municipality or "").strip()] if x]),
+    } for row in rows]
+
+
+def _promo_escort_label(session_db, promotion) -> dict:
+    """Quién acompaña al artista: nadie, alguien de la oficina o un tercero."""
+    kind = (getattr(promotion, "escort_kind", None) or "NONE").strip().upper()
+    note = (getattr(promotion, "escort_note", None) or "").strip()
+    if kind == "USER" and getattr(promotion, "escort_user_id", None):
+        prof = session_db.query(UserProfile).filter(UserProfile.user_id == promotion.escort_user_id).first()
+        user = session_db.get(User, promotion.escort_user_id)
+        name = (getattr(prof, "nick", None) or getattr(user, "email", None) or "").strip()
+        return {"kind": kind, "name": name or "Alguien de la oficina", "note": note,
+                "photo_url": (getattr(prof, "photo_url", None) or "").strip(), "icon": "fa-user-tie"}
+    if kind == "PROMOTER" and getattr(promotion, "escort_promoter_id", None):
+        pr = session_db.get(Promoter, promotion.escort_promoter_id)
+        name = (getattr(pr, "nick", None) or "").strip() or " ".join(
+            filter(None, [getattr(pr, "first_name", None), getattr(pr, "last_name", None)])).strip()
+        return {"kind": kind, "name": name or "Tercero", "note": note,
+                "photo_url": (getattr(pr, "logo_url", None) or "").strip(), "icon": "fa-user"}
+    return {"kind": "NONE", "name": "No acompaña nadie", "note": note, "photo_url": "", "icon": "fa-user-slash"}
+
+
+def _promo_activity_row(activity, *, song_title_map=None, media=None) -> dict:
+    """Una entrevista/promoción lista para pintar, con sus iconos (medio, directo, canta)."""
+    song_title_map = song_title_map or {}
+    media = media if media is not None else getattr(activity, "media", None)
+    status = (getattr(activity, "status", None) or "BORRADOR").strip().upper()
+    status_label, status_badge = _promo_status_meta(status)
+    details = dict(getattr(activity, "details_json", None) or {})
+    modality = (getattr(activity, "modality", None) or "").strip().upper()
+    formation = (getattr(activity, "formation_kind", None) or "").strip().upper()
+    songs = [song_title_map[sid] for sid in _promotion_normalized_artist_ids(getattr(activity, "performed_song_ids", None) or [])
+             if sid in song_title_map]
+    location_bits = [x for x in [(getattr(activity, "location_name", None) or "").strip(),
+                                 (getattr(activity, "location_address", None) or "").strip()] if x]
+    return {
+        "id": str(activity.id),
+        "date": getattr(activity, "activity_date", None),
+        "date_label": activity.activity_date.strftime("%d/%m/%Y") if getattr(activity, "activity_date", None) else "Sin fecha",
+        "time_label": _promotion_activity_time_label(activity),
+        # Valores en crudo: los necesita el formulario de edición (los `_label` son para pintar).
+        "start_time_raw": (getattr(activity, "start_time", None) or ""),
+        "end_time_raw": (getattr(activity, "end_time", None) or ""),
+        "time_tbc": bool(getattr(activity, "time_tbc", False)),
+        "song_ids": _promotion_normalized_artist_ids(getattr(activity, "performed_song_ids", None) or []),
+        "location_id": str(getattr(activity, "location_id", "") or ""),
+        "location_name": (getattr(activity, "location_name", None) or "").strip(),
+        "location_address": (getattr(activity, "location_address", None) or "").strip(),
+        "cost_note": (getattr(activity, "cost_note", None) or "").strip(),
+        "status": status,
+        "status_label": status_label,
+        "status_badge": status_badge,
+        "media_id": str(getattr(activity, "media_id", "") or ""),
+        "media_name": (getattr(media, "name", None) or details.get("media_name") or "").strip(),
+        "media_type": (getattr(media, "media_type", None) or "").strip(),
+        "media_icon": _media_type_icon(getattr(media, "media_type", None)),
+        "media_logo_url": (getattr(media, "logo_url", None) or "").strip(),
+        "program_name": (details.get("program_name") or "").strip(),
+        "modality": modality,
+        "modality_label": _promo_modality_label(modality),
+        "modality_icon": PROMO_MODALITY_ICONS.get(modality, "fa-microphone-lines"),
+        "location_label": " · ".join(location_bits),
+        "description": (getattr(activity, "task_description", None) or "").strip(),
+        "sings": bool(getattr(activity, "artist_performed", False)),
+        "songs": songs,
+        "formation": formation,
+        "formation_label": _promo_formation_label(formation),
+        "formation_icon": PROMO_FORMATION_ICONS.get(formation, "fa-music"),
+        # «En directo» = con músicos: es el icono que pide la hoja de ruta.
+        "is_live": formation == "DIRECTO",
+        "musicians_count": int(getattr(activity, "musicians_count", 0) or 0),
+        "has_fee": bool(getattr(activity, "has_fee", False)),
+        "fee_amount": Decimal(str(getattr(activity, "fee_amount", 0) or 0)),
+        "promoter_costs": dict(getattr(activity, "promoter_costs_payload", None) or {}),
+        "booking_request_id": str(getattr(activity, "booking_request_id", "") or ""),
+        "contact_id": str(getattr(activity, "media_contact_id", "") or ""),
+        "declared": bool(getattr(activity, "registration_declared_done", False)),
+    }
+
+
+def _promo_activity_title(activity, media=None) -> str:
+    media_name = (getattr(media if media is not None else getattr(activity, "media", None), "name", None) or "").strip()
+    details = dict(getattr(activity, "details_json", None) or {})
+    program = (details.get("program_name") or "").strip()
+    bits = [x for x in [media_name or "Promoción", program] if x]
+    return " · ".join(bits)
+
+
+def _promo_roadmap_sync_item(session_db, promotion, activity) -> None:
+    """Espeja la entrevista como PUNTO de la hoja de ruta de la promoción.
+
+    Así la hoja se comparte tal cual (con su enlace público) y cada entrevista se ve con su icono de
+    tipo de medio, de «en directo» y de «canta». La fuente de verdad sigue siendo la entrevista: aquí
+    solo se mantiene el punto al día."""
+    from sqlalchemy.orm.attributes import flag_modified
+    payload = _roadmap_load(promotion)
+    agenda = payload.setdefault("agenda", [])
+    item_id = (getattr(activity, "roadmap_item_id", None) or "").strip()
+    item = next((it for it in agenda if str(it.get("id")) == item_id), None) if item_id else None
+    if item is None:
+        item = {"id": _roadmap_new_id(), "attachments": [], "order": len(agenda), "contact": None}
+        agenda.append(item)
+        activity.roadmap_item_id = item["id"]
+    row = _promo_activity_row(activity)
+    note_bits = []
+    if row["modality_label"]:
+        note_bits.append(row["modality_label"])
+    if row["sings"]:
+        note_bits.append("Canta" + (f" · {row['formation_label']}" if row["formation_label"] else ""))
+        if row["is_live"] and row["musicians_count"]:
+            note_bits.append(f"{row['musicians_count']} músicos")
+    if row["description"]:
+        note_bits.append(row["description"])
+    item.update({
+        "kind": "ENTREVISTA",
+        "title": _promo_activity_title(activity) or "Promoción",
+        "day": activity.activity_date.isoformat() if getattr(activity, "activity_date", None) else "",
+        "start_time": (getattr(activity, "start_time", None) or ""),
+        "end_time": (getattr(activity, "end_time", None) or ""),
+        "tbc": bool(getattr(activity, "time_tbc", False)),
+        "confirmed": row["status"] == "CONFIRMADO",
+        "cancelled": False,
+        "location": row["location_label"],
+        "note": " · ".join(note_bits),
+        # Lo que hace visual la fila en la hoja de ruta (lo pinta roadmap.js).
+        "promo_activity_id": str(activity.id),
+        "promo_meta": {
+            "media_icon": row["media_icon"], "media_name": row["media_name"],
+            "media_type": row["media_type"], "modality_icon": row["modality_icon"],
+            "modality_label": row["modality_label"], "sings": row["sings"],
+            "is_live": row["is_live"], "formation_label": row["formation_label"],
+        },
+    })
+    if not item.get("sheets"):
+        item["sheets"] = ["GENERAL", "TECNICA"]
+    payload["agenda"] = agenda
+    promotion.roadmap_payload = payload
+    flag_modified(promotion, "roadmap_payload")
+
+
+def _promo_roadmap_drop_item(session_db, promotion, activity) -> None:
+    """Quita de la hoja de ruta el punto de una entrevista borrada."""
+    from sqlalchemy.orm.attributes import flag_modified
+    item_id = (getattr(activity, "roadmap_item_id", None) or "").strip()
+    if not item_id:
+        return
+    payload = _roadmap_load(promotion)
+    agenda = [it for it in (payload.get("agenda") or []) if str(it.get("id")) != item_id]
+    payload["agenda"] = agenda
+    promotion.roadmap_payload = payload
+    flag_modified(promotion, "roadmap_payload")
+
+
+def _promo_booking_request_sync(session_db, promotion, activity):
+    """Caché de una promoción: lo gestiona CONTRATACIÓN (contrato + facturación), igual que en un
+    concierto, así que se le deja una PETICIÓN en su bandeja. Si el caché se quita, la petición se
+    descarta (no se borra: queda el rastro de lo que se pidió)."""
+    audit = _bag_current_user_audit() if "_bag_current_user_audit" in globals() else {"user_id": None, "nick": None}
+    existing = None
+    if getattr(activity, "booking_request_id", None):
+        existing = session_db.get(BookingRequest, activity.booking_request_id)
+    if not bool(getattr(activity, "has_fee", False)):
+        if existing is not None and (getattr(existing, "status", "") or "").upper() in {"NUEVA", "EN_TRAMITE"}:
+            existing.status = "DESCARTADA"
+            existing.rejection_reason = "La promoción se quedó sin caché."
+            existing.updated_at = _now_madrid()
+        return None
+    artist_ids = _promotion_normalized_artist_ids(getattr(promotion, "artist_ids", None) or [])
+    media_name = (getattr(getattr(activity, "media", None), "name", None) or "").strip()
+    fee = Decimal(str(getattr(activity, "fee_amount", 0) or 0))
+    subject = " · ".join([x for x in ["Caché de promoción", _promo_title(promotion), media_name] if x])[:500]
+    notes = "Caché de una promoción de prensa: hay que hacer contrato y factura."
+    if getattr(activity, "activity_date", None):
+        notes += f" Fecha: {activity.activity_date.strftime('%d/%m/%Y')}."
+    row = existing
+    if row is None:
+        row = BookingRequest(
+            source="OTRO",
+            status="NUEVA",
+            created_by_user_id=audit.get("user_id"),
+            created_by_nick=audit.get("nick"),
+        )
+        session_db.add(row)
+    row.artist_id = to_uuid(artist_ids[0]) if artist_ids else None
+    row.artist_ids = artist_ids
+    row.requested_date = getattr(activity, "activity_date", None)
+    row.subject = subject
+    row.fee_text = (f"{fee:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")) if fee else None
+    row.notes = notes
+    # ⚠️ El reparto por departamentos vive en payload['departments'] (lista) y se lee con
+    # `_booking_in_department`: sin esto la petición se iría a Contratación por descarte, pero sin
+    # dejar constancia de que salió de Promoción.
+    payload = dict(getattr(row, "payload", None) or {})
+    payload.update({
+        "departments": ["CONTRATACION"],
+        "origin": "PROMOCION",
+        "promotion_id": str(promotion.id),
+        "promotion_activity_id": str(activity.id),
+        "fee_amount": str(fee),
+    })
+    row.payload = payload
+    row.updated_at = _now_madrid()
+    session_db.flush()
+    activity.booking_request_id = row.id
+    return row
+
+
+def _promo_production_request_sync(session_db, promotion):
+    """Logística / producción de la promoción: le llega como tarea pendiente a la persona de
+    producción elegida (y sale en Producción → Solicitudes)."""
+    audit = _bag_current_user_audit() if "_bag_current_user_audit" in globals() else {"user_id": None, "nick": None}
+    existing = None
+    if getattr(promotion, "production_request_id", None):
+        existing = session_db.get(ProductionRequest, promotion.production_request_id)
+    if not bool(getattr(promotion, "production_needed", False)):
+        if existing is not None and (getattr(existing, "status", "") or "").upper() in {"REQUESTED", "APPROVED"}:
+            existing.status = "REJECTED"
+            existing.updated_at = _now_madrid()
+        return None
+    row = existing
+    if row is None:
+        row = ProductionRequest(status="REQUESTED",
+                                requested_by_user_id=audit.get("user_id"),
+                                requested_by_email=_current_user_email() or None,
+                                requested_by_nick=audit.get("nick"))
+        session_db.add(row)
+    row.activity_type = "PROMOCION"
+    row.activity_title = f"Promoción · {_promo_title(promotion)}"[:500]
+    row.artist_ids = _promotion_normalized_artist_ids(getattr(promotion, "artist_ids", None) or [])
+    row.activity_date = getattr(promotion, "starts_on", None) or getattr(promotion, "target_date", None)
+    row.linked_type = "PROMOTION"
+    row.linked_id = promotion.id
+    row.bag_id = getattr(promotion, "bag_id", None)
+    row.owner_user_id = getattr(promotion, "production_owner_user_id", None)
+    row.notes = "Promoción de prensa que necesita logística o producción."
+    if (getattr(row, "status", "") or "").upper() not in {"REQUESTED", "APPROVED"}:
+        row.status = "REQUESTED"
+    row.updated_at = _now_madrid()
+    session_db.flush()
+    promotion.production_request_id = row.id
+    return row
+
+
+def _ensure_promo_bag(session_db, promotion_row) -> None:
+    """Cada promoción (puntual o plan) tiene su bolsa de gastos."""
+    if getattr(promotion_row, "bag_id", None):
+        return
+    bag = WorkflowBag(
+        title=f"Promoción · {_promo_title(promotion_row)}"[:500],
+        artist_id=_promotion_primary_artist_uuid(promotion_row),
+        artist_ids=_promotion_normalized_artist_ids(getattr(promotion_row, "artist_ids", None) or []),
+        company_id=getattr(promotion_row, "company_id", None),
+        bag_type="PROMOCION",
+        linked_type="PROMOTION",
+        linked_id=promotion_row.id,
+        linked_title=_promo_title(promotion_row),
+        start_date=getattr(promotion_row, "starts_on", None) or getattr(promotion_row, "target_date", None),
+        end_date=getattr(promotion_row, "ends_on", None),
+        description=(getattr(promotion_row, "objectives_notes", None) or "").strip() or None,
+        status="ACTIVA",
+        is_archived=False,
+    )
+    session_db.add(bag)
+    session_db.flush()
+    promotion_row.bag_id = bag.id
+
+
+def _promo_song_options(session_db, promotion) -> list[dict]:
+    """Repertorio que se ofrece al marcar «canta»: si se promociona un SINGLE, PRIMERO esa canción
+    (es lo que se está promocionando) y luego el resto del artista, para poder añadir más."""
+    artist_ids = _promotion_normalized_artist_ids(getattr(promotion, "artist_ids", None) or [])
+    subject_type = (getattr(promotion, "subject_type", None) or "").strip().upper()
+    subject_id = getattr(promotion, "subject_id", None)
+    rows = []
+    if artist_ids:
+        uuids = [to_uuid(x) for x in artist_ids if to_uuid(x)]
+        if uuids:
+            rows = (session_db.query(Song)
+                    .options(selectinload(Song.artists))
+                    .filter(Song.artists.any(Artist.id.in_(uuids)))
+                    .order_by(Song.release_date.desc().nullslast(), Song.title.asc())
+                    .limit(400).all())
+    featured_ids = []
+    if subject_type == "SONG" and subject_id:
+        featured_ids = [str(subject_id)]
+        if not any(str(s.id) == str(subject_id) for s in rows):
+            song = session_db.get(Song, subject_id)
+            if song is not None:
+                rows.insert(0, song)
+    elif subject_type == "ALBUM" and subject_id:
+        # De un disco, sus cortes son lo que se promociona.
+        try:
+            tracks = (session_db.query(AlbumTrack)
+                      .filter(AlbumTrack.album_id == to_uuid(subject_id))
+                      .order_by(AlbumTrack.track_number.asc().nullslast()).all())
+            featured_ids = [str(t.song_id) for t in tracks if getattr(t, "song_id", None)]
+        except Exception:
+            featured_ids = []
+    options = []
+    seen = set()
+    for song in rows:
+        key = str(song.id)
+        if key in seen:
+            continue
+        seen.add(key)
+        options.append({
+            "id": key,
+            "title": (song.title or "Canción").strip(),
+            "cover_url": (getattr(song, "cover_url", None) or "").strip(),
+            "featured": key in featured_ids,
+        })
+    options.sort(key=lambda x: (0 if x["featured"] else 1))
+    return options
+
+
+def _promo_display(row, *, activity_count=0, pending_count=0) -> dict:
+    """Fila de listado de una promoción (plan completo o puntual)."""
+    snap = dict(getattr(row, "snapshot", None) or {})
+    status_label, status_badge = _promo_status_meta(getattr(row, "promo_status", None))
+    is_plan = (getattr(row, "request_kind", None) or "PLAN").strip().upper() == "PLAN"
+    starts_on = getattr(row, "starts_on", None)
+    ends_on = getattr(row, "ends_on", None)
+    target = getattr(row, "target_date", None)
+    if starts_on and ends_on and starts_on != ends_on:
+        period = f"{starts_on.strftime('%d/%m/%Y')} – {ends_on.strftime('%d/%m/%Y')}"
+    elif starts_on:
+        period = starts_on.strftime("%d/%m/%Y")
+    elif target:
+        period = target.strftime("%d/%m/%Y")
+    else:
+        period = "Sin fechas"
+    return {
+        "id": str(row.id),
+        "title": _promo_title(row),
+        "subject_title": (snap.get("title") or "").strip(),
+        "subject_kind_label": (snap.get("kind_label") or "").strip(),
+        "subtitle": (snap.get("subtitle") or snap.get("artist_label") or "").strip(),
+        "artist_label": (snap.get("artist_label") or "").strip(),
+        "cover_url": (snap.get("cover_url") or "").strip(),
+        "is_plan": is_plan,
+        "kind_label": "Plan completo" if is_plan else "Promoción puntual",
+        "kind_icon": "fa-diagram-project" if is_plan else "fa-microphone-lines",
+        "status": (getattr(row, "promo_status", None) or "BORRADOR").strip().upper(),
+        "status_label": status_label,
+        "status_badge": status_badge,
+        "date": starts_on or target,
+        "period_label": period,
+        "company_label": (getattr(getattr(row, "company", None), "name", None) or "").strip(),
+        "activity_count": activity_count,
+        "pending_count": pending_count,
+        "detail_url": url_for("promo_detail_view", promotion_id=row.id),
+        "archived": (getattr(row, "status", None) or "ACTIVE").strip().upper() == "ARCHIVED",
+    }
+
+
+def _promo_activity_counts(session_db, promotion_ids) -> dict:
+    """Nº de entrevistas por promoción y cuántas están sin confirmar (en una sola consulta)."""
+    out = {}
+    ids = [x for x in (promotion_ids or []) if x]
+    if not ids:
+        return out
+    rows = (session_db.query(PromotionActivity.promotion_id, PromotionActivity.status)
+            .filter(PromotionActivity.promotion_id.in_(ids))
+            .filter(func.upper(func.coalesce(PromotionActivity.activity_kind, '')) == 'PROMOCION')
+            .all())
+    for pid, status in rows:
+        info = out.setdefault(str(pid), {"total": 0, "pending": 0})
+        info["total"] += 1
+        if (status or "BORRADOR").strip().upper() != "CONFIRMADO":
+            info["pending"] += 1
+    return out
+
+
+def _promo_rows_for_subject(session_db, source_type, source_id, *, limit=60) -> list[dict]:
+    """Promociones de un elemento (canción, disco, artista…), para su ficha."""
+    source_type = (source_type or "").strip().upper()
+    try:
+        uid = to_uuid(source_id) if source_id else None
+    except Exception:
+        uid = None
+    if not uid:
+        return []
+    query = (session_db.query(Promotion)
+             .options(joinedload(Promotion.company))
+             .filter(func.upper(func.coalesce(Promotion.kind, 'MARKETING')) == PROMO_KIND))
+    if source_type == "ARTIST":
+        # De un artista salen las suyas, sea cual sea lo que se promocione.
+        rows = query.order_by(Promotion.starts_on.desc().nullslast(), Promotion.created_at.desc()).limit(400).all()
+        key = str(uid)
+        rows = [r for r in rows if key in set(_promotion_normalized_artist_ids(getattr(r, "artist_ids", None) or []))][:limit]
+    else:
+        rows = (query.filter(Promotion.subject_type == source_type, Promotion.subject_id == uid)
+                .order_by(Promotion.starts_on.desc().nullslast(), Promotion.created_at.desc()).limit(limit).all())
+    counts = _promo_activity_counts(session_db, [r.id for r in rows])
+    out = []
+    for row in rows:
+        info = counts.get(str(row.id)) or {}
+        out.append(_promo_display(row, activity_count=info.get("total", 0), pending_count=info.get("pending", 0)))
+    return out
+
+
+def _promo_creator_datasets(session_db) -> dict:
+    """Datos del asistente de «+ Promoción»: los mismos sujetos que marketing + medios y personas."""
+    data = _promotion_creator_datasets(session_db)
+    media_rows = session_db.query(MediaOutlet).order_by(MediaOutlet.media_type.asc(), MediaOutlet.name.asc()).all()
+    data["media"] = [{
+        "id": str(m.id),
+        "name": (m.name or "Medio").strip(),
+        "media_type": (m.media_type or "").strip(),
+        "icon": _media_type_icon(m.media_type),
+        "logo_url": (m.logo_url or "").strip(),
+    } for m in media_rows]
+    data["media_contacts"] = [{
+        "id": str(c.id),
+        "media_id": str(c.media_id),
+        "label": " · ".join([x for x in [((c.first_name or "") + " " + (c.last_name or "")).strip(),
+                                         (c.program or "").strip(), (c.role or "").strip()] if x]) or "Contacto",
+    } for c in session_db.query(MediaContact).order_by(MediaContact.created_at.asc()).all()]
+    data["media_locations"] = _promo_media_locations_payload(session_db)
+    data["modalities"] = [{"key": k, "label": l, "icon": i} for k, l, i in PROMO_MODALITIES]
+    data["formations"] = [{"key": k, "label": l, "icon": i} for k, l, i in PROMO_FORMATIONS]
+    return data
+
+
+def _promo_or_404(session_db, promotion_id):
+    row = (session_db.query(Promotion)
+           .options(joinedload(Promotion.company), joinedload(Promotion.bag))
+           .filter(Promotion.id == to_uuid(promotion_id)).first())
+    if not row or not _promo_is_promo(row):
+        return None
+    return row
+
+
+def _promo_apply_activity_form(session_db, promotion, activity, form) -> None:
+    """Pasa el formulario de una entrevista al modelo. Lo comparten el asistente (alta) y la ficha
+    (edición), para que las dos pantallas guarden exactamente lo mismo."""
+    activity.activity_kind = "PROMOCION"
+    activity.activity_date = parse_optional_date(form.get("activity_date")) or getattr(activity, "activity_date", None) or today_local()
+    activity.start_time = (form.get("start_time") or "").strip() or None
+    activity.end_time = (form.get("end_time") or "").strip() or None
+    activity.time_tbc = _truthy(form.get("time_tbc"))
+    status = (form.get("status") or getattr(activity, "status", None) or "BORRADOR").strip().upper()
+    activity.status = status if status in PROMO_STATUS_META else "BORRADOR"
+
+    media_id = _safe_uuid(form.get("media_id")) if (form.get("media_id") or "").strip() else None
+    activity.media_id = media_id
+    media = session_db.get(MediaOutlet, media_id) if media_id else None
+    activity.media_type = (getattr(media, "media_type", None) or "").strip() or None
+    contact_id = _safe_uuid(form.get("media_contact_id")) if (form.get("media_contact_id") or "").strip() else None
+    activity.media_contact_id = contact_id
+
+    modality = (form.get("modality") or "").strip().upper()
+    activity.modality = modality if modality in PROMO_MODALITY_LABELS else None
+
+    # Ubicación: solo en presencial. Si se escribe una nueva y se marca «guardarla en el medio»,
+    # queda vinculada al medio para la próxima vez.
+    location_id = _safe_uuid(form.get("location_id")) if (form.get("location_id") or "").strip() else None
+    location_name = (form.get("location_name") or "").strip()
+    location_address = (form.get("location_address") or "").strip()
+    if activity.modality != "PRESENCIAL":
+        location_id, location_name, location_address = None, "", ""
+    if location_id:
+        loc = session_db.get(MediaLocation, location_id)
+        if loc is not None:
+            location_name = location_name or (loc.name or "").strip()
+            location_address = location_address or (loc.address or "").strip()
+        else:
+            location_id = None
+    elif location_name and media_id and _truthy(form.get("location_link_media")):
+        loc = MediaLocation(media_id=media_id, name=location_name[:300],
+                            address=location_address or None,
+                            municipality=(form.get("location_municipality") or "").strip() or None,
+                            province=(form.get("location_province") or "").strip() or None)
+        session_db.add(loc)
+        session_db.flush()
+        location_id = loc.id
+    activity.location_id = location_id
+    activity.location_name = location_name or None
+    activity.location_address = location_address or None
+
+    activity.task_description = (form.get("task_description") or "").strip() or None
+    details = dict(getattr(activity, "details_json", None) or {})
+    details["program_name"] = (form.get("program_name") or "").strip() or None
+    if media is not None:
+        details["media_name"] = (media.name or "").strip()
+    activity.details_json = details
+
+    sings = _truthy(form.get("artist_performed"))
+    activity.artist_performed = sings
+    if sings:
+        activity.performed_song_ids = _promotion_normalized_artist_ids(form.getlist("performed_song_ids"))
+        formation = (form.get("formation_kind") or "").strip().upper()
+        activity.formation_kind = formation if formation in PROMO_FORMATION_LABELS else None
+        activity.musicians_count = max(0, _roadmap_int(form.get("musicians_count"), 0)) if activity.formation_kind == "DIRECTO" else 0
+    else:
+        activity.performed_song_ids = []
+        activity.formation_kind = None
+        activity.musicians_count = 0
+
+    has_fee = _truthy(form.get("has_fee"))
+    activity.has_fee = has_fee
+    activity.fee_amount = (_parse_money(form.get("fee_amount")) or Decimal("0")) if has_fee else Decimal("0")
+    # Gastos cubiertos: MISMO módulo que «el promotor cubre otros gastos» de Contratación.
+    activity.promoter_costs_payload = _parse_promoter_costs_form(form)
+    activity.covered_costs = [item.get("key") for item in (activity.promoter_costs_payload.get("items") or [])]
+    activity.cost_note = (form.get("cost_note") or "").strip() or None
+    activity.updated_at = _now_madrid()
+    session_db.flush()
+    _promo_roadmap_sync_item(session_db, promotion, activity)
+    _promo_booking_request_sync(session_db, promotion, activity)
+
+
+def _promo_plan_days(promotion, activities=None) -> list[dict]:
+    """Días de un plan de promoción: uno por día del rango (como una hoja de ruta), con lo que
+    tenga cada uno. Si no hay rango, solo los días con algo."""
+    activities = activities or []
+    bucket = defaultdict(list)
+    for row in activities:
+        bucket[getattr(row, "activity_date", None)].append(row)
+    days = []
+    starts_on = getattr(promotion, "starts_on", None)
+    ends_on = getattr(promotion, "ends_on", None) or starts_on
+    if starts_on and ends_on and ends_on >= starts_on and (ends_on - starts_on).days <= 120:
+        cursor = starts_on
+        index = 1
+        while cursor <= ends_on:
+            days.append({"date": cursor, "index": index,
+                         "label": cursor.strftime("%d/%m/%Y"),
+                         "rows": bucket.pop(cursor, [])})
+            cursor += timedelta(days=1)
+            index += 1
+    # Lo que caiga fuera del rango no se esconde: se añade al final por fecha.
+    for day in sorted([d for d in bucket.keys() if d]):
+        days.append({"date": day, "index": len(days) + 1, "label": day.strftime("%d/%m/%Y"), "rows": bucket[day]})
+    if None in bucket:
+        days.append({"date": None, "index": len(days) + 1, "label": "Sin fecha", "rows": bucket[None]})
+    return days
+
+# ---------------------------------- Pantallas y acciones de PROMOCIÓN ----------------------------
+@app.post("/promocion-prensa/nueva", endpoint="promo_create")
+@admin_required
+def promo_create():
+    """Alta de una promoción: puntual (una entrevista) o plan completo (varios días)."""
+    if not can_edit_promo():
+        return forbid("No tienes permisos para crear promociones.")
+    next_url = request.form.get("next") or url_for("promo_view", tab="activas")
+    subject_type = (request.form.get("subject_type") or "").strip().upper()
+    subject_id = (request.form.get("subject_id") or "").strip()
+    manual_title = (request.form.get("manual_title") or "").strip()
+    artist_ids = _promotion_normalized_artist_ids(request.form.getlist("artist_ids"))
+    request_kind = (request.form.get("request_kind") or "ACTION").strip().upper()
+    if request_kind not in {"PLAN", "ACTION"}:
+        request_kind = "ACTION"
+    session_db = db()
+    try:
+        if subject_type not in {"ARTIST", "SONG", "ALBUM", "CONCERT", "GIRA", "CICLO", "EVENT"}:
+            flash("Debes indicar qué se promociona.", "warning")
+            return redirect(next_url)
+        # Si se promociona «el artista» y solo se marcó uno, no hay que volver a elegirlo.
+        if subject_type == "ARTIST" and not subject_id and len(artist_ids) == 1:
+            subject_id = artist_ids[0]
+        snapshot = _promotion_request_snapshot_from_source(
+            session_db, subject_type, subject_id, manual_title=manual_title, manual_artist_ids=artist_ids)
+        if not snapshot:
+            flash("No se ha podido preparar la promoción.", "warning")
+            return redirect(next_url)
+        if not artist_ids:
+            artist_ids = _promotion_normalized_artist_ids(snapshot.get("artist_ids") or [])
+        company_id_raw = (request.form.get("company_id") or "").strip()
+        company_id = to_uuid(company_id_raw) if company_id_raw else None
+        if not company_id and snapshot.get("company_id"):
+            try:
+                company_id = to_uuid(snapshot.get("company_id"))
+            except Exception:
+                company_id = None
+        starts_on = parse_optional_date(request.form.get("starts_on"))
+        ends_on = parse_optional_date(request.form.get("ends_on"))
+        activity_date = parse_optional_date(request.form.get("activity_date"))
+        if request_kind == "ACTION":
+            # Una puntual es un solo día: el de la entrevista.
+            starts_on = activity_date or starts_on
+            ends_on = starts_on
+        if starts_on and ends_on and ends_on < starts_on:
+            starts_on, ends_on = ends_on, starts_on
+        plan_name = (request.form.get("name") or "").strip()
+        if request_kind == "PLAN" and not plan_name:
+            plan_name = f"Promoción {snapshot.get('title') or ''}".strip()
+        state = _current_user_state()
+        promotion = Promotion(
+            kind=PROMO_KIND,
+            name=plan_name or None,
+            promo_status="BORRADOR",
+            subject_type=subject_type,
+            subject_id=to_uuid(subject_id) if subject_id else None,
+            artist_ids=artist_ids,
+            snapshot=snapshot,
+            company_id=company_id,
+            objectives_notes=(request.form.get("objectives_notes") or "").strip() or None,
+            request_kind=request_kind,
+            action_types=[],
+            budget_mode="REQUEST_BUDGET",
+            budget_by_action={},
+            starts_on=starts_on,
+            ends_on=ends_on,
+            target_date=starts_on or _promotion_target_date_from_source(session_db, subject_type, subject_id),
+            status="ACTIVE",
+            created_by_user_id=to_uuid(state.get("user_id")) if state.get("user_id") else None,
+            created_by_nick=(state.get("nick") or state.get("email") or "").strip() or None,
+        )
+        # Quién acompaña al artista y si hace falta producción: se preguntan al terminar el alta.
+        _promo_apply_escort_form(session_db, promotion, request.form)
+        promotion.production_needed = _truthy(request.form.get("production_needed"))
+        owner_raw = (request.form.get("production_owner_user_id") or "").strip()
+        promotion.production_owner_user_id = to_uuid(owner_raw) if owner_raw else None
+        session_db.add(promotion)
+        session_db.flush()
+        _ensure_promo_bag(session_db, promotion)
+        # En una puntual la entrevista se crea ya con lo que se ha dicho en el asistente.
+        if request_kind == "ACTION":
+            activity = PromotionActivity(promotion_id=promotion.id, activity_kind="PROMOCION",
+                                         activity_date=activity_date or starts_on or today_local(),
+                                         created_by_user_id=promotion.created_by_user_id,
+                                         created_by_nick=promotion.created_by_nick)
+            session_db.add(activity)
+            session_db.flush()
+            _promo_apply_activity_form(session_db, promotion, activity, request.form)
+        _promo_production_request_sync(session_db, promotion)
+        session_db.commit()
+        flash("Promoción creada." + (" Se ha avisado a producción." if promotion.production_needed else ""), "success")
+        return redirect(url_for("promo_detail_view", promotion_id=promotion.id))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"Error creando la promoción: {exc}", "danger")
+        return redirect(next_url)
+    finally:
+        session_db.close()
+
+
+def _promo_apply_escort_form(session_db, promotion, form) -> None:
+    """Quién acompaña al artista: nadie, alguien de la oficina o un tercero."""
+    kind = (form.get("escort_kind") or "NONE").strip().upper()
+    if kind not in {"NONE", "USER", "PROMOTER"}:
+        kind = "NONE"
+    promotion.escort_kind = kind
+    user_raw = (form.get("escort_user_id") or "").strip()
+    promoter_raw = (form.get("escort_promoter_id") or "").strip()
+    promotion.escort_user_id = to_uuid(user_raw) if (kind == "USER" and user_raw) else None
+    promotion.escort_promoter_id = to_uuid(promoter_raw) if (kind == "PROMOTER" and promoter_raw) else None
+    promotion.escort_note = (form.get("escort_note") or "").strip() or None
+    if kind == "USER" and not promotion.escort_user_id:
+        promotion.escort_kind = "NONE"
+    if kind == "PROMOTER" and not promotion.escort_promoter_id:
+        promotion.escort_kind = "NONE"
+
+
+@app.get("/promocion-prensa/<promotion_id>", endpoint="promo_detail_view")
+@admin_required
+def promo_detail_view(promotion_id):
+    session_db = db()
+    try:
+        promotion = _promo_or_404(session_db, promotion_id)
+        if not promotion:
+            flash("Promoción no encontrada.", "warning")
+            return redirect(url_for("promo_view"))
+        tab = (request.args.get("tab") or "informacion").strip().lower()
+        if tab not in {"informacion", "promociones", "hoja_ruta", "gastos", "fotos"}:
+            tab = "informacion"
+        activities = (session_db.query(PromotionActivity)
+                      .options(joinedload(PromotionActivity.media), joinedload(PromotionActivity.location))
+                      .filter(PromotionActivity.promotion_id == promotion.id)
+                      .filter(func.upper(func.coalesce(PromotionActivity.activity_kind, '')) == 'PROMOCION')
+                      .order_by(PromotionActivity.activity_date.asc().nullslast(),
+                                PromotionActivity.start_time.asc().nullslast())
+                      .all())
+        song_options = _promo_song_options(session_db, promotion)
+        song_title_map = {opt["id"]: opt["title"] for opt in song_options}
+        for row in activities:
+            for sid in _promotion_normalized_artist_ids(getattr(row, "performed_song_ids", None) or []):
+                if sid not in song_title_map:
+                    song = session_db.get(Song, to_uuid(sid))
+                    if song is not None:
+                        song_title_map[sid] = (song.title or "Canción").strip()
+        activity_rows = [_promo_activity_row(row, song_title_map=song_title_map) for row in activities]
+        artist_rows = _artists_from_ids(session_db, _promotion_normalized_artist_ids(getattr(promotion, "artist_ids", None) or []))
+        counts = _promo_activity_counts(session_db, [promotion.id]).get(str(promotion.id)) or {}
+        display = _promo_display(promotion, activity_count=counts.get("total", 0), pending_count=counts.get("pending", 0))
+        media_ids = [row.media_id for row in activities if getattr(row, "media_id", None)]
+        roadmap_ctx = _roadmap_context(session_db, "promotion", promotion)
+        invoices = []
+        if getattr(promotion, "bag_id", None):
+            invoices = (session_db.query(InvoiceRecord).filter(InvoiceRecord.bag_id == promotion.bag_id)
+                        .order_by(InvoiceRecord.issue_date.desc().nullslast(), InvoiceRecord.created_at.desc()).all())
+        session_db.commit()
+        return render_template(
+            "promo_detail.html",
+            promotion=promotion,
+            promotion_display=display,
+            tab=tab,
+            activities=activities,
+            activity_rows=activity_rows,
+            plan_days=_promo_plan_days(promotion, activities),
+            artist_rows=artist_rows,
+            escort=_promo_escort_label(session_db, promotion),
+            song_options=song_options,
+            invoices=invoices,
+            media_outlets=session_db.query(MediaOutlet).order_by(MediaOutlet.media_type.asc(), MediaOutlet.name.asc()).all(),
+            media_contacts_payload=[{
+                "id": str(c.id), "media_id": str(c.media_id),
+                "label": " · ".join([x for x in [((c.first_name or "") + " " + (c.last_name or "")).strip(),
+                                                 (c.program or "").strip(), (c.role or "").strip()] if x]) or "Contacto",
+            } for c in session_db.query(MediaContact).order_by(MediaContact.created_at.asc()).all()],
+            media_locations_payload=_promo_media_locations_payload(session_db, media_ids or None),
+            promo_modalities=PROMO_MODALITIES,
+            promo_formations=PROMO_FORMATIONS,
+            promo_status_order=PROMO_STATUS_ORDER,
+            promo_status_meta=PROMO_STATUS_META,
+            promoter_cost_items=PROMOTER_COST_ITEMS,
+            production_people=_production_people(session_db),
+            office_people=_promo_office_people(session_db),
+            companies=session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all(),
+            third_parties=session_db.query(Promoter).order_by(Promoter.nick.asc().nullslast()).limit(800).all(),
+            can_edit_promo=can_edit_promo(),
+            roadmap_ctx=roadmap_ctx,
+            fotos_ctx=(_build_fotos_context(session_db, "PROMOTION", promotion.id) if tab == "fotos" else None),
+        )
+    finally:
+        session_db.close()
+
+
+def _promo_office_people(session_db) -> list[dict]:
+    """Personal ACTUAL de la oficina, para elegir quién acompaña al artista."""
+    fuera = _inactive_user_ids(session_db)
+    rows = (session_db.query(User, UserProfile)
+            .join(UserProfile, UserProfile.user_id == User.id)
+            .order_by(func.lower(func.coalesce(UserProfile.nick, User.email)).asc()).all())
+    return [{"id": str(u.id), "name": (prof.nick or u.email or "").strip(),
+             "photo_url": (getattr(prof, "photo_url", "") or "")}
+            for u, prof in rows if u.id not in fuera]
+
+
+@app.post("/promocion-prensa/<promotion_id>/datos", endpoint="promo_update")
+@admin_required
+def promo_update(promotion_id):
+    if not can_edit_promo():
+        return forbid("No tienes permisos para editar promociones.")
+    next_url = safe_next_or(request.form.get("next") or url_for("promo_detail_view", promotion_id=promotion_id))
+    session_db = db()
+    try:
+        promotion = _promo_or_404(session_db, promotion_id)
+        if not promotion:
+            flash("Promoción no encontrada.", "warning")
+            return redirect(url_for("promo_view"))
+        name = (request.form.get("name") or "").strip()
+        if name or (getattr(promotion, "request_kind", "") or "").upper() == "PLAN":
+            promotion.name = name or promotion.name
+        promotion.objectives_notes = (request.form.get("objectives_notes") or "").strip() or None
+        company_raw = (request.form.get("company_id") or "").strip()
+        promotion.company_id = to_uuid(company_raw) if company_raw else None
+        starts_on = parse_optional_date(request.form.get("starts_on"))
+        ends_on = parse_optional_date(request.form.get("ends_on"))
+        if starts_on:
+            promotion.starts_on = starts_on
+            promotion.target_date = starts_on
+        if ends_on:
+            promotion.ends_on = ends_on
+        if promotion.starts_on and promotion.ends_on and promotion.ends_on < promotion.starts_on:
+            promotion.ends_on = promotion.starts_on
+        _promo_apply_escort_form(session_db, promotion, request.form)
+        # La bolsa hereda la empresa que factura los gastos.
+        if getattr(promotion, "bag_id", None):
+            bag = session_db.get(WorkflowBag, promotion.bag_id)
+            if bag is not None:
+                bag.company_id = promotion.company_id
+                bag.updated_at = _now_madrid()
+        promotion.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Promoción actualizada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo actualizar la promoción: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.post("/promocion-prensa/<promotion_id>/estado", endpoint="promo_status_set")
+@admin_required
+def promo_status_set(promotion_id):
+    """Estado de la promoción. Al CONFIRMARLA, sus entrevistas se actualizan también (es promoción
+    quien confirma, igual que contratación confirma un concierto)."""
+    if not can_edit_promo():
+        return forbid("No tienes permisos para cambiar el estado de una promoción.")
+    next_url = safe_next_or(request.form.get("next") or url_for("promo_detail_view", promotion_id=promotion_id))
+    status = (request.form.get("status") or "").strip().upper()
+    session_db = db()
+    try:
+        promotion = _promo_or_404(session_db, promotion_id)
+        if not promotion:
+            flash("Promoción no encontrada.", "warning")
+            return redirect(url_for("promo_view"))
+        if status not in PROMO_STATUS_META:
+            flash("Estado no válido.", "warning")
+            return redirect(next_url)
+        promotion.promo_status = status
+        promotion.updated_at = _now_madrid()
+        if status == "CONFIRMADO":
+            activities = (session_db.query(PromotionActivity)
+                          .filter(PromotionActivity.promotion_id == promotion.id)
+                          .filter(func.upper(func.coalesce(PromotionActivity.activity_kind, '')) == 'PROMOCION').all())
+            for row in activities:
+                if (getattr(row, "status", None) or "BORRADOR").strip().upper() != "CONFIRMADO":
+                    row.status = "CONFIRMADO"
+                    row.updated_at = _now_madrid()
+                    _promo_roadmap_sync_item(session_db, promotion, row)
+        session_db.commit()
+        flash(f"Promoción marcada como {_promo_status_meta(status)[0].lower()}.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo cambiar el estado: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.post("/promocion-prensa/<promotion_id>/produccion", endpoint="promo_production_save")
+@admin_required
+def promo_production_save(promotion_id):
+    """¿Requiere logística o producción? Si sí, se elige a la persona de producción que lo gestiona y
+    le llega como tarea pendiente."""
+    if not can_edit_promo():
+        return forbid("No tienes permisos para editar promociones.")
+    next_url = safe_next_or(request.form.get("next") or url_for("promo_detail_view", promotion_id=promotion_id))
+    session_db = db()
+    try:
+        promotion = _promo_or_404(session_db, promotion_id)
+        if not promotion:
+            flash("Promoción no encontrada.", "warning")
+            return redirect(url_for("promo_view"))
+        promotion.production_needed = _truthy(request.form.get("production_needed"))
+        owner_raw = (request.form.get("production_owner_user_id") or "").strip()
+        promotion.production_owner_user_id = to_uuid(owner_raw) if owner_raw else None
+        _promo_production_request_sync(session_db, promotion)
+        promotion.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Producción actualizada." if promotion.production_needed else "La promoción no necesita producción.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo guardar: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.post("/promocion-prensa/<promotion_id>/archivar", endpoint="promo_archive_toggle")
+@admin_required
+def promo_archive_toggle(promotion_id):
+    if not can_edit_promo():
+        return forbid("No tienes permisos para archivar promociones.")
+    next_url = safe_next_or(request.form.get("next") or url_for("promo_view", tab="activas"))
+    session_db = db()
+    try:
+        promotion = _promo_or_404(session_db, promotion_id)
+        if not promotion:
+            flash("Promoción no encontrada.", "warning")
+            return redirect(url_for("promo_view"))
+        archived = (getattr(promotion, "status", None) or "ACTIVE").strip().upper() == "ARCHIVED"
+        promotion.status = "ACTIVE" if archived else "ARCHIVED"
+        promotion.archived_at = None if archived else _now_madrid()
+        promotion.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Promoción reactivada." if archived else "Promoción archivada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo archivar: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.post("/promocion-prensa/<promotion_id>/entrevistas/guardar", endpoint="promo_activity_save")
+@admin_required
+def promo_activity_save(promotion_id):
+    """Alta y edición de una entrevista/promoción dentro de un plan (o de la puntual)."""
+    if not can_edit_promo():
+        return forbid("No tienes permisos para editar promociones.")
+    next_url = safe_next_or(request.form.get("next") or url_for("promo_detail_view", promotion_id=promotion_id, tab="promociones"))
+    activity_id = (request.form.get("activity_id") or "").strip()
+    session_db = db()
+    try:
+        promotion = _promo_or_404(session_db, promotion_id)
+        if not promotion:
+            flash("Promoción no encontrada.", "warning")
+            return redirect(url_for("promo_view"))
+        if not getattr(promotion, "bag_id", None):
+            _ensure_promo_bag(session_db, promotion)
+            session_db.flush()
+        activity = None
+        if activity_id:
+            activity = (session_db.query(PromotionActivity)
+                        .filter(PromotionActivity.id == to_uuid(activity_id),
+                                PromotionActivity.promotion_id == promotion.id).first())
+        if activity is None:
+            audit = _bag_current_user_audit() if "_bag_current_user_audit" in globals() else {"user_id": None, "nick": None}
+            activity = PromotionActivity(promotion_id=promotion.id, activity_kind="PROMOCION",
+                                         activity_date=parse_optional_date(request.form.get("activity_date")) or today_local(),
+                                         created_by_user_id=audit.get("user_id"),
+                                         created_by_nick=audit.get("nick"))
+            session_db.add(activity)
+            session_db.flush()
+        _promo_apply_activity_form(session_db, promotion, activity, request.form)
+        promotion.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Promoción guardada." if activity_id else "Promoción añadida.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo guardar la promoción: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.post("/promocion-prensa/<promotion_id>/entrevistas/<activity_id>/estado", endpoint="promo_activity_status_set")
+@admin_required
+def promo_activity_status_set(promotion_id, activity_id):
+    if not can_edit_promo():
+        return forbid("No tienes permisos para editar promociones.")
+    next_url = safe_next_or(request.form.get("next") or url_for("promo_detail_view", promotion_id=promotion_id, tab="promociones"))
+    status = (request.form.get("status") or "").strip().upper()
+    session_db = db()
+    try:
+        promotion = _promo_or_404(session_db, promotion_id)
+        activity = (session_db.query(PromotionActivity)
+                    .filter(PromotionActivity.id == to_uuid(activity_id),
+                            PromotionActivity.promotion_id == to_uuid(promotion_id)).first()) if promotion else None
+        if not promotion or activity is None:
+            flash("Promoción no encontrada.", "warning")
+            return redirect(url_for("promo_view"))
+        if status not in PROMO_STATUS_META:
+            flash("Estado no válido.", "warning")
+            return redirect(next_url)
+        activity.status = status
+        activity.updated_at = _now_madrid()
+        _promo_roadmap_sync_item(session_db, promotion, activity)
+        session_db.commit()
+        flash("Estado actualizado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo cambiar el estado: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.post("/promocion-prensa/<promotion_id>/entrevistas/<activity_id>/eliminar", endpoint="promo_activity_delete")
+@admin_required
+def promo_activity_delete(promotion_id, activity_id):
+    if not can_edit_promo():
+        return forbid("No tienes permisos para editar promociones.")
+    next_url = safe_next_or(request.form.get("next") or url_for("promo_detail_view", promotion_id=promotion_id, tab="promociones"))
+    session_db = db()
+    try:
+        promotion = _promo_or_404(session_db, promotion_id)
+        activity = (session_db.query(PromotionActivity)
+                    .filter(PromotionActivity.id == to_uuid(activity_id),
+                            PromotionActivity.promotion_id == to_uuid(promotion_id)).first()) if promotion else None
+        if not promotion or activity is None:
+            flash("Promoción no encontrada.", "warning")
+            return redirect(url_for("promo_view"))
+        _promo_roadmap_drop_item(session_db, promotion, activity)
+        # Si su caché tenía petición abierta en Contratación, se descarta (no se borra el rastro).
+        if getattr(activity, "booking_request_id", None):
+            booking = session_db.get(BookingRequest, activity.booking_request_id)
+            if booking is not None and (getattr(booking, "status", "") or "").upper() in {"NUEVA", "EN_TRAMITE"}:
+                booking.status = "DESCARTADA"
+                booking.rejection_reason = "Se eliminó la promoción."
+                booking.updated_at = _now_madrid()
+        session_db.delete(activity)
+        promotion.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Promoción eliminada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo eliminar: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.get("/promocion-prensa/api/medio/<media_id>", endpoint="promo_api_media_meta")
+@admin_required
+def promo_api_media_meta(media_id):
+    """Contactos y UBICACIONES de un medio: las ubicaciones se ofrecen como sugerencia al montar una
+    entrevista presencial."""
+    session_db = db()
+    try:
+        media = session_db.get(MediaOutlet, to_uuid(media_id))
+        if media is None:
+            return jsonify({"ok": False, "error": "Medio no encontrado."}), 404
+        contacts = [{
+            "id": str(c.id),
+            "label": " · ".join([x for x in [((c.first_name or "") + " " + (c.last_name or "")).strip(),
+                                             (c.program or "").strip(), (c.role or "").strip()] if x]) or "Contacto",
+            "email": (c.email or "").strip(),
+            "phone": (c.phone or "").strip(),
+        } for c in (getattr(media, "contacts", None) or [])]
+        return jsonify({
+            "ok": True,
+            "media": {"id": str(media.id), "name": (media.name or "").strip(),
+                      "media_type": (media.media_type or "").strip(),
+                      "icon": _media_type_icon(media.media_type),
+                      "logo_url": (media.logo_url or "").strip(),
+                      "address": (media.address or "").strip()},
+            "contacts": contacts,
+            "locations": _promo_media_locations_payload(session_db, [media.id]),
+        })
+    finally:
+        session_db.close()
 
 
 def _production_type_label(value: str | None) -> str:
@@ -57569,7 +59017,7 @@ def action_detail_view(action_id):
 # ===========================================================================
 # Fotos / vídeos — galería transversal (conciertos y acciones)
 # ===========================================================================
-PHOTO_OWNER_TYPES = {"CONCERT", "ACTION", "ARTIST", "EVENT"}
+PHOTO_OWNER_TYPES = {"CONCERT", "ACTION", "ARTIST", "EVENT", "PROMOTION"}
 PHOTO_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif", ".bmp", ".tif", ".tiff"}
 PHOTO_VIDEO_EXTS = {".mp4", ".mov", ".webm", ".m4v", ".avi", ".mkv", ".mpeg", ".mpg"}
 PERSON_DOC_IMAGE_EXTS = PHOTO_IMAGE_EXTS  # documentos personales: mismas extensiones de imagen que las fotos (HEIC incl.)
@@ -57612,6 +59060,14 @@ def _photo_resolve_owner(session_db, owner_type, owner_id):
         if not ev:
             return (None, None, "")
         return (ev, None, (getattr(ev, "name", None) or "Evento").strip())
+    if owner_type == "PROMOTION":
+        # Fotos de una promoción de prensa (la entrevista, el junt de prensa…).
+        pr = session_db.get(Promotion, oid)
+        if not pr:
+            return (None, None, "")
+        ids = [to_uuid(x) for x in _promotion_normalized_artist_ids(getattr(pr, "artist_ids", None) or [])]
+        ids = [x for x in ids if x]
+        return (pr, (ids[0] if ids else None), _promo_title(pr))
     return (None, None, "")
 
 
@@ -57621,6 +59077,8 @@ def _photo_owner_url(owner_type, owner_id):
     ot = (owner_type or "").upper()
     if ot == "CONCERT":
         return url_for("concert_detail_view", cid=owner_id, tab="fotos")
+    if ot == "PROMOTION":
+        return url_for("promo_detail_view", promotion_id=owner_id, tab="fotos")
     if ot in ("ARTIST", "EVENT"):
         return url_for("media_panel_view", owner_type=ot.lower(), owner_id=owner_id)
     return url_for("action_detail_view", action_id=owner_id, tab="fotos")
@@ -69938,13 +71396,14 @@ AGENDA_PALETTE = [
     "#20c997", "#0d6efd", "#b5179e", "#e07a5f", "#457b9d", "#9c6644",
 ]
 
-AGENDA_KIND_ORDER = ["concierto", "festival", "evento", "lanzamiento", "accion", "medios", "cumple", "otro", "bloqueo"]
+AGENDA_KIND_ORDER = ["concierto", "festival", "evento", "lanzamiento", "accion", "promocion", "medios", "cumple", "otro", "bloqueo"]
 AGENDA_KIND_META = {
     "concierto":   {"label": "Conciertos",      "icon": "fa-music",           "color": "#E33D48"},
     "festival":    {"label": "Festivales",      "icon": "fa-star",            "color": "#6f42c1"},
     "evento":      {"label": "Eventos / promo", "icon": "fa-bullhorn",        "color": "#fd7e14"},
     "lanzamiento": {"label": "Lanzamientos",    "icon": "fa-compact-disc",    "color": "#d63384"},
     "accion":      {"label": "Acciones",        "icon": "fa-clapperboard",    "color": "#007CA2"},
+    "promocion":   {"label": "Promoción",       "icon": "fa-microphone-lines","color": "#8e44ad"},
     "medios":      {"label": "Medios",          "icon": "fa-broadcast-tower", "color": "#20c997"},
     "cumple":      {"label": "Cumpleaños",      "icon": "fa-cake-candles",    "color": "#e83e8c"},
     "otro":        {"label": "Otros",           "icon": "fa-thumbtack",       "color": "#0d6efd"},
@@ -70113,6 +71572,68 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
             "cover_url": "",
             "url": url,
         }))
+
+    # ---- Promoción de prensa (entrevistas y planes) ----
+    # Un PLAN sale como UNA franja de principio a fin (es una tanda de promoción, no N eventos
+    # sueltos); una promoción PUNTUAL sale como su entrevista, en su día.
+    promo_rows = (
+        session_db.query(Promotion)
+        .filter(func.upper(func.coalesce(Promotion.kind, 'MARKETING')) == PROMO_KIND)
+        .filter(func.upper(func.coalesce(Promotion.status, 'ACTIVE')) == 'ACTIVE')
+        .all()
+    )
+    promo_ids = [p.id for p in promo_rows]
+    promo_activities = defaultdict(list)
+    if promo_ids:
+        for act in (session_db.query(PromotionActivity)
+                    .options(joinedload(PromotionActivity.media))
+                    .filter(PromotionActivity.promotion_id.in_(promo_ids))
+                    .filter(func.upper(func.coalesce(PromotionActivity.activity_kind, '')) == 'PROMOCION')
+                    .filter(PromotionActivity.activity_date >= start_date,
+                            PromotionActivity.activity_date <= end_date)
+                    .all()):
+            promo_activities[str(act.promotion_id)].append(act)
+    for promo in promo_rows:
+        ids = _promotion_normalized_artist_ids(getattr(promo, "artist_ids", None) or [])
+        if not _match(ids):
+            continue
+        acts = promo_activities.get(str(promo.id)) or []
+        is_plan = (getattr(promo, "request_kind", None) or "PLAN").strip().upper() == "PLAN"
+        slabel, sclass = _agenda_status_meta(getattr(promo, "promo_status", None))
+        snap = dict(getattr(promo, "snapshot", None) or {})
+        url = url_for("promo_detail_view", promotion_id=promo.id)
+        if is_plan:
+            starts_on = getattr(promo, "starts_on", None)
+            ends_on = getattr(promo, "ends_on", None) or starts_on
+            if not starts_on or starts_on > end_date or (ends_on and ends_on < start_date):
+                continue
+            seen_artist_ids.update(ids)
+            raw.append((ids, {
+                "kind": "promocion", "date": starts_on.isoformat(),
+                "end_date": (ends_on or starts_on).isoformat(),
+                "title": _promo_title(promo),
+                "subtitle": " · ".join([x for x in [(snap.get("title") or "").strip(),
+                                                    (f"{len(acts)} promociones" if acts else "")] if x]),
+                "artist_id": ids[0] if ids else "",
+                "status_label": slabel, "status_class": sclass,
+                "cover_url": (snap.get("cover_url") or ""),
+                "url": url,
+            }))
+            continue
+        for act in acts:
+            seen_artist_ids.update(ids)
+            row = _promo_activity_row(act)
+            alabel, aclass = _agenda_status_meta(row["status"])
+            raw.append((ids, {
+                "kind": "promocion", "date": act.activity_date.isoformat(),
+                "title": _promo_activity_title(act) or _promo_title(promo),
+                "subtitle": " · ".join([x for x in [row["time_label"] if row["time_label"] != "Sin hora" else "",
+                                                    row["modality_label"]] if x]),
+                "artist_id": ids[0] if ids else "",
+                "status_label": alabel, "status_class": aclass,
+                "cover_url": (row["media_logo_url"] or snap.get("cover_url") or ""),
+                "url": url,
+            }))
 
     # ---- Lanzamientos: Álbumes ----
     albums = (

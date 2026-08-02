@@ -1,0 +1,40 @@
+{# Promociones (PRENSA) de esta ficha: single, disco o artista. Lo pone `_promo_rows_for_subject`
+   en `promo_entity_rows`. Es solo lectura: se crean y se gestionan en la sección Promoción. #}
+{% if promo_entity_rows is defined %}
+<div class="card mt-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+      <div>
+        <h5 class="mb-0"><i class="fa fa-microphone-lines me-2 text-muted"></i>Promoción</h5>
+        <div class="text-muted small">Entrevistas, junts de prensa y phoners de esta ficha.</div>
+      </div>
+      {% if has_access_key('promo', include_descendants=True) %}
+        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('promo_view', tab='activas') }}">Ir a Promoción</a>
+      {% endif %}
+    </div>
+    {% if promo_entity_rows %}
+      <div class="list-group list-group-flush">
+        {% for row in promo_entity_rows %}
+          <a href="{{ row.detail_url }}" class="list-group-item list-group-item-action px-0">
+            <div class="d-flex gap-3 align-items-center">
+              {% if row.cover_url %}<img src="{{ row.cover_url }}" class="promo-row__cover" alt="">
+              {% else %}<span class="promo-row__cover promo-row__cover--ph"><i class="fa {{ row.kind_icon }}"></i></span>{% endif %}
+              <div class="flex-grow-1">
+                <div class="fw-semibold">{{ row.title }}</div>
+                <div class="d-flex flex-wrap gap-1 mt-1">
+                  <span class="badge text-bg-light border"><i class="fa {{ row.kind_icon }} me-1"></i>{{ row.kind_label }}</span>
+                  <span class="badge text-bg-light border"><i class="fa fa-calendar-days me-1"></i>{{ row.period_label }}</span>
+                  {% if row.activity_count %}<span class="badge text-bg-light border"><i class="fa fa-microphone-lines me-1"></i>{{ row.activity_count }}</span>{% endif %}
+                </div>
+              </div>
+              <span class="badge {{ row.status_badge }}">{{ row.status_label }}</span>
+            </div>
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="alert alert-light border mb-0">Todavía no hay promociones de prensa para esta ficha.</div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}

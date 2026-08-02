@@ -122,6 +122,26 @@
     </div></div>
   </div>
 
+  {# Medio: hace falta al montar una promoción (aparece un programa nuevo y no está dado de alta). #}
+  <div class="modal fade" id="qcModal-media" tabindex="-1" aria-hidden="true" data-qc-type="media">
+    <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+      <form class="qc-form" data-qc-endpoint="{{ url_for('api_create_media_outlet') }}" enctype="multipart/form-data">
+        <div class="modal-header"><h5 class="modal-title">Nuevo medio</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="mb-2"><label class="form-label">Nombre *</label><input class="form-control" name="name" required placeholder="Ej: Cadena 100, El País…"></div>
+          <div class="mb-2"><label class="form-label">Tipo *</label>
+            <select class="form-select" name="media_type" required>
+              {% for t in MEDIA_TYPES %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+            </select>
+          </div>
+          <div><label class="form-label">Logo (opcional)</label><input type="file" class="form-control" name="logo" accept="image/*"></div>
+          <div class="qc-feedback mt-2"></div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-primary"><i class="fa fa-plus me-1"></i>Crear y seleccionar</button></div>
+      </form>
+    </div></div>
+  </div>
+
   <div class="modal fade" id="qcModal-event" tabindex="-1" aria-hidden="true" data-qc-type="event">
     <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
       <form class="qc-form" data-qc-endpoint="{{ url_for('api_create_event') }}" enctype="multipart/form-data">

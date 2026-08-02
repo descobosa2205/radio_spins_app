@@ -55,6 +55,9 @@
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-items" type="button">{{ items_label }} <span class="badge text-bg-light">{{ concerts|length }}</span></button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-roadmap" type="button">Hoja de ruta <span class="badge text-bg-light">{{ (general_roadmap or [])|length }}</span></button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-carteleria" type="button">Cartelería{% if gk_assets %} <span class="badge text-bg-light">{{ gk_assets|length }}</span>{% endif %}</button></li>
+  {% if promotion_source_id %}
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-marketing" type="button"><i class="fa fa-bullhorn me-1"></i>Marketing{% if promotion_entries_display %} <span class="badge text-bg-light">{{ promotion_entries_display|length }}</span>{% endif %}</button></li>
+  {% endif %}
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-result" type="button">Resultado</button></li>
 </ul>
 
@@ -266,6 +269,12 @@
        en su propio módulo, separada de los carteles de esa fecha. #}
     {% include '_artwork_group_panel.html' %}
   </div>
+  {% if promotion_source_id %}
+    {# Marketing de TODO el contenedor: aquí se ve lo pedido y lo creado para esta gira/ciclo. #}
+    <div class="tab-pane fade" id="tab-marketing">
+      {% include '_promotion_entity_panel.html' %}
+    </div>
+  {% endif %}
   <div class="tab-pane fade" id="tab-result">
     {% if group_result %}
       <div class="d-flex flex-wrap gap-2 mb-3">

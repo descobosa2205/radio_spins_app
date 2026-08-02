@@ -1,7 +1,8 @@
 {# ============================================================================
-   Asistente por pasos de NUEVA PROMOCIÓN. Se usa desde Marketing y desde Promoción, así que vive
-   aquí y no dentro de una pantalla. Necesita en el contexto `promotion_creator_datasets`
-   (`marketing_action_types` ya es global).
+   Asistente por pasos de NUEVO MARKETING (campañas de PAGO para promocionar algo). ⚠️ No confundir
+   con PROMOCIÓN, que es prensa: entrevistas, phoners, junts de prensa… y tiene su propio asistente.
+   Vive aquí y no dentro de una pantalla porque se abre desde varias. Necesita en el contexto
+   `promotion_creator_datasets` (`marketing_action_types` ya es global).
    ============================================================================ #}
 {% set creator = promotion_creator_datasets or {} %}
 <div class="modal fade" id="marketingCreateModal" tabindex="-1" aria-hidden="true">
@@ -10,7 +11,7 @@
       <input type="hidden" name="next" value="{{ url_for('marketing_view', tab='active') }}">
       <input type="hidden" name="subject_id" id="marketingSubjectId">
       <div class="modal-header">
-        <h5 class="modal-title"><i class="fa fa-bullhorn me-2"></i>Nueva promoción</h5>
+        <h5 class="modal-title"><i class="fa fa-bullhorn me-2"></i>Nuevo marketing</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
@@ -18,8 +19,8 @@
 
         {# Paso 1 · Artista #}
         <section class="sw-step" data-step="1" data-title="Artista">
-          <div class="sw-step__q"><i class="fa fa-microphone-lines me-2 text-danger"></i>¿Para qué artista es la promoción?</div>
-          <div class="sw-step__h">Puedes marcar varios si la promoción es conjunta.</div>
+          <div class="sw-step__q"><i class="fa fa-microphone-lines me-2 text-danger"></i>¿Para qué artista es el marketing?</div>
+          <div class="sw-step__h">Puedes marcar varios si la campaña es conjunta.</div>
           <input type="text" class="form-control mb-2" id="marketingArtistSearch" placeholder="Buscar artista…">
           <div class="promo-pick-grid" id="marketingArtistGrid">
             {% for artist in creator.artists or [] %}
@@ -49,7 +50,8 @@
             {% for value, label, icon in [('ARTIST','Artista','fa-microphone-lines'), ('SONG','Canción','fa-music'),
                                           ('ALBUM','Disco / EP','fa-compact-disc'), ('CONCERT','Concierto','fa-guitar'),
                                           ('EVENT','Evento','fa-masks-theater'),
-                                          ('GIRA','Gira comprada','fa-route')] %}
+                                          ('GIRA','Gira comprada','fa-route'),
+                                          ('CICLO','Festival / Ciclo','fa-star')] %}
               <label class="promo-pick">
                 <input type="radio" name="subject_type_pick" value="{{ value }}" data-sw-advance {% if loop.first %}checked{% endif %}>
                 <span class="promo-pick__box">
@@ -65,9 +67,12 @@
         <section class="sw-step" data-step="3" data-title="Cuál">
           <div class="sw-step__q"><i class="fa fa-list-check me-2 text-danger"></i><span id="marketingSubjectQuestion">¿Cuál?</span></div>
           <div class="sw-step__h">Se muestra lo que corresponde a los artistas elegidos.</div>
+          {# Respaldo para una gira que aún no está creada en Contratación: si se elige una de la
+             lista, la campaña queda colgada de ella y se ve en su ficha. #}
           <div class="d-none" id="marketingManualTitleWrap">
-            <label class="form-label">Nombre de la gira</label>
+            <label class="form-label">¿No está en la lista? Escribe el nombre de la gira</label>
             <input class="form-control" name="manual_title" id="marketingManualTitle" placeholder="Gira 2026">
+            <div class="form-text">Mejor elige la gira de arriba: así el marketing se ve en su ficha.</div>
           </div>
           <div id="marketingSubjectGrid" class="row g-2"></div>
           <div id="marketingSubjectEmpty" class="alert alert-light border mt-2 mb-0">No hay nada que elegir con esos artistas. Puedes volver atrás y cambiarlos.</div>
@@ -79,18 +84,18 @@
 
         {# Paso 4 · Tipo de promoción #}
         <section class="sw-step" data-step="4" data-title="Tipo">
-          <div class="sw-step__q"><i class="fa fa-diagram-project me-2 text-danger"></i>¿Qué tipo de promoción es?</div>
+          <div class="sw-step__q"><i class="fa fa-diagram-project me-2 text-danger"></i>¿Qué tipo de marketing es?</div>
           <div class="sw-step__h">Al elegirlo se pasa solo al siguiente paso.</div>
           <div class="promo-pick-grid promo-pick-grid--wide">
             <label class="promo-pick">
               <input type="radio" name="request_kind" value="PLAN" data-sw-advance checked>
               <span class="promo-pick__box"><i class="fa fa-diagram-project"></i><span class="promo-pick__name">Plan completo</span>
-                <span class="promo-pick__hint">Toda la promoción del lanzamiento o del evento</span></span>
+                <span class="promo-pick__hint">Toda la campaña del lanzamiento o del evento</span></span>
             </label>
             <label class="promo-pick">
               <input type="radio" name="request_kind" value="ACTION" data-sw-advance>
               <span class="promo-pick__box"><i class="fa fa-bullseye"></i><span class="promo-pick__name">Acción concreta</span>
-                <span class="promo-pick__hint">Una sola acción puntual</span></span>
+                <span class="promo-pick__hint">Una sola acción de pago, que queda ya creada para gestionarla</span></span>
             </label>
           </div>
         </section>
@@ -112,7 +117,7 @@
         {# Paso 6 · Objetivos y presupuesto #}
         <section class="sw-step" data-step="6" data-title="Objetivos y presupuesto">
           <div class="sw-step__q"><i class="fa fa-bullseye me-2 text-danger"></i>Objetivos y presupuesto</div>
-          <div class="sw-step__h">¿Qué se busca con esta promoción y con cuánto se cuenta?</div>
+          <div class="sw-step__h">¿Qué se busca con esta campaña y con cuánto se cuenta?</div>
           <div class="row g-3">
             <div class="col-12">
               <label class="form-label">Objetivos</label>
@@ -140,7 +145,7 @@
         {# Paso 7 · Plazos #}
         <section class="sw-step" data-step="7" data-title="Plazos">
           <div class="sw-step__q"><i class="fa fa-calendar-days me-2 text-danger"></i>¿Para cuándo?</div>
-          <div class="sw-step__h">Cuándo empieza y cuándo acaba la promoción.</div>
+          <div class="sw-step__h">Cuándo empieza y cuándo acaba la campaña.</div>
           <div class="row g-3">
             <div class="col-md-4"><label class="form-label">Desde</label><input type="date" name="starts_on" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">Hasta</label><input type="date" name="ends_on" class="form-control"></div>
@@ -154,7 +159,7 @@
         <div class="d-flex gap-2">
           <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
           <button type="button" class="btn btn-primary" data-sw-next>Siguiente</button>
-          <button class="btn btn-primary" data-sw-submit><i class="fa fa-check me-1"></i>Crear promoción</button>
+          <button class="btn btn-primary" data-sw-submit><i class="fa fa-check me-1"></i>Crear marketing</button>
         </div>
       </div>
     </form>
@@ -180,7 +185,8 @@
   const normalize = (v) => window.normalizeSearchText ? window.normalizeSearchText(v) : String(v || '').toLowerCase();
 
   const QUESTION = { ARTIST: '¿Sobre qué artista?', SONG: '¿Qué canción?', ALBUM: '¿Qué disco o EP?',
-                     CONCERT: '¿Qué concierto?', EVENT: '¿Qué evento?', GIRA: '¿Cómo se llama la gira?' };
+                     CONCERT: '¿Qué concierto?', EVENT: '¿Qué evento?', GIRA: '¿Qué gira?',
+                     CICLO: '¿Qué festival o ciclo?' };
 
   function selectedArtists(){
     return Array.from(modal.querySelectorAll('.js-marketing-artist-check:checked')).map(el => el.value);
@@ -199,12 +205,12 @@
     const hint = document.getElementById('marketingEventHint');
     if (hint) hint.classList.toggle('d-none', type !== 'EVENT');
     grid.innerHTML = '';
-    if (isGira) { empty.classList.add('d-none'); return; }
     const selected = selectedArtists();
     const rows = ((data.subjects || {})[type] || [])
       .filter(item => item.any_artist || !selected.length || (item.artist_ids || []).some(id => selected.includes(id)))
       .slice(0, 80);
-    empty.classList.toggle('d-none', rows.length > 0);
+    // En gira nunca es un callejón sin salida: si no hay ninguna creada, queda el nombre a mano.
+    empty.classList.toggle('d-none', rows.length > 0 || isGira);
     rows.forEach(item => {
       const col = document.createElement('div'); col.className = 'col-12 col-md-6';
       col.innerHTML = '<button type="button" class="btn btn-outline-secondary w-100 text-start js-marketing-subject" data-id="' + item.id + '">'
@@ -242,9 +248,9 @@
     const tipoLbl = (modal.querySelector('input[name="subject_type_pick"]:checked') || {}).parentElement;
     const tipo = tipoLbl ? (tipoLbl.querySelector('.promo-pick__name') || {}).textContent : '';
     const elegido = grid.querySelector('.js-marketing-subject.active');
-    const cual = manualWrap.classList.contains('d-none')
-      ? (elegido ? (elegido.querySelector('strong') || {}).textContent : '—')
-      : (manualTitle.value || '—');
+    // Manda lo elegido de la lista; el nombre a mano solo cuenta si no se ha elegido nada.
+    const cual = elegido ? (elegido.querySelector('strong') || {}).textContent
+                         : ((!manualWrap.classList.contains('d-none') && manualTitle.value) || '—');
     const kind = (modal.querySelector('input[name="request_kind"]:checked') || {}).value === 'ACTION' ? 'Acción concreta' : 'Plan completo';
     const acciones = Array.from(modal.querySelectorAll('input[name="action_types"]:checked'))
       .map(el => (el.parentElement.querySelector('.promo-pick__name') || {}).textContent).filter(Boolean);

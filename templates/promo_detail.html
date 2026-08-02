@@ -1,0 +1,466 @@
+{% extends "layout.html" %}
+{% import '_promo_activity_fields.html' as pf with context %}
+{% set snap = promotion.snapshot or {} %}
+{% block content %}
+
+{# La flecha de volver va FUERA del hero, en su propia barra (convención de las fichas). #}
+<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+  <a href="{{ url_for('promo_view', tab='archivadas' if promotion_display.archived else 'activas') }}"
+     class="btn btn-outline-secondary btn-volver" title="Volver a Promoción" aria-label="Volver a Promoción"><i class="fa fa-arrow-left"></i></a>
+  <div class="d-flex gap-2 flex-wrap">
+    {% if promotion.bag_id %}
+      <a class="btn btn-outline-primary" href="{{ url_for('bag_detail_view', bag_id=promotion.bag_id) }}"><i class="fa fa-sack-dollar me-1"></i>Bolsa de gastos</a>
+    {% endif %}
+    {% if can_edit_promo %}
+      <form method="post" action="{{ url_for('promo_archive_toggle', promotion_id=promotion.id) }}">
+        <input type="hidden" name="next" value="{{ request.url }}">
+        <button class="btn btn-{{ 'outline-success' if promotion_display.archived else 'outline-danger' }}">
+          {{ 'Reactivar' if promotion_display.archived else 'Archivar' }}
+        </button>
+      </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="ficha-hero artist-hero mb-4">
+  <div class="d-flex gap-3 align-items-center flex-wrap">
+    {% if promotion_display.cover_url %}
+      <img src="{{ promotion_display.cover_url }}" class="promo-hero-cover" alt="{{ promotion_display.title }}">
+    {% endif %}
+    <div class="flex-grow-1">
+      <div class="d-flex gap-2 flex-wrap mb-2">
+        <span class="badge {{ promotion_display.status_badge }}">{{ promotion_display.status_label }}</span>
+        <span class="badge text-bg-light border"><i class="fa {{ promotion_display.kind_icon }} me-1"></i>{{ promotion_display.kind_label }}</span>
+        {% if promotion_display.company_label %}<span class="badge text-bg-light border"><i class="fa fa-building me-1"></i>{{ promotion_display.company_label }}</span>{% endif %}
+        <span class="badge text-bg-light border"><i class="fa fa-calendar-days me-1"></i>{{ promotion_display.period_label }}</span>
+      </div>
+      <h3 class="m-0">{{ promotion_display.title }}</h3>
+      <div class="text-muted mt-1">
+        {% if promotion_display.subject_kind_label %}{{ promotion_display.subject_kind_label }}: {% endif %}
+        {{ promotion_display.subject_title or '—' }}
+        {% if promotion_display.artist_label %} · {{ promotion_display.artist_label }}{% endif %}
+      </div>
+      <div class="d-flex gap-2 flex-wrap mt-2">
+        <span class="badge text-bg-light border"><i class="fa {{ escort.icon }} me-1"></i>{{ escort.name }}</span>
+        {% if promotion.production_needed %}
+          <span class="badge text-bg-light border"><i class="fa fa-truck-ramp-box me-1"></i>
+            {% if promotion.production_owner_user_id %}
+              Producción: {% for p in production_people %}{% if p.id == promotion.production_owner_user_id|string %}{{ p.name }}{% endif %}{% endfor %}
+            {% else %}Necesita producción{% endif %}
+          </span>
+        {% endif %}
+      </div>
+    </div>
+    {% if can_edit_promo %}
+      {# El estado lo cambia PROMOCIÓN: al confirmar, se confirman también sus entrevistas. #}
+      <div class="promo-status-box">
+        <div class="small text-muted mb-1">Estado</div>
+        <div class="d-flex flex-wrap gap-1">
+          {% for code in promo_status_order %}
+            <form method="post" action="{{ url_for('promo_status_set', promotion_id=promotion.id) }}">
+              <input type="hidden" name="next" value="{{ request.url }}">
+              <input type="hidden" name="status" value="{{ code }}">
+              <button class="btn btn-sm {{ 'btn-primary' if promotion_display.status == code else 'btn-outline-secondary' }}">
+                {{ promo_status_meta[code][0] }}
+              </button>
+            </form>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<ul class="nav nav-tabs ficha-tabs mb-4">
+  {% for key, label, icon in [('informacion','Información','fa-circle-info'), ('promociones','Promociones','fa-microphone-lines'),
+                              ('hoja_ruta','Hoja de ruta','fa-route'), ('gastos','Gastos','fa-sack-dollar'),
+                              ('fotos','Fotos / Vídeos','fa-images')] %}
+    <li class="nav-item">
+      <a class="nav-link {% if tab == key %}active{% endif %}" href="{{ url_for('promo_detail_view', promotion_id=promotion.id, tab=key) }}">
+        <i class="fa {{ icon }} me-1"></i>{{ label }}
+        {% if key == 'promociones' and promotion_display.activity_count %}<span class="badge text-bg-light border ms-1">{{ promotion_display.activity_count }}</span>{% endif %}
+      </a>
+    </li>
+  {% endfor %}
+</ul>
+
+{% if tab == 'informacion' %}
+  <div class="row g-4">
+    <div class="col-12 col-lg-7">
+      <div class="ficha-section card h-100"><div class="card-body">
+        <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
+          <h5 class="mb-0">Datos de la promoción</h5>
+          {% if can_edit_promo %}
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-edit-toggle="#promoDatosForm" data-view="[data-promo-datos-view]"><i class="fa fa-pen me-1"></i>Editar</button>
+          {% endif %}
+        </div>
+        <dl class="row mb-0" data-promo-datos-view>
+          <dt class="col-sm-4">Tipo</dt><dd class="col-sm-8">{{ promotion_display.kind_label }}</dd>
+          <dt class="col-sm-4">Se promociona</dt><dd class="col-sm-8">{{ promotion_display.subject_title or '—' }}</dd>
+          <dt class="col-sm-4">Artistas</dt><dd class="col-sm-8">{{ promotion_display.artist_label or '—' }}</dd>
+          <dt class="col-sm-4">Fechas</dt><dd class="col-sm-8">{{ promotion_display.period_label }}</dd>
+          <dt class="col-sm-4">Empresa que factura</dt><dd class="col-sm-8">{{ promotion_display.company_label or 'Sin empresa específica' }}</dd>
+          <dt class="col-sm-4">Acompaña al artista</dt>
+          <dd class="col-sm-8">
+            {% if escort.photo_url %}<img src="{{ escort.photo_url }}" class="artist-avatar-inline me-1" alt="">{% endif %}
+            {{ escort.name }}{% if escort.note %} · {{ escort.note }}{% endif %}
+          </dd>
+          {% if promotion.objectives_notes %}<dt class="col-sm-4">Objetivos</dt><dd class="col-sm-8">{{ promotion.objectives_notes }}</dd>{% endif %}
+        </dl>
+        {% if can_edit_promo %}
+          <form method="post" action="{{ url_for('promo_update', promotion_id=promotion.id) }}" id="promoDatosForm" class="d-none mt-3" data-promo-form>
+            <input type="hidden" name="next" value="{{ request.url }}">
+            <div class="row g-3">
+              <div class="col-12">
+                <label class="form-label">Nombre</label>
+                <input class="form-control" name="name" value="{{ promotion.name or '' }}" placeholder="{{ promotion_display.title }}">
+              </div>
+              <div class="col-md-6"><label class="form-label">Desde</label><input type="date" class="form-control" name="starts_on" value="{{ promotion.starts_on.isoformat() if promotion.starts_on else '' }}"></div>
+              <div class="col-md-6"><label class="form-label">Hasta</label><input type="date" class="form-control" name="ends_on" value="{{ promotion.ends_on.isoformat() if promotion.ends_on else '' }}"></div>
+              <div class="col-12">
+                <label class="form-label">Empresa del grupo que factura los gastos</label>
+                <select class="form-select" name="company_id">
+                  <option value="">Sin empresa específica</option>
+                  {% for c in companies %}
+                    <option value="{{ c.id }}" {% if promotion.company_id and c.id|string == promotion.company_id|string %}selected{% endif %}>{{ c.name }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-12">
+                <label class="form-label">Objetivos / notas</label>
+                <textarea class="form-control" name="objectives_notes" rows="2">{{ promotion.objectives_notes or '' }}</textarea>
+              </div>
+              <div class="col-12">
+                <div class="border rounded p-3">
+                  <div class="fw-semibold mb-2"><i class="fa fa-user-group me-1 text-danger"></i>¿Quién acompaña al artista?</div>
+                  <div class="promo-pick-grid promo-pick-grid--wide">
+                    {% for value, label, icon in [('NONE','No acompaña nadie','fa-user-slash'), ('USER','Alguien de la oficina','fa-user-tie'), ('PROMOTER','Un tercero','fa-user')] %}
+                      <label class="promo-pick visual-choice-card">
+                        <input type="radio" name="escort_kind" value="{{ value }}" data-promo-escort {% if escort.kind == value %}checked{% endif %}>
+                        <span class="promo-pick__box"><i class="fa {{ icon }}"></i><span class="promo-pick__name">{{ label }}</span></span>
+                      </label>
+                    {% endfor %}
+                  </div>
+                  <div class="mt-2 {% if escort.kind != 'USER' %}d-none{% endif %}" data-promo-escort-user>
+                    <label class="form-label small">¿Quién?</label>
+                    <select class="form-select" name="escort_user_id">
+                      <option value="">Elige a la persona…</option>
+                      {% for p in office_people %}
+                        <option value="{{ p.id }}" {% if promotion.escort_user_id and p.id == promotion.escort_user_id|string %}selected{% endif %}>{{ p.name }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div class="mt-2 {% if escort.kind != 'PROMOTER' %}d-none{% endif %}" data-promo-escort-promoter>
+                    <label class="form-label small">Tercero</label>
+                    <select class="form-select select-providers" name="escort_promoter_id" id="promoEscortPromoter">
+                      <option value="">Elige el tercero…</option>
+                      {% for p in third_parties %}
+                        <option value="{{ p.id }}" data-photo="{{ p.logo_url or '' }}" {% if promotion.escort_promoter_id and p.id|string == promotion.escort_promoter_id|string %}selected{% endif %}>{{ p.nick or p.name }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div class="mt-2">
+                    <label class="form-label small">Nota</label>
+                    <input class="form-control" name="escort_note" value="{{ promotion.escort_note or '' }}" placeholder="Va y vuelve el mismo día…">
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="d-flex gap-2 mt-3">
+              <button class="btn btn-primary"><i class="fa fa-check me-1"></i>Guardar</button>
+              <button class="btn btn-outline-secondary" type="button" data-edit-cancel="#promoDatosForm">Cancelar</button>
+            </div>
+          </form>
+        {% endif %}
+      </div></div>
+    </div>
+    <div class="col-12 col-lg-5">
+      <div class="ficha-section card h-100"><div class="card-body">
+        <h5 class="mb-3"><i class="fa fa-truck-ramp-box me-2 text-muted"></i>Logística y producción</h5>
+        {% if can_edit_promo %}
+          <form method="post" action="{{ url_for('promo_production_save', promotion_id=promotion.id) }}" data-promo-form>
+            <input type="hidden" name="next" value="{{ request.url }}">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" name="production_needed" value="1" id="promoProdNeeded" data-promo-prod {% if promotion.production_needed %}checked{% endif %}>
+              <label class="form-check-label fw-semibold" for="promoProdNeeded">¿Requiere logística o producción?</label>
+            </div>
+            <div class="mt-3 {% if not promotion.production_needed %}d-none{% endif %}" data-promo-prod-panel>
+              <label class="form-label">¿Quién de producción lo gestiona?</label>
+              <div class="promo-pick-grid">
+                {% for person in production_people %}
+                  <label class="promo-pick visual-choice-card">
+                    <input type="radio" name="production_owner_user_id" value="{{ person.id }}"
+                           {% if promotion.production_owner_user_id and person.id == promotion.production_owner_user_id|string %}checked{% endif %}>
+                    <span class="promo-pick__box">
+                      {% if person.photo_url %}<img src="{{ person.photo_url }}" alt="">{% else %}<span class="promo-pick__avatar"><i class="fa fa-user"></i></span>{% endif %}
+                      <span class="promo-pick__name">{{ person.name }}</span>
+                    </span>
+                  </label>
+                {% else %}
+                  <div class="text-muted small">No hay nadie con departamento «Producción».</div>
+                {% endfor %}
+              </div>
+              <div class="form-text">Le llega como tarea pendiente para montar la producción.</div>
+            </div>
+            <button class="btn btn-primary mt-3"><i class="fa fa-check me-1"></i>Guardar</button>
+          </form>
+        {% else %}
+          <div class="text-muted">{{ 'Necesita producción.' if promotion.production_needed else 'No necesita producción.' }}</div>
+        {% endif %}
+      </div></div>
+    </div>
+  </div>
+
+{% elif tab == 'promociones' %}
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div>
+      <h5 class="mb-0">{{ 'Promociones del plan' if promotion_display.is_plan else 'La promoción' }}</h5>
+      <div class="text-muted small">
+        {% if promotion_display.is_plan %}Cada día del plan; dentro se van añadiendo entrevistas, como en una hoja de ruta.
+        {% else %}Una promoción puntual. Puedes añadir más si acaban siendo varias.{% endif %}
+      </div>
+    </div>
+    {% if can_edit_promo %}
+      <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#promoActivityModal" data-promo-new><i class="fa fa-plus me-1"></i>Añadir promoción</button>
+    {% endif %}
+  </div>
+
+  {% macro promo_card(row) %}
+    <div class="promo-item">
+      <div class="promo-item__head">
+        <span class="promo-item__icon"><i class="fa {{ row.media_icon }}"></i></span>
+        <div class="flex-grow-1">
+          <div class="fw-semibold">
+            {% if row.media_logo_url %}<img src="{{ row.media_logo_url }}" class="promo-item__logo" alt="">{% endif %}
+            {{ row.media_name or 'Medio sin indicar' }}
+            {% if row.program_name %}<span class="text-muted"> · {{ row.program_name }}</span>{% endif %}
+          </div>
+          <div class="small text-muted">
+            {{ row.date_label }} · {{ row.time_label }}
+            {% if row.modality_label %} · <i class="fa {{ row.modality_icon }} me-1"></i>{{ row.modality_label }}{% endif %}
+            {% if row.location_label %} · {{ row.location_label }}{% endif %}
+          </div>
+        </div>
+        <span class="badge {{ row.status_badge }}">{{ row.status_label }}</span>
+      </div>
+      <div class="promo-item__tags">
+        {% if row.sings %}
+          <span class="badge text-bg-light border"><i class="fa fa-music me-1"></i>Canta</span>
+          {% if row.is_live %}<span class="badge text-bg-danger"><i class="fa fa-guitar me-1"></i>En directo{% if row.musicians_count %} · {{ row.musicians_count }} músicos{% endif %}</span>
+          {% elif row.formation_label %}<span class="badge text-bg-light border"><i class="fa {{ row.formation_icon }} me-1"></i>{{ row.formation_label }}</span>{% endif %}
+          {% for song in row.songs %}<span class="badge text-bg-light border"><i class="fa fa-compact-disc me-1"></i>{{ song }}</span>{% endfor %}
+        {% endif %}
+        {% if row.has_fee %}<span class="badge text-bg-warning text-dark"><i class="fa fa-euro-sign me-1"></i>Caché {{ row.fee_amount|eur }}</span>{% endif %}
+        {% if row.promoter_costs.get('enabled') %}<span class="badge text-bg-light border"><i class="fa fa-hand-holding-heart me-1"></i>Gastos cubiertos</span>{% endif %}
+        {% if row.declared %}<span class="badge text-bg-success"><i class="fa fa-check me-1"></i>Declarada</span>{% endif %}
+      </div>
+      {% if row.description %}<div class="small mt-2">{{ row.description }}</div>{% endif %}
+      {% if can_edit_promo %}
+        <div class="promo-item__actions">
+          <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#promoActivityModal"
+                  data-promo-edit="{{ row.id }}"><i class="fa fa-pen me-1"></i>Editar</button>
+          {% for code in promo_status_order %}
+            {% if code != row.status %}
+              <form method="post" action="{{ url_for('promo_activity_status_set', promotion_id=promotion.id, activity_id=row.id) }}">
+                <input type="hidden" name="next" value="{{ request.url }}">
+                <input type="hidden" name="status" value="{{ code }}">
+                <button class="btn btn-sm btn-outline-secondary">{{ promo_status_meta[code][0] }}</button>
+              </form>
+            {% endif %}
+          {% endfor %}
+          <form method="post" action="{{ url_for('promo_activity_delete', promotion_id=promotion.id, activity_id=row.id) }}"
+                onsubmit="return confirm('¿Eliminar esta promoción?');">
+            <input type="hidden" name="next" value="{{ request.url }}">
+            <button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash"></i></button>
+          </form>
+        </div>
+      {% endif %}
+    </div>
+  {% endmacro %}
+
+  {% set rows_by_id = {} %}
+  {% for row in activity_rows %}{% if rows_by_id.update({row.id: row}) %}{% endif %}{% endfor %}
+
+  {% if promotion_display.is_plan %}
+    {% for day in plan_days %}
+      <div class="promo-day">
+        <div class="promo-day__head">
+          <span class="promo-day__n">Día {{ day.index }}</span>
+          <span class="fw-semibold">{{ day.label }}</span>
+          {% if can_edit_promo %}
+            <button class="btn btn-sm btn-outline-primary ms-auto" type="button" data-bs-toggle="modal" data-bs-target="#promoActivityModal"
+                    data-promo-new data-promo-day="{{ day.date.isoformat() if day.date else '' }}"><i class="fa fa-plus me-1"></i>Añadir aquí</button>
+          {% endif %}
+        </div>
+        {% if day.rows %}
+          {% for act in day.rows %}{{ promo_card(rows_by_id[act.id|string]) }}{% endfor %}
+        {% else %}
+          <div class="text-muted small px-2 py-2">Sin promociones este día.</div>
+        {% endif %}
+      </div>
+    {% else %}
+      <div class="alert alert-light border">Este plan aún no tiene fechas. Ponle un «desde» y un «hasta» en Información.</div>
+    {% endfor %}
+  {% else %}
+    {% for row in activity_rows %}{{ promo_card(row) }}{% else %}
+      <div class="alert alert-light border">Todavía no hay ninguna promoción apuntada.</div>
+    {% endfor %}
+  {% endif %}
+
+  {% if can_edit_promo %}
+    {# Modal único: sirve para añadir y para editar (lo rellena el JS con los datos de la fila). #}
+    <div class="modal fade" id="promoActivityModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <form class="modal-content" method="post" action="{{ url_for('promo_activity_save', promotion_id=promotion.id) }}"
+              data-promo-form data-promo-media-url="/promocion-prensa/api/medio/">
+          <input type="hidden" name="next" value="{{ request.url }}">
+          <input type="hidden" name="activity_id" data-promo-activity-id value="">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="fa fa-microphone-lines me-2"></i><span data-promo-modal-title>Añadir promoción</span></h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            {{ pf.promo_media_time(media_outlets, None, 'Modal') }}
+            <hr class="my-4">
+            <div class="fw-semibold mb-2"><i class="fa fa-video me-1 text-danger"></i>¿Cómo se hace?</div>
+            {{ pf.promo_modality() }}
+            <hr class="my-4">
+            {{ pf.promo_details(song_options) }}
+            <hr class="my-4">
+            {{ pf.promo_money() }}
+            <div class="mt-3">
+              <label class="form-label">Estado</label>
+              <select class="form-select" name="status">
+                {% for code in promo_status_order %}<option value="{{ code }}">{{ promo_status_meta[code][0] }}</option>{% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button class="btn btn-primary"><i class="fa fa-check me-1"></i>Guardar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <script type="application/json" id="promoActivityData">{{ activity_rows|tojson }}</script>
+    <script>
+    (function(){
+      const modal = document.getElementById('promoActivityModal');
+      if (!modal) return;
+      const form = modal.querySelector('form');
+      const rows = JSON.parse(document.getElementById('promoActivityData').textContent || '[]');
+      const byId = {};
+      rows.forEach(r => { byId[r.id] = r; });
+
+      function set(name, value){
+        const el = form.querySelector('[name="' + name + '"]');
+        if (el) el.value = value == null ? '' : value;
+      }
+      function check(name, on){
+        const el = form.querySelector('[name="' + name + '"]');
+        if (el) el.checked = !!on;
+      }
+      function radio(name, value){
+        form.querySelectorAll('[name="' + name + '"]').forEach(el => { el.checked = (el.value === value); });
+      }
+
+      function fill(row, day){
+        form.querySelector('[data-promo-activity-id]').value = row ? row.id : '';
+        modal.querySelector('[data-promo-modal-title]').textContent = row ? 'Editar promoción' : 'Añadir promoción';
+        // Reset: el modal es el mismo para todas las filas.
+        form.querySelectorAll('input[type="checkbox"]').forEach(el => { el.checked = false; });
+        check('location_link_media', true);   // por defecto la ubicación nueva se guarda en el medio
+        set('program_name', ''); set('task_description', ''); set('fee_amount', ''); set('cost_note', '');
+        set('location_name', ''); set('location_address', ''); set('location_id', ''); set('musicians_count', '');
+        set('start_time', ''); set('end_time', '');
+        set('activity_date', (row && row.date) ? row.date : (day || ''));
+        set('media_id', row ? row.media_id : '');
+        form.setAttribute('data-promo-contact-id', row ? (row.contact_id || '') : '');
+        if (row) {
+          set('program_name', row.program_name);
+          set('start_time', row.start_time_raw); set('end_time', row.end_time_raw);
+          check('time_tbc', row.time_tbc);
+          radio('modality', row.modality || 'PRESENCIAL');
+          set('location_id', row.location_id); set('location_name', row.location_name); set('location_address', row.location_address);
+          set('task_description', row.description);
+          check('artist_performed', row.sings);
+          form.querySelectorAll('[name="performed_song_ids"]').forEach(el => { el.checked = (row.song_ids || []).indexOf(el.value) >= 0; });
+          if (row.formation) radio('formation_kind', row.formation);
+          set('musicians_count', row.musicians_count || '');
+          check('has_fee', row.has_fee);
+          if (row.has_fee) set('fee_amount', row.fee_amount);
+          const pc = row.promoter_costs || {};
+          check('promoter_costs_enabled', pc.enabled);
+          (pc.items || []).forEach(item => {
+            const box = form.querySelector('[data-pc-item="' + item.key + '"]');
+            if (box) box.checked = true;
+            set('promoter_cost_note_' + item.key, item.note || '');
+            if (item.max_amount != null) set('promoter_cost_max_' + item.key, item.max_amount);
+            radio('promoter_cost_managed_' + item.key, item.managed_by || 'PROMOTER');
+          });
+          set('cost_note', row.cost_note);
+          set('status', row.status);
+        } else {
+          radio('modality', 'PRESENCIAL');
+          set('status', 'BORRADOR');
+        }
+        if (window.app33PromoInit) window.app33PromoInit(modal);
+        if (window.initVisualChoiceCards) window.initVisualChoiceCards();
+      }
+
+      document.addEventListener('click', function(e){
+        const edit = e.target.closest('[data-promo-edit]');
+        if (edit) { fill(byId[edit.getAttribute('data-promo-edit')] || null); return; }
+        const add = e.target.closest('[data-promo-new]');
+        if (add) { fill(null, add.getAttribute('data-promo-day') || ''); }
+      });
+    })();
+    </script>
+  {% endif %}
+
+{% elif tab == 'hoja_ruta' %}
+  <div class="alert alert-light border small">
+    <i class="fa fa-circle-info me-1"></i>Cada promoción de esta ficha sale sola en la hoja de ruta con su icono
+    (tipo de medio, si es en directo y si se canta). Aquí se añade el resto: viajes, hoteles y personal.
+    {% if can_edit_promo %}
+      <a class="ms-1" href="{{ url_for('promo_detail_view', promotion_id=promotion.id, tab='promociones') }}">Añadir una promoción</a>.
+    {% endif %}
+  </div>
+  {% include "_roadmap_panel.html" %}
+
+{% elif tab == 'gastos' %}
+  <div class="card"><div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <h5 class="mb-0"><i class="fa fa-sack-dollar me-2 text-muted"></i>Bolsa de gastos</h5>
+      {% if promotion.bag_id %}<a class="btn btn-outline-primary btn-sm" href="{{ url_for('bag_detail_view', bag_id=promotion.bag_id) }}">Abrir la bolsa</a>{% endif %}
+    </div>
+    <div class="text-muted small mb-3">
+      Los gastos de esta promoción se liquidan en su bolsa
+      {% if promotion_display.company_label %}, a nombre de <strong>{{ promotion_display.company_label }}</strong>{% endif %}.
+    </div>
+    {% if invoices %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead><tr><th>Factura</th><th>Fecha</th><th class="text-end">Importe</th></tr></thead>
+          <tbody>
+            {% for inv in invoices %}
+              <tr>
+                <td>{{ inv.invoice_number or '—' }}</td>
+                <td>{{ inv.issue_date.strftime('%d/%m/%Y') if inv.issue_date else '—' }}</td>
+                <td class="text-end">{{ (inv.amount_gross or 0)|eur }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="alert alert-light border mb-0">Todavía no hay facturas en la bolsa de esta promoción.</div>
+    {% endif %}
+  </div></div>
+
+{% elif tab == 'fotos' %}
+  {% include "_fotos_panel.html" %}
+{% endif %}
+
+<script src="{{ url_for('static', filename='js/promo.js', v=ASSET_V) }}"></script>
+{% endblock %}

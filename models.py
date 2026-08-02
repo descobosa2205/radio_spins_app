@@ -2568,6 +2568,12 @@ class MediaOutlet(Base):
         cascade="all, delete-orphan",
         order_by="MediaContact.created_at",
     )
+    locations = relationship(
+        "MediaLocation",
+        back_populates="media",
+        cascade="all, delete-orphan",
+        order_by="MediaLocation.name",
+    )
     history_rows = relationship(
         "MediaPromotionRecord",
         back_populates="media",
@@ -2598,6 +2604,30 @@ class MediaContact(Base):
 
     __table_args__ = (
         Index("idx_media_contacts_media_id", "media_id"),
+    )
+
+
+class MediaLocation(Base):
+    """Ubicación de un medio (estudio, redacción, plató…). Un medio puede tener VARIAS: al montar una
+    entrevista presencial se ofrecen como sugerencia y, si se escribe una nueva, se puede dejar
+    vinculada al medio para la próxima vez."""
+
+    __tablename__ = "media_locations"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    media_id = Column(PGUUID(as_uuid=True), ForeignKey("media_outlets.id", ondelete="CASCADE"), nullable=False)
+    name = Column(Text, nullable=False)
+    address = Column(Text)
+    municipality = Column(Text)
+    province = Column(Text)
+    notes = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    media = relationship("MediaOutlet", back_populates="locations")
+
+    __table_args__ = (
+        Index("idx_media_locations_media", "media_id"),
     )
 
 
@@ -2684,17 +2714,21 @@ class ProductionRequest(Base):
     requested_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     requested_by_email = Column(Text)
     requested_by_nick = Column(Text)
+    # A quién de producción le toca montarlo (cuando se le encarga a una persona concreta).
+    owner_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     notes = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
     bag = relationship("WorkflowBag")
-    requested_by = relationship("User")
+    requested_by = relationship("User", foreign_keys=[requested_by_user_id])
+    owner = relationship("User", foreign_keys=[owner_user_id])
 
     __table_args__ = (
         Index("idx_production_requests_status_date", "status", "activity_date"),
         Index("idx_production_requests_bag", "bag_id"),
         Index("idx_production_requests_linked", "linked_type", "linked_id"),
+        Index("idx_production_requests_owner", "owner_user_id", "status"),
     )
 
 
@@ -3152,9 +3186,30 @@ class CompanyAction(Base):
 
 
 class Promotion(Base):
+    """Contenedor de MARKETING (campaña de pago) o de PROMOCIÓN (prensa: entrevistas, junts de
+    prensa, phoners…), según `kind`. Las dos comparten bolsa de gastos, hoja de ruta y empresa que
+    factura; lo que cambia es lo que cuelga dentro (`PromotionActivity`)."""
+
     __tablename__ = "promotions"
 
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    # MARKETING (campañas de pago) | PROMO (prensa y entrevistas).
+    kind = Column(Text, nullable=False, server_default=text("'MARKETING'"))
+    # Nombre del plan de promoción (en marketing el título sale del elemento promocionado).
+    name = Column(Text)
+    # Estado de trabajo, con los MISMOS códigos que un concierto (BORRADOR|HABLADO|RESERVADO|
+    # CONFIRMADO) para que calendario y pastillas de estado valgan igual. `status` es otra cosa:
+    # ACTIVE|ARCHIVED.
+    promo_status = Column(Text, nullable=False, server_default=text("'BORRADOR'"))
+    # Quién acompaña al artista: NONE (nadie) | USER (alguien de la oficina) | PROMOTER (un tercero).
+    escort_kind = Column(Text, nullable=False, server_default=text("'NONE'"))
+    escort_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    escort_promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    escort_note = Column(Text)
+    # Logística / producción: a quién de producción le toca montarlo.
+    production_needed = Column(Boolean, nullable=False, server_default=text("false"))
+    production_owner_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    production_request_id = Column(PGUUID(as_uuid=True), ForeignKey("production_requests.id", ondelete="SET NULL"))
     subject_type = Column(Text, nullable=False)
     subject_id = Column(PGUUID(as_uuid=True))
     artist_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
@@ -3185,11 +3240,15 @@ class Promotion(Base):
     company = relationship("GroupCompany")
     bag = relationship("WorkflowBag")
     source_request = relationship("PromotionRequest")
+    escort_user = relationship("User", foreign_keys=[escort_user_id])
+    escort_promoter = relationship("Promoter", foreign_keys=[escort_promoter_id])
+    production_owner = relationship("User", foreign_keys=[production_owner_user_id])
 
     __table_args__ = (
         Index("idx_promotions_status_date", "status", "target_date"),
         Index("idx_promotions_subject", "subject_type", "subject_id"),
         Index("idx_promotions_company", "company_id", "target_date"),
+        Index("idx_promotions_kind_status", "kind", "status", "target_date"),
     )
 
 
@@ -3241,6 +3300,26 @@ class PromotionActivity(Base):
     fee_amount = Column(Numeric, nullable=False, server_default=text("0"))
     covered_costs = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     cost_note = Column(Text)
+    # ---- Promoción de prensa (entrevistas) ----
+    # Estado propio de la entrevista, mismos códigos que un concierto.
+    status = Column(Text, nullable=False, server_default=text("'BORRADOR'"))
+    # PRESENCIAL | PHONER | ZOOM | PREGUNTAS
+    modality = Column(Text)
+    location_id = Column(PGUUID(as_uuid=True), ForeignKey("media_locations.id", ondelete="SET NULL"))
+    location_name = Column(Text)
+    location_address = Column(Text)
+    # FULL_PLAYBACK | HALF_PLAYBACK | DIRECTO (con músicos)
+    formation_kind = Column(Text)
+    musicians_count = Column(Integer, nullable=False, server_default=text("0"))
+    # Gastos que cubre el medio, con el mismo formato que «el promotor cubre otros gastos».
+    promoter_costs_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    # Petición a Contratación para gestionar el caché (contrato + facturación).
+    booking_request_id = Column(PGUUID(as_uuid=True), ForeignKey("booking_requests.id", ondelete="SET NULL"))
+    # Punto de la hoja de ruta que espeja esta entrevista (para mantenerlos a la par).
+    roadmap_item_id = Column(Text)
+    # Declaración por semestre de lo cantado (Registros).
+    registration_declared_done = Column(Boolean, nullable=False, server_default=text("false"))
+    registration_declared_at = Column(DateTime(timezone=True))
     created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_by_nick = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -3249,9 +3328,11 @@ class PromotionActivity(Base):
     promotion = relationship("Promotion")
     media = relationship("MediaOutlet")
     media_contact = relationship("MediaContact")
+    location = relationship("MediaLocation")
     provider = relationship("Promoter")
     provider_company = relationship("PromoterCompany")
     bag_expense = relationship("BagExpense", foreign_keys=[bag_expense_id])
+    booking_request = relationship("BookingRequest", foreign_keys=[booking_request_id])
 
     __table_args__ = (
         Index("idx_promotion_activities_promotion_date", "promotion_id", "activity_date"),
@@ -7195,6 +7276,73 @@ def ensure_bag_expense_schema():
         'CREATE INDEX IF NOT EXISTS idx_bag_payment_interactions_kind ON bag_payment_interactions(kind, created_at);',
     ]
     _exec_ddl_statements(stmts, "bag_expenses")
+
+
+def ensure_promocion_prensa_schema():
+    """PROMOCIÓN de prensa (entrevistas, junts de prensa, phoners) sobre las tablas de Marketing.
+
+    `promotions.kind` separa las campañas de pago (MARKETING) de la promoción de prensa (PROMO), y
+    cada entrevista es una `promotion_activities` con su modalidad, ubicación, formación y caché.
+    Idempotente, como todos los `ensure_*`."""
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        """
+        CREATE TABLE IF NOT EXISTS media_locations (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            media_id uuid NOT NULL REFERENCES media_outlets(id) ON DELETE CASCADE,
+            name text NOT NULL,
+            address text,
+            municipality text,
+            province text,
+            notes text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_media_locations_media ON media_locations(media_id);',
+        """
+        ALTER TABLE IF EXISTS promotions
+            ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'MARKETING',
+            ADD COLUMN IF NOT EXISTS name text,
+            ADD COLUMN IF NOT EXISTS promo_status text NOT NULL DEFAULT 'BORRADOR',
+            ADD COLUMN IF NOT EXISTS escort_kind text NOT NULL DEFAULT 'NONE',
+            ADD COLUMN IF NOT EXISTS escort_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS escort_promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS escort_note text,
+            ADD COLUMN IF NOT EXISTS production_needed boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS production_owner_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS production_request_id uuid REFERENCES production_requests(id) ON DELETE SET NULL;
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_promotions_kind_status ON promotions(kind, status, target_date);',
+        """
+        ALTER TABLE IF EXISTS promotion_activities
+            ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'BORRADOR',
+            ADD COLUMN IF NOT EXISTS modality text,
+            ADD COLUMN IF NOT EXISTS location_id uuid REFERENCES media_locations(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS location_name text,
+            ADD COLUMN IF NOT EXISTS location_address text,
+            ADD COLUMN IF NOT EXISTS formation_kind text,
+            ADD COLUMN IF NOT EXISTS musicians_count integer NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS promoter_costs_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+            ADD COLUMN IF NOT EXISTS booking_request_id uuid REFERENCES booking_requests(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS roadmap_item_id text,
+            ADD COLUMN IF NOT EXISTS registration_declared_done boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS registration_declared_at timestamptz;
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_promotion_activities_declare ON promotion_activities(registration_declared_done, activity_date);',
+        """
+        ALTER TABLE IF EXISTS production_requests
+            ADD COLUMN IF NOT EXISTS owner_user_id uuid REFERENCES users(id) ON DELETE SET NULL;
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_production_requests_owner ON production_requests(owner_user_id, status);',
+        # Lo que ya había creado es marketing: la promoción de prensa nace con este lote.
+        """
+        UPDATE promotions
+           SET kind = 'MARKETING'
+         WHERE kind IS NULL OR kind = '';
+        """,
+    ]
+    _exec_ddl_statements(stmts, "promocion_prensa")
 
 
 def ensure_marketing_country_schema():

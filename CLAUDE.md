@@ -505,6 +505,65 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   dice con qué base está calculado. ⚠️ El **aviso amarillo salta SOLO si el de contratación NO cuadra**
   con el calculado (`mismatch`): si coinciden, o si nadie lo ha puesto a mano, no se avisa de nada. Sin
   ticketing ni previsión de ingresos no se muestra nada.
+- **MARKETING ≠ PROMOCIÓN** (ago 2026). Eran la misma pantalla y se confundían:
+  · **Marketing** = campañas **de pago** (radio, TV, digital, exterior, influencers…). Sección
+  `promocion` → `/marketing`, asistente `_promotion_wizard_modal.html` («Nuevo marketing», botón
+  **«+ Marketing»**). Su «acción concreta» **materializa la acción** (`_marketing_seed_action`:
+  `PromotionActivity` con `activity_kind='MARKETING'`, pendiente de consolidar) — antes creaba el
+  contenedor vacío y no había nada que gestionar. El sujeto **GIRA ya se elige** de las
+  `PurchasedTour` reales (antes era texto libre con `source_id=None`: la campaña quedaba huérfana y
+  no salía en ninguna ficha) y hay sujeto nuevo **CICLO** (`CycleFestival`). Panel
+  `_promotion_entity_panel.html` (contexto único **`_promotion_panel_context`**) en artista, canción,
+  disco, concierto y, nuevo, en la pestaña **Marketing** de gira y ciclo/festival/evento.
+  · **Promoción** = **prensa**: entrevistas, junts de prensa, phoners. Sección `promo` →
+  `/promocion-peticiones`, con tres pestañas (Peticiones · Promociones · Archivadas).
+- **PROMOCIÓN de prensa** (`Promotion.kind='PROMO'` + `PromotionActivity.activity_kind='PROMOCION'`;
+  comparte tablas, bolsa y hoja de ruta con Marketing). Endpoints **`promo_*`** (URLs
+  `/promocion-prensa/…`): ⚠️ `promo_` NO es `promotion_`, y por eso heredan solos el permiso de su
+  sección en `_resolve_request_resource_key`/`_coarse_endpoint_resource`. Piezas:
+  · **Puntual** (`request_kind='ACTION'`, una entrevista) o **plan completo** (`PLAN`, con nombre y
+  rango de días; `_promo_plan_days` los pinta «Día 1, Día 2…» como una hoja de ruta y dentro se van
+  añadiendo promociones).
+  · Cada entrevista lleva **medio + programa + contacto**, **modalidad** (`PROMO_MODALITIES`:
+  presencial / phoner / Zoom / preguntas), **ubicación** solo si es presencial (sugerencias de
+  **`MediaLocation`**, tabla nueva: un medio tiene VARIAS ubicaciones, y una nueva se puede dejar
+  vinculada al medio), **¿canta?** → repertorio (`_promo_song_options` pone **primero la canción que
+  se promociona**) + **formación** (`PROMO_FORMATIONS`: full/half playback o **directo con N
+  músicos**), **caché** y **gastos cubiertos** (el MISMO módulo que «el promotor cubre otros gastos»
+  de Contratación: `_parse_promoter_costs_form`).
+  · **Estados** con los MISMOS códigos que un concierto (BORRADOR/HABLADO/RESERVADO/CONFIRMADO,
+  etiquetas en femenino) para que valgan el calendario y `_agenda_status_meta`. **`promo_status` no
+  es `status`**: `status` sigue siendo ACTIVE/ARCHIVED. Al **confirmar la promoción se confirman sus
+  entrevistas**.
+  · **Caché → Contratación**: `_promo_booking_request_sync` crea un `BookingRequest` con
+  `payload['departments']=['CONTRATACION']` (contrato y factura como en un concierto); si se quita el
+  caché, la petición se **descarta**, no se borra.
+  · **Producción**: `production_needed` + `production_owner_user_id` → `ProductionRequest`
+  (`linked_type='PROMOTION'`, columna nueva **`owner_user_id`**), que sale en Producción → Solicitudes
+  y en el módulo de Inicio `_home_produccion_pending` de esa persona.
+  · **Acompañante** (`escort_kind` NONE|USER|PROMOTER): lo asigna promoción **al gestionar la ficha**,
+  no en el alta.
+  · **Hoja de ruta**: cada entrevista se **espeja** como punto de la agenda
+  (`_promo_roadmap_sync_item`, kind ENTREVISTA + `promo_meta` con los iconos de tipo de medio,
+  modalidad, canta y **en directo**; los pinta `roadmap.js`). La fuente de verdad es la entrevista:
+  el punto se mantiene al día al guardar y se borra al eliminarla. El enlace público de la hoja
+  funciona igual que en una actividad (`ROADMAP_ENTITY_TYPES` ya incluía `promotion`).
+  · **Bolsa de gastos** propia (`_ensure_promo_bag`, `bag_type='PROMOCION'`) y **empresa del grupo que
+  factura** (`Promotion.company_id`, que se copia a la bolsa).
+  · **Fotos**: `PHOTO_OWNER_TYPES` incluye **PROMOTION** (pestaña Fotos en la ficha).
+  · **Calendario**: un PLAN sale como **una franja** de principio a fin; una puntual, cada entrevista
+  en su día (kind `promocion` en `AGENDA_KIND_META`).
+  · **Registros**: `_build_registros_promos_pending` lista, **agrupadas por semestre**, las
+  promociones ya celebradas en las que **se cantó** y no están declaradas
+  (`registros_promo_declare`).
+  · **Dónde se ve**: `_promo_rows_for_subject` + `_promo_entity_panel.html` en la ficha de
+  canción, disco, artista y concierto.
+  · UI: asistente `_promo_wizard_modal.html` (pasos condicionales con `data-sw-when="PLAN|ACTION"`),
+  campos compartidos con la ficha en **`_promo_activity_fields.html`** (macros: un solo sitio para
+  los nombres de campo, que lee `_promo_apply_activity_form`), paneles condicionales y datos del
+  medio en **`static/js/promo.js`**, estilos `.promo-*` en `styles.css`. Alta rápida de **medio**
+  añadida a `quick_create.js` (`data-quick-create="media"`).
+
 - **Cartelería · petición, subida a mano y aprobación de diseño** (aprobar es SOLO de diseño y
   dirección: `_can_validate_artwork` = `is_master() or has_access_key('diseno')`; lo que sube diseño
   entra ya APROBADO y lo que sube cualquier otro queda PENDIENTE —al resto se le enseñan atenuados con

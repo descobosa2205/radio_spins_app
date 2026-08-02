@@ -264,6 +264,17 @@
         if (it.interview.sings) tags += '<span class="rm-tag sing">Canta</span>';
         if (it.interview.media_name) sub = esc(it.interview.media_name);
       }
+      // Punto que viene de una PROMOCIÓN de prensa: se pinta con sus iconos (tipo de medio, cómo se
+      // hace, si canta y si es en directo) para leer la hoja de un vistazo.
+      if (it.promo_meta) {
+        var pm = it.promo_meta;
+        if (pm.media_type) tags += '<span class="rm-tag"><i class="fa ' + esc(pm.media_icon || 'fa-bullhorn') + '"></i> ' + esc(pm.media_type) + '</span>';
+        if (pm.modality_label) tags += '<span class="rm-tag"><i class="fa ' + esc(pm.modality_icon || 'fa-video') + '"></i> ' + esc(pm.modality_label) + '</span>';
+        if (pm.sings) tags += '<span class="rm-tag sing"><i class="fa fa-music"></i> Canta</span>';
+        if (pm.is_live) tags += '<span class="rm-tag live"><i class="fa fa-guitar"></i> En directo</span>';
+        else if (pm.formation_label) tags += '<span class="rm-tag">' + esc(pm.formation_label) + '</span>';
+        if (!sub && pm.media_name) sub = esc(pm.media_name);
+      }
       var transLine = '';
       if (ki.transport && it.transport) {
         var t = it.transport;
@@ -605,6 +616,17 @@
         if (it.interview.sings) h += '<span class="rm-tag sing">Canta</span>';
         h += '</div>';
         if ((it.interview.songs || []).length) h += '<div class="rm-sub">Repertorio: ' + it.interview.songs.map(function (s) { return esc(s.title); }).join(', ') + '</div>';
+      }
+      // Punto que espeja una PROMOCIÓN de prensa: sus propios iconos.
+      if (it.promo_meta) {
+        var pmd = it.promo_meta;
+        h += '<div class="mb-1">';
+        if (pmd.media_name) h += '<span class="rm-tag"><i class="fa ' + esc(pmd.media_icon || 'fa-bullhorn') + '"></i> ' + esc(pmd.media_name) + '</span> ';
+        if (pmd.modality_label) h += '<span class="rm-tag"><i class="fa ' + esc(pmd.modality_icon || 'fa-video') + '"></i> ' + esc(pmd.modality_label) + '</span> ';
+        if (pmd.sings) h += '<span class="rm-tag sing"><i class="fa fa-music"></i> Canta</span> ';
+        if (pmd.is_live) h += '<span class="rm-tag live"><i class="fa fa-guitar"></i> En directo</span> ';
+        else if (pmd.formation_label) h += '<span class="rm-tag">' + esc(pmd.formation_label) + '</span> ';
+        h += '</div>';
       }
       if (ki.transport && it.transport) {
         var t = it.transport;

@@ -1,0 +1,220 @@
+{# ============================================================================================
+   Campos de UNA promoción/entrevista, en macros. Los usan LAS DOS pantallas que la piden —el
+   asistente «+ Promoción» (repartidos por pasos) y el modal de la ficha (todos juntos)—, así que
+   los nombres de campo no pueden divergir: los lee `_promo_apply_activity_form`.
+   Requiere en el contexto: `promo_modalities`, `promo_formations`, `promoter_cost_items`.
+   ============================================================================================ #}
+
+{# --- Medio, programa, contacto, fecha y hora ------------------------------------------------ #}
+{% macro promo_media_time(media_outlets, act=None, prefix='') %}
+  <div class="row g-3">
+    <div class="col-md-6">
+      <label class="form-label">Medio</label>
+      <div class="input-group">
+        <select class="form-select select-with-thumbs" id="promoMediaSelect" name="media_id" data-promo-media required>
+          <option value="">Elige el medio…</option>
+          {% for m in media_outlets %}
+            <option value="{{ m.id }}" data-logo="{{ m.logo_url or '' }}"
+                    {% if act and act.media_id == m.id|string %}selected{% endif %}>{{ m.name }} · {{ m.media_type }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn btn-outline-secondary" type="button" data-quick-create="media" data-target="promoMediaSelect" title="Nuevo medio"><i class="fa fa-plus"></i></button>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Programa / sección</label>
+      <input class="form-control" name="program_name" value="{{ act.program_name if act else '' }}" placeholder="El programa de la mañana">
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Contacto del medio</label>
+      <select class="form-select" name="media_contact_id" data-promo-contact>
+        <option value="">Sin contacto concreto</option>
+      </select>
+      <div class="form-text">Se rellenan solos con los contactos del medio elegido.</div>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Fecha</label>
+      <input type="date" class="form-control" name="activity_date" required
+             value="{{ act.date.isoformat() if act and act.date else '' }}">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Hora</label>
+      <input type="time" class="form-control" name="start_time" value="{{ act.start_time_raw if act else '' }}">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Hasta (opcional)</label>
+      <input type="time" class="form-control" name="end_time" value="{{ act.end_time_raw if act else '' }}">
+    </div>
+    <div class="col-md-4 d-flex align-items-end">
+      <div class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" name="time_tbc" value="1" id="promoTbc{{ prefix }}"
+               {% if act and act.time_label == 'TBC' %}checked{% endif %}>
+        <label class="form-check-label" for="promoTbc{{ prefix }}">Hora por confirmar</label>
+      </div>
+    </div>
+  </div>
+{% endmacro %}
+
+{# --- Modalidad (+ ubicación solo si es presencial) ------------------------------------------ #}
+{% macro promo_modality(act=None) %}
+  <div class="promo-pick-grid promo-pick-grid--wide">
+    {% for key, label, icon in promo_modalities %}
+      <label class="promo-pick visual-choice-card">
+        <input type="radio" name="modality" value="{{ key }}" data-promo-modality
+               {% if (act and act.modality == key) or (not act and loop.first) %}checked{% endif %}>
+        <span class="promo-pick__box"><i class="fa {{ icon }}"></i><span class="promo-pick__name">{{ label }}</span></span>
+      </label>
+    {% endfor %}
+  </div>
+  {# Solo en presencial. Las ubicaciones del MEDIO salen como sugerencia; una nueva se puede dejar
+     vinculada al medio para la próxima vez. #}
+  <div class="mt-3 {% if act and act.modality != 'PRESENCIAL' %}d-none{% endif %}" data-promo-location-panel>
+    <div class="fw-semibold mb-2"><i class="fa fa-location-dot me-1 text-danger"></i>¿Dónde es?</div>
+    <div class="mb-2" data-promo-location-suggestions>
+      <div class="form-text">Sin ubicaciones guardadas para este medio.</div>
+    </div>
+    <input type="hidden" name="location_id" data-promo-location-id value="{{ act.location_id if act and act.location_id else '' }}">
+    <div class="row g-2">
+      <div class="col-md-5">
+        <label class="form-label small">Sitio</label>
+        <input class="form-control" name="location_name" data-promo-location-name value="{{ act.location_name if act else '' }}" placeholder="Estudios de la radio">
+      </div>
+      <div class="col-md-7">
+        <label class="form-label small">Dirección</label>
+        <input class="form-control" name="location_address" data-promo-location-address value="{{ act.location_address if act else '' }}" placeholder="Calle, número, ciudad">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label small">Municipio</label>
+        <input class="form-control" name="location_municipality">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label small">Provincia</label>
+        <input class="form-control" name="location_province">
+      </div>
+    </div>
+    <div class="form-check mt-2" data-promo-location-link-wrap>
+      <input class="form-check-input" type="checkbox" name="location_link_media" value="1" id="promoLinkLoc" checked>
+      <label class="form-check-label" for="promoLinkLoc">Guardar esta ubicación en la ficha del medio</label>
+    </div>
+  </div>
+{% endmacro %}
+
+{# --- Detalles de la entrevista, ¿canta?, repertorio y formación ----------------------------- #}
+{% macro promo_details(song_options, act=None) %}
+  <label class="form-label">Detalles de la entrevista</label>
+  <textarea class="form-control" name="task_description" rows="3"
+            placeholder="De qué se va a hablar, quién entrevista, condiciones…">{{ act.description if act else '' }}</textarea>
+
+  <div class="mt-3 border rounded p-3">
+    <div class="form-check form-switch">
+      <input class="form-check-input" type="checkbox" name="artist_performed" value="1" id="promoSings"
+             data-promo-sings {% if act and act.sings %}checked{% endif %}>
+      <label class="form-check-label fw-semibold" for="promoSings"><i class="fa fa-music me-1 text-danger"></i>¿Se canta?</label>
+    </div>
+    <div class="{% if not (act and act.sings) %}d-none{% endif %} mt-3" data-promo-sings-panel>
+      <label class="form-label">Repertorio</label>
+      <div class="form-text mb-2">Lo que se promociona sale primero; puedes añadir más.</div>
+      {# En la ficha las canciones llegan del servidor; en el asistente las pinta `promo.js` con las
+         del artista elegido (ahí todavía no se sabe de quién es). #}
+      <div class="promo-song-grid" data-promo-song-grid>
+        {% for song in song_options %}
+          <label class="promo-song visual-choice-card{% if song.featured %} is-featured{% endif %}">
+            <input type="checkbox" class="visually-hidden" name="performed_song_ids" value="{{ song.id }}"
+                   {% if act and song.id in (act.song_ids or []) %}checked{% elif not act and song.featured %}checked{% endif %}>
+            <span class="promo-song__box">
+              {% if song.cover_url %}<img src="{{ song.cover_url }}" alt="">{% else %}<span class="promo-song__ph"><i class="fa fa-music"></i></span>{% endif %}
+              <span class="promo-song__name">{{ song.title }}</span>
+              {% if song.featured %}<span class="promo-song__tag">Se promociona</span>{% endif %}
+            </span>
+          </label>
+        {% else %}
+          <div class="text-muted small">No hay canciones del artista todavía.</div>
+        {% endfor %}
+      </div>
+
+      <label class="form-label mt-3">Formación</label>
+      <div class="promo-pick-grid promo-pick-grid--wide">
+        {% for key, label, icon in promo_formations %}
+          <label class="promo-pick visual-choice-card">
+            <input type="radio" name="formation_kind" value="{{ key }}" data-promo-formation
+                   {% if act and act.formation == key %}checked{% endif %}>
+            <span class="promo-pick__box"><i class="fa {{ icon }}"></i><span class="promo-pick__name">{{ label }}</span></span>
+          </label>
+        {% endfor %}
+      </div>
+      <div class="row g-2 mt-2 {% if not (act and act.formation == 'DIRECTO') %}d-none{% endif %}" data-promo-musicians-panel>
+        <div class="col-md-4">
+          <label class="form-label small">¿Cuántos músicos?</label>
+          <input type="number" min="0" step="1" class="form-control" name="musicians_count"
+                 value="{{ act.musicians_count if act and act.musicians_count else '' }}">
+        </div>
+      </div>
+    </div>
+  </div>
+{% endmacro %}
+
+{# --- Caché y gastos cubiertos (mismo módulo que «el promotor cubre otros gastos») ------------ #}
+{% macro promo_money(act=None) %}
+  <div class="border rounded p-3 mb-3">
+    <div class="form-check form-switch">
+      <input class="form-check-input" type="checkbox" name="has_fee" value="1" id="promoHasFee"
+             data-promo-fee {% if act and act.has_fee %}checked{% endif %}>
+      <label class="form-check-label fw-semibold" for="promoHasFee"><i class="fa fa-euro-sign me-1 text-danger"></i>¿Tiene caché?</label>
+    </div>
+    <div class="row g-2 mt-2 {% if not (act and act.has_fee) %}d-none{% endif %}" data-promo-fee-panel>
+      <div class="col-md-4">
+        <label class="form-label small">Importe (€)</label>
+        <input class="form-control" name="fee_amount" data-money="1" inputmode="decimal"
+               value="{{ act.fee_amount if act and act.has_fee else '' }}">
+      </div>
+      <div class="col-12">
+        <div class="alert alert-light border small mb-0">
+          <i class="fa fa-circle-info me-1"></i>Con caché se le manda una <strong>petición a Contratación</strong>
+          para el contrato y la factura.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="border rounded p-3">
+    <div class="form-check form-switch mb-2">
+      <input class="form-check-input" type="checkbox" name="promoter_costs_enabled" value="1" id="promoPcEnabled"
+             data-pc-toggle {% if act and act.promoter_costs.get('enabled') %}checked{% endif %}>
+      <label class="form-check-label fw-semibold" for="promoPcEnabled"><i class="fa fa-hand-holding-heart me-1"></i>¿Se cubren gastos?</label>
+    </div>
+    {% set pc_items = (act.promoter_costs.get('items') if act else []) or [] %}
+    {% set pc_keys = pc_items | map(attribute='key') | list %}
+    <div class="{% if not (act and act.promoter_costs.get('enabled')) %}d-none{% endif %}" data-pc-panel>
+      {% for key, label, icon in promoter_cost_items %}
+        {% set item = (pc_items | selectattr('key', 'equalto', key) | list | first) %}
+        <div class="border rounded p-2 mb-2">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="promoter_cost_item[]" value="{{ key }}"
+                   id="promoPc{{ key }}" data-pc-item="{{ key }}" {% if key in pc_keys %}checked{% endif %}>
+            <label class="form-check-label fw-semibold" for="promoPc{{ key }}"><i class="fa {{ icon }} me-1 text-danger"></i>{{ label }}</label>
+          </div>
+          <div class="row g-2 align-items-end mt-1 {% if key not in pc_keys %}d-none{% endif %}" data-pc-detail="{{ key }}">
+            <div class="col-lg-5">
+              <label class="form-label small">¿Qué cubre? (nota)</label>
+              <input class="form-control" name="promoter_cost_note_{{ key }}" value="{{ item.note if item else '' }}">
+            </div>
+            <div class="col-lg-4">
+              <label class="form-label small d-block">¿Quién lo gestiona?</label>
+              <div class="d-flex gap-2 flex-wrap">
+                <label class="form-check-label border rounded px-2 py-1 small"><input class="form-check-input me-1" type="radio" name="promoter_cost_managed_{{ key }}" value="US" {% if item and item.managed_by == 'US' %}checked{% endif %}><i class="fa fa-file-invoice me-1"></i>Nosotros y facturamos</label>
+                <label class="form-check-label border rounded px-2 py-1 small"><input class="form-check-input me-1" type="radio" name="promoter_cost_managed_{{ key }}" value="PROMOTER" {% if not item or item.managed_by != 'US' %}checked{% endif %}><i class="fa fa-handshake me-1"></i>El medio</label>
+              </div>
+            </div>
+            <div class="col-lg-3">
+              <label class="form-label small">Importe máx. (€)</label>
+              <input class="form-control" name="promoter_cost_max_{{ key }}" data-money="1" inputmode="decimal"
+                     value="{{ item.max_amount if item and item.max_amount is not none else '' }}">
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+      <label class="form-label small">Nota general de gastos</label>
+      <input class="form-control" name="cost_note" value="{{ act.cost_note if act else '' }}">
+    </div>
+  </div>
+{% endmacro %}

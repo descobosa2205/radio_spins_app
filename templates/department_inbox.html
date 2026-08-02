@@ -7,23 +7,70 @@
     <div class="text-muted">{{ subtitle }}</div>
   </div>
   <div class="d-flex gap-2 flex-wrap">
-    {# En PROMOCIÓN, además de registrar una petición entrante, se puede crear la promoción. #}
+    {# En PROMOCIÓN: «+ Promoción» es lo propio de la sección (prensa: entrevistas, junts de prensa,
+       phoners) y «Marketing» son las campañas de PAGO, que viven en su propia sección. #}
+    {% if dept_key == 'PROMO' and can_edit_promo %}
+      <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#promoCreateModal"><i class="fa fa-plus me-1"></i> Promoción</button>
+    {% endif %}
     {% if dept_key == 'PROMO' and can_edit_promocion %}
-      <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#marketingCreateModal"><i class="fa fa-plus me-1"></i> Añadir promoción</button>
+      <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#marketingCreateModal"><i class="fa fa-bullhorn me-1"></i> Marketing</button>
     {% endif %}
     <button class="btn btn-outline-primary" type="button" data-peticion-new data-peticion-dept="{{ dept_key }}"><i class="fa fa-inbox me-1"></i> Nueva petición</button>
   </div>
 </div>
 
-{% if dept_key == 'PROMO' and can_edit_promocion %}
-  {# Mismo asistente que en Marketing: crea la promoción y la deja en Marketing → Activas. #}
-  {% include '_promotion_wizard_modal.html' %}
-  <div class="alert alert-light border small">
-    <i class="fa fa-circle-info me-1"></i>Las promociones que crees aquí se gestionan en
-    <a href="{{ url_for('marketing_view', tab='active') }}">Marketing → Activas</a>, con su plan,
-    sus acciones y su presupuesto. Esta bandeja es para las <strong>peticiones</strong> que llegan.
-  </div>
+{% if dept_key == 'PROMO' %}
+  {% if can_edit_promo %}
+    {% include '_promo_wizard_modal.html' %}
+    <script src="{{ url_for('static', filename='js/promo.js', v=ASSET_V) }}"></script>
+  {% endif %}
+  {% if can_edit_promocion %}{% include '_promotion_wizard_modal.html' %}{% endif %}
+  <ul class="nav nav-tabs contract-tabs mb-4">
+    {% for key, label, icon, count in [('peticiones','Peticiones','fa-inbox', pending_rows|length),
+                                       ('activas','Promociones','fa-microphone-lines', promo_active|length),
+                                       ('archivadas','Archivadas','fa-box-archive', promo_archived|length)] %}
+      <li class="nav-item">
+        <a class="nav-link {% if promo_tab == key %}active{% endif %}" href="{{ url_for('promo_view', tab=key) }}">
+          <i class="fa {{ icon }} me-1"></i>{{ label }}
+          {% if count %}<span class="badge {{ 'text-bg-warning' if key == 'peticiones' else 'text-bg-light border' }} ms-1">{{ count }}</span>{% endif %}
+        </a>
+      </li>
+    {% endfor %}
+  </ul>
 {% endif %}
+
+{# --- Listado de promociones (pestañas «Promociones» y «Archivadas» de Promoción) --- #}
+{% macro promo_rows(rows, empty_text) %}
+  {% if rows %}
+    <div class="list-group">
+      {% for row in rows %}
+        <a class="list-group-item list-group-item-action promo-row" href="{{ row.detail_url }}">
+          <div class="d-flex gap-3 align-items-center">
+            {% if row.cover_url %}<img src="{{ row.cover_url }}" class="promo-row__cover" alt="">
+            {% else %}<span class="promo-row__cover promo-row__cover--ph"><i class="fa {{ row.kind_icon }}"></i></span>{% endif %}
+            <div class="flex-grow-1">
+              <div class="fw-semibold">{{ row.title }}</div>
+              <div class="small text-muted">
+                {% if row.subject_kind_label %}{{ row.subject_kind_label }}: {% endif %}{{ row.subject_title or '—' }}
+                {% if row.artist_label %} · {{ row.artist_label }}{% endif %}
+              </div>
+              <div class="d-flex flex-wrap gap-1 mt-1">
+                <span class="badge text-bg-light border"><i class="fa {{ row.kind_icon }} me-1"></i>{{ row.kind_label }}</span>
+                <span class="badge text-bg-light border"><i class="fa fa-calendar-days me-1"></i>{{ row.period_label }}</span>
+                {% if row.activity_count %}<span class="badge text-bg-light border"><i class="fa fa-microphone-lines me-1"></i>{{ row.activity_count }}</span>{% endif %}
+                {% if row.pending_count %}<span class="badge text-bg-warning text-dark">{{ row.pending_count }} sin confirmar</span>{% endif %}
+                {% if row.company_label %}<span class="badge text-bg-light border"><i class="fa fa-building me-1"></i>{{ row.company_label }}</span>{% endif %}
+              </div>
+            </div>
+            <span class="badge {{ row.status_badge }}">{{ row.status_label }}</span>
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="alert alert-light border mb-0">{{ empty_text }}</div>
+  {% endif %}
+{% endmacro %}
 
 {% macro peticion_rows(rows, empty_text) %}
   {% if rows %}
@@ -67,18 +114,25 @@
   {% endif %}
 {% endmacro %}
 
-<div class="card mb-3">
-  <div class="card-header d-flex align-items-center gap-2">
-    <span class="fw-semibold"><i class="fa fa-hourglass-half text-danger me-2"></i>Pendientes</span>
-    {% if pending_rows %}<span class="badge text-bg-danger ms-1">{{ pending_rows|length }}</span>{% endif %}
+{# En PROMOCIÓN cada pestaña enseña lo suyo; en el resto de bandejas (Diseño) van las dos tarjetas. #}
+{% if dept_key == 'PROMO' and promo_tab == 'activas' %}
+  {{ promo_rows(promo_active, 'Todavía no hay promociones. Créalas con «+ Promoción».') }}
+{% elif dept_key == 'PROMO' and promo_tab == 'archivadas' %}
+  {{ promo_rows(promo_archived, 'Sin promociones archivadas.') }}
+{% else %}
+  <div class="card mb-3">
+    <div class="card-header d-flex align-items-center gap-2">
+      <span class="fw-semibold"><i class="fa fa-hourglass-half text-danger me-2"></i>Pendientes</span>
+      {% if pending_rows %}<span class="badge text-bg-danger ms-1">{{ pending_rows|length }}</span>{% endif %}
+    </div>
+    <div class="card-body">{{ peticion_rows(pending_rows, 'Aquí llegarán las peticiones de ' ~ title ~ '.') }}</div>
   </div>
-  <div class="card-body">{{ peticion_rows(pending_rows, 'Aquí llegarán las peticiones de ' ~ title ~ '.') }}</div>
-</div>
 
-<div class="card">
-  <div class="card-header"><span class="fw-semibold"><i class="fa fa-box-archive me-2"></i>Archivadas</span></div>
-  <div class="card-body">{{ peticion_rows(archived_rows, 'Sin peticiones archivadas.') }}</div>
-</div>
+  <div class="card">
+    <div class="card-header"><span class="fw-semibold"><i class="fa fa-box-archive me-2"></i>Archivadas</span></div>
+    <div class="card-body">{{ peticion_rows(archived_rows, 'Sin peticiones archivadas.') }}</div>
+  </div>
+{% endif %}
 
 {% include "_quick_create_modals.html" %}
 {% include "_peticion_wizard_modal.html" %}

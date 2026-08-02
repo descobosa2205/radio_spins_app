@@ -1,0 +1,304 @@
+{# ============================================================================================
+   Asistente «+ Promoción» (PRENSA: entrevistas, junts de prensa, phoners…).
+   ⚠️ No confundir con MARKETING (`_promotion_wizard_modal.html`), que son campañas de PAGO.
+   Necesita `promo_creator_datasets`, `promo_modalities`, `promo_formations`, `promoter_cost_items`,
+   `production_people`.
+   ============================================================================================ #}
+{% import '_promo_activity_fields.html' as pf with context %}
+{% set creator = promo_creator_datasets or {} %}
+<div class="modal fade" id="promoCreateModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <form class="modal-content" method="post" action="{{ url_for('promo_create') }}" id="promoCreateForm"
+          data-step-wizard data-sw-mode="ACTION" data-promo-form>
+      <input type="hidden" name="next" value="{{ url_for('promo_view', tab='activas') }}">
+      <input type="hidden" name="subject_id" id="promoSubjectId">
+      <input type="hidden" name="subject_type" id="promoSubjectType" value="ARTIST">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-microphone-lines me-2"></i>Nueva promoción</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div data-sw-progress></div>
+
+        {# Paso 1 · Artista(s) o evento #}
+        <section class="sw-step" data-step="1" data-title="Artista">
+          <div class="sw-step__q"><i class="fa fa-microphone-lines me-2 text-danger"></i>¿De quién es la promoción?</div>
+          <div class="sw-step__h">Marca uno o varios artistas. Si es de un evento, se elige en el paso siguiente.</div>
+          <input type="text" class="form-control mb-2" id="promoArtistSearch" placeholder="Buscar artista…">
+          <div class="promo-pick-grid" id="promoArtistGrid">
+            {% for artist in creator.artists or [] %}
+              <label class="promo-pick js-promo-artist" data-search="{{ artist.name|lower }}">
+                <input type="checkbox" class="js-promo-artist-check" name="artist_ids" value="{{ artist.id }}">
+                <span class="promo-pick__box">
+                  {% if artist.photo_url and 'placeholder_photo' not in artist.photo_url %}
+                    <img src="{{ artist.photo_url }}" alt="">
+                  {% else %}
+                    <span class="promo-pick__avatar"><i class="fa fa-user"></i></span>
+                  {% endif %}
+                  <span class="promo-pick__name">{{ artist.name }}</span>
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+        </section>
+
+        {# Paso 2 · Qué se promociona #}
+        <section class="sw-step" data-step="2" data-title="Qué se promociona">
+          <div class="sw-step__q"><i class="fa fa-shapes me-2 text-danger"></i>¿Qué se promociona?</div>
+          <div class="sw-step__h">Al elegirlo se pasa solo al siguiente paso.</div>
+          <div class="promo-pick-grid promo-pick-grid--wide">
+            {% for value, label, icon in [('SONG','Single / canción','fa-music'), ('ALBUM','Disco / EP','fa-compact-disc'),
+                                          ('ARTIST','El artista','fa-microphone-lines'), ('CONCERT','Un concierto','fa-guitar'),
+                                          ('GIRA','Una gira','fa-route'), ('EVENT','Un evento','fa-masks-theater'),
+                                          ('CICLO','Festival / Ciclo','fa-star')] %}
+              <label class="promo-pick">
+                <input type="radio" name="subject_type_pick" value="{{ value }}" data-sw-advance {% if loop.first %}checked{% endif %}>
+                <span class="promo-pick__box"><i class="fa {{ icon }}"></i><span class="promo-pick__name">{{ label }}</span></span>
+              </label>
+            {% endfor %}
+          </div>
+        </section>
+
+        {# Paso 3 · Cuál en concreto #}
+        <section class="sw-step" data-step="3" data-title="Cuál">
+          <div class="sw-step__q"><i class="fa fa-list-check me-2 text-danger"></i><span id="promoSubjectQuestion">¿Cuál?</span></div>
+          <div class="sw-step__h">Se muestra lo que corresponde a los artistas elegidos.</div>
+          <div id="promoSubjectGrid" class="row g-2"></div>
+          <div id="promoSubjectEmpty" class="alert alert-light border mt-2 mb-0">No hay nada que elegir con esos artistas. Puedes volver atrás y cambiarlos.</div>
+        </section>
+
+        {# Paso 4 · Puntual o plan completo #}
+        <section class="sw-step" data-step="4" data-title="Tipo">
+          <div class="sw-step__q"><i class="fa fa-diagram-project me-2 text-danger"></i>¿Es una promoción puntual o un plan completo?</div>
+          <div class="sw-step__h">Al elegirlo se pasa solo al siguiente paso.</div>
+          <div class="promo-pick-grid promo-pick-grid--wide">
+            <label class="promo-pick">
+              <input type="radio" name="request_kind" value="ACTION" data-sw-advance data-promo-kind checked>
+              <span class="promo-pick__box"><i class="fa fa-microphone-lines"></i><span class="promo-pick__name">Puntual</span>
+                <span class="promo-pick__hint">Una entrevista, un phoner, un junt de prensa</span></span>
+            </label>
+            <label class="promo-pick">
+              <input type="radio" name="request_kind" value="PLAN" data-sw-advance data-promo-kind>
+              <span class="promo-pick__box"><i class="fa fa-calendar-week"></i><span class="promo-pick__name">Plan completo</span>
+                <span class="promo-pick__hint">Varios días; dentro se van añadiendo promociones</span></span>
+            </label>
+          </div>
+        </section>
+
+        {# Paso 5 · Solo PLAN: nombre y duración #}
+        <section class="sw-step" data-step="5" data-title="El plan" data-sw-when="PLAN">
+          <div class="sw-step__q"><i class="fa fa-calendar-week me-2 text-danger"></i>El plan de promoción</div>
+          <div class="sw-step__h">Se crean los días del plan y dentro vas añadiendo cada promoción, como en una hoja de ruta.</div>
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label">Nombre del plan</label>
+              <input class="form-control" name="name" placeholder="Promoción single de otoño">
+            </div>
+            <div class="col-md-6"><label class="form-label">Desde</label><input type="date" class="form-control" name="starts_on"></div>
+            <div class="col-md-6"><label class="form-label">Hasta</label><input type="date" class="form-control" name="ends_on"></div>
+          </div>
+        </section>
+
+        {# Paso 6 · Solo PUNTUAL: medio, fecha y hora #}
+        <section class="sw-step" data-step="6" data-title="Medio y fecha" data-sw-when="ACTION">
+          <div class="sw-step__q"><i class="fa fa-tower-broadcast me-2 text-danger"></i>¿Con qué medio y cuándo?</div>
+          {{ pf.promo_media_time(creator.media or [], None, 'Wz') }}
+        </section>
+
+        {# Paso 7 · Solo PUNTUAL: modalidad (y ubicación si es presencial) #}
+        <section class="sw-step" data-step="7" data-title="Cómo es" data-sw-when="ACTION">
+          <div class="sw-step__q"><i class="fa fa-video me-2 text-danger"></i>¿Cómo se hace?</div>
+          {{ pf.promo_modality() }}
+        </section>
+
+        {# Paso 8 · Solo PUNTUAL: detalles, ¿canta?, repertorio y formación #}
+        <section class="sw-step" data-step="8" data-title="Detalles" data-sw-when="ACTION">
+          <div class="sw-step__q"><i class="fa fa-pen-to-square me-2 text-danger"></i>Detalles de la entrevista</div>
+          {{ pf.promo_details([]) }}
+        </section>
+
+        {# Paso 9 · Solo PUNTUAL: caché y gastos #}
+        <section class="sw-step" data-step="9" data-title="Caché" data-sw-when="ACTION">
+          <div class="sw-step__q"><i class="fa fa-euro-sign me-2 text-danger"></i>Caché y gastos</div>
+          {{ pf.promo_money() }}
+        </section>
+
+        {# Paso 10 · Empresa que factura + logística/producción #}
+        <section class="sw-step" data-step="10" data-title="Producción">
+          <div class="sw-step__q"><i class="fa fa-people-carry-box me-2 text-danger"></i>Empresa y producción</div>
+          <div class="sw-step__h">La empresa del grupo que factura los gastos y, si hace falta, quién lo monta.</div>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Empresa del grupo que factura los gastos</label>
+              <select class="form-select" name="company_id">
+                <option value="">Sin empresa específica</option>
+                {% for company in creator.companies or [] %}<option value="{{ company.id }}">{{ company.name }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Objetivos / notas</label>
+              <textarea class="form-control" name="objectives_notes" rows="2" placeholder="Qué se busca con esta promoción"></textarea>
+            </div>
+            <div class="col-12">
+              <div class="border rounded p-3">
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" name="production_needed" value="1" id="promoNeedsProd" data-promo-prod>
+                  <label class="form-check-label fw-semibold" for="promoNeedsProd"><i class="fa fa-truck-ramp-box me-1 text-danger"></i>¿Requiere logística o producción?</label>
+                </div>
+                <div class="mt-3 d-none" data-promo-prod-panel>
+                  <label class="form-label">¿Quién de producción lo gestiona?</label>
+                  <div class="promo-pick-grid">
+                    {% for person in production_people or [] %}
+                      <label class="promo-pick">
+                        <input type="radio" name="production_owner_user_id" value="{{ person.id }}">
+                        <span class="promo-pick__box">
+                          {% if person.photo_url %}<img src="{{ person.photo_url }}" alt="">{% else %}<span class="promo-pick__avatar"><i class="fa fa-user"></i></span>{% endif %}
+                          <span class="promo-pick__name">{{ person.name }}</span>
+                        </span>
+                      </label>
+                    {% else %}
+                      <div class="text-muted small">No hay nadie con departamento «Producción».</div>
+                    {% endfor %}
+                  </div>
+                  <div class="form-text">Le llegará como tarea pendiente para montar la producción.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="alert alert-light border mt-3 mb-0" id="promoSummary"></div>
+        </section>
+      </div>
+      <div class="modal-footer d-flex justify-content-between">
+        <button type="button" class="btn btn-outline-secondary" data-sw-prev>Anterior</button>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-primary" data-sw-next>Siguiente</button>
+          <button class="btn btn-primary" data-sw-submit><i class="fa fa-check me-1"></i>Crear promoción</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/step_wizard.js', v=ASSET_V) }}"></script>
+<script>
+(function(){
+  const data = {{ creator|tojson }};
+  const modal = document.getElementById('promoCreateModal');
+  if (!modal) return;
+  const form = document.getElementById('promoCreateForm');
+  const grid = document.getElementById('promoSubjectGrid');
+  const empty = document.getElementById('promoSubjectEmpty');
+  const subjectType = document.getElementById('promoSubjectType');
+  const subjectId = document.getElementById('promoSubjectId');
+  const question = document.getElementById('promoSubjectQuestion');
+  const artistSearch = document.getElementById('promoArtistSearch');
+  const summary = document.getElementById('promoSummary');
+  const normalize = (v) => window.normalizeSearchText ? window.normalizeSearchText(v) : String(v || '').toLowerCase();
+
+  const QUESTION = { ARTIST: '¿Sobre qué artista?', SONG: '¿Qué single o canción?', ALBUM: '¿Qué disco o EP?',
+                     CONCERT: '¿Qué concierto?', EVENT: '¿Qué evento?', GIRA: '¿Qué gira?', CICLO: '¿Qué festival o ciclo?' };
+
+  function selectedArtists(){
+    return Array.from(modal.querySelectorAll('.js-promo-artist-check:checked')).map(el => el.value);
+  }
+
+  function renderSubjects(){
+    const type = subjectType.value;
+    subjectId.value = '';
+    if (question) question.textContent = QUESTION[type] || '¿Cuál?';
+    grid.innerHTML = '';
+    const selected = selectedArtists();
+    const rows = ((data.subjects || {})[type] || [])
+      .filter(item => item.any_artist || !selected.length || (item.artist_ids || []).some(id => selected.includes(id)))
+      .slice(0, 80);
+    empty.classList.toggle('d-none', rows.length > 0);
+    rows.forEach(item => {
+      const col = document.createElement('div'); col.className = 'col-12 col-md-6';
+      col.innerHTML = '<button type="button" class="btn btn-outline-secondary w-100 text-start js-promo-subject" data-id="' + item.id + '">'
+        + '<span class="d-flex gap-2 align-items-center"><img src="' + (item.cover_url || '') + '" style="width:40px;height:40px;object-fit:cover;border-radius:10px;">'
+        + '<span><strong>' + (item.title || '') + '</strong><br><span class="small text-muted">' + (item.subtitle || '')
+        + (item.meta ? ' · ' + item.meta : '') + '</span></span></span></button>';
+      grid.appendChild(col);
+    });
+    grid.querySelectorAll('.js-promo-subject').forEach(btn => btn.addEventListener('click', function(){
+      grid.querySelectorAll('.js-promo-subject').forEach(x => x.classList.remove('active'));
+      btn.classList.add('active');
+      subjectId.value = btn.dataset.id || '';
+      renderSongs();
+      renderSummary();
+    }));
+    renderSongs();
+  }
+
+  // Repertorio: primero lo que se promociona (el single elegido o los cortes del disco) y luego el
+  // resto del artista, para poder añadir más.
+  function renderSongs(){
+    const box = form.querySelector('[data-promo-song-grid]');
+    if (!box) return;
+    const selected = selectedArtists();
+    const type = subjectType.value;
+    const chosen = subjectId.value;
+    const all = (data.subjects || {}).SONG || [];
+    const mine = all.filter(s => !selected.length || (s.artist_ids || []).some(id => selected.includes(id)));
+    const rows = (type === 'SONG' && chosen && !mine.some(s => s.id === chosen))
+      ? [(all.find(s => s.id === chosen) || null)].filter(Boolean).concat(mine)
+      : mine.slice();
+    rows.sort((a, b) => ((type === 'SONG' && b.id === chosen) ? 1 : 0) - ((type === 'SONG' && a.id === chosen) ? 1 : 0));
+    box.innerHTML = '';
+    if (!rows.length) { box.innerHTML = '<div class="text-muted small">No hay canciones del artista todavía.</div>'; return; }
+    rows.slice(0, 60).forEach(song => {
+      const featured = (type === 'SONG' && song.id === chosen);
+      const label = document.createElement('label');
+      label.className = 'promo-song visual-choice-card' + (featured ? ' is-featured is-selected' : '');
+      label.innerHTML = '<input type="checkbox" class="visually-hidden" name="performed_song_ids" value="' + song.id + '"'
+        + (featured ? ' checked' : '') + '>'
+        + '<span class="promo-song__box">'
+        + (song.cover_url ? '<img src="' + song.cover_url + '" alt="">' : '<span class="promo-song__ph"><i class="fa fa-music"></i></span>')
+        + '<span class="promo-song__name">' + (song.title || '') + '</span>'
+        + (featured ? '<span class="promo-song__tag">Se promociona</span>' : '') + '</span>';
+      box.appendChild(label);
+    });
+    if (window.initVisualChoiceCards) window.initVisualChoiceCards();
+  }
+
+  modal.querySelectorAll('input[name="subject_type_pick"]').forEach(r => r.addEventListener('change', function(){
+    if (r.checked) { subjectType.value = r.value; renderSubjects(); }
+  }));
+  modal.querySelectorAll('.js-promo-artist-check').forEach(el => el.addEventListener('change', function(){
+    renderSubjects();
+  }));
+  if (artistSearch) artistSearch.addEventListener('input', () => {
+    const q = normalize(artistSearch.value);
+    modal.querySelectorAll('.js-promo-artist').forEach(row =>
+      row.classList.toggle('d-none', q && !normalize(row.dataset.search).includes(q)));
+  });
+
+  // Puntual vs plan: cambia qué pasos tocan (el asistente los salta y deshabilita sus campos).
+  modal.querySelectorAll('[data-promo-kind]').forEach(el => el.addEventListener('change', function(){
+    if (!el.checked) return;
+    form.setAttribute('data-sw-mode', el.value);
+    if (form.swRefresh) form.swRefresh();
+    renderSummary();
+  }));
+
+  function renderSummary(){
+    if (!summary) return;
+    const kind = (modal.querySelector('[data-promo-kind]:checked') || {}).value === 'PLAN' ? 'Plan completo' : 'Promoción puntual';
+    const tipoLbl = (modal.querySelector('input[name="subject_type_pick"]:checked') || {}).parentElement;
+    const tipo = tipoLbl ? (tipoLbl.querySelector('.promo-pick__name') || {}).textContent : '';
+    const elegido = grid.querySelector('.js-promo-subject.active');
+    const cual = elegido ? (elegido.querySelector('strong') || {}).textContent : '—';
+    const artistas = Array.from(modal.querySelectorAll('.js-promo-artist-check:checked'))
+      .map(el => (el.closest('.promo-pick').querySelector('.promo-pick__name') || {}).textContent || '').filter(Boolean);
+    summary.innerHTML = '<div class="fw-semibold mb-1"><i class="fa fa-clipboard-check me-1"></i>Resumen</div>'
+      + '<div class="small">Artistas: ' + (artistas.length ? artistas.join(', ') : '—') + '</div>'
+      + '<div class="small">Se promociona: ' + (tipo || '—') + ' · ' + (cual || '—') + '</div>'
+      + '<div class="small">Tipo: ' + kind + '</div>';
+  }
+  modal.addEventListener('change', renderSummary);
+
+  renderSubjects();
+  renderSummary();
+})();
+</script>

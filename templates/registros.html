@@ -69,6 +69,11 @@
             <input type="hidden" name="next" value="{{ url_for('registros_view', tab='pendiente') }}">
             <button class="btn btn-sm btn-success"><i class="fa fa-check me-1"></i>Comunicar concierto</button>
           </form>
+        {% elif action_kind == 'promo' %}
+          <form method="post" action="{{ item.declare_url }}">
+            <input type="hidden" name="next" value="{{ url_for('registros_view', tab='pendiente') }}">
+            <button class="btn btn-sm btn-success"><i class="fa fa-check me-1"></i>Comunicar promoción</button>
+          </form>
         {% endif %}
       </div>
     {% endif %}
@@ -104,6 +109,31 @@
           <div class="d-flex flex-column gap-3">
             {% for item in pending.concerts %}{{ registro_media_card(item, 'concert') }}{% else %}<div class="text-muted">No hay conciertos pendientes de comunicar.</div>{% endfor %}
           </div>
+        </div>
+      </div>
+    </div>
+    {# Promociones en las que se CANTÓ: se declaran igual que un concierto, agrupadas por semestre. #}
+    <div class="col-12">
+      <div class="card border-0 shadow-sm">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="m-0"><i class="fa fa-microphone-lines me-2 text-muted"></i>Promociones a declarar <span class="text-muted fs-6">(se cantó)</span></h5>
+            <span class="badge text-bg-warning text-dark">{{ counts.promos }}</span>
+          </div>
+          {% if pending.promos %}
+            {% set grouped = {} %}
+            {% for item in pending.promos %}
+              {% if grouped.update({item.semester_label: (grouped.get(item.semester_label, []) + [item])}) %}{% endif %}
+            {% endfor %}
+            {% for semester, items in grouped.items() %}
+              <div class="fw-semibold text-muted small text-uppercase mb-2">{{ semester }}</div>
+              <div class="row g-3 mb-3">
+                {% for item in items %}<div class="col-12 col-lg-6 col-xl-4">{{ registro_media_card(item, 'promo') }}</div>{% endfor %}
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="text-muted">No hay promociones cantadas pendientes de comunicar.</div>
+          {% endif %}
         </div>
       </div>
     </div>

@@ -662,6 +662,48 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `_store_doc_image_from_dataurl`). El **nick vacío ⇒ nombre oficial** (en `promoters_view`/
   `personnel_view`). Carga en `layout.html`: `doc_scan.js` ANTES de `person_docs.js` y `doc_intake.js`.
 
+- **Administración · contadores y REPARTO de tareas** (ago 2026):
+  · **Contadores**: `_admin_pending_counts(session_db)` es el motor único de los números de las
+  pestañas y subpestañas (solo `func.count`, sin cargar filas), así que van al día se mire desde
+  donde se mire. `administracion_view` carga **las listas solo de la pestaña activa** (antes cargaba
+  las 8 siempre + un N+1 por bolsa). Las bolsas de «De liquidación» / «De cierre» usan
+  `ADMIN_BAG_LIQUIDACION_STATUSES` / `ADMIN_BAG_CIERRE_STATUSES`, compartidas con la plantilla, para
+  que el número y las filas no discrepen. Nuevo `counts['altas']` (`_admin_altas_pending_count`:
+  empresas con el ITA caducado o sin subir). Las subpestañas de EMBARGOS («Activas»/«Archivadas»)
+  **no llevan contador** a propósito (no son pendientes) y `embargo_counts` ya no existe.
+  · **Reparto por persona**: `UserProfile.admin_responsibilities` (JSONB) con las claves de
+  `ADMIN_RESPONSIBILITIES` (liquidar bolsas · facturas pedidas · pagos · gastos de oficina · gastos
+  sin ticket · ITAs · embargos). **Tres reglas**: sin reparto propio se ve TODO; una tarea sin
+  responsable la ven TODOS (nada se pierde en silencio); y la responsabilidad **filtra, nunca
+  concede** (sin el permiso de la sección sigue habiendo 403). Dirección lo ve todo.
+  Helpers `_normalize_admin_responsibilities` · `_admin_responsible_user_ids` (exige seguir en el
+  departamento Administración y excluye inactivos) · `_administration_people` ·
+  `_admin_task_is_mine`. Se edita en la ficha de personal (**solo dirección**, panel condicionado al
+  departamento) con **centinela `responsibilities_present`** —sin él, cualquier POST parcial al
+  formulario monolítico borraría el reparto— y el panel **deshabilita** sus inputs al ocultarse
+  (ocultar no basta: se enviaban igual; mismo bug que tenían los artistas asignados). Se ve en el
+  módulo de Inicio `HOME_ADMIN_PENDING` (`_home_admin_pending`) y con un punto rojo
+  (`.admin-mine-dot`) en las pestañas propias de `/administracion`.
+  ⚠️ `_snapshot_user_profile` es un `SimpleNamespace`: **lo que no esté ahí es invisible** desde
+  `_current_user_state()` y desde las plantillas (por eso se añadió también `admin_responsibilities`
+  al estado y al alta de `_ensure_user_profile`, cuyo bucle de kwargs solo corre al ACTUALIZAR).
+- **Subida de ÓRDENES DE EMBARGO con arrastre** (`templates/administracion.html`,
+  `administration_embargo_upload`): se pueden arrastrar ficheros sueltos o **carpetas enteras**
+  (mismo patrón que el modal de carteles: `webkitGetAsEntry` + `readEntries` paginado), se envían en
+  **lotes de 8** por XHR para no cargar una carpeta grande en la memoria del worker, y cada PDF va
+  en su **savepoint**: uno que falle no se lleva por delante a los demás. El nombre se valida y se
+  guarda por su **basename** (de una carpeta llega la ruta completa). Responde **JSON** con el
+  desglose (`created`/`pending_review`/`archived`/`errores`) cuando la petición es XHR y mantiene
+  `flash`+redirect para el formulario clásico. ⚠️ La zona lleva `data-file-drop="off"` (si no,
+  `static/js/file_drop.js` intercepta el drop y descarta las carpetas) y la cabecera CSRF va **a
+  mano** (`csrf.js` parchea `fetch`, no `XMLHttpRequest`).
+- ⚠️ **Contenedor de EVENTO que se degradaba a CICLO** (bug real, corregido): el modal de editar de
+  `activity_group_detail.html` solo ofrecía FESTIVAL/CICLO y marcaba CICLO por defecto, así que
+  guardar un contenedor de evento lo convertía en ciclo y —como `event_id` solo se conserva en la
+  rama EVENTO— le borraba el vínculo con el `AppEvent`. Ahora `_apply_cycle_form` **conserva el kind
+  actual** si el formulario no lo trae, la plantilla no ofrece el selector cuando `is_event`, y
+  `ensure_activities_grouping_schema` **repara** con un UPDATE las filas ya degradadas
+  (`event_id IS NOT NULL AND kind <> 'EVENTO'`, que por construcción solo pueden ser eso).
 - **PLANTILLAS DE ARTISTA** (`ArtistTemplate`, kind PERSONNEL|ROOMING|ROADMAP): se crean en la ficha
   del artista (pestaña «Plantillas», `_templates_hub.html`) y se cargan en la hoja de ruta de cualquier
   actividad. ⚠️ **El editor de una plantilla ES la hoja de ruta**: la columna se llama

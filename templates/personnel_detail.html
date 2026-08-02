@@ -80,6 +80,12 @@
             {% if profile.integration_emails %}<div><span class="psum-k">Otros correos de empresa</span><span class="psum-v">{{ profile.integration_emails|join(' · ') }}</span></div>{% endif %}
           </dl>
           {% if profile.departments %}<div class="d-flex flex-wrap gap-1 mt-3">{% for dept in profile.departments %}<span class="badge text-bg-light border">{{ dept }}</span>{% endfor %}</div>{% endif %}
+          {% if profile.admin_responsibilities and 'Administración' in (profile.departments or []) %}
+            <div class="small text-muted mt-3"><i class="fa fa-list-check me-1"></i>Se encarga de:</div>
+            <div class="d-flex flex-wrap gap-1 mt-1">
+              {% for key in profile.admin_responsibilities %}<span class="badge text-bg-danger">{{ ADMIN_RESPONSIBILITY_LABELS.get(key, key) }}</span>{% endfor %}
+            </div>
+          {% endif %}
           <div data-docs-section="LOYALTY" class="docs-section d-none mt-3">
             <h6 class="psum-docs__title">Tarjetas de fidelización</h6>
             <div class="docs-pills" data-docs-grid="LOYALTY"></div>
@@ -142,6 +148,26 @@
             {% endfor %}
           </div>
         </div>
+        {# Reparto de las tareas de ADMINISTRACIÓN: solo dirección lo edita y solo sale si la
+           persona está en ese departamento. Sin nada marcado ve todas (no se le esconde trabajo). #}
+        {% if IS_MASTER %}
+        <div class="col-12 js-admin-duties-panel">
+          <label class="form-label d-block">Responsabilidades de administración</label>
+          <input type="hidden" name="responsibilities_present" value="1">
+          <div class="row g-2">
+            {% for key, label, icon, _res in ADMIN_RESPONSIBILITIES %}
+              <div class="col-6 col-md-4 col-lg-3">
+                <label class="border rounded p-2 w-100 bg-light-subtle d-flex align-items-center gap-2">
+                  <input type="checkbox" name="admin_responsibilities" value="{{ key }}" class="form-check-input m-0 js-admin-duty"
+                         {% if key in (profile.admin_responsibilities or []) %}checked{% endif %}>
+                  <i class="fa {{ icon }} text-danger"></i><span>{{ label }}</span>
+                </label>
+              </div>
+            {% endfor %}
+          </div>
+          <div class="form-text">Le saldrán a esta persona sus tareas pendientes. Lo que no tenga responsable lo sigue viendo todo administración.</div>
+        </div>
+        {% endif %}
         <div class="col-12 col-md-6 js-assigned-artists-panel" data-dept="produccion">
           <label class="form-label">Artistas asignados — Producción</label>
           <select name="assigned_artist_ids_produccion" class="form-select" multiple size="8">
@@ -281,6 +307,12 @@
 <script>
 (function(){
   // ---- Tab Datos: teléfonos y artistas asignados ----
+  // ⚠️ Ocultar un panel NO basta: sus campos se siguen enviando. Al esconderlo se DESHABILITAN,
+  // que es lo único que impide que lleguen al backend (bug real con los artistas asignados).
+  function togglePanel(panel, active){
+    panel.style.display = active ? '' : 'none';
+    panel.querySelectorAll('input, select, textarea').forEach(function(el){ el.disabled = !active; });
+  }
   function refreshAssignedArtistPanels(){
     document.querySelectorAll('.js-assigned-artists-panel').forEach(function(panel){
       const form = panel.closest('form'); if (!form) return;
@@ -290,7 +322,16 @@
         if (want==='sello') return v==='sello';
         return v==='producción'||v==='produccion';
       });
-      panel.style.display = active ? '' : 'none';
+      togglePanel(panel, active);
+    });
+    // El reparto de tareas solo tiene sentido para quien está en Administración.
+    document.querySelectorAll('.js-admin-duties-panel').forEach(function(panel){
+      const form = panel.closest('form'); if (!form) return;
+      const active = Array.from(form.querySelectorAll('.personnel-department-check:checked')).some(function(i){
+        const v=(i.value||'').toLowerCase();
+        return v==='administración'||v==='administracion';
+      });
+      togglePanel(panel, active);
     });
   }
   document.querySelectorAll('.personnel-department-check').forEach(i=>i.addEventListener('change',refreshAssignedArtistPanels));

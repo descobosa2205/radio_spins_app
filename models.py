@@ -2406,6 +2406,10 @@ class UserProfile(Base):
     address = Column(Text)            # domicilio (se autorrellena del DNI; editable)
     mobile_phones = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     departments = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # Qué TAREAS de administración le tocan a esta persona (claves de ADMIN_RESPONSIBILITIES).
+    # NO es un permiso: es un reparto de trabajo. Lista vacía = no tiene reparto propio y ve las
+    # de todos; y una tarea de la que nadie es responsable la siguen viendo todos (nada se pierde).
+    admin_responsibilities = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     # Otros correos de empresa de la persona. NO sirven para entrar en la app (el acceso es siempre
     # `User.email`): existen solo para IDENTIFICARLA en las integraciones. En Pleo, por ejemplo, hay
     # una cuenta por empresa del grupo y cada una puede tener a la persona con un correo distinto.
@@ -6316,6 +6320,8 @@ def ensure_third_party_and_contract_sheet_schema():
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS expense_deadline_paused boolean NOT NULL DEFAULT false;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS expense_paused_since date;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS expense_pause_log jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        # Reparto de las tareas de ADMINISTRACIÓN por persona (liquidar bolsas, pagos, ITAs…).
+        "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS admin_responsibilities jsonb NOT NULL DEFAULT '[]'::jsonb;",
         # Tipo de trabajador a efectos de PRL (autónomo / alta puntual / empresa fija).
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS prl_type text;",
         # Documentación de alta y PRL (personas y empresas del grupo) + peticiones de subida.
@@ -7409,6 +7415,12 @@ def ensure_activities_grouping_schema():
         "CREATE INDEX IF NOT EXISTS idx_purchased_tours_company ON purchased_tours(managing_company_id);",
         "CREATE INDEX IF NOT EXISTS idx_purchased_tours_artist ON purchased_tours(artist_id);",
         "CREATE INDEX IF NOT EXISTS idx_purchased_tours_status ON purchased_tours(status);",
+        # REPARACIÓN de datos: el modal de editar de la ficha solo ofrecía FESTIVAL/CICLO y marcaba
+        # CICLO por defecto, así que guardar un contenedor de EVENTO lo degradaba a ciclo. Como
+        # `event_id` SOLO se rellena en la rama EVENTO, toda fila que tenga evento y no sea de tipo
+        # EVENTO es una degradada: se le devuelve su tipo. Idempotente (ya arregladas no casan).
+        "UPDATE cycle_festivals SET kind = 'EVENTO' "
+        "WHERE event_id IS NOT NULL AND upper(coalesce(kind, '')) <> 'EVENTO';",
         """
         CREATE TABLE IF NOT EXISTS cycle_festivals (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

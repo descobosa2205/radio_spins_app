@@ -1744,6 +1744,12 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 /* Los botones de la fila van POR ENCIMA del enlace que cubre toda la fila (`stretched-link`) */
 .ctask__actions { position: relative; z-index: 2; }
 
+/* Administración: punto que marca las pestañas de las que ESTA persona es responsable */
+.admin-mine-dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--brand-primary); margin-right: .4rem; vertical-align: middle;
+}
+
 /* Listas */
 .list-group-item { border-color: var(--line-2); }
 .list-group-item-action:hover { background: rgba(0,124,162,.04); }

@@ -291,7 +291,7 @@
       <div class="modal-header"><h5 class="modal-title">Editar {{ kind_label|lower }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">
         <div class="row g-3">
-          {% if not is_tour %}
+          {% if not is_tour and not is_event %}
           <div class="col-12">
             <label class="form-label d-block">Tipo</label>
             <div class="btn-group">
@@ -300,6 +300,8 @@
             </div>
           </div>
           {% endif %}
+          {# Un contenedor de EVENTO no se puede cambiar de tipo aquí: el selector solo ofrecía
+             festival/ciclo y guardarlo lo degradaba a ciclo, perdiendo el vínculo con el evento. #}
           <div class="col-md-8"><label class="form-label">Nombre</label><input class="form-control" name="name" value="{{ group.name }}" required></div>
           {% if not is_tour %}<div class="col-md-4"><label class="form-label">Edición / año</label><input class="form-control" name="edition" value="{{ group.edition or '' }}"></div>{% endif %}
           <div class="col-md-6"><label class="form-label">Empresa del grupo</label>

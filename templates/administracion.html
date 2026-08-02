@@ -10,7 +10,10 @@
 <ul class="nav nav-tabs mb-4">
   {% for key,label in tabs %}
     <li class="nav-item">
+      {# El punto rojo marca las pestañas de las que ERES responsable; el número es el de toda la
+         casa (quien entra tiene que ver el total real, no una fracción). #}
       <a class="nav-link {% if tab == key %}active{% endif %}" href="{{ url_for('administracion_view', tab=key) }}">
+        {% if key in (admin_my_tabs or []) %}<span class="admin-mine-dot" title="Es tuyo: te lo han asignado"></span>{% endif %}
         {{ label }}
         {% if counts.get(key, 0) %}<span class="badge text-bg-warning ms-1">{{ counts.get(key) }}</span>{% endif %}
       </a>
@@ -23,6 +26,7 @@
     {% for key,label in pending_tabs %}
       <li class="nav-item">
         <a class="nav-link {% if pending_subtab == key %}active{% endif %}" href="{{ url_for('administracion_view', tab='pendiente', subtab=key) }}">
+          {% if key in (admin_my_pending_tabs or []) %}<span class="admin-mine-dot" title="Es tuyo: te lo han asignado"></span>{% endif %}
           {{ label }}{% if pending_counts.get(key, 0) %}<span class="badge text-bg-warning ms-1">{{ (pending_counts.get(key))|k }}</span>{% endif %}
         </a>
       </li>
@@ -165,7 +169,7 @@
       <div class="card-header bg-white"><strong>Bolsas pendientes de liquidación</strong></div>
       <div class="card-body p-0">
         {% for bag in closed_bags %}
-          {% if bag.liquidation_status in ['NO_INICIADA','PENDIENTE_ADMIN','PENDIENTE_LIQUIDACION'] %}
+          {% if bag.liquidation_status in ADMIN_BAG_LIQUIDACION_STATUSES %}
             {% set totals = bag_totals.get(bag.id|string, {}) %}
             <div class="p-3 border-bottom d-flex justify-content-between gap-3 flex-wrap" id="admin-liqval-{{ bag.id }}" data-inline-zone>
               <div><div class="fw-semibold">{{ bag.title }}</div><div class="small text-muted">{{ bag.artist.name if bag.artist else 'Sin artista' }} · Cerrada: {{ bag.closed_at.strftime('%d/%m/%Y') if bag.closed_at else '—' }}</div>{% if totals.get('unpaid', 0) %}<span class="badge text-bg-warning">Pagos pendientes</span>{% else %}<span class="badge text-bg-success">Sin pagos pendientes</span>{% endif %}</div>
@@ -180,7 +184,7 @@
       <div class="card-header bg-white"><strong>Pendiente de cierre</strong></div>
       <div class="card-body p-0">
         {% for bag in closed_bags %}
-          {% if bag.liquidation_status in ['PENDIENTE_CIERRE','VALIDADA','PENDIENTE_PAGO'] %}
+          {% if bag.liquidation_status in ADMIN_BAG_CIERRE_STATUSES %}
             {% set totals = bag_totals.get(bag.id|string, {}) %}
             <div class="p-3 border-bottom" id="admin-liqclose-{{ bag.id }}" data-inline-zone>
               <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
@@ -285,13 +289,14 @@
   <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
     <ul class="nav nav-pills">
       <li class="nav-item">
+        {# Activas / Archivadas NO llevan contador: no son pendientes, son dos vistas del archivo. #}
         <a class="nav-link {% if embargo_subtab == 'activas' %}active{% endif %}" href="{{ url_for('administracion_view', tab='embargos', embargo_tab='activas') }}">
-          Activas{% if embargo_counts.get('activas', 0) %}<span class="badge text-bg-warning ms-1">{{ embargo_counts.get('activas') }}</span>{% endif %}
+          Activas
         </a>
       </li>
       <li class="nav-item">
         <a class="nav-link {% if embargo_subtab == 'archivadas' %}active{% endif %}" href="{{ url_for('administracion_view', tab='embargos', embargo_tab='archivadas') }}">
-          Archivadas{% if embargo_counts.get('archivadas', 0) %}<span class="badge text-bg-secondary ms-1">{{ embargo_counts.get('archivadas') }}</span>{% endif %}
+          Archivadas
         </a>
       </li>
     </ul>
@@ -421,20 +426,166 @@
     </div>
   {% endif %}
 
+  {# ---------- SUBIR ÓRDENES: arrastrando archivos o CARPETAS enteras, o eligiéndolos ----------
+     Mismo patrón que el modal de carteles (`concert_detail.html`): se recorre el árbol de la
+     carpeta con webkitGetAsEntry y se sube cada PDF de dentro, no la carpeta. Se envían por
+     LOTES para no cargar de golpe una carpeta grande en la memoria del worker.
+     ⚠️ `data-file-drop="off"` es obligatorio: si no, el helper global `file_drop.js` intercepta
+     el drop y descarta las carpetas a propósito. #}
   <div class="modal fade" id="uploadEmbargoModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg"><div class="modal-content">
-      <form method="post" action="{{ url_for('administration_embargo_upload') }}" enctype="multipart/form-data">
+      <form method="post" action="{{ url_for('administration_embargo_upload') }}" enctype="multipart/form-data" id="embargoUploadForm">
         <div class="modal-header"><h5 class="modal-title">Subir órdenes de embargo o levantamiento</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
-          <label class="form-label">PDF de la orden</label>
-          <input type="file" name="pdfs" class="form-control" accept="application/pdf,.pdf" multiple required>
-          <div class="form-text">Puedes subir varias órdenes a la vez. El sistema detectará si cada PDF es una orden de alta o un levantamiento, extraerá referencia, NIF/CIF, nombre, importe y fecha, y buscará coincidencias con terceros existentes.</div>
+          <div class="fotos-dropzone" id="embargoDropzone" data-file-drop="off">
+            <i class="fa fa-cloud-arrow-up fa-2x mb-2"></i>
+            <div>Arrastra aquí los PDF <span class="text-muted">(o carpetas enteras)</span>, o
+              <span class="text-primary text-decoration-underline" data-emb-pick>pincha para elegirlos</span></div>
+            <div class="small text-muted mt-1">Se sube cada PDF que haya dentro de la carpeta, no la carpeta.</div>
+            <input type="file" class="d-none" id="embargoFiles" name="pdfs" multiple accept="application/pdf,.pdf">
+            <input type="file" class="d-none" id="embargoFolder" webkitdirectory directory multiple>
+          </div>
+          <div class="d-flex justify-content-center gap-2 mt-2">
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-emb-pick><i class="fa fa-file me-1"></i>Elegir archivos</button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-emb-pick-folder><i class="fa fa-folder-open me-1"></i>Elegir una carpeta</button>
+          </div>
+          <div class="fotos-filelist mt-3" id="embargoQueue"></div>
+          <div class="progress mt-3 d-none" id="embargoProgress"><div class="progress-bar" style="width:0%"></div></div>
+          <div class="small mt-2" id="embargoUploadMsg"></div>
+          <div class="form-text mt-3">El sistema detectará si cada PDF es una orden de alta o un levantamiento, extraerá referencia, NIF/CIF, nombre, importe y fecha, y buscará coincidencias con terceros existentes.</div>
           <div class="alert alert-warning small mt-3 mb-0">Si el PDF llega escaneado sin texto seleccionable, se guardará como pendiente de revisar para evitar vinculaciones erróneas.</div>
         </div>
-        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary"><i class="fa fa-upload me-1"></i>Subir y detectar</button></div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-primary" id="embargoUploadBtn" disabled><i class="fa fa-upload me-1"></i>Subir y detectar</button></div>
       </form>
     </div></div>
   </div>
+
+  <script>
+  (function () {
+    var zona = document.getElementById('embargoDropzone');
+    if (!zona) return;
+    var URL_SUBIR = {{ url_for('administration_embargo_upload')|tojson }};
+    var POR_LOTE = 8;   // PDFs por petición: una carpeta grande no debe caber entera en memoria
+    function csrf() { var m = document.querySelector('meta[name="csrf-token"]'); return m ? m.getAttribute('content') : ''; }
+
+    var inputFiles = document.getElementById('embargoFiles'),
+        inputFolder = document.getElementById('embargoFolder'),
+        lista = document.getElementById('embargoQueue'),
+        barra = document.getElementById('embargoProgress'),
+        msg = document.getElementById('embargoUploadMsg'),
+        btn = document.getElementById('embargoUploadBtn'),
+        form = document.getElementById('embargoUploadForm'),
+        cola = [];
+
+    function pintar() {
+      lista.innerHTML = cola.map(function (f, i) {
+        return '<div class="fotos-fileitem"><span class="fotos-fileitem__thumb"><i class="fa fa-file-pdf"></i></span>' +
+          '<span class="fotos-fileitem__name text-truncate">' + (f.name || 'archivo') + '</span>' +
+          '<button type="button" class="btn btn-sm btn-link text-danger" data-emb-quitar="' + i + '"><i class="fa fa-xmark"></i></button></div>';
+      }).join('');
+      btn.disabled = !cola.length;
+      msg.className = 'small mt-2 text-muted';
+      msg.textContent = cola.length ? (cola.length + ' PDF listos para subir') : '';
+    }
+    function añadir(files) {
+      Array.prototype.forEach.call(files || [], function (f) {
+        if (!f || !f.name || f.name.charAt(0) === '.') return;                       // .DS_Store y compañía
+        if (!(f.type === 'application/pdf' || /\.pdf$/i.test(f.name))) return;
+        cola.push(f);
+      });
+      pintar();
+    }
+    // Carpeta arrastrada: se recorre el árbol entero. readEntries pagina de ~100 en 100, así que
+    // hay que insistir hasta que devuelva vacío o se pierden ficheros en carpetas grandes.
+    function recorrer(entry) {
+      return new Promise(function (res) {
+        if (!entry) return res([]);
+        if (entry.isFile) return entry.file(function (f) { res([f]); }, function () { res([]); });
+        var reader = entry.createReader(), todos = [];
+        (function leer() {
+          reader.readEntries(function (entries) {
+            if (!entries.length) {
+              Promise.all(todos.map(recorrer)).then(function (arrs) { res([].concat.apply([], arrs)); });
+              return;
+            }
+            todos = todos.concat(Array.prototype.slice.call(entries));
+            leer();
+          }, function () { res([]); });
+        })();
+      });
+    }
+    zona.addEventListener('dragover', function (e) { e.preventDefault(); zona.classList.add('fotos-dropzone--over'); });
+    zona.addEventListener('dragleave', function () { zona.classList.remove('fotos-dropzone--over'); });
+    zona.addEventListener('drop', function (e) {
+      e.preventDefault(); zona.classList.remove('fotos-dropzone--over');
+      var items = e.dataTransfer && e.dataTransfer.items;
+      if (items && items.length && items[0].webkitGetAsEntry) {
+        var entradas = [];
+        for (var i = 0; i < items.length; i++) { var en = items[i].webkitGetAsEntry(); if (en) entradas.push(en); }
+        Promise.all(entradas.map(recorrer)).then(function (arrs) { añadir([].concat.apply([], arrs)); });
+      } else {
+        añadir(e.dataTransfer.files);
+      }
+    });
+    document.querySelectorAll('[data-emb-pick]').forEach(function (b) { b.addEventListener('click', function () { inputFiles.click(); }); });
+    document.querySelectorAll('[data-emb-pick-folder]').forEach(function (b) { b.addEventListener('click', function () { inputFolder.click(); }); });
+    inputFiles.addEventListener('change', function () { añadir(inputFiles.files); inputFiles.value = ''; });
+    inputFolder.addEventListener('change', function () { añadir(inputFolder.files); inputFolder.value = ''; });
+    lista.addEventListener('click', function (e) {
+      var q = e.target.closest('[data-emb-quitar]'); if (!q) return;
+      cola.splice(Number(q.getAttribute('data-emb-quitar')), 1); pintar();
+    });
+
+    function subirLote(lote) {
+      return new Promise(function (res) {
+        var fd = new FormData();
+        lote.forEach(function (f) { fd.append('files', f, f.name); });
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', URL_SUBIR);
+        // ⚠️ csrf.js parchea fetch, NO XMLHttpRequest: la cabecera va a mano.
+        xhr.setRequestHeader('X-CSRFToken', csrf());
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+        xhr.onload = function () { var j = {}; try { j = JSON.parse(xhr.responseText || '{}'); } catch (e) {} res(j); };
+        xhr.onerror = function () { res({ ok: false, error: 'No se pudo conectar.' }); };
+        xhr.send(fd);
+      });
+    }
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      if (!cola.length) return;
+      var lotes = [], i;
+      for (i = 0; i < cola.length; i += POR_LOTE) lotes.push(cola.slice(i, i + POR_LOTE));
+      btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Subiendo…';
+      barra.classList.remove('d-none');
+      var hechos = 0, creados = 0, revisar = 0, archivados = 0, errores = [];
+      (function siguiente() {
+        if (!lotes.length) {
+          if (errores.length) {
+            btn.disabled = false; btn.innerHTML = '<i class="fa fa-upload me-1"></i>Subir y detectar';
+            msg.className = 'small mt-2 text-danger';
+            msg.innerHTML = 'Se subieron ' + creados + ' de ' + cola.length + '. No se pudieron procesar:<br>' +
+              errores.map(function (x) { return '· ' + x; }).join('<br>');
+            return;
+          }
+          window.location.reload();
+          return;
+        }
+        var lote = lotes.shift();
+        subirLote(lote).then(function (j) {
+          hechos += lote.length;
+          creados += (j.created || 0); revisar += (j.pending_review || 0); archivados += (j.archived || 0);
+          (j.errores || []).forEach(function (x) { errores.push(x); });
+          if (j.ok === false && j.error) errores.push(j.error);
+          barra.querySelector('.progress-bar').style.width = Math.round(hechos * 100 / cola.length) + '%';
+          msg.className = 'small mt-2 text-muted';
+          msg.textContent = hechos + ' de ' + cola.length + ' procesados…';
+          siguiente();
+        });
+      })();
+    });
+  })();
+  </script>
 
   {% for order in current_orders %}
     <div class="modal fade" id="shareEmbargoModal{{ order.id }}" tabindex="-1" aria-hidden="true">

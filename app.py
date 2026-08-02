@@ -23865,6 +23865,9 @@ def _render_event_activities():
             drill_group_id=drill_group_id,
             show_past=show_past,
             CAN_EDIT_CONCERTS=can_edit_concerts(),
+            # Sin esta bandera `eventos.html` no incluye el asistente y el botón «+ Actividad»
+            # no abría nada (el modal no llegaba siquiera al HTML).
+            wizard_available=True,
             **_concert_wizard_context(s),
         )
     finally:
@@ -23921,13 +23924,17 @@ def _render_cycle_festivals(only_events: bool = False):
 
 
 def _apply_cycle_form(cf, form):
-    kind = (form.get("kind") or "FESTIVAL").strip().upper()
+    # ⚠️ Si el formulario NO trae «kind» se conserva el que ya tenía. El modal de editar de la ficha
+    # solo ofrecía FESTIVAL/CICLO, así que guardar un contenedor de EVENTO lo degradaba a CICLO y,
+    # de rebote, le borraba el vínculo con el evento (el `event_id` solo se mantiene en esa rama).
+    kind = (form.get("kind") or getattr(cf, "kind", None) or "FESTIVAL").strip().upper()
     cf.kind = kind if kind in CYCLE_FESTIVAL_KIND_LABELS else "FESTIVAL"
     cf.name = ((form.get("name") or "").strip()
                or ("Evento" if cf.kind == "EVENTO" else "Ciclo / Festival"))
-    # Categoría EVENTOS: queda enganchado al evento de la base de datos si se eligió.
-    _ev = (form.get("event_id") or "").strip()
-    if cf.kind == "EVENTO":
+    # Categoría EVENTOS: queda enganchado al evento de la base de datos si se eligió. Si el
+    # formulario no trae el campo (p. ej. el modal de editar), se conserva el vínculo actual.
+    if cf.kind == "EVENTO" and "event_id" in form:
+        _ev = (form.get("event_id") or "").strip()
         cf.event_id = to_uuid(_ev) if _ev else None
     cid = (form.get("managing_company_id") or "").strip()
     cf.managing_company_id = to_uuid(cid) if cid else None
@@ -24510,9 +24517,22 @@ def event_delete(eid):
     try:
         ev = s.get(AppEvent, _sim_safe_uuid(eid))
         if ev:
+            # Se comprueba TODO lo que cuelga del evento antes de borrar: el artista espejo se va en
+            # cascada, pero `concerts.artist_id` es RESTRICT, así que sin esta guarda el borrado
+            # reventaba con un error de base de datos que en pantalla solo decía «Error eliminando».
+            pendientes = []
             n_sims = s.query(func.count(Simulation.id)).filter(Simulation.event_id == ev.id).scalar() or 0
             if n_sims:
-                flash(f"No se puede eliminar: el evento tiene {n_sims} simulación(es). Elimínalas antes.", "warning")
+                pendientes.append(f"{n_sims} simulación(es)")
+            n_act = s.query(func.count(Concert.id)).filter(Concert.event_id == ev.id).scalar() or 0
+            if n_act:
+                pendientes.append(f"{n_act} actividad(es)")
+            n_cf = s.query(func.count(CycleFestival.id)).filter(CycleFestival.event_id == ev.id).scalar() or 0
+            if n_cf:
+                pendientes.append(f"{n_cf} contenedor(es) (gira/ciclo/festival)")
+            if pendientes:
+                flash("No se puede eliminar: el evento todavía tiene " + " y ".join(pendientes)
+                      + ". Elimínalo o desvincúlalo antes.", "warning")
                 return redirect(url_for("event_detail_view", eid=eid))
             s.delete(ev)
             s.commit()
@@ -41377,13 +41397,56 @@ def _home_my_expenses_summary() -> dict:
 
 
 def _home_admin_altas_pending() -> list:
-    """Empresas del grupo con ITA caducado o sin ITA (tarea pendiente de Administración)."""
+    """Empresas del grupo con ITA caducado o sin ITA (tarea pendiente de Administración).
+    Solo se la enseñamos a quien le toca (responsabilidad ITA); ver `_admin_task_is_mine`."""
     session_db = db()
     try:
+        if not _admin_task_is_mine(session_db, "ITA"):
+            return []
         ctx = _prl_admin_altas_context(session_db)
         return [{"name": r["company"].name, "logo_url": r["company"].logo_url,
                  "until": r["current"].valid_until.strftime("%d/%m/%Y") if (r["current"] and r["current"].valid_until) else None}
                 for r in ctx["altas_rows"] if not r["valid"]]
+    except Exception:
+        return []
+    finally:
+        session_db.close()
+
+
+def _home_admin_pending() -> list:
+    """Módulo de Inicio «Tareas pendientes · Administración»: un bloque por tipo de tarea, con su
+    número y su enlace, y SOLO los tipos que le tocan a quien mira (los suyos, más los que no
+    tienen responsable). Sin responsabilidades asignadas se ven todos."""
+    session_db = db()
+    try:
+        if not has_access_key("administracion", include_descendants=True):
+            return []
+        datos = _admin_pending_counts(session_db)
+        counts, pending = datos["counts"], datos["pending_counts"]
+        bloques = [
+            ("GASTOS_SIN_TICKET", "Gastos sin ticket y pagos urgentes", "fa-receipt",
+             pending.get("solicitudes", 0), url_for("administracion_view", tab="pendiente", subtab="solicitudes")),
+            ("PAGOS", "Pendiente de pago", "fa-money-bill-transfer",
+             pending.get("pago", 0), url_for("administracion_view", tab="pendiente", subtab="pago")),
+            ("FACTURAS_SOLICITADAS", "Pendiente de facturación", "fa-file-invoice",
+             pending.get("facturacion", 0), url_for("administracion_view", tab="pendiente", subtab="facturacion")),
+            ("LIQUIDACIONES", "Bolsas por liquidar", "fa-scale-balanced",
+             pending.get("liquidacion", 0), url_for("administracion_view", tab="pendiente", subtab="liquidacion")),
+            ("LIQUIDACIONES", "Bolsas por cerrar", "fa-box-archive",
+             pending.get("cierre", 0), url_for("administracion_view", tab="pendiente", subtab="cierre")),
+            ("ITA", "Altas e ITAs", "fa-id-card-clip",
+             counts.get("altas", 0), url_for("administracion_view", tab="altas")),
+            ("EMBARGOS", "Órdenes de embargo", "fa-gavel",
+             counts.get("embargos", 0), url_for("administracion_view", tab="embargos")),
+        ]
+        out = []
+        for clave, label, icono, n, url in bloques:
+            if not n:
+                continue
+            if not _admin_task_is_mine(session_db, clave):
+                continue
+            out.append({"key": clave, "label": label, "icon": icono, "count": int(n), "url": url})
+        return out
     except Exception:
         return []
     finally:
@@ -42346,6 +42409,46 @@ def tour_concert_link_existing(slug):
     return redirect(url_for('tour_detail_view', slug=slug, tab='conciertos'))
 
 
+# ============================================================================================
+# REPARTO DE LAS TAREAS DE ADMINISTRACIÓN
+#
+# Cada persona de administración puede tener asignadas unas cuantas responsabilidades, para que no
+# a todo el mundo le salgan las mismas tareas pendientes. Tres reglas, las mismas que ya usa el
+# resto de la casa (artistas asignados, producción…):
+#   · quien NO tiene ninguna responsabilidad asignada, ve TODAS (no se le esconde trabajo);
+#   · una responsabilidad de la que NADIE es responsable la ven TODOS (nada se pierde en silencio);
+#   · la responsabilidad FILTRA, nunca CONCEDE: sin el permiso de la sección se sigue viendo un 403.
+# Dirección (role 10) lo ve todo siempre.
+#
+# clave · etiqueta · icono · recurso de permiso con el que se corresponde
+ADMIN_RESPONSIBILITIES = [
+    ("LIQUIDACIONES", "Liquidar bolsas", "fa-scale-balanced", "administracion"),
+    ("FACTURAS_SOLICITADAS", "Facturas pedidas a proveedores", "fa-file-invoice", "administracion"),
+    ("PAGOS", "Pagos pendientes", "fa-money-bill-transfer", "administracion"),
+    ("GASTOS_OFICINA", "Validar gastos de oficina", "fa-building-columns", "administracion"),
+    ("GASTOS_SIN_TICKET", "Validar gastos sin ticket", "fa-receipt", "administracion"),
+    ("ITA", "Altas e ITAs", "fa-id-card-clip", "administracion"),
+    ("EMBARGOS", "Órdenes de embargo", "fa-gavel", "administracion"),
+]
+ADMIN_RESPONSIBILITY_KEYS = [k for k, _l, _i, _r in ADMIN_RESPONSIBILITIES]
+ADMIN_RESPONSIBILITY_LABELS = {k: l for k, l, _i, _r in ADMIN_RESPONSIBILITIES}
+# Qué responsabilidad alimenta cada pestaña / subpestaña de Administración.
+ADMIN_TAB_RESPONSIBILITY = {
+    "pendiente": None,                       # la suma de todas: se decide por subpestaña
+    "liquidaciones": "LIQUIDACIONES",
+    "pagos": "PAGOS",
+    "cobros": None,
+    "embargos": "EMBARGOS",
+    "altas": "ITA",
+}
+ADMIN_PENDING_TAB_RESPONSIBILITY = {
+    "solicitudes": "GASTOS_SIN_TICKET",
+    "pago": "PAGOS",
+    "facturacion": "FACTURAS_SOLICITADAS",
+    "liquidacion": "LIQUIDACIONES",
+    "cierre": "LIQUIDACIONES",
+}
+
 PERSONNEL_DEPARTMENTS = [
     "Dirección",
     "Ticketing",
@@ -42458,6 +42561,11 @@ ADMINISTRATION_PENDING_TABS = [
     ("liquidacion", "De liquidación"),
     ("cierre", "De cierre"),
 ]
+# Estados de bolsa de cada subpestaña de «Pendiente». Los usan el CONTADOR **y** las listas de la
+# plantilla, para que el número y las filas digan siempre lo mismo (antes el contador de
+# «De liquidación» no incluía PENDIENTE_LIQUIDACION y no cuadraba con lo que se veía).
+ADMIN_BAG_LIQUIDACION_STATUSES = ["NO_INICIADA", "PENDIENTE_ADMIN", "PENDIENTE_LIQUIDACION"]
+ADMIN_BAG_CIERRE_STATUSES = ["PENDIENTE_CIERRE", "VALIDADA", "PENDIENTE_PAGO"]
 ACTION_TYPE_OPTIONS = [
     ("EVENTO_PROMOCIONAL", "Evento promocional", "fa-bullhorn"),
     ("PREMIOS", "Premios", "fa-trophy"),
@@ -42705,6 +42813,96 @@ def _normalize_departments(values) -> list[str]:
         seen.add(val)
         out.append(val)
     return out
+
+
+def _normalize_admin_responsibilities(values) -> list[str]:
+    """Limpia lo que llega del formulario contra el catálogo. Sin esto el JSONB acumula basura y
+    los filtros dejan de casar."""
+    allowed = {k.casefold(): k for k in ADMIN_RESPONSIBILITY_KEYS}
+    out, seen = [], set()
+    for raw in values or []:
+        key = allowed.get((str(raw) or "").strip().casefold())
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(key)
+    return out
+
+
+def _admin_responsible_user_ids(session_db, responsibility: str) -> set:
+    """UUIDs (en texto) de quienes son responsables de ese tipo de tarea. Vacío = no lo es nadie,
+    y entonces la tarea la ven todos.
+
+    Se exige que sigan estando en ADMINISTRACIÓN: si a alguien se le quita el departamento, deja de
+    ser responsable aunque le queden marcas antiguas (si no, seguiría escondiéndole la tarea al
+    resto). Y fuera los bloqueados y eliminados.
+    """
+    if not responsibility:
+        return set()
+    try:
+        inactivos = _inactive_user_ids(session_db)
+        out = set()
+        for prof in session_db.query(UserProfile).all():
+            uid = str(getattr(prof, "user_id", "") or "")
+            if not uid or uid in inactivos:
+                continue
+            if "Administración" not in (getattr(prof, "departments", None) or []):
+                continue
+            if responsibility in (getattr(prof, "admin_responsibilities", None) or []):
+                out.add(uid)
+        return out
+    except Exception:
+        return set()
+
+
+def _administration_people(session_db, responsibility: str | None = None) -> list[dict]:
+    """Personal de ADMINISTRACIÓN (opcionalmente, solo los responsables de un tipo de tarea).
+    ⚠️ `is_blocked`/`is_deleted` viven en UserSecurity, no en User: se filtran con
+    `_inactive_user_ids` (un getattr sobre User siempre daría False y no filtraría nada)."""
+    out = []
+    try:
+        inactivos = _inactive_user_ids(session_db)
+        for prof in session_db.query(UserProfile).order_by(UserProfile.nick.asc()).all():
+            uid = str(getattr(prof, "user_id", "") or "")
+            if not uid or uid in inactivos:
+                continue
+            if "Administración" not in (getattr(prof, "departments", None) or []):
+                continue
+            duties = list(getattr(prof, "admin_responsibilities", None) or [])
+            if responsibility and responsibility not in duties:
+                continue
+            out.append({"user_id": uid, "nick": (prof.nick or "").strip(),
+                        "full_name": _profile_full_name(prof), "responsibilities": duties})
+    except Exception:
+        return []
+    return out
+
+
+def _current_user_admin_responsibilities() -> list[str]:
+    """Responsabilidades de administración de quien está mirando (del estado cacheado, sin BD)."""
+    try:
+        prof = _current_user_state().get("profile")
+        return list(getattr(prof, "admin_responsibilities", None) or [])
+    except Exception:
+        return []
+
+
+def _admin_task_is_mine(session_db, responsibility: str | None) -> bool:
+    """¿Le toca a quien está mirando? Sí si: es dirección · el tipo no tiene responsable asignado ·
+    no tiene reparto propio · o es uno de sus responsables."""
+    if not responsibility:
+        return True
+    try:
+        if is_master():
+            return True
+        mias = _current_user_admin_responsibilities()
+        if not mias:
+            return True
+        if responsibility in mias:
+            return True
+        return not _admin_responsible_user_ids(session_db, responsibility)
+    except Exception:
+        return True
 
 
 def _normalize_assigned_artist_ids(values) -> list[str]:
@@ -43122,6 +43320,8 @@ def _ensure_user_profile(session_db, user: User, legacy_full_seed: bool = False,
         mobile_phones=_normalize_phone_rows(kwargs.get("mobile_phones") or []),
         departments=_normalize_departments(kwargs.get("departments") or []),
         assigned_artist_ids=_normalize_assigned_artist_ids(kwargs.get("assigned_artist_ids") or []),
+        # En el ALTA el bucle de kwargs de arriba no se ejecuta: hay que pasarlo aquí a mano.
+        admin_responsibilities=_normalize_admin_responsibilities(kwargs.get("admin_responsibilities") or []),
         legacy_permissions_seeded=bool(legacy_full_seed),
     )
     session_db.add(profile)
@@ -43649,6 +43849,11 @@ def _snapshot_user_profile(profile: UserProfile | None) -> SimpleNamespace | Non
         mobile_phones=list(getattr(profile, "mobile_phones", None) or []),
         departments=list(getattr(profile, "departments", None) or []),
         assigned_artist_ids=list(getattr(profile, "assigned_artist_ids", None) or []),
+        assigned_artist_ids_produccion=list(getattr(profile, "assigned_artist_ids_produccion", None) or []),
+        assigned_artist_ids_sello=list(getattr(profile, "assigned_artist_ids_sello", None) or []),
+        # ⚠️ Lo que no esté en este snapshot es INVISIBLE desde `_current_user_state()` y desde las
+        # plantillas: es un SimpleNamespace, no el objeto del ORM.
+        admin_responsibilities=list(getattr(profile, "admin_responsibilities", None) or []),
         legacy_permissions_seeded=bool(getattr(profile, "legacy_permissions_seeded", False)),
     )
 
@@ -43682,6 +43887,7 @@ def _current_user_state() -> dict:
         "nick": "",
         "departments": [],
         "assigned_artist_ids": [],
+        "admin_responsibilities": [],
         "photo_url": "",
         "full_name": "",
     }
@@ -43729,6 +43935,7 @@ def _current_user_state() -> dict:
             "nick": (getattr(profile_snapshot, "nick", None) or _email_to_nick(user.email or "")).strip(),
             "departments": list(getattr(profile_snapshot, "departments", None) or []),
             "assigned_artist_ids": list(getattr(profile_snapshot, "assigned_artist_ids", None) or []),
+            "admin_responsibilities": list(getattr(profile_snapshot, "admin_responsibilities", None) or []),
             "photo_url": (getattr(profile_snapshot, "photo_url", None) or "").strip(),
             "full_name": _profile_full_name(profile_snapshot),
         })
@@ -44566,6 +44773,11 @@ def inject_personnel_globals():
         "HOME_PENDING_PETICIONES": _home_pending_peticiones() if request.endpoint == "home" and session.get("user_id") and "_home_pending_peticiones" in globals() else [],
         "HOME_PRODUCCION_PENDING": _home_produccion_pending() if request.endpoint == "home" and session.get("user_id") and "_home_produccion_pending" in globals() and has_access_key("produccion", include_descendants=True) else [],
         "HOME_ADMIN_ALTAS_PENDING": _home_admin_altas_pending() if request.endpoint == "home" and session.get("user_id") and "_home_admin_altas_pending" in globals() and has_access_key("administracion", include_descendants=True) else [],
+        # Tareas de administración repartidas: a cada uno las suyas (y las que no tienen dueño).
+        "HOME_ADMIN_PENDING": (_home_admin_pending()
+                               if request.endpoint == "home" and session.get("user_id")
+                               and "_home_admin_pending" in globals()
+                               and has_access_key("administracion", include_descendants=True) else []),
         "HOME_MY_EXPENSES": _home_my_expenses_summary() if request.endpoint == "home" and session.get("user_id") and "_home_my_expenses_summary" in globals() else {"rows": [], "overdue": 0, "total": 0},
         # Carteles que subió esta persona y diseño ha rechazado (con la nota de qué cambiar).
         "HOME_ARTWORK_REJECTED": (_home_artwork_rejected()
@@ -44575,6 +44787,9 @@ def inject_personnel_globals():
         "HOME_AGENDA": _home_agenda() if request.endpoint == "home" and session.get("user_id") and "_home_agenda" in globals() else None,
         "AGENDA_ARTIST_OPTIONS": _agenda_artist_options() if request.endpoint == "home" and session.get("user_id") and "_agenda_artist_options" in globals() else [],
         "PERSONNEL_DEPARTMENTS": PERSONNEL_DEPARTMENTS,
+        # Constantes en memoria (nunca una consulta: esto corre en cada petición).
+        "ADMIN_RESPONSIBILITIES": ADMIN_RESPONSIBILITIES,
+        "ADMIN_RESPONSIBILITY_LABELS": ADMIN_RESPONSIBILITY_LABELS,
         # Catálogos del asistente de actividad y de la ficha (cartelería / gastos del promotor).
         "ARTWORK_FORMAT_CHOICES": ARTWORK_FORMAT_CHOICES,
         "ARTWORK_VIDEO_FORMAT_CHOICES": ARTWORK_VIDEO_FORMAT_CHOICES,
@@ -47399,8 +47614,14 @@ def _embargo_share_email_body(order: EmbargoOrder) -> tuple[str, str, str]:
 def administration_embargo_upload():
     session_db = db()
     try:
+        # `files` es el campo que manda el modal con arrastre (archivos sueltos o carpetas enteras);
+        # el resto se conservan por compatibilidad con formularios antiguos.
+        # ⚠️ Comprobación propia: `_wants_json_response` está definido DOS veces en este fichero y
+        # gana la segunda (app.py:9342), que no mira `X-Requested-With`.
+        wants_json = (request.headers.get("X-Requested-With") == "XMLHttpRequest"
+                      or "application/json" in (request.headers.get("Accept") or "").lower())
         files = []
-        for field in ("pdf", "order_pdf", "file", "pdfs", "orders"):
+        for field in ("pdf", "order_pdf", "file", "pdfs", "orders", "files"):
             for candidate in request.files.getlist(field):
                 if candidate and getattr(candidate, "filename", ""):
                     files.append(candidate)
@@ -47413,76 +47634,106 @@ def administration_embargo_upload():
             seen_ids.add(id(file_obj))
             unique_files.append(file_obj)
         if not unique_files:
+            if wants_json:
+                return jsonify({"ok": False, "error": "No llegó ningún PDF."}), 400
             flash("Debes subir uno o varios PDF de órdenes de embargo o levantamiento.", "warning")
             return redirect(url_for("administracion_view", tab="embargos"))
 
         audit = _current_user_state()
         created_rows = []
         archived_count = 0
+        errores = []
         for pdf in unique_files:
-            if not (pdf.filename or "").lower().endswith(".pdf"):
-                flash(f"{pdf.filename}: la orden debe subirse en PDF.", "warning")
+            # De una carpeta llega la RUTA completa («2026/enero/orden.pdf»): validar por el nombre.
+            nombre = os.path.basename((pdf.filename or "").replace("\\", "/")) or "orden.pdf"
+            if not nombre.lower().endswith(".pdf"):
+                errores.append(f"{nombre}: la orden debe subirse en PDF.")
+                if not wants_json:
+                    flash(f"{nombre}: la orden debe subirse en PDF.", "warning")
                 continue
-            extracted_text = _pdf_text_from_filestorage(pdf)
-            data = _extract_embargo_order_data(extracted_text, pdf.filename)
-            promoter, score, label, exact_tax = _match_embargo_promoter(session_db, extracted_text, data.get("detected_tax_id"), data.get("detected_name"))
-            linked_promoter = promoter if exact_tax else None
-            suggested_promoter = promoter if (promoter and not exact_tax and score >= 0.78) else None
-            order_type = data.get("order_type") or "DESCONOCIDO"
-            if order_type == "EMBARGO":
-                status = "ACTIVA" if linked_promoter else ("REVISAR" if suggested_promoter else "PENDIENTE")
-            elif order_type == "LEVANTAMIENTO":
-                status = "ARCHIVADA"
-            else:
-                status = "REVISAR" if suggested_promoter else "PENDIENTE"
+            # Un PDF que falle no puede llevarse por delante a los demás de la misma carpeta.
+            punto = session_db.begin_nested()
             try:
-                pdf.stream.seek(0)
-            except Exception:
-                pass
-            pdf_url = upload_pdf(pdf, "embargos")
-            row = EmbargoOrder(
-                order_type=order_type,
-                status=status,
-                promoter_id=getattr(linked_promoter, "id", None),
-                provider_snapshot=_promoter_snapshot(linked_promoter),
-                detected_name=(data.get("detected_name") or label or "").strip() or None,
-                detected_tax_id=data.get("detected_tax_id") or None,
-                detected_address=data.get("detected_address") or None,
-                reference=data.get("reference") or None,
-                diligence_number=data.get("diligence_number") or None,
-                order_date=data.get("order_date"),
-                amount_total=data.get("amount_total"),
-                detected_text=(extracted_text or "")[:12000],
-                pdf_url=pdf_url,
-                pdf_name=Path(pdf.filename or "orden_embargo.pdf").name,
-                suggested_promoter_id=getattr(suggested_promoter, "id", None),
-                match_score=Decimal(str(round(float(score or 0), 4))) if score else None,
-                match_label=(label or "").strip() or None,
-                uploaded_by_user_id=to_uuid(audit.get("user_id")) if audit.get("user_id") else None,
-                uploaded_by_nick=audit.get("nick") or "Administración",
-                archived_at=_now_madrid() if status == "ARCHIVADA" else None,
-                archived_by_user_id=to_uuid(audit.get("user_id")) if status == "ARCHIVADA" and audit.get("user_id") else None,
-                archived_by_nick=(audit.get("nick") or "Administración") if status == "ARCHIVADA" else None,
-                archive_reason="Levantamiento de embargo subido." if order_type == "LEVANTAMIENTO" else None,
-            )
-            session_db.add(row)
-            session_db.flush()
-            if order_type == "LEVANTAMIENTO":
-                archived_count += _archive_matching_embargos_for_lift(session_db, row, audit)
-            created_rows.append(row)
+                extracted_text = _pdf_text_from_filestorage(pdf)
+                data = _extract_embargo_order_data(extracted_text, nombre)
+                promoter, score, label, exact_tax = _match_embargo_promoter(session_db, extracted_text, data.get("detected_tax_id"), data.get("detected_name"))
+                linked_promoter = promoter if exact_tax else None
+                suggested_promoter = promoter if (promoter and not exact_tax and score >= 0.78) else None
+                order_type = data.get("order_type") or "DESCONOCIDO"
+                if order_type == "EMBARGO":
+                    status = "ACTIVA" if linked_promoter else ("REVISAR" if suggested_promoter else "PENDIENTE")
+                elif order_type == "LEVANTAMIENTO":
+                    status = "ARCHIVADA"
+                else:
+                    status = "REVISAR" if suggested_promoter else "PENDIENTE"
+                try:
+                    pdf.stream.seek(0)
+                except Exception:
+                    pass
+                pdf_url = upload_pdf(pdf, "embargos")
+                row = EmbargoOrder(
+                    order_type=order_type,
+                    status=status,
+                    promoter_id=getattr(linked_promoter, "id", None),
+                    provider_snapshot=_promoter_snapshot(linked_promoter),
+                    detected_name=(data.get("detected_name") or label or "").strip() or None,
+                    detected_tax_id=data.get("detected_tax_id") or None,
+                    detected_address=data.get("detected_address") or None,
+                    reference=data.get("reference") or None,
+                    diligence_number=data.get("diligence_number") or None,
+                    order_date=data.get("order_date"),
+                    amount_total=data.get("amount_total"),
+                    detected_text=(extracted_text or "")[:12000],
+                    pdf_url=pdf_url,
+                    pdf_name=nombre,
+                    suggested_promoter_id=getattr(suggested_promoter, "id", None),
+                    match_score=Decimal(str(round(float(score or 0), 4))) if score else None,
+                    match_label=(label or "").strip() or None,
+                    uploaded_by_user_id=to_uuid(audit.get("user_id")) if audit.get("user_id") else None,
+                    uploaded_by_nick=audit.get("nick") or "Administración",
+                    archived_at=_now_madrid() if status == "ARCHIVADA" else None,
+                    archived_by_user_id=to_uuid(audit.get("user_id")) if status == "ARCHIVADA" and audit.get("user_id") else None,
+                    archived_by_nick=(audit.get("nick") or "Administración") if status == "ARCHIVADA" else None,
+                    archive_reason="Levantamiento de embargo subido." if order_type == "LEVANTAMIENTO" else None,
+                )
+                session_db.add(row)
+                session_db.flush()
+                if order_type == "LEVANTAMIENTO":
+                    archived_count += _archive_matching_embargos_for_lift(session_db, row, audit)
+                punto.commit()
+                created_rows.append(row)
+            except Exception as exc_file:
+                try:
+                    punto.rollback()
+                except Exception:
+                    pass
+                errores.append(f"{nombre}: {exc_file}")
+                if not wants_json:
+                    flash(f"{nombre}: no se pudo procesar ({exc_file}).", "warning")
         session_db.commit()
+        pending_review = len([r for r in created_rows if (r.status or "").upper() in {"PENDIENTE", "REVISAR"}])
+
+        if wants_json:
+            return jsonify({
+                "ok": True,
+                "created": len(created_rows),
+                "pending_review": pending_review,
+                "archived": archived_count,
+                "errores": errores,
+            })
 
         if created_rows:
             flash(f"Se han procesado {len(created_rows)} PDF de embargo/levantamiento.", "success")
             if archived_count:
                 flash(f"Se han archivado automáticamente {archived_count} embargo(s) activo(s) por levantamiento.", "success")
-            pending_review = len([r for r in created_rows if (r.status or "").upper() in {"PENDIENTE", "REVISAR"}])
             if pending_review:
                 flash(f"{pending_review} orden(es) quedan pendientes de revisar o vincular.", "warning")
         else:
             flash("No se procesó ningún PDF válido.", "warning")
     except Exception as exc:
         session_db.rollback()
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return jsonify({"ok": False, "error": str(exc)}), 500
         flash(f"No se pudo procesar la orden: {exc}", "danger")
     finally:
         session_db.close()
@@ -47658,6 +47909,101 @@ def api_embargo_check_third_party():
         session_db.close()
 
 
+def _admin_altas_pending_count(session_db) -> int:
+    """Empresas del grupo con el ITA caducado o sin subir. Se calcula con los documentos, sin
+    resolver nombres de trabajadores uno a uno (eso es `_prl_admin_altas_context`, que es caro y
+    solo hace falta cuando se abre la pestaña)."""
+    try:
+        total = session_db.query(func.count(GroupCompany.id)).scalar() or 0
+        if not total:
+            return 0
+        hoy = date.today()
+        vigentes = set()
+        for doc in _prl_company_ita_docs(session_db):
+            if _prl_doc_valid_on(doc, hoy):
+                vigentes.add(str(doc.company_id or doc.owner_id))
+        return max(0, int(total) - len(vigentes))
+    except Exception:
+        return 0
+
+
+def _admin_pending_counts(session_db) -> dict:
+    """Números de las pestañas y subpestañas de Administración: CONTAR, sin cargar las filas.
+
+    Se calcula en cada carga (va siempre al día) y se pinta al lado de cada pestaña para poder ver
+    lo que queda por hacer sin tener que entrar. Las listas las carga `administracion_view` solo de
+    la pestaña activa.
+    """
+    def _n(query) -> int:
+        try:
+            return int(query.scalar() or 0)
+        except Exception:
+            return 0
+
+    vivos = BagExpense.status != "ELIMINADO"
+    solicitudes = _n(session_db.query(func.count(BagExpense.id)).filter(
+        vivos, BagExpense.immediate_payment_requested == True))  # noqa: E712
+    sin_factura = _n(session_db.query(func.count(BagExpense.id)).filter(
+        vivos, BagExpense.consolidation_status == "SIN_FACTURA_SOLICITADO"))
+    pago = _n(session_db.query(func.count(BagExpense.id)).filter(
+        vivos,
+        BagExpense.covered_by == "BOLSA",
+        BagExpense.consolidation_status.in_(list(BAG_CONSOLIDATED_STATUSES)),
+        BagExpense.payment_status.in_(["NO_PAGADO", "PENDIENTE", "PARCIAL"])))
+
+    bolsas_base = and_(
+        WorkflowBag.is_archived == False,  # noqa: E712
+        or_(WorkflowBag.status == "CERRADA",
+            WorkflowBag.liquidation_status.in_(["PENDIENTE_ADMIN", "PENDIENTE_PAGO"])),
+    )
+    liquidacion = _n(session_db.query(func.count(WorkflowBag.id)).filter(
+        bolsas_base, WorkflowBag.liquidation_status.in_(ADMIN_BAG_LIQUIDACION_STATUSES)))
+    cierre = _n(session_db.query(func.count(WorkflowBag.id)).filter(
+        bolsas_base, WorkflowBag.liquidation_status.in_(ADMIN_BAG_CIERRE_STATUSES)))
+    bolsas_cerradas = _n(session_db.query(func.count(WorkflowBag.id)).filter(bolsas_base))
+
+    cobros = _n(session_db.query(func.count(InvoiceRecord.id)).filter(
+        InvoiceRecord.invoice_kind == "ISSUED",
+        InvoiceRecord.status.notin_(["PAGADA", "ANULADA"])))
+    facturacion = _n(session_db.query(func.count(InvoiceRecord.id)).filter(
+        InvoiceRecord.invoice_kind == "ISSUED",
+        InvoiceRecord.status.notin_(["PAGADA", "ANULADA"]),
+        func.upper(func.coalesce(InvoiceRecord.status, "")).in_(
+            ["PENDIENTE_FACTURA", "PENDIENTE_FACTURAR", "BORRADOR", "PENDIENTE"])))
+
+    # Estos dos SÍ se cuentan siempre aunque sus filas solo se carguen en su subpestaña: antes el
+    # número se quedaba corto porque la consulta solo corría estando ya dentro.
+    facturas_royalties = _n(session_db.query(func.count(SupplierInvoice.id)).filter(
+        SupplierInvoice.status == "PENDIENTE",
+        SupplierInvoice.royalty_liquidation_id.isnot(None)))
+    afavor = _n(session_db.query(func.count(AfavorLiquidation.id)).filter(
+        AfavorLiquidation.status == "PENDING_INVOICE"))
+
+    embargos_ordenes = _n(session_db.query(func.count(EmbargoOrder.id)).filter(
+        func.upper(func.coalesce(EmbargoOrder.order_type, "")) != "LEVANTAMIENTO",
+        func.upper(func.coalesce(EmbargoOrder.status, "")).in_(list(_embargo_visible_statuses()))))
+    embargos_legacy = _n(session_db.query(func.count(InvoiceRecord.id)).filter(
+        or_(_sa_contains_text(InvoiceRecord.notes, "embargo"),
+            _sa_contains_text(InvoiceRecord.status, "embargo"))))
+
+    pending_counts = {
+        "solicitudes": solicitudes + sin_factura,
+        "pago": pago,
+        "facturacion": facturacion + afavor,
+        "liquidacion": liquidacion + facturas_royalties,
+        "cierre": cierre,
+    }
+    counts = {
+        "pendiente": sum(pending_counts.values()),
+        "liquidaciones": bolsas_cerradas,
+        "pagos": solicitudes + pago,
+        "cobros": cobros,
+        "embargos": embargos_legacy + embargos_ordenes,
+        "altas": _admin_altas_pending_count(session_db),
+    }
+    return {"counts": counts, "pending_counts": pending_counts}
+
+
 @app.route("/administracion", endpoint="administracion_view")
 @admin_required
 def administracion_view():
@@ -47674,46 +48020,64 @@ def administracion_view():
         if embargo_subtab not in {"activas", "archivadas"}:
             embargo_subtab = "activas"
 
-        pending_no_invoice = session_db.query(BagExpense).options(joinedload(BagExpense.bag), joinedload(BagExpense.provider)).filter(
-            BagExpense.status != "ELIMINADO",
-            BagExpense.consolidation_status == "SIN_FACTURA_SOLICITADO",
-        ).order_by(BagExpense.created_at.desc()).all()
-        pending_unconsolidated = session_db.query(BagExpense).options(joinedload(BagExpense.bag), joinedload(BagExpense.provider)).filter(
-            BagExpense.status != "ELIMINADO",
-            BagExpense.consolidation_status == "PENDIENTE",
-            or_(BagExpense.attachment_url.is_(None), BagExpense.attachment_url == ""),
-        ).order_by(BagExpense.created_at.desc()).limit(100).all()
-        closed_bags = session_db.query(WorkflowBag).options(joinedload(WorkflowBag.artist), joinedload(WorkflowBag.company)).filter(
-            WorkflowBag.is_archived == False,  # noqa: E712
-            or_(WorkflowBag.status == "CERRADA", WorkflowBag.liquidation_status.in_(["PENDIENTE_ADMIN", "PENDIENTE_PAGO"])),
-        ).order_by(WorkflowBag.closed_at.desc().nullslast(), WorkflowBag.created_at.desc()).all()
-        payment_requests = session_db.query(BagExpense).options(joinedload(BagExpense.bag), joinedload(BagExpense.provider), selectinload(BagExpense.payment_events)).filter(
-            BagExpense.status != "ELIMINADO",
-            BagExpense.immediate_payment_requested == True,  # noqa: E712
-        ).order_by(BagExpense.immediate_payment_requested_at.asc().nullslast(), BagExpense.created_at.asc()).all()
-        payable_expenses = session_db.query(BagExpense).options(joinedload(BagExpense.bag), joinedload(BagExpense.provider)).filter(
-            BagExpense.status != "ELIMINADO",
-            BagExpense.covered_by == "BOLSA",
-            BagExpense.consolidation_status.in_(list(BAG_CONSOLIDATED_STATUSES)),
-            BagExpense.payment_status.in_(["NO_PAGADO", "PENDIENTE", "PARCIAL"]),
-        ).order_by(BagExpense.created_at.desc()).limit(200).all()
-        receivable_invoices = session_db.query(InvoiceRecord).options(joinedload(InvoiceRecord.artist), joinedload(InvoiceRecord.company), joinedload(InvoiceRecord.bag)).filter(
-            InvoiceRecord.invoice_kind == "ISSUED",
-            InvoiceRecord.status.notin_(["PAGADA", "ANULADA"]),
-        ).order_by(InvoiceRecord.due_date.asc().nullslast(), InvoiceRecord.issue_date.desc()).all()
+        # Las LISTAS se cargan solo de la pestaña en la que estás (antes se cargaban las 8 siempre,
+        # más un N+1 por bolsa). Los NÚMEROS de todas las pestañas los da `_admin_pending_counts`,
+        # que solo cuenta, así que la barra sigue estando al día se mire desde donde se mire.
+        pendiente = tab == "pendiente"
+        quiere_solicitudes = pendiente and pending_subtab == "solicitudes"
+        quiere_pago = pendiente and pending_subtab == "pago"
+        quiere_facturacion = pendiente and pending_subtab == "facturacion"
+        quiere_bolsas = tab == "liquidaciones" or (pendiente and pending_subtab in ("liquidacion", "cierre"))
+
+        pending_no_invoice = []
+        if quiere_solicitudes:
+            pending_no_invoice = session_db.query(BagExpense).options(joinedload(BagExpense.bag), joinedload(BagExpense.provider)).filter(
+                BagExpense.status != "ELIMINADO",
+                BagExpense.consolidation_status == "SIN_FACTURA_SOLICITADO",
+            ).order_by(BagExpense.created_at.desc()).all()
+        closed_bags = []
+        if quiere_bolsas:
+            closed_bags = session_db.query(WorkflowBag).options(joinedload(WorkflowBag.artist), joinedload(WorkflowBag.company)).filter(
+                WorkflowBag.is_archived == False,  # noqa: E712
+                or_(WorkflowBag.status == "CERRADA", WorkflowBag.liquidation_status.in_(["PENDIENTE_ADMIN", "PENDIENTE_PAGO"])),
+            ).order_by(WorkflowBag.closed_at.desc().nullslast(), WorkflowBag.created_at.desc()).all()
+        payment_requests = []
+        if quiere_solicitudes or tab == "pagos":
+            payment_requests = session_db.query(BagExpense).options(joinedload(BagExpense.bag), joinedload(BagExpense.provider), selectinload(BagExpense.payment_events)).filter(
+                BagExpense.status != "ELIMINADO",
+                BagExpense.immediate_payment_requested == True,  # noqa: E712
+            ).order_by(BagExpense.immediate_payment_requested_at.asc().nullslast(), BagExpense.created_at.asc()).all()
+        payable_expenses = []
+        if quiere_pago or tab == "pagos":
+            payable_expenses = session_db.query(BagExpense).options(joinedload(BagExpense.bag), joinedload(BagExpense.provider)).filter(
+                BagExpense.status != "ELIMINADO",
+                BagExpense.covered_by == "BOLSA",
+                BagExpense.consolidation_status.in_(list(BAG_CONSOLIDATED_STATUSES)),
+                BagExpense.payment_status.in_(["NO_PAGADO", "PENDIENTE", "PARCIAL"]),
+            ).order_by(BagExpense.created_at.desc()).limit(200).all()
+        receivable_invoices = []
+        if tab == "cobros" or quiere_facturacion:
+            receivable_invoices = session_db.query(InvoiceRecord).options(joinedload(InvoiceRecord.artist), joinedload(InvoiceRecord.company), joinedload(InvoiceRecord.bag)).filter(
+                InvoiceRecord.invoice_kind == "ISSUED",
+                InvoiceRecord.status.notin_(["PAGADA", "ANULADA"]),
+            ).order_by(InvoiceRecord.due_date.asc().nullslast(), InvoiceRecord.issue_date.desc()).all()
         billing_pending = [inv for inv in receivable_invoices if (getattr(inv, "status", "") or "").upper() in {"PENDIENTE_FACTURA", "PENDIENTE_FACTURAR", "BORRADOR", "PENDIENTE"}]
-        embargo_rows = session_db.query(InvoiceRecord).options(joinedload(InvoiceRecord.artist), joinedload(InvoiceRecord.company), joinedload(InvoiceRecord.bag)).filter(
-            or_(_sa_contains_text(InvoiceRecord.notes, "embargo"), _sa_contains_text(InvoiceRecord.status, "embargo"))
-        ).order_by(InvoiceRecord.issue_date.desc()).all()
-        embargo_orders = session_db.query(EmbargoOrder).options(
-            joinedload(EmbargoOrder.promoter),
-            joinedload(EmbargoOrder.suggested_promoter),
-        ).order_by(EmbargoOrder.created_at.desc()).limit(500).all()
-        embargo_active_orders = [o for o in embargo_orders if (o.order_type or "").upper() != "LEVANTAMIENTO" and (o.status or "").upper() in _embargo_visible_statuses()]
-        embargo_archived_orders = [o for o in embargo_orders if (o.status or "").upper() == "ARCHIVADA" or (o.order_type or "").upper() == "LEVANTAMIENTO"]
-        embargo_promoters = session_db.query(Promoter).options(selectinload(Promoter.companies)).order_by(Promoter.nick.asc()).limit(1000).all()
-        embargo_email_map = {str(order.id): _embargo_order_email_suggestions(session_db, order) for order in embargo_orders}
-        embargo_counts = {"activas": len(embargo_active_orders), "archivadas": len(embargo_archived_orders)}
+
+        embargo_rows, embargo_orders, embargo_promoters = [], [], []
+        embargo_active_orders, embargo_archived_orders, embargo_email_map = [], [], {}
+        if tab == "embargos":
+            embargo_rows = session_db.query(InvoiceRecord).options(joinedload(InvoiceRecord.artist), joinedload(InvoiceRecord.company), joinedload(InvoiceRecord.bag)).filter(
+                or_(_sa_contains_text(InvoiceRecord.notes, "embargo"), _sa_contains_text(InvoiceRecord.status, "embargo"))
+            ).order_by(InvoiceRecord.issue_date.desc()).all()
+            embargo_orders = session_db.query(EmbargoOrder).options(
+                joinedload(EmbargoOrder.promoter),
+                joinedload(EmbargoOrder.suggested_promoter),
+            ).order_by(EmbargoOrder.created_at.desc()).limit(500).all()
+            embargo_active_orders = [o for o in embargo_orders if (o.order_type or "").upper() != "LEVANTAMIENTO" and (o.status or "").upper() in _embargo_visible_statuses()]
+            embargo_archived_orders = [o for o in embargo_orders if (o.status or "").upper() == "ARCHIVADA" or (o.order_type or "").upper() == "LEVANTAMIENTO"]
+            embargo_promoters = session_db.query(Promoter).options(selectinload(Promoter.companies)).order_by(Promoter.nick.asc()).limit(1000).all()
+            embargo_email_map = {str(order.id): _embargo_order_email_suggestions(session_db, order) for order in embargo_orders}
+
         admin_expense_embargo_alerts = {}
         if "_expense_active_embargo_alerts" in globals():
             for expense in list(payment_requests or []) + list(payable_expenses or []) + list(pending_no_invoice or []):
@@ -47726,20 +48090,16 @@ def administracion_view():
             exps = session_db.query(BagExpense).filter(BagExpense.bag_id == bag.id, BagExpense.status != "ELIMINADO").all()
             bag_totals[str(bag.id)] = _bag_totals(exps) if "_bag_totals" in globals() else {"bag": Decimal("0")}
 
-        pending_counts = {
-            "solicitudes": len(payment_requests) + len(pending_no_invoice),
-            "pago": len(payable_expenses),
-            "facturacion": len(billing_pending),
-            "liquidacion": len([b for b in closed_bags if (getattr(b, "liquidation_status", "") or "").upper() in {"PENDIENTE_ADMIN", "NO_INICIADA"}]),
-            "cierre": len([b for b in closed_bags if (getattr(b, "liquidation_status", "") or "").upper() in {"PENDIENTE_CIERRE", "VALIDADA", "PENDIENTE_PAGO"}]),
-        }
-        counts = {
-            "pendiente": sum(pending_counts.values()),
-            "liquidaciones": len(closed_bags),
-            "pagos": len(payment_requests) + len(payable_expenses),
-            "cobros": len(receivable_invoices),
-            "embargos": len(embargo_rows) + len(embargo_active_orders),
-        }
+        # Los números salen de un motor propio que solo CUENTA (sin cargar filas), así que valen
+        # para todas las pestañas estés donde estés y no dependen de qué listas se hayan cargado.
+        _admin_counts = _admin_pending_counts(session_db)
+        counts = _admin_counts["counts"]
+        pending_counts = _admin_counts["pending_counts"]
+        # Qué pestañas son TUYAS (te han asignado esa responsabilidad). Se marcan con un punto, sin
+        # esconder nada: el número que se ve sigue siendo el real de toda la casa.
+        _mias = set(_current_user_admin_responsibilities())
+        admin_my_tabs = {k for k, r in ADMIN_TAB_RESPONSIBILITY.items() if r and r in _mias}
+        admin_my_pending_tabs = {k for k, r in ADMIN_PENDING_TAB_RESPONSIBILITY.items() if r and r in _mias}
         altas_ctx = _prl_admin_altas_context(session_db) if tab == "altas" else {"altas_rows": [], "altas_today": date.today()}
         royalty_invoice_rows = (_royalty_invoice_pending_rows(session_db)
                                 if (tab == "pendiente" and pending_subtab == "liquidacion") else [])
@@ -47753,14 +48113,17 @@ def administracion_view():
             **altas_ctx,
             pending_subtab=pending_subtab,
             pending_tabs=ADMINISTRATION_PENDING_TABS,
+            # Misma fuente de verdad que el contador: el número y las filas no pueden discrepar.
+            ADMIN_BAG_LIQUIDACION_STATUSES=ADMIN_BAG_LIQUIDACION_STATUSES,
+            ADMIN_BAG_CIERRE_STATUSES=ADMIN_BAG_CIERRE_STATUSES,
+            admin_my_tabs=admin_my_tabs,
+            admin_my_pending_tabs=admin_my_pending_tabs,
             royalty_invoice_rows=royalty_invoice_rows,
             afavor_invoice_rows=afavor_invoice_rows,
             embargo_subtab=embargo_subtab,
-            embargo_counts=embargo_counts,
             pending_counts=pending_counts,
             counts=counts,
             pending_no_invoice=pending_no_invoice,
-            pending_unconsolidated=pending_unconsolidated,
             closed_bags=closed_bags,
             payment_requests=payment_requests,
             payable_expenses=payable_expenses,
@@ -48611,6 +48974,13 @@ def personnel_detail_view(user_id):
                 # (en Pleo cada empresa del grupo puede tenerla con un correo distinto).
                 profile.integration_emails = _parse_integration_emails(request.form.get("integration_emails"))
                 profile.departments = _normalize_departments(request.form.getlist("departments"))
+                # Reparto de tareas de administración. ⚠️ CENTINELA obligatorio: el formulario de la
+                # ficha es monolítico y cualquier POST parcial a esta misma URL borraría el reparto
+                # (mismo patrón que `travel_prefs_present`). Y solo DIRECCIÓN puede tocarlo: decidir
+                # de quién es cada tarea no es editar tus datos.
+                if request.form.get("responsibilities_present") and is_master():
+                    profile.admin_responsibilities = _normalize_admin_responsibilities(
+                        request.form.getlist("admin_responsibilities"))
                 _prod_ids = _normalize_assigned_artist_ids(request.form.getlist("assigned_artist_ids_produccion"))
                 _sello_ids = _normalize_assigned_artist_ids(request.form.getlist("assigned_artist_ids_sello"))
                 _union_ids = []

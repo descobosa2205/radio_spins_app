@@ -297,6 +297,39 @@ document.addEventListener('click', function (ev) {
 </div>
 {% endif %}
 
+{# Tareas de administración que le tocan a esta persona: las de sus responsabilidades, más las que
+   no tienen responsable asignado (nada se pierde). Quien no tenga reparto propio las ve todas. #}
+{% if HOME_ADMIN_PENDING %}
+<div class="card mb-4 border-danger">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <div>
+        <h5 class="mb-0"><i class="fa fa-list-check text-danger me-2"></i>Tareas pendientes · Administración</h5>
+        <div class="small text-muted">Lo que te toca a ti. Pincha en cada bloque para ir directo.</div>
+      </div>
+      <span class="badge text-bg-danger">{{ HOME_ADMIN_PENDING|sum(attribute='count') }}</span>
+    </div>
+    <div class="row g-3">
+      {% for row in HOME_ADMIN_PENDING %}
+        <div class="col-6 col-md-4 col-xl-3">
+          <a href="{{ row.url }}" class="card h-100 text-decoration-none text-reset">
+            <div class="card-body d-flex align-items-center gap-3">
+              <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-danger-subtle flex-shrink-0" style="width:42px;height:42px;">
+                <i class="fa {{ row.icon }} text-danger"></i>
+              </span>
+              <div style="min-width:0;">
+                <div class="fw-semibold fs-5 lh-1">{{ row.count }}</div>
+                <div class="small text-muted text-truncate">{{ row.label }}</div>
+              </div>
+            </div>
+          </a>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% if HOME_ADMIN_ALTAS_PENDING %}
 <div class="card mb-4 border-danger">
   <div class="card-body">

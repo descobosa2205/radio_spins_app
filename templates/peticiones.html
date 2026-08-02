@@ -34,28 +34,29 @@
   {% if booking_rows %}
     <div class="list-group list-group-flush">
       {% for r in booking_rows %}
+      {# Misma forma que el módulo de tareas: identidad arriba, etiquetas abajo, y cada petición
+         enmarcada para que se distinga de la siguiente. #}
       <div class="list-group-item ctask" id="pet-{{ r.id }}">
-        <span class="ctask__kind"><span class="badge {{ r.status_badge }}">{{ r.status_label }}</span></span>
-        <span class="ctask__who">
+        <div class="ctask__head">
           {% if r.artist_id %}
             {{ artist_avatar(r.artist_photo, r.artist_name) }}
           {% else %}
             <span class="ctask__noart"><i class="fa fa-inbox text-muted"></i></span>
           {% endif %}
-          <a class="text-reset text-decoration-none text-truncate fw-semibold stretched-link"
+          <a class="ctask__subject text-truncate text-reset text-decoration-none stretched-link"
              href="{{ url_for('booking_request_detail_view', rid=r.id, next=request.full_path) }}"
-             title="Abrir la ficha de la petición">{{ r.subject or r.artist_name or 'Petición sin título' }}</a>
-        </span>
-        {% if r.subject and r.artist_name %}<span class="text-muted text-truncate d-none d-md-inline">{{ r.artist_name }}</span>{% endif %}
-        <span class="ctask__meta">
-          {% if r.date_label %}<span><i class="fa fa-calendar-day me-1"></i>{{ r.date_label }}</span>{% endif %}
-          {% if r.municipality or r.province %}<span class="d-none d-lg-inline"><i class="fa fa-location-dot me-1"></i>{{ [r.municipality, r.province]|select|join(', ') }}</span>{% endif %}
-          {% if r.fee_text %}<span><i class="fa fa-euro-sign me-1"></i>{{ r.fee_text }}</span>{% endif %}
-          {% if r.contact_name %}<span class="d-none d-xl-inline"><i class="fa fa-user me-1"></i>{{ r.contact_name }}</span>{% endif %}
-          {% if r.notes %}<span class="d-none d-xl-inline text-truncate" style="max-width:220px;" title="{{ r.notes }}"><i class="fa fa-note-sticky me-1"></i>{{ r.notes }}</span>{% endif %}
-          {% if r.status == 'DESCARTADA' and r.rejection_reason %}<span class="text-danger"><i class="fa fa-ban me-1"></i>{{ r.rejection_reason }}</span>{% endif %}
+             title="Abrir la ficha de la petición">{{ r.artist_name or r.subject or 'Petición sin título' }}</a>
+          <span class="ctask__facts">
+            <span class="ctask__fact"><i class="fa fa-inbox"></i>Petición</span>
+            {% if r.date_label %}<span class="ctask__fact"><i class="fa fa-calendar-day"></i>{{ r.date_label }}</span>{% endif %}
+            {% if r.subject and r.artist_name %}<span class="ctask__fact"><i class="fa fa-signature"></i>{{ r.subject }}</span>{% endif %}
+            {% if r.municipality %}<span class="ctask__fact"><i class="fa fa-location-dot"></i>{{ r.municipality }}</span>{% endif %}
+            {% if r.province %}<span class="ctask__fact"><i class="fa fa-map"></i>{{ r.province }}</span>{% endif %}
+            {% if r.fee_text %}<span class="ctask__fact"><i class="fa fa-euro-sign"></i>{{ r.fee_text }}</span>{% endif %}
+            {% if r.contact_name %}<span class="ctask__fact d-none d-xl-inline-flex"><i class="fa fa-user"></i>{{ r.contact_name }}</span>{% endif %}
+          </span>
           {% if CAN_EDIT_CONCERTS %}
-          <span class="dropdown ctask__actions">
+          <span class="dropdown ctask__actions ms-auto">
             <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
             <ul class="dropdown-menu dropdown-menu-end">
               <li><button type="button" class="dropdown-item" data-booking-edit
@@ -83,7 +84,12 @@
             </ul>
           </span>
           {% endif %}
-        </span>
+        </div>
+        <div class="ctask__tasks">
+          <span class="badge {{ r.status_badge }}">{{ r.status_label }}</span>
+          {% if r.notes %}<span class="badge text-bg-light border text-truncate" style="max-width:340px;" title="{{ r.notes }}"><i class="fa fa-note-sticky me-1"></i>{{ r.notes }}</span>{% endif %}
+          {% if r.status == 'DESCARTADA' and r.rejection_reason %}<span class="badge text-bg-danger"><i class="fa fa-ban me-1"></i>{{ r.rejection_reason }}</span>{% endif %}
+        </div>
       </div>
       {% endfor %}
     </div>

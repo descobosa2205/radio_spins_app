@@ -1727,20 +1727,48 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
   .contract-tabs .nav-link { padding: .5rem .7rem; }
 }
 
-/* Filas del módulo «Tareas pendientes» (mismo lenguaje que tenía el módulo de peticiones) */
-.ctask { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
-/* Las etiquetas de las tareas de una actividad, a ancho fijo y apiladas: así los nombres de todas
-   las filas quedan alineados aunque una actividad tenga varias cosas pendientes. */
-.ctask__kind { flex-shrink: 0; display: flex; flex-wrap: wrap; gap: .25rem; }
-@media (min-width: 992px) { .ctask__kind { min-width: 205px; max-width: 260px; } }
-.ctask__who { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+/* -------------------------------------------------------------------------
+   Módulo «Tareas pendientes»: cada ACTIVIDAD ocupa DOS filas y va enmarcada.
+     · Arriba, su identidad: de quién es (foto), qué es, cuándo, cómo se llama y dónde.
+     · Abajo, sus tareas como etiquetas.
+   El marco y el fondo alterno son lo que hace que, al ver varias seguidas, se vea dónde acaba
+   una actividad y empieza la siguiente (antes era una lista continua imposible de separar).
+   ------------------------------------------------------------------------- */
+/* ⚠️ El selector lleva `.list-group-flush >` a propósito: Bootstrap pone
+   `.list-group-flush > .list-group-item { border-width: 0 }` y, con solo `.ctask`, gana Bootstrap
+   y las filas se quedan SIN marco (que es justo lo que hace falta para distinguirlas). */
+.ctask,
+.list-group-flush > .ctask.list-group-item {
+  display: block; padding: .7rem .85rem; margin: .35rem .5rem; border-radius: 12px;
+  border: 1px solid var(--line-2); background: #fff;
+}
+.ctask:nth-of-type(even),
+.list-group-flush > .ctask.list-group-item:nth-of-type(even) { background: #fafbfd; }
+.ctask:hover,
+.list-group-flush > .ctask.list-group-item:hover {
+  border-color: var(--brand-accent); background: rgba(0,124,162,.05);
+  box-shadow: 0 1px 6px rgba(16,24,40,.06);
+}
+.ctask + .ctask { margin-top: .45rem; }
+
+.ctask__head { display: flex; align-items: center; gap: .55rem; min-width: 0; }
+.ctask__subject { font-weight: 700; color: var(--ink); flex-shrink: 0; max-width: 34%; }
+.ctask__facts {
+  display: flex; align-items: center; gap: .9rem; flex-wrap: wrap; min-width: 0;
+  color: var(--muted-2); font-size: .86rem;
+}
+.ctask__fact { display: inline-flex; align-items: center; gap: .3rem; white-space: nowrap; }
+.ctask__fact i { color: var(--brand-accent); opacity: .85; width: 1em; text-align: center; }
+.ctask__go { margin-left: auto; color: var(--muted-2); flex-shrink: 0; }
+.ctask__tasks { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .5rem; padding-left: 2.4rem; }
 .ctask__noart {
   display: inline-flex; align-items: center; justify-content: center;
   width: 32px; height: 32px; border-radius: 50%; background: #f1f4f8; border: 1px solid var(--line-2);
+  flex-shrink: 0;
 }
-.ctask__meta {
-  margin-left: auto; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
-  color: var(--muted-2); font-size: .875rem;
+@media (max-width: 767.98px) {
+  .ctask__subject { max-width: 100%; }
+  .ctask__tasks { padding-left: 0; }
 }
 /* Los botones de la fila van POR ENCIMA del enlace que cubre toda la fila (`stretched-link`) */
 .ctask__actions { position: relative; z-index: 2; }

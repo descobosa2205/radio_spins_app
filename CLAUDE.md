@@ -450,8 +450,16 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (sin artistas asignados, o dirección, se ve todo). Una actividad que sale en dos pestañas (p. ej.
   un concierto de un ciclo) genera la tarea en las dos: `_contracting_activity_tabs`.
   **Una fila por ACTIVIDAD, con TODAS sus tareas dentro** (`row["tasks"]`,
-  `_contracting_task_badge`): si a un concierto le faltan el contrato, el anuncio y mandarlo a
-  producción se ve en una sola línea, no en tres. El NÚMERO sigue contando tareas, no filas.
+  `_contracting_task_badge`): el NÚMERO sigue contando tareas, no filas. Cada actividad ocupa
+  **DOS líneas** y va **enmarcada** (`.ctask`, con fondo alterno) para que al ver varias seguidas se
+  distinga dónde acaba una: arriba la IDENTIDAD en este orden —de quién es (artista o EVENTO, con su
+  foto) · qué es (con icono de `QUAD_ACTIVITY_ICONS`) · fecha · nombre del festival si lo hay ·
+  municipio · provincia · recinto—, y abajo sus tareas como etiquetas. `templates/peticiones.html`
+  usa la misma forma. ⚠️ En una actividad de EVENTO manda el **evento** (nombre y logo), no el
+  artista espejo; los eventos se cargan de golpe, no uno por fila.
+  ⚠️ El CSS del marco lleva `.list-group-flush > .ctask.list-group-item` a propósito: Bootstrap pone
+  `border-width: 0` en los items de una lista «flush» y con solo `.ctask` gana Bootstrap — las filas
+  se quedaban sin marco, que es justo lo que se quería arreglar.
   **Cada pestaña se abre con el módulo «Tareas pendientes»** (`templates/_contracting_tasks.html`,
   clases `.ctask*`), con la estética que tenía el módulo de peticiones (tarjeta + filas de lista);
   **debajo** va el filtro propio de la pestaña con su número: artistas (Conciertos y Otras

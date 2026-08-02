@@ -44736,14 +44736,20 @@ def _contracting_task_badge(kind: str) -> dict:
     return {"kind": kind, "label": label, "icon": icon, "badge": badge, "order": order}
 
 
-def _contracting_task_row(c, kind: str, payment: dict | None = None) -> dict:
-    """Una fila del módulo de tareas: quién, cuándo, dónde y a dónde se va a resolverla."""
+def _contracting_task_row(c, kind: str, payment: dict | None = None, event=None) -> dict:
+    """Una fila del módulo de tareas.
+
+    La cabecera es la IDENTIDAD de la actividad, en este orden: de quién es (artista o EVENTO, con
+    su foto), qué es (concierto, acto promocional…), cuándo, cómo se llama (si es un festival) y
+    dónde (municipio, provincia y recinto). Debajo van sus tareas.
+    ⚠️ Si la actividad es de un EVENTO manda el evento, no el artista ESPEJO (`Artist.event_id`),
+    que es un apaño interno y no debe verse.
+    """
     label, icon, badge, order = CONTRACTING_TASK_META.get(
         kind, ("Pendiente", "fa-circle-exclamation", "text-bg-light border", 9))
     art = getattr(c, "artist", None)
     venue = getattr(c, "venue", None)
-    place = ((getattr(venue, "name", None) or "") or (getattr(c, "manual_venue_name", None) or "")
-             or (getattr(c, "manual_municipality", None) or ""))
+    es_evento = bool(event)
     if kind == "PRODUCTION":
         url = url_for("concert_detail_view", cid=c.id, tab="produccion")
     elif kind in ("INVOICE", "COLLECT"):
@@ -44754,20 +44760,38 @@ def _contracting_task_row(c, kind: str, payment: dict | None = None) -> dict:
     if payment:
         extra = " · ".join([x for x in [(payment.get("concept") or "").strip(),
                                         format_eur(payment.get("amount"))] if x])
+    act = (getattr(c, "activity_type", None) or "").strip().upper()
+    act_key = QUAD_ACTIVITY_ALIASES.get(act, act if act in QUAD_ACTIVITY_LABELS else "CONCIERTO")
     return {
         "kind": kind, "label": label, "icon": icon, "badge": badge, "order": order,
         "id": str(c.id),
-        "title": (getattr(c, "festival_name", None) or "").strip(),
-        "activity_label": QUAD_ACTIVITY_LABELS.get(
-            (getattr(c, "activity_type", None) or "").strip().upper(), "Concierto"),
-        "artist_id": (str(c.artist_id) if getattr(c, "artist_id", None) else ""),
-        "artist_name": (getattr(art, "name", None) or ""),
-        "artist_photo": (getattr(art, "photo_url", None) or ""),
+        # --- De quién es (con su foto): el EVENTO si lo hay, si no el artista ---
+        "subject_name": ((getattr(event, "name", None) or "") if es_evento
+                         else (getattr(art, "name", None) or "")),
+        "subject_photo": ((getattr(event, "logo_url", None) or "") if es_evento
+                          else (getattr(art, "photo_url", None) or "")),
+        "subject_id": (str(getattr(event, "id", "")) if es_evento
+                       else (str(c.artist_id) if getattr(c, "artist_id", None) else "")),
+        "is_event": es_evento,
+        # --- Qué es ---
+        "activity_label": QUAD_ACTIVITY_LABELS.get(act_key, "Concierto"),
+        "activity_icon": QUAD_ACTIVITY_ICONS.get(act_key, "fa-guitar"),
+        # --- Cuándo ---
         "date": getattr(c, "date", None),
         "date_label": (c.date.strftime("%d/%m/%Y") if getattr(c, "date", None) else ""),
-        "place": place,
+        # --- Cómo se llama y dónde ---
+        "festival_name": (getattr(c, "festival_name", None) or "").strip(),
+        "municipality": ((getattr(venue, "municipality", None) or "")
+                         or (getattr(c, "manual_municipality", None) or "")).strip(),
+        "province": ((getattr(venue, "province", None) or "")
+                     or (getattr(c, "manual_province", None) or "")).strip(),
+        "venue_name": ((getattr(venue, "name", None) or "")
+                       or (getattr(c, "manual_venue_name", None) or "")).strip(),
         "extra": extra,
         "url": url,
+        # Compatibilidad con lo que ya leía la plantilla.
+        "artist_name": (getattr(art, "name", None) or ""),
+        "title": (getattr(c, "festival_name", None) or "").strip(),
     }
 
 
@@ -44798,6 +44822,11 @@ def _contracting_tasks_data() -> dict:
                  .all())
         vivas = [c for c in vivas if _visible(c)]
         ids = [c.id for c in vivas]
+        # Los EVENTOS de golpe: en la fila manda el evento, no el artista espejo.
+        eventos = {}
+        _ev_ids = {c.event_id for c in vivas if getattr(c, "event_id", None)}
+        if _ev_ids:
+            eventos = {e.id: e for e in session_db.query(AppEvent).filter(AppEvent.id.in_(_ev_ids)).all()}
         con_contrato, con_bolsa = set(), set()
         if ids:
             con_contrato = {r[0] for r in session_db.query(ConcertContract.concert_id)
@@ -44822,7 +44851,7 @@ def _contracting_tasks_data() -> dict:
             # Una sola fila por ACTIVIDAD, con TODAS sus tareas dentro: si a un concierto le faltan
             # el contrato, el anuncio y mandarlo a producción, se ve de un vistazo en una línea en
             # vez de repetir la misma actividad tres veces.
-            row = _contracting_task_row(c, kinds[0])
+            row = _contracting_task_row(c, kinds[0], event=eventos.get(getattr(c, "event_id", None)))
             row["tasks"] = [_contracting_task_badge(k) for k in kinds]
             for t in tabs:
                 by_tab.setdefault(t, []).append(row)
@@ -44837,12 +44866,17 @@ def _contracting_tasks_data() -> dict:
                          .all())
         except Exception:
             con_pagos = []
+        _ev_pagos = {c.event_id for c in con_pagos if getattr(c, "event_id", None)}
+        if _ev_pagos:
+            for e in session_db.query(AppEvent).filter(AppEvent.id.in_(_ev_pagos)).all():
+                eventos[e.id] = e
         for c in con_pagos:
             if not _visible(c):
                 continue
             for p in _concert_payment_rows(c, pending_only=True):
                 kind = "INVOICE" if (p.get("status") or "") == "PENDING_INVOICE" else "COLLECT"
-                fila = _contracting_task_row(c, kind, payment=p)
+                fila = _contracting_task_row(c, kind, payment=p,
+                                             event=eventos.get(getattr(c, "event_id", None)))
                 fila["tasks"] = [_contracting_task_badge(kind)]
                 by_tab["facturacion"].append(fila)
 
@@ -44873,6 +44907,18 @@ def _contracting_tasks_data() -> dict:
                 "place": " · ".join([x for x in [row.get("municipality"), row.get("province")] if x]),
                 "extra": (row.get("fee_text") or ""),
                 "url": url_for("booking_request_detail_view", rid=r.id),
+            })
+            row.update({
+                "subject_name": row.get("artist_name") or "",
+                "subject_photo": row.get("artist_photo") or "",
+                "subject_id": row.get("artist_id") or "",
+                "is_event": False,
+                "activity_label": "Petición",
+                "activity_icon": "fa-inbox",
+                "festival_name": (row.get("subject") or ""),
+                "municipality": (row.get("municipality") or ""),
+                "province": (row.get("province") or ""),
+                "venue_name": "",
             })
             row["tasks"] = [{"kind": "REQUEST", "label": row["label"], "icon": icon,
                              "badge": row["badge"]}]

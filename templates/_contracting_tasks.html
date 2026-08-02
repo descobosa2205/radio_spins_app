@@ -19,28 +19,34 @@
 {% set _more_id = 'ctasks-more-' ~ (contracting_tab|replace('-', '')) %}
 
 {% macro _task_row(t) -%}
+  {# Cada actividad ocupa DOS filas y va enmarcada, para que al ver varias seguidas se distinga
+     dónde acaba una y empieza la siguiente.
+       · Arriba, la identidad: de quién es (con su foto), qué es, cuándo, cómo se llama y dónde.
+       · Abajo, todas sus tareas pendientes como etiquetas. #}
   <a class="list-group-item list-group-item-action ctask" href="{{ t.url }}">
-    {# Todas las tareas de esta actividad, juntas: así no se repite la misma fila varias veces. #}
-    <span class="ctask__kind">
-      {% for k in (t.tasks or [{'badge': t.badge, 'icon': t.icon, 'label': t.label}]) %}
-        <span class="badge {{ k.badge }}"><i class="fa {{ k.icon }} me-1"></i>{{ k.label }}</span>
-      {% endfor %}
-    </span>
-    <span class="ctask__who">
-      {% if t.artist_photo or t.artist_name %}
-        {{ artist_avatar(t.artist_photo, t.artist_name) }}
+    <div class="ctask__head">
+      {% if t.subject_photo or t.subject_name %}
+        {{ artist_avatar(t.subject_photo, t.subject_name) }}
       {% else %}
         <span class="ctask__noart"><i class="fa fa-inbox text-muted"></i></span>
       {% endif %}
-      <span class="text-truncate fw-semibold">{{ t.artist_name or t.title or t.activity_label }}</span>
-    </span>
-    {% if t.title and t.artist_name %}<span class="text-muted text-truncate d-none d-md-inline">{{ t.title }}</span>{% endif %}
-    <span class="ctask__meta">
-      {% if t.date_label %}<span><i class="fa fa-calendar-day me-1"></i>{{ t.date_label }}</span>{% endif %}
-      {% if t.place %}<span class="d-none d-lg-inline"><i class="fa fa-location-dot me-1"></i>{{ t.place }}</span>{% endif %}
-      {% if t.extra %}<span><i class="fa fa-euro-sign me-1"></i>{{ t.extra }}</span>{% endif %}
-      <i class="fa fa-chevron-right"></i>
-    </span>
+      <span class="ctask__subject text-truncate">{{ t.subject_name or t.activity_label }}</span>
+      <span class="ctask__facts">
+        <span class="ctask__fact"><i class="fa {{ t.activity_icon or 'fa-guitar' }}"></i>{{ t.activity_label }}</span>
+        {% if t.date_label %}<span class="ctask__fact"><i class="fa fa-calendar-day"></i>{{ t.date_label }}</span>{% endif %}
+        {% if t.festival_name %}<span class="ctask__fact"><i class="fa fa-signature"></i>{{ t.festival_name }}</span>{% endif %}
+        {% if t.municipality %}<span class="ctask__fact"><i class="fa fa-location-dot"></i>{{ t.municipality }}</span>{% endif %}
+        {% if t.province %}<span class="ctask__fact"><i class="fa fa-map"></i>{{ t.province }}</span>{% endif %}
+        {% if t.venue_name %}<span class="ctask__fact"><i class="fa fa-location-pin"></i>{{ t.venue_name }}</span>{% endif %}
+        {% if t.extra %}<span class="ctask__fact"><i class="fa fa-euro-sign"></i>{{ t.extra }}</span>{% endif %}
+      </span>
+      <i class="fa fa-chevron-right ctask__go"></i>
+    </div>
+    <div class="ctask__tasks">
+      {% for k in (t.tasks or [{'badge': t.badge, 'icon': t.icon, 'label': t.label}]) %}
+        <span class="badge {{ k.badge }}"><i class="fa {{ k.icon }} me-1"></i>{{ k.label }}</span>
+      {% endfor %}
+    </div>
   </a>
 {%- endmacro %}
 

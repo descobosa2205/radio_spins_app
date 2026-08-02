@@ -33,9 +33,12 @@
 #     devuelven `code`, `invoice_date`, `price_details` y el detalle del trayecto; el único campo con
 #     pinta de documento es `invoice_date`, que es una fecha. `journey/{id}` tampoco: su `public_url`
 #     es el seguimiento en vivo del viaje, no un recibo. La factura FISCAL es la mensual que Cabify
-#     emite a la empresa. Por eso el justificante por viaje lo generamos nosotros
-#     (`_cabify_receipt_pdf` en app.py). `sale_receipt_url()` rebusca el documento —también anidado—
-#     por si el esquema crece: el día que aparezca se adjunta ese y se deja de generar el nuestro.
+#     emite a la empresa, y los recibos por viaje se descargan del PORTAL de Cabify Empresas, no de
+#     la API. Comprobado también en el ÍNDICE COMPLETO de su referencia: no hay ningún endpoint de
+#     documento. **La app NO fabrica ningún PDF**: hacerlo sería colgar del gasto un papel que Cabify
+#     no ha emitido. El gasto entra sin factura y quien lo tenga la sube desde «Mis gastos» (o pide
+#     que se acepte sin ella). `sale_receipt_url()` rebusca el documento —también anidado— por si el
+#     esquema crece: el día que aparezca se adjunta ESE, y no hay nada más que tocar.
 #   · Un VIAJE puede generar VARIAS ventas: el trayecto y sus SUPLEMENTOS (espera, peaje, limpieza).
 #     Se agrupan por `journey_id` para que en «Mis gastos» salga un gasto por viaje con el total, y
 #     no una línea por suplemento.

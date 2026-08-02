@@ -1105,21 +1105,20 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `name`), **no** de una lista de paradas — `stops` queda solo como respaldo; `tax_rate` puede venir en
   % o en fracción y `parse_sale` lo normaliza. La **etiqueta** del viaje (`charge_code`) se guarda en
   `pleo_tags` para que se pinte igual que las de Pleo.
-  ⚠️ **JUSTIFICANTE POR VIAJE: lo generamos nosotros.** La API NO expone ningún PDF —verificado
-  (ago 2026) contra el esquema PUBLICADO de los tres endpoints que podrían traerlo: `sales`,
-  `user/{id}/sales` y `journey/{id}/sales` solo devuelven `code`, `invoice_date`, `price_details` y
-  el trayecto; `journey/{id}` tiene `public_url`, que es el seguimiento en vivo, no un recibo—, así
-  que `_cabify_receipt_pdf` + `_cabify_attach_receipt` (app.py) crean un **justificante de viaje** en
-  el estilo de la casa y lo suben a Storage `cabify/` → `PersonalExpense.file_url`. **NO es la
-  factura fiscal** (esa es la mensual que Cabify emite a la empresa); el pie del PDF lo dice.
-  `CabifyClient.sale_receipt_url` rebusca el documento **también anidado** (objetos y listas): el día
-  que Cabify lo publique se adjunta ese y se deja de generar el nuestro, sin tocar nada más.
-  ⚠️ **Los viajes ANTIGUOS no los rescata el sondeo**: solo mira una ventana móvil de días, así que
-  lo importado antes de que existiera el justificante nunca se vuelve a visitar y se quedaba con el
-  semáforo de factura en rojo para siempre. Para eso está **`_cabify_backfill_receipts`** (repasa
-  TODOS los que no tienen `file_url`, sin ventana y sin llamar a la API: reconstruye el documento con
-  lo ya guardado), que corre en el **arranque** con tope de 300 y marca `AppSetting`
-  (`_cabify_backfill_receipts_bg`) y tiene botón propio en Integraciones → Cabify.
+  ⚠️ **LA APP NO FABRICA NINGÚN JUSTIFICANTE.** La API de Cabify **no expone el PDF del viaje**:
+  verificado (ago 2026) contra el esquema publicado de `sales`, `user/{id}/sales` y
+  `journey/{id}/sales` —solo `code`, `invoice_date`, `price_details` y el trayecto; el `public_url`
+  de `journey/{id}` es el seguimiento en vivo— y contra el **índice completo** de su referencia, que
+  no tiene ningún endpoint de documento. En su vocabulario «receipt» ES la venta (los datos); los
+  recibos por viaje se bajan del **portal de Cabify Empresas**, no de la API.
+  Hubo una versión que generaba un PDF propio y lo colgaba como si fuera el justificante de Cabify:
+  **eso se retiró** (`_cabify_purge_fake_receipts` los desengancha y los borra de Storage; corre una
+  vez en el arranque con marca `AppSetting` y tiene botón en Integraciones → Cabify). Un gasto de
+  Cabify entra **sin factura**, con su semáforo en rojo, y quien lo tenga la sube desde «Mis gastos»
+  o pide que se acepte sin ella. `CabifyClient.sale_receipt_url` rebusca el documento **también
+  anidado**: el día que Cabify lo sirva se adjunta ESE y no hay nada más que tocar.
+  ⚠️ Al borrar solo se tocan los `file_url` que apuntan a la carpeta **`cabify/`** de nuestro bucket
+  (los que generaba la app); una factura subida a mano vive en otra carpeta y se respeta.
   ⚠️ **Un VIAJE puede generar VARIAS ventas** (el trayecto y sus SUPLEMENTOS: espera, peaje,
   limpieza). Se agrupan por `journey_id` → **un gasto por viaje** con el total sumado
   (`PersonalExpense.cabify_journey_id` + `cabify_sale_codes`, que evita sumar dos veces el mismo

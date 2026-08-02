@@ -38404,12 +38404,10 @@ def _bootstrap_schema_bg():
     # convertiría en EVENTO las giras y ciclos legítimos de un evento creados después.
     _safe_ensure(lambda: globals()["_cycle_festival_event_kind_repair"](),
                  "_cycle_festival_event_kind_repair")
-    # Los viajes de Cabify que se importaron sin justificante se lo llevan aquí: el sondeo solo mira
-    # una ventana de días y nunca vuelve a visitarlos. Va con TOPE por arranque (cada PDF se sube a
-    # Storage) y solo se da por terminado cuando no queda ninguno; el botón de Integraciones fuerza
-    # el resto. Corre en el hilo de arranque, así que no retrasa el puerto.
-    _safe_ensure(lambda: globals()["_cabify_backfill_receipts_bg"](),
-                 "_cabify_backfill_receipts_bg")
+    # Una sola vez: quitar los PDF que la app se fabricaba y hacía pasar por justificante de Cabify.
+    # No eran documentos de Cabify: se desenganchan del gasto y se borran de Storage.
+    _safe_ensure(lambda: globals()["_cabify_purge_fake_receipts_bg"](),
+                 "_cabify_purge_fake_receipts_bg")
 
 # En el host «solo CalDAV» NO tocamos el esquema de producción (ya lo mantiene el host principal):
 # nos limitamos a leer/escribir notas de agenda. Por eso se salta este arranque de DDL.
@@ -53368,173 +53366,6 @@ def _cabify_client(acc):
     return CabifyClient(acc.client_id or "", acc.client_secret or "", acc.base_url or None)
 
 
-def _cabify_dt_label(raw: str) -> str:
-    """«2026-07-20T09:30:34.831Z» → «20/07/2026 11:30» (hora de Madrid)."""
-    txt = (raw or "").strip()
-    if not txt:
-        return ""
-    try:
-        momento = datetime.fromisoformat(txt.replace("Z", "+00:00"))
-    except ValueError:
-        return txt[:16].replace("T", " ")
-    try:
-        momento = momento.astimezone(TZ_MADRID)
-    except Exception:
-        pass
-    return momento.strftime("%d/%m/%Y %H:%M")
-
-
-def _cabify_receipt_pdf(datos: dict, person_name: str, company) -> bytes:
-    """Justificante de UN viaje de Cabify, con todo su detalle fiscal, en el estilo de la casa.
-
-    ⚠️ Qué es y qué NO es: la API de Cabify **no expone** el PDF de cada viaje (lo he comprobado
-    endpoint por endpoint: `sales`, `user/{id}/sales` y `journey/{id}/sales` devuelven el detalle
-    económico, ningún documento). La factura FISCAL de estos viajes es la mensual que Cabify emite a
-    la empresa del grupo. Este documento es el JUSTIFICANTE del viaje: lleva el nº de venta, la
-    fecha, el trayecto, la persona, la etiqueta y el desglose de base/IVA/total, que es lo que hace
-    falta para imputar el gasto a su bolsa y para cuadrarlo con la factura mensual. Lo dice en el
-    pie, para que nadie lo confunda con una factura.
-    """
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.units import mm
-    from reportlab.lib import colors
-    from reportlab.lib.utils import ImageReader
-    from reportlab.pdfbase.pdfmetrics import stringWidth
-    from reportlab.pdfgen import canvas
-
-    BRAND = colors.HexColor("#E33D48")
-    GREY = colors.HexColor("#6b7683")
-    page_w, page_h = A4
-    margin = 16 * mm
-    buf = BytesIO()
-    pdf = canvas.Canvas(buf, pagesize=A4)
-    pdf.setTitle(f"Justificante de viaje {datos.get('code') or ''}".strip())
-
-    # ---- Logo de la empresa del grupo, arriba a la DERECHA (estilo de casa) ----
-    logo = None
-    url_logo = (getattr(company, "logo_url", "") or "").strip()
-    if url_logo.lower().startswith("http"):
-        try:
-            import urllib.request
-            logo = ImageReader(BytesIO(urllib.request.urlopen(url_logo, timeout=6).read()))
-        except Exception:
-            logo = None
-    y = page_h - margin
-    if logo is not None:
-        try:
-            iw, ih = logo.getSize()
-            alto = 16 * mm
-            ancho = min(alto * (iw / float(ih or 1)), 55 * mm)
-            pdf.drawImage(logo, page_w - margin - ancho, y - alto, width=ancho, height=alto,
-                          mask="auto", preserveAspectRatio=True)
-        except Exception:
-            pass
-
-    # ---- Título centrado ----
-    pdf.setFillColor(colors.HexColor("#212529"))
-    pdf.setFont("Helvetica-Bold", 17)
-    pdf.drawCentredString(page_w / 2, y - 12 * mm, "Justificante de viaje")
-    pdf.setFont("Helvetica", 9.5)
-    pdf.setFillColor(GREY)
-    sub = "Cabify"
-    if datos.get("code"):
-        sub += f" · nº {datos['code']}"
-    if getattr(company, "name", ""):
-        sub += f" · {company.name}"
-    pdf.drawCentredString(page_w / 2, y - 18 * mm, sub)
-    y = y - 26 * mm
-
-    # ---- Pastillas de datos ----
-    pastillas = []
-    # Fecha SIEMPRE en formato de España: primero el día, luego el mes y luego el año.
-    fecha = (datos.get("trip_date") or datos.get("invoice_date") or "")[:10]
-    if fecha:
-        try:
-            pastillas.append("Fecha: " + date.fromisoformat(fecha).strftime("%d/%m/%Y"))
-        except ValueError:
-            pastillas.append("Fecha: " + fecha)
-    if person_name:
-        pastillas.append("Pasajero: " + person_name)
-    if datos.get("charge_code"):
-        pastillas.append("Etiqueta: " + datos["charge_code"])
-    if datos.get("region"):
-        pastillas.append("Ciudad: " + datos["region"].title())
-    x, fila_h = margin, 15.0
-    for texto in pastillas:
-        ancho = stringWidth(texto, "Helvetica", 8.5) + 14
-        if x + ancho > page_w - margin:
-            x, y = margin, y - (fila_h + 5)
-        pdf.setFillColor(colors.HexColor("#f6f8fa"))
-        pdf.setStrokeColor(colors.HexColor("#c9d2dc"))
-        pdf.roundRect(x, y - fila_h, ancho, fila_h, 5, stroke=1, fill=1)
-        pdf.setFillColor(colors.HexColor("#212529"))
-        pdf.setFont("Helvetica", 8.5)
-        pdf.drawString(x + 7, y - fila_h + 4.5, texto)
-        x += ancho + 5
-    y -= (fila_h + 12)
-
-    def bloque(titulo, filas):
-        """Rótulo de sección + filas «etiqueta: valor»."""
-        nonlocal y
-        pdf.setFillColor(BRAND)
-        pdf.setFont("Helvetica-Bold", 9)
-        pdf.drawString(margin, y, titulo.upper())
-        y -= 6
-        pdf.setStrokeColor(colors.HexColor("#e6ebf1"))
-        pdf.line(margin, y, page_w - margin, y)
-        y -= 14
-        for etiqueta, valor in filas:
-            if not valor:
-                continue
-            pdf.setFont("Helvetica", 9)
-            pdf.setFillColor(GREY)
-            pdf.drawString(margin, y, etiqueta)
-            pdf.setFont("Helvetica-Bold", 9.5)
-            pdf.setFillColor(colors.HexColor("#212529"))
-            pdf.drawString(margin + 45 * mm, y, str(valor)[:120])
-            y -= 14
-        y -= 8
-
-    # ⚠️ El ORIGEN y el DESTINO son lo primero que hay que ver. NO se pinta la «descripción» de
-    # Cabify: es donde vienen los suplementos (espera, peaje, limpieza…) y ensucia el documento; su
-    # importe ya está sumado en el total.
-    bloque("El viaje", [
-        ("Origen", datos.get("origin_full") or datos.get("origin") or "—"),
-        ("Destino", datos.get("destination_full") or datos.get("destination") or "—"),
-        ("Salida", _cabify_dt_label(datos.get("start_at"))),
-        ("Llegada", _cabify_dt_label(datos.get("end_at"))),
-    ])
-
-    moneda = datos.get("currency") or "EUR"
-    tipo = datos.get("tax_rate") or Decimal("0")
-    _sup = int(datos.get("supplements") or 0)
-    bloque("Importe", [
-        ("Incluye", (f"{_sup} suplemento{'' if _sup == 1 else 's'} del viaje" if _sup else "")),
-        ("Base imponible", f"{_money_or_zero(datos.get('amount_net')):.2f} {moneda}".replace(".", ",")),
-        (f"{datos.get('tax_type') or 'IVA'} ({tipo:g}%)",
-         f"{_money_or_zero(datos.get('amount_tax')):.2f} {moneda}".replace(".", ",")),
-        ("Descuento", (f"{_money_or_zero(datos.get('discount')):.2f} {moneda}".replace(".", ",")
-                       if _money_or_zero(datos.get("discount")) > 0 else "")),
-        ("TOTAL", f"{_money_or_zero(datos.get('amount_gross')):.2f} {moneda}".replace(".", ",")),
-    ])
-
-    # ---- Pie: qué es este documento (y qué no) ----
-    pdf.setFont("Helvetica-Oblique", 7.6)
-    pdf.setFillColor(GREY)
-    pie = [
-        "Justificante del viaje generado con los datos de la API de Cabify (nº de venta, fecha, trayecto e importes).",
-        "La factura fiscal de estos viajes es la factura mensual que Cabify emite a "
-        + ((getattr(company, "name", "") or "la empresa").rstrip(".")) + ".",
-    ]
-    yy = margin + 10
-    for linea in reversed(pie):
-        pdf.drawString(margin, yy, linea)
-        yy += 10
-    pdf.showPage()
-    pdf.save()
-    return buf.getvalue()
-
-
 def _cabify_person_name(session_db, link) -> str:
     """Nombre para el justificante: el de la ficha de la app y, si no hay, el que tiene en Cabify."""
     prof = None
@@ -53552,105 +53383,60 @@ def _cabify_person_name(session_db, link) -> str:
                                  (getattr(link, "last_name", "") or "").strip()] if x]).strip()
 
 
-def _cabify_attach_receipt(datos: dict, person_name: str, company) -> str:
-    """Sube el justificante del viaje a Storage y devuelve su URL ('' si no se pudo)."""
-    try:
-        from supabase_utils import upload_pdf_bytes
-        return upload_pdf_bytes(_cabify_receipt_pdf(datos, person_name, company), "cabify") or ""
-    except Exception as exc:                      # best-effort: el gasto se importa igual
-        app.logger.warning("Cabify: no se pudo generar el justificante de %s: %s",
-                           datos.get("code") or "?", exc)
-        return ""
+CABIFY_FAKE_RECEIPTS_PURGE_KEY = "cabify_fake_receipts_purge_v1"
+# Carpeta de Storage donde la app dejaba los PDF que se fabricaba. Todo lo que cuelgue de ahí es
+# nuestro invento; una factura subida a mano vive en otra carpeta y NO se toca.
+CABIFY_FAKE_RECEIPT_MARK = "/cabify/"
 
 
-def _cabify_backfill_receipts(session_db, limit: int | None = None) -> dict:
-    """Le pone su justificante a TODOS los gastos de Cabify que se importaron sin él.
+def _cabify_purge_fake_receipts(session_db, limit: int | None = None) -> dict:
+    """Borra los PDF que la app se fabricaba y hacía pasar por justificante de Cabify.
 
-    ⚠️ Por qué hace falta: el sondeo solo mira una ventana móvil de días, así que un viaje que se
-    importó antes de que existiera el justificante (o cuyo PDF falló ese día) **no se vuelve a
-    visitar nunca** y se queda con el semáforo de factura en rojo para siempre. Esto los repasa
-    todos, sin ventana y sin llamar a la API: el documento se reconstruye con lo que ya está
-    guardado del viaje (nº de venta, fecha, trayecto e importes).
+    ⚠️ Aquellos documentos NO eran de Cabify: los generaba la propia app con los datos de la venta.
+    Se quitan del gasto y se borran de Storage. Solo se tocan los `file_url` que apuntan a la
+    carpeta `cabify/` de nuestro bucket: una factura que alguien subiera a mano vive en otra
+    carpeta y se respeta.
     """
-    out = {"revisados": 0, "adjuntados": 0, "fallidos": 0}
-    filas = (session_db.query(PersonalExpense)
-             .filter(PersonalExpense.source == "CABIFY")
-             .filter(or_(PersonalExpense.file_url.is_(None), PersonalExpense.file_url == ""))
-             .order_by(PersonalExpense.expense_date.desc().nullslast()))
+    out = {"revisados": 0, "borrados": 0, "storage": 0}
+    q = (session_db.query(PersonalExpense)
+         .filter(PersonalExpense.source == "CABIFY")
+         .filter(PersonalExpense.file_url.isnot(None))
+         .filter(PersonalExpense.file_url != ""))
     if limit:
-        filas = filas.limit(int(limit))
-    for row in filas.all():
+        q = q.limit(int(limit))
+    for row in q.all():
+        url = (row.file_url or "").strip()
         out["revisados"] += 1
-        # El concepto guardado ya es «dd/mm/aaaa · Origen → Destino» (o solo el trayecto en los
-        # importados con la versión anterior): de ahí se recupera lo que se pueda.
-        concepto = (row.concept or "").strip()
-        trayecto = concepto.split(" · ")[-1] if " · " in concepto else concepto
-        origen, _, destino = trayecto.partition(" → ")
-        etiquetas = [t.get("value") for t in (row.pleo_tags or []) if isinstance(t, dict) and t.get("value")]
-        datos = {
-            "code": (row.cabify_sale_code or row.invoice_number or ""),
-            "currency": (row.currency or "EUR"),
-            "invoice_date": (row.expense_date.isoformat() if row.expense_date else ""),
-            "trip_date": (row.expense_date.isoformat() if row.expense_date else ""),
-            "charge_code": (etiquetas[0] if etiquetas else ""),
-            "region": "", "start_at": "", "end_at": "",
-            "concept": concepto,
-            "origin": origen.strip(), "destination": destino.strip(),
-            "origin_full": origen.strip(), "destination_full": destino.strip(),
-            "amount_gross": _money_or_zero(row.amount_gross),
-            "amount_net": _money_or_zero(row.amount_net),
-            "amount_tax": _money_or_zero(row.amount_tax),
-            "tax_rate": Decimal("0"), "tax_type": "IVA",
-            "discount": Decimal("0"), "receipt_url": "",
-            "supplements": max(0, len(row.cabify_sale_codes or []) - 1),
-        }
-        prof = session_db.query(UserProfile).filter(UserProfile.user_id == row.user_id).first()
-        quien = ((getattr(prof, "nick", "") or "").strip() or _profile_full_name(prof) or "")
-        empresa = None
+        if CABIFY_FAKE_RECEIPT_MARK not in url:
+            continue                      # no es de los nuestros: se deja como está
         try:
-            link = (session_db.query(CabifyUserLink)
-                    .filter(CabifyUserLink.user_id == row.user_id).first())
-            if link is not None:
-                cuenta = session_db.get(CabifyAccount, link.account_id)
-                empresa = session_db.get(GroupCompany, cuenta.group_company_id) if cuenta else None
+            from supabase_utils import delete_object_by_url
+            if delete_object_by_url(url):
+                out["storage"] += 1
         except Exception:
-            empresa = None
-        url = _cabify_attach_receipt(datos, quien, empresa)
-        if url:
-            row.file_url = url
-            row.document_type = row.document_type or "JUSTIFICANTE"
-            out["adjuntados"] += 1
-        else:
-            out["fallidos"] += 1
+            pass                          # que no se pueda borrar el fichero no impide desengancharlo
+        row.file_url = None
+        row.original_name = None
+        if (row.document_type or "").upper() in ("JUSTIFICANTE", "FACTURA"):
+            row.document_type = None
+        out["borrados"] += 1
     session_db.commit()
     return out
 
 
-CABIFY_RECEIPTS_BACKFILL_KEY = "cabify_receipts_backfill_v1"
-CABIFY_BACKFILL_PER_BOOT = 300
-
-
-def _cabify_backfill_receipts_bg():
-    """Repaso de justificantes en el ARRANQUE, con tope y marca (best-effort)."""
-    if (_get_app_setting(CABIFY_RECEIPTS_BACKFILL_KEY) or "").strip() == "done":
+def _cabify_purge_fake_receipts_bg():
+    """Purga de los PDF inventados en el ARRANQUE, con marca (best-effort, una sola vez)."""
+    if (_get_app_setting(CABIFY_FAKE_RECEIPTS_PURGE_KEY) or "").strip() == "done":
         return
     session_db = db()
     try:
-        pendientes = (session_db.query(func.count(PersonalExpense.id))
-                      .filter(PersonalExpense.source == "CABIFY")
-                      .filter(or_(PersonalExpense.file_url.is_(None), PersonalExpense.file_url == ""))
-                      .scalar() or 0)
-        if not pendientes:
-            _set_app_setting(CABIFY_RECEIPTS_BACKFILL_KEY, "done")
-            return
-        out = _cabify_backfill_receipts(session_db, limit=CABIFY_BACKFILL_PER_BOOT)
-        app.logger.info("[cabify] justificantes: %d revisados, %d adjuntados, %d fallidos (quedaban %d)",
-                        out["revisados"], out["adjuntados"], out["fallidos"], pendientes)
-        if pendientes <= CABIFY_BACKFILL_PER_BOOT and not out["fallidos"]:
-            _set_app_setting(CABIFY_RECEIPTS_BACKFILL_KEY, "done")
+        out = _cabify_purge_fake_receipts(session_db)
+        app.logger.info("[cabify] justificantes inventados: %d revisados, %d desenganchados, "
+                        "%d borrados de Storage", out["revisados"], out["borrados"], out["storage"])
+        _set_app_setting(CABIFY_FAKE_RECEIPTS_PURGE_KEY, "done")
     except Exception:
         session_db.rollback()
-        app.logger.exception("[cabify] no se pudo repasar los justificantes")
+        app.logger.exception("[cabify] no se pudieron quitar los justificantes inventados")
     finally:
         session_db.close()
 
@@ -53771,15 +53557,19 @@ def _cabify_sync_account(session_db, acc, since=None, user_ids=None) -> dict:
                     cambiado = True
                 # Los viajes que se importaron sin justificante (o cuyo PDF falló) lo reciben ahora:
                 # así ningún gasto de Cabify se queda con el semáforo de factura en rojo.
-                if not (existe.file_url or "").strip() or cambiado:
-                    url = (datos["receipt_url"] or "").strip() or _cabify_attach_receipt(datos, quien, empresa)
-                    if url:
-                        existe.file_url = url
-                        existe.document_type = "FACTURA" if datos["receipt_url"] else "JUSTIFICANTE"
-                        stats["receipts"] += 1
+                # Si Cabify llega a servir el recibo del viaje, se adjunta ESE. La app NO fabrica
+                # ningún documento: un PDF hecho por nosotros no es el justificante de Cabify.
+                if not (existe.file_url or "").strip() and (datos["receipt_url"] or "").strip():
+                    existe.file_url = datos["receipt_url"].strip()
+                    existe.document_type = "FACTURA"
+                    stats["receipts"] += 1
                 continue
 
-            justificante = (datos["receipt_url"] or "").strip() or _cabify_attach_receipt(datos, quien, empresa)
+            # Solo se adjunta el documento que dé CABIFY. Su API no lo expone hoy (verificado en el
+            # índice completo de su referencia: no hay ningún endpoint de recibo en PDF), así que el
+            # gasto entra SIN factura y quien lo tenga la sube desde «Mis gastos», o pide que se
+            # acepte sin ella. Antes se fabricaba un PDF propio: eso no es un justificante.
+            justificante = (datos["receipt_url"] or "").strip()
             if justificante:
                 stats["receipts"] += 1
             fecha = hoy
@@ -53806,8 +53596,7 @@ def _cabify_sync_account(session_db, acc, since=None, user_ids=None) -> dict:
                         amount_tax=datos["amount_tax"],
                         currency=datos["currency"],
                         invoice_number=principal["code"],
-                        # Lo que se adjunta es NUESTRO justificante mientras Cabify no dé un PDF.
-                        document_type=("FACTURA" if datos["receipt_url"] else "JUSTIFICANTE"),
+                        document_type=("FACTURA" if justificante else None),
                         file_url=(justificante or None),
                         # La etiqueta del viaje (charge code) se guarda como etiqueta del gasto:
                         # es lo que dice a qué actividad iba, y se pinta igual que las de Pleo.
@@ -54000,29 +53789,29 @@ def cabify_account_sync(company_id):
     return redirect(url_for("integrations_view", tab="cabify"))
 
 
-@app.post('/integraciones/cabify/justificantes', endpoint='cabify_backfill_receipts')
+@app.post('/integraciones/cabify/justificantes', endpoint='cabify_purge_fake_receipts')
 @admin_required
-def cabify_backfill_receipts():
-    """Repasa TODOS los gastos de Cabify que se quedaron sin justificante y se lo pone.
+def cabify_purge_fake_receipts():
+    """Quita los PDF que la app se fabricaba y hacía pasar por justificante de Cabify.
 
-    Es lo que rescata los viajes antiguos: el sondeo solo mira una ventana de días, así que lo que
-    se importó antes de que existiera el justificante no se vuelve a visitar nunca."""
+    Los borra de Storage y desengancha el gasto, para que el semáforo diga la verdad: ese viaje NO
+    tiene todavía su factura. Solo toca los ficheros que generó la app; una factura subida a mano se
+    respeta."""
     if not is_master():
         flash("Solo dirección puede hacerlo.", "warning")
         return redirect(url_for("integrations_view", tab="cabify"))
     session_db = db()
     try:
-        out = _cabify_backfill_receipts(session_db)
-        if out["revisados"]:
-            flash(f"Cabify: se han repasado {out['revisados']} viaje(s) sin justificante y se le ha "
-                  f"puesto a {out['adjuntados']}."
-                  + (f" {out['fallidos']} no se pudieron generar." if out["fallidos"] else ""),
-                  "success" if out["adjuntados"] else "warning")
+        out = _cabify_purge_fake_receipts(session_db)
+        if out["borrados"]:
+            flash(f"Cabify: se han quitado {out['borrados']} justificante(s) que generaba la app "
+                  f"({out['storage']} borrado(s) también del almacenamiento). Esos viajes quedan "
+                  "sin factura, que es lo que son.", "success")
         else:
-            flash("Cabify: todos los viajes importados ya tienen su justificante.", "success")
+            flash("Cabify: no queda ningún justificante generado por la app.", "success")
     except Exception as exc:
         session_db.rollback()
-        flash(f"No se pudieron generar los justificantes: {exc}", "danger")
+        flash(f"No se pudieron quitar: {exc}", "danger")
     finally:
         session_db.close()
     return redirect(url_for("integrations_view", tab="cabify"))

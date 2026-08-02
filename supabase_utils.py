@@ -429,3 +429,36 @@ def create_signed_upload_url_for(folder: str, suffix: str) -> dict:
 def public_url_for_key(key: str) -> str:
     """URL pública (limpia, sin el «?» final) de una key ya subida a Storage."""
     return _public_url(supabase_client(), key)
+
+
+def key_from_public_url(url: str) -> str:
+    """De una URL pública de Storage saca su key ('' si no es de nuestro bucket).
+
+    Las URLs públicas son «…/storage/v1/object/public/<bucket>/<key>»: se corta por ahí, para no
+    depender del host (cambió al migrar de región).
+    """
+    texto = (url or "").strip().rstrip("?")
+    if not texto:
+        return ""
+    marca = f"/object/public/{settings.SUPABASE_BUCKET}/"
+    pos = texto.find(marca)
+    if pos < 0:
+        return ""
+    from urllib.parse import unquote
+    return unquote(texto[pos + len(marca):].split("?")[0])
+
+
+def delete_object_by_url(url: str) -> bool:
+    """Borra de Storage el objeto de esa URL pública. Devuelve True si se pudo borrar.
+
+    Best-effort: si la URL no es de nuestro bucket o el borrado falla, devuelve False sin lanzar
+    (quien llama decide qué hacer; nunca debe tumbar un proceso por no poder borrar un fichero).
+    """
+    key = key_from_public_url(url)
+    if not key:
+        return False
+    try:
+        supabase_client().storage.from_(settings.SUPABASE_BUCKET).remove([key])
+        return True
+    except Exception:
+        return False

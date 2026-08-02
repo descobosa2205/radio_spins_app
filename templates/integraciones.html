@@ -341,10 +341,10 @@
                 <form method="post" action="{{ url_for('cabify_account_sync', company_id=row.company.id) }}" class="d-inline">
                   <button class="btn btn-sm btn-outline-secondary" {% if not row.account %}disabled{% endif %}><i class="fa fa-rotate me-1"></i>Sincronizar ahora</button>
                 </form>
-                {# Rescata los viajes antiguos: el sondeo solo mira una ventana de días, así que lo
-                   importado antes de que existiera el justificante no se vuelve a visitar nunca. #}
-                <form method="post" action="{{ url_for('cabify_backfill_receipts') }}" class="d-inline">
-                  <button class="btn btn-sm btn-outline-secondary" title="Le pone su justificante a todos los viajes que se importaron sin él"><i class="fa fa-file-invoice me-1"></i>Poner los justificantes que falten</button>
+                {# La app llegó a fabricarse un PDF por viaje y a colgarlo como si fuera el
+                   justificante de Cabify. No lo era: esto los quita y los borra. #}
+                <form method="post" action="{{ url_for('cabify_purge_fake_receipts') }}" class="d-inline">
+                  <button class="btn btn-sm btn-outline-danger" title="Quita y borra los PDF que generaba la app; esos viajes quedan sin factura, que es lo que son"><i class="fa fa-trash me-1"></i>Quitar los justificantes que generaba la app</button>
                 </form>
               </div>
 

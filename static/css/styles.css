@@ -1971,6 +1971,21 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 .fotos-detail-media__el{ max-width:100%; max-height:74vh; display:block; }
 .fotos-detail-table th{ white-space:nowrap; }
 
+/* Seguimiento de una liquidación de royalties: generación → envío → factura → pago, en orden. */
+.liq-track{ display:flex; flex-direction:column; }
+.liq-step{ display:flex; gap:.85rem; position:relative; padding-bottom:1.1rem; }
+.liq-step:not(:last-child)::before{
+  content:""; position:absolute; left:17px; top:34px; bottom:0; width:2px; background:var(--line-2, rgba(0,0,0,.10));
+}
+.liq-step__dot{
+  width:36px; height:36px; flex:0 0 36px; border-radius:50%; display:inline-flex;
+  align-items:center; justify-content:center; background:#fdECED; color:#E33D48; font-size:.9rem;
+}
+.liq-step__body{ min-width:0; flex:1 1 auto; }
+.liq-fields{ display:grid; grid-template-columns:auto 1fr; gap:.15rem .75rem; margin:.35rem 0 .5rem; }
+.liq-fields dt{ font-weight:500; color:#6c757d; font-size:.85rem; }
+.liq-fields dd{ margin:0; font-size:.9rem; word-break:break-word; }
+
 /* Personas del artista · buscador de terceros con foto (resultados en vivo) */
 .aps__results{ max-height:340px; overflow:auto; }
 .aps__results .dropdown-item{ white-space:normal; }

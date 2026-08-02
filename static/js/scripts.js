@@ -1954,52 +1954,86 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
         alert('Todavía no hay nada que seguir: esta liquidación no se ha generado.');
         return;
       }
-      const put = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt || '—'; };
-      put('royaltyInfoStatus', js.status_label);
-      put('royaltyInfoGeneratedAt', js.generated_at_label);
-      put('royaltyInfoSentAt', js.sent_at_label);
-      put('royaltyInfoInvoiceAt', js.invoice ? js.invoice.uploaded_at_label : '—');
-      put('royaltyInfoPaidAt', js.paid_at_label);
+      /* Se pinta EN ORDEN y seguido —generación, envío, factura y pago— y solo lo que tiene dato:
+         los campos vacíos no salen, y un bloque sin nada que contar tampoco. */
+      const esc = (t) => String(t == null ? '' : t).replace(/[<>&"]/g, (c) => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+      function pintarCampos(id, campos){
+        const dl = document.getElementById(id);
+        if (!dl) return 0;
+        const filas = campos.filter((c) => c && c[1] !== undefined && c[1] !== null && String(c[1]).trim() !== '');
+        dl.innerHTML = filas.map((c) => '<dt>' + esc(c[0]) + '</dt><dd>' + esc(c[1]) + '</dd>').join('');
+        return filas.length;
+      }
+      function mostrarBloque(id, hayAlgo){
+        const el = document.getElementById(id);
+        if (el) el.classList.toggle('d-none', !hayAlgo);
+      }
+      function enlace(id, url){
+        const a = document.getElementById(id);
+        if (!a) return;
+        a.href = url || '#';
+        a.classList.toggle('d-none', !url);
+      }
+
+      const estado = document.getElementById('royaltyInfoStatus');
+      if (estado) estado.textContent = js.status_label || '—';
       const stale = document.getElementById('royaltyInfoStale');
       if (stale) stale.classList.toggle('d-none', !js.needs_regeneration);
-      const recipientsWrap = document.getElementById('royaltyInfoRecipients');
-      if (recipientsWrap) {
-        recipientsWrap.innerHTML = '';
-        (js.sent_to || []).forEach((email) => {
-          const li = document.createElement('li');
-          li.textContent = email;
-          recipientsWrap.appendChild(li);
-        });
-        if (!(js.sent_to || []).length) recipientsWrap.innerHTML = '<li class="text-muted">Todavía no se ha enviado.</li>';
-      }
-      const pdfLink = document.getElementById('royaltyInfoPdfLink');
-      if (pdfLink) {
-        pdfLink.href = js.pdf_url || '#';
-        pdfLink.classList.toggle('disabled', !js.pdf_url);
-      }
-      const genLink = document.getElementById('royaltyInfoGenLink');
-      if (genLink) {
-        genLink.href = js.generated_pdf_url || '#';
-        genLink.classList.toggle('d-none', !js.generated_pdf_url);
-      }
-      const invLink = document.getElementById('royaltyInfoInvoiceLink');
-      if (invLink) {
-        invLink.href = (js.invoice && js.invoice.url) || '#';
-        invLink.classList.toggle('d-none', !(js.invoice && js.invoice.url));
-      }
+
+      // 1 · Generada
+      const nGen = pintarCampos('royaltyGenFields', [
+        ['Fecha', js.generated_at_label],
+        ['Importe', js.total],
+        ['Generada por', js.generated_by],
+        ['Veces generada', (js.generated_times && js.generated_times > 1) ? js.generated_times : ''],
+      ]);
+      enlace('royaltyInfoGenLink', js.generated_pdf_url);
+      mostrarBloque('royaltyStepGenerated', !!(nGen || js.generated_pdf_url));
+
+      // 2 · Enviada
+      const nEnv = pintarCampos('royaltySentFields', [
+        ['Fecha', js.sent_at_label],
+        ['Enviada a', (js.sent_to || []).join(', ')],
+        ['Enviada por', js.sent_by],
+      ]);
+      enlace('royaltyInfoPdfLink', js.pdf_url);
+      mostrarBloque('royaltyStepSent', !!(nEnv || js.pdf_url));
+
+      // 3 · Factura
+      const inv = js.invoice || null;
+      const nFac = pintarCampos('royaltyInvoiceFields', [
+        ['Subida el', inv && inv.uploaded_at_label],
+        ['Nº de factura', inv && inv.number],
+        ['Archivo', inv && inv.name],
+        ['Estado', inv && inv.status],
+      ]);
+      enlace('royaltyInfoInvoiceLink', inv && inv.url);
+      mostrarBloque('royaltyStepInvoice', !!(nFac || (inv && inv.url)));
+
+      // 4 · Pago
+      const nPago = pintarCampos('royaltyPaidFields', [
+        ['Fecha', js.paid_at_label],
+        ['Marcada por', js.paid_by],
+      ]);
+      mostrarBloque('royaltyStepPaid', !!nPago);
+
       const tl = document.getElementById('royaltyInfoTimeline');
+      const histWrap = document.getElementById('royaltyInfoHistoryWrap');
+      const eventos = js.timeline || [];
       if (tl) {
-        tl.innerHTML = (js.timeline || []).map(function(ev){
+        tl.innerHTML = eventos.map(function(ev){
           const extra = [ev.by ? ('por ' + ev.by) : '', ev.to ? ('a ' + ev.to) : '', ev.total ? ('total ' + ev.total) : '', ev.note || '']
             .filter(Boolean).join(' · ');
-          const enlace = ev.pdf_url ? (' <a href="' + ev.pdf_url + '" target="_blank" rel="noopener"><i class="fa fa-file-pdf"></i></a>')
-                       : (ev.file_url ? (' <a href="' + ev.file_url + '" target="_blank" rel="noopener"><i class="fa fa-file-invoice-dollar"></i></a>') : '');
+          const link = ev.pdf_url ? (' <a href="' + ev.pdf_url + '" target="_blank" rel="noopener"><i class="fa fa-file-pdf"></i></a>')
+                     : (ev.file_url ? (' <a href="' + ev.file_url + '" target="_blank" rel="noopener"><i class="fa fa-file-invoice-dollar"></i></a>') : '');
           return '<div class="list-group-item px-0"><div class="d-flex justify-content-between gap-2">' +
-                 '<div><span class="fw-semibold">' + ev.label + '</span>' + enlace +
-                 (extra ? ('<div class="small text-muted">' + extra + '</div>') : '') + '</div>' +
-                 '<div class="small text-muted text-nowrap">' + (ev.at_label || '') + '</div></div></div>';
-        }).join('') || '<div class="text-muted small">Sin movimientos todavía.</div>';
+                 '<div><span class="fw-semibold">' + esc(ev.label) + '</span>' + link +
+                 (extra ? ('<div class="small text-muted">' + esc(extra) + '</div>') : '') + '</div>' +
+                 '<div class="small text-muted text-nowrap">' + esc(ev.at_label || '') + '</div></div></div>';
+        }).join('');
       }
+      // El historial completo solo si aporta algo más que los cuatro pasos de arriba.
+      if (histWrap) histWrap.classList.toggle('d-none', eventos.length < 2);
       const modal = getRoyaltyInfoModal();
       if (modal) modal.show();
     } catch (err) {

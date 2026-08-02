@@ -6909,7 +6909,9 @@ def _royalty_freeze(session_db, rec, beneficiary: dict, pdf_url: str = "", regen
     if (rec.status or "PENDING").upper() in ("", "PENDING"):
         rec.status = "GENERATED"
     _royalty_history_add(rec, "REGENERATED" if regenerada else "GENERATED",
-                         total=str(beneficiary.get("total") or ""), pdf_url=pdf_url or None)
+                         total=(format_eur(_money_or_zero(beneficiary.get("total")))
+                                if beneficiary.get("total") not in (None, "") else ""),
+                         pdf_url=pdf_url or None)
 
 
 def _royalty_frozen_beneficiary(rec):
@@ -6963,6 +6965,7 @@ def _apply_royalty_liquidation_meta(bucket: dict, rec: RoyaltyLiquidation | None
         bucket['last_sent_signature'] = ''
         # Sin fila de liquidación todavía NO está generada.
         bucket['is_generated'] = False
+        bucket['is_sent'] = False
         bucket['needs_regeneration'] = False
         bucket['liquidation_status'] = 'PENDING'
         lbl, color = _royalty_status_meta('PENDING')
@@ -6981,6 +6984,7 @@ def _apply_royalty_liquidation_meta(bucket: dict, rec: RoyaltyLiquidation | None
         sent_to = []
     bucket['last_sent_to'] = [str(x).strip() for x in sent_to if str(x or '').strip()]
     bucket['last_sent_at'] = getattr(rec, 'last_sent_at', None)
+    bucket['is_sent'] = bool(bucket['last_sent_at'])
     bucket['last_sent_at_label'] = _format_madrid_datetime_label(bucket['last_sent_at'])
     bucket['last_sent_pdf_url'] = (getattr(rec, 'last_sent_pdf_url', None) or '').strip()
     bucket['last_sent_signature'] = (getattr(rec, 'last_sent_signature', None) or '').strip()
@@ -7000,6 +7004,15 @@ def _apply_royalty_liquidation_meta(bucket: dict, rec: RoyaltyLiquidation | None
         for campo in ('total', 'total_income', 'total_amount', 'items'):
             if campo in congelada:
                 bucket[campo] = congelada[campo]
+        # Aviso de cambios: desde cuándo (la fecha en que se generó lo que hay) y CUÁNTO cambia.
+        if bucket['needs_regeneration']:
+            try:
+                dif = _money_or_zero(bucket.get('live_total')) - _money_or_zero(congelada.get('total'))
+            except Exception:
+                dif = Decimal('0')
+            bucket['income_diff'] = dif
+            bucket['income_diff_label'] = ('+' if dif > 0 else '') + format_eur(dif)
+            bucket['changed_since_label'] = bucket['generated_at_label']
     else:
         bucket['needs_regeneration'] = False
 
@@ -14336,6 +14349,13 @@ def discografica_royalties_liquidation_info():
             live, _s2, _e2, _b2 = _get_royalty_liquidation_beneficiary_data(session_db, kind, beneficiary_uuid, sem_year, sem_half)
         except Exception:
             live = None
+        # Quién hizo cada paso (del historial), para enseñarlo en su bloque.
+        quien = {}
+        for ev in (getattr(rec, 'history', None) or []):
+            if isinstance(ev, dict) and ev.get('kind') and ev.get('by'):
+                quien[str(ev['kind']).upper()] = ev['by']
+        veces_generada = sum(1 for ev in (getattr(rec, 'history', None) or [])
+                             if isinstance(ev, dict) and str(ev.get('kind') or '').upper() in ('GENERATED', 'REGENERATED'))
         return jsonify({
             'ok': True,
             'has_info': True,
@@ -14345,12 +14365,17 @@ def discografica_royalties_liquidation_info():
             'generated_pdf_url': (getattr(rec, 'snapshot_pdf_url', None) or '').strip(),
             'is_generated': bool(_royalty_frozen_beneficiary(rec)),
             'needs_regeneration': bool(live and _royalty_needs_regeneration(rec, live)),
-            'total': str((_royalty_frozen_beneficiary(rec) or {}).get('total') or ''),
+            'total': (format_eur(_money_or_zero((_royalty_frozen_beneficiary(rec) or {}).get('total')))
+                      if (_royalty_frozen_beneficiary(rec) or {}).get('total') not in (None, '') else ''),
             'sent_at_label': _format_madrid_datetime_label(getattr(rec, 'last_sent_at', None)),
             'sent_to': list(getattr(rec, 'last_sent_to', None) or []),
             'pdf_url': (getattr(rec, 'last_sent_pdf_url', None) or '').strip(),
             'invoice': factura,
             'paid_at_label': _format_madrid_datetime_label(getattr(rec, 'paid_at', None)),
+            'generated_by': quien.get('REGENERATED') or quien.get('GENERATED') or '',
+            'generated_times': veces_generada,
+            'sent_by': quien.get('SENT') or '',
+            'paid_by': quien.get('PAID') or '',
             'timeline': _royalty_timeline(rec),
         })
 

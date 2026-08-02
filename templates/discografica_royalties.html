@@ -95,52 +95,62 @@
 {% endmacro %}
 
 {% macro render_actions(b) %}
-  {# Primero se GENERA y luego se ENVÍA: no se puede enviar sin generar. Cuando ya está generada, el
-     botón de la derecha pasa a ser «Enviar». Si cambian los ingresos vuelve a aparecer «Generar»
-     (con la comparativa antes de sustituirla), porque la liquidación generada NO se altera sola. #}
+  {# Botonera por estado:
+       · sin generar            → «Generar liquidación»
+       · generada y sin enviar  → «Enviar liquidación» (+ info + menú)
+       · generada y enviada     → solo «Información» + menú de 3 puntos (reenviar / generar una nueva)
+     Si han cambiado los datos económicos sale un aviso amarillo que, al pasar el ratón, dice desde
+     cuándo y cuánto cambiaría. Mientras no se genere una nueva, se mantienen los datos de la última
+     liquidación generada. #}
   <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
     {{ render_status_badge(b) }}
 
     {% if b.needs_regeneration %}
-      <span class="badge text-bg-warning text-dark" title="Los ingresos han cambiado desde que se generó: la liquidación sigue con los datos de entonces.">
-        <i class="fa fa-triangle-exclamation me-1"></i>Ingresos actualizados
+      <span class="text-warning" style="cursor:help;" data-bs-toggle="tooltip" data-bs-placement="top"
+            title="Ha habido cambios en los datos económicos desde que se generó{% if b.changed_since_label %} el {{ b.changed_since_label }}{% endif %}. La diferencia actual es de {{ b.income_diff_label or '—' }}. La liquidación mantiene los datos con los que se generó: para actualizarla, genera una nueva.">
+        <i class="fa fa-triangle-exclamation fa-lg"></i>
       </span>
     {% endif %}
 
-    {% if b.has_sent_info %}
-      <button class="btn btn-outline-secondary btn-sm" type="button" onclick="showRoyaltyLiquidationInfo('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')" title="Trazabilidad: generada, enviada, factura y cobro">
-        <i class="fa fa-circle-info"></i>
-      </button>
-    {% endif %}
-
     {% if b.is_generated %}
-      <button class="btn btn-outline-primary btn-sm" type="button"
-              onclick="downloadRoyaltyLiquidationPdf('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}', true)"
-              title="Descargar la liquidación generada">
-        <i class="fa fa-file-pdf"></i>
+      <button class="btn btn-outline-secondary btn-sm" type="button" onclick="showRoyaltyLiquidationInfo('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')" title="Seguimiento: generación, envío, factura y cobro">
+        <i class="fa fa-circle-info"></i> Información
       </button>
     {% endif %}
 
-    {% if b.is_generated and not b.needs_regeneration %}
+    {% if not b.is_generated %}
+      <button class="btn btn-danger btn-sm" type="button"
+              onclick="generateRoyaltyLiquidation('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')">
+        <i class="fa fa-file-pdf"></i> Generar liquidación
+      </button>
+    {% elif not b.is_sent %}
       <button class="btn btn-sm {% if b.can_send_email %}btn-success{% else %}btn-outline-warning{% endif %}"
               type="button"
               onclick="openRoyaltyLiquidationPreview('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')"
               {% if not b.can_send_email %}title="Añade un email válido en la ficha del beneficiario para poder enviarla"{% endif %}>
         <i class="fa fa-paper-plane"></i> Enviar liquidación
       </button>
-    {% else %}
-      <button class="btn btn-danger btn-sm" type="button"
-              onclick="generateRoyaltyLiquidation('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')">
-        <i class="fa fa-file-pdf"></i> {{ 'Generar de nuevo' if b.is_generated else 'Generar liquidación' }}
-      </button>
-      {% if b.is_generated %}
-        <button class="btn btn-sm {% if b.can_send_email %}btn-outline-success{% else %}btn-outline-warning{% endif %}"
-                type="button"
-                onclick="openRoyaltyLiquidationPreview('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')"
-                title="Enviar la liquidación generada (con los datos con los que se generó)">
-          <i class="fa fa-paper-plane"></i> Enviar la generada
+    {% endif %}
+
+    {% if b.is_generated %}
+      <div class="dropdown">
+        <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Más acciones">
+          <i class="fa fa-ellipsis-vertical"></i>
         </button>
-      {% endif %}
+        <ul class="dropdown-menu dropdown-menu-end">
+          {% if b.is_sent %}
+            <li><button class="dropdown-item" type="button" onclick="openRoyaltyLiquidationPreview('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')">
+              <i class="fa fa-paper-plane fa-fw me-2"></i>Reenviar liquidación</button></li>
+          {% endif %}
+          <li><button class="dropdown-item" type="button" onclick="generateRoyaltyLiquidation('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')">
+            <i class="fa fa-file-pdf fa-fw me-2"></i>Generar una nueva</button></li>
+          {% if b.generated_pdf_url %}
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item" href="{{ b.generated_pdf_url }}" target="_blank" rel="noopener">
+              <i class="fa fa-download fa-fw me-2"></i>Descargar la generada</a></li>
+          {% endif %}
+        </ul>
+      </div>
     {% endif %}
   </div>
 {% endmacro %}
@@ -561,34 +571,69 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
-        <div class="d-flex flex-wrap gap-3 mb-3">
-          <div><div class="small text-muted">Estado</div><div class="fw-semibold" id="royaltyInfoStatus">—</div></div>
-          <div><div class="small text-muted">Generada</div><div class="fw-semibold" id="royaltyInfoGeneratedAt">—</div></div>
-          <div><div class="small text-muted">Enviada</div><div class="fw-semibold" id="royaltyInfoSentAt">—</div></div>
-          <div><div class="small text-muted">Factura</div><div class="fw-semibold" id="royaltyInfoInvoiceAt">—</div></div>
-          <div><div class="small text-muted">Pagada</div><div class="fw-semibold" id="royaltyInfoPaidAt">—</div></div>
+        {# En ORDEN y seguido: generación → envío → factura → pago. Cada bloque solo sale si hay algo
+           que contar, y dentro solo se enseñan los campos que tienen dato. #}
+        <div class="d-flex align-items-center gap-2 mb-3">
+          <span class="small text-muted">Estado</span>
+          <span class="badge text-bg-secondary" id="royaltyInfoStatus">—</span>
         </div>
+
         <div class="alert alert-warning d-none" id="royaltyInfoStale">
           <i class="fa fa-triangle-exclamation me-1"></i>Los ingresos han cambiado desde que se generó.
           La liquidación mantiene los datos con los que se generó; para actualizarla hay que generar una nueva.
         </div>
-        <div class="mb-3">
-          <div class="small text-muted">Enviada a</div>
-          <ul class="mb-0" id="royaltyInfoRecipients"></ul>
+
+        <div class="liq-track">
+          {# 1 · GENERADA #}
+          <div class="liq-step d-none" id="royaltyStepGenerated">
+            <div class="liq-step__dot"><i class="fa fa-file-pdf"></i></div>
+            <div class="liq-step__body">
+              <div class="fw-semibold">Liquidación generada</div>
+              <dl class="liq-fields" id="royaltyGenFields"></dl>
+              <a href="#" class="btn btn-outline-secondary btn-sm d-none" id="royaltyInfoGenLink" target="_blank" rel="noopener noreferrer">
+                <i class="fa fa-download me-1"></i>Descargar la generada
+              </a>
+            </div>
+          </div>
+
+          {# 2 · ENVIADA #}
+          <div class="liq-step d-none" id="royaltyStepSent">
+            <div class="liq-step__dot"><i class="fa fa-paper-plane"></i></div>
+            <div class="liq-step__body">
+              <div class="fw-semibold">Enviada al beneficiario</div>
+              <dl class="liq-fields" id="royaltySentFields"></dl>
+              <a href="#" class="btn btn-outline-primary btn-sm d-none" id="royaltyInfoPdfLink" target="_blank" rel="noopener noreferrer">
+                <i class="fa fa-download me-1"></i>Descargar la enviada
+              </a>
+            </div>
+          </div>
+
+          {# 3 · FACTURA #}
+          <div class="liq-step d-none" id="royaltyStepInvoice">
+            <div class="liq-step__dot"><i class="fa fa-file-invoice-dollar"></i></div>
+            <div class="liq-step__body">
+              <div class="fw-semibold">Factura recibida</div>
+              <dl class="liq-fields" id="royaltyInvoiceFields"></dl>
+              <a href="#" class="btn btn-outline-danger btn-sm d-none" id="royaltyInfoInvoiceLink" target="_blank" rel="noopener noreferrer">
+                <i class="fa fa-eye me-1"></i>Ver la factura
+              </a>
+            </div>
+          </div>
+
+          {# 4 · PAGO #}
+          <div class="liq-step d-none" id="royaltyStepPaid">
+            <div class="liq-step__dot"><i class="fa fa-circle-check"></i></div>
+            <div class="liq-step__body">
+              <div class="fw-semibold">Pagada</div>
+              <dl class="liq-fields" id="royaltyPaidFields"></dl>
+            </div>
+          </div>
         </div>
-        <div class="d-flex flex-wrap gap-2 mb-3">
-          <a href="#" class="btn btn-outline-primary btn-sm" id="royaltyInfoPdfLink" target="_blank" rel="noopener noreferrer">
-            <i class="fa fa-file-pdf me-1"></i>Descargar la liquidación enviada
-          </a>
-          <a href="#" class="btn btn-outline-secondary btn-sm d-none" id="royaltyInfoGenLink" target="_blank" rel="noopener noreferrer">
-            <i class="fa fa-file-pdf me-1"></i>Descargar la liquidación generada
-          </a>
-          <a href="#" class="btn btn-outline-danger btn-sm d-none" id="royaltyInfoInvoiceLink" target="_blank" rel="noopener noreferrer">
-            <i class="fa fa-file-invoice-dollar me-1"></i>Ver la factura
-          </a>
+
+        <div class="d-none" id="royaltyInfoHistoryWrap">
+          <h6 class="mt-4 mb-2 small text-muted text-uppercase">Todo el historial</h6>
+          <div class="list-group list-group-flush" id="royaltyInfoTimeline"></div>
         </div>
-        <h6 class="mb-2">Historial</h6>
-        <div class="list-group list-group-flush" id="royaltyInfoTimeline"></div>
       </div>
     </div>
   </div>

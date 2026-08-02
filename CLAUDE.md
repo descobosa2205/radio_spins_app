@@ -770,9 +770,16 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   «Ingresos actualizados», y al pulsar **Generar de nuevo** sale primero la **comparativa**
   (`royalty_liquidation_compare`) para aceptarla o conservar la anterior. Botonera: sin generar solo
   **Generar liquidación**; generada, **Enviar liquidación** (no se puede enviar sin generar) + descarga
-  del PDF generado. Toda la vida de la liquidación (generada, enviada, factura, cobro) se apunta en
-  `history` (`_royalty_history_add`) y se ve en el botón **i** (`/discografica/royalties/liquidacion/info`,
-  con enlaces para descargar lo enviado, lo generado y ver la factura).
+  del PDF generado. **Botonera por estado**: sin generar → «Generar liquidación»; generada y sin
+  enviar → «Enviar liquidación» (+ Información + menú de 3 puntos); **generada y enviada → solo
+  «Información» y el menú de 3 puntos** (Reenviar liquidación · Generar una nueva · Descargar la
+  generada). Con cambios económicos sale un **triángulo amarillo** cuyo tooltip dice desde cuándo y
+  **cuánto cambiaría** (`income_diff_label`, calculado en `_apply_royalty_liquidation_meta`); al generar
+  la nueva, esos datos sustituyen a los anteriores y el aviso desaparece.
+  Toda la vida de la liquidación (generada, enviada, factura, cobro) se apunta en `history`
+  (`_royalty_history_add`) y se ve en el botón **i**: el modal es una **secuencia en orden**
+  —generación → envío (con destinatarios y descarga de la enviada) → factura (con enlace para verla) →
+  pago—, **enseñando solo los bloques y campos que tienen dato**, y debajo el historial completo.
 - **Royalties · facturación y validación**: las liquidaciones se facturan **a nombre de PIES**
   (el sello), no de la primera empresa del grupo por orden alfabético — helper `_pies_group_company`
   (del que ya tira `_afavor_pies_company`), usado por `public_royalty_liquidation_view` y por

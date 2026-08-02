@@ -502,6 +502,9 @@ def inject_country_helpers():
         "marketing_digital_platforms": globals().get("MARKETING_DIGITAL_PLATFORMS", []),
         # `MEDIA_TYPES` es global porque el alta rápida de medios (modal transversal) lo necesita.
         "MEDIA_TYPES": globals().get("MEDIA_TYPES", []),
+        # Lo que QUEDA por pagar de un gasto (bruto menos lo ya pagado): con pagos parciales, es el
+        # importe que hay que ofrecer en cualquier formulario de pago.
+        "expense_pending": globals().get("_expense_pending_amount", lambda _e: 0),
         "DEFAULT_PHOTO_URL": url_for("static", filename="img/placeholder_photo.png"),
     }
 
@@ -49320,10 +49323,16 @@ def _payment_expense_row(session_db, expense) -> dict:
     faltan = sepa_check_payment({"name": ben["name"], "iban": ben["iban"], "bic": ben["bic"], "amount": importe})
     bag = getattr(expense, "bag", None)
     batch_id = str(getattr(expense, "payment_batch_id", "") or "")
+    bruto = _money_or_zero(getattr(expense, "amount_gross", 0))
+    ya_pagado = _money_or_zero(getattr(expense, "paid_amount", 0))
     return {
         "id": str(expense.id),
         "concept": (getattr(expense, "concept", None) or "Sin concepto").strip(),
+        # `amount` es SIEMPRE lo que queda por pagar: es lo que se manda al banco y lo que se ve.
         "amount": importe,
+        "gross": bruto,
+        "paid": ya_pagado,
+        "partial": bool(ya_pagado > 0 and importe > 0),
         "beneficiary": ben["name"] or "Sin proveedor",
         "iban_masked": _iban_masked(ben["iban"]) if ben["iban"] else "",
         "missing": faltan,
@@ -49693,6 +49702,12 @@ def company_bank_account_save(cid):
             flash("Ese IBAN no es válido (no cuadra el dígito de control). Revísalo.", "warning")
             return redirect(next_url)
         if row is None:
+            # Mismo IBAN dos veces = la misma cuenta: se actualiza, no se duplica (dos cuentas
+            # idénticas en el selector de «desde dónde se paga» es pedir un error).
+            row = (session_db.query(GroupCompanyBankAccount)
+                   .filter(GroupCompanyBankAccount.company_id == company.id,
+                           GroupCompanyBankAccount.iban == iban).first())
+        if row is None:
             row = GroupCompanyBankAccount(company_id=company.id, iban=iban)
             session_db.add(row)
         row.iban = iban
@@ -50044,7 +50059,11 @@ def payment_batch_receipt(batch_id):
             if expense is None:
                 continue
             expense.payment_status = "PAGADO"
-            expense.paid_amount = _money_or_zero(item.amount)
+            # Si el gasto ya llevaba un pago parcial, la remesa paga la DIFERENCIA: se suma a lo que
+            # ya había (topando en el bruto), no se sustituye.
+            bruto = _money_or_zero(getattr(expense, "amount_gross", 0))
+            acumulado = _money_or_zero(getattr(expense, "paid_amount", 0)) + _money_or_zero(item.amount)
+            expense.paid_amount = bruto if (bruto > 0 and acumulado > bruto) else acumulado
             expense.payment_method = f"Remesa {batch.reference}"
             expense.payment_batch_id = batch.id
             if batch.receipt_url:
@@ -51583,12 +51602,39 @@ def administration_expense_mark_paid(expense_id):
         if not expense:
             flash("Gasto no encontrado.", "warning")
             return redirect(url_for("administracion_view", tab="pagos"))
-        amount = _bag_money(request.form.get("paid_amount")) if "_bag_money" in globals() else Decimal("0")
-        if amount <= 0:
-            amount = Decimal(str(expense.amount_gross or 0))
-        expense.paid_amount = amount
-        gross = Decimal(str(expense.amount_gross or 0))
-        expense.payment_status = "PAGADO" if amount >= gross else "PARCIAL"
+        volver = safe_next_or(request.form.get("next") or url_for("administracion_view", tab="pendiente", subtab="pago"))
+        gross = _money_or_zero(getattr(expense, "amount_gross", 0))
+        ya_pagado = _money_or_zero(getattr(expense, "paid_amount", 0))
+        pendiente = gross - ya_pagado
+        if pendiente < 0:
+            pendiente = Decimal("0")
+        # El importe del formulario es lo que se paga AHORA (no el acumulado): así, si ya había un
+        # pago parcial, lo natural es pagar la DIFERENCIA y no volver a teclear el total.
+        ahora = _bag_money(request.form.get("paid_amount")) if "_bag_money" in globals() else Decimal("0")
+        if ahora <= 0:
+            ahora = pendiente if pendiente > 0 else gross
+        parcial = _truthy(request.form.get("partial")) or ahora < pendiente
+        # ⚠️ Un pago PARCIAL no cabe en una remesa: la remesa manda al banco el importe pendiente
+        # entero. Si el gasto está metido en una que aún no se ha pagado, hay que sacarlo.
+        batch = session_db.get(PaymentBatch, expense.payment_batch_id) if getattr(expense, "payment_batch_id", None) else None
+        if parcial and batch is not None and (batch.status or "BORRADOR").upper() != "PAGADA":
+            if not _truthy(request.form.get("salir_remesa")):
+                flash(f"Este gasto está en la remesa {batch.reference}. Un pago parcial exige sacarlo de "
+                      f"la remesa primero (puedes marcar «sacarlo de la remesa» en el propio pago).", "warning")
+                return redirect(volver)
+            for item in (session_db.query(PaymentBatchItem)
+                         .filter(PaymentBatchItem.batch_id == batch.id,
+                                 PaymentBatchItem.expense_id == expense.id).all()):
+                session_db.delete(item)
+            expense.payment_batch_id = None
+            session_db.flush()
+            _payment_batch_refresh_total(session_db, batch)
+
+        total_pagado = ya_pagado + ahora
+        if total_pagado > gross and gross > 0:
+            total_pagado = gross
+        expense.paid_amount = total_pagado
+        expense.payment_status = "PAGADO" if (gross > 0 and total_pagado >= gross) else "PARCIAL"
         expense.payment_method = (request.form.get("payment_method") or expense.payment_method or "").strip() or None
         receipt = request.files.get("receipt") if hasattr(request, "files") else None
         if receipt and getattr(receipt, "filename", ""):
@@ -51598,12 +51644,24 @@ def administration_expense_mark_paid(expense_id):
         expense.immediate_payment_requested = False if expense.payment_status == "PAGADO" else expense.immediate_payment_requested
         expense.updated_at = _now_madrid()
         audit = _bag_current_user_audit() if "_bag_current_user_audit" in globals() else {"user_id": None, "nick": "Administración"}
-        session_db.add(BagPaymentInteraction(expense_id=expense.id, kind="PAGO_REGISTRADO", description="Pago registrado desde administración.", amount=amount, method=expense.payment_method, created_by_user_id=audit["user_id"], created_by_nick=audit["nick"]))
+        queda = gross - total_pagado
+        detalle = ("Pago parcial registrado desde administración."
+                   if expense.payment_status == "PARCIAL" else "Pago registrado desde administración.")
+        session_db.add(BagPaymentInteraction(expense_id=expense.id, kind="PAGO_REGISTRADO", description=detalle,
+                                             amount=ahora, method=expense.payment_method,
+                                             created_by_user_id=audit["user_id"], created_by_nick=audit["nick"]))
+        session_db.flush()
+        archivada = False
+        if expense.payment_status == "PAGADO" and getattr(expense, "bag_id", None):
+            archivada = _bag_close_if_fully_paid(session_db, session_db.get(WorkflowBag, expense.bag_id))
         session_db.commit()
-        flash("Pago registrado.", "success")
+        if expense.payment_status == "PARCIAL":
+            flash(f"Pago parcial registrado. Quedan {format_eur(queda)} por pagar.", "success")
+        else:
+            flash("Pago registrado." + (" La bolsa se ha cerrado y archivado." if archivada else ""), "success")
+        return redirect(volver)
     finally:
         session_db.close()
-    return redirect(url_for("administracion_view", tab="pendiente", subtab="pago"))
 
 
 @app.post("/administracion/bolsas/<bag_id>/liquidar", endpoint="administration_bag_liquidate")

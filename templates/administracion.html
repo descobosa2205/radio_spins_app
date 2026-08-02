@@ -9,6 +9,10 @@
     <div class="min-w-0">
       <div><i class="fa fa-grip-vertical text-muted me-2" title="Arrástralo a la remesa (o pincha aquí)"></i><span class="fw-semibold">{{ row.concept }}</span></div>
       <div class="small text-muted">{{ row.beneficiary }}{% if row.iban_masked %} · <span class="font-monospace">{{ row.iban_masked }}</span>{% endif %}</div>
+      {% if row.partial %}
+        <div class="small"><span class="badge text-bg-warning text-dark">Pagado en parte</span>
+          <span class="text-muted ms-1">{{ row.paid|eur }} de {{ row.gross|eur }} · quedan {{ row.amount|eur }}</span></div>
+      {% endif %}
       {% if row.missing %}<div class="small text-danger"><i class="fa fa-triangle-exclamation me-1"></i>Falta {{ row.missing_labels|join(', ') }}</div>{% endif %}
       {% if row.in_batch %}<span class="badge text-bg-info text-dark mt-1">Ya está en una remesa</span>{% endif %}
     </div>
@@ -18,7 +22,14 @@
         <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
         <ul class="dropdown-menu dropdown-menu-end">
           <li><button class="dropdown-item" type="button" data-pay-paid="{{ url_for('administration_expense_mark_paid', expense_id=row.id) }}"
-                      data-pay-concept="{{ row.concept }}" data-pay-amount-value="{{ row.amount }}"><i class="fa fa-circle-check fa-fw me-1"></i>Marcar como pagado</button></li>
+                      data-pay-concept="{{ row.concept }}" data-pay-amount-value="{{ row.amount }}"
+                      data-pay-pending="{{ row.amount }}" data-pay-in-batch="{{ '1' if row.in_batch else '' }}"><i class="fa fa-circle-check fa-fw me-1"></i>Marcar como pagado</button></li>
+          {# Pago PARCIAL: paga una parte y el resto se queda pendiente (y sale de la remesa, que
+             manda al banco el importe entero). #}
+          <li><button class="dropdown-item" type="button" data-pay-paid="{{ url_for('administration_expense_mark_paid', expense_id=row.id) }}"
+                      data-pay-concept="{{ row.concept }}" data-pay-amount-value=""
+                      data-pay-pending="{{ row.amount }}" data-pay-in-batch="{{ '1' if row.in_batch else '' }}"
+                      data-pay-partial="1"><i class="fa fa-percent fa-fw me-1"></i>Pago parcial</button></li>
           <li>
             <form method="post" action="{{ url_for('payment_batch_create') }}">
               <input type="hidden" name="next" value="{{ request.full_path }}">
@@ -294,11 +305,22 @@
       <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
         <form method="post" enctype="multipart/form-data" data-pay-paid-form>
           <input type="hidden" name="next" value="{{ request.full_path }}">
-          <div class="modal-header"><h5 class="modal-title">Marcar como pagado</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+          <input type="hidden" name="partial" data-pay-paid-partial value="">
+          <div class="modal-header"><h5 class="modal-title"><span data-pay-paid-title>Marcar como pagado</span></h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
           <div class="modal-body">
-            <div class="fw-semibold mb-2" data-pay-paid-concept></div>
-            <label class="form-label">Importe</label>
-            <input class="form-control mb-2" name="paid_amount" data-pay-paid-amount>
+            <div class="fw-semibold mb-1" data-pay-paid-concept></div>
+            <div class="small text-muted mb-3" data-pay-paid-pending></div>
+            {# Un pago PARCIAL no cabe en una remesa: la remesa manda el importe pendiente entero. #}
+            <div class="alert alert-warning small d-none" data-pay-paid-batch-warn>
+              <i class="fa fa-triangle-exclamation me-1"></i>Este gasto está metido en una remesa. Para pagarlo
+              a medias hay que sacarlo de ella.
+              <div class="form-check mt-2">
+                <input class="form-check-input" type="checkbox" name="salir_remesa" value="1" id="paySalirRemesa">
+                <label class="form-check-label" for="paySalirRemesa">Sacarlo de la remesa y registrar el pago parcial</label>
+              </div>
+            </div>
+            <label class="form-label">Importe que se paga ahora</label>
+            <input class="form-control mb-2" name="paid_amount" data-money="1" data-pay-paid-amount>
             <label class="form-label">¿Cómo se pagó?</label>
             <select class="form-select mb-2" name="payment_method">
               {% for method in payment_methods %}<option value="{{ method }}">{{ method }}</option>{% endfor %}
@@ -308,7 +330,7 @@
             <label class="form-label">Justificante</label>
             <input type="file" class="form-control" name="receipt">
           </div>
-          <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-success">Marcar pagado</button></div>
+          <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-success" data-pay-paid-submit>Marcar pagado</button></div>
         </form>
       </div></div>
     </div>
@@ -460,7 +482,7 @@
                   <span class="badge text-bg-warning mt-2">{{ payment_status_labels.get(expense.payment_status, expense.payment_status) }}</span>
                 </div>
                 <form method="post" action="{{ url_for('administration_expense_mark_paid', expense_id=expense.id) }}" class="text-end" style="min-width:220px;" data-inline data-inline-target="#admin-pay-{{ expense.id }}">
-                  <input type="text" name="paid_amount" class="form-control form-control-sm mb-2" value="{{ expense.immediate_payment_amount or expense.amount_gross }}">
+                  <input type="text" name="paid_amount" class="form-control form-control-sm mb-2" value="{{ expense.immediate_payment_amount or expense_pending(expense) }}">
                   <select name="payment_method" class="form-select form-select-sm mb-2"><option value="">Método</option>{% for method in payment_methods %}<option value="{{ method }}" {% if expense.payment_method == method %}selected{% endif %}>{{ method }}</option>{% endfor %}</select>
                   <button class="btn btn-sm btn-success w-100">Registrar pago</button>
                 </form>
@@ -477,7 +499,7 @@
           {% for expense in payable_expenses %}
             <div class="p-3 border-bottom d-flex justify-content-between gap-3" id="admin-payexp-{{ expense.id }}" data-inline-zone>
               <div><div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div><div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>{% if expense.provider %}{{ linked_mini('promoter', expense.provider.id) }}{% endif %}{% set exp_embargo_alerts = admin_expense_embargo_alerts.get(expense.id|string, []) if admin_expense_embargo_alerts is defined else [] %}{% if exp_embargo_alerts %}<div class="alert alert-warning small py-1 px-2 mt-2 mb-0"><i class="fa fa-triangle-exclamation me-1"></i>Esta persona no puede facturar porque tiene una orden de embargo activa.</div>{% endif %}</div>
-              <form method="post" action="{{ url_for('administration_expense_mark_paid', expense_id=expense.id) }}" class="d-flex gap-2 align-items-start" data-inline data-inline-target="#admin-payexp-{{ expense.id }}"><input type="text" name="paid_amount" class="form-control form-control-sm" value="{{ expense.amount_gross }}" style="max-width:120px;"><select name="payment_method" class="form-select form-select-sm" style="max-width:120px;"><option value="">Método</option>{% for method in payment_methods %}<option value="{{ method }}">{{ method }}</option>{% endfor %}</select><button class="btn btn-sm btn-outline-success">Pagar</button></form>
+              <form method="post" action="{{ url_for('administration_expense_mark_paid', expense_id=expense.id) }}" class="d-flex gap-2 align-items-start" data-inline data-inline-target="#admin-payexp-{{ expense.id }}"><input type="text" name="paid_amount" class="form-control form-control-sm" value="{{ expense_pending(expense) }}" style="max-width:120px;"><select name="payment_method" class="form-select form-select-sm" style="max-width:120px;"><option value="">Método</option>{% for method in payment_methods %}<option value="{{ method }}">{{ method }}</option>{% endfor %}</select><button class="btn btn-sm btn-outline-success">Pagar</button></form>
             </div>
           {% else %}<div class="p-3 text-muted">No hay gastos consolidados pendientes.</div>{% endfor %}
         </div>

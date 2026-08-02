@@ -621,6 +621,16 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · **Al subir el justificante** (`payment_batch_receipt`) se dan por pagados todos los gastos de la
   remesa («Remesa REM-aaaa-nnnn» como método) y **las bolsas que se quedan sin nada pendiente se
   cierran y se archivan** (`_bag_close_if_fully_paid`): pasan a contabilidad.
+  · **PAGOS PARCIALES** (`administration_expense_mark_paid`): el importe del formulario es **lo que
+  se paga AHORA** y se **ACUMULA** sobre lo ya pagado (topando en el bruto) — antes lo sustituía, así
+  que pagar la diferencia de un parcial dejaba el gasto peor que antes. Lo pendiente de un gasto es
+  siempre `_expense_pending_amount` (bruto − pagado): es lo que se ve en pantalla, lo que se ofrece
+  en los formularios (`expense_pending`, global de plantilla) y lo que se manda al banco. ⚠️ **Un
+  pago parcial NO cabe en una remesa** (la remesa manda el importe pendiente entero): si el gasto
+  está en una remesa sin pagar, el pago parcial se niega y pide **sacarlo de la remesa**, con una
+  casilla en el propio modal para hacerlo de un clic. Desde los tres puntitos: «Marcar como pagado»
+  y «Pago parcial». Un gasto pagado a medias sale con su pastilla «Pagado en parte · X de Y».
+  · Guardar dos veces el **mismo IBAN** en una empresa actualiza esa cuenta en vez de duplicarla.
   · Responsabilidad de administración: `_bag_liquidation_responsibility` manda las bolsas de
   promoción **sin pagos pendientes** a `LIQUIDACIONES_PROMO` y el resto a `LIQUIDACIONES`.
 

@@ -123,18 +123,43 @@
     if (drop) { e.preventDefault(); e.stopPropagation(); addChip(drop, itemData(el)); }
   });
 
-  // --- «Marcar como pagado» (modal único) ------------------------------------------------------
+  // --- «Marcar como pagado» y «Pago parcial» (mismo modal) -------------------------------------
   document.addEventListener('click', function (e) {
     var btn = e.target.closest && e.target.closest('[data-pay-paid]');
     if (!btn) return;
     var modal = document.getElementById('payPaidModal');
     if (!modal) return;
+    var parcial = btn.getAttribute('data-pay-partial') === '1';
+    var pendiente = btn.getAttribute('data-pay-pending') || '';
+    var enRemesa = btn.getAttribute('data-pay-in-batch') === '1';
     var form = modal.querySelector('[data-pay-paid-form]');
     form.setAttribute('action', btn.getAttribute('data-pay-paid'));
     modal.querySelector('[data-pay-paid-concept]').textContent = btn.getAttribute('data-pay-concept') || '';
+
+    var titulo = modal.querySelector('[data-pay-paid-title]');
+    if (titulo) titulo.textContent = parcial ? 'Pago parcial' : 'Marcar como pagado';
+    var enviar = modal.querySelector('[data-pay-paid-submit]');
+    if (enviar) enviar.textContent = parcial ? 'Registrar pago parcial' : 'Marcar pagado';
+    var marca = modal.querySelector('[data-pay-paid-partial]');
+    if (marca) marca.value = parcial ? '1' : '';
+
+    var pista = modal.querySelector('[data-pay-paid-pending]');
+    if (pista) {
+      pista.textContent = pendiente ? ('Pendiente: ' + euros(pendiente) +
+        (parcial ? ' · lo que no pagues ahora se queda pendiente.' : '')) : '';
+    }
+    // El aviso de la remesa solo aplica al pago parcial: pagarlo entero fuera de la remesa es raro,
+    // pero no rompe nada (el gasto queda pagado y la remesa lo verá pagado).
+    var aviso = modal.querySelector('[data-pay-paid-batch-warn]');
+    if (aviso) {
+      aviso.classList.toggle('d-none', !(parcial && enRemesa));
+      var chk = aviso.querySelector('input[type="checkbox"]');
+      if (chk) chk.checked = false;
+    }
     var importe = modal.querySelector('[data-pay-paid-amount]');
     if (importe) importe.value = btn.getAttribute('data-pay-amount-value') || '';
     if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(modal).show();
+    if (parcial && importe) setTimeout(function () { importe.focus(); }, 300);
   });
 
   document.querySelectorAll('[data-pay-drop]').forEach(refresh);

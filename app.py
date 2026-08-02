@@ -44936,10 +44936,11 @@ def _contracting_tasks_data() -> dict:
             r["order"] = min((t.get("order") or 9) for t in r["tasks"])
         rows.sort(key=lambda r: (r.get("date") or date.max, r.get("order") or 9,
                                  (r.get("artist_name") or "").lower()))
-    # El número de la pestaña sigue siendo el de TAREAS pendientes (no el de filas): una actividad
-    # con tres cosas por hacer cuenta tres, aunque se vea en una sola línea.
-    data = {"tasks": by_tab,
-            "counts": {k: sum(r["tasks_count"] for r in v) for k, v in by_tab.items() if v}}
+    # El número de la pestaña son las ACTIVIDADES que tienen algo pendiente, no las tareas sueltas:
+    # una actividad a la que le faltan el contrato, el anuncio y mandarla a producción cuenta UNA.
+    # Es lo que se lee de un vistazo («me quedan 4 conciertos por rematar»), y cuadra con las filas
+    # que se ven debajo.
+    data = {"tasks": by_tab, "counts": {k: len(v) for k, v in by_tab.items() if v}}
     try:
         g._contracting_tasks_cache = data
     except Exception:

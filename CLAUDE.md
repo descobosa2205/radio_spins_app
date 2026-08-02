@@ -439,8 +439,10 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `.contract-tabs`) **+ un icono por pestaña**. **Peticiones es la PRIMERA**. Uso:
   `{% set contracting_tab = 'conciertos' %}{% include '_contracting_tabs.html' %}` (con `set`, no
   con `with`: así la clave sigue disponible para el módulo de tareas).
-  **El número de cada pestaña son sus TAREAS PENDIENTES**, no cuántas actividades hay (se recalcula
-  en cada carga). Motor único `_contracting_tasks_data()` (cacheado en `g`, inyecta
+  **El número de cada pestaña son las ACTIVIDADES que tienen algo pendiente** (no las actividades
+  totales ni las tareas sueltas: una actividad a la que le faltan el contrato, el anuncio y mandarla
+  a producción cuenta UNA). Se recalcula en cada carga y **cuadra con las filas** que se ven en el
+  módulo, que es una por actividad. Motor único `_contracting_tasks_data()` (cacheado en `g`, inyecta
   `CONTRACTING_COUNTS` + `CONTRACTING_TASKS`); qué es una tarea, por actividad VIVA: sin confirmar ·
   confirmada sin contrato (`ConcertContract`) · confirmada sin anuncio (ni `announcement_date` ni
   `do_not_announce`) · confirmada sin mandar a producción (sin `WorkflowBag`, y solo si le toca
@@ -450,7 +452,7 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (sin artistas asignados, o dirección, se ve todo). Una actividad que sale en dos pestañas (p. ej.
   un concierto de un ciclo) genera la tarea en las dos: `_contracting_activity_tabs`.
   **Una fila por ACTIVIDAD, con TODAS sus tareas dentro** (`row["tasks"]`,
-  `_contracting_task_badge`): el NÚMERO sigue contando tareas, no filas. Cada actividad ocupa
+  `_contracting_task_badge`). Cada actividad ocupa
   **DOS líneas** y va **enmarcada** (`.ctask`, con fondo alterno) para que al ver varias seguidas se
   distinga dónde acaba una: arriba la IDENTIDAD en este orden —de quién es (artista o EVENTO, con su
   foto) · qué es (con icono de `QUAD_ACTIVITY_ICONS`) · fecha · nombre del festival si lo hay ·

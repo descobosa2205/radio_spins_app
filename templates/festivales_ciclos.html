@@ -12,7 +12,7 @@
       <a class="btn btn-outline-secondary" href="{{ url_for('contracting_view', section='eventos') }}"><i class="fa fa-calendar-day me-1"></i>Ver actividades</a>
     {% endif %}
     {% if CAN_EDIT_CONCERTS %}
-    <button class="btn btn-primary" type="button" data-cf-new><i class="fa fa-plus me-1"></i> {{ 'Nuevo evento' if only_events else 'Nuevo ciclo / festival' }}</button>
+    <button class="btn btn-primary" type="button" data-cf-new><i class="fa fa-plus me-1"></i> {{ 'Nueva gira / ciclo' if only_events else 'Nuevo ciclo / festival' }}</button>
     {% endif %}
   </div>
 </div>
@@ -47,7 +47,7 @@
   {% endfor %}
 </div>
 {% else %}
-<div class="alert alert-light border">Aún no hay festivales ni ciclos. Pulsa «Nuevo ciclo / festival» para crear el primero.</div>
+<div class="alert alert-light border">{% if only_events %}Este evento todavía no tiene giras ni ciclos. Pulsa «Nueva gira / ciclo» para organizarle una gira con sus fechas.{% else %}Aún no hay festivales ni ciclos. Pulsa «Nuevo ciclo / festival» para crear el primero.{% endif %}</div>
 {% endif %}
 
 {# ===== Modal nuevo ciclo / festival ===== #}
@@ -55,15 +55,30 @@
   <div class="modal-dialog modal-lg modal-dialog-centered">
     <form class="modal-content" method="post" action="{{ url_for('cycle_festival_create') }}" data-step-wizard>
       <div class="modal-header">
-        <h5 class="modal-title"><i class="fa fa-star me-2"></i>Nuevo ciclo / festival</h5>
+        <h5 class="modal-title"><i class="fa {{ 'fa-masks-theater' if only_events else 'fa-star' }} me-2"></i>{{ 'Nueva gira o ciclo de un evento' if only_events else 'Nuevo ciclo / festival' }}</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
         <div data-sw-progress></div>
 
-        {# Paso 1 · Tipo. En la categoría EVENTOS no hay que elegir: ya se sabe que es un evento. #}
+        {# Paso 1 · Tipo. Un EVENTO es el sujeto (como si fuera un artista) y lo que se crea aquí es
+           SU contenedor de fechas: una gira propia («la ruta del Aguilar»), un ciclo o un festival.
+           No es una gira comprada (esas se le compran a un promotor y viven en su pestaña). #}
         {% if only_events %}
-          <input type="hidden" name="kind" value="EVENTO">
+        <section class="sw-step" data-step="1" data-title="Tipo">
+          <div class="sw-step__q"><i class="fa fa-shapes me-2 text-danger"></i>¿Qué vas a organizar de este evento?</div>
+          <div class="sw-step__h">Del evento pueden colgar una gira propia con varias fechas, un ciclo o un festival.</div>
+          <div class="sw-choice">
+            <input type="radio" class="btn-check" name="kind" id="cfKindGira" value="GIRA" checked data-sw-advance>
+            <label for="cfKindGira"><i class="fa fa-route"></i><span class="sw-choice__t">Gira</span><span class="sw-choice__s">Varias fechas del evento</span></label>
+            <input type="radio" class="btn-check" name="kind" id="cfKindCicloEv" value="CICLO" data-sw-advance>
+            <label for="cfKindCicloEv"><i class="fa fa-repeat"></i><span class="sw-choice__t">Ciclo</span><span class="sw-choice__s">Varias fechas, mismo recinto</span></label>
+            <input type="radio" class="btn-check" name="kind" id="cfKindFestEv" value="FESTIVAL" data-sw-advance>
+            <label for="cfKindFestEv"><i class="fa fa-star"></i><span class="sw-choice__t">Festival</span><span class="sw-choice__s">Cada pestaña, un artista</span></label>
+            <input type="radio" class="btn-check" name="kind" id="cfKindEventoEv" value="EVENTO" data-sw-advance>
+            <label for="cfKindEventoEv"><i class="fa fa-masks-theater"></i><span class="sw-choice__t">Solo el evento</span><span class="sw-choice__s">Sus fechas, sin más</span></label>
+          </div>
+        </section>
         {% else %}
         <section class="sw-step" data-step="1" data-title="Tipo">
           <div class="sw-step__q"><i class="fa fa-shapes me-2 text-danger"></i>¿Qué vas a crear?</div>
@@ -80,10 +95,10 @@
         {# Paso 2 · Identidad (evento + nombre + edición) #}
         <section class="sw-step" data-step="2" data-title="Nombre">
           <div class="sw-step__q"><i class="fa fa-signature me-2 text-danger"></i>¿Cómo se llama?</div>
-          <div class="sw-step__h">Si lo asocias a un evento, hereda su nombre y su logo.</div>
-          <label class="form-label">Evento <span class="text-muted small">(opcional)</span></label>
+          <div class="sw-step__h">{% if only_events %}Elige el evento del que es: hereda su nombre y su logo.{% else %}Si lo asocias a un evento, hereda su nombre y su logo.{% endif %}</div>
+          <label class="form-label">Evento{% if not only_events %} <span class="text-muted small">(opcional)</span>{% endif %}</label>
           <div class="input-group mb-3">
-            <select class="form-select select-with-thumbs" name="event_id" id="cfEvent" data-no-loader>
+            <select class="form-select select-with-thumbs" name="event_id" id="cfEvent" data-no-loader {% if only_events %}required{% endif %}>
               <option value="">Sin evento asociado</option>
               {% for e in events %}<option value="{{ e.id }}" data-name="{{ e.name }}" data-logo="{{ e.logo_url or url_for('static', filename='img/logo.png') }}">{{ e.name }}</option>{% endfor %}
             </select>

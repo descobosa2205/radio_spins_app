@@ -23376,9 +23376,11 @@ def _wizard_group_options(s):
         {"id": str(t.id), "name": t.name, "logo": (t.logo_url or ""), "artist_id": (str(t.artist_id) if t.artist_id else "")}
         for t in s.query(PurchasedTour).filter(func.upper(func.coalesce(PurchasedTour.status, "ACTIVA")) == "ACTIVA").order_by(PurchasedTour.created_at.desc()).limit(100).all()
     ]
+    # La etiqueta sale del catálogo: con el ternario de antes, la gira de un evento salía «Ciclo».
     cycles = [
         {"id": str(cf.id), "name": cf.name, "logo": (cf.logo_url or ""),
-         "kind_label": ("Festival" if (cf.kind or "FESTIVAL").upper() == "FESTIVAL" else "Ciclo")}
+         "event_id": (str(cf.event_id) if cf.event_id else ""),
+         "kind_label": CYCLE_FESTIVAL_KIND_LABELS.get((cf.kind or "FESTIVAL").upper(), "Ciclo")}
         for cf in s.query(CycleFestival).filter(func.upper(func.coalesce(CycleFestival.status, "ACTIVO")) == "ACTIVO").order_by(CycleFestival.created_at.desc()).limit(100).all()
     ]
     return tours, cycles
@@ -23668,7 +23670,7 @@ def purchased_tour_detail(tid):
             # Cartelería de TODA la gira (una sola solicitud para todas sus fechas).
             **_artwork_group_context(s, "TOUR", t.id),
             can_validate_artwork=_can_validate_artwork(),
-            group_kind="TOUR", group=t, concerts=rows, general=general,
+            group_kind="TOUR", group_is_event=False, group=t, concerts=rows, general=general,
             advance_share=advance_share, gen_total=gen_total,
             candidates=cand_rows, status_label=label, status_badge=badge,
             artists=artists, companies=companies, simulations=simulations,
@@ -23810,7 +23812,13 @@ def _cycle_concerts(s, cf_id):
 
 
 # Etiquetas de las categorías que agrupan fechas (contenedores de Contratación).
-CYCLE_FESTIVAL_KIND_LABELS = {"FESTIVAL": "Festival", "CICLO": "Ciclo", "EVENTO": "Evento"}
+# Tipos de CONTENEDOR de fechas. GIRA es el contenedor propio de un EVENTO: «la ruta del Aguilar»
+# es el evento (el sujeto, como si fuera un artista) y de él se organiza una GIRA con sus fechas.
+# No es una «gira comprada» (esas son `PurchasedTour`, se le compran a un promotor) ni un ciclo.
+# EVENTO se conserva por los contenedores ya creados; los nuevos de un evento son GIRA/CICLO/FESTIVAL.
+CYCLE_FESTIVAL_KIND_LABELS = {"FESTIVAL": "Festival", "CICLO": "Ciclo", "EVENTO": "Evento", "GIRA": "Gira"}
+# Contenedores que pertenecen a un EVENTO (viven en la pestaña Eventos, no en Festivales/Ciclos).
+CYCLE_FESTIVAL_EVENT_KINDS = ("EVENTO", "GIRA")
 
 
 def _render_event_activities():
@@ -23879,10 +23887,13 @@ def _render_cycle_festivals(only_events: bool = False):
     s = db()
     try:
         q = (s.query(CycleFestival).options(joinedload(CycleFestival.managing_company), joinedload(CycleFestival.venue)))
-        if only_events:
-            q = q.filter(func.upper(func.coalesce(CycleFestival.kind, "")) == "EVENTO")
-        else:
-            q = q.filter(func.upper(func.coalesce(CycleFestival.kind, "")) != "EVENTO")
+        # Un contenedor es «de evento» si lo dice su tipo (EVENTO / GIRA) o si cuelga de un AppEvent
+        # (una gira o un ciclo pueden ser de un evento). Los demás son de Festivales / Ciclos.
+        _de_evento = or_(
+            func.upper(func.coalesce(CycleFestival.kind, "")).in_(list(CYCLE_FESTIVAL_EVENT_KINDS)),
+            CycleFestival.event_id.isnot(None),
+        )
+        q = q.filter(_de_evento) if only_events else q.filter(~_de_evento)
         items = q.order_by(CycleFestival.status.asc(), CycleFestival.start_date.desc().nullslast(),
                           CycleFestival.created_at.desc()).all()
         counts = dict(
@@ -23912,9 +23923,10 @@ def _render_cycle_festivals(only_events: bool = False):
             "festivales_ciclos.html",
             section=("eventos" if only_events else "festivales-ciclos"),
             only_events=only_events,
-            page_title=("Eventos" if only_events else "Festivales / Ciclos"),
-            page_subtitle=("Eventos propios (galas, ferias…), de una fecha o de varias. Funcionan como una "
-                           "gira comprada: agrupan sus fechas." if only_events else
+            page_title=("Eventos · giras y ciclos" if only_events else "Festivales / Ciclos"),
+            page_subtitle=("Lo que se organiza de un evento: su gira propia (con varias fechas), un ciclo "
+                           "o un festival. No son giras compradas: eso es lo que se le compra a un promotor."
+                           if only_events else
                            "Festivales y ciclos organizados por el grupo, con sus conciertos."),
             rows=rows, artists=artists, companies=companies, events=events, venues=venues,
             CAN_EDIT_CONCERTS=can_edit_concerts(),
@@ -23930,10 +23942,11 @@ def _apply_cycle_form(cf, form):
     kind = (form.get("kind") or getattr(cf, "kind", None) or "FESTIVAL").strip().upper()
     cf.kind = kind if kind in CYCLE_FESTIVAL_KIND_LABELS else "FESTIVAL"
     cf.name = ((form.get("name") or "").strip()
-               or ("Evento" if cf.kind == "EVENTO" else "Ciclo / Festival"))
-    # Categoría EVENTOS: queda enganchado al evento de la base de datos si se eligió. Si el
-    # formulario no trae el campo (p. ej. el modal de editar), se conserva el vínculo actual.
-    if cf.kind == "EVENTO" and "event_id" in form:
+               or {"EVENTO": "Evento", "GIRA": "Gira"}.get(cf.kind, "Ciclo / Festival"))
+    # Queda enganchado al EVENTO de la base de datos si se eligió (una gira o un ciclo pueden ser
+    # de un evento, igual que de un artista). Si el formulario no trae el campo (p. ej. el modal de
+    # editar), se conserva el vínculo actual en vez de borrarlo.
+    if "event_id" in form:
         _ev = (form.get("event_id") or "").strip()
         cf.event_id = to_uuid(_ev) if _ev else None
     cid = (form.get("managing_company_id") or "").strip()
@@ -23972,7 +23985,8 @@ def cycle_festival_create():
         s.add(cf)
         s.commit()
         cid = str(cf.id)
-        flash("Evento creado." if (cf.kind or "").upper() == "EVENTO" else "Ciclo/Festival creado.", "success")
+        flash({"EVENTO": "Evento creado.", "GIRA": "Gira del evento creada."}.get(
+            (cf.kind or "").upper(), "Ciclo/Festival creado."), "success")
     except Exception as exc:
         s.rollback()
         flash(f"No se pudo crear: {exc}", "danger")
@@ -24019,7 +24033,10 @@ def cycle_festival_detail(cfid):
             # Cartelería de TODO el ciclo/festival/evento.
             **_artwork_group_context(s, "CYCLE", cf.id),
             can_validate_artwork=_can_validate_artwork(),
-            group_kind=(cf.kind or "FESTIVAL").upper(), group=cf, concerts=rows, general=general,
+            group_kind=(cf.kind or "FESTIVAL").upper(),
+            # Un contenedor es de un EVENTO por su tipo o por colgar de un AppEvent.
+            group_is_event=bool(cf.event_id) or (cf.kind or "").upper() in CYCLE_FESTIVAL_EVENT_KINDS,
+            group=cf, concerts=rows, general=general,
             advance_share=0.0, gen_total=gen_total, candidates=cand_rows,
             status_label=label, status_badge=badge, artists=artists, companies=companies,
             venues=venues, simulations=simulations, linked_sims=_group_linked_sims(s, general),
@@ -24134,20 +24151,24 @@ def cycle_festival_unlink_concert(cfid, cid):
 @admin_required
 def cycle_festival_delete(cfid):
     s = db()
+    seccion = "festivales-ciclos"
     try:
         cf = s.get(CycleFestival, to_uuid(cfid))
         if cf:
+            # ⚠️ Hay que leer si era de un evento ANTES de borrarlo, para saber a dónde volver.
+            if cf.event_id or (cf.kind or "").upper() in CYCLE_FESTIVAL_EVENT_KINDS:
+                seccion = "eventos"
             for c in _cycle_concerts(s, cf.id):
                 c.cycle_festival_id = None
             s.delete(cf)
             s.commit()
-            flash("Ciclo/Festival eliminado (los conciertos se conservan, desvinculados).", "success")
+            flash("Eliminado (las fechas se conservan, desvinculadas).", "success")
     except Exception as exc:
         s.rollback()
         flash(f"No se pudo eliminar: {exc}", "danger")
     finally:
         s.close()
-    return redirect(url_for("contracting_view", section="festivales-ciclos"))
+    return redirect(url_for("contracting_view", section=seccion, contenedores=(1 if seccion == "eventos" else None)))
 
 
 @app.post("/contratacion/simulaciones/<sid>/convertir", endpoint="simulation_convert")

@@ -1139,8 +1139,22 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
 - GitHub `descobosa2205/radio_spins_app` → **Render** (Pro Plus, **Frankfurt**) auto-deploy de
   `main`. **Supabase** Pro (**Frankfurt**, proyecto `gyezqnqyxpwxxevdjhgf`; migrado desde Estocolmo
   el 11-jul-2026 — regiones ya alineadas, ~1-2 ms por consulta). Arranque:
-  `gunicorn -c gunicorn.conf.py app:app`. **Health Check Path = `/healthz`** en Render (instantáneo,
-  sin BD): reinicia instancias colgadas y valida deploys.
+  `gunicorn -c gunicorn.conf.py app:app`. **Health Check Path = `/healthz`** en Render: reinicia
+  instancias colgadas y valida deploys.
+  ⚠️ **`/healthz` responde 503 MIENTRAS SE APLICA EL ESQUEMA** (`_schema_is_ready`, marca en
+  `tempfile.gettempdir()/app33_schema_ready.flag`, que la ponen todos los workers a la vez porque
+  solo uno coge el cerrojo y migra). Render **espera hasta 15 min** al health check y **mantiene el
+  tráfico en la instancia vieja** hasta que pase: así subir algo no se nota. Antes la instancia
+  nueva decía «estoy bien» en 2 s y atendía mientras todavía migraba, y la gente se comía pantallas
+  a medio migrar o el aviso de mantenimiento. Válvula de seguridad `SCHEMA_READY_MAX_WAIT` (720 s,
+  por debajo de los 900 s de Render): pasado ese tope se da por listo igualmente, para que una
+  migración colgada no deje la instancia enferma en bucle.
+  ⚠️ **Cuando Render está PARADO la app no puede servir nada.** Para eso está el *Maintenance Mode*
+  de Render, que sirve **una URL externa al servicio**: `tools/pagina_mantenimiento/` publica la
+  MISMA `static/maintenance.html` como sitio estático aparte (build `bash
+  tools/pagina_mantenimiento/build.sh`, publish `tools/pagina_mantenimiento/_site`). Instrucciones en
+  su `LEEME.md`. La app sigue enseñando esa página por su cuenta en el modo trabajo a mano
+  (`direccion_toggle_maintenance`) y en los 500 (`errorhandler`).
 - La app se conecta por el **pooler de Supabase (Session mode)**, `aws-0-eu-central-1.pooler...:5432`
   (el acceso directo `db.<ref>...` de los proyectos nuevos es solo IPv6 y Render no llega). El
   «Pool Size» del pooler está a 60; el pool de la app es 6+6 por worker (`DB_POOL_SIZE`/`DB_MAX_OVERFLOW`).

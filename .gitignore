@@ -31,3 +31,6 @@ Thumbs.db
 tmp/
 migracion_frankfurt.env
 .claude/launch.json
+
+# Sitio estático de la página de mantenimiento: se genera en el build de Render.
+tools/pagina_mantenimiento/_site/

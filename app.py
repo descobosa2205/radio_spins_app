@@ -1266,6 +1266,13 @@ def healthz():
     # SIN tocar la BD. Así el balanceador distingue «instancia viva» de «threads ocupados», reinicia
     # solo instancias realmente colgadas y valida los deploys contra algo fiable (no contra páginas
     # que dependen de la BD).
+    #
+    # ⚠️ Mientras se está APLICANDO EL ESQUEMA responde 503: Render entonces NO manda tráfico a esta
+    # instancia y la gente sigue en la vieja, que funciona. Es lo que hace que subir algo no se note
+    # (antes la instancia decía «estoy bien» a los 2 segundos y atendía a medio migrar).
+    if not _schema_is_ready():
+        return ("aplicando la actualizacion", 503,
+                {"Content-Type": "text/plain", "Cache-Control": "no-store", "Retry-After": "10"})
     return ("ok", 200, {"Content-Type": "text/plain", "Cache-Control": "no-store"})
 
 
@@ -38339,13 +38346,51 @@ from models import (
 # con varios workers provocaba contención de locks DDL y el arranque tardaba tanto que Render no
 # detectaba el puerto ("No open ports detected") y el deploy fallaba. Todo es idempotente y
 # best-effort, así que el hilo nunca rompe el arranque; el servidor abre el puerto al instante.
+# ---------------------------------------------------------------------------------------------
+# ¿ESTÁ EL ESQUEMA APLICADO?  (es lo que responde el health check de Render)
+#
+# El esquema se aplica en un hilo que arranca al importar la app, DESPUÉS de abrir el puerto. Sin
+# esta señal, una instancia recién desplegada dice «estoy bien» mientras todavía está migrando:
+# Render le manda el tráfico y la gente se come pantallas a medio migrar (o el aviso de
+# mantenimiento) sin saber por qué. Diciendo la verdad en `/healthz`, Render **mantiene el tráfico
+# en la instancia vieja** hasta que la nueva termina, y un despliegue no se nota.
+#
+# Es un fichero y no una variable porque hay VARIOS workers por contenedor: solo uno coge el
+# cerrojo y migra; los demás tienen que esperar a ese, no darse por listos.
+# ---------------------------------------------------------------------------------------------
+_SCHEMA_READY_FILE = os.path.join(tempfile.gettempdir(), "app33_schema_ready.flag")
+_PROCESS_STARTED_AT = time.time()
+# Válvula de seguridad: pasado este tope se da por listo igualmente. Una migración colgada no puede
+# dejar la instancia marcada como enferma para siempre (Render la reiniciaría en bucle), y va por
+# debajo de los 15 min que Render espera antes de cancelar el despliegue.
+SCHEMA_READY_MAX_WAIT = int(os.getenv("SCHEMA_READY_MAX_WAIT", "720"))
+
+
+def _mark_schema_ready() -> None:
+    try:
+        with open(_SCHEMA_READY_FILE, "w") as fh:
+            fh.write(str(int(time.time())))
+    except Exception:
+        pass
+
+
+def _schema_is_ready() -> bool:
+    try:
+        if os.path.exists(_SCHEMA_READY_FILE):
+            return True
+    except Exception:
+        return True
+    return (time.time() - _PROCESS_STARTED_AT) > SCHEMA_READY_MAX_WAIT
+
+
 def _bootstrap_schema_bg():
-    import tempfile
     lock_path = os.path.join(tempfile.gettempdir(), "app33_schema_bootstrap.lock")
     try:
         os.close(os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
     except FileExistsError:
-        return  # otro worker de este contenedor ya está aplicando el esquema
+        # Otro worker de este contenedor está aplicando el esquema: NO se marca listo aquí, hay que
+        # esperar a que lo marque él (si no, este worker diría «listo» a medias).
+        return
     except Exception:
         pass  # si el cerrojo falla, seguimos igualmente (best-effort)
     _safe_ensure(init_db, "init_db")  # tablas base (el resto de migraciones dependen de ellas)
@@ -38408,11 +38453,18 @@ def _bootstrap_schema_bg():
     # No eran documentos de Cabify: se desenganchan del gasto y se borran de Storage.
     _safe_ensure(lambda: globals()["_cabify_purge_fake_receipts_bg"](),
                  "_cabify_purge_fake_receipts_bg")
+    # A partir de aquí la instancia SÍ puede recibir tráfico. Se marca pase lo que pase (si alguna
+    # migración falló, ya se ha anotado en el log): quedarse sin marcar dejaría la instancia
+    # inservible, que es peor que arrancar con un aviso.
+    _mark_schema_ready()
+    app.logger.info("[arranque] esquema aplicado en %.1f s", time.time() - _PROCESS_STARTED_AT)
 
 # En el host «solo CalDAV» NO tocamos el esquema de producción (ya lo mantiene el host principal):
 # nos limitamos a leer/escribir notas de agenda. Por eso se salta este arranque de DDL.
 if not CALDAV_ONLY:
     threading.Thread(target=_bootstrap_schema_bg, daemon=True).start()
+else:
+    _mark_schema_ready()   # este host no toca el esquema: está listo desde el primer momento
 
 # =========================================================
 # Hoja de ruta avanzada + redes sociales + one-sheet

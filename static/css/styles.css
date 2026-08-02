@@ -1033,6 +1033,10 @@ img.img-error-pending{ visibility: hidden; }
 .invitation-icon-option, .invitation-radio-option { display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; min-height:104px; gap:.5rem; }
 .invitation-icon-option i, .invitation-radio-option i { font-size:1.8rem; color:#e83b4b; }
 .invitation-radio-option input { position:absolute; opacity:0; pointer-events:none; }
+/* Una tarjeta puede ser <label> o <button> (las que saltan a otro asistente): el navegador pone a
+   los botones su propia tipografía, y sin esto se veían distintas dentro de la misma rejilla. */
+button.invitation-radio-option { font:inherit; }
+.pw-tile__sub { font-size:.76rem; color:#6c757d; font-weight:400; }
 .invitation-radio-option:has(input:checked) { border-color:#e83b4b; box-shadow:0 0 0 .18rem rgba(232,59,75,.12); }
 /* Dropzone de subida de invitaciones (arrastrar PDFs o pinchar para seleccionar) */
 .inv-dropzone { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.3rem; border:2px dashed #cfd6de; border-radius:1rem; background:#fbfcfd; padding:1.5rem 1rem; text-align:center; cursor:pointer; transition:.15s ease; color:#42505f; margin:0; width:100%; }

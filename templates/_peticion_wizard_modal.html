@@ -13,24 +13,34 @@
       <div class="modal-body">
 
         <div class="pw-step" data-pstep="1">
-          <h6 class="mb-3">1. ¿Qué tipo de actividad?</h6>
+          <h6 class="mb-1">1. ¿Qué quieres pedir?</h6>
+          <div class="text-muted small mb-3">Al elegirlo se pasa solo al siguiente paso.</div>
+          {# TODO en una sola rejilla, todo igual: lo que se contrata y lo que no. Promoción y
+             marketing no son actividades que se contraten, así que saltan a su propio asistente
+             (más corto) y este se cierra; el resto sigue aquí. #}
           <div class="invitation-icon-grid">
-            {% for k, l, i in [('CONCIERTO','Concierto','fa-guitar'),('FESTIVAL','Festival','fa-star'),('EVENTO_PROMOCIONAL','Evento promocional','fa-bullhorn'),('TV','Programa de TV','fa-tv'),('MARCA','Acción con marca','fa-tags'),('OTROS','Otros','fa-calendar-day')] %}
-              <label class="invitation-radio-option"><input type="radio" name="activity_type" value="{{ k }}" {% if loop.first %}checked{% endif %}><i class="fa {{ i }}"></i><span>{{ l }}</span></label>
+            {% for k, l, sub, i in [('CONCIERTO','Concierto','', 'fa-guitar'),
+                                    ('FESTIVAL','Festival','', 'fa-star'),
+                                    ('EVENTO_PROMOCIONAL','Evento promocional','', 'fa-bullhorn'),
+                                    ('TV','Programa de TV','', 'fa-tv'),
+                                    ('MARCA','Acción con marca','', 'fa-tags')] %}
+              <label class="invitation-radio-option">
+                <input type="radio" name="activity_type" value="{{ k }}" {% if loop.first %}checked{% endif %}>
+                <i class="fa {{ i }}"></i><span>{{ l }}</span>
+              </label>
             {% endfor %}
-          </div>
-          {# Promoción (prensa) y marketing (campaña de pago) no son actividades que se contraten:
-             tienen su propio asistente, más corto. Se salta a él y este se cierra. #}
-          <div class="mt-3 pt-3 border-top">
-            <div class="small text-muted mb-2">¿O es otra cosa?</div>
-            <div class="invitation-icon-grid">
-              <button type="button" class="invitation-radio-option" data-peticion-handoff="promoPeticionModal">
-                <i class="fa fa-microphone-lines"></i><span>Promoción<br><span class="small text-muted">Entrevista, prensa…</span></span>
-              </button>
-              <button type="button" class="invitation-radio-option" data-peticion-handoff="marketingPeticionModal">
-                <i class="fa fa-bullhorn"></i><span>Marketing<br><span class="small text-muted">Campaña de pago</span></span>
-              </button>
-            </div>
+            <button type="button" class="invitation-radio-option" data-peticion-handoff="promoPeticionModal">
+              <i class="fa fa-microphone-lines"></i>
+              <span>Promoción<br><span class="pw-tile__sub">Entrevista, prensa…</span></span>
+            </button>
+            <button type="button" class="invitation-radio-option" data-peticion-handoff="marketingPeticionModal">
+              <i class="fa fa-rectangle-ad"></i>
+              <span>Marketing<br><span class="pw-tile__sub">Campaña de pago</span></span>
+            </button>
+            <label class="invitation-radio-option">
+              <input type="radio" name="activity_type" value="OTROS">
+              <i class="fa fa-calendar-day"></i><span>Otros</span>
+            </label>
           </div>
         </div>
 

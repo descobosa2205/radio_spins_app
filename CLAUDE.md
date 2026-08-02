@@ -558,10 +558,15 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (`registros_promo_declare`).
   · **Dónde se ve**: `_promo_rows_for_subject` + `_promo_entity_panel.html` en la ficha de
   canción, disco, artista y concierto.
-  · **«Nueva petición» ofrece también PROMOCIÓN y MARKETING**: en el paso 1 del asistente general
-  (`_peticion_wizard_modal.html`), bajo los tipos de actividad, hay dos accesos que **saltan** a su
-  asistente corto (`data-peticion-handoff`, cierra el general y abre el otro cuando Bootstrap ha
-  terminado de ocultarlo, si no se lleva el fondo por delante). Marketing usa
+  · **«Nueva petición» ofrece también PROMOCIÓN y MARKETING**: el paso 1 del asistente general
+  (`_peticion_wizard_modal.html`) ya no pregunta «qué tipo de actividad»: es **«¿Qué quieres
+  pedir?»** con **UNA sola rejilla** donde van igualadas las actividades y lo demás (concierto,
+  festival, evento promocional, TV, marca, **promoción**, **marketing**, otros). Las dos últimas no
+  se contratan, así que **saltan** a su asistente corto (`data-peticion-handoff`: cierra el general
+  y abre el otro cuando Bootstrap ha terminado de ocultarlo, si no se lleva el fondo por delante).
+  ⚠️ Esas dos tarjetas son `<button>` y el resto `<label>`: sin `button.invitation-radio-option
+  { font:inherit }` el navegador les pone su propia tipografía y se ven distintas en la misma
+  rejilla. Marketing usa
   **`_marketing_peticion_modal.html`** → `marketing_peticion_create` (artista · qué se promociona ·
   plan o acción + tipos · objetivos, presupuesto y plazo), que cae en Marketing → Peticiones.
   ⚠️ No es `promotion_request_create`: ese exige poder EDITAR marketing porque sale de la ficha del

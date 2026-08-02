@@ -161,6 +161,10 @@
     </div>
 
   {% elif pending_subtab == 'pago' %}
+    {% if pending_counts.get('pago', 0) > (payable_expenses|length) %}
+      <div class="alert alert-light border small"><i class="fa fa-circle-info me-1"></i>
+        Hay {{ pending_counts.get('pago') }} gastos pendientes de pago; aquí se muestran los {{ payable_expenses|length }} más recientes.</div>
+    {% endif %}
     <div class="card">
       <div class="card-header bg-white"><strong>Pendiente de pago</strong></div>
       <div class="card-body p-0">
@@ -553,10 +557,17 @@
         form = document.getElementById('embargoUploadForm'),
         cola = [];
 
+    // ⚠️ El nombre del fichero lo pone quien manda la carpeta: se ESCAPA siempre antes de pintarlo
+    // (si no, un nombre con comillas rompe el markup y uno con etiquetas ejecuta JS).
+    function esc(t) {
+      return String(t == null ? '' : t)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
     function pintar() {
       lista.innerHTML = cola.map(function (f, i) {
         return '<div class="fotos-fileitem"><span class="fotos-fileitem__thumb"><i class="fa fa-file-pdf"></i></span>' +
-          '<span class="fotos-fileitem__name text-truncate">' + (f.name || 'archivo') + '</span>' +
+          '<span class="fotos-fileitem__name text-truncate">' + esc(f.name || 'archivo') + '</span>' +
           '<button type="button" class="btn btn-sm btn-link text-danger" data-emb-quitar="' + i + '"><i class="fa fa-xmark"></i></button></div>';
       }).join('');
       btn.disabled = !cola.length;
@@ -564,12 +575,19 @@
       msg.textContent = cola.length ? (cola.length + ' PDF listos para subir') : '';
     }
     function añadir(files) {
+      var antes = cola.length, vistos = 0;
       Array.prototype.forEach.call(files || [], function (f) {
         if (!f || !f.name || f.name.charAt(0) === '.') return;                       // .DS_Store y compañía
+        vistos++;
         if (!(f.type === 'application/pdf' || /\.pdf$/i.test(f.name))) return;
         cola.push(f);
       });
       pintar();
+      // Sin esto, arrastrar una carpeta de órdenes escaneadas en .jpg no daba ninguna señal.
+      if (vistos && cola.length === antes) {
+        msg.className = 'small mt-2 text-danger';
+        msg.textContent = 'Ahí no hay ningún PDF (se revisaron ' + vistos + ' archivos). Las órdenes tienen que estar en PDF.';
+      }
     }
     // Carpeta arrastrada: se recorre el árbol entero. readEntries pagina de ~100 en 100, así que
     // hay que insistir hasta que devuelva vacío o se pierden ficheros en carpetas grandes.
@@ -621,7 +639,17 @@
         // ⚠️ csrf.js parchea fetch, NO XMLHttpRequest: la cabecera va a mano.
         xhr.setRequestHeader('X-CSRFToken', csrf());
         xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-        xhr.onload = function () { var j = {}; try { j = JSON.parse(xhr.responseText || '{}'); } catch (e) {} res(j); };
+        xhr.onload = function () {
+          // ⚠️ Solo vale un JSON que diga ok:true. Un 502 de Render, la página de mantenimiento de
+          // un 500, un 403 o la redirección al login devuelven HTML: si no se comprueba, el lote se
+          // daba por subido, la página se recargaba y la subida se perdía sin avisar.
+          var j = null;
+          try { j = JSON.parse(xhr.responseText || ''); } catch (e) { j = null; }
+          if (xhr.status >= 200 && xhr.status < 300 && j && j.ok === true) { res(j); return; }
+          var motivo = (j && j.error) || ('el servidor respondió ' + xhr.status +
+            (xhr.status === 0 ? ' (sin conexión)' : ''));
+          res({ ok: false, error: motivo });
+        };
         xhr.onerror = function () { res({ ok: false, error: 'No se pudo conectar.' }); };
         xhr.send(fd);
       });
@@ -630,32 +658,52 @@
     form.addEventListener('submit', function (e) {
       e.preventDefault();
       if (!cola.length) return;
+      var total = cola.length;
       var lotes = [], i;
       for (i = 0; i < cola.length; i += POR_LOTE) lotes.push(cola.slice(i, i + POR_LOTE));
       btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Subiendo…';
       barra.classList.remove('d-none');
-      var hechos = 0, creados = 0, revisar = 0, archivados = 0, errores = [];
-      (function siguiente() {
-        if (!lotes.length) {
-          if (errores.length) {
-            btn.disabled = false; btn.innerHTML = '<i class="fa fa-upload me-1"></i>Subir y detectar';
-            msg.className = 'small mt-2 text-danger';
-            msg.innerHTML = 'Se subieron ' + creados + ' de ' + cola.length + '. No se pudieron procesar:<br>' +
-              errores.map(function (x) { return '· ' + x; }).join('<br>');
-            return;
-          }
-          window.location.reload();
+      var hechos = 0, creados = 0, revisar = 0, archivados = 0, errores = [], fallados = [];
+      function terminar() {
+        // Los ficheros de los lotes que SÍ se subieron salen de la cola: si se deja todo y el
+        // usuario vuelve a pulsar, se crean órdenes de embargo DUPLICADAS (y un embargo duplicado
+        // bloquea el pago a un proveedor dos veces).
+        cola = fallados;
+        pintar();
+        var resumen = 'Se guardaron ' + creados + ' de ' + total + '.';
+        if (archivados) resumen += ' Se archivaron ' + archivados + ' embargo(s) por levantamiento.';
+        if (revisar) resumen += ' ' + revisar + ' quedan pendientes de revisar o vincular.';
+        if (!errores.length) {
+          // Se enseña el resumen antes de recargar: si no, los avisos se perdían.
+          msg.className = 'small mt-2 text-success';
+          msg.textContent = resumen + ' Actualizando…';
+          setTimeout(function () { window.location.reload(); }, 1200);
           return;
         }
+        btn.disabled = !cola.length;
+        btn.innerHTML = '<i class="fa fa-upload me-1"></i>Reintentar los que fallaron';
+        msg.className = 'small mt-2 text-danger';
+        msg.innerHTML = esc(resumen) + '<br>No se pudieron procesar:<br>' +
+          errores.map(function (x) { return '· ' + esc(x); }).join('<br>');
+      }
+      (function siguiente() {
+        if (!lotes.length) { terminar(); return; }
         var lote = lotes.shift();
         subirLote(lote).then(function (j) {
           hechos += lote.length;
-          creados += (j.created || 0); revisar += (j.pending_review || 0); archivados += (j.archived || 0);
-          (j.errores || []).forEach(function (x) { errores.push(x); });
-          if (j.ok === false && j.error) errores.push(j.error);
-          barra.querySelector('.progress-bar').style.width = Math.round(hechos * 100 / cola.length) + '%';
-          msg.className = 'small mt-2 text-muted';
-          msg.textContent = hechos + ' de ' + cola.length + ' procesados…';
+          if (j.ok === true) {
+            creados += (j.created || 0); revisar += (j.pending_review || 0); archivados += (j.archived || 0);
+            (j.errores || []).forEach(function (x) { errores.push(x); });
+          } else {
+            // El lote entero se quedó sin subir: se guarda para poder reintentarlo.
+            errores.push('Lote de ' + lote.length + ' PDF: ' + (j.error || 'error desconocido'));
+            lote.forEach(function (f) { fallados.push(f); });
+          }
+          barra.querySelector('.progress-bar').style.width = Math.round(hechos * 100 / total) + '%';
+          if (lotes.length) {
+            msg.className = 'small mt-2 text-muted';
+            msg.textContent = hechos + ' de ' + total + ' procesados…';
+          }
           siguiente();
         });
       })();

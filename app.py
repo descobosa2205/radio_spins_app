@@ -24608,7 +24608,8 @@ def event_delete(eid):
                 pendientes.append(f"{n_cf} contenedor(es) (gira/ciclo/festival)")
             if pendientes:
                 flash("No se puede eliminar: el evento todavía tiene " + " y ".join(pendientes)
-                      + ". Elimínalo o desvincúlalo antes.", "warning")
+                      + ". Hay que eliminarlos primero (las actividades desde su ficha y las giras "
+                        "o ciclos desde la suya).", "warning")
                 return redirect(url_for("event_detail_view", eid=eid))
             s.delete(ev)
             s.commit()
@@ -38401,6 +38402,11 @@ def _bootstrap_schema_bg():
     # mucho más abajo y referenciarla aquí por nombre podría dar NameError.
     _safe_ensure(lambda: globals()["_person_docs_backfill_official_data"](),
                  "_person_docs_backfill_official_data")
+    # Una sola vez: devolverles su tipo a los contenedores de EVENTO que el modal de editar degradó
+    # a ciclo. Va aquí (con marca) y NO como sentencia del esquema: si corriera en cada arranque
+    # convertiría en EVENTO las giras y ciclos legítimos de un evento creados después.
+    _safe_ensure(lambda: globals()["_cycle_festival_event_kind_repair"](),
+                 "_cycle_festival_event_kind_repair")
 
 # En el host «solo CalDAV» NO tocamos el esquema de producción (ya lo mantiene el host principal):
 # nos limitamos a leer/escribir notas de agenda. Por eso se salta este arranque de DDL.
@@ -42652,6 +42658,9 @@ ADMINISTRATION_PENDING_TABS = [
 # Estados de bolsa de cada subpestaña de «Pendiente». Los usan el CONTADOR **y** las listas de la
 # plantilla, para que el número y las filas digan siempre lo mismo (antes el contador de
 # «De liquidación» no incluía PENDIENTE_LIQUIDACION y no cuadraba con lo que se veía).
+# Tope de filas que se pintan en las listas largas de Administración. El CONTADOR es el real: si hay
+# más de las que caben, la pantalla lo dice en vez de dejar que el número y las filas discrepen.
+ADMIN_LIST_LIMIT = 200
 ADMIN_BAG_LIQUIDACION_STATUSES = ["NO_INICIADA", "PENDIENTE_ADMIN", "PENDIENTE_LIQUIDACION"]
 ADMIN_BAG_CIERRE_STATUSES = ["PENDIENTE_CIERRE", "VALIDADA", "PENDIENTE_PAGO"]
 ACTION_TYPE_OPTIONS = [
@@ -47797,9 +47806,13 @@ def administration_embargo_upload():
                 )
                 session_db.add(row)
                 session_db.flush()
+                archivados_aqui = 0
                 if order_type == "LEVANTAMIENTO":
-                    archived_count += _archive_matching_embargos_for_lift(session_db, row, audit)
+                    archivados_aqui = _archive_matching_embargos_for_lift(session_db, row, audit)
                 punto.commit()
+                # Se suma DESPUÉS de confirmar: si el savepoint se deshace, no se informa de
+                # archivados que en realidad no llegaron a guardarse.
+                archived_count += archivados_aqui
                 created_rows.append(row)
             except Exception as exc_file:
                 try:
@@ -48013,16 +48026,28 @@ def _admin_altas_pending_count(session_db) -> int:
     resolver nombres de trabajadores uno a uno (eso es `_prl_admin_altas_context`, que es caro y
     solo hace falta cuando se abre la pestaña)."""
     try:
-        total = session_db.query(func.count(GroupCompany.id)).scalar() or 0
-        if not total:
+        empresas = [str(x[0]) for x in session_db.query(GroupCompany.id).all()]
+        if not empresas:
             return 0
         hoy = date.today()
-        vigentes = set()
-        for doc in _prl_company_ita_docs(session_db):
-            if _prl_doc_valid_on(doc, hoy):
-                vigentes.add(str(doc.company_id or doc.owner_id))
-        return max(0, int(total) - len(vigentes))
+        # ⚠️ MISMA regla que la pestaña (`_prl_admin_altas_context`): manda el ITA **más reciente**
+        # de cada empresa, no «cualquiera que esté en vigor». Si no, el número dice 0 con empresas
+        # pintadas en rojo (p. ej. al subir por error uno viejo, que pasa a ser el actual).
+        actual = {}
+        for doc in _prl_company_ita_docs(session_db):        # vienen ordenados created_at desc
+            clave = str(doc.company_id or doc.owner_id)
+            actual.setdefault(clave, doc)
+        pendientes = 0
+        for cid in empresas:
+            doc = actual.get(cid)
+            if not doc or not _prl_doc_valid_on(doc, hoy):
+                pendientes += 1
+        return pendientes
     except Exception:
+        try:
+            session_db.rollback()
+        except Exception:
+            pass
         return 0
 
 
@@ -48034,9 +48059,17 @@ def _admin_pending_counts(session_db) -> dict:
     la pestaña activa.
     """
     def _n(query) -> int:
+        """Cuenta, y si la consulta falla NO deja la sesión colgada.
+        ⚠️ En Postgres, una sentencia que revienta aborta la transacción entera: sin este rollback,
+        el primer contador que fallara haría fallar a todos los siguientes y a las consultas de la
+        propia pantalla, y Administración se caía al completo."""
         try:
             return int(query.scalar() or 0)
         except Exception:
+            try:
+                session_db.rollback()
+            except Exception:
+                pass
             return 0
 
     vivos = BagExpense.status != "ELIMINADO"
@@ -48168,7 +48201,7 @@ def administracion_view():
                 BagExpense.covered_by == "BOLSA",
                 BagExpense.consolidation_status.in_(list(BAG_CONSOLIDATED_STATUSES)),
                 BagExpense.payment_status.in_(["NO_PAGADO", "PENDIENTE", "PARCIAL"]),
-            ).order_by(BagExpense.created_at.desc()).limit(200).all()
+            ).order_by(BagExpense.created_at.desc()).limit(ADMIN_LIST_LIMIT).all()
         receivable_invoices = []
         if tab == "cobros" or quiere_facturacion:
             receivable_invoices = session_db.query(InvoiceRecord).options(joinedload(InvoiceRecord.artist), joinedload(InvoiceRecord.company), joinedload(InvoiceRecord.bag)).filter(
@@ -48238,6 +48271,7 @@ def administracion_view():
             ADMIN_BAG_CIERRE_STATUSES=ADMIN_BAG_CIERRE_STATUSES,
             admin_my_tabs=admin_my_tabs,
             admin_my_pending_tabs=admin_my_pending_tabs,
+            admin_list_limit=ADMIN_LIST_LIMIT,
             direct_pending=direct_pending,
             direct_no_invoice=direct_no_invoice,
             direct_payable=direct_payable,
@@ -48811,6 +48845,39 @@ def _person_document_save(session_db, ot, owner):
 
     session_db.commit()
     return _person_document_payload(doc), aplicados, conflictos
+
+
+CF_EVENT_KIND_REPAIR_KEY = "cycle_festival_event_kind_repair_v1"
+
+
+def _cycle_festival_event_kind_repair():
+    """UNA SOLA VEZ: devuelve su tipo a los contenedores de EVENTO que el modal de editar degradó a
+    CICLO (solo ofrecía festival/ciclo y marcaba ciclo por defecto).
+
+    ⚠️ Solo toca los que quedaron como **CICLO**: un contenedor de evento puede ser legítimamente una
+    GIRA (la gira propia del evento) o un FESTIVAL, y esos NO se tocan. Y va con marca en
+    `AppSetting`, no como sentencia del esquema: si se ejecutara en cada arranque convertiría en
+    EVENTO cualquier gira o ciclo de un evento creado después.
+    """
+    if (_get_app_setting(CF_EVENT_KIND_REPAIR_KEY) or "").strip() == "done":
+        return
+    session_db = db()
+    try:
+        filas = (session_db.query(CycleFestival)
+                 .filter(CycleFestival.event_id.isnot(None))
+                 .filter(func.upper(func.coalesce(CycleFestival.kind, "")) == "CICLO")
+                 .all())
+        for cf in filas:
+            cf.kind = "EVENTO"
+        session_db.commit()
+        if filas:
+            app.logger.info("[eventos] reparados %d contenedores degradados a ciclo", len(filas))
+        _set_app_setting(CF_EVENT_KIND_REPAIR_KEY, "done")
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[eventos] no se pudo reparar el tipo de los contenedores de evento")
+    finally:
+        session_db.close()
 
 
 PERSON_DOCS_BACKFILL_KEY = "person_docs_official_backfill_v1"

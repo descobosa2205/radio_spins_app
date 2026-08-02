@@ -7439,12 +7439,6 @@ def ensure_activities_grouping_schema():
         "CREATE INDEX IF NOT EXISTS idx_purchased_tours_company ON purchased_tours(managing_company_id);",
         "CREATE INDEX IF NOT EXISTS idx_purchased_tours_artist ON purchased_tours(artist_id);",
         "CREATE INDEX IF NOT EXISTS idx_purchased_tours_status ON purchased_tours(status);",
-        # REPARACIÓN de datos: el modal de editar de la ficha solo ofrecía FESTIVAL/CICLO y marcaba
-        # CICLO por defecto, así que guardar un contenedor de EVENTO lo degradaba a ciclo. Como
-        # `event_id` SOLO se rellena en la rama EVENTO, toda fila que tenga evento y no sea de tipo
-        # EVENTO es una degradada: se le devuelve su tipo. Idempotente (ya arregladas no casan).
-        "UPDATE cycle_festivals SET kind = 'EVENTO' "
-        "WHERE event_id IS NOT NULL AND upper(coalesce(kind, '')) <> 'EVENTO';",
         """
         CREATE TABLE IF NOT EXISTS cycle_festivals (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

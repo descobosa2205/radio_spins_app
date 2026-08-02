@@ -23178,7 +23178,7 @@ def _home_produccion_pending(limit=12):
         for c in rows:
             # Las fechas de gira comprada que NO promueve una empresa del grupo no generan aviso de
             # producción (mismo criterio que `_ensure_production_request_for_concert` y el listado).
-            if not _concert_needs_production(c):
+            if not _concert_needs_production(c, s):
                 continue
             has_bag = (s.query(WorkflowBag.id)
                        .filter(WorkflowBag.linked_type.in_(("CONCERT", "concert")), WorkflowBag.linked_id == c.id)
@@ -44843,7 +44843,7 @@ def _contracting_tasks_data() -> dict:
                     kinds.append("CONTRACT")
                 if not getattr(c, "announcement_date", None) and not getattr(c, "do_not_announce", False):
                     kinds.append("ANNOUNCE")
-                if _concert_needs_production(c) and c.id not in con_bolsa:
+                if _concert_needs_production(c, session_db) and c.id not in con_bolsa:
                     kinds.append("PRODUCTION")
             if not kinds:
                 continue
@@ -47300,9 +47300,21 @@ def produccion_view():
             .limit(250)
             .all()
         )
-        # Las fechas de una gira comprada que promueve un tercero (no una empresa del grupo) no
-        # las producimos nosotros: fuera del listado de Producción.
-        production_concerts_db = [c for c in production_concerts_db if _concert_needs_production(c)]
+        # Las fechas de una gira comprada que promueve un tercero (no una empresa del grupo) no las
+        # producimos nosotros: fuera del listado de Producción.
+        # ⚠️ Salvo que YA se esté trabajando en ellas (tienen bolsa): esconder trabajo empezado sería
+        # peor que enseñar una fecha de más. La regla vale para lo nuevo, no para borrar lo que hay.
+        _ids = [c.id for c in production_concerts_db]
+        _con_bolsa = set()
+        if _ids:
+            try:
+                _con_bolsa = {r[0] for r in session_db.query(WorkflowBag.linked_id).filter(
+                    WorkflowBag.linked_type.in_(("CONCERT", "concert")),
+                    WorkflowBag.linked_id.in_(_ids)).all()}
+            except Exception:
+                _con_bolsa = set()
+        production_concerts_db = [c for c in production_concerts_db
+                                  if _concert_needs_production(c, session_db) or c.id in _con_bolsa]
         active_rows.extend([_production_concert_row(session_db, concert) for concert in production_concerts_db])
         production_actions_db = []
         try:
@@ -51641,8 +51653,13 @@ def _concert_needs_production_owner(session_db, concert) -> bool:
     Cuando la actividad es de un artista de la casa, producción sale sola por el artista asignado.
     Pero si es un **EVENTO** (no es de ningún artista) o una fecha de **gira comprada promovida por
     una empresa del grupo**, no hay artista del que colgar el trabajo: hay que elegir responsable.
+
+    ⚠️ Lo primero: si la actividad **no va a producción** (una fecha de gira comprada que promueve
+    un tercero, o el histórico) no se le pide responsable a nadie — no hay trabajo que repartir.
     """
     if concert is None:
+        return False
+    if not _concert_needs_production(concert, session_db):
         return False
     if getattr(concert, "event_id", None):
         return True
@@ -51965,15 +51982,19 @@ def _concert_is_legacy(concert) -> bool:
     return concert is not None and _is_legacy_activity_date(getattr(concert, "date", None))
 
 
-def _concert_needs_production(concert) -> bool:
+def _concert_needs_production(concert, session_db=None) -> bool:
     """¿Esta actividad tiene que aparecer en Producción?
 
     Dos motivos para que NO:
       · es del HISTÓRICO (anterior a `LEGACY_ACTIVITY_CUTOFF`): no se procesa nada de antes;
-      · en una GIRA COMPRADA hay fechas que promovemos nosotros y otras que se venden a un promotor
-        de fuera: de esas últimas no nos ocupamos de la producción. El criterio es quién promueve:
-        si hay un tercero como promotor, no es una empresa del grupo.
-    Fuera de esos dos casos no cambia nada.
+      · en una GIRA COMPRADA hay fechas que promovemos nosotros y otras que se le venden a un
+        promotor de fuera: de esas últimas **no nos ocupamos de la producción**, así que ni salen en
+        Producción ni hay que asignarles responsable.
+    ⚠️ El criterio de una fecha de gira comprada es **que promueva una empresa del GRUPO**
+    (`_concert_is_group_promoted`: `group_company_id` o participación vía `ConcertCompanyShare`), el
+    mismo que usan la cartelería y las invitaciones. Antes se miraba solo «que no haya un tercero
+    como promotor», que no es lo mismo: una fecha a la que nadie le había puesto promotor se colaba
+    en Producción como si fuera nuestra, y pedía responsable a quien no le tocaba.
     """
     if concert is None:
         return False
@@ -51981,13 +52002,23 @@ def _concert_needs_production(concert) -> bool:
         return False
     if not getattr(concert, "purchased_tour_id", None):
         return True
-    return not getattr(concert, "promoter_id", None)
+    sesion = session_db
+    if sesion is None:
+        try:
+            from sqlalchemy.orm import object_session
+            sesion = object_session(concert)
+        except Exception:
+            sesion = None
+    if sesion is None:
+        # Sin sesión no se puede mirar la participación del grupo: se queda con lo que trae la fila.
+        return bool(getattr(concert, "group_company_id", None))
+    return _concert_is_group_promoted(sesion, concert)
 
 
 def _ensure_production_request_for_concert(session_db, concert):
     if not concert:
         return None
-    if not _concert_needs_production(concert):
+    if not _concert_needs_production(concert, session_db):
         return None
     existing = (
         session_db.query(ProductionRequest)

@@ -119,6 +119,19 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `ACTIVITY_READ_ACCESS_KEYS` que el usuario tenga. **Modificar sigue exigiendo edición en
   contratación** (el helper solo actúa en GET). Sin esto, quien trabaja en Producción se comía un 403
   al pinchar cualquier concierto (bug real). El 403 dice ahora **qué acceso falta**.
+- **Giras compradas y PRODUCCIÓN**: en una gira comprada hay fechas que promovemos nosotros y otras
+  que se le venden a un promotor de fuera. **De las de fuera no nos ocupamos**: ni salen en
+  Producción, ni generan petición, ni se les pide responsable. El criterio es **que promueva una
+  empresa del GRUPO** (`_concert_is_group_promoted`: `group_company_id` o participación vía
+  `ConcertCompanyShare`), el mismo que usan cartelería e invitaciones.
+  ⚠️ Antes `_concert_needs_production` miraba solo «que no haya un tercero como promotor», que NO es
+  lo mismo: una fecha a la que nadie le había puesto promotor se colaba en Producción como si fuera
+  nuestra y pedía responsable a quien no le tocaba. Ahora `_concert_needs_production(concert,
+  session_db=None)` usa el criterio bueno (sin sesión cae a `group_company_id`, resolviéndola con
+  `object_session` si puede), y `_concert_needs_production_owner` **empieza preguntándoselo**: lo que
+  no va a producción no pide responsable.
+  ⚠️ El listado de Producción conserva las que **ya tienen bolsa** aunque ahora no cumplan el
+  criterio: la regla vale para el trabajo nuevo, no para esconder el que ya está empezado.
 - **Histórico de actividades**: `LEGACY_ACTIVITY_CUTOFF` (28-jul-2026). Las actividades ANTERIORES se
   conservan en el listado y en su ficha, pero **no generan trabajo**: `_concert_needs_production`
   devuelve False (ni aviso de producción, ni módulo de Inicio), no salen en el listado de Producción

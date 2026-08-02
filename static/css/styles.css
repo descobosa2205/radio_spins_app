@@ -2975,6 +2975,24 @@ img.docs-id__face { width:100%; height:100%; object-fit:cover; display:block; cu
 .promo-row__cover{ width:52px; height:52px; border-radius:12px; object-fit:cover; border:1px solid #eee; background:#fff; flex:0 0 auto; }
 .promo-row__cover--ph{ display:grid; place-items:center; color:#8b95a1; background:#f1f3f5; }
 
+/* ---- Pendiente de pago: montar la remesa arrastrando ---------------------------------------- */
+.pay-drop{ min-width:290px; max-width:380px; border:1px dashed #c9d1d9; border-radius:12px; padding:.55rem .65rem; background:#fbfbfc; }
+.pay-drop.is-over{ border-color:var(--brand-primary,#E33D48); background:rgba(227,61,72,.06); }
+.pay-drop__head{ font-size:.82rem; font-weight:700; color:#495057; margin-bottom:.35rem; }
+.pay-drop__zone{ min-height:52px; display:flex; flex-wrap:wrap; gap:.3rem; align-content:flex-start;
+  border-radius:9px; padding:.3rem; background:#fff; border:1px solid #eceef0; }
+.pay-drop__hint{ font-size:.76rem; color:#8b95a1; align-self:center; padding:.15rem .3rem; }
+.pay-drop__warn{ width:100%; font-size:.74rem; color:#b02a37; padding:.15rem .3rem; }
+.pay-chip{ display:inline-flex; align-items:center; gap:.25rem; max-width:100%; font-size:.76rem;
+  border:1px solid #e6e8eb; border-radius:999px; padding:.1rem .5rem; background:#f8f9fa; }
+.pay-chip__t{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:170px; }
+.pay-chip__x{ border:0; background:none; color:#8b95a1; line-height:1; padding:0 0 0 .15rem; font-size:1rem; }
+.pay-chip__x:hover{ color:var(--brand-primary,#E33D48); }
+.pay-exp{ border:1px solid #eceef0; border-radius:10px; padding:.5rem .6rem; margin-bottom:.4rem; background:#fff; }
+.pay-exp.is-dragging, .pay-bag.is-dragging{ opacity:.5; }
+.pay-bag [data-bs-toggle="collapse"]{ color:inherit; }
+.pay-exp .fa-grip-vertical, .pay-bag .fa-grip-vertical{ cursor:grab; }
+
 /* Punto de la hoja de ruta que viene de una promoción: sus iconos propios. */
 .rm-promo-tags{ display:inline-flex; flex-wrap:wrap; gap:.25rem; margin-left:.35rem; }
 .rm-promo-tag{ font-size:.7rem; border:1px solid #e6e8eb; border-radius:999px; padding:.02rem .4rem; color:#5b6570; background:#fff; }

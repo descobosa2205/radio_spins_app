@@ -1,0 +1,107 @@
+{# Cuentas bancarias de una empresa del grupo (pestaña «Datos» de su ficha). Desde una de estas se
+   paga cada remesa. Requiere `company`, `bank_accounts`, `banks` y `can_edit_company`. #}
+<div class="ficha-section card mt-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-start gap-2 mb-3 flex-wrap">
+      <div>
+        <h5 class="mb-0"><i class="fa fa-building-columns me-2 text-muted"></i>Cuentas bancarias</h5>
+        <div class="text-muted small">Desde estas cuentas se pagan las remesas de esta empresa.</div>
+      </div>
+      {% if can_edit_company %}
+        <button class="btn btn-sm btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#bankAccountModal" data-bacc-new><i class="fa fa-plus me-1"></i>Añadir cuenta</button>
+      {% endif %}
+    </div>
+
+    {% if bank_accounts %}
+      <div class="d-flex flex-column gap-2">
+        {% for acc in bank_accounts %}
+          <div class="border rounded p-2 d-flex align-items-center gap-3 flex-wrap">
+            <img src="{{ (acc.bank.logo_url if acc.bank else None) or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"
+                 style="width:40px;height:40px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff;">
+            <div class="flex-grow-1 min-w-0">
+              <div class="fw-semibold">
+                {{ acc.bank.name if acc.bank else 'Sin banco' }}
+                {% if acc.alias %}<span class="text-muted"> · {{ acc.alias }}</span>{% endif %}
+                {% if acc.is_default %}<span class="badge text-bg-success ms-1">Por defecto</span>{% endif %}
+              </div>
+              <div class="small text-muted font-monospace">{{ iban_pretty(acc.iban) }}{% if acc.swift_bic %} · BIC {{ acc.swift_bic }}{% endif %}</div>
+            </div>
+            {% if acc.cert_url %}
+              <a class="btn btn-sm btn-outline-secondary" href="{{ acc.cert_url }}" target="_blank" rel="noopener" title="Justificante de titularidad"><i class="fa fa-file-lines"></i></a>
+            {% endif %}
+            {% if can_edit_company %}
+              <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#bankAccountModal"
+                      data-bacc-edit='{{ {"id": acc.id|string, "bank_id": (acc.bank_id|string if acc.bank_id else ""), "alias": acc.alias or "", "iban": acc.iban or "", "swift_bic": acc.swift_bic or "", "is_default": acc.is_default}|tojson }}'><i class="fa fa-pen"></i></button>
+              <form method="post" action="{{ url_for('company_bank_account_delete', cid=company.id, account_id=acc.id) }}"
+                    onsubmit="return confirm('¿Eliminar esta cuenta?');">
+                <input type="hidden" name="next" value="{{ request.url }}">
+                <button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash"></i></button>
+              </form>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="alert alert-light border mb-0">
+        Sin cuentas todavía.{% if can_edit_company %} Añade una para poder preparar remesas de pago desde esta empresa.{% endif %}
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if can_edit_company %}
+<div class="modal fade" id="bankAccountModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <form method="post" action="{{ url_for('company_bank_account_save', cid=company.id) }}" enctype="multipart/form-data">
+      <input type="hidden" name="next" value="{{ request.url }}">
+      <input type="hidden" name="account_id" data-bacc-id value="">
+      <div class="modal-header"><h5 class="modal-title"><span data-bacc-title>Añadir cuenta</span></h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="mb-2">
+          <label class="form-label">Banco</label>
+          <div class="input-group">
+            <select class="form-select select-with-thumbs" name="bank_id" data-bacc-bank>
+              <option value="">Sin banco</option>
+              {% for b in banks %}<option value="{{ b.id }}" data-logo="{{ b.logo_url or '' }}">{{ b.name }}</option>{% endfor %}
+            </select>
+            <a class="btn btn-outline-secondary" href="{{ url_for('banks_view') }}" target="_blank" rel="noopener" title="Dar de alta un banco"><i class="fa fa-plus"></i></a>
+          </div>
+        </div>
+        <div class="mb-2"><label class="form-label">Alias</label><input class="form-control" name="alias" data-bacc-alias placeholder="Cuenta de gastos"></div>
+        <div class="mb-2"><label class="form-label">IBAN *</label><input class="form-control font-monospace" name="iban" data-bacc-iban required placeholder="ES91 2100 0418 4502 0005 1332"></div>
+        <div class="mb-2"><label class="form-label">SWIFT / BIC</label><input class="form-control" name="swift_bic" data-bacc-bic placeholder="CAIXESBBXXX">
+          <div class="form-text">Es lo mismo: SWIFT y BIC son el mismo código.</div>
+        </div>
+        <div class="mb-2"><label class="form-label">Justificante de titularidad</label><input type="file" class="form-control" name="cert"></div>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="is_default" value="1" id="baccDefault" data-bacc-default>
+          <label class="form-check-label" for="baccDefault">Cuenta por defecto de la empresa</label>
+        </div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Guardar</button></div>
+    </form>
+  </div></div>
+</div>
+<script>
+(function(){
+  var modal = document.getElementById('bankAccountModal');
+  if (!modal) return;
+  function set(sel, value){ var el = modal.querySelector(sel); if (el) el.value = value == null ? '' : value; }
+  document.addEventListener('click', function(e){
+    var nuevo = e.target.closest('[data-bacc-new]');
+    var editar = e.target.closest('[data-bacc-edit]');
+    if (!nuevo && !editar) return;
+    var datos = editar ? JSON.parse(editar.getAttribute('data-bacc-edit') || '{}') : {};
+    modal.querySelector('[data-bacc-title]').textContent = editar ? 'Editar cuenta' : 'Añadir cuenta';
+    set('[data-bacc-id]', datos.id || '');
+    set('[data-bacc-alias]', datos.alias || '');
+    set('[data-bacc-iban]', datos.iban || '');
+    set('[data-bacc-bic]', datos.swift_bic || '');
+    var banco = modal.querySelector('[data-bacc-bank]');
+    if (banco) { banco.value = datos.bank_id || ''; if (window.jQuery) { try { jQuery(banco).trigger('change'); } catch (_) {} } }
+    var def = modal.querySelector('[data-bacc-default]');
+    if (def) def.checked = !!datos.is_default;
+  });
+})();
+</script>
+{% endif %}

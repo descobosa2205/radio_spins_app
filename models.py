@@ -735,6 +735,7 @@ class Promoter(Base):
     prl_type = Column(Text)
     # Datos de facturación que el propio proveedor rellena una vez en /facturacion.
     bank_account = Column(Text)          # IBAN / nº de cuenta
+    bank_bic = Column(Text)              # SWIFT/BIC (para las remesas; en SEPA suele bastar el IBAN)
     fiscal_address = Column(Text)        # dirección fiscal (particular o empresa)
     data_consent_at = Column(DateTime(timezone=True))   # aceptó las condiciones de datos
     billing_updated_at = Column(DateTime(timezone=True))
@@ -3343,6 +3344,119 @@ class PromotionActivity(Base):
     )
 
 
+class Bank(Base):
+    """Banco (Bases de datos → Bancos): nombre y logo. Lo usan las cuentas de las empresas del grupo
+    y las remesas de pago."""
+
+    __tablename__ = "banks"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    name = Column(Text, nullable=False)
+    logo_url = Column(Text)
+    # Formato de fichero de remesa que se le manda (ver `sepa_utils.BANK_PROFILES`).
+    file_format = Column(Text, nullable=False, server_default=text("'SEPA_PAIN001'"))
+    bic = Column(Text)
+    notes = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_banks_name", "name"),
+    )
+
+
+class GroupCompanyBankAccount(Base):
+    """Cuenta bancaria de una empresa del grupo: desde una de estas se paga cada remesa."""
+
+    __tablename__ = "group_company_bank_accounts"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="CASCADE"), nullable=False)
+    bank_id = Column(PGUUID(as_uuid=True), ForeignKey("banks.id", ondelete="SET NULL"))
+    alias = Column(Text)
+    iban = Column(Text, nullable=False)
+    swift_bic = Column(Text)
+    # Justificante de titularidad de la cuenta.
+    cert_url = Column(Text)
+    cert_name = Column(Text)
+    is_default = Column(Boolean, nullable=False, server_default=text("false"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    company = relationship("GroupCompany")
+    bank = relationship("Bank")
+
+    __table_args__ = (
+        Index("idx_group_company_bank_accounts_company", "company_id"),
+    )
+
+
+class PaymentBatch(Base):
+    """REMESA de pagos: se agrupan los gastos pendientes de una empresa del grupo, se exporta el
+    fichero para el banco y, al subir el justificante, se dan por pagados todos de una vez."""
+
+    __tablename__ = "payment_batches"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    reference = Column(Text, nullable=False)
+    company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
+    account_id = Column(PGUUID(as_uuid=True), ForeignKey("group_company_bank_accounts.id", ondelete="SET NULL"))
+    bank_id = Column(PGUUID(as_uuid=True), ForeignKey("banks.id", ondelete="SET NULL"))
+    # BORRADOR (se está montando) | EXPORTADA (fichero generado) | PAGADA (con justificante)
+    status = Column(Text, nullable=False, server_default=text("'BORRADOR'"))
+    execution_date = Column(Date)
+    total_amount = Column(Numeric, nullable=False, server_default=text("0"))
+    file_url = Column(Text)
+    file_name = Column(Text)
+    file_format = Column(Text)
+    exported_at = Column(DateTime(timezone=True))
+    receipt_url = Column(Text)
+    receipt_name = Column(Text)
+    paid_at = Column(DateTime(timezone=True))
+    notes = Column(Text)
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    company = relationship("GroupCompany")
+    account = relationship("GroupCompanyBankAccount")
+    bank = relationship("Bank")
+    items = relationship("PaymentBatchItem", back_populates="batch", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("idx_payment_batches_company_status", "company_id", "status"),
+    )
+
+
+class PaymentBatchItem(Base):
+    """Cada pago de una remesa. Guarda el beneficiario TAL COMO iba en el fichero: si mañana cambia
+    la cuenta del proveedor, la remesa sigue diciendo lo que se mandó al banco."""
+
+    __tablename__ = "payment_batch_items"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    batch_id = Column(PGUUID(as_uuid=True), ForeignKey("payment_batches.id", ondelete="CASCADE"), nullable=False)
+    expense_id = Column(PGUUID(as_uuid=True), ForeignKey("bag_expenses.id", ondelete="SET NULL"))
+    personal_expense_id = Column(PGUUID(as_uuid=True), ForeignKey("personal_expenses.id", ondelete="SET NULL"))
+    provider_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    beneficiary_name = Column(Text)
+    beneficiary_iban = Column(Text)
+    beneficiary_bic = Column(Text)
+    concept = Column(Text)
+    amount = Column(Numeric, nullable=False, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    batch = relationship("PaymentBatch", back_populates="items")
+    expense = relationship("BagExpense")
+    provider = relationship("Promoter")
+
+    __table_args__ = (
+        Index("idx_payment_batch_items_batch", "batch_id"),
+        Index("idx_payment_batch_items_expense", "expense_id"),
+    )
+
+
 class PromotionAlert(Base):
     """Aviso a quien lleva la PRODUCCIÓN de una promoción cuando cambia algo que le afecta (fecha,
     hora o sitio) o cuando se cancela: si no se entera, monta un viaje para una hora que ya no es."""
@@ -3457,6 +3571,8 @@ class BagExpense(Base):
     payment_status = Column(Text, nullable=False, server_default=text("'NO_PAGADO'"))
     paid_amount = Column(Numeric, nullable=False, server_default=text("0"))
     payment_method = Column(Text)
+    # Remesa en la que se pagó (o en la que está metido mientras se prepara).
+    payment_batch_id = Column(PGUUID(as_uuid=True), ForeignKey("payment_batches.id", ondelete="SET NULL"))
     covered_by = Column(Text, nullable=False, server_default=text("'BOLSA'"))
     cover_detail = Column(Text)
     split_info = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
@@ -7301,6 +7417,92 @@ def ensure_bag_expense_schema():
         'CREATE INDEX IF NOT EXISTS idx_bag_payment_interactions_kind ON bag_payment_interactions(kind, created_at);',
     ]
     _exec_ddl_statements(stmts, "bag_expenses")
+
+
+def ensure_payment_batches_schema():
+    """Bancos, cuentas de las empresas del grupo y REMESAS de pago. Idempotente, sin Alembic."""
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        """
+        CREATE TABLE IF NOT EXISTS banks (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            name text NOT NULL,
+            logo_url text,
+            file_format text NOT NULL DEFAULT 'SEPA_PAIN001',
+            bic text,
+            notes text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_banks_name ON banks(name);',
+        """
+        CREATE TABLE IF NOT EXISTS group_company_bank_accounts (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            company_id uuid NOT NULL REFERENCES group_companies(id) ON DELETE CASCADE,
+            bank_id uuid REFERENCES banks(id) ON DELETE SET NULL,
+            alias text,
+            iban text NOT NULL,
+            swift_bic text,
+            cert_url text,
+            cert_name text,
+            is_default boolean NOT NULL DEFAULT false,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_group_company_bank_accounts_company ON group_company_bank_accounts(company_id);',
+        """
+        CREATE TABLE IF NOT EXISTS payment_batches (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            reference text NOT NULL,
+            company_id uuid REFERENCES group_companies(id) ON DELETE SET NULL,
+            account_id uuid REFERENCES group_company_bank_accounts(id) ON DELETE SET NULL,
+            bank_id uuid REFERENCES banks(id) ON DELETE SET NULL,
+            status text NOT NULL DEFAULT 'BORRADOR',
+            execution_date date,
+            total_amount numeric NOT NULL DEFAULT 0,
+            file_url text,
+            file_name text,
+            file_format text,
+            exported_at timestamptz,
+            receipt_url text,
+            receipt_name text,
+            paid_at timestamptz,
+            notes text,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_payment_batches_company_status ON payment_batches(company_id, status);',
+        """
+        CREATE TABLE IF NOT EXISTS payment_batch_items (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            batch_id uuid NOT NULL REFERENCES payment_batches(id) ON DELETE CASCADE,
+            expense_id uuid REFERENCES bag_expenses(id) ON DELETE SET NULL,
+            personal_expense_id uuid REFERENCES personal_expenses(id) ON DELETE SET NULL,
+            provider_id uuid REFERENCES promoters(id) ON DELETE SET NULL,
+            beneficiary_name text,
+            beneficiary_iban text,
+            beneficiary_bic text,
+            concept text,
+            amount numeric NOT NULL DEFAULT 0,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_payment_batch_items_batch ON payment_batch_items(batch_id);',
+        'CREATE INDEX IF NOT EXISTS idx_payment_batch_items_expense ON payment_batch_items(expense_id);',
+        """
+        ALTER TABLE IF EXISTS bag_expenses
+            ADD COLUMN IF NOT EXISTS payment_batch_id uuid REFERENCES payment_batches(id) ON DELETE SET NULL;
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_bag_expenses_payment_batch ON bag_expenses(payment_batch_id);',
+        # Datos bancarios del proveedor: el IBAN ya existía; el BIC hace falta para algunas remesas.
+        "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS bank_bic text;",
+    ]
+    _exec_ddl_statements(stmts, "payment_batches")
 
 
 def ensure_promocion_prensa_schema():

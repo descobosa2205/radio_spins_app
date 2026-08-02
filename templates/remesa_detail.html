@@ -1,0 +1,167 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+  <a href="{{ url_for('administracion_view', tab='pendiente', subtab='pago') }}" class="btn btn-outline-secondary btn-volver"
+     title="Volver a Pendiente de pago" aria-label="Volver a Pendiente de pago"><i class="fa fa-arrow-left"></i></a>
+  {% if batch.status != 'PAGADA' %}
+    <form method="post" action="{{ url_for('payment_batch_delete', batch_id=batch.id) }}"
+          onsubmit="return confirm('¿Deshacer la remesa? Sus gastos vuelven a pendiente de pago.');">
+      <button class="btn btn-outline-danger"><i class="fa fa-rotate-left me-1"></i>Deshacer remesa</button>
+    </form>
+  {% endif %}
+</div>
+
+<div class="ficha-hero artist-hero mb-4">
+  <div class="d-flex gap-3 align-items-center flex-wrap">
+    {% if batch.bank and batch.bank.logo_url %}
+      <img src="{{ batch.bank.logo_url }}" alt="" style="width:72px;height:72px;object-fit:contain;border-radius:14px;border:1px solid #eee;background:#fff;">
+    {% endif %}
+    <div class="flex-grow-1">
+      <div class="d-flex gap-2 flex-wrap mb-2">
+        <span class="badge {{ status_badge }}">{{ status_label }}</span>
+        {% if batch.company %}<span class="badge text-bg-light border"><i class="fa fa-building me-1"></i>{{ batch.company.name }}</span>{% endif %}
+        {% if batch.bank %}<span class="badge text-bg-light border">{{ batch.bank.name }}</span>{% endif %}
+        {% if batch.execution_date %}<span class="badge text-bg-light border"><i class="fa fa-calendar-day me-1"></i>{{ batch.execution_date.strftime('%d/%m/%Y') }}</span>{% endif %}
+      </div>
+      <h3 class="m-0">Remesa {{ batch.reference }}</h3>
+      <div class="text-muted mt-1">
+        {{ count_ready }} pago{{ '' if count_ready == 1 else 's' }} listo{{ '' if count_ready == 1 else 's' }} · <strong>{{ total|eur }}</strong>
+        {% if count_incomplete %} · <span class="text-danger">{{ count_incomplete }} con datos incompletos</span>{% endif %}
+      </div>
+    </div>
+    <div class="text-end">
+      {% if batch.status != 'PAGADA' %}
+        <a class="btn btn-primary {% if not batch.account_id or not count_ready %}disabled{% endif %}"
+           href="{{ url_for('payment_batch_export', batch_id=batch.id) }}">
+          <i class="fa fa-file-arrow-down me-1"></i>Descargar fichero para el banco
+        </a>
+        {% if not batch.account_id %}<div class="small text-danger mt-1">Elige antes la cuenta desde la que se paga.</div>{% endif %}
+      {% else %}
+        {% if batch.receipt_url %}<a class="btn btn-outline-primary" href="{{ batch.receipt_url }}" target="_blank" rel="noopener"><i class="fa fa-file-lines me-1"></i>Ver justificante</a>{% endif %}
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% if count_incomplete %}
+  <div class="alert alert-warning">
+    <i class="fa fa-triangle-exclamation me-1"></i>Hay <strong>{{ count_incomplete }}</strong> pago(s) a los que les falta algún dato
+    para poder ir en el fichero. Complétalos abajo (se guardan en la ficha del tercero, así no se
+    vuelven a pedir) o quítalos de la remesa: entonces no se incluyen.
+  </div>
+{% endif %}
+
+<div class="row g-4">
+  <div class="col-12 col-lg-4">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="mb-3"><i class="fa fa-building-columns me-2 text-muted"></i>¿Desde qué cuenta se paga?</h5>
+        {% if batch.status == 'PAGADA' %}
+          <div class="border rounded p-2">
+            <div class="fw-semibold">{{ batch.bank.name if batch.bank else 'Sin banco' }}</div>
+            <div class="small text-muted font-monospace">{{ iban_masked(batch.account.iban) if batch.account else '—' }}</div>
+          </div>
+        {% else %}
+          <form method="post" action="{{ url_for('payment_batch_set_account', batch_id=batch.id) }}">
+            <input type="hidden" name="next" value="{{ request.url }}">
+            <div class="d-flex flex-column gap-2 mb-3">
+              {% for acc in accounts %}
+                <label class="border rounded p-2 d-flex align-items-center gap-2 {{ 'border-primary' if batch.account_id and acc.id == batch.account_id else '' }}">
+                  <input class="form-check-input m-0" type="radio" name="account_id" value="{{ acc.id }}" {% if batch.account_id and acc.id == batch.account_id %}checked{% elif not batch.account_id and acc.is_default %}checked{% endif %}>
+                  <img src="{{ (acc.bank.logo_url if acc.bank else None) or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"
+                       style="width:36px;height:36px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff;">
+                  <span class="flex-grow-1 min-w-0">
+                    <span class="d-block fw-semibold">{{ acc.bank.name if acc.bank else 'Sin banco' }}{% if acc.alias %} · {{ acc.alias }}{% endif %}</span>
+                    <span class="d-block small text-muted font-monospace">{{ iban_masked(acc.iban) }}</span>
+                  </span>
+                </label>
+              {% else %}
+                <div class="alert alert-light border mb-0 small">
+                  Esta empresa no tiene cuentas bancarias.
+                  {% if batch.company %}<a href="{{ url_for('company_detail', cid=batch.company_id) }}">Añádelas en su ficha</a>.{% endif %}
+                </div>
+              {% endfor %}
+            </div>
+            <label class="form-label">Fecha de ejecución</label>
+            <input type="date" class="form-control mb-3" name="execution_date" value="{{ batch.execution_date.isoformat() if batch.execution_date else '' }}">
+            <button class="btn btn-outline-primary w-100"><i class="fa fa-check me-1"></i>Guardar</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if batch.status != 'PAGADA' %}
+      <div class="card mt-3">
+        <div class="card-body">
+          <h5 class="mb-2"><i class="fa fa-receipt me-2 text-muted"></i>Justificante del banco</h5>
+          <div class="text-muted small mb-3">Al subirlo se dan por pagados todos los gastos de la remesa, y las bolsas que se queden sin nada pendiente se cierran y pasan a contabilidad.</div>
+          <form method="post" action="{{ url_for('payment_batch_receipt', batch_id=batch.id) }}" enctype="multipart/form-data">
+            <input type="hidden" name="next" value="{{ request.url }}">
+            <input type="file" class="form-control mb-2" name="receipt">
+            <label class="form-label small">Fecha de pago</label>
+            <input type="date" class="form-control mb-2" name="paid_at" value="{{ today.isoformat() if today is defined else '' }}">
+            <div class="form-check mb-3">
+              <input class="form-check-input" type="checkbox" name="sin_justificante" value="1" id="sinJust">
+              <label class="form-check-label small" for="sinJust">Marcar como pagada sin justificante</label>
+            </div>
+            <button class="btn btn-success w-100"><i class="fa fa-circle-check me-1"></i>Marcar remesa como pagada</button>
+          </form>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="col-12 col-lg-8">
+    <div class="card">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <strong>Pagos de la remesa</strong>
+        <span class="badge text-bg-light border">{{ rows|length }}</span>
+      </div>
+      <div class="card-body p-0">
+        {% for row in rows %}
+          <div class="p-3 border-bottom {{ 'bg-warning-subtle' if row.missing else '' }}">
+            <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+              <div class="min-w-0">
+                <div class="fw-semibold">{{ row.name or 'Sin beneficiario' }}</div>
+                <div class="small text-muted">
+                  {{ row.concept or 'Sin concepto' }}
+                  {% if row.iban_masked %} · <span class="font-monospace">{{ row.iban_masked }}</span>{% endif %}
+                </div>
+                {% if row.missing %}
+                  <div class="small text-danger mt-1"><i class="fa fa-triangle-exclamation me-1"></i>Falta {{ row.missing_labels|join(', ') }}</div>
+                {% endif %}
+              </div>
+              <div class="text-end">
+                <div class="fw-bold">{{ row.amount|eur }}</div>
+                {% if batch.status != 'PAGADA' %}
+                  <div class="d-flex gap-1 justify-content-end mt-1">
+                    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#fix-{{ row.id|replace('-','') }}"><i class="fa fa-pen"></i></button>
+                    <form method="post" action="{{ url_for('payment_batch_remove_item', batch_id=batch.id, item_id=row.id) }}">
+                      <input type="hidden" name="next" value="{{ request.url }}">
+                      <button class="btn btn-sm btn-outline-danger" title="Quitar de la remesa (no se incluye)"><i class="fa fa-xmark"></i></button>
+                    </form>
+                  </div>
+                {% endif %}
+              </div>
+            </div>
+            {% if batch.status != 'PAGADA' %}
+              <div class="collapse mt-3 {{ 'show' if row.missing else '' }}" id="fix-{{ row.id|replace('-','') }}">
+                <form method="post" action="{{ url_for('payment_batch_fix_item', batch_id=batch.id, item_id=row.id) }}" class="row g-2">
+                  <input type="hidden" name="next" value="{{ request.url }}">
+                  <div class="col-md-4"><label class="form-label small">Beneficiario</label><input class="form-control form-control-sm" name="beneficiary_name" value="{{ row.name }}"></div>
+                  <div class="col-md-4"><label class="form-label small">IBAN</label><input class="form-control form-control-sm font-monospace" name="beneficiary_iban" value="{{ row.iban }}"></div>
+                  <div class="col-md-2"><label class="form-label small">BIC</label><input class="form-control form-control-sm" name="beneficiary_bic" value="{{ row.bic }}"></div>
+                  <div class="col-md-2 d-flex align-items-end"><button class="btn btn-sm btn-primary w-100">Guardar</button></div>
+                  <div class="col-12"><div class="form-text">Lo que rellenes queda en la ficha del tercero: la próxima remesa ya no lo pedirá.</div></div>
+                </form>
+              </div>
+            {% endif %}
+          </div>
+        {% else %}
+          <div class="p-3 text-muted">La remesa está vacía.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

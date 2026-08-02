@@ -1,5 +1,42 @@
 {% extends "layout.html" %}
 {% block content %}
+{# Fila de un gasto pendiente de pago: se puede arrastrar a la remesa de su empresa y tiene su
+   menú de tres puntos (marcar pagado / meterlo en una remesa él solo). #}
+{% macro pay_expense_row(row, grupo) %}
+  <div class="pay-exp d-flex justify-content-between align-items-start gap-3 flex-wrap" draggable="true"
+       data-pay-item="expense" data-pay-id="{{ row.id }}" data-pay-company="{{ row.company_id }}"
+       data-pay-label="{{ row.concept }}" data-pay-amount="{{ row.amount }}">
+    <div class="min-w-0">
+      <div><i class="fa fa-grip-vertical text-muted me-2" title="Arrástralo a la remesa (o pincha aquí)"></i><span class="fw-semibold">{{ row.concept }}</span></div>
+      <div class="small text-muted">{{ row.beneficiary }}{% if row.iban_masked %} · <span class="font-monospace">{{ row.iban_masked }}</span>{% endif %}</div>
+      {% if row.missing %}<div class="small text-danger"><i class="fa fa-triangle-exclamation me-1"></i>Falta {{ row.missing_labels|join(', ') }}</div>{% endif %}
+      {% if row.in_batch %}<span class="badge text-bg-info text-dark mt-1">Ya está en una remesa</span>{% endif %}
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      <span class="fw-bold">{{ row.amount|eur }}</span>
+      <div class="dropdown">
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><button class="dropdown-item" type="button" data-pay-paid="{{ url_for('administration_expense_mark_paid', expense_id=row.id) }}"
+                      data-pay-concept="{{ row.concept }}" data-pay-amount-value="{{ row.amount }}"><i class="fa fa-circle-check fa-fw me-1"></i>Marcar como pagado</button></li>
+          <li>
+            <form method="post" action="{{ url_for('payment_batch_create') }}">
+              <input type="hidden" name="next" value="{{ request.full_path }}">
+              <input type="hidden" name="company_id" value="{{ grupo.company_id }}">
+              <input type="hidden" name="expense_ids" value="{{ row.id }}">
+              {% if grupo.accounts %}<input type="hidden" name="account_id" value="{{ (grupo.accounts|selectattr('is_default')|list|first or grupo.accounts[0]).id }}">{% endif %}
+              <button class="dropdown-item"><i class="fa fa-file-invoice-dollar fa-fw me-1"></i>Crear remesa con este gasto</button>
+            </form>
+          </li>
+          {% if row.attachment_url %}<li><a class="dropdown-item" href="{{ row.attachment_url }}" target="_blank" rel="noopener"><i class="fa fa-file-lines fa-fw me-1"></i>Ver factura/ticket</a></li>{% endif %}
+          {% if row.bag_id %}<li><a class="dropdown-item" href="{{ url_for('bag_detail_view', bag_id=row.bag_id) }}"><i class="fa fa-sack-dollar fa-fw me-1"></i>Ver la bolsa</a></li>{% endif %}
+        </ul>
+      </div>
+    </div>
+  </div>
+{% endmacro %}
+
+
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
   <div>
     <h3 class="m-0">Administración</h3>
@@ -161,26 +198,119 @@
     </div>
 
   {% elif pending_subtab == 'pago' %}
-    {% if pending_counts.get('pago', 0) > (payable_expenses|length) %}
-      <div class="alert alert-light border small"><i class="fa fa-circle-info me-1"></i>
-        Hay {{ pending_counts.get('pago') }} gastos pendientes de pago; aquí se muestran los {{ payable_expenses|length }} más recientes.</div>
+    {# Pendiente de pago AGRUPADO POR EMPRESA DEL GRUPO: una remesa es de una sola empresa, así que
+       mezclarlas en una lista única era pedir líos. Dentro, cada liquidación (bolsa) se ve con su
+       total pendiente y cuántos gastos incluye; se despliega para ver el detalle. #}
+    {% if not payment_groups %}
+      <div class="card"><div class="card-body text-muted">No hay pagos pendientes.</div></div>
     {% endif %}
-    <div class="card">
-      <div class="card-header bg-white"><strong>Pendiente de pago</strong></div>
-      <div class="card-body p-0">
-        {% for expense in payable_expenses %}
-          <div class="p-3 border-bottom d-flex justify-content-between gap-3 flex-wrap">
-            <div><div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div><div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>{% if expense.provider %}{{ linked_mini('promoter', expense.provider.id) }}{% endif %}{% set exp_embargo_alerts = admin_expense_embargo_alerts.get(expense.id|string, []) if admin_expense_embargo_alerts is defined else [] %}{% if exp_embargo_alerts %}<div class="alert alert-warning small py-1 px-2 mt-2 mb-0"><i class="fa fa-triangle-exclamation me-1"></i>Esta persona no puede facturar porque tiene una orden de embargo activa.</div>{% endif %}{% if expense.attachment_url %}<a href="{{ expense.attachment_url }}" target="_blank" class="small">Ver factura/ticket</a>{% endif %}</div>
-            <form method="post" action="{{ url_for('administration_expense_mark_paid', expense_id=expense.id) }}" enctype="multipart/form-data" class="d-flex gap-2 align-items-start flex-wrap">
-              <input type="text" name="paid_amount" class="form-control form-control-sm" value="{{ expense.amount_gross }}" style="max-width:120px;">
-              <input type="date" name="paid_at" class="form-control form-control-sm" style="max-width:150px;">
-              <select name="payment_method" class="form-select form-select-sm" style="max-width:140px;"><option value="">Método</option>{% for method in payment_methods %}<option value="{{ method }}">{{ method }}</option>{% endfor %}</select>
-              <input type="file" name="receipt" class="form-control form-control-sm" style="max-width:220px;">
-              <button class="btn btn-sm btn-success">Marcar pagado</button>
-            </form>
+    {% for grupo in payment_groups %}
+      <div class="card mb-3 pay-group" data-pay-company="{{ grupo.company_id }}">
+        <div class="card-header bg-white d-flex align-items-center gap-3 flex-wrap">
+          <img src="{{ grupo.company_logo or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"
+               style="width:38px;height:38px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff;">
+          <div class="flex-grow-1 min-w-0">
+            <div class="fw-semibold">{{ grupo.company_name }}</div>
+            <div class="small text-muted">{{ grupo.count }} gasto{{ '' if grupo.count == 1 else 's' }} pendiente{{ '' if grupo.count == 1 else 's' }} · <strong>{{ grupo.total|eur }}</strong></div>
           </div>
-        {% else %}<div class="p-3 text-muted">No hay pagos pendientes.</div>{% endfor %}
+          {# Caja de remesa: se pueden ARRASTRAR aquí las bolsas y los gastos de esta empresa. #}
+          <form method="post" action="{{ url_for('payment_batch_create') }}" class="pay-drop" data-pay-drop>
+            <input type="hidden" name="next" value="{{ request.full_path }}">
+            <input type="hidden" name="company_id" value="{{ grupo.company_id }}">
+            <div class="pay-drop__head">
+              <i class="fa fa-file-invoice-dollar me-1"></i>Crear remesa
+              <span class="badge text-bg-light border ms-1" data-pay-count>0</span>
+            </div>
+            <div class="pay-drop__zone" data-pay-zone>
+              <span class="pay-drop__hint">Arrastra aquí bolsas o gastos de esta empresa</span>
+            </div>
+            {% if grupo.accounts %}
+              <select class="form-select form-select-sm mt-2" name="account_id">
+                {% for acc in grupo.accounts %}
+                  <option value="{{ acc.id }}" {% if acc.is_default %}selected{% endif %}>{{ acc.bank.name if acc.bank else 'Sin banco' }}{% if acc.alias %} · {{ acc.alias }}{% endif %} · {{ iban_masked(acc.iban) }}</option>
+                {% endfor %}
+              </select>
+            {% else %}
+              <div class="small text-danger mt-2">Sin cuentas bancarias. <a href="{{ url_for('company_detail', cid=grupo.company_id) }}">Añádelas en la ficha de la empresa</a>.</div>
+            {% endif %}
+            <button class="btn btn-sm btn-primary w-100 mt-2" data-pay-submit disabled><i class="fa fa-plus me-1"></i>Crear remesa</button>
+          </form>
+        </div>
+
+        <div class="card-body p-0">
+          {# Remesas de esta empresa que ya se están preparando #}
+          {% if grupo.batches %}
+            <div class="p-3 border-bottom bg-light-subtle">
+              <div class="small text-muted mb-2">Remesas en marcha</div>
+              <div class="d-flex flex-wrap gap-2">
+                {% for b in grupo.batches %}
+                  <a class="btn btn-sm btn-outline-secondary" href="{{ b.url }}">
+                    {% if b.bank_logo %}<img src="{{ b.bank_logo }}" alt="" style="width:18px;height:18px;object-fit:contain;" class="me-1">{% endif %}
+                    {{ b.reference }} <span class="badge {{ b.status_badge }} ms-1">{{ b.status_label }}</span>
+                    <span class="text-muted ms-1">{{ b.count }} · {{ b.total|eur }}</span>
+                  </a>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+
+          {# Liquidaciones (bolsas): el total pendiente y cuántos gastos incluye; al pinchar se abren #}
+          {% for bolsa in grupo.bags %}
+            {% set bid = bolsa.bag_id|replace('-','') %}
+            <div class="p-3 border-bottom pay-bag" draggable="true"
+                 data-pay-item="bag" data-pay-id="{{ bolsa.bag_id }}" data-pay-company="{{ grupo.company_id }}"
+                 data-pay-label="{{ bolsa.title }}" data-pay-amount="{{ bolsa.total }}">
+              <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                <button class="btn btn-link p-0 text-start text-decoration-none" type="button" data-bs-toggle="collapse" data-bs-target="#bag-{{ bid }}">
+                  <i class="fa fa-grip-vertical text-muted me-2"></i>
+                  <i class="fa fa-scale-balanced text-muted me-1"></i>
+                  <span class="fw-semibold">{{ bolsa.title }}</span>
+                  <span class="text-muted small ms-2">{{ bolsa.rows|length }} gasto{{ '' if bolsa.rows|length == 1 else 's' }} pendiente{{ '' if bolsa.rows|length == 1 else 's' }}</span>
+                </button>
+                <div class="d-flex align-items-center gap-2">
+                  <span class="fw-bold">{{ bolsa.total|eur }}</span>
+                  <a class="btn btn-sm btn-outline-secondary" href="{{ bolsa.url }}" title="Ver la bolsa"><i class="fa fa-arrow-up-right-from-square"></i></a>
+                </div>
+              </div>
+              <div class="collapse mt-3" id="bag-{{ bid }}">
+                {% for row in bolsa.rows %}{{ pay_expense_row(row, grupo) }}{% endfor %}
+              </div>
+            </div>
+          {% endfor %}
+
+          {# Gastos sueltos (sin liquidación) #}
+          {% if grupo.loose %}
+            <div class="p-3">
+              <div class="small text-muted mb-2">Gastos sueltos</div>
+              {% for row in grupo.loose %}{{ pay_expense_row(row, grupo) }}{% endfor %}
+            </div>
+          {% endif %}
+        </div>
       </div>
+    {% endfor %}
+
+    {# Modal único para «marcar como pagado» (lo rellena el JS con el gasto que se elija) #}
+    <div class="modal fade" id="payPaidModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+        <form method="post" enctype="multipart/form-data" data-pay-paid-form>
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <div class="modal-header"><h5 class="modal-title">Marcar como pagado</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+          <div class="modal-body">
+            <div class="fw-semibold mb-2" data-pay-paid-concept></div>
+            <label class="form-label">Importe</label>
+            <input class="form-control mb-2" name="paid_amount" data-pay-paid-amount>
+            <label class="form-label">¿Cómo se pagó?</label>
+            <select class="form-select mb-2" name="payment_method">
+              {% for method in payment_methods %}<option value="{{ method }}">{{ method }}</option>{% endfor %}
+            </select>
+            <label class="form-label">Fecha</label>
+            <input type="date" class="form-control mb-2" name="paid_at">
+            <label class="form-label">Justificante</label>
+            <input type="file" class="form-control" name="receipt">
+          </div>
+          <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-success">Marcar pagado</button></div>
+        </form>
+      </div></div>
     </div>
   {% elif pending_subtab == 'facturacion' %}
     {# Liquidaciones de royalties A FAVOR con factura pedida: hay que emitirla y enviarla. #}
@@ -833,4 +963,7 @@
     </div></div>
   </div>
 {% endif %}
+
+{# Remesas: arrastrar bolsas y gastos a la caja de su empresa. #}
+<script src="{{ url_for('static', filename='js/pagos.js', v=ASSET_V) }}"></script>
 {% endblock %}

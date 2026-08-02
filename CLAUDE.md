@@ -596,6 +596,34 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   medio en **`static/js/promo.js`**, estilos `.promo-*` en `styles.css`. Alta rápida de **medio**
   añadida a `quick_create.js` (`data-quick-create="media"`).
 
+- **REMESAS de pago (fichero para el banco)** — ago 2026. Motor puro **`sepa_utils.py`**: genera
+  **SEPA XML `pain.001.001.03`** (el Cuaderno 34.14 de la AEB), que es lo que admiten Santander,
+  CaixaBank y Cajamar; `BANK_PROFILES` recoge los matices por banco. Valida IBAN por **mod-97**,
+  limpia el texto al juego de caracteres SEPA (sin acentos) y dice qué le falta a cada pago
+  (`check_payment`). ⚠️ **Antes de fiarse conviene mandar una remesa pequeña por cada banco**: cada
+  entidad valida el fichero a su manera.
+  · **Bases de datos → Bancos** (`Bank`, recurso `databases.banks`): nombre, logo y **formato del
+  fichero**. **Ficha de la empresa del grupo → Datos → Cuentas bancarias**
+  (`GroupCompanyBankAccount`): banco, alias, IBAN (validado), **SWIFT/BIC** (es lo mismo),
+  justificante de titularidad y cuál es la de por defecto. Solo dirección las toca.
+  · **Administración → Pendiente → Pago** está **agrupado por EMPRESA DEL GRUPO**
+  (`_payment_pending_context`), y dentro por **liquidación**: cada bolsa se ve con su total
+  pendiente y cuántos gastos incluye, y se despliega para ver el detalle; los gastos sueltos van
+  aparte. Cada empresa tiene a la derecha su **caja «Crear remesa»**: se **arrastran** ahí bolsas y
+  gastos (`static/js/pagos.js`; también vale pinchar el asa). **Solo acepta lo de su empresa**: si
+  sueltas algo de otra, avisa y no lo coge (una remesa se paga desde una sola cuenta). Cada gasto
+  lleva sus **tres puntitos**: marcar como pagado (eligiendo el método) o crear una remesa con él.
+  · **`PaymentBatch` + `PaymentBatchItem`** (BORRADOR → EXPORTADA → PAGADA). El beneficiario se
+  guarda **congelado en el item**: si mañana cambia la cuenta del proveedor, la remesa sigue
+  diciendo lo que se mandó. Si a un pago le falta un dato, la ficha de la remesa lo avisa y deja
+  completarlo: **lo que se rellene se guarda en el TERCERO** (`Promoter.bank_account` / `bank_bic`)
+  para no volver a pedirlo, o se quita el pago de la remesa y no se incluye.
+  · **Al subir el justificante** (`payment_batch_receipt`) se dan por pagados todos los gastos de la
+  remesa («Remesa REM-aaaa-nnnn» como método) y **las bolsas que se quedan sin nada pendiente se
+  cierran y se archivan** (`_bag_close_if_fully_paid`): pasan a contabilidad.
+  · Responsabilidad de administración: `_bag_liquidation_responsibility` manda las bolsas de
+  promoción **sin pagos pendientes** a `LIQUIDACIONES_PROMO` y el resto a `LIQUIDACIONES`.
+
 - **Cartelería · petición, subida a mano y aprobación de diseño** (aprobar es SOLO de diseño y
   dirección: `_can_validate_artwork` = `is_master() or has_access_key('diseno')`; lo que sube diseño
   entra ya APROBADO y lo que sube cualquier otro queda PENDIENTE —al resto se le enseñan atenuados con

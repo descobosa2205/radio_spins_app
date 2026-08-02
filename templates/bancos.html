@@ -1,0 +1,89 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start gap-3 mb-4 flex-wrap">
+  <div>
+    <h3 class="m-0"><i class="fa fa-building-columns me-2 text-danger"></i>Bancos</h3>
+    <div class="text-muted small">Se eligen en las cuentas de las empresas del grupo y deciden el formato del fichero de remesa.</div>
+  </div>
+  {% if CAN_EDIT %}
+    <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#bankCreateModal"><i class="fa fa-plus me-1"></i>Nuevo banco</button>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+    <div class="list-group list-group-flush">
+      {% for bank in banks %}
+        <div class="list-group-item d-flex align-items-center gap-3 flex-wrap">
+          <img src="{{ bank.logo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"
+               style="width:44px;height:44px;object-fit:contain;border-radius:10px;border:1px solid #eee;background:#fff;">
+          <div class="flex-grow-1 min-w-0">
+            <div class="fw-semibold">{{ bank.name }}</div>
+            <div class="small text-muted">
+              Fichero: {{ dict(bank_formats).get(bank.file_format, bank.file_format) }}
+              {% if bank.bic %} · BIC {{ bank.bic }}{% endif %}
+              {% set n = account_counts.get(bank.id|string, 0) %}
+              {% if n %} · {{ n }} cuenta{{ '' if n == 1 else 's' }}{% endif %}
+            </div>
+          </div>
+          {% if CAN_EDIT %}
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#bankEdit{{ bank.id|string|replace('-','') }}"><i class="fa fa-pen"></i></button>
+          {% endif %}
+        </div>
+        {% if CAN_EDIT %}
+          <div class="modal fade" id="bankEdit{{ bank.id|string|replace('-','') }}" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+              <form method="post" action="{{ url_for('bank_update', bank_id=bank.id) }}" enctype="multipart/form-data">
+                <div class="modal-header"><h5 class="modal-title">{{ bank.name }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                  <div class="mb-2"><label class="form-label">Nombre *</label><input class="form-control" name="name" value="{{ bank.name }}" required></div>
+                  <div class="mb-2"><label class="form-label">Formato del fichero de remesa</label>
+                    <select class="form-select" name="file_format">
+                      {% for key, label in bank_formats %}<option value="{{ key }}" {% if bank.file_format == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
+                    </select>
+                    <div class="form-text">Los tres bancos españoles admiten el mismo fichero SEPA (Cuaderno 34.14).</div>
+                  </div>
+                  <div class="mb-2"><label class="form-label">BIC por defecto</label><input class="form-control" name="bic" value="{{ bank.bic or '' }}" placeholder="CAIXESBBXXX"></div>
+                  <div class="mb-2"><label class="form-label">Logo</label><input type="file" class="form-control" name="logo" accept="image/*"></div>
+                  <div><label class="form-label">Notas</label><input class="form-control" name="notes" value="{{ bank.notes or '' }}"></div>
+                </div>
+                <div class="modal-footer d-flex justify-content-between">
+                  <button class="btn btn-outline-danger" formaction="{{ url_for('bank_delete', bank_id=bank.id) }}"
+                          onclick="return confirm('¿Eliminar el banco? Las cuentas que lo usen se quedan sin banco.');">Eliminar</button>
+                  <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button class="btn btn-primary">Guardar</button>
+                  </div>
+                </div>
+              </form>
+            </div></div>
+          </div>
+        {% endif %}
+      {% else %}
+        <div class="list-group-item text-muted">Todavía no hay bancos. Créalos y luego añade las cuentas en la ficha de cada empresa del grupo.</div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+{% if CAN_EDIT %}
+<div class="modal fade" id="bankCreateModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <form method="post" action="{{ url_for('bank_create') }}" enctype="multipart/form-data">
+      <div class="modal-header"><h5 class="modal-title">Nuevo banco</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="mb-2"><label class="form-label">Nombre *</label><input class="form-control" name="name" required placeholder="Banco Santander, CaixaBank, Cajamar…"></div>
+        <div class="mb-2"><label class="form-label">Formato del fichero de remesa</label>
+          <select class="form-select" name="file_format">
+            {% for key, label in bank_formats %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="mb-2"><label class="form-label">BIC por defecto</label><input class="form-control" name="bic" placeholder="BSCHESMMXXX"></div>
+        <div><label class="form-label">Logo</label><input type="file" class="form-control" name="logo" accept="image/*"></div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary"><i class="fa fa-plus me-1"></i>Crear</button></div>
+    </form>
+  </div></div>
+</div>
+{% endif %}
+{% endblock %}

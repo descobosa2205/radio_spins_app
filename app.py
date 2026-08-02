@@ -280,6 +280,15 @@ from models import (
 )
 import sim_calc  # motor de cálculo puro de Simulaciones
 import seatmap_calc  # motor puro del mapa de butacas del recinto (conteos/plantillas)
+from sepa_utils import (
+    build_credit_transfer_xml as sepa_build_credit_transfer_xml,
+    check_payment as sepa_check_payment,
+    bank_profile as sepa_bank_profile,
+    normalize_iban as sepa_normalize_iban,
+    iban_is_valid as sepa_iban_is_valid,
+    bic_is_valid as sepa_bic_is_valid,
+    BANK_PROFILES as SEPA_BANK_PROFILES,
+)
 from supabase_utils import upload_png, upload_pdf, upload_image, upload_file, upload_pdf_bytes, supabase_client, _upload_bytes, StorageObjectTooLargeError, create_signed_upload_url_for, public_url_for_key
 from flask_wtf import CSRFProtect
 from flask_wtf.csrf import CSRFError
@@ -30932,6 +30941,10 @@ def company_detail(cid):
             can_edit_docs=is_master(),
             can_edit_company=is_master(),
             logo_url=_absolute_media_url(co.logo_url or ""),
+            # Cuentas bancarias: desde una de ellas se paga cada remesa de esta empresa.
+            bank_accounts=_company_bank_accounts(session_db, co.id),
+            banks=_bank_rows(session_db),
+            iban_pretty=_iban_pretty,
         )
     finally:
         session_db.close()
@@ -38480,6 +38493,10 @@ from models import (
     Promotion,
     PromotionActivity,
     PromotionAlert,
+    Bank,
+    GroupCompanyBankAccount,
+    PaymentBatch,
+    PaymentBatchItem,
     WorkflowBag,
     BagNote,
     BagExpense,
@@ -38496,6 +38513,7 @@ from models import (
     ensure_bag_expense_schema,
     ensure_marketing_country_schema,
     ensure_promocion_prensa_schema,
+    ensure_payment_batches_schema,
     ensure_contracting_embargo_schema,
     ensure_actions_contracting_admin_schema,
     ensure_activities_grouping_schema,
@@ -38594,6 +38612,7 @@ def _bootstrap_schema_bg():
         (ensure_bag_expense_schema, "ensure_bag_expense_schema"),
         (ensure_marketing_country_schema, "ensure_marketing_country_schema"),
         (ensure_promocion_prensa_schema, "ensure_promocion_prensa_schema"),
+        (ensure_payment_batches_schema, "ensure_payment_batches_schema"),
         (ensure_contracting_embargo_schema, "ensure_contracting_embargo_schema"),
         (ensure_actions_contracting_admin_schema, "ensure_actions_contracting_admin_schema"),
         (ensure_activities_grouping_schema, "ensure_activities_grouping_schema"),
@@ -38629,6 +38648,8 @@ def _bootstrap_schema_bg():
     # Una sola vez: dar acceso a la sección PROMOCIÓN a quien está en ese departamento (los recursos
     # nuevos nacen desactivados y si no, no verían lo suyo).
     _safe_ensure(lambda: globals()["_promo_access_seed"](), "_promo_access_seed")
+    # Una sola vez: producción entra en las bolsas (gestiona los gastos de lo que produce).
+    _safe_ensure(lambda: globals()["_produccion_bags_access_seed"](), "_produccion_bags_access_seed")
     # A partir de aquí la instancia SÍ puede recibir tráfico. Se marca pase lo que pase (si alguna
     # migración falló, ya se ha anotado en el log): quedarse sin marcar dejaría la instancia
     # inservible, que es peor que arrancar con un aviso.
@@ -43093,6 +43114,7 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "databases.events", "label": "Eventos", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 278, "description": "Eventos (sujetos de simulaciones sin artista): alta y edición."},
     {"key": "databases.buyers", "label": "Compradores", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 279, "description": "Compradores de entradas (Enterticket): base de datos deduplicada por email, agrupada por eventos, con exportación CSV."},
     {"key": "databases.distributors", "label": "Distribuidoras", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 280, "description": "Distribuidoras digitales (nombre + logo): se asignan a canciones/álbumes y son la contraparte de los adelantos de Discográfica."},
+    {"key": "databases.banks", "label": "Bancos", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 281, "description": "Bancos (nombre + logo): se eligen en las cuentas de las empresas del grupo y deciden el formato del fichero de remesa."},
 
     # Cajón para funciones nuevas aún sin clasificar: entran aquí DESACTIVADAS hasta que dirección
     # las asigne. Garantiza que nada quede accesible solo para dirección de forma silenciosa.
@@ -43491,6 +43513,11 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return "databases.ticketers"
     if endpoint == "publishing_companies_view" or endpoint.startswith("publishing_company_"):
         return "databases.publishing_companies"
+    if endpoint == "banks_view" or endpoint.startswith("bank_"):
+        return "databases.banks"
+    # Las remesas se preparan en Administración → Pendiente → Pago.
+    if endpoint.startswith("payment_batch_"):
+        return "administracion.pendiente"
     if endpoint == "companies_view" or endpoint.startswith("company_"):
         return "databases.group_companies"
     # Promoción de prensa antes que Marketing: `promo_` no es `promotion_` (ver el enforcement).
@@ -43968,6 +43995,7 @@ def _infer_group_key_from_path(path: str) -> str | None:
         ("/medios", "databases.media"),
         ("/eventos", "databases.events"),
         ("/distribuidoras", "databases.distributors"),
+        ("/bancos", "databases.banks"),
         ("/compradores", "databases.buyers"),
         ("/bolsas", "databases.bags"),
         ("/facturas", "databases.invoices"),
@@ -44093,6 +44121,11 @@ def _resolve_request_resource_key() -> str | None:
         return "databases.ticketers"
     if endpoint == "publishing_companies_view" or endpoint.startswith("publishing_company_"):
         return "databases.publishing_companies"
+    if endpoint == "banks_view" or endpoint.startswith("bank_"):
+        return "databases.banks"
+    # Las remesas se preparan en Administración → Pendiente → Pago.
+    if endpoint.startswith("payment_batch_"):
+        return "administracion.pendiente"
     if endpoint == "companies_view" or endpoint.startswith("company_"):
         return "databases.group_companies"
     if endpoint == "activities_view":
@@ -44480,6 +44513,7 @@ def _resource_default_url(key: str) -> str:
         "contratacion.simulaciones": url_for("contracting_view", section="simulaciones"),
         "databases.events": url_for("events_view"),
         "databases.distributors": url_for("distributors_view"),
+        "databases.banks": url_for("banks_view"),
         "databases.buyers": url_for("buyers_view"),
         "playlisting": url_for("playlisting_view"),
         "promocion": url_for("marketing_view"),
@@ -44686,6 +44720,7 @@ def _build_nav_menu() -> list[dict]:
             {"key": "databases.media", "label": "Medios", "url": _resource_default_url("databases.media")},
             {"key": "databases.events", "label": "Eventos", "url": _resource_default_url("databases.events")},
             {"key": "databases.distributors", "label": "Distribuidoras", "url": _resource_default_url("databases.distributors")},
+            {"key": "databases.banks", "label": "Bancos", "url": _resource_default_url("databases.banks")},
             {"key": "databases.buyers", "label": "Compradores", "url": _resource_default_url("databases.buyers")},
             {"key": "databases.bags", "label": "Bolsas", "url": _resource_default_url("databases.bags")},
             {"key": "databases.invoices", "label": "Facturas", "url": _resource_default_url("databases.invoices")},
@@ -48900,6 +48935,55 @@ def promo_cancel(promotion_id):
 
 
 # --------------- Permisos de la sección: se le dan al departamento de Promoción -------------------
+def _access_seed_for_department(marker: str, resource_key: str, departamentos: set, *, edit: bool = True) -> None:
+    """Le da un recurso a todo el que esté en esos departamentos, UNA sola vez (marca en AppSetting).
+
+    Los recursos nuevos nacen desactivados, así que sin esto habría que ir dándolos de uno en uno.
+    Dirección (role 10) no lo necesita: ya lo ve todo."""
+    session_db = db()
+    try:
+        if _get_app_setting(marker):
+            return
+        if session_db.get(UserAccessResource, resource_key) is None:
+            return                                   # aún no se ha sincronizado el catálogo
+        fuera = _inactive_user_ids(session_db)
+        buscados = {d.strip().lower() for d in departamentos}
+        tocados = 0
+        for user, profile in (session_db.query(User, UserProfile)
+                              .join(UserProfile, UserProfile.user_id == User.id).all()):
+            if user.id in fuera:
+                continue
+            deps = {str(d).strip().lower() for d in (getattr(profile, "departments", None) or [])}
+            if not (deps & buscados):
+                continue
+            grant = (session_db.query(UserAccessGrant)
+                     .filter(UserAccessGrant.user_id == user.id,
+                             UserAccessGrant.resource_key == resource_key).first())
+            if grant is None:
+                grant = UserAccessGrant(user_id=user.id, resource_key=resource_key)
+                session_db.add(grant)
+            if not grant.can_view_basic or (edit and not grant.can_edit):
+                grant.can_view_basic = True
+                if edit:
+                    grant.can_edit = True
+                tocados += 1
+        session_db.commit()
+        _set_app_setting(marker, "1")
+        if tocados:
+            app.logger.info("Acceso «%s» concedido a %s persona(s).", resource_key, tocados)
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.warning("No se pudo sembrar el acceso a %s: %s", resource_key, exc)
+    finally:
+        session_db.close()
+
+
+def _produccion_bags_access_seed() -> None:
+    """PRODUCCIÓN necesita entrar en las bolsas: es quien gestiona los gastos de lo que produce y
+    quien cierra la bolsa de una promoción con producción."""
+    _access_seed_for_department("produccion_bags_access_seed_v1", "databases.bags", {"producción", "produccion"})
+
+
 def _promo_access_seed() -> None:
     """Da acceso a «Promoción» a quien está en ese departamento, una sola vez.
 
@@ -49129,6 +49213,891 @@ def promo_from_request(request_id):
         return redirect(next_url)
     finally:
         session_db.close()
+
+
+# ======================= BANCOS, CUENTAS DE LA EMPRESA Y REMESAS DE PAGO =========================
+# El fichero que se sube al banco lo arma `sepa_utils` (motor puro). Aquí va lo de la app: de dónde
+# salen los pagos, quién es el beneficiario de cada uno y qué pasa cuando la remesa se paga.
+SEPA_BANK_FORMAT_CHOICES = [(key, meta["label"]) for key, meta in SEPA_BANK_PROFILES.items()]
+
+PAYMENT_BATCH_STATUS_META = {
+    "BORRADOR": ("En preparación", "text-bg-light border text-dark"),
+    "EXPORTADA": ("Fichero generado", "text-bg-info text-dark"),
+    "PAGADA": ("Pagada", "text-bg-success"),
+}
+# Etiquetas de lo que le falta a un pago para poder ir en la remesa.
+REMESA_MISSING_LABELS = {
+    "name": "el nombre del beneficiario",
+    "iban": "el IBAN",
+    "bic": "el SWIFT/BIC",
+    "amount": "el importe",
+}
+
+
+def _payment_batch_status_meta(code):
+    return PAYMENT_BATCH_STATUS_META.get((code or "BORRADOR").strip().upper(),
+                                         PAYMENT_BATCH_STATUS_META["BORRADOR"])
+
+
+def _bank_rows(session_db) -> list:
+    return session_db.query(Bank).order_by(Bank.name.asc()).all()
+
+
+def _company_bank_accounts(session_db, company_id=None) -> list:
+    query = session_db.query(GroupCompanyBankAccount).options(joinedload(GroupCompanyBankAccount.bank))
+    if company_id is not None:
+        query = query.filter(GroupCompanyBankAccount.company_id == to_uuid(str(company_id)))
+    return query.order_by(GroupCompanyBankAccount.is_default.desc(),
+                          GroupCompanyBankAccount.alias.asc().nullslast()).all()
+
+
+def _iban_masked(value) -> str:
+    """Para enseñarlo en pantalla sin cantar la cuenta entera."""
+    iban = sepa_normalize_iban(value)
+    if len(iban) < 8:
+        return iban
+    return f"{iban[:4]} •••• {iban[-4:]}"
+
+
+def _expense_beneficiary(session_db, expense) -> dict:
+    """A quién y a qué cuenta se le paga un gasto de bolsa."""
+    provider = getattr(expense, "provider", None)
+    company = getattr(expense, "provider_company", None)
+    snapshot = dict(getattr(expense, "provider_snapshot", None) or {})
+    nombre = ""
+    if company is not None:
+        nombre = (getattr(company, "legal_name", None) or getattr(company, "name", None) or "").strip()
+    if not nombre and provider is not None:
+        nombre = (getattr(provider, "nick", None) or "").strip() or " ".join(
+            filter(None, [getattr(provider, "first_name", None), getattr(provider, "last_name", None)])).strip()
+    if not nombre:
+        nombre = (snapshot.get("company_name") or snapshot.get("nick") or "").strip()
+    iban = ""
+    bic = ""
+    if company is not None:
+        iban = (getattr(company, "bank_account", None) or "").strip()
+        bic = (getattr(company, "bank_bic", None) or "").strip()
+    if not iban and provider is not None:
+        iban = (getattr(provider, "bank_account", None) or "").strip()
+        bic = bic or (getattr(provider, "bank_bic", None) or "").strip()
+    return {
+        "name": nombre,
+        "iban": iban,
+        "bic": bic,
+        "provider_id": (str(provider.id) if provider is not None else ""),
+        "provider_company_id": (str(company.id) if company is not None else ""),
+    }
+
+
+def _expense_pending_amount(expense) -> Decimal:
+    """Lo que queda por pagar de un gasto (bruto menos lo ya pagado)."""
+    bruto = _money_or_zero(getattr(expense, "amount_gross", 0))
+    pagado = _money_or_zero(getattr(expense, "paid_amount", 0))
+    resto = bruto - pagado
+    return resto if resto > 0 else Decimal("0")
+
+
+def _payment_pending_expenses(session_db, *, company_id=None, limit=800) -> list:
+    """Gastos de bolsa pendientes de pago, ya consolidados (lo que de verdad hay que pagar)."""
+    query = (session_db.query(BagExpense)
+             .options(joinedload(BagExpense.bag), joinedload(BagExpense.provider),
+                      joinedload(BagExpense.provider_company))
+             .filter(BagExpense.status != "ELIMINADO")
+             .filter(BagExpense.covered_by == "BOLSA")
+             .filter(BagExpense.consolidation_status.in_(list(BAG_CONSOLIDATED_STATUSES)))
+             .filter(BagExpense.payment_status.in_(["NO_PAGADO", "PENDIENTE", "PARCIAL"])))
+    rows = query.order_by(BagExpense.created_at.desc()).limit(limit).all()
+    if company_id is not None:
+        cid = str(company_id)
+        rows = [e for e in rows if str(getattr(getattr(e, "bag", None), "company_id", "") or "") == cid]
+    return rows
+
+
+def _payment_expense_row(session_db, expense) -> dict:
+    """Una línea de «pendiente de pago» lista para pintar."""
+    ben = _expense_beneficiary(session_db, expense)
+    importe = _expense_pending_amount(expense)
+    faltan = sepa_check_payment({"name": ben["name"], "iban": ben["iban"], "bic": ben["bic"], "amount": importe})
+    bag = getattr(expense, "bag", None)
+    batch_id = str(getattr(expense, "payment_batch_id", "") or "")
+    return {
+        "id": str(expense.id),
+        "concept": (getattr(expense, "concept", None) or "Sin concepto").strip(),
+        "amount": importe,
+        "beneficiary": ben["name"] or "Sin proveedor",
+        "iban_masked": _iban_masked(ben["iban"]) if ben["iban"] else "",
+        "missing": faltan,
+        "missing_labels": [REMESA_MISSING_LABELS.get(x, x) for x in faltan],
+        "provider_id": ben["provider_id"],
+        "bag_id": (str(bag.id) if bag is not None else ""),
+        "bag_title": (getattr(bag, "title", None) or "").strip(),
+        "company_id": str(getattr(bag, "company_id", "") or "") if bag is not None else "",
+        "attachment_url": (getattr(expense, "attachment_url", None) or ""),
+        "batch_id": batch_id,
+        "in_batch": bool(batch_id),
+    }
+
+
+def _payment_pending_context(session_db) -> list:
+    """«Pendiente de pago» agrupado por EMPRESA DEL GRUPO, y dentro por liquidación (bolsa).
+
+    Cada bolsa se enseña con su total pendiente y cuántos gastos incluye; al desplegarla salen los
+    gastos. Los gastos sueltos (sin bolsa) van aparte. Así no se mezclan empresas, que es de donde
+    venían los líos al preparar una remesa."""
+    expenses = _payment_pending_expenses(session_db)
+    companies = {str(c.id): c for c in session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()}
+    accounts = defaultdict(list)
+    for acc in _company_bank_accounts(session_db):
+        accounts[str(acc.company_id)].append(acc)
+    batches = (session_db.query(PaymentBatch)
+               .options(joinedload(PaymentBatch.bank), joinedload(PaymentBatch.account))
+               .filter(PaymentBatch.status.in_(["BORRADOR", "EXPORTADA"]))
+               .order_by(PaymentBatch.created_at.desc()).limit(200).all())
+    batch_counts = defaultdict(lambda: {"n": 0, "total": Decimal("0")})
+    for item in (session_db.query(PaymentBatchItem)
+                 .filter(PaymentBatchItem.batch_id.in_([b.id for b in batches])).all() if batches else []):
+        info = batch_counts[str(item.batch_id)]
+        info["n"] += 1
+        info["total"] += _money_or_zero(item.amount)
+
+    grupos = {}
+
+    def _grupo(cid):
+        clave = str(cid or "")
+        if clave not in grupos:
+            company = companies.get(clave)
+            grupos[clave] = {
+                "company_id": clave,
+                "company_name": (getattr(company, "name", None) or "Sin empresa"),
+                "company_logo": (getattr(company, "logo_url", None) or ""),
+                "accounts": accounts.get(clave, []),
+                "bags": {},
+                "loose": [],
+                "batches": [],
+                "total": Decimal("0"),
+                "count": 0,
+            }
+        return grupos[clave]
+
+    for expense in expenses:
+        row = _payment_expense_row(session_db, expense)
+        grupo = _grupo(row["company_id"])
+        grupo["total"] += row["amount"]
+        grupo["count"] += 1
+        if row["bag_id"]:
+            bolsa = grupo["bags"].setdefault(row["bag_id"], {
+                "bag_id": row["bag_id"], "title": row["bag_title"] or "Liquidación",
+                "rows": [], "total": Decimal("0"),
+                "url": url_for("bag_detail_view", bag_id=row["bag_id"]),
+            })
+            bolsa["rows"].append(row)
+            bolsa["total"] += row["amount"]
+        else:
+            grupo["loose"].append(row)
+
+    for batch in batches:
+        info = batch_counts.get(str(batch.id)) or {"n": 0, "total": Decimal("0")}
+        etiqueta, clase = _payment_batch_status_meta(batch.status)
+        _grupo(str(batch.company_id or "")).setdefault("batches", []).append({
+            "id": str(batch.id),
+            "reference": batch.reference,
+            "status": (batch.status or "BORRADOR").upper(),
+            "status_label": etiqueta,
+            "status_badge": clase,
+            "count": info["n"],
+            "total": info["total"],
+            "bank_name": (getattr(getattr(batch, "bank", None), "name", None) or ""),
+            "bank_logo": (getattr(getattr(batch, "bank", None), "logo_url", None) or ""),
+            "url": url_for("payment_batch_detail", batch_id=batch.id),
+        })
+
+    salida = []
+    for grupo in grupos.values():
+        grupo["bags"] = sorted(grupo["bags"].values(), key=lambda b: (b["title"] or "").casefold())
+        salida.append(grupo)
+    salida.sort(key=lambda g: (g["company_name"] or "").casefold())
+    return salida
+
+
+def _payment_batch_next_reference(session_db) -> str:
+    """REM-aaaa-nnnn, correlativo por año."""
+    year = today_local().year
+    prefijo = f"REM-{year}-"
+    ultimo = (session_db.query(PaymentBatch)
+              .filter(PaymentBatch.reference.like(f"{prefijo}%"))
+              .order_by(PaymentBatch.reference.desc()).first())
+    siguiente = 1
+    if ultimo is not None:
+        try:
+            siguiente = int((ultimo.reference or "").rsplit("-", 1)[-1]) + 1
+        except Exception:
+            siguiente = 1
+    return f"{prefijo}{siguiente:04d}"
+
+
+def _payment_batch_context(session_db, batch) -> dict:
+    """Todo lo que enseña la ficha de una remesa: sus pagos, lo que falta y los totales."""
+    items = (session_db.query(PaymentBatchItem)
+             .options(joinedload(PaymentBatchItem.expense), joinedload(PaymentBatchItem.provider))
+             .filter(PaymentBatchItem.batch_id == batch.id)
+             .order_by(PaymentBatchItem.created_at.asc()).all())
+    bank_slug = (getattr(getattr(batch, "bank", None), "file_format", None) or "SEPA_PAIN001")
+    filas, total, incompletos = [], Decimal("0"), 0
+    for item in items:
+        importe = _money_or_zero(item.amount)
+        faltan = sepa_check_payment({"name": item.beneficiary_name, "iban": item.beneficiary_iban,
+                                     "bic": item.beneficiary_bic, "amount": importe},
+                                    require_bic=bool(sepa_bank_profile(bank_slug).get("require_bic")))
+        if faltan:
+            incompletos += 1
+        else:
+            total += importe
+        filas.append({
+            "id": str(item.id),
+            "expense_id": str(item.expense_id or ""),
+            "provider_id": str(item.provider_id or ""),
+            "name": (item.beneficiary_name or ""),
+            "iban": (item.beneficiary_iban or ""),
+            "iban_masked": _iban_masked(item.beneficiary_iban) if item.beneficiary_iban else "",
+            "bic": (item.beneficiary_bic or ""),
+            "concept": (item.concept or ""),
+            "amount": importe,
+            "missing": faltan,
+            "missing_labels": [REMESA_MISSING_LABELS.get(x, x) for x in faltan],
+        })
+    etiqueta, clase = _payment_batch_status_meta(batch.status)
+    return {
+        "rows": filas,
+        "total": total,
+        "count_ready": len(filas) - incompletos,
+        "count_incomplete": incompletos,
+        "status_label": etiqueta,
+        "status_badge": clase,
+        "bank_slug": bank_slug,
+        "bank_label": sepa_bank_profile(bank_slug).get("label"),
+    }
+
+
+def _payment_batch_refresh_total(session_db, batch) -> None:
+    total = Decimal("0")
+    for item in session_db.query(PaymentBatchItem).filter(PaymentBatchItem.batch_id == batch.id).all():
+        total += _money_or_zero(item.amount)
+    batch.total_amount = total
+    batch.updated_at = _now_madrid()
+
+
+def _payment_batch_add_expenses(session_db, batch, expense_ids) -> int:
+    """Mete gastos en la remesa. Solo los de SU empresa: mezclar empresas en una remesa es pagar
+    desde una cuenta lo que le toca a otra."""
+    añadidos = 0
+    ya = {str(i.expense_id) for i in session_db.query(PaymentBatchItem)
+          .filter(PaymentBatchItem.batch_id == batch.id).all() if i.expense_id}
+    for raw in expense_ids or []:
+        try:
+            eid = to_uuid(str(raw).strip())
+        except Exception:
+            continue
+        if not eid or str(eid) in ya:
+            continue
+        expense = (session_db.query(BagExpense)
+                   .options(joinedload(BagExpense.bag), joinedload(BagExpense.provider),
+                            joinedload(BagExpense.provider_company))
+                   .filter(BagExpense.id == eid).first())
+        if expense is None:
+            continue
+        if (getattr(expense, "payment_status", None) or "").upper() == "PAGADO":
+            continue
+        bag_company = str(getattr(getattr(expense, "bag", None), "company_id", "") or "")
+        if str(batch.company_id or "") and bag_company and bag_company != str(batch.company_id):
+            continue
+        ben = _expense_beneficiary(session_db, expense)
+        session_db.add(PaymentBatchItem(
+            batch_id=batch.id,
+            expense_id=expense.id,
+            provider_id=(to_uuid(ben["provider_id"]) if ben["provider_id"] else None),
+            beneficiary_name=ben["name"] or None,
+            beneficiary_iban=sepa_normalize_iban(ben["iban"]) or None,
+            beneficiary_bic=(ben["bic"] or None),
+            concept=(getattr(expense, "invoice_number", None) or getattr(expense, "concept", None) or "")[:140] or None,
+            amount=_expense_pending_amount(expense),
+        ))
+        expense.payment_batch_id = batch.id
+        ya.add(str(expense.id))
+        añadidos += 1
+    session_db.flush()
+    _payment_batch_refresh_total(session_db, batch)
+    return añadidos
+
+
+def _payment_batch_expense_ids_from_form(session_db, form) -> list:
+    """Ids de gasto que llegan del formulario: sueltos y/o todos los de las bolsas marcadas."""
+    ids = [x for x in (form.getlist("expense_ids") or []) if (x or "").strip()]
+    for bag_id in (form.getlist("bag_ids") or []):
+        if not (bag_id or "").strip():
+            continue
+        try:
+            bid = to_uuid(bag_id.strip())
+        except Exception:
+            continue
+        for expense in _payment_pending_expenses(session_db):
+            if str(getattr(expense, "bag_id", "")) == str(bid):
+                ids.append(str(expense.id))
+    # Sin duplicados y conservando el orden en que se eligieron.
+    vistos, salida = set(), []
+    for x in ids:
+        if x in vistos:
+            continue
+        vistos.add(x)
+        salida.append(x)
+    return salida
+
+
+def _bag_close_if_fully_paid(session_db, bag) -> bool:
+    """Cuando en una bolsa ya no queda nada por pagar, se cierra y se archiva: a partir de ahí es
+    cosa de contabilidad. Devuelve True si la ha archivado."""
+    if bag is None:
+        return False
+    if _bag_has_pending_payments(session_db, bag):
+        return False
+    bag.liquidation_status = "CERRADA"
+    bag.liquidation_paid_at = _now_madrid()
+    bag.status = "ARCHIVADA"
+    bag.is_archived = True
+    bag.archived_at = _now_madrid()
+    bag.updated_at = _now_madrid()
+    return True
+
+
+# ------------------------------- Bases de datos → Bancos -----------------------------------------
+@app.get("/bancos", endpoint="banks_view")
+@admin_required
+def banks_view():
+    session_db = db()
+    try:
+        rows = _bank_rows(session_db)
+        usos = {str(k): v for k, v in session_db.query(GroupCompanyBankAccount.bank_id, func.count(GroupCompanyBankAccount.id))
+                .filter(GroupCompanyBankAccount.bank_id.isnot(None))
+                .group_by(GroupCompanyBankAccount.bank_id).all()}
+        return render_template("bancos.html", banks=rows, account_counts=usos,
+                               bank_formats=SEPA_BANK_FORMAT_CHOICES,
+                               CAN_EDIT=can_edit_catalogs())
+    finally:
+        session_db.close()
+
+
+@app.post("/bancos/crear", endpoint="bank_create")
+@admin_required
+def bank_create():
+    if not can_edit_catalogs():
+        return forbid("No tienes permisos para editar bancos.")
+    session_db = db()
+    try:
+        name = (request.form.get("name") or "").strip()
+        if not name:
+            flash("El nombre del banco es obligatorio.", "warning")
+            return redirect(url_for("banks_view"))
+        logo = request.files.get("logo")
+        fmt = (request.form.get("file_format") or "SEPA_PAIN001").strip().upper()
+        row = Bank(
+            name=name,
+            logo_url=(upload_image(logo, "banks") if logo and getattr(logo, "filename", "") else None),
+            file_format=(fmt if fmt in dict(SEPA_BANK_FORMAT_CHOICES) else "SEPA_PAIN001"),
+            bic=(request.form.get("bic") or "").strip().upper() or None,
+            notes=(request.form.get("notes") or "").strip() or None,
+        )
+        session_db.add(row)
+        session_db.commit()
+        flash("Banco creado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"Error creando el banco: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("banks_view"))
+
+
+@app.post("/bancos/<bank_id>/actualizar", endpoint="bank_update")
+@admin_required
+def bank_update(bank_id):
+    if not can_edit_catalogs():
+        return forbid("No tienes permisos para editar bancos.")
+    session_db = db()
+    try:
+        row = session_db.get(Bank, to_uuid(bank_id))
+        if not row:
+            flash("Banco no encontrado.", "warning")
+            return redirect(url_for("banks_view"))
+        row.name = (request.form.get("name") or row.name or "").strip() or row.name
+        fmt = (request.form.get("file_format") or row.file_format or "SEPA_PAIN001").strip().upper()
+        row.file_format = fmt if fmt in dict(SEPA_BANK_FORMAT_CHOICES) else "SEPA_PAIN001"
+        row.bic = (request.form.get("bic") or "").strip().upper() or None
+        row.notes = (request.form.get("notes") or "").strip() or None
+        logo = request.files.get("logo")
+        if logo and getattr(logo, "filename", ""):
+            row.logo_url = upload_image(logo, "banks")
+        row.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Banco actualizado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"Error actualizando el banco: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("banks_view"))
+
+
+@app.post("/bancos/<bank_id>/eliminar", endpoint="bank_delete")
+@admin_required
+def bank_delete(bank_id):
+    if not can_edit_catalogs():
+        return forbid("No tienes permisos para editar bancos.")
+    session_db = db()
+    try:
+        row = session_db.get(Bank, to_uuid(bank_id))
+        if row is not None:
+            session_db.delete(row)
+            session_db.commit()
+            flash("Banco eliminado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo eliminar: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("banks_view"))
+
+
+# --------------------- Cuentas bancarias de una empresa del grupo --------------------------------
+@app.post("/empresas/<cid>/cuentas/guardar", endpoint="company_bank_account_save")
+@admin_required
+def company_bank_account_save(cid):
+    """Alta y edición de una cuenta desde la pestaña «Datos» de la empresa (solo dirección, igual
+    que el resto de la ficha de la empresa)."""
+    if not is_master():
+        return forbid("Solo dirección puede tocar las cuentas bancarias de la empresa.")
+    next_url = safe_next_or(request.form.get("next") or url_for("company_detail", cid=cid))
+    session_db = db()
+    try:
+        company = session_db.get(GroupCompany, to_uuid(cid))
+        if company is None:
+            flash("Empresa no encontrada.", "warning")
+            return redirect(url_for("companies_view"))
+        account_id = (request.form.get("account_id") or "").strip()
+        row = session_db.get(GroupCompanyBankAccount, to_uuid(account_id)) if account_id else None
+        if row is not None and str(row.company_id) != str(company.id):
+            row = None
+        iban = sepa_normalize_iban(request.form.get("iban"))
+        if not iban:
+            flash("El IBAN es obligatorio.", "warning")
+            return redirect(next_url)
+        if not sepa_iban_is_valid(iban):
+            flash("Ese IBAN no es válido (no cuadra el dígito de control). Revísalo.", "warning")
+            return redirect(next_url)
+        if row is None:
+            row = GroupCompanyBankAccount(company_id=company.id, iban=iban)
+            session_db.add(row)
+        row.iban = iban
+        bank_raw = (request.form.get("bank_id") or "").strip()
+        row.bank_id = to_uuid(bank_raw) if bank_raw else None
+        row.alias = (request.form.get("alias") or "").strip() or None
+        bic = (request.form.get("swift_bic") or "").strip().upper() or None
+        if bic and not sepa_bic_is_valid(bic):
+            flash("El SWIFT/BIC no tiene forma de BIC; se guarda igual, pero revísalo.", "warning")
+        row.swift_bic = bic
+        cert = request.files.get("cert")
+        if cert and getattr(cert, "filename", ""):
+            row.cert_url = upload_file(cert, "bank_accounts")
+            row.cert_name = (getattr(cert, "filename", "") or "").strip() or None
+        row.updated_at = _now_madrid()
+        session_db.flush()
+        if _truthy(request.form.get("is_default")):
+            for otra in _company_bank_accounts(session_db, company.id):
+                otra.is_default = (str(otra.id) == str(row.id))
+        session_db.commit()
+        flash("Cuenta bancaria guardada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo guardar la cuenta: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.post("/empresas/<cid>/cuentas/<account_id>/eliminar", endpoint="company_bank_account_delete")
+@admin_required
+def company_bank_account_delete(cid, account_id):
+    if not is_master():
+        return forbid("Solo dirección puede tocar las cuentas bancarias de la empresa.")
+    next_url = safe_next_or(request.form.get("next") or url_for("company_detail", cid=cid))
+    session_db = db()
+    try:
+        row = session_db.get(GroupCompanyBankAccount, to_uuid(account_id))
+        if row is not None and str(row.company_id) == str(to_uuid(cid)):
+            session_db.delete(row)
+            session_db.commit()
+            flash("Cuenta eliminada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo eliminar la cuenta: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+# ------------------------------------ Remesas de pago --------------------------------------------
+@app.post("/administracion/remesas/crear", endpoint="payment_batch_create")
+@admin_required
+def payment_batch_create():
+    """Monta una remesa con lo que se le eche: gastos sueltos y/o bolsas enteras de UNA empresa."""
+    next_url = safe_next_or(request.form.get("next") or url_for("administracion_view", tab="pendiente", subtab="pago"))
+    session_db = db()
+    try:
+        company_raw = (request.form.get("company_id") or "").strip()
+        if not company_raw:
+            flash("Elige la empresa del grupo que paga.", "warning")
+            return redirect(next_url)
+        company = session_db.get(GroupCompany, to_uuid(company_raw))
+        if company is None:
+            flash("Empresa no encontrada.", "warning")
+            return redirect(next_url)
+        expense_ids = _payment_batch_expense_ids_from_form(session_db, request.form)
+        if not expense_ids:
+            flash("No has elegido ningún gasto para la remesa.", "warning")
+            return redirect(next_url)
+        # Todo tiene que ser de la MISMA empresa: si no, se avisa y no se crea nada.
+        ajenos = []
+        for raw in expense_ids:
+            expense = (session_db.query(BagExpense).options(joinedload(BagExpense.bag))
+                       .filter(BagExpense.id == to_uuid(raw)).first())
+            if expense is None:
+                continue
+            cid_gasto = str(getattr(getattr(expense, "bag", None), "company_id", "") or "")
+            if cid_gasto and cid_gasto != str(company.id):
+                ajenos.append((getattr(expense, "concept", None) or "Gasto").strip())
+        if ajenos:
+            flash("Una remesa es de UNA empresa del grupo. Estos gastos son de otra: "
+                  + ", ".join(ajenos[:4]) + ("…" if len(ajenos) > 4 else ""), "warning")
+            return redirect(next_url)
+
+        account_raw = (request.form.get("account_id") or "").strip()
+        account = session_db.get(GroupCompanyBankAccount, to_uuid(account_raw)) if account_raw else None
+        if account is not None and str(account.company_id) != str(company.id):
+            account = None
+        state = _current_user_state()
+        batch = PaymentBatch(
+            reference=_payment_batch_next_reference(session_db),
+            company_id=company.id,
+            account_id=(account.id if account is not None else None),
+            bank_id=(account.bank_id if account is not None else None),
+            status="BORRADOR",
+            execution_date=parse_optional_date(request.form.get("execution_date")) or today_local(),
+            created_by_user_id=to_uuid(state.get("user_id")) if state.get("user_id") else None,
+            created_by_nick=(state.get("nick") or state.get("email") or "").strip() or None,
+        )
+        session_db.add(batch)
+        session_db.flush()
+        n = _payment_batch_add_expenses(session_db, batch, expense_ids)
+        session_db.commit()
+        flash(f"Remesa {batch.reference} creada con {n} pago(s).", "success")
+        return redirect(url_for("payment_batch_detail", batch_id=batch.id))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo crear la remesa: {exc}", "danger")
+        return redirect(next_url)
+    finally:
+        session_db.close()
+
+
+@app.get("/administracion/remesas/<batch_id>", endpoint="payment_batch_detail")
+@admin_required
+def payment_batch_detail(batch_id):
+    session_db = db()
+    try:
+        batch = (session_db.query(PaymentBatch)
+                 .options(joinedload(PaymentBatch.company), joinedload(PaymentBatch.account),
+                          joinedload(PaymentBatch.bank))
+                 .filter(PaymentBatch.id == to_uuid(batch_id)).first())
+        if batch is None:
+            flash("Remesa no encontrada.", "warning")
+            return redirect(url_for("administracion_view", tab="pendiente", subtab="pago"))
+        ctx = _payment_batch_context(session_db, batch)
+        return render_template(
+            "remesa_detail.html",
+            batch=batch,
+            accounts=_company_bank_accounts(session_db, batch.company_id),
+            iban_masked=_iban_masked,
+            today=today_local(),
+            **ctx,
+        )
+    finally:
+        session_db.close()
+
+
+@app.post("/administracion/remesas/<batch_id>/cuenta", endpoint="payment_batch_set_account")
+@admin_required
+def payment_batch_set_account(batch_id):
+    """Desde qué banco y cuenta se paga: es lo que decide el formato del fichero."""
+    next_url = safe_next_or(request.form.get("next") or url_for("payment_batch_detail", batch_id=batch_id))
+    session_db = db()
+    try:
+        batch = session_db.get(PaymentBatch, to_uuid(batch_id))
+        if batch is None:
+            flash("Remesa no encontrada.", "warning")
+            return redirect(url_for("administracion_view", tab="pendiente", subtab="pago"))
+        account_raw = (request.form.get("account_id") or "").strip()
+        account = session_db.get(GroupCompanyBankAccount, to_uuid(account_raw)) if account_raw else None
+        if account is None or str(account.company_id) != str(batch.company_id or ""):
+            flash("Esa cuenta no es de la empresa de la remesa.", "warning")
+            return redirect(next_url)
+        batch.account_id = account.id
+        batch.bank_id = account.bank_id
+        fecha = parse_optional_date(request.form.get("execution_date"))
+        if fecha:
+            batch.execution_date = fecha
+        batch.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Cuenta de pago actualizada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo guardar: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.post("/administracion/remesas/<batch_id>/beneficiario/<item_id>", endpoint="payment_batch_fix_item")
+@admin_required
+def payment_batch_fix_item(batch_id, item_id):
+    """Completa lo que le falta a un pago. Lo que se rellene queda GUARDADO EN EL TERCERO, para no
+    volver a pedirlo en la siguiente remesa."""
+    next_url = safe_next_or(request.form.get("next") or url_for("payment_batch_detail", batch_id=batch_id))
+    session_db = db()
+    try:
+        item = session_db.get(PaymentBatchItem, to_uuid(item_id))
+        if item is None or str(item.batch_id) != str(to_uuid(batch_id)):
+            flash("Pago no encontrado.", "warning")
+            return redirect(next_url)
+        nombre = (request.form.get("beneficiary_name") or "").strip()
+        iban = sepa_normalize_iban(request.form.get("beneficiary_iban"))
+        bic = (request.form.get("beneficiary_bic") or "").strip().upper()
+        if iban and not sepa_iban_is_valid(iban):
+            flash("Ese IBAN no es válido (no cuadra el dígito de control).", "warning")
+            return redirect(next_url)
+        if nombre:
+            item.beneficiary_name = nombre
+        if iban:
+            item.beneficiary_iban = iban
+        if bic:
+            item.beneficiary_bic = bic
+        # Y se queda con el tercero: la próxima vez ya no falta.
+        provider = session_db.get(Promoter, item.provider_id) if item.provider_id else None
+        if provider is not None:
+            if iban:
+                provider.bank_account = iban
+            if bic:
+                provider.bank_bic = bic
+            provider.updated_at = _now_madrid()
+        batch = session_db.get(PaymentBatch, to_uuid(batch_id))
+        if batch is not None:
+            _payment_batch_refresh_total(session_db, batch)
+        session_db.commit()
+        flash("Datos del beneficiario guardados." + (" Quedan en la ficha del tercero." if provider is not None else ""), "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo guardar: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.post("/administracion/remesas/<batch_id>/quitar/<item_id>", endpoint="payment_batch_remove_item")
+@admin_required
+def payment_batch_remove_item(batch_id, item_id):
+    """Sacar un pago de la remesa (el gasto vuelve a pendiente de pago, sin tocar nada más)."""
+    next_url = safe_next_or(request.form.get("next") or url_for("payment_batch_detail", batch_id=batch_id))
+    session_db = db()
+    try:
+        item = session_db.get(PaymentBatchItem, to_uuid(item_id))
+        if item is not None and str(item.batch_id) == str(to_uuid(batch_id)):
+            expense = session_db.get(BagExpense, item.expense_id) if item.expense_id else None
+            if expense is not None and str(getattr(expense, "payment_batch_id", "")) == str(item.batch_id):
+                expense.payment_batch_id = None
+            session_db.delete(item)
+            session_db.flush()
+            batch = session_db.get(PaymentBatch, to_uuid(batch_id))
+            if batch is not None:
+                _payment_batch_refresh_total(session_db, batch)
+            session_db.commit()
+            flash("Pago quitado de la remesa.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo quitar: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.post("/administracion/remesas/<batch_id>/anadir", endpoint="payment_batch_add")
+@admin_required
+def payment_batch_add(batch_id):
+    """Añadir más gastos (o bolsas enteras) a una remesa que se está preparando."""
+    next_url = safe_next_or(request.form.get("next") or url_for("payment_batch_detail", batch_id=batch_id))
+    session_db = db()
+    try:
+        batch = session_db.get(PaymentBatch, to_uuid(batch_id))
+        if batch is None:
+            flash("Remesa no encontrada.", "warning")
+            return redirect(next_url)
+        if (batch.status or "BORRADOR").upper() == "PAGADA":
+            flash("La remesa ya está pagada: no se le pueden añadir pagos.", "warning")
+            return redirect(next_url)
+        n = _payment_batch_add_expenses(session_db, batch, _payment_batch_expense_ids_from_form(session_db, request.form))
+        session_db.commit()
+        flash(f"{n} pago(s) añadidos a la remesa." if n else "No se ha añadido nada.", "success" if n else "warning")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo añadir: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.get("/administracion/remesas/<batch_id>/fichero", endpoint="payment_batch_export")
+@admin_required
+def payment_batch_export(batch_id):
+    """Genera y descarga el fichero para el banco (SEPA XML), y deja la remesa como EXPORTADA."""
+    session_db = db()
+    try:
+        batch = (session_db.query(PaymentBatch)
+                 .options(joinedload(PaymentBatch.company), joinedload(PaymentBatch.account),
+                          joinedload(PaymentBatch.bank))
+                 .filter(PaymentBatch.id == to_uuid(batch_id)).first())
+        if batch is None:
+            flash("Remesa no encontrada.", "warning")
+            return redirect(url_for("administracion_view", tab="pendiente", subtab="pago"))
+        account = getattr(batch, "account", None)
+        if account is None or not (account.iban or "").strip():
+            flash("Elige primero desde qué cuenta se paga.", "warning")
+            return redirect(url_for("payment_batch_detail", batch_id=batch.id))
+        company = getattr(batch, "company", None)
+        ctx = _payment_batch_context(session_db, batch)
+        pagos = [{
+            "name": r["name"], "iban": r["iban"], "bic": r["bic"],
+            "amount": r["amount"], "concept": r["concept"],
+            "end_to_end": f"{batch.reference}-{idx + 1}",
+        } for idx, r in enumerate(ctx["rows"]) if not r["missing"]]
+        if not pagos:
+            flash("No hay ningún pago con los datos completos. Complétalos o quítalos de la remesa.", "warning")
+            return redirect(url_for("payment_batch_detail", batch_id=batch.id))
+        bank_slug = (getattr(getattr(batch, "bank", None), "file_format", None) or "SEPA_PAIN001")
+        xml = sepa_build_credit_transfer_xml(
+            debtor_name=(getattr(company, "name", None) or "Empresa"),
+            debtor_iban=account.iban,
+            debtor_bic=(account.swift_bic or getattr(getattr(batch, "bank", None), "bic", None)),
+            debtor_tax_id=(getattr(company, "tax_id", None) or None),
+            payments=pagos,
+            message_id=batch.reference,
+            execution_date=(batch.execution_date or today_local()).isoformat(),
+            created_at=_now_madrid().strftime("%Y-%m-%dT%H:%M:%S"),
+            bank_slug=bank_slug,
+        )
+        nombre = f"{batch.reference}.xml"
+        batch.file_name = nombre
+        batch.file_format = bank_slug
+        batch.exported_at = _now_madrid()
+        if (batch.status or "BORRADOR").upper() == "BORRADOR":
+            batch.status = "EXPORTADA"
+        batch.updated_at = _now_madrid()
+        session_db.commit()
+        return Response(xml, mimetype="application/xml",
+                        headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
+    finally:
+        session_db.close()
+
+
+@app.post("/administracion/remesas/<batch_id>/justificante", endpoint="payment_batch_receipt")
+@admin_required
+def payment_batch_receipt(batch_id):
+    """Se sube el justificante del banco y se dan por PAGADOS todos los gastos de la remesa. Las
+    bolsas que se queden sin nada pendiente se cierran y se archivan (pasan a contabilidad)."""
+    next_url = safe_next_or(request.form.get("next") or url_for("payment_batch_detail", batch_id=batch_id))
+    session_db = db()
+    try:
+        batch = session_db.get(PaymentBatch, to_uuid(batch_id))
+        if batch is None:
+            flash("Remesa no encontrada.", "warning")
+            return redirect(next_url)
+        receipt = request.files.get("receipt")
+        if receipt and getattr(receipt, "filename", ""):
+            batch.receipt_url = upload_file(receipt, "payment_batches")
+            batch.receipt_name = (getattr(receipt, "filename", "") or "").strip() or None
+        elif not batch.receipt_url and not _truthy(request.form.get("sin_justificante")):
+            flash("Sube el justificante del banco (o marca que se paga sin él).", "warning")
+            return redirect(next_url)
+        pagado_el = parse_optional_date(request.form.get("paid_at")) or today_local()
+        batch.execution_date = batch.execution_date or pagado_el
+        batch.status = "PAGADA"
+        batch.paid_at = _now_madrid()
+        batch.updated_at = _now_madrid()
+        bolsas, n = {}, 0
+        for item in session_db.query(PaymentBatchItem).filter(PaymentBatchItem.batch_id == batch.id).all():
+            expense = session_db.get(BagExpense, item.expense_id) if item.expense_id else None
+            if expense is None:
+                continue
+            expense.payment_status = "PAGADO"
+            expense.paid_amount = _money_or_zero(item.amount)
+            expense.payment_method = f"Remesa {batch.reference}"
+            expense.payment_batch_id = batch.id
+            if batch.receipt_url:
+                expense.payment_receipt_url = batch.receipt_url
+            expense.updated_at = _now_madrid()
+            n += 1
+            if getattr(expense, "bag_id", None):
+                bolsas[str(expense.bag_id)] = expense.bag_id
+        session_db.flush()
+        archivadas = 0
+        for bag_id in bolsas.values():
+            bag = session_db.get(WorkflowBag, bag_id)
+            if _bag_close_if_fully_paid(session_db, bag):
+                archivadas += 1
+        session_db.commit()
+        aviso = f"Remesa pagada: {n} gasto(s) marcados como pagados."
+        if archivadas:
+            aviso += f" {archivadas} bolsa(s) se han cerrado y archivado (pasan a contabilidad)."
+        flash(aviso, "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo cerrar la remesa: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.post("/administracion/remesas/<batch_id>/eliminar", endpoint="payment_batch_delete")
+@admin_required
+def payment_batch_delete(batch_id):
+    """Deshacer una remesa que aún no se ha pagado: sus gastos vuelven a pendiente de pago."""
+    next_url = safe_next_or(request.form.get("next") or url_for("administracion_view", tab="pendiente", subtab="pago"))
+    session_db = db()
+    try:
+        batch = session_db.get(PaymentBatch, to_uuid(batch_id))
+        if batch is None:
+            return redirect(next_url)
+        if (batch.status or "BORRADOR").upper() == "PAGADA":
+            flash("Una remesa ya pagada no se borra.", "warning")
+            return redirect(url_for("payment_batch_detail", batch_id=batch.id))
+        for item in session_db.query(PaymentBatchItem).filter(PaymentBatchItem.batch_id == batch.id).all():
+            expense = session_db.get(BagExpense, item.expense_id) if item.expense_id else None
+            if expense is not None and str(getattr(expense, "payment_batch_id", "")) == str(batch.id):
+                expense.payment_batch_id = None
+        session_db.delete(batch)
+        session_db.commit()
+        flash("Remesa deshecha. Sus gastos vuelven a pendiente de pago.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo deshacer: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
 
 
 def _production_type_label(value: str | None) -> str:
@@ -50542,6 +51511,10 @@ def administracion_view():
             admin_my_tabs=admin_my_tabs,
             admin_my_pending_tabs=admin_my_pending_tabs,
             admin_promo_bag_ids=admin_promo_bag_ids,
+            # Pendiente de pago: agrupado por empresa del grupo, con sus remesas y sus cuentas.
+            payment_groups=(_payment_pending_context(session_db)
+                            if (tab == "pendiente" and pending_subtab == "pago") else []),
+            iban_masked=_iban_masked,
             admin_list_limit=ADMIN_LIST_LIMIT,
             direct_pending=direct_pending,
             direct_no_invoice=direct_no_invoice,

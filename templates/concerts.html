@@ -20,10 +20,11 @@
   }
 </style>
 
+{% set contracting_tab = 'facturacion' if active_tab == 'facturacion' else 'conciertos' %}{% include '_contracting_tabs.html' %}
+
 <div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
   <div>
     <h4 class="mb-2">Contratación · {{ 'Facturación' if active_tab == 'facturacion' else 'Conciertos' }}</h4>
-    {% with contracting_tab='facturacion' if active_tab == 'facturacion' else 'conciertos' %}{% include '_contracting_tabs.html' %}{% endwith %}
   </div>
   {% if CAN_EDIT_CONCERTS and active_tab != 'facturacion' %}
     <div class="d-flex gap-2">
@@ -33,6 +34,9 @@
     </div>
   {% endif %}
 </div>
+
+{# Primero lo que hay que hacer (aquí, el dinero pendiente de facturar y de cobrar). #}
+{% include '_contracting_tasks.html' %}
 
 {# ===================== VISTA (por defecto) ===================== #}
 {% if active_tab == 'vista' %}

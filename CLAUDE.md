@@ -433,13 +433,30 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `/compradores` (`databases.buyers`, agrupada por eventos + CSV) y pestaña Enterticket en
   Integraciones (estado/acciones, solo dirección).
 
-- **Contratación · pestañas y contadores**: la barra de pestañas es un parcial único
-  (`templates/_contracting_tabs.html`; antes estaba copiada en 10 plantillas). Cada pestaña que
-  agrupa actividades lleva su **número de actividades ACTIVAS** (de hoy en adelante) —Conciertos,
-  Peticiones, Festivales/Ciclos, Eventos y Otras actividades—, calculado en
-  `_contracting_tab_counts()` e inyectado como `CONTRACTING_COUNTS`. En **Peticiones** solo cuentan
-  las PENDIENTES (las archivadas no). Uso: `{% with contracting_tab='conciertos' %}{% include
-  '_contracting_tabs.html' %}{% endwith %}`.
+- **Contratación · pestañas, tareas y contadores** (rediseño ago 2026): la barra de pestañas es un
+  parcial único (`templates/_contracting_tabs.html`) que va **POR ENCIMA del título** de cada
+  pantalla, con la estética sobria de Discográfica (`nav-tabs`, subrayado de marca, clase
+  `.contract-tabs`) **+ un icono por pestaña**. **Peticiones es la PRIMERA**. Uso:
+  `{% set contracting_tab = 'conciertos' %}{% include '_contracting_tabs.html' %}` (con `set`, no
+  con `with`: así la clave sigue disponible para el módulo de tareas).
+  **El número de cada pestaña son sus TAREAS PENDIENTES**, no cuántas actividades hay (se recalcula
+  en cada carga). Motor único `_contracting_tasks_data()` (cacheado en `g`, inyecta
+  `CONTRACTING_COUNTS` + `CONTRACTING_TASKS`); qué es una tarea, por actividad VIVA: sin confirmar ·
+  confirmada sin contrato (`ConcertContract`) · confirmada sin anuncio (ni `announcement_date` ni
+  `do_not_announce`) · confirmada sin mandar a producción (sin `WorkflowBag`, y solo si le toca
+  `_concert_needs_production`). El **dinero pendiente NO es tarea de la actividad**: por facturar y
+  por cobrar son tareas de **Facturación** (ahí sí cuentan las fechas pasadas). Las peticiones
+  abiertas son las tareas de **Peticiones**. Se filtra por los **artistas asignados** del usuario
+  (sin artistas asignados, o dirección, se ve todo). Una actividad que sale en dos pestañas (p. ej.
+  un concierto de un ciclo) genera la tarea en las dos: `_contracting_activity_tabs`.
+  **Cada pestaña se abre con el módulo «Tareas pendientes»** (`templates/_contracting_tasks.html`,
+  clases `.ctask*`), con la estética que tenía el módulo de peticiones (tarjeta + filas de lista);
+  **debajo** va el filtro propio de la pestaña con su número: artistas (Conciertos y Otras
+  actividades), giras, festivales/ciclos o eventos. El **módulo de peticiones desapareció de
+  Conciertos**: la pestaña Peticiones lo hereda (mismo aspecto, con el menú de acciones por fila).
+  ⚠️ La fila es un enlace que ocupa todo (`stretched-link`): dentro no se marca nada con
+  `data-artist-link` (quedaría debajo y el clic no llegaría); los botones llevan `.ctask__actions`
+  (z-index por encima).
 - **El asistente «+ Actividad» admite ARTISTA o EVENTO**: primer paso «¿De quién es la actividad?»
   (`subject_kind` ARTIST|EVENT). Con EVENTO se busca en `api_search_events` o se crea al momento con el
   `+` (`data-quick-create="event"`), y `concert_wizard_create` espeja el evento como artista

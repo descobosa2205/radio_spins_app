@@ -1,5 +1,7 @@
 {% extends "layout.html" %}
 {% block content %}
+{% set contracting_tab = 'giras-compradas' %}{% include '_contracting_tabs.html' %}
+
 <div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
   <div>
     <h4 class="mb-1">Contratación · Giras compradas</h4>
@@ -10,7 +12,8 @@
   {% endif %}
 </div>
 
-{% with contracting_tab='giras-compradas' %}{% include '_contracting_tabs.html' %}{% endwith %}
+{# Primero lo que hay que hacer; debajo, el filtro por gira con su número de conciertos. #}
+{% include '_contracting_tasks.html' %}
 
 {% if rows %}
 <div class="row g-3">

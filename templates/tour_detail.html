@@ -1,5 +1,7 @@
 {% extends "layout.html" %}
 {% block content %}
+{% set contracting_tab = 'giras-compradas' %}{% include '_contracting_tabs.html' %}
+
 <div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
   <div>
     <a href="{{ url_for('contracting_view', section='giras-compradas') }}" class="btn btn-sm btn-outline-secondary btn-volver mb-2" title="Volver a giras compradas" aria-label="Volver a giras compradas"><i class="fa fa-arrow-left"></i></a>
@@ -8,8 +10,6 @@
   </div>
   <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#concertWizardModal"><i class="fa fa-plus me-1"></i> Nuevo concierto</button>
 </div>
-
-{% with contracting_tab='giras-compradas' %}{% include '_contracting_tabs.html' %}{% endwith %}
 
 <ul class="nav nav-tabs mb-3">
   <li class="nav-item"><a class="nav-link {% if tab == 'info' %}active{% endif %}" href="{{ url_for('tour_detail_view', slug=slug, tab='info') }}">Información general</a></li>

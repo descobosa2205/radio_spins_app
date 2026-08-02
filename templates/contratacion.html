@@ -1,5 +1,7 @@
 {% extends "layout.html" %}
 {% block content %}
+{% set contracting_tab = section %}{% include '_contracting_tabs.html' %}
+
 <div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
   <div>
     <h4 class="mb-1">Contratación · {{ title }}</h4>
@@ -10,7 +12,8 @@
   {% endif %}
 </div>
 
-{% with contracting_tab=section %}{% include '_contracting_tabs.html' %}{% endwith %}
+{# Primero lo que hay que hacer; debajo, el listado propio de la pestaña. #}
+{% include '_contracting_tasks.html' %}
 
 {% if section == 'giras-compradas' %}
   <div class="row g-3">
@@ -32,7 +35,33 @@
       <div class="col-12"><div class="alert alert-light border">{{ empty_message }}</div></div>
     {% endfor %}
   </div>
+{% elif section == 'otras-actividades' and not drill_artist %}
+  {# Filtro por ARTISTA: rejilla con el nº de actividades de cada uno (igual que Conciertos). #}
+  {% if artist_groups %}
+  <div class="row g-3">
+    {% for g in artist_groups %}
+    <div class="col-6 col-md-4 col-lg-3 col-xl-2">
+      <a href="{{ url_for('contracting_view', section='otras-actividades', artist=g.artist.id) }}" class="card h-100 text-decoration-none text-reset text-center">
+        <div class="card-body">
+          <img src="{{ g.artist.photo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1" style="width:84px;height:84px;border-radius:50%;object-fit:cover;margin-bottom:.5rem;">
+          <div class="fw-semibold text-truncate">{{ g.artist.name }}</div>
+          <div class="small text-muted"><span class="badge text-bg-light border"><i class="fa fa-shapes me-1"></i>{{ g.count }} actividad{{ '' if g.count == 1 else 'es' }}</span></div>
+        </div>
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="alert alert-light border">{{ empty_message }}</div>
+  {% endif %}
 {% else %}
+  {% if drill_artist %}
+  <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('contracting_view', section='otras-actividades') }}"><i class="fa fa-arrow-left me-1"></i>Artistas</a>
+    <h5 class="mb-0 me-2">{{ artist_avatar(drill_artist.photo_url, drill_artist.name, artist_id=drill_artist.id) }} {{ drill_artist.name }}</h5>
+    <span class="badge text-bg-light border">{{ rows|length }}</span>
+  </div>
+  {% endif %}
   <div class="card">
     <div class="card-body p-0">
       {% for concert in rows %}

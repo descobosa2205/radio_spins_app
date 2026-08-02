@@ -22472,6 +22472,28 @@ def contracting_view():
         rows = query.limit(300).all()
         tour_groups = _tour_groups_from_concerts(rows) if section == "giras-compradas" else []
         artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
+
+        # «Otras actividades» funciona como Conciertos: debajo de las tareas, el filtro por ARTISTA
+        # (rejilla con el nº de actividades de cada uno) y, al pinchar uno, sus actividades.
+        artist_groups, drill_artist = [], None
+        if section == "otras-actividades":
+            _mine = _contracting_task_artist_ids()
+            counts = {}
+            for c in rows:
+                if _mine and str(getattr(c, "artist_id", "") or "") not in _mine:
+                    continue
+                counts[c.artist_id] = counts.get(c.artist_id, 0) + 1
+            by_id = {a.id: a for a in artists}
+            artist_groups = sorted(
+                ({"artist": by_id[aid], "count": n} for aid, n in counts.items() if aid in by_id),
+                key=lambda x: (x["artist"].name or "").lower(),
+            )
+            _drill = to_uuid(request.args.get("artist") or "")
+            if _drill:
+                drill_artist = by_id.get(_drill)
+                rows = [c for c in rows if c.artist_id == _drill]
+            elif _mine:
+                rows = [c for c in rows if str(getattr(c, "artist_id", "") or "") in _mine]
         promoters = session_db.query(Promoter).options(selectinload(Promoter.companies)).order_by(Promoter.nick.asc()).all()
         companies = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
         type_choices = [(k, CONCERT_SALE_TYPE_LABELS.get(k, k)) for k in CONCERTS_SECTION_ORDER]
@@ -22493,6 +22515,8 @@ def contracting_view():
             empty_message=empty,
             rows=rows,
             tour_groups=tour_groups,
+            artist_groups=artist_groups,
+            drill_artist=drill_artist,
             artists=artists,
             promoters=promoters,
             promoters_payload=promoters_payload,
@@ -27883,34 +27907,11 @@ def concerts_page():
 
         _wizard_tours, _wizard_cycles = _wizard_group_options(s)
 
-        # Módulo "Peticiones pendientes" en el inicio de Contratación (pestaña Conciertos):
-        # todas las peticiones que aún no se han cerrado (ni convertidas ni descartadas).
-        pending_booking_rows = []
-        if active_tab == "vista":
-            try:
-                _pending = (
-                    s.query(BookingRequest)
-                    .options(joinedload(BookingRequest.artist))
-                    .filter(func.upper(func.coalesce(BookingRequest.status, "NUEVA")).in_(["NUEVA", "EN_TRAMITE"]))
-                    .order_by(BookingRequest.received_at.desc().nullslast(), BookingRequest.created_at.desc())
-                    .limit(80)
-                    .all()
-                )
-                # Solo las de Contratación (con caché o legado sin departamento).
-                _pending = [r for r in _pending if _booking_in_department(r, "CONTRATACION")][:50]
-                pending_booking_rows = []
-                for _r in _pending:
-                    _row = _booking_request_row(_r)
-                    # Al pinchar se abre la ficha de la petición, con sus datos y sus acciones.
-                    _row["manage_url"] = url_for("booking_request_detail_view", rid=_r.id)
-                    pending_booking_rows.append(_row)
-            except Exception:
-                pending_booking_rows = []
-
+        # Las peticiones pendientes ya NO se listan aquí: viven en su propia pestaña (la primera de
+        # Contratación) y lo que abre esta es el módulo de TAREAS pendientes (`CONTRACTING_TASKS`).
         return render_template(
             "concerts_vista.html" if active_tab == "vista" else "concerts.html",
             active_tab=active_tab,
-            pending_booking_rows=pending_booking_rows,
             booking_status_meta=BOOKING_STATUS_META,
             vista_mode=vista_mode,
             artist_groups=artist_groups,
@@ -44293,58 +44294,231 @@ def _media_contact_display(contact: MediaContact | None) -> str:
     return " · ".join([p for p in pieces if p])
 
 
-# Pestañas de Contratación que llevan CONTADOR (las que agrupan actividades). Cuadrantes,
-# Facturación, Simulaciones y Giras compradas no llevan.
-CONTRACTING_COUNT_TABS = ("conciertos", "peticiones", "festivales-ciclos", "eventos", "otras-actividades")
+# ============================================================================================
+# TAREAS PENDIENTES de Contratación (motor único de la barra de pestañas y del módulo de arriba)
+#
+# El NÚMERO de cada pestaña NO es cuántas actividades hay, sino cuántas TAREAS quedan por hacer
+# en ella (se recalcula en cada carga, así que va siempre al día). Las mismas tareas se pintan en
+# el módulo «Tareas pendientes» que abre cada pestaña (`templates/_contracting_tasks.html`).
+#
+# Qué es una tarea, por actividad VIVA (de hoy en adelante):
+#   · sin confirmar               → hay que cerrarla;
+#   · confirmada sin contrato     → falta subir el contrato;
+#   · confirmada sin anuncio      → nadie ha decidido cuándo se anuncia (ni «no anunciar»);
+#   · confirmada sin mandar a producción (sin bolsa, y solo si le toca `_concert_needs_production`).
+# El dinero pendiente NO es tarea de la pestaña de la actividad: los pagos por facturar y por
+# cobrar son tareas de **Facturación** (y ahí sí cuentan también las fechas ya pasadas, que son
+# justo las que urgen). Las peticiones abiertas son las tareas de **Peticiones**.
+#
+# Alcance: se filtra por los ARTISTAS ASIGNADOS del usuario; quien no tenga ninguno (y dirección)
+# ve todas.
+# ============================================================================================
+CONTRACTING_COUNT_TABS = ("peticiones", "conciertos", "giras-compradas", "festivales-ciclos",
+                          "eventos", "otras-actividades", "facturacion")
+
+# Pantallas que llevan la barra de pestañas de Contratación (y por tanto necesitan las tareas).
+CONTRACTING_TAB_ENDPOINTS = {"contracting_view", "concerts_view", "quadrantes_view", "tour_detail_view"}
+
+# Catálogo de tareas: etiqueta · icono · color de la pastilla · orden de urgencia.
+CONTRACTING_TASK_META = {
+    "REQUEST":    ("Petición sin tramitar", "fa-inbox", "text-bg-danger", 0),
+    "CONFIRM":    ("Pendiente de confirmar", "fa-circle-question", "text-bg-warning text-dark", 1),
+    "CONTRACT":   ("Sin contrato", "fa-file-signature", "text-bg-secondary", 2),
+    "ANNOUNCE":   ("Pendiente de anunciar", "fa-bullhorn", "text-bg-info text-dark", 3),
+    "PRODUCTION": ("Sin mandar a producción", "fa-people-carry-box", "text-bg-dark", 4),
+    "INVOICE":    ("Pendiente de facturar", "fa-file-circle-plus", "text-bg-secondary", 5),
+    "COLLECT":    ("Pendiente de cobrar", "fa-hourglass-half", "text-bg-warning text-dark", 6),
+}
 
 
-def _contracting_tab_counts() -> dict:
-    """Cuántas cosas ACTIVAS hay en cada pestaña de Contratación (lo que queda por delante):
+def _contracting_activity_tabs(c) -> list[str]:
+    """En qué pestañas de Contratación sale esta actividad (mismo criterio que sus listados).
 
-    - **conciertos**: actividades de la pestaña (sin giras, festivales, otras ni las de EVENTOS) de
-      hoy en adelante; las pasadas son historial y no cuentan.
-    - **peticiones**: solo las PENDIENTES. Las archivadas (aprobadas o descartadas) no se cuentan ni
-      se muestran en el número.
-    - **festivales-ciclos** / **eventos**: sus actividades activas (mismo criterio de fecha).
-    - **otras-actividades**: promocionales, TV, marca y otros, de hoy en adelante.
+    Una actividad puede salir en dos (p. ej. un concierto dentro de un ciclo): su tarea aparece
+    en las dos, porque en cada pestaña sigue siendo trabajo por hacer.
     """
+    if getattr(c, "event_id", None):
+        return ["eventos"]          # las de un evento salen SOLO en su pestaña
+    sale = (getattr(c, "sale_type", None) or "").upper()
+    act = (getattr(c, "activity_type", None) or "CONCIERTO").upper()
+    tabs = []
+    if sale == "GIRAS_COMPRADAS" or act == "GIRA" or getattr(c, "purchased_tour_id", None):
+        tabs.append("giras-compradas")
+    if act == "FESTIVAL" or getattr(c, "cycle_festival_id", None):
+        tabs.append("festivales-ciclos")
+    if act in ("EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS"):
+        tabs.append("otras-actividades")
+    if (sale not in ("GIRAS_COMPRADAS", "CADIZ")
+            and act not in ("FESTIVAL", "GIRA", "EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS")):
+        tabs.append("conciertos")
+    return tabs or ["conciertos"]
+
+
+def _contracting_task_artist_ids() -> set:
+    """Artistas asignados al usuario. Conjunto vacío = ve todas (dirección y quien no tenga)."""
+    if is_master():
+        return set()
+    try:
+        return {str(x) for x in (_current_user_state().get("assigned_artist_ids") or []) if x}
+    except Exception:
+        return set()
+
+
+def _contracting_task_row(c, kind: str, payment: dict | None = None) -> dict:
+    """Una fila del módulo de tareas: quién, cuándo, dónde y a dónde se va a resolverla."""
+    label, icon, badge, order = CONTRACTING_TASK_META.get(
+        kind, ("Pendiente", "fa-circle-exclamation", "text-bg-light border", 9))
+    art = getattr(c, "artist", None)
+    venue = getattr(c, "venue", None)
+    place = ((getattr(venue, "name", None) or "") or (getattr(c, "manual_venue_name", None) or "")
+             or (getattr(c, "manual_municipality", None) or ""))
+    if kind == "PRODUCTION":
+        url = url_for("concert_detail_view", cid=c.id, tab="produccion")
+    elif kind in ("INVOICE", "COLLECT"):
+        url = url_for("concerts_view", tab="facturacion") + "#billing-" + str(c.id)
+    else:
+        url = url_for("concert_detail_view", cid=c.id, tab="general")
+    extra = ""
+    if payment:
+        extra = " · ".join([x for x in [(payment.get("concept") or "").strip(),
+                                        format_eur(payment.get("amount"))] if x])
+    return {
+        "kind": kind, "label": label, "icon": icon, "badge": badge, "order": order,
+        "id": str(c.id),
+        "title": (getattr(c, "festival_name", None) or "").strip(),
+        "activity_label": QUAD_ACTIVITY_LABELS.get(
+            (getattr(c, "activity_type", None) or "").strip().upper(), "Concierto"),
+        "artist_id": (str(c.artist_id) if getattr(c, "artist_id", None) else ""),
+        "artist_name": (getattr(art, "name", None) or ""),
+        "artist_photo": (getattr(art, "photo_url", None) or ""),
+        "date": getattr(c, "date", None),
+        "date_label": (c.date.strftime("%d/%m/%Y") if getattr(c, "date", None) else ""),
+        "place": place,
+        "extra": extra,
+        "url": url,
+    }
+
+
+def _contracting_tasks_data() -> dict:
+    """Tareas pendientes agrupadas por pestaña. Se calcula UNA vez por petición (`g`), porque lo
+    piden a la vez la barra de pestañas (el número) y el módulo de arriba (las filas)."""
+    cached = getattr(g, "_contracting_tasks_cache", None)
+    if cached is not None:
+        return cached
+    by_tab = {k: [] for k in CONTRACTING_COUNT_TABS}
     session_db = db()
     try:
         hoy = today_local()
-        vivas = or_(Concert.date.is_(None), Concert.date >= hoy)
-        no_agrupadas = and_(
-            ~func.upper(func.coalesce(Concert.sale_type, "")).in_(["GIRAS_COMPRADAS", "CADIZ"]),
-            ~func.upper(func.coalesce(Concert.activity_type, "CONCIERTO")).in_(
-                ["FESTIVAL", "GIRA", "EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS"]),
-        )
-        conciertos = (session_db.query(func.count(Concert.id))
-                      .filter(no_agrupadas, Concert.event_id.is_(None), vivas).scalar() or 0)
-        eventos = (session_db.query(func.count(Concert.id))
-                   .filter(Concert.event_id.isnot(None), vivas).scalar() or 0)
-        otras = (session_db.query(func.count(Concert.id))
-                 .filter(func.upper(func.coalesce(Concert.activity_type, "CONCIERTO"))
-                         .in_(["EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS"]),
-                         Concert.event_id.is_(None), vivas).scalar() or 0)
-        festivales = (session_db.query(func.count(Concert.id))
-                      .filter(or_(func.upper(func.coalesce(Concert.activity_type, "")) == "FESTIVAL",
-                                  Concert.cycle_festival_id.isnot(None)),
-                              Concert.event_id.is_(None), vivas).scalar() or 0)
-        peticiones = 0
+        mios = _contracting_task_artist_ids()
+
+        def _visible(obj) -> bool:
+            if not mios:
+                return True
+            if str(getattr(obj, "artist_id", "") or "") in mios:
+                return True
+            return any(str(x) in mios for x in (getattr(obj, "artist_ids", None) or []))
+
+        # ---- Actividades vivas: confirmar · contrato · anuncio · producción ----
+        vivas = (session_db.query(Concert)
+                 .options(joinedload(Concert.artist), joinedload(Concert.venue))
+                 .filter(or_(Concert.date.is_(None), Concert.date >= hoy))
+                 .order_by(Concert.date.asc().nullslast())
+                 .all())
+        vivas = [c for c in vivas if _visible(c)]
+        ids = [c.id for c in vivas]
+        con_contrato, con_bolsa = set(), set()
+        if ids:
+            con_contrato = {r[0] for r in session_db.query(ConcertContract.concert_id)
+                            .filter(ConcertContract.concert_id.in_(ids)).all()}
+            con_bolsa = {r[0] for r in session_db.query(WorkflowBag.linked_id)
+                         .filter(WorkflowBag.linked_type.in_(("CONCERT", "concert")),
+                                 WorkflowBag.linked_id.in_(ids)).all()}
+        for c in vivas:
+            kinds = []
+            if (getattr(c, "status", None) or "BORRADOR").upper() != "CONFIRMADO":
+                kinds.append("CONFIRM")
+            else:
+                if c.id not in con_contrato:
+                    kinds.append("CONTRACT")
+                if not getattr(c, "announcement_date", None) and not getattr(c, "do_not_announce", False):
+                    kinds.append("ANNOUNCE")
+                if _concert_needs_production(c) and c.id not in con_bolsa:
+                    kinds.append("PRODUCTION")
+            if not kinds:
+                continue
+            tabs = _contracting_activity_tabs(c)
+            for kind in kinds:
+                row = _contracting_task_row(c, kind)
+                for t in tabs:
+                    by_tab.setdefault(t, []).append(row)
+
+        # ---- Facturación: pagos por facturar y por cobrar (también de fechas pasadas) ----
+        try:
+            con_pagos = (session_db.query(Concert)
+                         .options(joinedload(Concert.artist), joinedload(Concert.venue))
+                         .filter(func.jsonb_typeof(Concert.payment_terms_json) == "array")
+                         .filter(func.jsonb_array_length(Concert.payment_terms_json) > 0)
+                         .order_by(Concert.date.asc().nullslast())
+                         .all())
+        except Exception:
+            con_pagos = []
+        for c in con_pagos:
+            if not _visible(c):
+                continue
+            for p in _concert_payment_rows(c, pending_only=True):
+                kind = "INVOICE" if (p.get("status") or "") == "PENDING_INVOICE" else "COLLECT"
+                by_tab["facturacion"].append(_contracting_task_row(c, kind, payment=p))
+
+        # ---- Peticiones abiertas (las sin artista concreto las ve todo el mundo) ----
         try:
             abiertas = (session_db.query(BookingRequest)
+                        .options(joinedload(BookingRequest.artist))
                         .filter(func.upper(func.coalesce(BookingRequest.status, "NUEVA"))
                                 .in_(list(BOOKING_OPEN_STATUSES)))
-                        .limit(500).all())
-            peticiones = sum(1 for r in abiertas if _booking_in_department(r, "CONTRATACION"))
+                        .order_by(BookingRequest.received_at.desc().nullslast(),
+                                  BookingRequest.created_at.desc())
+                        .limit(300).all())
         except Exception:
-            peticiones = 0
-        return {"conciertos": int(conciertos), "peticiones": int(peticiones),
-                "festivales-ciclos": int(festivales), "eventos": int(eventos),
-                "otras-actividades": int(otras)}
+            abiertas = []
+        label, icon, badge, order = CONTRACTING_TASK_META["REQUEST"]
+        for r in abiertas:
+            if not _booking_in_department(r, "CONTRATACION"):
+                continue
+            if mios and getattr(r, "artist_id", None) and str(r.artist_id) not in mios:
+                continue
+            row = _booking_request_row(r)
+            row.update({
+                "kind": "REQUEST", "label": row.get("status_label") or label, "icon": icon,
+                "badge": row.get("status_badge") or badge, "order": order,
+                "title": (row.get("subject") or ""),
+                "activity_label": "Petición",
+                "date": getattr(r, "requested_date", None),
+                "place": " · ".join([x for x in [row.get("municipality"), row.get("province")] if x]),
+                "extra": (row.get("fee_text") or ""),
+                "url": url_for("booking_request_detail_view", rid=r.id),
+            })
+            by_tab["peticiones"].append(row)
     except Exception:
-        return {}
+        pass
     finally:
         session_db.close()
+    for rows in by_tab.values():
+        rows.sort(key=lambda r: (r.get("date") or date.max, r.get("order") or 9,
+                                 (r.get("artist_name") or "").lower()))
+    data = {"tasks": by_tab, "counts": {k: len(v) for k, v in by_tab.items() if v}}
+    try:
+        g._contracting_tasks_cache = data
+    except Exception:
+        pass
+    return data
+
+
+def _contracting_tab_counts() -> dict:
+    """Número de la barra de pestañas = TAREAS pendientes de cada una (no cuántas actividades hay)."""
+    try:
+        return _contracting_tasks_data()["counts"]
+    except Exception:
+        return {}
 
 
 def _section_stats_counts() -> dict:
@@ -44408,10 +44582,14 @@ def inject_personnel_globals():
         "TRAVEL_PREF_GROUPS": TRAVEL_PREF_GROUPS,
         "PROMOTER_COST_ITEMS": PROMOTER_COST_ITEMS,
         "SECTION_STATS": _section_stats_counts() if request.endpoint in {"promocion_view", "marketing_view", "administracion_view", "contabilidad_view", "produccion_view", "acciones_view", "action_detail_view", "personnel_view", "invitations_view", "invitation_event_detail"} and session.get("user_id") else {},
-        # Nº de actividades ACTIVAS por pestaña de Contratación (la barra de pestañas es un parcial).
+        # Nº de TAREAS PENDIENTES por pestaña de Contratación (la barra de pestañas es un parcial)
+        # y las propias tareas, que abren cada pestaña en el módulo «Tareas pendientes».
         "CONTRACTING_COUNTS": (_contracting_tab_counts()
-                               if request.endpoint in {"contracting_view", "concerts_view", "quadrantes_view"}
+                               if request.endpoint in CONTRACTING_TAB_ENDPOINTS
                                and session.get("user_id") else {}),
+        "CONTRACTING_TASKS": (_contracting_tasks_data().get("tasks") or {}
+                              if request.endpoint in CONTRACTING_TAB_ENDPOINTS
+                              and session.get("user_id") else {}),
         "has_access_key": has_access_key,
         # Placeholder de PORTADA (canción/álbum) cuando no hay portada: disco gris sobre fondo gris
         # claro, para cubrir el hueco sin fingir que es la portada real.

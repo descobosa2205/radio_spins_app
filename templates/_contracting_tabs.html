@@ -1,26 +1,35 @@
 {# ============================================================================
    Barra de pestañas de CONTRATACIÓN (una sola copia para todas sus pantallas).
-   Uso:  {% with contracting_tab='conciertos' %}{% include '_contracting_tabs.html' %}{% endwith %}
-   Claves: conciertos · peticiones · giras-compradas · festivales-ciclos · eventos ·
+   Va SIEMPRE por ENCIMA del título de la pantalla, con la estética sobria de las pestañas de
+   Discográfica (`nav-tabs`, subrayado de marca) más un icono por pestaña.
+
+   Uso:  {% set contracting_tab = 'conciertos' %}{% include '_contracting_tabs.html' %}
+   (con `set` y no con `with`, para que `contracting_tab` siga disponible después y lo pueda
+   reutilizar el módulo `_contracting_tasks.html`).
+   Claves: peticiones · conciertos · giras-compradas · festivales-ciclos · eventos ·
            otras-actividades · cuadrantes · facturacion · simulaciones
 
-   El NÚMERO que sale en cada pestaña son las actividades ACTIVAS (de hoy en adelante) de esa
-   pestaña; en Peticiones, solo las PENDIENTES (las archivadas no cuentan). Lo calcula
-   `_contracting_tab_counts` y llega como `CONTRACTING_COUNTS`. Cuadrantes, Facturación,
-   Simulaciones y Giras compradas no llevan número.
+   El NÚMERO de cada pestaña son sus TAREAS PENDIENTES (no cuántas actividades hay): lo calcula
+   `_contracting_tasks_data` y llega como `CONTRACTING_COUNTS`. Cuadrantes y Simulaciones no
+   generan tareas, así que no llevan número.
    ============================================================================ #}
 {% set _c = CONTRACTING_COUNTS or {} %}
-{% macro _n(key) -%}
-  {%- if _c.get(key) %} <span class="badge rounded-pill text-bg-light border ms-1">{{ _c.get(key) }}</span>{% endif -%}
+{% macro _tab(key, url, icon, label) -%}
+  <li class="nav-item">
+    <a class="nav-link {{ 'active' if contracting_tab == key }}" href="{{ url }}">
+      <i class="fa {{ icon }}"></i><span>{{ label }}</span>
+      {%- if _c.get(key) %}<span class="contract-tabs__n" title="Tareas pendientes">{{ _c.get(key) }}</span>{% endif -%}
+    </a>
+  </li>
 {%- endmacro %}
-<ul class="nav nav-pills mb-3">
-  <li class="nav-item"><a class="nav-link {{ 'active' if contracting_tab == 'conciertos' }}" href="{{ url_for('concerts_view', tab='vista') }}">Conciertos{{ _n('conciertos') }}</a></li>
-  <li class="nav-item"><a class="nav-link {{ 'active' if contracting_tab == 'peticiones' }}" href="{{ url_for('contracting_view', section='peticiones') }}">Peticiones{{ _n('peticiones') }}</a></li>
-  <li class="nav-item"><a class="nav-link {{ 'active' if contracting_tab == 'giras-compradas' }}" href="{{ url_for('contracting_view', section='giras-compradas') }}">Giras compradas</a></li>
-  <li class="nav-item"><a class="nav-link {{ 'active' if contracting_tab == 'festivales-ciclos' }}" href="{{ url_for('contracting_view', section='festivales-ciclos') }}">Festivales / Ciclos{{ _n('festivales-ciclos') }}</a></li>
-  <li class="nav-item"><a class="nav-link {{ 'active' if contracting_tab == 'eventos' }}" href="{{ url_for('contracting_view', section='eventos') }}">Eventos{{ _n('eventos') }}</a></li>
-  <li class="nav-item"><a class="nav-link {{ 'active' if contracting_tab == 'otras-actividades' }}" href="{{ url_for('contracting_view', section='otras-actividades') }}">Otras actividades{{ _n('otras-actividades') }}</a></li>
-  <li class="nav-item"><a class="nav-link {{ 'active' if contracting_tab == 'cuadrantes' }}" href="{{ url_for('quadrantes_view') }}">Cuadrantes</a></li>
-  <li class="nav-item"><a class="nav-link {{ 'active' if contracting_tab == 'facturacion' }}" href="{{ url_for('concerts_view', tab='facturacion') }}">Facturación</a></li>
-  <li class="nav-item"><a class="nav-link {{ 'active' if contracting_tab == 'simulaciones' }}" href="{{ url_for('contracting_view', section='simulaciones') }}">Simulaciones</a></li>
+<ul class="nav nav-tabs contract-tabs">
+  {{ _tab('peticiones', url_for('contracting_view', section='peticiones'), 'fa-inbox', 'Peticiones') }}
+  {{ _tab('conciertos', url_for('concerts_view', tab='vista'), 'fa-guitar', 'Conciertos') }}
+  {{ _tab('giras-compradas', url_for('contracting_view', section='giras-compradas'), 'fa-route', 'Giras compradas') }}
+  {{ _tab('festivales-ciclos', url_for('contracting_view', section='festivales-ciclos'), 'fa-star', 'Festivales / Ciclos') }}
+  {{ _tab('eventos', url_for('contracting_view', section='eventos'), 'fa-masks-theater', 'Eventos') }}
+  {{ _tab('otras-actividades', url_for('contracting_view', section='otras-actividades'), 'fa-shapes', 'Otras actividades') }}
+  {{ _tab('cuadrantes', url_for('quadrantes_view'), 'fa-table-cells', 'Cuadrantes') }}
+  {{ _tab('facturacion', url_for('concerts_view', tab='facturacion'), 'fa-file-invoice-dollar', 'Facturación') }}
+  {{ _tab('simulaciones', url_for('contracting_view', section='simulaciones'), 'fa-calculator', 'Simulaciones') }}
 </ul>

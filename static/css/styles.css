@@ -1706,6 +1706,44 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 /* Pills (botones-pestaña tipo enlace) */
 .nav-pills .nav-link.active { background: var(--brand-primary); }
 
+/* ---------------------------------------------------------------------------
+   Barra de pestañas de CONTRATACIÓN (va por encima del título de la pantalla).
+   Misma sobriedad que las pestañas de Discográfica + icono y nº de tareas pendientes.
+   --------------------------------------------------------------------------- */
+.contract-tabs.nav-tabs { flex-wrap: wrap; margin-bottom: 1.1rem; }
+.contract-tabs .nav-link {
+  display: inline-flex; align-items: center; gap: .4rem; white-space: nowrap;
+  padding: .5rem .72rem; font-size: .95rem;
+}
+.contract-tabs .nav-link i { font-size: .92em; opacity: .7; }
+.contract-tabs .nav-link:hover i, .contract-tabs .nav-link.active i { opacity: 1; }
+.contract-tabs__n {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 19px; height: 19px; padding: 0 5px; border-radius: 10px;
+  background: var(--brand-primary); color: #fff; font-size: 11px; font-weight: 700; line-height: 1;
+}
+@media (max-width: 575.98px) {
+  .contract-tabs.nav-tabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; }
+  .contract-tabs .nav-link { padding: .5rem .7rem; }
+}
+
+/* Filas del módulo «Tareas pendientes» (mismo lenguaje que tenía el módulo de peticiones) */
+.ctask { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+/* La etiqueta de la tarea a ancho fijo: así los nombres de todas las filas quedan alineados */
+.ctask__kind { flex-shrink: 0; }
+@media (min-width: 992px) { .ctask__kind { min-width: 205px; } }
+.ctask__who { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.ctask__noart {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 50%; background: #f1f4f8; border: 1px solid var(--line-2);
+}
+.ctask__meta {
+  margin-left: auto; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+  color: var(--muted-2); font-size: .875rem;
+}
+/* Los botones de la fila van POR ENCIMA del enlace que cubre toda la fila (`stretched-link`) */
+.ctask__actions { position: relative; z-index: 2; }
+
 /* Listas */
 .list-group-item { border-color: var(--line-2); }
 .list-group-item-action:hover { background: rgba(0,124,162,.04); }

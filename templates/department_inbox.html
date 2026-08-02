@@ -24,9 +24,12 @@
   </div>
 </div>
 
+{# Los asistentes cortos de PEDIR promoción o marketing: se abren desde «Nueva petición» en
+   cualquier bandeja, porque pedirlos lo puede hacer cualquiera de la empresa. #}
+{% include '_promo_peticion_modal.html' %}
+{% include '_marketing_peticion_modal.html' %}
+
 {% if dept_key == 'PROMO' %}
-  {# Pedir promoción lo puede hacer cualquiera; crearla y gestionarla, solo promoción. #}
-  {% include '_promo_peticion_modal.html' %}
   {% if can_edit_promo %}
     {% include '_promo_wizard_modal.html' %}
     <script src="{{ url_for('static', filename='js/promo.js', v=ASSET_V) }}"></script>

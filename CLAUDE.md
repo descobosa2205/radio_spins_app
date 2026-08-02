@@ -558,6 +558,16 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (`registros_promo_declare`).
   · **Dónde se ve**: `_promo_rows_for_subject` + `_promo_entity_panel.html` en la ficha de
   canción, disco, artista y concierto.
+  · **«Nueva petición» ofrece también PROMOCIÓN y MARKETING**: en el paso 1 del asistente general
+  (`_peticion_wizard_modal.html`), bajo los tipos de actividad, hay dos accesos que **saltan** a su
+  asistente corto (`data-peticion-handoff`, cierra el general y abre el otro cuando Bootstrap ha
+  terminado de ocultarlo, si no se lleva el fondo por delante). Marketing usa
+  **`_marketing_peticion_modal.html`** → `marketing_peticion_create` (artista · qué se promociona ·
+  plan o acción + tipos · objetivos, presupuesto y plazo), que cae en Marketing → Peticiones.
+  ⚠️ No es `promotion_request_create`: ese exige poder EDITAR marketing porque sale de la ficha del
+  elemento. Los dos endpoints de PEDIR están en **`REQUEST_ANY_ENDPOINTS`** (se mira ANTES que
+  `SUPPORT_ACTION_ENDPOINTS`): pedir algo lo puede hacer **cualquier sesión**, sin necesidad de ser
+  «actor», porque quien pide no hace nada, se lo pide al departamento que decide.
   · **Peticiones de promoción**: las crea **cualquiera** de la empresa (asistente corto propio
   `_promo_peticion_modal.html`, botón «Pedir promoción» en Contratación → Peticiones y «Nueva
   petición» en la sección Promoción): de quién es (artista o evento) · qué se pide

@@ -23162,7 +23162,9 @@ def _render_department_inbox(dept_key: str, title: str, icon: str, subtitle: str
             promo_tab=promo_tab,
             promo_active=promo_active,
             promo_archived=promo_archived,
-            promo_creator_datasets=(_promo_creator_datasets(s) if dept_key == "PROMO" else {}),
+            # Los asistentes de PEDIR promoción o marketing salen en todas las bandejas: pedirlos lo
+            # puede hacer cualquiera, no solo quien lleva la sección.
+            promo_creator_datasets=_promo_creator_datasets(s),
             promo_modalities=PROMO_MODALITIES,
             promo_formations=PROMO_FORMATIONS,
             promoter_cost_items=PROMOTER_COST_ITEMS,
@@ -45503,6 +45505,8 @@ SUPPORT_ACTION_ENDPOINTS = {
     # Peticiones: crear/gestionar es transversal (cualquier miembro de la oficina crea peticiones
     # desde el botón global; cada departamento gestiona las suyas en su bandeja). La visibilidad la
     # limita el reparto por departamento, no el gate de sección.
+    # Pedir promoción (prensa) o marketing: mismo caso, desde el botón global de peticiones.
+    "marketing_peticion_create",
     "peticion_wizard_create", "booking_request_create", "booking_request_update",
     "booking_request_status", "booking_request_delete", "booking_request_approve",
     "booking_request_convert", "booking_request_close",
@@ -45576,6 +45580,15 @@ PERSONAL_ENDPOINTS = {"my_expenses_view", "my_expenses_assign", "my_expense_assi
                       "my_expense_upload_invoice", "my_expense_no_invoice", "my_expense_send_direct"}
 
 
+# PEDIR promoción o marketing lo puede hacer CUALQUIERA de la empresa, aunque no tenga permiso de
+# edición en ninguna sección: no está haciendo nada, está pidiéndoselo al departamento que decide.
+# (Se comprueba antes que `SUPPORT_ACTION_ENDPOINTS`, que sí exige ser «actor».)
+REQUEST_ANY_ENDPOINTS = {
+    "promo_peticion_create",
+    "marketing_peticion_create",
+}
+
+
 def _support_endpoint_decision(endpoint: str):
     """Resuelve un endpoint de apoyo.
 
@@ -45594,6 +45607,10 @@ def _support_endpoint_decision(endpoint: str):
         if is_master() or has_access_key(section, econ=True, include_descendants=True):
             return (True, None)
         return (True, forbid("Necesitas permiso para ver datos económicos en esta sección."))
+    if endpoint in REQUEST_ANY_ENDPOINTS:
+        # PEDIR algo es lo de menos privilegio que hay: quien pide no hace, solo se lo pide a otro
+        # departamento, que decide. Basta con estar dentro (cualquier sesión válida).
+        return (True, None)
     if endpoint in SUPPORT_ACTION_ENDPOINTS:
         if request.method in ("POST", "PUT", "PATCH", "DELETE") and not _user_is_actor():
             return (True, forbid("Necesitas permiso de edición en alguna sección para usar esta herramienta."))
@@ -49124,6 +49141,68 @@ def promo_peticion_create():
     except Exception as exc:
         session_db.rollback()
         flash(f"No se pudo crear la petición: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.post("/marketing/peticiones/crear", endpoint="marketing_peticion_create")
+@admin_required
+def marketing_peticion_create():
+    """PEDIR una acción o una campaña de marketing. La puede pedir cualquiera de la empresa (como el
+    resto de peticiones); quien la valora y la monta es Marketing, en su pestaña «Peticiones».
+
+    ⚠️ No es `promotion_request_create`: ese exige poder EDITAR marketing porque se lanza desde la
+    ficha del elemento. Este es el botón global de peticiones, que no exige nada."""
+    next_url = safe_next_or(request.form.get("next") or url_for("marketing_view", tab="requested"))
+    session_db = db()
+    try:
+        subject_type = (request.form.get("subject_type") or "").strip().upper()
+        subject_id = (request.form.get("subject_id") or "").strip()
+        artist_ids = _promotion_normalized_artist_ids(request.form.getlist("artist_ids"))
+        if subject_type not in {"ARTIST", "SONG", "ALBUM", "CONCERT", "GIRA", "CICLO", "EVENT"}:
+            flash("Dinos qué se quiere promocionar.", "warning")
+            return redirect(next_url)
+        if subject_type == "ARTIST" and not subject_id and len(artist_ids) == 1:
+            subject_id = artist_ids[0]
+        snapshot = _promotion_request_snapshot_from_source(
+            session_db, subject_type, subject_id,
+            manual_title=(request.form.get("manual_title") or "").strip(),
+            manual_artist_ids=artist_ids)
+        if not snapshot:
+            flash("No se ha podido identificar lo que se quiere promocionar.", "warning")
+            return redirect(next_url)
+        if not artist_ids:
+            artist_ids = _promotion_normalized_artist_ids(snapshot.get("artist_ids") or [])
+        campos = _marketing_request_fields_from_form(request.form)
+        state = _current_user_state()
+        row = PromotionRequest(
+            source_type=subject_type,
+            source_id=to_uuid(subject_id) if subject_id else None,
+            artist_ids=artist_ids,
+            snapshot=snapshot,
+            subject_date=_promotion_target_date_from_source(session_db, subject_type, subject_id),
+            objectives_notes=(request.form.get("objectives_notes") or "").strip() or None,
+            budget_notes=(request.form.get("budget_notes") or "").strip() or None,
+            request_kind=campos["request_kind"],
+            action_types=campos["action_types"],
+            budget_mode=campos["budget_mode"],
+            budget_max=campos["budget_max"],
+            budget_by_action=campos["budget_by_action"],
+            starts_on=campos["starts_on"],
+            ends_on=campos["ends_on"],
+            deadline_notes=campos["deadline_notes"],
+            status="REQUESTED",
+            requested_by_user_id=to_uuid(state.get("user_id")) if state.get("user_id") else None,
+            requested_by_email=(state.get("email") or "").strip() or None,
+            requested_by_nick=(state.get("nick") or "").strip() or None,
+        )
+        session_db.add(row)
+        session_db.commit()
+        flash("Petición de marketing enviada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo enviar la petición: {exc}", "danger")
     finally:
         session_db.close()
     return redirect(next_url)

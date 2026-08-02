@@ -19,6 +19,19 @@
               <label class="invitation-radio-option"><input type="radio" name="activity_type" value="{{ k }}" {% if loop.first %}checked{% endif %}><i class="fa {{ i }}"></i><span>{{ l }}</span></label>
             {% endfor %}
           </div>
+          {# Promoción (prensa) y marketing (campaña de pago) no son actividades que se contraten:
+             tienen su propio asistente, más corto. Se salta a él y este se cierra. #}
+          <div class="mt-3 pt-3 border-top">
+            <div class="small text-muted mb-2">¿O es otra cosa?</div>
+            <div class="invitation-icon-grid">
+              <button type="button" class="invitation-radio-option" data-peticion-handoff="promoPeticionModal">
+                <i class="fa fa-microphone-lines"></i><span>Promoción<br><span class="small text-muted">Entrevista, prensa…</span></span>
+              </button>
+              <button type="button" class="invitation-radio-option" data-peticion-handoff="marketingPeticionModal">
+                <i class="fa fa-bullhorn"></i><span>Marketing<br><span class="small text-muted">Campaña de pago</span></span>
+              </button>
+            </div>
+          </div>
         </div>
 
         <div class="pw-step d-none" data-pstep="2">
@@ -269,6 +282,22 @@
     if(window.jQuery){ try { jQuery('#pwArtist').val('').trigger('change'); } catch(e){} }
     show(1);
   }
+  // Promoción y marketing tienen su propio asistente (más corto): se cierra este y se abre aquel.
+  document.addEventListener('click', function(ev){
+    var salto = ev.target.closest('[data-peticion-handoff]'); if(!salto) return;
+    var destino = document.getElementById(salto.getAttribute('data-peticion-handoff'));
+    if(!destino){ alert('Ese asistente no está disponible en esta pantalla.'); return; }
+    if(window.bootstrap){
+      var actual = bootstrap.Modal.getInstance(modal);
+      // Se espera a que este se cierre del todo: si no, Bootstrap quita el fondo del que abrimos.
+      modal.addEventListener('hidden.bs.modal', function abrir(){
+        modal.removeEventListener('hidden.bs.modal', abrir);
+        bootstrap.Modal.getOrCreateInstance(destino).show();
+      });
+      if(actual) actual.hide(); else bootstrap.Modal.getOrCreateInstance(destino).show();
+    }
+  });
+
   // Botones que abren el asistente. data-peticion-dept preajusta el departamento.
   document.addEventListener('click', function(ev){
     var btn = ev.target.closest('[data-peticion-new]'); if(!btn) return;

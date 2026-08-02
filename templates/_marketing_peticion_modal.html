@@ -1,0 +1,180 @@
+{# ============================================================================================
+   PEDIR marketing (campaña de pago). Lo puede pedir cualquiera desde «Nueva petición»; quien la
+   valora y la monta es Marketing, en su pestaña «Peticiones». Corto a propósito: qué se promociona,
+   qué se pide y con qué presupuesto y plazo. Necesita `promo_creator_datasets` en el contexto.
+   ============================================================================================ #}
+{% set creator = promo_creator_datasets or {} %}
+<div class="modal fade" id="marketingPeticionModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <form class="modal-content" method="post" action="{{ url_for('marketing_peticion_create') }}" data-step-wizard id="marketingPeticionForm">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <input type="hidden" name="subject_type" id="mpSubjectType" value="SONG">
+      <input type="hidden" name="subject_id" id="mpSubjectId">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-bullhorn me-2"></i>Pedir marketing</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div data-sw-progress></div>
+
+        {# 1 · Artista #}
+        <section class="sw-step" data-step="1" data-title="Artista">
+          <div class="sw-step__q"><i class="fa fa-microphone-lines me-2 text-danger"></i>¿De qué artista?</div>
+          <div class="sw-step__h">Puedes marcar varios si es conjunto.</div>
+          <input type="text" class="form-control mb-2" id="mpArtistSearch" placeholder="Buscar artista…">
+          <div class="promo-pick-grid" id="mpArtistGrid">
+            {% for artist in creator.artists or [] %}
+              <label class="promo-pick js-mp-artist" data-search="{{ artist.name|lower }}">
+                <input type="checkbox" class="js-mp-artist-check" name="artist_ids" value="{{ artist.id }}">
+                <span class="promo-pick__box">
+                  {% if artist.photo_url and 'placeholder_photo' not in artist.photo_url %}
+                    <img src="{{ artist.photo_url }}" alt="">
+                  {% else %}<span class="promo-pick__avatar"><i class="fa fa-user"></i></span>{% endif %}
+                  <span class="promo-pick__name">{{ artist.name }}</span>
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+        </section>
+
+        {# 2 · Qué se promociona #}
+        <section class="sw-step" data-step="2" data-title="Qué">
+          <div class="sw-step__q"><i class="fa fa-shapes me-2 text-danger"></i>¿Qué se quiere promocionar?</div>
+          <div class="sw-step__h">Al elegirlo se pasa solo al siguiente paso.</div>
+          <div class="promo-pick-grid promo-pick-grid--wide">
+            {% for value, label, icon in [('SONG','Single / canción','fa-music'), ('ALBUM','Disco / EP','fa-compact-disc'),
+                                          ('ARTIST','El artista','fa-microphone-lines'), ('CONCERT','Un concierto','fa-guitar'),
+                                          ('GIRA','Una gira','fa-route'), ('EVENT','Un evento','fa-masks-theater'),
+                                          ('CICLO','Festival / Ciclo','fa-star')] %}
+              <label class="promo-pick">
+                <input type="radio" name="subject_type_pick" value="{{ value }}" data-sw-advance {% if loop.first %}checked{% endif %}>
+                <span class="promo-pick__box"><i class="fa {{ icon }}"></i><span class="promo-pick__name">{{ label }}</span></span>
+              </label>
+            {% endfor %}
+          </div>
+        </section>
+
+        {# 3 · Cuál #}
+        <section class="sw-step" data-step="3" data-title="Cuál">
+          <div class="sw-step__q"><i class="fa fa-list-check me-2 text-danger"></i><span id="mpSubjectQuestion">¿Cuál?</span></div>
+          <div id="mpSubjectGrid" class="row g-2"></div>
+          <div id="mpSubjectEmpty" class="alert alert-light border mt-2 mb-0">No hay nada que elegir con esos artistas. Vuelve atrás y cámbialos.</div>
+        </section>
+
+        {# 4 · Qué se pide #}
+        <section class="sw-step" data-step="4" data-title="Qué se pide">
+          <div class="sw-step__q"><i class="fa fa-diagram-project me-2 text-danger"></i>¿Qué se pide?</div>
+          <div class="promo-pick-grid promo-pick-grid--wide mb-3">
+            <label class="promo-pick">
+              <input type="radio" name="request_kind" value="PLAN" checked>
+              <span class="promo-pick__box"><i class="fa fa-diagram-project"></i><span class="promo-pick__name">Un plan completo</span></span>
+            </label>
+            <label class="promo-pick">
+              <input type="radio" name="request_kind" value="ACTION">
+              <span class="promo-pick__box"><i class="fa fa-bullseye"></i><span class="promo-pick__name">Una acción concreta</span></span>
+            </label>
+          </div>
+          <label class="form-label">Tipo de acciones</label>
+          <div class="promo-pick-grid promo-pick-grid--wide">
+            {% for key, label, icon in marketing_action_types %}
+              <label class="promo-pick">
+                <input type="checkbox" name="action_types" value="{{ key }}">
+                <span class="promo-pick__box"><i class="fa {{ icon }}"></i><span class="promo-pick__name">{{ label }}</span></span>
+              </label>
+            {% endfor %}
+          </div>
+        </section>
+
+        {# 5 · Para qué, con cuánto y para cuándo #}
+        <section class="sw-step" data-step="5" data-title="Objetivos">
+          <div class="sw-step__q"><i class="fa fa-bullseye me-2 text-danger"></i>¿Para qué y para cuándo?</div>
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label">Objetivos</label>
+              <textarea class="form-control" name="objectives_notes" rows="3" placeholder="Qué se quiere conseguir, a quién va dirigido…"></textarea>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Presupuesto</label>
+              <select class="form-select" name="budget_mode">
+                <option value="REQUEST_BUDGET">Que lo diga marketing</option>
+                <option value="MAX_AMOUNT">Hay un máximo</option>
+              </select>
+            </div>
+            <div class="col-md-4"><label class="form-label">Máximo (€)</label><input class="form-control" name="budget_max" data-money="1" inputmode="decimal"></div>
+            <div class="col-md-4"><label class="form-label">Notas de presupuesto</label><input class="form-control" name="budget_notes"></div>
+            <div class="col-md-4"><label class="form-label">Desde</label><input type="date" class="form-control" name="starts_on"></div>
+            <div class="col-md-4"><label class="form-label">Hasta</label><input type="date" class="form-control" name="ends_on"></div>
+            <div class="col-md-4"><label class="form-label">Notas de plazo</label><input class="form-control" name="deadline_notes"></div>
+          </div>
+          <div class="alert alert-light border mt-3 mb-0 small">
+            <i class="fa fa-circle-info me-1"></i>La petición le llega a <strong>Marketing</strong>, que decide y la monta.
+          </div>
+        </section>
+      </div>
+      <div class="modal-footer d-flex justify-content-between">
+        <button type="button" class="btn btn-outline-secondary" data-sw-prev>Anterior</button>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-primary" data-sw-next>Siguiente</button>
+          <button class="btn btn-primary" data-sw-submit><i class="fa fa-check me-1"></i>Enviar petición</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/step_wizard.js', v=ASSET_V) }}"></script>
+<script>
+(function(){
+  const data = {{ creator|tojson }};
+  const modal = document.getElementById('marketingPeticionModal');
+  if (!modal) return;
+  const grid = modal.querySelector('#mpSubjectGrid');
+  const empty = modal.querySelector('#mpSubjectEmpty');
+  const tipo = modal.querySelector('#mpSubjectType');
+  const idInput = modal.querySelector('#mpSubjectId');
+  const pregunta = modal.querySelector('#mpSubjectQuestion');
+  const buscar = modal.querySelector('#mpArtistSearch');
+  const normalize = (v) => window.normalizeSearchText ? window.normalizeSearchText(v) : String(v || '').toLowerCase();
+  const QUESTION = { ARTIST: '¿Sobre qué artista?', SONG: '¿Qué single o canción?', ALBUM: '¿Qué disco o EP?',
+                     CONCERT: '¿Qué concierto?', EVENT: '¿Qué evento?', GIRA: '¿Qué gira?', CICLO: '¿Qué festival o ciclo?' };
+
+  function artistas(){
+    return Array.from(modal.querySelectorAll('.js-mp-artist-check:checked')).map(el => el.value);
+  }
+  function render(){
+    const t = tipo.value;
+    idInput.value = '';
+    if (pregunta) pregunta.textContent = QUESTION[t] || '¿Cuál?';
+    grid.innerHTML = '';
+    const marcados = artistas();
+    const filas = ((data.subjects || {})[t] || [])
+      .filter(item => item.any_artist || !marcados.length || (item.artist_ids || []).some(id => marcados.includes(id)))
+      .slice(0, 80);
+    empty.classList.toggle('d-none', filas.length > 0);
+    filas.forEach(item => {
+      const col = document.createElement('div'); col.className = 'col-12 col-md-6';
+      col.innerHTML = '<button type="button" class="btn btn-outline-secondary w-100 text-start js-mp-subject" data-id="' + item.id + '">'
+        + '<span class="d-flex gap-2 align-items-center"><img src="' + (item.cover_url || '') + '" style="width:40px;height:40px;object-fit:cover;border-radius:10px;">'
+        + '<span><strong>' + (item.title || '') + '</strong><br><span class="small text-muted">' + (item.subtitle || '')
+        + (item.meta ? ' · ' + item.meta : '') + '</span></span></span></button>';
+      grid.appendChild(col);
+    });
+    grid.querySelectorAll('.js-mp-subject').forEach(btn => btn.addEventListener('click', function(){
+      grid.querySelectorAll('.js-mp-subject').forEach(x => x.classList.remove('active'));
+      btn.classList.add('active');
+      idInput.value = btn.dataset.id || '';
+    }));
+  }
+  modal.querySelectorAll('input[name="subject_type_pick"]').forEach(r => r.addEventListener('change', function(){
+    if (r.checked) { tipo.value = r.value; render(); }
+  }));
+  modal.querySelectorAll('.js-mp-artist-check').forEach(el => el.addEventListener('change', render));
+  if (buscar) buscar.addEventListener('input', () => {
+    const q = normalize(buscar.value);
+    modal.querySelectorAll('.js-mp-artist').forEach(row =>
+      row.classList.toggle('d-none', q && !normalize(row.dataset.search).includes(q)));
+  });
+  render();
+})();
+</script>

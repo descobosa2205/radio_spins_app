@@ -1,16 +1,24 @@
 {% extends "layout.html" %}
 {% block content %}
+{# ============================================================================
+   FICHA DEL EVENTO. Funciona como la del artista (un evento es un SUJETO: puede tener
+   actividades, una gira propia, ciclos…), pero enseña los datos del EVENTO. El artista ESPEJO
+   (`Artist.event_id`) existe solo porque `Concert.artist_id` es NOT NULL: aquí no se ve nunca.
+   ============================================================================ #}
 
 <div class="mb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
   <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('events_view') }}" title="Volver a Eventos" aria-label="Volver a Eventos"><i class="fa fa-arrow-left"></i></a>
   {% if CAN_EDIT %}
-  <form method="post" action="{{ url_for('event_delete', eid=event.id) }}" onsubmit="return confirm('¿Eliminar este evento? No se puede deshacer.');">
-    <button class="btn btn-outline-danger btn-sm"><i class="fa fa-trash me-1"></i>Eliminar evento</button>
-  </form>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('contracting_view', section='eventos', contenedores=1) }}"><i class="fa fa-route me-1"></i>Organizar una gira</a>
+    <form method="post" action="{{ url_for('event_delete', eid=event.id) }}" onsubmit="return confirm('¿Eliminar este evento? No se puede deshacer.');">
+      <button class="btn btn-outline-danger btn-sm"><i class="fa fa-trash me-1"></i>Eliminar evento</button>
+    </form>
+  </div>
   {% endif %}
 </div>
 
-<div class="ficha-hero">
+<div class="ficha-hero mb-0">
   {% if event.logo_url %}
     <img class="ficha-hero__media" src="{{ event.logo_url }}" alt="" style="object-fit:contain;background:#fff;">
   {% else %}
@@ -19,32 +27,52 @@
   <div class="ficha-hero__body">
     <div class="ficha-hero__eyebrow">Evento</div>
     <h1 class="ficha-hero__title">{{ event.name }}</h1>
+    {% if event.description %}<div class="text-muted mb-2">{{ event.description }}</div>{% endif %}
     <div class="ficha-hero__facts">
+      <span><i class="fa fa-calendar-day"></i>{{ act_rows|length }} {{ 'actividad' if act_rows|length == 1 else 'actividades' }}</span>
+      {% if contenedores %}<span><i class="fa fa-route"></i>{{ contenedores|length }} {{ 'gira o ciclo' if contenedores|length == 1 else 'giras y ciclos' }}</span>{% endif %}
       <span><i class="fa fa-chart-line"></i>{{ sims|length }} {{ 'simulación' if sims|length == 1 else 'simulaciones' }}</span>
-      {% if event.created_at %}<span><i class="fa fa-calendar-plus"></i>Creado el {{ event.created_at.strftime('%d/%m/%Y') }}</span>{% endif %}
     </div>
   </div>
 </div>
 
-<div class="row g-3">
-  <div class="col-12 col-lg-6">
+{% set tabs = [('datos','Datos','fa-circle-info'), ('actividades','Actividades y giras','fa-calendar-day'),
+               ('personas','Vinculaciones','fa-link'), ('fotos','Fotos / Vídeos','fa-images'),
+               ('resultado','Resultado','fa-chart-line'), ('simulaciones','Simulaciones','fa-calculator'),
+               ('gastos','Plantillas de gastos','fa-receipt')] %}
+<ul class="nav nav-tabs ficha-tabs mb-0">
+  {% for key, label, icon in tabs %}
+    <li class="nav-item">
+      <a class="nav-link {% if tab == key %}active{% endif %}" href="{{ url_for('event_detail_view', eid=event.id, tab=key) }}">
+        <i class="fa {{ icon }} me-1"></i>{{ label }}
+        {% if key == 'actividades' and act_rows %}<span class="badge text-bg-light border ms-1">{{ act_rows|length }}</span>{% endif %}
+      </a>
+    </li>
+  {% endfor %}
+</ul>
+
+<div class="ficha-tabpane">
+  {% if tab == 'datos' %}
     <div class="ficha-section">
       <div class="ficha-section__head">
         <h6 class="ficha-section__title"><i class="fa fa-circle-info"></i>Datos del evento</h6>
-        {% if CAN_EDIT %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle="#eventDataForm"><i class="fa fa-pen"></i></button>{% endif %}
+        {% if CAN_EDIT %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle="#eventDataForm"><i class="fa fa-pen me-1"></i>Editar</button>{% endif %}
       </div>
       <div class="ficha-section__body">
         <div data-section-view>
           <div class="ficha-fields">
             <div><div class="ficha-field__label">Nombre</div><div class="ficha-field__value">{{ event.name }}</div></div>
-            {% if event.notes %}<div><div class="ficha-field__label">Notas</div><div class="ficha-field__value">{{ event.notes }}</div></div>{% endif %}
+            {% if event.description %}<div><div class="ficha-field__label">Descripción</div><div class="ficha-field__value">{{ event.description }}</div></div>{% endif %}
+            {% if event.notes %}<div><div class="ficha-field__label">Notas internas</div><div class="ficha-field__value">{{ event.notes }}</div></div>{% endif %}
+            {% if event.created_at %}<div><div class="ficha-field__label">Creado</div><div class="ficha-field__value">{{ event.created_at.strftime('%d/%m/%Y') }}</div></div>{% endif %}
           </div>
         </div>
         {% if CAN_EDIT %}
-        <form id="eventDataForm" class="d-none" method="post" action="{{ url_for('event_update', eid=event.id) }}" enctype="multipart/form-data">
+        <form id="eventDataForm" class="d-none" method="post" action="{{ url_for('event_update', eid=event.id) }}" enctype="multipart/form-data" data-view="[data-section-view]">
           <div class="mb-2"><label class="form-label">Nombre</label><input class="form-control" name="name" value="{{ event.name }}" required></div>
+          <div class="mb-2"><label class="form-label">Descripción</label><textarea class="form-control" name="description" rows="2" placeholder="Qué es el evento">{{ event.description or '' }}</textarea></div>
           <div class="mb-2"><label class="form-label">Logo</label><input type="file" class="form-control" name="logo" accept="image/*"></div>
-          <div class="mb-2"><label class="form-label">Notas</label><textarea class="form-control" name="notes" rows="2">{{ event.notes or '' }}</textarea></div>
+          <div class="mb-2"><label class="form-label">Notas internas</label><textarea class="form-control" name="notes" rows="2">{{ event.notes or '' }}</textarea></div>
           <div class="d-flex gap-2 justify-content-end">
             <button type="button" class="btn btn-outline-secondary btn-sm" data-edit-cancel>Cancelar</button>
             <button type="submit" class="btn btn-primary btn-sm"><i class="fa fa-save me-1"></i>Guardar</button>
@@ -54,14 +82,98 @@
       </div>
     </div>
 
-    {% set expense_templates_can_edit = CAN_EDIT %}
-    {% include '_expense_templates_panel.html' %}
-  </div>
-
-  <div class="col-12 col-lg-6">
+  {% elif tab == 'actividades' %}
+    {% if contenedores %}
     <div class="ficha-section">
-      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-chart-line"></i>Simulaciones del evento</h6></div>
-      <div class="ficha-section__body">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-route"></i>Giras y ciclos de este evento</h6></div>
+      <div class="ficha-section__body p-0">
+        <div class="list-group list-group-flush">
+          {% for g in contenedores %}
+            <a href="{{ url_for('cycle_festival_detail', cfid=g.id) }}" class="list-group-item list-group-item-action d-flex align-items-center gap-3">
+              <img src="{{ g.logo_url or event.logo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:42px;height:42px;object-fit:cover;border-radius:12px;">
+              <div class="flex-grow-1" style="min-width:0;">
+                <div class="fw-semibold text-truncate">{{ g.name }}</div>
+                <div class="small text-muted text-truncate">
+                  <span class="badge text-bg-light border">{{ g.kind_label }}</span>
+                  <span class="badge text-bg-light border">{{ g.count }} fecha{{ '' if g.count == 1 else 's' }}</span>
+                  {% if g.date_range %} · {{ g.date_range }}{% endif %}{% if g.company %} · {{ g.company }}{% endif %}
+                </div>
+              </div>
+              <span class="badge {{ g.status_badge }}">{{ g.status_label }}</span>
+              <i class="fa fa-chevron-right text-muted"></i>
+            </a>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="ficha-section">
+      <div class="ficha-section__head">
+        <h6 class="ficha-section__title"><i class="fa fa-calendar-day"></i>Actividades del evento</h6>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('contracting_view', section='eventos', event=event.id) }}"><i class="fa fa-list me-1"></i>Ver en Contratación</a>
+      </div>
+      <div class="ficha-section__body p-0">
+        {% if act_rows %}
+          <div class="list-group list-group-flush">
+            {% for a in act_rows %}
+              <a href="{{ url_for('concert_detail_view', cid=a.id) }}" class="list-group-item list-group-item-action d-flex align-items-center gap-3 flex-wrap">
+                <span class="fw-semibold" style="min-width:96px;">{{ a.date_label }}</span>
+                <span class="flex-grow-1 text-truncate">{{ a.title or a.venue or 'Actividad' }}{% if a.title and a.venue %} <span class="text-muted">· {{ a.venue }}</span>{% endif %}</span>
+                <span class="badge text-bg-light border">{{ a.sale_type_label }}</span>
+                <span class="badge {{ a.status_badge }}">{{ a.status_label }}</span>
+                <i class="fa fa-chevron-right text-muted"></i>
+              </a>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="ficha-empty p-3"><i class="fa fa-circle-info"></i>Este evento aún no tiene actividades. Se crean con «+ Actividad» desde Contratación · Eventos.</div>
+        {% endif %}
+      </div>
+    </div>
+
+  {% elif tab == 'personas' %}
+    {% include '_entity_links_panel.html' %}
+
+  {% elif tab == 'fotos' %}
+    {% include '_fotos_panel.html' %}
+
+  {% elif tab == 'resultado' %}
+    <div class="row g-3 mb-3">
+      <div class="col-6 col-md-4"><div class="card h-100"><div class="card-body text-center"><div class="h4 mb-0 text-success">{{ resultado.ingresos|eur }}</div><div class="small text-muted">Ingresos</div></div></div></div>
+      <div class="col-6 col-md-4"><div class="card h-100"><div class="card-body text-center"><div class="h4 mb-0 text-danger">{{ resultado.gastos|eur }}</div><div class="small text-muted">Gastos</div></div></div></div>
+      <div class="col-12 col-md-4"><div class="card h-100"><div class="card-body text-center"><div class="h4 mb-0">{{ resultado.resultado|eur }}</div><div class="small text-muted">Resultado</div></div></div></div>
+    </div>
+    <div class="ficha-section">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-chart-line"></i>Por actividad</h6></div>
+      <div class="ficha-section__body p-0">
+        {% if act_rows %}
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <thead class="table-light"><tr><th>Fecha</th><th>Actividad</th><th class="text-end">Ingresos</th><th class="text-end">Gastos</th><th class="text-end">Resultado</th></tr></thead>
+              <tbody>
+                {% for a in act_rows %}
+                  <tr>
+                    <td>{{ a.date_label }}</td>
+                    <td><a class="text-reset" href="{{ url_for('concert_detail_view', cid=a.id, tab='resultado') }}">{{ a.title or a.venue or 'Actividad' }}</a></td>
+                    <td class="text-end">{{ (a.econ.ingresos if a.econ else 0)|eur }}</td>
+                    <td class="text-end">{{ (a.econ.gastos if a.econ else 0)|eur }}</td>
+                    <td class="text-end fw-semibold">{{ (a.econ.resultado if a.econ else 0)|eur }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="ficha-empty p-3"><i class="fa fa-circle-info"></i>Sin actividades todavía: no hay resultado que calcular.</div>
+        {% endif %}
+      </div>
+    </div>
+
+  {% elif tab == 'simulaciones' %}
+    <div class="ficha-section">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-calculator"></i>Simulaciones del evento</h6></div>
+      <div class="ficha-section__body p-0">
         {% if sims %}
           <div class="list-group list-group-flush">
             {% for sim in sims %}
@@ -81,10 +193,14 @@
             {% endfor %}
           </div>
         {% else %}
-          <div class="text-muted">Este evento aún no tiene simulaciones. Se crean desde <a href="{{ url_for('contracting_view', section='simulaciones') }}">Contratación · Simulaciones</a>.</div>
+          <div class="ficha-empty p-3"><i class="fa fa-circle-info"></i>Este evento aún no tiene simulaciones. Se crean desde <a href="{{ url_for('contracting_view', section='simulaciones') }}">Contratación · Simulaciones</a>.</div>
         {% endif %}
       </div>
     </div>
-  </div>
+
+  {% else %}
+    {% set expense_templates_can_edit = CAN_EDIT %}
+    {% include '_expense_templates_panel.html' %}
+  {% endif %}
 </div>
 {% endblock %}

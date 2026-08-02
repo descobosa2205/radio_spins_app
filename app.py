@@ -24497,9 +24497,60 @@ def event_detail_view(eid):
             .order_by(Simulation.created_at.desc())
             .all()
         )
+        # La ficha del evento funciona como la de un artista, pero con los datos del EVENTO: sus
+        # actividades, sus giras y ciclos, su gente, sus fotos y su resultado. El artista ESPEJO
+        # (`Artist.event_id`) es solo un apaño interno —`Concert.artist_id` es NOT NULL— y no se
+        # enseña en ninguna parte.
+        actividades = (
+            s.query(Concert).options(joinedload(Concert.venue))
+            .filter(Concert.event_id == ev.id)
+            .order_by(Concert.date.desc().nullslast()).all()
+        )
+        tab = (request.args.get("tab") or "datos").strip().lower()
+        act_rows, resultado = [], {"ingresos": 0.0, "gastos": 0.0, "resultado": 0.0}
+        for c in actividades:
+            fila = {
+                "id": str(c.id),
+                "date_label": c.date.strftime("%d/%m/%Y") if c.date else "Sin fecha",
+                "date": c.date,
+                "venue": (c.venue.name if c.venue else (c.manual_venue_name or c.manual_municipality or "")),
+                "title": (c.festival_name or "").strip(),
+                "status": (c.status or "BORRADOR").upper(),
+                "sale_type_label": _sale_type_label(c.sale_type),
+                "cycle_festival_id": (str(c.cycle_festival_id) if c.cycle_festival_id else ""),
+            }
+            fila["status_label"], fila["status_badge"] = CONCERT_STATUS_META.get(
+                fila["status"], ("Borrador", "text-bg-light border text-dark"))
+            # El resultado solo se calcula en su pestaña: el motor es caro (una simulación por fecha).
+            if tab == "resultado":
+                econ = _group_concert_econ(s, c)
+                fila["econ"] = econ
+                for k in ("ingresos", "gastos", "resultado"):
+                    resultado[k] += float(econ.get(k) or 0)
+            act_rows.append(fila)
+        contenedores = []
+        for cf in (s.query(CycleFestival).options(joinedload(CycleFestival.managing_company))
+                   .filter(CycleFestival.event_id == ev.id)
+                   .order_by(CycleFestival.start_date.desc().nullslast(), CycleFestival.created_at.desc()).all()):
+            label, badge = _group_status_meta(cf.status)
+            contenedores.append({
+                "id": str(cf.id), "name": cf.name, "logo_url": (cf.logo_url or ""),
+                "kind": (cf.kind or "").upper(),
+                "kind_label": CYCLE_FESTIVAL_KIND_LABELS.get((cf.kind or "FESTIVAL").upper(), "Ciclo"),
+                "company": (cf.managing_company.name if cf.managing_company else ""),
+                "date_range": _date_range_label(cf.start_date, cf.end_date),
+                "status_label": label, "status_badge": badge,
+                "count": sum(1 for x in actividades if str(x.cycle_festival_id or "") == str(cf.id)),
+            })
         return render_template(
-            "evento_detail.html", event=ev, sims=sims,
+            "evento_detail.html", event=ev, sims=sims, tab=tab,
+            act_rows=act_rows, contenedores=contenedores, resultado=resultado,
             expense_templates=_expense_templates_for(s, "EVENT", ev.id),
+            entity_links=_entity_link_rows(s, "event", ev.id),
+            entity_link_context={"type": "event", "id": str(ev.id), "label": ev.name},
+            fotos_ctx=(_build_fotos_context(s, "EVENT", ev.id) if tab == "fotos" else None),
+            entity_link_types=APP33_ENTITY_LINK_TYPES,
+            entity_links_can_edit=can_edit_catalogs(),
             CAN_EDIT=can_edit_catalogs(),
         )
     finally:
@@ -24516,6 +24567,7 @@ def event_update(eid):
             flash("Evento no encontrado.", "warning")
             return redirect(url_for("events_view"))
         ev.name = (request.form.get("name") or ev.name or "").strip() or ev.name
+        ev.description = (request.form.get("description") or "").strip() or None
         ev.notes = (request.form.get("notes") or "").strip() or None
         logo = request.files.get("logo")
         if logo and getattr(logo, "filename", ""):
@@ -34449,7 +34501,7 @@ def api_entity_link_search():
         # Excluir la propia ficha de los resultados (no autovincularse) cuando se busca en su misma
         # «familia» de modelo (p. ej. tercero/empresa/institución comparten la tabla de terceros).
         _fam = {"promoter": "P", "empresa": "P", "institucion": "P", "artist": "A", "media": "M",
-                "venue": "V", "ticketer": "T", "publishing": "PUB", "personal": "U"}
+                "venue": "V", "ticketer": "T", "publishing": "PUB", "personal": "U", "event": "EV"}
         _ex_id = _safe_uuid(request.args.get("exclude_id"))
         _ex_type = _entity_link_type(request.args.get("exclude_type"))
         _same_fam = bool(_ex_id) and _fam.get(entity_type) and _fam.get(entity_type) == _fam.get(_ex_type)
@@ -34479,6 +34531,16 @@ def api_entity_link_search():
                 query = query.filter(Artist.id != _ex_id)
             for item in query.order_by(Artist.name.asc()).limit(30).all():
                 payload = _entity_link_payload(session_db, "artist", item.id)
+                if payload:
+                    rows.append(payload)
+        elif entity_type == "event":
+            query = session_db.query(AppEvent)
+            if q:
+                query = query.filter(_sa_contains_text(AppEvent.name, q))
+            if _same_fam:
+                query = query.filter(AppEvent.id != _ex_id)
+            for item in query.order_by(AppEvent.name.asc()).limit(30).all():
+                payload = _entity_link_payload(session_db, "event", item.id)
                 if payload:
                     rows.append(payload)
         elif entity_type == "media":
@@ -59599,6 +59661,7 @@ APP33_ENTITY_LINK_TYPES = {
     "ticketer": {"label": "Ticketera", "icon": "fa-ticket"},
     "publishing": {"label": "Editorial", "icon": "fa-pen-nib"},
     "personal": {"label": "Alguien de la empresa", "icon": "fa-users"},
+    "event": {"label": "Evento", "icon": "fa-masks-theater"},
 }
 APP33_ENTITY_LINK_ALIASES = {
     "third_party": "promoter", "tercero": "promoter", "promotor": "promoter",
@@ -59651,6 +59714,13 @@ def _entity_link_payload(session_db, entity_type: str | None, entity_id) -> dict
             subtitle = (getattr(row, "genre", "") or "").strip()
             logo_url = getattr(row, "photo_url", "") or ""
             href = url_for("artist_detail_view", artist_id=row.id)
+    elif etype == "event":
+        row = session_db.get(AppEvent, eid)
+        if row:
+            label = row.name or "Evento"
+            subtitle = ""
+            logo_url = getattr(row, "logo_url", "") or ""
+            href = url_for("event_detail_view", eid=row.id)
     elif etype == "media":
         row = session_db.get(MediaOutlet, eid)
         if row:

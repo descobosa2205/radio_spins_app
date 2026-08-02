@@ -3741,6 +3741,9 @@ class AppEvent(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     name = Column(Text, nullable=False)
     logo_url = Column(Text)
+    # Qué es el evento: se enseña en su ficha, que funciona como la de un artista pero con los
+    # datos del EVENTO (nunca los del artista espejo, que es solo un detalle de implementación).
+    description = Column(Text)
     notes = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -5066,6 +5069,7 @@ def ensure_simulations_schema():
             updated_at timestamptz DEFAULT now()
         );
         """,
+        "ALTER TABLE IF EXISTS app_events ADD COLUMN IF NOT EXISTS description text;",
         "ALTER TABLE IF EXISTS simulations ADD COLUMN IF NOT EXISTS event_id uuid REFERENCES app_events(id) ON DELETE CASCADE;",
         "ALTER TABLE IF EXISTS simulations ADD COLUMN IF NOT EXISTS public_token text;",
         "ALTER TABLE IF EXISTS simulations ALTER COLUMN artist_id DROP NOT NULL;",

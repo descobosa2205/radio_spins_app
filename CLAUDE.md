@@ -697,6 +697,27 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `flash`+redirect para el formulario clásico. ⚠️ La zona lleva `data-file-drop="off"` (si no,
   `static/js/file_drop.js` intercepta el drop y descarta las carpetas) y la cabecera CSRF va **a
   mano** (`csrf.js` parchea `fetch`, no `XMLHttpRequest`).
+- **EVENTOS: sujeto vs. tipo de actividad** (aclaración ago 2026). La palabra «evento» significaba
+  dos cosas y se confundían:
+  · **Actividad de tipo evento** a la que va un ARTISTA (unos premios): es
+  `Concert.activity_type='EVENTO_PROMOCIONAL'` y vive en **«Otras actividades»**. No cambia nada.
+  · **EVENTO como SUJETO** (una sesión DJ, una fiesta, «la ruta del Aguilar»): es un `AppEvent` y
+  **funciona como un artista** — puede tener actividades sueltas, una **gira propia**, un ciclo o un
+  festival. Sale **solo** en la pestaña «Eventos» de Contratación (`_contracting_activity_tabs`
+  devuelve `["eventos"]` para todo lo que tenga `Concert.event_id`: es a propósito).
+  **Contenedores de un evento**: `CycleFestival` con `event_id`, `kind` ∈ **GIRA** (nuevo: su gira
+  propia, ≠ «gira comprada», que es `PurchasedTour` y se le compra a un promotor) · CICLO ·
+  FESTIVAL · EVENTO (el tipo antiguo, se conserva por los ya creados). `CYCLE_FESTIVAL_EVENT_KINDS`
+  y el propio `event_id` deciden si un contenedor es «de evento»: `_render_cycle_festivals`
+  reparte por ahí, no por el kind. `_apply_cycle_form` guarda `event_id` **para cualquier kind**.
+  **Ficha del evento** (`event_detail_view` + `templates/evento_detail.html`): como la del artista
+  pero con los datos del EVENTO — pestañas Datos (con `AppEvent.description`) · Actividades y giras
+  · Vinculaciones (nuevo tipo `event` en `APP33_ENTITY_LINK_TYPES` + `api_entity_link_search`) ·
+  Fotos (`PHOTO_OWNER_TYPES` ya admitía EVENT) · Resultado (agregado de sus fechas con
+  `_group_concert_econ`, **solo se calcula en su pestaña** porque el motor es caro) · Simulaciones ·
+  Plantillas de gastos. ⚠️ El **artista ESPEJO** (`Artist.event_id`, `_ensure_artist_for_event`)
+  existe solo porque `Concert.artist_id` es NOT NULL: es un detalle de implementación y **no debe
+  verse nunca** — ni su nombre, ni su foto, ni su ficha.
 - ⚠️ **Contenedor de EVENTO que se degradaba a CICLO** (bug real, corregido): el modal de editar de
   `activity_group_detail.html` solo ofrecía FESTIVAL/CICLO y marcaba CICLO por defecto, así que
   guardar un contenedor de evento lo convertía en ciclo y —como `event_id` solo se conserva en la

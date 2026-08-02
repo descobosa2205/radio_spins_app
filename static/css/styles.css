@@ -1744,6 +1744,28 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 /* Los botones de la fila van POR ENCIMA del enlace que cubre toda la fila (`stretched-link`) */
 .ctask__actions { position: relative; z-index: 2; }
 
+/* Mis gastos · destinos que NO son una bolsa: gasto de oficina | inversión de artista */
+.direct-split { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.direct-split__half {
+  position: relative; border: 2px dashed var(--line-2); border-radius: 14px; padding: .85rem .75rem;
+  text-align: center; background: #fbfcfe; transition: all .12s;
+}
+.direct-split__half--over { border-color: var(--brand-primary); background: rgba(227,61,72,.06); }
+.direct-split__icon { font-size: 1.35rem; color: var(--brand-accent); }
+.direct-split__title { font-weight: 700; font-size: .95rem; margin-top: .35rem; }
+.direct-split__sub { font-size: .78rem; color: var(--muted-2); line-height: 1.25; margin-top: .15rem; }
+.direct-split__half [data-direct-added] { position: absolute; top: .4rem; right: .4rem; }
+@media (max-width: 575.98px) { .direct-split { grid-template-columns: 1fr; } }
+
+/* Selector de artista de una inversión */
+.dir-artists { display: flex; flex-direction: column; gap: .25rem; max-height: 320px; overflow-y: auto; }
+.dir-artist {
+  display: flex; align-items: center; gap: .6rem; width: 100%; text-align: left;
+  border: 1px solid var(--line-2); border-radius: 10px; padding: .4rem .6rem; background: #fff;
+}
+.dir-artist:hover { border-color: var(--brand-primary); background: rgba(227,61,72,.04); }
+.dir-artist img { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+
 /* Administración: punto que marca las pestañas de las que ESTA persona es responsable */
 .admin-mine-dot {
   display: inline-block; width: 7px; height: 7px; border-radius: 50%;

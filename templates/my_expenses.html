@@ -41,16 +41,40 @@
           {% endif %}
         {% elif e.status == 'IN_BAG' %}
           <span class="badge text-bg-info"><i class="fa fa-sack-dollar me-1"></i>En la bolsa, sin tipificar</span>
+        {% elif e.status == 'VALIDATING' %}
+          <span class="badge text-bg-warning text-dark" title="Administración tiene que darle el visto bueno">
+            <i class="fa {{ e.direct_target_icon }} me-1"></i>{{ e.direct_target_label }} · a la espera</span>
+        {% elif e.status == 'DIRECT' %}
+          <span class="badge text-bg-success"><i class="fa {{ e.direct_target_icon }} me-1"></i>{{ e.direct_target_label }}</span>
+          {% if not e.prepaid and e.payment_status != 'PAGADO' %}<div class="small text-muted mt-1"><i class="fa fa-hourglass-half me-1"></i>Pendiente de pago</div>{% endif %}
         {% else %}
           <span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Asignado</span>
         {% endif %}
       </div>
-      {# Semáforo de factura: verde si el gasto trae su justificante, rojo si no. #}
+      {# Semáforo del justificante: verde con factura/ticket o con el «sin factura» ya aceptado. #}
       {% if e.file_url %}
         <a class="btn btn-sm btn-outline-success" href="{{ e.file_url }}" target="_blank" rel="noopener"
-           title="Ver la factura adjunta"><i class="fa fa-file-invoice"></i></a>
+           title="{{ e.justification.label }}"><i class="fa {{ e.justification.icon }}"></i></a>
       {% else %}
-        <span class="btn btn-sm btn-outline-danger disabled" title="Este gasto no trae factura"><i class="fa fa-file-circle-xmark"></i></span>
+        <span class="btn btn-sm {{ 'btn-outline-success' if e.justification.ok else 'btn-outline-danger' }} disabled"
+              title="{{ e.justification.label }}"><i class="fa {{ e.justification.icon }}"></i></span>
+      {% endif %}
+      {# Tres puntitos: subir la factura o el ticket, o pedir que se acepte sin factura. #}
+      {% if e.status in ('PENDING', 'IN_BAG') %}
+      <div class="dropdown flex-shrink-0">
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-label="Más"><i class="fa fa-ellipsis"></i></button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><button type="button" class="dropdown-item" data-exp-upload="{{ e.id }}" data-concept="{{ e.concept }}">
+            <i class="fa fa-file-arrow-up fa-fw me-1"></i>{{ 'Cambiar la factura / ticket' if e.file_url else 'Subir factura / ticket' }}</button></li>
+          {% if not e.file_url and e.no_invoice_status != 'APROBADO' %}
+          <li><button type="button" class="dropdown-item" data-exp-noinv="{{ e.id }}" data-concept="{{ e.concept }}">
+            <i class="fa fa-file-circle-question fa-fw me-1"></i>{{ 'Volver a pedirlo sin factura' if e.no_invoice_status else 'Marcar que no tiene factura' }}</button></li>
+          {% endif %}
+          {% if e.file_url %}
+          <li><a class="dropdown-item" href="{{ e.file_url }}" target="_blank" rel="noopener"><i class="fa fa-eye fa-fw me-1"></i>Ver el justificante</a></li>
+          {% endif %}
+        </ul>
+      </div>
       {% endif %}
     </div>
     {{ pleo_hints(e) }}
@@ -64,6 +88,17 @@
     {% endif %}
     {% if e.sync_warning %}
       <div class="alert alert-warning py-1 px-2 small mb-0 mt-2"><i class="fa fa-triangle-exclamation me-1"></i>{{ e.sync_warning }}</div>
+    {% endif %}
+    {# Administración no lo aceptó como gasto de oficina / inversión: vuelve a estar por asignar. #}
+    {% if e.status == 'PENDING' and e.validation_status == 'RECHAZADO' and e.validation_note %}
+      <div class="alert alert-danger py-1 px-2 small mb-0 mt-2">
+        <i class="fa fa-circle-xmark me-1"></i>Administración no lo aceptó: {{ e.validation_note }} — vuelve a estar pendiente de asignar.
+      </div>
+    {% endif %}
+    {% if e.no_invoice_status == 'SOLICITADO' %}
+      <div class="small text-muted mt-1"><i class="fa fa-hourglass-half me-1"></i>Has pedido que se acepte sin factura: «{{ e.no_invoice_reason }}». Administración tiene que decir que sí.</div>
+    {% elif e.no_invoice_status == 'RECHAZADO' %}
+      <div class="alert alert-warning py-1 px-2 small mb-0 mt-2"><i class="fa fa-file-circle-xmark me-1"></i>No se aceptó sin factura: hace falta subirla.</div>
     {% endif %}
   </div>
 {% endmacro %}
@@ -113,6 +148,36 @@
   </div>
 {% endif %}
 
+{# Mandados a validar como gasto de oficina o inversión de artista: siguen aquí, a la espera. #}
+{% if validating %}
+  <div class="card mb-4 border-warning">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <h5 class="mb-0"><i class="fa fa-hourglass-half me-2 text-warning"></i>A la espera de que administración los valide</h5>
+        <span class="badge text-bg-warning text-dark">{{ validating|length }}</span>
+      </div>
+      <div class="small text-muted mb-2">No van contra ninguna bolsa. Si no se aceptan, vuelven a estar pendientes de asignar y te lo decimos aquí.</div>
+      <div class="d-grid gap-2">
+        {% for e in validating %}{{ expense_row(e) }}{% endfor %}
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+{% if direct %}
+  <div class="card mb-4">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <h5 class="mb-0"><i class="fa fa-building-columns me-2 text-success"></i>Gastos de oficina e inversión</h5>
+        <span class="badge text-bg-success">{{ direct|length }}</span>
+      </div>
+      <div class="d-grid gap-2">
+        {% for e in direct %}{{ expense_row(e) }}{% endfor %}
+      </div>
+    </div>
+  </div>
+{% endif %}
+
 {% if assigned %}
   <div class="card">
     <div class="card-body">
@@ -126,4 +191,110 @@
     </div>
   </div>
 {% endif %}
+
+{# ===== Subir la factura o el ticket de un gasto ===== #}
+<div class="modal fade" id="expUploadModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title"><i class="fa fa-file-arrow-up me-2 text-danger"></i>Subir factura o ticket</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <div class="small text-muted mb-2" id="expUploadConcept"></div>
+      <div class="mb-2">
+        <label class="form-label">¿Qué es?</label>
+        <div class="btn-group w-100">
+          <input type="radio" class="btn-check" name="expDocType" id="expDocFactura" value="FACTURA" checked>
+          <label class="btn btn-outline-secondary btn-sm" for="expDocFactura">Factura</label>
+          <input type="radio" class="btn-check" name="expDocType" id="expDocTicket" value="TICKET">
+          <label class="btn btn-outline-secondary btn-sm" for="expDocTicket">Ticket</label>
+        </div>
+      </div>
+      <input type="file" class="form-control" id="expUploadFile" accept="image/*,application/pdf">
+      <div class="small mt-2" id="expUploadMsg"></div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+      <button type="button" class="btn btn-primary btn-sm" id="expUploadBtn"><i class="fa fa-cloud-arrow-up me-1"></i>Subir</button>
+    </div>
+  </div></div>
+</div>
+
+{# ===== Pedir que se acepte sin factura ===== #}
+<div class="modal fade" id="expNoInvModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title"><i class="fa fa-file-circle-question me-2 text-warning"></i>Este gasto no tiene factura</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <div class="small text-muted mb-2" id="expNoInvConcept"></div>
+      <label class="form-label">¿Por qué no la hay?</label>
+      <textarea class="form-control" id="expNoInvReason" rows="3" placeholder="Ej.: se perdió el ticket del taxi"></textarea>
+      <div class="form-text">Lo tiene que aceptar administración. Hasta entonces no se puede mandar como gasto de oficina ni como inversión.</div>
+      <div class="small mt-2" id="expNoInvMsg"></div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+      <button type="button" class="btn btn-primary btn-sm" id="expNoInvBtn"><i class="fa fa-paper-plane me-1"></i>Enviar</button>
+    </div>
+  </div></div>
+</div>
+
+<script>
+(function(){
+  var URL_SUBIR = {{ url_for('my_expense_upload_invoice', expense_id='__ID__')|tojson }};
+  var URL_SIN = {{ url_for('my_expense_no_invoice', expense_id='__ID__')|tojson }};
+  function csrf(){ var m = document.querySelector('meta[name="csrf-token"]'); return m ? m.getAttribute('content') : ''; }
+  var actual = null;
+
+  document.addEventListener('click', function(ev){
+    var sub = ev.target.closest('[data-exp-upload]');
+    if (sub){
+      actual = sub.getAttribute('data-exp-upload');
+      document.getElementById('expUploadConcept').textContent = sub.getAttribute('data-concept') || '';
+      document.getElementById('expUploadMsg').textContent = '';
+      document.getElementById('expUploadFile').value = '';
+      new bootstrap.Modal(document.getElementById('expUploadModal')).show();
+      return;
+    }
+    var sin = ev.target.closest('[data-exp-noinv]');
+    if (sin){
+      actual = sin.getAttribute('data-exp-noinv');
+      document.getElementById('expNoInvConcept').textContent = sin.getAttribute('data-concept') || '';
+      document.getElementById('expNoInvMsg').textContent = '';
+      document.getElementById('expNoInvReason').value = '';
+      new bootstrap.Modal(document.getElementById('expNoInvModal')).show();
+    }
+  });
+
+  document.getElementById('expUploadBtn').addEventListener('click', function(){
+    var f = document.getElementById('expUploadFile').files[0];
+    var msg = document.getElementById('expUploadMsg');
+    if (!f){ msg.className = 'small mt-2 text-danger'; msg.textContent = 'Elige un archivo.'; return; }
+    var fd = new FormData();
+    fd.append('file', f, f.name);
+    fd.append('document_type', document.querySelector('input[name="expDocType"]:checked').value);
+    var btn = this; btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Subiendo…';
+    // ⚠️ La cabecera CSRF a mano: csrf.js parchea fetch, pero aquí se manda FormData con fetch y
+    // conviene no depender de ello.
+    fetch(URL_SUBIR.replace('__ID__', actual), {method: 'POST', headers: {'X-CSRFToken': csrf()}, body: fd})
+      .then(function(r){ return r.json().catch(function(){ return {}; }); })
+      .then(function(d){
+        if (d && d.ok){ window.location.reload(); return; }
+        btn.disabled = false; btn.innerHTML = '<i class="fa fa-cloud-arrow-up me-1"></i>Subir';
+        msg.className = 'small mt-2 text-danger'; msg.textContent = (d && d.error) || 'No se pudo subir.';
+      });
+  });
+
+  document.getElementById('expNoInvBtn').addEventListener('click', function(){
+    var motivo = (document.getElementById('expNoInvReason').value || '').trim();
+    var msg = document.getElementById('expNoInvMsg');
+    if (!motivo){ msg.className = 'small mt-2 text-danger'; msg.textContent = 'Di por qué no hay factura.'; return; }
+    var fd = new FormData(); fd.append('reason', motivo);
+    var btn = this; btn.disabled = true;
+    fetch(URL_SIN.replace('__ID__', actual), {method: 'POST', headers: {'X-CSRFToken': csrf()}, body: fd})
+      .then(function(r){ return r.json().catch(function(){ return {}; }); })
+      .then(function(d){
+        if (d && d.ok){ window.location.reload(); return; }
+        btn.disabled = false;
+        msg.className = 'small mt-2 text-danger'; msg.textContent = (d && d.error) || 'No se pudo enviar.';
+      });
+  });
+})();
+</script>
 {% endblock %}

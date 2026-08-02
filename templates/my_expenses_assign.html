@@ -34,6 +34,7 @@
       <div class="card-body assign-scroll" id="pendingCol">
         {% for e in pending %}
           <div class="assign-exp border rounded p-2 mb-2" draggable="true" data-expense-id="{{ e.id }}"
+               data-can-direct="{{ '1' if e.can_go_direct else '' }}" data-concept="{{ e.concept }}"
                {% if e.file_url %}data-invoice-url="{{ e.file_url }}" title="Pincha para ver la factura"{% endif %}>
             <div class="d-flex align-items-center gap-2">
               <i class="fa fa-grip-vertical text-muted"></i>
@@ -42,12 +43,14 @@
                 <div class="fw-semibold small assign-exp__concept">{{ e.concept }}</div>
                 <div class="small text-muted assign-exp__meta">{{ e.source_label }}{% if e.provider_name %} · {{ e.provider_name }}{% endif %}{% if e.date_label %} · {{ e.date_label }}{% endif %}</div>
               </div>
-              {# Semáforo de factura: verde si la trae, rojo si el gasto importado viene sin ella. #}
+              {# Semáforo del justificante: verde con factura/ticket o con el «sin factura» ya
+                 aceptado (que es lo que permite mandarlo a oficina o a inversión de artista). #}
               {% if e.file_url %}
                 <a class="assign-exp__inv assign-exp__inv--ok flex-shrink-0" href="{{ e.file_url }}"
-                   target="_blank" rel="noopener" title="Ver la factura adjunta"><i class="fa fa-file-invoice"></i></a>
+                   target="_blank" rel="noopener" title="{{ e.justification.label }}"><i class="fa {{ e.justification.icon }}"></i></a>
               {% else %}
-                <span class="assign-exp__inv assign-exp__inv--ko flex-shrink-0" title="Este gasto no trae factura"><i class="fa fa-file-circle-xmark"></i></span>
+                <span class="assign-exp__inv {{ 'assign-exp__inv--ok' if e.justification.ok else 'assign-exp__inv--ko' }} flex-shrink-0"
+                      title="{{ e.justification.label }}"><i class="fa {{ e.justification.icon }}"></i></span>
               {% endif %}
               <div class="text-end flex-shrink-0">
                 <div class="fw-semibold small">{{ e.amount_gross|eur }}</div>
@@ -64,6 +67,9 @@
               </div>
             {% endif %}
             {% if e.needs_receipt %}<div class="small text-warning-emphasis ps-4"><i class="fa fa-camera me-1"></i>Sin justificante en Pleo</div>{% endif %}
+            {% if e.validation_status == 'RECHAZADO' and e.validation_note %}
+              <div class="small text-danger ps-4"><i class="fa fa-circle-xmark me-1"></i>No se aceptó: {{ e.validation_note }}</div>
+            {% endif %}
           </div>
         {% endfor %}
         <div class="text-muted small text-center py-4 {% if pending %}d-none{% endif %}" data-pending-empty>
@@ -76,8 +82,26 @@
   {# ---------------- DERECHA: bolsas abiertas ---------------- #}
   <div class="col-12 col-lg-7">
     <div class="card h-100">
-      <div class="card-header bg-white"><strong><i class="fa fa-sack-dollar me-1 text-danger"></i>Bolsas abiertas</strong></div>
+      <div class="card-header bg-white"><strong><i class="fa fa-sack-dollar me-1 text-danger"></i>¿A dónde va?</strong></div>
       <div class="card-body assign-scroll">
+        {# ---- Lo primero: los gastos que NO van a ninguna bolsa ----
+           Se arrastran aquí y los valida administración. Hace falta factura/ticket (o el «sin
+           factura» aceptado): si no, se avisa en vez de dejar mandarlo. #}
+        <div class="direct-split mb-3">
+          <div class="direct-split__half" data-direct-target="OFICINA">
+            <i class="fa fa-building-columns direct-split__icon"></i>
+            <div class="direct-split__title">Gasto de oficina</div>
+            <div class="direct-split__sub">No va contra ninguna bolsa. Lo valida administración.</div>
+            <span class="badge text-bg-success d-none" data-direct-added>Enviado</span>
+          </div>
+          <div class="direct-split__half" data-direct-target="ARTIST_INVESTMENT">
+            <i class="fa fa-arrow-trend-up direct-split__icon"></i>
+            <div class="direct-split__title">Inversión de artista</div>
+            <div class="direct-split__sub">Va al balance de inversión del artista que elijas.</div>
+            <span class="badge text-bg-success d-none" data-direct-added>Enviado</span>
+          </div>
+        </div>
+
         {% for g in bag_groups %}
           <div class="mb-3">
             <div class="d-flex align-items-center gap-2 mb-2">
@@ -109,9 +133,47 @@
   </div>
 </div>
 
+{# ===== Elegir el artista de una inversión ===== #}
+<div class="modal fade" id="directArtistModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title"><i class="fa fa-arrow-trend-up me-2 text-danger"></i>¿De qué artista es la inversión?</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="small text-muted mb-2" id="directArtistConcept"></div>
+        <input class="form-control form-control-sm mb-2" id="directArtistSearch" placeholder="Buscar artista…">
+        <div class="dir-artists" id="directArtistList">
+          {% for a in artistas %}
+            <button type="button" class="dir-artist{% if not a.mine %} dir-artist--more d-none{% endif %}"
+                    data-artist-id="{{ a.id }}" data-artist-name="{{ a.name }}" data-search="{{ a.name|lower }}">
+              <img src="{{ a.photo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">
+              <span class="text-truncate">{{ a.name }}</span>
+            </button>
+          {% endfor %}
+        </div>
+        <button type="button" class="btn btn-link btn-sm px-0 mt-2" id="directArtistMore"><i class="fa fa-chevron-down me-1"></i>Ver más artistas</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ===== Falta el justificante ===== #}
+<div class="modal fade" id="directNeedsInvoiceModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title"><i class="fa fa-file-circle-exclamation me-2 text-warning"></i>Falta el justificante</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <p class="mb-2" id="directNeedsInvoiceMsg"></p>
+        <div class="small text-muted">Súbelo (o pide que se acepte sin factura) desde los tres puntitos del gasto, en <a href="{{ url_for('my_expenses_view') }}">Mis gastos</a>.</div>
+      </div>
+      <div class="modal-footer"><a class="btn btn-primary btn-sm" href="{{ url_for('my_expenses_view') }}">Ir a mis gastos</a></div>
+    </div>
+  </div>
+</div>
+
 <script>
 (function(){
   var URL_TPL = {{ url_for('my_expense_assign_bag', expense_id='__ID__')|tojson }};
+  var URL_DIRECTO = {{ url_for('my_expense_send_direct', expense_id='__ID__')|tojson }};
   var dragId = null;
 
   /* Pinchar la tarjeta abre la factura, si la lleva. Se distingue del ARRASTRE mirando cuánto se
@@ -137,6 +199,92 @@
     if (badge) badge.textContent = left;
     var empty = document.querySelector('[data-pending-empty]');
     if (empty) empty.classList.toggle('d-none', left > 0);
+  }
+
+  /* ---------- Destinos que NO son una bolsa: oficina e inversión de artista ---------- */
+  function csrfHeaders(){
+    var m = document.querySelector('meta[name="csrf-token"]');
+    return m ? {'X-CSRFToken': m.getAttribute('content')} : {};
+  }
+  function quitarTarjeta(expId){
+    var card = document.querySelector('.assign-exp[data-expense-id="' + expId + '"]');
+    if (card) card.remove();
+    refreshCount();
+  }
+  function avisarSinFactura(msg){
+    document.getElementById('directNeedsInvoiceMsg').textContent = msg ||
+      'Este gasto necesita su factura o su ticket antes de poder mandarlo.';
+    new bootstrap.Modal(document.getElementById('directNeedsInvoiceModal')).show();
+  }
+  function mandarDirecto(expId, target, artistId, zona){
+    var fd = new FormData();
+    fd.append('target', target);
+    if (artistId) fd.append('artist_id', artistId);
+    return fetch(URL_DIRECTO.replace('__ID__', expId), {method: 'POST', headers: csrfHeaders(), body: fd})
+      .then(function(r){ return r.json().catch(function(){ return {}; }); })
+      .then(function(d){
+        if (d && d.ok){
+          quitarTarjeta(expId);
+          if (zona){
+            var mark = zona.querySelector('[data-direct-added]');
+            if (mark){ mark.classList.remove('d-none'); setTimeout(function(){ mark.classList.add('d-none'); }, 1800); }
+          }
+          return true;
+        }
+        if (d && d.needs_invoice) avisarSinFactura(d.error);
+        else if (d && d.error) alert(d.error);
+        return false;
+      });
+  }
+
+  var modalArtista = document.getElementById('directArtistModal');
+  var pendienteDeArtista = null;   // {expId, zona}
+  document.querySelectorAll('.direct-split__half').forEach(function(zona){
+    var target = zona.getAttribute('data-direct-target');
+    zona.addEventListener('dragover', function(e){ if (dragId){ e.preventDefault(); zona.classList.add('direct-split__half--over'); } });
+    zona.addEventListener('dragleave', function(){ zona.classList.remove('direct-split__half--over'); });
+    zona.addEventListener('drop', function(e){
+      e.preventDefault();
+      zona.classList.remove('direct-split__half--over');
+      if (!dragId) return;
+      var expId = dragId; dragId = null;
+      var card = document.querySelector('.assign-exp[data-expense-id="' + expId + '"]');
+      // Se avisa ANTES de llamar (el backend lo vuelve a comprobar: esto es solo para no marear).
+      if (card && !card.getAttribute('data-can-direct')){
+        avisarSinFactura('«' + (card.getAttribute('data-concept') || 'Este gasto') + '» no tiene factura ni ticket, y como no va a ninguna bolsa hace falta.');
+        return;
+      }
+      if (target === 'ARTIST_INVESTMENT'){
+        pendienteDeArtista = {expId: expId, zona: zona};
+        document.getElementById('directArtistConcept').textContent = (card && card.getAttribute('data-concept')) || '';
+        new bootstrap.Modal(modalArtista).show();
+        return;
+      }
+      mandarDirecto(expId, target, null, zona);
+    });
+  });
+
+  if (modalArtista){
+    var buscador = document.getElementById('directArtistSearch');
+    var verMas = document.getElementById('directArtistMore');
+    verMas.addEventListener('click', function(){
+      document.querySelectorAll('.dir-artist--more').forEach(function(b){ b.classList.remove('d-none'); });
+      verMas.classList.add('d-none');
+    });
+    buscador.addEventListener('input', function(){
+      var q = (buscador.value || '').toLowerCase().trim();
+      if (q) verMas.click();
+      document.querySelectorAll('.dir-artist').forEach(function(b){
+        b.classList.toggle('d-none', !!q && (b.getAttribute('data-search') || '').indexOf(q) === -1);
+      });
+    });
+    document.getElementById('directArtistList').addEventListener('click', function(e){
+      var b = e.target.closest('.dir-artist');
+      if (!b || !pendienteDeArtista) return;
+      var datos = pendienteDeArtista; pendienteDeArtista = null;
+      bootstrap.Modal.getInstance(modalArtista).hide();
+      mandarDirecto(datos.expId, 'ARTIST_INVESTMENT', b.getAttribute('data-artist-id'), datos.zona);
+    });
   }
 
   document.querySelectorAll('.assign-bag').forEach(function(bag){

@@ -1737,6 +1737,9 @@ def artist_detail_view(artist_id):
             artist=artist,
             tab=tab,
             wizard_available=bool(_wizctx),
+            # Balance de inversión: solo se calcula en su pestaña (una consulta de más si no).
+            artist_investment=(_artist_investment_rows(session_db, artist.id)
+                               if tab == "contratos" and "_artist_investment_rows" in globals() else None),
             expense_templates=_expense_templates_for(session_db, "ARTIST", artist.id),
             repertoire_templates=_repertoire_templates_for(session_db, "ARTIST", artist.id),
             templates_owner_type="ARTIST",
@@ -42526,6 +42529,7 @@ ADMIN_TAB_RESPONSIBILITY = {
 }
 ADMIN_PENDING_TAB_RESPONSIBILITY = {
     "solicitudes": "GASTOS_SIN_TICKET",
+    "oficina": "GASTOS_OFICINA",
     "pago": "PAGOS",
     "facturacion": "FACTURAS_SOLICITADAS",
     "liquidacion": "LIQUIDACIONES",
@@ -42639,6 +42643,7 @@ ADMINISTRATION_TABS = [
 ]
 ADMINISTRATION_PENDING_TABS = [
     ("solicitudes", "Solicitudes"),
+    ("oficina", "De oficina"),
     ("pago", "De pago"),
     ("facturacion", "De facturación"),
     ("liquidacion", "De liquidación"),
@@ -43231,6 +43236,10 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
     if endpoint.startswith("royalty_liquidations") or endpoint.startswith("afavor_"):
         return "discografica.royalties"
     if endpoint.startswith("administration_afavor"):
+        return "administracion.pendiente"
+    # Validar gastos de oficina / inversión de artista y su pago: es tarea de la pestaña Pendiente.
+    if (endpoint.startswith("administration_direct_expense")
+            or endpoint.startswith("administration_personal_no_invoice")):
         return "administracion.pendiente"
     if endpoint == "discografica_songs_bulk_update":
         return "discografica.canciones"
@@ -43849,6 +43858,10 @@ def _resolve_request_resource_key() -> str | None:
     if endpoint.startswith("royalty_liquidations") or endpoint.startswith("afavor_"):
         return "discografica.royalties"
     if endpoint.startswith("administration_afavor"):
+        return "administracion.pendiente"
+    # Validar gastos de oficina / inversión de artista y su pago: es tarea de la pestaña Pendiente.
+    if (endpoint.startswith("administration_direct_expense")
+            or endpoint.startswith("administration_personal_no_invoice")):
         return "administracion.pendiente"
     if endpoint == "discografica_songs_bulk_update":
         return "discografica.canciones"
@@ -45133,7 +45146,10 @@ def _user_is_actor(state: dict | None = None) -> bool:
 # Endpoints PERSONALES: trabajan solo con datos del propio usuario (sus gastos y facturas), así
 # que basta con tener sesión — no se exige permiso de edición en ninguna sección. La comprobación
 # de que el dato es SUYO se hace dentro de cada endpoint.
-PERSONAL_ENDPOINTS = {"my_expenses_view", "my_expenses_assign", "my_expense_assign_bag"}
+# Endpoints de datos PROPIOS: los deja pasar cualquier sesión y la comprobación de que el gasto es
+# tuyo se hace dentro (`_my_expense_or_403`).
+PERSONAL_ENDPOINTS = {"my_expenses_view", "my_expenses_assign", "my_expense_assign_bag",
+                      "my_expense_upload_invoice", "my_expense_no_invoice", "my_expense_send_direct"}
 
 
 def _support_endpoint_decision(endpoint: str):
@@ -48069,8 +48085,22 @@ def _admin_pending_counts(session_db) -> dict:
         or_(_sa_contains_text(InvoiceRecord.notes, "embargo"),
             _sa_contains_text(InvoiceRecord.status, "embargo"))))
 
+    # Gastos directos por validar (oficina / inversión de artista) + peticiones de «sin factura»
+    # de gastos personales + los ya validados que quedan por pagar.
+    oficina = _n(session_db.query(func.count(PersonalExpense.id)).filter(
+        PersonalExpense.status == "VALIDATING",
+        func.upper(func.coalesce(PersonalExpense.validation_status, "")) == "PENDIENTE"))
+    oficina += _n(session_db.query(func.count(PersonalExpense.id)).filter(
+        func.upper(func.coalesce(PersonalExpense.no_invoice_status, "")) == "SOLICITADO"))
+    oficina += _n(session_db.query(func.count(PersonalExpense.id)).filter(
+        PersonalExpense.status == "DIRECT",
+        func.upper(func.coalesce(PersonalExpense.validation_status, "")) == "APROBADO",
+        func.upper(func.coalesce(PersonalExpense.payment_status, "NO_PAGADO")) != "PAGADO",
+        ~func.upper(func.coalesce(PersonalExpense.source, "")).in_(["PLEO", "CABIFY"])))
+
     pending_counts = {
         "solicitudes": solicitudes + sin_factura,
+        "oficina": oficina,
         "pago": pago,
         "facturacion": facturacion + afavor,
         "liquidacion": liquidacion + facturas_royalties,
@@ -48110,6 +48140,7 @@ def administracion_view():
         quiere_solicitudes = pendiente and pending_subtab == "solicitudes"
         quiere_pago = pendiente and pending_subtab == "pago"
         quiere_facturacion = pendiente and pending_subtab == "facturacion"
+        quiere_oficina = pendiente and pending_subtab == "oficina"
         quiere_bolsas = tab == "liquidaciones" or (pendiente and pending_subtab in ("liquidacion", "cierre"))
 
         pending_no_invoice = []
@@ -48161,6 +48192,12 @@ def administracion_view():
             embargo_promoters = session_db.query(Promoter).options(selectinload(Promoter.companies)).order_by(Promoter.nick.asc()).limit(1000).all()
             embargo_email_map = {str(order.id): _embargo_order_email_suggestions(session_db, order) for order in embargo_orders}
 
+        direct_pending, direct_no_invoice, direct_payable = [], [], []
+        if quiere_oficina:
+            direct_pending = _personal_direct_expenses_pending(session_db)
+            direct_no_invoice = _personal_no_invoice_pending(session_db)
+            direct_payable = _personal_direct_expenses_payable(session_db)
+
         admin_expense_embargo_alerts = {}
         if "_expense_active_embargo_alerts" in globals():
             for expense in list(payment_requests or []) + list(payable_expenses or []) + list(pending_no_invoice or []):
@@ -48201,6 +48238,9 @@ def administracion_view():
             ADMIN_BAG_CIERRE_STATUSES=ADMIN_BAG_CIERRE_STATUSES,
             admin_my_tabs=admin_my_tabs,
             admin_my_pending_tabs=admin_my_pending_tabs,
+            direct_pending=direct_pending,
+            direct_no_invoice=direct_no_invoice,
+            direct_payable=direct_payable,
             royalty_invoice_rows=royalty_invoice_rows,
             afavor_invoice_rows=afavor_invoice_rows,
             embargo_subtab=embargo_subtab,
@@ -53780,9 +53820,14 @@ def my_expenses_view():
         pending = _personal_expenses_for(session_db, uid, status=("PENDING",))
         in_bag = _personal_expenses_for(session_db, uid, status=("IN_BAG",))
         assigned = _personal_expenses_for(session_db, uid, status=("ASSIGNED",))
+        # Los mandados a validar como gasto de oficina / inversión de artista siguen viéndose aquí,
+        # con su etiqueta de «a la espera», hasta que administración diga algo.
+        validating = _personal_expenses_for(session_db, uid, status=("VALIDATING",))
+        direct = _personal_expenses_for(session_db, uid, status=("DIRECT",))
         return render_template(
             "my_expenses.html",
             pending=pending, in_bag=in_bag, assigned=assigned,
+            validating=validating, direct=direct,
             assign_days=EXPENSE_ASSIGN_DAYS,
             expense_pause=_expense_pause_context(session_db, uid),
         )
@@ -53798,11 +53843,22 @@ def my_expenses_assign():
     try:
         uid = session.get("user_id")
         q = (request.args.get("q") or "").strip()
+        # Artistas ACTIVOS para el desplegable de «inversión de artista»: primero los asignados a
+        # esta persona (que son con los que trabaja) y, con «ver más», todos los demás.
+        prof = session_db.query(UserProfile).filter(UserProfile.user_id == to_uuid(str(uid))).first() if uid else None
+        mios = {str(x) for x in ((getattr(prof, "assigned_artist_ids", None) or []) if prof else [])}
+        artistas_todos = (session_db.query(Artist).filter(Artist.event_id.is_(None))
+                          .order_by(Artist.name.asc()).all())
+        artistas = [{"id": str(a.id), "name": a.name or "Artista",
+                     "photo_url": (a.photo_url or ""), "mine": str(a.id) in mios}
+                    for a in artistas_todos]
         return render_template(
             "my_expenses_assign.html",
             pending=_personal_expenses_for(session_db, uid, status=("PENDING",)),
             bag_groups=_open_bags_for_user(session_db, uid, artist_query=q),
             expense_pause=_expense_pause_context(session_db, uid),
+            artistas=artistas,
+            direct_targets=PERSONAL_DIRECT_TARGETS,
             q=q,
         )
     finally:
@@ -53838,6 +53894,206 @@ def my_expense_assign_bag(expense_id):
         return jsonify({"ok": False, "error": str(exc)}), 400
     finally:
         session_db.close()
+
+
+def _my_expense_or_403(session_db, expense_id):
+    """El gasto, si es MÍO (dirección puede ayudar con los de cualquiera). Devuelve (row, error)."""
+    row = session_db.get(PersonalExpense, to_uuid(str(expense_id)) or uuid.uuid4())
+    if not row:
+        return None, (jsonify({"ok": False, "error": "Gasto no encontrado"}), 404)
+    if str(row.user_id) != str(session.get("user_id")) and not is_master():
+        return None, (jsonify({"ok": False, "error": "Ese gasto no es tuyo"}), 403)
+    return row, None
+
+
+@app.post('/mis-gastos/<expense_id>/factura', endpoint='my_expense_upload_invoice')
+@admin_required
+def my_expense_upload_invoice(expense_id):
+    """Sube la factura o el ticket de un gasto propio (menú de los 3 puntitos de «Mis gastos»)."""
+    session_db = db()
+    try:
+        row, err = _my_expense_or_403(session_db, expense_id)
+        if err:
+            return err
+        fs = request.files.get("file")
+        if not fs or not getattr(fs, "filename", ""):
+            return jsonify({"ok": False, "error": "No llegó ningún archivo."}), 400
+        row.file_url = upload_file(fs, "gastos-personales")
+        row.original_name = os.path.basename((fs.filename or "").replace("\\", "/"))[:200] or None
+        row.document_type = (request.form.get("document_type") or row.document_type or "FACTURA").upper()
+        # Con justificante ya no hace falta el «sin factura» que hubiera pedido.
+        if (row.no_invoice_status or "").upper() in ("SOLICITADO", "RECHAZADO"):
+            row.no_invoice_status = None
+            row.no_invoice_reason = None
+        row.updated_at = _now_madrid()
+        session_db.commit()
+        return jsonify({"ok": True, "file_url": row.file_url})
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post('/mis-gastos/<expense_id>/sin-factura', endpoint='my_expense_no_invoice')
+@admin_required
+def my_expense_no_invoice(expense_id):
+    """Pide a administración que acepte el gasto SIN factura, diciendo por qué."""
+    session_db = db()
+    try:
+        row, err = _my_expense_or_403(session_db, expense_id)
+        if err:
+            return err
+        motivo = (request.form.get("reason") or "").strip()
+        if not motivo:
+            return jsonify({"ok": False, "error": "Hay que decir por qué no hay factura."}), 400
+        row.no_invoice_reason = motivo[:500]
+        row.no_invoice_status = "SOLICITADO"
+        row.updated_at = _now_madrid()
+        session_db.commit()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post('/mis-gastos/<expense_id>/directo', endpoint='my_expense_send_direct')
+@admin_required
+def my_expense_send_direct(expense_id):
+    """Manda el gasto a validar como GASTO DE OFICINA o como INVERSIÓN DE ARTISTA (no va a bolsa)."""
+    session_db = db()
+    try:
+        row, err = _my_expense_or_403(session_db, expense_id)
+        if err:
+            return err
+        destino = (request.form.get("target") or "").strip().upper()
+        if destino not in PERSONAL_DIRECT_TARGETS:
+            return jsonify({"ok": False, "error": "Destino desconocido."}), 400
+        # Como NO va contra ninguna bolsa, aquí es donde se exige el justificante.
+        if not _personal_expense_has_justification(row):
+            estado = (row.no_invoice_status or "").upper()
+            if estado == "SOLICITADO":
+                aviso = ("Este gasto está pendiente de que administración acepte que va sin factura. "
+                         "En cuanto lo acepte podrás mandarlo.")
+            else:
+                aviso = ("Este gasto necesita su factura o su ticket. Súbelo desde los tres puntitos, "
+                         "o pide que se acepte sin factura.")
+            return jsonify({"ok": False, "needs_invoice": True, "error": aviso}), 400
+        artista = None
+        if destino == "ARTIST_INVESTMENT":
+            artista = session_db.get(Artist, to_uuid(request.form.get("artist_id") or "") or uuid.uuid4())
+            if not artista:
+                return jsonify({"ok": False, "needs_artist": True,
+                                "error": "Elige de qué artista es la inversión."}), 400
+        row.direct_target = destino
+        row.direct_artist_id = (artista.id if artista else None)
+        row.bag_id = None
+        row.status = "VALIDATING"
+        row.validation_status = "PENDIENTE"
+        row.validation_note = None
+        row.validation_requested_at = _now_madrid()
+        row.updated_at = _now_madrid()
+        session_db.commit()
+        etiqueta = PERSONAL_DIRECT_TARGETS[destino][0]
+        return jsonify({"ok": True, "target_label": etiqueta,
+                        "artist_name": (getattr(artista, "name", "") or "")})
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post('/administracion/gastos-directos/<expense_id>/<decision>', endpoint='administration_direct_expense_decision')
+@admin_required
+def administration_direct_expense_decision(expense_id, decision):
+    """Administración valida (o no) un gasto de oficina / inversión de artista.
+    · Aceptado → sale de «Mis gastos» como gasto directo y, si no está pagado, queda pendiente de pago.
+    · Rechazado → vuelve a estar pendiente de asignar, con el aviso de por qué no se aceptó."""
+    session_db = db()
+    try:
+        row = session_db.get(PersonalExpense, to_uuid(str(expense_id)) or uuid.uuid4())
+        if not row:
+            flash("Gasto no encontrado.", "warning")
+            return redirect(url_for("administracion_view", tab="pendiente", subtab="oficina"))
+        estado = _current_user_state()
+        if (decision or "").lower() in ("approve", "aceptar", "aprobar"):
+            row.validation_status = "APROBADO"
+            row.status = "DIRECT"
+            row.validation_note = None
+            if _personal_expense_is_prepaid(row):
+                row.payment_status = "PAGADO"
+                row.paid_at = row.paid_at or _now_madrid()
+            else:
+                row.payment_status = "NO_PAGADO"
+            mensaje = "Gasto aceptado."
+        else:
+            row.validation_status = "RECHAZADO"
+            row.status = "PENDING"
+            row.direct_target = None
+            row.direct_artist_id = None
+            row.validation_note = (request.form.get("reason") or "").strip()[:500] or "Sin motivo indicado."
+            mensaje = "Gasto devuelto a quien lo mandó."
+        row.validated_at = _now_madrid()
+        row.validated_by_user_id = to_uuid(estado.get("user_id")) if estado.get("user_id") else None
+        row.validated_by_nick = estado.get("nick") or "Administración"
+        row.updated_at = _now_madrid()
+        session_db.commit()
+        flash(mensaje, "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo procesar: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("administracion_view", tab="pendiente", subtab="oficina")))
+
+
+@app.post('/administracion/gastos-personales/<expense_id>/sin-factura/<decision>', endpoint='administration_personal_no_invoice_decision')
+@admin_required
+def administration_personal_no_invoice_decision(expense_id, decision):
+    """Administración acepta (o no) que un gasto personal vaya sin factura."""
+    session_db = db()
+    try:
+        row = session_db.get(PersonalExpense, to_uuid(str(expense_id)) or uuid.uuid4())
+        if row:
+            if (decision or "").lower() in ("approve", "aceptar", "aprobar"):
+                row.no_invoice_status = "APROBADO"
+                flash("Aceptado sin factura.", "success")
+            else:
+                row.no_invoice_status = "RECHAZADO"
+                row.no_invoice_reason = ((request.form.get("reason") or "").strip()[:500]
+                                         or row.no_invoice_reason)
+                flash("Rechazado: hará falta la factura.", "success")
+            row.updated_at = _now_madrid()
+            session_db.commit()
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo procesar: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("administracion_view", tab="pendiente", subtab="oficina")))
+
+
+@app.post('/administracion/gastos-directos/<expense_id>/pagado', endpoint='administration_direct_expense_mark_paid')
+@admin_required
+def administration_direct_expense_mark_paid(expense_id):
+    session_db = db()
+    try:
+        row = session_db.get(PersonalExpense, to_uuid(str(expense_id)) or uuid.uuid4())
+        if row:
+            row.payment_status = "PAGADO"
+            row.paid_at = _now_madrid()
+            row.updated_at = _now_madrid()
+            session_db.commit()
+            flash("Marcado como pagado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo marcar: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("administracion_view", tab="pendiente", subtab="oficina")))
 
 
 # ==================== FACTURAS IMPUTADAS A GASTOS DE LA BOLSA ====================
@@ -54281,7 +54537,168 @@ def _personal_expense_row(row, pause=None) -> dict:
         "suggested_label": BAG_EXPENSE_CATEGORY_LABELS.get(cat, ""),
         "suggested_icon": BAG_EXPENSE_CATEGORY_ICONS.get(cat, "fa-shapes"),
         "paid_label": ("Pagado con Pleo" if is_pleo else ""),
+        # --- Justificante y gastos DIRECTOS (oficina / inversión de artista) ---
+        "justification": _personal_expense_justification_state(row),
+        "can_go_direct": _personal_expense_has_justification(row),
+        "direct_target": ((getattr(row, "direct_target", "") or "").upper()),
+        "direct_target_label": PERSONAL_DIRECT_TARGETS.get(
+            (getattr(row, "direct_target", "") or "").upper(), ("", ""))[0],
+        "direct_target_icon": PERSONAL_DIRECT_TARGETS.get(
+            (getattr(row, "direct_target", "") or "").upper(), ("", "fa-receipt"))[1],
+        "direct_artist_id": (str(row.direct_artist_id) if getattr(row, "direct_artist_id", None) else ""),
+        "validation_status": ((getattr(row, "validation_status", "") or "").upper()),
+        "validation_note": (getattr(row, "validation_note", "") or ""),
+        "no_invoice_reason": (getattr(row, "no_invoice_reason", "") or ""),
+        "no_invoice_status": ((getattr(row, "no_invoice_status", "") or "").upper()),
+        "payment_status": ((getattr(row, "payment_status", "") or "NO_PAGADO").upper()),
+        "prepaid": _personal_expense_is_prepaid(row),
     }
+
+
+# ================== GASTOS DIRECTOS: de OFICINA o INVERSIÓN en un ARTISTA ==================
+# Son gastos que NO van contra ninguna bolsa. Se mandan desde «Mis gastos» arrastrándolos a la
+# primera tarjeta de la pantalla de asignar (partida en dos), y los tiene que VALIDAR
+# administración. Requisito para mandarlos: llevar factura/ticket, o que administración haya
+# aceptado que no lo lleva (mismo trato que el «sin ticket» de los gastos de bolsa).
+PERSONAL_DIRECT_TARGETS = {
+    "OFICINA": ("Gasto de oficina", "fa-building-columns"),
+    "ARTIST_INVESTMENT": ("Inversión de artista", "fa-arrow-trend-up"),
+}
+
+
+def _personal_expense_has_justification(row) -> bool:
+    """¿Se puede mandar a validar? Lleva factura/ticket o el «sin factura» está APROBADO."""
+    if (getattr(row, "file_url", None) or "").strip():
+        return True
+    return (getattr(row, "no_invoice_status", None) or "").upper() == "APROBADO"
+
+
+def _personal_expense_is_prepaid(row) -> bool:
+    """Lo de Pleo y Cabify ya está pagado con la tarjeta de empresa: no genera pendiente de pago."""
+    return (getattr(row, "source", "") or "").upper() in ("PLEO", "CABIFY")
+
+
+def _personal_expense_justification_state(row) -> dict:
+    """Semáforo del justificante, para pintar el icono en «Mis gastos» y en la pantalla de asignar."""
+    if (getattr(row, "file_url", None) or "").strip():
+        tipo = (getattr(row, "document_type", "") or "").upper()
+        return {"ok": True, "key": "FILE", "icon": "fa-file-invoice",
+                "label": ("Ticket adjunto" if tipo == "TICKET" else "Factura adjunta")}
+    estado = (getattr(row, "no_invoice_status", None) or "").upper()
+    if estado == "APROBADO":
+        return {"ok": True, "key": "NO_INVOICE_OK", "icon": "fa-file-circle-check",
+                "label": "Validado sin factura"}
+    if estado == "SOLICITADO":
+        return {"ok": False, "key": "NO_INVOICE_WAIT", "icon": "fa-file-circle-question",
+                "label": "Sin factura, pendiente de que administración lo acepte"}
+    if estado == "RECHAZADO":
+        return {"ok": False, "key": "NO_INVOICE_KO", "icon": "fa-file-circle-xmark",
+                "label": "Administración no aceptó que fuera sin factura"}
+    return {"ok": False, "key": "NONE", "icon": "fa-file-circle-xmark",
+            "label": "Sin factura ni ticket"}
+
+
+def _personal_direct_expenses_pending(session_db) -> list[dict]:
+    """Gastos directos PENDIENTES de validar por administración (oficina e inversión de artista)."""
+    rows = (session_db.query(PersonalExpense)
+            .filter(PersonalExpense.status == "VALIDATING")
+            .filter(func.upper(func.coalesce(PersonalExpense.validation_status, "")) == "PENDIENTE")
+            .order_by(PersonalExpense.validation_requested_at.asc().nullslast()).all())
+    out = []
+    for r in rows:
+        artista = session_db.get(Artist, r.direct_artist_id) if r.direct_artist_id else None
+        prof = session_db.query(UserProfile).filter(UserProfile.user_id == r.user_id).first()
+        etiqueta, icono = PERSONAL_DIRECT_TARGETS.get((r.direct_target or "").upper(),
+                                                      ("Gasto directo", "fa-receipt"))
+        out.append({
+            "id": str(r.id), "concept": (r.concept or "Gasto"),
+            "provider_name": (r.provider_name or ""),
+            "amount_gross": _money_or_zero(r.amount_gross),
+            "date_label": (r.expense_date.strftime("%d/%m/%Y") if r.expense_date else ""),
+            "file_url": (r.file_url or ""),
+            "justification": _personal_expense_justification_state(r),
+            "target": (r.direct_target or "").upper(), "target_label": etiqueta, "target_icon": icono,
+            "artist_name": (getattr(artista, "name", "") or ""),
+            "artist_photo": (getattr(artista, "photo_url", "") or ""),
+            "person": ((prof.nick if prof else "") or "").strip() or "Alguien",
+            "prepaid": _personal_expense_is_prepaid(r),
+        })
+    return out
+
+
+def _personal_no_invoice_pending(session_db) -> list[dict]:
+    """Gastos personales cuyo dueño pide que se acepten SIN factura."""
+    rows = (session_db.query(PersonalExpense)
+            .filter(func.upper(func.coalesce(PersonalExpense.no_invoice_status, "")) == "SOLICITADO")
+            .order_by(PersonalExpense.updated_at.desc().nullslast()).all())
+    out = []
+    for r in rows:
+        prof = session_db.query(UserProfile).filter(UserProfile.user_id == r.user_id).first()
+        out.append({
+            "id": str(r.id), "concept": (r.concept or "Gasto"),
+            "provider_name": (r.provider_name or ""),
+            "amount_gross": _money_or_zero(r.amount_gross),
+            "date_label": (r.expense_date.strftime("%d/%m/%Y") if r.expense_date else ""),
+            "reason": (r.no_invoice_reason or ""),
+            "person": ((prof.nick if prof else "") or "").strip() or "Alguien",
+        })
+    return out
+
+
+def _personal_direct_expenses_payable(session_db) -> list[dict]:
+    """Gastos directos ya validados y sin pagar (los de Pleo/Cabify ya están pagados)."""
+    rows = (session_db.query(PersonalExpense)
+            .filter(PersonalExpense.status == "DIRECT")
+            .filter(func.upper(func.coalesce(PersonalExpense.validation_status, "")) == "APROBADO")
+            .filter(func.upper(func.coalesce(PersonalExpense.payment_status, "NO_PAGADO")) != "PAGADO")
+            .order_by(PersonalExpense.validated_at.asc().nullslast()).all())
+    out = []
+    for r in rows:
+        if _personal_expense_is_prepaid(r):
+            continue
+        artista = session_db.get(Artist, r.direct_artist_id) if r.direct_artist_id else None
+        etiqueta, icono = PERSONAL_DIRECT_TARGETS.get((r.direct_target or "").upper(),
+                                                      ("Gasto directo", "fa-receipt"))
+        prof = session_db.query(UserProfile).filter(UserProfile.user_id == r.user_id).first()
+        out.append({
+            "id": str(r.id), "concept": (r.concept or "Gasto"),
+            "provider_name": (r.provider_name or ""),
+            "amount_gross": _money_or_zero(r.amount_gross),
+            "date_label": (r.expense_date.strftime("%d/%m/%Y") if r.expense_date else ""),
+            "file_url": (r.file_url or ""),
+            "target_label": etiqueta, "target_icon": icono,
+            "artist_name": (getattr(artista, "name", "") or ""),
+            "person": ((prof.nick if prof else "") or "").strip() or "Alguien",
+        })
+    return out
+
+
+def _artist_investment_rows(session_db, artist_id) -> dict:
+    """Balance de gasto de INVERSIÓN de un artista: los gastos directos validados que se le han
+    imputado. Es lo que se enseña en su ficha."""
+    aid = to_uuid(str(artist_id)) if artist_id else None
+    if not aid:
+        return {"rows": [], "total": Decimal("0")}
+    rows = (session_db.query(PersonalExpense)
+            .filter(PersonalExpense.direct_artist_id == aid)
+            .filter(PersonalExpense.status == "DIRECT")
+            .filter(func.upper(func.coalesce(PersonalExpense.validation_status, "")) == "APROBADO")
+            .order_by(PersonalExpense.expense_date.desc().nullslast()).all())
+    out, total = [], Decimal("0")
+    for r in rows:
+        importe = _money_or_zero(r.amount_gross)
+        total += importe
+        prof = session_db.query(UserProfile).filter(UserProfile.user_id == r.user_id).first()
+        out.append({
+            "id": str(r.id), "concept": (r.concept or "Gasto"),
+            "provider_name": (r.provider_name or ""),
+            "date_label": (r.expense_date.strftime("%d/%m/%Y") if r.expense_date else ""),
+            "amount_gross": importe,
+            "file_url": (r.file_url or ""),
+            "person": ((prof.nick if prof else "") or "").strip() or "",
+            "paid": (r.payment_status or "").upper() == "PAGADO" or _personal_expense_is_prepaid(r),
+        })
+    return {"rows": out, "total": total}
 
 
 def _user_is_direccion(session_db, user_id) -> bool:

@@ -2004,7 +2004,27 @@ class PersonalExpense(Base):
     bag_id = Column(PGUUID(as_uuid=True), ForeignKey("workflow_bags.id", ondelete="SET NULL"))
     bag_expense_id = Column(PGUUID(as_uuid=True), ForeignKey("bag_expenses.id", ondelete="SET NULL"))
     # PENDING (sin bolsa) | IN_BAG (en bolsa, sin tipificar) | ASSIGNED (con su gasto creado)
+    # VALIDATING (mandado a validar como gasto directo) | DIRECT (validado, no va a ninguna bolsa)
     status = Column(Text, nullable=False, server_default=text("'PENDING'"))
+
+    # --- GASTOS DIRECTOS: los que NO van contra ninguna bolsa ---
+    # OFICINA (gasto genérico de la casa) | ARTIST_INVESTMENT (inversión en un artista, va a su
+    # balance de inversión). Los dos los tiene que VALIDAR administración.
+    direct_target = Column(Text)
+    direct_artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="SET NULL"))
+    validation_status = Column(Text)            # PENDIENTE | APROBADO | RECHAZADO
+    validation_note = Column(Text)              # por qué no se aceptó (se le dice a quien lo mandó)
+    validation_requested_at = Column(DateTime(timezone=True))
+    validated_at = Column(DateTime(timezone=True))
+    validated_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    validated_by_nick = Column(Text)
+    # Justificante: para mandarlo a validar hace falta factura/ticket O que administración haya
+    # aceptado que no lo lleva (mismo trato que el «sin ticket» de los gastos de bolsa).
+    no_invoice_reason = Column(Text)
+    no_invoice_status = Column(Text)            # SOLICITADO | APROBADO | RECHAZADO
+    # Pago: lo de Pleo y Cabify ya está pagado con la tarjeta; una factura a nombre de la persona no.
+    payment_status = Column(Text, nullable=False, server_default=text("'NO_PAGADO'"))
+    paid_at = Column(DateTime(timezone=True))
     received_at = Column(DateTime(timezone=True), server_default=func.now())
     assigned_at = Column(DateTime(timezone=True))
     notified_at = Column(DateTime(timezone=True))       # aviso a la persona (1 semana)
@@ -8552,6 +8572,20 @@ def ensure_cabify_schema():
     _exec_ddl_statements([
         'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
         "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS cabify_sale_code text;",
+        # Gastos DIRECTOS (no van a ninguna bolsa): gasto de oficina o inversión en un artista.
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS direct_target text;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS direct_artist_id uuid REFERENCES artists(id) ON DELETE SET NULL;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS validation_status text;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS validation_note text;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS validation_requested_at timestamptz;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS validated_at timestamptz;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS validated_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS validated_by_nick text;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS no_invoice_reason text;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS no_invoice_status text;",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS payment_status text NOT NULL DEFAULT 'NO_PAGADO';",
+        "ALTER TABLE IF EXISTS personal_expenses ADD COLUMN IF NOT EXISTS paid_at timestamptz;",
+        "CREATE INDEX IF NOT EXISTS idx_personal_expenses_validation ON personal_expenses(validation_status, direct_target);",
         # Antiduplicados de verdad: el mismo viaje no puede entrar dos veces.
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_personal_expenses_cabify "
         "ON personal_expenses(cabify_sale_code) WHERE cabify_sale_code IS NOT NULL;",

@@ -662,6 +662,33 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `_store_doc_image_from_dataurl`). El **nick vacío ⇒ nombre oficial** (en `promoters_view`/
   `personnel_view`). Carga en `layout.html`: `doc_scan.js` ANTES de `person_docs.js` y `doc_intake.js`.
 
+- **GASTOS DIRECTOS: de OFICINA o INVERSIÓN de artista** (ago 2026). Son gastos de «Mis gastos» que
+  **NO van contra ninguna bolsa**. ⚠️ No confundir con `BagExpense.covered_by='OFICINA'`, que es otra
+  cosa: un gasto que SÍ está en una liquidación pero lo paga la oficina.
+  · **Cómo se mandan**: en `/mis-gastos/asignar`, la columna de destinos se abre con una tarjeta
+  **partida en dos** (`.direct-split`): «Gasto de oficina» e «Inversión de artista». Se arrastra el
+  gasto igual que a una bolsa; en inversión se pregunta el artista (modal con los **asignados**
+  primero y «ver más» para el resto, buscador incluido).
+  · **Requisito**: como no va a ninguna bolsa, hace falta **factura/ticket** o que administración
+  haya aceptado que va **sin factura** (`_personal_expense_has_justification`). Si no, se avisa y no
+  se manda (lo comprueba el JS **y** el backend). Desde los **tres puntitos** de cada gasto en
+  «Mis gastos» se sube la factura/ticket (`my_expense_upload_invoice`) o se pide pasar sin factura
+  (`my_expense_no_invoice`). El **icono** del gasto dice en qué estado está
+  (`_personal_expense_justification_state`).
+  · **Estados** (`PersonalExpense.status`): `VALIDATING` (mandado, sigue viéndose en Mis gastos con
+  su etiqueta «a la espera») → `DIRECT` (aceptado) o vuelta a `PENDING` con `validation_status =
+  RECHAZADO` y el motivo a la vista («no se aceptó: …»). Al aceptarlo, si no estaba pagado
+  (`_personal_expense_is_prepaid`: lo de **Pleo y Cabify ya está pagado** con la tarjeta) queda
+  **pendiente de pago**.
+  · **Dónde se valida**: Administración → Pendiente → **«De oficina»** (subpestaña nueva, con su
+  contador y su responsabilidad `GASTOS_OFICINA`): por validar · piden pasar sin factura · validados
+  pendientes de pago. Endpoints `administration_direct_expense_decision` /
+  `administration_personal_no_invoice_decision` / `administration_direct_expense_mark_paid`
+  (mapeados a mano a `administracion.pendiente`: no llevan prefijo reconocible).
+  · **Balance del artista**: `_artist_investment_rows` pinta en la pestaña **Contratos** del artista
+  lo que se ha invertido en él (solo se calcula en esa pestaña).
+  ⚠️ Los endpoints `my_expense_*` están en **`PERSONAL_ENDPOINTS`** (datos propios: la comprobación
+  de propiedad la hace `_my_expense_or_403` dentro).
 - **Administración · contadores y REPARTO de tareas** (ago 2026):
   · **Contadores**: `_admin_pending_counts(session_db)` es el motor único de los números de las
   pestañas y subpestañas (solo `func.count`, sin cargar filas), así que van al día se mire desde

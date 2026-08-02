@@ -84,6 +84,82 @@
         </div>
       </div>
     </div>
+  {% elif pending_subtab == 'oficina' %}
+    {# Gastos que NO van contra ninguna bolsa: gasto de oficina o inversión en un artista.
+       Aquí se validan, se acepta (o no) que vayan sin factura, y se pagan los que quedan. #}
+    <div class="row g-3">
+      <div class="col-12 col-xl-6">
+        <div class="card h-100">
+          <div class="card-header bg-white"><strong>Por validar</strong></div>
+          <div class="card-body p-0">
+            {% for e in direct_pending %}
+              <div class="p-3 border-bottom">
+                <div class="d-flex justify-content-between gap-3 align-items-start flex-wrap">
+                  <div style="min-width:0;">
+                    <div class="fw-semibold">{{ e.concept }}</div>
+                    <div class="small text-muted">{{ e.person }}{% if e.provider_name %} · {{ e.provider_name }}{% endif %}{% if e.date_label %} · {{ e.date_label }}{% endif %}</div>
+                    <div class="d-flex flex-wrap gap-1 mt-2">
+                      <span class="badge text-bg-dark"><i class="fa {{ e.target_icon }} me-1"></i>{{ e.target_label }}</span>
+                      {% if e.artist_name %}<span class="badge text-bg-light border">{{ artist_avatar(e.artist_photo, e.artist_name) }} {{ e.artist_name }}</span>{% endif %}
+                      <span class="badge {{ 'text-bg-success' if e.justification.ok else 'text-bg-danger' }}"><i class="fa {{ e.justification.icon }} me-1"></i>{{ e.justification.label }}</span>
+                      {% if e.prepaid %}<span class="badge text-bg-light border"><i class="fa fa-circle-check text-success me-1"></i>Ya pagado</span>{% endif %}
+                    </div>
+                    <div class="fw-semibold mt-2">{{ e.amount_gross|eur }}</div>
+                  </div>
+                  <div class="d-flex flex-column gap-2" style="min-width:280px;">
+                    {% if e.file_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ e.file_url }}" target="_blank" rel="noopener">Ver el justificante</a>{% endif %}
+                    <form method="post" action="{{ url_for('administration_direct_expense_decision', expense_id=e.id, decision='approve') }}"><input type="hidden" name="next" value="{{ request.full_path }}"><button class="btn btn-sm btn-success w-100"><i class="fa fa-check me-1"></i>Aceptar</button></form>
+                    <form method="post" action="{{ url_for('administration_direct_expense_decision', expense_id=e.id, decision='reject') }}" class="d-flex gap-1"><input type="hidden" name="next" value="{{ request.full_path }}"><input class="form-control form-control-sm" name="reason" placeholder="Motivo" required><button class="btn btn-sm btn-outline-danger">Rechazar</button></form>
+                  </div>
+                </div>
+              </div>
+            {% else %}<div class="p-3 text-muted">No hay gastos de oficina ni de inversión por validar.</div>{% endfor %}
+          </div>
+        </div>
+      </div>
+      <div class="col-12 col-xl-6">
+        <div class="card mb-3">
+          <div class="card-header bg-white"><strong>Piden que se acepte sin factura</strong></div>
+          <div class="card-body p-0">
+            {% for e in direct_no_invoice %}
+              <div class="p-3 border-bottom">
+                <div class="d-flex justify-content-between gap-3 align-items-start flex-wrap">
+                  <div style="min-width:0;">
+                    <div class="fw-semibold">{{ e.concept }}</div>
+                    <div class="small text-muted">{{ e.person }}{% if e.provider_name %} · {{ e.provider_name }}{% endif %}{% if e.date_label %} · {{ e.date_label }}{% endif %}</div>
+                    <div class="small mt-2"><i class="fa fa-quote-left me-1 text-muted"></i>{{ e.reason }}</div>
+                    <div class="fw-semibold mt-2">{{ e.amount_gross|eur }}</div>
+                  </div>
+                  <div class="d-flex flex-column gap-2" style="min-width:240px;">
+                    <form method="post" action="{{ url_for('administration_personal_no_invoice_decision', expense_id=e.id, decision='approve') }}"><input type="hidden" name="next" value="{{ request.full_path }}"><button class="btn btn-sm btn-success w-100">Aceptar sin factura</button></form>
+                    <form method="post" action="{{ url_for('administration_personal_no_invoice_decision', expense_id=e.id, decision='reject') }}"><input type="hidden" name="next" value="{{ request.full_path }}"><button class="btn btn-sm btn-outline-danger w-100">Rechazar</button></form>
+                  </div>
+                </div>
+              </div>
+            {% else %}<div class="p-3 text-muted">Nadie ha pedido pasar un gasto sin factura.</div>{% endfor %}
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header bg-white"><strong>Validados, pendientes de pago</strong></div>
+          <div class="card-body p-0">
+            {% for e in direct_payable %}
+              <div class="p-3 border-bottom d-flex justify-content-between gap-3 flex-wrap align-items-center">
+                <div style="min-width:0;">
+                  <div class="fw-semibold">{{ e.concept }}</div>
+                  <div class="small text-muted">{{ e.person }} · <i class="fa {{ e.target_icon }} me-1"></i>{{ e.target_label }}{% if e.artist_name %} · {{ e.artist_name }}{% endif %}</div>
+                  <div class="fw-semibold mt-1">{{ e.amount_gross|eur }}</div>
+                </div>
+                <div class="d-flex gap-2 align-items-center">
+                  {% if e.file_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ e.file_url }}" target="_blank" rel="noopener">Justificante</a>{% endif %}
+                  <form method="post" action="{{ url_for('administration_direct_expense_mark_paid', expense_id=e.id) }}"><input type="hidden" name="next" value="{{ request.full_path }}"><button class="btn btn-sm btn-outline-success">Marcar pagado</button></form>
+                </div>
+              </div>
+            {% else %}<div class="p-3 text-muted">Nada pendiente de pago.</div>{% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+
   {% elif pending_subtab == 'pago' %}
     <div class="card">
       <div class="card-header bg-white"><strong>Pendiente de pago</strong></div>

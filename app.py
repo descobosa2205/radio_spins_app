@@ -60633,22 +60633,81 @@ def _cert_month_range(today=None):
     return date(d.year, d.month, 1), _prl_month_end(d.year, d.month)
 
 
-def _billing_required_docs(kind: str) -> list:
+# A un PARTICULAR hay que preguntarle CÓMO factura antes de pedirle papeles: si es autónomo basta el
+# último recibo de autónomos; si se da de alta puntual hacen falta el alta y la baja, y valen si la
+# factura está emitida DENTRO del periodo de alta (alta y baja incluidas).
+BILLING_WORKER_TYPES = [
+    ("AUTONOMO", "Soy autónomo", "fa-user-tie",
+     "Tengo alta de autónomos y facturo con mi recibo al día."),
+    ("PUNTUAL", "Alta puntual", "fa-calendar-check",
+     "Me dan de alta solo para este trabajo y luego me dan de baja."),
+]
+BILLING_WORKER_LABELS = {k: l for k, l, _i, _d in BILLING_WORKER_TYPES}
+# Papeles del alta según cómo facture (los del PRL, que ya sabe leer sus fechas).
+BILLING_ALTA_DOCS = {
+    "AUTONOMO": [("AUTONOMO_RECIBO", "Último recibo de autónomos", "fa-receipt")],
+    "PUNTUAL": [("ALTA_SS", "Alta en la Seguridad Social", "fa-user-plus"),
+                ("BAJA_SS", "Baja en la Seguridad Social", "fa-user-minus")],
+}
+
+
+def _billing_required_docs(kind: str, worker_type: str | None = None) -> list:
     """Documentos que se exigen para poder dejar la factura subida."""
     out = [{"key": "INVOICE", "label": "Factura", "icon": "fa-file-invoice-dollar", "link": ""}]
+    # Particular: primero cómo factura y después SUS papeles del alta.
+    wt = (worker_type or "").strip().upper()
+    if kind != "EMPRESA" and wt in BILLING_ALTA_DOCS:
+        for key, label, icon in BILLING_ALTA_DOCS[wt]:
+            out.append({"key": key, "label": label, "icon": icon, "link": ""})
     for key, label, icon, who, link in INVOICE_CERT_DOCS:
         if who == "ambos" or (who == "empresa" and kind == "EMPRESA"):
             out.append({"key": key, "label": label, "icon": icon, "link": link})
     return out
 
 
-def _billing_docs_state(session_db, promoter, kind: str) -> list:
+def _billing_alta_doc_ok(session_db, promoter, worker_type: str, issue_date=None) -> dict:
+    """¿Están en vigor los papeles del alta del particular para ESTA factura?
+
+    · Autónomo: el recibo vale el mes que le toca (lo calcula `_prl_detect` al subirlo).
+    · Alta puntual: el alta y la baja tienen que cubrir la FECHA DE EMISIÓN de la factura (alta
+      incluida y baja inclusive). Sin fecha de emisión se comprueba a día de hoy."""
+    wt = (worker_type or "").strip().upper()
+    dia = issue_date or today_local()
+    salida = {}
+    for key, _label, _icon in BILLING_ALTA_DOCS.get(wt, []):
+        docs = []
+        if promoter is not None:
+            docs = (session_db.query(PersonComplianceDoc)
+                    .filter(PersonComplianceDoc.owner_type == "PROMOTER",
+                            PersonComplianceDoc.owner_id == promoter.id,
+                            PersonComplianceDoc.doc_type == key)
+                    .order_by(PersonComplianceDoc.created_at.desc()).limit(12).all())
+        bueno = next((d for d in docs if _prl_doc_valid_on(d, dia)), None)
+        salida[key] = {"ok": bool(bueno), "url": (bueno.file_url if bueno else "")}
+    return salida
+
+
+def _billing_docs_state(session_db, promoter, kind: str, worker_type: str | None = None,
+                        issue_date=None) -> list:
     """Estado de los documentos exigidos: los que ya están EN VIGOR no se vuelven a pedir."""
     rows = []
     valid_from, valid_until = _cert_month_range()
-    for doc in _billing_required_docs(kind):
+    wt = (worker_type or getattr(promoter, "prl_type", None) or "").strip().upper()
+    alta = _billing_alta_doc_ok(session_db, promoter, wt, issue_date=issue_date) if kind != "EMPRESA" else {}
+    for doc in _billing_required_docs(kind, wt):
         if doc["key"] == "INVOICE":
             rows.append({**doc, "ok": False, "existing_url": "", "note": ""})
+            continue
+        if doc["key"] in alta:
+            estado = alta[doc["key"]]
+            rows.append({
+                **doc,
+                "ok": bool(estado["ok"]),
+                "existing_url": estado["url"],
+                "note": ("Ya subido y en vigor" if estado["ok"] else
+                         ("Tiene que cubrir la fecha de la factura" if wt == "PUNTUAL"
+                          else "Tiene que ser el del último periodo")),
+            })
             continue
         existing = None
         if promoter is not None:
@@ -60774,6 +60833,10 @@ def _billing_profile_payload(session_db, promoter) -> dict:
         }.items() if v},
         "missing": missing,
         "complete": not missing,
+        # CÓMO factura un particular (autónomo / alta puntual): de eso dependen los papeles del alta
+        # que hay que pedirle. Si ya lo dijo alguna vez, no se le vuelve a preguntar.
+        "worker_type": ((getattr(promoter, "prl_type", None) or "").strip().upper()
+                        if kind != "EMPRESA" else ""),
         # Artista del que forma parte (miembro del grupo o vinculado): se muestra al identificarse y
         # rellena el artista de la factura.
         **{f"artist_{k}": v for k, v in _promoter_artist_context(session_db, promoter).items()},
@@ -60848,7 +60911,7 @@ _INV_DATE_ISO_RE = re.compile(r"\b(\d{4})[/\-\.](\d{1,2})[/\-\.](\d{1,2})\b")
 def _detect_invoice_meta(data: bytes, is_pdf: bool) -> dict:
     """Detecta el NÚMERO de factura y la FECHA DE EMISIÓN del documento (mejor esfuerzo). Lo que
     salga se le muestra a la persona para que lo confirme o lo corrija a mano antes de enviar."""
-    out = {"invoice_number": "", "issue_date": "", "detected": False}
+    out = {"invoice_number": "", "issue_date": "", "concept": "", "detected": False}
     if not is_pdf:
         return out
     text = _pdf_extract_text_bytes(data)
@@ -60882,7 +60945,14 @@ def _detect_invoice_meta(data: bytes, is_pdf: bool) -> dict:
                 out["issue_date"] = date(int(m.group(1)), int(m.group(2)), int(m.group(3))).isoformat()
             except ValueError:
                 pass
-    out["detected"] = bool(out["invoice_number"] or out["issue_date"])
+    # CONCEPTO: la línea que venga tras «concepto» / «descripción» (mejor esfuerzo).
+    m = re.search(r"(?:concepto|descripci[oó]n|detalle)\s*[:\-]?\s*(.{3,90})", text, re.I)
+    if m:
+        linea = re.split(r"[\r\n]", (m.group(1) or ""))[0].strip(" .:-;|")
+        if linea and not re.fullmatch(r"[\d\s.,€]+", linea):
+            out["concept"] = linea[:120]
+    out["detected"] = bool(out["invoice_number"] or out["issue_date"] or out.get("concept"))
+    out["text"] = text[:20000]     # se reutiliza para buscar el ARTISTA (no se devuelve al cliente)
     return out
 
 
@@ -60968,7 +61038,28 @@ def public_invoice_detect():
         return jsonify({"ok": False, "error": "Falta el archivo"}), 400
     data = f.read()
     is_pdf = (f.filename or "").lower().endswith(".pdf") or (f.mimetype or "") == "application/pdf"
-    return jsonify({"ok": True, **_detect_invoice_meta(data, is_pdf)})
+    meta = _detect_invoice_meta(data, is_pdf)
+    texto = meta.pop("text", "") or ""
+    # ARTISTA: se busca por el NOMBRE de los artistas que tenemos, que es lo único fiable (una regex
+    # sobre el texto se inventaría cualquier cosa).
+    meta["artist"] = ""
+    if texto:
+        clave = _norm_text_key(texto)
+        session_db = db()
+        try:
+            mejor = ""
+            for (nombre,) in session_db.query(Artist.name).filter(Artist.name.isnot(None)).all():
+                n = _norm_text_key(nombre or "")
+                if len(n) >= 4 and n in clave and len(n) > len(_norm_text_key(mejor)):
+                    mejor = nombre
+            meta["artist"] = mejor
+        except Exception:
+            meta["artist"] = ""
+        finally:
+            session_db.close()
+    meta["detected"] = bool(meta.get("invoice_number") or meta.get("issue_date")
+                            or meta.get("concept") or meta.get("artist"))
+    return jsonify({"ok": True, **meta})
 
 
 @app.get('/facturacion', endpoint='public_invoice_landing')
@@ -61182,15 +61273,33 @@ def public_invoice_register():
 
 @app.post('/facturacion/documentos', endpoint='public_invoice_docs_state')
 def public_invoice_docs_state():
-    """Estado de los documentos exigidos a un proveedor ya identificado."""
+    """Estado de los documentos exigidos a un proveedor ya identificado.
+
+    Con `worker_type` se GUARDA en su ficha cómo factura (autónomo / alta puntual) y se le piden los
+    papeles del alta que le tocan; con `issue_date` se comprueba que el alta y la baja cubran la fecha
+    de la factura."""
     session_db = db()
     try:
         promoter = session_db.get(Promoter, to_uuid(request.form.get("promoter_id") or "") or uuid.uuid4())
         if not promoter:
             return jsonify({"ok": False, "error": "Proveedor no encontrado"}), 404
+        wt = (request.form.get("worker_type") or "").strip().upper()
+        if wt in BILLING_WORKER_LABELS and (promoter.prl_type or "").upper() != wt:
+            promoter.prl_type = wt        # se queda grabado en su ficha
+            session_db.commit()
         payload = _billing_profile_payload(session_db, promoter)
-        return jsonify({"ok": True, "profile": payload,
-                        "docs": _billing_docs_state(session_db, promoter, payload["kind"])})
+        wt = wt or payload.get("worker_type") or ""
+        emision = _parse_date_soft(request.form.get("issue_date"))
+        return jsonify({
+            "ok": True,
+            "profile": payload,
+            "worker_type": wt,
+            # Con un particular que no ha dicho cómo factura, primero se le pregunta.
+            "ask_worker_type": bool(payload["kind"] != "EMPRESA" and wt not in BILLING_WORKER_LABELS),
+            "worker_types": [{"key": k, "label": l, "icon": i, "hint": d} for k, l, i, d in BILLING_WORKER_TYPES],
+            "docs": _billing_docs_state(session_db, promoter, payload["kind"], worker_type=wt,
+                                        issue_date=emision),
+        })
     finally:
         session_db.close()
 
@@ -61227,6 +61336,8 @@ def public_invoice_upload():
         f = request.files.get("file")
         if not f or not f.filename:
             return jsonify({"ok": False, "error": "Falta el archivo"}), 400
+        wt = (request.form.get("worker_type") or getattr(promoter, "prl_type", None) or "").strip().upper()
+        emision = _parse_date_soft(request.form.get("issue_date"))
         if doc_key in INVOICE_MONTHLY_CERTS:
             doc = _billing_store_cert(session_db, promoter, doc_key, f)
             if not doc:
@@ -61234,11 +61345,30 @@ def public_invoice_upload():
             session_db.commit()
             payload = _billing_profile_payload(session_db, promoter)
             return jsonify({"ok": True, "kind": "cert", "doc_key": doc_key,
-                            "docs": _billing_docs_state(session_db, promoter, payload["kind"])})
+                            "docs": _billing_docs_state(session_db, promoter, payload["kind"],
+                                                        worker_type=wt, issue_date=emision)})
+        # PAPELES DEL ALTA del particular (recibo de autónomos, alta y baja): se guardan con el mismo
+        # lector del PRL, que ya saca sus fechas de vigencia del propio documento.
+        if doc_key in {k for lista in BILLING_ALTA_DOCS.values() for k, _l, _i in lista}:
+            doc, aviso_prl = _prl_store_upload(session_db, promoter, doc_key, f, uploaded_via="BILLING")
+            if not doc:
+                return jsonify({"ok": False, "error": aviso_prl or "No se pudo guardar el documento"}), 400
+            session_db.commit()
+            payload = _billing_profile_payload(session_db, promoter)
+            estados = _billing_docs_state(session_db, promoter, payload["kind"],
+                                          worker_type=wt, issue_date=emision)
+            mio = next((d for d in estados if d["key"] == doc_key), None)
+            aviso = aviso_prl or ""
+            if mio and not mio["ok"]:
+                aviso = ("El alta y la baja tienen que cubrir la fecha de la factura."
+                         if wt == "PUNTUAL" else "Ese recibo no está en vigor: sube el del último periodo.")
+            return jsonify({"ok": True, "kind": "alta", "doc_key": doc_key, "docs": estados,
+                            "warn": aviso})
         if doc_key != "INVOICE":
             return jsonify({"ok": False, "error": "Documento no válido"}), 400
         payload = _billing_profile_payload(session_db, promoter)
-        pending = [d for d in _billing_docs_state(session_db, promoter, payload["kind"])
+        pending = [d for d in _billing_docs_state(session_db, promoter, payload["kind"],
+                                                  worker_type=wt, issue_date=emision)
                    if d["key"] != "INVOICE" and not d["ok"]]
         if pending:
             return jsonify({"ok": False, "error": "Antes sube: " + ", ".join(d["label"] for d in pending)}), 400

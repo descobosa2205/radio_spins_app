@@ -1129,6 +1129,24 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   buscador casa **por palabras** contra el nombre/nick/CIF del tercero (eso no se puede filtrar en la
   consulta porque no está en la tabla de la factura).
 
+- **Subir factura · paso 3 por TIPO DE ALTA y datos solo si no se detectan** (ago 2026):
+  · A un **particular** se le pregunta primero **cómo factura** (`BILLING_WORKER_TYPES`: autónomo /
+  alta puntual) y la respuesta se **graba en su ficha** (`Promoter.prl_type`, el mismo campo del PRL),
+  así que en la siguiente factura ya no se le pregunta. De ahí salen sus papeles
+  (`BILLING_ALTA_DOCS`): autónomo → **último recibo de autónomos**; alta puntual → **alta y baja**.
+  · La **vigencia del alta puntual se mide contra la FECHA DE EMISIÓN de la factura** (alta y baja
+  **incluidas**): `_billing_alta_doc_ok` reutiliza `_prl_doc_valid_on`, y los documentos se guardan con
+  `_prl_store_upload`, que ya lee sus fechas del propio PDF. `_billing_docs_state(…, worker_type,
+  issue_date)` y `public_invoice_docs_state` aceptan las dos cosas.
+  · **Nº de factura, fecha de emisión, artista y concepto se piden DESPUÉS de subir la factura y solo
+  los que no se han podido leer** (`#invMetaBox` nace oculto y cada campo lleva `data-meta-field`).
+  `_detect_invoice_meta` saca además el **concepto** (línea tras «concepto/descripción/detalle») y
+  `public_invoice_detect` el **artista**, casando el texto contra los nombres de artistas que tenemos
+  (lo único fiable; el texto del PDF NO se devuelve al navegador).
+  · Los datos que se rellenan al identificarse ya se guardaban en el tercero
+  (`public_invoice_register`: nombre, CIF/DNI, dirección fiscal, email, teléfono, cuenta, sociedad y
+  contacto); queda verificado con prueba.
+
 - **Pendiente de facturar (módulo del enlace de subida de facturas)**: se llamaba «Lo que te
   pedimos» y las cantidades salían **0,00 €**. Motor único **`_invoice_request_amounts(net, gross)`**:
   el importe a facturar es SIEMPRE **base + IVA** (`INVOICE_REQUEST_VAT_PCT` = 21), y como unos gastos

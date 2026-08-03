@@ -245,17 +245,27 @@
         </div>
       </div>
       <div class="inv-step__body">
-        <div class="row g-2 mb-2" id="invInvoiceMeta">
-          <div class="col-6 col-md-3"><label class="form-label small">Nº de factura</label><input class="form-control form-control-sm" id="invNumber"></div>
-          <div class="col-6 col-md-3"><label class="form-label small">Fecha de emisión</label><input type="date" class="form-control form-control-sm" id="invIssueDate"></div>
-          <div class="col-12 col-md-3"><label class="form-label small">Artista <span class="text-muted">(como en la factura)</span></label><input class="form-control form-control-sm" id="invArtist"></div>
-          <div class="col-12 col-md-3"><label class="form-label small">Concepto</label><input class="form-control form-control-sm" id="invConcept"></div>
+        {# ¿CÓMO FACTURA un particular? Se pregunta ANTES de pedirle papeles: si es autónomo basta el
+           recibo; si se da de alta puntual hacen falta el alta y la baja. Se guarda en su ficha. #}
+        <div class="mb-3 d-none" id="invWorkerBox">
+          <div class="fw-semibold mb-2"><i class="fa fa-user-check me-2 text-danger"></i>¿Cómo facturas?</div>
+          <div class="row g-2" id="invWorkerOptions"></div>
         </div>
-        {# Datos leídos del documento: la persona los confirma o los corrige antes de enviar. #}
-        <div class="alert alert-info small d-none" id="invConfirmMeta">
-          <i class="fa fa-magnifying-glass me-1"></i><span data-meta-note></span>
-        </div>
+
         <div class="d-grid gap-3" id="invDocs"></div>
+
+        {# Los datos de la factura se piden DESPUÉS de subirla y SOLO los que no se han podido leer. #}
+        <div class="d-none mt-3" id="invMetaBox">
+          <div class="alert alert-info small" id="invConfirmMeta">
+            <i class="fa fa-magnifying-glass me-1"></i><span data-meta-note></span>
+          </div>
+          <div class="row g-2" id="invInvoiceMeta">
+            <div class="col-6 col-md-3" data-meta-field="number"><label class="form-label small">Nº de factura</label><input class="form-control form-control-sm" id="invNumber"></div>
+            <div class="col-6 col-md-3" data-meta-field="issue"><label class="form-label small">Fecha de emisión</label><input type="date" class="form-control form-control-sm" id="invIssueDate"></div>
+            <div class="col-12 col-md-3" data-meta-field="artist"><label class="form-label small">Artista <span class="text-muted">(como en la factura)</span></label><input class="form-control form-control-sm" id="invArtist"></div>
+            <div class="col-12 col-md-3" data-meta-field="concept"><label class="form-label small">Concepto</label><input class="form-control form-control-sm" id="invConcept"></div>
+          </div>
+        </div>
         <div class="alert alert-success mt-3 d-none" id="invDone">
           <i class="fa fa-circle-check me-1"></i>¡Factura recibida! La revisaremos y te avisaremos si falta algo. Muchas gracias.
         </div>
@@ -301,7 +311,7 @@
   // DNI se quedaba bloqueado: al pulsar «Comprobar» no pasaba nada (bug real).
   function stepNumOf(el){ var st = el ? el.closest('[data-inv-step]') : null; return st ? Number(st.getAttribute('data-inv-step')) : 0; }
   const IDENT_STEP = stepNumOf(document.getElementById('invTaxId')) || 3;
-  const UPLOAD_STEP = stepNumOf(document.getElementById('invInvoiceMeta')) || (IDENT_STEP + 1);
+  const UPLOAD_STEP = stepNumOf(document.getElementById('invDocs')) || (IDENT_STEP + 1);
   document.querySelectorAll('[data-inv-next]').forEach(function(b){
     b.addEventListener('click', function(){
       // Si el botón lleva al paso de identificarse, se usa el número REAL de ese paso.
@@ -504,16 +514,46 @@
       msg.className = 'small mt-2 text-success'; msg.textContent = 'Datos guardados.';
       profile = d.profile;
       applyProfile(d.profile);
-      renderDocs(d.docs);
       unlock(UPLOAD_STEP);
+      // Se recarga el estado para preguntar CÓMO factura (particular) y pedirle sus papeles.
+      loadDocs(d.profile.id);
     });
   });
 
   // ---- Paso 3 · documentos
   function loadDocs(pid){
-    const fd = new FormData(); fd.append('promoter_id', pid);
+    const fd = new FormData();
+    fd.append('promoter_id', pid);
+    if (WORKER_TYPE) fd.append('worker_type', WORKER_TYPE);
+    const dateEl = document.getElementById('invIssueDate');
+    if (dateEl && dateEl.value) fd.append('issue_date', dateEl.value);
     fetch(URL_DOCS, {method:'POST', body:fd}).then(r => r.json()).then(function(d){
-      if (d && d.ok) renderDocs(d.docs);
+      if (d && d.ok) { renderWorkerTypes(d); renderDocs(d.docs); }
+    });
+  }
+
+  // ¿Cómo factura un particular? Se pregunta antes de pedirle papeles y se guarda en su ficha.
+  let WORKER_TYPE = '';
+  function renderWorkerTypes(d){
+    const box = document.getElementById('invWorkerBox');
+    const opts = document.getElementById('invWorkerOptions');
+    if (!box || !opts) return;
+    WORKER_TYPE = (d && d.worker_type) || WORKER_TYPE || '';
+    const preguntar = !!(d && d.ask_worker_type) && !WORKER_TYPE;
+    box.classList.toggle('d-none', !preguntar && !WORKER_TYPE);
+    if (!(d && d.worker_types && d.worker_types.length)) return;
+    opts.innerHTML = d.worker_types.map(function (w) {
+      const on = WORKER_TYPE === w.key;
+      return '<div class="col-12 col-md-6"><button type="button" class="btn w-100 text-start '
+        + (on ? 'btn-danger' : 'btn-outline-secondary') + '" data-worker="' + w.key + '">'
+        + '<i class="fa ' + w.icon + ' me-2"></i><strong>' + w.label + '</strong>'
+        + '<div class="small ' + (on ? '' : 'text-muted') + '">' + w.hint + '</div></button></div>';
+    }).join('');
+    opts.querySelectorAll('[data-worker]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        WORKER_TYPE = b.getAttribute('data-worker') || '';
+        loadDocs((profile && profile.id) || '');
+      });
     });
   }
 
@@ -611,12 +651,36 @@
           if (d.invoice_number && numEl && !numEl.value) numEl.value = d.invoice_number;
           if (d.issue_date && dateEl && !dateEl.value) dateEl.value = d.issue_date;
         }
-        const box = document.getElementById('invConfirmMeta');
-        if (box) {
-          box.classList.remove('d-none');
-          box.querySelector('[data-meta-note]').textContent = (d && d.detected)
-            ? 'Hemos leído estos datos de tu factura. Revísalos y corrígelos si hace falta.'
-            : 'No hemos podido leer los datos de la factura: escríbelos a mano, por favor.';
+        // Los campos se piden SOLO si no se han podido leer del documento: lo detectado no se
+        // vuelve a preguntar.
+        if (d && d.ok) {
+          if (d.concept && document.getElementById('invConcept') && !document.getElementById('invConcept').value) {
+            document.getElementById('invConcept').value = d.concept;
+          }
+          if (d.artist && document.getElementById('invArtist') && !document.getElementById('invArtist').value) {
+            document.getElementById('invArtist').value = d.artist;
+          }
+        }
+        const caja = document.getElementById('invMetaBox');
+        const faltan = [];
+        [['number', 'invNumber', 'el número de factura'],
+         ['issue', 'invIssueDate', 'la fecha de emisión'],
+         ['artist', 'invArtist', 'el artista'],
+         ['concept', 'invConcept', 'el concepto']].forEach(function (par) {
+          const campo = document.querySelector('[data-meta-field="' + par[0] + '"]');
+          const inp = document.getElementById(par[1]);
+          const vacio = !(inp && (inp.value || '').trim());
+          if (campo) campo.classList.toggle('d-none', !vacio);
+          if (vacio) faltan.push(par[2]);
+        });
+        if (caja) {
+          caja.classList.toggle('d-none', faltan.length === 0);
+          const nota = caja.querySelector('[data-meta-note]');
+          if (nota) {
+            nota.textContent = faltan.length
+              ? ('No hemos podido leer ' + faltan.join(', ') + ': escríbelo y envía la factura.')
+              : '';
+          }
         }
         cb();
       }).catch(cb);
@@ -632,6 +696,9 @@
     fd.append('promoter_id', (profile && profile.id) || '');
     fd.append('doc_key', key);
     fd.append('file', file);
+    if (WORKER_TYPE) fd.append('worker_type', WORKER_TYPE);
+    const _fecha = document.getElementById('invIssueDate');
+    if (_fecha && _fecha.value) fd.append('issue_date', _fecha.value);
     if (key === 'INVOICE') {
       fd.append('invoice_number', (document.getElementById('invNumber')||{}).value || '');
       fd.append('issue_date', (document.getElementById('invIssueDate')||{}).value || '');
@@ -653,6 +720,7 @@
       try { resp = JSON.parse(xhr.responseText || '{}'); } catch(e){}
       prog.classList.add('d-none');
       if (xhr.status === 200 && resp.ok) {
+        if (resp.warn) { msg.className = 'inv-msg small mt-2 text-warning-emphasis'; msg.textContent = resp.warn; }
         if (resp.docs) renderDocs(resp.docs);
         else {
           slot.querySelector('.inv-drop').classList.add('d-none');

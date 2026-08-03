@@ -1232,6 +1232,15 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   tienen su **icono** de crear/bajar la remesa eligiendo la cuenta (`royalty_liquidation_batch`) y su
   **estado como etiqueta clicable** (`royalty_liquidation_payment_status`: pendiente de pago ↔ pagada).
   El contador de la subpestaña las suma (si no, no cuadraba con lo que se ve).
+  · ⚠️ **Pendiente de pago = la factura está VALIDADA**, no `status='INVOICED'` a secas: ese estado se
+  pone al SUBIR la factura, así que filtrando solo por él se colaban liquidaciones sin factura o con la
+  factura por validar y salían como **filas vacías** («Beneficiario», sin importe). Se cruza con
+  `SupplierInvoice.status='VALIDADA'` (también en el contador). El importe no puede faltar en algo ya
+  validado: congelado → factura → recálculo. Y los avisos de datos que faltan van en **español**
+  (`REMESA_MISSING_LABELS`): `sepa_check_payment` devuelve las claves en inglés («amount», «iban»…) y
+  se estaban pintando tal cual.
+  · **La factura se ve en un POP-UP** al pinchar en cualquier pendiente de pago (`data-pay-doc` +
+  `#payDocModal` en `pagos.js`): PDF en un marco, foto como imagen, con abrir y descargar.
   · **Pagada → contabilidad**: `_royalty_mark_paid` (también desde el justificante de la remesa) y
   `_royalty_accounting_pending_rows` → módulo **«Pendiente de contabilizar»** de `/contabilidad`
   (plantilla nueva `contabilidad.html`) con `royalty_liquidation_accounted`.

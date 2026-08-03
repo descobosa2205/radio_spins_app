@@ -49736,6 +49736,7 @@ def _payment_expense_row(session_db, expense) -> dict:
         "bag_title": (getattr(bag, "title", None) or "").strip(),
         "company_id": str(getattr(bag, "company_id", "") or "") if bag is not None else "",
         "attachment_url": (getattr(expense, "attachment_url", None) or ""),
+        "attachment_name": (getattr(expense, "attachment_name", None) or ""),
         "batch_id": batch_id,
         "in_batch": bool(batch_id),
     }
@@ -49894,9 +49895,15 @@ def _royalty_payment_pending_rows(session_db) -> list[dict]:
     Se pagan a nombre de quien facturó (el `promoter_id` de la factura, que es de donde salen el IBAN
     y el BIC) y se agrupan bajo la empresa del grupo que factura los royalties (PIES). Llevan sus
     avisos: orden de embargo vigente y adelantos/deudas con la casa."""
+    # ⚠️ Pendiente de pago = la factura está **VALIDADA**. `status='INVOICED'` solo dice que la
+    # factura ha llegado (se pone al subirla por el enlace), así que filtrando por el estado a secas
+    # se colaban liquidaciones sin factura o con la factura aún por validar: salían como filas vacías
+    # («Beneficiario», sin datos) y sin importe. Se cruza con la factura.
     try:
         recs = (session_db.query(RoyaltyLiquidation)
+                .join(SupplierInvoice, SupplierInvoice.id == RoyaltyLiquidation.invoice_id)
                 .filter(func.upper(func.coalesce(RoyaltyLiquidation.status, "")) == "INVOICED")
+                .filter(func.upper(func.coalesce(SupplierInvoice.status, "")) == "VALIDADA")
                 .filter(RoyaltyLiquidation.paid_at.is_(None))
                 .order_by(RoyaltyLiquidation.invoice_uploaded_at.asc().nullslast()).limit(400).all())
     except Exception:
@@ -49914,11 +49921,25 @@ def _royalty_payment_pending_rows(session_db) -> list[dict]:
         inv = session_db.get(SupplierInvoice, rec.invoice_id) if getattr(rec, "invoice_id", None) else None
         promoter = session_db.get(Promoter, inv.promoter_id) if (inv is not None and inv.promoter_id) else None
         nombre = (_promoter_display_name(promoter)
-                  or (congelada.get("name") or "").strip()
-                  or "Beneficiario")
+                  or (getattr(promoter, "nick", None) or "").strip()
+                  or (congelada.get("name") or "").strip())
+        # El IMPORTE no puede faltar en algo ya validado: si el congelado no lo trae se coge el de la
+        # factura y, en último caso, se recalcula la liquidación.
         importe = _money_or_zero(congelada.get("total_amount"))
         if importe <= 0 and inv is not None:
             importe = _money_or_zero(getattr(inv, "amount_gross", None))
+        if importe <= 0:
+            try:
+                _ben, _s, _e, _bid = _get_royalty_liquidation_beneficiary_data(
+                    session_db, rec.beneficiary_kind, str(rec.beneficiary_id),
+                    rec.period_start.year, 1 if rec.period_start.month <= 6 else 2)
+                importe = _money_or_zero((_ben or {}).get("total_amount"))
+                if not nombre:
+                    nombre = ((_ben or {}).get("name") or "").strip()
+            except Exception:
+                pass
+        if not nombre:
+            nombre = "Sin beneficiario"
         iban = (getattr(promoter, "bank_account", None) or "").strip()
         bic = (getattr(promoter, "bank_bic", None) or "").strip()
         faltan = sepa_check_payment({"name": nombre, "iban": iban, "bic": bic, "amount": importe})
@@ -49945,6 +49966,9 @@ def _royalty_payment_pending_rows(session_db) -> list[dict]:
             "iban": iban,
             "iban_masked": (_iban_masked(iban) if iban else ""),
             "missing": faltan,
+            # En español: la lista cruda de `sepa_check_payment` viene en inglés («amount», «iban»…)
+            # y se estaba pintando tal cual.
+            "missing_labels": [REMESA_MISSING_LABELS.get(x, x) for x in faltan],
             "status": (rec.status or "").upper(),
             "status_label": etiqueta,
             "status_badge": clase,
@@ -53251,9 +53275,11 @@ def _admin_pending_counts(session_db) -> dict:
         BagExpense.payment_status.in_(["NO_PAGADO", "PENDIENTE", "PARCIAL"])))
     # Las liquidaciones de royalties ya validadas también están pendientes de pago: si no se cuentan
     # aquí, el número de la subpestaña no cuadra con lo que se ve dentro.
-    pago += _n(session_db.query(func.count(RoyaltyLiquidation.id)).filter(
-        func.upper(func.coalesce(RoyaltyLiquidation.status, "")) == "INVOICED",
-        RoyaltyLiquidation.paid_at.is_(None)))
+    pago += _n(session_db.query(func.count(RoyaltyLiquidation.id))
+               .join(SupplierInvoice, SupplierInvoice.id == RoyaltyLiquidation.invoice_id)
+               .filter(func.upper(func.coalesce(RoyaltyLiquidation.status, "")) == "INVOICED",
+                       func.upper(func.coalesce(SupplierInvoice.status, "")) == "VALIDADA",
+                       RoyaltyLiquidation.paid_at.is_(None)))
 
     bolsas_base = and_(
         WorkflowBag.is_archived == False,  # noqa: E712

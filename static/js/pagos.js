@@ -164,5 +164,32 @@
     if (parcial && importe) setTimeout(function () { importe.focus(); }, 300);
   });
 
+  // Pop-up de la FACTURA VALIDADA: al pinchar en cualquier pendiente de pago se ve el documento sin
+  // salir de la pantalla (PDF en un marco, foto como imagen).
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('[data-pay-doc]');
+    if (!btn) return;
+    var url = btn.getAttribute('data-pay-doc') || '';
+    if (!url) return;
+    var modal = document.getElementById('payDocModal');
+    if (!modal) return;
+    e.preventDefault();
+    var titulo = modal.querySelector('[data-pay-doc-title]');
+    if (titulo) titulo.textContent = btn.getAttribute('data-pay-doc-title') || 'Factura';
+    var abrir = modal.querySelector('[data-pay-doc-open]');
+    if (abrir) abrir.setAttribute('href', url);
+    var bajar = modal.querySelector('[data-pay-doc-dl]');
+    if (bajar) bajar.setAttribute('href', url);
+    var cuerpo = modal.querySelector('[data-pay-doc-body]');
+    if (cuerpo) {
+      var bajo = url.toLowerCase();
+      var esImagen = /\.(png|jpe?g|webp|gif|heic)(\?|$)/.test(bajo);
+      cuerpo.innerHTML = esImagen
+        ? '<img src="' + url + '" alt="Factura" style="width:100%;height:auto;display:block;">'
+        : '<iframe src="' + url + '#view=FitH" title="Factura" style="width:100%;height:75vh;border:0;display:block;"></iframe>';
+    }
+    if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(modal).show();
+  });
+
   document.querySelectorAll('[data-pay-drop]').forEach(refresh);
 })();

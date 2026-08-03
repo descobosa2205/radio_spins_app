@@ -7,7 +7,15 @@
        data-pay-item="expense" data-pay-id="{{ row.id }}" data-pay-company="{{ row.company_id }}"
        data-pay-label="{{ row.concept }}" data-pay-amount="{{ row.amount }}">
     <div class="min-w-0">
-      <div><i class="fa fa-grip-vertical text-muted me-2" title="Arrástralo a la remesa (o pincha aquí)"></i><span class="fw-semibold">{{ row.concept }}</span></div>
+      <div><i class="fa fa-grip-vertical text-muted me-2" title="Arrástralo a la remesa (o pincha aquí)"></i>
+        {% if row.attachment_url %}
+          <button type="button" class="btn btn-link p-0 align-baseline text-reset text-decoration-none fw-semibold"
+                  data-pay-doc="{{ row.attachment_url }}" data-pay-doc-title="{{ row.concept }}"
+                  title="Ver la factura">{{ row.concept }} <i class="fa fa-file-invoice text-muted ms-1"></i></button>
+        {% else %}
+          <span class="fw-semibold">{{ row.concept }}</span>
+        {% endif %}
+      </div>
       <div class="small text-muted">{{ row.beneficiary }}{% if row.iban_masked %} · <span class="font-monospace">{{ row.iban_masked }}</span>{% endif %}</div>
       {% if row.partial %}
         <div class="small"><span class="badge text-bg-warning text-dark">Pagado en parte</span>
@@ -311,10 +319,16 @@
                   <i class="fa fa-grip-vertical text-muted"></i>
                   {% if r.photo_url %}<img src="{{ r.photo_url }}" alt="" style="width:30px;height:30px;border-radius:50%;object-fit:cover;border:1px solid #eee;">{% endif %}
                   <div class="flex-grow-1" style="min-width:0;">
-                    <div class="fw-semibold text-truncate">{{ r.name }}</div>
+                    {% if r.invoice_url %}
+                      <button type="button" class="btn btn-link p-0 text-start text-reset text-decoration-none fw-semibold text-truncate d-block"
+                              data-pay-doc="{{ r.invoice_url }}" data-pay-doc-title="{{ r.name }} · {{ r.period_label }}"
+                              title="Ver la factura validada">{{ r.name }} <i class="fa fa-file-invoice text-muted ms-1"></i></button>
+                    {% else %}
+                      <div class="fw-semibold text-truncate">{{ r.name }}</div>
+                    {% endif %}
                     <div class="small text-muted text-truncate">
                       {{ r.period_label }}{% if r.iban_masked %} · {{ r.iban_masked }}{% endif %}
-                      {% if r.missing %}<span class="text-danger"> · falta {{ r.missing|join(', ') }}</span>{% endif %}
+                      {% if r.missing %}<span class="text-danger"> · falta {{ r.missing_labels|join(', ') }}</span>{% endif %}
                     </div>
                     {% if r.embargos %}
                       <div class="small text-danger"><i class="fa fa-triangle-exclamation me-1"></i>Orden de embargo vigente: no abonar</div>
@@ -386,6 +400,22 @@
     {% endfor %}
 
     {# Modal único para «marcar como pagado» (lo rellena el JS con el gasto que se elija) #}
+    {# Pop-up de la FACTURA VALIDADA: se abre al pinchar en cualquier pendiente de pago, para poder
+       comprobarla sin salir de la pantalla. #}
+    <div class="modal fade" id="payDocModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa fa-file-invoice me-2 text-danger"></i><span data-pay-doc-title>Factura</span></h5>
+          <div class="ms-auto d-flex gap-2 me-2">
+            <a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener" data-pay-doc-open title="Abrir en una pestaña"><i class="fa fa-arrow-up-right-from-square"></i></a>
+            <a class="btn btn-sm btn-outline-secondary" download data-pay-doc-dl title="Descargar"><i class="fa fa-download"></i></a>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body p-0" data-pay-doc-body></div>
+      </div></div>
+    </div>
+
     <div class="modal fade" id="payPaidModal" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
         <form method="post" enctype="multipart/form-data" data-pay-paid-form>

@@ -747,11 +747,15 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   recordatorio **resaltado en amarillo** (`#fff3a3`), los botones de Apple/Google Wallet y la
   **autorización entera incrustada con su QR**. ⚠️ `_send_optional_email` devuelve **`(ok, error)`**:
   tratarla como booleano daba la autorización por enviada aunque el SMTP la rechazase (bug real).
-  · **Control de acceso** `public_minor_auth_validate` (su propio token): botón grande para leer el
-  **DNI del menor** con la cámara, otro para el **QR** (`BarcodeDetector` nativo, con respaldo de
-  pegar el enlace) y búsqueda a mano por cualquier dato; `public_minor_auth_check` compara el DNI
-  normalizado (`mrz_normalize_doc_number`) y los nombres, y responde «Autorización de menores OK» con
-  los datos para contrastarlos con el documento.
+  · **Control de acceso** `public_minor_auth_validate` (su propio token): **UN solo botón** de
+  escanear, porque a quien está en la puerta le da igual lo que le pongan delante. Lo resuelve el
+  modo **`DocCamera.open({qr:true, onRead})`**: en cada fotograma se prueba primero el **QR**
+  (`BarcodeDetector` nativo, milisegundos) y después la **banda del documento**, y vale lo que
+  aparezca antes (`onRead` recibe `{qr}` o `{data:{number…}}`). Sin `BarcodeDetector` el DNI se lee
+  igual y el QR se pega a mano. También hay búsqueda por cualquier dato: si lo escrito trae «/» o
+  pasa de 20 caracteres se manda como **código**, no como dato del menor. `public_minor_auth_check`
+  compara el DNI normalizado (`mrz_normalize_doc_number`) y los nombres, y responde «Autorización de
+  menores OK» con los datos para contrastarlos con el documento.
   · **Enlaces con QR**: en la pestaña, el del formulario trae su QR **descargable, arrastrable al
   escritorio** (truco `DownloadURL`) **y copiable**; `concert_minor_auth_qr` sirve el PNG.
   · Los QR los hace **`segno`** (puro Python, en `requirements.txt`) vía `_qr_png_bytes`/`_qr_data_uri`.

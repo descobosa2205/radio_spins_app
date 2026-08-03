@@ -13,23 +13,19 @@
     {% if header.company_logo %}<img class="mv-head__logo" src="{{ header.company_logo }}" alt="">{% endif %}
   </div>
 
+  {# UN SOLO botón: la cámara lee lo que le pongas delante, el DNI del menor o el QR del email. #}
   <div class="mv-tools">
     <button class="mv-big" type="button" data-mv-scan>
       <i class="fa fa-expand"></i>
-      <span>Escanear el DNI del menor</span>
-      <small>Lectura instantánea de la banda del documento</small>
-    </button>
-    <button class="mv-big mv-big--alt" type="button" data-mv-qr>
-      <i class="fa fa-qrcode"></i>
-      <span>Escanear el QR</span>
-      <small>El código del email del tutor</small>
+      <span>Escanear</span>
+      <small>El DNI del menor o el código QR: lee lo que le pongas delante</small>
     </button>
   </div>
 
   <div class="mv-manual">
     <div class="input-group">
       <span class="input-group-text"><i class="fa fa-magnifying-glass"></i></span>
-      <input class="form-control" data-mv-q placeholder="Buscar por DNI, nombre del menor, del tutor o del autorizado" autocomplete="off">
+      <input class="form-control" data-mv-q placeholder="O busca por DNI, nombre del menor, del tutor o del autorizado" autocomplete="off">
       <button class="btn btn-danger" type="button" data-mv-search>Buscar</button>
     </div>
   </div>
@@ -100,9 +96,13 @@
 
   root.querySelector('[data-mv-scan]').addEventListener('click', function () {
     if (!window.DocCamera) { alert('Este navegador no puede abrir la cámara. Busca por DNI a mano.'); return; }
+    // UNA sola lectura para las dos cosas (`qr: true`): el escáner prueba el código QR y la banda del
+    // documento en cada fotograma y vale lo que aparezca antes.
     window.DocCamera.open({
-      title: 'DNI del menor',
+      title: 'Escanear DNI o QR',
+      qr: true,
       onRead: function (res) {
+        if (res.qr) { consultar({ qr: res.qr }, ''); return; }
         var num = ((res.data || {}).number || '').toUpperCase();
         if (!num) { pintar({ ok: true, found: false }, ''); return; }
         consultar({ q: num }, num);
@@ -110,64 +110,12 @@
     });
   });
 
-  // El QR se lee con el detector nativo del navegador si está (iOS/Android/Chrome modernos).
-  root.querySelector('[data-mv-qr]').addEventListener('click', function () {
-    if (!('BarcodeDetector' in window)) {
-      var pegado = window.prompt('Pega el enlace del QR (o su código):', '');
-      if (pegado) consultar({ qr: pegado }, '');
-      return;
-    }
-    abrirLectorQr();
-  });
-
-  function abrirLectorQr() {
-    var ov = document.createElement('div');
-    ov.className = 'doccam';
-    ov.innerHTML = '<div class="doccam__panel">' +
-      '<div class="doccam__head"><span><i class="fa fa-qrcode me-2"></i>Escanear el QR</span>' +
-      '<button type="button" class="btn-close btn-close-white" data-qr-close></button></div>' +
-      '<div class="doccam__stage"><video class="doccam__video" playsinline muted autoplay></video>' +
-      '<div class="doccam__hint">Encuadra el código QR del email</div></div>' +
-      '<div class="doccam__foot"><div class="doccam__state"><span class="doccam__dot"></span>Buscando el código…</div></div>' +
-      '</div>';
-    document.body.appendChild(ov);
-    document.body.classList.add('doccam-open');
-    var video = ov.querySelector('video'), pista = null, vivo = true;
-    function cerrar() {
-      vivo = false;
-      if (pista) pista.getTracks().forEach(function (t) { try { t.stop(); } catch (_) {} });
-      if (ov.parentNode) ov.parentNode.removeChild(ov);
-      document.body.classList.remove('doccam-open');
-    }
-    ov.addEventListener('click', function (e) { if (e.target.closest('[data-qr-close]') || e.target === ov) cerrar(); });
-    var det = new window.BarcodeDetector({ formats: ['qr_code'] });
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
-      .then(function (s) {
-        if (!vivo) { s.getTracks().forEach(function (t) { t.stop(); }); return; }
-        pista = s; video.srcObject = s;
-        return video.play().catch(function () {});
-      }).then(function bucle() {
-        if (!vivo) return;
-        det.detect(video).then(function (codigos) {
-          if (!vivo) return;
-          if (codigos && codigos.length) {
-            var texto = codigos[0].rawValue || '';
-            cerrar();
-            consultar({ qr: texto }, '');
-            return;
-          }
-          setTimeout(bucle, 220);
-        }).catch(function () { if (vivo) setTimeout(bucle, 400); });
-      }).catch(function () {
-        cerrar();
-        alert('No se ha podido abrir la cámara.');
-      });
-  }
-
   function buscarTexto() {
     var inp = root.querySelector('[data-mv-q]');
     var t = (inp.value || '').trim();
     if (!t) return;
+    // Si lo escrito es un enlace o un token largo, es el contenido del QR, no un dato del menor.
+    if (t.indexOf('/') >= 0 || t.length > 20) { consultar({ qr: t }, ''); return; }
     consultar({ q: t }, t);
   }
   root.querySelector('[data-mv-search]').addEventListener('click', buscarTexto);

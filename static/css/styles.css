@@ -3323,7 +3323,6 @@ body.doccam-open { overflow: hidden; }
 .mv-big > i{ display:block; font-size:2rem; margin-bottom:.5rem; }
 .mv-big > span{ display:block; font-weight:700; font-size:1.02rem; }
 .mv-big > small{ display:block; opacity:.85; font-size:.8rem; margin-top:.2rem; }
-.mv-big--alt{ background:var(--brand-accent,#007CA2); }
 .mv-manual{ margin-bottom:1rem; }
 .mv-load{ text-align:center; color:#868e96; padding:1.2rem; }
 .mv-ok, .mv-ko{ display:flex; gap:.9rem; align-items:center; border-radius:16px; padding:1.1rem 1.2rem;

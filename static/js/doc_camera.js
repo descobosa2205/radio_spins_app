@@ -20,6 +20,12 @@
  *   No consulta al servidor (sirve en páginas públicas, sin sesión): en cuanto un fotograma sale
  *   limpio devuelve los datos y el recorte de la tarjeta, y se cierra.
  *   onRead({ data: {…los mismos campos…}, image: 'data:image/jpeg;base64,…' })
+ *
+ * Modo DOCUMENTO **o** QR:  window.DocCamera.open({ onRead: fn, qr: true })
+ *   UN SOLO escáner para las dos cosas: en cada fotograma se prueba primero el código QR (detector
+ *   nativo del navegador, instantáneo) y después la banda del documento. Vale lo que aparezca antes,
+ *   así que quien escanea no tiene que decir de antemano qué va a poner delante.
+ *   Con QR:  onRead({ qr: '<contenido del código>', data: {} })
  */
 (function () {
   'use strict';
@@ -28,6 +34,7 @@
   var INTERVALO_MS = 220;          // entre intentos; el OCR de la banda tarda ~150-400 ms
   var MAX_INTENTOS = 90;           // ~20 s: pasado eso se avisa en vez de girar en balde
   var overlay = null, stream = null, corriendo = false, temporizador = null, cbs = {};
+  var detQr = null;                // detector de QR (solo en modo qr y si el navegador lo trae)
   // ⚠️ Todo lo asíncrono (getUserMedia, el OCR, el fetch) lleva el número de SESIÓN con el que se
   // lanzó: al cerrar o reiniciar el escáner, lo que vuelva de la sesión vieja se descarta. Sin esto
   // una cámara que tardaba en abrir se quedaba encendida después de cerrar, y una consulta lenta de
@@ -58,10 +65,16 @@
         '<div class="doccam__stage">' +
           '<video class="doccam__video" playsinline muted autoplay></video>' +
           '<div class="doccam__guide"><span class="doccam__band"></span></div>' +
-          '<div class="doccam__hint" data-doccam-hint>Pon el documento dentro del marco, con la banda de letras de abajo bien visible</div>' +
+          '<div class="doccam__hint" data-doccam-hint>' +
+            (cbs.qr
+              ? 'Pon delante el <b>DNI</b> (dentro del marco, con la banda de letras de abajo visible) <b>o el código QR</b>: lee lo que aparezca antes'
+              : 'Pon el documento dentro del marco, con la banda de letras de abajo bien visible') +
+          '</div>' +
         '</div>' +
         '<div class="doccam__foot">' +
-          '<div class="doccam__state" data-doccam-state><span class="doccam__dot"></span>Buscando la banda del documento…</div>' +
+          '<div class="doccam__state" data-doccam-state><span class="doccam__dot"></span>' +
+            (cbs.qr ? 'Buscando un documento o un código QR…' : 'Buscando la banda del documento…') +
+          '</div>' +
           '<div class="d-flex gap-2">' +
             '<button type="button" class="btn btn-sm btn-outline-secondary" data-doccam-manual><i class="fa fa-keyboard me-1"></i>Escribir el número</button>' +
             '<button type="button" class="btn btn-sm btn-outline-secondary" data-doccam-flip><i class="fa fa-camera-rotate me-1"></i>Cambiar cámara</button>' +
@@ -191,10 +204,29 @@
     intentos += 1;
     if (intentos > MAX_INTENTOS) {
       corriendo = false;
-      estado('No se ha podido leer la banda del documento. Prueba con más luz, sin reflejos, o escribe el número.', 'is-err');
+      estado(cbs.qr
+        ? 'No se ha podido leer ni el documento ni el código. Prueba con más luz, sin reflejos, o escribe el número.'
+        : 'No se ha podido leer la banda del documento. Prueba con más luz, sin reflejos, o escribe el número.', 'is-err');
       return;
     }
     temporizador = setTimeout(function () { bucle(miSesion); }, INTERVALO_MS);
+  }
+
+  // Un solo escaneo para las dos cosas: el QR se prueba PRIMERO porque el detector es nativo y tarda
+  // unos pocos milisegundos; si no hay código en el fotograma se sigue con la banda del documento.
+  function probarQr(video, miSesion) {
+    if (!detQr || !video || !video.videoWidth) return Promise.resolve(false);
+    return detQr.detect(video).then(function (codigos) {
+      if (!corriendo || !viva(miSesion)) return true;      // ya no es asunto de esta sesión
+      var texto = (codigos && codigos.length) ? (codigos[0].rawValue || '') : '';
+      if (!texto) return false;
+      corriendo = false;
+      estado('Código leído', 'is-ok');
+      var fn = cbs.onRead;
+      close();
+      if (fn) fn({ qr: texto, data: {}, image: '' });
+      return true;
+    }).catch(function () { return false; });               // navegador quisquilloso: se sigue con el MRZ
   }
 
   function bucle(miSesion) {
@@ -205,6 +237,18 @@
       return;
     }
     var video = overlay.querySelector('.doccam__video');
+    if (detQr) {
+      probarQr(video, miSesion).then(function (listo) {
+        if (listo) return;                                 // ya se ha resuelto (o se ha cerrado)
+        if (corriendo && viva(miSesion)) bucleDoc(miSesion, video);
+      });
+      return;
+    }
+    bucleDoc(miSesion, video);
+  }
+
+  function bucleDoc(miSesion, video) {
+    if (!corriendo || !viva(miSesion)) return;
     var banda = video ? recorteBanda(video) : null;
     if (!banda) { reintentar(miSesion); return; }        // el vídeo aún no tiene dimensiones
     window.DocScan.ocrMrz(banda).then(function (texto) {
@@ -328,14 +372,23 @@
 
   // Salida sin cámara: escribir el número a mano y buscar igual.
   function manual() {
-    var numero = window.prompt('Número del documento (DNI, NIE o pasaporte):', '');
+    var numero = window.prompt(cbs.qr
+      ? 'Escribe el número del DNI, o pega el enlace del código QR:'
+      : 'Número del documento (DNI, NIE o pasaporte):', '');
     if (!numero) return;
     corriendo = false;
-    // En modo solo leer no hay nada que consultar: se devuelve el número tal cual.
+    // En modo solo leer no hay nada que consultar: se devuelve lo escrito tal cual.
     if (cbs.onRead) {
       var fn = cbs.onRead;
+      var txt = String(numero).trim();
       close();
-      fn({ data: { number: String(numero).toUpperCase().replace(/[^0-9A-Z]/g, ''), manual: true }, image: '' });
+      // Con el lector de QR activo, lo que se escribe puede ser un enlace o un token (largo): eso
+      // NO es un número de documento, así que se devuelve como código.
+      if (cbs.qr && (txt.indexOf('/') >= 0 || txt.length > 20)) {
+        fn({ qr: txt, data: {}, image: '' });
+        return;
+      }
+      fn({ data: { number: txt.toUpperCase().replace(/[^0-9A-Z]/g, ''), manual: true }, image: '' });
       return;
     }
     var mia = sesion;
@@ -360,6 +413,7 @@
     corriendo = false;
     sesion += 1;                     // lo que vuelva de la sesión anterior se descarta
     if (temporizador) { clearTimeout(temporizador); temporizador = null; }
+    detQr = null;
     pararCamara();
     if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
     overlay = null;
@@ -369,6 +423,12 @@
   function open(opciones) {
     cbs = opciones || {};
     if (overlay) close();
+    // Lector de QR además del documento: solo tiene sentido en modo «solo leer» (con onRead), porque
+    // un código no es un número de documento que se pueda consultar contra la base.
+    detQr = null;
+    if (cbs.qr && cbs.onRead && ('BarcodeDetector' in window)) {
+      try { detQr = new window.BarcodeDetector({ formats: ['qr_code'] }); } catch (_) { detQr = null; }
+    }
     overlay = ui();
     document.body.classList.add('doccam-open');
     sesion += 1; intentos = 0;

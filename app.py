@@ -43128,7 +43128,9 @@ PERSONNEL_DEPARTMENTS = [
 ]
 
 MEDIA_TYPES = ["TV", "Radio", "Prensa", "Digital", "Agencia", "Podcast"]
-INVOICE_KINDS = [("RECEIVED", "Recibidas"), ("ISSUED", "Emitidas")]
+# La pestaña UPLOADED lista TODAS las facturas que suben los terceros a la app (SupplierInvoice),
+# agrupadas por quien las emite; RECEIVED/ISSUED siguen siendo el registro manual (InvoiceRecord).
+INVOICE_KINDS = [("UPLOADED", "Subidas por terceros"), ("RECEIVED", "Recibidas"), ("ISSUED", "Emitidas")]
 INVOICE_STATUS_OPTIONS = [
     "PENDIENTE",
     "RECIBIDA",
@@ -56314,6 +56316,118 @@ def bag_restore(bag_id):
 
 
 
+SUPPLIER_INVOICE_STATUS_META = {
+    "PENDIENTE": ("Pendiente de validar", "text-bg-warning text-dark"),
+    "VALIDADA": ("Validada", "text-bg-success"),
+    "RECHAZADA": ("Rechazada", "text-bg-danger"),
+}
+
+
+def _supplier_invoice_groups(session_db, *, q: str = "", promoter_id: str = "",
+                             status: str = "", year: str = "", limit: int = 3000) -> list[dict]:
+    """TODAS las facturas que suben los terceros a la app, AGRUPADAS POR QUIEN LAS EMITE.
+
+    Da igual por dónde hayan entrado (el enlace general, la petición de una bolsa, la factura de una
+    liquidación de royalties o una dirigida a una persona de la oficina): la base de facturas las
+    tiene que enseñar todas, y lo natural es verlas por tercero."""
+    consulta = (session_db.query(SupplierInvoice)
+                .options(joinedload(SupplierInvoice.promoter))
+                .order_by(SupplierInvoice.created_at.desc()))
+    if promoter_id:
+        pid = to_uuid(promoter_id)
+        if pid:
+            consulta = consulta.filter(SupplierInvoice.promoter_id == pid)
+    if status:
+        consulta = consulta.filter(func.upper(func.coalesce(SupplierInvoice.status, "")) == status.upper())
+    if year:
+        try:
+            consulta = consulta.filter(func.extract("year", SupplierInvoice.issue_date) == int(year))
+        except Exception:
+            pass
+    if q:
+        consulta = consulta.filter(or_(
+            _sa_contains_text(SupplierInvoice.invoice_number, q),
+            _sa_contains_text(SupplierInvoice.concept_text, q),
+            _sa_contains_text(SupplierInvoice.artist_text, q),
+            _sa_contains_text(SupplierInvoice.original_name, q),
+        ))
+    filas = consulta.limit(limit).all()
+    # Si se busca texto, también valen las que coincidan por el NOMBRE del tercero (que no está en la
+    # tabla de la factura, así que no se puede filtrar en la consulta). Se casa POR PALABRAS: quien
+    # escribe «alfa uno» no tiene por qué acordarse del orden ni de lo que hay en medio.
+    if q and not promoter_id:
+        palabras = [p for p in _norm_text_key(q).split() if p]
+        extra = (session_db.query(SupplierInvoice)
+                 .options(joinedload(SupplierInvoice.promoter))
+                 .order_by(SupplierInvoice.created_at.desc()).limit(limit).all())
+        vistas = {str(x.id) for x in filas}
+        for inv in extra:
+            if str(inv.id) in vistas:
+                continue
+            nombre = _norm_text_key(" ".join([
+                _promoter_display_name(inv.promoter) or "",
+                (getattr(inv.promoter, "nick", None) or ""),
+                (getattr(inv.promoter, "tax_id", None) or ""),
+            ]))
+            if palabras and all(p in nombre for p in palabras):
+                filas.append(inv)
+    grupos: dict = {}
+    for inv in filas:
+        prom = inv.promoter
+        clave = str(inv.promoter_id or "")
+        grupo = grupos.get(clave)
+        if grupo is None:
+            grupo = grupos[clave] = {
+                "promoter_id": clave,
+                "name": (_promoter_display_name(prom) or getattr(prom, "nick", None) or "Tercero"),
+                "nick": (getattr(prom, "nick", None) or ""),
+                "tax_id": (getattr(prom, "tax_id", None) or ""),
+                "photo_url": (getattr(prom, "logo_url", None) or ""),
+                "url": (url_for("promoter_detail_view", pid=clave) if clave else ""),
+                "rows": [],
+                "total": Decimal("0"),
+                "pending": 0,
+            }
+        etiqueta, clase = SUPPLIER_INVOICE_STATUS_META.get(
+            (inv.status or "PENDIENTE").upper(), ((inv.status or "—"), "text-bg-light border text-dark"))
+        importe = _money_or_zero(inv.amount_gross)
+        # De dónde viene la factura (para saber a qué corresponde sin salir de aquí).
+        origen, origen_url = "", ""
+        if getattr(inv, "royalty_liquidation_id", None):
+            origen = "Liquidación de royalties"
+            origen_url = url_for("administration_royalty_invoice_review", invoice_id=inv.id)
+        elif getattr(inv, "bag_id", None):
+            origen = "Bolsa de gastos"
+            origen_url = url_for("bag_detail_view", bag_id=inv.bag_id)
+        elif getattr(inv, "target_user_id", None):
+            origen = "Gasto de una persona"
+        else:
+            origen = "Enlace de facturación"
+        grupo["rows"].append({
+            "id": str(inv.id),
+            "number": (inv.invoice_number or ""),
+            "issue_label": (inv.issue_date.strftime("%d/%m/%Y") if inv.issue_date else ""),
+            "created_label": (inv.created_at.strftime("%d/%m/%Y") if inv.created_at else ""),
+            "amount": importe,
+            "artist_text": (inv.artist_text or ""),
+            "concept_text": (inv.concept_text or ""),
+            "status": (inv.status or "PENDIENTE").upper(),
+            "status_label": etiqueta,
+            "status_badge": clase,
+            "reject_reason": (inv.reject_reason or ""),
+            "file_url": (inv.file_url or ""),
+            "file_name": (inv.original_name or "Factura"),
+            "origin": origen,
+            "origin_url": origen_url,
+        })
+        grupo["total"] += importe
+        if (inv.status or "PENDIENTE").upper() == "PENDIENTE":
+            grupo["pending"] += 1
+    salida = list(grupos.values())
+    salida.sort(key=lambda g: _norm_text_key(g["name"]))
+    return salida
+
+
 @app.route("/facturas", methods=["GET", "POST"], endpoint="invoices_view")
 @admin_required
 def invoices_view():
@@ -56349,9 +56463,34 @@ def invoices_view():
             flash("Factura guardada.", "success")
             return redirect(url_for("invoices_view", tab=invoice_kind))
 
-        tab = (request.args.get("tab") or "RECEIVED").strip().upper()
-        if tab not in {"RECEIVED", "ISSUED"}:
-            tab = "RECEIVED"
+        tab = (request.args.get("tab") or "UPLOADED").strip().upper()
+        if tab not in {"UPLOADED", "RECEIVED", "ISSUED"}:
+            tab = "UPLOADED"
+        # Pestaña SUBIDAS POR TERCEROS: todas las facturas que entran por la app, por tercero.
+        if tab == "UPLOADED":
+            f_q = (request.args.get("q") or "").strip()
+            f_status = (request.args.get("status") or "").strip().upper()
+            f_year = (request.args.get("year") or "").strip()
+            grupos = _supplier_invoice_groups(session_db, q=f_q, status=f_status, year=f_year)
+            years_up = sorted({str(getattr(x, "issue_date", None).year) for x in
+                               session_db.query(SupplierInvoice).filter(SupplierInvoice.issue_date.isnot(None)).all()},
+                              reverse=True)
+            return render_template(
+                "invoices.html",
+                tab=tab,
+                invoices=[],
+                supplier_groups=grupos,
+                supplier_total=sum((g["total"] for g in grupos), Decimal("0")),
+                supplier_count=sum(len(g["rows"]) for g in grupos),
+                supplier_pending=sum(g["pending"] for g in grupos),
+                supplier_status_options=list(SUPPLIER_INVOICE_STATUS_META.keys()),
+                artists=[], companies=[], bags=[],
+                years=years_up,
+                invoice_kinds=INVOICE_KINDS,
+                invoice_status_options=INVOICE_STATUS_OPTIONS,
+                filter_artist="", filter_year=f_year, filter_company="", filter_status=f_status,
+                filter_start="", filter_end="", filter_q=f_q,
+            )
         query = session_db.query(InvoiceRecord).options(joinedload(InvoiceRecord.artist), joinedload(InvoiceRecord.company), joinedload(InvoiceRecord.bag)).outerjoin(Artist, InvoiceRecord.artist_id == Artist.id).outerjoin(GroupCompany, InvoiceRecord.company_id == GroupCompany.id).outerjoin(WorkflowBag, InvoiceRecord.bag_id == WorkflowBag.id).filter(InvoiceRecord.invoice_kind == tab)
         f_artist = (request.args.get("artist") or "").strip()
         f_year = (request.args.get("year") or "").strip()
@@ -56396,6 +56535,7 @@ def invoices_view():
             "invoices.html",
             invoices=invoices,
             tab=tab,
+            supplier_groups=[],
             artists=artists,
             companies=companies,
             bags=bags,

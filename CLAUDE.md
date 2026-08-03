@@ -1121,6 +1121,14 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   vínculo `USER:<id>` o por DNI. Los semáforos, la página pública y las exportaciones (PDF/Excel)
   solo piden/pintan lo que le toca a cada uno («—» o en gris si no aplica).
 
+- **Bases de datos → Facturas · «Subidas por terceros»** (pestaña por defecto): TODAS las facturas
+  que entran por la app (`SupplierInvoice`: enlace general, petición de una bolsa, factura de una
+  liquidación de royalties o dirigida a una persona), **agrupadas por el tercero que las emite**
+  (`_supplier_invoice_groups`), con su origen, su estado y el motivo del rechazo. Las pestañas
+  «Recibidas»/«Emitidas» siguen siendo el registro manual (`InvoiceRecord`), que es otra tabla. El
+  buscador casa **por palabras** contra el nombre/nick/CIF del tercero (eso no se puede filtrar en la
+  consulta porque no está en la tabla de la factura).
+
 - **Pendiente de facturar (módulo del enlace de subida de facturas)**: se llamaba «Lo que te
   pedimos» y las cantidades salían **0,00 €**. Motor único **`_invoice_request_amounts(net, gross)`**:
   el importe a facturar es SIEMPRE **base + IVA** (`INVOICE_REQUEST_VAT_PCT` = 21), y como unos gastos

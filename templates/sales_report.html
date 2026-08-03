@@ -283,7 +283,7 @@
 
           <div class="alert alert-light border small mb-3">
             Se enviará el reporte de <strong>{{ day.strftime('%d/%m/%Y') }}</strong>.
-            <i class="fa fa-shield-halved ms-1"></i> La <strong>recaudación solo la verá</strong> quien tiene permiso de datos económicos; el resto recibe el mismo correo <strong>sin importes</strong>.
+            <i class="fa fa-shield-halved ms-1"></i> La <strong>recaudación solo la verá</strong> quien tenga concedida esa característica (dirección y ticketing de salida); el resto recibe el mismo correo <strong>sin importes</strong>.
           </div>
 
           <div class="mb-2">
@@ -304,8 +304,8 @@
               <input class="form-check-input m-0 sr-recipient" type="checkbox" name="recipient_ids" value="{{ r.id }}" checked>
               {% if r.photo %}<img src="{{ r.photo }}" alt="" style="width:26px;height:26px;border-radius:50%;object-fit:cover">{% else %}<span class="d-inline-flex align-items-center justify-content-center bg-light rounded-circle" style="width:26px;height:26px"><i class="fa fa-user text-muted small"></i></span>{% endif %}
               <span class="flex-grow-1 small">{{ r.nick }} <span class="text-muted">· {{ r.email }}</span></span>
-              {% if r.econ %}<span class="badge text-bg-success" title="Tiene permiso económico"><i class="fa fa-euro-sign me-1"></i>con recaudación</span>
-              {% else %}<span class="badge text-bg-secondary" title="Sin permiso económico">sin importes</span>{% endif %}
+              {% if r.econ %}<span class="badge text-bg-success" title="Tiene concedida la recaudación del reporte"><i class="fa fa-euro-sign me-1"></i>con recaudación</span>
+              {% else %}<span class="badge text-bg-secondary" title="No tiene concedida la recaudación: recibe el reporte sin importes">sin importes</span>{% endif %}
             </label>
             {% endfor %}
           </div>

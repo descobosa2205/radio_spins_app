@@ -557,6 +557,10 @@ NON_CONCERT_CACHE_LABELS = {
     "GIRAS_COMPRADAS": "Con caché", "CADIZ": "Con caché", "GRATUITO": "Sin caché",
 }
 
+# La RECAUDACIÓN del reporte de ventas es una característica con su propio permiso: nace apagada
+# para todos (dirección la ve siempre, y a Ticketing se le concede de salida).
+SALES_REVENUE_ACCESS_KEY = "ventas.recaudacion"
+
 SALES_SECTION_ORDER = ["EMPRESA", "GIRAS_COMPRADAS", "PARTICIPADOS", "CADIZ", "VENDIDO"]
 SALES_SECTION_TITLE = {k: CONCERT_SALE_TYPE_LABELS[k] for k in SALES_SECTION_ORDER}
 # Etiqueta corta + icono para los "chips" de tipo del reporte de ventas (estilo filtros de invitaciones).
@@ -33271,6 +33275,8 @@ def sales_report_view():
     ctx["filter_action_url"] = url_for("sales_report_view")
     ctx["clear_url"] = url_for("sales_report_view", d=day.isoformat())
     ctx["email_recipients"] = _sales_report_recipients() if (can_edit_sales() or is_master()) else []
+    # La RECAUDACIÓN tiene su propio permiso: aquí manda ese, no la economía general.
+    ctx["CAN_VIEW_ECON"] = can_view_sales_revenue()
     return render_template("sales_report.html", **ctx)
 
 @app.get("/ventas/anteriores", endpoint="sales_report_past")
@@ -33285,6 +33291,8 @@ def sales_report_past():
     ctx["filter_action_url"] = url_for("sales_report_past")
     ctx["clear_url"] = url_for("sales_report_past", d=day.isoformat())
     ctx["email_recipients"] = _sales_report_recipients() if (can_edit_sales() or is_master()) else []
+    # La RECAUDACIÓN tiene su propio permiso: aquí manda ese, no la economía general.
+    ctx["CAN_VIEW_ECON"] = can_view_sales_revenue()
     return render_template("sales_report.html", **ctx)
 
 
@@ -33314,11 +33322,12 @@ def _sales_report_recipients() -> list[dict]:
             if not email or "@" not in email:
                 continue
             role = int(u.role or 0)
-            # MISMA clave que la pantalla del reporte (can_view_economics resuelve el endpoint a
-            # la hoja «ventas.reportes»): si en pantalla no ve la recaudación, por correo tampoco.
-            econ = role in (3, 4, 6, 10) or _state_has_access(
-                {"role": role, "grants": grants_by_user.get(u.id, {})},
-                "ventas.reportes", econ=True, include_descendants=True)
+            # MISMA regla que la pantalla: la recaudación es su propia característica
+            # (`ventas.recaudacion`), concedida expresamente. Si en pantalla no la ve, por correo
+            # tampoco. ⚠️ Se mira el grant EXACTO: por el padre («ventas») la vería cualquiera con
+            # economía en Ventas, que es justo lo que se quería cerrar.
+            _grant = (grants_by_user.get(u.id, {}) or {}).get(SALES_REVENUE_ACCESS_KEY)
+            econ = role == 10 or bool(_grant and (_grant.get("can_view_basic") or _grant.get("can_view_econ")))
             out.append({"id": str(u.id), "nick": (p.nick or _email_to_nick(email)).strip(),
                         "email": email, "photo": p.photo_url or "", "econ": bool(econ)})
         out.sort(key=lambda x: x["nick"].lower())
@@ -33643,7 +33652,8 @@ def sales_report_pdf():
         **filters,
     )
 
-    show_econ = can_view_economics()
+    # La RECAUDACIÓN es su propia característica: el A4 imprime lo mismo que se ve en pantalla.
+    show_econ = can_view_sales_revenue()
 
     from xml.sax.saxutils import escape as _xml_escape
     from reportlab.lib.styles import ParagraphStyle
@@ -33875,7 +33885,7 @@ def sales_update_report_pdf():
         if not selected_fields:
             selected_fields = default_fields
 
-        if not can_view_economics():
+        if not can_view_sales_revenue():
             selected_fields = [f for f in selected_fields if f not in ("gross", "net", "rebate_net")]
 
         artist_ids = [a for a in request.args.getlist("artist_ids") if a]
@@ -34217,9 +34227,9 @@ def _fmt_money_eur(n: float) -> str:
 @app.get("/ventas/informe/<cid>", endpoint="sales_event_report_view")
 @admin_required
 def sales_event_report_view(cid):
-    # Si el usuario no puede ver economía, no debe acceder al informe del concierto.
-    if not can_view_economics():
-        return forbid("Tu usuario no tiene permisos para ver el informe económico de ventas.")
+    # El informe por concierto ES la recaudación de ese concierto: mismo permiso que el reporte.
+    if not can_view_sales_revenue():
+        return forbid("Tu usuario no tiene permiso para ver la recaudación del reporte de ventas.")
 
     day = get_day("d")
     session_db = db()
@@ -34453,6 +34463,8 @@ def sales_event_report_view(cid):
 
         return render_template(
             "sales_event_report.html",
+            # Mismo permiso que el reporte: la plantilla esconde los importes con CAN_VIEW_ECON.
+            CAN_VIEW_ECON=can_view_sales_revenue(),
             day=day,
             concert=c,
             emit_date=emit_date,
@@ -34487,7 +34499,7 @@ def sales_event_report_view(cid):
 @app.get("/ventas/informe/<cid>/pdf", endpoint="sales_event_report_pdf")
 @admin_required
 def sales_event_report_pdf(cid):
-    show_econ = can_view_economics()
+    show_econ = can_view_sales_revenue()
     if not REPORTLAB_AVAILABLE:
         flash("El servidor no tiene ReportLab instalado. Añade 'reportlab' a requirements.txt.", "danger")
         return redirect(request.referrer or url_for("sales_event_report_view", cid=cid))
@@ -39090,6 +39102,9 @@ def _bootstrap_schema_bg():
     _safe_ensure(lambda: globals()["_promo_access_seed"](), "_promo_access_seed")
     # Una sola vez: producción entra en las bolsas (gestiona los gastos de lo que produce).
     _safe_ensure(lambda: globals()["_produccion_bags_access_seed"](), "_produccion_bags_access_seed")
+    # Una sola vez: la RECAUDACIÓN del reporte de ventas (permiso nuevo, apagado para todos) se
+    # concede a Ticketing, que es quien lleva las entradas.
+    _safe_ensure(lambda: globals()["_sales_revenue_access_seed"](), "_sales_revenue_access_seed")
     # A partir de aquí la instancia SÍ puede recibir tráfico. Se marca pase lo que pase (si alguna
     # migración falló, ya se ha anotado en el log): quedarse sin marcar dejaría la instancia
     # inservible, que es peor que arrancar con un aviso.
@@ -43682,6 +43697,9 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "ventas", "label": "Ventas", "section_key": "ventas", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 110, "description": "Venta de entradas: informes y carga de cifras (con importes)."},
     {"key": "ventas.reportes", "label": "Reporte de ventas", "section_key": "ventas", "parent_key": "ventas", "level": "TAB", "economic_capable": True, "sort_order": 111, "description": "Informe de ventas con importes. Página «Reporte de ventas»."},
     {"key": "ventas.actualizar", "label": "Actualizar ventas", "section_key": "ventas", "parent_key": "ventas", "level": "TAB", "economic_capable": True, "sort_order": 112, "description": "Carga/actualización de cifras de venta de entradas."},
+    # La RECAUDACIÓN es una característica aparte: se concede a quien tiene que ver el dinero de las
+    # entradas (dirección y ticketing de salida), no a todo el que entra en el reporte.
+    {"key": "ventas.recaudacion", "label": "Recaudación del reporte", "section_key": "ventas", "parent_key": "ventas.reportes", "level": "SUBTAB", "economic_capable": True, "sort_order": 113, "description": "Ver los IMPORTES del reporte de ventas (recaudación bruta y neta, precios, informe por concierto y su columna de dinero). Sin esto, el reporte se ve sin importes."},
 
     {"key": "artists", "label": "Artistas", "section_key": "artists", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 120, "description": "Ficha de artistas y todas sus pestañas (Artistas)."},
     {"key": "artists.datos", "label": "Datos del artista", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 121, "description": "Pestaña «Datos» del artista: información general, foto, redes."},
@@ -45043,6 +45061,21 @@ def can_view_economics() -> bool:
     if key and _state_has_access(state, key, econ=True, include_descendants=True):
         return True
     return int(state.get("role") or 0) in (3, 4, 6, 10)
+
+
+def can_view_sales_revenue() -> bool:
+    """¿Ve esta persona la RECAUDACIÓN del reporte de venta de entradas?
+
+    Es una **característica propia** (`SALES_REVENUE_ACCESS_KEY`), no una consecuencia de tener
+    economía en otra parte: la recaudación nace **desactivada para todo el mundo**. Dirección la ve
+    siempre y a **Ticketing** se le concede de salida (`_sales_revenue_access_seed`).
+    ⚠️ Se comprueba el grant EXACTO de ese recurso: `_state_has_access` daría acceso por el padre
+    (`ventas`), y entonces cualquiera con economía en Ventas la seguiría viendo."""
+    state = _current_user_state()
+    if int(state.get("role") or 0) == 10:
+        return True
+    grant = (state.get("grants") or {}).get(SALES_REVENUE_ACCESS_KEY)
+    return bool(grant and (grant.get("can_view_basic") or grant.get("can_view_econ")))
 
 
 def can_edit_radio() -> bool:
@@ -49689,6 +49722,48 @@ def _produccion_bags_access_seed() -> None:
     """PRODUCCIÓN necesita entrar en las bolsas: es quien gestiona los gastos de lo que produce y
     quien cierra la bolsa de una promoción con producción."""
     _access_seed_for_department("produccion_bags_access_seed_v1", "databases.bags", {"producción", "produccion"})
+
+
+def _sales_revenue_access_seed() -> None:
+    """Concede la RECAUDACIÓN del reporte de ventas al departamento de **Ticketing**, una vez.
+
+    La recaudación nace desactivada para todo el mundo (es un permiso propio). Dirección la ve
+    siempre por su rol; ticketing es quien lleva las entradas, así que se le da de salida y luego
+    dirección la concede o la quita a quien quiera."""
+    session_db = db()
+    try:
+        if _get_app_setting("sales_revenue_access_seed_v1"):
+            return
+        if session_db.get(UserAccessResource, SALES_REVENUE_ACCESS_KEY) is None:
+            return                                   # aún no se ha sincronizado el catálogo
+        fuera = _inactive_user_ids(session_db)
+        tocados = 0
+        for user, profile in (session_db.query(User, UserProfile)
+                              .join(UserProfile, UserProfile.user_id == User.id).all()):
+            if user.id in fuera:
+                continue
+            deps = [str(d).strip().lower() for d in (getattr(profile, "departments", None) or [])]
+            if "ticketing" not in deps:
+                continue
+            grant = (session_db.query(UserAccessGrant)
+                     .filter(UserAccessGrant.user_id == user.id,
+                             UserAccessGrant.resource_key == SALES_REVENUE_ACCESS_KEY).first())
+            if grant is None:
+                grant = UserAccessGrant(user_id=user.id, resource_key=SALES_REVENUE_ACCESS_KEY)
+                session_db.add(grant)
+            if not (grant.can_view_basic and grant.can_view_econ):
+                grant.can_view_basic = True
+                grant.can_view_econ = True
+                tocados += 1
+        session_db.commit()
+        _set_app_setting("sales_revenue_access_seed_v1", "1")
+        if tocados:
+            app.logger.info("Ventas: recaudación concedida a %s persona(s) de Ticketing.", tocados)
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.warning("No se pudo sembrar el acceso a la recaudación de ventas: %s", exc)
+    finally:
+        session_db.close()
 
 
 def _promo_access_seed() -> None:

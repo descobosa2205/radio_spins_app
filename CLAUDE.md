@@ -153,6 +153,17 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   huérfanos **en cascada** y se llevaría por delante todos los permisos ya concedidos.
 - **Iconos de sección**: dict `SECTION_ICONS` en `app.py`, inyectado al contexto; usado en el menú
   (`layout.html`) y en permisos.
+- **RECAUDACIÓN del reporte de ventas = permiso PROPIO** (`SALES_REVENUE_ACCESS_KEY` =
+  `ventas.recaudacion`, subpestaña de `ventas.reportes`): nace **apagada para todos**; **dirección**
+  la ve siempre y a **Ticketing** se le concede en el arranque (`_sales_revenue_access_seed`, marca
+  `sales_revenue_access_seed_v1`). Punto único **`can_view_sales_revenue()`**, que sustituye a
+  `can_view_economics()` en el reporte (pantalla, A4, columnas de dinero del Excel), en el **informe
+  por concierto** (`sales_event_report_view`/`_pdf`) y en el reparto del **correo**
+  (`_sales_report_recipients`, que decide quién recibe la variante con importes).
+  ⚠️ Se comprueba el **grant EXACTO** de ese recurso, no con `_state_has_access`: ese acepta los
+  ANCESTROS, así que cualquiera con economía en `ventas` seguiría viendo la recaudación (que es justo
+  lo que se quería cerrar). Las filas del permiso existen para todo el mundo con los flags a `false`
+  (el catálogo las crea así): lo que manda es `can_view_basic`/`can_view_econ`.
 - **Inicio · acciones rápidas por departamento**: botones bajo la cabecera del personal
   (`HOME_QUICK_ACTIONS` ← `_build_home_quick_actions`, catálogo `_home_quick_action_defs`, reparto
   `_HOME_QUICK_BY_DEPARTMENT` por `UserProfile.departments`: Contratación/Sello/Registros; el resto

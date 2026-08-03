@@ -2895,6 +2895,10 @@ img.docs-id__face { width:100%; height:100%; object-fit:cover; display:block; cu
   color:var(--brand-primary,#E33D48); }
 .filter-chip.is-on i{ color:var(--brand-primary,#E33D48); }
 .filter-hint{ font-size:.8rem; color:var(--muted-2,#6c757d); }
+/* Contador dentro de un chip de filtro (cuántas hay de eso). */
+.filter-chip__n{ display:inline-block; min-width:1.35em; padding:0 .3rem; border-radius:999px;
+  background:#f1f3f5; color:#6c757d; font-size:.74rem; font-weight:700; text-align:center; }
+.filter-chip.is-on .filter-chip__n{ background:rgba(227,61,72,.14); color:var(--brand-primary,#E33D48); }
 
 /* Datos básicos de la ficha de concierto: variante compacta para que quepan de una tirada
    (estado · tipo · fecha · recinto · aforo · factura · promotor · anuncio · a la venta). */
@@ -3341,6 +3345,20 @@ body.doccam-open { overflow: hidden; }
   color:#adb5bd; }
 .mv-row__v{ flex:1 1 0; font-size:.94rem; min-width:0; }
 .mv-card__acts{ margin-top:.6rem; }
+
+/* OTRAS ACTIVIDADES · fila del listado. Sin artista: manda QUÉ es la actividad, así que empieza por
+   el icono de su tipo, luego el nombre y el sitio, y debajo la fecha y el recinto. */
+.oa-row{ display:flex; align-items:center; gap:.9rem; padding:.75rem 1rem; border-bottom:1px solid #f1f3f5; }
+.oa-row:last-child{ border-bottom:0; }
+.oa-row:hover{ background:#f8f9fa; }
+.oa-row__icon{ flex:0 0 42px; width:42px; height:42px; border-radius:12px; background:#f1f3f5;
+  color:#495057; display:inline-flex; align-items:center; justify-content:center; font-size:1.05rem; }
+.oa-row__body{ flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:.1rem; }
+.oa-row__top{ display:flex; align-items:baseline; gap:.4rem; flex-wrap:wrap; min-width:0; }
+.oa-row__title{ font-weight:600; }
+.oa-row__place{ color:#495057; font-size:.92rem; }
+.oa-row__sep{ color:#ced4da; }
+.oa-row__sub{ font-size:.84rem; color:#868e96; }
 
 /* BASE DE FACTURAS · pastillas de «lleva IVA / lleva retención» en cada línea. */
 .sup-inv th{ font-size:.72rem; text-transform:uppercase; letter-spacing:.02em; color:#6c757d; }

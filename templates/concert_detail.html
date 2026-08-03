@@ -7,7 +7,9 @@
 <div class="ficha-hero">
   <img class="ficha-hero__media ficha-hero__media--round" src="{{ (concert.artist.photo_url if concert.artist else None) or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"{% if concert.artist %} data-artist-link="{{ concert.artist.id }}"{% endif %}>
   <div class="ficha-hero__body">
-    <div class="ficha-hero__eyebrow">{{ sale_type_label }}{% if concert.activity_type and concert.activity_type != 'CONCIERTO' %} · {{ activity_type_label }}{% endif %}</div>
+    {# QUÉ ES la actividad manda: un evento promocional no es un concierto de ningún tipo, así que el
+       tipo de venta solo se enseña cuando la actividad es un concierto (o un festival). #}
+    <div class="ficha-hero__eyebrow">{{ activity_type_label }}{% if is_concert_like and sale_type_label %} · {{ sale_type_label }}{% elif activity_cache_label %} · {{ activity_cache_label }}{% endif %}</div>
     <div class="d-flex flex-wrap align-items-center gap-2">
       <h1 class="ficha-hero__title"{% if concert.artist %} data-artist-link="{{ concert.artist.id }}"{% endif %}>{{ concert.artist.name if concert.artist else 'Concierto' }}</h1>
       {% with cs_id=concert.id, cs_status=concert.status %}{% include '_concert_status_badge.html' %}{% endwith %}
@@ -126,8 +128,20 @@
             <select name="billing_company_id" class="form-select"><option value="">—</option>{% for co in companies %}<option value="{{ co.id }}" {% if concert.billing_company_id == co.id %}selected{% endif %}>{{ co.name }}</option>{% endfor %}</select>
           </div>
           <div class="col-md-4">
-            <label class="form-label">Tipo</label>
-            <select name="sale_type" class="form-select" data-sale-type>{% for value, label in type_choices %}<option value="{{ value }}" {% if concert.sale_type==value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+            {# El TIPO DE VENTA describe conciertos. En un evento promocional (o TV, o marca) lo que
+               se decide es si lleva caché, así que se pregunta eso y no se ofrecen tipos de
+               concierto: si no, un evento promocional acababa siendo «Conciertos — Gratuitos». #}
+            {% if is_concert_like %}
+              <label class="form-label">Tipo</label>
+              <select name="sale_type" class="form-select" data-sale-type>{% for value, label in type_choices %}<option value="{{ value }}" {% if concert.sale_type==value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+            {% else %}
+              <label class="form-label">¿Tiene caché?</label>
+              <select name="sale_type" class="form-select" data-sale-type>
+                <option value="VENDIDO" {% if (concert.sale_type or '')|upper != 'GRATUITO' %}selected{% endif %}>Sí, con caché</option>
+                <option value="GRATUITO" {% if (concert.sale_type or '')|upper == 'GRATUITO' %}selected{% endif %}>No, sin caché</option>
+              </select>
+              <div class="form-text">{{ activity_type_label }}: no es un concierto, así que no lleva tipo de venta.</div>
+            {% endif %}
           </div>
           <div class="col-md-5" data-promoter-wrap>
             <label class="form-label">Promotor</label>
@@ -202,7 +216,9 @@
       </div>
       <div class="fs-item">
         <div class="fs-item__label"><i class="fa fa-shapes"></i>Tipo</div>
-        <div class="fs-item__value"><span class="badge text-bg-light border">{{ activity_type_label }}</span> <span class="badge text-bg-light border">{{ sale_type_label }}</span></div>
+        <div class="fs-item__value"><span class="badge text-bg-light border">{{ activity_type_label }}</span>
+          {% if is_concert_like %}<span class="badge text-bg-light border">{{ sale_type_label }}</span>
+          {% elif activity_cache_label %}<span class="badge text-bg-light border">{{ activity_cache_label }}</span>{% endif %}</div>
       </div>
       {% if concert.date %}
       <div class="fs-item">

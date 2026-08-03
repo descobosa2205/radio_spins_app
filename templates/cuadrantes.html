@@ -361,7 +361,7 @@
           </div>
 
           <div class="quad-filter-group">
-            <div class="quad-filter-label"><i class="fa fa-tags"></i>Tipo de venta <span class="text-muted fw-normal" style="text-transform:none;letter-spacing:0;">— solo aplica a conciertos y eventos</span></div>
+            <div class="quad-filter-label"><i class="fa fa-tags"></i>Tipo de venta <span class="text-muted fw-normal" style="text-transform:none;letter-spacing:0;">— solo de conciertos y festivales (un evento promocional no se vende)</span></div>
             <div class="quad-chips">
               {% for value, label in type_choices %}
                 <label class="quad-chip">
@@ -548,8 +548,11 @@
                     <span class="quad-concept-badge"><i class="fa {{ e.activity_icon or 'fa-guitar' }}"></i>{{ e.activity_label or 'Concierto' }}</span>
                   </td>
                   <td data-col="sale_type">
-                    {% if e.sale_type %}
+                    {% if e.is_concert_like and e.sale_type %}
                       <span class="quad-type-badge"><i class="fa {{ TYPE_ICON.get(e.sale_type, 'fa-circle') }}"></i>{{ TYPE_SHORT.get(e.sale_type, e.sale_type_label or e.sale_type) }}</span>
+                    {% elif e.cache_label %}
+                      {# No es un concierto: el tipo de venta no aplica, lo que hay es caché o no. #}
+                      <span class="quad-type-badge"><i class="fa fa-money-bill-wave"></i>{{ e.cache_label }}</span>
                     {% else %}—{% endif %}
                   </td>
                   <td data-col="festival">{{ e.festival_name or '—' }}</td>

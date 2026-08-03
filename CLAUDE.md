@@ -1037,6 +1037,31 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   Plantillas de gastos. ⚠️ El **artista ESPEJO** (`Artist.event_id`, `_ensure_artist_for_event`)
   existe solo porque `Concert.artist_id` es NOT NULL: es un detalle de implementación y **no debe
   verse nunca** — ni su nombre, ni su foto, ni su ficha.
+- ⚠️⚠️ **TIPO DE ACTIVIDAD ≠ TIPO DE VENTA** (depuración ago 2026). El `sale_type` (vendido, a
+  empresa, gratuito, participado, gira comprada, Cádiz) describe **CONCIERTOS**. Un **evento
+  promocional** —o un programa de TV, o una acción con marca— **no es un concierto de ningún tipo**:
+  ahí el `sale_type` es solo el apunte interno de si lleva caché (lo pone el asistente: «¿Tiene
+  caché?» Sí=VENDIDO / No=GRATUITO), y enseñarlo como etiqueta hacía que por toda la app un evento
+  promocional apareciera como **«Conciertos — Gratuitos»** (bug real). Punto único:
+  **`_sale_type_label(sale_type, activity_type)`** (con el tipo de actividad manda ÉL: devuelve
+  «Evento promocional», «Programa de TV»…) + **`_activity_cache_label`** («Con caché» / «Sin caché»,
+  vacío en conciertos) + `_activity_kind_key` / `_activity_kind_label` (normalizan por
+  `QUAD_ACTIVITY_ALIASES`) y el conjunto `CONCERT_LIKE_ACTIVITY_TYPES` = {CONCIERTO, FESTIVAL}.
+  Corregidos TODOS los sitios que rotulaban por tipo de venta (`/actividades`, la vista de
+  conciertos, las fechas de gira/ciclo con `_group_concert_row`, cuadrantes —la columna «Tipo de
+  venta» enseña el caché cuando no es un concierto—, eventos y la ficha, cuya cabecera y campo
+  «Tipo» empiezan por lo que ES la actividad). En el **formulario** de la ficha, una actividad que no
+  es un concierto ya no ofrece tipos de concierto: pregunta **«¿Tiene caché?»** (mismo campo
+  `sale_type`, valores VENDIDO/GRATUITO, que es lo que el resto de la app espera).
+
+- **Otras actividades · filtros por tipo y listado por sujeto** (ago 2026, `contracting_view` +
+  `templates/contratacion.html`): arriba, **etiquetas de TIPO con su icono** (`type_chips` sobre
+  `OTHER_ACTIVITY_TYPE_KEYS` = evento promocional · TV · marca · otros, con contador y acumulables
+  por `?tipo=`); debajo, la rejilla de **SUJETOS** —artistas **y eventos**— con su nº de actividades
+  (los de evento se agrupan por el `AppEvent`, nunca por su artista espejo, y llevan la pastilla
+  «Evento»); y al entrar, el listado **sin nombre ni foto de artista** (`.oa-row`): icono del tipo ·
+  nombre de la actividad (el festival si lo tiene, y si no el tipo) · municipio · provincia, y
+  **debajo** la fecha y el recinto, con «Con/Sin caché» y el estado a la derecha.
 - ⚠️ **Contenedor de EVENTO que se degradaba a CICLO** (bug real, corregido): el modal de editar de
   `activity_group_detail.html` solo ofrecía FESTIVAL/CICLO y marcaba CICLO por defecto, así que
   guardar un contenedor de evento lo convertía en ciclo y —como `event_id` solo se conserva en la

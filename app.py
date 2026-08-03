@@ -547,6 +547,16 @@ CONCERT_SALE_TYPE_LABELS = {
     "VENDIDO": "Conciertos — Vendidos",
 }
 
+# ⚠️ TIPO DE ACTIVIDAD ≠ TIPO DE VENTA. Las etiquetas de arriba describen CONCIERTOS. Un **evento
+# promocional**, un programa de TV o una acción con marca no son conciertos de ningún tipo: en esas
+# actividades el `sale_type` solo apunta si hay caché o no (lo pone el asistente), así que nunca se
+# etiquetan con el tipo de venta. Punto único: `_sale_type_label` / `_activity_cache_label`.
+CONCERT_LIKE_ACTIVITY_TYPES = {"CONCIERTO", "FESTIVAL"}
+NON_CONCERT_CACHE_LABELS = {
+    "VENDIDO": "Con caché", "EMPRESA": "Con caché", "PARTICIPADOS": "Con caché",
+    "GIRAS_COMPRADAS": "Con caché", "CADIZ": "Con caché", "GRATUITO": "Sin caché",
+}
+
 SALES_SECTION_ORDER = ["EMPRESA", "GIRAS_COMPRADAS", "PARTICIPADOS", "CADIZ", "VENDIDO"]
 SALES_SECTION_TITLE = {k: CONCERT_SALE_TYPE_LABELS[k] for k in SALES_SECTION_ORDER}
 # Etiqueta corta + icono para los "chips" de tipo del reporte de ventas (estilo filtros de invitaciones).
@@ -2580,7 +2590,8 @@ def _concert_contract_sheet_seed(concert: Concert | None) -> dict:
         'local_tax_id': (getattr(promoter_company, 'tax_id', None) or '').strip(),
         'local_address': (getattr(promoter_company, 'fiscal_address', None) or '').strip(),
         'economics_cache': _concert_cache_summary(concert) or '',
-        'show_types': [_sale_type_label(getattr(concert, 'sale_type', None))] if getattr(concert, 'sale_type', None) else [],
+        'show_types': ([_sale_type_label(getattr(concert, 'sale_type', None), getattr(concert, 'activity_type', None))]
+                        if getattr(concert, 'sale_type', None) else []),
         'ticketing_points_of_sale': ', '.join(ticketer_names),
         'promotion_announcement_date': concert.announcement_date.isoformat() if getattr(concert, 'announcement_date', None) else '',
         'promotion_sale_date': concert.sale_start_date.isoformat() if getattr(concert, 'sale_start_date', None) else '',
@@ -3585,9 +3596,42 @@ def _build_similarity_rows(query: str, rows: list[dict], threshold: float = 0.72
     return out[:5]
 
 
-def _sale_type_label(value: str | None) -> str:
+def _activity_kind_key(activity_type: str | None) -> str:
+    """Tipo de ACTIVIDAD normalizado (CONCIERTO, FESTIVAL, EVENTO_PROMOCIONAL, TV, MARCA, OTROS)."""
+    key = (activity_type or "").strip().upper()
+    return QUAD_ACTIVITY_ALIASES.get(key, key)
+
+
+def _activity_kind_label(activity_type: str | None) -> str:
+    """Qué ES la actividad: «Concierto», «Festival», «Evento promocional», «Programa de TV»…"""
+    key = _activity_kind_key(activity_type)
+    if not key:
+        return "Concierto"
+    return QUAD_ACTIVITY_LABELS.get(key, key.replace("_", " ").capitalize())
+
+
+def _sale_type_label(value: str | None, activity_type: str | None = None) -> str:
+    """Etiqueta de TIPO de una actividad.
+
+    ⚠️ El «tipo de venta» (vendido, a empresa, gratuito, participado…) describe **conciertos**. Un
+    **evento promocional** —o un programa de TV, o una acción con marca— NO es un concierto de ningún
+    tipo: en esas actividades el `sale_type` es solo un apunte interno de si hay caché o no, y
+    enseñarlo como etiqueta hacía que un evento promocional sin caché saliera por toda la app como
+    «Conciertos — Gratuitos» (bug real). Aquí manda el TIPO DE ACTIVIDAD."""
+    kind = _activity_kind_key(activity_type)
+    if kind and kind not in CONCERT_LIKE_ACTIVITY_TYPES:
+        return _activity_kind_label(kind)
     key = (value or "").strip().upper()
     return CONCERT_SALE_TYPE_LABELS.get(key, key or "—")
+
+
+def _activity_cache_label(sale_type: str | None, activity_type: str | None) -> str:
+    """En una actividad que NO es un concierto, lo que dice su `sale_type` es si lleva caché. Se
+    devuelve con esas palabras (y vacío en conciertos, donde el tipo de venta ya se enseña)."""
+    kind = _activity_kind_key(activity_type)
+    if not kind or kind in CONCERT_LIKE_ACTIVITY_TYPES:
+        return ""
+    return NON_CONCERT_CACHE_LABELS.get((sale_type or "").strip().upper(), "")
 
 
 def _pick_artist_commitment_from_rows(rows, concept_variants: list[str], material_date: date | None = None, as_of_date: date | None = None):
@@ -22683,27 +22727,102 @@ def contracting_view():
         tour_groups = _tour_groups_from_concerts(rows) if section == "giras-compradas" else []
         artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
 
-        # «Otras actividades» funciona como Conciertos: debajo de las tareas, el filtro por ARTISTA
-        # (rejilla con el nº de actividades de cada uno) y, al pinchar uno, sus actividades.
+        # «Otras actividades» funciona como Conciertos: debajo de las tareas, los FILTROS POR TIPO de
+        # actividad (etiquetas con su icono) y el filtro por SUJETO —artistas y eventos— con el nº de
+        # actividades de cada uno; al pinchar uno, sus actividades.
         artist_groups, drill_artist = [], None
+        subject_groups, drill_subject, type_chips, activity_rows = [], None, [], []
         if section == "otras-actividades":
             _mine = _contracting_task_artist_ids()
-            counts = {}
-            for c in rows:
-                if _mine and str(getattr(c, "artist_id", "") or "") not in _mine:
-                    continue
-                counts[c.artist_id] = counts.get(c.artist_id, 0) + 1
-            by_id = {a.id: a for a in artists}
-            artist_groups = sorted(
-                ({"artist": by_id[aid], "count": n} for aid, n in counts.items() if aid in by_id),
-                key=lambda x: (x["artist"].name or "").lower(),
-            )
-            _drill = to_uuid(request.args.get("artist") or "")
-            if _drill:
-                drill_artist = by_id.get(_drill)
-                rows = [c for c in rows if c.artist_id == _drill]
-            elif _mine:
+            if _mine:
                 rows = [c for c in rows if str(getattr(c, "artist_id", "") or "") in _mine]
+            # Etiquetas de TIPO: se cuentan sobre todo lo que puede ver esta persona.
+            tipos_sel = {(_activity_kind_key(x) or "") for x in request.args.getlist("tipo") if (x or "").strip()}
+            tipos_sel = {t for t in tipos_sel if t in OTHER_ACTIVITY_TYPE_KEYS}
+            cuenta_tipos = {}
+            for c in rows:
+                k = _activity_kind_key(c.activity_type) or "OTROS"
+                cuenta_tipos[k] = cuenta_tipos.get(k, 0) + 1
+            for k in OTHER_ACTIVITY_TYPE_KEYS:
+                otros = sorted(tipos_sel - {k}) if k in tipos_sel else sorted(tipos_sel | {k})
+                type_chips.append({
+                    "key": k,
+                    "label": _activity_kind_label(k),
+                    "icon": QUAD_ACTIVITY_ICONS.get(k, "fa-calendar-day"),
+                    "count": cuenta_tipos.get(k, 0),
+                    "active": k in tipos_sel,
+                    "url": url_for("contracting_view", section="otras-actividades", tipo=otros,
+                                   **({"artist": request.args.get("artist")} if request.args.get("artist") else {}),
+                                   **({"event": request.args.get("event")} if request.args.get("event") else {})),
+                })
+            if tipos_sel:
+                rows = [c for c in rows if (_activity_kind_key(c.activity_type) or "OTROS") in tipos_sel]
+            # SUJETO de cada actividad: el EVENTO si lo tiene (su artista es un espejo que no se
+            # debe ver), y si no, el artista.
+            eventos = {str(e.id): e for e in session_db.query(AppEvent).all()} if any(
+                getattr(c, "event_id", None) for c in rows) else {}
+            by_id = {a.id: a for a in artists}
+            grupos = {}
+            for c in rows:
+                if getattr(c, "event_id", None):
+                    ev = eventos.get(str(c.event_id))
+                    clave = ("event", str(c.event_id))
+                    nombre = (getattr(ev, "name", "") or "Evento")
+                    foto = (getattr(ev, "logo_url", "") or "")
+                else:
+                    art = by_id.get(c.artist_id)
+                    if art is None:
+                        continue
+                    clave = ("artist", str(c.artist_id))
+                    nombre = (art.name or "")
+                    foto = (getattr(art, "photo_url", "") or "")
+                g = grupos.setdefault(clave, {"kind": clave[0], "id": clave[1], "name": nombre,
+                                              "photo_url": foto, "count": 0})
+                g["count"] += 1
+            for g in grupos.values():
+                g["url"] = url_for("contracting_view", section="otras-actividades",
+                                   tipo=sorted(tipos_sel),
+                                   **({"event": g["id"]} if g["kind"] == "event" else {"artist": g["id"]}))
+            subject_groups = sorted(grupos.values(), key=lambda x: (x["name"] or "").lower())
+            # Compatibilidad: la rejilla antigua solo tenía artistas.
+            artist_groups = [{"artist": by_id[to_uuid(g["id"])], "count": g["count"]}
+                             for g in subject_groups
+                             if g["kind"] == "artist" and to_uuid(g["id"]) in by_id]
+            _drill_art = to_uuid(request.args.get("artist") or "")
+            _drill_ev = to_uuid(request.args.get("event") or "")
+            if _drill_ev:
+                rows = [c for c in rows if str(getattr(c, "event_id", "") or "") == str(_drill_ev)]
+                ev = eventos.get(str(_drill_ev)) or session_db.get(AppEvent, _drill_ev)
+                drill_subject = {"kind": "event", "id": str(_drill_ev),
+                                 "name": (getattr(ev, "name", "") or "Evento"),
+                                 "photo_url": (getattr(ev, "logo_url", "") or ""),
+                                 "url": (url_for("event_detail_view", eid=_drill_ev) if ev else "")}
+            elif _drill_art:
+                rows = [c for c in rows if c.artist_id == _drill_art and not getattr(c, "event_id", None)]
+                drill_artist = by_id.get(_drill_art)
+                drill_subject = {"kind": "artist", "id": str(_drill_art),
+                                 "name": (getattr(drill_artist, "name", "") or ""),
+                                 "photo_url": (getattr(drill_artist, "photo_url", "") or ""),
+                                 "url": (url_for("artist_detail_view", artist_id=_drill_art) if drill_artist else "")}
+            # El LISTADO no lleva nombre ni foto de artista: manda QUÉ es la actividad.
+            for c in rows:
+                st_label, st_badge = _concert_status_meta(c.status)
+                kind = _activity_kind_key(c.activity_type) or "OTROS"
+                activity_rows.append({
+                    "id": str(c.id),
+                    "url": url_for("concert_detail_view", cid=c.id),
+                    "icon": QUAD_ACTIVITY_ICONS.get(kind, "fa-calendar-day"),
+                    "type_label": _activity_kind_label(kind),
+                    "title": ((c.festival_name or "").strip() or _activity_kind_label(kind)),
+                    "has_name": bool((c.festival_name or "").strip()),
+                    "municipality": _concert_city(c),
+                    "province": _concert_province_value(c),
+                    "date_label": (c.date.strftime("%d/%m/%Y") if c.date else "Sin fecha"),
+                    "venue": (_concert_venue_name(c) or "Sin recinto"),
+                    "cache_label": _activity_cache_label(c.sale_type, c.activity_type),
+                    "status_label": st_label,
+                    "status_badge": st_badge,
+                })
         promoters = session_db.query(Promoter).options(selectinload(Promoter.companies)).order_by(Promoter.nick.asc()).all()
         companies = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
         type_choices = [(k, CONCERT_SALE_TYPE_LABELS.get(k, k)) for k in CONCERTS_SECTION_ORDER]
@@ -22727,6 +22846,10 @@ def contracting_view():
             tour_groups=tour_groups,
             artist_groups=artist_groups,
             drill_artist=drill_artist,
+            subject_groups=subject_groups,
+            drill_subject=drill_subject,
+            type_chips=type_chips,
+            activity_rows=activity_rows,
             artists=artists,
             promoters=promoters,
             promoters_payload=promoters_payload,
@@ -23764,6 +23887,11 @@ def _group_result_context(s, concerts, general):
 
 def _group_concert_row(c):
     label, badge = _concert_status_meta(c.status)
+    _es_concierto = (_activity_kind_key(c.activity_type) or "CONCIERTO") in CONCERT_LIKE_ACTIVITY_TYPES
+    _cache_lbl = _activity_cache_label(c.sale_type, c.activity_type)
+    _promo_meta = _GROUP_PROMO_META.get(
+        (c.sale_type or "").upper(),
+        (CONCERT_SALE_TYPE_LABELS.get((c.sale_type or "").upper(), c.sale_type or "—"), "text-bg-light border"))
     return {
         "id": str(c.id),
         "title": (c.festival_name or (c.artist.name if c.artist else "Concierto")),
@@ -23777,9 +23905,11 @@ def _group_concert_row(c):
         "status": (c.status or "BORRADOR").upper(),
         "status_label": label,
         "status_badge": badge,
-        "sale_type_label": CONCERT_SALE_TYPE_LABELS.get((c.sale_type or "").upper(), c.sale_type or ""),
-        "promo_label": _GROUP_PROMO_META.get((c.sale_type or "").upper(), (CONCERT_SALE_TYPE_LABELS.get((c.sale_type or "").upper(), c.sale_type or "—"), "text-bg-light border"))[0],
-        "promo_badge": _GROUP_PROMO_META.get((c.sale_type or "").upper(), (CONCERT_SALE_TYPE_LABELS.get((c.sale_type or "").upper(), c.sale_type or "—"), "text-bg-light border"))[1],
+        "sale_type_label": _sale_type_label(c.sale_type, c.activity_type),
+        # «Promovido / Vendido / Participado / Gratuito» habla de conciertos: en una actividad que no
+        # lo es se dice si lleva caché, que es lo que significa ahí su `sale_type`.
+        "promo_label": (_promo_meta[0] if _es_concierto else (_cache_lbl or "—")),
+        "promo_badge": (_promo_meta[1] if _es_concierto else "text-bg-light border"),
     }
 
 
@@ -24126,7 +24256,7 @@ def _render_event_activities():
             drill_event = eventos.get(str(drill_id))
             rows = [c for c in actividades if str(c.event_id) == str(drill_id)]
             for c in rows:
-                setattr(c, "sale_type_label", _sale_type_label(c.sale_type))
+                setattr(c, "sale_type_label", _sale_type_label(c.sale_type, c.activity_type))
                 setattr(c, "location_summary", _concert_location_summary(c))
                 # Un evento no tiene artista: el título es el del evento (o el nombre de la fecha).
                 setattr(c, "title_label", (getattr(drill_event, "name", "") or "Actividad"))
@@ -24615,9 +24745,13 @@ def activities_view():
                 cq = cq.filter(Concert.date < today)
             for c in cq.order_by(Concert.date.asc().nullslast()).limit(500).all():
                 lbl, bdg = _concert_status_meta(c.status)
+                # QUÉ es la actividad (un evento promocional no es un concierto de ningún tipo).
+                _kind = _activity_kind_key(c.activity_type) or "CONCIERTO"
                 items.append({
-                    "kind": "concert", "id": str(c.id), "type_icon": "fa-guitar",
-                    "type_label": CONCERT_SALE_TYPE_LABELS.get((c.sale_type or "").upper(), (c.activity_type or "Concierto")),
+                    "kind": "concert", "id": str(c.id),
+                    "type_icon": QUAD_ACTIVITY_ICONS.get(_kind, "fa-guitar"),
+                    "type_label": (_sale_type_label(c.sale_type, c.activity_type)
+                                   if _kind in CONCERT_LIKE_ACTIVITY_TYPES else _activity_kind_label(_kind)),
                     "title": (c.festival_name or (c.artist.name if c.artist else "Concierto")),
                     "artist_name": (c.artist.name if c.artist else ""),
                     "artist_photo": ((c.artist.photo_url or "") if c.artist else ""),
@@ -24788,7 +24922,7 @@ def event_detail_view(eid):
                 "venue": (c.venue.name if c.venue else (c.manual_venue_name or c.manual_municipality or "")),
                 "title": (c.festival_name or "").strip(),
                 "status": (c.status or "BORRADOR").upper(),
-                "sale_type_label": _sale_type_label(c.sale_type),
+                "sale_type_label": _sale_type_label(c.sale_type, c.activity_type),
                 "cycle_festival_id": (str(c.cycle_festival_id) if c.cycle_festival_id else ""),
             }
             fila["status_label"], fila["status_badge"] = CONCERT_STATUS_META.get(
@@ -28188,7 +28322,7 @@ def concerts_page():
 
         for c in concerts:
             setattr(c, "tags_clean", _concert_tags(c))
-            setattr(c, "sale_type_label", _sale_type_label(c.sale_type))
+            setattr(c, "sale_type_label", _sale_type_label(c.sale_type, c.activity_type))
             setattr(c, 'announcement_badge', _announcement_badge(c, today))
             setattr(c, 'announcement_state', _announcement_state(c, today))
             setattr(c, 'contract_sheet_badge', _contract_sheet_badge(getattr(c, 'contract_sheet', None)))
@@ -28358,7 +28492,7 @@ def concert_detail_view(cid):
             return redirect(url_for("concerts_view", tab="vista"))
 
         setattr(c, "tags_clean", _concert_tags(c))
-        setattr(c, "sale_type_label", _sale_type_label(c.sale_type))
+        setattr(c, "sale_type_label", _sale_type_label(c.sale_type, c.activity_type))
 
         today = today_local()
         totals_map, today_map, last_map, gross_map, gross_today_map = sales_maps_unified(session, today, [c.id])
@@ -28576,7 +28710,7 @@ def concert_detail_view(cid):
             remaining_tickets=remaining_tickets,
             last_sales_day=last_map.get(c.id),
             net_breakdown=net_breakdown,
-            sale_type_label=_sale_type_label(c.sale_type),
+            sale_type_label=_sale_type_label(c.sale_type, c.activity_type),
             announcement_badge=_announcement_badge(c, today),
             contract_sheet_badge=_contract_sheet_badge(sheet),
             contract_sheet_status=_contract_sheet_status(sheet),
@@ -28658,7 +28792,11 @@ def concert_detail_view(cid):
             type_choices=edit_type_choices,
             all_concert_tags=all_concert_tags,
             is_promo_activity=is_promo_activity,
-            activity_type_label=QUAD_ACTIVITY_LABELS.get((c.activity_type or '').strip().upper(), (c.activity_type or '').replace('_', ' ').title()),
+            activity_type_label=_activity_kind_label(c.activity_type),
+            # En una actividad que no es un concierto, el tipo de venta solo dice si lleva caché.
+            activity_cache_label=_activity_cache_label(c.sale_type, c.activity_type),
+            is_concert_like=(_activity_kind_key(c.activity_type) in CONCERT_LIKE_ACTIVITY_TYPES
+                             or not (c.activity_type or '').strip()),
             activity_songs=activity_songs,
             entradas_ticket_rows=_concert_entradas_ticket_rows(c),
             promoter_costs_rows=_promoter_costs_rows(getattr(c, "promoter_costs_payload", None)),
@@ -37711,6 +37849,9 @@ QUAD_ACTIVITY_ALIASES = {
 # Para el recuento de las pastillas: qué conceptos cuentan como "concierto" (vs
 # "actividad" no concierto: evento promocional / TV / marca / otros).
 QUAD_CONCERT_CONCEPTS = {"CONCIERTO", "FESTIVAL"}
+# Tipos que viven en «Otras actividades» (los que NO son un concierto). Un evento promocional es un
+# evento promocional: aquí se filtra por lo que ES cada actividad, no por cómo se vende.
+OTHER_ACTIVITY_TYPE_KEYS = ["EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS"]
 
 
 def _concert_activity_concept(concert) -> str:
@@ -38026,7 +38167,11 @@ def quadrantes_view():
                         "activity_label": QUAD_ACTIVITY_LABELS.get(activity_concept, "Concierto"),
                         "activity_icon": QUAD_ACTIVITY_ICONS.get(activity_concept, "fa-guitar"),
                         "sale_type": effective_sale_type,
-                        "sale_type_label": _sale_type_label(effective_sale_type),
+                        "sale_type_label": _sale_type_label(effective_sale_type, activity_concept),
+                        # Solo un CONCIERTO tiene tipo de venta; en el resto lo que dice es si lleva
+                        # caché, y así se pinta (la columna «Concepto» ya dice qué es la actividad).
+                        "is_concert_like": activity_concept in CONCERT_LIKE_ACTIVITY_TYPES,
+                        "cache_label": _activity_cache_label(effective_sale_type, activity_concept),
                         "status": st,
                         "province": _concert_province_value(c),
                         "municipality": _concert_city(c),

@@ -35,33 +35,78 @@
       <div class="col-12"><div class="alert alert-light border">{{ empty_message }}</div></div>
     {% endfor %}
   </div>
-{% elif section == 'otras-actividades' and not drill_artist %}
-  {# Filtro por ARTISTA: rejilla con el nº de actividades de cada uno (igual que Conciertos). #}
-  {% if artist_groups %}
-  <div class="row g-3">
-    {% for g in artist_groups %}
-    <div class="col-6 col-md-4 col-lg-3 col-xl-2">
-      <a href="{{ url_for('contracting_view', section='otras-actividades', artist=g.artist.id) }}" class="card h-100 text-decoration-none text-reset text-center">
-        <div class="card-body">
-          <img src="{{ g.artist.photo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1" style="width:84px;height:84px;border-radius:50%;object-fit:cover;margin-bottom:.5rem;">
-          <div class="fw-semibold text-truncate">{{ g.artist.name }}</div>
-          <div class="small text-muted"><span class="badge text-bg-light border"><i class="fa fa-shapes me-1"></i>{{ g.count }} actividad{{ '' if g.count == 1 else 'es' }}</span></div>
-        </div>
-      </a>
+{% elif section == 'otras-actividades' %}
+  {# FILTROS POR TIPO DE ACTIVIDAD, en etiquetas con su icono. Se filtra por lo que ES cada actividad
+     (evento promocional, TV, marca, otros), nunca por cómo se vende un concierto. #}
+  {% if type_chips %}
+    <div class="d-flex flex-wrap gap-2 mb-3">
+      {% for t in type_chips %}
+        <a class="filter-chip {{ 'is-on' if t.active }} {{ 'text-muted' if not t.count and not t.active }}" href="{{ t.url }}">
+          <i class="fa {{ t.icon }}"></i>{{ t.label }}
+          <span class="filter-chip__n">{{ t.count }}</span>
+        </a>
+      {% endfor %}
+      {% if type_chips|selectattr('active')|list %}
+        <a class="filter-chip" href="{{ url_for('contracting_view', section='otras-actividades') }}"><i class="fa fa-xmark"></i>Quitar filtros</a>
+      {% endif %}
     </div>
-    {% endfor %}
-  </div>
+  {% endif %}
+
+  {% if not drill_subject %}
+    {# De quién es: artistas Y eventos, con su nº de actividades (igual que Conciertos). #}
+    {% if subject_groups %}
+    <div class="row g-3">
+      {% for g in subject_groups %}
+      <div class="col-6 col-md-4 col-lg-3 col-xl-2">
+        <a href="{{ g.url }}" class="card h-100 text-decoration-none text-reset text-center">
+          <div class="card-body">
+            <img src="{{ g.photo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1" style="width:84px;height:84px;border-radius:50%;object-fit:cover;margin-bottom:.5rem;">
+            <div class="fw-semibold text-truncate">{{ g.name }}</div>
+            <div class="small text-muted">
+              <span class="badge text-bg-light border"><i class="fa fa-shapes me-1"></i>{{ g.count }} actividad{{ '' if g.count == 1 else 'es' }}</span>
+              {% if g.kind == 'event' %}<div class="mt-1"><span class="badge text-bg-light border">Evento</span></div>{% endif %}
+            </div>
+          </div>
+        </a>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="alert alert-light border">{{ empty_message }}</div>
+    {% endif %}
   {% else %}
-  <div class="alert alert-light border">{{ empty_message }}</div>
+    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('contracting_view', section='otras-actividades') }}"><i class="fa fa-arrow-left me-1"></i>Volver</a>
+      <h5 class="mb-0 me-2 d-flex align-items-center gap-2">
+        <img src="{{ drill_subject.photo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1" style="width:34px;height:34px;border-radius:50%;object-fit:cover;">
+        {{ drill_subject.name }}
+      </h5>
+      <span class="badge text-bg-light border">{{ activity_rows|length }}</span>
+    </div>
+    {# El listado va SIN nombre ni foto de artista: empieza por el icono de lo que es la actividad. #}
+    <div class="card">
+      <div class="card-body p-0">
+        {% for a in activity_rows %}
+          <a href="{{ a.url }}" class="oa-row text-decoration-none text-reset">
+            <span class="oa-row__icon" title="{{ a.type_label }}"><i class="fa {{ a.icon }}"></i></span>
+            <span class="oa-row__body">
+              <span class="oa-row__top">
+                <span class="oa-row__title">{{ a.title }}</span>
+                {% if a.municipality %}<span class="oa-row__sep">·</span><span class="oa-row__place">{{ a.municipality }}</span>{% endif %}
+                {% if a.province and a.province != a.municipality %}<span class="oa-row__sep">·</span><span class="oa-row__place">{{ a.province }}</span>{% endif %}
+              </span>
+              <span class="oa-row__sub">{{ a.date_label }} · {{ a.venue }}</span>
+            </span>
+            {% if a.cache_label %}<span class="badge text-bg-light border">{{ a.cache_label }}</span>{% endif %}
+            <span class="badge {{ a.status_badge }}">{{ a.status_label }}</span>
+          </a>
+        {% else %}
+          <div class="p-4 text-muted">{{ empty_message }}</div>
+        {% endfor %}
+      </div>
+    </div>
   {% endif %}
 {% else %}
-  {% if drill_artist %}
-  <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('contracting_view', section='otras-actividades') }}"><i class="fa fa-arrow-left me-1"></i>Artistas</a>
-    <h5 class="mb-0 me-2">{{ artist_avatar(drill_artist.photo_url, drill_artist.name, artist_id=drill_artist.id) }} {{ drill_artist.name }}</h5>
-    <span class="badge text-bg-light border">{{ rows|length }}</span>
-  </div>
-  {% endif %}
   <div class="card">
     <div class="card-body p-0">
       {% for concert in rows %}
@@ -74,7 +119,6 @@
               {{ concert.artist.name if concert.artist else 'Sin artista' }} · {{ concert.date.strftime('%d/%m/%Y') if concert.date else 'Sin fecha' }} · {{ concert.venue.name if concert.venue else (concert.manual_venue_name or 'Sin recinto') }}
             </div>
           </div>
-          <span class="badge text-bg-light border">{{ concert.activity_type or concert.sale_type }}</span>
           <span class="badge text-bg-warning text-dark">{{ concert.status or 'HABLADO' }}</span>
         </a>
       {% else %}

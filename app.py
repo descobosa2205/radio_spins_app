@@ -6979,9 +6979,20 @@ def _royalty_freeze(session_db, rec, beneficiary: dict, pdf_url: str = "", regen
 
 
 def _royalty_frozen_beneficiary(rec):
-    """Los datos CONGELADOS de la liquidación (o None si todavía no se ha generado)."""
-    snap = getattr(rec, "snapshot", None) if rec is not None else None
-    return snap if isinstance(snap, dict) and snap else None
+    """Los datos CONGELADOS de la liquidación (o None si todavía no se ha generado).
+
+    Se mira primero el congelado de la GENERACIÓN (`snapshot`) y, si no lo hay, el de lo que se
+    ENVIÓ (`last_sent_snapshot`): una liquidación enviada antes de que se guardara el snapshot de la
+    generación solo tiene ese, y aun así **es lo que se envió**, que es lo que manda. Sin esto esas
+    liquidaciones caían a los datos de HOY y los importes «se actualizaban» (el fallo que había)."""
+    if rec is None:
+        return None
+    for campo in ("snapshot", "last_sent_snapshot"):
+        snap = getattr(rec, campo, None)
+        # `{}` es «no hay nada congelado»; un congelado de verdad trae su importe (o sus líneas).
+        if isinstance(snap, dict) and ("total_amount" in snap or snap.get("items")):
+            return snap
+    return None
 
 
 def _royalty_effective_beneficiary(session_db, rec, kind: str, beneficiary_id, sem_year: int, sem_half: int):
@@ -6995,7 +7006,7 @@ def _royalty_effective_beneficiary(session_db, rec, kind: str, beneficiary_id, s
         return congelada, True
     try:
         vivo, _s, _e, _b = _get_royalty_liquidation_beneficiary_data(
-            session_db, kind, beneficiary_id, sem_year, sem_half)
+            session_db, kind, beneficiary_id, sem_year, sem_half, apply_frozen=False)
         return vivo, False
     except Exception:
         return None, False
@@ -7043,7 +7054,8 @@ def _royalty_timeline(rec) -> list:
     return salida
 
 
-def _apply_royalty_liquidation_meta(bucket: dict, rec: RoyaltyLiquidation | None) -> None:
+def _apply_royalty_liquidation_meta(bucket: dict, rec: RoyaltyLiquidation | None,
+                                    apply_frozen: bool = True) -> None:
     if not bucket:
         return
     if not rec:
@@ -7090,9 +7102,14 @@ def _apply_royalty_liquidation_meta(bucket: dict, rec: RoyaltyLiquidation | None
         # Los ingresos pueden haber cambiado; la liquidación NO se altera hasta generar una nueva.
         bucket['needs_regeneration'] = _royalty_needs_regeneration(rec, bucket)
         bucket['live_total'] = bucket.get('total_amount')
-        for campo in ('total_income', 'total_amount', 'items'):
-            if campo in congelada:
-                bucket[campo] = congelada[campo]
+        bucket['live_total_income'] = bucket.get('total_income')
+        # ⚠️ `apply_frozen=False` = el llamante quiere los datos EN VIVO (generar una liquidación
+        # nueva, o comparar antes/ahora). Pegar aquí el congelado sin más hacía que GENERAR volviera a
+        # congelar los importes VIEJOS: por eso «genero de nuevo y no se actualiza» (bug real).
+        if apply_frozen:
+            for campo in ('total_income', 'total_amount', 'items'):
+                if campo in congelada:
+                    bucket[campo] = congelada[campo]
         # Aviso de cambios: desde cuándo (la fecha en que se generó lo que hay) y CUÁNTO cambia.
         if bucket['needs_regeneration']:
             try:
@@ -7227,7 +7244,8 @@ def _apply_distribution_deductions(item: dict, deductions: list[dict] | None) ->
     return item
 
 
-def _build_royalty_single_beneficiary(session_db, sem_start: date, sem_end: date, kind: str, beneficiary_id) -> dict | None:
+def _build_royalty_single_beneficiary(session_db, sem_start: date, sem_end: date, kind: str, beneficiary_id,
+                                      apply_frozen: bool = True) -> dict | None:
     """Construye un único beneficiario sin recorrer todo el semestre.
 
     Esta ruta se usa para liquidaciones individuales (PDF/email) y evita el
@@ -7765,13 +7783,15 @@ def _build_royalty_single_beneficiary(session_db, sem_start: date, sem_end: date
         .filter(RoyaltyLiquidation.period_start == sem_start)
         .first()
     )
-    _apply_royalty_liquidation_meta(bucket, rec)
+    _apply_royalty_liquidation_meta(bucket, rec, apply_frozen=apply_frozen)
 
     bucket["items"].sort(key=lambda item: ((item.get("sort_title") or ""), item.get("release_date") or ""))
     return bucket if (bucket.get("items") or []) else None
 
 
-def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, selected_artist_id=None, only_beneficiary: tuple[str, str] | None = None) -> dict:
+def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, selected_artist_id=None,
+                                 only_beneficiary: tuple[str, str] | None = None,
+                                 apply_frozen: bool = True) -> dict:
     selected_artist_id_str = str(selected_artist_id) if selected_artist_id else None
 
     month_starts = []
@@ -8267,7 +8287,7 @@ def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, sel
 
     for (kind, bid), bucket in ben_map.items():
         rec = liq_map.get((kind, bid))
-        _apply_royalty_liquidation_meta(bucket, rec)
+        _apply_royalty_liquidation_meta(bucket, rec, apply_frozen=apply_frozen)
         bucket["items"].sort(key=lambda item: ((item.get("sort_title") or ""), item.get("release_date") or ""))
 
     artist_beneficiaries = [
@@ -8478,7 +8498,8 @@ def _build_afavor_groups(session_db, sem_start: date, selected_artist_id=None) -
     }
 
 
-def _get_royalty_liquidation_beneficiary_data(session_db, kind: str, beneficiary_id, sem_year: int, sem_half: int) -> tuple[dict, date, date, UUID]:
+def _get_royalty_liquidation_beneficiary_data(session_db, kind: str, beneficiary_id, sem_year: int, sem_half: int,
+                                             apply_frozen: bool = True) -> tuple[dict, date, date, UUID]:
     kind = (kind or "").strip().upper()
     if kind not in ("ARTIST", "PROMOTER"):
         raise ValueError("Beneficiario inválido")
@@ -8488,9 +8509,11 @@ def _get_royalty_liquidation_beneficiary_data(session_db, kind: str, beneficiary
     if not bid:
         raise ValueError("Beneficiario inválido")
 
-    beneficiary = _build_royalty_single_beneficiary(session_db, sem_start, sem_end, kind, bid)
+    beneficiary = _build_royalty_single_beneficiary(session_db, sem_start, sem_end, kind, bid,
+                                                   apply_frozen=apply_frozen)
     if not beneficiary:
-        payload = _build_royalty_beneficiaries(session_db, sem_start, sem_end, only_beneficiary=(kind, str(bid)))
+        payload = _build_royalty_beneficiaries(session_db, sem_start, sem_end, only_beneficiary=(kind, str(bid)),
+                                               apply_frozen=apply_frozen)
         for row in (payload.get("artists") or []) + (payload.get("others") or []):
             if row.get("kind") == kind and row.get("id") == str(bid):
                 beneficiary = row
@@ -8509,23 +8532,35 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
     para que el PDF que se ve, se envía o se descarga después sea exactamente el mismo aunque los
     ingresos hayan cambiado. Al GENERAR se llama con `use_frozen=False` (datos en vivo) y se congela.
     """
-    beneficiary, sem_start, sem_end, bid = _get_royalty_liquidation_beneficiary_data(
-        session_db,
-        kind,
-        beneficiary_id,
-        sem_year,
-        sem_half,
-    )
     kind = (kind or "").strip().upper()
+    sem_start, sem_end = _semester_range(sem_year, sem_half)
+    bid = to_uuid(beneficiary_id)
+    if not bid:
+        raise ValueError("Beneficiario inválido")
 
+    # ⚠️ EL CONGELADO SE BUSCA PRIMERO. Antes se calculaba SIEMPRE la liquidación con los ingresos de
+    # HOY y solo después se sustituía por el congelado: además de ser el cálculo más caro de la
+    # aplicación, hacía que una liquidación ya generada NO se pudiera ver si esos ingresos habían
+    # cambiado o desaparecido (saltaba «no hay datos») — y cualquier fallo en el reemplazo dejaba a la
+    # vista los importes de hoy, que es justo lo que no puede pasar.
+    beneficiary = None
     if use_frozen:
         _rec_prev = (session_db.query(RoyaltyLiquidation)
                      .filter(RoyaltyLiquidation.beneficiary_kind == kind,
                              RoyaltyLiquidation.beneficiary_id == bid,
                              RoyaltyLiquidation.period_start == sem_start).first())
-        _congelada = _royalty_frozen_beneficiary(_rec_prev)
-        if _congelada:
-            beneficiary = _congelada
+        beneficiary = _royalty_frozen_beneficiary(_rec_prev)
+    if beneficiary is None:
+        # `apply_frozen=False`: aquí se quieren los datos DE AHORA. Si no, generar una liquidación
+        # nueva volvía a congelar los importes viejos y nunca se actualizaba.
+        beneficiary, sem_start, sem_end, bid = _get_royalty_liquidation_beneficiary_data(
+            session_db,
+            kind,
+            beneficiary_id,
+            sem_year,
+            sem_half,
+            apply_frozen=False,
+        )
 
     if touch_liquidation:
         now_dt = datetime.now(TZ_MADRID)
@@ -14395,7 +14430,8 @@ def royalty_liquidation_compare():
         rec = _royalty_liquidation_record(session_db, kind, bid, sem_start)
         anterior = _royalty_frozen_beneficiary(rec)
         try:
-            nueva, _s, _e, _b = _get_royalty_liquidation_beneficiary_data(session_db, kind, bid, sem_year, sem_half)
+            nueva, _s, _e, _b = _get_royalty_liquidation_beneficiary_data(
+                session_db, kind, bid, sem_year, sem_half, apply_frozen=False)
         except Exception:
             return jsonify({'ok': False, 'message': 'No hay datos de royalties para este periodo.'}), 404
         if not anterior:
@@ -14475,7 +14511,8 @@ def discografica_royalties_liquidation_info():
                 }
         live = None
         try:
-            live, _s2, _e2, _b2 = _get_royalty_liquidation_beneficiary_data(session_db, kind, beneficiary_uuid, sem_year, sem_half)
+            live, _s2, _e2, _b2 = _get_royalty_liquidation_beneficiary_data(
+                session_db, kind, beneficiary_uuid, sem_year, sem_half, apply_frozen=False)
         except Exception:
             live = None
         # Quién hizo cada paso (del historial), para enseñarlo en su bloque.
@@ -14525,17 +14562,18 @@ def public_royalty_liquidation_view(token):
     sem_year, sem_half = parsed_sem
     sem_start, sem_end = _semester_range(sem_year, sem_half)
     with get_db() as session_db:
-        try:
-            beneficiary, _s, _e, beneficiary_uuid = _get_royalty_liquidation_beneficiary_data(
-                session_db, kind, bid_raw, sem_year, sem_half)
-        except Exception:
+        beneficiary_uuid = to_uuid(bid_raw)
+        if not beneficiary_uuid:
             abort(404)
         rec = _royalty_liquidation_record(session_db, kind, beneficiary_uuid, sem_start)
-        # LO QUE SE LE ENVIÓ, punto único: el congelado manda si la liquidación está generada.
-        _efectivo, _esta_congelada = _royalty_effective_beneficiary(
+        # ⚠️ LO QUE SE LE ENVIÓ, y SIN recalcular nada: si la liquidación está generada se enseña su
+        # congelado tal cual. El cálculo en vivo solo se hace si no hay nada congelado; antes se
+        # calculaba siempre primero, así que si los ingresos habían cambiado (o ya no existían) el
+        # enlace enseñaba otros importes o daba «no hay datos».
+        beneficiary, _esta_congelada = _royalty_effective_beneficiary(
             session_db, rec, kind, beneficiary_uuid, sem_year, sem_half)
-        if _efectivo:
-            beneficiary = _efectivo
+        if not beneficiary:
+            abort(404)
         # Las liquidaciones de royalties se facturan A NOMBRE DE PIES (el sello), no de la primera
         # empresa del grupo por orden alfabético (que era 33 Producciones).
         company = None
@@ -14554,6 +14592,10 @@ def public_royalty_liquidation_view(token):
             beneficiary=beneficiary,
             # El mismo cálculo que en la validación y en el pago: base + IVA.
             invoice_totals=_royalty_invoice_totals(beneficiary),
+            # ¿Lo que se ve es lo CONGELADO? Si la liquidación existe y no lo está, se dice, para que
+            # nadie dé por bueno un importe que todavía puede moverse.
+            is_frozen=bool(_esta_congelada),
+            generated_at_label=_format_madrid_datetime_label(getattr(rec, "generated_at", None)),
             period_label=_royalty_liquidation_period_label_from_dates(sem_start, sem_end),
             liquidation=rec,
             company=company,
@@ -61484,7 +61526,7 @@ def public_invoice_upload():
                 if not _royalty_frozen_beneficiary(rec):
                     try:
                         _benef, _s, _e, _b = _get_royalty_liquidation_beneficiary_data(
-                            session_db, kind, bid, parsed_sem[0], parsed_sem[1])
+                            session_db, kind, bid, parsed_sem[0], parsed_sem[1], apply_frozen=False)
                         _royalty_freeze(session_db, rec, _benef)
                     except Exception:
                         pass

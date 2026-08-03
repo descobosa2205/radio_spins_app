@@ -1230,6 +1230,26 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   queda como **facturada**: aparece en el listado de royalties y la factura, en la base de facturas. Se contrasta con las **órdenes
   de embargo vigentes** del proveedor y se avisa para no abonarle. Acciones en bloque:
   `royalty_liquidations_download_all` (un PDF continuo con pypdf) y `royalty_liquidations_send_all`.
+- ⚠️⚠️ **Royalties · el cálculo «en vivo» venía con el CONGELADO pegado** (raíz del fallo, ago 2026).
+  `_apply_royalty_liquidation_meta` sobreescribe `total_amount`/`total_income`/`items` del bucket con
+  el congelado, y la llaman **los dos constructores** (`_build_royalty_single_beneficiary` y
+  `_build_royalty_beneficiaries`) → `_get_royalty_liquidation_beneficiary_data`, que todo el mundo
+  trataba como «los datos de ahora», devolvía **los congelados**. Consecuencias reales: **generar una
+  liquidación nueva volvía a congelar los importes VIEJOS** (nunca se actualizaba) y la comparativa
+  antes/ahora salía idéntica. Ahora los tres aceptan **`apply_frozen`** (por defecto `True`, que es lo
+  que quiere cualquier pantalla) y lo llaman con **`apply_frozen=False`** los cuatro sitios que
+  necesitan los datos de HOY: generar (`use_frozen=False`), `royalty_liquidation_compare`, el modal de
+  Información y el congelado de urgencia al subir una factura sin liquidación generada.
+  · **El congelado se busca PRIMERO** (`_build_royalty_liquidation_pdf_bytes` y el enlace público):
+  antes se calculaba siempre la liquidación en vivo y solo después se sustituía, así que una
+  liquidación ya enviada **no se podía ver** si sus ingresos habían cambiado o desaparecido (saltaba
+  «no hay datos»), y cualquier fallo en el reemplazo dejaba a la vista los importes de hoy.
+  · **`_royalty_frozen_beneficiary` cae a `last_sent_snapshot`** si no hay `snapshot`: las
+  liquidaciones enviadas antes de que se guardara el congelado de la generación solo tienen ese, y aun
+  así es LO QUE SE ENVIÓ. Sin esto caían a los datos de hoy.
+  · El enlace del beneficiario **dice si está cerrada** (y cuándo se generó); si no lo está, avisa de
+  que los importes pueden variar.
+
 - **Royalties · LO GENERADO NO SE ALTERA y los números CUADRAN** (auditoría ago 2026). Punto único
   **`_royalty_effective_beneficiary`** (el congelado si está generada; solo si no, lo de ahora), usado
   por el enlace del beneficiario, la landing de facturación, la pantalla de validar y el pago.

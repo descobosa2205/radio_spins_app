@@ -9,7 +9,16 @@
       <img src="{{ (company.logo_url if company else None) or url_for('static', filename='img/logo.png') }}" alt="" style="max-height:56px;max-width:220px;object-fit:contain;">
     </div>
     <h3 class="text-center mb-1">Liquidación de royalties</h3>
-    <p class="text-center text-muted small mb-4">{{ period_label }}</p>
+    <p class="text-center text-muted small mb-4">{{ period_label }}
+      {% if is_frozen and generated_at_label %}· generada el {{ generated_at_label }}{% endif %}</p>
+
+    {% if not is_frozen %}
+      {# Sin nada congelado los importes son los de HOY y podrían cambiar: se dice claramente. #}
+      <div class="alert alert-warning small">
+        <i class="fa fa-circle-info me-1"></i>Esta liquidación todavía no está cerrada: los importes se
+        han calculado ahora y pueden variar. Cuando se genere quedarán fijados.
+      </div>
+    {% endif %}
 
     {# El detalle sale del parcial compartido: es EXACTAMENTE lo mismo que se ve en el PDF y en la
        pantalla de validar la factura, así no puede haber discrepancias. #}

@@ -465,6 +465,13 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `venue_map.js` + `seatmap_calc` con categorías sintéticas Vendida/Invitación), página
   `/compradores` (`databases.buyers`, agrupada por eventos + CSV) y pestaña Enterticket en
   Integraciones (estado/acciones, solo dirección).
+  ⚠️ **La lista de Integraciones solo enseña los eventos POR VENIR**: uno ya celebrado no hay que
+  vincularlo ni pedirlo. Los que estaban vinculados **siguen vinculados** y sus ventas se ven en la
+  pestaña Ticketing de su actividad; abajo se dice cuántos hay ocultos (`et_past_count`). Manda
+  `event_end_date` cuando la hay (un festival de varios días sigue vivo hasta el último), y los que
+  no tienen fecha se conservan (no se puede dar por pasado lo que no se sabe cuándo es). ⚠️ Los ya
+  vinculados se descartan del selector «vincular con otro concierto» mirando **todos** los eventos,
+  no solo los futuros: si no, una actividad enlazada a uno pasado se ofrecería otra vez.
 
 - **Contratación · pestañas, tareas y contadores** (rediseño ago 2026): la barra de pestañas es un
   parcial único (`templates/_contracting_tabs.html`) que va **POR ENCIMA del título** de cada

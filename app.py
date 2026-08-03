@@ -76720,16 +76720,26 @@ def integrations_view():
     et_meta = None
     et_events = []
     et_concert_options = []
+    et_past_count = 0          # eventos ya celebrados: no se listan (siguen vinculados)
     et_counts = {"total": 0, "linked": 0, "pending": 0, "requested": 0, "ignored": 0}
     if et_configured:
         s = db()
         try:
             et_meta = s.get(EnterticketMeta, 1)
-            rows = (s.query(EnterticketEvent)
-                    .options(joinedload(EnterticketEvent.concert).joinedload(Concert.artist),
-                             joinedload(EnterticketEvent.concert).joinedload(Concert.venue))
-                    .order_by(EnterticketEvent.event_date.desc().nullslast()).all())
             today = date.today()
+            # SOLO EVENTOS FUTUROS. Un evento pasado no hay que vincularlo ni pedirlo: lo que ya
+            # estuviera vinculado sigue vinculado y sus datos se ven en la ficha de su actividad
+            # (pestaña Ticketing), pero aquí no pinta nada y solo ensucia la lista. Los que NO tienen
+            # fecha se conservan: no se puede afirmar que hayan pasado.
+            # La fecha de fin manda cuando la hay (un festival de varios días sigue vivo el último).
+            rows_all = (s.query(EnterticketEvent)
+                        .options(joinedload(EnterticketEvent.concert).joinedload(Concert.artist),
+                                 joinedload(EnterticketEvent.concert).joinedload(Concert.venue))
+                        .order_by(EnterticketEvent.event_date.asc().nullsfirst()).all())
+            rows = [r for r in rows_all
+                    if (r.event_end_date or r.event_date) is None
+                    or (r.event_end_date or r.event_date) >= today]
+            et_past_count = len(rows_all) - len(rows)
             for ev in rows:
                 st = (ev.link_status or "PENDING").upper()
                 et_counts["total"] += 1
@@ -76740,10 +76750,8 @@ def integrations_view():
                     vn = (c.venue.name if c.venue else "") or (c.manual_venue_name or "") or (c.manual_municipality or "")
                     concert_label = f"{c.artist.name if c.artist else '¿?'} · {c.date.strftime('%d/%m/%Y') if c.date else '—'}" + (f" · {vn}" if vn else "")
                 candidates = []
-                # ⚠️ Antes solo se buscaban candidatos a los eventos de los últimos 90 días, así que
-                # un evento pasado salía siempre como «sin candidatos» aunque su actividad existiera
-                # y no había forma de enlazarlo. La consulta ya va acotada por fecha (± margen), así
-                # que no hace falta ningún corte por antigüedad.
+                # La consulta de candidatos ya va acotada por la fecha del evento (± margen), así
+                # que no hace falta ningún corte adicional por antigüedad.
                 if st == "PENDING" and ev.event_date:
                     for score, c in _et_automatch_candidates(s, ev, day_margin=3)[:6]:
                         vn = (c.venue.name if c.venue else "") or (c.manual_venue_name or "") or (c.manual_municipality or "")
@@ -76764,13 +76772,15 @@ def integrations_view():
                     "last_error": ev.last_error or "", "candidates": candidates,
                     "capacity": ev.capacity_on_sale,
                 })
-            # Selector del modal «Vincular con otro concierto»: TODAS las actividades, también las
-            # pasadas (buscable con Select2 por artista/fecha/recinto).
-            # ⚠️ Antes se cortaba a los últimos 18 meses: las actividades más viejas no había manera
-            # de enlazarlas a su evento de Enterticket, que es justo lo que pasa al integrar un
-            # histórico. Se ordenan por fecha descendente y se acota el número de filas, no la fecha.
+            # Selector del modal «Vincular con otro concierto»: TODAS las actividades (buscable con
+            # Select2 por artista/fecha/recinto), porque la fecha del evento en Enterticket y la
+            # nuestra no siempre coinciden y hay que poder corregirlo. Se ordenan por fecha
+            # descendente y se acota el número de filas, no la fecha.
+            # ⚠️ Los ya vinculados se descartan mirando TODOS los eventos (`rows_all`), no solo los
+            # futuros: si no, una actividad enlazada a un evento pasado volvería a ofrecerse y se
+            # podría vincular dos veces.
             if any(e["status"] == "PENDING" for e in et_events):
-                linked_ids = [r.concert_id for r in rows if r.concert_id]
+                linked_ids = [r.concert_id for r in rows_all if r.concert_id]
                 copts_q = (s.query(Concert)
                            .options(joinedload(Concert.artist), joinedload(Concert.venue)))
                 if linked_ids:
@@ -76833,6 +76843,7 @@ def integrations_view():
         et_events=et_events,
         et_concert_options=et_concert_options,
         et_counts=et_counts,
+        et_past_count=et_past_count,
         cm_linked=cm_linked,
         cm_points=cm_points,
         cm_playlists=cm_playlists,

@@ -636,7 +636,7 @@
             </form>
           </div>
           <div class="d-flex flex-wrap gap-2 mb-3">
-            <div class="sim-stat"><div class="sim-stat__n">{{ et_counts.total|k }}</div><div class="sim-stat__l">Eventos en Enterticket</div></div>
+            <div class="sim-stat"><div class="sim-stat__n">{{ et_counts.total|k }}</div><div class="sim-stat__l">Eventos por venir</div></div>
             <div class="sim-stat"><div class="sim-stat__n text-success">{{ et_counts.linked|k }}</div><div class="sim-stat__l">Vinculados</div></div>
             <div class="sim-stat"><div class="sim-stat__n {{ 'text-danger' if et_counts.pending else '' }}">{{ et_counts.pending|k }}</div><div class="sim-stat__l">Pendientes</div></div>
             <div class="sim-stat"><div class="sim-stat__n">{{ et_counts.requested|k }}</div><div class="sim-stat__l">Petición enviada</div></div>
@@ -646,11 +646,18 @@
             {% if et_last_catalog_sync %}Último catálogo: {{ et_last_catalog_sync }} ·{% endif %}
             {% if et_meta and et_meta.token_expires_at %} Token válido hasta {{ et_meta.token_expires_at }} ·{% endif %}
             El refresco automático lo hace la tarea programada de Render (<code>/cron/enterticket/refresh?key=…</code>) y cada pestaña Ticketing al abrirse.
+            {% if et_past_count %}
+            <div class="mt-1"><i class="fa fa-clock-rotate-left me-1"></i>Aquí solo salen los eventos <strong>por venir</strong>.
+              Hay {{ et_past_count|k }} ya celebrado(s) que no se listan: los que estaban vinculados lo siguen estando y sus ventas se ven en la pestaña Ticketing de su actividad.</div>
+            {% endif %}
             {% if et_meta and et_meta.last_error %}<div class="text-danger mt-1"><i class="fa fa-triangle-exclamation me-1"></i>{{ et_meta.last_error }}</div>{% endif %}
           </div>
 
           {% if not et_events %}
-            <div class="alert alert-light border">Aún no hay eventos sincronizados. Pulsa «Sincronizar catálogo».</div>
+            <div class="alert alert-light border">
+              {% if et_past_count %}No hay ningún evento por venir en Enterticket. Los {{ et_past_count|k }} ya celebrados no se listan aquí: sus datos siguen en la ficha de su actividad.
+              {% else %}Aún no hay eventos sincronizados. Pulsa «Sincronizar catálogo».{% endif %}
+            </div>
           {% else %}
           <div class="table-responsive">
             <table class="table table-sm align-middle">

@@ -41905,6 +41905,120 @@ def _home_admin_pending() -> list:
         session_db.close()
 
 
+def _home_admin_requests(limit: int = 12) -> list[dict]:
+    """Módulo de Inicio «Peticiones · Administración»: lo que LE PIDEN a administración y sigue sin
+    resolver.
+
+    No es un departamento de peticiones más (`BookingRequest` no llega a administración): son las
+    peticiones que ya existen en el trabajo diario —alguien pide pasar un gasto sin factura, alguien
+    pide que se le pague ya, y las facturas que hemos pedido a un proveedor y no han llegado—.
+    Se filtra por el REPARTO de administración, igual que las tareas: lo que le toca a quien mira
+    más lo que no tiene responsable (nada se pierde en silencio)."""
+    session_db = db()
+    try:
+        if not has_access_key("administracion", include_descendants=True):
+            return []
+        hoy = today_local()
+
+        def _dias(valor):
+            try:
+                return (hoy - valor.date()).days if valor else None
+            except Exception:
+                return None
+
+        filas = []
+        # 1) Gastos de una bolsa que piden pasar SIN factura.
+        if _admin_task_is_mine(session_db, "GASTOS_SIN_TICKET"):
+            rows = (session_db.query(BagExpense)
+                    .options(joinedload(BagExpense.bag), joinedload(BagExpense.provider))
+                    .filter(BagExpense.status != "ELIMINADO",
+                            BagExpense.consolidation_status == "SIN_FACTURA_SOLICITADO")
+                    .order_by(BagExpense.updated_at.desc().nullslast()).limit(60).all())
+            url = url_for("administracion_view", tab="pendiente", subtab="solicitudes")
+            for r in rows:
+                filas.append({
+                    "kind": "SIN_FACTURA", "kind_label": "Pide pasar sin factura", "icon": "fa-receipt",
+                    "color": "warning",
+                    "title": (r.concept or "Gasto"),
+                    "subtitle": " · ".join([x for x in [
+                        _promoter_display_name(r.provider),
+                        (getattr(r.bag, "title", None) or ""),
+                    ] if x]),
+                    "person": (r.created_by_nick or "").strip(),
+                    "note": (r.no_invoice_reason or ""),
+                    "amount": _money_or_zero(r.amount_gross),
+                    "days_since": _dias(r.updated_at or r.created_at),
+                    "url": url,
+                })
+            # 2) Pagos que piden hacer ya (van en la misma bandeja).
+            rows = (session_db.query(BagExpense)
+                    .options(joinedload(BagExpense.bag), joinedload(BagExpense.provider))
+                    .filter(BagExpense.status != "ELIMINADO",
+                            BagExpense.immediate_payment_requested == True)  # noqa: E712
+                    .order_by(BagExpense.immediate_payment_requested_at.desc().nullslast()).limit(60).all())
+            for r in rows:
+                filas.append({
+                    "kind": "PAGO_YA", "kind_label": "Pide pago inmediato", "icon": "fa-bolt",
+                    "color": "danger",
+                    "title": (r.concept or "Gasto"),
+                    "subtitle": " · ".join([x for x in [
+                        _promoter_display_name(r.provider),
+                        (getattr(r.bag, "title", None) or ""),
+                    ] if x]),
+                    "person": (r.created_by_nick or "").strip(),
+                    "note": (r.immediate_payment_reason or ""),
+                    "amount": _money_or_zero(r.immediate_payment_amount or r.amount_gross),
+                    "days_since": _dias(r.immediate_payment_requested_at or r.created_at),
+                    "url": url,
+                })
+        # 3) Gastos de OFICINA / inversión de artista que piden pasar sin factura.
+        if _admin_task_is_mine(session_db, "GASTOS_OFICINA"):
+            url = url_for("administracion_view", tab="pendiente", subtab="oficina")
+            for r in _personal_no_invoice_pending(session_db):
+                filas.append({
+                    "kind": "SIN_FACTURA_OFICINA", "kind_label": "Pide pasar sin factura", "icon": "fa-building-columns",
+                    "color": "warning",
+                    "title": r.get("concept") or "Gasto",
+                    "subtitle": r.get("provider_name") or "",
+                    "person": r.get("person") or "",
+                    "note": r.get("reason") or "",
+                    "amount": r.get("amount_gross"),
+                    "days_since": None,
+                    "url": url,
+                })
+        # 4) Facturas que HEMOS pedido a un proveedor y no han llegado.
+        if _admin_task_is_mine(session_db, "FACTURAS_SOLICITADAS"):
+            rows = (session_db.query(BagInvoiceRequest)
+                    .options(joinedload(BagInvoiceRequest.bag), joinedload(BagInvoiceRequest.provider))
+                    .filter(func.upper(func.coalesce(BagInvoiceRequest.status, "ACTIVE")) == "ACTIVE")
+                    .order_by(BagInvoiceRequest.last_sent_at.desc().nullslast(),
+                              BagInvoiceRequest.created_at.desc()).limit(60).all())
+            for r in rows:
+                nombre = _promoter_display_name(r.provider) or "Proveedor"
+                n_conceptos = len([x for x in (r.expense_ids or []) if x])
+                filas.append({
+                    "kind": "FACTURA_PEDIDA", "kind_label": "Factura pedida sin llegar", "icon": "fa-file-invoice",
+                    "color": "info",
+                    "title": nombre,
+                    "subtitle": " · ".join([x for x in [
+                        (getattr(r.bag, "title", None) or ""),
+                        (f"{n_conceptos} concepto{'' if n_conceptos == 1 else 's'}" if n_conceptos else ""),
+                    ] if x]),
+                    "person": "",
+                    "note": "",
+                    "amount": None,
+                    "days_since": _dias(r.last_sent_at or r.created_at),
+                    "url": url_for("administracion_view", tab="pendiente", subtab="facturacion"),
+                })
+        # Lo que lleva más tiempo esperando, primero (lo que no se sabe, al final).
+        filas.sort(key=lambda x: (x["days_since"] is None, -(x["days_since"] or 0)))
+        return filas[:limit]
+    except Exception:
+        return []
+    finally:
+        session_db.close()
+
+
 @app.post('/hoja-ruta/<entity_type>/<entity_id>/personal', endpoint='roadmap_personnel_save')
 @admin_required
 def roadmap_personnel_save(entity_type, entity_id):
@@ -44917,17 +45031,40 @@ def _home_quick_action_defs() -> dict:
             "hint": "Solicitar invitaciones para un evento", "access": "invitaciones.pedir",
             "url": url_for("invitations_view", tab="pedir", open="request"),
         },
+        # --- Administración: lo que se abre veinte veces al día ---
+        "pagos": {
+            "key": "pagos", "label": "Pagos", "plus": False, "icon": "fa-money-bill-transfer",
+            "hint": "Pendiente de pago y remesas para el banco", "access": "administracion.pendiente",
+            "url": url_for("administracion_view", tab="pendiente", subtab="pago"),
+        },
+        "liquidar": {
+            "key": "liquidar", "label": "Liquidar bolsas", "plus": False, "icon": "fa-scale-balanced",
+            "hint": "Bolsas cerradas pendientes de liquidar", "access": "administracion.pendiente",
+            "url": url_for("administracion_view", tab="pendiente", subtab="liquidacion"),
+        },
+        "gastos_mios": {
+            "key": "gastos_mios", "label": "Mis gastos", "plus": False, "icon": "fa-receipt",
+            "hint": "Asignar mis gastos a su bolsa", "access": None,
+            "url": url_for("my_expenses_view"),
+        },
+        "facturas": {
+            "key": "facturas", "label": "Facturas", "plus": False, "icon": "fa-file-invoice",
+            "hint": "Base de facturas de proveedores", "access": "databases.invoices",
+            "url": url_for("invoices_view"),
+        },
     }
 
 
 # Orden canónico (así cada departamento sale en el orden pedido).
-_HOME_QUICK_ORDER = ["actividad", "peticion", "simulacion", "cuadrantes", "single", "invitaciones"]
+_HOME_QUICK_ORDER = ["actividad", "peticion", "simulacion", "cuadrantes", "single",
+                     "pagos", "liquidar", "facturas", "gastos_mios", "invitaciones"]
 
 # Acciones por DEPARTAMENTO (nombres tal cual en PERSONNEL_DEPARTMENTS).
 _HOME_QUICK_BY_DEPARTMENT = {
     "Contratación": ["actividad", "peticion", "simulacion", "cuadrantes", "invitaciones"],
     "Sello": ["actividad", "peticion", "invitaciones"],
     "Registros": ["peticion", "single", "invitaciones"],
+    "Administración": ["peticion", "pagos", "liquidar", "facturas", "gastos_mios"],
 }
 # Quien no está en ninguno de los departamentos de arriba ve lo transversal.
 _HOME_QUICK_DEFAULT = ["peticion", "invitaciones"]
@@ -45350,6 +45487,12 @@ def inject_personnel_globals():
                                if request.endpoint == "home" and session.get("user_id")
                                and "_home_admin_pending" in globals()
                                and has_access_key("administracion", include_descendants=True) else []),
+        # Lo que LE PIDEN a administración: pasar un gasto sin factura, pagar ya, y las facturas
+        # pedidas a proveedores que no han llegado.
+        "HOME_ADMIN_REQUESTS": (_home_admin_requests()
+                                if request.endpoint == "home" and session.get("user_id")
+                                and "_home_admin_requests" in globals()
+                                and has_access_key("administracion", include_descendants=True) else []),
         "HOME_MY_EXPENSES": _home_my_expenses_summary() if request.endpoint == "home" and session.get("user_id") and "_home_my_expenses_summary" in globals() else {"rows": [], "overdue": 0, "total": 0},
         # Promoción: lo que se está gestionando (a promoción y a quien viaja con el artista) y los
         # avisos de cambios/cancelaciones para quien la produce.

@@ -70,6 +70,104 @@ document.addEventListener('click', function (ev) {
    acciones rápidas. Solo si hay contexto (wizard_available). #}
 {% if wizard_available %}{% include '_concert_wizard_modal.html' %}{% endif %}
 
+{# Tareas de administración que le tocan a esta persona: las de sus responsabilidades, más las que
+   no tienen responsable asignado (nada se pierde). Quien no tenga reparto propio las ve todas. #}
+{% if HOME_ADMIN_PENDING %}
+<div class="card mb-4 border-danger">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <div>
+        <h5 class="mb-0"><i class="fa fa-list-check text-danger me-2"></i>Tareas pendientes · Administración</h5>
+        <div class="small text-muted">Lo que te toca a ti. Pincha en cada bloque para ir directo.</div>
+      </div>
+      <span class="badge text-bg-danger">{{ HOME_ADMIN_PENDING|sum(attribute='count') }}</span>
+    </div>
+    <div class="row g-3">
+      {% for row in HOME_ADMIN_PENDING %}
+        <div class="col-6 col-md-4 col-xl-3">
+          <a href="{{ row.url }}" class="card h-100 text-decoration-none text-reset">
+            <div class="card-body d-flex align-items-center gap-3">
+              <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-danger-subtle flex-shrink-0" style="width:42px;height:42px;">
+                <i class="fa {{ row.icon }} text-danger"></i>
+              </span>
+              <div style="min-width:0;">
+                <div class="fw-semibold fs-5 lh-1">{{ row.count }}</div>
+                <div class="small text-muted text-truncate">{{ row.label }}</div>
+              </div>
+            </div>
+          </a>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if HOME_ADMIN_ALTAS_PENDING %}
+<div class="card mb-4 border-danger">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <div>
+        <h5 class="mb-0"><i class="fa fa-file-shield text-danger me-2"></i>Tareas pendientes · Altas (ITA)</h5>
+        <div class="small text-muted">Empresas del grupo con el ITA caducado o sin subir: hay que subir el informe del mes en vigor.</div>
+      </div>
+      <span class="badge text-bg-danger">{{ HOME_ADMIN_ALTAS_PENDING|length }}</span>
+    </div>
+    <div class="row g-3">
+      {% for row in HOME_ADMIN_ALTAS_PENDING %}
+        <div class="col-12 col-lg-6">
+          <a href="{{ url_for('administracion_view', tab='altas') }}" class="text-decoration-none text-reset">
+            <div class="d-flex align-items-center gap-3 border rounded p-2 h-100">
+              {% if row.logo_url %}<img src="{{ row.logo_url }}" alt="" style="width:48px;height:48px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff;">{% else %}<span class="d-inline-flex align-items-center justify-content-center" style="width:48px;height:48px;border-radius:8px;background:#f1f3f7;"><i class="fa fa-building text-muted"></i></span>{% endif %}
+              <div class="flex-grow-1 min-w-0">
+                <div class="fw-semibold text-truncate">{{ row.name }}</div>
+                <div class="small text-muted text-truncate">{% if row.until %}ITA caducado el {{ row.until }}{% else %}Sin ITA subido{% endif %}</div>
+              </div>
+              <span class="badge text-bg-danger">Subir ITA</span>
+            </div>
+          </a>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# Peticiones que LE PIDEN a administración: pasar un gasto sin factura, pagar ya, y las facturas
+   pedidas a un proveedor que no han llegado. Se reparten igual que las tareas (las tuyas + las que
+   no tienen responsable). #}
+{% if HOME_ADMIN_REQUESTS %}
+<div class="card mb-4">
+  <div class="card-header d-flex align-items-center gap-2">
+    <span class="fw-semibold"><i class="fa fa-inbox text-danger me-2"></i>Peticiones · Administración</span>
+    <span class="badge text-bg-danger">{{ HOME_ADMIN_REQUESTS|length }}</span>
+    <span class="text-muted small ms-auto">Lo que te piden</span>
+  </div>
+  <div class="list-group list-group-flush">
+    {% for p in HOME_ADMIN_REQUESTS %}
+      <a href="{{ p.url }}" class="list-group-item list-group-item-action text-reset text-decoration-none d-flex align-items-center gap-3 flex-wrap">
+        <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-{{ p.color }}-subtle flex-shrink-0" style="width:38px;height:38px;">
+          <i class="fa {{ p.icon }} text-{{ p.color }}"></i>
+        </span>
+        <span class="flex-grow-1" style="min-width:0;">
+          <span class="d-block fw-semibold text-truncate">{{ p.title }}</span>
+          <span class="d-block small text-muted text-truncate">
+            <span class="badge text-bg-{{ p.color }}{{ ' text-dark' if p.color == 'warning' else '' }}">{{ p.kind_label }}</span>
+            {% if p.subtitle %} {{ p.subtitle }}{% endif %}
+            {% if p.person %} · pide {{ p.person }}{% endif %}
+          </span>
+          {% if p.note %}<span class="d-block small text-muted fst-italic text-truncate">«{{ p.note }}»</span>{% endif %}
+        </span>
+        <span class="text-end small text-muted flex-shrink-0">
+          {% if p.amount is not none %}<span class="d-block fw-semibold text-dark">{{ p.amount|eur }}</span>{% endif %}
+          {% if p.days_since is not none %}<span class="d-block" title="Días esperando"><i class="fa fa-clock me-1"></i>{{ p.days_since }} día{{ '' if p.days_since == 1 else 's' }}</span>{% endif %}
+        </span>
+      </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {% if HOME_PENDING_PETICIONES %}
 <div class="card mb-4">
   <div class="card-header d-flex align-items-center gap-2">
@@ -356,69 +454,6 @@ document.addEventListener('click', function (ev) {
     {% if HOME_MY_EXPENSES.total > HOME_MY_EXPENSES.rows|length %}
       <div class="text-end mt-2"><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('my_expenses_view') }}">Ver todos</a></div>
     {% endif %}
-  </div>
-</div>
-{% endif %}
-
-{# Tareas de administración que le tocan a esta persona: las de sus responsabilidades, más las que
-   no tienen responsable asignado (nada se pierde). Quien no tenga reparto propio las ve todas. #}
-{% if HOME_ADMIN_PENDING %}
-<div class="card mb-4 border-danger">
-  <div class="card-body">
-    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-      <div>
-        <h5 class="mb-0"><i class="fa fa-list-check text-danger me-2"></i>Tareas pendientes · Administración</h5>
-        <div class="small text-muted">Lo que te toca a ti. Pincha en cada bloque para ir directo.</div>
-      </div>
-      <span class="badge text-bg-danger">{{ HOME_ADMIN_PENDING|sum(attribute='count') }}</span>
-    </div>
-    <div class="row g-3">
-      {% for row in HOME_ADMIN_PENDING %}
-        <div class="col-6 col-md-4 col-xl-3">
-          <a href="{{ row.url }}" class="card h-100 text-decoration-none text-reset">
-            <div class="card-body d-flex align-items-center gap-3">
-              <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-danger-subtle flex-shrink-0" style="width:42px;height:42px;">
-                <i class="fa {{ row.icon }} text-danger"></i>
-              </span>
-              <div style="min-width:0;">
-                <div class="fw-semibold fs-5 lh-1">{{ row.count }}</div>
-                <div class="small text-muted text-truncate">{{ row.label }}</div>
-              </div>
-            </div>
-          </a>
-        </div>
-      {% endfor %}
-    </div>
-  </div>
-</div>
-{% endif %}
-
-{% if HOME_ADMIN_ALTAS_PENDING %}
-<div class="card mb-4 border-danger">
-  <div class="card-body">
-    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-      <div>
-        <h5 class="mb-0"><i class="fa fa-file-shield text-danger me-2"></i>Tareas pendientes · Altas (ITA)</h5>
-        <div class="small text-muted">Empresas del grupo con el ITA caducado o sin subir: hay que subir el informe del mes en vigor.</div>
-      </div>
-      <span class="badge text-bg-danger">{{ HOME_ADMIN_ALTAS_PENDING|length }}</span>
-    </div>
-    <div class="row g-3">
-      {% for row in HOME_ADMIN_ALTAS_PENDING %}
-        <div class="col-12 col-lg-6">
-          <a href="{{ url_for('administracion_view', tab='altas') }}" class="text-decoration-none text-reset">
-            <div class="d-flex align-items-center gap-3 border rounded p-2 h-100">
-              {% if row.logo_url %}<img src="{{ row.logo_url }}" alt="" style="width:48px;height:48px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff;">{% else %}<span class="d-inline-flex align-items-center justify-content-center" style="width:48px;height:48px;border-radius:8px;background:#f1f3f7;"><i class="fa fa-building text-muted"></i></span>{% endif %}
-              <div class="flex-grow-1 min-w-0">
-                <div class="fw-semibold text-truncate">{{ row.name }}</div>
-                <div class="small text-muted text-truncate">{% if row.until %}ITA caducado el {{ row.until }}{% else %}Sin ITA subido{% endif %}</div>
-              </div>
-              <span class="badge text-bg-danger">Subir ITA</span>
-            </div>
-          </a>
-        </div>
-      {% endfor %}
-    </div>
   </div>
 </div>
 {% endif %}

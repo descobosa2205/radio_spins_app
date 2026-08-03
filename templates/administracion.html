@@ -12,6 +12,11 @@
         {% if row.attachment_url %}
           <button type="button" class="btn btn-link p-0 align-baseline text-reset text-decoration-none fw-semibold"
                   data-pay-doc="{{ row.attachment_url }}" data-pay-doc-title="{{ row.concept }}"
+                  data-pay-doc-number="{{ row.invoice_number }}"
+                  data-pay-doc-net="{{ row.net }}" data-pay-doc-vat="{{ row.vat }}"
+                  data-pay-doc-retention="{{ row.retention }}" data-pay-doc-total="{{ row.amount }}"
+                  data-pay-doc-beneficiary="{{ row.beneficiary }}"
+                  data-pay-doc-iban="{{ row.iban_masked }}"
                   title="Ver la factura">{{ row.concept }} <i class="fa fa-file-invoice text-muted ms-1"></i></button>
         {% else %}
           <span class="fw-semibold">{{ row.concept }}</span>
@@ -316,6 +321,10 @@
                     {% if r.invoice_url %}
                       <button type="button" class="btn btn-link p-0 text-start text-reset text-decoration-none fw-semibold text-truncate d-block"
                               data-pay-doc="{{ r.invoice_url }}" data-pay-doc-title="{{ r.name }} · {{ r.period_label }}"
+                              data-pay-doc-net="{{ r.net }}" data-pay-doc-vat="{{ r.vat }}"
+                              data-pay-doc-retention="0" data-pay-doc-total="{{ r.amount }}"
+                              data-pay-doc-beneficiary="{{ r.name }}"
+                              data-pay-doc-iban="{{ r.iban_masked }}"
                               title="Ver la factura validada">{{ r.name }} <i class="fa fa-file-invoice text-muted ms-1"></i></button>
                     {% else %}
                       <div class="fw-semibold text-truncate">{{ r.name }}</div>
@@ -396,11 +405,15 @@
         <div class="modal-header">
           <h5 class="modal-title"><i class="fa fa-file-invoice me-2 text-danger"></i><span data-pay-doc-title>Factura</span></h5>
           <div class="ms-auto d-flex gap-2 me-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-pay-doc-full title="Ver a pantalla completa"><i class="fa fa-expand"></i></button>
             <a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener" data-pay-doc-open title="Abrir en una pestaña"><i class="fa fa-arrow-up-right-from-square"></i></a>
             <a class="btn btn-sm btn-outline-secondary" download data-pay-doc-dl title="Descargar"><i class="fa fa-download"></i></a>
           </div>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
+        {# RESUMEN del pago: importe, IVA, retención (si la hay) y LA CUENTA a la que se paga. Es lo
+           que hace que cuadre lo que se factura con lo que se va a pagar. #}
+        <div class="pay-doc__sum d-none" data-pay-doc-sum></div>
         <div class="modal-body p-0" data-pay-doc-body></div>
       </div></div>
     </div>

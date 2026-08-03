@@ -180,13 +180,59 @@
     if (abrir) abrir.setAttribute('href', url);
     var bajar = modal.querySelector('[data-pay-doc-dl]');
     if (bajar) bajar.setAttribute('href', url);
+    // RESUMEN del pago: importe, IVA, retención (si la hay) y la cuenta a la que se abona.
+    var sum = modal.querySelector('[data-pay-doc-sum]');
+    if (sum) {
+      function num(attr) { return parseFloat(btn.getAttribute(attr) || '0') || 0; }
+      var neto = num('data-pay-doc-net');
+      var iva = num('data-pay-doc-vat');
+      var ret = num('data-pay-doc-retention');
+      var total = num('data-pay-doc-total');
+      var numero = btn.getAttribute('data-pay-doc-number') || '';
+      var quien = btn.getAttribute('data-pay-doc-beneficiary') || '';
+      var iban = btn.getAttribute('data-pay-doc-iban') || '';
+      var filas = '';
+      function fila(etiqueta, valor, clase) {
+        filas += '<div class="pay-doc__cell' + (clase ? ' ' + clase : '') + '">'
+              + '<span class="pay-doc__lab">' + etiqueta + '</span>'
+              + '<span class="pay-doc__val">' + euros(valor) + '</span></div>';
+      }
+      if (neto) fila('Base', neto);
+      if (iva) fila('IVA', iva);
+      if (ret) fila('Retención', -ret, 'is-neg');
+      if (total) fila('A pagar', total, 'is-total');
+      var datos = '';
+      if (numero) datos += '<span><i class="fa fa-hashtag me-1"></i>' + numero + '</span>';
+      if (quien) datos += '<span><i class="fa fa-user me-1"></i>' + quien + '</span>';
+      if (iban) datos += '<span class="pay-doc__iban"><i class="fa fa-building-columns me-1"></i>' + iban + '</span>';
+      if (filas || datos) {
+        sum.innerHTML = (filas ? '<div class="pay-doc__nums">' + filas + '</div>' : '')
+                      + (datos ? '<div class="pay-doc__meta">' + datos + '</div>' : '');
+        sum.classList.remove('d-none');
+      } else {
+        sum.innerHTML = ''; sum.classList.add('d-none');
+      }
+    }
     var cuerpo = modal.querySelector('[data-pay-doc-body]');
     if (cuerpo) {
       var bajo = url.toLowerCase();
       var esImagen = /\.(png|jpe?g|webp|gif|heic)(\?|$)/.test(bajo);
+      // ⚠️ `zoom=page-width` además de `view=FitH`: sin él, un PDF con la página pequeña (o el visor
+      // en «página completa») se veía diminuto en medio de un marco enorme.
+      var ancla = (url.indexOf('#') >= 0 ? '&' : '#') + 'view=FitH&zoom=page-width&toolbar=1';
       cuerpo.innerHTML = esImagen
-        ? '<img src="' + url + '" alt="Factura" style="width:100%;height:auto;display:block;">'
-        : '<iframe src="' + url + '#view=FitH" title="Factura" style="width:100%;height:75vh;border:0;display:block;"></iframe>';
+        ? '<img src="' + url + '" alt="Factura" class="pay-doc__img">'
+        : '<iframe src="' + url + ancla + '" title="Factura" class="pay-doc__frame"></iframe>';
+    }
+    // Pantalla completa: para las facturas que vienen con la página muy pequeña.
+    var full = modal.querySelector('[data-pay-doc-full]');
+    var dialog = modal.querySelector('.modal-dialog');
+    if (full && dialog) {
+      full.onclick = function () {
+        var puesto = dialog.classList.toggle('modal-fullscreen');
+        dialog.classList.toggle('modal-xl', !puesto);
+        full.querySelector('i').className = puesto ? 'fa fa-compress' : 'fa fa-expand';
+      };
     }
     if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(modal).show();
   });

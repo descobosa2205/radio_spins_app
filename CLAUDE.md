@@ -1328,7 +1328,14 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (`REMESA_MISSING_LABELS`): `sepa_check_payment` devuelve las claves en inglés («amount», «iban»…) y
   se estaban pintando tal cual.
   · **La factura se ve en un POP-UP** al pinchar en cualquier pendiente de pago (`data-pay-doc` +
-  `#payDocModal` en `pagos.js`): PDF en un marco, foto como imagen, con abrir y descargar.
+  `#payDocModal` en `pagos.js`): PDF en un marco, foto como imagen, con abrir y descargar. Encima va
+  el **RESUMEN del pago** (base, IVA, **retención** si la hay, total a pagar, nº de factura,
+  beneficiario y **la cuenta a la que se abona**), que es lo que hace que cuadre lo que se factura con
+  lo que se paga; los importes viajan en `data-pay-doc-*` desde la fila (`_payment_expense_row` añade
+  `net`/`vat`/`retention`/`invoice_number`).
+  ⚠️ **Un PDF con la página pequeña se veía diminuto** en medio del marco: el ancla lleva
+  `zoom=page-width` además de `view=FitH` (y hay botón de **pantalla completa**). Lo mismo en la
+  pantalla de validar.
   · **Pagada → contabilidad**: `_royalty_mark_paid` (también desde el justificante de la remesa) y
   `_royalty_accounting_pending_rows` → módulo **«Pendiente de contabilizar»** de `/contabilidad`
   (plantilla nueva `contabilidad.html`) con `royalty_liquidation_accounted`.

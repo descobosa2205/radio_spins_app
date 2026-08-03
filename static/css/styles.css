@@ -3393,3 +3393,22 @@ body.doccam-open { overflow: hidden; }
 .acc-pick--sm .acc-pick__logo{ width:26px; height:26px; flex:0 0 26px; border-radius:6px; }
 .acc-pick--sm .acc-pick__name{ font-size:.84rem; }
 .acc-pick--sm .acc-pick__sub{ font-size:.7rem; }
+
+/* Pop-up de la factura en pendiente de pago: arriba el resumen del pago (base, IVA, retención, total
+   y la cuenta a la que se abona) y debajo la factura, a ancho de página. */
+.pay-doc__sum{ padding:.7rem 1rem; border-bottom:1px solid #e9ecef; background:#f8f9fa; }
+.pay-doc__nums{ display:flex; flex-wrap:wrap; gap:.4rem; }
+.pay-doc__cell{ flex:1 1 110px; background:#fff; border:1px solid #e9ecef; border-radius:10px;
+  padding:.4rem .6rem; }
+.pay-doc__lab{ display:block; font-size:.7rem; text-transform:uppercase; letter-spacing:.03em;
+  color:#adb5bd; }
+.pay-doc__val{ display:block; font-weight:600; font-size:.98rem; }
+.pay-doc__cell.is-neg .pay-doc__val{ color:#a4262c; }
+.pay-doc__cell.is-total{ border-color:var(--brand-primary,#E33D48); background:#fff8f8; }
+.pay-doc__cell.is-total .pay-doc__val{ font-size:1.1rem; font-weight:700; }
+.pay-doc__meta{ display:flex; flex-wrap:wrap; gap:.85rem; margin-top:.5rem; font-size:.82rem;
+  color:#495057; }
+.pay-doc__iban{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+.pay-doc__frame{ width:100%; height:78vh; border:0; display:block; background:#fff; }
+.modal-fullscreen .pay-doc__frame{ height:calc(100vh - 190px); }
+.pay-doc__img{ width:100%; height:auto; display:block; }

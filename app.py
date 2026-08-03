@@ -41601,6 +41601,9 @@ def administration_royalty_invoice_review(invoice_id):
             "administration_royalty_invoice.html",
             inv=inv, liquidation=rec, promoter=promoter, beneficiary=beneficiary,
             invoice_totals=totales,
+            # Retención (si la liquidación la lleva) y lo que de verdad se abona.
+            retention=_money_or_zero((beneficiary or {}).get("retention_amount")),
+            pay_total=(totales["gross"] - _money_or_zero((beneficiary or {}).get("retention_amount"))),
             frozen=bool(congelada_ok),
             period_label=(_royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end) if rec else ""),
             embargos=embargos,
@@ -49859,6 +49862,12 @@ def _payment_expense_row(session_db, expense) -> dict:
         "company_id": str(getattr(bag, "company_id", "") or "") if bag is not None else "",
         "attachment_url": (getattr(expense, "attachment_url", None) or ""),
         "attachment_name": (getattr(expense, "attachment_name", None) or ""),
+        # DESGLOSE del pago: base, IVA y retención (si la hay). Es lo que hace que cuadre lo que se
+        # factura con lo que se paga, y es lo que se enseña al abrir la factura.
+        "net": _money_or_zero(getattr(expense, "amount_net", 0)),
+        "vat": _money_or_zero(getattr(expense, "amount_tax", 0)),
+        "retention": _money_or_zero(getattr(expense, "retention_amount", 0)),
+        "invoice_number": (getattr(expense, "invoice_number", None) or ""),
         "batch_id": batch_id,
         "in_batch": bool(batch_id),
     }

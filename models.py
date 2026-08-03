@@ -2230,7 +2230,14 @@ class SupplierInvoice(Base):
     concept_text = Column(Text)
     invoice_number = Column(Text)
     issue_date = Column(Date)                 # fecha de emisión (detectada del documento)
-    amount_gross = Column(Numeric)
+    # IMPORTES leídos del propio documento al subirlo (o corregidos a mano): son los que hacen que
+    # cuadre lo que hay que facturar con lo que se va a pagar.
+    amount_gross = Column(Numeric)            # total de la factura (lo que se paga)
+    amount_net = Column(Numeric)              # base imponible
+    amount_vat = Column(Numeric)              # cuota de IVA
+    vat_pct = Column(Numeric)
+    retention_amount = Column(Numeric)        # retención / IRPF (resta del total)
+    retention_pct = Column(Numeric)
     # A quién va dirigida cuando se sube por el enlace genérico (paso «¿para quién es la factura?»).
     target_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     group_company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
@@ -6792,6 +6799,15 @@ def ensure_third_party_and_contract_sheet_schema():
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS billing_updated_at timestamptz;",
         "ALTER TABLE IF EXISTS supplier_invoices ADD COLUMN IF NOT EXISTS issue_date date;",
         "ALTER TABLE IF EXISTS supplier_invoices ADD COLUMN IF NOT EXISTS target_user_id uuid;",
+        # Importes leídos de la propia factura al subirla (base, IVA y retención).
+        """
+        ALTER TABLE IF EXISTS supplier_invoices
+            ADD COLUMN IF NOT EXISTS amount_net numeric,
+            ADD COLUMN IF NOT EXISTS amount_vat numeric,
+            ADD COLUMN IF NOT EXISTS vat_pct numeric,
+            ADD COLUMN IF NOT EXISTS retention_amount numeric,
+            ADD COLUMN IF NOT EXISTS retention_pct numeric;
+        """,
         # Gastos/facturas de una PERSONA pendientes de asignar a una bolsa (formulario y Pleo).
         """
         CREATE TABLE IF NOT EXISTS personal_expenses (

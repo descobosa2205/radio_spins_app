@@ -23,8 +23,51 @@
     <div class="sim-stat"><div class="sim-stat__n">{{ supplier_count|k }}</div><div class="sim-stat__l">Facturas subidas</div></div>
     <div class="sim-stat"><div class="sim-stat__n">{{ supplier_groups|length|k }}</div><div class="sim-stat__l">Terceros</div></div>
     <div class="sim-stat"><div class="sim-stat__n {{ 'text-danger' if supplier_pending }}">{{ supplier_pending|k }}</div><div class="sim-stat__l">Por validar</div></div>
-    <div class="sim-stat"><div class="sim-stat__n">{{ supplier_total|eur }}</div><div class="sim-stat__l">Importe</div></div>
+    <div class="sim-stat"><div class="sim-stat__n {{ 'text-warning' if supplier_incomplete }}">{{ supplier_incomplete|k }}</div><div class="sim-stat__l">Con datos por leer</div></div>
   </div>
+
+  {# LO QUE HAY QUE LIMPIAR. Nada se borra por su cuenta: se dice qué hay y dirección decide. #}
+  {% if supplier_incomplete or supplier_duplicates or supplier_ghosts %}
+    <div class="alert alert-light border d-flex flex-wrap align-items-center gap-2 mb-3">
+      <div class="flex-grow-1 small">
+        {% if supplier_incomplete %}
+          <div><i class="fa fa-file-circle-question fa-fw me-1 text-warning"></i>
+            <strong>{{ supplier_incomplete }}</strong> factura{{ '' if supplier_incomplete == 1 else 's' }} con datos sin leer
+            (número, fecha, importe o concepto). Se pueden leer del propio PDF.</div>
+        {% endif %}
+        {% if supplier_duplicates %}
+          <div><i class="fa fa-clone fa-fw me-1 text-muted"></i>
+            <strong>{{ supplier_duplicates }}</strong> copia{{ '' if supplier_duplicates == 1 else 's' }} de facturas que ya están:
+            se enseña una sola vez.</div>
+        {% endif %}
+        {% if supplier_ghosts %}
+          <div><i class="fa fa-ghost fa-fw me-1 text-muted"></i>
+            <strong>{{ supplier_ghosts|length }}</strong> registro{{ '' if supplier_ghosts|length == 1 else 's' }} vacío{{ '' if supplier_ghosts|length == 1 else 's' }}
+            (sin archivo ni ningún dato): no se listan.</div>
+        {% endif %}
+      </div>
+      <div class="d-flex gap-2 flex-wrap">
+        {% if supplier_incomplete %}
+          <form method="post" action="{{ url_for('supplier_invoices_read_meta') }}">
+            <input type="hidden" name="next" value="{{ request.url }}">
+            {% for g in supplier_groups %}{% for r in g.rows %}{% if r.can_read %}
+              <input type="hidden" name="invoice_ids" value="{{ r.id }}">
+            {% endif %}{% endfor %}{% endfor %}
+            <button class="btn btn-sm btn-outline-primary"><i class="fa fa-magnifying-glass me-1"></i>Leer los datos que faltan</button>
+          </form>
+        {% endif %}
+        {% if supplier_ghosts and supplier_can_clean %}
+          <form method="post" action="{{ url_for('supplier_invoices_clean') }}"
+                onsubmit="return confirm('Se van a eliminar {{ supplier_ghosts|length }} registros vacíos. ¿Seguimos?');">
+            <input type="hidden" name="next" value="{{ request.url }}">
+            <input type="hidden" name="what" value="GHOSTS">
+            {% for gid in supplier_ghosts %}<input type="hidden" name="invoice_ids" value="{{ gid }}">{% endfor %}
+            <button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash me-1"></i>Eliminar los vacíos</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
 
   <form method="get" class="card card-body mb-4">
     <input type="hidden" name="tab" value="UPLOADED">
@@ -66,21 +109,31 @@
           <span class="text-muted small ms-2">{{ g.rows|length }} factura{{ '' if g.rows|length == 1 else 's' }}</span>
           {% if g.pending %}<span class="badge text-bg-warning text-dark ms-1">{{ g.pending }} por validar</span>{% endif %}
         </button>
-        <span class="fw-bold">{{ g.total|eur }}</span>
         {% if g.url %}<a class="btn btn-sm btn-outline-secondary" href="{{ g.url }}" title="Ficha del tercero"><i class="fa fa-arrow-up-right-from-square"></i></a>{% endif %}
       </div>
       <div class="collapse show" id="sup-{{ gid }}">
         <div class="table-responsive">
-          <table class="table table-sm align-middle mb-0">
+          <table class="table table-sm align-middle mb-0 sup-inv">
             <thead class="table-light"><tr>
-              <th>Número</th><th>Emisión</th><th>Artista</th><th>Concepto</th><th>Procede de</th>
-              <th>Estado</th><th class="text-end">Importe</th><th class="text-end">Archivo</th>
+              <th>Nº de factura</th><th>Emisión</th><th>Artista</th><th>Concepto</th><th>Procede de</th>
+              <th>Estado</th><th class="text-end">Base</th><th class="text-end">IVA</th>
+              <th class="text-end">Retención</th><th class="text-end">Total</th><th class="text-end">Archivo</th>
             </tr></thead>
             <tbody>
               {% for r in g.rows %}
                 <tr>
-                  <td class="small fw-semibold">{{ r.number or '—' }}</td>
-                  <td class="small">{{ r.issue_label or r.created_label or '—' }}</td>
+                  <td class="small fw-semibold">
+                    {% if r.number %}{{ r.number }}
+                    {% else %}<span class="text-muted fst-italic">Sin número</span>{% endif %}
+                    {% if r.copies > 1 %}
+                      <span class="badge text-bg-light border ms-1" title="Esta misma factura entró {{ r.copies }} veces; aquí se enseña una.">×{{ r.copies }}</span>
+                    {% endif %}
+                  </td>
+                  <td class="small">
+                    {% if r.issue_label %}{{ r.issue_label }}
+                    {% elif r.created_label %}<span class="text-muted" title="No se pudo leer la fecha de emisión: esta es la de subida.">Subida {{ r.created_label }}</span>
+                    {% else %}<span class="text-muted">—</span>{% endif %}
+                  </td>
                   <td class="small">{{ r.artist_text or '—' }}</td>
                   <td class="small">{{ r.concept_text or '—' }}</td>
                   <td class="small">
@@ -90,8 +143,43 @@
                     <span class="badge {{ r.status_badge }}">{{ r.status_label }}</span>
                     {% if r.reject_reason %}<div class="small text-danger">{{ r.reject_reason }}</div>{% endif %}
                   </td>
-                  <td class="text-end">{{ r.amount|eur }}</td>
-                  <td class="text-end">
+                  <td class="text-end small">{% if r.net > 0 %}{{ r.net|eur }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                  <td class="text-end small">
+                    {% if r.vat_state == 'YES' %}
+                      <span class="sup-tag sup-tag--on" title="Factura con IVA">IVA{% if r.vat_pct %} {{ '%g'|format(r.vat_pct) }}%{% endif %}</span>
+                      <div>{{ r.vat|eur }}</div>
+                    {% elif r.vat_state == 'NO' %}
+                      <span class="sup-tag" title="La base y el total coinciden: factura sin IVA">Sin IVA</span>
+                    {% else %}
+                      <span class="text-muted" title="No se ha leído el desglose de esta factura">Sin desglosar</span>
+                    {% endif %}
+                  </td>
+                  <td class="text-end small">
+                    {% if r.retention_state == 'YES' %}
+                      <span class="sup-tag sup-tag--ret" title="Factura con retención (resta del total)">Ret.{% if r.retention_pct %} {{ '%g'|format(r.retention_pct) }}%{% endif %}</span>
+                      <div>−{{ r.retention|eur }}</div>
+                    {% elif r.retention_state == 'NO' %}
+                      <span class="sup-tag">Sin retención</span>
+                    {% else %}
+                      <span class="text-muted">—</span>
+                    {% endif %}
+                  </td>
+                  <td class="text-end fw-semibold">
+                    {% if r.amount > 0 %}
+                      {{ r.amount|eur }}
+                      {% if r.amount_from %}<div class="small text-muted fw-normal" title="La factura no traía el importe: este es el {{ r.amount_from }}.">{{ r.amount_from }}</div>{% endif %}
+                    {% else %}
+                      <span class="text-muted fw-normal">Sin importe</span>
+                    {% endif %}
+                  </td>
+                  <td class="text-end text-nowrap">
+                    {% if r.can_read %}
+                      <form method="post" action="{{ url_for('supplier_invoices_read_meta') }}" class="d-inline">
+                        <input type="hidden" name="next" value="{{ request.url }}">
+                        <input type="hidden" name="invoice_id" value="{{ r.id }}">
+                        <button class="btn btn-sm btn-outline-primary" title="Leer del PDF lo que falta: {{ r.missing|join(', ') }}"><i class="fa fa-magnifying-glass"></i></button>
+                      </form>
+                    {% endif %}
                     {% if r.file_url %}
                       <a class="btn btn-sm btn-outline-secondary" href="{{ r.file_url }}" target="_blank" rel="noopener" title="{{ r.file_name }}"><i class="fa fa-file-invoice"></i></a>
                       <a class="btn btn-sm btn-outline-secondary" href="{{ r.file_url }}" download title="Descargar"><i class="fa fa-download"></i></a>

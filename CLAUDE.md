@@ -1146,6 +1146,43 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · Los datos que se rellenan al identificarse ya se guardaban en el tercero
   (`public_invoice_register`: nombre, CIF/DNI, dirección fiscal, email, teléfono, cuenta, sociedad y
   contacto); queda verificado con prueba.
+  · **IMPORTE, IVA y RETENCIÓN se LEEN de la propia factura** (`_detect_invoice_amounts`, dentro de
+  `_detect_invoice_meta`): base imponible, cuota de IVA, retención/IRPF y total, con sus porcentajes
+  (`_INV_MONEY_RES`/`_INV_PCT_RES`). Con dos de los tres se **despeja** el que falte y si el desglose
+  no cuadra (`base + IVA − retención ≠ total`) se avisa en vez de callar. Se guardan en
+  `SupplierInvoice.amount_net/amount_vat/vat_pct/retention_amount/retention_pct` (+ `amount_gross`)
+  con **`_invoice_amount_fields_from_form`**, que usan los TRES caminos de subida (liquidación,
+  petición de bolsa y enlace general). En el formulario los campos nacen ocultos y solo se piden los
+  que no se han leído; el de retención solo sale si la factura la trae. Ese desglose es el que se
+  enseña en el resumen del pago y en la pantalla de validar (que lo prefiere al recálculo cuando la
+  factura trae total). ⚠️ Un 0 no es «no lo sé»: los campos vacíos se guardan como NULL.
+
+- **BASE DE FACTURAS · una línea por factura, con su desglose** (ago 2026). La pestaña «Subidas por
+  terceros» enseñaba fechas, números e importes en blanco y la misma factura varias veces.
+  · **Una fila = una factura FÍSICA** (`_supplier_invoice_same_doc_key`: el mismo archivo —sin el «?»
+  ni la firma de la URL— o el mismo número+importe). Las copias no se pintan: la fila lleva `×N` y se
+  completa con lo que tenga cada copia.
+  · **Facturas FANTASMA** (`_supplier_invoice_is_ghost`): registros sin archivo, sin ningún dato y sin
+  colgar de nada. **No se listan**; la pantalla dice cuántos hay y **dirección** puede borrarlos
+  (`supplier_invoices_clean`, que vuelve a comprobar que lo son antes de tirarlos).
+  · **Importes que faltan**: si la factura no trae el suyo se **reconstruye de donde está imputada**
+  (`_supplier_invoice_amount_info`: lo imputado a los gastos de la bolsa → el gasto de «Mis gastos» →
+  el congelado de la liquidación + IVA) y se dice **de dónde sale**, que no es lo mismo que leerlo de
+  la factura. Se cargan de golpe (nada de una consulta por fila).
+  · **Se marca si lleva IVA y si lleva retención** (`vat_state`/`retention_state`: YES / NO / UNKNOWN):
+  «Sin IVA» solo cuando base y total coinciden, y «Sin desglosar» cuando no se sabe — no se afirma lo
+  que no consta. Columnas Base · IVA · Retención · Total, la fecha de emisión (o «Subida el …» si no
+  se leyó) y la etiqueta de estado. **No hay total por tercero**: sumar facturas de terceros no dice
+  nada.
+  · **«Leer los datos que faltan»** (`supplier_invoices_read_meta`): baja el PDF y le pasa el lector a
+  las facturas anteriores al detector, rellenando **solo lo que está vacío**. Hay botón por fila (con
+  lo que le falta en el título) y uno para todas. El filtro por **año** acepta también la fecha de
+  subida cuando la factura no trae emisión, para que no desaparezca del año que le toca.
+
+- **Liquidación de royalties · CANDADO de importes bloqueados**: en Royalties, delante de la etiqueta
+  de estado (`render_actions` de `discografica_royalties.html`, clase `.roy-lock`), cuando la
+  liquidación está generada (`b.is_generated` = tiene congelado). El tooltip dice desde cuándo y que
+  para cambiarlos hay que generar una nueva.
 
 - **Pendiente de facturar (módulo del enlace de subida de facturas)**: se llamaba «Lo que te
   pedimos» y las cantidades salían **0,00 €**. Motor único **`_invoice_request_amounts(net, gross)`**:

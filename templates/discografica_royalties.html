@@ -103,6 +103,15 @@
      cuándo y cuánto cambiaría. Mientras no se genere una nueva, se mantienen los datos de la última
      liquidación generada. #}
   <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+    {# CANDADO: una liquidación generada tiene los importes BLOQUEADOS (son los que se congelaron al
+       generarla y ya no se actualizan aunque cambien los ingresos). Va delante de la etiqueta de
+       estado para que se vea de un golpe si lo que hay en pantalla se puede mover o no. #}
+    {% if b.is_generated %}
+      <span class="roy-lock" style="cursor:help;" data-bs-toggle="tooltip" data-bs-placement="top"
+            title="Importes bloqueados: son los de la liquidación generada{% if b.generated_at_label %} el {{ b.generated_at_label }}{% endif %} y ya no se actualizan. Para cambiarlos hay que generar una nueva.">
+        <i class="fa fa-lock"></i>
+      </span>
+    {% endif %}
     {{ render_status_badge(b) }}
 
     {% if b.needs_regeneration %}

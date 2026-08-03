@@ -41591,6 +41591,16 @@ def administration_royalty_invoice_review(invoice_id):
         # que decir la liquidación, la factura y el pago; comparar contra la base sola hacía saltar el
         # aviso siempre.
         totales = _royalty_invoice_totals(beneficiary)
+        # Si la FACTURA trae su propio desglose (leído al subirla), manda el de la factura: es el
+        # documento con el que se paga. Si no, lo que se le pidió facturar.
+        if _money_or_zero(getattr(inv, "amount_gross", None)) > 0:
+            totales = {
+                "net": (_money_or_zero(inv.amount_net) or totales["net"]),
+                "vat": _money_or_zero(inv.amount_vat),
+                "vat_pct": (_money_or_zero(inv.vat_pct) or totales["vat_pct"]),
+                "gross": _money_or_zero(inv.amount_gross),
+                "unknown": False,
+            }
         total_fac = _money_or_zero(getattr(inv, "amount_gross", None))
         # Solo se avisa si la factura no cuadra NI con el total con IVA NI con la base (hay
         # beneficiarios que facturan sin IVA).
@@ -41602,8 +41612,13 @@ def administration_royalty_invoice_review(invoice_id):
             inv=inv, liquidation=rec, promoter=promoter, beneficiary=beneficiary,
             invoice_totals=totales,
             # Retención (si la liquidación la lleva) y lo que de verdad se abona.
-            retention=_money_or_zero((beneficiary or {}).get("retention_amount")),
-            pay_total=(totales["gross"] - _money_or_zero((beneficiary or {}).get("retention_amount"))),
+            # La retención sale de la propia factura (se lee al subirla) o del congelado.
+            retention=(_money_or_zero(getattr(inv, "retention_amount", None))
+                       or _money_or_zero((beneficiary or {}).get("retention_amount"))),
+            retention_pct=_money_or_zero(getattr(inv, "retention_pct", None)),
+            pay_total=(totales["gross"]
+                       - (_money_or_zero(getattr(inv, "retention_amount", None))
+                          or _money_or_zero((beneficiary or {}).get("retention_amount")))),
             frozen=bool(congelada_ok),
             period_label=(_royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end) if rec else ""),
             embargos=embargos,
@@ -43962,7 +43977,8 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return "databases.media"
     if endpoint.startswith("bag_") or endpoint == "bags_view":
         return "databases.bags"
-    if endpoint.startswith("invoice_") or endpoint == "invoices_view":
+    if (endpoint.startswith("invoice_") or endpoint.startswith("supplier_invoice")
+            or endpoint == "invoices_view"):
         return "databases.invoices"
     if endpoint in {"invitations_view", "api_invitation_events", "api_invitation_event_categories"}:
         return "invitaciones"
@@ -44635,7 +44651,8 @@ def _resolve_request_resource_key() -> str | None:
         return "databases.media"
     if endpoint.startswith("bag_") or endpoint == "bags_view":
         return "databases.bags"
-    if endpoint.startswith("invoice_") or endpoint == "invoices_view":
+    if (endpoint.startswith("invoice_") or endpoint.startswith("supplier_invoice")
+            or endpoint == "invoices_view"):
         return "databases.invoices"
     # Invitaciones: la página y las APIs de lectura cuelgan de la sección; "pedir" y "gestionar"
     # van a su pestaña concreta. (Los endpoints públicos ya retornan None más arriba.)
@@ -56691,13 +56708,115 @@ SUPPLIER_INVOICE_STATUS_META = {
 }
 
 
+def _supplier_invoice_is_ghost(inv) -> bool:
+    """Factura FANTASMA: un registro que no dice nada de nada (ni archivo, ni número, ni importe, ni
+    concepto) y que no cuelga de ninguna bolsa, liquidación ni gasto. Son restos de intentos de
+    subida que quedaron a medias: no hay ninguna factura detrás, así que no se listan."""
+    if (getattr(inv, "file_url", None) or "").strip():
+        return False
+    tiene_datos = any([
+        (getattr(inv, "invoice_number", None) or "").strip(),
+        (getattr(inv, "concept_text", None) or "").strip(),
+        (getattr(inv, "artist_text", None) or "").strip(),
+        getattr(inv, "issue_date", None),
+        _money_or_zero(getattr(inv, "amount_gross", None)) > 0,
+        _money_or_zero(getattr(inv, "amount_net", None)) > 0,
+    ])
+    if tiene_datos:
+        return False
+    return not any([
+        getattr(inv, "bag_id", None), getattr(inv, "bag_expense_id", None),
+        getattr(inv, "royalty_liquidation_id", None), getattr(inv, "target_user_id", None),
+        getattr(inv, "invoice_request_id", None),
+    ])
+
+
+def _supplier_invoice_same_doc_key(inv) -> str:
+    """Qué identifica a la MISMA factura física. Una factura puede haber entrado más de una vez (se
+    sube dos veces, o entra por dos caminos): en la base tiene que aparecer UNA."""
+    url = (getattr(inv, "file_url", None) or "").strip()
+    if url:
+        # El «?» final que deja storage3 y los parámetros de firma no hacen distinta a la factura.
+        return "u:" + url.split("?")[0].strip().lower()
+    numero = _norm_text_key(getattr(inv, "invoice_number", None) or "")
+    if numero:
+        return "n:%s|%s" % (numero, _money_or_zero(getattr(inv, "amount_gross", None)))
+    return "i:" + str(getattr(inv, "id", ""))
+
+
+def _supplier_invoice_amount_info(inv, *, bag_totals: dict, personal: dict,
+                                  liquidations: dict | None = None) -> dict:
+    """Importes de una factura para la base de facturas: los del propio documento y, si no se
+    leyeron (facturas anteriores al lector), los del sitio al que está imputada. Lo derivado se
+    marca como tal: nunca se hace pasar por leído de la factura."""
+    bruto = _money_or_zero(getattr(inv, "amount_gross", None))
+    neto = _money_or_zero(getattr(inv, "amount_net", None))
+    iva = _money_or_zero(getattr(inv, "amount_vat", None))
+    ret = _money_or_zero(getattr(inv, "retention_amount", None))
+    iva_pct = getattr(inv, "vat_pct", None)
+    ret_pct = getattr(inv, "retention_pct", None)
+    origen_importe = ""
+    if bruto <= 0:
+        # 1) Lo que se le imputó a los gastos de la bolsa (es el importe real de la factura).
+        imputado = _money_or_zero(bag_totals.get(str(inv.id)))
+        # 2) Un gasto de «Mis gastos» creado desde esta factura.
+        gasto = personal.get(str(inv.id)) or {}
+        # 3) La liquidación de royalties que factura (su total congelado + IVA).
+        liq = (liquidations or {}).get(str(getattr(inv, "royalty_liquidation_id", None) or ""))
+        if imputado > 0:
+            bruto, origen_importe = imputado, "de los gastos a los que se imputó"
+        elif _money_or_zero(gasto.get("gross")) > 0:
+            bruto = _money_or_zero(gasto.get("gross"))
+            neto = neto or _money_or_zero(gasto.get("net"))
+            iva = iva or _money_or_zero(gasto.get("tax"))
+            origen_importe = "del gasto"
+        elif liq is not None:
+            congelada = _royalty_frozen_beneficiary(liq)
+            if congelada:
+                tot = _royalty_invoice_totals(congelada)
+                bruto = _money_or_zero(tot.get("gross"))
+                neto = neto or _money_or_zero(tot.get("net"))
+                iva = iva or _money_or_zero(tot.get("vat"))
+                origen_importe = "de la liquidación"
+    # Con dos de los tres se despeja el que falte (sin inventar nada).
+    if neto > 0 and iva > 0 and bruto <= 0:
+        bruto = neto + iva - ret
+    if bruto > 0 and neto > 0 and iva <= 0 and (bruto - neto + ret) > 0:
+        iva = bruto - neto + ret
+    if bruto > 0 and iva > 0 and neto <= 0:
+        neto = bruto - iva + ret
+    # ¿Lleva IVA? ¿Lleva retención? Solo se afirma lo que se sabe.
+    if iva > 0:
+        iva_estado = "YES"
+    elif neto > 0 and bruto > 0 and abs(neto - (bruto + ret)) < Decimal("0.02"):
+        iva_estado = "NO"       # base y total coinciden: factura sin IVA
+    else:
+        iva_estado = "UNKNOWN"
+    if ret > 0:
+        ret_estado = "YES"
+    elif iva_estado != "UNKNOWN":
+        ret_estado = "NO"       # el desglose se conoce y no hay retención
+    else:
+        ret_estado = "UNKNOWN"
+    return {
+        "amount": bruto, "amount_from": origen_importe,
+        "net": neto, "vat": iva, "retention": ret,
+        "vat_pct": (_money_or_zero(iva_pct) or None), "retention_pct": (_money_or_zero(ret_pct) or None),
+        "vat_state": iva_estado, "retention_state": ret_estado,
+    }
+
+
 def _supplier_invoice_groups(session_db, *, q: str = "", promoter_id: str = "",
-                             status: str = "", year: str = "", limit: int = 3000) -> list[dict]:
+                             status: str = "", year: str = "", limit: int = 3000) -> tuple:
     """TODAS las facturas que suben los terceros a la app, AGRUPADAS POR QUIEN LAS EMITE.
 
     Da igual por dónde hayan entrado (el enlace general, la petición de una bolsa, la factura de una
     liquidación de royalties o una dirigida a una persona de la oficina): la base de facturas las
-    tiene que enseñar todas, y lo natural es verlas por tercero."""
+    tiene que enseñar todas, y lo natural es verlas por tercero.
+
+    Devuelve `(grupos, ids_de_fantasmas)`: **una fila por factura física** (la misma factura puede
+    haber entrado varias veces y ahí solo se ve una) y aparte los registros vacíos, que no se listan
+    pero se pueden borrar desde la pantalla."""
     consulta = (session_db.query(SupplierInvoice)
                 .options(joinedload(SupplierInvoice.promoter))
                 .order_by(SupplierInvoice.created_at.desc()))
@@ -56709,7 +56828,14 @@ def _supplier_invoice_groups(session_db, *, q: str = "", promoter_id: str = "",
         consulta = consulta.filter(func.upper(func.coalesce(SupplierInvoice.status, "")) == status.upper())
     if year:
         try:
-            consulta = consulta.filter(func.extract("year", SupplierInvoice.issue_date) == int(year))
+            # Por AÑO vale la fecha de emisión y, si la factura no la trae, el día en que se subió:
+            # así filtrar por un año no esconde facturas de ese año a las que no se les leyó la fecha.
+            anio = int(year)
+            consulta = consulta.filter(or_(
+                func.extract("year", SupplierInvoice.issue_date) == anio,
+                and_(SupplierInvoice.issue_date.is_(None),
+                     func.extract("year", SupplierInvoice.created_at) == anio),
+            ))
         except Exception:
             pass
     if q:
@@ -56739,6 +56865,39 @@ def _supplier_invoice_groups(session_db, *, q: str = "", promoter_id: str = "",
             ]))
             if palabras and all(p in nombre for p in palabras):
                 filas.append(inv)
+    # FANTASMAS fuera: registros sin archivo ni ningún dato, que no son ninguna factura.
+    fantasmas = [inv for inv in filas if _supplier_invoice_is_ghost(inv)]
+    filas = [inv for inv in filas if not _supplier_invoice_is_ghost(inv)]
+    ids = [inv.id for inv in filas]
+    # Importes que se pueden RECONSTRUIR de donde está imputada la factura (las de antes del lector
+    # de importes no traen desglose). Se cargan de golpe: nada de una consulta por fila.
+    bag_totals: dict = {}
+    personal: dict = {}
+    liquidations: dict = {}
+    if ids:
+        try:
+            for inv_id, total in (session_db.query(BagExpenseInvoice.supplier_invoice_id,
+                                                   func.sum(BagExpenseInvoice.amount))
+                                  .filter(BagExpenseInvoice.supplier_invoice_id.in_(ids))
+                                  .group_by(BagExpenseInvoice.supplier_invoice_id).all()):
+                bag_totals[str(inv_id)] = total
+        except Exception:
+            bag_totals = {}
+        try:
+            for pe in (session_db.query(PersonalExpense)
+                       .filter(PersonalExpense.supplier_invoice_id.in_(ids)).all()):
+                personal[str(pe.supplier_invoice_id)] = {
+                    "gross": pe.amount_gross, "net": pe.amount_net, "tax": pe.amount_tax}
+        except Exception:
+            personal = {}
+        liq_ids = [inv.royalty_liquidation_id for inv in filas if getattr(inv, "royalty_liquidation_id", None)]
+        if liq_ids:
+            try:
+                for rec in (session_db.query(RoyaltyLiquidation)
+                            .filter(RoyaltyLiquidation.id.in_(liq_ids)).all()):
+                    liquidations[str(rec.id)] = rec
+            except Exception:
+                liquidations = {}
     grupos: dict = {}
     for inv in filas:
         prom = inv.promoter
@@ -56753,12 +56912,12 @@ def _supplier_invoice_groups(session_db, *, q: str = "", promoter_id: str = "",
                 "photo_url": (getattr(prom, "logo_url", None) or ""),
                 "url": (url_for("promoter_detail_view", pid=clave) if clave else ""),
                 "rows": [],
-                "total": Decimal("0"),
+                "seen": {},          # factura física → fila, para no repetirla
                 "pending": 0,
+                "incomplete": 0,
             }
         etiqueta, clase = SUPPLIER_INVOICE_STATUS_META.get(
             (inv.status or "PENDIENTE").upper(), ((inv.status or "—"), "text-bg-light border text-dark"))
-        importe = _money_or_zero(inv.amount_gross)
         # De dónde viene la factura (para saber a qué corresponde sin salir de aquí).
         origen, origen_url = "", ""
         if getattr(inv, "royalty_liquidation_id", None):
@@ -56771,12 +56930,35 @@ def _supplier_invoice_groups(session_db, *, q: str = "", promoter_id: str = "",
             origen = "Gasto de una persona"
         else:
             origen = "Enlace de facturación"
-        grupo["rows"].append({
+        dinero = _supplier_invoice_amount_info(inv, bag_totals=bag_totals, personal=personal,
+                                               liquidations=liquidations)
+        clave_doc = _supplier_invoice_same_doc_key(inv)
+        anterior = grupo["seen"].get(clave_doc)
+        if anterior is not None:
+            # LA MISMA factura otra vez: no se pinta dos veces. Se apunta cuántas veces entró (para
+            # poder limpiarlo) y se completa lo que la primera no tenía.
+            anterior["copies"] += 1
+            anterior["copy_ids"].append(str(inv.id))
+            for campo in ("number", "issue_label", "artist_text", "concept_text"):
+                if not anterior[campo]:
+                    anterior[campo] = {
+                        "number": (inv.invoice_number or ""),
+                        "issue_label": (inv.issue_date.strftime("%d/%m/%Y") if inv.issue_date else ""),
+                        "artist_text": (inv.artist_text or ""),
+                        "concept_text": (inv.concept_text or ""),
+                    }[campo]
+            if anterior["amount"] <= 0 and dinero["amount"] > 0:
+                anterior.update({k: dinero[k] for k in
+                                 ("amount", "amount_from", "net", "vat", "retention",
+                                  "vat_pct", "retention_pct", "vat_state", "retention_state")})
+            continue
+        fila = {
             "id": str(inv.id),
+            "copies": 1,
+            "copy_ids": [],
             "number": (inv.invoice_number or ""),
             "issue_label": (inv.issue_date.strftime("%d/%m/%Y") if inv.issue_date else ""),
             "created_label": (inv.created_at.strftime("%d/%m/%Y") if inv.created_at else ""),
-            "amount": importe,
             "artist_text": (inv.artist_text or ""),
             "concept_text": (inv.concept_text or ""),
             "status": (inv.status or "PENDIENTE").upper(),
@@ -56785,15 +56967,31 @@ def _supplier_invoice_groups(session_db, *, q: str = "", promoter_id: str = "",
             "reject_reason": (inv.reject_reason or ""),
             "file_url": (inv.file_url or ""),
             "file_name": (inv.original_name or "Factura"),
+            "is_pdf": ((inv.original_name or "").lower().endswith(".pdf")
+                       or (inv.mime_type or "") == "application/pdf"),
             "origin": origen,
             "origin_url": origen_url,
-        })
-        grupo["total"] += importe
-        if (inv.status or "PENDIENTE").upper() == "PENDIENTE":
+            **{k: dinero[k] for k in ("amount", "amount_from", "net", "vat", "retention",
+                                      "vat_pct", "retention_pct", "vat_state", "retention_state")},
+        }
+        # ¿Le falta algo que se pueda leer del propio documento? Entonces se ofrece leerlo.
+        fila["missing"] = [etq for etq, vacio in (
+            ("número", not fila["number"]), ("fecha", not fila["issue_label"]),
+            ("importe", fila["amount"] <= 0), ("concepto", not fila["concept_text"]),
+        ) if vacio]
+        fila["can_read"] = bool(fila["missing"] and fila["is_pdf"] and fila["file_url"])
+        grupo["seen"][clave_doc] = fila
+        grupo["rows"].append(fila)
+        if fila["status"] == "PENDIENTE":
             grupo["pending"] += 1
+        if fila["missing"]:
+            grupo["incomplete"] += 1
     salida = list(grupos.values())
+    for g in salida:
+        g.pop("seen", None)
+        g["duplicates"] = sum(len(r["copy_ids"]) for r in g["rows"])
     salida.sort(key=lambda g: _norm_text_key(g["name"]))
-    return salida
+    return salida, [str(x.id) for x in fantasmas]
 
 
 @app.route("/facturas", methods=["GET", "POST"], endpoint="invoices_view")
@@ -56839,7 +57037,7 @@ def invoices_view():
             f_q = (request.args.get("q") or "").strip()
             f_status = (request.args.get("status") or "").strip().upper()
             f_year = (request.args.get("year") or "").strip()
-            grupos = _supplier_invoice_groups(session_db, q=f_q, status=f_status, year=f_year)
+            grupos, fantasmas = _supplier_invoice_groups(session_db, q=f_q, status=f_status, year=f_year)
             years_up = sorted({str(getattr(x, "issue_date", None).year) for x in
                                session_db.query(SupplierInvoice).filter(SupplierInvoice.issue_date.isnot(None)).all()},
                               reverse=True)
@@ -56848,9 +57046,12 @@ def invoices_view():
                 tab=tab,
                 invoices=[],
                 supplier_groups=grupos,
-                supplier_total=sum((g["total"] for g in grupos), Decimal("0")),
                 supplier_count=sum(len(g["rows"]) for g in grupos),
                 supplier_pending=sum(g["pending"] for g in grupos),
+                supplier_incomplete=sum(g["incomplete"] for g in grupos),
+                supplier_duplicates=sum(g["duplicates"] for g in grupos),
+                supplier_ghosts=fantasmas,
+                supplier_can_clean=is_master(),
                 supplier_status_options=list(SUPPLIER_INVOICE_STATUS_META.keys()),
                 artists=[], companies=[], bags=[],
                 years=years_up,
@@ -56918,6 +57119,113 @@ def invoices_view():
             filter_end=f_end.isoformat() if f_end else "",
             filter_q=f_q,
         )
+    finally:
+        session_db.close()
+
+
+@app.post("/facturas/subidas/leer")
+@admin_required
+def supplier_invoices_read_meta():
+    """Lee del PROPIO DOCUMENTO lo que le falte a las facturas ya subidas (número, fecha de emisión,
+    concepto e importes). Las facturas anteriores al lector no traen esos datos y en pantalla salían
+    vacías; aquí se rellenan con lo que dice la factura, sin tocar lo que ya estuviera puesto."""
+    session_db = db()
+    try:
+        ids = [x for x in request.form.getlist("invoice_ids") if (x or "").strip()]
+        if not ids:
+            uno = (request.form.get("invoice_id") or "").strip()
+            if uno:
+                ids = [uno]
+        leidas, sin_datos = 0, 0
+        for inv_id in ids[:200]:
+            inv = session_db.get(SupplierInvoice, to_uuid(inv_id) or uuid.uuid4())
+            if inv is None or not (inv.file_url or "").strip():
+                continue
+            try:
+                req = Request(inv.file_url, headers={"User-Agent": "Mozilla/5.0"})
+                with urlopen(req, timeout=25) as resp:
+                    data = resp.read()
+            except Exception:
+                continue
+            es_pdf = ((inv.original_name or "").lower().endswith(".pdf")
+                      or (inv.mime_type or "") == "application/pdf" or data[:4] == b"%PDF")
+            meta = _detect_invoice_meta(data, es_pdf)
+            algo = False
+            if not (inv.invoice_number or "").strip() and meta.get("invoice_number"):
+                inv.invoice_number = meta["invoice_number"]
+                algo = True
+            if not inv.issue_date and meta.get("issue_date"):
+                inv.issue_date = _parse_date_soft(meta["issue_date"])
+                algo = bool(inv.issue_date) or algo
+            if not (inv.concept_text or "").strip() and meta.get("concept"):
+                inv.concept_text = meta["concept"][:400]
+                algo = True
+            for campo in ("amount_net", "amount_vat", "retention_amount", "amount_gross",
+                          "vat_pct", "retention_pct"):
+                if _money_or_zero(getattr(inv, campo, None)) <= 0 and meta.get(campo) is not None:
+                    setattr(inv, campo, meta[campo])
+                    algo = True
+            if algo:
+                leidas += 1
+            else:
+                sin_datos += 1
+        session_db.commit()
+        if leidas:
+            flash("Leído de %d factura%s." % (leidas, "" if leidas == 1 else "s"), "success")
+        if sin_datos:
+            flash("De %d no se pudo leer nada: habrá que completarlas a mano." % sin_datos, "warning")
+        if not leidas and not sin_datos:
+            flash("No había ninguna factura que leer.", "warning")
+        return redirect(request.form.get("next") or url_for("invoices_view", tab="UPLOADED"))
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo leer: %s" % exc, "danger")
+        return redirect(url_for("invoices_view", tab="UPLOADED"))
+    finally:
+        session_db.close()
+
+
+@app.post("/facturas/subidas/limpiar")
+@admin_required
+def supplier_invoices_clean():
+    """Borra los registros VACÍOS (facturas fantasma: sin archivo y sin ningún dato) y las COPIAS
+    repetidas de una misma factura. Es un borrado deliberado y solo lo puede hacer dirección: la
+    pantalla dice antes cuántos son y qué se va a quitar."""
+    if not is_master():
+        abort(403)
+    session_db = db()
+    try:
+        que = (request.form.get("what") or "GHOSTS").strip().upper()
+        ids = [x for x in request.form.getlist("invoice_ids") if (x or "").strip()]
+        borradas = 0
+        for inv_id in ids[:500]:
+            inv = session_db.get(SupplierInvoice, to_uuid(inv_id) or uuid.uuid4())
+            if inv is None:
+                continue
+            # Solo se borra lo que de verdad es un fantasma o una copia: se vuelve a comprobar aquí
+            # (el formulario puede venir de una pantalla vieja).
+            if que == "GHOSTS" and not _supplier_invoice_is_ghost(inv):
+                continue
+            if que == "COPIES":
+                hermanas = (session_db.query(SupplierInvoice)
+                            .filter(SupplierInvoice.promoter_id == inv.promoter_id,
+                                    SupplierInvoice.id != inv.id).all())
+                clave = _supplier_invoice_same_doc_key(inv)
+                if not any(_supplier_invoice_same_doc_key(h) == clave for h in hermanas):
+                    continue
+                # No se tira la copia que está enganchada a algo (bolsa, liquidación o gasto).
+                if any([inv.bag_id, inv.bag_expense_id, inv.royalty_liquidation_id, inv.target_user_id]):
+                    continue
+            session_db.delete(inv)
+            borradas += 1
+        session_db.commit()
+        flash(("Se han quitado %d registro%s." % (borradas, "" if borradas == 1 else "s"))
+              if borradas else "No había nada que quitar.", "success" if borradas else "warning")
+        return redirect(request.form.get("next") or url_for("invoices_view", tab="UPLOADED"))
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo limpiar: %s" % exc, "danger")
+        return redirect(url_for("invoices_view", tab="UPLOADED"))
     finally:
         session_db.close()
 
@@ -61249,11 +61557,105 @@ _INV_DATE_RES = [
 ]
 _INV_DATE_ISO_RE = re.compile(r"\b(\d{4})[/\-\.](\d{1,2})[/\-\.](\d{1,2})\b")
 
+# ------------------- IMPORTES de la factura leídos del propio documento -------------------
+# Un importe en formato español: 1.234,56 · 1234,56 · 1.234 · 1234.56 (con o sin €).
+_INV_AMOUNT = r"(-?\s*\d{1,3}(?:[.\s]\d{3})*(?:,\d{1,2})?|-?\s*\d+(?:[.,]\d{1,2})?)\s*(?:€|EUR|EUROS)?"
+_INV_PCT = r"(\d{1,2}(?:[.,]\d{1,2})?)\s*%"
+# Cada concepto con sus sinónimos: se busca la etiqueta y el importe que va detrás (misma línea o la
+# siguiente, que es como salen en las facturas maquetadas en columnas).
+_INV_MONEY_RES = {
+    "amount_net": [
+        re.compile(r"base\s*imponible[^\d\-%]{0,40}" + _INV_AMOUNT, re.IGNORECASE),
+        re.compile(r"\bbase\b[^\d\-%]{0,25}" + _INV_AMOUNT, re.IGNORECASE),
+        re.compile(r"subtotal[^\d\-%]{0,25}" + _INV_AMOUNT, re.IGNORECASE),
+        re.compile(r"total\s*(?:sin|antes\s*de)\s*iva[^\d\-%]{0,25}" + _INV_AMOUNT, re.IGNORECASE),
+    ],
+    "amount_vat": [
+        re.compile(r"(?:i\.?\s*v\.?\s*a\.?|impuesto\s*sobre\s*el\s*valor)[^\d\-]{0,20}(?:" + _INV_PCT
+                   + r")?[^\d\-]{0,20}" + _INV_AMOUNT, re.IGNORECASE),
+        re.compile(r"cuota\s*(?:de\s*)?iva[^\d\-%]{0,25}" + _INV_AMOUNT, re.IGNORECASE),
+    ],
+    "retention_amount": [
+        re.compile(r"(?:retenci[óo]n(?:\s*ir\.?p\.?f\.?)?|ir\.?p\.?f\.?)[^\d\-]{0,20}(?:" + _INV_PCT
+                   + r")?[^\d\-]{0,20}(-?\s*\d[\d.,\s]*)", re.IGNORECASE),
+    ],
+    "amount_gross": [
+        re.compile(r"total\s*(?:a\s*)?(?:pagar|factura|de\s*la\s*factura)[^\d\-%]{0,25}" + _INV_AMOUNT, re.IGNORECASE),
+        re.compile(r"importe\s*total[^\d\-%]{0,25}" + _INV_AMOUNT, re.IGNORECASE),
+        re.compile(r"\btotal\b[^\d\-%]{0,20}" + _INV_AMOUNT, re.IGNORECASE),
+    ],
+}
+# El % que acompaña a cada concepto (para poder decir «IVA 21%» o «Retención 15%»).
+_INV_PCT_RES = {
+    "vat_pct": re.compile(r"i\.?\s*v\.?\s*a\.?[^\d]{0,12}" + _INV_PCT, re.IGNORECASE),
+    "retention_pct": re.compile(r"(?:retenci[óo]n|ir\.?p\.?f\.?)[^\d]{0,12}" + _INV_PCT, re.IGNORECASE),
+}
+
+
+def _inv_money(texto: str) -> Decimal:
+    """Un importe suelto del documento → Decimal (formato español, con o sin signo)."""
+    limpio = re.sub(r"\s+", "", str(texto or "")).replace("€", "")
+    return _parse_money_decimal(limpio)
+
+
+def _detect_invoice_amounts(text: str) -> dict:
+    """Lee del PROPIO documento la BASE, el IVA, la RETENCIÓN y el TOTAL.
+
+    Es lo que permite que los números cuadren sin teclearlos: al subir la factura se leen y solo se
+    pregunta lo que no se ha podido sacar. Mejor esfuerzo, y **coherente**: si falta una pieza y las
+    otras la determinan, se completa; si el desglose no cuadra con el total, manda el total (es lo que
+    se paga) y se avisa."""
+    salida = {"amount_net": None, "amount_vat": None, "retention_amount": None,
+              "amount_gross": None, "vat_pct": None, "retention_pct": None, "amounts_warn": ""}
+    if not text:
+        return salida
+    for clave, patrones in _INV_MONEY_RES.items():
+        for rx in patrones:
+            m = rx.search(text)
+            if not m:
+                continue
+            valor = _inv_money(m.group(m.lastindex or 1))
+            if valor != 0:
+                salida[clave] = abs(valor) if clave == "retention_amount" else valor
+                break
+    for clave, rx in _INV_PCT_RES.items():
+        m = rx.search(text)
+        if m:
+            try:
+                salida[clave] = float(str(m.group(1)).replace(",", "."))
+            except Exception:
+                salida[clave] = None
+    base = salida["amount_net"]
+    iva = salida["amount_vat"]
+    ret = salida["retention_amount"] or Decimal("0")
+    total = salida["amount_gross"]
+    # Completar lo que falte con lo que sí se ha leído.
+    if base and iva is None and total is not None:
+        iva = total + ret - base
+        salida["amount_vat"] = iva if iva > 0 else None
+    if base is None and iva is not None and total is not None:
+        base = total + ret - iva
+        salida["amount_net"] = base if base > 0 else None
+    if total is None and base is not None:
+        total = base + (iva or Decimal("0")) - ret
+        salida["amount_gross"] = total if total > 0 else None
+    # ¿Cuadra? base + IVA − retención = total (con un céntimo de margen).
+    if base is not None and total is not None:
+        esperado = base + (iva or Decimal("0")) - ret
+        if abs(esperado - total) > Decimal("0.01"):
+            salida["amounts_warn"] = (
+                "El desglose leído (%s + %s%s) no cuadra con el total (%s): revísalo."
+                % (format_eur(base), format_eur(iva or 0),
+                   (" − " + format_eur(ret)) if ret else "", format_eur(total)))
+    return salida
+
 
 def _detect_invoice_meta(data: bytes, is_pdf: bool) -> dict:
     """Detecta el NÚMERO de factura y la FECHA DE EMISIÓN del documento (mejor esfuerzo). Lo que
     salga se le muestra a la persona para que lo confirme o lo corrija a mano antes de enviar."""
-    out = {"invoice_number": "", "issue_date": "", "concept": "", "detected": False}
+    out = {"invoice_number": "", "issue_date": "", "concept": "", "detected": False,
+           "amount_net": None, "amount_vat": None, "retention_amount": None, "amount_gross": None,
+           "vat_pct": None, "retention_pct": None, "amounts_warn": ""}
     if not is_pdf:
         return out
     text = _pdf_extract_text_bytes(data)
@@ -61293,7 +61695,10 @@ def _detect_invoice_meta(data: bytes, is_pdf: bool) -> dict:
         linea = re.split(r"[\r\n]", (m.group(1) or ""))[0].strip(" .:-;|")
         if linea and not re.fullmatch(r"[\d\s.,€]+", linea):
             out["concept"] = linea[:120]
-    out["detected"] = bool(out["invoice_number"] or out["issue_date"] or out.get("concept"))
+    # IMPORTES leídos del documento: base, IVA, retención y total.
+    out.update(_detect_invoice_amounts(text))
+    out["detected"] = bool(out["invoice_number"] or out["issue_date"] or out.get("concept")
+                           or out.get("amount_gross") is not None)
     out["text"] = text[:20000]     # se reutiliza para buscar el ARTISTA (no se devuelve al cliente)
     return out
 
@@ -61400,7 +61805,15 @@ def public_invoice_detect():
         finally:
             session_db.close()
     meta["detected"] = bool(meta.get("invoice_number") or meta.get("issue_date")
-                            or meta.get("concept") or meta.get("artist"))
+                            or meta.get("concept") or meta.get("artist")
+                            or meta.get("amount_gross") is not None)
+    # Los importes viajan como TEXTO en formato español, que es lo que se pinta y lo que se reenvía.
+    for clave in ("amount_net", "amount_vat", "retention_amount", "amount_gross"):
+        valor = meta.get(clave)
+        meta[clave] = ("" if valor in (None, "") else format_eur(valor).replace(" €", ""))
+    for clave in ("vat_pct", "retention_pct"):
+        valor = meta.get(clave)
+        meta[clave] = ("" if valor in (None, "") else ("%g" % float(valor)))
     return jsonify({"ok": True, **meta})
 
 
@@ -61667,6 +62080,34 @@ def _billing_store_cert(session_db, promoter, doc_type: str, file_storage):
     return doc
 
 
+def _invoice_amount_fields_from_form(form) -> dict:
+    """Los IMPORTES de la factura que llegan del formulario (leídos del documento al subirla, o
+    corregidos a mano). Un cero se guarda como vacío: «no lo sé» no es «cero»."""
+    def _num(clave):
+        valor = (form.get(clave) or "").strip()
+        if not valor:
+            return None
+        importe = _parse_money_decimal(valor)
+        return importe if importe != 0 else None
+
+    def _pct(clave):
+        valor = (form.get(clave) or "").strip().replace("%", "").replace(",", ".")
+        try:
+            n = float(valor)
+        except Exception:
+            return None
+        return n if n > 0 else None
+
+    return {
+        "amount_gross": _num("amount_gross"),
+        "amount_net": _num("amount_net"),
+        "amount_vat": _num("amount_vat"),
+        "retention_amount": _num("retention_amount"),
+        "vat_pct": _pct("vat_pct"),
+        "retention_pct": _pct("retention_pct"),
+    }
+
+
 @app.post('/facturacion/subir', endpoint='public_invoice_upload')
 def public_invoice_upload():
     """Sube la factura o uno de los certificados exigidos (landing genérica)."""
@@ -61754,8 +62195,10 @@ def public_invoice_upload():
                 artist_text=(request.form.get("artist_text") or "").strip() or None,
                 concept_text=(request.form.get("concept_text") or "").strip() or "Liquidación de royalties",
                 invoice_number=(request.form.get("invoice_number") or "").strip() or None,
+                issue_date=parse_optional_date(request.form.get("issue_date")),
                 group_company_id=to_uuid(request.form.get("group_company_id") or "") or None,
                 file_url=url, original_name=filename[:200], mime_type=f.mimetype, status="PENDIENTE",
+                **_invoice_amount_fields_from_form(request.form),
             )
             session_db.add(invoice)
             session_db.flush()
@@ -61785,9 +62228,10 @@ def public_invoice_upload():
                 artist_text=(request.form.get("artist_text") or "").strip() or None,
                 concept_text=(request.form.get("concept_text") or "").strip() or None,
                 invoice_number=inv_num,
-                amount_gross=(_money_or_zero(request.form.get("amount_gross")) or None),
+                issue_date=parse_optional_date(request.form.get("issue_date")),
                 group_company_id=to_uuid(request.form.get("group_company_id") or "") or None,
                 file_url=url, original_name=filename[:200], mime_type=f.mimetype, status="PENDIENTE",
+                **_invoice_amount_fields_from_form(request.form),
             )
             session_db.add(invoice)
             session_db.flush()
@@ -61836,6 +62280,7 @@ def public_invoice_upload():
             target_user_id=target_user_id,
             group_company_id=to_uuid(request.form.get("group_company_id") or "") or None,
             file_url=url, original_name=filename[:200], mime_type=f.mimetype, status="PENDIENTE",
+            **_invoice_amount_fields_from_form(request.form),
         )
         session_db.add(inv)
         session_db.flush()

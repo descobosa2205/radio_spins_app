@@ -71,7 +71,7 @@
             <div class="pay-doc__cell"><span class="pay-doc__lab">IVA {{ '%.0f'|format(invoice_totals.vat_pct|float) }}%</span><span class="pay-doc__val">{{ invoice_totals.vat|eur }}</span></div>
           {% endif %}
           {% if retention and retention > 0 %}
-            <div class="pay-doc__cell is-neg"><span class="pay-doc__lab">Retención</span><span class="pay-doc__val">−{{ retention|eur }}</span></div>
+            <div class="pay-doc__cell is-neg"><span class="pay-doc__lab">Retención{% if retention_pct %} {{ '%g'|format(retention_pct|float) }}%{% endif %}</span><span class="pay-doc__val">−{{ retention|eur }}</span></div>
           {% endif %}
           <div class="pay-doc__cell is-total"><span class="pay-doc__lab">A facturar y pagar</span><span class="pay-doc__val">{{ (pay_total if pay_total else (invoice_totals.gross if invoice_totals else 0))|eur }}</span></div>
         </div>

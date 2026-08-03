@@ -264,7 +264,19 @@
             <div class="col-6 col-md-3" data-meta-field="issue"><label class="form-label small">Fecha de emisión</label><input type="date" class="form-control form-control-sm" id="invIssueDate"></div>
             <div class="col-12 col-md-3" data-meta-field="artist"><label class="form-label small">Artista <span class="text-muted">(como en la factura)</span></label><input class="form-control form-control-sm" id="invArtist"></div>
             <div class="col-12 col-md-3" data-meta-field="concept"><label class="form-label small">Concepto</label><input class="form-control form-control-sm" id="invConcept"></div>
+            {# IMPORTES: se leen de la propia factura; solo se preguntan los que no se hayan podido
+               sacar. La retención únicamente si la factura la lleva. #}
+            <div class="col-6 col-md-3" data-meta-field="net"><label class="form-label small">Base imponible</label><input class="form-control form-control-sm" id="invNet" inputmode="decimal" placeholder="0,00"></div>
+            <div class="col-6 col-md-3" data-meta-field="vat"><label class="form-label small">IVA</label><input class="form-control form-control-sm" id="invVat" inputmode="decimal" placeholder="0,00"></div>
+            <div class="col-6 col-md-3" data-meta-field="retention"><label class="form-label small">Retención <span class="text-muted">(si la hay)</span></label><input class="form-control form-control-sm" id="invRetention" inputmode="decimal" placeholder="0,00"></div>
+            <div class="col-6 col-md-3" data-meta-field="gross"><label class="form-label small">Total de la factura</label><input class="form-control form-control-sm" id="invGross" inputmode="decimal" placeholder="0,00"></div>
+            <input type="hidden" id="invVatPct"><input type="hidden" id="invRetentionPct">
           </div>
+          {# Lo leído, en claro, para que se confirme de un vistazo. #}
+          <div class="alert alert-light border small mt-2 d-none" id="invAmountsBox">
+            <span data-amounts-read></span>
+          </div>
+          <div class="alert alert-warning small mt-2 d-none" id="invAmountsWarn"></div>
         </div>
         <div class="alert alert-success mt-3 d-none" id="invDone">
           <i class="fa fa-circle-check me-1"></i>¡Factura recibida! La revisaremos y te avisaremos si falta algo. Muchas gracias.
@@ -653,12 +665,39 @@
         }
         // Los campos se piden SOLO si no se han podido leer del documento: lo detectado no se
         // vuelve a preguntar.
+        function poner(id, valor) {
+          const el = document.getElementById(id);
+          if (el && valor && !(el.value || '').trim()) el.value = valor;
+        }
         if (d && d.ok) {
-          if (d.concept && document.getElementById('invConcept') && !document.getElementById('invConcept').value) {
-            document.getElementById('invConcept').value = d.concept;
+          poner('invConcept', d.concept);
+          poner('invArtist', d.artist);
+          // IMPORTES leídos de la propia factura: base, IVA, retención y total.
+          poner('invNet', d.amount_net);
+          poner('invVat', d.amount_vat);
+          poner('invRetention', d.retention_amount);
+          poner('invGross', d.amount_gross);
+          poner('invVatPct', d.vat_pct);
+          poner('invRetentionPct', d.retention_pct);
+          // Lo leído, en claro, para confirmarlo de un vistazo.
+          const leidos = [];
+          if (d.amount_net) leidos.push('base ' + d.amount_net + ' €');
+          if (d.amount_vat) leidos.push('IVA' + (d.vat_pct ? ' ' + d.vat_pct + '%' : '') + ' ' + d.amount_vat + ' €');
+          if (d.retention_amount) leidos.push('retención' + (d.retention_pct ? ' ' + d.retention_pct + '%' : '') + ' ' + d.retention_amount + ' €');
+          if (d.amount_gross) leidos.push('total ' + d.amount_gross + ' €');
+          const cajaImp = document.getElementById('invAmountsBox');
+          if (cajaImp) {
+            cajaImp.classList.toggle('d-none', leidos.length === 0);
+            const nota = cajaImp.querySelector('[data-amounts-read]');
+            if (nota) nota.innerHTML = leidos.length
+              ? '<i class="fa fa-magnifying-glass-dollar me-1"></i>De tu factura hemos leído: <strong>'
+                + leidos.join('</strong> · <strong>') + '</strong>. Corrígelo si no es correcto.'
+              : '';
           }
-          if (d.artist && document.getElementById('invArtist') && !document.getElementById('invArtist').value) {
-            document.getElementById('invArtist').value = d.artist;
+          const avisoImp = document.getElementById('invAmountsWarn');
+          if (avisoImp) {
+            avisoImp.classList.toggle('d-none', !d.amounts_warn);
+            avisoImp.textContent = d.amounts_warn || '';
           }
         }
         const caja = document.getElementById('invMetaBox');
@@ -666,13 +705,20 @@
         [['number', 'invNumber', 'el número de factura'],
          ['issue', 'invIssueDate', 'la fecha de emisión'],
          ['artist', 'invArtist', 'el artista'],
-         ['concept', 'invConcept', 'el concepto']].forEach(function (par) {
+         ['concept', 'invConcept', 'el concepto'],
+         ['net', 'invNet', 'la base imponible'],
+         ['vat', 'invVat', 'el IVA'],
+         ['gross', 'invGross', 'el total de la factura']].forEach(function (par) {
           const campo = document.querySelector('[data-meta-field="' + par[0] + '"]');
           const inp = document.getElementById(par[1]);
           const vacio = !(inp && (inp.value || '').trim());
           if (campo) campo.classList.toggle('d-none', !vacio);
           if (vacio) faltan.push(par[2]);
         });
+        // La RETENCIÓN solo se enseña si la factura la lleva: no se pregunta por si acaso.
+        const campoRet = document.querySelector('[data-meta-field="retention"]');
+        const inpRet = document.getElementById('invRetention');
+        if (campoRet) campoRet.classList.toggle('d-none', !(inpRet && (inpRet.value || '').trim()));
         if (caja) {
           caja.classList.toggle('d-none', faltan.length === 0);
           const nota = caja.querySelector('[data-meta-note]');
@@ -706,6 +752,10 @@
       if (person) fd.append('target_user_id', person.value);
       fd.append('artist_text', (document.getElementById('invArtist')||{}).value || '');
       fd.append('concept_text', (document.getElementById('invConcept')||{}).value || '');
+      // Importes: lo leído de la factura (o lo corregido a mano).
+      [['amount_net','invNet'], ['amount_vat','invVat'], ['retention_amount','invRetention'],
+       ['amount_gross','invGross'], ['vat_pct','invVatPct'], ['retention_pct','invRetentionPct']
+      ].forEach(function(par){ fd.append(par[0], (document.getElementById(par[1])||{}).value || ''); });
       {% if inv_mode == 'REQUEST' and company %}fd.append('group_company_id', {{ (company.id|string)|tojson }});{% endif %}
       if (TOKEN) fd.append('token', TOKEN);
       if (LIQ) fd.append('liq_token', LIQ);

@@ -1,0 +1,115 @@
+{% extends "layout.html" %}
+{% block content %}
+{# La tarjeta: es lo que se enseña en el control de acceso, y a lo que apunta el QR. #}
+<div class="ma-page ma-page--pass">
+  {% if header.company_logo %}
+    <div class="ma-logo"><img src="{{ header.company_logo }}" alt="{{ header.company_name }}"></div>
+  {% endif %}
+
+  <div class="ma-pass">
+    <div class="ma-pass__head">
+      <div class="ma-pass__t">AUTORIZACIÓN DE MENORES</div>
+      {% if row.status != 'VALID' %}<span class="ma-pass__void">Anulada</span>{% endif %}
+    </div>
+
+    <div class="ma-pass__event">
+      {% if header.artist_photo %}<img src="{{ header.artist_photo }}" alt="">{% endif %}
+      <div>
+        <div class="ma-pass__artist">{{ header.artist_name }}</div>
+        {% if header.festival_name %}<div class="ma-pass__fest">{{ header.festival_name }}</div>{% endif %}
+        <div class="ma-pass__meta">
+          {% if header.date_label %}<span><i class="fa fa-calendar-day"></i>{{ header.date_label }}</span>{% endif %}
+          {% if header.show_time %}<span><i class="fa fa-clock"></i>{{ header.show_time }}</span>{% endif %}
+        </div>
+        {% if header.venue_name %}<div class="ma-pass__venue"><i class="fa fa-location-dot me-1"></i>{{ header.venue_name }}{% if header.venue_address %} · {{ header.venue_address }}{% endif %}</div>{% endif %}
+      </div>
+    </div>
+
+    <div class="ma-pass__qr"><img src="{{ qr_data_uri }}" alt="Código QR de la autorización"></div>
+    <div class="ma-pass__hint">Muestra este código en el control de acceso</div>
+
+    <div class="ma-pass__who">
+      <div>
+        <span>Menor(es)</span>
+        {% for m in row.minors %}
+          <strong>{{ m.full_name }}{% if m.age is not none %} · {{ m.age }} años{% endif %}</strong>
+        {% endfor %}
+      </div>
+      <div>
+        <span>Persona autorizada</span>
+        <strong>{{ row.escort_name }}</strong>
+      </div>
+    </div>
+
+    <div class="ma-pass__acts">
+      <a class="btn btn-dark btn-sm" href="{{ url_for('public_minor_auth_wallet', token=row.qr_token) }}"><i class="fa fa-wallet me-1"></i>Guardar en el móvil</a>
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('public_minor_auth_qr_png', token=row.qr_token) }}"><i class="fa fa-download me-1"></i>Descargar el QR</a>
+    </div>
+  </div>
+
+  {# ------------------------- La autorización completa ------------------------- #}
+  <div class="ma-doc mt-3">
+    <h2 class="ma-doc__title">AUTORIZACIÓN DE ACCESO A MENORES</h2>
+
+    <h3 class="ma-doc__h">Datos del evento</h3>
+    <div class="ma-doc__grid">
+      <div><span>Artista / Evento</span><strong>{{ header.artist_name }}</strong></div>
+      {% if header.festival_name %}<div><span>Nombre del festival</span><strong>{{ header.festival_name }}</strong></div>{% endif %}
+      <div><span>Fecha del evento</span><strong>{{ header.date_label }}{% if header.show_time %} · {{ header.show_time }}{% endif %}</strong></div>
+      <div><span>Recinto</span><strong>{{ header.venue_name }}{% if header.venue_address %} — {{ header.venue_address }}{% endif %}</strong></div>
+    </div>
+
+    <h3 class="ma-doc__h">Datos empresa promotora</h3>
+    <div class="ma-doc__grid">
+      <div><span>Empresa</span><strong>{{ header.company_name }}</strong></div>
+      {% if header.company_tax_info %}<div><span>Datos fiscales</span><strong>{{ header.company_tax_info }}</strong></div>{% endif %}
+    </div>
+
+    <h3 class="ma-doc__h">Datos de padre, madre o tutor legal</h3>
+    <div class="ma-doc__person">
+      <div class="ma-doc__grid">
+        <div><span>Nombre y apellidos</span><strong>{{ row.guardian_name }}</strong></div>
+        <div><span>En calidad de</span><strong>{{ row.guardian_kind_label }}</strong></div>
+        <div><span>DNI</span><strong>{{ row.guardian_doc }}</strong></div>
+        <div><span>Teléfono</span><strong>{{ row.guardian_phone }}</strong></div>
+        <div><span>Email</span><strong>{{ row.guardian_email }}</strong></div>
+      </div>
+      <div class="ma-doc__shot">{% if row.guardian_doc_url %}<img src="{{ row.guardian_doc_url }}" alt="">{% endif %}</div>
+    </div>
+
+    <h3 class="ma-doc__h">Datos del menor</h3>
+    {% for m in row.minors %}
+    <div class="ma-doc__grid ma-doc__grid--minor">
+      <div><span>Nombre y apellidos</span><strong>{{ m.full_name }}</strong></div>
+      <div><span>DNI</span><strong>{{ m.doc_number }}</strong></div>
+      <div><span>Fecha de nacimiento</span><strong>{{ m.birth_label }}</strong></div>
+      <div><span>Edad</span><strong>{% if m.age is not none %}{{ m.age }} años{% endif %}</strong></div>
+    </div>
+    {% endfor %}
+
+    {% if not row.escort_is_guardian %}
+    <h3 class="ma-doc__h">Datos del autorizado</h3>
+    <div class="ma-doc__person">
+      <div class="ma-doc__grid">
+        <div><span>Nombre y apellidos</span><strong>{{ row.escort_name }}</strong></div>
+        <div><span>DNI</span><strong>{{ row.escort_doc }}</strong></div>
+      </div>
+      <div class="ma-doc__shot">{% if row.escort_doc_url %}<img src="{{ row.escort_doc_url }}" alt="">{% endif %}</div>
+    </div>
+    {% endif %}
+
+    <p class="ma-doc__intro">El abajo firmante, en calidad de padre, madre o tutor legal del menor, <strong>DECLARA</strong>:</p>
+    <ol class="ma-doc__points">
+      {% for p in declaration_points %}<li>{{ p }}</li>{% endfor %}
+    </ol>
+
+    {% if row.signature_url %}
+    <div class="ma-doc__sign">
+      <span>Firma</span>
+      <img src="{{ row.signature_url }}" alt="Firma">
+    </div>
+    {% endif %}
+    <div class="ma-doc__foot">Firmada el {{ row.created_label }}</div>
+  </div>
+</div>
+{% endblock %}

@@ -1860,6 +1860,116 @@ class ConcertContractSheet(Base):
     concert = relationship("Concert", back_populates="contract_sheet")
 
 
+class MinorAuthConfig(Base):
+    """Configuración de las AUTORIZACIONES DE ACCESO A MENORES de una actividad.
+
+    Solo tiene sentido cuando promovemos nosotros (una empresa del grupo): es nuestra política de
+    menores la que se aplica. El enlace público se comparte con el comprador y su token es la
+    credencial (como el resto de enlaces públicos de la casa)."""
+
+    __tablename__ = "minor_auth_configs"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False, unique=True)
+    # Corte de edad: hay que rellenar la hoja si el menor tiene MENOS de estos años (18, 16 o 14).
+    age_limit = Column(Integer, nullable=False, server_default=text("18"))
+    require_guardian_dni = Column(Boolean, nullable=False, server_default=text("true"))
+    require_minor_dni = Column(Boolean, nullable=False, server_default=text("true"))
+    require_email_verification = Column(Boolean, nullable=False, server_default=text("true"))
+    # Leyenda que describe la política de menores (se enseña en la pestaña y en el formulario).
+    policy_text = Column(Text)
+    public_token = Column(Text, unique=True)
+    # Enlace del CONTROL DE ACCESO, aparte del del formulario: quien valida no debe poder rellenar
+    # autorizaciones con su enlace, ni al contrario.
+    validate_token = Column(Text, unique=True)
+    active = Column(Boolean, nullable=False, server_default=text("true"))
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    concert = relationship("Concert")
+
+    __table_args__ = (
+        Index("idx_minor_auth_configs_concert", "concert_id"),
+    )
+
+
+class MinorAuthorization(Base):
+    """Una autorización cumplimentada y FIRMADA. Se conserva tal cual se firmó (`declaration_snapshot`):
+    si mañana cambian los datos del concierto, la autorización sigue diciendo lo que se firmó."""
+
+    __tablename__ = "minor_authorizations"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    config_id = Column(PGUUID(as_uuid=True), ForeignKey("minor_auth_configs.id", ondelete="CASCADE"), nullable=False)
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
+    # PADRE | MADRE | TUTOR
+    guardian_kind = Column(Text, nullable=False, server_default=text("'TUTOR'"))
+    guardian_first_name = Column(Text)
+    guardian_last_name = Column(Text)
+    guardian_doc_number = Column(Text)
+    guardian_birth_date = Column(Date)
+    guardian_phone = Column(Text)
+    guardian_email = Column(Text)
+    guardian_doc_url = Column(Text)
+    # ¿Acompaña el propio tutor? Si no, van los datos de la persona autorizada.
+    escort_is_guardian = Column(Boolean, nullable=False, server_default=text("true"))
+    escort_first_name = Column(Text)
+    escort_last_name = Column(Text)
+    escort_doc_number = Column(Text)
+    escort_birth_date = Column(Date)
+    escort_phone = Column(Text)
+    escort_email = Column(Text)
+    escort_doc_url = Column(Text)
+    consent_at = Column(DateTime(timezone=True))
+    signature_url = Column(Text)
+    declaration_snapshot = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    # Token del QR: es lo que se valida en el control de acceso.
+    qr_token = Column(Text, unique=True)
+    # VALID | CANCELLED
+    status = Column(Text, nullable=False, server_default=text("'VALID'"))
+    email_sent_at = Column(DateTime(timezone=True))
+    validated_at = Column(DateTime(timezone=True))
+    validated_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    config = relationship("MinorAuthConfig")
+    concert = relationship("Concert")
+    minors = relationship("MinorAuthorizationMinor", back_populates="authorization",
+                          cascade="all, delete-orphan", order_by="MinorAuthorizationMinor.created_at")
+
+    __table_args__ = (
+        Index("idx_minor_authorizations_concert", "concert_id", "status"),
+        Index("idx_minor_authorizations_qr", "qr_token"),
+    )
+
+
+class MinorAuthorizationMinor(Base):
+    """Un menor dentro de una autorización (se pueden meter todos los que hagan falta).
+
+    ⚠️ El DNI del menor NO se sube: solo se apunta el número. Es un dato de un menor de edad y no
+    hace falta guardar su imagen para validar el acceso."""
+
+    __tablename__ = "minor_authorization_minors"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    authorization_id = Column(PGUUID(as_uuid=True), ForeignKey("minor_authorizations.id", ondelete="CASCADE"), nullable=False)
+    first_name = Column(Text)
+    last_name = Column(Text)
+    doc_number = Column(Text)
+    birth_date = Column(Date)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    authorization = relationship("MinorAuthorization", back_populates="minors")
+
+    __table_args__ = (
+        Index("idx_minor_authorization_minors_auth", "authorization_id"),
+        Index("idx_minor_authorization_minors_doc", "doc_number"),
+    )
+
+
 class ConcertArtworkRequest(Base):
     __tablename__ = "concert_artwork_requests"
 
@@ -6910,6 +7020,82 @@ def ensure_third_party_and_contract_sheet_schema():
     ]
 
     _exec_ddl_statements(stmts, "third_party")
+
+def ensure_minor_auth_schema():
+    """AUTORIZACIONES DE ACCESO A MENORES (pestaña «Menores» del ticketing). Idempotente."""
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        """
+        CREATE TABLE IF NOT EXISTS minor_auth_configs (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            concert_id uuid NOT NULL UNIQUE REFERENCES concerts(id) ON DELETE CASCADE,
+            age_limit integer NOT NULL DEFAULT 18,
+            require_guardian_dni boolean NOT NULL DEFAULT true,
+            require_minor_dni boolean NOT NULL DEFAULT true,
+            require_email_verification boolean NOT NULL DEFAULT true,
+            policy_text text,
+            public_token text UNIQUE,
+            validate_token text UNIQUE,
+            active boolean NOT NULL DEFAULT true,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_minor_auth_configs_concert ON minor_auth_configs(concert_id);',
+        'ALTER TABLE IF EXISTS minor_auth_configs ADD COLUMN IF NOT EXISTS validate_token text;',
+        """
+        CREATE TABLE IF NOT EXISTS minor_authorizations (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            config_id uuid NOT NULL REFERENCES minor_auth_configs(id) ON DELETE CASCADE,
+            concert_id uuid NOT NULL REFERENCES concerts(id) ON DELETE CASCADE,
+            guardian_kind text NOT NULL DEFAULT 'TUTOR',
+            guardian_first_name text,
+            guardian_last_name text,
+            guardian_doc_number text,
+            guardian_birth_date date,
+            guardian_phone text,
+            guardian_email text,
+            guardian_doc_url text,
+            escort_is_guardian boolean NOT NULL DEFAULT true,
+            escort_first_name text,
+            escort_last_name text,
+            escort_doc_number text,
+            escort_birth_date date,
+            escort_phone text,
+            escort_email text,
+            escort_doc_url text,
+            consent_at timestamptz,
+            signature_url text,
+            declaration_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+            qr_token text UNIQUE,
+            status text NOT NULL DEFAULT 'VALID',
+            email_sent_at timestamptz,
+            validated_at timestamptz,
+            validated_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_minor_authorizations_concert ON minor_authorizations(concert_id, status);',
+        'CREATE INDEX IF NOT EXISTS idx_minor_authorizations_qr ON minor_authorizations(qr_token);',
+        """
+        CREATE TABLE IF NOT EXISTS minor_authorization_minors (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            authorization_id uuid NOT NULL REFERENCES minor_authorizations(id) ON DELETE CASCADE,
+            first_name text,
+            last_name text,
+            doc_number text,
+            birth_date date,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_minor_authorization_minors_auth ON minor_authorization_minors(authorization_id);',
+        'CREATE INDEX IF NOT EXISTS idx_minor_authorization_minors_doc ON minor_authorization_minors(doc_number);',
+    ]
+    _exec_ddl_statements(stmts, "minor_auth")
+
 
 def ensure_concert_artwork_schema():
     """Asegura el esquema de cartelería de conciertos."""

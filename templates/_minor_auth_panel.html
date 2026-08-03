@@ -1,0 +1,292 @@
+{# Pestaña «Menores» de la ficha: la política, el enlace del formulario con su QR, el enlace del
+   control de acceso y el listado de autorizaciones firmadas. Solo en actividades que promovemos. #}
+<div class="mn-wrap">
+
+  {# ------------------------------- La política de menores ------------------------------- #}
+  <div class="mn-policy">
+    <div class="mn-policy__icon"><i class="fa fa-child-reaching"></i></div>
+    <div>
+      <h6 class="mb-1">Política de acceso de menores</h6>
+      <div class="mn-policy__text">{{ (minor_config.policy_text if minor_config and minor_config.policy_text else minor_policy_default) }}</div>
+    </div>
+  </div>
+
+  {# ------------------------------- Configurar el enlace --------------------------------- #}
+  {% if not minor_config %}
+    <div class="mn-empty">
+      <i class="fa fa-link-slash"></i>
+      <div class="mn-empty__t">Todavía no hay autorizaciones configuradas</div>
+      <div class="mn-empty__s">Configura a partir de qué edad hay que rellenar la autorización y qué datos se piden. Al guardar se crean el enlace del formulario y el del control de acceso.</div>
+      {% if CAN_EDIT_CONCERTS %}
+      <button class="btn btn-danger" type="button" data-bs-toggle="modal" data-bs-target="#minorConfigModal">
+        <i class="fa fa-sliders me-1"></i>Configurar autorizaciones de menores
+      </button>
+      {% endif %}
+    </div>
+  {% else %}
+    <div class="row g-3">
+      {# Enlace del formulario + su QR #}
+      <div class="col-lg-7">
+        <div class="mn-card h-100">
+          <div class="mn-card__head">
+            <div><i class="fa fa-file-signature me-2 text-danger"></i><strong>Enlace de la autorización</strong>
+              <div class="small text-muted">Se comparte con quien compra la entrada. Hay que rellenarla para los <strong>menores de {{ minor_config.age_limit }}</strong>.</div>
+            </div>
+            {% if CAN_EDIT_CONCERTS %}
+            <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#minorConfigModal"><i class="fa fa-sliders me-1"></i>Configurar</button>
+            {% endif %}
+          </div>
+          <div class="mn-linkrow">
+            <input class="form-control form-control-sm" id="minorFormUrl" value="{{ minor_form_url }}" readonly>
+            <button class="btn btn-outline-secondary btn-sm" type="button" data-mn-copy="#minorFormUrl" title="Copiar el enlace"><i class="fa fa-copy"></i></button>
+            <a class="btn btn-outline-secondary btn-sm" href="{{ minor_form_url }}" target="_blank" rel="noopener" title="Abrir"><i class="fa fa-arrow-up-right-from-square"></i></a>
+          </div>
+          {% if minor_form_qr %}
+          <div class="mn-qr">
+            {# Arrastrable al escritorio (data-doc-dl le pone nombre) y descargable con el botón. #}
+            <img src="{{ minor_form_qr }}" alt="QR del formulario" class="mn-qr__img"
+                 draggable="true" data-doc-dl="autorizacion-menores-qr.png"
+                 data-doc-url="{{ url_for('concert_minor_auth_qr', cid=concert.id) }}">
+            <div class="mn-qr__side">
+              <div class="small text-muted mb-2">Escanea este código para llegar al formulario. Puedes arrastrar la imagen al escritorio.</div>
+              <div class="d-flex gap-2 flex-wrap">
+                <a class="btn btn-outline-dark btn-sm" href="{{ url_for('concert_minor_auth_qr', cid=concert.id) }}"><i class="fa fa-download me-1"></i>Descargar QR</a>
+                <button class="btn btn-outline-secondary btn-sm" type="button" data-mn-copy-img="{{ minor_form_qr }}"><i class="fa fa-copy me-1"></i>Copiar imagen</button>
+              </div>
+            </div>
+          </div>
+          {% endif %}
+          <div class="mn-flags">
+            <span class="mn-flag {% if minor_config.require_guardian_dni %}on{% endif %}"><i class="fa {% if minor_config.require_guardian_dni %}fa-check{% else %}fa-xmark{% endif %}"></i> Foto del DNI del tutor</span>
+            <span class="mn-flag {% if minor_config.require_minor_dni %}on{% endif %}"><i class="fa {% if minor_config.require_minor_dni %}fa-check{% else %}fa-xmark{% endif %}"></i> DNI del menor</span>
+            <span class="mn-flag {% if minor_config.require_email_verification %}on{% endif %}"><i class="fa {% if minor_config.require_email_verification %}fa-check{% else %}fa-xmark{% endif %}"></i> Email de verificación</span>
+          </div>
+        </div>
+      </div>
+
+      {# Enlace del control de acceso #}
+      <div class="col-lg-5">
+        <div class="mn-card h-100">
+          <div class="mn-card__head">
+            <div><i class="fa fa-qrcode me-2 text-primary"></i><strong>Control de acceso</strong>
+              <div class="small text-muted">Para quien valida en la puerta: lee el DNI del menor o su QR.</div>
+            </div>
+          </div>
+          <div class="mn-linkrow">
+            <input class="form-control form-control-sm" id="minorValidateUrl" value="{{ minor_validate_url }}" readonly>
+            <button class="btn btn-outline-secondary btn-sm" type="button" data-mn-copy="#minorValidateUrl" title="Copiar el enlace"><i class="fa fa-copy"></i></button>
+            <a class="btn btn-outline-secondary btn-sm" href="{{ minor_validate_url }}" target="_blank" rel="noopener" title="Abrir"><i class="fa fa-arrow-up-right-from-square"></i></a>
+          </div>
+          <div class="mn-kpis">
+            <div class="mn-kpi"><div class="mn-kpi__n">{{ minor_valid_count }}</div><div class="mn-kpi__l">Autorizaciones</div></div>
+            <div class="mn-kpi"><div class="mn-kpi__n">{{ minor_minors_count }}</div><div class="mn-kpi__l">Menores</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {# ------------------------------- Listado de autorizaciones -------------------------- #}
+    <div class="mn-card mt-3">
+      <div class="mn-card__head">
+        <div><i class="fa fa-list-check me-2 text-success"></i><strong>Autorizaciones recibidas</strong>
+          <div class="small text-muted">Solo las cumplimentadas y firmadas.</div>
+        </div>
+      </div>
+      {% if not minor_rows %}
+        <div class="ficha-empty mb-0">Todavía no se ha recibido ninguna autorización.</div>
+      {% else %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0 mn-table">
+          <thead><tr>
+            <th>Menor(es)</th><th>Padre, madre o tutor</th><th>Autorizado</th><th>Recibida</th><th></th>
+          </tr></thead>
+          <tbody>
+          {% for r in minor_rows %}
+            <tr>
+              <td>
+                {% for m in r.minors %}
+                  <div class="mn-minor">
+                    <i class="fa fa-child text-danger"></i>
+                    <span class="fw-semibold">{{ m.full_name }}</span>
+                    <span class="mn-chip">{{ m.doc_number }}</span>
+                    {% if m.age is not none %}<span class="mn-chip mn-chip--age">{{ m.age }} años</span>{% endif %}
+                  </div>
+                {% endfor %}
+              </td>
+              <td>
+                <div class="fw-semibold">{{ r.guardian_name }}</div>
+                <div class="small text-muted">{{ r.guardian_kind_label }} · {{ r.guardian_doc }}</div>
+                <div class="small text-muted">{{ r.guardian_email }}{% if r.guardian_phone %} · {{ r.guardian_phone }}{% endif %}</div>
+              </td>
+              <td>
+                {% if r.escort_is_guardian %}
+                  <span class="mn-chip mn-chip--ok"><i class="fa fa-user-check me-1"></i>El propio tutor</span>
+                {% else %}
+                  <div class="fw-semibold">{{ r.escort_name }}</div>
+                  <div class="small text-muted">{{ r.escort_doc }}</div>
+                {% endif %}
+              </td>
+              <td>
+                <div class="small">{{ r.created_label }}</div>
+                {% if r.email_sent_label %}<div class="small text-success"><i class="fa fa-envelope-circle-check me-1"></i>{{ r.email_sent_label }}</div>
+                {% else %}<div class="small text-warning"><i class="fa fa-envelope me-1"></i>Sin enviar</div>{% endif %}
+              </td>
+              <td class="text-end">
+                <div class="dropdown">
+                  <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-vertical"></i></button>
+                  <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="{{ url_for('public_minor_auth_pass', token=r.qr_token) }}" target="_blank" rel="noopener"><i class="fa fa-eye me-2"></i>Ver la autorización</a></li>
+                    {% if CAN_EDIT_CONCERTS %}
+                    <li>
+                      <form method="post" action="{{ url_for('concert_minor_auth_resend', cid=concert.id, auth_id=r.id) }}">
+                        <input type="hidden" name="next" value="{{ url_for('concert_detail_view', cid=concert.id, tab='menores') }}">
+                        <button class="dropdown-item" type="submit"><i class="fa fa-paper-plane me-2"></i>Reenviar por correo</button>
+                      </form>
+                    </li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li>
+                      <form method="post" action="{{ url_for('concert_minor_auth_delete', cid=concert.id, auth_id=r.id) }}" onsubmit="return confirm('¿Eliminar esta autorización? El QR dejará de valer.');">
+                        <input type="hidden" name="next" value="{{ url_for('concert_detail_view', cid=concert.id, tab='menores') }}">
+                        <button class="dropdown-item text-danger" type="submit"><i class="fa fa-trash me-2"></i>Eliminar</button>
+                      </form>
+                    </li>
+                    {% endif %}
+                  </ul>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    </div>
+  {% endif %}
+</div>
+
+{% if CAN_EDIT_CONCERTS %}
+{# --------------------------- Pop-up de configuración (2 pantallas) --------------------------- #}
+<div class="modal fade" id="minorConfigModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post" action="{{ url_for('concert_minor_auth_config', cid=concert.id) }}" id="minorConfigForm">
+      <input type="hidden" name="next" value="{{ url_for('concert_detail_view', cid=concert.id, tab='menores') }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-child-reaching me-2 text-danger"></i>Autorizaciones de menores</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+
+        {# Pantalla 1: el corte de edad #}
+        <div data-mn-screen="1">
+          <div class="mn-q">¿Quién tiene que rellenar la autorización?</div>
+          <div class="small text-muted mb-3">Es el corte de edad: la rellenan los que tengan <strong>un día menos</strong> de la edad elegida.</div>
+          <div class="mn-choices">
+            {% for years, label, icon in minor_age_limits %}
+            <label class="mn-choice">
+              <input type="radio" name="age_limit" value="{{ years }}" {% if (minor_config.age_limit if minor_config else 18) == years %}checked{% endif %} hidden>
+              <i class="fa {{ icon }}"></i>
+              <span class="mn-choice__t">{{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+
+        {# Pantalla 2: qué se pide #}
+        <div data-mn-screen="2" class="d-none">
+          <div class="mn-q">¿Qué hay que pedir?</div>
+          <div class="small text-muted mb-3">Todo activado por defecto.</div>
+          <div class="mn-switches">
+            <label class="mn-switch">
+              <span><i class="fa fa-id-card me-2 text-danger"></i>Pedir la foto del DNI del tutor</span>
+              <input class="form-check-input" type="checkbox" name="require_guardian_dni" value="1" {% if (minor_config.require_guardian_dni if minor_config else True) %}checked{% endif %}>
+            </label>
+            <label class="mn-switch">
+              <span><i class="fa fa-id-badge me-2 text-danger"></i>Pedir el DNI del menor</span>
+              <input class="form-check-input" type="checkbox" name="require_minor_dni" value="1" {% if (minor_config.require_minor_dni if minor_config else True) %}checked{% endif %}>
+            </label>
+            <label class="mn-switch">
+              <span><i class="fa fa-envelope-circle-check me-2 text-danger"></i>Enviar email de verificación al tutor</span>
+              <input class="form-check-input" type="checkbox" name="require_email_verification" value="1" {% if (minor_config.require_email_verification if minor_config else True) %}checked{% endif %}>
+            </label>
+          </div>
+          <div class="mt-3">
+            <label class="form-label small text-muted">Leyenda de la política de menores</label>
+            <textarea class="form-control" name="policy_text" rows="4">{{ minor_config.policy_text if minor_config and minor_config.policy_text else minor_policy_default }}</textarea>
+          </div>
+          {% if minor_config %}
+          <div class="alert alert-light border small mt-3 mb-0"><i class="fa fa-circle-info me-1"></i>Los enlaces ya creados no cambian al guardar.</div>
+          {% endif %}
+        </div>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <button class="btn btn-outline-secondary d-none" type="button" data-mn-back><i class="fa fa-arrow-left me-1"></i>Atrás</button>
+        <div class="ms-auto d-flex gap-2">
+          <button class="btn btn-danger" type="button" data-mn-next>Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
+          <button class="btn btn-danger d-none" type="submit" data-mn-save><i class="fa fa-check me-1"></i>Guardar y crear el enlace</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<script>
+(function () {
+  // Copiar enlaces y la imagen del QR.
+  document.addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-mn-copy]');
+    if (b) {
+      var inp = document.querySelector(b.getAttribute('data-mn-copy'));
+      if (inp) {
+        inp.select();
+        navigator.clipboard ? navigator.clipboard.writeText(inp.value) : document.execCommand('copy');
+        var old = b.innerHTML; b.innerHTML = '<i class="fa fa-check"></i>';
+        setTimeout(function () { b.innerHTML = old; }, 1200);
+      }
+      return;
+    }
+    var ci = ev.target.closest('[data-mn-copy-img]');
+    if (ci) {
+      var src = ci.getAttribute('data-mn-copy-img');
+      fetch(src).then(function (r) { return r.blob(); }).then(function (blob) {
+        if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+          return navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        }
+        throw new Error('sin soporte');
+      }).then(function () {
+        var old = ci.innerHTML; ci.innerHTML = '<i class="fa fa-check me-1"></i>Copiada';
+        setTimeout(function () { ci.innerHTML = old; }, 1400);
+      }).catch(function () { alert('Tu navegador no deja copiar imágenes. Descárgala o arrástrala al escritorio.'); });
+    }
+  });
+
+  // Arrastrar el QR al escritorio con nombre de archivo (mismo truco que los documentos).
+  document.querySelectorAll('[data-doc-dl][data-doc-url]').forEach(function (img) {
+    img.addEventListener('dragstart', function (ev) {
+      var nombre = img.getAttribute('data-doc-dl') || 'qr.png';
+      var url = new URL(img.getAttribute('data-doc-url'), location.href).href;
+      try { ev.dataTransfer.setData('DownloadURL', 'image/png:' + nombre + ':' + url); } catch (e) {}
+      try { ev.dataTransfer.setData('text/uri-list', url); } catch (e) {}
+    });
+  });
+
+  // Los dos pasos del pop-up de configuración.
+  var form = document.getElementById('minorConfigForm');
+  if (!form) return;
+  function ir(n) {
+    form.querySelectorAll('[data-mn-screen]').forEach(function (el) {
+      el.classList.toggle('d-none', el.getAttribute('data-mn-screen') !== String(n));
+    });
+    form.querySelector('[data-mn-back]').classList.toggle('d-none', n === 1);
+    form.querySelector('[data-mn-next]').classList.toggle('d-none', n !== 1);
+    form.querySelector('[data-mn-save]').classList.toggle('d-none', n === 1);
+  }
+  form.querySelector('[data-mn-next]').addEventListener('click', function () { ir(2); });
+  form.querySelector('[data-mn-back]').addEventListener('click', function () { ir(1); });
+  // Elegir la edad avanza solo (menos clics, como el resto de los asistentes).
+  form.querySelectorAll('input[name="age_limit"]').forEach(function (r) {
+    r.addEventListener('change', function () { ir(2); });
+  });
+  ir(1);
+})();
+</script>

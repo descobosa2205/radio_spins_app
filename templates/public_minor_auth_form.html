@@ -1,0 +1,241 @@
+{% extends "layout.html" %}
+{% block content %}
+{# AUTORIZACIÓN DE ACCESO A MENORES — hoja pública que rellena el padre, la madre o el tutor legal.
+   Todo es obligatorio. El DNI del tutor y del autorizado se escanean o se suben; el del MENOR solo
+   se lee (su imagen NO se sube). #}
+<div class="ma-page" data-ma
+     data-upload-url="{{ url_for('public_minor_auth_upload', token=config.public_token) }}"
+     data-submit-url="{{ url_for('public_minor_auth_submit', token=config.public_token) }}"
+     data-age-limit="{{ config.age_limit }}"
+     data-require-guardian-dni="{{ '1' if config.require_guardian_dni else '' }}"
+     data-event-date="{{ header.date.isoformat() if header.date else '' }}">
+
+  {# ------------------------------- Cabecera ------------------------------- #}
+  {% if header.company_logo %}
+    <div class="ma-logo"><img src="{{ header.company_logo }}" alt="{{ header.company_name }}"></div>
+  {% endif %}
+  <h1 class="ma-title">Autorización de menores para acceso a concierto</h1>
+
+  <div class="ma-hero">
+    <div class="ma-hero__main">
+      <div class="ma-hero__artist">
+        {% if header.artist_photo %}<img class="ma-hero__photo" src="{{ header.artist_photo }}" alt="">
+        {% else %}<span class="ma-hero__photo ma-hero__photo--ph"><i class="fa fa-music"></i></span>{% endif %}
+        <div>
+          <div class="ma-hero__name">{{ header.artist_name }}</div>
+          <div class="ma-hero__kind"><i class="fa {{ header.activity_icon }} me-1"></i>{{ header.activity_label }}</div>
+        </div>
+      </div>
+      {% if header.festival_name %}<div class="ma-hero__fest"><i class="fa fa-star me-1"></i>{{ header.festival_name }}</div>{% endif %}
+    </div>
+    <div class="ma-hero__row">
+      {% if header.date_label %}<span class="ma-hero__bit"><i class="fa fa-calendar-day"></i>{{ header.date_label }}</span>{% endif %}
+      {% if header.venue_name %}<span class="ma-hero__bit"><i class="fa fa-location-dot"></i>{{ header.venue_name }}{% if header.venue_address %} · {{ header.venue_address }}{% endif %}</span>{% endif %}
+      {% if header.show_time %}<span class="ma-hero__bit"><i class="fa fa-clock"></i>{{ header.show_time }}</span>{% endif %}
+    </div>
+  </div>
+
+  <div class="ma-policy"><i class="fa fa-circle-info"></i><div>{{ policy_text }}</div></div>
+
+  {# ------------------------------- PASO 1: el formulario ------------------------------- #}
+  <div data-ma-step="form">
+
+    {# --------- Padre, madre o tutor legal --------- #}
+    <section class="ma-card">
+      <h2 class="ma-h2"><i class="fa fa-user-shield"></i>Padre, madre o tutor legal</h2>
+      <div class="ma-choices ma-choices--3">
+        {% for value, label, icon in guardian_kinds %}
+        <label class="ma-choice">
+          <input type="radio" name="guardian_kind" value="{{ value }}" {% if value == 'TUTOR' %}checked{% endif %} hidden>
+          <i class="fa {{ icon }}"></i><span>{{ label }}</span>
+        </label>
+        {% endfor %}
+      </div>
+
+      <div class="ma-scan" data-ma-scan="guardian">
+        <button class="ma-scan__btn" type="button" data-ma-camera="guardian"><i class="fa fa-camera"></i><span>Escanear el DNI con la cámara</span></button>
+        <label class="ma-scan__btn">
+          <i class="fa fa-upload"></i><span>Subir foto o PDF del DNI</span>
+          <input type="file" accept="image/*,application/pdf" hidden data-ma-file="guardian">
+        </label>
+        <div class="ma-scan__hint">Se recorta solo. Si no se lee bien, rellena los datos a mano.</div>
+      </div>
+
+      <div class="ma-person">
+        <div class="ma-fields">
+          <div class="ma-f"><label>Nombre</label><input class="form-control" data-f="guardian_first_name" required></div>
+          <div class="ma-f"><label>Apellidos</label><input class="form-control" data-f="guardian_last_name" required></div>
+          <div class="ma-f"><label>Número de DNI</label><input class="form-control text-uppercase" data-f="guardian_doc_number" required></div>
+          <div class="ma-f"><label>Fecha de nacimiento</label><input class="form-control" type="date" data-f="guardian_birth_date" required></div>
+          <div class="ma-f"><label>Teléfono</label><input class="form-control" type="tel" data-f="guardian_phone" required></div>
+          <div class="ma-f"><label>Email</label><input class="form-control" type="email" data-f="guardian_email" required></div>
+        </div>
+        <div class="ma-docshot" data-ma-shot="guardian">
+          <div class="ma-docshot__ph"><i class="fa fa-id-card"></i><span>Foto del DNI</span></div>
+        </div>
+      </div>
+      <input type="hidden" data-f="guardian_doc_url">
+    </section>
+
+    {# --------- Menores --------- #}
+    <section class="ma-card">
+      <h2 class="ma-h2"><i class="fa fa-children"></i>Datos de los menores</h2>
+      <div class="ma-note"><i class="fa fa-shield-halved me-1"></i>El DNI de los menores <strong>no se sube</strong>: solo se lee su número.</div>
+      <div data-ma-minors></div>
+      <button class="btn btn-outline-danger btn-sm mt-2" type="button" data-ma-add-minor><i class="fa fa-plus me-1"></i>Añadir otro menor</button>
+    </section>
+
+    {# --------- Persona autorizada --------- #}
+    <section class="ma-card">
+      <h2 class="ma-h2"><i class="fa fa-user-check"></i>Persona autorizada</h2>
+      <div class="ma-q">¿Acompaña al menor el propio padre, madre o tutor legal?</div>
+      <div class="ma-choices ma-choices--2">
+        <label class="ma-choice">
+          <input type="radio" name="escort_is_guardian" value="1" checked hidden>
+          <i class="fa fa-check"></i><span>Sí, yo mismo</span>
+        </label>
+        <label class="ma-choice">
+          <input type="radio" name="escort_is_guardian" value="" hidden>
+          <i class="fa fa-user-plus"></i><span>No, es otra persona</span>
+        </label>
+      </div>
+
+      <div class="d-none" data-ma-escort>
+        <div class="ma-scan" data-ma-scan="escort">
+          <button class="ma-scan__btn" type="button" data-ma-camera="escort"><i class="fa fa-camera"></i><span>Escanear el DNI con la cámara</span></button>
+          <label class="ma-scan__btn">
+            <i class="fa fa-upload"></i><span>Subir foto o PDF del DNI</span>
+            <input type="file" accept="image/*,application/pdf" hidden data-ma-file="escort">
+          </label>
+        </div>
+        <div class="ma-person">
+          <div class="ma-fields">
+            <div class="ma-f"><label>Nombre</label><input class="form-control" data-f="escort_first_name"></div>
+            <div class="ma-f"><label>Apellidos</label><input class="form-control" data-f="escort_last_name"></div>
+            <div class="ma-f"><label>Número de DNI</label><input class="form-control text-uppercase" data-f="escort_doc_number"></div>
+            <div class="ma-f"><label>Fecha de nacimiento</label><input class="form-control" type="date" data-f="escort_birth_date"></div>
+            <div class="ma-f"><label>Teléfono</label><input class="form-control" type="tel" data-f="escort_phone"></div>
+            <div class="ma-f"><label>Email</label><input class="form-control" type="email" data-f="escort_email"></div>
+          </div>
+          <div class="ma-docshot" data-ma-shot="escort">
+            <div class="ma-docshot__ph"><i class="fa fa-id-card"></i><span>Foto del DNI</span></div>
+          </div>
+        </div>
+        <input type="hidden" data-f="escort_doc_url">
+      </div>
+    </section>
+
+    {# --------- Consentimiento y continuar --------- #}
+    <label class="ma-consent">
+      <input class="form-check-input" type="checkbox" data-f="consent">
+      <span>Acepto el tratamiento de mis datos y de los del menor para gestionar el acceso al recinto.</span>
+    </label>
+
+    <div class="ma-actions">
+      <div class="ma-error d-none" data-ma-error></div>
+      <button class="btn btn-danger btn-lg" type="button" data-ma-continue disabled>
+        Continuar<i class="fa fa-arrow-right ms-2"></i>
+      </button>
+    </div>
+  </div>
+
+  {# ------------------------------- PASO 2: la declaración y la firma ------------------------------- #}
+  <div class="d-none" data-ma-step="sign">
+    <div class="ma-doc" data-ma-doc>
+      <h2 class="ma-doc__title">AUTORIZACIÓN DE ACCESO A MENORES</h2>
+
+      <h3 class="ma-doc__h">Datos del evento</h3>
+      <div class="ma-doc__grid">
+        <div><span>Artista / Evento</span><strong>{{ header.artist_name }}</strong></div>
+        {% if header.festival_name %}<div><span>Nombre del festival</span><strong>{{ header.festival_name }}</strong></div>{% endif %}
+        <div><span>Fecha del evento</span><strong>{{ header.date_label }}{% if header.show_time %} · {{ header.show_time }}{% endif %}</strong></div>
+        <div><span>Recinto</span><strong>{{ header.venue_name }}{% if header.venue_address %} — {{ header.venue_address }}{% endif %}</strong></div>
+      </div>
+
+      <h3 class="ma-doc__h">Datos empresa promotora</h3>
+      <div class="ma-doc__grid">
+        <div><span>Empresa</span><strong>{{ header.company_name }}</strong></div>
+        {% if header.company_tax_info %}<div><span>Datos fiscales</span><strong>{{ header.company_tax_info }}</strong></div>{% endif %}
+      </div>
+
+      <h3 class="ma-doc__h">Datos de padre, madre o tutor legal</h3>
+      <div class="ma-doc__person">
+        <div class="ma-doc__grid" data-ma-doc-guardian></div>
+        <div class="ma-doc__shot" data-ma-doc-guardian-shot></div>
+      </div>
+
+      <h3 class="ma-doc__h">Datos del menor</h3>
+      <div data-ma-doc-minors></div>
+
+      <div data-ma-doc-escort-wrap class="d-none">
+        <h3 class="ma-doc__h">Datos del autorizado</h3>
+        <div class="ma-doc__person">
+          <div class="ma-doc__grid" data-ma-doc-escort></div>
+          <div class="ma-doc__shot" data-ma-doc-escort-shot></div>
+        </div>
+      </div>
+
+      <p class="ma-doc__intro">El abajo firmante, en calidad de padre, madre o tutor legal del menor, <strong>DECLARA</strong>:</p>
+      <ol class="ma-doc__points">
+        {% for p in declaration_points %}<li>{{ p }}</li>{% endfor %}
+      </ol>
+    </div>
+
+    <div class="ma-card">
+      <h2 class="ma-h2"><i class="fa fa-signature"></i>Firma aquí</h2>
+      <div class="ma-sign">
+        <canvas data-ma-canvas height="200"></canvas>
+        <div class="ma-sign__base">Firma con el dedo o con el ratón</div>
+      </div>
+      <div class="d-flex gap-2 mt-2">
+        <button class="btn btn-outline-secondary btn-sm" type="button" data-ma-clear><i class="fa fa-eraser me-1"></i>Borrar la firma</button>
+      </div>
+    </div>
+
+    <div class="ma-actions">
+      <div class="ma-error d-none" data-ma-error2></div>
+      <button class="btn btn-outline-secondary" type="button" data-ma-back><i class="fa fa-arrow-left me-1"></i>Volver a los datos</button>
+      <button class="btn btn-danger btn-lg" type="button" data-ma-submit><i class="fa fa-check me-2"></i>Aceptar y firmar</button>
+    </div>
+  </div>
+
+  {# ------------------------------- PASO 3: gracias ------------------------------- #}
+  <div class="d-none" data-ma-step="done">
+    <div class="ma-done">
+      <div class="ma-done__icon"><i class="fa fa-circle-check"></i></div>
+      <h2>Gracias por haber cumplimentado la autorización de menores</h2>
+      <p>El proceso ha finalizado. Recibirá un email con un código QR que el responsable adulto
+         deberá obligatoriamente mostrar en el control de acceso para su validación.</p>
+      <div class="ma-done__warn" data-ma-mailwarn hidden>
+        No hemos podido enviar el correo. Guarda este enlace: es tu autorización.
+      </div>
+      <a class="btn btn-danger btn-lg" data-ma-pass href="#" target="_blank" rel="noopener">
+        <i class="fa fa-qrcode me-2"></i>Ver la autorización y su QR
+      </a>
+    </div>
+  </div>
+</div>
+
+{# Plantilla de una fila de menor (se clona en JS). #}
+<template data-ma-minor-tpl>
+  <div class="ma-minor">
+    <div class="ma-minor__head">
+      <span class="ma-minor__n"><i class="fa fa-child"></i>Menor <b data-ma-minor-idx>1</b></span>
+      <div class="ma-minor__tools">
+        <button class="btn btn-outline-secondary btn-sm" type="button" data-ma-minor-camera><i class="fa fa-camera me-1"></i>Escanear el DNI</button>
+        <button class="btn btn-outline-secondary btn-sm" type="button" data-ma-minor-del title="Quitar"><i class="fa fa-times"></i></button>
+      </div>
+    </div>
+    <div class="ma-fields">
+      <div class="ma-f"><label>Nombre</label><input class="form-control" data-m="first_name" required></div>
+      <div class="ma-f"><label>Apellidos</label><input class="form-control" data-m="last_name" required></div>
+      <div class="ma-f"><label>DNI</label><input class="form-control text-uppercase" data-m="doc_number" required></div>
+      <div class="ma-f"><label>Fecha de nacimiento</label><input class="form-control" type="date" data-m="birth_date" required></div>
+      <div class="ma-f"><label>Edad</label><input class="form-control" data-m="age" readonly tabindex="-1" placeholder="—"></div>
+    </div>
+    <div class="ma-minor__warn d-none" data-ma-minor-warn></div>
+  </div>
+</template>
+
+<script src="{{ url_for('static', filename='js/minor_auth.js', v=ASSET_V) }}"></script>
+{% endblock %}

@@ -15,6 +15,11 @@
  *   onCreate(resultado) — no hay ninguna: crear una nueva con los datos ya leídos
  *   resultado = { data: {number, number_kind, full_name, first_name, last_name, birth, expiry, …},
  *                 matches: [{kind, kind_label, id, name, photo_url, detail, why, url}] }
+ *
+ * Modo SOLO LEER:  window.DocCamera.open({ onRead: fn, title: '…' })
+ *   No consulta al servidor (sirve en páginas públicas, sin sesión): en cuanto un fotograma sale
+ *   limpio devuelve los datos y el recorte de la tarjeta, y se cierra.
+ *   onRead({ data: {…los mismos campos…}, image: 'data:image/jpeg;base64,…' })
  */
 (function () {
   'use strict';
@@ -47,7 +52,7 @@
     ov.innerHTML =
       '<div class="doccam__panel">' +
         '<div class="doccam__head">' +
-          '<span><i class="fa fa-expand me-2"></i>Escanear documento</span>' +
+          '<span><i class="fa fa-expand me-2"></i>' + esc(cbs.title || 'Escanear documento') + '</span>' +
           '<button type="button" class="btn-close btn-close-white" data-doccam-close aria-label="Cerrar"></button>' +
         '</div>' +
         '<div class="doccam__stage">' +
@@ -165,6 +170,22 @@
     return c;
   }
 
+  // Recorta la TARJETA entera del marco guía (sin binarizar): es la foto del documento que se
+  // guarda cuando el escáner se usa para rellenar un formulario.
+  function recorteTarjeta(video) {
+    var vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !vh) return '';
+    var gw = vw * 0.88, gh = gw / 1.585;
+    if (gh > vh * 0.9) { gh = vh * 0.9; gw = gh * 1.585; }
+    var gx = (vw - gw) / 2, gy = (vh - gh) / 2;
+    var c = document.createElement('canvas');
+    c.width = Math.round(gw); c.height = Math.round(gh);
+    try {
+      c.getContext('2d').drawImage(video, gx, gy, gw, gh, 0, 0, c.width, c.height);
+      return c.toDataURL('image/jpeg', 0.88);
+    } catch (_) { return ''; }
+  }
+
   function reintentar(miSesion) {
     if (!viva(miSesion) || !corriendo) return;
     intentos += 1;
@@ -198,6 +219,16 @@
       if (mrz && mrz.valid && mrz.number && fiable) {
         corriendo = false;
         estado('Documento leído · ' + mrz.number, 'is-ok');
+        // Modo solo leer: no hay servidor al que preguntar (páginas públicas). Se devuelve la
+        // lectura con la foto de la tarjeta y se cierra.
+        if (cbs.onRead) {
+          var foto = recorteTarjeta(video);
+          var fn = cbs.onRead;
+          mrz.number_kind = tipo;
+          close();
+          fn({ data: mrz, image: foto });
+          return;
+        }
         consultar(texto, mrz, miSesion);
         return;
       }
@@ -300,6 +331,13 @@
     var numero = window.prompt('Número del documento (DNI, NIE o pasaporte):', '');
     if (!numero) return;
     corriendo = false;
+    // En modo solo leer no hay nada que consultar: se devuelve el número tal cual.
+    if (cbs.onRead) {
+      var fn = cbs.onRead;
+      close();
+      fn({ data: { number: String(numero).toUpperCase().replace(/[^0-9A-Z]/g, ''), manual: true }, image: '' });
+      return;
+    }
     var mia = sesion;
     estado('Buscando ' + numero + '…');
     fetch(LOOKUP_URL, {

@@ -697,6 +697,49 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · Responsabilidad de administración: `_bag_liquidation_responsibility` manda las bolsas de
   promoción **sin pagos pendientes** a `LIQUIDACIONES_PROMO` y el resto a `LIQUIDACIONES`.
 
+- **AUTORIZACIONES DE ACCESO A MENORES** — ago 2026. Pestaña **«Menores»** de la ficha de la
+  actividad, **solo donde promovemos nosotros** (`_concert_is_ours` → `_concert_is_group_promoted`):
+  es nuestra política de menores la que se aplica. ⚠️ Al añadir la pestaña hay que meterla en la
+  **lista blanca de `tab`** de `concert_detail_view` (si no, cae a `general` y el panel sale vacío
+  sin dar ningún error: bug real de esta épica).
+  · **Modelos**: `MinorAuthConfig` (una por actividad: corte de edad 18/16/14 en `MINOR_AGE_LIMITS`,
+  tres interruptores `require_guardian_dni`/`require_minor_dni`/`require_email_verification` —todos
+  activados por defecto—, leyenda `policy_text`, y **DOS tokens**: `public_token` del formulario y
+  `validate_token` del control de acceso; son distintos a propósito, quien valida en la puerta no
+  debe poder rellenar autorizaciones con su enlace) · `MinorAuthorization` (tutor PADRE/MADRE/TUTOR
+  con su foto del DNI, autorizado —`escort_is_guardian` si acompaña el propio tutor—, consentimiento,
+  firma, `qr_token` y `declaration_snapshot`: **la autorización se congela tal como se firmó**) ·
+  `MinorAuthorizationMinor`. ⚠️ **El DNI del MENOR no se sube**: solo se apunta el número.
+  · **La EDAD nunca se teclea**: la calcula `_age_on` a la **fecha del concierto** (en el navegador y
+  en el servidor). Un menor que ya pasa del corte se avisa pero **no se bloquea**.
+  · **Hoja pública** `public_minor_auth_form` (`/autorizacion-menores/<token>`, plantilla
+  `public_minor_auth_form.html` + `static/js/minor_auth.js`): logo de la empresa arriba a la derecha,
+  cabecera con foto del artista + festival + fecha/recinto con dirección completa + hora, tutor,
+  menores (varios), autorizado, consentimiento → **declaración con los datos rellenos** → **firma a
+  mano** en un canvas → gracias. Los DNI se leen con la cámara (`DocCamera` en modo **`onRead`**,
+  nuevo: no consulta al servidor, devuelve los campos y el **recorte de la tarjeta**) o subiendo
+  foto/PDF (`DocScan.scan`, que recorta y hace el OCR en el navegador; se guarda la cara con la foto).
+  · **Tarjeta con el QR** `public_minor_auth_pass` (a donde apunta el propio QR), PNG del QR y
+  **tarjeta en PDF** para el móvil. ⚠️ Un pase **real de Apple Wallet (`.pkpass`) hay que firmarlo con
+  un certificado de Apple** (Pass Type ID + clave + WWDR) y Google Wallet pide cuenta de servicio:
+  mientras no estén, los botones bajan el PDF con el mismo QR (`_minor_auth_pass_pdf_bytes`).
+  · **Correo al tutor** (`_minor_auth_email_html`): logo arriba a la derecha, el texto de gracias, el
+  recordatorio **resaltado en amarillo** (`#fff3a3`), los botones de Apple/Google Wallet y la
+  **autorización entera incrustada con su QR**. ⚠️ `_send_optional_email` devuelve **`(ok, error)`**:
+  tratarla como booleano daba la autorización por enviada aunque el SMTP la rechazase (bug real).
+  · **Control de acceso** `public_minor_auth_validate` (su propio token): botón grande para leer el
+  **DNI del menor** con la cámara, otro para el **QR** (`BarcodeDetector` nativo, con respaldo de
+  pegar el enlace) y búsqueda a mano por cualquier dato; `public_minor_auth_check` compara el DNI
+  normalizado (`mrz_normalize_doc_number`) y los nombres, y responde «Autorización de menores OK» con
+  los datos para contrastarlos con el documento.
+  · **Enlaces con QR**: en la pestaña, el del formulario trae su QR **descargable, arrastrable al
+  escritorio** (truco `DownloadURL`) **y copiable**; `concert_minor_auth_qr` sirve el PNG.
+  · Los QR los hace **`segno`** (puro Python, en `requirements.txt`) vía `_qr_png_bytes`/`_qr_data_uri`.
+  · Endpoints públicos en las **tres** listas (`allowed`, `PUBLIC_ENDPOINTS_EXTRA`,
+  `_CSRF_EXEMPT_ENDPOINTS`); los de la ficha (`concert_minor_auth_*`) heredan
+  `contratacion.conciertos` por la ruta `/conciertos`. Estilos `.mn-*` (pestaña), `.ma-*` (hoja
+  pública y tarjeta) y `.mv-*` (control de acceso) en `styles.css`.
+
 - **Cartelería · petición, subida a mano y aprobación de diseño** (aprobar es SOLO de diseño y
   dirección: `_can_validate_artwork` = `is_master() or has_access_key('diseno')`; lo que sube diseño
   entra ya APROBADO y lo que sube cualquier otro queda PENDIENTE —al resto se le enseñan atenuados con

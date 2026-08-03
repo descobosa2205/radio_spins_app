@@ -412,6 +412,10 @@ _CSRF_EXEMPT_ENDPOINTS = {
     "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource",
     "public_caldav_rootdiscovery",
     "public_document_renew",
+    # Autorizaciones de acceso a menores (el token del enlace es la credencial).
+    "public_minor_auth_upload",
+    "public_minor_auth_submit",
+    "public_minor_auth_check",
 }
 
 
@@ -741,7 +745,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_expired_documents", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher"}
+    allowed = {"landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_expired_documents", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
     if request.endpoint in allowed:
         return
 
@@ -28220,7 +28224,7 @@ def concert_detail_view(cid):
         net_breakdown = _sales_net_breakdown(gross_total, vat_pct, sgae_pct)
 
         tab = (request.args.get("tab") or "general").strip().lower()
-        if tab not in {"general", "invitations", "ticketing", "ficha", "carteleria", "produccion", "resultado", "promocion", "marketing", "fotos", "repertorio"}:
+        if tab not in {"general", "invitations", "ticketing", "menores", "ficha", "carteleria", "produccion", "resultado", "promocion", "marketing", "fotos", "repertorio"}:
             tab = "general"
 
         sheet = c.contract_sheet
@@ -28294,6 +28298,9 @@ def concert_detail_view(cid):
                 et_ctx = None
         # Ticketing: SIN pestaña si el evento es gratuito (entrada FREE o sale_type GRATUITO).
         show_ticketing_tab = not _concert_is_free_event(c)
+        # Menores: solo donde promovemos NOSOTROS (es nuestra política de menores la que se aplica).
+        show_menores_tab = _concert_is_ours(session, c)
+        minor_ctx = _minor_auth_tab_context(session, c) if (show_menores_tab and tab == 'menores') else {}
         # Repertorio: solo conciertos/festivales o actividades donde se marcó que el artista canta.
         show_repertorio_tab = _concert_has_singing(c)
         sale_channels = _concert_sale_channel_rows(c)
@@ -28462,6 +28469,8 @@ def concert_detail_view(cid):
             result_et_income=(result_ctx.get("et_income") if result_ctx else False),
             venue_saved_ticket_count=venue_saved_ticket_count,
             show_ticketing_tab=show_ticketing_tab,
+            show_menores_tab=show_menores_tab,
+            **minor_ctx,
             show_repertorio_tab=show_repertorio_tab,
             sale_channels=sale_channels,
             sale_channel_request=sale_channel_request,
@@ -38517,6 +38526,9 @@ from models import (
     GroupCompanyBankAccount,
     PaymentBatch,
     PaymentBatchItem,
+    MinorAuthConfig,
+    MinorAuthorization,
+    MinorAuthorizationMinor,
     WorkflowBag,
     BagNote,
     BagExpense,
@@ -38534,6 +38546,7 @@ from models import (
     ensure_marketing_country_schema,
     ensure_promocion_prensa_schema,
     ensure_payment_batches_schema,
+    ensure_minor_auth_schema,
     ensure_contracting_embargo_schema,
     ensure_actions_contracting_admin_schema,
     ensure_activities_grouping_schema,
@@ -38633,6 +38646,7 @@ def _bootstrap_schema_bg():
         (ensure_marketing_country_schema, "ensure_marketing_country_schema"),
         (ensure_promocion_prensa_schema, "ensure_promocion_prensa_schema"),
         (ensure_payment_batches_schema, "ensure_payment_batches_schema"),
+        (ensure_minor_auth_schema, "ensure_minor_auth_schema"),
         (ensure_contracting_embargo_schema, "ensure_contracting_embargo_schema"),
         (ensure_actions_contracting_admin_schema, "ensure_actions_contracting_admin_schema"),
         (ensure_activities_grouping_schema, "ensure_activities_grouping_schema"),
@@ -43169,7 +43183,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -50570,6 +50584,854 @@ def concert_et_config_apply(cid):
     finally:
         session_db.close()
     return redirect(next_url)
+
+
+
+# ==================== AUTORIZACIONES DE ACCESO A MENORES =========================================
+# Solo en actividades que promovemos NOSOTROS (una empresa del grupo): es nuestra política de menores
+# la que se aplica. El enlace público lo comparte quien vende la entrada; su token es la credencial.
+MINOR_AGE_LIMITS = [
+    (18, "Menores de 18", "fa-user-graduate"),
+    (16, "Menores de 16", "fa-user"),
+    (14, "Menores de 14", "fa-child"),
+]
+MINOR_GUARDIAN_KINDS = [
+    ("PADRE", "Padre", "fa-person"),
+    ("MADRE", "Madre", "fa-person-dress"),
+    ("TUTOR", "Tutor legal", "fa-user-shield"),
+]
+MINOR_GUARDIAN_LABELS = {k: l for k, l, _i in MINOR_GUARDIAN_KINDS}
+MINOR_POLICY_DEFAULT = (
+    "El acceso de menores de edad requiere una autorización firmada por su padre, madre o tutor "
+    "legal. Los menores de 16 años deberán entrar y permanecer acompañados en todo momento por un "
+    "adulto responsable. Tanto el menor como el adulto acompañante deberán presentar su documento "
+    "de identidad oficial en el control de acceso."
+)
+# Los cinco puntos de la declaración, tal como se firman.
+MINOR_DECLARATION_POINTS = [
+    "Que el menor de 16 años accederá acompañado permanentemente por un adulto responsable "
+    "(progenitor o persona autorizada), permaneciendo en el recinto solo durante el espectáculo.",
+    "Si el menor tiene 16 ó 17 años, podrá acceder solo portando esta autorización debidamente "
+    "cumplimentada.",
+    "Que asume la responsabilidad de impedir el consumo de alcohol, tabaco, estupefacientes por "
+    "parte del menor, o cualquier otra sustancia ilegal.",
+    "Que exime de toda responsabilidad a la organización del evento por cualquier daño o perjuicio "
+    "que el menor pueda padecer o causar a terceros.",
+    "Que conoce y acata el Art. 3 del Decreto 10/2003 sobre admisión de personas en establecimientos "
+    "públicos.",
+]
+
+
+def _qr_png_bytes(texto: str, *, scale: int = 6, border: int = 2) -> bytes:
+    """PNG de un código QR. `segno` es puro Python, así que no hay binarios que instalar."""
+    import io
+    import segno
+    buf = io.BytesIO()
+    segno.make(texto, error="m").save(buf, kind="png", scale=scale, border=border, dark="#111820", light="#ffffff")
+    return buf.getvalue()
+
+
+def _qr_data_uri(texto: str, *, scale: int = 6) -> str:
+    """El QR como `data:` para poder incrustarlo en un correo o en una página sin subir nada."""
+    import base64
+    return "data:image/png;base64," + base64.b64encode(_qr_png_bytes(texto, scale=scale)).decode("ascii")
+
+
+def _age_on(birth_date, ref_date=None) -> int | None:
+    """Edad cumplida en una fecha (por defecto, el día del concierto o hoy)."""
+    if not birth_date:
+        return None
+    ref = ref_date or today_local()
+    años = ref.year - birth_date.year - ((ref.month, ref.day) < (birth_date.month, birth_date.day))
+    return años if años >= 0 else None
+
+
+def _concert_is_ours(session_db, concert) -> bool:
+    """¿Promovemos nosotros esta actividad? Mismo criterio que cartelería e invitaciones."""
+    try:
+        return bool(_concert_is_group_promoted(session_db, concert))
+    except Exception:
+        return bool(getattr(concert, "group_company_id", None))
+
+
+def _minor_auth_config(session_db, concert_id, *, create=False):
+    row = (session_db.query(MinorAuthConfig)
+           .filter(MinorAuthConfig.concert_id == to_uuid(str(concert_id))).first())
+    if row is None and create:
+        row = MinorAuthConfig(concert_id=to_uuid(str(concert_id)), policy_text=MINOR_POLICY_DEFAULT)
+        session_db.add(row)
+        session_db.flush()
+    return row
+
+
+def _minor_auth_ensure_token(session_db, config) -> str:
+    if not (config.public_token or "").strip():
+        config.public_token = _uuid_token()
+        session_db.flush()
+    return config.public_token
+
+
+def _minor_auth_ensure_validate_token(session_db, config) -> str:
+    """Token del enlace de VALIDACIÓN (control de acceso). Es OTRO token, no una variante del del
+    formulario: quien valida en la puerta no debe poder rellenar autorizaciones con su enlace."""
+    if not (getattr(config, "validate_token", None) or "").strip():
+        config.validate_token = _uuid_token()
+        session_db.flush()
+    return config.validate_token
+
+
+def _minor_concert_header(session_db, concert) -> dict:
+    """Cabecera del evento tal como se enseña en el formulario, en la declaración y en el correo."""
+    artist = getattr(concert, "artist", None)
+    venue = getattr(concert, "venue", None)
+    company = getattr(concert, "group_company", None) or getattr(concert, "billing_company", None)
+    direccion = " · ".join([x for x in [
+        (getattr(venue, "address", None) or getattr(concert, "manual_venue_address", None) or "").strip(),
+        (getattr(venue, "municipality", None) or getattr(concert, "manual_municipality", None) or "").strip(),
+        (getattr(venue, "province", None) or getattr(concert, "manual_province", None) or "").strip(),
+    ] if x])
+    return {
+        "artist_name": (getattr(artist, "name", None) or "").strip(),
+        "artist_photo": (getattr(artist, "photo_url", None) or "").strip(),
+        "festival_name": (getattr(concert, "festival_name", None) or "").strip(),
+        "date": getattr(concert, "date", None),
+        "date_label": concert.date.strftime("%d/%m/%Y") if getattr(concert, "date", None) else "",
+        "venue_name": (_concert_venue_name(concert) or "").strip(),
+        "venue_address": direccion,
+        "show_time": (getattr(concert, "show_time", None) or "").strip(),
+        "doors_time": (getattr(concert, "doors_time", None) or "").strip(),
+        "company_name": (getattr(company, "name", None) or "").strip(),
+        "company_logo": (getattr(company, "logo_url", None) or "").strip(),
+        "company_tax_info": (getattr(company, "tax_info", None) or "").strip(),
+        "activity_label": QUAD_ACTIVITY_LABELS.get((getattr(concert, "activity_type", None) or "").strip().upper(), "Concierto"),
+        "activity_icon": QUAD_ACTIVITY_ICONS.get((getattr(concert, "activity_type", None) or "").strip().upper(), "fa-guitar"),
+    }
+
+
+def _minor_auth_row(session_db, auth, *, header=None) -> dict:
+    """Una autorización lista para pintar (listado, declaración, correo y pantalla de validación)."""
+    concert = getattr(auth, "concert", None)
+    cabecera = header or (_minor_concert_header(session_db, concert) if concert is not None else {})
+    ref = cabecera.get("date")
+    menores = []
+    for m in (getattr(auth, "minors", None) or []):
+        menores.append({
+            "id": str(m.id),
+            "full_name": " ".join(filter(None, [(m.first_name or "").strip(), (m.last_name or "").strip()])).strip(),
+            "first_name": (m.first_name or "").strip(),
+            "last_name": (m.last_name or "").strip(),
+            "doc_number": (m.doc_number or "").strip(),
+            "birth_date": m.birth_date,
+            "birth_label": m.birth_date.strftime("%d/%m/%Y") if m.birth_date else "",
+            # La edad se CALCULA (nunca se teclea) y se da a la fecha del concierto.
+            "age": _age_on(m.birth_date, ref),
+        })
+    guardian = " ".join(filter(None, [(auth.guardian_first_name or "").strip(),
+                                      (auth.guardian_last_name or "").strip()])).strip()
+    escort = guardian if auth.escort_is_guardian else " ".join(filter(None, [
+        (auth.escort_first_name or "").strip(), (auth.escort_last_name or "").strip()])).strip()
+    return {
+        "id": str(auth.id),
+        "status": (auth.status or "VALID").upper(),
+        "guardian_kind": (auth.guardian_kind or "TUTOR").upper(),
+        "guardian_kind_label": MINOR_GUARDIAN_LABELS.get((auth.guardian_kind or "TUTOR").upper(), "Tutor legal"),
+        "guardian_name": guardian,
+        "guardian_doc": (auth.guardian_doc_number or "").strip(),
+        "guardian_phone": (auth.guardian_phone or "").strip(),
+        "guardian_email": (auth.guardian_email or "").strip(),
+        "guardian_doc_url": (auth.guardian_doc_url or "").strip(),
+        "escort_is_guardian": bool(auth.escort_is_guardian),
+        "escort_name": escort,
+        "escort_doc": ((auth.guardian_doc_number if auth.escort_is_guardian else auth.escort_doc_number) or "").strip(),
+        "escort_doc_url": (auth.escort_doc_url or "").strip(),
+        "minors": menores,
+        "minors_label": ", ".join([m["full_name"] for m in menores if m["full_name"]]),
+        "signature_url": (auth.signature_url or "").strip(),
+        "qr_token": (auth.qr_token or "").strip(),
+        "created_label": auth.created_at.strftime("%d/%m/%Y %H:%M") if auth.created_at else "",
+        "email_sent_label": auth.email_sent_at.strftime("%d/%m/%Y %H:%M") if auth.email_sent_at else "",
+        "validated_label": auth.validated_at.strftime("%d/%m/%Y %H:%M") if auth.validated_at else "",
+        "header": cabecera,
+    }
+
+
+def _minor_auth_pass_url(auth) -> str:
+    """Enlace del QR: lleva a la tarjeta con los datos, que es lo que se valida en el acceso."""
+    return _external_url_for("public_minor_auth_pass", token=(auth.qr_token or ""))
+
+
+def _minor_auth_email_html(session_db, auth, row=None) -> str:
+    """El correo que recibe el tutor: logo arriba a la derecha, el aviso resaltado, los botones de
+    la tarjeta y la autorización entera incrustada con su QR."""
+    row = row or _minor_auth_row(session_db, auth)
+    h = row["header"]
+    qr = _qr_data_uri(_minor_auth_pass_url(auth), scale=5)
+    logo = _absolute_media_url(h.get("company_logo") or "") or _external_url_for("static", filename="img/logo_33_producciones.png")
+    apple = _external_url_for("public_minor_auth_wallet", token=auth.qr_token or "", plataforma="apple")
+    android = _external_url_for("public_minor_auth_wallet", token=auth.qr_token or "", plataforma="android")
+    ver = _minor_auth_pass_url(auth)
+
+    def esc(v):
+        return escape(str(v or ""))
+
+    filas_menores = "".join(
+        f"<tr><td style='padding:4px 10px 4px 0;'>{esc(m['full_name'])}</td>"
+        f"<td style='padding:4px 10px 4px 0;'>{esc(m['doc_number'])}</td>"
+        f"<td style='padding:4px 10px 4px 0;'>{esc(m['birth_label'])}</td>"
+        f"<td style='padding:4px 0;'>{esc(m['age'])} años</td></tr>"
+        for m in row["minors"])
+
+    return f"""
+<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#18202b;max-width:680px;margin:0 auto;">
+  <div style="text-align:right;padding:8px 0 16px;">
+    <img src="{esc(logo)}" alt="" style="max-height:56px;max-width:200px;">
+  </div>
+  <p style="font-size:15px;line-height:1.5;margin:0 0 14px;">
+    Gracias por haber cumplimentado la <strong>AUTORIZACIÓN DE ACCESO A MENORES</strong>, aquí tiene
+    toda la información cumplimentada, no es necesario que realice ninguna actuación adicional. Si los
+    datos del autorizado tuvieran que ser modificados, simplemente cumplimente una nueva autorización.
+  </p>
+  <p style="font-size:15px;line-height:1.5;margin:0 0 18px;background:#fff3a3;padding:10px 12px;border-radius:8px;">
+    Recuerde que los menores de 16 años deberán estar acompañados en todo momento del autorizado y que
+    tanto los menores como los autorizados deberán acudir con su documento de identidad oficial.
+  </p>
+  <div style="margin:0 0 22px;">
+    <a href="{esc(apple)}" style="display:inline-block;text-decoration:none;background:#000;color:#fff;border-radius:9px;padding:10px 16px;font-size:14px;margin:0 8px 8px 0;">
+      &#63743;&nbsp; Añadir a Apple Wallet
+    </a>
+    <a href="{esc(android)}" style="display:inline-block;text-decoration:none;background:#1a73e8;color:#fff;border-radius:9px;padding:10px 16px;font-size:14px;margin:0 8px 8px 0;">
+      &#9654;&nbsp; Añadir a Google Wallet
+    </a>
+    <a href="{esc(ver)}" style="display:inline-block;text-decoration:none;border:1px solid #dfe4ea;color:#18202b;border-radius:9px;padding:10px 16px;font-size:14px;margin:0 0 8px;">
+      Ver la autorización
+    </a>
+  </div>
+
+  <div style="border:1px solid #e6e8eb;border-radius:14px;padding:18px 20px;">
+    <h2 style="text-align:center;font-size:17px;letter-spacing:.02em;margin:0 0 4px;">AUTORIZACIÓN DE ACCESO A MENORES</h2>
+    <div style="text-align:center;margin:0 0 18px;"><img src="{esc(qr)}" alt="QR" style="width:150px;height:150px;"></div>
+
+    <h3 style="font-size:14px;margin:16px 0 6px;color:#6c757d;text-transform:uppercase;">Datos del evento</h3>
+    <div style="font-size:14px;line-height:1.6;">
+      <div><strong>Artista / Evento:</strong> {esc(h.get('artist_name'))}</div>
+      {f"<div><strong>Nombre del festival:</strong> {esc(h.get('festival_name'))}</div>" if h.get('festival_name') else ""}
+      <div><strong>Fecha del evento:</strong> {esc(h.get('date_label'))}{f" · {esc(h.get('show_time'))}" if h.get('show_time') else ""}</div>
+      <div><strong>Recinto:</strong> {esc(h.get('venue_name'))}{f" — {esc(h.get('venue_address'))}" if h.get('venue_address') else ""}</div>
+      <div><strong>Empresa promotora:</strong> {esc(h.get('company_name'))}{f" · {esc(h.get('company_tax_info'))}" if h.get('company_tax_info') else ""}</div>
+    </div>
+
+    <h3 style="font-size:14px;margin:18px 0 6px;color:#6c757d;text-transform:uppercase;">Datos de padre, madre o tutor legal</h3>
+    <table style="width:100%;border-collapse:collapse;"><tr>
+      <td style="vertical-align:top;font-size:14px;line-height:1.6;">
+        <div><strong>{esc(row['guardian_kind_label'])}:</strong> {esc(row['guardian_name'])}</div>
+        <div><strong>DNI:</strong> {esc(row['guardian_doc'])}</div>
+        <div><strong>Teléfono:</strong> {esc(row['guardian_phone'])}</div>
+        <div><strong>Email:</strong> {esc(row['guardian_email'])}</div>
+      </td>
+      <td style="width:190px;text-align:right;vertical-align:top;">
+        {f"<img src='{esc(_absolute_media_url(row['guardian_doc_url']))}' alt='' style='max-width:180px;border-radius:8px;border:1px solid #eee;'>" if row['guardian_doc_url'] else ""}
+      </td>
+    </tr></table>
+
+    <h3 style="font-size:14px;margin:18px 0 6px;color:#6c757d;text-transform:uppercase;">Datos del menor</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:14px;">
+      <tr style="color:#6c757d;"><td style="padding:0 10px 4px 0;">Nombre y apellidos</td><td style="padding:0 10px 4px 0;">DNI</td>
+          <td style="padding:0 10px 4px 0;">Nacimiento</td><td style="padding:0 0 4px;">Edad</td></tr>
+      {filas_menores}
+    </table>
+
+    {"" if row['escort_is_guardian'] else f'''
+    <h3 style="font-size:14px;margin:18px 0 6px;color:#6c757d;text-transform:uppercase;">Datos del autorizado</h3>
+    <table style="width:100%;border-collapse:collapse;"><tr>
+      <td style="vertical-align:top;font-size:14px;line-height:1.6;">
+        <div><strong>Nombre y apellidos:</strong> {esc(row['escort_name'])}</div>
+        <div><strong>DNI:</strong> {esc(row['escort_doc'])}</div>
+      </td>
+      <td style="width:190px;text-align:right;vertical-align:top;">
+        {f"<img src='{esc(_absolute_media_url(row['escort_doc_url']))}' alt='' style='max-width:180px;border-radius:8px;border:1px solid #eee;'>" if row['escort_doc_url'] else ""}
+      </td>
+    </tr></table>'''}
+
+    <p style="font-size:13.5px;line-height:1.55;margin:18px 0 6px;">
+      El abajo firmante, en calidad de padre, madre o tutor legal del menor, <strong>DECLARA</strong>:
+    </p>
+    <ol style="font-size:13px;line-height:1.55;padding-left:20px;margin:0;">
+      {"".join(f"<li style='margin-bottom:5px;'>{esc(p)}</li>" for p in MINOR_DECLARATION_POINTS)}
+    </ol>
+
+    {f'''<div style="margin-top:18px;">
+      <div style="font-size:12px;color:#6c757d;text-transform:uppercase;">Firma</div>
+      <img src="{esc(_absolute_media_url(row['signature_url']))}" alt="" style="max-height:110px;">
+    </div>''' if row['signature_url'] else ""}
+    <div style="font-size:12px;color:#6c757d;margin-top:10px;">Firmada el {esc(row['created_label'])}</div>
+  </div>
+</div>
+"""
+
+
+def _minor_auth_send_email(session_db, auth, row=None) -> bool:
+    """Manda la autorización al tutor. Devuelve True si el SMTP la aceptó."""
+    row = row or _minor_auth_row(session_db, auth)
+    destino = (auth.guardian_email or "").strip()
+    if not destino or not _looks_like_email_address(destino):
+        return False
+    h = row["header"]
+    asunto = "Autorización de acceso a menores · " + " · ".join(
+        [x for x in [h.get("artist_name"), h.get("date_label")] if x])
+    texto = ("Gracias por haber cumplimentado la AUTORIZACIÓN DE ACCESO A MENORES. "
+             "Recuerde que los menores de 16 años deberán estar acompañados en todo momento del "
+             "autorizado y que tanto los menores como los autorizados deberán acudir con su documento "
+             "de identidad oficial.\n\n" + _minor_auth_pass_url(auth))
+    # ⚠️ `_send_optional_email` devuelve (ok, error): tratarla como un booleano daba la autorización
+    # por enviada aunque el SMTP la hubiera rechazado.
+    ok, _err = _send_optional_email(
+        [destino], asunto, _minor_auth_email_html(session_db, auth, row), text_body=texto)
+    if ok:
+        auth.email_sent_at = _now_madrid()
+    return bool(ok)
+
+# ------------------------- Pestaña «Menores» del ticketing (back office) --------------------------
+def _minor_auth_tab_context(session_db, concert) -> dict:
+    """Contexto de la pestaña «Menores»: la política, la configuración, los dos enlaces con su QR y
+    el listado de autorizaciones."""
+    config = _minor_auth_config(session_db, concert.id)
+    filas, form_url, validate_url = [], "", ""
+    if config is not None:
+        auths = (session_db.query(MinorAuthorization)
+                 .options(selectinload(MinorAuthorization.minors))
+                 .filter(MinorAuthorization.config_id == config.id)
+                 .order_by(MinorAuthorization.created_at.desc()).limit(500).all())
+        cabecera = _minor_concert_header(session_db, concert)
+        filas = [_minor_auth_row(session_db, a, header=cabecera) for a in auths]
+        if (config.public_token or "").strip():
+            form_url = _external_url_for("public_minor_auth_form", token=config.public_token)
+        if (getattr(config, "validate_token", None) or "").strip():
+            validate_url = _external_url_for("public_minor_auth_validate", token=config.validate_token)
+    return {
+        "minor_config": config,
+        "minor_rows": filas,
+        "minor_form_url": form_url,
+        "minor_validate_url": validate_url,
+        # El QR del enlace del formulario: se puede escanear para llegar a la hoja, descargar o copiar.
+        "minor_form_qr": (_qr_data_uri(form_url, scale=7) if form_url else ""),
+        "minor_age_limits": MINOR_AGE_LIMITS,
+        "minor_policy_default": MINOR_POLICY_DEFAULT,
+        "minor_valid_count": len([r for r in filas if r["status"] == "VALID"]),
+        "minor_minors_count": sum(len(r["minors"]) for r in filas if r["status"] == "VALID"),
+    }
+
+
+@app.post("/conciertos/<cid>/menores/configurar", endpoint="concert_minor_auth_config")
+@admin_required
+def concert_minor_auth_config(cid):
+    """Guarda la configuración de las autorizaciones y crea (o mantiene) los dos enlaces."""
+    if not can_edit_concerts():
+        return forbid("No tienes permisos para configurar las autorizaciones de menores.")
+    next_url = safe_next_or(request.form.get("next") or url_for("concert_detail_view", cid=cid, tab="menores"))
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(cid))
+        if concert is None:
+            flash("Actividad no encontrada.", "warning")
+            return redirect(url_for("concerts_view"))
+        if not _concert_is_ours(session_db, concert):
+            flash("Las autorizaciones de menores son de las actividades que promovemos nosotros.", "warning")
+            return redirect(next_url)
+        config = _minor_auth_config(session_db, concert.id, create=True)
+        try:
+            limite = int(request.form.get("age_limit") or 18)
+        except Exception:
+            limite = 18
+        config.age_limit = limite if limite in {x for x, _l, _i in MINOR_AGE_LIMITS} else 18
+        config.require_guardian_dni = _truthy(request.form.get("require_guardian_dni"))
+        config.require_minor_dni = _truthy(request.form.get("require_minor_dni"))
+        config.require_email_verification = _truthy(request.form.get("require_email_verification"))
+        texto = (request.form.get("policy_text") or "").strip()
+        config.policy_text = texto or MINOR_POLICY_DEFAULT
+        config.active = True
+        state = _current_user_state()
+        if not config.created_by_user_id and state.get("user_id"):
+            config.created_by_user_id = to_uuid(state.get("user_id"))
+            config.created_by_nick = (state.get("nick") or state.get("email") or "").strip() or None
+        config.updated_at = _now_madrid()
+        _minor_auth_ensure_token(session_db, config)
+        _minor_auth_ensure_validate_token(session_db, config)
+        session_db.commit()
+        flash("Autorizaciones de menores configuradas. Ya tienes el enlace para compartir.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo guardar la configuración: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.get("/conciertos/<cid>/menores/qr", endpoint="concert_minor_auth_qr")
+@admin_required
+def concert_minor_auth_qr(cid):
+    """PNG del QR del enlace del formulario (para descargarlo o arrastrarlo al escritorio)."""
+    session_db = db()
+    try:
+        config = _minor_auth_config(session_db, cid)
+        if config is None or not (config.public_token or "").strip():
+            abort(404)
+        url = _external_url_for("public_minor_auth_form", token=config.public_token)
+        png = _qr_png_bytes(url, scale=10)
+        return Response(png, mimetype="image/png", headers={
+            "Content-Disposition": 'attachment; filename="autorizacion-menores-qr.png"'})
+    finally:
+        session_db.close()
+
+
+@app.post("/conciertos/<cid>/menores/<auth_id>/reenviar", endpoint="concert_minor_auth_resend")
+@admin_required
+def concert_minor_auth_resend(cid, auth_id):
+    if not can_edit_concerts():
+        return forbid("No tienes permisos.")
+    next_url = safe_next_or(request.form.get("next") or url_for("concert_detail_view", cid=cid, tab="menores"))
+    session_db = db()
+    try:
+        auth = (session_db.query(MinorAuthorization)
+                .options(selectinload(MinorAuthorization.minors), joinedload(MinorAuthorization.concert))
+                .filter(MinorAuthorization.id == to_uuid(auth_id)).first())
+        if auth is None:
+            flash("Autorización no encontrada.", "warning")
+            return redirect(next_url)
+        ok = _minor_auth_send_email(session_db, auth)
+        session_db.commit()
+        flash("Autorización reenviada." if ok else
+              "No se ha podido enviar (revisa el correo del tutor o la configuración de envío).",
+              "success" if ok else "warning")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo reenviar: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.post("/conciertos/<cid>/menores/<auth_id>/eliminar", endpoint="concert_minor_auth_delete")
+@admin_required
+def concert_minor_auth_delete(cid, auth_id):
+    if not can_edit_concerts():
+        return forbid("No tienes permisos.")
+    next_url = safe_next_or(request.form.get("next") or url_for("concert_detail_view", cid=cid, tab="menores"))
+    session_db = db()
+    try:
+        auth = session_db.get(MinorAuthorization, to_uuid(auth_id))
+        if auth is not None:
+            session_db.delete(auth)
+            session_db.commit()
+            flash("Autorización eliminada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo eliminar: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+# ------------------------------- Landing pública del formulario ----------------------------------
+def _minor_auth_by_token(session_db, token: str):
+    token = (token or "").strip()
+    if not token:
+        return None
+    return (session_db.query(MinorAuthConfig)
+            .options(joinedload(MinorAuthConfig.concert).joinedload(Concert.artist),
+                     joinedload(MinorAuthConfig.concert).joinedload(Concert.venue))
+            .filter(MinorAuthConfig.public_token == token).first())
+
+
+@app.get("/autorizacion-menores/<token>", endpoint="public_minor_auth_form")
+def public_minor_auth_form(token):
+    """Formulario público: lo rellena el padre, la madre o el tutor legal."""
+    session_db = db()
+    try:
+        config = _minor_auth_by_token(session_db, token)
+        if config is None or not config.active:
+            return render_template("public_minor_auth_closed.html"), 404
+        concert = config.concert
+        return render_template(
+            "public_minor_auth_form.html",
+            config=config,
+            concert=concert,
+            header=_minor_concert_header(session_db, concert),
+            guardian_kinds=MINOR_GUARDIAN_KINDS,
+            declaration_points=MINOR_DECLARATION_POINTS,
+            policy_text=(config.policy_text or MINOR_POLICY_DEFAULT),
+            hide_backoffice_nav=True,
+        )
+    finally:
+        session_db.close()
+
+
+@app.post("/autorizacion-menores/<token>/documento", endpoint="public_minor_auth_upload")
+def public_minor_auth_upload(token):
+    """Sube la foto del DNI (del tutor o del autorizado) y devuelve su URL. El DNI del MENOR no se
+    sube nunca: de él solo se apunta el número."""
+    session_db = db()
+    try:
+        config = _minor_auth_by_token(session_db, token)
+        if config is None or not config.active:
+            return jsonify({"ok": False, "error": "Enlace no válido."}), 404
+        fichero = request.files.get("file")
+        if not fichero or not getattr(fichero, "filename", ""):
+            return jsonify({"ok": False, "error": "No ha llegado ningún archivo."}), 400
+        url = upload_image(fichero, "minor_auth")
+        if not url:
+            return jsonify({"ok": False, "error": "No se ha podido subir la imagen."}), 400
+        return jsonify({"ok": True, "url": url})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+def _minor_auth_person_from_form(form, prefijo: str) -> dict:
+    return {
+        "first_name": (form.get(f"{prefijo}_first_name") or "").strip(),
+        "last_name": (form.get(f"{prefijo}_last_name") or "").strip(),
+        "doc_number": mrz_normalize_doc_number(form.get(f"{prefijo}_doc_number")),
+        "birth_date": _parse_date_soft(form.get(f"{prefijo}_birth_date")),
+        "phone": (form.get(f"{prefijo}_phone") or "").strip(),
+        "email": (form.get(f"{prefijo}_email") or "").strip(),
+        "doc_url": (form.get(f"{prefijo}_doc_url") or "").strip(),
+    }
+
+
+@app.post("/autorizacion-menores/<token>/enviar", endpoint="public_minor_auth_submit")
+def public_minor_auth_submit(token):
+    """Guarda la autorización firmada y manda el correo con el QR."""
+    session_db = db()
+    try:
+        config = _minor_auth_by_token(session_db, token)
+        if config is None or not config.active:
+            return jsonify({"ok": False, "error": "Enlace no válido."}), 404
+        concert = config.concert
+        payload = request.get_json(silent=True) or {}
+        form = payload if payload else request.form
+
+        def g(clave, defecto=""):
+            if isinstance(form, dict):
+                return form.get(clave, defecto)
+            return form.get(clave, defecto)
+
+        class _F:
+            """Para reutilizar `_minor_auth_person_from_form` tanto con JSON como con formulario."""
+            def get(self, k, d=""):
+                return g(k, d)
+
+        f = _F()
+        tutor = _minor_auth_person_from_form(f, "guardian")
+        kind = (g("guardian_kind") or "TUTOR").strip().upper()
+        if kind not in MINOR_GUARDIAN_LABELS:
+            kind = "TUTOR"
+        escort_is_guardian = _truthy(g("escort_is_guardian"))
+        autorizado = _minor_auth_person_from_form(f, "escort")
+        menores = payload.get("minors") if isinstance(payload, dict) else None
+        if not isinstance(menores, list):
+            menores = []
+        firma = (g("signature") or "").strip()
+
+        # Todos los campos son obligatorios: si falta algo, se dice cuál y no se guarda nada.
+        faltan = []
+        for etiqueta, valor in (("el nombre del tutor", tutor["first_name"]),
+                                ("los apellidos del tutor", tutor["last_name"]),
+                                ("el DNI del tutor", tutor["doc_number"]),
+                                ("la fecha de nacimiento del tutor", tutor["birth_date"]),
+                                ("el teléfono del tutor", tutor["phone"]),
+                                ("el email del tutor", tutor["email"])):
+            if not valor:
+                faltan.append(etiqueta)
+        if config.require_guardian_dni and not tutor["doc_url"]:
+            faltan.append("la foto del DNI del tutor")
+        if not menores:
+            faltan.append("los datos de al menos un menor")
+        for i, m in enumerate(menores, start=1):
+            if not (m.get("first_name") or "").strip():
+                faltan.append(f"el nombre del menor {i}")
+            if not (m.get("last_name") or "").strip():
+                faltan.append(f"los apellidos del menor {i}")
+            if not (m.get("doc_number") or "").strip():
+                faltan.append(f"el DNI del menor {i}")
+            if not _parse_date_soft(m.get("birth_date")):
+                faltan.append(f"la fecha de nacimiento del menor {i}")
+        if not escort_is_guardian:
+            for etiqueta, valor in (("el nombre del autorizado", autorizado["first_name"]),
+                                    ("los apellidos del autorizado", autorizado["last_name"]),
+                                    ("el DNI del autorizado", autorizado["doc_number"]),
+                                    ("la fecha de nacimiento del autorizado", autorizado["birth_date"]),
+                                    ("el teléfono del autorizado", autorizado["phone"]),
+                                    ("el email del autorizado", autorizado["email"])):
+                if not valor:
+                    faltan.append(etiqueta)
+            if config.require_guardian_dni and not autorizado["doc_url"]:
+                faltan.append("la foto del DNI del autorizado")
+        if not _truthy(g("consent")):
+            faltan.append("aceptar el tratamiento de datos")
+        if not firma.startswith("data:image"):
+            faltan.append("la firma")
+        if faltan:
+            return jsonify({"ok": False, "error": "Falta " + ", ".join(faltan[:6]) +
+                                                  ("…" if len(faltan) > 6 else "") + "."}), 400
+
+        firma_url = _store_doc_image_from_dataurl(firma)
+        auth = MinorAuthorization(
+            config_id=config.id,
+            concert_id=concert.id,
+            guardian_kind=kind,
+            guardian_first_name=tutor["first_name"],
+            guardian_last_name=tutor["last_name"],
+            guardian_doc_number=tutor["doc_number"],
+            guardian_birth_date=tutor["birth_date"],
+            guardian_phone=tutor["phone"],
+            guardian_email=tutor["email"],
+            guardian_doc_url=tutor["doc_url"] or None,
+            escort_is_guardian=escort_is_guardian,
+            escort_first_name=(None if escort_is_guardian else autorizado["first_name"]),
+            escort_last_name=(None if escort_is_guardian else autorizado["last_name"]),
+            escort_doc_number=(None if escort_is_guardian else autorizado["doc_number"]),
+            escort_birth_date=(None if escort_is_guardian else autorizado["birth_date"]),
+            escort_phone=(None if escort_is_guardian else autorizado["phone"]),
+            escort_email=(None if escort_is_guardian else autorizado["email"]),
+            escort_doc_url=(None if escort_is_guardian else (autorizado["doc_url"] or None)),
+            consent_at=_now_madrid(),
+            signature_url=firma_url,
+            qr_token=_uuid_token(),
+            status="VALID",
+        )
+        session_db.add(auth)
+        session_db.flush()
+        for m in menores:
+            session_db.add(MinorAuthorizationMinor(
+                authorization_id=auth.id,
+                first_name=(m.get("first_name") or "").strip(),
+                last_name=(m.get("last_name") or "").strip(),
+                doc_number=mrz_normalize_doc_number(m.get("doc_number")),
+                birth_date=_parse_date_soft(m.get("birth_date")),
+            ))
+        session_db.flush()
+        # La declaración se congela tal como se firmó: si mañana cambia el concierto, esto no.
+        fila = _minor_auth_row(session_db, auth)
+        auth.declaration_snapshot = {
+            "header": {k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in (fila["header"] or {}).items()},
+            "points": MINOR_DECLARATION_POINTS,
+            "age_limit": config.age_limit,
+            "signed_at": _now_madrid().isoformat(),
+        }
+        enviado = _minor_auth_send_email(session_db, auth, fila)
+        session_db.commit()
+        return jsonify({
+            "ok": True,
+            "email_sent": bool(enviado),
+            "pass_url": _minor_auth_pass_url(auth),
+            "message": ("Gracias por haber cumplimentado la autorización de menores, el proceso ha "
+                        "finalizado. Recibirá un email con un código QR que el responsable adulto "
+                        "deberá obligatoriamente mostrar en el control de acceso para su validación."),
+        })
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+# --------------------------------- La tarjeta con el QR ------------------------------------------
+def _minor_auth_by_qr(session_db, token: str):
+    token = (token or "").strip()
+    if not token:
+        return None
+    return (session_db.query(MinorAuthorization)
+            .options(selectinload(MinorAuthorization.minors),
+                     joinedload(MinorAuthorization.concert).joinedload(Concert.artist),
+                     joinedload(MinorAuthorization.concert).joinedload(Concert.venue))
+            .filter(MinorAuthorization.qr_token == token).first())
+
+
+@app.get("/autorizacion-menores/pase/<token>", endpoint="public_minor_auth_pass")
+def public_minor_auth_pass(token):
+    """La tarjeta: título, datos del concierto, el menor y el autorizado, y el QR. Es lo que se
+    enseña en el control de acceso (y a lo que apunta el propio QR)."""
+    session_db = db()
+    try:
+        auth = _minor_auth_by_qr(session_db, token)
+        if auth is None:
+            return render_template("public_minor_auth_closed.html"), 404
+        fila = _minor_auth_row(session_db, auth)
+        return render_template(
+            "public_minor_auth_pass.html",
+            auth=auth, row=fila, header=fila["header"],
+            qr_data_uri=_qr_data_uri(_minor_auth_pass_url(auth), scale=8),
+            declaration_points=MINOR_DECLARATION_POINTS,
+            hide_backoffice_nav=True,
+        )
+    finally:
+        session_db.close()
+
+
+@app.get("/autorizacion-menores/pase/<token>/qr.png", endpoint="public_minor_auth_qr_png")
+def public_minor_auth_qr_png(token):
+    session_db = db()
+    try:
+        auth = _minor_auth_by_qr(session_db, token)
+        if auth is None:
+            abort(404)
+        return Response(_qr_png_bytes(_minor_auth_pass_url(auth), scale=10), mimetype="image/png",
+                        headers={"Content-Disposition": 'attachment; filename="autorizacion-menores.png"'})
+    finally:
+        session_db.close()
+
+
+@app.get("/autorizacion-menores/pase/<token>/tarjeta", endpoint="public_minor_auth_wallet")
+def public_minor_auth_wallet(token):
+    """Tarjeta para el móvil.
+
+    ⚠️ Un pase REAL de Apple Wallet (.pkpass) hay que FIRMARLO con un certificado de Apple (Pass Type
+    ID + clave privada + certificado WWDR de la cuenta de desarrollador), y Google Wallet pide una
+    cuenta de servicio. Mientras no estén configurados se sirve la tarjeta en PDF, que se guarda en el
+    móvil igual y lleva el mismo QR: así nadie se queda sin nada que enseñar en la puerta."""
+    session_db = db()
+    try:
+        auth = _minor_auth_by_qr(session_db, token)
+        if auth is None:
+            abort(404)
+        fila = _minor_auth_row(session_db, auth)
+        pdf = _minor_auth_pass_pdf_bytes(fila, _minor_auth_pass_url(auth))
+        nombre = "autorizacion-menores.pdf"
+        return Response(pdf, mimetype="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
+    finally:
+        session_db.close()
+
+
+def _minor_auth_pass_pdf_bytes(row: dict, url: str) -> bytes:
+    """Tarjeta en PDF con el QR (estilo de la casa: logo del grupo arriba a la derecha)."""
+    import io
+    from reportlab.lib.pagesizes import A6
+    from reportlab.lib.units import mm
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.lib.utils import ImageReader
+
+    h = row.get("header") or {}
+    buf = io.BytesIO()
+    W, H = A6
+    c = rl_canvas.Canvas(buf, pagesize=A6)
+    c.setFillColorRGB(0.07, 0.09, 0.13)
+    c.rect(0, H - 22 * mm, W, 22 * mm, stroke=0, fill=1)
+    c.setFillColorRGB(1, 1, 1)
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(10 * mm, H - 14 * mm, "AUTORIZACIÓN DE MENORES")
+    c.setFillColorRGB(0.09, 0.13, 0.18)
+    y = H - 32 * mm
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(10 * mm, y, (h.get("artist_name") or "")[:38])
+    y -= 6 * mm
+    c.setFont("Helvetica", 9)
+    for linea in [
+        h.get("festival_name") or "",
+        " · ".join([x for x in [h.get("date_label"), h.get("show_time")] if x]),
+        (h.get("venue_name") or "")[:48],
+    ]:
+        if linea:
+            c.drawString(10 * mm, y, linea[:52])
+            y -= 5 * mm
+    y -= 3 * mm
+    c.setFont("Helvetica-Bold", 9)
+    c.drawString(10 * mm, y, "Menor(es)")
+    y -= 5 * mm
+    c.setFont("Helvetica", 9)
+    for m in (row.get("minors") or [])[:4]:
+        c.drawString(10 * mm, y, f"{m.get('full_name', '')[:40]} · {m.get('age', '')} años")
+        y -= 5 * mm
+    y -= 2 * mm
+    c.setFont("Helvetica-Bold", 9)
+    c.drawString(10 * mm, y, "Autorizado")
+    y -= 5 * mm
+    c.setFont("Helvetica", 9)
+    c.drawString(10 * mm, y, (row.get("escort_name") or "")[:44])
+    try:
+        qr = ImageReader(io.BytesIO(_qr_png_bytes(url, scale=8)))
+        lado = 38 * mm
+        c.drawImage(qr, (W - lado) / 2, 12 * mm, lado, lado)
+    except Exception:
+        pass
+    c.setFont("Helvetica", 7)
+    c.setFillColorRGB(0.42, 0.46, 0.5)
+    c.drawCentredString(W / 2, 8 * mm, "Muestra este código en el control de acceso")
+    c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+# ------------------------------ Control de acceso: validar --------------------------------------
+@app.get("/autorizacion-menores/validar/<token>", endpoint="public_minor_auth_validate")
+def public_minor_auth_validate(token):
+    """Pantalla del control de acceso: se pasa el DNI del menor con la cámara (o se busca a mano) y
+    dice si hay autorización. Su token es distinto del del formulario."""
+    session_db = db()
+    try:
+        config = (session_db.query(MinorAuthConfig)
+                  .options(joinedload(MinorAuthConfig.concert).joinedload(Concert.artist),
+                           joinedload(MinorAuthConfig.concert).joinedload(Concert.venue))
+                  .filter(MinorAuthConfig.validate_token == (token or "").strip()).first())
+        if config is None:
+            return render_template("public_minor_auth_closed.html"), 404
+        return render_template(
+            "public_minor_auth_validate.html",
+            config=config, concert=config.concert,
+            header=_minor_concert_header(session_db, config.concert),
+            hide_backoffice_nav=True,
+        )
+    finally:
+        session_db.close()
+
+
+@app.post("/autorizacion-menores/validar/<token>/buscar", endpoint="public_minor_auth_check")
+def public_minor_auth_check(token):
+    """Busca una autorización por el DNI del menor, por el token del QR o por cualquier dato."""
+    session_db = db()
+    try:
+        config = (session_db.query(MinorAuthConfig)
+                  .filter(MinorAuthConfig.validate_token == (token or "").strip()).first())
+        if config is None:
+            return jsonify({"ok": False, "error": "Enlace no válido."}), 404
+        payload = request.get_json(silent=True) or {}
+        texto = (payload.get("q") or request.form.get("q") or "").strip()
+        qr = (payload.get("qr") or request.form.get("qr") or "").strip()
+        # Del QR puede llegar la URL entera: se queda con el último tramo, que es el token.
+        if qr:
+            qr = qr.rstrip("/").rsplit("/", 1)[-1]
+        if not texto and not qr:
+            return jsonify({"ok": False, "error": "Escanea el DNI o escribe un dato."}), 400
+
+        auths = (session_db.query(MinorAuthorization)
+                 .options(selectinload(MinorAuthorization.minors),
+                          joinedload(MinorAuthorization.concert).joinedload(Concert.artist))
+                 .filter(MinorAuthorization.config_id == config.id)
+                 .filter(MinorAuthorization.status == "VALID").all())
+        cabecera = _minor_concert_header(session_db, config.concert)
+        buscado = mrz_normalize_doc_number(texto)
+        clave = _norm_text_key(texto)
+        salida = []
+        for a in auths:
+            if qr and (a.qr_token or "").strip() == qr:
+                salida.append(_minor_auth_row(session_db, a, header=cabecera))
+                continue
+            if not texto:
+                continue
+            campos = [mrz_normalize_doc_number(a.guardian_doc_number),
+                      mrz_normalize_doc_number(a.escort_doc_number)]
+            nombres = [_norm_text_key(" ".join(filter(None, [a.guardian_first_name, a.guardian_last_name]))),
+                       _norm_text_key(" ".join(filter(None, [a.escort_first_name, a.escort_last_name])))]
+            for m in (a.minors or []):
+                campos.append(mrz_normalize_doc_number(m.doc_number))
+                nombres.append(_norm_text_key(" ".join(filter(None, [m.first_name, m.last_name]))))
+            if (buscado and any(buscado == c for c in campos if c)) or \
+               (clave and any(clave in n for n in nombres if n)):
+                salida.append(_minor_auth_row(session_db, a, header=cabecera))
+        return jsonify({"ok": True, "found": bool(salida), "count": len(salida), "matches": salida[:8]})
+    finally:
+        session_db.close()
 
 
 def _production_type_label(value: str | None) -> str:

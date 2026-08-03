@@ -55,6 +55,7 @@
   <li class="nav-item"><a class="nav-link {% if tab == 'invitations' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='invitations') }}">Invitaciones</a></li>
   {% if show_repertorio_tab %}<li class="nav-item"><a class="nav-link {% if tab == 'repertorio' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='repertorio') }}">Repertorio</a></li>{% endif %}
   {% if show_ticketing_tab or tab == 'ticketing' %}<li class="nav-item"><a class="nav-link {% if tab == 'ticketing' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='ticketing') }}">Ticketing</a></li>{% endif %}
+  {% if show_menores_tab or tab == 'menores' %}<li class="nav-item"><a class="nav-link {% if tab == 'menores' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='menores') }}"><i class="fa fa-child-reaching me-1"></i>Menores</a></li>{% endif %}
   <li class="nav-item"><a class="nav-link {% if tab == 'carteleria' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='carteleria') }}">Cartelería</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'produccion' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='produccion') }}">Producción</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'resultado' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='resultado') }}">Resultado</a></li>
@@ -2502,6 +2503,8 @@
     </script>
   {% elif tab == 'fotos' %}
     {% include '_fotos_panel.html' %}
+  {% elif tab == 'menores' %}
+    {% include '_minor_auth_panel.html' %}
   {% elif tab == 'repertorio' %}
     <div class="ficha-section">
       <h5 class="mb-3"><i class="fa fa-music me-2 text-danger"></i>Set list / repertorio</h5>

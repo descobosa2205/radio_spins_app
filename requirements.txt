@@ -24,5 +24,7 @@ pydub>=0.25.1
 pycountry>=24.6.1
 pypdf>=4.2.0
 pywebpush>=1.14.0
+# QR de las autorizaciones de menores (y del enlace del formulario): puro Python, sin binarios.
+segno>=1.6.0
 # ffmpeg estático (sin apt/Docker) para generar el póster/miniatura de los vídeos en el servidor.
 imageio-ffmpeg>=0.5.1

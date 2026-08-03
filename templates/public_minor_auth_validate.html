@@ -1,0 +1,182 @@
+{% extends "layout.html" %}
+{% block content %}
+{# CONTROL DE ACCESO — se escanea el DNI del menor (o su QR) y dice si hay autorización.
+   Tiene que ser rápido: la cámara es lo primero y no hace falta tocar nada más. #}
+<div class="ma-page ma-page--val" data-mv
+     data-check-url="{{ url_for('public_minor_auth_check', token=config.validate_token) }}">
+
+  <div class="mv-head">
+    <div>
+      <div class="mv-head__t"><i class="fa fa-child-reaching me-2"></i>Control de acceso · menores</div>
+      <div class="mv-head__s">{{ header.artist_name }}{% if header.festival_name %} · {{ header.festival_name }}{% endif %}{% if header.date_label %} · {{ header.date_label }}{% endif %}</div>
+    </div>
+    {% if header.company_logo %}<img class="mv-head__logo" src="{{ header.company_logo }}" alt="">{% endif %}
+  </div>
+
+  <div class="mv-tools">
+    <button class="mv-big" type="button" data-mv-scan>
+      <i class="fa fa-expand"></i>
+      <span>Escanear el DNI del menor</span>
+      <small>Lectura instantánea de la banda del documento</small>
+    </button>
+    <button class="mv-big mv-big--alt" type="button" data-mv-qr>
+      <i class="fa fa-qrcode"></i>
+      <span>Escanear el QR</span>
+      <small>El código del email del tutor</small>
+    </button>
+  </div>
+
+  <div class="mv-manual">
+    <div class="input-group">
+      <span class="input-group-text"><i class="fa fa-magnifying-glass"></i></span>
+      <input class="form-control" data-mv-q placeholder="Buscar por DNI, nombre del menor, del tutor o del autorizado" autocomplete="off">
+      <button class="btn btn-danger" type="button" data-mv-search>Buscar</button>
+    </div>
+  </div>
+
+  <div data-mv-result></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var root = document.querySelector('[data-mv]');
+  if (!root) return;
+  var URL_CHECK = root.getAttribute('data-check-url');
+  var caja = root.querySelector('[data-mv-result]');
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+
+  function cargando() {
+    caja.innerHTML = '<div class="mv-load"><i class="fa fa-spinner fa-spin me-2"></i>Comprobando…</div>';
+  }
+
+  function pintar(res, buscado) {
+    if (!res || !res.ok) { caja.innerHTML = '<div class="mv-ko"><i class="fa fa-circle-xmark"></i><div>' + esc((res && res.error) || 'No se ha podido comprobar.') + '</div></div>'; return; }
+    if (!res.found) {
+      caja.innerHTML = '<div class="mv-ko"><i class="fa fa-circle-xmark"></i>' +
+        '<div><strong>No hay autorización</strong>' +
+        (buscado ? '<div class="mv-ko__q">' + esc(buscado) + '</div>' : '') +
+        '<div class="mv-ko__s">No puede acceder. El adulto responsable tiene que rellenar la autorización.</div></div></div>';
+      return;
+    }
+    var html = '<div class="mv-ok"><i class="fa fa-circle-check"></i><div><strong>Autorización de menores OK</strong>' +
+               '<div class="mv-ok__s">Puede entrar. Comprueba los datos con su documento de identidad.</div></div></div>';
+    (res.matches || []).forEach(function (m) {
+      html += '<div class="mv-card">';
+      (m.minors || []).forEach(function (x) {
+        html += '<div class="mv-row"><span class="mv-row__l"><i class="fa fa-child me-1"></i>Menor</span>' +
+                '<span class="mv-row__v"><strong>' + esc(x.full_name) + '</strong> · ' + esc(x.doc_number) +
+                (x.age !== null && x.age !== undefined ? ' · ' + esc(x.age) + ' años' : '') +
+                (x.birth_label ? ' · nac. ' + esc(x.birth_label) : '') + '</span></div>';
+      });
+      html += '<div class="mv-row"><span class="mv-row__l"><i class="fa fa-user-check me-1"></i>Autorizado</span>' +
+              '<span class="mv-row__v"><strong>' + esc(m.escort_name) + '</strong>' +
+              (m.escort_doc ? ' · ' + esc(m.escort_doc) : '') +
+              (m.escort_is_guardian ? ' <em>(el propio ' + esc((m.guardian_kind_label || '').toLowerCase()) + ')</em>' : '') +
+              '</span></div>';
+      html += '<div class="mv-row"><span class="mv-row__l"><i class="fa fa-user-shield me-1"></i>' + esc(m.guardian_kind_label) + '</span>' +
+              '<span class="mv-row__v">' + esc(m.guardian_name) + (m.guardian_doc ? ' · ' + esc(m.guardian_doc) : '') + '</span></div>';
+      html += '<div class="mv-card__acts"><a class="btn btn-outline-secondary btn-sm" target="_blank" rel="noopener" href="/autorizacion-menores/pase/' + esc(m.qr_token) + '"><i class="fa fa-file-lines me-1"></i>Ver la autorización</a></div>';
+      html += '</div>';
+    });
+    caja.innerHTML = html;
+  }
+
+  function consultar(cuerpo, buscado) {
+    cargando();
+    fetch(URL_CHECK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(cuerpo),
+    }).then(function (r) { return r.json(); })
+      .then(function (res) { pintar(res, buscado); })
+      .catch(function () { pintar({ ok: false, error: 'Sin conexión.' }); });
+  }
+
+  root.querySelector('[data-mv-scan]').addEventListener('click', function () {
+    if (!window.DocCamera) { alert('Este navegador no puede abrir la cámara. Busca por DNI a mano.'); return; }
+    window.DocCamera.open({
+      title: 'DNI del menor',
+      onRead: function (res) {
+        var num = ((res.data || {}).number || '').toUpperCase();
+        if (!num) { pintar({ ok: true, found: false }, ''); return; }
+        consultar({ q: num }, num);
+      },
+    });
+  });
+
+  // El QR se lee con el detector nativo del navegador si está (iOS/Android/Chrome modernos).
+  root.querySelector('[data-mv-qr]').addEventListener('click', function () {
+    if (!('BarcodeDetector' in window)) {
+      var pegado = window.prompt('Pega el enlace del QR (o su código):', '');
+      if (pegado) consultar({ qr: pegado }, '');
+      return;
+    }
+    abrirLectorQr();
+  });
+
+  function abrirLectorQr() {
+    var ov = document.createElement('div');
+    ov.className = 'doccam';
+    ov.innerHTML = '<div class="doccam__panel">' +
+      '<div class="doccam__head"><span><i class="fa fa-qrcode me-2"></i>Escanear el QR</span>' +
+      '<button type="button" class="btn-close btn-close-white" data-qr-close></button></div>' +
+      '<div class="doccam__stage"><video class="doccam__video" playsinline muted autoplay></video>' +
+      '<div class="doccam__hint">Encuadra el código QR del email</div></div>' +
+      '<div class="doccam__foot"><div class="doccam__state"><span class="doccam__dot"></span>Buscando el código…</div></div>' +
+      '</div>';
+    document.body.appendChild(ov);
+    document.body.classList.add('doccam-open');
+    var video = ov.querySelector('video'), pista = null, vivo = true;
+    function cerrar() {
+      vivo = false;
+      if (pista) pista.getTracks().forEach(function (t) { try { t.stop(); } catch (_) {} });
+      if (ov.parentNode) ov.parentNode.removeChild(ov);
+      document.body.classList.remove('doccam-open');
+    }
+    ov.addEventListener('click', function (e) { if (e.target.closest('[data-qr-close]') || e.target === ov) cerrar(); });
+    var det = new window.BarcodeDetector({ formats: ['qr_code'] });
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
+      .then(function (s) {
+        if (!vivo) { s.getTracks().forEach(function (t) { t.stop(); }); return; }
+        pista = s; video.srcObject = s;
+        return video.play().catch(function () {});
+      }).then(function bucle() {
+        if (!vivo) return;
+        det.detect(video).then(function (codigos) {
+          if (!vivo) return;
+          if (codigos && codigos.length) {
+            var texto = codigos[0].rawValue || '';
+            cerrar();
+            consultar({ qr: texto }, '');
+            return;
+          }
+          setTimeout(bucle, 220);
+        }).catch(function () { if (vivo) setTimeout(bucle, 400); });
+      }).catch(function () {
+        cerrar();
+        alert('No se ha podido abrir la cámara.');
+      });
+  }
+
+  function buscarTexto() {
+    var inp = root.querySelector('[data-mv-q]');
+    var t = (inp.value || '').trim();
+    if (!t) return;
+    consultar({ q: t }, t);
+  }
+  root.querySelector('[data-mv-search]').addEventListener('click', buscarTexto);
+  root.querySelector('[data-mv-q]').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); buscarTexto(); }
+  });
+
+  // El modelo de OCR se precarga en cuanto se abre la pantalla: así el primer escaneo ya es rápido.
+  if (window.DocScan && window.DocScan.mrzWarmUp) window.DocScan.mrzWarmUp();
+})();
+</script>
+{% endblock %}

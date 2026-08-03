@@ -13,14 +13,22 @@
     </div>
 
     {% if bank_accounts %}
+      {# Cuántas cuentas hay por banco: si hay más de una se numeran, para que se vea claro que una
+         empresa puede tener VARIAS cuentas en el mismo banco. #}
+      {% set ns = namespace(vistas={}) %}
       <div class="d-flex flex-column gap-2">
         {% for acc in bank_accounts %}
+          {% set bkey = (acc.bank_id|string) if acc.bank_id else 'sin' %}
+          {% set _n = (bank_accounts|selectattr('bank_id','equalto',acc.bank_id)|list|length) %}
+          {% set _idx = ns.vistas.get(bkey, 0) + 1 %}
+          {% set _ = ns.vistas.update({bkey: _idx}) %}
           <div class="border rounded p-2 d-flex align-items-center gap-3 flex-wrap">
             <img src="{{ (acc.bank.logo_url if acc.bank else None) or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"
                  style="width:40px;height:40px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff;">
             <div class="flex-grow-1 min-w-0">
               <div class="fw-semibold">
                 {{ acc.bank.name if acc.bank else 'Sin banco' }}
+                {% if _n > 1 %}<span class="badge text-bg-light border ms-1">cuenta {{ _idx }} de {{ _n }}</span>{% endif %}
                 {% if acc.alias %}<span class="text-muted"> · {{ acc.alias }}</span>{% endif %}
                 {% if acc.is_default %}<span class="badge text-bg-success ms-1">Por defecto</span>{% endif %}
               </div>
@@ -66,6 +74,10 @@
             </select>
             <a class="btn btn-outline-secondary" href="{{ url_for('banks_view') }}" target="_blank" rel="noopener" title="Dar de alta un banco"><i class="fa fa-plus"></i></a>
           </div>
+        </div>
+        <div class="alert alert-light border small py-2">
+          <i class="fa fa-circle-info me-1"></i>Puedes tener <strong>varias cuentas del mismo banco</strong>:
+          lo único que no se repite es el IBAN. Ponles un alias para distinguirlas.
         </div>
         <div class="mb-2"><label class="form-label">Alias</label><input class="form-control" name="alias" data-bacc-alias placeholder="Cuenta de gastos"></div>
         <div class="mb-2"><label class="form-label">IBAN *</label><input class="form-control font-monospace" name="iban" data-bacc-iban required placeholder="ES91 2100 0418 4502 0005 1332"></div>

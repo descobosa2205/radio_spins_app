@@ -6915,6 +6915,7 @@ ROYALTY_EVENT_LABELS = {
     "PAID": "Pagada",
     "INVOICE_REJECTED": "Factura rechazada",
     "PAYMENT_REOPENED": "Vuelta a pendiente de pago",
+    "CONSIGNED": "Datos consignados",
     "ACCOUNTED": "Contabilizada",
 }
 
@@ -38840,6 +38841,11 @@ def _bootstrap_schema_bg():
     # mucho más abajo y referenciarla aquí por nombre podría dar NameError.
     _safe_ensure(lambda: globals()["_person_docs_backfill_official_data"](),
                  "_person_docs_backfill_official_data")
+    # Una sola vez: CONSIGNAR las liquidaciones de royalties ya generadas o enviadas que no tenían sus
+    # datos guardados (se recalculaban al abrirlas y «los importes se actualizaban»). Ver
+    # `_royalty_freeze_backfill`.
+    _safe_ensure(lambda: globals()["_royalty_freeze_backfill_once"](),
+                 "_royalty_freeze_backfill_once")
     # Una sola vez: devolverles su tipo a los contenedores de EVENTO que el modal de editar degradó
     # a ciclo. Va aquí (con marca) y NO como sentencia del esquema: si corriera en cada arranque
     # convertiría en EVENTO las giras y ciclos legítimos de un evento creados después.
@@ -50421,12 +50427,16 @@ def company_bank_account_save(cid):
         if not sepa_iban_is_valid(iban):
             flash("Ese IBAN no es válido (no cuadra el dígito de control). Revísalo.", "warning")
             return redirect(next_url)
+        actualizada = False
         if row is None:
-            # Mismo IBAN dos veces = la misma cuenta: se actualiza, no se duplica (dos cuentas
-            # idénticas en el selector de «desde dónde se paga» es pedir un error).
+            # ⚠️ Lo ÚNICO que no se repite es el IBAN: una empresa puede tener VARIAS cuentas en el
+            # MISMO banco. Mismo IBAN dos veces = la misma cuenta: se actualiza en vez de duplicarla
+            # (dos cuentas idénticas en el selector de «desde dónde se paga» es pedir un error), y se
+            # dice, para que no parezca que no deja añadirla.
             row = (session_db.query(GroupCompanyBankAccount)
                    .filter(GroupCompanyBankAccount.company_id == company.id,
                            GroupCompanyBankAccount.iban == iban).first())
+            actualizada = row is not None
         if row is None:
             row = GroupCompanyBankAccount(company_id=company.id, iban=iban)
             session_db.add(row)
@@ -50448,7 +50458,11 @@ def company_bank_account_save(cid):
             for otra in _company_bank_accounts(session_db, company.id):
                 otra.is_default = (str(otra.id) == str(row.id))
         session_db.commit()
-        flash("Cuenta bancaria guardada.", "success")
+        if actualizada:
+            flash("Ya tenías esa cuenta (el mismo IBAN): se han actualizado sus datos en vez de "
+                  "duplicarla. Para añadir OTRA cuenta del mismo banco, escribe su IBAN.", "success")
+        else:
+            flash("Cuenta bancaria guardada.", "success")
     except Exception as exc:
         session_db.rollback()
         flash(f"No se pudo guardar la cuenta: {exc}", "danger")
@@ -54248,6 +54262,110 @@ def _cycle_festival_event_kind_repair():
         app.logger.exception("[eventos] no se pudo reparar el tipo de los contenedores de evento")
     finally:
         session_db.close()
+
+
+ROYALTY_FREEZE_BACKFILL_KEY = "royalty_freeze_backfill_v1"
+# Estados en los que una liquidación YA está en la calle: tiene que estar consignada.
+ROYALTY_MUST_BE_FROZEN_STATUSES = ("GENERATED", "DOWNLOADED", "SENT", "INVOICED", "PAID")
+
+
+def _royalty_freeze_backfill(session_db=None) -> dict:
+    """CONSIGNA las liquidaciones ya GENERADAS o ENVIADAS que no tienen sus datos guardados.
+
+    Las liquidaciones anteriores a que existiera el congelado no guardaban nada, así que cada vez que
+    se abrían se recalculaban con los ingresos del momento y «los importes se actualizaban». Aquí se
+    les fija su detalle una vez y para siempre:
+
+      · si tenemos el congelado de lo que se ENVIÓ (`last_sent_snapshot`), se consigna ESO: es
+        exactamente lo que recibió el beneficiario;
+      · si no hay nada, se consigna lo que sale AHORA y se deja dicho en el propio congelado
+        (`consigned_from='LIVE'` + la fecha), porque los importes originales no se pueden recuperar.
+
+    Idempotente y best-effort: solo toca las que no tienen nada congelado. Devuelve el recuento."""
+    propia = session_db is None
+    if propia:
+        session_db = db()
+    salida = {"revisadas": 0, "consignadas_enviado": 0, "consignadas_ahora": 0, "sin_datos": 0}
+    try:
+        recs = (session_db.query(RoyaltyLiquidation)
+                .filter(func.upper(func.coalesce(RoyaltyLiquidation.status, "")).in_(ROYALTY_MUST_BE_FROZEN_STATUSES))
+                .order_by(RoyaltyLiquidation.period_start.asc()).all())
+        ahora = _now_madrid()
+        for rec in recs:
+            salida["revisadas"] += 1
+            # ⚠️ Se mira `snapshot` A SECAS, no `_royalty_frozen_beneficiary` (que cae a lo enviado):
+            # justo las que solo tienen el congelado del envío son las que hay que dejar consignadas.
+            propio = getattr(rec, "snapshot", None)
+            if isinstance(propio, dict) and ("total_amount" in propio or propio.get("items")):
+                continue          # ya está consignada: no se toca
+            enviado = getattr(rec, "last_sent_snapshot", None)
+            datos, origen = None, ""
+            if isinstance(enviado, dict) and ("total_amount" in enviado or enviado.get("items")):
+                datos, origen = json.loads(json.dumps(enviado, default=str)), "SENT"
+            else:
+                try:
+                    datos, _s, _e, _b = _get_royalty_liquidation_beneficiary_data(
+                        session_db, rec.beneficiary_kind, str(rec.beneficiary_id),
+                        rec.period_start.year, 1 if rec.period_start.month <= 6 else 2,
+                        apply_frozen=False)
+                    datos = json.loads(json.dumps(datos, default=str))
+                    origen = "LIVE"
+                except Exception:
+                    datos = None
+            if not datos:
+                salida["sin_datos"] += 1
+                continue
+            datos["consigned_from"] = origen
+            datos["consigned_at"] = ahora.isoformat()
+            rec.snapshot = datos
+            rec.snapshot_signature = _royalty_data_signature(datos)
+            rec.updated_at = ahora
+            _royalty_history_add(rec, "CONSIGNED",
+                                 note=("consignada con lo que se envió" if origen == "SENT"
+                                       else "consignada con los datos de ese momento"),
+                                 total=format_eur(_money_or_zero(datos.get("total_amount"))))
+            salida["consignadas_enviado" if origen == "SENT" else "consignadas_ahora"] += 1
+        session_db.commit()
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("_royalty_freeze_backfill")
+    finally:
+        if propia:
+            session_db.close()
+    return salida
+
+
+def _royalty_freeze_backfill_once():
+    """El relleno de arriba, una sola vez en el arranque (marca en `AppSetting`)."""
+    if (_get_app_setting(ROYALTY_FREEZE_BACKFILL_KEY) or "").strip() == "done":
+        return
+    datos = _royalty_freeze_backfill()
+    _set_app_setting(ROYALTY_FREEZE_BACKFILL_KEY, "done")
+    app.logger.info("Liquidaciones de royalties consignadas: %s con lo enviado, %s con los datos del "
+                    "momento, %s sin datos, de %s revisadas.",
+                    datos["consignadas_enviado"], datos["consignadas_ahora"],
+                    datos["sin_datos"], datos["revisadas"])
+
+
+@app.post("/discografica/royalties/consignar", endpoint="royalty_liquidations_consign")
+@admin_required
+def royalty_liquidations_consign():
+    """Consigna a mano las liquidaciones generadas o enviadas que no tengan sus datos guardados.
+    Sirve para las que aparezcan después del relleno del arranque."""
+    if not is_master():
+        return forbid("Solo dirección puede consignar liquidaciones.")
+    datos = _royalty_freeze_backfill()
+    if datos["consignadas_enviado"] or datos["consignadas_ahora"]:
+        flash("Consignadas %s liquidaciones (%s con lo que se envió y %s con los datos del momento). "
+              "A partir de ahora sus importes no cambian."
+              % (datos["consignadas_enviado"] + datos["consignadas_ahora"],
+                 datos["consignadas_enviado"], datos["consignadas_ahora"]), "success")
+    else:
+        flash("Todas las liquidaciones generadas o enviadas ya estaban consignadas.", "success")
+    if datos["sin_datos"]:
+        flash("%s liquidación(es) no tienen datos recuperables: revísalas a mano." % datos["sin_datos"],
+              "warning")
+    return redirect(safe_next_or(url_for("discografica_view", section="royalties")))
 
 
 PERSON_DOCS_BACKFILL_KEY = "person_docs_official_backfill_v1"

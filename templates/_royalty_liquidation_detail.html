@@ -33,6 +33,16 @@
       </div>
     </div>
 
+    {% if beneficiary.get('consigned_from') == 'LIVE' %}
+      {# Consignada a posteriori: los importes originales no se pudieron recuperar, así que se fijaron
+         con los datos de ese momento. Se dice, en vez de darlo por bueno sin más. #}
+      <div class="rliq__note">
+        <i class="fa fa-lock me-1"></i>Datos fijados el
+        {{ (beneficiary.get('consigned_at') or '')[:10]|replace('-','/') }} a partir de los del momento:
+        esta liquidación se generó antes de que se guardara su detalle.
+      </div>
+    {% endif %}
+
     <div class="table-responsive">
       <table class="table table-sm align-middle mb-0 rliq__table">
         <thead class="table-light">

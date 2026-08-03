@@ -335,6 +335,16 @@
         <input type="hidden" name="next" value="{{ request.full_path }}">
         <button class="btn btn-outline-success btn-sm"{% if not royalty_pending_send %} disabled title="No hay liquidaciones pendientes de enviar"{% endif %}><i class="fa fa-paper-plane me-1"></i>Enviar todas{% if royalty_pending_send %} <span class="badge text-bg-light border ms-1">{{ royalty_pending_send }}</span>{% endif %}</button>
       </form>
+      {% if IS_MASTER %}
+      {# CONSIGNAR: fija los datos de las liquidaciones generadas o enviadas que no los tuvieran
+         guardados (las de antes de que existiera el congelado). Corre solo en el arranque; esto es
+         para las que aparezcan después. #}
+      <form method="post" action="{{ url_for('royalty_liquidations_consign') }}"
+            onsubmit="return confirm('Se fijarán los datos de las liquidaciones generadas o enviadas que no los tengan guardados. A partir de ahí sus importes no cambian. ¿Continuar?');">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <button class="btn btn-outline-secondary btn-sm" title="Fijar los datos de las liquidaciones ya generadas o enviadas"><i class="fa fa-lock me-1"></i>Consignar</button>
+      </form>
+      {% endif %}
     {% endif %}
   </div>
 {% endif %}

@@ -1230,6 +1230,21 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   queda como **facturada**: aparece en el listado de royalties y la factura, en la base de facturas. Se contrasta con las **órdenes
   de embargo vigentes** del proveedor y se avisa para no abonarle. Acciones en bloque:
   `royalty_liquidations_download_all` (un PDF continuo con pypdf) y `royalty_liquidations_send_all`.
+- **Royalties · CONSIGNAR lo ya generado o enviado** (`_royalty_freeze_backfill`, marca
+  `royalty_freeze_backfill_v1`): las liquidaciones anteriores al congelado no guardaban nada y se
+  recalculaban al abrirlas. El relleno les fija su detalle una vez: si hay `last_sent_snapshot` se
+  consigna **eso** (`consigned_from='SENT'`, es lo que recibió el beneficiario) y si no hay nada, lo de
+  ese momento (`consigned_from='LIVE'` + `consigned_at`, y el detalle lo **dice** en pantalla, porque
+  los importes originales no se pueden recuperar). ⚠️ El «ya está consignada» se decide mirando
+  `rec.snapshot` A SECAS, no `_royalty_frozen_beneficiary` (que cae a lo enviado): si no, justo las que
+  solo tienen el congelado del envío se saltarían. Corre en el arranque y hay botón **«Consignar»**
+  (solo dirección) en Royalties para las que aparezcan después.
+- **Cuentas bancarias de una empresa del grupo: VARIAS en el mismo banco.** Lo único que no se repite
+  es el **IBAN** (mismo IBAN = misma cuenta: se actualiza y se **avisa**, para que no parezca que no
+  deja añadirla). En la lista, las cuentas del mismo banco se numeran («cuenta 1 de 2») y el formulario
+  lo dice. Un IBAN que no cuadra en el mod-97 se rechaza con su motivo (era lo único que podía parecer
+  un tope).
+
 - ⚠️⚠️ **Royalties · el cálculo «en vivo» venía con el CONGELADO pegado** (raíz del fallo, ago 2026).
   `_apply_royalty_liquidation_meta` sobreescribe `total_amount`/`total_income`/`items` del bucket con
   el congelado, y la llaman **los dos constructores** (`_build_royalty_single_beneficiary` y

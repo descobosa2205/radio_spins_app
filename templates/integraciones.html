@@ -692,7 +692,10 @@
                         <button name="action" value="et_link" class="btn btn-sm btn-success" title="Vincular"><i class="fa fa-link"></i></button>
                       </form>
                     {% elif ev.status == 'PENDING' %}
-                      <span class="text-muted">Sin candidatos con esa fecha</span>
+                      <span class="text-muted">Sin candidatos con esa fecha ·
+                        <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-et-link-open
+                                data-pk="{{ ev.pk }}" data-name="{{ ev.name }}">buscar la actividad</button>
+                      </span>
                     {% endif %}
                   </td>
                   <td class="text-end text-nowrap">
@@ -705,7 +708,9 @@
                       {% elif ev.status == 'REQUESTED' %}
                         <button name="action" value="et_unignore" class="btn btn-sm btn-outline-secondary" title="Volver a pendiente"><i class="fa fa-rotate-left"></i></button>
                       {% else %}
-                        {% if et_concert_options %}<button type="button" class="btn btn-sm btn-success" data-et-link-open data-pk="{{ ev.pk }}" data-name="{{ ev.name }}" title="Vincular con un concierto existente"><i class="fa fa-link"></i></button>{% endif %}
+                        {# El botón sale SIEMPRE: si no hubiera nada que elegir, lo dice el propio
+                           modal. Antes se escondía y un evento pasado se quedaba sin salida. #}
+                        <button type="button" class="btn btn-sm btn-success" data-et-link-open data-pk="{{ ev.pk }}" data-name="{{ ev.name }}" title="Vincular con una actividad existente"><i class="fa fa-link"></i></button>
                         <button name="action" value="et_request" class="btn btn-sm btn-outline-primary" title="Crear petición a Contratación con los datos de Enterticket"><i class="fa fa-paper-plane"></i></button>
                         <button name="action" value="et_ignore" class="btn btn-sm btn-outline-secondary" title="Ignorar"><i class="fa fa-eye-slash"></i></button>
                       {% endif %}
@@ -726,9 +731,12 @@
       </div>
     </div>
 
-    {# Modal: vincular un evento ET pendiente con CUALQUIER concierto existente (buscable),
-       o —si no existe— pedir a Contratación que lo dé de alta con los datos de ET. #}
-    {% if et_concert_options %}
+    {# Modal: vincular un evento ET pendiente con CUALQUIER actividad existente (buscable, también
+       las pasadas), o —si no existe— pedir a Contratación que la dé de alta con los datos de ET.
+       ⚠️ Se pinta SIEMPRE que la integración esté activa: si no hubiera nada que elegir, lo dice
+       dentro. Antes solo existía cuando la lista de actividades venía llena y, con la lista vacía,
+       el botón de enlazar no llevaba a ninguna parte. #}
+    {% if enterticket_configured %}
     <div class="modal fade" id="etLinkModal" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
@@ -744,6 +752,12 @@
                 <option value="">— Busca por artista, fecha o recinto… —</option>
                 {% for o in et_concert_options %}<option value="{{ o.id }}">{{ o.label }}</option>{% endfor %}
               </select>
+              {% if not et_concert_options %}
+                <div class="alert alert-light border small mt-2 mb-0">
+                  <i class="fa fa-circle-info me-1"></i>No hay ninguna actividad libre a la que enlazarlo
+                  (o todas tienen ya su evento). Puedes pedirle el alta a Contratación con el botón de abajo.
+                </div>
+              {% endif %}
               <div class="small text-muted mt-2">Al vincular se cargan en la ficha la ticketera Enterticket, el enlace de venta y el aforo, y se sincronizan las ventas (también en el reporte de ventas).</div>
             </div>
             <div class="modal-footer justify-content-between">

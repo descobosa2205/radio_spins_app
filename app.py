@@ -280,6 +280,15 @@ from models import (
 )
 import sim_calc  # motor de cálculo puro de Simulaciones
 import seatmap_calc  # motor puro del mapa de butacas del recinto (conteos/plantillas)
+from mrz_utils import (
+    extract_fields as mrz_extract_fields,
+    parse_mrz as mrz_parse,
+    normalize_doc_number as mrz_normalize_doc_number,
+    doc_number_kind as mrz_doc_number_kind,
+    is_valid_dni as mrz_is_valid_dni,
+    is_valid_nie as mrz_is_valid_nie,
+    find_spanish_id as mrz_find_spanish_id,
+)
 from sepa_utils import (
     build_credit_transfer_xml as sepa_build_credit_transfer_xml,
     check_payment as sepa_check_payment,
@@ -3163,6 +3172,12 @@ def _concert_entradas_ticket_rows(concert) -> list[dict]:
     for r in (payload.get("ticket_types") or []):
         if isinstance(r, dict) and r.get("name"):
             inv_by_name[str(r["name"]).casefold()] = int(r.get("invites_total") or 0)
+    # ⚠️ Si se ha VOLCADO la configuración de Enterticket, el payload ES la verdad de esta sección:
+    # los `ConcertTicketType` de ET están marcados `et_managed` y se saltan más abajo, así que sin
+    # esto la ficha seguiría enseñando los tipos manuales viejos mientras el resto de la pantalla ya
+    # habla de los de Enterticket.
+    if payload.get("et_dump") and (payload.get("ticket_types") or []):
+        return [r for r in payload["ticket_types"] if isinstance(r, dict)]
     rows = []
     for t in (getattr(concert, "ticket_types", None) or []):
         if getattr(t, "et_managed", False):
@@ -45512,6 +45527,9 @@ SUPPORT_ACTION_ENDPOINTS = {
     "booking_request_convert", "booking_request_close",
 }
 SUPPORT_READ_ENDPOINTS = {
+    # Escáner de documentos: es una BÚSQUEDA (no cambia nada) y la usan terceros, personal,
+    # invitaciones… cualquiera con sesión.
+    "doc_scan_lookup",
     # Ficha de una petición: la abre quien lleva su departamento (lo comprueba el endpoint).
     "booking_request_detail_view",
     "roadmap_templates_list",
@@ -50198,6 +50216,362 @@ def payment_batch_delete(batch_id):
     return redirect(next_url)
 
 
+# ================== ESCÁNER DE DOCUMENTOS: buscar a quien tenga ese número =======================
+# El número se lee del MRZ (banda legible por máquina) con `mrz_utils`, que valida los dígitos de
+# control: así se sabe si lo que ha leído la cámara está bien o si el OCR se ha inventado un carácter.
+def _doc_number_variants(valor: str) -> set:
+    """Formas comparables de un número de documento.
+
+    Se compara con la MISMA normalización que usa el resto de la casa (`_prl_norm_dni`: mayúsculas,
+    sin separadores y sin ceros a la izquierda salvo en NIE) y, además, con el número tal cual: hay
+    fichas con el DNI escrito con puntos y otras con ceros delante."""
+    crudo = mrz_normalize_doc_number(valor)
+    if not crudo:
+        return set()
+    return {v for v in {crudo, _prl_norm_dni(crudo)} if v}
+
+
+def _sql_doc_digits(expr):
+    """Los DÍGITOS de un número de documento, en SQL, para el prefiltro de la búsqueda.
+
+    Quita todo lo que no sea un dígito (guiones, puntos, espacios, barras…): así da igual cómo esté
+    escrito el número en la ficha. La comparación fina la hace después Python con `_prl_norm_dni`."""
+    return func.regexp_replace(func.upper(func.coalesce(expr, "")), r"[^0-9]", "", "g")
+
+
+def _person_doc_match_url(kind: str, row_id) -> str:
+    if kind == "user":
+        return url_for("personnel_detail_view", user_id=row_id, tab="datos")
+    return url_for("promoter_detail_view", pid=row_id)
+
+
+def _find_people_by_doc_number(session_db, numero: str, *, limit: int = 12) -> list[dict]:
+    """Busca a QUIEN TENGA ese número de documento, en terceros y en personal.
+
+    Mira todas las vías sin cortar en la primera (una persona puede estar como tercero y como
+    personal, o dos fichas pueden compartir el número: se ofrecen las dos y elige quien mira):
+      · `Promoter.tax_id` — el DNI/CIF de la ficha del tercero
+      · `PromoterCompany.tax_id` — el CIF de una de sus sociedades
+      · `PersonDocument.doc_number` — el número del documento ESCANEADO (owner tercero o personal)
+      · `UserProfile.dni` — el DNI del personal
+    ⚠️ Hasta ahora este bucle estaba copiado cinco veces en el fichero y NINGUNA copia miraba al
+    personal: quien no fuera un tercero no aparecía nunca."""
+    variantes = _doc_number_variants(numero)
+    if not variantes:
+        return []
+    # Filtro barato en SQL (contiene los dígitos) y confirmación exacta en Python con la
+    # normalización de la casa: así no se recorren tablas enteras ni se pierden formatos raros.
+    # ⚠️ El prefiltro tiene que ser MÁS PERMISIVO que la comparación exacta de después, o descarta
+    # filas buenas: se quitan los ceros de la izquierda (como hace `_prl_norm_dni`) y se buscan los
+    # dígitos sin más, para que dé igual cómo esté escrito el número en la ficha.
+    nucleo = re.sub(r"[^0-9]", "", mrz_normalize_doc_number(numero)).lstrip("0")
+    if not nucleo:
+        nucleo = mrz_normalize_doc_number(numero)
+    patron = f"%{nucleo}%"
+    salida, vistos = [], set()
+
+    def _añade(kind: str, row, motivo: str):
+        if row is None:
+            return
+        clave = (kind, str(row.id if kind == "promoter" else row.user_id if hasattr(row, "user_id") else row.id))
+        if clave in vistos:
+            return
+        vistos.add(clave)
+        if kind == "promoter":
+            nombre = (getattr(row, "nick", None) or "").strip() or " ".join(filter(None, [
+                getattr(row, "first_name", None), getattr(row, "last_name", None)])).strip()
+            salida.append({
+                "kind": "promoter", "kind_label": "Tercero", "id": str(row.id),
+                "name": nombre or "Tercero sin nombre",
+                "photo_url": (getattr(row, "logo_url", None) or "").strip(),
+                "detail": " · ".join([x for x in [(getattr(row, "tax_id", None) or "").strip(),
+                                                  (getattr(row, "contact_email", None) or "").strip()] if x]),
+                "why": motivo,
+                "url": _person_doc_match_url("promoter", row.id),
+            })
+            return
+        # personal
+        user = row
+        prof = session_db.query(UserProfile).filter(UserProfile.user_id == user.id).first()
+        salida.append({
+            "kind": "user", "kind_label": "Personal", "id": str(user.id),
+            "name": ((getattr(prof, "nick", None) or "").strip() or (user.email or "").strip() or "Persona"),
+            "photo_url": (getattr(prof, "photo_url", None) or "").strip(),
+            "detail": (user.email or "").strip(),
+            "why": motivo,
+            "url": _person_doc_match_url("user", user.id),
+        })
+
+    def _cuadra(valor) -> bool:
+        return bool(_doc_number_variants(valor) & variantes)
+
+    # --- Terceros por su DNI/CIF ---
+    for row in (session_db.query(Promoter)
+                .filter(Promoter.tax_id.isnot(None))
+                .filter(_sql_doc_digits(Promoter.tax_id).like(patron))
+                .limit(200).all()):
+        if _cuadra(row.tax_id):
+            _añade("promoter", row, "DNI/CIF de su ficha")
+
+    # --- Sociedades del tercero ---
+    for pc in (session_db.query(PromoterCompany)
+               .filter(PromoterCompany.tax_id.isnot(None))
+               .filter(_sql_doc_digits(PromoterCompany.tax_id).like(patron))
+               .limit(200).all()):
+        if _cuadra(pc.tax_id):
+            _añade("promoter", session_db.get(Promoter, pc.promoter_id), "CIF de una de sus sociedades")
+
+    # --- Documento escaneado (tercero o personal) ---
+    for doc in (session_db.query(PersonDocument)
+                .filter(PersonDocument.doc_number.isnot(None))
+                .filter(_sql_doc_digits(PersonDocument.doc_number).like(patron))
+                .limit(200).all()):
+        if not _cuadra(doc.doc_number):
+            continue
+        etiqueta = {"DNI": "DNI", "PASSPORT": "pasaporte", "LICENSE": "carnet"}.get(
+            (doc.kind or "").upper(), "documento")
+        if (doc.owner_type or "").upper() == "USER":
+            _añade("user", session_db.get(User, doc.owner_id), f"{etiqueta} subido a su ficha")
+        else:
+            _añade("promoter", session_db.get(Promoter, doc.owner_id), f"{etiqueta} subido a su ficha")
+
+    # --- Personal por el DNI de su ficha ---
+    for prof in (session_db.query(UserProfile)
+                 .filter(UserProfile.dni.isnot(None))
+                 .filter(_sql_doc_digits(UserProfile.dni).like(patron))
+                 .limit(200).all()):
+        if _cuadra(prof.dni):
+            _añade("user", session_db.get(User, prof.user_id), "DNI de su ficha")
+
+    # Los eliminados y bloqueados no se ofrecen (solo personal actual).
+    fuera = {str(x) for x in _inactive_user_ids(session_db)}
+    salida = [m for m in salida if not (m["kind"] == "user" and m["id"] in fuera)]
+    return salida[:limit]
+
+
+@app.post("/api/documento/leer", endpoint="doc_scan_lookup")
+@admin_required
+def doc_scan_lookup():
+    """Lee un documento y dice a quién corresponde.
+
+    Entra el MRZ tal cual lo ha leído la cámara (o un número a pelo) y sale: los campos ya validados
+    y las fichas que tengan ese número. Es el servidor quien parsea, aunque el navegador también lo
+    haga: así el dato bueno es siempre el mismo y no depende de la versión del JS que tenga en caché.
+    """
+    session_db = db()
+    try:
+        payload = request.get_json(silent=True) or {}
+        texto = (payload.get("mrz") or payload.get("text") or request.form.get("mrz") or "").strip()
+        numero_directo = (payload.get("number") or request.form.get("number") or "").strip()
+        tipo = (payload.get("kind") or request.form.get("kind") or "").strip().upper() or None
+
+        datos = mrz_extract_fields(texto, tipo) if texto else {}
+        numero = (datos.get("number") or "").strip() or mrz_normalize_doc_number(numero_directo)
+        if not numero:
+            return jsonify({"ok": False, "error": "No se ha podido leer el documento.",
+                            "data": datos, "matches": []})
+        datos = dict(datos or {})
+        datos["number"] = numero
+        datos["number_kind"] = mrz_doc_number_kind(numero)
+        matches = _find_people_by_doc_number(session_db, numero)
+        return jsonify({"ok": True, "data": datos, "matches": matches, "count": len(matches)})
+    finally:
+        session_db.close()
+
+
+# ============ VOLCAR LA CONFIGURACIÓN DE ENTERTICKET A LA ACTIVIDAD ==============================
+# Lo que Enterticket SÍ da por categoría: nombre, precio, vendidas y disponibles (y si es numerada).
+# Lo que NO da: el «nº a la venta» como dato (se calcula vendidas + disponibles), la ZONA
+# (pista/grada/palco: en ET no existe ese concepto) ni un estado de venta por categoría (se deduce:
+# agotada si no quedan, y el % vendido). Los bloqueos vienen como CONTADOR, sin decir qué butacas
+# son, así que no se pueden repartir por categoría ni pintar en el plano.
+def _et_event_for_concert(session_db, concert):
+    """Evento de Enterticket vinculado a esta actividad (el sincronizado más recientemente)."""
+    if concert is None:
+        return None
+    return (session_db.query(EnterticketEvent)
+            .filter(EnterticketEvent.concert_id == concert.id)
+            .order_by(EnterticketEvent.last_synced_at.desc().nullslast())
+            .first())
+
+
+def _et_config_rows(session_db, ev) -> list[dict]:
+    """Categorías de Enterticket, ya normalizadas a lo que entiende la ficha."""
+    filas = []
+    for t in sorted((getattr(ev, "ticket_types", None) or []), key=lambda x: (x.sort_order or 0)):
+        vendidas = int(t.qty_sold or 0)
+        quedan = int(t.qty_available or 0)
+        a_la_venta = vendidas + quedan
+        filas.append({
+            "name": (t.name or "").strip() or f"Entrada {t.et_entrada_id}",
+            # float y no Decimal: esto viaja como JSON al aviso de confirmación.
+            "price": float(_money_or_zero(t.price)),
+            "qty_for_sale": a_la_venta,
+            "sold": vendidas,
+            "available": quedan,
+            "numbered": bool(t.is_numbered),
+            # Estado DEDUCIDO: en Enterticket no hay un estado por categoría.
+            "state": ("Agotada" if (a_la_venta and quedan == 0)
+                      else (f"{round(vendidas * 100.0 / a_la_venta)}% vendido" if a_la_venta else "Sin cupo")),
+        })
+    return filas
+
+
+def _et_config_diff(session_db, concert) -> dict:
+    """Qué cambiaría en la actividad si se volcase la configuración de Enterticket.
+
+    Es lo que se le enseña a la persona ANTES de aceptar: lo que hay ahora, lo que pasaría a haber y
+    qué se queda igual. Nada se toca hasta que dice que sí."""
+    ev = _et_event_for_concert(session_db, concert)
+    if ev is None:
+        return {"ok": False, "reason": "Esta actividad no está vinculada a ningún evento de Enterticket."}
+    filas_et = _et_config_rows(session_db, ev)
+    if not filas_et:
+        return {"ok": False, "reason": "El evento de Enterticket todavía no tiene categorías de entrada. "
+                                       "Pulsa «Actualizar» para traerlas y vuelve a intentarlo.",
+                "event_name": ev.name or ""}
+    payload = dict(getattr(concert, "ticketing_payload", None) or {})
+    actuales = {}
+    for r in (payload.get("ticket_types") or []):
+        if isinstance(r, dict) and r.get("name"):
+            actuales[str(r["name"]).casefold()] = r
+
+    rows, cambios = [], 0
+    for f in filas_et:
+        actual = actuales.get(f["name"].casefold())
+        precio_actual = float(_money_or_zero((actual or {}).get("price"))) if actual else None
+        cupo_actual = int((actual or {}).get("qty_for_sale") or 0) if actual else None
+        cambia_precio = actual is not None and precio_actual != f["price"]
+        cambia_cupo = actual is not None and cupo_actual != f["qty_for_sale"]
+        es_nueva = actual is None
+        if es_nueva or cambia_precio or cambia_cupo:
+            cambios += 1
+        rows.append({**f,
+                     "is_new": es_nueva,
+                     "price_before": precio_actual, "qty_before": cupo_actual,
+                     "price_changes": cambia_precio, "qty_changes": cambia_cupo,
+                     # Las invitaciones pactadas NO vienen de ET: se conservan las de la ficha.
+                     "invites_total": int((actual or {}).get("invites_total") or 0)})
+
+    nombres_et = {f["name"].casefold() for f in filas_et}
+    sobran = [r.get("name") for r in (payload.get("ticket_types") or [])
+              if isinstance(r, dict) and r.get("name") and str(r["name"]).casefold() not in nombres_et]
+
+    aforo_et = int(getattr(ev, "capacity_on_sale", 0) or 0) or sum(f["qty_for_sale"] for f in filas_et)
+    aforo_actual = int(getattr(concert, "capacity", 0) or 0)
+    modo_actual = (payload.get("entry_mode") or "").upper() or "—"
+    agotado_et = bool(filas_et) and all(f["available"] == 0 and f["qty_for_sale"] for f in filas_et)
+
+    return {
+        "ok": True,
+        "event_name": ev.name or "",
+        "event_id": ev.et_event_id,
+        "rows": rows,
+        "removed": sobran,
+        "changes": cambios,
+        # ⚠️ Con aforo 0 (evento recién creado en ET, sin cupos) NO se anuncia cambio: el volcado
+        # tampoco lo toca, y decir que cambia y luego no cambiarlo es peor que no decir nada.
+        "capacity": {"before": aforo_actual, "after": aforo_et,
+                     "changes": bool(aforo_et > 0 and aforo_actual != aforo_et)},
+        "entry_mode": {"before": modo_actual, "after": "SALE", "changes": modo_actual != "SALE"},
+        "sold_out": {"before": bool(getattr(concert, "sold_out", False)), "after": agotado_et,
+                     "changes": bool(getattr(concert, "sold_out", False)) != agotado_et},
+        "sale_url": (getattr(ev, "url_enterticket", None) or ""),
+        "has_seat_map": bool(getattr(ev, "has_seat_mapping", False)),
+        "blocked_count": int(getattr(ev, "blocked_count", 0) or 0),
+        "totals": {
+            "on_sale": sum(f["qty_for_sale"] for f in filas_et),
+            "sold": sum(f["sold"] for f in filas_et),
+            "available": sum(f["available"] for f in filas_et),
+        },
+        "last_synced": _et_fmt_dt(getattr(ev, "last_synced_at", None)),
+    }
+
+
+@app.get("/conciertos/<cid>/ticketing/enterticket/previsualizar", endpoint="concert_et_config_preview")
+@admin_required
+def concert_et_config_preview(cid):
+    """Lo que cambiaría al volcar la configuración de Enterticket (para el aviso de confirmación)."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(cid))
+        if concert is None:
+            return jsonify({"ok": False, "reason": "Actividad no encontrada."}), 404
+        return jsonify(_et_config_diff(session_db, concert))
+    finally:
+        session_db.close()
+
+
+@app.post("/conciertos/<cid>/ticketing/enterticket/volcar", endpoint="concert_et_config_apply")
+@admin_required
+def concert_et_config_apply(cid):
+    """Vuelca a la actividad la configuración de Enterticket: categorías, precios, nº a la venta,
+    aforo y modo de entrada.
+
+    ⚠️ NO se pasa por `_replace_concert_ticket_types_manual`: ese borra y reinserta los tipos, y el
+    borrado en cascada se llevaría por delante el histórico diario de ventas y los precios por
+    ticketera. Aquí se escribe el `ticketing_payload` (que es lo que enseña y edita la ficha) y el
+    aforo; los `ConcertTicketType` de Enterticket los mantiene al día el propio espejo de ventas.
+    ⚠️ Las invitaciones pactadas por categoría NO vienen de Enterticket (su API solo da las ya
+    emitidas), así que se CONSERVAN las que hubiera en la ficha."""
+    if not can_edit_concerts():
+        return forbid("No tienes permisos para editar el ticketing de una actividad.")
+    next_url = safe_next_or(request.form.get("next") or url_for("concert_detail_view", cid=cid, tab="ticketing"))
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(cid))
+        if concert is None:
+            flash("Actividad no encontrada.", "warning")
+            return redirect(url_for("concerts_view"))
+        diff = _et_config_diff(session_db, concert)
+        if not diff.get("ok"):
+            flash(diff.get("reason") or "No se puede volcar la configuración.", "warning")
+            return redirect(next_url)
+
+        payload = dict(getattr(concert, "ticketing_payload", None) or {})
+        # Se conserva lo que la ficha sabe y ET no: las invitaciones pactadas por categoría.
+        payload["ticket_types"] = [{
+            "name": r["name"], "price": float(r["price"]), "qty_for_sale": int(r["qty_for_sale"]),
+            "invites_total": int(r.get("invites_total") or 0),
+        } for r in diff["rows"]]
+        # Con entradas a la venta el modo es SALE: si se queda en FREE, la pestaña Ticketing se oculta.
+        payload["entry_mode"] = "SALE"
+        # ⚠️ Las trazas del volcado van en un sub-dict: `_concert_contracting_general_rows` pinta
+        # las claves sueltas del payload que no conoce, y `et_dumped_at`/`et_event_id` acababan
+        # saliendo como filas en la ficha y en el PDF que se manda al promotor.
+        payload["et_dump"] = {"at": _now_madrid().isoformat(), "event_id": diff.get("event_id")}
+        payload.pop("et_dumped_at", None)
+        payload.pop("et_event_id", None)
+        if diff.get("sale_url"):
+            payload.setdefault("sale_seller", {})
+            if isinstance(payload.get("sale_seller"), dict):
+                payload["sale_seller"].setdefault("kind", "US")
+                payload["sale_seller"]["url"] = diff["sale_url"]
+        from sqlalchemy.orm.attributes import flag_modified
+        concert.ticketing_payload = payload
+        flag_modified(concert, "ticketing_payload")
+
+        aforo = int(diff["capacity"]["after"] or 0)
+        if aforo > 0:
+            concert.capacity = aforo
+            concert.no_capacity = False
+        concert.sold_out = bool(diff["sold_out"]["after"])
+        concert.updated_at = _now_madrid()
+        session_db.commit()
+        n = len(diff["rows"])
+        aviso = (f"Ticketing volcado desde Enterticket: {n} categoría(s), "
+                 f"{diff['totals']['on_sale']} entradas a la venta y aforo {aforo}.")
+        if diff.get("removed"):
+            aviso += " Se han quitado de la ficha: " + ", ".join(diff["removed"][:4]) + "."
+        flash(aviso, "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo volcar la configuración: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
 def _production_type_label(value: str | None) -> str:
     key = (value or "GENERAL").strip().upper() or "GENERAL"
     return dict(PRODUCTION_ACTIVITY_TYPES).get(key) or dict(BAG_TYPES).get(key) or key.title()
@@ -52346,6 +52720,18 @@ def _store_doc_image_from_dataurl(dataurl):
         return None
 
 
+def _parse_date_soft(value):
+    """Fecha opcional que NO revienta con una fecha imposible.
+
+    `parse_optional_date` propaga el error a propósito (en cientos de rutas es lo que se quiere),
+    pero para lo que llega de un escáner en un campo oculto conviene lo contrario: si el dato es
+    basura se descarta y ya lo corregirá quien lo revise."""
+    try:
+        return parse_optional_date(value)
+    except Exception:
+        return None
+
+
 def _person_document_create_from_intake(session_db, ot, owner):
     """En el alta de una persona/tercero desde documento, crea un PersonDocument con los campos con
     prefijo `doc_` del formulario (doc_kind, doc_number, doc_full_name, doc_*_date y los recortes
@@ -52363,9 +52749,13 @@ def _person_document_create_from_intake(session_db, ot, owner):
     doc = PersonDocument(
         owner_type=ot, owner_id=owner.id, kind=kind, sort_order=0,
         doc_number=number, full_name=full_name,
-        birth_date=parse_optional_date(request.form.get("doc_birth_date")),
-        expiry_date=parse_optional_date(request.form.get("doc_expiry_date")),
-        issue_date=parse_optional_date(request.form.get("doc_issue_date")),
+        # ⚠️ Estas tres fechas llegan de campos OCULTOS que rellena el escáner: si el OCR lee mal un
+        # día y sale una fecha imposible (31 de febrero), `parse_optional_date` lanza y el alta se
+        # cae con un 500. Aquí se descarta el valor y se sigue: es un dato que se puede corregir a
+        # mano, no un motivo para tumbar la creación de la persona.
+        birth_date=_parse_date_soft(request.form.get("doc_birth_date")),
+        expiry_date=_parse_date_soft(request.form.get("doc_expiry_date")),
+        issue_date=_parse_date_soft(request.form.get("doc_issue_date")),
         address=(request.form.get("doc_address") or "").strip() or None,
         front_url=front, back_url=back,
         created_by_user_id=to_uuid(state.get("user_id")),
@@ -75421,7 +75811,11 @@ def integrations_view():
                     vn = (c.venue.name if c.venue else "") or (c.manual_venue_name or "") or (c.manual_municipality or "")
                     concert_label = f"{c.artist.name if c.artist else '¿?'} · {c.date.strftime('%d/%m/%Y') if c.date else '—'}" + (f" · {vn}" if vn else "")
                 candidates = []
-                if st == "PENDING" and ev.event_date and ev.event_date >= today - timedelta(days=90):
+                # ⚠️ Antes solo se buscaban candidatos a los eventos de los últimos 90 días, así que
+                # un evento pasado salía siempre como «sin candidatos» aunque su actividad existiera
+                # y no había forma de enlazarlo. La consulta ya va acotada por fecha (± margen), así
+                # que no hace falta ningún corte por antigüedad.
+                if st == "PENDING" and ev.event_date:
                     for score, c in _et_automatch_candidates(s, ev, day_margin=3)[:6]:
                         vn = (c.venue.name if c.venue else "") or (c.manual_venue_name or "") or (c.manual_municipality or "")
                         candidates.append({
@@ -75441,16 +75835,18 @@ def integrations_view():
                     "last_error": ev.last_error or "", "candidates": candidates,
                     "capacity": ev.capacity_on_sale,
                 })
-            # Selector del modal «Vincular con otro concierto»: cualquier actividad de los últimos
-            # 18 meses en adelante (buscable con Select2 por artista/fecha/recinto).
+            # Selector del modal «Vincular con otro concierto»: TODAS las actividades, también las
+            # pasadas (buscable con Select2 por artista/fecha/recinto).
+            # ⚠️ Antes se cortaba a los últimos 18 meses: las actividades más viejas no había manera
+            # de enlazarlas a su evento de Enterticket, que es justo lo que pasa al integrar un
+            # histórico. Se ordenan por fecha descendente y se acota el número de filas, no la fecha.
             if any(e["status"] == "PENDING" for e in et_events):
                 linked_ids = [r.concert_id for r in rows if r.concert_id]
                 copts_q = (s.query(Concert)
-                           .options(joinedload(Concert.artist), joinedload(Concert.venue))
-                           .filter(Concert.date >= today - timedelta(days=540)))
+                           .options(joinedload(Concert.artist), joinedload(Concert.venue)))
                 if linked_ids:
                     copts_q = copts_q.filter(~Concert.id.in_(linked_ids))  # ya tienen su evento ET
-                copts = copts_q.order_by(Concert.date.desc()).limit(2000).all()
+                copts = copts_q.order_by(Concert.date.desc().nullslast()).limit(3000).all()
                 for c in copts:
                     vn = (c.venue.name if c.venue else "") or (c.manual_venue_name or "") or (c.manual_municipality or "")
                     et_concert_options.append({

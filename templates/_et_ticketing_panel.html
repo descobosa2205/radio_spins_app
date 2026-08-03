@@ -21,6 +21,9 @@
     <div class="d-flex gap-2 flex-wrap">
       <button type="button" class="btn btn-outline-primary btn-sm" onclick="etOpenChart('')"><i class="fa fa-chart-line me-1"></i>Evolución</button>
       {% if CAN_EDIT_CONCERTS %}
+      {# Volcar a la ficha lo que hay en Enterticket (categorías, precios, nº a la venta y aforo).
+         Antes de tocar nada se enseña QUÉ cambia y hay que aceptarlo. #}
+      <button type="button" class="btn btn-primary btn-sm" data-et-dump-open><i class="fa fa-download me-1"></i>Volcar configuración</button>
       <form method="post" action="{{ url_for('concert_et_sync', cid=concert.id) }}"><button class="btn btn-outline-secondary btn-sm"><i class="fa fa-rotate me-1"></i>Actualizar ahora</button></form>
       <form method="post" action="{{ url_for('concert_et_unlink', cid=concert.id) }}" onsubmit="return confirm('¿Desvincular este concierto del evento de Enterticket?');"><button class="btn btn-outline-danger btn-sm" title="Desvincular"><i class="fa fa-link-slash"></i></button></form>
       {% endif %}
@@ -270,4 +273,101 @@
   {% endfor %}
   {% if ROLE == 10 %}<div class="small text-muted">¿No está en la lista? Gestiona todos los eventos en <a href="{{ url_for('integrations_view') }}#tab-enterticket">Integraciones → Enterticket</a>.</div>{% endif %}
 </div></div>
+{% endif %}
+
+{% if CAN_EDIT_CONCERTS %}
+{# ---- Aviso antes de volcar: la configuración de ahora y en qué queda ---- #}
+<div class="modal fade" id="etDumpModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-download me-2 text-danger"></i>Volcar la configuración de Enterticket</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" data-et-dump-body>
+        <div class="text-muted small"><i class="fa fa-spinner fa-spin me-1"></i>Comprobando qué cambiaría…</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <form method="post" action="{{ url_for('concert_et_config_apply', cid=concert.id) }}" data-et-dump-form class="d-none">
+          <input type="hidden" name="next" value="{{ request.url }}">
+          <button class="btn btn-primary"><i class="fa fa-check me-1"></i>Aceptar y volcar</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var PREVIEW = "{{ url_for('concert_et_config_preview', cid=concert.id) }}";
+  var modalEl = document.getElementById('etDumpModal');
+  if (!modalEl) return;
+  function esc(v){ return String(v == null ? '' : v).replace(/[&<>"']/g, function(c){
+    return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
+  function eur(n){ try { return Number(n||0).toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' €'; }
+                   catch(e){ return (n||0) + ' €'; } }
+  function num(n){ try { return Number(n||0).toLocaleString('es-ES'); } catch(e){ return String(n||0); } }
+
+  document.addEventListener('click', function(ev){
+    if (!ev.target.closest('[data-et-dump-open]')) return;
+    var cuerpo = modalEl.querySelector('[data-et-dump-body]');
+    var form = modalEl.querySelector('[data-et-dump-form]');
+    form.classList.add('d-none');
+    cuerpo.innerHTML = '<div class="text-muted small"><i class="fa fa-spinner fa-spin me-1"></i>Comprobando qué cambiaría…</div>';
+    if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    fetch(PREVIEW, { headers: { 'Accept': 'application/json' } })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d || !d.ok){
+          cuerpo.innerHTML = '<div class="alert alert-warning mb-0">' + esc((d && d.reason) || 'No se puede volcar la configuración.') + '</div>';
+          return;
+        }
+        var h = '';
+        if (!d.changes && !d.capacity.changes && !d.entry_mode.changes && !(d.removed||[]).length){
+          h += '<div class="alert alert-success"><i class="fa fa-circle-check me-1"></i>La ficha ya está igual que Enterticket: volcar no cambiaría nada.</div>';
+        } else {
+          h += '<div class="alert alert-warning"><i class="fa fa-triangle-exclamation me-1"></i>Esto es lo que va a cambiar en la ficha. Lo de Enterticket <strong>sustituye</strong> a lo que hay ahora.</div>';
+        }
+        h += '<div class="table-responsive"><table class="table table-sm align-middle mb-2">'
+          + '<thead class="table-light"><tr><th>Categoría</th><th class="text-end">Precio</th>'
+          + '<th class="text-end">A la venta</th><th class="text-end">Vendidas</th><th>Estado</th></tr></thead><tbody>';
+        (d.rows || []).forEach(function(r){
+          function celda(antes, ahora, fmt, cambia){
+            if (!cambia) return '<span>' + fmt(ahora) + '</span>';
+            return '<span class="text-muted text-decoration-line-through me-1">' + fmt(antes) + '</span>'
+                 + '<strong class="text-danger">' + fmt(ahora) + '</strong>';
+          }
+          h += '<tr>'
+            + '<td>' + esc(r.name) + (r.is_new ? ' <span class="badge text-bg-success">nueva</span>' : '')
+                     + (r.numbered ? ' <span class="badge text-bg-light border">numerada</span>' : '') + '</td>'
+            + '<td class="text-end">' + celda(r.price_before, r.price, eur, r.price_changes) + '</td>'
+            + '<td class="text-end">' + celda(r.qty_before, r.qty_for_sale, num, r.qty_changes) + '</td>'
+            + '<td class="text-end">' + num(r.sold) + '</td>'
+            + '<td class="small text-muted">' + esc(r.state) + '</td>'
+            + '</tr>';
+        });
+        h += '</tbody></table></div>';
+        if ((d.removed || []).length){
+          h += '<div class="alert alert-danger small"><i class="fa fa-circle-minus me-1"></i>Se quitarán de la ficha (no están en Enterticket): <strong>'
+             + d.removed.map(esc).join(', ') + '</strong></div>';
+        }
+        h += '<ul class="list-unstyled small mb-3">';
+        if (d.capacity.changes) h += '<li><i class="fa fa-users fa-fw me-1"></i>Aforo: <span class="text-muted text-decoration-line-through">' + num(d.capacity.before) + '</span> → <strong>' + num(d.capacity.after) + '</strong></li>';
+        if (d.entry_mode.changes) h += '<li><i class="fa fa-ticket fa-fw me-1"></i>Modo de entrada: <span class="text-muted text-decoration-line-through">' + esc(d.entry_mode.before) + '</span> → <strong>con venta de entradas</strong></li>';
+        if (d.sold_out.changes) h += '<li><i class="fa fa-fire fa-fw me-1"></i>' + (d.sold_out.after ? 'Se marcará como <strong>agotado</strong>' : 'Se quitará la marca de agotado') + '</li>';
+        h += '<li><i class="fa fa-gift fa-fw me-1"></i>Las <strong>invitaciones pactadas</strong> de cada categoría se conservan: Enterticket solo informa de las ya emitidas.</li>';
+        h += '<li><i class="fa fa-chart-line fa-fw me-1"></i>El plan de ingresos, el punto de empate y las previsiones se recalculan solos con los datos nuevos.</li>';
+        if (d.blocked_count) h += '<li><i class="fa fa-lock fa-fw me-1"></i>Enterticket dice que hay <strong>' + num(d.blocked_count) + '</strong> entradas bloqueadas, pero su API no dice <em>cuáles</em>: no se pueden repartir por categoría ni pintar en el plano.</li>';
+        h += '</ul>';
+        h += '<div class="small text-muted">Evento: <strong>' + esc(d.event_name) + '</strong>'
+           + (d.last_synced ? ' · última sincronización ' + esc(d.last_synced) : '') + '</div>';
+        cuerpo.innerHTML = h;
+        form.classList.remove('d-none');
+      })
+      .catch(function(){
+        cuerpo.innerHTML = '<div class="alert alert-danger mb-0">No se ha podido comprobar. Revisa la conexión.</div>';
+      });
+  });
+})();
+</script>
 {% endif %}

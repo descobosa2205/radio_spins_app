@@ -611,6 +611,54 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   medio en **`static/js/promo.js`**, estilos `.promo-*` en `styles.css`. Alta rápida de **medio**
   añadida a `quick_create.js` (`data-quick-create="media"`).
 
+- **ESCÁNER DE DOCUMENTOS (DNI / NIE / pasaporte)** — ago 2026. Motor puro **`mrz_utils.py`**: lee la
+  **banda legible por máquina** (MRZ) y **valida sus dígitos de control**, que es lo que hace fiable
+  el escaneo (antes no se comprobaba nada y un «8» leído como «B» entraba como dato bueno).
+  · **TD1** (DNI/NIE, 3×30) y **TD3** (pasaporte, 2×44). El formato se decide por la FORMA de las
+  líneas, no por lo que diga el usuario: un pasaporte subido como «DNI» se lee bien igual.
+  · ⚠️ **En el DNI español el número NO está en el hueco del «número de documento» del MRZ**: ahí va
+  el **número de soporte** (BAA000589); el DNI/NIE va en los **datos opcionales**. Antes se rascaba
+  del texto impreso, que es mucho menos fiable.
+  · **NIE** (X/Y/Z + 7 dígitos, mod-23 con X=0/Y=1/Z=2): antes no existía en ningún punto del código.
+  · Espejo en el navegador dentro de **`static/js/doc_scan.js`** (`parseMrzText`, `parseTd1`,
+  `parseTd3`, `isValidDni`, `isValidNie`, `findSpanishId`, `checkDigit`). ⚠️ **Paridad obligatoria**
+  con `mrz_utils.py`: si se toca una, se toca la otra.
+  · **Escáner con la CÁMARA** (`static/js/doc_camera.js`, `window.DocCamera.open({onFound,onCreate})`):
+  lee en vivo como un lector de QR. Es rápido porque **solo lee la banda de abajo** (un recorte
+  pequeño, binarizado), con un **worker de tesseract reutilizado** y **lista blanca** `A-Z0-9<`
+  (`DocScan.ocrMrz` / `mrzWarmUp`); cada fotograma se valida con los dígitos de control y, si no
+  cuadra, se tira y se prueba con el siguiente: por eso no hace falta acertar con el encuadre y nunca
+  da un dato inventado. Salida sin cámara: escribir el número a mano.
+  · **A quién corresponde el número**: `_find_people_by_doc_number` mira las CUATRO vías sin cortar
+  en la primera (`Promoter.tax_id`, `PromoterCompany.tax_id`, `PersonDocument.doc_number` de tercero
+  **o de personal**, y `UserProfile.dni`). ⚠️ Ese bucle estaba copiado cinco veces en `app.py` y
+  **ninguna copia miraba al personal**. Endpoint `doc_scan_lookup` (`POST /api/documento/leer`), en
+  `SUPPORT_READ_ENDPOINTS` porque es una BÚSQUEDA: la usa cualquiera con sesión.
+  · **Dónde está**: botón «Escanear documento» en la barra de búsqueda de **Terceros**; si el número
+  ya está, enseña las fichas (tercero o personal) y filtra la lista; si no, abre «Nuevo tercero» con
+  el nombre, los apellidos y el DNI ya puestos.
+
+- **TICKETING · volcar la configuración de Enterticket a la actividad** — ago 2026. Botón **«Volcar
+  configuración»** en la pestaña Ticketing: `concert_et_config_preview` (GET, JSON) calcula el DIFF y
+  el modal enseña **lo que hay ahora tachado y lo que pasaría a haber** antes de aceptar;
+  `concert_et_config_apply` (POST) lo aplica. Se escriben `ticketing_payload['ticket_types']`
+  (nombre, precio y nº a la venta), `entry_mode='SALE'`, `Concert.capacity` y `Concert.sold_out`.
+  · ⚠️ **NO pasa por `_replace_concert_ticket_types_manual`**: ese borra y reinserta los tipos, y el
+  borrado en cascada se llevaría por delante el histórico diario de ventas (`TicketSaleDetail`) y los
+  precios por ticketera. Los `ConcertTicketType` de ET los mantiene al día `_et_mirror_to_sales`.
+  · ⚠️ **Las invitaciones pactadas por categoría se CONSERVAN**: la API de ET solo informa de las ya
+  emitidas, no del cupo pactado.
+  · **Lo que Enterticket NO puede dar** (y por eso no se volca): la **ZONA** (pista/grada/palco no
+  existe en ET; lo más parecido es `entrada_numerada`), el **nº a la venta** como dato (se calcula
+  vendidas + disponibles: si en ET recortan el cupo con ventas hechas, el número sale de más), un
+  **estado de venta** por categoría (se deduce: «Agotada» si no quedan, y el % vendido) y **qué
+  butacas están bloqueadas**: `/bloqueos/:id` es un CONTADOR sin sector/fila/asiento, así que los
+  bloqueos no se pueden repartir por categoría ni pintar en el plano.
+  · El plan de ingresos **no hace falta invalidarlo**: la pestaña Resultado se recalcula entera en
+  cada carga (`_concert_build_calc_data` + `sim_calc`, sin caché ni snapshot). ⚠️ Con el concierto
+  vinculado a ET y ventas reales, el adaptador **ignora** tipos/precios/aforo y usa la recaudación
+  real como ingreso @100%.
+
 - **REMESAS de pago (fichero para el banco)** — ago 2026. Motor puro **`sepa_utils.py`**: genera
   **SEPA XML `pain.001.001.03`** (el Cuaderno 34.14 de la AEB), que es lo que admiten Santander,
   CaixaBank y Cajamar; `BANK_PROFILES` recoge los matices por banco. Valida IBAN por **mod-97**,

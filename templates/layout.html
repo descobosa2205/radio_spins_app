@@ -264,6 +264,9 @@
 <script src="{{ url_for('static', filename='js/person_docs.js', v=ASSET_V) }}"></script>
 {# Alta de tercero/personal desde documento (DNI/pasaporte) o manual — actúa en [data-doc-intake]. #}
 <script src="{{ url_for('static', filename='js/doc_intake.js', v=ASSET_V) }}"></script>
+{# Escáner de documentos CON LA CÁMARA (window.DocCamera): lee el MRZ en vivo, como un lector de QR,
+   y dice a quién corresponde. Usa DocScan, así que va DESPUÉS. #}
+<script src="{{ url_for('static', filename='js/doc_camera.js', v=ASSET_V) }}"></script>
 {# Descarga de documentos generados (PDF/Excel/ZIP) con aviso «Generando documento» y barra: evita
    la pestaña en blanco mientras el servidor lo prepara. Debe ir ANTES del loader de abajo. #}
 <script src="{{ url_for('static', filename='js/doc_download.js', v=ASSET_V) }}"></script>

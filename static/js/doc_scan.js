@@ -156,88 +156,253 @@
     return loadTesseract().then(function (T) { return T.recognize(canvas, 'spa+eng'); })
       .then(function (res) { return (res && res.data && res.data.text) || ''; });
   }
-  // El MRZ tiene muchos rellenos '<'; el anverso casi ninguno → sirve para saber cuál es el reverso.
-  function hasMrz(text) { var m = String(text).match(/</g); return !!(m && m.length >= 8); }
 
-  function mrzDate(yymmdd, future) {
-    if (!/^[0-9]{6}$/.test(yymmdd)) return '';
-    var yy = parseInt(yymmdd.substr(0, 2), 10), mm = yymmdd.substr(2, 2), dd = yymmdd.substr(4, 2);
-    if (+mm < 1 || +mm > 12 || +dd < 1 || +dd > 31) return '';
-    var year;
-    if (future) year = 2000 + yy;
-    else year = (2000 + yy > new Date().getFullYear()) ? 1900 + yy : 2000 + yy;
-    return year + '-' + mm + '-' + dd;
+  /* ---- OCR rápido SOLO para la banda MRZ (lo usa el escáner con cámara) ----
+     Tres cosas lo hacen casi instantáneo frente al OCR normal:
+       1) un worker que se crea UNA vez y se reutiliza (T.recognize monta uno nuevo en cada llamada),
+       2) la lista blanca de caracteres: en el MRZ solo hay A-Z, 0-9 y «<», y
+       3) un solo idioma (eng) y modo «un bloque de texto», en vez de spa+eng y análisis de página.
+     Aun así el dato bueno lo valida el MRZ con sus dígitos de control: si el OCR se equivoca, se
+     descarta el fotograma y se prueba con el siguiente. */
+  var mrzWorkerPromise = null;
+  function mrzWorker() {
+    if (mrzWorkerPromise) return mrzWorkerPromise;
+    mrzWorkerPromise = loadTesseract().then(function (T) {
+      if (!T.createWorker) return null;                       // versión antigua: se cae a recognize()
+      return Promise.resolve(T.createWorker('eng', 1, { legacyCore: false })).then(function (w) {
+        return Promise.resolve(w.setParameters({
+          tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ<',
+          tessedit_pageseg_mode: '6',        // un solo bloque de texto
+          user_defined_dpi: '300',
+        })).then(function () { return w; });
+      });
+    }).catch(function () { return null; });
+    return mrzWorkerPromise;
   }
-  // «JUAN CARLOS GARCIA» -> «Juan Carlos Garcia»: primera letra de cada palabra en mayúscula, el
-  // resto en minúscula (respeta guiones/apóstrofos de apellidos compuestos).
-  function titleCase(s) {
-    return String(s || '').toLowerCase().replace(/(^|[\s\-'’])([a-záéíóúñüàèìòùç])/g, function (m, sep, ch) {
-      return sep + ch.toUpperCase();
-    });
+  function ocrMrz(canvas) {
+    return mrzWorker().then(function (w) {
+      if (!w) return ocrCanvas(canvas);
+      return w.recognize(canvas).then(function (res) { return (res && res.data && res.data.text) || ''; });
+    }).catch(function () { return ''; });
   }
-  // MRZ TD1 (DNI / permiso de conducir españoles: 3 líneas de 30).
-  function parseMrz(text) {
-    var out = { fullName: '', given: '', surname: '', birth: '', expiry: '' };
-    var lines = String(text).toUpperCase().split(/\n+/).map(function (l) {
-      return l.replace(/\s+/g, '').replace(/[^A-Z0-9<]/g, '');
-    }).filter(function (l) { return l.length >= 20 && /[<A-Z0-9]/.test(l); });
-    var nameCands = lines.filter(function (l) {
-      var p = l.split('<<');
-      return p.length >= 2 && /[A-Z]/.test(p[0]) && /[A-Z]/.test(p.slice(1).join(''));
-    }).sort(function (a, b) { return (b.replace(/[^A-Z]/g, '').length) - (a.replace(/[^A-Z]/g, '').length); });
-    if (nameCands.length) {
-      var parts = nameCands[0].split('<<');
-      var surn = (parts[0] || '').replace(/</g, ' ').replace(/\s+/g, ' ').trim();
-      var giv = (parts.slice(1).join(' ')).replace(/</g, ' ').replace(/\s+/g, ' ').trim();
-      if (surn) {
-        out.surname = titleCase(surn); out.given = titleCase(giv);
-        out.fullName = titleCase(giv ? (giv + ' ' + surn) : surn);
+  // Arranca el worker y el modelo por adelantado (al abrir el escáner), para que el primer
+  // fotograma no pague la descarga.
+  function mrzWarmUp() { return mrzWorker().then(function () { return true; }).catch(function () { return false; }); }
+  // El MRZ tiene muchos rellenos '<'; el anverso casi ninguno → sirve para saber cuál es el reverso.
+  /* ------------------- MRZ: banda legible por máquina -------------------
+     ⚠️ PARIDAD OBLIGATORIA con `mrz_utils.py` (motor del servidor, que es el que está probado con
+     documentos sintéticos). Si se toca aquí, se toca allí.
+
+     Lo que hace fiable el escaneo es que el MRZ lleva DÍGITOS DE CONTROL: se sabe si lo leído está
+     bien o si el OCR se ha inventado un carácter. Antes no se validaba nada y un «8» leído como «B»
+     entraba como dato bueno.
+
+     TD1 (DNI/NIE español, 3×30) · TD3 (pasaporte, 2×44).
+     ⚠️ En el DNI español el hueco del «número de documento» del MRZ lleva el número de SOPORTE
+     (BAA000589); el DNI/NIE va en los DATOS OPCIONALES. Por eso antes se rascaba del texto impreso. */
+  var PESOS = [7, 3, 1];
+  var LETRAS_DNI = 'TRWAGMYFPDXBNJZSQVHLCKE';
+  var PREFIJO_NIE = { X: '0', Y: '1', Z: '2' };
+
+  function mrzClean(linea) {
+    return String(linea || '').toUpperCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^A-Z0-9<]/g, '');
+  }
+  function charVal(c) {
+    if (c >= '0' && c <= '9') return c.charCodeAt(0) - 48;
+    if (c === '<') return 0;
+    if (c >= 'A' && c <= 'Z') return c.charCodeAt(0) - 55;
+    return 0;
+  }
+  function checkDigit(campo) {
+    var t = 0, s = String(campo || '');
+    for (var i = 0; i < s.length; i++) t += charVal(s.charAt(i)) * PESOS[i % 3];
+    return String(t % 10);
+  }
+  function checkOk(campo, digito) {
+    digito = String(digito || '').trim();
+    if (digito === '' || digito === '<') return true;
+    return checkDigit(campo) === digito;
+  }
+  function normDocNumber(v) { return String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+  function dniLetter(numero) {
+    var n = normDocNumber(numero), cuerpo = n;
+    if (PREFIJO_NIE[cuerpo.charAt(0)] !== undefined) cuerpo = PREFIJO_NIE[cuerpo.charAt(0)] + cuerpo.slice(1);
+    if (!/^[0-9]+$/.test(cuerpo)) return '';
+    return LETRAS_DNI.charAt(parseInt(cuerpo, 10) % 23);
+  }
+  function isValidDni(v) {
+    var n = normDocNumber(v);
+    return /^[0-9]{8}[A-Z]$/.test(n) && dniLetter(n.slice(0, 8)) === n.slice(-1);
+  }
+  function isValidNie(v) {
+    var n = normDocNumber(v);
+    return /^[XYZ][0-9]{7}[A-Z]$/.test(n) && dniLetter(n.slice(0, 8)) === n.slice(-1);
+  }
+  function docNumberKind(v) {
+    var n = normDocNumber(v);
+    if (isValidDni(n)) return 'DNI';
+    if (isValidNie(n)) return 'NIE';
+    if (/^[A-Z]{2,3}[0-9]{6}$/.test(n) || /^[A-Z][0-9]{7,8}$/.test(n)) return 'PASSPORT';
+    return 'OTHER';
+  }
+  // DNI o NIE VÁLIDO dentro de un texto suelto (el impreso). Se valida la letra para no colar ruido.
+  function findSpanishId(text) {
+    var up = String(text || '').toUpperCase();
+    var patrones = [/[XYZ][-\s]?[0-9]{7}[-\s]?[A-Z]/g, /[0-9]{8}[-\s]?[A-Z]/g];
+    for (var p = 0; p < patrones.length; p++) {
+      var m;
+      while ((m = patrones[p].exec(up))) {
+        var cand = normDocNumber(m[0]);
+        if (isValidDni(cand) || isValidNie(cand)) return cand;
       }
     }
-    var dl = lines.find(function (l) { return /^[0-9]{6}[0-9<][MFX<][0-9]{6}/.test(l); });
-    if (dl) { out.birth = mrzDate(dl.substr(0, 6), false); out.expiry = mrzDate(dl.substr(8, 6), true); }
-    return out;
-  }
-  // MRZ TD3 (pasaporte: 2 líneas de 44).
-  function parseMrzTd3(text) {
-    var out = { number: '', fullName: '', given: '', surname: '', birth: '', expiry: '' };
-    var lines = String(text).toUpperCase().split(/\n+/).map(function (l) {
-      return l.replace(/\s+/g, '').replace(/[^A-Z0-9<]/g, '');
-    }).filter(function (l) { return l.length >= 28; });
-    var nameLine = lines.find(function (l) { return /^P[A-Z0-9<]/.test(l) && l.indexOf('<<') > 0; });
-    if (nameLine) {
-      var m = nameLine.match(/^P.?[A-Z<]{3}(.*)$/);
-      var np = ((m ? m[1] : nameLine)).split('<<');
-      var surn = (np[0] || '').replace(/</g, ' ').replace(/\s+/g, ' ').trim();
-      var giv = (np.slice(1).join(' ')).replace(/</g, ' ').replace(/\s+/g, ' ').trim();
-      if (surn) {
-        out.surname = titleCase(surn); out.given = titleCase(giv);
-        out.fullName = titleCase(giv ? (giv + ' ' + surn) : surn);
-      }
-    }
-    var dataLine = lines.find(function (l) { return /^[A-Z0-9<]{9}[0-9<][A-Z<]{3}[0-9]{6}/.test(l); });
-    if (dataLine) {
-      out.number = (dataLine.substr(0, 9) || '').replace(/</g, '').trim();
-      out.birth = mrzDate(dataLine.substr(13, 6), false);
-      out.expiry = mrzDate(dataLine.substr(21, 6), true);
-    }
-    return out;
-  }
-  // DNI español: 8 dígitos + letra de control (mod 23). Se valida para no colar ruido del OCR.
-  function findDni(text) {
-    var LET = 'TRWAGMYFPDXBNJZSQVHLCKE';
-    var m, re = /(\d{8})[\-\s]?([A-Z])/g, up = String(text).toUpperCase();
-    while ((m = re.exec(up))) { var num = parseInt(m[1], 10); if (LET.charAt(num % 23) === m[2]) return m[1] + m[2]; }
     return '';
   }
+  // ⚠️ El calendario se comprueba de verdad (31 de febrero no existe): su espejo en Python lo hace
+  // con `date(...)`, y sin esto salían fechas imposibles que reventaban el alta al guardarlas.
+  function isRealDate(y, m, d) {
+    var t = new Date(y, m - 1, d);
+    return t.getFullYear() === y && t.getMonth() === m - 1 && t.getDate() === d;
+  }
+  function mrzDate(yymmdd, futura) {
+    if (!/^[0-9]{6}$/.test(yymmdd || '')) return '';
+    var yy = parseInt(yymmdd.substr(0, 2), 10), mm = yymmdd.substr(2, 2), dd = yymmdd.substr(4, 2);
+    if (+mm < 1 || +mm > 12 || +dd < 1 || +dd > 31) return '';
+    var año = futura ? (2000 + yy) : ((2000 + yy) <= new Date().getFullYear() ? 2000 + yy : 1900 + yy);
+    if (!isRealDate(año, +mm, +dd)) return '';
+    return año + '-' + mm + '-' + dd;
+  }
+  var MINUSCULAS = { de: 1, del: 1, la: 1, las: 1, los: 1, y: 1, da: 1, do: 1, dos: 1, van: 1, von: 1, der: 1, di: 1 };
+  function titleCase(s) {
+    return String(s || '').trim().toLowerCase().split(/(\s+)/).map(function (w, i) {
+      if (!w.trim()) return w;
+      if (i > 0 && MINUSCULAS[w]) return w;
+      return w.replace(/(^|[-'’])([a-záéíóúñüàèìòùç])/g, function (m, sep, ch) { return sep + ch.toUpperCase(); });
+    }).join('');
+  }
+  function mrzName(campo) {
+    var partes = String(campo || '').split('<<');
+    var ape = (partes[0] || '').replace(/</g, ' ').replace(/\s+/g, ' ').trim();
+    var nom = partes.length > 1 ? partes.slice(1).join('<').replace(/</g, ' ').replace(/\s+/g, ' ').trim() : '';
+    var completo = nom ? (nom + ' ' + ape) : ape;
+    return { last_name: titleCase(ape), first_name: titleCase(nom), full_name: titleCase(completo) };
+  }
+  function pad(l, n) { l = String(l || ''); while (l.length < n) l += '<'; return l.slice(0, n); }
+
+  function parseTd1(lineas) {
+    var l1 = pad(lineas[0], 30), l2 = pad(lineas[1], 30), l3 = String(lineas[2] || '');
+    var soporte = l1.substr(5, 9).replace(/</g, '').trim();
+    var opc1 = l1.substr(15, 15).replace(/</g, '').trim();
+    var nac = l2.substr(0, 6), dcNac = l2.charAt(6), sexo = l2.charAt(7);
+    var cad = l2.substr(8, 6), dcCad = l2.charAt(14);
+    var nacionalidad = l2.substr(15, 3).replace(/</g, '').trim();
+    var opc2 = l2.substr(18, 11).replace(/</g, '').trim();
+    var numero = findSpanishId(opc1) || findSpanishId(opc2) || normDocNumber(soporte);
+    var compuesto = l1.substr(5, 25) + l2.substr(0, 7) + l2.substr(8, 7) + l2.substr(18, 11);
+    var checks = {
+      document: checkOk(l1.substr(5, 9), l1.charAt(14)),
+      birth: checkOk(nac, dcNac), expiry: checkOk(cad, dcCad),
+      composite: checkOk(compuesto, l2.charAt(29)),
+    };
+    var out = {
+      format: 'TD1', number: numero, support_number: normDocNumber(soporte),
+      birth: mrzDate(nac, false), expiry: mrzDate(cad, true),
+      sex: (sexo === 'M' || sexo === 'F') ? sexo : '', nationality: nacionalidad, checks: checks,
+      valid: !!(checks.birth && checks.expiry),
+      valid_strict: !!(checks.document && checks.birth && checks.expiry && checks.composite),
+    };
+    var n = mrzName(l3);
+    out.full_name = n.full_name; out.first_name = n.first_name; out.last_name = n.last_name;
+    return out;
+  }
+
+  function parseTd3(lineas) {
+    var l1 = pad(lineas[0], 44), l2 = pad(lineas[1], 44);
+    var num = l2.substr(0, 9), dcNum = l2.charAt(9);
+    var nacionalidad = l2.substr(10, 3).replace(/</g, '').trim();
+    var nac = l2.substr(13, 6), dcNac = l2.charAt(19), sexo = l2.charAt(20);
+    var cad = l2.substr(21, 6), dcCad = l2.charAt(27);
+    var personales = l2.substr(28, 14), dcPers = l2.charAt(42);
+    var compuesto = l2.substr(0, 10) + l2.substr(13, 7) + l2.substr(21, 7) + l2.substr(28, 15);
+    var checks = {
+      document: checkOk(num, dcNum), birth: checkOk(nac, dcNac), expiry: checkOk(cad, dcCad),
+      personal: checkOk(personales, dcPers), composite: checkOk(compuesto, l2.charAt(43)),
+    };
+    var out = {
+      format: 'TD3', number: normDocNumber(num), support_number: '',
+      issuing_country: l1.substr(2, 3).replace(/</g, '').trim(),
+      birth: mrzDate(nac, false), expiry: mrzDate(cad, true),
+      sex: (sexo === 'M' || sexo === 'F') ? sexo : '', nationality: nacionalidad, checks: checks,
+      valid: !!(checks.document && checks.birth && checks.expiry),
+      valid_strict: !!(checks.document && checks.birth && checks.expiry && checks.personal && checks.composite),
+    };
+    var n = mrzName(l1.substr(5, 39));
+    out.full_name = n.full_name; out.first_name = n.first_name; out.last_name = n.last_name;
+    return out;
+  }
+
+  // Líneas del OCR con pinta de MRZ.
+  function mrzCandidates(text) {
+    return String(text || '').split(/[\r\n]+/).map(mrzClean)
+      .filter(function (l) { return l.length >= 24 && l.indexOf('<') >= 0; });
+  }
+  function hasMrz(text) { return mrzCandidates(text).length > 0; }
+
+  // Lee el MRZ. Decide TD1/TD3 por la FORMA de las líneas: si suben un pasaporte diciendo que es un
+  // DNI, se lee bien igualmente.
+  function parseMrzText(text) {
+    var lineas = mrzCandidates(text);
+    if (!lineas.length) return null;
+    var largas = lineas.filter(function (l) { return l.length >= 40; });
+    var l1td3 = null, i;
+    for (i = 0; i < largas.length; i++) if (largas[i].charAt(0) === 'P') { l1td3 = largas[i]; break; }
+    if (l1td3) {
+      for (i = 0; i < largas.length; i++) {
+        if (largas[i] !== l1td3 && /^[A-Z0-9<]{9}[0-9<][A-Z<]{3}[0-9]{6}/.test(largas[i])) {
+          return parseTd3([l1td3, largas[i]]);
+        }
+      }
+    }
+    var medianas = lineas.filter(function (l) { return l.length >= 26 && l.length <= 34; });
+    var l1 = null, l2 = null, l3 = null;
+    for (i = 0; i < medianas.length; i++) {
+      if (!l1 && /^I[A-Z0-9<]/.test(medianas[i])) { l1 = medianas[i]; continue; }
+      if (!l2 && /^[0-9]{6}[0-9<][MFX<][0-9]{6}/.test(medianas[i])) { l2 = medianas[i]; continue; }
+    }
+    for (i = 0; i < medianas.length; i++) {
+      if (medianas[i] !== l1 && medianas[i] !== l2 && medianas[i].indexOf('<<') > 0 && !/^[0-9]/.test(medianas[i])) {
+        l3 = medianas[i]; break;
+      }
+    }
+    if (l2) return parseTd1([l1 || '', l2, l3 || '']);
+    // Solo el renglón del nombre (OCR a medias): al menos el nombre.
+    for (i = 0; i < lineas.length; i++) {
+      if (lineas[i].indexOf('<<') > 0 && !/^[0-9]/.test(lineas[i])) {
+        var n = mrzName(lineas[i]);
+        if (!n.full_name) return null;
+        return { format: '', number: '', support_number: '', birth: '', expiry: '', sex: '',
+                 nationality: '', checks: {}, valid: false, valid_strict: false,
+                 full_name: n.full_name, first_name: n.first_name, last_name: n.last_name };
+      }
+    }
+    return null;
+  }
+
   function findDates(text) {
     var out = [], m, re = /(\d{2})[\/\.\-](\d{2})[\/\.\-](\d{4})/g;
-    while ((m = re.exec(text))) { if (+m[2] >= 1 && +m[2] <= 12 && +m[1] >= 1 && +m[1] <= 31) out.push(m[3] + '-' + m[2] + '-' + m[1]); }
+    while ((m = re.exec(text))) {
+      if (+m[2] >= 1 && +m[2] <= 12 && +m[1] >= 1 && +m[1] <= 31 && isRealDate(+m[3], +m[2], +m[1])) {
+        out.push(m[3] + '-' + m[2] + '-' + m[1]);
+      }
+    }
     return out;
   }
   function normDate(s) {
     var m = String(s).match(/(\d{2})[\/\.\- ](\d{2})[\/\.\- ](\d{4})/);
     if (!m || +m[2] < 1 || +m[2] > 12 || +m[1] < 1 || +m[1] > 31) return '';
+    if (!isRealDate(+m[3], +m[2], +m[1])) return '';
     return m[3] + '-' + m[2] + '-' + m[1];
   }
   // Fecha de emisión del pasaporte: junto a "expedición/emisión/issue", o ~10 años antes de la caducidad.
@@ -268,14 +433,30 @@
 
   // Extrae los campos oficiales del texto OCR combinado (puro, no toca el DOM).
   function extractFields(rawText, kind) {
-    var mrz = (kind === 'PASSPORT') ? parseMrzTd3(rawText) : parseMrz(rawText);
-    var out = { number: '', full_name: '', first_name: '', last_name: '', birth: '', expiry: '', issue: '', address: '' };
-    out.number = (kind === 'PASSPORT') ? (mrz.number || '') : (findDni(rawText) || '');
-    out.full_name = mrz.fullName || '';
-    out.first_name = mrz.given || '';   // frontera nombre/apellidos que da el MRZ (evita re-partir por heurística)
-    out.last_name = mrz.surname || '';
+    // El MRZ manda: lleva el nombre partido en apellidos/nombre y las fechas sin ambigüedad, y se
+    // puede COMPROBAR con sus dígitos de control. El texto impreso solo se usa de respaldo.
+    var mrz = parseMrzText(rawText) || {};
+    var out = {
+      number: '', number_kind: '', support_number: '', full_name: '', first_name: '', last_name: '',
+      birth: '', expiry: '', issue: '', address: '', sex: '', nationality: '',
+      mrz_format: mrz.format || '', mrz_valid: !!mrz.valid, mrz_valid_strict: !!mrz.valid_strict,
+      checks: mrz.checks || {},
+    };
+    out.number = mrz.number || '';
+    // En DNI/NIE, si el MRZ no ha dado un número válido, se rebusca en el impreso (con letra de
+    // control: así no entra ruido del OCR).
+    if (kind !== 'PASSPORT' && !(isValidDni(out.number) || isValidNie(out.number))) {
+      out.number = findSpanishId(rawText) || out.number;
+    }
+    out.number_kind = docNumberKind(out.number);
+    out.support_number = mrz.support_number || '';
+    out.full_name = mrz.full_name || '';
+    out.first_name = mrz.first_name || '';   // la frontera nombre/apellidos la da el MRZ
+    out.last_name = mrz.last_name || '';
     out.birth = mrz.birth || '';
     out.expiry = mrz.expiry || '';
+    out.sex = mrz.sex || '';
+    out.nationality = mrz.nationality || '';
     var dates = findDates(rawText);
     if (!out.birth && dates.length) out.birth = dates[0];
     if (!out.expiry && dates.length > 1) out.expiry = dates[dates.length - 1];
@@ -407,7 +588,16 @@
     subCanvas: subCanvas,
     canvasToFile: canvasToFile,
     ocrCanvas: ocrCanvas,
+    ocrMrz: ocrMrz,
+    mrzWarmUp: mrzWarmUp,
     extractFields: extractFields,
+    // MRZ (espejo de `mrz_utils.py`): lo usa el escáner con cámara para validar cada fotograma.
+    parseMrzText: parseMrzText,
+    hasMrz: hasMrz,
+    isValidDni: isValidDni,
+    isValidNie: isValidNie,
+    docNumberKind: docNumberKind,
+    findSpanishId: findSpanishId,
     scan: scan,
     openCropTool: openCropTool
   };

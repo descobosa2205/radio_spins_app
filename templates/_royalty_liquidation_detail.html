@@ -4,7 +4,7 @@
    Fecha · Ingreso · % · A facturar) y debajo de cada línea sus descuentos, para que lo que se ve en
    pantalla y lo que se firmó en el PDF no puedan discrepar.
    ⚠️ El importe total del beneficiario es `total_amount` (no `total`). #}
-{% macro royalty_detail(beneficiary, period_label, compact=False) %}
+{% macro royalty_detail(beneficiary, period_label, compact=False, totals=None) %}
   {% set items = beneficiary.get('items') or [] %}
   <div class="rliq">
     <div class="rliq__head">
@@ -20,8 +20,16 @@
         </div>
       </div>
       <div class="text-end">
-        <div class="rliq__totlab">Total a facturar</div>
-        <div class="rliq__tot">{{ (beneficiary.get('total_amount') or 0)|eur }}</div>
+        {# El importe de la liquidación es la BASE; lo que hay que facturar es esa base MÁS el IVA.
+           Se enseñan los dos números para que la liquidación, la factura y el pago coincidan. #}
+        {% if totals %}
+          <div class="rliq__totlab">Base · {{ totals.net|eur }}{% if totals.vat %} + IVA {{ '%.0f'|format(totals.vat_pct|float) }}%{% endif %}</div>
+          <div class="rliq__tot">{{ totals.gross|eur }}</div>
+          <div class="rliq__totlab">Total a facturar (IVA incluido)</div>
+        {% else %}
+          <div class="rliq__totlab">Total a facturar</div>
+          <div class="rliq__tot">{{ (beneficiary.get('total_amount') or 0)|eur }}</div>
+        {% endif %}
       </div>
     </div>
 
@@ -76,6 +84,16 @@
             <th></th>
             <th class="text-end">{{ (beneficiary.get('total_amount') or 0)|eur }}</th>
           </tr>
+          {% if totals and totals.vat %}
+          <tr>
+            <th colspan="6" class="text-end fw-normal">IVA {{ '%.0f'|format(totals.vat_pct|float) }}%</th>
+            <th class="text-end fw-normal">{{ totals.vat|eur }}</th>
+          </tr>
+          <tr>
+            <th colspan="6" class="text-end">Total a facturar</th>
+            <th class="text-end">{{ totals.gross|eur }}</th>
+          </tr>
+          {% endif %}
         </tfoot>
       </table>
     </div>

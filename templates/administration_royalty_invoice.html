@@ -50,7 +50,7 @@
       </div>
       <div class="card-body p-0">
         {% if beneficiary %}
-          {{ rliq.royalty_detail(beneficiary, period_label, compact=True) }}
+          {{ rliq.royalty_detail(beneficiary, period_label, compact=True, totals=invoice_totals) }}
         {% else %}
           <div class="text-muted small p-3">No se pudieron recuperar los datos de la liquidación.</div>
         {% endif %}

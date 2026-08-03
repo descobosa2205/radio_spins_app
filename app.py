@@ -6935,7 +6935,10 @@ def _royalty_data_signature(beneficiary: dict) -> str:
         filas.append([str(it.get("id") or it.get("title") or ""), _num(it.get("income")),
                       _num(it.get("amount")), _num(it.get("pct"))])
     filas.sort(key=lambda x: x[0])
-    base = {"total": _num(beneficiary.get("total")), "total_income": _num(beneficiary.get("total_income")),
+    # ⚠️ El importe del beneficiario es `total_amount`. `total` NO existe: se leía en varios sitios y
+    # daba siempre 0, así que el aviso de «los ingresos han cambiado» no decía cuánto cambiaba y el
+    # historial apuntaba la generación sin importe.
+    base = {"total_income": _num(beneficiary.get("total_income")),
             "total_amount": _num(beneficiary.get("total_amount")), "items": filas}
     return hashlib.sha256(json.dumps(base, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
@@ -6970,8 +6973,8 @@ def _royalty_freeze(session_db, rec, beneficiary: dict, pdf_url: str = "", regen
     if (rec.status or "PENDING").upper() in ("", "PENDING"):
         rec.status = "GENERATED"
     _royalty_history_add(rec, "REGENERATED" if regenerada else "GENERATED",
-                         total=(format_eur(_money_or_zero(beneficiary.get("total")))
-                                if beneficiary.get("total") not in (None, "") else ""),
+                         total=(format_eur(_money_or_zero(beneficiary.get("total_amount")))
+                                if beneficiary.get("total_amount") not in (None, "") else ""),
                          pdf_url=pdf_url or None)
 
 
@@ -6979,6 +6982,31 @@ def _royalty_frozen_beneficiary(rec):
     """Los datos CONGELADOS de la liquidación (o None si todavía no se ha generado)."""
     snap = getattr(rec, "snapshot", None) if rec is not None else None
     return snap if isinstance(snap, dict) and snap else None
+
+
+def _royalty_effective_beneficiary(session_db, rec, kind: str, beneficiary_id, sem_year: int, sem_half: int):
+    """LOS DATOS DE LA LIQUIDACIÓN: el congelado si ya se generó, y solo si no, los de ahora.
+
+    Punto ÚNICO para que todas las pantallas (el enlace del beneficiario, la validación de su factura,
+    pendiente de pago, el listado y el PDF) enseñen EXACTAMENTE lo que se envió. Si los ingresos
+    cambian después, la liquidación no se altera: hay que generar una nueva."""
+    congelada = _royalty_frozen_beneficiary(rec)
+    if congelada:
+        return congelada, True
+    try:
+        vivo, _s, _e, _b = _get_royalty_liquidation_beneficiary_data(
+            session_db, kind, beneficiary_id, sem_year, sem_half)
+        return vivo, False
+    except Exception:
+        return None, False
+
+
+def _royalty_invoice_totals(beneficiary: dict | None) -> dict:
+    """Lo que hay que FACTURAR de una liquidación: su importe es la BASE y la factura va con IVA.
+
+    Un solo cálculo para el enlace del beneficiario, la validación de la factura y el pago, para que
+    la liquidación, la factura y lo que se paga digan el MISMO número."""
+    return _invoice_request_amounts((beneficiary or {}).get("total_amount"), 0)
 
 
 def _royalty_needs_regeneration(rec, live_beneficiary: dict) -> bool:
@@ -7061,14 +7089,14 @@ def _apply_royalty_liquidation_meta(bucket: dict, rec: RoyaltyLiquidation | None
     if congelada:
         # Los ingresos pueden haber cambiado; la liquidación NO se altera hasta generar una nueva.
         bucket['needs_regeneration'] = _royalty_needs_regeneration(rec, bucket)
-        bucket['live_total'] = bucket.get('total')
-        for campo in ('total', 'total_income', 'total_amount', 'items'):
+        bucket['live_total'] = bucket.get('total_amount')
+        for campo in ('total_income', 'total_amount', 'items'):
             if campo in congelada:
                 bucket[campo] = congelada[campo]
         # Aviso de cambios: desde cuándo (la fecha en que se generó lo que hay) y CUÁNTO cambia.
         if bucket['needs_regeneration']:
             try:
-                dif = _money_or_zero(bucket.get('live_total')) - _money_or_zero(congelada.get('total'))
+                dif = _money_or_zero(bucket.get('live_total')) - _money_or_zero(congelada.get('total_amount'))
             except Exception:
                 dif = Decimal('0')
             bucket['income_diff'] = dif
@@ -8508,8 +8536,19 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
             .filter(RoyaltyLiquidation.period_start == sem_start)
             .first()
         )
+        # ⚠️ LO GENERADO NO SE VUELVE A CONGELAR. Enviar la liquidación o descargar su PDF también
+        # pasaban por aquí con `touch_liquidation=True`, así que a una liquidación YA generada se le
+        # movía la fecha de generación y se le apuntaba un evento «regenerada» que no había ocurrido.
+        # Congelar es solo del acto de GENERAR (`use_frozen=False`).
+        if rec is not None and use_frozen and _royalty_frozen_beneficiary(rec):
+            rec.period_end = sem_end
+            rec.updated_at = now_dt
+            session_db.commit()
+            touch_liquidation = False
         regenerada = False
-        if rec:
+        if not touch_liquidation:
+            pass
+        elif rec:
             regenerada = bool(_royalty_frozen_beneficiary(rec))
             rec.period_end = sem_end
             rec.generated_at = now_dt
@@ -8530,8 +8569,9 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
             session_db.flush()
         # Generar CONGELA los datos: a partir de aquí la liquidación no cambia aunque cambien los
         # ingresos (hasta que se genere una nueva).
-        _royalty_freeze(session_db, rec, beneficiary, regenerada=regenerada)
-        session_db.commit()
+        if touch_liquidation:
+            _royalty_freeze(session_db, rec, beneficiary, regenerada=regenerada)
+            session_db.commit()
 
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import cm
@@ -9171,14 +9211,24 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
         page_no += 1
         y = _draw_page_header(page_no)
 
-    box_w = 180
-    box_h = 26
+    # El importe de la liquidación es la BASE y la factura va con IVA: se dan los tres números para
+    # que la liquidación, la factura y el pago digan lo mismo.
+    _tot = _royalty_invoice_totals(beneficiary)
+    box_w = 230
+    box_h = 46 if _tot["vat"] else 26
     pdf.setFillColor(colors.HexColor('#F8F8F8'))
     pdf.setStrokeColor(colors.HexColor('#DDDDDD'))
     pdf.roundRect(right - box_w, y - box_h, box_w, box_h, 6, fill=1, stroke=1)
     pdf.setFillColor(colors.black)
-    pdf.setFont('Helvetica-Bold', 9.5)
-    pdf.drawRightString(right - 8, y - 16, f"Total a facturar: {_eur(beneficiary.get('total_amount') or 0)}")
+    if _tot["vat"]:
+        pdf.setFont('Helvetica', 8.6)
+        pdf.drawRightString(right - 8, y - 13, f"Base: {_eur(_tot['net'])}")
+        pdf.drawRightString(right - 8, y - 24, f"IVA {float(_tot['vat_pct']):.0f}%: {_eur(_tot['vat'])}")
+        pdf.setFont('Helvetica-Bold', 9.5)
+        pdf.drawRightString(right - 8, y - 38, f"Total a facturar: {_eur(_tot['gross'])}")
+    else:
+        pdf.setFont('Helvetica-Bold', 9.5)
+        pdf.drawRightString(right - 8, y - 16, f"Total a facturar: {_eur(_tot['gross'])}")
     y -= box_h + 12
 
     pdf.setFillColor(colors.HexColor('#555555'))
@@ -9312,7 +9362,10 @@ def _build_royalty_liquidation_email_body(beneficiary: dict, period_label: str, 
     """
 
     invoice_name = 'PIES Compañía Discográfica SL | B82165283 | Avenida de Castilla, 2, 28830 San Fernando de Henares'
-    total_amount = _eur(beneficiary.get('total_amount') or 0)
+    _tot_mail = _royalty_invoice_totals(beneficiary)
+    total_amount = _eur(_tot_mail['gross'])
+    total_desglose = (f"{_eur(_tot_mail['net'])} de base + {float(_tot_mail['vat_pct']):.0f}% de IVA"
+                      if _tot_mail['vat'] else "")
 
     html_body = f"""
     <div style="font-family:Arial,Helvetica,sans-serif;color:#111827;max-width:900px;margin:0 auto;background:#f3f4f6;padding:24px;">
@@ -9331,6 +9384,7 @@ def _build_royalty_liquidation_email_body(beneficiary: dict, period_label: str, 
         <div style="margin:0 0 18px 0;padding:14px 16px;border:1px solid #e5e7eb;border-radius:14px;background:#f9fafb;text-align:right;">
           <span style="font-size:14px;color:#374151;">Total a facturar:</span>
           <strong style="font-size:18px;color:#111827;margin-left:8px;">{total_amount}</strong>
+          {f'<div style="font-size:12.5px;color:#6b7280;margin-top:4px;">{total_desglose}</div>' if total_desglose else ''}
         </div>
         <div style="margin:22px 0 18px 0;">
           <a href="{html.escape(download_url)}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">Descargar PDF</a>
@@ -9349,7 +9403,7 @@ def _build_royalty_liquidation_email_body(beneficiary: dict, period_label: str, 
         f"Beneficiario: {beneficiary.get('name') or 'Beneficiario'}\n"
         f"Periodo: {period_label}\n\n"
         f"Liquidación:\n{text_rows}\n\n"
-        f"Total a facturar: {total_amount}\n\n"
+        f"Total a facturar: {total_amount}" + (f" ({total_desglose})" if total_desglose else "") + "\n\n"
         f"Descargar PDF: {download_url}\n\n"
         f'Emitir factura a nombre de "{invoice_name}"\n'
         f"Subir factura: {upload_url}\n"
@@ -14162,17 +14216,31 @@ def discografica_royalties_liquidation_pdf():
     except Exception:
         abort(400)
 
+    # ⚠️ GENERAR SUSTITUYE lo congelado, así que NO puede pasar por descuido. Este endpoint es un GET
+    # (un enlace), y sin este cerrojo bastaba con volver a abrir la URL —o que el navegador la
+    # precargara— para regenerar una liquidación ya enviada con los ingresos de hoy. Ahora:
+    #   · sin `regenerate=1` se devuelve el PDF de lo GENERADO, sin tocar nada;
+    #   · con `regenerate=1` (lo manda el modal de comparación, tras aceptarlo) sí se regenera;
+    #   · una liquidación ya FACTURADA o PAGADA no se regenera: hay una factura y un pago contra ese
+    #     importe, y cambiarlo dejaría los números sin cuadrar.
+    quiere_regenerar = _truthy(request.args.get("regenerate"))
     with get_db() as session_db:
+        sem_start, _sem_end = _semester_range(sem_year, sem_half)
+        rec = _royalty_liquidation_record(session_db, kind, beneficiary_uuid, sem_start)
+        congelada = _royalty_frozen_beneficiary(rec)
+        estado = (getattr(rec, "status", None) or "").upper()
+        if congelada and estado in ("INVOICED", "PAID"):
+            quiere_regenerar = False
         try:
-            # GENERAR: se calcula con los datos EN VIVO y se congela lo generado.
             pdf_bytes, filename, _beneficiary = _build_royalty_liquidation_pdf_bytes(
                 session_db,
                 kind,
                 beneficiary_uuid,
                 sem_year,
                 sem_half,
-                touch_liquidation=True,
-                use_frozen=False,
+                # Congelar es SOLO del acto de generar.
+                touch_liquidation=bool(quiere_regenerar or not congelada),
+                use_frozen=not (quiere_regenerar or not congelada),
             )
         except LookupError:
             abort(404)
@@ -14332,7 +14400,7 @@ def royalty_liquidation_compare():
             return jsonify({'ok': False, 'message': 'No hay datos de royalties para este periodo.'}), 404
         if not anterior:
             return jsonify({'ok': True, 'first_time': True,
-                            'nueva': {'total': str(nueva.get('total') or ''), 'lineas': len(nueva.get('items') or [])}})
+                            'nueva': {'total': format_eur(_money_or_zero(nueva.get('total_amount'))), 'lineas': len(nueva.get('items') or [])}})
 
         def _idx(datos):
             fuera = {}
@@ -14357,10 +14425,10 @@ def royalty_liquidation_compare():
         return jsonify({
             'ok': True,
             'first_time': False,
-            'anterior': {'total': format_eur(_money_or_zero(anterior.get('total'))),
+            'anterior': {'total': format_eur(_money_or_zero(anterior.get('total_amount'))),
                          'generada': _format_madrid_datetime_label(getattr(rec, 'generated_at', None)),
                          'lineas': len(anterior.get('items') or [])},
-            'nueva': {'total': format_eur(_money_or_zero(nueva.get('total'))),
+            'nueva': {'total': format_eur(_money_or_zero(nueva.get('total_amount'))),
                       'lineas': len(nueva.get('items') or [])},
             'cambios': filas[:60],
             'sin_cambios': not filas,
@@ -14426,8 +14494,8 @@ def discografica_royalties_liquidation_info():
             'generated_pdf_url': (getattr(rec, 'snapshot_pdf_url', None) or '').strip(),
             'is_generated': bool(_royalty_frozen_beneficiary(rec)),
             'needs_regeneration': bool(live and _royalty_needs_regeneration(rec, live)),
-            'total': (format_eur(_money_or_zero((_royalty_frozen_beneficiary(rec) or {}).get('total')))
-                      if (_royalty_frozen_beneficiary(rec) or {}).get('total') not in (None, '') else ''),
+            'total': (format_eur(_money_or_zero((_royalty_frozen_beneficiary(rec) or {}).get('total_amount')))
+                      if (_royalty_frozen_beneficiary(rec) or {}).get('total_amount') not in (None, '') else ''),
             'sent_at_label': _format_madrid_datetime_label(getattr(rec, 'last_sent_at', None)),
             'sent_to': list(getattr(rec, 'last_sent_to', None) or []),
             'pdf_url': (getattr(rec, 'last_sent_pdf_url', None) or '').strip(),
@@ -14463,11 +14531,11 @@ def public_royalty_liquidation_view(token):
         except Exception:
             abort(404)
         rec = _royalty_liquidation_record(session_db, kind, beneficiary_uuid, sem_start)
-        # LO QUE SE LE ENVIÓ: si la liquidación está generada manda su congelado, no lo que saldría
-        # hoy. Así el beneficiario ve exactamente lo que firmó el PDF.
-        _congelada = _royalty_frozen_beneficiary(rec)
-        if _congelada:
-            beneficiary = _congelada
+        # LO QUE SE LE ENVIÓ, punto único: el congelado manda si la liquidación está generada.
+        _efectivo, _esta_congelada = _royalty_effective_beneficiary(
+            session_db, rec, kind, beneficiary_uuid, sem_year, sem_half)
+        if _efectivo:
+            beneficiary = _efectivo
         # Las liquidaciones de royalties se facturan A NOMBRE DE PIES (el sello), no de la primera
         # empresa del grupo por orden alfabético (que era 33 Producciones).
         company = None
@@ -14484,6 +14552,8 @@ def public_royalty_liquidation_view(token):
             "public_royalty_liquidation.html",
             token=token,
             beneficiary=beneficiary,
+            # El mismo cálculo que en la validación y en el pago: base + IVA.
+            invoice_totals=_royalty_invoice_totals(beneficiary),
             period_label=_royalty_liquidation_period_label_from_dates(sem_start, sem_end),
             liquidation=rec,
             company=company,
@@ -41446,16 +41516,12 @@ def administration_royalty_invoice_review(invoice_id):
             abort(404)
         rec = session_db.get(RoyaltyLiquidation, inv.royalty_liquidation_id) if inv.royalty_liquidation_id else None
         promoter = session_db.get(Promoter, inv.promoter_id)
-        # LO QUE SE ENVIÓ, no lo que saldría hoy: manda el congelado de la liquidación
-        # (`snapshot`). Solo si nunca se generó se recalcula en vivo, para no dejar la pantalla vacía.
-        beneficiary = _royalty_frozen_beneficiary(rec)
-        if beneficiary is None and rec is not None:
-            try:
-                sem_half = 1 if rec.period_start.month <= 6 else 2
-                beneficiary, _s, _e, _bid = _get_royalty_liquidation_beneficiary_data(
-                    session_db, rec.beneficiary_kind, str(rec.beneficiary_id), rec.period_start.year, sem_half)
-            except Exception:
-                beneficiary = None
+        # LO QUE SE ENVIÓ, no lo que saldría hoy (punto único `_royalty_effective_beneficiary`).
+        beneficiary, congelada_ok = (None, False)
+        if rec is not None:
+            beneficiary, congelada_ok = _royalty_effective_beneficiary(
+                session_db, rec, rec.beneficiary_kind, str(rec.beneficiary_id),
+                rec.period_start.year, 1 if rec.period_start.month <= 6 else 2)
         embargos = []
         if promoter is not None and "_active_embargo_orders_for_promoter" in globals():
             try:
@@ -41473,20 +41539,28 @@ def administration_royalty_invoice_review(invoice_id):
         nombre = ((inv.original_name or "") + " " + (inv.file_url or "")).lower()
         es_pdf = ".pdf" in nombre
         es_imagen = (not es_pdf) and any(x in nombre for x in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".heic"))
-        total_liq = _money_or_zero((beneficiary or {}).get("total_amount"))
+        # LO QUE SE LE PIDIÓ FACTURAR: la base de la liquidación MÁS el IVA. Es el número que tienen
+        # que decir la liquidación, la factura y el pago; comparar contra la base sola hacía saltar el
+        # aviso siempre.
+        totales = _royalty_invoice_totals(beneficiary)
         total_fac = _money_or_zero(getattr(inv, "amount_gross", None))
+        # Solo se avisa si la factura no cuadra NI con el total con IVA NI con la base (hay
+        # beneficiarios que facturan sin IVA).
+        descuadra = bool(total_fac > 0
+                         and abs(totales["gross"] - total_fac) > Decimal("0.01")
+                         and abs(totales["net"] - total_fac) > Decimal("0.01"))
         return render_template(
             "administration_royalty_invoice.html",
             inv=inv, liquidation=rec, promoter=promoter, beneficiary=beneficiary,
-            frozen=bool(_royalty_frozen_beneficiary(rec)),
+            invoice_totals=totales,
+            frozen=bool(congelada_ok),
             period_label=(_royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end) if rec else ""),
             embargos=embargos,
             debts=deudas,
             required_docs=[d for d in docs if d["key"] != "INVOICE"],
             invoice_is_pdf=es_pdf,
             invoice_is_image=es_imagen,
-            # Aviso si la factura no cuadra con la liquidación (más de un céntimo de diferencia).
-            amount_mismatch=bool(total_liq and total_fac and abs(total_liq - total_fac) > Decimal("0.01")),
+            amount_mismatch=descuadra,
         )
     finally:
         session_db.close()
@@ -49879,7 +49953,9 @@ def _royalty_accounting_pending_rows(session_db, limit: int = 300) -> list[dict]
             "id": str(rec.id),
             "name": (congelada.get("name") or "Beneficiario"),
             "period_label": _royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end),
-            "amount": _money_or_zero(congelada.get("total_amount")),
+            # El mismo número que se pagó: base + IVA.
+            "amount": _royalty_invoice_totals(congelada)["gross"],
+            "net": _money_or_zero(congelada.get("total_amount")),
             "paid_label": (rec.paid_at.strftime("%d/%m/%Y") if rec.paid_at else ""),
             "method": (getattr(rec, "payment_method", None) or ""),
             "invoice_url": (getattr(inv, "file_url", None) or ""),
@@ -49923,21 +49999,23 @@ def _royalty_payment_pending_rows(session_db) -> list[dict]:
         nombre = (_promoter_display_name(promoter)
                   or (getattr(promoter, "nick", None) or "").strip()
                   or (congelada.get("name") or "").strip())
-        # El IMPORTE no puede faltar en algo ya validado: si el congelado no lo trae se coge el de la
-        # factura y, en último caso, se recalcula la liquidación.
-        importe = _money_or_zero(congelada.get("total_amount"))
+        # LO QUE SE PAGA es lo que se le pidió facturar: la base de la liquidación MÁS el IVA. Así la
+        # liquidación, la factura y la remesa dicen el mismo número.
+        base = congelada
+        if not base:
+            try:
+                base, _c = _royalty_effective_beneficiary(
+                    session_db, rec, rec.beneficiary_kind, str(rec.beneficiary_id),
+                    rec.period_start.year, 1 if rec.period_start.month <= 6 else 2)
+            except Exception:
+                base = None
+            if base and not nombre:
+                nombre = (base.get("name") or "").strip()
+        totales = _royalty_invoice_totals(base or {})
+        importe = totales["gross"]
+        # El IMPORTE no puede faltar en algo ya validado: en último caso, el de la propia factura.
         if importe <= 0 and inv is not None:
             importe = _money_or_zero(getattr(inv, "amount_gross", None))
-        if importe <= 0:
-            try:
-                _ben, _s, _e, _bid = _get_royalty_liquidation_beneficiary_data(
-                    session_db, rec.beneficiary_kind, str(rec.beneficiary_id),
-                    rec.period_start.year, 1 if rec.period_start.month <= 6 else 2)
-                importe = _money_or_zero((_ben or {}).get("total_amount"))
-                if not nombre:
-                    nombre = ((_ben or {}).get("name") or "").strip()
-            except Exception:
-                pass
         if not nombre:
             nombre = "Sin beneficiario"
         iban = (getattr(promoter, "bank_account", None) or "").strip()
@@ -49963,6 +50041,9 @@ def _royalty_payment_pending_rows(session_db) -> list[dict]:
             "concept": "Royalties · " + _royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end),
             "period_label": _royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end),
             "amount": importe,
+            "net": totales["net"],
+            "vat": totales["vat"],
+            "vat_pct": totales["vat_pct"],
             "iban": iban,
             "iban_masked": (_iban_masked(iban) if iban else ""),
             "missing": faltan,
@@ -50112,7 +50193,8 @@ def _payment_batch_add_royalties(session_db, batch, liquidation_ids) -> int:
         congelada = _royalty_frozen_beneficiary(rec) or {}
         inv = session_db.get(SupplierInvoice, rec.invoice_id) if getattr(rec, "invoice_id", None) else None
         promoter = session_db.get(Promoter, inv.promoter_id) if (inv is not None and inv.promoter_id) else None
-        importe = _money_or_zero(congelada.get("total_amount"))
+        # Lo que va al banco es lo que se le pidió facturar: base de la liquidación + IVA.
+        importe = _royalty_invoice_totals(congelada)["gross"]
         if importe <= 0 and inv is not None:
             importe = _money_or_zero(getattr(inv, "amount_gross", None))
         session_db.add(PaymentBatchItem(
@@ -61086,12 +61168,13 @@ def public_invoice_landing():
                 provider = session_db.get(Promoter, beneficiary_uuid) if (kind == "PROMOTER" and beneficiary_uuid) else None
                 # Royalties = sello: la factura va a nombre de PIES.
                 company = _pies_group_company(session_db) or (companies[0] if companies else None)
-                # LO QUE SE LE ENVIÓ manda: si la liquidación está generada, su congelado.
+                # LO QUE SE LE ENVIÓ manda (punto único): el congelado de la liquidación.
                 rec_liq = (_royalty_liquidation_record(session_db, kind, beneficiary_uuid, sem_start)
                            if beneficiary_uuid else None)
-                _congelada = _royalty_frozen_beneficiary(rec_liq)
-                if _congelada:
-                    beneficiary = _congelada
+                _efectivo, _cong = _royalty_effective_beneficiary(
+                    session_db, rec_liq, kind, beneficiary_uuid, sem_year, sem_half)
+                if _efectivo:
+                    beneficiary = _efectivo
                 rows = []
                 if beneficiary:
                     # ⚠️ El total del beneficiario es `total_amount` (no `total`): leyendo `total`

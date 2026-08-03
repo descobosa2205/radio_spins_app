@@ -15,7 +15,7 @@
        pantalla de validar la factura, así no puede haber discrepancias. #}
     <div class="card shadow-sm mb-3">
       <div class="card-body p-0">
-        {{ rliq.royalty_detail(beneficiary, period_label) }}
+        {{ rliq.royalty_detail(beneficiary, period_label, totals=invoice_totals) }}
       </div>
     </div>
 
@@ -46,7 +46,9 @@
     <div class="card shadow-sm">
       <div class="card-body text-center">
         <h6 class="mb-2"><i class="fa fa-cloud-arrow-up me-2 text-danger"></i>Sube tu factura</h6>
-        <p class="small text-muted mb-3">Emítela a nombre de <strong>{{ company.name if company else 'la empresa del grupo' }}</strong> por el importe total de esta liquidación, indicando claramente el artista y el concepto.</p>
+        <p class="small text-muted mb-3">Emítela a nombre de <strong>{{ company.name if company else 'la empresa del grupo' }}</strong>
+          {% if invoice_totals and invoice_totals.gross %}por <strong>{{ invoice_totals.gross|eur }}</strong>{% if invoice_totals.vat %} ({{ invoice_totals.net|eur }} de base más {{ '%.0f'|format(invoice_totals.vat_pct|float) }}% de IVA){% endif %}{% else %}por el importe total de esta liquidación{% endif %},
+          indicando claramente el artista y el concepto.</p>
         <a class="btn btn-danger" href="{{ url_for('public_invoice_landing', liq=token) }}"><i class="fa fa-file-invoice-dollar me-1"></i>Subir factura</a>
       </div>
     </div>

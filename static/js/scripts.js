@@ -1615,10 +1615,11 @@ async function generateRoyaltyLiquidation(kind, bid, semesterKey){
     const r = await fetch(`/discografica/royalties/liquidacion/comparar?kind=${encodeURIComponent(kind)}&bid=${encodeURIComponent(bid)}&s=${encodeURIComponent(semesterKey)}`);
     const js = await r.json().catch(() => ({}));
     if (!r.ok || !js.ok) throw new Error((js && js.message) || 'No se pudo preparar la liquidación');
-    if (js.first_time) { return downloadRoyaltyLiquidationPdf(kind, bid, semesterKey); }
+    // Primera vez: no hay nada congelado que sustituir, se genera directamente.
+    if (js.first_time) { return downloadRoyaltyLiquidationPdf(kind, bid, semesterKey, true); }
 
     const modalEl = document.getElementById('royaltyCompareModal');
-    if (!modalEl || !window.bootstrap) { return downloadRoyaltyLiquidationPdf(kind, bid, semesterKey); }
+    if (!modalEl || !window.bootstrap) { return downloadRoyaltyLiquidationPdf(kind, bid, semesterKey, true); }
     document.getElementById('royaltyCmpOldTotal').textContent = js.anterior.total || '—';
     document.getElementById('royaltyCmpOldMeta').textContent =
       (js.anterior.generada ? ('Generada el ' + js.anterior.generada + ' · ') : '') + js.anterior.lineas + ' línea(s)';
@@ -1640,7 +1641,8 @@ async function generateRoyaltyLiquidation(kind, bid, semesterKey){
     btn.parentNode.replaceChild(nuevoBtn, btn);
     nuevoBtn.addEventListener('click', function(){
       bs.hide();
-      downloadRoyaltyLiquidationPdf(kind, bid, semesterKey);
+      // Aceptar la comparativa es lo que autoriza a SUSTITUIR lo congelado.
+      downloadRoyaltyLiquidationPdf(kind, bid, semesterKey, true);
     });
     bs.show();
   } catch (err) {
@@ -1650,9 +1652,12 @@ async function generateRoyaltyLiquidation(kind, bid, semesterKey){
 }
 window.generateRoyaltyLiquidation = generateRoyaltyLiquidation;
 
-async function downloadRoyaltyLiquidationPdf(kind, bid, semesterKey){
+// `regenerate` = se ha autorizado SUSTITUIR lo congelado (primera generación, o aceptar la
+// comparativa). Sin él, el endpoint devuelve el PDF de lo ya generado y no toca nada.
+async function downloadRoyaltyLiquidationPdf(kind, bid, semesterKey, regenerate){
   try {
-    const url = `/discografica/royalties/liquidacion/pdf?kind=${encodeURIComponent(kind)}&bid=${encodeURIComponent(bid)}&s=${encodeURIComponent(semesterKey)}`;
+    const url = `/discografica/royalties/liquidacion/pdf?kind=${encodeURIComponent(kind)}&bid=${encodeURIComponent(bid)}&s=${encodeURIComponent(semesterKey)}`
+      + (regenerate ? '&regenerate=1' : '');
 
     const r = await fetch(url);
     if (!r.ok) {

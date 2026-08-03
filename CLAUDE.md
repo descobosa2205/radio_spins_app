@@ -1230,6 +1230,27 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   queda como **facturada**: aparece en el listado de royalties y la factura, en la base de facturas. Se contrasta con las **órdenes
   de embargo vigentes** del proveedor y se avisa para no abonarle. Acciones en bloque:
   `royalty_liquidations_download_all` (un PDF continuo con pypdf) y `royalty_liquidations_send_all`.
+- **Royalties · LO GENERADO NO SE ALTERA y los números CUADRAN** (auditoría ago 2026). Punto único
+  **`_royalty_effective_beneficiary`** (el congelado si está generada; solo si no, lo de ahora), usado
+  por el enlace del beneficiario, la landing de facturación, la pantalla de validar y el pago.
+  · ⚠️ **`total` NO existe en un beneficiario: es `total_amount`.** Se leía `total` en la firma de los
+  datos, en el historial de la generación, en el aviso de «los ingresos han cambiado» (`live_total`),
+  en el modal de Información y en la comparativa → todos daban **0**: el aviso decía «+0,00 €», el
+  historial no apuntaba importe y la firma no detectaba cambios. Corregido en todos.
+  · ⚠️ **Enviar o descargar NO vuelve a congelar.** `_build_royalty_liquidation_pdf_bytes` con
+  `touch_liquidation=True` re-congelaba y movía `generated_at` apuntando un «REGENERATED» falso; ahora
+  si ya hay congelado y `use_frozen`, no se toca.
+  · ⚠️ **Generar es un GET (`/discografica/royalties/liquidacion/pdf`) y sustituía el congelado sin
+  confirmar**: bastaba reabrir la URL para regenerar una liquidación enviada con los ingresos de hoy.
+  Ahora exige **`regenerate=1`** (lo manda el modal de comparación al aceptarlo, y la primera
+  generación); sin él devuelve el PDF de lo generado. Una liquidación **FACTURADA o PAGADA no se
+  regenera** ni autorizándolo: hay una factura y un pago contra ese importe.
+  · **EL IMPORTE es uno solo**: el de la liquidación es la **BASE** y lo que se factura es **base +
+  IVA** (`_royalty_invoice_totals` → `_invoice_request_amounts`). Ese número es el que sale en el PDF,
+  en el correo, en el enlace del beneficiario, en «Pendiente de facturar», en la pantalla de validar,
+  en pendiente de pago y **en el fichero SEPA**. El aviso de descuadre solo salta si la factura no
+  cuadra **ni con el total con IVA ni con la base** (hay quien factura sin IVA).
+
 - **Royalties · la pantalla de VALIDAR y el circuito de PAGO** (ago 2026):
   · **Izquierda = la liquidación TAL CUAL se envió**: sale del **congelado**
   (`_royalty_frozen_beneficiary`), no de recalcular en vivo, y se pinta con el parcial compartido

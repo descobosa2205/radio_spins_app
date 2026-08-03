@@ -1121,6 +1121,16 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   vínculo `USER:<id>` o por DNI. Los semáforos, la página pública y las exportaciones (PDF/Excel)
   solo piden/pintan lo que le toca a cada uno («—» o en gris si no aplica).
 
+- **Pendiente de facturar (módulo del enlace de subida de facturas)**: se llamaba «Lo que te
+  pedimos» y las cantidades salían **0,00 €**. Motor único **`_invoice_request_amounts(net, gross)`**:
+  el importe a facturar es SIEMPRE **base + IVA** (`INVOICE_REQUEST_VAT_PCT` = 21), y como unos gastos
+  se apuntan solo con el bruto y otros solo con la base, se completa el que falte (con la base se suma
+  el IVA, con el bruto se despeja la base). Sin importe se dice «factura el importe que corresponda»
+  en vez de pintar un cero. Debajo va el **total de lo marcado** (con IVA), que se recalcula en el
+  navegador. ⚠️ En la factura de una liquidación de royalties el importe salía 0 porque se leía
+  `beneficiary['total']`, que **no existe**: es `total_amount` (mismo bug que en la pantalla de
+  validar), y ahora manda además el **congelado** de la liquidación.
+
 - **Facturación de proveedores** (`/facturacion`, landing pública en 3 pasos): plantilla
   `public_invoice_landing.html` + estilos `.inv-step*`. Un solo componente con dos modos:
   `inv_mode=LANDING` (bañera del back office a la izquierda, todas las empresas del grupo) e

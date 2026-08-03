@@ -60339,6 +60339,37 @@ def bag_request_invoices(bag_id):
         session_db.close()
 
 
+INVOICE_REQUEST_VAT_PCT = Decimal("21")   # IVA general: es el que se le pide salvo excepción
+
+
+def _invoice_request_amounts(net, gross, *, vat_pct=None) -> dict:
+    """Lo que hay que facturar de un concepto: **base + IVA**.
+
+    En pantalla salían ceros porque se cogía el importe tal cual del gasto y no siempre están los dos
+    (unos gastos se apuntan solo con el bruto y otros solo con la base). Aquí se completa el que
+    falte: con la base se calcula el IVA, y con el bruto se despeja la base. El importe a facturar es
+    SIEMPRE con IVA."""
+    pct = _money_or_zero(vat_pct if vat_pct is not None else INVOICE_REQUEST_VAT_PCT)
+    base = _money_or_zero(net)
+    total = _money_or_zero(gross)
+    factor = (Decimal("1") + (pct / Decimal("100"))) if pct > 0 else Decimal("1")
+    if base > 0 and total <= base:
+        total = (base * factor).quantize(Decimal("0.01"))
+    elif total > 0 and base <= 0:
+        base = (total / factor).quantize(Decimal("0.01")) if factor else total
+    iva = total - base
+    if iva < 0:
+        iva = Decimal("0")
+    return {
+        "net": base,
+        "vat": iva,
+        "gross": total,
+        "vat_pct": pct,
+        # Sin importe no se puede pedir una cantidad concreta: se avisa en vez de enseñar 0,00 €.
+        "unknown": bool(base <= 0 and total <= 0),
+    }
+
+
 def _bag_invoice_request_context(session_db, req):
     """Contexto de la página pública de subida de facturas de un proveedor."""
     bag = session_db.get(WorkflowBag, req.bag_id)
@@ -60355,12 +60386,16 @@ def _bag_invoice_request_context(session_db, req):
                     .all())
     rows = []
     for exp in expenses:
+        importes = _invoice_request_amounts(getattr(exp, "amount_net", 0), getattr(exp, "amount_gross", 0))
         rows.append({
             "id": str(exp.id),
             "concept": (exp.concept or "Gasto"),
             "category_label": dict(BAG_EXPENSE_CATEGORIES).get(_bag_expense_display_cat(exp.category), exp.category or ""),
-            "net": _money_or_zero(getattr(exp, "amount_net", 0)),
-            "gross": _money_or_zero(getattr(exp, "amount_gross", 0)) or _money_or_zero(getattr(exp, "amount_net", 0)),
+            "net": importes["net"],
+            "vat": importes["vat"],
+            "vat_pct": importes["vat_pct"],
+            "gross": importes["gross"],
+            "unknown": importes["unknown"],
             "has_invoice": _bag_expense_has_invoice(exp),
             "invoice_name": (getattr(exp, "attachment_name", None) or ""),
             "invoice_url": (getattr(exp, "attachment_url", None) or ""),
@@ -60794,13 +60829,27 @@ def public_invoice_landing():
                 provider = session_db.get(Promoter, beneficiary_uuid) if (kind == "PROMOTER" and beneficiary_uuid) else None
                 # Royalties = sello: la factura va a nombre de PIES.
                 company = _pies_group_company(session_db) or (companies[0] if companies else None)
+                # LO QUE SE LE ENVIÓ manda: si la liquidación está generada, su congelado.
+                rec_liq = (_royalty_liquidation_record(session_db, kind, beneficiary_uuid, sem_start)
+                           if beneficiary_uuid else None)
+                _congelada = _royalty_frozen_beneficiary(rec_liq)
+                if _congelada:
+                    beneficiary = _congelada
                 rows = []
                 if beneficiary:
+                    # ⚠️ El total del beneficiario es `total_amount` (no `total`): leyendo `total`
+                    # salía 0,00 € (bug real). Y lo que se factura es esa base MÁS el IVA.
+                    _imp = _invoice_request_amounts(beneficiary.get("total_amount"), 0)
                     rows = [{
+                        "id": "",
                         "concept": f"Liquidación de royalties · {_royalty_liquidation_period_label_from_dates(sem_start, sem_end)}",
                         "category_label": "Royalties",
-                        "net": _money_or_zero(beneficiary.get("total")),
-                        "gross": _money_or_zero(beneficiary.get("total")),
+                        "net": _imp["net"],
+                        "vat": _imp["vat"],
+                        "vat_pct": _imp["vat_pct"],
+                        "gross": _imp["gross"],
+                        "unknown": _imp["unknown"],
+                        "has_invoice": False,
                     }]
                 return render_template(
                     "public_invoice_landing.html",

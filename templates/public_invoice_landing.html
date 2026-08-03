@@ -25,10 +25,12 @@
     {% if inv_embed %}</div>{% endif %}
 
     {% if inv_mode == 'REQUEST' and request_rows %}
-      {# Conceptos concretos que se le piden (petición desde una bolsa o una liquidación). #}
+      {# PENDIENTE DE FACTURAR: los conceptos concretos y su importe. El importe a facturar es
+         SIEMPRE con IVA; se enseña la base, el IVA y el total, y abajo el total de lo marcado. #}
+      {% set pend = request_rows|rejectattr('has_invoice')|list %}
       <div class="card shadow-sm mb-4">
         <div class="card-body">
-          <h6 class="mb-2"><i class="fa fa-list-check me-2 text-danger"></i>Lo que te pedimos</h6>
+          <h6 class="mb-2"><i class="fa fa-list-check me-2 text-danger"></i>Pendiente de facturar</h6>
           {% if request_rows|length > 1 %}
             <div class="small text-muted mb-2">
               Marca lo que cubre la factura que vas a subir. Puedes hacer <strong>una factura por
@@ -40,14 +42,31 @@
               <label class="d-flex align-items-center gap-2 border rounded p-2 flex-wrap{% if r.has_invoice %} bg-light-subtle{% endif %}"
                      {% if not r.has_invoice %}style="cursor:pointer;"{% endif %}>
                 <input type="checkbox" class="form-check-input m-0 js-inv-expense" value="{{ r.id }}"
+                       data-gross="{{ r.gross }}"
                        {% if r.has_invoice %}disabled{% else %}checked{% endif %}>
-                <span class="fw-semibold small flex-grow-1">{{ r.concept }}</span>
-                {% if r.has_invoice %}<span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Ya recibida</span>{% endif %}
-                {% if r.category_label %}<span class="badge text-bg-light border">{{ r.category_label }}</span>{% endif %}
-                <span class="small text-muted">{{ r.net|eur }} sin IVA · <strong>{{ r.gross|eur }}</strong> con IVA</span>
+                <span class="flex-grow-1" style="min-width:180px;">
+                  <span class="d-block fw-semibold small">{{ r.concept }}</span>
+                  {% if r.category_label %}<span class="badge text-bg-light border">{{ r.category_label }}</span>{% endif %}
+                  {% if r.has_invoice %}<span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Ya recibida</span>{% endif %}
+                </span>
+                <span class="text-end small">
+                  {% if r.unknown %}
+                    <span class="text-warning-emphasis"><i class="fa fa-circle-question me-1"></i>Factura el importe que corresponda</span>
+                  {% else %}
+                    <span class="d-block text-muted">Base {{ r.net|eur }}{% if r.vat %} · IVA {{ '%.0f'|format(r.vat_pct|float) }}% {{ r.vat|eur }}{% endif %}</span>
+                    <span class="d-block fw-bold fs-6">{{ r.gross|eur }}</span>
+                  {% endif %}
+                </span>
               </label>
             {% endfor %}
           </div>
+          {% if pend %}
+            {% set total_pend = pend|sum(attribute='gross') %}
+            <div class="d-flex justify-content-between align-items-center border-top mt-2 pt-2">
+              <span class="small text-muted">Total a facturar <span class="text-muted">(IVA incluido)</span></span>
+              <span class="fw-bold fs-5" data-inv-total>{{ total_pend|eur }}</span>
+            </div>
+          {% endif %}
           <div class="small text-danger mt-2 d-none" id="invExpenseWarn">Marca al menos un concepto para esta factura.</div>
         </div>
       </div>
@@ -645,6 +664,7 @@
             if (c.checked) { c.checked = false; c.disabled = true;
               var lbl = c.closest('label'); if (lbl) lbl.classList.add('bg-light-subtle'); }
           });
+          if (window.invRefreshTotal) window.invRefreshTotal();
           const drop = slot.querySelector('.inv-drop');
           if (drop) { drop.classList.remove('d-none'); }
           const b2 = slot.querySelector('.badge');
@@ -668,6 +688,22 @@
   if (MODE === 'REQUEST' && PRESET) {
     document.getElementById('invTaxId').value = PRESET.tax_id || '';
   }
+
+  // Total de «Pendiente de facturar»: suma lo MARCADO (con IVA), para que se vea de cuánto tiene que
+  // ser la factura que se va a subir.
+  window.invRefreshTotal = function () {
+    var caja = document.querySelector('[data-inv-total]');
+    if (!caja) return;
+    var total = 0;
+    document.querySelectorAll('.js-inv-expense').forEach(function (c) {
+      if (c.checked && !c.disabled) total += parseFloat(c.getAttribute('data-gross') || '0') || 0;
+    });
+    caja.textContent = total.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+  };
+  document.querySelectorAll('.js-inv-expense').forEach(function (c) {
+    c.addEventListener('change', window.invRefreshTotal);
+  });
+  window.invRefreshTotal();
 })();
 </script>
 

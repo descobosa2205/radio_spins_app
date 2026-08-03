@@ -1,4 +1,5 @@
 {% extends "layout.html" %}
+{% import '_bank_account_picker.html' as accpick with context %}
 {% block content %}
 {# Fila de un gasto pendiente de pago: se puede arrastrar a la remesa de su empresa y tiene su
    menú de tres puntos (marcar pagado / meterlo en una remesa él solo). #}
@@ -253,15 +254,8 @@
             <div class="pay-drop__zone" data-pay-zone>
               <span class="pay-drop__hint">Arrastra aquí bolsas o gastos de esta empresa</span>
             </div>
-            {% if grupo.accounts %}
-              <select class="form-select form-select-sm mt-2" name="account_id">
-                {% for acc in grupo.accounts %}
-                  <option value="{{ acc.id }}" {% if acc.is_default %}selected{% endif %}>{{ acc.bank.name if acc.bank else 'Sin banco' }}{% if acc.alias %} · {{ acc.alias }}{% endif %} · {{ iban_masked(acc.iban) }}</option>
-                {% endfor %}
-              </select>
-            {% else %}
-              <div class="small text-danger mt-2">Sin cuentas bancarias. <a href="{{ url_for('company_detail', cid=grupo.company_id) }}">Añádelas en la ficha de la empresa</a>.</div>
-            {% endif %}
+            <div class="small text-muted mt-2 mb-1">Se paga desde:</div>
+            {{ accpick.account_picker(grupo.accounts, compact=True, company_id=grupo.company_id) }}
             <button class="btn btn-sm btn-primary w-100 mt-2" data-pay-submit disabled><i class="fa fa-plus me-1"></i>Crear remesa</button>
           </form>
         </div>
@@ -370,16 +364,11 @@
                   {% if r.batch_id %}
                     <a class="btn btn-sm btn-outline-primary" href="{{ url_for('payment_batch_detail', batch_id=r.batch_id) }}" title="Ya está en una remesa: ábrela"><i class="fa fa-file-invoice-dollar"></i></a>
                   {% else %}
-                    <form method="post" action="{{ url_for('royalty_liquidation_batch', liq_id=r.id) }}" class="d-flex gap-1 align-items-center">
+                    {# La cuenta se elige EN LA REMESA (con las tarjetas), no en un desplegable
+                       apretado dentro de la fila: aquí solo se crea y se va a ella. #}
+                    <form method="post" action="{{ url_for('royalty_liquidation_batch', liq_id=r.id) }}">
                       <input type="hidden" name="next" value="{{ request.full_path }}">
-                      {% if grupo.accounts %}
-                        <select class="form-select form-select-sm" name="account_id" style="width:auto;" title="Cuenta desde la que se paga">
-                          {% for acc in grupo.accounts %}
-                            <option value="{{ acc.id }}" {% if acc.is_default %}selected{% endif %}>{{ acc.bank.name if acc.bank else 'Sin banco' }}{% if acc.alias %} · {{ acc.alias }}{% endif %}</option>
-                          {% endfor %}
-                        </select>
-                      {% endif %}
-                      <button class="btn btn-sm btn-outline-primary" type="submit" title="Crear la remesa y bajar el fichero para el banco"><i class="fa fa-download"></i></button>
+                      <button class="btn btn-sm btn-outline-primary" type="submit" title="Crear la remesa (allí eliges la cuenta y bajas el fichero)"><i class="fa fa-file-invoice-dollar"></i></button>
                     </form>
                   {% endif %}
                   {% if r.review_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ r.review_url }}" title="Ver la liquidación y su factura"><i class="fa fa-arrow-up-right-from-square"></i></a>{% endif %}

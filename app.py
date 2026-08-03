@@ -50211,7 +50211,8 @@ def _payment_batch_add_expenses(session_db, batch, expense_ids) -> int:
             beneficiary_name=ben["name"] or None,
             beneficiary_iban=sepa_normalize_iban(ben["iban"]) or None,
             beneficiary_bic=(ben["bic"] or None),
-            concept=(getattr(expense, "invoice_number", None) or getattr(expense, "concept", None) or "")[:140] or None,
+            # El concepto del pago = el de la FACTURA que se paga (ver `_payment_concept_for_expense`).
+            concept=_payment_concept_for_expense(session_db, expense),
             amount=_expense_pending_amount(expense),
         ))
         expense.payment_batch_id = batch.id
@@ -50220,6 +50221,89 @@ def _payment_batch_add_expenses(session_db, batch, expense_ids) -> int:
     session_db.flush()
     _payment_batch_refresh_total(session_db, batch)
     return añadidos
+
+
+def _payment_file_part(value: str) -> str:
+    """Un trozo del nombre del fichero: sin acentos, sin separadores raros y sin espacios."""
+    base = unicodedata.normalize("NFD", str(value or "")).encode("ascii", "ignore").decode("ascii")
+    base = re.sub(r"[^A-Za-z0-9]+", " ", base).strip()
+    return re.sub(r"\s+", "", base.title())[:40]
+
+
+def _payment_batch_file_name(session_db, batch) -> str:
+    """Nombre del fichero de pagos, para reconocerlo de un vistazo en la carpeta y en el banco:
+
+      · de UNA bolsa → `Remesa_<Artista>_<Festival o municipio>_<Fecha del evento>`
+      · varios sueltos → `Remesa_Varios_<Fecha en que se genera>`
+
+    Del evento se coge el nombre del FESTIVAL y, si no lo tiene, el MUNICIPIO."""
+    bolsas, sueltos = set(), 0
+    try:
+        for item in (session_db.query(PaymentBatchItem)
+                     .filter(PaymentBatchItem.batch_id == batch.id).all()):
+            expense = session_db.get(BagExpense, item.expense_id) if item.expense_id else None
+            bag_id = getattr(expense, "bag_id", None) if expense is not None else None
+            if bag_id:
+                bolsas.add(str(bag_id))
+            else:
+                sueltos += 1
+    except Exception:
+        bolsas, sueltos = set(), 1
+    hoy = (batch.execution_date or today_local()).strftime("%d-%m-%Y")
+    if len(bolsas) != 1 or sueltos:
+        return "Remesa_Varios_%s" % hoy
+    bag = session_db.get(WorkflowBag, to_uuid(next(iter(bolsas))))
+    if bag is None:
+        return "Remesa_Varios_%s" % hoy
+    artista = _payment_file_part(getattr(getattr(bag, "artist", None), "name", "") or "")
+    concert = None
+    if (bag.linked_type or "").upper() == "CONCERT" and bag.linked_id:
+        concert = session_db.get(Concert, bag.linked_id)
+    festival = _payment_file_part(getattr(concert, "festival_name", None) or "")
+    municipio = _payment_file_part(
+        (getattr(getattr(concert, "venue", None), "municipality", None) or "")
+        or (getattr(concert, "manual_municipality", None) or ""))
+    fecha = (getattr(concert, "date", None) or bag.start_date or batch.execution_date or today_local())
+    trozos = ["Remesa"]
+    if artista:
+        trozos.append(artista)
+    trozos.append(festival or municipio or _payment_file_part(bag.title or "") or "Bolsa")
+    trozos.append(fecha.strftime("%d-%m-%Y"))
+    return "_".join(trozos)
+
+
+def _payment_concept_for_expense(session_db, expense) -> str:
+    """CONCEPTO del pago: se intenta que sea el de la FACTURA que se va a pagar.
+
+    Es lo que ve el proveedor en su extracto, así que cuanto más se parezca a su factura, mejor lo
+    reconoce. Orden: el concepto de la factura subida → el nº de factura → el concepto del gasto."""
+    partes = []
+    try:
+        filas = (session_db.query(BagExpenseInvoice)
+                 .filter(BagExpenseInvoice.bag_expense_id == expense.id)
+                 .order_by(BagExpenseInvoice.created_at.desc()).all())
+    except Exception:
+        filas = []
+    numero = ""
+    for fila in filas:
+        numero = numero or (fila.invoice_number or "").strip()
+        inv = (session_db.get(SupplierInvoice, fila.supplier_invoice_id)
+               if getattr(fila, "supplier_invoice_id", None) else None)
+        if inv is not None:
+            numero = numero or (inv.invoice_number or "").strip()
+            texto = (inv.concept_text or "").strip()
+            if texto:
+                partes.append(texto)
+                break
+    numero = numero or (getattr(expense, "invoice_number", None) or "").strip()
+    if not partes:
+        # Sin factura con concepto, el del propio gasto (es lo que se le pidió facturar).
+        propio = (getattr(expense, "concept", None) or "").strip()
+        if propio:
+            partes.append(propio)
+    if numero:
+        partes.append("Fra. " + numero)
+    return " · ".join([x for x in partes if x])[:140] or "Pago"
 
 
 def _payment_batch_add_royalties(session_db, batch, liquidation_ids) -> int:
@@ -50532,6 +50616,11 @@ def payment_batch_create():
         account = session_db.get(GroupCompanyBankAccount, to_uuid(account_raw)) if account_raw else None
         if account is not None and str(account.company_id) != str(company.id):
             account = None
+        if account is None:
+            # Sin cuenta elegida se coge la de por defecto de la empresa: si no, la remesa nace sin
+            # cuenta y al pedir el fichero rebota sin poder bajarlo (se puede cambiar en su ficha).
+            cuentas = _company_bank_accounts(session_db, company.id)
+            account = next((a for a in cuentas if a.is_default), None) or next(iter(cuentas), None)
         state = _current_user_state()
         batch = PaymentBatch(
             reference=_payment_batch_next_reference(session_db),
@@ -50874,7 +50963,9 @@ def payment_batch_export(batch_id):
             created_at=_now_madrid().strftime("%Y-%m-%dT%H:%M:%S"),
             bank_slug=bank_slug,
         )
-        nombre = f"{batch.reference}.xml"
+        # El nombre lo dice todo: artista, festival (o municipio) y fecha del evento; varios sueltos
+        # van como «Remesa_Varios_<fecha>». La referencia se añade para poder rastrearla.
+        nombre = f"{_payment_batch_file_name(session_db, batch)}_{batch.reference}.xml"
         batch.file_name = nombre
         batch.file_format = bank_slug
         batch.exported_at = _now_madrid()

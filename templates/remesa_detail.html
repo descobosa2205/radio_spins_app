@@ -1,4 +1,5 @@
 {% extends "layout.html" %}
+{% import '_bank_account_picker.html' as accpick with context %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
   <a href="{{ url_for('administracion_view', tab='pendiente', subtab='pago') }}" class="btn btn-outline-secondary btn-volver"
@@ -64,23 +65,8 @@
         {% else %}
           <form method="post" action="{{ url_for('payment_batch_set_account', batch_id=batch.id) }}">
             <input type="hidden" name="next" value="{{ request.url }}">
-            <div class="d-flex flex-column gap-2 mb-3">
-              {% for acc in accounts %}
-                <label class="border rounded p-2 d-flex align-items-center gap-2 {{ 'border-primary' if batch.account_id and acc.id == batch.account_id else '' }}">
-                  <input class="form-check-input m-0" type="radio" name="account_id" value="{{ acc.id }}" {% if batch.account_id and acc.id == batch.account_id %}checked{% elif not batch.account_id and acc.is_default %}checked{% endif %}>
-                  <img src="{{ (acc.bank.logo_url if acc.bank else None) or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"
-                       style="width:36px;height:36px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff;">
-                  <span class="flex-grow-1 min-w-0">
-                    <span class="d-block fw-semibold">{{ acc.bank.name if acc.bank else 'Sin banco' }}{% if acc.alias %} · {{ acc.alias }}{% endif %}</span>
-                    <span class="d-block small text-muted font-monospace">{{ iban_masked(acc.iban) }}</span>
-                  </span>
-                </label>
-              {% else %}
-                <div class="alert alert-light border mb-0 small">
-                  Esta empresa no tiene cuentas bancarias.
-                  {% if batch.company %}<a href="{{ url_for('company_detail', cid=batch.company_id) }}">Añádelas en su ficha</a>.{% endif %}
-                </div>
-              {% endfor %}
+            <div class="mb-3">
+              {{ accpick.account_picker(accounts, current_id=batch.account_id, company_id=batch.company_id) }}
             </div>
             <label class="form-label">Fecha de ejecución</label>
             <input type="date" class="form-control mb-3" name="execution_date" value="{{ batch.execution_date.isoformat() if batch.execution_date else '' }}">

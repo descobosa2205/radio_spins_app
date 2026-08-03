@@ -1239,6 +1239,20 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `rec.snapshot` A SECAS, no `_royalty_frozen_beneficiary` (que cae a lo enviado): si no, justo las que
   solo tienen el congelado del envío se saltarían. Corre en el arranque y hay botón **«Consignar»**
   (solo dirección) en Royalties para las que aparezcan después.
+- **Remesa · cuenta de cargo, nombre del fichero y concepto** (ago 2026):
+  · La **cuenta de cargo se elige PINCHANDO** una tarjeta con el logo del banco y el alias, no en un
+  desplegable: parcial compartido `templates/_bank_account_picker.html` (macro `account_picker`,
+  estilos `.acc-pick*`), usado por la caja de «Crear remesa» y por la ficha de la remesa. En la fila de
+  una liquidación el desplegable desaparece: el icono crea la remesa y la cuenta se elige allí. Si no
+  llega ninguna, `payment_batch_create` coge la de **por defecto** (si no, la remesa nacía sin cuenta y
+  el fichero rebotaba).
+  · **Nombre del fichero** (`_payment_batch_file_name`): de UNA bolsa →
+  `Remesa_<Artista>_<Festival o municipio>_<Fecha del evento>`; varios sueltos o de varias bolsas →
+  `Remesa_Varios_<fecha de generación>`. Se le añade la referencia (`REM-aaaa-nnnn`) para rastrearla.
+  · **Concepto del pago** (`_payment_concept_for_expense`): se intenta que sea el de la **factura** que
+  se paga (`SupplierInvoice.concept_text` vía `BagExpenseInvoice`), y si no hay, el del gasto; siempre
+  con «Fra. <nº>» detrás. Es lo que el proveedor ve en su extracto.
+
 - **Cuentas bancarias de una empresa del grupo: VARIAS en el mismo banco.** Lo único que no se repite
   es el **IBAN** (mismo IBAN = misma cuenta: se actualiza y se **avisa**, para que no parezca que no
   deja añadirla). En la lista, las cuentas del mismo banco se numeran («cuenta 1 de 2») y el formulario

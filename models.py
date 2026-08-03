@@ -1371,6 +1371,12 @@ class Concert(Base):
 
     sold_out = Column(Boolean, nullable=False, default=False)
 
+    # FORMATO del recinto que se usa en ESTA actividad (un recinto puede tener varios: «Formato 360»,
+    # «Escenario central»…). Si está vacío se usa el principal del recinto. Lo miran las invitaciones
+    # sobre el plano, el asignador y el plano en vivo de Enterticket, así que si la actividad usa un
+    # formato distinto del habitual las butacas casan con el bueno.
+    seat_map_id = Column(PGUUID(as_uuid=True), ForeignKey("venue_seat_maps.id", ondelete="SET NULL"))
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -6902,6 +6908,7 @@ def ensure_third_party_and_contract_sheet_schema():
             ADD COLUMN IF NOT EXISTS invitations_json jsonb NOT NULL DEFAULT '[]'::jsonb,
             ADD COLUMN IF NOT EXISTS payment_terms_json jsonb NOT NULL DEFAULT '[]'::jsonb,
             ADD COLUMN IF NOT EXISTS announcement_date date,
+            ADD COLUMN IF NOT EXISTS seat_map_id uuid,
             ADD COLUMN IF NOT EXISTS do_not_announce boolean NOT NULL DEFAULT false;
         """,
         """
@@ -8676,6 +8683,19 @@ def ensure_venue_seatmap_schema():
         # Formatos: cada categoría clásica puede pertenecer a un formato (mapa) del recinto.
         "ALTER TABLE venue_ticket_categories ADD COLUMN IF NOT EXISTS seat_map_id uuid REFERENCES venue_seat_maps(id) ON DELETE CASCADE;",
         "CREATE INDEX IF NOT EXISTS idx_venue_ticket_categories_map ON venue_ticket_categories(seat_map_id);",
+        # FORMATO que usa cada ACTIVIDAD (un recinto puede tener varios). La columna se añade con el
+        # resto de las de `concerts`, pero la clave ajena va aquí: en una base recién creada
+        # `venue_seat_maps` todavía no existía cuando corrió aquel bloque.
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_concerts_seat_map') THEN
+                ALTER TABLE concerts ADD CONSTRAINT fk_concerts_seat_map
+                    FOREIGN KEY (seat_map_id) REFERENCES venue_seat_maps(id) ON DELETE SET NULL;
+            END IF;
+        END $$;
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_concerts_seat_map ON concerts(seat_map_id);",
     ], "venue_seatmap")
 
 

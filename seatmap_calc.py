@@ -132,6 +132,37 @@ def expand_section(sec: dict) -> dict:
     return {"rows": rows, "count": total, "zone": zone, "cap": 0}
 
 
+def seat_categories(layout: dict, assignments: dict) -> dict:
+    """Butaca → categoría: {"sec|fila|slot": catId} para las butacas VÁLIDAS.
+
+    ⚠️ Espejo del bloque que construye `assign` en `venue_map.js`: dentro de una misma fila, un
+    rango POSTERIOR pisa al anterior (por eso se recorren en orden). Mantener las dos versiones a
+    la par, como `expand_section` ↔ `secRows`."""
+    layout = layout if isinstance(layout, dict) else {}
+    assignments = assignments if isinstance(assignments, dict) else {}
+    out: dict = {}
+    for sec in (layout.get("sections") or []):
+        if not isinstance(sec, dict):
+            continue
+        sid = str(sec.get("id") or "")
+        if not sid or (sec.get("kind") or "").lower() == "floor":
+            continue
+        info = expand_section(sec)
+        sec_assign = assignments.get(sid) if isinstance(assignments.get(sid), dict) else {}
+        for row_key, ranges in (sec_assign or {}).items():
+            if row_key == "__floor" or not isinstance(ranges, list):
+                continue
+            valid = info["rows"].get(str(row_key)) or set()
+            for rg in ranges:
+                if not (isinstance(rg, list) and len(rg) >= 3):
+                    continue
+                lo, hi, cid = _i(rg[0]), _i(rg[1]), rg[2]
+                for slot in range(lo, hi + 1):
+                    if slot in valid:
+                        out["%s|%s|%d" % (sid, row_key, slot)] = cid
+    return out
+
+
 def category_counts(layout: dict, assignments: dict) -> dict:
     """Conteos del mapa: por categoría (id → {'name','kind','color','total', zonas}) y totales.
 

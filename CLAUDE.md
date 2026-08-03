@@ -425,6 +425,26 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (redirige al visor `?tab=ticketing&map=<id>` sin `map_edit`): las herramientas de edición solo
   se ven editando; el visor enseña categorías a la izquierda + navegación.
 
+- **FORMATO del recinto que usa cada ACTIVIDAD** (`Concert.seat_map_id`, ago 2026): un recinto puede
+  tener varios formatos («Formato 360», «Escenario central»…) y hasta ahora todo tiraba del principal
+  (`_venue_seatmap_default`), así que una fecha con otra disposición casaba las butacas contra el mapa
+  equivocado. Punto ÚNICO **`_concert_seatmap(session_db, concert)`** (el elegido si sigue siendo de su
+  recinto; si no, el principal), usado por los TRES sitios que casan butacas: el visor de invitaciones
+  del evento, el **asignador** sobre el plano completo y el **plano en vivo** de Enterticket. Selector
+  en la pestaña Ticketing **solo si el recinto tiene más de un formato** (`concert_seat_map_save`); con
+  uno solo no se pregunta nada.
+- **Plano en vivo: lo que queda A LA VENTA por categoría**. `_et_venue_map_payload` arranca del reparto
+  del propio mapa del recinto y **encima** apila las butacas vendidas/invitadas, así que lo que sigue
+  libre se ve **con el color de su categoría** y la leyenda dice cuántas quedan de cada una (`on_sale`).
+  ⚠️ El orden de los rangos IMPORTA: dentro de una fila, `venue_map.js` deja ganar al **último**, y por
+  eso las sintéticas van al final. ⚠️ La copia del reparto es **profunda** (`json.loads(json.dumps(...))`):
+  apilar sobre `assignments_json` del objeto ORM ensuciaría el mapa guardado del recinto en el flush.
+  Butaca→categoría lo da **`seatmap_calc.seat_categories`** (espejo del bloque `assign` de
+  `venue_map.js`: mantener los dos a la par, como `expand_section` ↔ `secRows`).
+  ⚠️ **Los BLOQUEOS de Enterticket no se pueden pintar**: `/bloqueos/:id` los da como contador
+  (concepto/nombre/código) **sin sector/fila/asiento** (comprobado contra la API real). Se enseña el
+  número con la explicación, no se inventa una butaca.
+
 - **Integración Enterticket (ticketing en tiempo casi real)**: cliente HTTP en `enterticket_utils.py`
   (credenciales `ENTERTICKET_USER/PASSWORD` en `.env`; sin ellas TODO desactivado). ⚠️ La API solo
   admite **UN token activo por cuenta** → se comparte en BD (`EnterticketMeta` id=1) y `_et_call`

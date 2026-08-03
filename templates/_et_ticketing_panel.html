@@ -104,10 +104,28 @@
               </li>
               {% endif %}{% endfor %}
             </ul>
+            {% if et_venue_map.on_sale %}
+            {# A LA VENTA por categoría: lo que queda libre de cada categoría del mapa del recinto,
+               con su color (así el plano se lee de un vistazo: lo pintado es lo que ya no está). #}
+            <div class="card-header bg-white py-2 small fw-semibold border-top"><i class="fa fa-tag me-1 text-primary"></i>A la venta</div>
+            <ul class="list-group list-group-flush">
+              {% for it in et_venue_map.on_sale %}
+              <li class="list-group-item py-2 d-flex justify-content-between align-items-center gap-2">
+                <span class="d-inline-flex align-items-center gap-2"><span style="display:inline-block;width:11px;height:11px;border-radius:50%;flex:0 0 auto;background:{{ it.color or '#ced4da' }}"></span>{{ it.name }}</span>
+                <strong class="small">{{ it.count|k }}</strong>
+              </li>
+              {% endfor %}
+            </ul>
+            {% endif %}
             <div class="card-body py-2 small text-muted">
               {{ et_venue_map.matched|k }} butaca(s) casada(s)
               {% if et_venue_map.unmatched %} · <span class="fw-semibold" title="Entradas cuyo sector/fila/asiento no casa con el mapa del recinto. Añade alias al sector en la ficha del recinto (Ticketing → Mapa de butacas).">{{ et_venue_map.unmatched|k }} sin casar</span>{% endif %}
-              <div class="mt-1">Libres = butacas sin pintar. Pista y zonas sin numerar: en la tabla de tipos de arriba.</div>
+              <div class="mt-1">Cada butaca libre lleva el color de su categoría a la venta. Pista y zonas sin numerar: en la tabla de tipos de arriba.</div>
+              {% if et_venue_map.blocked_count %}
+              <div class="mt-1"><i class="fa fa-lock me-1"></i><strong>{{ et_venue_map.blocked_count|k }}</strong> bloqueada(s) en Enterticket
+                <span title="Enterticket da los bloqueos como contador (concepto, nombre y código), sin decir qué butacas son, así que no se pueden pintar en el plano.">(sin butaca)</span>
+              </div>
+              {% endif %}
             </div>
           </div>
         </div>

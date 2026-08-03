@@ -2266,6 +2266,32 @@
       {% endif %}
     {% endif %}
 
+    {% if venue_seat_maps and venue_seat_maps|length > 1 %}
+    {# El recinto tiene VARIOS formatos: hay que decir cuál usa esta actividad, porque de él dependen
+       el casado de las invitaciones, el asignador sobre el plano y el plano en vivo. #}
+    <div class="card mb-3"><div class="card-body py-3">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+          <h6 class="mb-0"><i class="fa fa-vector-square me-1 text-danger"></i>Formato del recinto</h6>
+          <div class="small text-muted">Este recinto tiene {{ venue_seat_maps|length }} formatos. El elegido es el que usan las invitaciones sobre el plano, el asignador y el plano en vivo.</div>
+        </div>
+        {% if CAN_EDIT_CONCERTS %}
+        <form method="post" action="{{ url_for('concert_seat_map_save', cid=concert.id) }}" class="d-flex gap-2 align-items-center">
+          <input type="hidden" name="next" value="{{ url_for('concert_detail_view', cid=concert.id, tab='ticketing') }}">
+          <select class="form-select form-select-sm" name="seat_map_id" style="min-width:220px">
+            {% for m in venue_seat_maps %}
+            <option value="{{ m.id }}" {% if concert_seat_map and concert_seat_map.id == m.id %}selected{% endif %}>{{ m.name or 'Principal' }}{% if m.is_default %} (principal){% endif %}</option>
+            {% endfor %}
+          </select>
+          <button class="btn btn-outline-primary btn-sm"><i class="fa fa-check me-1"></i>Usar este</button>
+        </form>
+        {% elif concert_seat_map %}
+        <span class="badge bg-light text-dark border">{{ concert_seat_map.name or 'Principal' }}</span>
+        {% endif %}
+      </div>
+    </div></div>
+    {% endif %}
+
     {% include "_et_ticketing_panel.html" %}
     <div class="card mb-3"><div class="card-body">
       <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">

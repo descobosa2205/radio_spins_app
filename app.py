@@ -21350,6 +21350,25 @@ def _venue_seatmap_default(session_db, venue_id):
     )
 
 
+def _concert_seatmap(session_db, concert):
+    """FORMATO del recinto que usa ESTA actividad.
+
+    Un recinto puede tener varios formatos («Formato 360», «Escenario central»…). Si la actividad
+    tiene uno elegido (`Concert.seat_map_id`) y sigue siendo de su recinto, manda ese; si no, el
+    principal. Punto ÚNICO: lo usan las invitaciones sobre el plano, el asignador y el plano en vivo
+    de Enterticket, así que las tres pantallas casan las butacas contra el mismo mapa."""
+    venue_id = getattr(concert, "venue_id", None)
+    if not venue_id:
+        return None
+    chosen_id = getattr(concert, "seat_map_id", None)
+    if chosen_id:
+        sm = session_db.get(VenueSeatMap, chosen_id)
+        # Si alguien cambió el recinto de la actividad, el formato viejo ya no vale.
+        if sm is not None and str(sm.venue_id) == str(venue_id):
+            return sm
+    return _venue_seatmap_default(session_db, venue_id)
+
+
 def _venue_seatmap_all(session_db, venue_id):
     """Todos los FORMATOS de ticketing del recinto (subpestañas): el principal primero."""
     return (
@@ -28272,6 +28291,18 @@ def concert_detail_view(cid):
                 venue_saved_ticket_count = session.query(VenueTicketCategory).filter(VenueTicketCategory.venue_id == c.venue_id).count()
             except Exception:
                 venue_saved_ticket_count = 0
+        # FORMATOS del recinto: si tiene más de uno («Formato 360», «Escenario central»…) hay que
+        # poder decir cuál usa ESTA actividad, porque de él dependen el casado de las invitaciones,
+        # el asignador y el plano en vivo. Con uno solo no se pregunta nada.
+        venue_seat_maps = []
+        concert_seat_map = None
+        if tab == 'ticketing' and c.venue_id:
+            try:
+                venue_seat_maps = [m for m in _venue_seatmap_all(session, c.venue_id)
+                                   if (m.layout_json or {}).get('sections')]
+                concert_seat_map = _concert_seatmap(session, c)
+            except Exception:
+                venue_seat_maps, concert_seat_map = [], None
         # Ticketing: integración Enterticket (informe de venta en tiempo casi real / candidatos).
         et_event = None
         et_ctx = None
@@ -28468,6 +28499,8 @@ def concert_detail_view(cid):
             result_module=(result_ctx["module"] if result_ctx else None),
             result_et_income=(result_ctx.get("et_income") if result_ctx else False),
             venue_saved_ticket_count=venue_saved_ticket_count,
+            venue_seat_maps=venue_seat_maps,
+            concert_seat_map=concert_seat_map,
             show_ticketing_tab=show_ticketing_tab,
             show_menores_tab=show_menores_tab,
             **minor_ctx,
@@ -61694,6 +61727,40 @@ def concert_budget_item_move(cid, item_id):
         session_db.close()
 
 
+@app.post('/conciertos/<cid>/ticketing/formato', endpoint='concert_seat_map_save')
+@admin_required
+def concert_seat_map_save(cid):
+    """Qué FORMATO del recinto usa esta actividad. De él dependen el casado de las invitaciones, el
+    asignador sobre el plano y el plano en vivo de Enterticket."""
+    if not can_edit_concerts():
+        return forbid('No tienes permisos para cambiar el formato del recinto.')
+    next_url = safe_next_or(request.form.get('next') or url_for('concert_detail_view', cid=cid, tab='ticketing'))
+    session_db = db()
+    try:
+        c = session_db.get(Concert, to_uuid(cid))
+        if c is None:
+            flash('Actividad no encontrada.', 'warning')
+            return redirect(url_for('concerts_view'))
+        raw = (request.form.get('seat_map_id') or '').strip()
+        if not raw:
+            c.seat_map_id = None
+            flash('La actividad usará el formato principal del recinto.', 'success')
+        else:
+            sm = session_db.get(VenueSeatMap, to_uuid(raw))
+            if sm is None or str(sm.venue_id) != str(c.venue_id or ''):
+                flash('Ese formato no es de este recinto.', 'warning')
+                return redirect(next_url)
+            c.seat_map_id = sm.id
+            flash('Formato «%s» asignado a esta actividad.' % (sm.name or 'Principal'), 'success')
+        session_db.commit()
+    except Exception as exc:
+        session_db.rollback()
+        flash('No se pudo guardar el formato: %s' % exc, 'danger')
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
 @app.post('/conciertos/<cid>/ticketing/cargar-recinto', endpoint='concert_ticketing_load_venue')
 @admin_required
 def concert_ticketing_load_venue(cid):
@@ -66377,7 +66444,7 @@ def _invitation_assign_context(session_db, concert, categories) -> dict:
     assign_map = None
     try:
         if getattr(concert, 'venue_id', None):
-            _sm_asg = _venue_seatmap_default(session_db, concert.venue_id)
+            _sm_asg = _concert_seatmap(session_db, concert)
             _lay_asg = (_sm_asg.layout_json or {}) if _sm_asg is not None else {}
             if _lay_asg.get('sections'):
                 _lk_asg = seatmap_calc.seat_lookup(_lay_asg)
@@ -69680,7 +69747,7 @@ def invitation_event_detail(concert_id):
         venue_map_inv = None
         if concert.venue_id:
             try:
-                _sm_inv = _venue_seatmap_default(session_db, concert.venue_id)
+                _sm_inv = _concert_seatmap(session_db, concert)
                 if _sm_inv is not None:
                     venue_map_inv = _invitation_venue_map_payload(_sm_inv, tickets)
                     if venue_map_inv:
@@ -78365,13 +78432,16 @@ def _et_split_seat(sector: str, seat: str) -> tuple[str, str]:
 
 
 def _et_venue_map_payload(s, concert: Concert, ev: EnterticketEvent) -> dict | None:
-    """Plano del recinto EN TIEMPO REAL con la venta de Enterticket: butacas vendidas (rojo) e
-    invitaciones (naranja) casadas por sector/fila/asiento contra el mapa del recinto
-    (seatmap_calc, mismo casado que las invitaciones). Las libres se ven libres. Devuelve
-    {payload, matched, unmatched} o None si no hay mapa o nada numerado."""
+    """Plano del recinto EN TIEMPO REAL con la venta de Enterticket: butacas vendidas (rojo),
+    invitaciones (naranja) y las INVITACIONES SUBIDAS con su estado, casadas por sector/fila/asiento
+    contra el mapa del recinto (seatmap_calc, mismo casado que las invitaciones). Lo que sigue LIBRE
+    se pinta con el color de SU CATEGORÍA a la venta (las del propio mapa del recinto), así que de un
+    vistazo se ve qué queda por vender de cada categoría.
+    Devuelve {payload, matched, unmatched, legend, on_sale, blocked_count} o None si no hay mapa o
+    nada numerado."""
     if not concert.venue_id:
         return None
-    sm = _venue_seatmap_default(s, concert.venue_id)
+    sm = _concert_seatmap(s, concert)
     if not sm:
         return None
     layout = sm.layout_json or {}
@@ -78391,7 +78461,17 @@ def _et_venue_map_payload(s, concert: Concert, ev: EnterticketEvent) -> dict | N
         "inv_bloq": {"id": "inv_bloq", "name": "Inv. bloqueada", "color": "#6b7280", "kind": "bloqueo"},
     }
     counts = {k: 0 for k in cats}
-    assignments: dict = {}
+    # A LA VENTA POR CATEGORÍA: se arranca del reparto del propio mapa del recinto y encima se
+    # pintan las vendidas/invitadas. ⚠️ El orden importa: dentro de una fila, un rango posterior pisa
+    # al anterior (así lo monta `venue_map.js`), y por eso las sintéticas se APILAN al final.
+    # ⚠️ Copia PROFUNDA: `assignments_json` es del objeto ORM y apilar los rangos sintéticos encima
+    # ensuciaría el mapa guardado del recinto en cuanto la sesión hiciera flush.
+    base_assign = json.loads(json.dumps(sm.assignments_json or {}))
+    seat_cat = seatmap_calc.seat_categories(layout, sm.assignments_json or {})
+    on_sale = {}   # catId -> cuántas quedan libres
+    for cid in seat_cat.values():
+        on_sale[cid] = on_sale.get(cid, 0) + 1
+    assignments: dict = base_assign
     seen = set()
     matched = unmatched = 0
 
@@ -78400,6 +78480,10 @@ def _et_venue_map_payload(s, concert: Concert, ev: EnterticketEvent) -> dict | N
         seen.add(key)
         matched += 1
         counts[ckey] += 1
+        # Esta butaca ya no está a la venta: se descuenta de su categoría.
+        cid_base = seat_cat.get(key)
+        if cid_base and on_sale.get(cid_base):
+            on_sale[cid_base] -= 1
         sec, rowi, slot = key.split("|")
         assignments.setdefault(sec, {}).setdefault(rowi, []).append([int(slot), int(slot), ckey])
 
@@ -78446,14 +78530,29 @@ def _et_venue_map_payload(s, concert: Concert, ev: EnterticketEvent) -> dict | N
         _put(key, "et_inv" if is_inv else "et_vendida")
     if not matched:
         return None
+    # Las categorías del mapa (lo que está a la venta) + las sintéticas. Las del mapa van DELANTE
+    # para que el visor las conserve; las butacas repintadas ganan por el orden de los rangos.
+    venue_cats = [c for c in (layout.get("categories") or []) if isinstance(c, dict) and c.get("id")]
     view_layout = dict(layout)
-    view_layout["categories"] = list(cats.values())
+    view_layout["categories"] = venue_cats + list(cats.values())
+    on_sale_rows = [{
+        "id": c.get("id"),
+        "name": (c.get("name") or c.get("id") or "").strip(),
+        "color": c.get("color") or "",
+        "count": int(on_sale.get(c.get("id"), 0) or 0),
+    } for c in venue_cats]
+    on_sale_rows = [r for r in on_sale_rows if r["count"] > 0]
     return {
         "payload": {"id": str(sm.id), "name": sm.name or "", "version": int(sm.version or 0),
                     "layout": view_layout, "assignments": assignments},
         "matched": matched,
         "unmatched": unmatched,
         "legend": [{"id": k, "name": c["name"], "color": c["color"], "count": counts[k]} for k, c in cats.items()],
+        # Lo que QUEDA a la venta de cada categoría del mapa (el resto ya está vendido o invitado).
+        "on_sale": on_sale_rows,
+        # ⚠️ Bloqueadas: Enterticket da los bloqueos como CONTADOR (concepto/nombre/código), sin decir
+        # QUÉ butacas son, así que no se pueden pintar. Se enseña el número y se dice por qué.
+        "blocked_count": int(getattr(ev, "blocked_count", 0) or 0),
     }
 
 

@@ -1,7 +1,10 @@
 {% extends "layout.html" %}
+{% import '_royalty_liquidation_detail.html' as rliq with context %}
 {% block content %}
-{# Validación de la factura de una liquidación de royalties: la LIQUIDACIÓN a la izquierda y la
-   FACTURA (con su documentación) a la derecha. #}
+{# Validar la factura de una liquidación de royalties.
+   IZQUIERDA: la liquidación TAL CUAL se envió (el congelado, mismas columnas que el PDF, con su
+   total). DERECHA: el resumen de datos, la documentación exigida, los botones de validar/rechazar y
+   DEBAJO la factura abierta, para poder contrastarla sin tener que pinchar en nada. #}
 <div class="mb-2">
   <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('administracion_view', tab='pendiente', subtab='liquidacion') }}" title="Volver a pendientes" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
 </div>
@@ -22,73 +25,68 @@
     No se le puede abonar: {% for e in embargos %}{{ e.reference }}{% if e.date %} ({{ e.date }}){% endif %}{% if not loop.last %} · {% endif %}{% endfor %}
   </div>
 {% endif %}
+{% if debts %}
+  <div class="alert alert-warning">
+    <strong><i class="fa fa-hand-holding-dollar me-1"></i>Tiene {{ 'un adelanto o deuda' if debts|length == 1 else 'adelantos o deudas' }} con la casa.</strong>
+    <div class="small mt-1">
+      {% for d in debts %}
+        <div>{{ d.kind_label }} · {{ d.company_name }} · pendiente <strong>{{ d.pending|eur }}</strong> de {{ d.amount|eur }}{% if d.concept %} · {{ d.concept }}{% endif %}</div>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}
 
 <div class="row g-3">
-  {# ---------- IZQUIERDA: la liquidación ---------- #}
-  <div class="col-12 col-lg-6">
+  {# ---------- IZQUIERDA: la liquidación tal cual se envió ---------- #}
+  <div class="col-12 col-xl-6">
     <div class="card h-100">
-      <div class="card-header bg-white d-flex justify-content-between align-items-center">
-        <strong><i class="fa fa-percent me-1 text-danger"></i>Liquidación</strong>
-        {% if liquidation %}<span class="badge text-bg-light border">{{ liquidation.status }}</span>{% endif %}
+      <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <strong><i class="fa fa-percent me-1 text-danger"></i>Liquidación enviada</strong>
+        <div class="d-flex align-items-center gap-2">
+          {% if not frozen %}<span class="badge text-bg-warning text-dark" title="Esta liquidación no se generó: los datos se han calculado ahora.">Sin congelar</span>{% endif %}
+          {% set pdf_liq = (liquidation.last_sent_pdf_url if liquidation else None) or (liquidation.snapshot_pdf_url if liquidation else None) %}
+          {% if pdf_liq %}<a class="btn btn-outline-dark btn-sm" href="{{ pdf_liq }}" target="_blank" rel="noopener" title="El PDF que se le envió"><i class="fa fa-file-pdf"></i></a>{% endif %}
+        </div>
       </div>
-      <div class="card-body">
+      <div class="card-body p-0">
         {% if beneficiary %}
-          <div class="d-flex align-items-center gap-2 mb-3">
-            {% if beneficiary.get('photo_url') %}<img src="{{ beneficiary.get('photo_url') }}" alt="" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:1px solid #eee;">{% endif %}
-            <div>
-              <div class="fw-semibold">{{ beneficiary.get('name') or '—' }}</div>
-              <div class="small text-muted">{{ period_label }}</div>
-            </div>
-          </div>
-          <div class="table-responsive">
-            <table class="table table-sm align-middle mb-0">
-              <thead class="table-light"><tr><th>Concepto</th><th class="text-end">Importe</th></tr></thead>
-              <tbody>
-                {% for it in (beneficiary.get('items') or []) %}
-                  <tr><td class="small">{{ it.get('title') or it.get('label') or 'Concepto' }}</td><td class="text-end">{{ (it.get('amount') or 0)|eur }}</td></tr>
-                {% else %}
-                  <tr><td colspan="2" class="text-muted small">Sin líneas.</td></tr>
-                {% endfor %}
-              </tbody>
-              <tfoot class="table-light"><tr><th>Total a facturar</th><th class="text-end">{{ (beneficiary.get('total') or 0)|eur }}</th></tr></tfoot>
-            </table>
-          </div>
+          {{ rliq.royalty_detail(beneficiary, period_label, compact=True) }}
         {% else %}
-          <div class="text-muted small">No se pudieron recuperar los datos de la liquidación.</div>
-        {% endif %}
-        {% if liquidation and liquidation.last_sent_pdf_url %}
-          <a class="btn btn-outline-dark btn-sm mt-3" href="{{ liquidation.last_sent_pdf_url }}" target="_blank" rel="noopener"><i class="fa fa-file-pdf me-1"></i>PDF enviado</a>
+          <div class="text-muted small p-3">No se pudieron recuperar los datos de la liquidación.</div>
         {% endif %}
       </div>
     </div>
   </div>
 
-  {# ---------- DERECHA: la factura y su documentación ---------- #}
-  <div class="col-12 col-lg-6">
-    <div class="card h-100">
+  {# ---------- DERECHA: datos, documentación, botones y la factura abierta ---------- #}
+  <div class="col-12 col-xl-6">
+    <div class="card mb-3">
       <div class="card-header bg-white"><strong><i class="fa fa-file-invoice-dollar me-1 text-danger"></i>Factura recibida</strong></div>
       <div class="card-body">
-        <div class="d-flex align-items-center gap-2 flex-wrap mb-3">
-          <a class="btn btn-outline-primary btn-sm" href="{{ inv.file_url }}" target="_blank" rel="noopener"><i class="fa fa-eye me-1"></i>Ver factura</a>
-          <span class="small text-muted">{{ inv.original_name or 'Factura' }}{% if inv.created_at %} · recibida el {{ inv.created_at.strftime('%d/%m/%Y') }}{% endif %}</span>
-        </div>
         <div class="ficha-fields mb-3">
+          <div><div class="ficha-field__label">Importe de la liquidación</div><div class="ficha-field__value fw-semibold">{{ (beneficiary.get('total_amount') if beneficiary else 0)|eur }}</div></div>
+          {% if inv.amount_gross %}<div><div class="ficha-field__label">Importe de la factura</div><div class="ficha-field__value fw-semibold {{ 'text-danger' if amount_mismatch else '' }}">{{ inv.amount_gross|eur }}</div></div>{% endif %}
           {% if inv.invoice_number %}<div><div class="ficha-field__label">Nº de factura</div><div class="ficha-field__value">{{ inv.invoice_number }}</div></div>{% endif %}
+          {% if inv.issue_date %}<div><div class="ficha-field__label">Fecha de emisión</div><div class="ficha-field__value">{{ inv.issue_date.strftime('%d/%m/%Y') }}</div></div>{% endif %}
           {% if inv.artist_text %}<div><div class="ficha-field__label">Artista</div><div class="ficha-field__value">{{ inv.artist_text }}</div></div>{% endif %}
           {% if inv.concept_text %}<div><div class="ficha-field__label">Concepto</div><div class="ficha-field__value">{{ inv.concept_text }}</div></div>{% endif %}
           {% if promoter and promoter.tax_id %}<div><div class="ficha-field__label">DNI / CIF</div><div class="ficha-field__value">{{ promoter.tax_id }}</div></div>{% endif %}
           {% if promoter and promoter.bank_account %}<div><div class="ficha-field__label">Cuenta bancaria</div><div class="ficha-field__value">{{ promoter.bank_account }}</div></div>{% endif %}
+          <div><div class="ficha-field__label">Recibida</div><div class="ficha-field__value">{{ inv.created_at.strftime('%d/%m/%Y') if inv.created_at else '—' }}</div></div>
         </div>
+        {% if amount_mismatch %}
+          <div class="alert alert-warning small py-2"><i class="fa fa-triangle-exclamation me-1"></i>La factura no cuadra con el importe de la liquidación. Revísalo antes de validar.</div>
+        {% endif %}
 
-        <div class="fw-semibold small text-muted mb-2"><i class="fa fa-file-shield me-1"></i>Documentación requerida</div>
-        <div class="d-grid gap-2 mb-3">
+        <div class="fw-semibold small text-muted mb-2"><i class="fa fa-file-shield me-1"></i>Documentación requerida para validar</div>
+        <div class="d-grid gap-2">
           {% for d in required_docs %}
             <div class="d-flex align-items-center gap-2 border rounded p-2">
               <i class="fa {{ d.icon }} text-danger"></i>
               <span class="small flex-grow-1">{{ d.label }}</span>
               {% if d.ok %}
                 <span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>En vigor</span>
-                {% if d.existing_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ d.existing_url }}" target="_blank" rel="noopener"><i class="fa fa-eye"></i></a>{% endif %}
+                {% if d.existing_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ d.existing_url }}" target="_blank" rel="noopener" title="Ver"><i class="fa fa-eye"></i></a>{% endif %}
               {% else %}
                 <span class="badge text-bg-danger">Falta o caducado</span>
               {% endif %}
@@ -97,19 +95,47 @@
             <div class="text-muted small">Sin documentación adicional exigida.</div>
           {% endfor %}
         </div>
+      </div>
+    </div>
 
-        {% if inv.status == 'PENDIENTE' %}
-          <form method="post" action="{{ url_for('administration_royalty_invoice_validate', invoice_id=inv.id) }}" class="border-top pt-3">
-            <input type="hidden" name="next" value="{{ url_for('administracion_view', tab='pendiente', subtab='liquidacion') }}">
-            <label class="form-label small">Motivo si la rechazas <span class="text-muted">(se le envía para que la vuelva a subir)</span></label>
+    {# Botones ARRIBA de la factura: se decide viéndola. #}
+    {% if inv.status == 'PENDIENTE' %}
+      <form method="post" action="{{ url_for('administration_royalty_invoice_validate', invoice_id=inv.id) }}" class="card mb-3">
+        <div class="card-body py-3">
+          <input type="hidden" name="next" value="{{ url_for('administracion_view', tab='pendiente', subtab='liquidacion') }}">
+          <div class="d-flex gap-2 justify-content-end flex-wrap">
+            <button class="btn btn-outline-danger" type="button" data-bs-toggle="collapse" data-bs-target="#rejectReason"><i class="fa fa-circle-xmark me-1"></i>Rechazar</button>
+            <button class="btn btn-success" name="action" value="accept" onclick="return confirm('¿Validar la factura? La liquidación quedará pendiente de pago.');"><i class="fa fa-circle-check me-1"></i>Validar</button>
+          </div>
+          <div class="collapse mt-3" id="rejectReason">
+            <label class="form-label small">Motivo del rechazo <span class="text-muted">(se le envía para que la vuelva a subir)</span></label>
             <textarea class="form-control mb-2" name="reason" rows="2" placeholder="Falta el concepto, importe incorrecto, datos fiscales erróneos…"></textarea>
-            <div class="d-flex gap-2 justify-content-end">
-              <button class="btn btn-outline-danger btn-sm" name="action" value="reject"><i class="fa fa-circle-xmark me-1"></i>Rechazar</button>
-              <button class="btn btn-success btn-sm" name="action" value="accept" onclick="return confirm('¿Validar la factura? La liquidación quedará pendiente de pago.');"><i class="fa fa-circle-check me-1"></i>Validar</button>
+            <div class="text-end">
+              <button class="btn btn-danger btn-sm" name="action" value="reject"><i class="fa fa-paper-plane me-1"></i>Rechazar y avisar</button>
             </div>
-          </form>
-        {% elif inv.status == 'RECHAZADA' and inv.reject_reason %}
-          <div class="alert alert-danger small mb-0">Rechazada: {{ inv.reject_reason }}</div>
+          </div>
+        </div>
+      </form>
+    {% elif inv.status == 'RECHAZADA' and inv.reject_reason %}
+      <div class="alert alert-danger small">Rechazada: {{ inv.reject_reason }}</div>
+    {% endif %}
+
+    {# LA FACTURA ABIERTA: se ve sin pinchar, para contrastarla con la liquidación de la izquierda. #}
+    <div class="card">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <strong class="small">{{ inv.original_name or 'Factura' }}</strong>
+        <div class="d-flex gap-2">
+          <a class="btn btn-outline-secondary btn-sm" href="{{ inv.file_url }}" target="_blank" rel="noopener" title="Abrir en una pestaña"><i class="fa fa-arrow-up-right-from-square"></i></a>
+          <a class="btn btn-outline-secondary btn-sm" href="{{ inv.file_url }}" download title="Descargar"><i class="fa fa-download"></i></a>
+        </div>
+      </div>
+      <div class="card-body p-0">
+        {% if invoice_is_pdf %}
+          <iframe class="rinv__frame" src="{{ inv.file_url }}#view=FitH" title="Factura"></iframe>
+        {% elif invoice_is_image %}
+          <img class="rinv__img" src="{{ inv.file_url }}" alt="Factura">
+        {% else %}
+          <div class="p-3 small text-muted">No se puede mostrar aquí este tipo de archivo. <a href="{{ inv.file_url }}" target="_blank" rel="noopener">Ábrelo en una pestaña</a>.</div>
         {% endif %}
       </div>
     </div>

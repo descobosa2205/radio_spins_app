@@ -1,0 +1,83 @@
+{# LIQUIDACIÓN DE ROYALTIES · detalle TAL CUAL se envía.
+   Un solo sitio para pintarla: lo usan el enlace público que recibe el beneficiario y la pantalla
+   de validar su factura. Las columnas son las MISMAS que las del PDF (portada · Repertorio · Código ·
+   Fecha · Ingreso · % · A facturar) y debajo de cada línea sus descuentos, para que lo que se ve en
+   pantalla y lo que se firmó en el PDF no puedan discrepar.
+   ⚠️ El importe total del beneficiario es `total_amount` (no `total`). #}
+{% macro royalty_detail(beneficiary, period_label, compact=False) %}
+  {% set items = beneficiary.get('items') or [] %}
+  <div class="rliq">
+    <div class="rliq__head">
+      {% if beneficiary.get('photo_url') %}
+        <img class="rliq__photo" src="{{ beneficiary.get('photo_url') }}" alt="">
+      {% else %}
+        <span class="rliq__photo rliq__photo--ph"><i class="fa fa-user"></i></span>
+      {% endif %}
+      <div class="flex-grow-1" style="min-width:0;">
+        <div class="rliq__name">{{ beneficiary.get('name') or 'Beneficiario' }}</div>
+        <div class="rliq__sub">
+          {% if beneficiary.get('kind_label') %}{{ beneficiary.get('kind_label') }} · {% endif %}Periodo {{ period_label }}
+        </div>
+      </div>
+      <div class="text-end">
+        <div class="rliq__totlab">Total a facturar</div>
+        <div class="rliq__tot">{{ (beneficiary.get('total_amount') or 0)|eur }}</div>
+      </div>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0 rliq__table">
+        <thead class="table-light">
+          <tr>
+            <th style="width:38px;"></th>
+            <th>Repertorio</th>
+            <th>Código</th>
+            <th>Fecha</th>
+            <th class="text-end">Ingreso</th>
+            <th class="text-center">%</th>
+            <th class="text-end">A facturar</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for it in items %}
+            <tr>
+              <td>
+                {% set cov = it.get('cover_url') or it.get('fallback_cover_url') %}
+                {% if cov %}<img class="rliq__cover" src="{{ cov }}" alt="">
+                {% else %}<span class="rliq__cover rliq__cover--ph"><i class="fa fa-music"></i></span>{% endif %}
+              </td>
+              <td>
+                <div class="fw-semibold small">{{ it.get('title') or '—' }}</div>
+                {% if it.get('subtitle') %}<div class="small text-muted">{{ it.get('subtitle') }}</div>{% endif %}
+                {% if it.get('badges') %}<div class="rliq__badges">{{ (it.get('badges') or [])|join(' · ') }}</div>{% endif %}
+                {% if it.get('deductions') %}
+                  <div class="rliq__deds">
+                    {% for d in it.get('deductions') %}
+                      <div>− {{ d.get('name') or 'Beneficiario' }}: {{ (d.get('amount') or 0)|eur }}{% if d.get('pct') %} ({{ '%.2f'|format(d.get('pct')|float) }}%){% endif %}</div>
+                    {% endfor %}
+                    <div class="rliq__deds__tot">Total descontado: {{ (it.get('deduction_total') or 0)|eur }} · Neto: {{ (it.get('amount') or 0)|eur }}</div>
+                  </div>
+                {% endif %}
+              </td>
+              <td class="small">{{ it.get('code') or '—' }}{% if it.get('code_label') and not compact %}<div class="text-muted rliq__codelab">{{ it.get('code_label') }}</div>{% endif %}</td>
+              <td class="small">{{ it.get('release_date') or '—' }}</td>
+              <td class="text-end small">{{ (it.get('income') or 0)|eur }}</td>
+              <td class="text-center small">{{ '%.2f'|format(it.get('pct')|float) }}%</td>
+              <td class="text-end fw-semibold">{{ (it.get('amount') or 0)|eur }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="7" class="text-muted small">No hay líneas de liquidación para este periodo.</td></tr>
+          {% endfor %}
+        </tbody>
+        <tfoot class="table-light">
+          <tr>
+            <th colspan="4">Total ({{ items|length }} línea{{ '' if items|length == 1 else 's' }})</th>
+            <th class="text-end">{{ (beneficiary.get('total_income') or 0)|eur }}</th>
+            <th></th>
+            <th class="text-end">{{ (beneficiary.get('total_amount') or 0)|eur }}</th>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+{% endmacro %}

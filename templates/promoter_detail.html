@@ -36,6 +36,7 @@
   <li class="nav-item"><a class="nav-link {% if tab == 'invitaciones' %}active{% endif %}" href="{{ url_for('promoter_detail_view', pid=promoter.id, tab='invitaciones') }}">Invitaciones{% if promoter_invitations_count %} <span class="badge text-bg-secondary">{{ promoter_invitations_count }}</span>{% endif %}</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'documentos' %}active{% endif %}" href="{{ url_for('promoter_detail_view', pid=promoter.id, tab='documentos') }}"><i class="fa fa-id-card me-1"></i>Documentos</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'prl' %}active{% endif %}" href="{{ url_for('promoter_detail_view', pid=promoter.id, tab='prl') }}"><i class="fa fa-helmet-safety me-1"></i>Alta y PRL</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'adelantos' %}active{% endif %}" href="{{ url_for('promoter_detail_view', pid=promoter.id, tab='adelantos') }}"><i class="fa fa-hand-holding-dollar me-1"></i>Adelantos y deudas</a></li>
 </ul>
 
 <div class="bg-white border border-top-0 rounded-bottom p-3">
@@ -195,6 +196,108 @@
     {% include '_person_documents_panel.html' %}
   {% elif tab == 'prl' %}
     {% include '_prl_docs_panel.html' %}
+  {% elif tab == 'adelantos' %}
+    {# ADELANTOS Y DEUDAS con las empresas del grupo: lo que avisa al ir a pagarle algo. #}
+    <div class="card mb-3">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+          <strong><i class="fa fa-hand-holding-dollar me-1 text-danger"></i>Adelantos y deudas</strong>
+          <div class="small text-muted">Lo que la casa le ha adelantado o lo que nos debe. Mientras quede algo pendiente se avisa al ir a pagarle.</div>
+        </div>
+        {% if CAN_EDIT_CATALOGS %}
+        <button class="btn btn-danger btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#debtNew"><i class="fa fa-plus me-1"></i>Añadir</button>
+        {% endif %}
+      </div>
+
+      {% if CAN_EDIT_CATALOGS %}
+      <div class="collapse" id="debtNew">
+        <form class="card-body border-bottom" method="post" enctype="multipart/form-data"
+              action="{{ url_for('promoter_debt_save', pid=promoter.id) }}">
+          <input type="hidden" name="next" value="{{ url_for('promoter_detail_view', pid=promoter.id, tab='adelantos') }}">
+          <div class="row g-2">
+            <div class="col-6 col-md-3">
+              <label class="form-label small">Tipo</label>
+              <select class="form-select form-select-sm" name="kind">
+                {% for value, label, icon in party_debt_kinds %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-6 col-md-3">
+              <label class="form-label small">Empresa del grupo</label>
+              <select class="form-select form-select-sm" name="company_id" required>
+                <option value="">Elige…</option>
+                {% for c in group_companies_all %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label small">Concepto</label>
+              <input class="form-control form-control-sm" name="concept" placeholder="Adelanto de gira, material prestado…">
+            </div>
+            <div class="col-6 col-md-3">
+              <label class="form-label small">Importe</label>
+              <input class="form-control form-control-sm money" name="amount" inputmode="decimal" required>
+            </div>
+            <div class="col-6 col-md-3">
+              <label class="form-label small">Ya recuperado</label>
+              <input class="form-control form-control-sm money" name="amount_recovered" inputmode="decimal">
+            </div>
+            <div class="col-6 col-md-3">
+              <label class="form-label small">Fecha</label>
+              <input class="form-control form-control-sm" type="date" name="debt_date">
+            </div>
+            <div class="col-6 col-md-3">
+              <label class="form-label small">Vencimiento</label>
+              <input class="form-control form-control-sm" type="date" name="due_date">
+            </div>
+            <div class="col-12 col-md-8">
+              <label class="form-label small">Notas</label>
+              <input class="form-control form-control-sm" name="notes">
+            </div>
+            <div class="col-12 col-md-4">
+              <label class="form-label small">Documento (opcional)</label>
+              <input class="form-control form-control-sm" type="file" name="document">
+            </div>
+          </div>
+          <div class="text-end mt-2"><button class="btn btn-danger btn-sm"><i class="fa fa-check me-1"></i>Guardar</button></div>
+        </form>
+      </div>
+      {% endif %}
+
+      {% if not party_debts %}
+        <div class="card-body text-muted small">Sin adelantos ni deudas anotados.</div>
+      {% else %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead class="table-light"><tr>
+            <th>Tipo</th><th>Empresa</th><th>Concepto</th><th>Fecha</th>
+            <th class="text-end">Importe</th><th class="text-end">Recuperado</th><th class="text-end">Pendiente</th><th></th>
+          </tr></thead>
+          <tbody>
+            {% for d in party_debts %}
+              <tr class="{{ 'opacity-50' if d.pending <= 0 }}">
+                <td><span class="badge {{ 'text-bg-warning text-dark' if d.kind == 'ADELANTO' else 'text-bg-secondary' }}">{{ d.kind_label }}</span></td>
+                <td class="small">{{ d.company_name }}</td>
+                <td class="small">{{ d.concept or '—' }}</td>
+                <td class="small">{{ d.date_label or '—' }}{% if d.due_label %}<div class="text-muted">vence {{ d.due_label }}</div>{% endif %}</td>
+                <td class="text-end">{{ d.amount|eur }}</td>
+                <td class="text-end">{{ d.recovered|eur }}</td>
+                <td class="text-end fw-semibold {{ 'text-danger' if d.pending > 0 }}">{{ d.pending|eur }}</td>
+                <td class="text-end">
+                  {% if d.document_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ d.document_url }}" target="_blank" rel="noopener" title="Documento"><i class="fa fa-paperclip"></i></a>{% endif %}
+                  {% if CAN_EDIT_CATALOGS %}
+                  <form method="post" action="{{ url_for('promoter_debt_delete', pid=promoter.id, debt_id=d.id) }}" class="d-inline"
+                        onsubmit="return confirm('¿Eliminar esta anotación?');">
+                    <input type="hidden" name="next" value="{{ url_for('promoter_detail_view', pid=promoter.id, tab='adelantos') }}">
+                    <button class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="fa fa-trash"></i></button>
+                  </form>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    </div>
   {% elif tab == 'invitaciones' %}
     {# Cabecera común de evento para una fila de invitación: foto del artista + etiqueta de tipo +
        nombre (si lo hay) · municipio · fecha; y debajo, en sub-línea, recinto · municipio · provincia.

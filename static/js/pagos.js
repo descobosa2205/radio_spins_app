@@ -32,14 +32,16 @@
   function addChip(form, datos) {
     var zona = form.querySelector('[data-pay-zone]');
     if (!zona) return;
-    var campo = datos.kind === 'bag' ? 'bag_ids' : 'expense_ids';
+    // Cada tipo de pago viaja en su propio campo: bolsas enteras, gastos y liquidaciones de royalties.
+    var campo = datos.kind === 'bag' ? 'bag_ids' : (datos.kind === 'royalty' ? 'royalty_ids' : 'expense_ids');
     if (zona.querySelector('[data-pay-chip][data-id="' + datos.id + '"]')) return;   // ya está
     var chip = document.createElement('span');
     chip.className = 'pay-chip';
     chip.setAttribute('data-pay-chip', '1');
     chip.setAttribute('data-id', datos.id);
     chip.setAttribute('data-amount', datos.amount || '0');
-    chip.innerHTML = '<i class="fa ' + (datos.kind === 'bag' ? 'fa-scale-balanced' : 'fa-receipt') + ' me-1"></i>'
+    var icono = datos.kind === 'bag' ? 'fa-scale-balanced' : (datos.kind === 'royalty' ? 'fa-percent' : 'fa-receipt');
+    chip.innerHTML = '<i class="fa ' + icono + ' me-1"></i>'
       + '<span class="pay-chip__t"></span>'
       + '<button type="button" class="pay-chip__x" aria-label="Quitar">&times;</button>'
       + '<input type="hidden" name="' + campo + '" value="' + datos.id + '">';

@@ -1,4 +1,5 @@
 {% extends "layout.html" %}
+{% import '_royalty_liquidation_detail.html' as rliq with context %}
 {% block content %}
 {# Landing pública de una LIQUIDACIÓN DE ROYALTIES: se muestra igual que en el PDF y abajo el
    botón de subir la factura (mismo proceso de facturación, con los datos de la empresa del grupo). #}
@@ -10,44 +11,11 @@
     <h3 class="text-center mb-1">Liquidación de royalties</h3>
     <p class="text-center text-muted small mb-4">{{ period_label }}</p>
 
-    <div class="card shadow-sm mb-3">
-      <div class="card-body d-flex align-items-center gap-3 flex-wrap">
-        {% if beneficiary.get('photo_url') %}
-          <img src="{{ beneficiary.get('photo_url') }}" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:50%;border:1px solid #eee;">
-        {% endif %}
-        <div class="flex-grow-1">
-          <div class="fw-semibold fs-5">{{ beneficiary.get('name') or 'Beneficiario' }}</div>
-          <div class="small text-muted">Periodo {{ period_label }}</div>
-        </div>
-        <div class="text-end">
-          <div class="small text-muted">Total a facturar</div>
-          <div class="fw-bold fs-5">{{ (beneficiary.get('total') or 0)|eur }}</div>
-        </div>
-      </div>
-    </div>
-
-    {# Detalle igual que en el PDF #}
+    {# El detalle sale del parcial compartido: es EXACTAMENTE lo mismo que se ve en el PDF y en la
+       pantalla de validar la factura, así no puede haber discrepancias. #}
     <div class="card shadow-sm mb-3">
       <div class="card-body p-0">
-        <div class="table-responsive">
-          <table class="table table-sm align-middle mb-0">
-            <thead class="table-light"><tr><th>Concepto</th><th class="text-end">Importe</th></tr></thead>
-            <tbody>
-              {% for it in (beneficiary.get('items') or []) %}
-                <tr>
-                  <td>
-                    <div class="fw-semibold small">{{ it.get('title') or it.get('label') or 'Concepto' }}</div>
-                    {% if it.get('subtitle') %}<div class="small text-muted">{{ it.get('subtitle') }}</div>{% endif %}
-                  </td>
-                  <td class="text-end">{{ (it.get('amount') or 0)|eur }}</td>
-                </tr>
-              {% else %}
-                <tr><td colspan="2" class="text-muted small">No hay líneas de liquidación para este periodo.</td></tr>
-              {% endfor %}
-            </tbody>
-            <tfoot class="table-light"><tr><th>Total a facturar</th><th class="text-end">{{ (beneficiary.get('total') or 0)|eur }}</th></tr></tfoot>
-          </table>
-        </div>
+        {{ rliq.royalty_detail(beneficiary, period_label) }}
       </div>
     </div>
 

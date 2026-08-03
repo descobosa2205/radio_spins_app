@@ -3341,3 +3341,28 @@ body.doccam-open { overflow: hidden; }
   color:#adb5bd; }
 .mv-row__v{ flex:1 1 0; font-size:.94rem; min-width:0; }
 .mv-card__acts{ margin-top:.6rem; }
+
+/* ==================== LIQUIDACIÓN DE ROYALTIES · detalle (parcial compartido) ====================
+   Lo pintan el enlace público del beneficiario y la pantalla de validar su factura: mismas columnas
+   que el PDF, para que lo que se ve y lo que se firmó no discrepen. */
+.rliq__head{ display:flex; align-items:center; gap:.85rem; flex-wrap:wrap; padding:.85rem 1rem;
+  border-bottom:1px solid #e9ecef; }
+.rliq__photo{ width:56px; height:56px; flex:0 0 56px; border-radius:50%; object-fit:cover;
+  border:1px solid #e9ecef; background:#fff; }
+.rliq__photo--ph{ display:flex; align-items:center; justify-content:center; background:#f1f3f5; color:#adb5bd; }
+.rliq__name{ font-size:1.05rem; font-weight:700; line-height:1.2; }
+.rliq__sub{ font-size:.82rem; color:#868e96; }
+.rliq__totlab{ font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; color:#adb5bd; }
+.rliq__tot{ font-size:1.25rem; font-weight:700; }
+.rliq__table th, .rliq__table td{ vertical-align:middle; }
+.rliq__table thead th{ font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; color:#6c757d; }
+.rliq__cover{ width:30px; height:30px; border-radius:6px; object-fit:cover; border:1px solid #e9ecef; }
+.rliq__cover--ph{ display:inline-flex; align-items:center; justify-content:center; background:#f1f3f5;
+  color:#ced4da; font-size:.7rem; }
+.rliq__badges{ font-size:.7rem; color:#adb5bd; }
+.rliq__codelab{ font-size:.68rem; }
+.rliq__deds{ margin-top:.3rem; font-size:.72rem; color:#8f1f26; }
+.rliq__deds__tot{ color:#495057; font-weight:600; }
+/* La factura de la liquidación se ve ABIERTA junto a la liquidación, para contrastarlas. */
+.rinv__frame{ width:100%; height:70vh; min-height:420px; border:0; display:block; }
+.rinv__img{ width:100%; height:auto; display:block; }

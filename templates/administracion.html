@@ -14,6 +14,16 @@
           <span class="text-muted ms-1">{{ row.paid|eur }} de {{ row.gross|eur }} · quedan {{ row.amount|eur }}</span></div>
       {% endif %}
       {% if row.missing %}<div class="small text-danger"><i class="fa fa-triangle-exclamation me-1"></i>Falta {{ row.missing_labels|join(', ') }}</div>{% endif %}
+      {# Avisos antes de abonar: orden de embargo vigente y adelantos/deudas con la casa. #}
+      {% if row.embargos %}
+        <div class="small text-danger fw-semibold"><i class="fa fa-gavel me-1"></i>Orden de embargo vigente: no abonar
+          ({% for e in row.embargos %}{{ e.reference }}{% if not loop.last %} · {% endif %}{% endfor %})</div>
+      {% endif %}
+      {% if row.debts %}
+        <div class="small text-warning-emphasis"><i class="fa fa-hand-holding-dollar me-1"></i>
+          {% for d in row.debts %}{{ d.kind_label }} {{ d.company_name }}: pendiente {{ d.pending|eur }}{% if not loop.last %} · {% endif %}{% endfor %}
+        </div>
+      {% endif %}
       {% if row.in_batch %}<span class="badge text-bg-info text-dark mt-1">Ya está en una remesa</span>{% endif %}
     </div>
     <div class="d-flex align-items-center gap-2">
@@ -288,6 +298,81 @@
               </div>
             </div>
           {% endfor %}
+
+          {# LIQUIDACIONES DE ROYALTIES con la factura ya validada: son un pago más. Se pueden
+             arrastrar a la remesa, bajar su fichero con el icono y cambiar su estado en la etiqueta. #}
+          {% if grupo.royalties %}
+            <div class="p-3 border-bottom">
+              <div class="small text-muted mb-2"><i class="fa fa-percent me-1"></i>Liquidaciones de royalties</div>
+              {% for r in grupo.royalties %}
+                <div class="d-flex align-items-center gap-2 border rounded p-2 mb-2 flex-wrap pay-royalty" draggable="true"
+                     data-pay-item="royalty" data-pay-id="{{ r.id }}" data-pay-company="{{ grupo.company_id }}"
+                     data-pay-label="{{ r.name }} · {{ r.period_label }}" data-pay-amount="{{ r.amount }}">
+                  <i class="fa fa-grip-vertical text-muted"></i>
+                  {% if r.photo_url %}<img src="{{ r.photo_url }}" alt="" style="width:30px;height:30px;border-radius:50%;object-fit:cover;border:1px solid #eee;">{% endif %}
+                  <div class="flex-grow-1" style="min-width:0;">
+                    <div class="fw-semibold text-truncate">{{ r.name }}</div>
+                    <div class="small text-muted text-truncate">
+                      {{ r.period_label }}{% if r.iban_masked %} · {{ r.iban_masked }}{% endif %}
+                      {% if r.missing %}<span class="text-danger"> · falta {{ r.missing|join(', ') }}</span>{% endif %}
+                    </div>
+                    {% if r.embargos %}
+                      <div class="small text-danger"><i class="fa fa-triangle-exclamation me-1"></i>Orden de embargo vigente: no abonar</div>
+                    {% endif %}
+                    {% if r.debts %}
+                      <div class="small text-warning-emphasis"><i class="fa fa-hand-holding-dollar me-1"></i>
+                        {% for d in r.debts %}{{ d.kind_label }} {{ d.company_name }}: pendiente {{ d.pending|eur }}{% if not loop.last %} · {% endif %}{% endfor %}
+                      </div>
+                    {% endif %}
+                  </div>
+                  <span class="fw-bold">{{ r.amount|eur }}</span>
+
+                  {# El ESTADO es una etiqueta: se pincha para actualizarlo. #}
+                  <div class="dropdown">
+                    <button class="badge {{ r.status_badge }} border-0" type="button" data-bs-toggle="dropdown" title="Cambiar el estado">
+                      {{ r.status_label }} <i class="fa fa-caret-down ms-1"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                      <li><h6 class="dropdown-header">Estado del pago</h6></li>
+                      <li>
+                        <form method="post" action="{{ url_for('royalty_liquidation_payment_status', liq_id=r.id) }}">
+                          <input type="hidden" name="next" value="{{ request.full_path }}">
+                          <input type="hidden" name="status" value="INVOICED">
+                          <button class="dropdown-item {{ 'active' if r.status == 'INVOICED' }}" type="submit"><i class="fa fa-clock me-2"></i>Pendiente de pago</button>
+                        </form>
+                      </li>
+                      <li>
+                        <form method="post" action="{{ url_for('royalty_liquidation_payment_status', liq_id=r.id) }}">
+                          <input type="hidden" name="next" value="{{ request.full_path }}">
+                          <input type="hidden" name="status" value="PAID">
+                          <input type="hidden" name="payment_method" value="Transferencia">
+                          <button class="dropdown-item" type="submit"><i class="fa fa-circle-check me-2"></i>Pagada</button>
+                        </form>
+                      </li>
+                    </ul>
+                  </div>
+
+                  {# Descargar la remesa: ICONO. Se elige la cuenta de la empresa. #}
+                  {% if r.batch_id %}
+                    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('payment_batch_detail', batch_id=r.batch_id) }}" title="Ya está en una remesa: ábrela"><i class="fa fa-file-invoice-dollar"></i></a>
+                  {% else %}
+                    <form method="post" action="{{ url_for('royalty_liquidation_batch', liq_id=r.id) }}" class="d-flex gap-1 align-items-center">
+                      <input type="hidden" name="next" value="{{ request.full_path }}">
+                      {% if grupo.accounts %}
+                        <select class="form-select form-select-sm" name="account_id" style="width:auto;" title="Cuenta desde la que se paga">
+                          {% for acc in grupo.accounts %}
+                            <option value="{{ acc.id }}" {% if acc.is_default %}selected{% endif %}>{{ acc.bank.name if acc.bank else 'Sin banco' }}{% if acc.alias %} · {{ acc.alias }}{% endif %}</option>
+                          {% endfor %}
+                        </select>
+                      {% endif %}
+                      <button class="btn btn-sm btn-outline-primary" type="submit" title="Crear la remesa y bajar el fichero para el banco"><i class="fa fa-download"></i></button>
+                    </form>
+                  {% endif %}
+                  {% if r.review_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ r.review_url }}" title="Ver la liquidación y su factura"><i class="fa fa-arrow-up-right-from-square"></i></a>{% endif %}
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
 
           {# Gastos sueltos (sin liquidación) #}
           {% if grupo.loose %}

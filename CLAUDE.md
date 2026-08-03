@@ -1194,6 +1194,34 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   queda como **facturada**: aparece en el listado de royalties y la factura, en la base de facturas. Se contrasta con las **órdenes
   de embargo vigentes** del proveedor y se avisa para no abonarle. Acciones en bloque:
   `royalty_liquidations_download_all` (un PDF continuo con pypdf) y `royalty_liquidations_send_all`.
+- **Royalties · la pantalla de VALIDAR y el circuito de PAGO** (ago 2026):
+  · **Izquierda = la liquidación TAL CUAL se envió**: sale del **congelado**
+  (`_royalty_frozen_beneficiary`), no de recalcular en vivo, y se pinta con el parcial compartido
+  **`templates/_royalty_liquidation_detail.html`** (macro `royalty_detail`), que usan también el enlace
+  público y por tanto tiene las MISMAS columnas que el PDF (portada · Repertorio · Código · Fecha ·
+  Ingreso · % · A facturar) con los descuentos bajo cada línea. ⚠️ El total del beneficiario es
+  **`total_amount`**, no `total`: las dos plantillas leían `total` y el total salía **0,00 €** (bug
+  real). ⚠️ El snapshot **no guardaba los descuentos**, así que con `use_frozen=True` desaparecían del
+  PDF y de la pantalla: ya se congelan (`amount_before_deductions`/`deduction_total`/`deductions`);
+  las congeladas de antes no los traen y no se pueden reconstruir.
+  · **Derecha** = resumen (con aviso si la factura **no cuadra** con la liquidación) + documentación
+  exigida + **botones de validar/rechazar ENCIMA** + la **factura abierta** en un `iframe` (PDF) o
+  `<img>` (foto), sin tener que pinchar.
+  · **Validar → pendiente de pago**: antes desaparecía porque «Pendiente de pago» solo listaba
+  `BagExpense`. Ahora `_royalty_payment_pending_rows` las mete en `_payment_pending_context` bajo la
+  empresa que factura los royalties (PIES), se pueden **arrastrar a la remesa**
+  (`PaymentBatchItem.royalty_liquidation_id`, `_payment_batch_add_royalties`, campo `royalty_ids`),
+  tienen su **icono** de crear/bajar la remesa eligiendo la cuenta (`royalty_liquidation_batch`) y su
+  **estado como etiqueta clicable** (`royalty_liquidation_payment_status`: pendiente de pago ↔ pagada).
+  El contador de la subpestaña las suma (si no, no cuadraba con lo que se ve).
+  · **Pagada → contabilidad**: `_royalty_mark_paid` (también desde el justificante de la remesa) y
+  `_royalty_accounting_pending_rows` → módulo **«Pendiente de contabilizar»** de `/contabilidad`
+  (plantilla nueva `contabilidad.html`) con `royalty_liquidation_accounted`.
+  · **Avisos antes de abonar**: orden de **embargo** vigente y **adelantos/deudas** con las empresas
+  del grupo (`PartyDebt` + `_party_debt_rows`), en la pantalla de validar, en la línea de la
+  liquidación y en **cada gasto** de pendiente de pago (`_payment_expense_row`). Se anotan en la
+  pestaña **«Adelantos y deudas»** de la ficha del tercero (`promoter_debt_save`/`_delete`); lo
+  pendiente es `amount − amount_recovered` y al llegar a cero se cierra sola.
 - ⚠️ **Migraciones en local**: `_bootstrap_schema_bg` (a) corre en un hilo DAEMON al importar `app`
   (muere con el proceso → migraciones a medias) y (b) usa un **cerrojo de fichero** en
   `tempfile.gettempdir()/app33_schema_bootstrap.lock` que la hace salir sin hacer nada si ya existe.

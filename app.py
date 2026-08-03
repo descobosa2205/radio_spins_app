@@ -6861,6 +6861,19 @@ def _royalty_liquidation_snapshot(beneficiary: dict, sem_start: date, sem_end: d
             'income': float(item.get('income') or 0),
             'pct': float(item.get('pct') or 0),
             'amount': float(item.get('amount') or 0),
+            # ⚠️ Los DESCUENTOS a terceros van en el congelado: el PDF los pinta bajo cada línea y
+            # con `use_frozen=True` el congelado SUSTITUYE al beneficiario en vivo, así que si no
+            # estuvieran aquí desaparecerían del PDF y de la pantalla (bug real: la liquidación se
+            # veía «incompleta»). Las congeladas antes de esto no los traen y no se pueden
+            # reconstruir: se pintan sin ellos, como hasta ahora.
+            'amount_before_deductions': float(item.get('amount_before_deductions') or 0),
+            'deduction_total': float(item.get('deduction_total') or 0),
+            'deductions': [{
+                'name': (d.get('name') or ''),
+                'amount': float(d.get('amount') or 0),
+                'pct': float(d.get('pct') or 0),
+                'base': (d.get('base') or ''),
+            } for d in (item.get('deductions') or []) if isinstance(d, dict)],
             'badges': list(item.get('badges') or []),
             'cover_url': (item.get('cover_url') or '').strip(),
             'fallback_cover_url': (item.get('fallback_cover_url') or '').strip(),
@@ -6901,6 +6914,8 @@ ROYALTY_EVENT_LABELS = {
     "INVOICED": "Factura recibida",
     "PAID": "Pagada",
     "INVOICE_REJECTED": "Factura rechazada",
+    "PAYMENT_REOPENED": "Vuelta a pendiente de pago",
+    "ACCOUNTED": "Contabilizada",
 }
 
 
@@ -14448,6 +14463,11 @@ def public_royalty_liquidation_view(token):
         except Exception:
             abort(404)
         rec = _royalty_liquidation_record(session_db, kind, beneficiary_uuid, sem_start)
+        # LO QUE SE LE ENVIÓ: si la liquidación está generada manda su congelado, no lo que saldría
+        # hoy. Así el beneficiario ve exactamente lo que firmó el PDF.
+        _congelada = _royalty_frozen_beneficiary(rec)
+        if _congelada:
+            beneficiary = _congelada
         # Las liquidaciones de royalties se facturan A NOMBRE DE PIES (el sello), no de la primera
         # empresa del grupo por orden alfabético (que era 33 Producciones).
         company = None
@@ -35126,7 +35146,7 @@ def promoter_detail_view(pid):
             flash('Tercero no encontrado.', 'warning')
             return redirect(url_for('promoters_view'))
         tab = (request.args.get('tab') or 'general').strip().lower()
-        if tab not in {'general', 'contactos', 'vinculaciones', 'invitaciones', 'documentos', 'prl'}:
+        if tab not in {'general', 'contactos', 'vinculaciones', 'invitaciones', 'documentos', 'prl', 'adelantos'}:
             tab = 'general'
         promoter_email_addresses = (
             session.query(PromoterEmail)
@@ -35220,6 +35240,10 @@ def promoter_detail_view(pid):
             travel_summary=_travel_summary(promoter),
             contacts_by_title=sorted(grouped.items(), key=lambda x: _norm_text_key(x[0])),
             promoter_email_addresses=promoter_email_addresses,
+            # Adelantos y deudas con las empresas del grupo (lo que avisa al ir a pagarle).
+            party_debts=(_party_debt_rows(session, promoter_id=promoter.id, only_open=False) if tab == 'adelantos' else []),
+            party_debt_kinds=PARTY_DEBT_KINDS,
+            group_companies_all=(session.query(GroupCompany).order_by(GroupCompany.name.asc()).all() if tab == 'adelantos' else []),
             promoter_invitations_count=promoter_invitations_count,
             promoter_invitations_active=promoter_invitations_active,
             promoter_invitations_past=promoter_invitations_past,
@@ -38559,6 +38583,7 @@ from models import (
     GroupCompanyBankAccount,
     PaymentBatch,
     PaymentBatchItem,
+    PartyDebt,
     MinorAuthConfig,
     MinorAuthorization,
     MinorAuthorizationMinor,
@@ -41328,6 +41353,54 @@ def admin_ita_upload():
         session_db.close()
 
 
+PARTY_DEBT_KINDS = [("ADELANTO", "Adelanto", "fa-hand-holding-dollar"),
+                    ("DEUDA", "Deuda", "fa-file-invoice-dollar")]
+PARTY_DEBT_LABELS = {k: l for k, l, _i in PARTY_DEBT_KINDS}
+
+
+def _party_debt_rows(session_db, *, promoter_id=None, artist_id=None, only_open: bool = True) -> list[dict]:
+    """ADELANTOS y DEUDAS de una persona/tercero (o de un artista) con las empresas del grupo.
+
+    Es el aviso que pidió Dani antes de abonarle algo: si la casa le ha adelantado dinero o nos debe
+    algo, se ve al ir a pagarle. `pending` es lo que queda por recuperar."""
+    if not promoter_id and not artist_id:
+        return []
+    try:
+        q = (session_db.query(PartyDebt)
+             .options(joinedload(PartyDebt.company)))
+        condiciones = []
+        if promoter_id:
+            condiciones.append(PartyDebt.promoter_id == to_uuid(str(promoter_id)))
+        if artist_id:
+            condiciones.append(PartyDebt.artist_id == to_uuid(str(artist_id)))
+        q = q.filter(or_(*condiciones)) if len(condiciones) > 1 else q.filter(condiciones[0])
+        if only_open:
+            q = q.filter(func.upper(func.coalesce(PartyDebt.status, "ABIERTA")) == "ABIERTA")
+        filas = []
+        for d in q.order_by(PartyDebt.created_at.desc()).limit(50).all():
+            importe = _money_or_zero(d.amount)
+            recuperado = _money_or_zero(d.amount_recovered)
+            pendiente = importe - recuperado
+            if only_open and pendiente <= 0:
+                continue
+            filas.append({
+                "id": str(d.id),
+                "kind": (d.kind or "ADELANTO").upper(),
+                "kind_label": PARTY_DEBT_LABELS.get((d.kind or "ADELANTO").upper(), "Adelanto"),
+                "company_name": (getattr(d.company, "name", None) or "—"),
+                "concept": (d.concept or ""),
+                "amount": importe,
+                "recovered": recuperado,
+                "pending": pendiente,
+                "date_label": (d.debt_date.strftime("%d/%m/%Y") if d.debt_date else ""),
+                "due_label": (d.due_date.strftime("%d/%m/%Y") if d.due_date else ""),
+                "document_url": (d.document_url or ""),
+            })
+        return filas
+    except Exception:
+        return []
+
+
 def _royalty_invoice_pending_rows(session_db) -> list:
     """Facturas de liquidaciones de royalties recibidas y PENDIENTES de validar (tarea de
     administración). Incluye el aviso de EMBARGO vigente sobre el proveedor."""
@@ -41373,8 +41446,10 @@ def administration_royalty_invoice_review(invoice_id):
             abort(404)
         rec = session_db.get(RoyaltyLiquidation, inv.royalty_liquidation_id) if inv.royalty_liquidation_id else None
         promoter = session_db.get(Promoter, inv.promoter_id)
-        beneficiary = None
-        if rec is not None:
+        # LO QUE SE ENVIÓ, no lo que saldría hoy: manda el congelado de la liquidación
+        # (`snapshot`). Solo si nunca se generó se recalcula en vivo, para no dejar la pantalla vacía.
+        beneficiary = _royalty_frozen_beneficiary(rec)
+        if beneficiary is None and rec is not None:
             try:
                 sem_half = 1 if rec.period_start.month <= 6 else 2
                 beneficiary, _s, _e, _bid = _get_royalty_liquidation_beneficiary_data(
@@ -41388,12 +41463,30 @@ def administration_royalty_invoice_review(invoice_id):
             except Exception:
                 embargos = []
         docs = _billing_docs_state(session_db, promoter, _billing_profile_payload(session_db, promoter)["kind"]) if promoter else []
+        # ¿Le hemos adelantado dinero o nos debe algo? Se avisa antes de validar (y de pagar).
+        deudas = _party_debt_rows(
+            session_db,
+            promoter_id=(inv.promoter_id or None),
+            artist_id=(rec.beneficiary_id if (rec is not None and (rec.beneficiary_kind or "").upper() == "ARTIST") else None),
+        )
+        # La factura se enseña ABIERTA: hay que saber si es PDF o imagen para incrustarla.
+        nombre = ((inv.original_name or "") + " " + (inv.file_url or "")).lower()
+        es_pdf = ".pdf" in nombre
+        es_imagen = (not es_pdf) and any(x in nombre for x in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".heic"))
+        total_liq = _money_or_zero((beneficiary or {}).get("total_amount"))
+        total_fac = _money_or_zero(getattr(inv, "amount_gross", None))
         return render_template(
             "administration_royalty_invoice.html",
             inv=inv, liquidation=rec, promoter=promoter, beneficiary=beneficiary,
+            frozen=bool(_royalty_frozen_beneficiary(rec)),
             period_label=(_royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end) if rec else ""),
             embargos=embargos,
+            debts=deudas,
             required_docs=[d for d in docs if d["key"] != "INVOICE"],
+            invoice_is_pdf=es_pdf,
+            invoice_is_image=es_imagen,
+            # Aviso si la factura no cuadra con la liquidación (más de un céntimo de diferencia).
+            amount_mismatch=bool(total_liq and total_fac and abs(total_liq - total_fac) > Decimal("0.01")),
         )
     finally:
         session_db.close()
@@ -49612,7 +49705,19 @@ def _payment_expense_row(session_db, expense) -> dict:
     batch_id = str(getattr(expense, "payment_batch_id", "") or "")
     bruto = _money_or_zero(getattr(expense, "amount_gross", 0))
     ya_pagado = _money_or_zero(getattr(expense, "paid_amount", 0))
+    # Antes de abonarle algo a alguien hay que saber si tiene una ORDEN DE EMBARGO vigente o si la
+    # casa le ha ADELANTADO dinero (o nos debe algo): las dos cosas se avisan en la propia línea.
+    _prov = getattr(expense, "provider", None)
+    embargos_prov, deudas_prov = [], []
+    if _prov is not None:
+        try:
+            embargos_prov = [_embargo_order_summary(o) for o in _active_embargo_orders_for_promoter(session_db, _prov)]
+        except Exception:
+            embargos_prov = []
+        deudas_prov = _party_debt_rows(session_db, promoter_id=getattr(_prov, "id", None))
     return {
+        "embargos": embargos_prov,
+        "debts": deudas_prov,
         "id": str(expense.id),
         "concept": (getattr(expense, "concept", None) or "Sin concepto").strip(),
         # `amount` es SIEMPRE lo que queda por pagar: es lo que se manda al banco y lo que se ve.
@@ -49669,6 +49774,7 @@ def _payment_pending_context(session_db) -> list:
                 "accounts": accounts.get(clave, []),
                 "bags": {},
                 "loose": [],
+                "royalties": [],
                 "batches": [],
                 "total": Decimal("0"),
                 "count": 0,
@@ -49707,12 +49813,148 @@ def _payment_pending_context(session_db) -> list:
             "url": url_for("payment_batch_detail", batch_id=batch.id),
         })
 
+    # LIQUIDACIONES DE ROYALTIES ya facturadas y validadas: son un pago más. Antes desaparecían al
+    # validar la factura (no son gastos de bolsa y nadie las listaba aquí).
+    for fila in _royalty_payment_pending_rows(session_db):
+        grupo = _grupo(fila["company_id"])
+        grupo["royalties"].append(fila)
+        grupo["total"] += fila["amount"]
+        grupo["count"] += 1
+
     salida = []
     for grupo in grupos.values():
         grupo["bags"] = sorted(grupo["bags"].values(), key=lambda b: (b["title"] or "").casefold())
         salida.append(grupo)
     salida.sort(key=lambda g: (g["company_name"] or "").casefold())
     return salida
+
+
+ROYALTY_PAYMENT_STATES = [
+    ("INVOICED", "Pendiente de pago", "text-bg-warning text-dark"),
+    ("PAID", "Pagada", "text-bg-success"),
+]
+ROYALTY_PAYMENT_LABELS = {k: l for k, l, _c in ROYALTY_PAYMENT_STATES}
+
+
+def _royalty_payment_state_meta(status):
+    st = (status or "").upper()
+    for clave, etiqueta, clase in ROYALTY_PAYMENT_STATES:
+        if clave == st:
+            return etiqueta, clase
+    return (st or "—"), "text-bg-light border text-dark"
+
+
+def _royalty_mark_paid(rec, *, method: str = "", batch=None):
+    """Da por PAGADA una liquidación: pasa a contabilidad (pendiente de contabilizar). Al pagarla se
+    archiva de las tareas de administración, que es lo que se pidió: lo que está pagado ya no es
+    trabajo de pagos."""
+    if rec is None:
+        return
+    rec.status = "PAID"
+    rec.paid_at = _now_madrid()
+    rec.payment_method = (method or "").strip() or None
+    if batch is not None:
+        rec.payment_batch_id = batch.id
+    rec.updated_at = _now_madrid()
+    _royalty_history_add(rec, "PAID", note=(method or ""))
+
+
+def _royalty_accounting_pending_rows(session_db, limit: int = 300) -> list[dict]:
+    """Liquidaciones PAGADAS que contabilidad todavía no ha contabilizado."""
+    try:
+        recs = (session_db.query(RoyaltyLiquidation)
+                .filter(func.upper(func.coalesce(RoyaltyLiquidation.status, "")) == "PAID")
+                .filter(RoyaltyLiquidation.accounted_at.is_(None))
+                .order_by(RoyaltyLiquidation.paid_at.asc().nullslast()).limit(limit).all())
+    except Exception:
+        return []
+    filas = []
+    for rec in recs:
+        congelada = _royalty_frozen_beneficiary(rec) or {}
+        inv = session_db.get(SupplierInvoice, rec.invoice_id) if getattr(rec, "invoice_id", None) else None
+        filas.append({
+            "id": str(rec.id),
+            "name": (congelada.get("name") or "Beneficiario"),
+            "period_label": _royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end),
+            "amount": _money_or_zero(congelada.get("total_amount")),
+            "paid_label": (rec.paid_at.strftime("%d/%m/%Y") if rec.paid_at else ""),
+            "method": (getattr(rec, "payment_method", None) or ""),
+            "invoice_url": (getattr(inv, "file_url", None) or ""),
+            "invoice_number": (getattr(inv, "invoice_number", None) or ""),
+            "pdf_url": (rec.last_sent_pdf_url or rec.snapshot_pdf_url or ""),
+        })
+    return filas
+
+
+def _royalty_payment_pending_rows(session_db) -> list[dict]:
+    """Liquidaciones de royalties con la factura VALIDADA y sin pagar: pendientes de pago.
+
+    Se pagan a nombre de quien facturó (el `promoter_id` de la factura, que es de donde salen el IBAN
+    y el BIC) y se agrupan bajo la empresa del grupo que factura los royalties (PIES). Llevan sus
+    avisos: orden de embargo vigente y adelantos/deudas con la casa."""
+    try:
+        recs = (session_db.query(RoyaltyLiquidation)
+                .filter(func.upper(func.coalesce(RoyaltyLiquidation.status, "")) == "INVOICED")
+                .filter(RoyaltyLiquidation.paid_at.is_(None))
+                .order_by(RoyaltyLiquidation.invoice_uploaded_at.asc().nullslast()).limit(400).all())
+    except Exception:
+        return []
+    if not recs:
+        return []
+    try:
+        company = _pies_group_company(session_db)
+    except Exception:
+        company = None
+    company_id = str(getattr(company, "id", "") or "")
+    filas = []
+    for rec in recs:
+        congelada = _royalty_frozen_beneficiary(rec) or {}
+        inv = session_db.get(SupplierInvoice, rec.invoice_id) if getattr(rec, "invoice_id", None) else None
+        promoter = session_db.get(Promoter, inv.promoter_id) if (inv is not None and inv.promoter_id) else None
+        nombre = (_promoter_display_name(promoter)
+                  or (congelada.get("name") or "").strip()
+                  or "Beneficiario")
+        importe = _money_or_zero(congelada.get("total_amount"))
+        if importe <= 0 and inv is not None:
+            importe = _money_or_zero(getattr(inv, "amount_gross", None))
+        iban = (getattr(promoter, "bank_account", None) or "").strip()
+        bic = (getattr(promoter, "bank_bic", None) or "").strip()
+        faltan = sepa_check_payment({"name": nombre, "iban": iban, "bic": bic, "amount": importe})
+        embargos = []
+        if promoter is not None and "_active_embargo_orders_for_promoter" in globals():
+            try:
+                embargos = [_embargo_order_summary(o) for o in _active_embargo_orders_for_promoter(session_db, promoter)]
+            except Exception:
+                embargos = []
+        deudas = _party_debt_rows(
+            session_db,
+            promoter_id=(getattr(promoter, "id", None)),
+            artist_id=(rec.beneficiary_id if (rec.beneficiary_kind or "").upper() == "ARTIST" else None),
+        )
+        etiqueta, clase = _royalty_payment_state_meta(rec.status)
+        filas.append({
+            "id": str(rec.id),
+            "kind": "royalty",
+            "company_id": company_id,
+            "name": nombre,
+            "concept": "Royalties · " + _royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end),
+            "period_label": _royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end),
+            "amount": importe,
+            "iban": iban,
+            "iban_masked": (_iban_masked(iban) if iban else ""),
+            "missing": faltan,
+            "status": (rec.status or "").upper(),
+            "status_label": etiqueta,
+            "status_badge": clase,
+            "batch_id": str(getattr(rec, "payment_batch_id", "") or ""),
+            "invoice_url": (getattr(inv, "file_url", None) or ""),
+            "pdf_url": (rec.last_sent_pdf_url or rec.snapshot_pdf_url or ""),
+            "review_url": (url_for("administration_royalty_invoice_review", invoice_id=inv.id) if inv is not None else ""),
+            "embargos": embargos,
+            "debts": deudas,
+            "photo_url": (congelada.get("photo_url") or ""),
+        })
+    return filas
 
 
 def _payment_batch_next_reference(session_db) -> str:
@@ -49819,6 +50061,47 @@ def _payment_batch_add_expenses(session_db, batch, expense_ids) -> int:
         ))
         expense.payment_batch_id = batch.id
         ya.add(str(expense.id))
+        añadidos += 1
+    session_db.flush()
+    _payment_batch_refresh_total(session_db, batch)
+    return añadidos
+
+
+def _payment_batch_add_royalties(session_db, batch, liquidation_ids) -> int:
+    """Mete LIQUIDACIONES DE ROYALTIES validadas en la remesa. El beneficiario es quien facturó (de
+    ahí salen el IBAN y el BIC) y se congela en el item, como el resto de los pagos."""
+    añadidos = 0
+    ya = {str(i.royalty_liquidation_id) for i in session_db.query(PaymentBatchItem)
+          .filter(PaymentBatchItem.batch_id == batch.id).all() if getattr(i, "royalty_liquidation_id", None)}
+    for raw in liquidation_ids or []:
+        try:
+            rid = to_uuid(str(raw).strip())
+        except Exception:
+            continue
+        if not rid or str(rid) in ya:
+            continue
+        rec = session_db.get(RoyaltyLiquidation, rid)
+        if rec is None or (rec.status or "").upper() != "INVOICED" or rec.paid_at is not None:
+            continue
+        congelada = _royalty_frozen_beneficiary(rec) or {}
+        inv = session_db.get(SupplierInvoice, rec.invoice_id) if getattr(rec, "invoice_id", None) else None
+        promoter = session_db.get(Promoter, inv.promoter_id) if (inv is not None and inv.promoter_id) else None
+        importe = _money_or_zero(congelada.get("total_amount"))
+        if importe <= 0 and inv is not None:
+            importe = _money_or_zero(getattr(inv, "amount_gross", None))
+        session_db.add(PaymentBatchItem(
+            batch_id=batch.id,
+            royalty_liquidation_id=rec.id,
+            provider_id=(promoter.id if promoter is not None else None),
+            beneficiary_name=(_promoter_display_name(promoter) or (congelada.get("name") or "") or None),
+            beneficiary_iban=(sepa_normalize_iban(getattr(promoter, "bank_account", None) or "") or None),
+            beneficiary_bic=((getattr(promoter, "bank_bic", None) or "").strip() or None),
+            concept=("Royalties " + _royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end))[:140],
+            amount=importe,
+        ))
+        rec.payment_batch_id = batch.id
+        rec.updated_at = _now_madrid()
+        ya.add(str(rec.id))
         añadidos += 1
     session_db.flush()
     _payment_batch_refresh_total(session_db, batch)
@@ -50062,8 +50345,9 @@ def payment_batch_create():
             flash("Empresa no encontrada.", "warning")
             return redirect(next_url)
         expense_ids = _payment_batch_expense_ids_from_form(session_db, request.form)
-        if not expense_ids:
-            flash("No has elegido ningún gasto para la remesa.", "warning")
+        royalty_ids = [x for x in (request.form.getlist("royalty_ids") or []) if (x or "").strip()]
+        if not expense_ids and not royalty_ids:
+            flash("No has elegido ningún pago para la remesa.", "warning")
             return redirect(next_url)
         # Todo tiene que ser de la MISMA empresa: si no, se avisa y no se crea nada.
         ajenos = []
@@ -50098,6 +50382,7 @@ def payment_batch_create():
         session_db.add(batch)
         session_db.flush()
         n = _payment_batch_add_expenses(session_db, batch, expense_ids)
+        n += _payment_batch_add_royalties(session_db, batch, royalty_ids)
         session_db.commit()
         flash(f"Remesa {batch.reference} creada con {n} pago(s).", "success")
         return redirect(url_for("payment_batch_detail", batch_id=batch.id))
@@ -50132,6 +50417,129 @@ def payment_batch_detail(batch_id):
         )
     finally:
         session_db.close()
+
+
+@app.post("/administracion/royalties/<liq_id>/remesa", endpoint="royalty_liquidation_batch")
+@admin_required
+def royalty_liquidation_batch(liq_id):
+    """Crea la remesa de UNA liquidación (el icono de «descargar remesa» de pendiente de pago) con la
+    cuenta de la empresa que se elija, y lleva directo al fichero para el banco."""
+    next_url = safe_next_or(request.form.get("next") or url_for("administracion_view", tab="pendiente", subtab="pago"))
+    session_db = db()
+    try:
+        rec = session_db.get(RoyaltyLiquidation, to_uuid(liq_id) or uuid.uuid4())
+        if rec is None:
+            flash("Liquidación no encontrada.", "warning")
+            return redirect(next_url)
+        if (rec.status or "").upper() != "INVOICED" or rec.paid_at is not None:
+            flash("Esta liquidación no está pendiente de pago.", "warning")
+            return redirect(next_url)
+        if getattr(rec, "payment_batch_id", None):
+            return redirect(url_for("payment_batch_detail", batch_id=rec.payment_batch_id))
+        company = _pies_group_company(session_db)
+        if company is None:
+            flash("No hay empresa del grupo que facture los royalties.", "warning")
+            return redirect(next_url)
+        account_raw = (request.form.get("account_id") or "").strip()
+        account = session_db.get(GroupCompanyBankAccount, to_uuid(account_raw)) if account_raw else None
+        if account is None or str(account.company_id) != str(company.id):
+            account = next((a for a in _company_bank_accounts(session_db, company.id) if a.is_default), None) \
+                or next(iter(_company_bank_accounts(session_db, company.id)), None)
+        if account is None:
+            flash("La empresa no tiene cuentas bancarias. Añádelas en su ficha.", "warning")
+            return redirect(next_url)
+        state = _current_user_state()
+        batch = PaymentBatch(
+            reference=_payment_batch_next_reference(session_db),
+            company_id=company.id,
+            account_id=account.id,
+            bank_id=account.bank_id,
+            status="BORRADOR",
+            execution_date=today_local(),
+            created_by_user_id=to_uuid(state.get("user_id")) if state.get("user_id") else None,
+            created_by_nick=(state.get("nick") or state.get("email") or "").strip() or None,
+        )
+        session_db.add(batch)
+        session_db.flush()
+        n = _payment_batch_add_royalties(session_db, batch, [str(rec.id)])
+        if not n:
+            session_db.rollback()
+            flash("No se pudo añadir la liquidación a la remesa.", "warning")
+            return redirect(next_url)
+        session_db.commit()
+        return redirect(url_for("payment_batch_detail", batch_id=batch.id))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo crear la remesa: {exc}", "danger")
+        return redirect(next_url)
+    finally:
+        session_db.close()
+
+
+@app.post("/administracion/royalties/<liq_id>/estado-pago", endpoint="royalty_liquidation_payment_status")
+@admin_required
+def royalty_liquidation_payment_status(liq_id):
+    """Cambia el estado de pago de una liquidación pinchando en su ETIQUETA: pendiente de pago ↔
+    pagada. Al marcarla pagada pasa a contabilidad (pendiente de contabilizar)."""
+    next_url = safe_next_or(request.form.get("next") or url_for("administracion_view", tab="pendiente", subtab="pago"))
+    session_db = db()
+    try:
+        rec = session_db.get(RoyaltyLiquidation, to_uuid(liq_id) or uuid.uuid4())
+        if rec is None:
+            flash("Liquidación no encontrada.", "warning")
+            return redirect(next_url)
+        nuevo = (request.form.get("status") or "").strip().upper()
+        if nuevo not in ("INVOICED", "PAID"):
+            flash("Estado no válido.", "warning")
+            return redirect(next_url)
+        if nuevo == "PAID":
+            metodo = (request.form.get("payment_method") or "").strip()
+            _royalty_mark_paid(rec, method=metodo)
+            flash("Liquidación pagada: pasa a contabilidad, pendiente de contabilizar.", "success")
+        else:
+            rec.status = "INVOICED"
+            rec.paid_at = None
+            rec.payment_method = None
+            rec.updated_at = _now_madrid()
+            _royalty_history_add(rec, "PAYMENT_REOPENED")
+            flash("La liquidación vuelve a pendiente de pago.", "success")
+        session_db.commit()
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo cambiar el estado: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.post("/contabilidad/royalties/<liq_id>/contabilizar", endpoint="royalty_liquidation_accounted")
+@admin_required
+def royalty_liquidation_accounted(liq_id):
+    """Contabilidad da por contabilizada una liquidación ya pagada."""
+    next_url = safe_next_or(request.form.get("next") or url_for("contabilidad_view"))
+    session_db = db()
+    try:
+        rec = session_db.get(RoyaltyLiquidation, to_uuid(liq_id) or uuid.uuid4())
+        if rec is None:
+            flash("Liquidación no encontrada.", "warning")
+            return redirect(next_url)
+        if _truthy(request.form.get("undo")):
+            rec.accounted_at = None
+            rec.accounted_by_nick = None
+            flash("Se ha desmarcado: vuelve a pendiente de contabilizar.", "success")
+        else:
+            rec.accounted_at = _now_madrid()
+            rec.accounted_by_nick = ((_current_user_state() or {}).get("nick") or "").strip() or None
+            _royalty_history_add(rec, "ACCOUNTED")
+            flash("Contabilizada.", "success")
+        rec.updated_at = _now_madrid()
+        session_db.commit()
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo marcar: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
 
 
 @app.post("/administracion/remesas/<batch_id>/cuenta", endpoint="payment_batch_set_account")
@@ -50359,6 +50767,18 @@ def payment_batch_receipt(batch_id):
             n += 1
             if getattr(expense, "bag_id", None):
                 bolsas[str(expense.bag_id)] = expense.bag_id
+        # Las LIQUIDACIONES DE ROYALTIES de la remesa también quedan pagadas: pasan a contabilidad
+        # (pendientes de contabilizar) y se archivan, igual que una bolsa sin nada que pagar.
+        liq_n = 0
+        for item in session_db.query(PaymentBatchItem).filter(PaymentBatchItem.batch_id == batch.id).all():
+            rid = getattr(item, "royalty_liquidation_id", None)
+            if not rid:
+                continue
+            rec = session_db.get(RoyaltyLiquidation, rid)
+            if rec is None:
+                continue
+            _royalty_mark_paid(rec, method=f"Remesa {batch.reference}", batch=batch)
+            liq_n += 1
         session_db.flush()
         archivadas = 0
         for bag_id in bolsas.values():
@@ -50367,6 +50787,8 @@ def payment_batch_receipt(batch_id):
                 archivadas += 1
         session_db.commit()
         aviso = f"Remesa pagada: {n} gasto(s) marcados como pagados."
+        if liq_n:
+            aviso += f" {liq_n} liquidación(es) de royalties pagadas (pendientes de contabilizar)."
         if archivadas:
             aviso += f" {archivadas} bolsa(s) se han cerrado y archivado (pasan a contabilidad)."
         flash(aviso, "success")
@@ -52825,6 +53247,11 @@ def _admin_pending_counts(session_db) -> dict:
         BagExpense.covered_by == "BOLSA",
         BagExpense.consolidation_status.in_(list(BAG_CONSOLIDATED_STATUSES)),
         BagExpense.payment_status.in_(["NO_PAGADO", "PENDIENTE", "PARCIAL"])))
+    # Las liquidaciones de royalties ya validadas también están pendientes de pago: si no se cuentan
+    # aquí, el número de la subpestaña no cuadra con lo que se ve dentro.
+    pago += _n(session_db.query(func.count(RoyaltyLiquidation.id)).filter(
+        func.upper(func.coalesce(RoyaltyLiquidation.status, "")) == "INVOICED",
+        RoyaltyLiquidation.paid_at.is_(None)))
 
     bolsas_base = and_(
         WorkflowBag.is_archived == False,  # noqa: E712
@@ -53220,18 +53647,16 @@ def contabilidad_view():
         recent_invoices = session_db.query(InvoiceRecord).order_by(InvoiceRecord.issue_date.desc(), InvoiceRecord.created_at.desc()).limit(8).all()
         issued_count = session_db.query(InvoiceRecord).filter(InvoiceRecord.invoice_kind == "ISSUED").count()
         received_count = session_db.query(InvoiceRecord).filter(InvoiceRecord.invoice_kind == "RECEIVED").count()
+        # PENDIENTE DE CONTABILIZAR: lo que administración ya ha pagado y archivado pasa aquí.
+        royalty_pending = _royalty_accounting_pending_rows(session_db)
         return render_template(
-            "operations_section.html",
+            "contabilidad.html",
             title="Contabilidad",
-            subtitle="Facturas emitidas y recibidas centralizadas en un único lugar.",
-            cards=[
-                {"title": "Facturas emitidas", "value": issued_count, "url": url_for("invoices_view", tab="ISSUED"), "icon": "fa-file-invoice-dollar", "description": "Facturas emitidas desde la app."},
-                {"title": "Facturas recibidas", "value": received_count, "url": url_for("invoices_view", tab="RECEIVED"), "icon": "fa-file-invoice", "description": "Documentación recibida y asignación a bolsas."},
-            ],
-            recent_items=[{"title": inv.invoice_number, "subtitle": f"{inv.third_party_name} · {inv.status}", "url": url_for("invoices_view", tab=inv.invoice_kind)} for inv in recent_invoices],
-            recent_title="Últimas facturas",
-            secondary_items=[],
-            secondary_title="",
+            subtitle="Facturas emitidas y recibidas, y lo que queda por contabilizar.",
+            issued_count=issued_count,
+            received_count=received_count,
+            royalty_pending=royalty_pending,
+            recent_invoices=recent_invoices,
         )
     finally:
         session_db.close()
@@ -53896,6 +54321,87 @@ def personnel_expense_deadline_toggle_all():
         _set_app_setting(EXPENSE_PAUSE_ALL_SINCE_KEY, hoy.isoformat())
         flash("Plazo de gastos parado para todo el personal.", "info")
     return redirect(request.form.get("next") or url_for("personnel_view"))
+
+
+@app.post("/promotores/<pid>/adelantos/guardar", endpoint="promoter_debt_save")
+@admin_required
+def promoter_debt_save(pid):
+    """Crea o actualiza un ADELANTO / DEUDA de un tercero con una empresa del grupo."""
+    if not (can_edit_catalogs() or is_master()):
+        return forbid("No tienes permisos para anotar adelantos.")
+    next_url = safe_next_or(request.form.get("next") or url_for("promoter_detail_view", pid=pid, tab="adelantos"))
+    session_db = db()
+    try:
+        promoter = session_db.get(Promoter, to_uuid(pid))
+        if promoter is None:
+            flash("Tercero no encontrado.", "warning")
+            return redirect(url_for("promoters_view"))
+        did = (request.form.get("debt_id") or "").strip()
+        row = session_db.get(PartyDebt, to_uuid(did)) if did else None
+        if row is None:
+            row = PartyDebt(promoter_id=promoter.id)
+            session_db.add(row)
+        company = session_db.get(GroupCompany, to_uuid((request.form.get("company_id") or "").strip() or "0")) \
+            if (request.form.get("company_id") or "").strip() else None
+        if company is None:
+            flash("Elige la empresa del grupo.", "warning")
+            return redirect(next_url)
+        kind = (request.form.get("kind") or "ADELANTO").strip().upper()
+        row.kind = kind if kind in PARTY_DEBT_LABELS else "ADELANTO"
+        row.company_id = company.id
+        row.concept = (request.form.get("concept") or "").strip() or None
+        row.amount = _parse_money_decimal(request.form.get("amount"))
+        row.amount_recovered = _parse_money_decimal(request.form.get("amount_recovered"))
+        row.debt_date = parse_optional_date(request.form.get("debt_date"))
+        row.due_date = parse_optional_date(request.form.get("due_date"))
+        row.notes = (request.form.get("notes") or "").strip() or None
+        doc = request.files.get("document")
+        if doc and getattr(doc, "filename", ""):
+            row.document_url = upload_file(doc, "party_debts")
+            row.document_name = (getattr(doc, "filename", "") or "").strip() or None
+        # Cerrada a mano, o sola cuando ya no queda nada por recuperar.
+        cerrar = _truthy(request.form.get("close"))
+        pendiente = _money_or_zero(row.amount) - _money_or_zero(row.amount_recovered)
+        if cerrar or pendiente <= 0:
+            row.status = "CERRADA"
+            row.closed_at = row.closed_at or _now_madrid()
+        else:
+            row.status = "ABIERTA"
+            row.closed_at = None
+        state = _current_user_state()
+        if not row.created_by_user_id and state.get("user_id"):
+            row.created_by_user_id = to_uuid(state.get("user_id"))
+            row.created_by_nick = (state.get("nick") or state.get("email") or "").strip() or None
+        row.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Guardado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo guardar: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.post("/promotores/<pid>/adelantos/<debt_id>/eliminar", endpoint="promoter_debt_delete")
+@admin_required
+def promoter_debt_delete(pid, debt_id):
+    if not (can_edit_catalogs() or is_master()):
+        return forbid("No tienes permisos.")
+    next_url = safe_next_or(request.form.get("next") or url_for("promoter_detail_view", pid=pid, tab="adelantos"))
+    session_db = db()
+    try:
+        row = session_db.get(PartyDebt, to_uuid(debt_id))
+        if row is not None:
+            session_db.delete(row)
+            session_db.commit()
+            flash("Eliminado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo eliminar: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
 
 
 @app.post("/promotores/<pid>/documentos/guardar", endpoint="promoter_document_save")

@@ -1287,6 +1287,12 @@ class RoyaltyLiquidation(Base):
     invoice_id = Column(PGUUID(as_uuid=True))
     invoice_uploaded_at = Column(DateTime(timezone=True))
     paid_at = Column(DateTime(timezone=True))
+    # PAGO: validada la factura queda pendiente de pago y se puede meter en una remesa como
+    # cualquier otro pago. Al pagarla pasa a contabilidad (pendiente de contabilizar) y se archiva.
+    payment_batch_id = Column(PGUUID(as_uuid=True), ForeignKey("payment_batches.id", ondelete="SET NULL"))
+    payment_method = Column(Text)
+    accounted_at = Column(DateTime(timezone=True))
+    accounted_by_nick = Column(Text)
 
     __table_args__ = (
         UniqueConstraint(
@@ -3555,6 +3561,8 @@ class PaymentBatchItem(Base):
     batch_id = Column(PGUUID(as_uuid=True), ForeignKey("payment_batches.id", ondelete="CASCADE"), nullable=False)
     expense_id = Column(PGUUID(as_uuid=True), ForeignKey("bag_expenses.id", ondelete="SET NULL"))
     personal_expense_id = Column(PGUUID(as_uuid=True), ForeignKey("personal_expenses.id", ondelete="SET NULL"))
+    # Una LIQUIDACIÓN DE ROYALTIES ya facturada y validada se paga como cualquier otro pago.
+    royalty_liquidation_id = Column(PGUUID(as_uuid=True), ForeignKey("royalty_liquidations.id", ondelete="SET NULL"))
     provider_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
     beneficiary_name = Column(Text)
     beneficiary_iban = Column(Text)
@@ -3888,6 +3896,50 @@ class TourOneSheet(Base):
         Index("idx_tour_onesheets_slug", "slug"),
         Index("idx_tour_onesheets_token", "public_token"),
     )
+
+class PartyDebt(Base):
+    """ADELANTO o DEUDA de una persona/tercero con una EMPRESA DEL GRUPO.
+
+    Sirve para lo que pidió Dani: cuando hay algo pendiente de pago a alguien, avisar de que la casa
+    le ha adelantado dinero o de que tiene una deuda, para poder descontarlo o pararlo antes de
+    abonarle. Es una anotación de administración, no un movimiento contable: `amount` es lo pactado y
+    `amount_recovered` lo que ya se le ha recuperado (lo pendiente es la diferencia)."""
+
+    __tablename__ = "party_debts"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    # ADELANTO (le hemos adelantado dinero) | DEUDA (nos debe algo)
+    kind = Column(Text, nullable=False, server_default=text("'ADELANTO'"))
+    company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="CASCADE"), nullable=False)
+    # A quién: un TERCERO (proveedor, músico, artista como tercero) o un ARTISTA.
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="CASCADE"))
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="CASCADE"))
+    concept = Column(Text)
+    amount = Column(Numeric, nullable=False, server_default=text("0"))
+    amount_recovered = Column(Numeric, nullable=False, server_default=text("0"))
+    debt_date = Column(Date)
+    due_date = Column(Date)
+    notes = Column(Text)
+    document_url = Column(Text)
+    document_name = Column(Text)
+    # ABIERTA | CERRADA (recuperada o perdonada)
+    status = Column(Text, nullable=False, server_default=text("'ABIERTA'"))
+    closed_at = Column(DateTime(timezone=True))
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    company = relationship("GroupCompany")
+    promoter = relationship("Promoter")
+    artist = relationship("Artist")
+
+    __table_args__ = (
+        Index("idx_party_debts_promoter", "promoter_id", "status"),
+        Index("idx_party_debts_artist", "artist_id", "status"),
+        Index("idx_party_debts_company", "company_id", "status"),
+    )
+
 
 class EmbargoOrder(Base):
     """Órdenes de embargo o levantamiento subidas desde Administración."""
@@ -7687,6 +7739,21 @@ def ensure_payment_batches_schema():
         """,
         'CREATE INDEX IF NOT EXISTS idx_payment_batch_items_batch ON payment_batch_items(batch_id);',
         'CREATE INDEX IF NOT EXISTS idx_payment_batch_items_expense ON payment_batch_items(expense_id);',
+        # Las liquidaciones de royalties validadas se pagan por remesa como cualquier otro pago.
+        """
+        ALTER TABLE IF EXISTS payment_batch_items
+            ADD COLUMN IF NOT EXISTS royalty_liquidation_id uuid REFERENCES royalty_liquidations(id) ON DELETE SET NULL;
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_payment_batch_items_royalty ON payment_batch_items(royalty_liquidation_id);',
+        """
+        ALTER TABLE IF EXISTS royalty_liquidations
+            ADD COLUMN IF NOT EXISTS payment_batch_id uuid REFERENCES payment_batches(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS payment_method text,
+            ADD COLUMN IF NOT EXISTS accounted_at timestamptz,
+            ADD COLUMN IF NOT EXISTS accounted_by_nick text;
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_royalty_liquidations_batch ON royalty_liquidations(payment_batch_id);',
+        'CREATE INDEX IF NOT EXISTS idx_royalty_liquidations_status ON royalty_liquidations(status);',
         """
         ALTER TABLE IF EXISTS bag_expenses
             ADD COLUMN IF NOT EXISTS payment_batch_id uuid REFERENCES payment_batches(id) ON DELETE SET NULL;
@@ -7694,6 +7761,33 @@ def ensure_payment_batches_schema():
         'CREATE INDEX IF NOT EXISTS idx_bag_expenses_payment_batch ON bag_expenses(payment_batch_id);',
         # Datos bancarios del proveedor: el IBAN ya existía; el BIC hace falta para algunas remesas.
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS bank_bic text;",
+        # ADELANTOS / DEUDAS con una empresa del grupo: se avisan al ir a pagar a esa persona.
+        """
+        CREATE TABLE IF NOT EXISTS party_debts (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            kind text NOT NULL DEFAULT 'ADELANTO',
+            company_id uuid NOT NULL REFERENCES group_companies(id) ON DELETE CASCADE,
+            promoter_id uuid REFERENCES promoters(id) ON DELETE CASCADE,
+            artist_id uuid REFERENCES artists(id) ON DELETE CASCADE,
+            concept text,
+            amount numeric NOT NULL DEFAULT 0,
+            amount_recovered numeric NOT NULL DEFAULT 0,
+            debt_date date,
+            due_date date,
+            notes text,
+            document_url text,
+            document_name text,
+            status text NOT NULL DEFAULT 'ABIERTA',
+            closed_at timestamptz,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_party_debts_promoter ON party_debts(promoter_id, status);',
+        'CREATE INDEX IF NOT EXISTS idx_party_debts_artist ON party_debts(artist_id, status);',
+        'CREATE INDEX IF NOT EXISTS idx_party_debts_company ON party_debts(company_id, status);',
     ]
     _exec_ddl_statements(stmts, "payment_batches")
 

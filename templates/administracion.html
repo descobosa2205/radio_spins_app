@@ -322,9 +322,13 @@
                       <button type="button" class="btn btn-link p-0 text-start text-reset text-decoration-none fw-semibold text-truncate d-block"
                               data-pay-doc="{{ r.invoice_url }}" data-pay-doc-title="{{ r.name }} · {{ r.period_label }}"
                               data-pay-doc-net="{{ r.net }}" data-pay-doc-vat="{{ r.vat }}"
-                              data-pay-doc-retention="0" data-pay-doc-total="{{ r.amount }}"
+                              data-pay-doc-retention="{{ r.retention or 0 }}" data-pay-doc-total="{{ r.amount }}"
                               data-pay-doc-beneficiary="{{ r.name }}"
                               data-pay-doc-iban="{{ r.iban_masked }}"
+                              data-pay-doc-invoice="{{ r.invoice_id or '' }}"
+                              data-pay-doc-expected="{{ r.expected or '' }}"
+                              data-pay-doc-vat-pct="{{ r.vat_pct or '' }}"
+                              data-pay-doc-ret-pct="{{ r.retention_pct or '' }}"
                               title="Ver la factura validada">{{ r.name }} <i class="fa fa-file-invoice text-muted ms-1"></i></button>
                     {% else %}
                       <div class="fw-semibold text-truncate">{{ r.name }}</div>
@@ -333,6 +337,13 @@
                       {{ r.period_label }}{% if r.iban_masked %} · {{ r.iban_masked }}{% endif %}
                       {% if r.missing %}<span class="text-danger"> · falta {{ r.missing_labels|join(', ') }}</span>{% endif %}
                     </div>
+                    {% if r.mismatch %}
+                      {# Se paga lo que dice la factura, pero si no cuadra con lo que se pidió
+                         facturar hay que verlo (casi siempre es una retención mal leída). #}
+                      <div class="small text-warning-emphasis"><i class="fa fa-triangle-exclamation me-1"></i>
+                        La factura dice {{ r.amount|eur }} y se pidió facturar {{ r.expected|eur }}: compruébalo antes de pagar.
+                      </div>
+                    {% endif %}
                     {% if r.embargos %}
                       <div class="small text-danger"><i class="fa fa-triangle-exclamation me-1"></i>Orden de embargo vigente: no abonar</div>
                     {% endif %}
@@ -414,6 +425,13 @@
         {# RESUMEN del pago: importe, IVA, retención (si la hay) y LA CUENTA a la que se paga. Es lo
            que hace que cuadre lo que se factura con lo que se va a pagar. #}
         <div class="pay-doc__sum d-none" data-pay-doc-sum></div>
+        {# Si el importe a pagar no cuadra con la factura (lo típico: una RETENCIÓN que no se
+           detectó), se corrige a mano sin salir de aquí. #}
+        <div class="px-3 pb-2 d-none" data-pay-doc-fixwrap>
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-inv-amounts data-pay-doc-fix>
+            <i class="fa fa-pen-to-square me-1"></i>Corregir importes de la factura
+          </button>
+        </div>
         <div class="modal-body p-0" data-pay-doc-body></div>
       </div></div>
     </div>
@@ -1102,6 +1120,8 @@
     </div></div>
   </div>
 {% endif %}
+
+{% include '_invoice_amounts_modal.html' %}
 
 {# Remesas: arrastrar bolsas y gastos a la caja de su empresa. #}
 <script src="{{ url_for('static', filename='js/pagos.js', v=ASSET_V) }}"></script>

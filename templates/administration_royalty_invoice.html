@@ -75,6 +75,22 @@
           {% endif %}
           <div class="pay-doc__cell is-total"><span class="pay-doc__lab">A facturar y pagar</span><span class="pay-doc__val">{{ (pay_total if pay_total else (invoice_totals.gross if invoice_totals else 0))|eur }}</span></div>
         </div>
+        {# Si el lector no acertó (lo típico: una retención que la factura no nombra), se corrige a
+           mano aquí mismo. #}
+        <div class="mb-3">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-inv-amounts
+                  data-inv-id="{{ inv.id }}"
+                  data-inv-net="{{ inv.amount_net|eur|replace(' €','') if inv.amount_net else '' }}"
+                  data-inv-vat="{{ inv.amount_vat|eur|replace(' €','') if inv.amount_vat else '' }}"
+                  data-inv-ret="{{ inv.retention_amount|eur|replace(' €','') if inv.retention_amount else '' }}"
+                  data-inv-gross="{{ inv.amount_gross|eur|replace(' €','') if inv.amount_gross else '' }}"
+                  data-inv-vat-pct="{{ '%g'|format(inv.vat_pct|float) if inv.vat_pct else '' }}"
+                  data-inv-ret-pct="{{ '%g'|format(inv.retention_pct|float) if inv.retention_pct else '' }}"
+                  data-inv-expected="{{ expected_gross|eur|replace(' €','') if expected_gross else '' }}"
+                  data-inv-sub="Se pidió facturar {{ expected_gross|eur }} (base {{ expected_net|eur }} + IVA).">
+            <i class="fa fa-pen-to-square me-1"></i>Corregir importes
+          </button>
+        </div>
         <div class="pay-doc__meta mb-3">
           <span><i class="fa fa-building-columns me-1"></i><strong>Se abona a:</strong>
             {% if promoter and promoter.bank_account %}<span class="pay-doc__iban">{{ promoter.bank_account }}</span>{% if promoter.bank_bic %} · BIC {{ promoter.bank_bic }}{% endif %}
@@ -92,7 +108,24 @@
           <div><div class="ficha-field__label">Recibida</div><div class="ficha-field__value">{{ inv.created_at.strftime('%d/%m/%Y') if inv.created_at else '—' }}</div></div>
         </div>
         {% if amount_mismatch %}
-          <div class="alert alert-warning small py-2"><i class="fa fa-triangle-exclamation me-1"></i>La factura no cuadra con el importe de la liquidación. Revísalo antes de validar.</div>
+          {% set _dif = (expected_gross or 0) - (inv.amount_gross or 0) %}
+          <div class="alert alert-warning small py-2">
+            <i class="fa fa-triangle-exclamation me-1"></i>La factura ({{ inv.amount_gross|eur }}) no cuadra con lo que se pidió facturar ({{ expected_gross|eur }}):
+            {{ 'faltan' if _dif > 0 else 'sobran' }} <strong>{{ (_dif if _dif > 0 else -_dif)|eur }}</strong>.
+            {% if _dif > 0 %}Lo normal es que sea una <strong>retención</strong> que la factura no nombra.{% endif %}
+            <button type="button" class="btn btn-sm btn-outline-dark ms-2" data-inv-amounts
+                    data-inv-id="{{ inv.id }}"
+                    data-inv-net="{{ inv.amount_net|eur|replace(' €','') if inv.amount_net else '' }}"
+                    data-inv-vat="{{ inv.amount_vat|eur|replace(' €','') if inv.amount_vat else '' }}"
+                    data-inv-ret="{{ inv.retention_amount|eur|replace(' €','') if inv.retention_amount else '' }}"
+                    data-inv-gross="{{ inv.amount_gross|eur|replace(' €','') if inv.amount_gross else '' }}"
+                    data-inv-vat-pct="{{ '%g'|format(inv.vat_pct|float) if inv.vat_pct else '' }}"
+                    data-inv-ret-pct="{{ '%g'|format(inv.retention_pct|float) if inv.retention_pct else '' }}"
+                    data-inv-expected="{{ expected_gross|eur|replace(' €','') if expected_gross else '' }}"
+                    data-inv-sub="Se pidió facturar {{ expected_gross|eur }} (base {{ expected_net|eur }} + IVA).">
+              <i class="fa fa-pen-to-square me-1"></i>Corregir importes
+            </button>
+          </div>
         {% endif %}
 
         <div class="fw-semibold small text-muted mb-2"><i class="fa fa-file-shield me-1"></i>Documentación requerida para validar</div>
@@ -160,4 +193,6 @@
     </div>
   </div>
 </div>
+
+{% include '_invoice_amounts_modal.html' %}
 {% endblock %}

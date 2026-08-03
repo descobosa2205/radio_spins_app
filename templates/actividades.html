@@ -3,78 +3,96 @@
 <div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
   <div>
     <h4 class="mb-1"><i class="fa fa-calendar-check text-danger me-2"></i>Actividades</h4>
-    <div class="text-muted">Todas las actividades de todos los artistas: conciertos y acciones.</div>
+    <div class="text-muted">Todas las actividades de todos los artistas y eventos: conciertos y acciones.</div>
   </div>
   {% if CAN_EDIT_CONCERTS %}
   <a class="btn btn-primary" href="{{ url_for('concerts_view', tab='vista', open_wizard=1) }}"><i class="fa fa-plus me-1"></i> Añadir actividad</a>
   {% endif %}
 </div>
 
-<form method="get" class="card mb-3"><div class="card-body d-flex flex-wrap gap-3 align-items-end">
-  <div>
-    <label class="form-label mb-1 small text-muted">Tipo</label>
-    <div class="btn-group d-block">
-      {% for val, lbl in [('all','Todas'),('concert','Conciertos'),('action','Acciones')] %}
-      <a href="{{ url_for('activities_view', type=val, when=when_f, artist_id=artist_f) }}" class="btn btn-sm {{ 'btn-danger' if type_f==val else 'btn-outline-secondary' }}">{{ lbl }} <span class="opacity-75">{{ counts.get(val, 0) }}</span></a>
-      {% endfor %}
-    </div>
-  </div>
-  <div>
-    <label class="form-label mb-1 small text-muted">Cuándo</label>
-    <div class="btn-group d-block">
-      {% for val, lbl in [('future','Próximas'),('past','Pasadas'),('all','Todas')] %}
-      <a href="{{ url_for('activities_view', type=type_f, when=val, artist_id=artist_f) }}" class="btn btn-sm {{ 'btn-danger' if when_f==val else 'btn-outline-secondary' }}">{{ lbl }}</a>
-      {% endfor %}
-    </div>
-  </div>
-  <div class="flex-grow-1" style="min-width:220px;">
-    <label class="form-label mb-1 small text-muted">Artista</label>
-    <div class="input-group">
-      <input type="hidden" name="type" value="{{ type_f }}"><input type="hidden" name="when" value="{{ when_f }}">
-      <select class="form-select select-artists" name="artist_id" data-no-loader onchange="this.form.submit()">
-        <option value="">Todos los artistas</option>
-        {% for a in artists %}<option value="{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" {{ 'selected' if artist_f and (artist_f == (a.id|string)) }}>{{ a.name }}</option>{% endfor %}
-      </select>
-      {% if artist_f %}<a class="btn btn-outline-secondary" href="{{ url_for('activities_view', type=type_f, when=when_f) }}"><i class="fa fa-xmark"></i></a>{% endif %}
-    </div>
-  </div>
-</div></form>
-
-{% if items %}
-<div class="card"><div class="list-group list-group-flush">
-  {% for it in items %}
-  {% set tag = 'a' if it.url else 'div' %}
-  <{{ tag }} {% if it.url %}href="{{ it.url }}"{% endif %} class="list-group-item {% if it.url %}list-group-item-action{% endif %} d-flex align-items-center gap-3 text-decoration-none text-reset">
-    <span class="d-inline-flex align-items-center justify-content-center rounded-circle flex-shrink-0" style="width:42px;height:42px;background:#f3f4f6;"><i class="fa {{ it.type_icon }} text-danger"></i></span>
-    {% if it.artist_photo %}<img src="{{ it.artist_photo }}" alt="" data-default-photo="1" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">{% endif %}
-    <div class="flex-grow-1" style="min-width:0;">
-      <div class="fw-semibold text-truncate">{{ it.title }}</div>
-      <div class="small text-muted text-truncate">
-        {% if it.artist_name %}{{ it.artist_name }} · {% endif %}<i class="fa fa-calendar-day me-1"></i>{{ it.date_label }}{% if it.venue %} · <i class="fa fa-location-dot me-1"></i>{{ it.venue }}{% endif %}
-      </div>
-    </div>
-    <span class="badge text-bg-light border flex-shrink-0">{{ it.type_label }}</span>
-    {% if it.kind == 'concert' %}
-      {% with cs_id=it.id, cs_status=(it.status_label or '')|upper, cs_extra_class='flex-shrink-0' %}{% include '_concert_status_badge.html' %}{% endwith %}
-    {% elif it.kind == 'action' and it.status_label %}
-      {% if has_access_key('acciones', edit=True, include_descendants=True) %}
-        <span class="dropdown flex-shrink-0" data-status-menu data-status-url="{{ url_for('action_detail_view', action_id=it.id) }}" data-status-extra='{"form_action": "status"}' onclick="event.preventDefault(); event.stopPropagation();">
-          <button type="button" class="badge border-0 dropdown-toggle {{ it.status_badge }}" data-bs-toggle="dropdown" data-no-loader title="Cambiar el estado">{{ it.status_label }}</button>
-          <ul class="dropdown-menu">
-            <li><button type="button" class="dropdown-item" data-status-option="RESERVA"><span class="badge bg-warning text-dark">Reserva de confirmar</span></button></li>
-            <li><button type="button" class="dropdown-item" data-status-option="CONFIRMADO"><span class="badge bg-success">Confirmada</span></button></li>
-            <li><button type="button" class="dropdown-item" data-status-option="CANCELADA"><span class="badge bg-danger">Cancelada</span></button></li>
-            <li><button type="button" class="dropdown-item" data-status-option="CERRADA"><span class="badge bg-secondary">Cerrada</span></button></li>
-          </ul>
-        </span>
-      {% else %}
-        <span class="badge {{ it.status_badge }} flex-shrink-0">{{ it.status_label }}</span>
-      {% endif %}
-    {% elif it.status_label %}<span class="badge {{ it.status_badge }} flex-shrink-0">{{ it.status_label }}</span>{% endif %}
-  </{{ tag }}>
+{# FILTROS POR TIPO DE ACTIVIDAD, en etiquetas con su icono (acumulables). Se filtra por lo que ES
+   cada actividad: un evento promocional es un evento promocional. #}
+<div class="d-flex flex-wrap gap-2 mb-2">
+  {% for t in type_chips %}
+    <a class="filter-chip {{ 'is-on' if t.active }}" href="{{ t.url }}">
+      <i class="fa {{ t.icon }}"></i>{{ t.label }}<span class="filter-chip__n">{{ t.count }}</span>
+    </a>
   {% endfor %}
-</div></div>
+  {% if type_chips|selectattr('active')|list %}
+    <a class="filter-chip" href="{{ url_for('activities_view', when=when_f, artist_id=artist_f, event_id=event_f) }}"><i class="fa fa-xmark"></i>Quitar filtros</a>
+  {% endif %}
+</div>
+
+<div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+  <span class="small text-muted me-1">Cuándo</span>
+  {% for val, lbl in [('future','Próximas'),('past','Pasadas'),('all','Todas')] %}
+    {% set _tipos = type_chips|selectattr('active')|map(attribute='key')|list %}
+    <a href="{{ url_for('activities_view', when=val, tipo=_tipos, artist_id=artist_f, event_id=event_f) }}"
+       class="btn btn-sm {{ 'btn-danger' if when_f==val else 'btn-outline-secondary' }}">{{ lbl }}</a>
+  {% endfor %}
+</div>
+
+{% if not drill_subject %}
+  {# DE QUIÉN ES: artistas y eventos con su nº de actividades (igual que en Conciertos). #}
+  {% if subject_groups %}
+    <div class="row g-3">
+      {% for g in subject_groups %}
+      <div class="col-6 col-md-4 col-lg-3 col-xl-2">
+        <a href="{{ g.url }}" class="card h-100 text-decoration-none text-reset text-center">
+          <div class="card-body">
+            <img src="{{ g.photo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"
+                 style="width:84px;height:84px;border-radius:50%;object-fit:cover;margin-bottom:.5rem;">
+            <div class="fw-semibold text-truncate">{{ g.name }}</div>
+            <div class="small text-muted">
+              <span class="badge text-bg-light border"><i class="fa fa-shapes me-1"></i>{{ g.count }} actividad{{ '' if g.count == 1 else 'es' }}</span>
+              {% if g.kind == 'event' %}<div class="mt-1"><span class="badge text-bg-light border">Evento</span></div>{% endif %}
+            </div>
+          </div>
+        </a>
+      </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="alert alert-light border">No hay actividades con estos filtros.</div>
+  {% endif %}
 {% else %}
-<div class="alert alert-light border">No hay actividades con estos filtros.</div>
+  <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+    {% set _tipos = type_chips|selectattr('active')|map(attribute='key')|list %}
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('activities_view', when=when_f, tipo=_tipos) }}"><i class="fa fa-arrow-left me-1"></i>Volver</a>
+    <h5 class="mb-0 me-2 d-flex align-items-center gap-2">
+      <img src="{{ drill_subject.photo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"
+           style="width:34px;height:34px;border-radius:50%;object-fit:cover;">
+      {% if drill_subject.url %}<a class="text-reset text-decoration-none" href="{{ drill_subject.url }}">{{ drill_subject.name }}</a>{% else %}{{ drill_subject.name }}{% endif %}
+    </h5>
+    <span class="badge text-bg-light border">{{ items|length }}</span>
+  </div>
+
+  {% if items %}
+  {# El listado va SIN nombre ni foto de artista: empieza por el icono del tipo de actividad. #}
+  <div class="card"><div class="card-body p-0">
+    {% for it in items %}
+      {% set tag = 'a' if it.url else 'div' %}
+      <{{ tag }} {% if it.url %}href="{{ it.url }}"{% endif %} class="oa-row text-decoration-none text-reset">
+        <span class="oa-row__icon" title="{{ it.type_label }}"><i class="fa {{ it.type_icon }}"></i></span>
+        <span class="oa-row__body">
+          <span class="oa-row__top">
+            <span class="oa-row__title">{{ it.title }}</span>
+            {% if it.municipality %}<span class="oa-row__sep">·</span><span class="oa-row__place">{{ it.municipality }}</span>{% endif %}
+            {% if it.province and it.province != it.municipality %}<span class="oa-row__sep">·</span><span class="oa-row__place">{{ it.province }}</span>{% endif %}
+          </span>
+          <span class="oa-row__sub">{{ it.date_label }} · {{ it.venue }}</span>
+        </span>
+        {% if it.sale_label %}<span class="badge text-bg-light border">{{ it.sale_label }}</span>{% endif %}
+        {% if it.kind == 'concert' %}
+          {% with cs_id=it.id, cs_status=it.status, cs_extra_class='flex-shrink-0' %}{% include '_concert_status_badge.html' %}{% endwith %}
+        {% elif it.status_label %}
+          <span class="badge {{ it.status_badge }} flex-shrink-0">{{ it.status_label }}</span>
+        {% endif %}
+      </{{ tag }}>
+    {% endfor %}
+  </div></div>
+  {% else %}
+  <div class="alert alert-light border">No hay actividades con estos filtros.</div>
+  {% endif %}
 {% endif %}
 {% endblock %}

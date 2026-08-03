@@ -180,6 +180,16 @@
                         <button class="btn btn-sm btn-outline-primary" title="Leer del PDF lo que falta: {{ r.missing|join(', ') }}"><i class="fa fa-magnifying-glass"></i></button>
                       </form>
                     {% endif %}
+                    {# Corregir los importes a mano (lo típico: una retención que no se detectó). #}
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-inv-amounts
+                            data-inv-id="{{ r.id }}"
+                            data-inv-net="{{ r.net|eur|replace(' €','') if r.net > 0 else '' }}"
+                            data-inv-vat="{{ r.vat|eur|replace(' €','') if r.vat > 0 else '' }}"
+                            data-inv-ret="{{ r.retention|eur|replace(' €','') if r.retention > 0 else '' }}"
+                            data-inv-gross="{{ r.amount|eur|replace(' €','') if r.amount > 0 else '' }}"
+                            data-inv-vat-pct="{{ '%g'|format(r.vat_pct|float) if r.vat_pct else '' }}"
+                            data-inv-ret-pct="{{ '%g'|format(r.retention_pct|float) if r.retention_pct else '' }}"
+                            title="Corregir los importes a mano"><i class="fa fa-pen-to-square"></i></button>
                     {% if r.file_url %}
                       <a class="btn btn-sm btn-outline-secondary" href="{{ r.file_url }}" target="_blank" rel="noopener" title="{{ r.file_name }}"><i class="fa fa-file-invoice"></i></a>
                       <a class="btn btn-sm btn-outline-secondary" href="{{ r.file_url }}" download title="Descargar"><i class="fa fa-download"></i></a>
@@ -363,4 +373,6 @@
   });
 })();
 </script>
+
+{% include '_invoice_amounts_modal.html' %}
 {% endblock %}

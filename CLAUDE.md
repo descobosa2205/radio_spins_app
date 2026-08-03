@@ -1209,6 +1209,38 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   liquidación está generada (`b.is_generated` = tiene congelado). El tooltip dice desde cuándo y que
   para cambiarlos hay que generar una nueva.
 
+- **RETENCIONES: se detectan y se pueden CORREGIR A MANO** (ago 2026). Cuando lo que hay que pagar no
+  cuadra con la factura, casi siempre es una **retención**.
+  · **Detección** (`_detect_invoice_amounts`): sinónimos ampliados (retención/retenciones/ret./IRPF/a
+    cuenta); si la factura dice solo el **porcentaje**, el importe se calcula sobre la base; y si NO
+    la nombra pero al total le falta justo un porcentaje de retención real
+    (`_INV_RETENTION_RATES`: 15/7/19/2/1…), se toma como retención y se avisa (`retention_guessed`).
+    ⚠️ La retención se busca **en su misma línea** y con `(?![\d.,]*[ \t]*%)`: con la tolerancia de
+    los demás conceptos, un «Ret. IRPF 15 %» sin importe al lado se llevaba el número de la línea
+    siguiente (el TOTAL), y al acortar la coincidencia, el «1» del propio 15 (bugs reales).
+  · **Corrección a mano**: punto único **`supplier_invoice_amounts_save`**
+    (`POST /facturas/subidas/<id>/importes`) + modal compartido `templates/_invoice_amounts_modal.html`
+    (lo abre cualquier `[data-inv-amounts]` con los valores en `data-inv-*`). Con tres de los cuatro
+    números calcula el que falta, el % rellena su importe (y al revés) y, si se le pasa
+    `data-inv-expected`, ofrece **«la diferencia es una retención»**. Está en la pantalla de validar
+    la factura de una liquidación (también dentro del aviso de descuadre), en el pop-up de la factura
+    de **pendiente de pago** y en cada línea de la **base de facturas**.
+  · ⚠️ **LO QUE SE PAGA es el total de la FACTURA** (ya lleva la retención descontada): restarla otra
+    vez pagaba de menos, y pagar base+IVA cuando la factura trae retención pagaba de más. Si el total
+    de la factura no cuadra con lo que se pidió facturar —ni sumándole la retención, ni por facturar
+    sin IVA— la línea de pendiente de pago lo dice (`mismatch`) y ofrece corregirlo. Si la factura no
+    trae desglose, el que se enseña es el que se pidió facturar (si no, la fila del IVA desaparecía).
+
+- **Sección ACTIVIDADES: filtros por tipo y listado por sujeto** (ago 2026, `activities_view` +
+  `templates/actividades.html`). Igual que la pestaña «Otras actividades» de Contratación pero con
+  TODO (conciertos, festivales, eventos promocionales, TV, marca, otros y **acciones**):
+  · Arriba, **etiquetas de TIPO con su icono** y su contador, acumulables (`?tipo=`, claves en
+    `ACTIVITIES_TYPE_KEYS`; `?type=concert|action` sigue funcionando por los enlaces antiguos).
+  · Debajo, la rejilla de **SUJETOS** —artistas **y eventos**— con su nº de actividades (una actividad
+    de evento se agrupa por el `AppEvent`, nunca por su artista espejo).
+  · Al pinchar uno, el listado **sin nombre ni foto de artista** (`.oa-row`): icono del tipo · nombre
+    de la actividad (el festival si lo tiene) · municipio · provincia, y **debajo** fecha y recinto.
+
 - **Pendiente de facturar (módulo del enlace de subida de facturas)**: se llamaba «Lo que te
   pedimos» y las cantidades salían **0,00 €**. Motor único **`_invoice_request_amounts(net, gross)`**:
   el importe a facturar es SIEMPRE **base + IVA** (`INVOICE_REQUEST_VAT_PCT` = 21), y como unos gastos

@@ -1,0 +1,193 @@
+{# CORREGIR A MANO LOS IMPORTES DE UNA FACTURA (base · IVA · retención · total).
+   El lector de facturas acierta casi siempre, pero cuando no, lo que pasa es que el importe a pagar
+   no cuadra con lo facturado —normalmente por una RETENCIÓN que la factura no nombra—. Este modal es
+   el único sitio donde se arregla, y lo abre cualquier botón `[data-inv-amounts]` con los datos de la
+   factura en `data-inv-*`. Se incluye una sola vez por página. #}
+<div class="modal fade" id="invAmountsFixModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <form method="post" data-inv-amt-form>
+      <input type="hidden" name="next" value="{{ request.url }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-pen-to-square me-2 text-muted"></i>Importes de la factura</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="text-muted small mb-3" data-inv-amt-sub>
+          Escribe lo que dice la factura. Con tres de los cuatro se calcula el que falte.
+        </div>
+
+        {# Cuando se sabe lo que TENÍA que facturar (una liquidación, un gasto), se dice y se ofrece
+           marcar la diferencia como retención: es el caso que descuadra el pago. #}
+        <div class="alert alert-warning py-2 small d-none" data-inv-amt-diff>
+          <div data-inv-amt-diff-txt></div>
+          <button type="button" class="btn btn-sm btn-outline-dark mt-2" data-inv-amt-as-ret>
+            <i class="fa fa-percent me-1"></i>La diferencia es una retención
+          </button>
+        </div>
+
+        <div class="row g-2">
+          <div class="col-6">
+            <label class="form-label">Base imponible</label>
+            <div class="input-group">
+              <input class="form-control" name="amount_net" data-money="1" inputmode="decimal" data-inv-amt-net>
+              <span class="input-group-text">€</span>
+            </div>
+          </div>
+          <div class="col-6">
+            <label class="form-label">IVA</label>
+            <div class="input-group">
+              <input class="form-control" name="amount_vat" data-money="1" inputmode="decimal" data-inv-amt-vat>
+              <span class="input-group-text">€</span>
+              <input class="form-control" name="vat_pct" inputmode="decimal" style="max-width:78px"
+                     placeholder="%" data-inv-amt-vat-pct>
+              <span class="input-group-text">%</span>
+            </div>
+          </div>
+          <div class="col-6">
+            <label class="form-label">Retención</label>
+            <div class="input-group">
+              <input class="form-control" name="retention_amount" data-money="1" inputmode="decimal" data-inv-amt-ret>
+              <span class="input-group-text">€</span>
+              <input class="form-control" name="retention_pct" inputmode="decimal" style="max-width:78px"
+                     placeholder="%" data-inv-amt-ret-pct>
+              <span class="input-group-text">%</span>
+            </div>
+            <div class="form-text">Resta del total: es lo que se ingresa a Hacienda.</div>
+          </div>
+          <div class="col-6">
+            <label class="form-label">Total de la factura</label>
+            <div class="input-group">
+              <input class="form-control fw-semibold" name="amount_gross" data-money="1" inputmode="decimal" data-inv-amt-gross>
+              <span class="input-group-text">€</span>
+            </div>
+            <div class="form-text">Es lo que se paga.</div>
+          </div>
+        </div>
+
+        <div class="alert alert-light border small mt-3 mb-0" data-inv-amt-check>
+          <i class="fa fa-calculator me-1"></i><span data-inv-amt-check-txt></span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary">Guardar importes</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+<script>
+if (!window.__invAmountsWired) {
+  window.__invAmountsWired = true;
+  (function () {
+    var URL_BASE = {{ url_for('supplier_invoice_amounts_save', invoice_id='__ID__')|tojson }};
+
+    function num(v) { return (window.numv || window.MoneyInput && window.MoneyInput.num || parseFloat)(v || 0) || 0; }
+    function fmt(n) {
+      return (Math.round(n * 100) / 100).toLocaleString('es-ES', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    }
+    function q(sel) { return document.querySelector('#invAmountsFixModal ' + sel); }
+
+    var esperado = 0;   // lo que tenía que facturar (0 = no se sabe)
+
+    function campos() {
+      return {
+        net: q('[data-inv-amt-net]'), vat: q('[data-inv-amt-vat]'), ret: q('[data-inv-amt-ret]'),
+        gross: q('[data-inv-amt-gross]'), vatPct: q('[data-inv-amt-vat-pct]'), retPct: q('[data-inv-amt-ret-pct]')
+      };
+    }
+
+    // Escribir el % calcula su importe sobre la base, y al revés: así basta con poner «15».
+    function desdePct(cual) {
+      var c = campos(), base = num(c.net.value);
+      if (!base) return;
+      var pct = num((cual === 'vat' ? c.vatPct : c.retPct).value);
+      if (!pct) return;
+      (cual === 'vat' ? c.vat : c.ret).value = fmt(base * pct / 100);
+    }
+
+    function recalcularTotal() {
+      var c = campos();
+      var base = num(c.net.value), iva = num(c.vat.value), ret = num(c.ret.value);
+      if (base > 0) c.gross.value = fmt(base + iva - ret);
+    }
+
+    function comprobar() {
+      var c = campos();
+      var base = num(c.net.value), iva = num(c.vat.value), ret = num(c.ret.value), total = num(c.gross.value);
+      var suma = base + iva - ret;
+      var txt = q('[data-inv-amt-check-txt]');
+      var caja = q('[data-inv-amt-check]');
+      if (!base && !total) { txt.textContent = 'Escribe al menos la base o el total.'; return; }
+      var linea = fmt(base) + ' + ' + fmt(iva) + (ret ? ' − ' + fmt(ret) : '') + ' = ' + fmt(suma) + ' €';
+      if (total && Math.abs(suma - total) > 0.01) {
+        caja.className = 'alert alert-danger small mt-3 mb-0';
+        txt.textContent = linea + ', pero el total dice ' + fmt(total) + ' €. No cuadra.';
+      } else {
+        caja.className = 'alert alert-light border small mt-3 mb-0';
+        txt.textContent = linea + ' · se pagarán ' + fmt(total || suma) + ' €';
+      }
+      // Diferencia con lo que se pidió facturar (si se sabe).
+      var diff = q('[data-inv-amt-diff]');
+      if (esperado > 0) {
+        var falta = esperado - (total || suma) - ret;
+        var pct = base ? Math.round(((esperado - (total || suma)) / base) * 1000) / 10 : 0;
+        if (Math.abs(falta) > 0.01) {
+          diff.classList.remove('d-none');
+          q('[data-inv-amt-diff-txt]').textContent =
+            'Se pidió facturar ' + fmt(esperado) + ' € y la factura dice ' + fmt(total || suma) + ' €: '
+            + 'faltan ' + fmt(Math.abs(falta)) + ' €' + (pct ? ' (' + fmt(pct).replace(',00', '') + ' % de la base)' : '')
+            + '. Si es una retención practicada, márcala y las cuentas cuadran.';
+        } else {
+          diff.classList.add('d-none');
+        }
+      } else {
+        diff.classList.add('d-none');
+      }
+    }
+
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-inv-amounts]');
+      if (btn) {
+        var modalEl = document.getElementById('invAmountsFixModal');
+        if (!modalEl || !window.bootstrap) return;
+        var c = campos();
+        c.net.value = btn.getAttribute('data-inv-net') || '';
+        c.vat.value = btn.getAttribute('data-inv-vat') || '';
+        c.ret.value = btn.getAttribute('data-inv-ret') || '';
+        c.gross.value = btn.getAttribute('data-inv-gross') || '';
+        c.vatPct.value = btn.getAttribute('data-inv-vat-pct') || '';
+        c.retPct.value = btn.getAttribute('data-inv-ret-pct') || '';
+        esperado = num(btn.getAttribute('data-inv-expected') || 0);
+        var sub = btn.getAttribute('data-inv-sub') || '';
+        q('[data-inv-amt-sub]').textContent = sub
+          || 'Escribe lo que dice la factura. Con tres de los cuatro se calcula el que falte.';
+        q('[data-inv-amt-form]').setAttribute(
+          'action', URL_BASE.replace('__ID__', btn.getAttribute('data-inv-id') || ''));
+        comprobar();
+        bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        return;
+      }
+      // «La diferencia es una retención»: la mete en su campo y ajusta el % sobre la base.
+      if (e.target.closest('[data-inv-amt-as-ret]')) {
+        var c2 = campos();
+        var base = num(c2.net.value), total = num(c2.gross.value) || (base + num(c2.vat.value));
+        var falta = esperado - total;
+        if (falta > 0) {
+          c2.ret.value = fmt(falta);
+          if (base) c2.retPct.value = fmt(Math.round((falta / base) * 1000) / 10).replace(',00', '');
+        }
+        comprobar();
+      }
+    });
+
+    document.addEventListener('input', function (e) {
+      if (!e.target.closest('#invAmountsFixModal')) return;
+      if (e.target.matches('[data-inv-amt-vat-pct]')) { desdePct('vat'); recalcularTotal(); }
+      if (e.target.matches('[data-inv-amt-ret-pct]')) { desdePct('ret'); recalcularTotal(); }
+      if (e.target.matches('[data-inv-amt-net],[data-inv-amt-vat],[data-inv-amt-ret]')) recalcularTotal();
+      comprobar();
+    });
+  })();
+}
+</script>

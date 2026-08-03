@@ -213,6 +213,27 @@
         sum.innerHTML = ''; sum.classList.add('d-none');
       }
     }
+    // CORREGIR LOS IMPORTES A MANO: solo si sabemos de qué factura se trata. Se le pasan al modal
+    // compartido los valores actuales y lo que se esperaba, para que pueda ofrecer «la diferencia es
+    // una retención» (que es lo que descuadra el pago casi siempre).
+    var fixWrap = modal.querySelector('[data-pay-doc-fixwrap]');
+    var fix = modal.querySelector('[data-pay-doc-fix]');
+    var invId = btn.getAttribute('data-pay-doc-invoice') || '';
+    if (fixWrap && fix) {
+      if (invId) {
+        fix.setAttribute('data-inv-id', invId);
+        fix.setAttribute('data-inv-net', btn.getAttribute('data-pay-doc-net') || '');
+        fix.setAttribute('data-inv-vat', btn.getAttribute('data-pay-doc-vat') || '');
+        fix.setAttribute('data-inv-ret', btn.getAttribute('data-pay-doc-retention') || '');
+        fix.setAttribute('data-inv-gross', btn.getAttribute('data-pay-doc-total') || '');
+        fix.setAttribute('data-inv-vat-pct', btn.getAttribute('data-pay-doc-vat-pct') || '');
+        fix.setAttribute('data-inv-ret-pct', btn.getAttribute('data-pay-doc-ret-pct') || '');
+        fix.setAttribute('data-inv-expected', btn.getAttribute('data-pay-doc-expected') || '');
+        fixWrap.classList.remove('d-none');
+      } else {
+        fixWrap.classList.add('d-none');
+      }
+    }
     var cuerpo = modal.querySelector('[data-pay-doc-body]');
     if (cuerpo) {
       var bajo = url.toLowerCase();

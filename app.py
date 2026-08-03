@@ -24726,67 +24726,150 @@ def simulation_archive(sid):
 @app.get("/actividades", endpoint="activities_view")
 @admin_required
 def activities_view():
-    """Vista GLOBAL de todas las actividades (conciertos + acciones) de todos los artistas, con
-    filtros por tipo, temporalidad y artista, y botón para añadir (abre el asistente de concierto)."""
+    """Vista GLOBAL de todas las actividades (conciertos + acciones) de todos los artistas.
+
+    Se ve en dos pasos, como Conciertos: **de quién es** (rejilla de artistas y EVENTOS con su nº de
+    actividades) y, al pinchar, **sus actividades** — sin nombre ni foto de artista, porque ahí ya se
+    sabe de quién son: manda QUÉ es cada actividad. Arriba, los filtros de TIPO en etiquetas con su
+    icono (concierto, festival, evento promocional, TV, marca, otros y acciones)."""
     s = db()
     try:
-        type_f = (request.args.get("type") or "all").strip().lower()
         when_f = (request.args.get("when") or "future").strip().lower()
         artist_f = (request.args.get("artist_id") or "").strip()
+        event_f = (request.args.get("event_id") or "").strip()
         today = date.today()
+        # TIPOS seleccionados (acumulables). `type=concert|action` sigue funcionando: son los enlaces
+        # antiguos y los de otras pantallas.
+        tipos_sel = set()
+        for x in request.args.getlist("tipo"):
+            k = (x or "").strip().upper()
+            k = QUAD_ACTIVITY_ALIASES.get(k, k)
+            if k in ACTIVITIES_TYPE_KEYS:
+                tipos_sel.add(k)
+        legacy = (request.args.get("type") or "").strip().lower()
+        if not tipos_sel and legacy == "concert":
+            tipos_sel = set(k for k in ACTIVITIES_TYPE_KEYS if k != "ACCION")
+        elif not tipos_sel and legacy == "action":
+            tipos_sel = {"ACCION"}
         items = []
-        if type_f in ("all", "concert"):
-            cq = s.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue))
+        cq = s.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue))
+        if when_f == "future":
+            cq = cq.filter(Concert.date >= today)
+        elif when_f == "past":
+            cq = cq.filter(Concert.date < today)
+        for c in cq.order_by(Concert.date.asc().nullslast()).limit(1000).all():
+            # QUÉ es la actividad (un evento promocional no es un concierto de ningún tipo).
+            _kind = _activity_kind_key(c.activity_type) or "CONCIERTO"
+            lbl, bdg = _concert_status_meta(c.status)
+            items.append({
+                "kind": "concert", "type_key": _kind, "id": str(c.id),
+                "type_icon": QUAD_ACTIVITY_ICONS.get(_kind, "fa-guitar"),
+                "type_label": _activity_kind_label(_kind),
+                "sale_label": (_sale_type_label(c.sale_type, c.activity_type)
+                               if _kind in CONCERT_LIKE_ACTIVITY_TYPES else _activity_cache_label(c.sale_type, c.activity_type)),
+                "title": ((c.festival_name or "").strip() or _activity_kind_label(_kind)),
+                "artist_id": (str(c.artist_id) if c.artist_id else ""),
+                "artist_ids": [str(x) for x in (c.artist_ids or [])],
+                "event_id": (str(c.event_id) if getattr(c, "event_id", None) else ""),
+                "date": c.date, "date_label": (c.date.strftime("%d/%m/%Y") if c.date else "Sin fecha"),
+                "venue": (_concert_venue_name(c) or "Sin recinto"),
+                "municipality": _concert_city(c), "province": _concert_province_value(c),
+                "status": (c.status or "BORRADOR").upper(),
+                "status_label": lbl, "status_badge": bdg,
+                "url": url_for("concert_detail_view", cid=c.id),
+            })
+        aq = s.query(CompanyAction).options(joinedload(CompanyAction.venue))
+        if when_f == "future":
+            aq = aq.filter(func.coalesce(CompanyAction.end_date, CompanyAction.start_date) >= today)
+        elif when_f == "past":
+            aq = aq.filter(func.coalesce(CompanyAction.end_date, CompanyAction.start_date) < today)
+        for a in aq.order_by(CompanyAction.start_date.asc().nullslast()).limit(1000).all():
+            items.append({
+                "kind": "action", "type_key": "ACCION", "id": str(a.id), "type_icon": "fa-rocket",
+                "type_label": "Acción",
+                "sale_label": (a.action_type or "").replace("_", " ").capitalize(),
+                "title": (a.title or "Acción"),
+                "artist_id": "", "artist_ids": [str(x) for x in (a.artist_ids or [])], "event_id": "",
+                "date": a.start_date,
+                "date_label": (a.start_date.strftime("%d/%m/%Y") if a.start_date else "Sin fecha"),
+                "venue": ((a.venue.name if a.venue else "") or "Sin recinto"),
+                "municipality": ((a.venue.municipality if a.venue else "") or ""),
+                "province": ((a.venue.province if a.venue else "") or ""),
+                "status_label": (a.status or ""), "status_badge": _action_status_badge(a.status),
+                "url": url_for("action_detail_view", action_id=a.id),
+            })
+        # Contadores de las etiquetas de tipo (sobre TODO lo del periodo, no sobre lo ya filtrado).
+        cuenta = {}
+        for it in items:
+            cuenta[it["type_key"]] = cuenta.get(it["type_key"], 0) + 1
+        type_chips = []
+        for k in ACTIVITIES_TYPE_KEYS:
+            otros = sorted(tipos_sel - {k}) if k in tipos_sel else sorted(tipos_sel | {k})
+            extra = {}
             if artist_f:
-                cq = cq.filter(or_(Concert.artist_id == to_uuid(artist_f), Concert.artist_ids.contains([artist_f])))
-            if when_f == "future":
-                cq = cq.filter(Concert.date >= today)
-            elif when_f == "past":
-                cq = cq.filter(Concert.date < today)
-            for c in cq.order_by(Concert.date.asc().nullslast()).limit(500).all():
-                lbl, bdg = _concert_status_meta(c.status)
-                # QUÉ es la actividad (un evento promocional no es un concierto de ningún tipo).
-                _kind = _activity_kind_key(c.activity_type) or "CONCIERTO"
-                items.append({
-                    "kind": "concert", "id": str(c.id),
-                    "type_icon": QUAD_ACTIVITY_ICONS.get(_kind, "fa-guitar"),
-                    "type_label": (_sale_type_label(c.sale_type, c.activity_type)
-                                   if _kind in CONCERT_LIKE_ACTIVITY_TYPES else _activity_kind_label(_kind)),
-                    "title": (c.festival_name or (c.artist.name if c.artist else "Concierto")),
-                    "artist_name": (c.artist.name if c.artist else ""),
-                    "artist_photo": ((c.artist.photo_url or "") if c.artist else ""),
-                    "artist_id": (str(c.artist_id) if c.artist_id else ""),
-                    "date": c.date, "date_label": (c.date.strftime("%d/%m/%Y") if c.date else "Sin fecha"),
-                    "venue": (c.venue.name if c.venue else (c.manual_venue_name or "")),
-                    "status_label": lbl, "status_badge": bdg,
-                    "url": url_for("concert_detail_view", cid=c.id),
-                })
-        if type_f in ("all", "action"):
-            aq = s.query(CompanyAction).options(joinedload(CompanyAction.venue))
-            if artist_f:
-                aq = aq.filter(CompanyAction.artist_ids.contains([artist_f]))
-            if when_f == "future":
-                aq = aq.filter(func.coalesce(CompanyAction.end_date, CompanyAction.start_date) >= today)
-            elif when_f == "past":
-                aq = aq.filter(func.coalesce(CompanyAction.end_date, CompanyAction.start_date) < today)
-            for a in aq.order_by(CompanyAction.start_date.asc().nullslast()).limit(500).all():
-                items.append({
-                    "kind": "action", "id": str(a.id), "type_icon": "fa-rocket",
-                    "type_label": (a.action_type or "Acción").replace("_", " ").capitalize(),
-                    "title": (a.title or "Acción"), "artist_name": "", "artist_photo": "", "artist_id": "",
-                    "date": a.start_date, "date_label": (a.start_date.strftime("%d/%m/%Y") if a.start_date else "Sin fecha"),
-                    "venue": (a.venue.name if a.venue else ""),
-                    "status_label": (a.status or ""), "status_badge": _action_status_badge(a.status), "url": "",
-                })
-        items.sort(key=lambda x: (x["date"] or date.max), reverse=(when_f == "past"))
-        counts = {
-            "all": len(items),
-            "concert": sum(1 for x in items if x["kind"] == "concert"),
-            "action": sum(1 for x in items if x["kind"] == "action"),
-        }
+                extra["artist_id"] = artist_f
+            if event_f:
+                extra["event_id"] = event_f
+            type_chips.append({
+                "key": k, "label": ("Acciones" if k == "ACCION" else _activity_kind_label(k)),
+                "icon": ("fa-rocket" if k == "ACCION" else QUAD_ACTIVITY_ICONS.get(k, "fa-calendar-day")),
+                "count": cuenta.get(k, 0), "active": k in tipos_sel,
+                "url": url_for("activities_view", when=when_f, tipo=otros, **extra),
+            })
+        if tipos_sel:
+            items = [it for it in items if it["type_key"] in tipos_sel]
+        # DE QUIÉN ES: artistas y EVENTOS, con su nº de actividades. En una actividad de evento manda
+        # el evento (su artista es un espejo que no se debe ver).
         artists = s.query(Artist).order_by(Artist.name.asc()).all()
+        by_id = {str(a.id): a for a in artists}
+        eventos = {str(e.id): e for e in s.query(AppEvent).all()}
+        grupos = {}
+        for it in items:
+            claves = []
+            if it["event_id"]:
+                claves = [("event", it["event_id"])]
+            else:
+                for aid in ([it["artist_id"]] if it["artist_id"] else []) + it["artist_ids"]:
+                    if aid and ("artist", aid) not in claves:
+                        claves.append(("artist", aid))
+            for clave in claves:
+                if clave[0] == "event":
+                    ev = eventos.get(clave[1])
+                    if ev is None:
+                        continue
+                    nombre, foto = (ev.name or "Evento"), (ev.logo_url or "")
+                else:
+                    art = by_id.get(clave[1])
+                    if art is None:
+                        continue
+                    nombre, foto = (art.name or ""), (art.photo_url or "")
+                g = grupos.setdefault(clave, {"kind": clave[0], "id": clave[1], "name": nombre,
+                                              "photo_url": foto, "count": 0})
+                g["count"] += 1
+        for g in grupos.values():
+            g["url"] = url_for("activities_view", when=when_f, tipo=sorted(tipos_sel),
+                               **({"event_id": g["id"]} if g["kind"] == "event" else {"artist_id": g["id"]}))
+        subject_groups = sorted(grupos.values(), key=lambda x: (x["name"] or "").lower())
+        # Al pinchar un sujeto: solo sus actividades.
+        drill_subject = None
+        if event_f:
+            items = [it for it in items if it["event_id"] == event_f]
+            ev = eventos.get(event_f)
+            drill_subject = {"kind": "event", "id": event_f, "name": (getattr(ev, "name", "") or "Evento"),
+                             "photo_url": (getattr(ev, "logo_url", "") or ""),
+                             "url": (url_for("event_detail_view", eid=event_f) if ev else "")}
+        elif artist_f:
+            items = [it for it in items
+                     if not it["event_id"] and (it["artist_id"] == artist_f or artist_f in it["artist_ids"])]
+            art = by_id.get(artist_f)
+            drill_subject = {"kind": "artist", "id": artist_f, "name": (getattr(art, "name", "") or ""),
+                             "photo_url": (getattr(art, "photo_url", "") or ""),
+                             "url": (url_for("artist_detail_view", artist_id=artist_f) if art else "")}
+        items.sort(key=lambda x: (x["date"] or date.max), reverse=(when_f == "past"))
+        counts = {"all": len(items)}
         return render_template(
-            "actividades.html", items=items, type_f=type_f, when_f=when_f, artist_f=artist_f,
+            "actividades.html", items=items, when_f=when_f, artist_f=artist_f, event_f=event_f,
+            type_chips=type_chips, subject_groups=subject_groups, drill_subject=drill_subject,
             counts=counts, artists=artists, CAN_EDIT_CONCERTS=can_edit_concerts(),
         )
     finally:
@@ -37852,6 +37935,8 @@ QUAD_CONCERT_CONCEPTS = {"CONCIERTO", "FESTIVAL"}
 # Tipos que viven en «Otras actividades» (los que NO son un concierto). Un evento promocional es un
 # evento promocional: aquí se filtra por lo que ES cada actividad, no por cómo se vende.
 OTHER_ACTIVITY_TYPE_KEYS = ["EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS"]
+# Etiquetas de tipo de la sección ACTIVIDADES (todo lo que hay: los tipos de actividad + acciones).
+ACTIVITIES_TYPE_KEYS = ["CONCIERTO", "FESTIVAL"] + OTHER_ACTIVITY_TYPE_KEYS + ["ACCION"]
 
 
 def _concert_activity_concept(concert) -> str:
@@ -41735,35 +41820,47 @@ def administration_royalty_invoice_review(invoice_id):
         # LO QUE SE LE PIDIÓ FACTURAR: la base de la liquidación MÁS el IVA. Es el número que tienen
         # que decir la liquidación, la factura y el pago; comparar contra la base sola hacía saltar el
         # aviso siempre.
-        totales = _royalty_invoice_totals(beneficiary)
-        # Si la FACTURA trae su propio desglose (leído al subirla), manda el de la factura: es el
-        # documento con el que se paga. Si no, lo que se le pidió facturar.
-        if _money_or_zero(getattr(inv, "amount_gross", None)) > 0:
+        esperado = _royalty_invoice_totals(beneficiary)
+        fac_bruto = _money_or_zero(getattr(inv, "amount_gross", None))
+        fac_ret = (_money_or_zero(getattr(inv, "retention_amount", None))
+                   or _money_or_zero((beneficiary or {}).get("retention_amount")))
+        # Si la FACTURA trae su propio desglose (leído al subirla o corregido a mano), manda el de la
+        # factura: es el documento con el que se paga. Si no, lo que se le pidió facturar.
+        if fac_bruto > 0:
+            # Si la factura no viene desglosada, el desglose que se enseña es el que se pidió
+            # facturar (si no, la fila del IVA desaparecía aunque se sepa cuánto es).
             totales = {
-                "net": (_money_or_zero(inv.amount_net) or totales["net"]),
-                "vat": _money_or_zero(inv.amount_vat),
-                "vat_pct": (_money_or_zero(inv.vat_pct) or totales["vat_pct"]),
-                "gross": _money_or_zero(inv.amount_gross),
+                "net": (_money_or_zero(inv.amount_net) or esperado["net"]),
+                "vat": (_money_or_zero(inv.amount_vat) or
+                        (esperado["vat"] if _money_or_zero(inv.amount_net) <= 0 else Decimal("0"))),
+                "vat_pct": (_money_or_zero(inv.vat_pct) or esperado["vat_pct"]),
+                "gross": fac_bruto,
                 "unknown": False,
             }
-        total_fac = _money_or_zero(getattr(inv, "amount_gross", None))
-        # Solo se avisa si la factura no cuadra NI con el total con IVA NI con la base (hay
-        # beneficiarios que facturan sin IVA).
-        descuadra = bool(total_fac > 0
-                         and abs(totales["gross"] - total_fac) > Decimal("0.01")
-                         and abs(totales["net"] - total_fac) > Decimal("0.01"))
+            # ⚠️ El total de la factura YA lleva la retención descontada (es «lo que se paga»):
+            # volver a restarla aquí pagaría de menos.
+            pago = fac_bruto
+        else:
+            totales = esperado
+            pago = esperado["gross"] - fac_ret
+        # Solo se avisa si la factura no cuadra con lo que se pidió facturar. Una RETENCIÓN no es un
+        # descuadre: el total viene menguado a propósito. Y hay quien factura sin IVA.
+        descuadra = bool(fac_bruto > 0
+                         and abs(esperado["gross"] - (fac_bruto + fac_ret)) > Decimal("0.01")
+                         and abs(esperado["gross"] - fac_bruto) > Decimal("0.01")
+                         and abs(esperado["net"] - fac_bruto) > Decimal("0.01"))
         return render_template(
             "administration_royalty_invoice.html",
             inv=inv, liquidation=rec, promoter=promoter, beneficiary=beneficiary,
             invoice_totals=totales,
-            # Retención (si la liquidación la lleva) y lo que de verdad se abona.
-            # La retención sale de la propia factura (se lee al subirla) o del congelado.
-            retention=(_money_or_zero(getattr(inv, "retention_amount", None))
-                       or _money_or_zero((beneficiary or {}).get("retention_amount"))),
+            # Retención (de la propia factura o del congelado) y lo que de verdad se abona.
+            retention=fac_ret,
             retention_pct=_money_or_zero(getattr(inv, "retention_pct", None)),
-            pay_total=(totales["gross"]
-                       - (_money_or_zero(getattr(inv, "retention_amount", None))
-                          or _money_or_zero((beneficiary or {}).get("retention_amount")))),
+            pay_total=pago,
+            # Lo que se PIDIÓ facturar: es contra esto contra lo que se compara (y lo que necesita el
+            # modal de corregir importes para ofrecer «la diferencia es una retención»).
+            expected_gross=esperado["gross"],
+            expected_net=esperado["net"],
             frozen=bool(congelada_ok),
             period_label=(_royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end) if rec else ""),
             embargos=embargos,
@@ -50231,10 +50328,20 @@ def _royalty_payment_pending_rows(session_db) -> list[dict]:
             if base and not nombre:
                 nombre = (base.get("name") or "").strip()
         totales = _royalty_invoice_totals(base or {})
-        importe = totales["gross"]
-        # El IMPORTE no puede faltar en algo ya validado: en último caso, el de la propia factura.
-        if importe <= 0 and inv is not None:
-            importe = _money_or_zero(getattr(inv, "amount_gross", None))
+        # LO QUE SE PAGA es lo que dice LA FACTURA (su total ya lleva descontada la retención, si la
+        # hay); si la factura no trae importe, lo que se le pidió facturar menos la retención. Pagar
+        # la base+IVA cuando la factura lleva retención sería pagar de más.
+        ret_inv = (_money_or_zero(getattr(inv, "retention_amount", None))
+                   or _money_or_zero((base or {}).get("retention_amount")))
+        fac_inv = _money_or_zero(getattr(inv, "amount_gross", None)) if inv is not None else Decimal("0")
+        importe = fac_inv if fac_inv > 0 else (totales["gross"] - ret_inv)
+        # ¿El total de la factura CUADRA con lo que se le pidió facturar? Cuadra si es lo mismo, si lo
+        # es al sumarle la retención (se la queda Hacienda) o si facturó sin IVA (la base). Si no
+        # cuadra se avisa en la propia línea: se paga la factura, pero no a ciegas.
+        descuadre = bool(fac_inv > 0 and totales["gross"] > 0
+                         and abs(fac_inv - totales["gross"]) > Decimal("0.01")
+                         and abs(fac_inv + ret_inv - totales["gross"]) > Decimal("0.01")
+                         and abs(fac_inv - totales["net"]) > Decimal("0.01"))
         if not nombre:
             nombre = "Sin beneficiario"
         iban = (getattr(promoter, "bank_account", None) or "").strip()
@@ -50260,9 +50367,15 @@ def _royalty_payment_pending_rows(session_db) -> list[dict]:
             "concept": "Royalties · " + _royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end),
             "period_label": _royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end),
             "amount": importe,
-            "net": totales["net"],
-            "vat": totales["vat"],
-            "vat_pct": totales["vat_pct"],
+            "net": (_money_or_zero(getattr(inv, "amount_net", None)) or totales["net"]),
+            "vat": (_money_or_zero(getattr(inv, "amount_vat", None)) or totales["vat"]),
+            "vat_pct": (_money_or_zero(getattr(inv, "vat_pct", None)) or totales["vat_pct"]),
+            "retention": ret_inv,
+            "retention_pct": _money_or_zero(getattr(inv, "retention_pct", None)),
+            # Para poder CORREGIR A MANO los importes desde el pop-up de la factura.
+            "invoice_id": (str(inv.id) if inv is not None else ""),
+            "expected": totales["gross"],
+            "mismatch": descuadre,
             "iban": iban,
             "iban_masked": (_iban_masked(iban) if iban else ""),
             "missing": faltan,
@@ -57330,6 +57443,68 @@ def supplier_invoices_read_meta():
         session_db.close()
 
 
+@app.post("/facturas/subidas/<invoice_id>/importes")
+@admin_required
+def supplier_invoice_amounts_save(invoice_id):
+    """CORREGIR A MANO los importes de una factura (base, IVA, retención y total).
+
+    El lector acierta casi siempre, pero no siempre: lo más habitual es una **retención** que la
+    factura no nombra, y entonces lo que hay que pagar no cuadra con lo que se facturó. Este es el
+    punto único para arreglarlo, y se llama desde donde se ve la factura (validar la liquidación,
+    pendiente de pago y la base de facturas)."""
+    session_db = db()
+    try:
+        inv = session_db.get(SupplierInvoice, to_uuid(invoice_id) or uuid.uuid4())
+        if inv is None:
+            abort(404)
+        datos = _invoice_amount_fields_from_form(request.form)
+        base = datos["amount_net"] or Decimal("0")
+        iva = datos["amount_vat"] or Decimal("0")
+        ret = datos["retention_amount"] or Decimal("0")
+        total = datos["amount_gross"] or Decimal("0")
+        pct_iva = datos["vat_pct"]
+        pct_ret = datos["retention_pct"]
+        # PRIMERO los porcentajes → su importe (escribir «15» en el % de retención basta). Tiene que
+        # ir antes de completar el total: si no, el total se calcularía sin la retención.
+        if base > 0:
+            if ret <= 0 and pct_ret:
+                ret = (base * Decimal(str(pct_ret)) / Decimal("100")).quantize(Decimal("0.01"))
+            if iva <= 0 and pct_iva:
+                iva = (base * Decimal(str(pct_iva)) / Decimal("100")).quantize(Decimal("0.01"))
+        # Se completa lo que se pueda con lo que se ha escrito (mismo criterio que al leer la
+        # factura), para no obligar a teclear cuatro números cuando tres los determinan.
+        if base > 0 and iva > 0 and total <= 0:
+            total = base + iva - ret
+        elif base > 0 and total > 0 and iva <= 0 and (total + ret - base) > 0:
+            iva = total + ret - base
+        elif total > 0 and iva > 0 and base <= 0:
+            base = total + ret - iva
+        # Y los porcentajes que falten se deducen de los importes.
+        if base > 0:
+            if pct_iva is None and iva > 0:
+                pct_iva = float((iva / base * Decimal("100")).quantize(Decimal("0.01")))
+            if pct_ret is None and ret > 0:
+                pct_ret = float((ret / base * Decimal("100")).quantize(Decimal("0.01")))
+        inv.amount_net = base if base > 0 else None
+        inv.amount_vat = iva if iva > 0 else None
+        inv.retention_amount = ret if ret > 0 else None
+        inv.amount_gross = total if total > 0 else None
+        inv.vat_pct = pct_iva
+        inv.retention_pct = pct_ret
+        session_db.commit()
+        if base > 0 and total > 0 and abs(base + iva - ret - total) > Decimal("0.01"):
+            flash("Guardado, pero el desglose no cuadra con el total: revísalo.", "warning")
+        else:
+            flash("Importes de la factura actualizados.", "success")
+        return redirect(request.form.get("next") or url_for("invoices_view", tab="UPLOADED"))
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudieron guardar los importes: %s" % exc, "danger")
+        return redirect(request.form.get("next") or url_for("invoices_view", tab="UPLOADED"))
+    finally:
+        session_db.close()
+
+
 @app.post("/facturas/subidas/limpiar")
 @admin_required
 def supplier_invoices_clean():
@@ -61720,9 +61895,16 @@ _INV_MONEY_RES = {
                    + r")?[^\d\-]{0,20}" + _INV_AMOUNT, re.IGNORECASE),
         re.compile(r"cuota\s*(?:de\s*)?iva[^\d\-%]{0,25}" + _INV_AMOUNT, re.IGNORECASE),
     ],
+    # ⚠️ La retención se busca en SU MISMA LÍNEA (nada de `\n` en los huecos): con la tolerancia de
+    # los demás conceptos, un «Ret. IRPF 15 %» sin importe al lado se llevaba el número de la línea
+    # siguiente (el TOTAL) como si fuera la retención. Si en la línea no hay importe, se calcula
+    # después con el porcentaje sobre la base.
     "retention_amount": [
-        re.compile(r"(?:retenci[óo]n(?:\s*ir\.?p\.?f\.?)?|ir\.?p\.?f\.?)[^\d\-]{0,20}(?:" + _INV_PCT
-                   + r")?[^\d\-]{0,20}(-?\s*\d[\d.,\s]*)", re.IGNORECASE),
+        # El `(?![\d.,]*[ \t]*%)` final es clave: sin él, en «Ret. IRPF 15 %» (sin importe al lado) el
+        # 15 del porcentaje se tomaba como el importe de la retención (y, al acortarlo, el 1).
+        re.compile(r"(?:retenci(?:[óo]n|ones)?|reten\.?|ret\.?|ir\.?p\.?f\.?)"
+                   r"(?:[ \t]*(?:de[ \t]*)?(?:ir\.?p\.?f\.?|a[ \t]*cuenta))?[^\d\-\n]{0,20}(?:" + _INV_PCT
+                   + r")?[^\d\-\n]{0,20}" + _INV_AMOUNT + r"(?![\d.,]*[ \t]*%)", re.IGNORECASE),
     ],
     "amount_gross": [
         re.compile(r"total\s*(?:a\s*)?(?:pagar|factura|de\s*la\s*factura)[^\d\-%]{0,25}" + _INV_AMOUNT, re.IGNORECASE),
@@ -61733,8 +61915,15 @@ _INV_MONEY_RES = {
 # El % que acompaña a cada concepto (para poder decir «IVA 21%» o «Retención 15%»).
 _INV_PCT_RES = {
     "vat_pct": re.compile(r"i\.?\s*v\.?\s*a\.?[^\d]{0,12}" + _INV_PCT, re.IGNORECASE),
-    "retention_pct": re.compile(r"(?:retenci[óo]n|ir\.?p\.?f\.?)[^\d]{0,12}" + _INV_PCT, re.IGNORECASE),
+    "retention_pct": re.compile(r"(?:retenci(?:[óo]n|ones)?|reten\.?|ret\.?|ir\.?p\.?f\.?)[^\d]{0,14}"
+                               + _INV_PCT, re.IGNORECASE),
 }
+# Retenciones que existen de verdad en España (IRPF de profesionales 15% y 7% los primeros años,
+# alquileres 19%, agrario 2%, 1% ganadería/engorde). Sirven para RECONOCER una retención que el
+# documento no dice con palabras: si base + IVA − total es justo uno de estos porcentajes de la base,
+# eso es una retención y no un descuadre (el caso típico de las facturas de profesionales).
+_INV_RETENTION_RATES = [Decimal("15"), Decimal("7"), Decimal("19"), Decimal("21"), Decimal("2"),
+                        Decimal("1"), Decimal("9"), Decimal("20"), Decimal("24")]
 
 
 def _inv_money(texto: str) -> Decimal:
@@ -61751,7 +61940,8 @@ def _detect_invoice_amounts(text: str) -> dict:
     otras la determinan, se completa; si el desglose no cuadra con el total, manda el total (es lo que
     se paga) y se avisa."""
     salida = {"amount_net": None, "amount_vat": None, "retention_amount": None,
-              "amount_gross": None, "vat_pct": None, "retention_pct": None, "amounts_warn": ""}
+              "amount_gross": None, "vat_pct": None, "retention_pct": None, "amounts_warn": "",
+              "retention_guessed": False}
     if not text:
         return salida
     for clave, patrones in _INV_MONEY_RES.items():
@@ -61774,6 +61964,14 @@ def _detect_invoice_amounts(text: str) -> dict:
     iva = salida["amount_vat"]
     ret = salida["retention_amount"] or Decimal("0")
     total = salida["amount_gross"]
+    # Si la factura dice el PORCENTAJE de retención pero no su importe, se calcula sobre la base
+    # (muchas facturas ponen «Retención IRPF 15 %» y el importe va en otra columna que no se lee).
+    if ret == 0 and salida.get("retention_pct") and base:
+        try:
+            ret = (base * Decimal(str(salida["retention_pct"])) / Decimal("100")).quantize(Decimal("0.01"))
+            salida["retention_amount"] = ret
+        except Exception:
+            ret = Decimal("0")
     # Completar lo que falte con lo que sí se ha leído.
     if base and iva is None and total is not None:
         iva = total + ret - base
@@ -61786,12 +61984,33 @@ def _detect_invoice_amounts(text: str) -> dict:
         salida["amount_gross"] = total if total > 0 else None
     # ¿Cuadra? base + IVA − retención = total (con un céntimo de margen).
     if base is not None and total is not None:
-        esperado = base + (iva or Decimal("0")) - ret
-        if abs(esperado - total) > Decimal("0.01"):
-            salida["amounts_warn"] = (
-                "El desglose leído (%s + %s%s) no cuadra con el total (%s): revísalo."
-                % (format_eur(base), format_eur(iva or 0),
-                   (" − " + format_eur(ret)) if ret else "", format_eur(total)))
+        diferencia = base + (iva or Decimal("0")) - ret - total
+        if abs(diferencia) > Decimal("0.01"):
+            # LA RETENCIÓN QUE NO SE DIJO CON PALABRAS. Si lo que falta es justo un porcentaje de
+            # retención de los que existen, eso es una retención practicada y no un descuadre: es el
+            # caso típico de la factura de un profesional (y el que hacía que el importe a pagar no
+            # cuadrara con la liquidación).
+            reconocida = None
+            if ret == 0 and diferencia > 0 and base > 0:
+                for pct in _INV_RETENTION_RATES:
+                    if abs((base * pct / Decimal("100")).quantize(Decimal("0.01")) - diferencia) <= Decimal("0.02"):
+                        reconocida = pct
+                        break
+            if reconocida is not None:
+                salida["retention_amount"] = diferencia.quantize(Decimal("0.01"))
+                salida["retention_pct"] = float(reconocida)
+                salida["retention_guessed"] = True
+                salida["amounts_warn"] = (
+                    "La factura no nombra la retención, pero al total le falta justo el %g %% de la "
+                    "base (%s): se ha tomado como retención. Compruébalo."
+                    % (float(reconocida), format_eur(diferencia)))
+            else:
+                salida["amounts_warn"] = (
+                    "El desglose leído (%s + %s%s) no cuadra con el total (%s): revísalo. La "
+                    "diferencia es %s."
+                    % (format_eur(base), format_eur(iva or 0),
+                       (" − " + format_eur(ret)) if ret else "", format_eur(total),
+                       format_eur(abs(diferencia))))
     return salida
 
 
@@ -61800,7 +62019,7 @@ def _detect_invoice_meta(data: bytes, is_pdf: bool) -> dict:
     salga se le muestra a la persona para que lo confirme o lo corrija a mano antes de enviar."""
     out = {"invoice_number": "", "issue_date": "", "concept": "", "detected": False,
            "amount_net": None, "amount_vat": None, "retention_amount": None, "amount_gross": None,
-           "vat_pct": None, "retention_pct": None, "amounts_warn": ""}
+           "vat_pct": None, "retention_pct": None, "amounts_warn": "", "retention_guessed": False}
     if not is_pdf:
         return out
     text = _pdf_extract_text_bytes(data)

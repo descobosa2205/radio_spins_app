@@ -851,6 +851,23 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `estado["role"]`**, no con `is_master()`: ese lee el rol de la SESIÓN y sin él cae a 10, con lo que
   producción vería todo.
 
+- **AVISOS cuando te asignan algo** (`AppNotification` + `ensure_notifications_schema`, ago 2026):
+  campanita en el navbar con lo no leído + **aviso emergente** abajo a la derecha que salta **una
+  vez** por aviso (`shown_at`), y —si el servidor tiene claves VAPID— el MISMO aviso sale como
+  notificación del **sistema** por Web Push (en el Mac, la del propio Mac: `_send_web_push` ya
+  existía). Punto único **`_notify_user` / `_notify_users`** (⚠️ **no se avisa a uno mismo**) +
+  `_department_user_ids` para saber a quién. Enganchado a: **producción asignada**
+  (`concert_production_owner_save`), **solicitud de diseño** (`_send_artwork_request_email`, a todo
+  Diseño), **petición de pago** (`bag_expense_request_payment`) y **bolsa cerrada para liquidar**
+  (a los responsables de esa categoría de administración y, si no hay nadie asignado, a todo el
+  departamento). Endpoints `notifications_list` (`/avisos`, con `?nuevos=1` para el emergente) y
+  `notifications_mark_read`, los dos en `PERSONAL_ENDPOINTS` (cada uno ve solo los suyos).
+  UI: `static/js/notificaciones.js` (global, no-op sin sesión) + estilos `.notif-*`.
+  ⚠️ **Las notificaciones del sistema necesitan las claves VAPID en Render**
+  (`VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT`): sin ellas la campanita y el emergente
+  funcionan igual, pero no salta nada fuera del navegador. En iPhone/iPad hace falta además instalar
+  la web como PWA.
+
 - **Documentos CADUCADOS: aviso automático y renovación por enlace** (`PersonDocRequest`): un cron
   diario (`/cron/documentos-caducados?key=DOCS_CRON_KEY`, acepta también la de gastos/Chartmetric)
   repasa DNI, carnets y pasaportes con `expiry_date` pasada y le escribe a cada persona

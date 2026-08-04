@@ -103,6 +103,24 @@
             <ul class="dropdown-menu dropdown-menu-end" id="navOverflowMenu"></ul>
           </li>
 
+          {# AVISOS: campanita con lo que le han asignado a esta persona. El aviso emergente salta
+             solo (una vez por aviso) y, si hay claves VAPID, sale además como notificación del
+             sistema (en el Mac, la del propio Mac). #}
+          {% if CURRENT_USER %}
+          <li class="nav-item dropdown ms-lg-2" id="navBellItem">
+            <a class="nav-link position-relative" href="#" data-bs-toggle="dropdown" title="Avisos" data-no-loader>
+              <i class="fa fa-bell"></i>
+              <span class="notif-dot d-none" data-notif-count>0</span>
+            </a>
+            <div class="dropdown-menu dropdown-menu-end notif-menu" data-notif-menu>
+              <div class="d-flex justify-content-between align-items-center px-3 py-2 border-bottom">
+                <strong class="small">Avisos</strong>
+                <button type="button" class="btn btn-link btn-sm p-0" data-notif-read-all>Marcar como leídos</button>
+              </div>
+              <div data-notif-list><div class="px-3 py-3 small text-muted">Cargando…</div></div>
+            </div>
+          </li>
+          {% endif %}
           <li class="nav-item dropdown ms-lg-2" id="navUserItem">
             <a class="nav-link dropdown-toggle d-flex align-items-center gap-2" href="#" data-bs-toggle="dropdown">
               <img src="{{ (CURRENT_USER.photo_url if CURRENT_USER else '') or DEFAULT_PHOTO_URL }}" alt="Usuario" class="user-nav-avatar" data-default-photo="1">
@@ -330,6 +348,8 @@
    [data-concert-contacts] (asistente de alta y ficha del concierto). #}
 <script src="{{ url_for('static', filename='js/concert_contacts.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/artist_links.js', v=ASSET_V) }}"></script>
+{# AVISOS: campanita y aviso emergente cuando a esta persona le asignan algo. #}
+{% if CURRENT_USER %}<script src="{{ url_for('static', filename='js/notificaciones.js', v=ASSET_V) }}"></script>{% endif %}
 {# Miniatura de vídeo (fotograma intermedio) para cualquier <video class="video-thumb"> (global). #}
 <script src="{{ url_for('static', filename='js/video_thumb.js', v=ASSET_V) }}"></script>
 {# Escaneo de documentos (foto/PDF): render, recorte automático + manual y OCR (MRZ TD1/TD3).

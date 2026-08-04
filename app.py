@@ -250,6 +250,8 @@ from models import (
     RepertoireTemplateItem,
     PushSubscription,
     ensure_push_schema,
+    ensure_notifications_schema,
+    AppNotification,
     Photo,
     PhotoAlbum,
     PhotoAlbumItem,
@@ -2906,6 +2908,22 @@ def _send_artwork_request_email(concert: Concert, row: ConcertArtworkRequest, is
         upload_url,
         is_update=is_update,
     )
+    # AVISO dentro de la app al departamento de DISEÑO (además del correo de siempre).
+    try:
+        aviso_db = db()
+        try:
+            _notify_users(
+                aviso_db, _department_user_ids(aviso_db, "Diseño"), "DISENO",
+                ("Cambios en una solicitud de diseño" if is_update else "Nueva solicitud de diseño"),
+                "%s%s" % (((getattr(concert, "festival_name", None) or "").strip()
+                           or (getattr(getattr(concert, "artist", None), "name", "") or "Actividad")),
+                          (" · " + concert.date.strftime("%d/%m/%Y")) if getattr(concert, "date", None) else ""),
+                url_for("diseno_view"), ref_type="ARTWORK", ref_id=str(getattr(row, "id", "") or ""),
+                commit=True)
+        finally:
+            aviso_db.close()
+    except Exception:
+        pass
     return _send_optional_email('grafico@33producciones.es', subject, html_body, text_body=text_body)
 
 
@@ -29339,6 +29357,19 @@ def concert_production_owner_save(cid):
         c.production_owner_user_id = uid
         # Se apunta CUÁNDO se activó la producción: con responsable, ya hay alguien produciéndola.
         c.production_activated_at = (_now_madrid() if uid else None)
+        if uid:
+            # AVISO a quien se le asigna: le acaba de entrar una producción.
+            _kind = _activity_kind_key(getattr(c, "activity_type", None)) or "CONCIERTO"
+            _que = ((getattr(c, "festival_name", None) or "").strip()
+                    or (getattr(getattr(c, "artist", None), "name", "") or "")
+                    or _activity_kind_label(_kind))
+            _notify_user(session_db, uid, "PRODUCCION",
+                         "Nueva producción asignada",
+                         "%s · %s%s" % (_que,
+                                        (c.date.strftime("%d/%m/%Y") if getattr(c, "date", None) else "sin fecha"),
+                                        (" · " + _concert_venue_name(c)) if _concert_venue_name(c) else ""),
+                         url_for("concert_detail_view", cid=c.id, tab="produccion"),
+                         ref_type="CONCERT", ref_id=str(c.id))
         session_db.commit()
         nombre = _concert_production_owner_name(session_db, c)
         if request.headers.get("X-Requested-With") == "XMLHttpRequest":
@@ -39094,6 +39125,7 @@ def _bootstrap_schema_bg():
         (ensure_third_party_intake_schema, "ensure_third_party_intake_schema"),
         (ensure_artist_templates_schema, "ensure_artist_templates_schema"),
         (ensure_push_schema, "ensure_push_schema"),
+        (ensure_notifications_schema, "ensure_notifications_schema"),
         (ensure_app_settings_schema, "ensure_app_settings_schema"),
     ]:
         _safe_ensure(_fn, _name)
@@ -46353,7 +46385,9 @@ def _user_is_actor(state: dict | None = None) -> bool:
 PERSONAL_ENDPOINTS = {"my_expenses_view", "my_expenses_assign", "my_expense_assign_bag",
                       "my_expense_upload_invoice", "my_expense_no_invoice", "my_expense_send_direct",
                       # El ORDEN DEL MENÚ es cosa de cada uno: son sus preferencias, no una sección.
-                      "nav_menu_order_save"}
+                      "nav_menu_order_save",
+                      # Los AVISOS son de cada persona (solo ve los suyos: se filtra por su user_id).
+                      "notifications_list", "notifications_mark_read"}
 
 
 # PEDIR promoción o marketing lo puede hacer CUALQUIERA de la empresa, aunque no tenga permiso de
@@ -56969,6 +57003,18 @@ def bag_expense_request_payment(bag_id, expense_id):
         expense.immediate_payment_requested_at = _now_madrid()
         if (expense.payment_status or "NO_PAGADO") == "NO_PAGADO":
             expense.payment_status = "PENDIENTE"
+        # AVISO a administración: les acaba de entrar una petición de pago.
+        try:
+            _destinos = sorted(_admin_responsible_user_ids(session_db, "PAGOS"))
+            if not _destinos:
+                _destinos = _department_user_ids(session_db, "Administración")
+            _notify_users(session_db, _destinos, "ADMIN_PETICION",
+                          "Nueva petición de pago",
+                          "%s · %s" % ((expense.concept or "Gasto"), format_eur(amount or _bag_amount(expense))),
+                          url_for("administracion_view", tab="pendiente", subtab="solicitudes"),
+                          ref_type="EXPENSE", ref_id=str(expense.id))
+        except Exception:
+            pass
         audit = _bag_current_user_audit()
         session_db.add(BagPaymentInteraction(
             expense_id=expense.id,
@@ -57325,6 +57371,20 @@ def bag_close(bag_id):
         bag.closed_by_user_id = _bag_current_user_audit()["user_id"]
         bag.liquidation_status = "PENDIENTE_ADMIN"
         bag.liquidation_requested_at = _now_madrid()
+        # AVISO a administración: hay una bolsa nueva para liquidar (a los responsables de esa
+        # categoría, y si no hay nadie asignado, a todo administración: nada se pierde en silencio).
+        try:
+            destinos = sorted(_admin_responsible_user_ids(session_db, responsabilidad))
+            if not destinos:
+                destinos = _department_user_ids(session_db, "Administración")
+            _notify_users(session_db, destinos, "ADMIN_BOLSA",
+                          "Nueva bolsa para liquidar",
+                          "%s · cerrada por %s" % ((bag.title or "Bolsa"),
+                                                   ((_current_user_state() or {}).get("nick") or "alguien")),
+                          url_for("bag_detail_view", bag_id=bag.id),
+                          ref_type="BAG", ref_id=str(bag.id))
+        except Exception:
+            pass
         session_db.commit()
         if responsabilidad == "LIQUIDACIONES_PROMO":
             flash("Bolsa cerrada. Como no queda nada por pagar, va a quien liquida los gastos de promoción.", "success")
@@ -66311,6 +66371,74 @@ def push_enabled():
     return bool(getattr(settings, "VAPID_PUBLIC_KEY", None) and getattr(settings, "VAPID_PRIVATE_KEY", None))
 
 
+@app.get("/avisos", endpoint="notifications_list")
+@admin_required
+def notifications_list():
+    """Los AVISOS de esta persona (para la campanita y el aviso emergente).
+
+    Con `?nuevos=1` devuelve solo los que todavía no han saltado y los marca como saltados: así el
+    aviso emergente sale UNA vez y no molesta en cada página."""
+    uid = session.get("user_id")
+    if not uid:
+        return jsonify({"ok": False, "rows": [], "unread": 0})
+    solo_nuevos = _truthy(request.args.get("nuevos"))
+    session_db = db()
+    try:
+        pendientes = []
+        if solo_nuevos:
+            filas = (session_db.query(AppNotification)
+                     .filter(AppNotification.user_id == to_uuid(str(uid)),
+                             AppNotification.shown_at.is_(None))
+                     .order_by(AppNotification.created_at.asc()).limit(5).all())
+            for n in filas:
+                pendientes.append({
+                    "id": str(n.id), "title": (n.title or ""), "body": (n.body or ""),
+                    "url": (n.url or ""),
+                    "icon": (n.icon or NOTIFICATION_KIND_META.get((n.kind or "").upper(), ("", "fa-bell"))[1]),
+                })
+                n.shown_at = _now_madrid()
+            session_db.commit()
+        sin_leer = (session_db.query(func.count(AppNotification.id))
+                    .filter(AppNotification.user_id == to_uuid(str(uid)),
+                            AppNotification.read_at.is_(None)).scalar() or 0)
+        return jsonify({
+            "ok": True,
+            "unread": int(sin_leer),
+            "toasts": pendientes,
+            "rows": ([] if solo_nuevos else _notification_rows(session_db, uid)),
+        })
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc), "rows": [], "unread": 0}), 200
+    finally:
+        session_db.close()
+
+
+@app.post("/avisos/leidos", endpoint="notifications_mark_read")
+@admin_required
+def notifications_mark_read():
+    """Marca los avisos como leídos (todos, o el que se indique)."""
+    uid = to_uuid(str(session.get("user_id") or ""))
+    if not uid:
+        abort(403)
+    session_db = db()
+    try:
+        consulta = (session_db.query(AppNotification)
+                    .filter(AppNotification.user_id == uid, AppNotification.read_at.is_(None)))
+        uno = (request.form.get("id") or "").strip()
+        if uno:
+            consulta = consulta.filter(AppNotification.id == to_uuid(uno))
+        for n in consulta.all():
+            n.read_at = _now_madrid()
+        session_db.commit()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
 @app.get("/push/public-key", endpoint="push_public_key")
 @admin_required
 def push_public_key():
@@ -66367,6 +66495,110 @@ def push_test():
     sent = _send_web_push(session.get("user_id"), "Prueba de notificación",
                           "Si ves esto, las notificaciones de la app funcionan ✅", url=url_for("home"))
     return jsonify({"ok": True, "enabled": push_enabled(), "sent": sent})
+
+
+# ==================== AVISOS (campanita + aviso emergente + Mac por Web Push) ====================
+# Punto ÚNICO para avisar a alguien de que le han asignado algo. Guarda el aviso en la app (se ve en
+# la campanita y salta un aviso emergente) y, si hay claves VAPID en el servidor, lo manda además como
+# notificación del SISTEMA por Web Push: en el Mac es la notificación del propio Mac.
+NOTIFICATION_KIND_META = {
+    "TAREA": ("Nueva tarea pendiente", "fa-list-check"),
+    "PRODUCCION": ("Nueva producción asignada", "fa-user-gear"),
+    "DISENO": ("Nueva solicitud de diseño", "fa-palette"),
+    "ADMIN_PETICION": ("Nueva petición para administración", "fa-inbox"),
+    "ADMIN_BOLSA": ("Nueva bolsa para liquidar", "fa-sack-dollar"),
+}
+
+
+def _notify_user(session_db, user_id, kind, title, body="", url=None, *,
+                 ref_type=None, ref_id=None, actor_user_id=None, commit=False) -> bool:
+    """Avisa a UNA persona. Devuelve False si no hay a quién avisar (o es uno mismo).
+
+    ⚠️ No se avisa a uno mismo: quien hace la acción ya lo sabe."""
+    uid = _safe_uuid(user_id)
+    if not uid:
+        return False
+    actor = _safe_uuid(actor_user_id if actor_user_id is not None else (_current_user_state() or {}).get("user_id"))
+    if actor and str(actor) == str(uid):
+        return False
+    try:
+        session_db.add(AppNotification(
+            user_id=uid, kind=(kind or "TAREA").upper()[:40],
+            title=(title or "Tienes algo nuevo")[:200], body=(body or "")[:600] or None,
+            url=(url or None), icon=NOTIFICATION_KIND_META.get((kind or "").upper(), ("", ""))[1] or None,
+            actor_user_id=actor, ref_type=(ref_type or None), ref_id=(str(ref_id) if ref_id else None),
+        ))
+        if commit:
+            session_db.commit()
+    except Exception:
+        if commit:
+            session_db.rollback()
+        return False
+    # Notificación del sistema (en el Mac, la del Mac). Best-effort: sin VAPID no hace nada.
+    try:
+        _send_web_push(str(uid), title, body or "", url=url)
+    except Exception:
+        pass
+    return True
+
+
+def _notify_users(session_db, user_ids, kind, title, body="", url=None, **kw) -> int:
+    """Avisa a VARIAS personas (sin repetir y sin avisarse a uno mismo)."""
+    n, vistos = 0, set()
+    for uid in (user_ids or []):
+        clave = str(uid or "")
+        if not clave or clave in vistos:
+            continue
+        vistos.add(clave)
+        if _notify_user(session_db, uid, kind, title, body, url, **kw):
+            n += 1
+    return n
+
+
+def _department_user_ids(session_db, *departamentos) -> list[str]:
+    """Quién está en esos DEPARTAMENTOS (sin bloqueados ni eliminados). Para saber a quién avisar."""
+    if not departamentos:
+        return []
+    buscados = {str(d).strip().lower() for d in departamentos if str(d or "").strip()}
+    fuera = _inactive_user_ids(session_db)
+    salida = []
+    try:
+        for prof in session_db.query(UserProfile).all():
+            uid = str(getattr(prof, "user_id", "") or "")
+            if not uid or to_uuid(uid) in fuera:
+                continue
+            deps = {str(d).strip().lower() for d in (getattr(prof, "departments", None) or [])}
+            if deps & buscados:
+                salida.append(uid)
+    except Exception:
+        return []
+    return salida
+
+
+def _notification_rows(session_db, user_id, *, limit=20, only_unread=False) -> list[dict]:
+    """Los avisos de una persona, del más nuevo al más viejo."""
+    uid = _safe_uuid(user_id)
+    if not uid:
+        return []
+    consulta = (session_db.query(AppNotification)
+                .filter(AppNotification.user_id == uid))
+    if only_unread:
+        consulta = consulta.filter(AppNotification.read_at.is_(None))
+    filas = []
+    for n in consulta.order_by(AppNotification.created_at.desc()).limit(limit).all():
+        filas.append({
+            "id": str(n.id),
+            "kind": (n.kind or ""),
+            "kind_label": NOTIFICATION_KIND_META.get((n.kind or "").upper(), ("Aviso", "fa-bell"))[0],
+            "icon": (n.icon or NOTIFICATION_KIND_META.get((n.kind or "").upper(), ("", "fa-bell"))[1]),
+            "title": (n.title or ""),
+            "body": (n.body or ""),
+            "url": (n.url or ""),
+            "unread": n.read_at is None,
+            "shown": n.shown_at is not None,
+            "when": _format_madrid_datetime_label(n.created_at),
+        })
+    return filas
 
 
 def _send_web_push(user_id, title, body, url=None, icon=None):

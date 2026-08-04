@@ -4828,6 +4828,63 @@ def ensure_push_schema():
     _exec_ddl_statements(stmts, "push")
 
 
+class AppNotification(Base):
+    """AVISO para una persona: le han asignado algo (una tarea, una producción, una solicitud de
+    diseño, una petición o una bolsa para liquidar).
+
+    Vive en la app (campanita + aviso emergente) y, si hay claves VAPID, sale además como
+    notificación del sistema (en el Mac, la del propio Mac) por Web Push."""
+
+    __tablename__ = "app_notifications"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    kind = Column(Text, nullable=False)          # TAREA | PRODUCCION | DISENO | ADMIN_PETICION | ADMIN_BOLSA
+    title = Column(Text, nullable=False)
+    body = Column(Text)
+    url = Column(Text)
+    icon = Column(Text)
+    # Quién lo provoca (para no avisarse a uno mismo) y a qué se refiere.
+    actor_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    ref_type = Column(Text)
+    ref_id = Column(Text)
+    # `shown_at` = ya ha saltado el aviso emergente; `read_at` = la persona lo ha leído.
+    shown_at = Column(DateTime(timezone=True))
+    read_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_app_notifications_user_created", "user_id", "created_at"),
+    )
+
+
+def ensure_notifications_schema():
+    """Tabla de AVISOS de la app (idempotente)."""
+    stmts = [
+        """
+        CREATE TABLE IF NOT EXISTS app_notifications (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            kind text NOT NULL,
+            title text NOT NULL,
+            body text,
+            url text,
+            icon text,
+            actor_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            ref_type text,
+            ref_id text,
+            shown_at timestamptz,
+            read_at timestamptz,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_app_notifications_user ON app_notifications(user_id);",
+        "CREATE INDEX IF NOT EXISTS idx_app_notifications_user_created ON app_notifications(user_id, created_at);",
+        "CREATE INDEX IF NOT EXISTS idx_app_notifications_unread ON app_notifications(user_id) WHERE read_at IS NULL;",
+    ]
+    _exec_ddl_statements(stmts, "notifications")
+
+
 # ---------------------------------------------------------------------------
 # Fotos / vídeos (galería transversal)
 # ---------------------------------------------------------------------------

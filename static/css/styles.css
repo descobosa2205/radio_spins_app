@@ -3065,6 +3065,34 @@ body.doccam-open { overflow: hidden; }
    gasto se suelta y la fila vuelve a la normalidad. */
 .pay-exp.is-in-batch{ background:#e7f5ff; border-color:#a5d8ff; }
 
+/* ==================== AVISOS (campanita + aviso emergente) ==================== */
+.notif-dot{ position:absolute; top:2px; right:0; min-width:17px; height:17px; padding:0 4px;
+  border-radius:999px; background:var(--brand-primary,#E33D48); color:#fff; font-size:.66rem;
+  font-weight:700; line-height:17px; text-align:center; }
+.notif-menu{ width:min(360px, 92vw); padding:0; max-height:70vh; overflow:auto; }
+.notif-item{ display:flex; gap:.6rem; padding:.6rem .9rem; border-bottom:1px solid #f1f3f5;
+  text-decoration:none; color:inherit; }
+.notif-item:hover{ background:#f8f9fa; }
+.notif-item.is-unread{ background:#fff8e1; }
+.notif-item__ico{ flex:0 0 30px; width:30px; height:30px; border-radius:50%; background:#f1f3f5;
+  color:#495057; display:inline-flex; align-items:center; justify-content:center; font-size:.8rem; }
+.notif-item__txt{ min-width:0; display:flex; flex-direction:column; gap:.1rem; }
+.notif-item__title{ font-weight:600; font-size:.88rem; }
+.notif-item__body{ font-size:.8rem; color:#6c757d; }
+.notif-item__when{ font-size:.72rem; color:#adb5bd; }
+.notif-toasts{ position:fixed; right:1rem; bottom:1rem; z-index:2000; display:flex;
+  flex-direction:column; gap:.5rem; max-width:min(380px, 92vw); }
+.notif-toast{ display:flex; gap:.6rem; align-items:flex-start; padding:.7rem .8rem; background:#fff;
+  border:1px solid #e3e6eb; border-left:4px solid var(--brand-primary,#E33D48); border-radius:12px;
+  box-shadow:0 10px 30px rgba(0,0,0,.14); text-decoration:none; color:inherit;
+  transform:translateY(12px); opacity:0; transition:.25s ease; }
+.notif-toast.is-in{ transform:translateY(0); opacity:1; }
+.notif-toast__ico{ flex:0 0 28px; width:28px; height:28px; border-radius:50%; background:#f1f3f5;
+  color:#495057; display:inline-flex; align-items:center; justify-content:center; font-size:.8rem; }
+.notif-toast__txt{ display:flex; flex-direction:column; gap:.1rem; font-size:.86rem; min-width:0; }
+.notif-toast__x{ border:0; background:transparent; color:#adb5bd; font-size:1.1rem; line-height:1;
+  margin-left:auto; cursor:pointer; }
+
 /* ORDENAR MI MENÚ: lista de secciones que se arrastran. */
 .navord{ display:flex; flex-direction:column; gap:.4rem; max-height:60vh; overflow:auto; }
 .navord__item{ display:flex; align-items:center; gap:.6rem; padding:.5rem .7rem; background:#fff;

@@ -1325,6 +1325,27 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
     sin IVA— la línea de pendiente de pago lo dice (`mismatch`) y ofrece corregirlo. Si la factura no
     trae desglose, el que se enseña es el que se pidió facturar (si no, la fila del IVA desaparecía).
 
+- **FUSIÓN de Actividades y Acciones** (ago 2026): una sola sección **Actividades** y **un solo
+  botón «+ Actividad»** (el asistente se incluye en `/actividades` y pregunta el tipo). «Acciones»
+  sale del menú; su recurso `acciones` se **conserva** («Acciones (histórico)») porque las
+  `CompanyAction` que ya existían siguen teniendo su ficha —y quitarlo se llevaría por delante sus
+  permisos, que `_sync_access_resources` poda en cascada—.
+  · **Tipos nuevos** en `QUAD_ACTIVITY_CHOICES`: **ENSAYO** y las **DISCOGRÁFICAS**
+  (`DISCOGRAFICA_ACTIVITY_TYPES`: DISC_PREMIOS · DISC_FIRMA · DISC_AUDIO · DISC_VIDEO · DISC_FOTOS ·
+  DISC_COMPOSICION · DISC_REUNION), que en el paso 1 del asistente viven dentro de la tarjeta
+  «Discográficas».
+  · **Rama corta** (`SIMPLE_ACTIVITY_TYPES` = ensayos + discográficas; en el JS `SIMPLE_TYPES`):
+  `stepSequence()` devuelve `[12, 1, 3, 4, 6, 13]` — artista(s) · tipo · días y sitio · qué tiene que
+  hacer el artista (y **¿canta?** solo en `SINGING_ACTIVITY_TYPES`: premios y firmas) · caché · y el
+  paso **13 de LOGÍSTICA**, que si hace falta activa la producción con la persona elegida (le llega el
+  aviso y la actividad le sale en sus Activas). Nada de promotor, entradas, cartelería ni anuncio.
+  · **Varios días**: `Concert.end_date` (la actividad es UNA, del primer día al último).
+  · ⚠️ El tipo de venta de estas actividades es SOLO el apunte de si llevan caché: el asistente lo
+  fuerza a VENDIDO/GRATUITO y `_sale_type_label` ya enseña lo que ES la actividad.
+  · ⚠️ En `concert_wizard_create` (y en los otros dos sitios donde se crea un `Concert`) la variable
+  `session` es la **sesión de la BD**, no la de Flask: el usuario se lee de `_current_user_state()`
+  (usar `session.get("user_id")` ahí revienta con «Session.get() missing 1 required argument»).
+
 - **Sección ACTIVIDADES: filtros por tipo y listado por sujeto** (ago 2026, `activities_view` +
   `templates/actividades.html`). Igual que la pestaña «Otras actividades» de Contratación pero con
   TODO (conciertos, festivales, eventos promocionales, TV, marca, otros y **acciones**):

@@ -1311,6 +1311,9 @@ class Concert(Base):
 
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     date = Column(Date, nullable=False)
+    # ÚLTIMO DÍA cuando la actividad dura varios (una grabación de tres días, unos ensayos):
+    # `date` es el primero. Vacío = un solo día.
+    end_date = Column(Date)
 
     # RESPONSABLE DE PRODUCCIÓN. En las actividades de un artista de la casa, producción sale sola por
     # el artista asignado; pero en un EVENTO (que no es de ningún artista) o en una fecha de gira
@@ -5730,6 +5733,7 @@ def ensure_artist_feature_schema():
         # Responsable de producción de la actividad (eventos y fechas de gira sin artista de la casa).
         "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS production_owner_user_id uuid REFERENCES users(id) ON DELETE SET NULL;",
         "CREATE INDEX IF NOT EXISTS ix_concerts_production_owner ON concerts (production_owner_user_id);",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS end_date date;",
         "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS production_activated_at timestamptz;",
         "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL;",
         "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS created_by_nick text;",

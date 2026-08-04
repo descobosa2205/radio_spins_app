@@ -75,6 +75,7 @@
                   ('EVENTO_PROMOCIONAL','fa-bullhorn','Evento promocional'),
                   ('TV','fa-tv','Programa de TV'),
                   ('MARCA','fa-handshake','Acción con marca'),
+                  ('ENSAYO','fa-drum','Ensayos'),
                   ('OTROS','fa-star','Otros')
                 ] %}
                 {% for value, icon, label in activity_options %}
@@ -82,6 +83,25 @@
                     <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
                       <input class="form-check-input visually-hidden" type="radio" name="activity_type" value="{{ value }}" {% if loop.first %}checked{% endif %}>
                       <i class="fa {{ icon }} d-block fs-3 mb-2 text-dark"></i>
+                      <span class="fw-semibold small">{{ label }}</span>
+                    </label>
+                  </div>
+                {% endfor %}
+                {# DISCOGRÁFICAS: al elegirla se despliegan sus tipos (antes eran «acciones»). #}
+                <div class="col-md-4 col-lg-2 col-6">
+                  <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white" id="wizardDiscCard">
+                    <input class="form-check-input visually-hidden" type="radio" name="activity_group" value="DISC">
+                    <i class="fa fa-compact-disc d-block fs-3 mb-2 text-dark"></i>
+                    <span class="fw-semibold small">Discográficas</span>
+                  </label>
+                </div>
+              </div>
+              <div class="row g-2 mt-2 d-none" data-wz-panel id="wizardDiscTypes">
+                {% for value, label, icon in (disc_activity_choices or []) %}
+                  <div class="col-6 col-md-4 col-lg-3">
+                    <label class="activity-choice-card border rounded p-2 d-flex gap-2 align-items-center h-100 w-100 bg-white">
+                      <input class="form-check-input" type="radio" name="activity_type" value="{{ value }}">
+                      <i class="fa {{ icon }} text-dark"></i>
                       <span class="fw-semibold small">{{ label }}</span>
                     </label>
                   </div>
@@ -125,6 +145,47 @@
             </div>
           </section>
 
+          {# ============ PASO 13 · LOGÍSTICA (actividades cortas: ensayos y discográficas) ============
+             Si hace falta logística se elige quién de producción se encarga: a esa persona le sale la
+             actividad en sus Activas y como tarea pendiente. #}
+          <section class="wizard-step" data-step="13" data-mode="direct">
+            <div class="wizard-card">
+              <div class="wizard-card__title"><i class="fa fa-truck-fast"></i>¿Hace falta logística?</div>
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="activity-choice-card border rounded p-3 d-flex gap-3 align-items-start h-100 w-100 bg-white">
+                    <input class="form-check-input mt-1 wizard-logi-radio" type="radio" name="needs_logistics" value="0" checked>
+                    <span><span class="fw-semibold d-block">No</span><span class="text-muted small">Se organiza sin producción.</span></span>
+                  </label>
+                </div>
+                <div class="col-md-6">
+                  <label class="activity-choice-card border rounded p-3 d-flex gap-3 align-items-start h-100 w-100 bg-white">
+                    <input class="form-check-input mt-1 wizard-logi-radio" type="radio" name="needs_logistics" value="1">
+                    <span><span class="fw-semibold d-block">Sí</span><span class="text-muted small">Hay que montar viajes, hoteles, transporte…</span></span>
+                  </label>
+                </div>
+              </div>
+              <div class="mt-3 d-none" data-wz-panel id="wizardLogiPeople">
+                <label class="form-label">¿Quién de producción se encarga?</label>
+                <div class="row g-2">
+                  {% for p in (production_people_wizard or []) %}
+                    <div class="col-6 col-md-4 col-lg-3">
+                      <label class="activity-choice-card border rounded p-2 d-flex gap-2 align-items-center h-100 w-100 bg-white">
+                        <input class="form-check-input" type="radio" name="production_owner_user_id" value="{{ p.id }}">
+                        <img src="{{ p.photo_url or url_for('static', filename='img/placeholder_photo.png') }}" alt=""
+                             style="width:30px;height:30px;border-radius:50%;object-fit:cover;" data-default-photo="1">
+                        <span class="fw-semibold small">{{ p.name }}</span>
+                      </label>
+                    </div>
+                  {% else %}
+                    <div class="col-12"><div class="alert alert-light border small mb-0">No hay nadie en el departamento de Producción.</div></div>
+                  {% endfor %}
+                </div>
+                <div class="form-text">A quien elijas le aparecerá esta actividad en Producción → Activas.</div>
+              </div>
+            </div>
+          </section>
+
           {# ============================ PASO 3 · Fecha + recinto ============================ #}
           <section class="wizard-step" data-step="3" data-mode="any">
             <div class="wizard-card">
@@ -133,6 +194,12 @@
                 <div class="col-lg-4">
                   <label class="form-label">Fecha de la actividad</label>
                   <input type="date" class="form-control" name="date" id="wizard_date" required>
+                </div>
+                {# Varios días (una grabación, unos ensayos): la actividad es UNA, del primer día al
+                   último. Se pregunta solo donde tiene sentido. #}
+                <div class="col-lg-4 d-none" data-wz-panel id="wizardEndDateWrap">
+                  <label class="form-label">¿Hasta qué día? <span class="text-muted small">(si dura varios)</span></label>
+                  <input type="date" class="form-control" name="end_date" id="wizard_end_date">
                 </div>
                 <div class="col-lg-8" id="wizardFestivalNameWrap">
                   <label class="form-label">Nombre del festival / evento</label>
@@ -272,7 +339,7 @@
               <div class="wizard-card__title"><i class="fa fa-circle-info"></i>¿En qué consiste la actividad?</div>
               <textarea class="form-control" name="activity_description" id="wizard_activity_description" rows="3" placeholder="Describe la actividad: qué es, dónde encaja, qué se espera del artista…"></textarea>
             </div>
-            <div class="wizard-card">
+            <div class="wizard-card" id="wizardSingsWrap">
               <div class="wizard-card__title"><i class="fa fa-microphone"></i>¿El artista canta?</div>
               <div class="row g-3">
                 <div class="col-6 col-md-3">
@@ -1633,6 +1700,10 @@
     let entryModeTouched = false;
 
     const PROMO_TYPES = ['EVENTO_PROMOCIONAL', 'TV', 'MARCA', 'OTROS'];
+    // Actividades cortas: ensayos y discográficas (antes «acciones»).
+    const SIMPLE_TYPES = {{ (['ENSAYO'] + (disc_activity_choices|map(attribute=0)|list if disc_activity_choices else []))|tojson }};
+    // ¿Canta el artista? Solo se pregunta en premios y firmas de discos.
+    const SINGING_TYPES = ['DISC_PREMIOS', 'DISC_FIRMA'];
 
     function activityType(){
       const t = document.querySelector('input[name="activity_type"]:checked');
@@ -1653,6 +1724,10 @@
       if(modeInput.value === 'request_sheet') return [12, 1, 2, 3, 4];
       // El paso 4 existe SIEMPRE: en promocionales pregunta el detalle (descripción/canta/formación)
       // y en conciertos/festivales pregunta el Meet & Greet.
+      // ACTIVIDADES CORTAS (ensayos y discográficas): no se venden ni tienen promotor, así que se
+      // les pregunta lo justo — artista, tipo, días y sitio, qué tiene que hacer (y si canta),
+      // caché y logística.
+      if(SIMPLE_TYPES.indexOf(activityType()) >= 0) return [12, 1, 3, 4, 6, 13];
       const seq = [12, 1, 2, 3, 4];
       seq.push(5, 6, 8);
       if(!isPromoActivity() || artistSings()) seq.push(9);
@@ -1766,10 +1841,12 @@
       if(target && !target.checked){ target.checked = true; target.dispatchEvent(new Event('change', { bubbles: true })); }
     }
     function syncStep4Panels(){
-      // Paso 4: en promocionales el detalle (descripción/canta/formación); en conciertos el M&G.
-      const promo = isPromoActivity();
-      document.querySelector('[data-step4-promo]')?.classList.toggle('d-none', !promo);
-      document.querySelector('[data-step4-mg]')?.classList.toggle('d-none', promo);
+      // Paso 4: el DETALLE (qué tiene que hacer el artista, si canta y con qué formación) vale para
+      // promocionales y para las actividades cortas (ensayos y discográficas); en conciertos, el M&G.
+      const detalle = isPromoActivity() || SIMPLE_TYPES.indexOf(activityType()) >= 0;
+      document.querySelector('[data-step4-promo]')?.classList.toggle('d-none', !detalle);
+      document.querySelector('[data-step4-mg]')?.classList.toggle('d-none', detalle);
+      syncSimpleType();
     }
     function syncMgPanel(){
       const yes = document.querySelector('.wizard-mg-radio:checked')?.value === '1';
@@ -2442,7 +2519,47 @@
 
     modeChoices.forEach(el => el.addEventListener('change', syncMode));
     knowsVenue?.addEventListener('change', toggleVenueKnown);
-    document.querySelectorAll('input[name="activity_type"]').forEach(el => el.addEventListener('change', () => { syncFestivalName(); syncEconomyCards(); renderStepPills(); }));
+    document.querySelectorAll('input[name="activity_type"]').forEach(el => el.addEventListener('change', () => { syncFestivalName(); syncEconomyCards(); syncSimpleType(); renderStepPills(); }));
+
+    // DISCOGRÁFICAS: su tarjeta despliega los tipos; al elegir uno de arriba se recogen.
+    const discCard = document.getElementById('wizardDiscCard');
+    const discTypes = document.getElementById('wizardDiscTypes');
+    function syncSimpleType(){
+      const t = activityType();
+      const esSimple = SIMPLE_TYPES.indexOf(t) >= 0;
+      // Los DÍAS (hasta cuándo) solo donde tiene sentido que dure varios.
+      const finWrap = document.getElementById('wizardEndDateWrap');
+      if (finWrap) finWrap.classList.toggle('d-none', !esSimple);
+      // ¿Canta? solo en premios y firmas (en el resto de discográficas no se pregunta).
+      const canta = document.getElementById('wizardSingsWrap') || document.querySelector('[data-wz-sings]');
+      if (canta && esSimple) canta.classList.toggle('d-none', SINGING_TYPES.indexOf(t) < 0);
+      // La tarjeta de Discográficas queda marcada si el tipo elegido es una de ellas.
+      if (discCard) {
+        const r = discCard.querySelector('input');
+        if (r) r.checked = esSimple && t !== 'ENSAYO';
+        discCard.classList.toggle('is-selected', esSimple && t !== 'ENSAYO');
+      }
+      if (discTypes) discTypes.classList.toggle('d-none', !(esSimple && t !== 'ENSAYO'));
+    }
+    if (discCard) {
+      discCard.addEventListener('click', function () {
+        if (discTypes) discTypes.classList.remove('d-none');
+        // Si no hay ninguna marcada, se marca la primera para que el paso quede resuelto.
+        const marcada = discTypes && discTypes.querySelector('input[name="activity_type"]:checked');
+        if (discTypes && !marcada) {
+          const primera = discTypes.querySelector('input[name="activity_type"]');
+          if (primera) { primera.checked = true; primera.dispatchEvent(new Event('change', {bubbles: true})); }
+        }
+      });
+    }
+    // ¿Hace falta logística? → se elige quién de producción se encarga.
+    document.querySelectorAll('.wizard-logi-radio').forEach(function (r) {
+      r.addEventListener('change', function () {
+        const zona = document.getElementById('wizardLogiPeople');
+        if (zona) zona.classList.toggle('d-none', r.value !== '1' || !r.checked);
+      });
+    });
+    syncSimpleType();
     document.querySelectorAll('.wizard-mg-radio').forEach(el => el.addEventListener('change', syncMgPanel));
     syncStep4Panels();
     syncMgPanel();

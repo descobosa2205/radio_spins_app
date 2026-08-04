@@ -6,7 +6,8 @@
     <div class="text-muted">Todas las actividades de todos los artistas y eventos: conciertos y acciones.</div>
   </div>
   {% if CAN_EDIT_CONCERTS %}
-  <a class="btn btn-primary" href="{{ url_for('concerts_view', tab='vista', open_wizard=1) }}"><i class="fa fa-plus me-1"></i> Añadir actividad</a>
+  {# UN SOLO BOTÓN para todo (antes había «+ Actividad» y «+ Acción»): el asistente pregunta el tipo. #}
+  <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#concertWizardModal"><i class="fa fa-plus me-1"></i> Actividad</button>
   {% endif %}
 </div>
 
@@ -95,4 +96,6 @@
   <div class="alert alert-light border">No hay actividades con estos filtros.</div>
   {% endif %}
 {% endif %}
+
+{% if wizard_available %}{% include '_concert_wizard_modal.html' %}{% endif %}
 {% endblock %}

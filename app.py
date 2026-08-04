@@ -23816,6 +23816,11 @@ def _concert_wizard_context(session_db):
         # «¿de quién es la actividad?» (artista o evento), así que aquí no debe salir.
         "artists": (session_db.query(Artist).filter(Artist.event_id.is_(None))
                     .order_by(Artist.name.asc()).all()),
+        # DISCOGRÁFICAS: los tipos que se despliegan en su tarjeta del paso 1.
+        "disc_activity_choices": [(k, QUAD_ACTIVITY_LABELS.get(k, k), QUAD_ACTIVITY_ICONS.get(k, "fa-compact-disc"))
+                                  for k in DISCOGRAFICA_ACTIVITY_TYPES],
+        # Quién puede llevar la producción (paso de logística de las actividades cortas).
+        "production_people_wizard": _production_people(session_db),
         "promoters": promoters,
         "promoters_payload": [
             {
@@ -24891,10 +24896,17 @@ def activities_view():
                              "url": (url_for("artist_detail_view", artist_id=artist_f) if art else "")}
         items.sort(key=lambda x: (x["date"] or date.max), reverse=(when_f == "past"))
         counts = {"all": len(items)}
+        # El asistente «+ Actividad» se abre AQUÍ MISMO (un solo botón para todo).
+        _wiz = {}
+        try:
+            _wiz = _concert_wizard_context(s) if can_edit_concerts() else {}
+        except Exception:
+            _wiz = {}
         return render_template(
             "actividades.html", items=items, when_f=when_f, artist_f=artist_f, event_f=event_f,
             type_chips=type_chips, subject_groups=subject_groups, drill_subject=drill_subject,
-            counts=counts, artists=artists, CAN_EDIT_CONCERTS=can_edit_concerts(),
+            counts=counts, CAN_EDIT_CONCERTS=can_edit_concerts(),
+            wizard_available=bool(_wiz), **({**_wiz} if _wiz else {"artists": artists}),
         )
     finally:
         s.close()
@@ -36479,7 +36491,7 @@ def _simulation_dump_activity(session, sim, act, *, sale_type, group_name=None,
     venue = act.venue if not act.venue_unknown else None
     concert = Concert(
         # QUIÉN la crea: es quien tiene que activar la producción.
-        created_by_user_id=to_uuid(session.get('user_id') or '') or None,
+        created_by_user_id=to_uuid((_current_user_state() or {}).get('user_id') or '') or None,
         created_by_nick=((_current_user_state() or {}).get('nick') or None),
         date=act.event_date,
         festival_name=(label or group_name or None),
@@ -36714,11 +36726,18 @@ def concert_wizard_create():
             'ACCION_MARCA': 'MARCA',
             'OTROS': 'OTROS',
         }
+        # Ensayos y DISCOGRÁFICAS (premios, firmas, grabaciones, fotos, composición, reuniones): son
+        # actividades como las demás, con su ficha, su hoja de ruta, su bolsa y su producción.
+        activity_type_aliases.update({k: k for k in SIMPLE_ACTIVITY_TYPES})
         activity_type = activity_type_aliases.get(activity_type, 'CONCIERTO')
         activity_subtype = (request.form.get('activity_subtype') or request.form.get('concert_kind') or '').strip().upper() or None
         sale_type = (request.form.get('sale_type') or 'EMPRESA').strip().upper()
         if sale_type not in CONCERT_SALE_TYPES_ALL_SET:
             sale_type = 'EMPRESA'
+        # ⚠️ En una actividad que NO se vende (ensayos, discográficas) el tipo de venta es solo el
+        # apunte de si lleva caché: no se le puede poner «a empresa» ni ningún tipo de concierto.
+        if activity_type in SIMPLE_ACTIVITY_TYPES:
+            sale_type = 'VENDIDO' if _truthy(request.form.get('has_cache')) else 'GRATUITO'
         # Chips del gestor de tags (concert_tags[]) con fallback al campo de texto legacy.
         hashtags = _dedupe_concert_tags(request.form.getlist('concert_tags[]')) or _parse_hashtag_text(request.form.get('wizard_hashtags_text'))
         billing_company_id = to_uuid((request.form.get('billing_company_id') or '').strip() or None)
@@ -36790,7 +36809,7 @@ def concert_wizard_create():
                 raise ValueError('Debes indicar el email del promotor.')
             concert = Concert(
                 # QUIÉN la crea: es quien tiene que activar la producción.
-                created_by_user_id=to_uuid(session.get('user_id') or '') or None,
+                created_by_user_id=to_uuid((_current_user_state() or {}).get('user_id') or '') or None,
                 created_by_nick=((_current_user_state() or {}).get('nick') or None),
                 date=event_date,
                 festival_name=festival_name,
@@ -36951,9 +36970,11 @@ def concert_wizard_create():
 
         concert = Concert(
             # QUIÉN la crea: es quien tiene que activar la producción.
-            created_by_user_id=to_uuid(session.get('user_id') or '') or None,
+            created_by_user_id=to_uuid((_current_user_state() or {}).get('user_id') or '') or None,
             created_by_nick=((_current_user_state() or {}).get('nick') or None),
             date=event_date,
+            # Varios días (una grabación, unos ensayos): la actividad es UNA, del primer día al último.
+            end_date=(_parse_date_soft(request.form.get('end_date')) or None),
             festival_name=festival_name,
             venue_id=venue_id,
             sale_type=sale_type,
@@ -36994,6 +37015,22 @@ def concert_wizard_create():
         )
         session.add(concert)
         session.flush()
+
+        # LOGÍSTICA de las actividades cortas (ensayos y discográficas): si hace falta, se activa la
+        # producción con la persona elegida (le sale en sus Activas y se le avisa).
+        if _truthy(request.form.get('needs_logistics')):
+            _logi_uid = to_uuid((request.form.get('production_owner_user_id') or '').strip() or None)
+            if _logi_uid:
+                concert.production_owner_user_id = _logi_uid
+                concert.production_activated_at = _now_madrid()
+                try:
+                    _notify_user(session, _logi_uid, "PRODUCCION", "Nueva producción asignada",
+                                 "%s · %s" % ((festival_name or _activity_kind_label(activity_type)),
+                                              (event_date.strftime("%d/%m/%Y") if event_date else "sin fecha")),
+                                 url_for("concert_detail_view", cid=concert.id, tab="produccion"),
+                                 ref_type="CONCERT", ref_id=str(concert.id))
+                except Exception:
+                    pass
 
         # Tipos de entrada del asistente → tipos reales (nombre, precio, cupo) del concierto.
         if ticket_type_rows:
@@ -37981,8 +38018,26 @@ QUAD_ACTIVITY_CHOICES = [
     ("EVENTO_PROMOCIONAL", "Evento promocional", "fa-bullhorn"),
     ("TV", "Programa de TV", "fa-tv"),
     ("MARCA", "Acción con marca", "fa-tags"),
+    ("ENSAYO", "Ensayos", "fa-drum"),
+    # DISCOGRÁFICAS: todo lo que hace el artista para el sello (antes «acciones»). Son actividades
+    # como las demás: tienen su ficha, su hoja de ruta, su bolsa y su producción.
+    ("DISC_PREMIOS", "Premios", "fa-trophy"),
+    ("DISC_FIRMA", "Firma de discos", "fa-pen-fancy"),
+    ("DISC_AUDIO", "Grabación de audio", "fa-microphone-lines"),
+    ("DISC_VIDEO", "Grabación de vídeo", "fa-video"),
+    ("DISC_FOTOS", "Sesión de fotos", "fa-camera-retro"),
+    ("DISC_COMPOSICION", "Sesión de composición", "fa-pen-nib"),
+    ("DISC_REUNION", "Reunión", "fa-users"),
     ("OTROS", "Otros", "fa-calendar-day"),
 ]
+# Las DISCOGRÁFICAS se eligen dentro de su propia tarjeta en el asistente.
+DISCOGRAFICA_ACTIVITY_TYPES = ["DISC_PREMIOS", "DISC_FIRMA", "DISC_AUDIO", "DISC_VIDEO",
+                              "DISC_FOTOS", "DISC_COMPOSICION", "DISC_REUNION"]
+# Tipos que NO son de contratación (no se venden ni tienen promotor): el asistente les hace las
+# preguntas cortas (nombre, días, sitio, qué tiene que hacer, caché y logística).
+SIMPLE_ACTIVITY_TYPES = ["ENSAYO"] + DISCOGRAFICA_ACTIVITY_TYPES
+# ¿Canta el artista? Solo se pregunta donde tiene sentido.
+SINGING_ACTIVITY_TYPES = ["DISC_PREMIOS", "DISC_FIRMA"]
 QUAD_ACTIVITY_LABELS = {k: l for k, l, _i in QUAD_ACTIVITY_CHOICES}
 QUAD_ACTIVITY_ICONS = {k: i for k, _l, i in QUAD_ACTIVITY_CHOICES}
 QUAD_ACTIVITY_ALIASES = {
@@ -37992,6 +38047,14 @@ QUAD_ACTIVITY_ALIASES = {
     "TV": "TV", "PROGRAMA_TV": "TV",
     "MARCA": "MARCA", "ACCION_MARCA": "MARCA",
     "GIRA": "CONCIERTO", "GIRA_COMPRADA": "CONCIERTO", "GIRAS_COMPRADAS": "CONCIERTO",
+    "ENSAYO": "ENSAYO", "ENSAYOS": "ENSAYO",
+    "DISC_PREMIOS": "DISC_PREMIOS", "PREMIOS": "DISC_PREMIOS",
+    "DISC_FIRMA": "DISC_FIRMA", "FIRMA_DISCOS": "DISC_FIRMA",
+    "DISC_AUDIO": "DISC_AUDIO", "GRABACION_AUDIO": "DISC_AUDIO",
+    "DISC_VIDEO": "DISC_VIDEO", "GRABACION_VIDEO": "DISC_VIDEO",
+    "DISC_FOTOS": "DISC_FOTOS", "SESION_FOTOS": "DISC_FOTOS",
+    "DISC_COMPOSICION": "DISC_COMPOSICION", "SESION_COMPOSICION": "DISC_COMPOSICION",
+    "DISC_REUNION": "DISC_REUNION", "REUNION": "DISC_REUNION",
     "OTROS": "OTROS",
 }
 # Para el recuento de las pastillas: qué conceptos cuentan como "concierto" (vs
@@ -37999,8 +38062,11 @@ QUAD_ACTIVITY_ALIASES = {
 QUAD_CONCERT_CONCEPTS = {"CONCIERTO", "FESTIVAL"}
 # Tipos que viven en «Otras actividades» (los que NO son un concierto). Un evento promocional es un
 # evento promocional: aquí se filtra por lo que ES cada actividad, no por cómo se vende.
-OTHER_ACTIVITY_TYPE_KEYS = ["EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS"]
+OTHER_ACTIVITY_TYPE_KEYS = (["EVENTO_PROMOCIONAL", "TV", "MARCA"]
+                            + ["ENSAYO"] + DISCOGRAFICA_ACTIVITY_TYPES + ["OTROS"])
 # Etiquetas de tipo de la sección ACTIVIDADES (todo lo que hay: los tipos de actividad + acciones).
+# Las «acciones» de antes se han fusionado en actividades: la etiqueta ACCION se conserva para las
+# `CompanyAction` que ya existían (siguen saliendo en el listado con su icono).
 ACTIVITIES_TYPE_KEYS = ["CONCIERTO", "FESTIVAL"] + OTHER_ACTIVITY_TYPE_KEYS + ["ACCION"]
 
 
@@ -43800,7 +43866,10 @@ CURATED_ACCESS_RESOURCES = [
 
     {"key": "playlisting", "label": "Playlisting", "section_key": "playlisting", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 185, "description": "Playlisting: seguimiento de canciones en playlists y pitching (datos de streaming)."},
 
-    {"key": "acciones", "label": "Acciones", "section_key": "acciones", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 190, "description": "Acciones de empresa (eventos internos, campañas) con coste asociado."},
+    # ACCIONES: fusionadas en «Actividades» (ago 2026). El recurso se CONSERVA porque las acciones que
+    # ya existían siguen teniendo su ficha (y quitarlo se llevaría por delante todos sus permisos:
+    # `_sync_access_resources` poda los huérfanos en cascada). Ya no sale en el menú.
+    {"key": "acciones", "label": "Acciones (histórico)", "section_key": "acciones", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 190, "description": "Acciones de empresa creadas antes de fusionarlas en Actividades: sus fichas siguen abriéndose desde el listado."},
     {"key": "acciones.inicio", "label": "Inicio", "section_key": "acciones", "parent_key": "acciones", "level": "TAB", "economic_capable": True, "sort_order": 191, "description": "Inicio de Acciones: resumen (importes)."},
     {"key": "acciones.activas", "label": "Acciones activas", "section_key": "acciones", "parent_key": "acciones", "level": "TAB", "economic_capable": True, "sort_order": 192, "description": "Acciones activas (importes)."},
     {"key": "acciones.archivadas", "label": "Acciones archivadas", "section_key": "acciones", "parent_key": "acciones", "level": "TAB", "economic_capable": True, "sort_order": 193, "description": "Acciones archivadas (importes)."},
@@ -45472,7 +45541,7 @@ def _build_nav_menu() -> list[dict]:
         {"type": "link", "key": "promocion", "label": "Marketing", "url": _resource_default_url("promocion")},
         {"type": "link", "key": "promo", "label": "Promoción", "url": _resource_default_url("promo")},
         {"type": "link", "key": "diseno", "label": "Diseño", "url": _resource_default_url("diseno")},
-        {"type": "link", "key": "acciones", "label": "Acciones", "url": _resource_default_url("acciones")},
+
         {"type": "dropdown", "key": "invitaciones", "label": "Invitaciones", "children": [
             {"key": "invitaciones.pedir", "label": "Pedir invitaciones", "url": _resource_default_url("invitaciones.pedir")},
             {"key": "invitaciones.gestionar", "label": "Gestionar invitaciones", "url": _resource_default_url("invitaciones.gestionar")},

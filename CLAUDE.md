@@ -335,6 +335,21 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   autor en la obra y debajo el reparto, con el porcentaje FINAL sobre la obra de cada uno.
   · ⚠️ Si un contrato antiguo trae porcentajes que no suman 100 se **normalizan** en vez de sacar un
   porcentaje de la obra que no cuadre.
+  · **SI EL AUTOR DEJA DE SER DE PLATAFORMA** (le cambian la editorial o se la quitan), de ahí en
+  adelante **no se le aplica ningún porcentaje**, pero **lo anterior se mantiene**: lo que quedó
+  congelado al registrar la obra se sigue viendo tal cual. Dos puntos únicos:
+  **`_share_split_frozen`** (¿ya está fijado: congelado o especial?) y **`_share_split_applies_live`**
+  (¿se puede CALCULAR hoy?: el registro tiene que ser de Plataforma **y** el autor seguir siendo
+  nuestro). El mapa enseña lo fijado siempre y solo calcula lo demás si `..._applies_live`; el
+  congelado al registrar también lo exige, así que a quien ya se fue no se le congela nada nuevo.
+  · **Relleno RETROACTIVO, puntual** (`_editorial_split_backfill` + `_editorial_split_backfill_once`,
+  marca `editorial_split_backfill_v1`, corre una vez en el arranque): pone al día las obras que YA
+  estaban registradas en SGAE antes de que existiera el reparto, congelando en cada una **el contrato
+  vigente el día de SU registro** (`SongStatus.sgae_updated_at`; si no quedó apuntado, la fecha de
+  publicación — nunca un contrato posterior). ⚠️ **No es la norma**: la norma sigue siendo congelar al
+  registrar. Las obras **sin registrar no se tocan** a propósito (su reparto se decide el día del
+  registro; hasta entonces la ficha ya lo enseña calculado) y si el relleno se cae a medias **no se
+  marca** como hecho, para que el siguiente arranque lo reintente.
 - **LC de REPARTO EDITORIAL** (ago 2026): el Label Copy que se comparte **NUNCA** lleva el reparto entre
   el autor y Plataforma; solo lo lleva el que se pide **desde Editorial**. Mismo generador con una
   bandera: `_build_song_label_copy_pdf_bytes(..., editorial=True)`,

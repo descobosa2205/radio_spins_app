@@ -102,6 +102,14 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   poder pedir/gestionar; el control fino por artista/concierto lo hace `_ensure_can_manage_invitations`),
   no `can_edit`. Coherencia: `_coherent_grant_values`. Las funcionalidades nuevas se
   autodescubren y entran **desactivadas**. UI en `personnel_detail.html` + `personnel_bulk.html`.
+  ⚠️ **QUIÉN GESTIONA LAS INVITACIONES de una actividad** (`_filter_manageable_concerts`, corregido
+  ago 2026): si la promueve un **tercero** (ni `group_company_id` ni participación del grupo), las
+  gestiona **la persona de PRODUCCIÓN ASIGNADA** (`Concert.production_owner_user_id`) — antes valía
+  cualquiera que tuviera ese artista asignado, y el trabajo quedaba repartido a medias. Si la
+  actividad **aún no tiene responsable**, se mantiene la regla antigua (artistas asignados) como red
+  de seguridad, para que la lista de invitados no se quede sin nadie. Lo que promueve una **empresa
+  del grupo** sigue siendo de **Ticketing**, dirección lo gestiona todo y «Gestionar otros» (opt-in)
+  sigue valiendo para cualquiera.
   **Artistas por faceta**: `UserProfile.assigned_artist_ids_produccion` / `_sello` (una persona puede
   ser de ambos); `assigned_artist_ids` se mantiene como **unión** (compat) y se recalcula al guardar.
   En el perfil se muestran dos selectores según departamentos (Producción/Sello).

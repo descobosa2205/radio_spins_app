@@ -3710,6 +3710,12 @@ class BagExpense(Base):
     covered_by = Column(Text, nullable=False, server_default=text("'BOLSA'"))
     cover_detail = Column(Text)
     split_info = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # SUPLIDOS: gastos que el mismo tercero tiene que facturar ADEMÁS de su trabajo (la gasolina de
+    # un músico, un taxi…). [{"concept": "...", "amount": 12.5|null}] — sin importe = todavía no se
+    # sabe y se le pregunta al subir la factura. ⚠️ NO llevan IVA ni retención: `amount_gross` del
+    # gasto los incluye (es lo que hay que facturar y pagar), pero `amount_net`/`amount_tax` son solo
+    # la parte con IVA.
+    supplements = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     consolidation_status = Column(Text, nullable=False, server_default=text("'PENDIENTE'"))
     no_invoice_reason = Column(Text)
     no_invoice_rejection_reason = Column(Text)
@@ -8006,6 +8012,7 @@ def ensure_actions_contracting_admin_schema():
         "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS admin_reviewed_at timestamptz;",
         "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS payment_receipt_url text;",
         "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS payment_receipt_name text;",
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS supplements jsonb NOT NULL DEFAULT '[]'::jsonb;",
         """
         CREATE TABLE IF NOT EXISTS concert_budget_items (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

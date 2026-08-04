@@ -88,6 +88,13 @@
                     <span class="text-warning-emphasis"><i class="fa fa-circle-question me-1"></i>Factura el importe que corresponda</span>
                   {% else %}
                     <span class="d-block text-muted">Base {{ r.net|eur }}{% if r.vat %} · IVA {{ '%.0f'|format(r.vat_pct|float) }}% {{ r.vat|eur }}{% endif %}</span>
+                    {# SUPLIDOS: se facturan igual pero SIN IVA ni retención. #}
+                    {% for sup in r.supplements or [] %}
+                      <span class="d-block text-muted small">
+                        <i class="fa fa-plus-minus me-1"></i>{{ sup.concept }} (suplido, sin IVA):
+                        {% if sup.amount %}{{ sup.amount|eur }}{% else %}<span class="text-warning-emphasis">a detallar</span>{% endif %}
+                      </span>
+                    {% endfor %}
                     <span class="d-block fw-bold fs-6">{{ r.gross|eur }}</span>
                   {% endif %}
                 </span>
@@ -269,6 +276,51 @@
       </div>
     </div>
 
+    {# ============ SUPLIDOS A DETALLAR (entre identificarse y subir la factura) ============
+       Solo aparece si algún suplido de lo que se va a facturar no tiene importe: se le pide aquí, y
+       lo que escriba se suma al total de la factura para los pasos siguientes (y actualiza el gasto
+       en producción). Los suplidos NO llevan IVA ni retención. #}
+    {% set _sup_pend = (request_rows or [])|rejectattr('has_invoice')|selectattr('supplements_pending')|list %}
+    {% if inv_mode == 'REQUEST' and request_row and _sup_pend %}
+      <div class="inv-step is-locked" data-inv-step="35" id="invSupStep">
+        <div class="inv-step__head">
+          <span class="inv-step__num"><i class="fa fa-plus-minus"></i></span>
+          <div>
+            <div class="inv-step__title">Esta factura incluye suplidos a detallar</div>
+            <div class="inv-step__sub">Dinos cuánto ha sido cada uno: se suma al total de la factura (sin IVA).</div>
+          </div>
+        </div>
+        <div class="inv-step__body">
+          <form id="invSupForm">
+            <input type="hidden" name="token" value="{{ request_row.public_token }}">
+            {% for r in _sup_pend %}
+              <div class="mb-3">
+                <div class="fw-semibold small mb-1">{{ r.concept }}</div>
+                {% for sup in r.supplements %}
+                  {% if not sup.amount %}
+                    <div class="row g-2 align-items-center mb-1">
+                      <div class="col-7 small">{{ sup.concept }}</div>
+                      <div class="col-5">
+                        <div class="input-group input-group-sm">
+                          <input class="form-control" name="sup_{{ r.id }}_{{ loop.index0 }}" data-money="1"
+                                 inputmode="decimal" placeholder="0,00">
+                          <span class="input-group-text">€</span>
+                        </div>
+                      </div>
+                    </div>
+                  {% endif %}
+                {% endfor %}
+              </div>
+            {% endfor %}
+            <div class="d-flex justify-content-end gap-2">
+              <button type="submit" class="btn btn-danger"><i class="fa fa-check me-1"></i>Guardar los suplidos</button>
+            </div>
+            <div class="small mt-2" id="invSupMsg"></div>
+          </form>
+        </div>
+      </div>
+    {% endif %}
+
     {# ============================ PASO 4 · SUBIR ============================ #}
     <div class="inv-step is-locked" data-inv-step="4">
       <div class="inv-step__head">
@@ -372,6 +424,53 @@
   function stepNumOf(el){ var st = el ? el.closest('[data-inv-step]') : null; return st ? Number(st.getAttribute('data-inv-step')) : 0; }
   const IDENT_STEP = stepNumOf(document.getElementById('invTaxId')) || 3;
   const UPLOAD_STEP = stepNumOf(document.getElementById('invDocs')) || (IDENT_STEP + 1);
+  // SUPLIDOS A DETALLAR: si los hay, van entre identificarse y subir la factura.
+  const SUP_STEP = document.getElementById('invSupStep') ? 35 : null;
+
+  function abrirTrasIdentificar() {
+    if (SUP_STEP && !document.getElementById('invSupStep').classList.contains('is-done')) {
+      unlock(SUP_STEP);
+      return;
+    }
+    unlock(UPLOAD_STEP);
+  }
+
+  // Los suplidos que faltaban: al guardarlos se suman al total y se abre el paso de subir.
+  const supForm = document.getElementById('invSupForm');
+  if (supForm) {
+    supForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      const msg = document.getElementById('invSupMsg');
+      const fd = new FormData(supForm);
+      let algo = false;
+      fd.forEach(function (v, k) { if (k !== 'token' && (v || '').trim()) algo = true; });
+      if (!algo) { msg.className = 'small mt-2 text-danger'; msg.textContent = 'Pon el importe de los suplidos.'; return; }
+      fetch({{ url_for('public_invoice_supplements_save')|tojson }}, {method: 'POST', body: fd})
+        .then(r => r.json()).then(function (d) {
+          if (!d || !d.ok) {
+            msg.className = 'small mt-2 text-danger';
+            msg.textContent = (d && d.error) || 'No se pudieron guardar';
+            return;
+          }
+          msg.className = 'small mt-2 text-success';
+          msg.textContent = 'Guardado. El total a facturar es ' + (d.total_label || '') + '.';
+          const total = document.querySelector('[data-inv-total]');
+          if (total && d.total_label) total.textContent = d.total_label;
+          // El importe que se comprobará al subir la factura ya es el nuevo.
+          if (d.rows) {
+            document.querySelectorAll('.js-inv-expense').forEach(function (c) {
+              if (d.rows[c.value] !== undefined) c.setAttribute('data-gross', d.rows[c.value]);
+            });
+            if (window.invRefreshTotal) window.invRefreshTotal();
+          }
+          document.getElementById('invSupStep').classList.add('is-done');
+          unlock(UPLOAD_STEP);
+        }).catch(function () {
+          msg.className = 'small mt-2 text-danger';
+          msg.textContent = 'Error de conexión';
+        });
+    });
+  }
   document.querySelectorAll('[data-inv-next]').forEach(function(b){
     b.addEventListener('click', function(){
       // Si el botón lleva al paso de identificarse, se usa el número REAL de ese paso.
@@ -509,7 +608,7 @@
     } else {
       regForm.classList.add('d-none');
       loadDocs(p.id);
-      unlock(UPLOAD_STEP);
+      abrirTrasIdentificar();
     }
   }
 
@@ -574,7 +673,7 @@
       msg.className = 'small mt-2 text-success'; msg.textContent = 'Datos guardados.';
       profile = d.profile;
       applyProfile(d.profile);
-      unlock(UPLOAD_STEP);
+      abrirTrasIdentificar();
       // Se recarga el estado para preguntar CÓMO factura (particular) y pedirle sus papeles.
       loadDocs(d.profile.id);
     });

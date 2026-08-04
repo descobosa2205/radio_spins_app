@@ -354,6 +354,8 @@
                   <ul class="dropdown-menu dropdown-menu-end">
                     <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#editExpenseModal{{ expense.id }}">Editar</button></li>
                     {% if not expense.attachment_url %}<li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#requestInvoiceModal{{ expense.id }}">Solicitar factura</button></li>{% endif %}
+                    {# SUPLIDOS: lo que ese mismo tercero factura ADEMÁS de su trabajo (gasolina…). #}
+                    <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#supplementsModal{{ expense.id }}"><i class="fa fa-plus-minus fa-fw me-2"></i>Añadir suplidos</button></li>
                     {% if expense.attachment_url %}
                       <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#viewDocModal" data-url="{{ expense.attachment_url }}" data-title="{{ expense.attachment_name or 'Documento' }}">Ver factura/ticket</button></li>
                       <li><a class="dropdown-item" href="{{ expense.attachment_url }}" target="_blank" download>Descargar factura/ticket</a></li>
@@ -589,6 +591,50 @@
   <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Guardar</button></div>
 </form></div></div></div>
 
+{# SUPLIDOS del gasto: conceptos que el tercero factura aparte de su trabajo. Si todavía no se sabe
+   el importe se deja en blanco y se le pregunta al subir la factura. NO llevan IVA ni retención. #}
+<div class="modal fade" id="supplementsModal{{ expense.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <form method="post" action="{{ url_for('bag_expense_supplements_save', bag_id=bag.id, expense_id=expense.id) }}">
+      <input type="hidden" name="next" value="{{ bag_next }}">
+      <div class="modal-header"><h5 class="modal-title">Suplidos de «{{ expense.concept or 'Gasto' }}»</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="small text-muted mb-2">
+          Gastos que <strong>este mismo tercero</strong> tiene que facturar además de su trabajo (la
+          gasolina, un taxi…). Si aún no sabes el importe, pon solo el concepto: se le preguntará al
+          subir la factura. <strong>Los suplidos no llevan IVA ni retención.</strong>
+        </div>
+        <div data-sup-rows>
+          {% for sup in (expense.supplements or []) %}
+            <div class="row g-2 mb-2 align-items-end" data-sup-row>
+              <div class="col-7"><label class="form-label small">Concepto</label>
+                <input class="form-control form-control-sm" name="supplement_concept" value="{{ sup.get('concept') or '' }}"></div>
+              <div class="col-4"><label class="form-label small">Importe</label>
+                <div class="input-group input-group-sm">
+                  <input class="form-control" name="supplement_amount" data-money="1" inputmode="decimal"
+                         value="{{ sup.get('amount') or '' }}" placeholder="Sin saber">
+                  <span class="input-group-text">€</span>
+                </div>
+              </div>
+              <div class="col-1 text-end"><button type="button" class="btn btn-sm btn-outline-danger" data-sup-del><i class="fa fa-xmark"></i></button></div>
+            </div>
+          {% endfor %}
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-sup-add><i class="fa fa-plus me-1"></i>Añadir suplido</button>
+        <div class="alert alert-light border small mt-3 mb-0">
+          Trabajo: <strong>{{ expense.amount_net|eur }}</strong> + IVA. El total a facturar se recalcula
+          sumando los suplidos.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary">Guardar suplidos</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
 <div class="modal fade" id="requestInvoiceModal{{ expense.id }}" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><form method="post" action="{{ url_for('bag_expense_request_invoice', bag_id=bag.id, expense_id=expense.id) }}">
 
   <input type="hidden" name="next" value="{{ bag_next }}">  <div class="modal-header"><h5 class="modal-title">Solicitar factura/ticket</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
@@ -736,6 +782,32 @@
     };
     select.addEventListener('change', updateEmbargoWarning);
     updateEmbargoWarning();
+  });
+
+  // SUPLIDOS: añadir y quitar filas en el modal del gasto (concepto + importe, que puede ir vacío).
+  document.addEventListener('click', function (e) {
+    var add = e.target.closest('[data-sup-add]');
+    if (add) {
+      var zona = add.closest('.modal-body').querySelector('[data-sup-rows]');
+      if (!zona) return;
+      var fila = document.createElement('div');
+      fila.className = 'row g-2 mb-2 align-items-end';
+      fila.setAttribute('data-sup-row', '');
+      fila.innerHTML = '<div class="col-7"><label class="form-label small">Concepto</label>'
+        + '<input class="form-control form-control-sm" name="supplement_concept" placeholder="Gasolina"></div>'
+        + '<div class="col-4"><label class="form-label small">Importe</label>'
+        + '<div class="input-group input-group-sm"><input class="form-control" name="supplement_amount"'
+        + ' data-money="1" inputmode="decimal" placeholder="Sin saber"><span class="input-group-text">€</span></div></div>'
+        + '<div class="col-1 text-end"><button type="button" class="btn btn-sm btn-outline-danger" data-sup-del>'
+        + '<i class="fa fa-xmark"></i></button></div>';
+      zona.appendChild(fila);
+      return;
+    }
+    var del = e.target.closest('[data-sup-del]');
+    if (del) {
+      var f = del.closest('[data-sup-row]');
+      if (f) f.remove();
+    }
   });
 </script>
 {% endif %}{# /bag_hide_expenses #}

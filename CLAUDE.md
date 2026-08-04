@@ -1648,6 +1648,18 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   fichero desde el servidor. ⚠️ Los contratos viven en el bucket PÚBLICO de Storage: la ficha ya no
   publica `pdf_url`, pero **las URL directas de los ya subidos siguen funcionando** para quien las
   tenga guardadas (cerrarlo del todo pide bucket privado o URLs firmadas, que afecta a todo el resto).
+- **SUPLIDOS de un gasto** (`BagExpense.supplements`, ago 2026): lo que ese MISMO tercero factura
+  además de su trabajo (la gasolina de un músico, un taxi). Se añaden desde los **tres puntitos del
+  gasto** (`bag_expense_supplements_save`): concepto + importe, y **si no se sabe el importe se deja
+  en blanco**. ⚠️ **NO llevan IVA ni retención**: `amount_gross` del gasto los INCLUYE (es lo que hay
+  que facturar y pagar) pero `amount_net`/`amount_tax` siguen siendo solo la parte con IVA, así que el
+  desglose NO se puede sacar del bruto — punto único **`_expense_invoice_breakdown(expense)`**
+  (base+IVA de `amount_gross − suplidos`, más los suplidos aparte), que usan el enlace del proveedor,
+  la comprobación del importe al subir y `_supplier_invoice_expected`.
+  · **Al subir la factura**, si algún suplido no tiene importe, entre **identificarse y subir** sale el
+  paso «Esta factura incluye suplidos a detallar» (`public_invoice_supplements_save`): lo que escriba
+  actualiza el gasto (`_expense_apply_supplements`) y el total que se le exige a la factura. Si ya
+  tienen importe, ese paso no aparece y los suplidos solo se ven en «Pendiente de facturar».
 - **Facturas imputadas a gastos de bolsa** (`BagExpenseInvoice`): relación N:N entre una factura y
   los gastos que cubre, con el **importe imputado** a cada uno. Las filas de la MISMA factura física
   comparten `group_key`. El adjunto del `BagExpense` se sigue rellenando (compatibilidad con

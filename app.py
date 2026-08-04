@@ -759,7 +759,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_expired_documents", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
+    allowed = {"landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_expired_documents", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
     if request.endpoint in allowed:
         return
 
@@ -43825,7 +43825,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -57138,6 +57138,69 @@ def bag_expense_move(bag_id, expense_id):
     return redirect(safe_next_or(url_for("bag_detail_view", bag_id=bag_id)))
 
 
+def _expense_apply_supplements(expense, filas: list[dict]) -> Decimal:
+    """Guarda los SUPLIDOS de un gasto y recalcula su total.
+
+    ⚠️ Los suplidos NO llevan IVA ni retención: `amount_gross` = (base + IVA) + suplidos, y
+    `amount_net`/`amount_tax` siguen siendo solo la parte con IVA. Devuelve el bruto nuevo."""
+    limpias = []
+    for fila in (filas or []):
+        concepto = str((fila or {}).get("concept") or "").strip()
+        if not concepto:
+            continue
+        importe = (fila or {}).get("amount")
+        if importe in (None, ""):
+            limpias.append({"concept": concepto[:200], "amount": None})
+        else:
+            valor = _money_or_zero(importe)
+            limpias.append({"concept": concepto[:200], "amount": (str(valor) if valor > 0 else None)})
+    expense.supplements = limpias
+    # La parte con IVA no cambia: se recalcula el bruto = base + IVA + suplidos.
+    gravable = _invoice_request_amounts(getattr(expense, "amount_net", 0), 0)
+    base_iva = gravable["gross"] if gravable["gross"] > 0 else _money_or_zero(getattr(expense, "amount_gross", 0))
+    total_sup = sum((_money_or_zero(f["amount"]) for f in limpias if f["amount"]), Decimal("0"))
+    expense.amount_tax = gravable["vat"] if gravable["gross"] > 0 else _money_or_zero(getattr(expense, "amount_tax", 0))
+    expense.amount_gross = base_iva + total_sup
+    expense.updated_at = _now_madrid()
+    return expense.amount_gross
+
+
+@app.post("/bolsas/<bag_id>/expenses/<expense_id>/suplidos", endpoint="bag_expense_supplements_save")
+@admin_required
+def bag_expense_supplements_save(bag_id, expense_id):
+    """AÑADIR SUPLIDOS a un gasto (desde los tres puntitos del gasto).
+
+    Son importes que ese mismo tercero tiene que facturar además de su trabajo (la gasolina de un
+    músico). Si todavía no se sabe cuánto, se pone solo el concepto y se le pregunta al subir la
+    factura."""
+    session_db = db()
+    try:
+        expense = session_db.get(BagExpense, to_uuid(expense_id))
+        if expense is None or str(getattr(expense, "bag_id", "")) != str(to_uuid(bag_id)):
+            flash("Gasto no encontrado.", "warning")
+            return redirect(safe_next_or(request.form.get("next") or url_for("bag_detail_view", bag_id=bag_id)))
+        conceptos = request.form.getlist("supplement_concept")
+        importes = request.form.getlist("supplement_amount")
+        filas = []
+        for i, concepto in enumerate(conceptos):
+            if not (concepto or "").strip():
+                continue
+            filas.append({"concept": concepto,
+                          "amount": (importes[i] if i < len(importes) else "")})
+        bruto = _expense_apply_supplements(expense, filas)
+        session_db.commit()
+        n = len([f for f in filas if (f["concept"] or "").strip()])
+        flash(("%d suplido%s guardado%s. El gasto pasa a %s."
+               % (n, "" if n == 1 else "s", "" if n == 1 else "s", format_eur(bruto)))
+              if n else "Se han quitado los suplidos del gasto.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudieron guardar los suplidos: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(request.form.get("next") or url_for("bag_detail_view", bag_id=bag_id)))
+
+
 @app.post("/bolsas/<bag_id>/expenses/<expense_id>/delete", endpoint="bag_expense_delete")
 @admin_required
 def bag_expense_delete(bag_id, expense_id):
@@ -57803,7 +57866,7 @@ def _supplier_invoice_expected(session_db, inv) -> dict:
             exp = session_db.get(BagExpense, fila.bag_expense_id)
             if exp is None:
                 continue
-            imp = _invoice_request_amounts(getattr(exp, "amount_net", 0), getattr(exp, "amount_gross", 0))
+            imp = _expense_invoice_breakdown(exp)
             neto += imp["net"]
             bruto += imp["gross"]
         if bruto > 0:
@@ -62206,6 +62269,62 @@ def _invoice_request_amounts(net, gross, *, vat_pct=None) -> dict:
     }
 
 
+def _expense_supplements(expense) -> list[dict]:
+    """SUPLIDOS de un gasto, normalizados: `[{"concept": str, "amount": Decimal|None}]`.
+
+    Son gastos que el mismo tercero factura ADEMÁS de su trabajo (la gasolina del músico). Sin
+    importe = todavía no se sabe y se le pregunta al subir la factura."""
+    salida = []
+    for fila in (getattr(expense, "supplements", None) or []):
+        if not isinstance(fila, dict):
+            continue
+        concepto = str(fila.get("concept") or "").strip()
+        if not concepto:
+            continue
+        crudo = fila.get("amount")
+        importe = None
+        if crudo not in (None, ""):
+            try:
+                importe = _money_or_zero(crudo)
+            except Exception:
+                importe = None
+            if importe is not None and importe <= 0:
+                importe = None
+        salida.append({"concept": concepto[:200], "amount": importe})
+    return salida
+
+
+def _expense_supplements_total(expense) -> Decimal:
+    """Lo que suman los suplidos que YA tienen importe (sin IVA: los suplidos no lo llevan)."""
+    return sum((s["amount"] for s in _expense_supplements(expense) if s["amount"] is not None),
+               Decimal("0"))
+
+
+def _expense_invoice_breakdown(expense) -> dict:
+    """Lo que hay que FACTURAR de un gasto: su trabajo (base + IVA) MÁS los suplidos SIN IVA.
+
+    ⚠️ `BagExpense.amount_gross` incluye los suplidos (es lo que hay que facturar y pagar), así que
+    la parte con IVA es `amount_gross − suplidos`: por eso el desglose no se puede sacar del bruto a
+    secas. Los suplidos no llevan IVA ni retención."""
+    suplidos = _expense_supplements(expense)
+    total_sup = sum((s["amount"] for s in suplidos if s["amount"] is not None), Decimal("0"))
+    bruto = _money_or_zero(getattr(expense, "amount_gross", 0))
+    gravable = bruto - total_sup
+    if gravable < 0:
+        gravable = Decimal("0")
+    imp = _invoice_request_amounts(getattr(expense, "amount_net", 0), gravable)
+    return {
+        "net": imp["net"],
+        "vat": imp["vat"],
+        "vat_pct": imp["vat_pct"],
+        "supplements": suplidos,
+        "supplements_total": total_sup,
+        "supplements_pending": [s for s in suplidos if s["amount"] is None],
+        "gross": imp["gross"] + total_sup,
+        "unknown": bool(imp["unknown"] and not total_sup),
+    }
+
+
 def _bag_invoice_request_context(session_db, req):
     """Contexto de la página pública de subida de facturas de un proveedor."""
     bag = session_db.get(WorkflowBag, req.bag_id)
@@ -62222,7 +62341,7 @@ def _bag_invoice_request_context(session_db, req):
                     .all())
     rows = []
     for exp in expenses:
-        importes = _invoice_request_amounts(getattr(exp, "amount_net", 0), getattr(exp, "amount_gross", 0))
+        importes = _expense_invoice_breakdown(exp)
         rows.append({
             "id": str(exp.id),
             "concept": (exp.concept or "Gasto"),
@@ -62232,6 +62351,11 @@ def _bag_invoice_request_context(session_db, req):
             "vat_pct": importes["vat_pct"],
             "gross": importes["gross"],
             "unknown": importes["unknown"],
+            # SUPLIDOS: se enseñan aparte (no llevan IVA) y los que no tienen importe se le
+            # preguntan antes de subir la factura.
+            "supplements": importes["supplements"],
+            "supplements_total": importes["supplements_total"],
+            "supplements_pending": importes["supplements_pending"],
             "has_invoice": _bag_expense_has_invoice(exp),
             "invoice_name": (getattr(exp, "attachment_name", None) or ""),
             "invoice_url": (getattr(exp, "attachment_url", None) or ""),
@@ -63096,6 +63220,64 @@ def public_invoice_register():
         session_db.close()
 
 
+@app.post('/facturacion/suplidos', endpoint='public_invoice_supplements_save')
+def public_invoice_supplements_save():
+    """El proveedor detalla los SUPLIDOS que no tenían importe (antes de subir la factura).
+
+    Lo que escriba actualiza el gasto: a partir de ese momento el total a facturar (y lo que se le
+    pagará) incluye esos suplidos. Los suplidos NO llevan IVA."""
+    session_db = db()
+    try:
+        token = (request.form.get("token") or "").strip()
+        req = (session_db.query(BagInvoiceRequest)
+               .filter(BagInvoiceRequest.public_token == token).first()) if token else None
+        if req is None:
+            return jsonify({"ok": False, "error": "Enlace no válido"}), 404
+        permitidos = {str(x) for x in (req.expense_ids or [])}
+        # Llegan como `sup_<expense_id>_<indice>` = importe.
+        cambios = {}
+        for clave, valor in request.form.items():
+            if not clave.startswith("sup_"):
+                continue
+            trozos = clave[4:].rsplit("_", 1)
+            if len(trozos) != 2:
+                continue
+            eid, idx = trozos[0], trozos[1]
+            if eid not in permitidos or not idx.isdigit():
+                continue
+            cambios.setdefault(eid, {})[int(idx)] = valor
+        total_nuevo = Decimal("0")
+        for eid, valores in cambios.items():
+            exp = session_db.get(BagExpense, to_uuid(eid) or uuid.uuid4())
+            if exp is None:
+                continue
+            filas = []
+            for i, sup in enumerate(_expense_supplements(exp)):
+                importe = sup["amount"]
+                if i in valores and (valores[i] or "").strip():
+                    nuevo = _parse_money_decimal(valores[i])
+                    if nuevo > 0:
+                        importe = nuevo
+                filas.append({"concept": sup["concept"], "amount": importe})
+            total_nuevo += _expense_apply_supplements(exp, filas)
+        session_db.commit()
+        ctx = _bag_invoice_request_context(session_db, req)
+        pend = [r for r in ctx["rows"] if not r["has_invoice"]]
+        return jsonify({
+            "ok": True,
+            "total": str(sum((r["gross"] for r in pend), Decimal("0"))),
+            "total_label": format_eur(sum((r["gross"] for r in pend), Decimal("0"))),
+            "pending": sum(len(r["supplements_pending"]) for r in pend),
+            # Importe nuevo de cada concepto: el navegador actualiza con esto lo que se va a facturar.
+            "rows": {r["id"]: str(r["gross"]) for r in ctx["rows"]},
+        })
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
 @app.post('/facturacion/documentos', endpoint='public_invoice_docs_state')
 def public_invoice_docs_state():
     """Estado de los documentos exigidos a un proveedor ya identificado.
@@ -63404,7 +63586,8 @@ def public_invoice_upload():
                 _exp = session_db.get(BagExpense, to_uuid(str(_eid)) or uuid.uuid4())
                 if _exp is None:
                     continue
-                _imp = _invoice_request_amounts(getattr(_exp, "amount_net", 0), getattr(_exp, "amount_gross", 0))
+                # Incluye los SUPLIDOS (sin IVA): es lo que hay que facturar de verdad.
+                _imp = _expense_invoice_breakdown(_exp)
                 _esp_net += _imp["net"]
                 _esp_gross += _imp["gross"]
             _ok, _motivo = _invoice_amount_check(_esp_gross, _esp_net, _dinero.get("amount_gross"),

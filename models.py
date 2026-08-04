@@ -350,6 +350,10 @@ class Song(Base):
     # Editorial
     work_declaration_url = Column(Text)
     work_declaration_uploaded_at = Column(DateTime(timezone=True))
+    # La declaración de obra que se sube FIRMADA (desde Registros → SGAE): es lo que se le entrega a
+    # la sociedad, así que sin ella no se puede dar por registrada una obra publicada de hoy en
+    # adelante.
+    work_declaration_signed = Column(Boolean, nullable=False, server_default=text("false"))
     lyrics_text = Column(Text)
     lyrics_updated_at = Column(DateTime(timezone=True))
     # Contenido explícito (se marca al subir la letra); muestra etiqueta "Explícita".
@@ -965,6 +969,17 @@ class SongEditorialShare(Base):
         PGUUID(as_uuid=True),
         ForeignKey("publishing_companies.id", ondelete="SET NULL"),
     )
+
+    # REPARTO de la parte autoral entre el AUTOR y PLATAFORMA MUSICAL (solo tiene sentido en autores
+    # de Plataforma). Por defecto manda el contrato EDITORIAL del artista vigente el día del registro
+    # (que se congela aquí al registrar la obra, `split_*`); con `special_split` se fija a mano y esos
+    # porcentajes —que suman 100 sobre la parte del autor— mandan sobre el contrato.
+    special_split = Column(Boolean, nullable=False, server_default=text("false"))
+    special_pct_author = Column(Numeric)
+    special_pct_platform = Column(Numeric)
+    split_pct_author = Column(Numeric)
+    split_pct_platform = Column(Numeric)
+    split_frozen_at = Column(DateTime(timezone=True))
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -6281,6 +6296,22 @@ def ensure_editorial_schema():
                 END IF;
             END IF;
         END$$;
+        """,
+        # Declaración de obra FIRMADA (la que se sube desde Registros → SGAE) y quién la subió.
+        """
+        ALTER TABLE IF EXISTS songs
+            ADD COLUMN IF NOT EXISTS work_declaration_signed boolean NOT NULL DEFAULT false;
+        """,
+        # REPARTO de la parte autoral entre el autor de Plataforma y Plataforma Musical: por contrato
+        # (congelado al registrar) o a mano («reparto especial»).
+        """
+        ALTER TABLE IF EXISTS song_editorial_shares
+            ADD COLUMN IF NOT EXISTS special_split boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS special_pct_author numeric,
+            ADD COLUMN IF NOT EXISTS special_pct_platform numeric,
+            ADD COLUMN IF NOT EXISTS split_pct_author numeric,
+            ADD COLUMN IF NOT EXISTS split_pct_platform numeric,
+            ADD COLUMN IF NOT EXISTS split_frozen_at timestamptz;
         """,
     ]
 

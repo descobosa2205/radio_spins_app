@@ -45,12 +45,24 @@
       </div>
     </div>
     {% if CAN_EDIT_DISCOGRAFICA or action_kind == 'concert' %}
-      <div class="d-flex justify-content-end mt-3">
+      <div class="d-flex justify-content-end align-items-center gap-2 mt-3">
         {% if action_kind == 'sgae' %}
-          <form method="post" action="{{ item.sgae_register_url }}">
-            <input type="hidden" name="next" value="{{ url_for('registros_view', tab='pendiente') }}">
-            <button class="btn btn-sm btn-success"><i class="fa fa-check me-1"></i>Marcar SGAE</button>
-          </form>
+          {# Todo el material que hay que presentar, en una carpeta SGAE_Artista_Canción. #}
+          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('registros_song_pack', song_id=item.item_id, kind='SGAE') }}"
+             title="Descargar el material para SGAE (master en MP3, portada en JPG, LC de reparto editorial y letra)">
+            <i class="fa fa-download"></i>
+          </a>
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-decl-upload
+                  data-decl-url="{{ url_for('registros_song_declaration_signed', song_id=item.item_id) }}"
+                  data-decl-title="{{ item.title }}"
+                  title="Subir la declaración de obra firmada">
+            <i class="fa fa-file-signature"></i>
+          </button>
+          <button type="button" class="btn btn-sm btn-success" data-sgae-register
+                  data-register-url="{{ item.sgae_register_url }}"
+                  data-notify-url="{{ url_for('discografica_song_sgae_notify', song_id=item.item_id) }}">
+            <i class="fa fa-check me-1"></i>Marcar SGAE
+          </button>
         {% elif action_kind == 'agedi' %}
           {% if item.kind == 'ALBUM' %}
             <form method="post" action="{{ item.agedi_register_url }}">
@@ -59,6 +71,11 @@
               <button class="btn btn-sm btn-success"><i class="fa fa-check me-1"></i>Marcar AGEDI</button>
             </form>
           {% else %}
+            {# Master en MP3 + portada en JPG + PDF del LC, en una carpeta AGEDI_Artista_Canción. #}
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('registros_song_pack', song_id=item.item_id, kind='AGEDI') }}"
+               title="Descargar el material para AGEDI (master en MP3, portada en JPG y PDF del Label Copy)">
+              <i class="fa fa-download"></i>
+            </a>
             <form method="post" action="{{ item.agedi_register_url }}">
               <input type="hidden" name="next" value="{{ url_for('registros_view', tab='pendiente') }}">
               <button class="btn btn-sm btn-success"><i class="fa fa-check me-1"></i>Marcar AGEDI</button>
@@ -183,14 +200,23 @@
           <div class="row g-3 mt-1">
             {% for item in author.songs %}
               <div class="col-12 col-lg-6 registros-song-col" id="reg-sgae-{{ author.id }}-{{ item.item_id }}" data-inline-zone>{{ registro_media_card(item, '') }}
-                <div class="d-flex justify-content-end pe-3 pb-3">
+                <div class="d-flex justify-content-end align-items-center gap-2 pe-3 pb-3">
                   {% if item.sgae_done %}
                     <span class="badge text-bg-success">Registrado</span>
                   {% else %}
-                    <form method="post" action="{{ item.sgae_register_url }}" data-inline data-inline-target="#reg-sgae-{{ author.id }}-{{ item.item_id }}">
-                      <input type="hidden" name="next" value="{{ url_for('registros_view', tab='sgae') }}">
-                      <button class="badge text-bg-warning text-dark border-0">Pendiente de registro</button>
-                    </form>
+                    {% if CAN_EDIT_DISCOGRAFICA %}
+                      {# `tab=sgae` para que el permiso se resuelva contra la pestaña en la que estamos. #}
+                      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('registros_song_pack', song_id=item.item_id, kind='SGAE', tab='sgae') }}"
+                         title="Descargar el material para SGAE (master en MP3, portada en JPG, LC de reparto editorial y letra)"><i class="fa fa-download"></i></a>
+                      <button type="button" class="btn btn-sm btn-outline-secondary" data-decl-upload
+                              data-decl-url="{{ url_for('registros_song_declaration_signed', song_id=item.item_id, tab='sgae') }}"
+                              data-decl-title="{{ item.title }}" title="Subir la declaración de obra firmada"><i class="fa fa-file-signature"></i></button>
+                      <button type="button" class="badge text-bg-warning text-dark border-0" data-sgae-register
+                              data-register-url="{{ item.sgae_register_url }}"
+                              data-notify-url="{{ url_for('discografica_song_sgae_notify', song_id=item.item_id) }}">Pendiente de registro</button>
+                    {% else %}
+                      <span class="badge text-bg-warning text-dark">Pendiente de registro</span>
+                    {% endif %}
                   {% endif %}
                 </div>
               </div>
@@ -233,9 +259,180 @@
     </div>
   </div>
 {% endif %}
+
+{% if CAN_EDIT_DISCOGRAFICA %}
+  {# DECLARACIÓN DE OBRA FIRMADA: se sube desde aquí y queda en la ficha, en «Declaración de obra». #}
+  <div class="modal fade" id="declSignedModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <form class="modal-content" method="post" id="declSignedForm" enctype="multipart/form-data">
+        <div class="modal-header">
+          <h5 class="modal-title">Declaración de obra firmada</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <div class="text-muted small mb-2" id="declSignedWhat"></div>
+          <input type="hidden" name="next" value="{{ url_for('registros_view', tab=tab) }}">
+          <label class="form-label">PDF firmado</label>
+          <input class="form-control" type="file" name="declaration_pdf" accept="application/pdf" required>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary"><i class="fa fa-upload me-1"></i>Subir</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {# Al marcar una obra como registrada en SGAE se ofrece avisar al AUTOR. Si se dice que no, se queda
+     simplemente registrada. #}
+  <div class="modal fade" id="sgaeNotifyModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Registrada en SGAE</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-success" id="sgaeNotifyMessage">La canción ya se ha marcado como registrada en SGAE.</div>
+          <div class="d-flex gap-3 align-items-start mb-3">
+            <img id="sgaeNotifyCover" src="{{ DEFAULT_COVER_URL }}" alt="" style="width:74px;height:74px;object-fit:cover;border-radius:14px;">
+            <div class="min-w-0">
+              <div class="fw-semibold" id="sgaeNotifyTitle">—</div>
+              <div class="small text-muted" id="sgaeNotifyInterpreters">—</div>
+              <div class="small text-muted" id="sgaeNotifyRelease"></div>
+            </div>
+          </div>
+          <div class="fw-semibold mb-1">¿Notificar el registro al autor?</div>
+          <div class="text-muted small mb-2">Se le manda el correo de «Registro de Obra» con el reparto autoral.</div>
+          <div id="sgaeNotifyRecipients" class="d-flex flex-column gap-1"></div>
+          <div class="alert alert-warning mt-2 d-none" id="sgaeNotifyNoMail">No hay ningún correo de autor con el que avisar.</div>
+          <div class="alert alert-danger mt-2 d-none" id="sgaeNotifyError"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" id="sgaeNotifyNo">No, gracias</button>
+          <button type="button" class="btn btn-primary" id="sgaeNotifyYes"><i class="fa fa-paper-plane me-1"></i>Sí, notificar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
+{% if CAN_EDIT_DISCOGRAFICA %}
+<script>
+(function(){
+  // Subir la declaración de obra firmada (un modal para todas las obras del listado).
+  var declForm = document.getElementById('declSignedForm');
+  if(declForm){
+    document.querySelectorAll('[data-decl-upload]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        declForm.setAttribute('action', btn.getAttribute('data-decl-url') || '');
+        document.getElementById('declSignedWhat').textContent = btn.getAttribute('data-decl-title') || '';
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('declSignedModal')).show();
+      });
+    });
+  }
+
+  // Marcar en SGAE → pop-up con la opción de avisar al autor.
+  var notifyEl = document.getElementById('sgaeNotifyModal');
+  if(!notifyEl) return;
+  var notifyUrl = '';
+  var box = document.getElementById('sgaeNotifyRecipients');
+  var errBox = document.getElementById('sgaeNotifyError');
+  var noMail = document.getElementById('sgaeNotifyNoMail');
+  var btnYes = document.getElementById('sgaeNotifyYes');
+
+  function pintaDestinatarios(autores){
+    box.innerHTML = '';
+    var hay = false;
+    (autores || []).forEach(function(a){
+      (a.email_options || []).forEach(function(opt){
+        if(!opt.email) return;
+        hay = true;
+        var id = 'sgaeMail_' + Math.random().toString(36).slice(2);
+        var wrap = document.createElement('div');
+        wrap.className = 'form-check';
+        wrap.innerHTML = '<input class="form-check-input" type="checkbox" value="" id="' + id + '">' +
+          '<label class="form-check-label" for="' + id + '"></label>';
+        var input = wrap.querySelector('input');
+        input.value = opt.email;
+        input.checked = !!opt.checked;
+        wrap.querySelector('label').textContent = (a.name || 'Autor') + ' · ' + opt.email +
+          (opt.label ? ' (' + opt.label + ')' : '');
+        box.appendChild(wrap);
+      });
+    });
+    noMail.classList.toggle('d-none', hay);
+    btnYes.disabled = !hay;
+  }
+
+  document.querySelectorAll('[data-sgae-register]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      btn.disabled = true;
+      try {
+        var res = await fetch(btn.getAttribute('data-register-url'), {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+          body: JSON.stringify({})
+        });
+        var data = await res.json().catch(function(){ return {}; });
+        if(!res.ok || !data.ok){
+          alert(data.message || 'No se pudo marcar el registro en SGAE.');
+          btn.disabled = false;
+          return;
+        }
+        notifyUrl = btn.getAttribute('data-notify-url') || '';
+        var song = data.song || {};
+        document.getElementById('sgaeNotifyMessage').textContent = data.message || '';
+        if(song.cover_url) document.getElementById('sgaeNotifyCover').src = song.cover_url;
+        document.getElementById('sgaeNotifyTitle').textContent = song.title || '—';
+        document.getElementById('sgaeNotifyInterpreters').textContent = song.interpreters_label || '';
+        document.getElementById('sgaeNotifyRelease').textContent =
+          song.publication_label ? ('Publicación: ' + song.publication_label) : '';
+        errBox.classList.add('d-none');
+        pintaDestinatarios((data.delivery || {}).authors);
+        bootstrap.Modal.getOrCreateInstance(notifyEl).show();
+      } catch(e){
+        alert('No se pudo marcar el registro en SGAE.');
+        btn.disabled = false;
+      }
+    });
+  });
+
+  // Decir «no» no deshace nada: la obra se queda registrada.
+  document.getElementById('sgaeNotifyNo').addEventListener('click', function(){ window.location.reload(); });
+  btnYes.addEventListener('click', async function(){
+    var recipients = Array.from(box.querySelectorAll('input:checked')).map(function(i){ return i.value; });
+    if(!recipients.length){
+      errBox.textContent = 'Marca al menos un correo.';
+      errBox.classList.remove('d-none');
+      return;
+    }
+    btnYes.disabled = true;
+    try {
+      var res = await fetch(notifyUrl, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+        body: JSON.stringify({recipients: recipients})
+      });
+      var data = await res.json().catch(function(){ return {}; });
+      if(!res.ok || !data.ok){
+        errBox.textContent = data.message || 'No se pudo enviar el correo.';
+        errBox.classList.remove('d-none');
+        btnYes.disabled = false;
+        return;
+      }
+      window.location.reload();
+    } catch(e){
+      errBox.textContent = 'No se pudo enviar el correo.';
+      errBox.classList.remove('d-none');
+      btnYes.disabled = false;
+    }
+  });
+})();
+</script>
+{% endif %}
 <script>
 (function(){
   const normalize = (v) => window.normalizeSearchText ? window.normalizeSearchText(v) : String(v || '').toLowerCase();

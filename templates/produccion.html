@@ -151,33 +151,6 @@
     </div>
   </div>
 
-  {# SIN RESPONSABLE: no son de nadie todavía. Se enseñan para que no se pierdan; la tarea de
-     activarlas la tiene quien creó la actividad. #}
-  {% if activas and activas.unassigned %}
-    <div class="alert alert-warning d-flex flex-wrap align-items-center gap-2">
-      <div class="flex-grow-1 small">
-        <i class="fa fa-user-slash me-1"></i><strong>{{ activas.unassigned|length }}</strong>
-        actividad{{ '' if activas.unassigned|length == 1 else 'es' }} sin responsable de producción:
-        quien las creó tiene que activar la producción.
-      </div>
-    </div>
-    <div class="card mb-3"><div class="card-body p-0">
-      {% for a in activas.unassigned %}
-        <a href="{{ a.url }}" class="oa-row text-decoration-none text-reset">
-          <span class="oa-row__icon" title="{{ a.type_label }}"><i class="fa {{ a.icon }}"></i></span>
-          <span class="oa-row__body">
-            <span class="oa-row__top">
-              <span class="oa-row__title">{{ a.subject_name }} · {{ a.title }}</span>
-              {% if a.municipality %}<span class="oa-row__sep">·</span><span class="oa-row__place">{{ a.municipality }}</span>{% endif %}
-            </span>
-            <span class="oa-row__sub">{{ a.date_label }} · {{ a.venue }}</span>
-          </span>
-          <span class="badge text-bg-warning text-dark">Sin responsable</span>
-        </a>
-      {% endfor %}
-    </div></div>
-  {% endif %}
-
   {% if activas and not activas.subject %}
     {% if activas.subjects %}
       <div class="row g-3">
@@ -205,16 +178,106 @@
         {% if activas.only_mine %}No tienes actividades de producción asignadas.{% else %}No hay actividades activas.{% endif %}
       </div>
     {% endif %}
+
+    {# PENDIENTES DE ASIGNAR: van DEBAJO de la agrupación por artistas y solo aquí (dentro de un
+       artista o evento no vienen a cuento). Lo único que se hace desde este listado es elegir a la
+       persona de producción que se encarga. Si no hay ninguna pendiente, no se muestra nada. #}
+    {% if activas.unassigned %}
+      <div class="mt-4">
+        <div class="production-section-title"><i class="fa fa-user-slash me-2 text-warning"></i>Pendientes de asignar persona de producción</div>
+        <div class="text-muted small mb-2">Pincha una actividad para decir quién de producción se encarga.</div>
+        <div class="card"><div class="card-body p-0">
+          {% for a in activas.unassigned %}
+            <button type="button" class="oa-row text-reset w-100 border-0 bg-transparent text-start"
+                    data-assign-prod
+                    data-assign-url="{{ url_for('concert_production_owner_save', cid=a.id) }}"
+                    data-assign-label="{{ a.subject_name }} · {{ a.title }} · {{ a.date_label }}">
+              <span class="oa-row__icon" title="{{ a.type_label }}"><i class="fa {{ a.icon }}"></i></span>
+              <span class="oa-row__body">
+                <span class="oa-row__top">
+                  <span class="oa-row__title">{{ a.subject_name }} · {{ a.title }}</span>
+                  {% if a.municipality %}<span class="oa-row__sep">·</span><span class="oa-row__place">{{ a.municipality }}</span>{% endif %}
+                  {% if a.province and a.province != a.municipality %}<span class="oa-row__sep">·</span><span class="oa-row__place">{{ a.province }}</span>{% endif %}
+                </span>
+                <span class="oa-row__sub">{{ a.date_label }} · {{ a.venue }}</span>
+              </span>
+              <span class="badge text-bg-warning text-dark">Sin responsable</span>
+            </button>
+          {% endfor %}
+        </div></div>
+      </div>
+
+      <div class="modal fade" id="assignProdModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+          <form class="modal-content" method="post" id="assignProdForm">
+            <div class="modal-header">
+              <h5 class="modal-title">Persona de producción</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+              <div class="text-muted small mb-2" id="assignProdWhat"></div>
+              <input type="hidden" name="next" value="{{ url_for('produccion_view', tab='activas') }}">
+              {% if production_people %}
+                <div class="list-group">
+                  {% for p in production_people %}
+                    <label class="list-group-item d-flex align-items-center gap-2">
+                      <input class="form-check-input m-0" type="radio" name="user_id" value="{{ p.id }}" required>
+                      <img src="{{ p.photo_url or url_for('static', filename='img/placeholder_photo.png') }}" alt=""
+                           data-default-photo="1" style="width:30px;height:30px;border-radius:50%;object-fit:cover;">
+                      <span>{{ p.name }}</span>
+                    </label>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="alert alert-light border mb-0">No hay nadie con el departamento de Producción.</div>
+              {% endif %}
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button class="btn btn-primary" {% if not production_people %}disabled{% endif %}><i class="fa fa-check me-1"></i>Asignar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+      <script>
+        (function(){
+          var form = document.getElementById('assignProdForm');
+          var what = document.getElementById('assignProdWhat');
+          document.querySelectorAll('[data-assign-prod]').forEach(function(btn){
+            btn.addEventListener('click', function(){
+              form.setAttribute('action', btn.getAttribute('data-assign-url') || '');
+              what.textContent = btn.getAttribute('data-assign-label') || '';
+              new bootstrap.Modal(document.getElementById('assignProdModal')).show();
+            });
+          });
+        })();
+      </script>
+    {% endif %}
   {% elif activas %}
-    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+    {# DE QUIÉN son las actividades: foto, nombre y su total. Debajo, los filtros por tipo (solo los
+       tipos que tienen actividades). #}
+    <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
       <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('produccion_view', tab='activas') }}"><i class="fa fa-arrow-left me-1"></i>Volver</a>
       <h5 class="mb-0 me-2 d-flex align-items-center gap-2">
         <img src="{{ activas.subject.photo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"
-             style="width:34px;height:34px;border-radius:50%;object-fit:cover;">
+             style="width:42px;height:42px;border-radius:50%;object-fit:cover;">
         {{ activas.subject.name }}
+        {% if activas.subject.kind == 'event' %}<span class="badge text-bg-light border align-self-center">Evento</span>{% endif %}
       </h5>
-      <span class="badge text-bg-light border">{{ activas.rows|length }}</span>
+      <span class="badge text-bg-light border"><i class="fa fa-shapes me-1"></i>{{ activas.subject.count }} actividad{{ '' if activas.subject.count == 1 else 'es' }}</span>
     </div>
+    {% if activas.type_chips %}
+      <div class="d-flex flex-wrap gap-2 mb-3">
+        {% for t in activas.type_chips %}
+          <a class="filter-chip {{ 'is-on' if t.active }}" href="{{ t.url }}">
+            <i class="fa {{ t.icon }}"></i>{{ t.label }}<span class="filter-chip__n">{{ t.count }}</span>
+          </a>
+        {% endfor %}
+        {% if activas.clear_types_url %}
+          <a class="filter-chip" href="{{ activas.clear_types_url }}"><i class="fa fa-xmark"></i>Quitar filtros</a>
+        {% endif %}
+      </div>
+    {% endif %}
     <div class="card"><div class="card-body p-0">
       {% for a in activas.rows %}
         <a href="{{ a.url }}" class="oa-row text-decoration-none text-reset">

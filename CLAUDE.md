@@ -304,6 +304,65 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   por correo busca terceros y carga sus **correos vinculados** (`api_promoter_emails`) para elegir
   destinatarios + nota. **Todos los correos del servidor (`_send_optional_email`) llevan Reply-To al usuario
   que envía** por defecto (`reply_to or _current_user_email()`).
+- **REPARTO EDITORIAL: la parte del autor de Plataforma se reparte con nosotros** (ago 2026). La parte
+  autoral de un autor NUESTRO (editorial «Plataforma Musical») no es toda suya: se reparte según el
+  compromiso **EDITORIAL** de su contrato de artista (`ArtistContractCommitment.concept` = «editorial»;
+  **`pct_office` = Plataforma Musical**). Ejemplo real: autor con el 60% de la obra y contrato 50/50 →
+  **30% autor y 30% Plataforma sobre el conjunto de la obra**.
+  · Motor en `app.py`: `EDITORIAL_CONTRACT_CONCEPTS` · `_publisher_is_platform` · `_artist_editorial_split`
+  (reutiliza `_pick_artist_commitment`, que ya sabe de contratos vigentes y `material_scope`) ·
+  **`_song_editorial_split_map`** (por id de registro: `pct` de la parte, `pct_author`/`pct_platform` de
+  ESA parte y `final_author`/`final_platform` sobre la obra) · `_song_editorial_split_rows` (para PDF y
+  páginas públicas) · `_freeze_song_editorial_split`.
+  · **Manda lo VIGENTE EL DÍA DEL REGISTRO**: al marcar la obra como registrada en SGAE
+  (`_mark_song_sgae_registered`) el reparto se **congela** en el registro de autoría
+  (`SongEditorialShare.split_pct_author`/`split_pct_platform`/`split_frozen_at`), así que cambiar el
+  contrato mañana no altera lo ya registrado. Solo se congela lo que no lo estaba.
+  · **Reparto especial** (`special_split` + `special_pct_author`/`special_pct_platform`): se fija a mano
+  y **pisa al contrato**. Los dos porcentajes son el reparto de la parte DEL AUTOR y tienen que sumar
+  **exactamente 100** (lo valida el modal y otra vez `discografica_song_editorial_share_split`).
+  · Se ve en la pestaña **Editorial** de la canción (`.ed-split*` en `styles.css`): la parte autoral del
+  autor en la obra y debajo el reparto, con el porcentaje FINAL sobre la obra de cada uno.
+  · ⚠️ Si un contrato antiguo trae porcentajes que no suman 100 se **normalizan** en vez de sacar un
+  porcentaje de la obra que no cuadre.
+- **LC de REPARTO EDITORIAL** (ago 2026): el Label Copy que se comparte **NUNCA** lleva el reparto entre
+  el autor y Plataforma; solo lo lleva el que se pide **desde Editorial**. Mismo generador con una
+  bandera: `_build_song_label_copy_pdf_bytes(..., editorial=True)`,
+  `discografica_song_label_copy_pdf?editorial=1` y token público con `ed` (`_song_label_copy_share_token(
+  id, editorial=True)` → `_label_copy_public_url/_pdf_url(..., editorial=True)`), que es lo que pinta el
+  bloque en `public_song_label_copy.html`. Botones «Descargar LC con el Reparto Editorial» y
+  «Compartir Reparto Editorial» en la pestaña Editorial.
+  El **PDF del LC** (canción y álbum) lleva el logo de la empresa arriba a la **derecha** y el título
+  «Label Copy» **centrado** (estilo de casa).
+- **REGISTROS · material para presentar y declaración firmada** (ago 2026):
+  · Botón de **icono** en Pendientes AGEDI y en Pendiente SGAE → `registros_song_pack`
+  (`/registros/canciones/<id>/material?kind=AGEDI|SGAE`): un ZIP con la carpeta
+  **`AGEDI_<Artista>_<Canción>`** / **`SGAE_<Artista>_<Canción>`** dentro. AGEDI: master en **MP3** +
+  portada en **JPG** + PDF del **LC**. SGAE: lo mismo pero con el **LC de reparto editorial** y además
+  la **letra** en su formato de editorial (sin logo). Lo que no se pueda incluir NO se calla: va un
+  **`LEEME - falta material.txt`** diciendo qué falta.
+  · La portada se pasa a JPG con `_registros_pack_cover_jpeg` (hasta 2000 px y calidad 85: buena para
+  registrar sin que pese de más). ⚠️ **pydub busca `ffmpeg` en el PATH y en el servidor no está**:
+  `_convert_audio_content_to_mp3` le apunta al binario estático de **imageio-ffmpeg** (`_ffmpeg_exe`,
+  el mismo del póster de los vídeos); sin eso la exportación a MP3 falla en Render.
+  · **Declaración de obra FIRMADA**: botón de icono en Pendiente SGAE (`registros_song_declaration_signed`)
+  que la sube a la misma «Declaración de obra» de la ficha y marca `Song.work_declaration_signed`.
+  **Sin ella no se puede marcar el registro en SGAE de una obra publicada desde
+  `SGAE_SIGNED_DECLARATION_FROM` (04-ago-2026) en adelante** (`_song_sgae_declaration_missing`, aplicado
+  en los TRES caminos: `discografica_song_sgae_register`, `_notify` y `discografica_song_status_toggle`);
+  a las anteriores se les pide igual pero no bloquea, y eso no se anuncia en ninguna pantalla.
+  · ⚠️ Los endpoints nuevos hay que añadirlos a los DOS mapeos de `registros_*`
+  (`_coarse_endpoint_resource` y `_resolve_request_resource_key`); las URLs de la pestaña SGAE llevan
+  `tab=sgae` para que el permiso se resuelva contra la pestaña en la que se está.
+- **Aviso al AUTOR de que su obra está registrada en SGAE** (ago 2026): al marcar el registro desde
+  `/registros` se hace por **JSON** (`discografica_song_sgae_register`) y sale un **pop-up**
+  (`#sgaeNotifyModal`) que ofrece notificar al autor con sus correos ya marcados
+  (`_song_sgae_platform_author_delivery`); decir que no **no deshace nada** (la obra se queda
+  registrada). El correo (`_build_song_sgae_notification_email` → `discografica_song_sgae_notify`) lleva
+  el logo de la editorial arriba a la **derecha**, **«Registro de Obra» centrado**, el aviso de que SGAE
+  tarda en reflejarlo, la **viñeta de la canción** (portada, título, intérpretes y fecha de publicación)
+  y la tabla del **REPARTO AUTORAL** — solo entre los autores (Autor · Rol · %): el reparto con
+  Plataforma Musical **no sale nunca** en este correo.
 - **Cambios de estado in-place** (`static/js/ajax_inline.js`): un
   `<form method="post" data-inline data-inline-target="#zonaId">` se envía por fetch (el endpoint NO
   cambia: sigue POST+redirect), se sigue el redirect y se **reemplaza solo la zona** `#zonaId`
@@ -1363,6 +1422,28 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
     de evento se agrupa por el `AppEvent`, nunca por su artista espejo).
   · Al pinchar uno, el listado **sin nombre ni foto de artista** (`.oa-row`): icono del tipo · nombre
     de la actividad (el festival si lo tiene) · municipio · provincia, y **debajo** fecha y recinto.
+
+- **Filtros de tipo: solo los que TIENEN actividades** (ago 2026). En `/actividades`, en Contratación →
+  «Otras actividades» y en Producción → «Activas», la etiqueta de un tipo **no se pinta si no hay
+  ninguna actividad de ese tipo** (antes salían todas a cero y había que leerlas para descartarlas).
+  · Los contadores se calculan sobre **lo que se está viendo** (periodo y, si se ha entrado en un
+    artista o evento, solo lo suyo) pero **sin aplicar el propio filtro de tipo**: si no, la etiqueta
+    que acabas de pulsar dejaría a las demás a cero y no podrías combinarlas.
+  · La etiqueta activa se conserva aunque su contador sea 0 (si no, al filtrar desaparecería el botón
+    con el que quitar el filtro).
+- **Cabecera del SUJETO al entrar en él** (`/actividades`, «Otras actividades» y Producción → Activas):
+  foto + nombre + **su total de actividades** (`drill_subject.count` / `activas.subject.count`, que es
+  el del sujeto, no el del filtro de tipo que haya puesto), para no perder de vista de quién es lo que
+  se está mirando. En Producción, **debajo de la cabecera** van los filtros por tipo.
+- **Producción → Activas · PENDIENTES DE ASIGNAR** (`_production_active_context`): lo que no tiene
+  responsable va en su propio listado **DEBAJO de la rejilla de artistas** y **solo ahí** (dentro de un
+  artista o evento no viene a cuento: `unassigned` se devuelve vacío cuando hay `subject`). Si no hay
+  ninguna pendiente, no se muestra nada. Desde ese listado lo ÚNICO que se hace es **elegir a la
+  persona de producción** (modal `#assignProdModal` con `_production_people`, POST a
+  `concert_production_owner_save`): no se navega a la ficha.
+  ⚠️ Ese endpoint está en **`SUPPORT_ACTION_ENDPOINTS`** y su check interno acepta contratación,
+  **producción** o **quien creó la actividad** (`Concert.created_by_user_id`): activar la producción es
+  tarea del creador, y con solo `can_edit_concerts()` el botón de su Inicio moría en un 403.
 
 - **Pendiente de facturar (módulo del enlace de subida de facturas)**: se llamaba «Lo que te
   pedimos» y las cantidades salían **0,00 €**. Motor único **`_invoice_request_amounts(net, gross)`**:

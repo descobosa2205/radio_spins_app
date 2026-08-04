@@ -48,6 +48,25 @@
           </tbody>
         </table>
       {% endif %}
+      {# REPARTO EDITORIAL: solo aparece si el enlace se generó desde Editorial. El LC que se comparte
+         normalmente NO lleva el reparto entre el autor y Plataforma Musical. #}
+      {% if editorial_split_rows %}
+        <h2 style="font-size:1rem;margin:1.2rem 0 .4rem;">Reparto editorial</h2>
+        <table>
+          <thead><tr><th>Autor</th><th>Parte autoral</th><th>Autor</th><th>Plataforma Musical</th></tr></thead>
+          <tbody>
+            {% for row in editorial_split_rows %}
+              <tr>
+                <td>{{ row.author_name }}</td>
+                <td>{{ '%.2f'|format(row.pct) }}%</td>
+                <td>{{ '%.2f'|format(row.final_author) }}% <small>({{ '%.2f'|format(row.pct_author) }}% de su parte)</small></td>
+                <td>{{ '%.2f'|format(row.final_platform) }}% <small>({{ '%.2f'|format(row.pct_platform) }}% de su parte)</small></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <div class="note">Los porcentajes de «Autor» y «Plataforma Musical» están referidos al conjunto de la obra.</div>
+      {% endif %}
       <div class="note">Los iconos de plataformas enlazan directamente al destino configurado.</div>
     </article>
   </main>

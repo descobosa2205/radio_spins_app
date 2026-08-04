@@ -3497,3 +3497,15 @@ body.doccam-open { overflow: hidden; }
 .pay-doc__frame{ width:100%; height:78vh; border:0; display:block; background:#fff; }
 .modal-fullscreen .pay-doc__frame{ height:calc(100vh - 190px); }
 .pay-doc__img{ width:100%; height:auto; display:block; }
+
+/* REPARTO EDITORIAL en la pestaña Editorial de una canción: la parte autoral del autor en la obra y,
+   debajo, cómo se reparte ESA parte entre él y Plataforma Musical (porcentaje final sobre la obra). */
+.ed-split{ margin-top:.5rem; padding:.55rem .7rem; border:1px dashed #dee2e6; border-radius:12px;
+  background:#f8f9fa; }
+.ed-split__head{ display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; }
+.ed-split__part{ font-size:.86rem; color:#495057; }
+.ed-split__rows{ margin-top:.45rem; display:flex; flex-direction:column; gap:.3rem; }
+.ed-split__row{ display:flex; align-items:center; gap:.5rem; background:#fff; border:1px solid #e9ecef;
+  border-radius:10px; padding:.32rem .55rem; font-size:.9rem; }
+.ed-split__row > span:first-child{ flex:1 1 auto; min-width:0; font-weight:600; }
+.ed-split__row .badge{ flex:0 0 auto; }

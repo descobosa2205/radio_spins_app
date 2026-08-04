@@ -2048,49 +2048,124 @@
           {% if editorial_shares and (editorial_shares|length) > 0 %}
             <div class="list-group mt-3">
               {% for sh in editorial_shares %}
-                <div class="list-group-item d-flex justify-content-between align-items-start flex-wrap gap-2">
-                  <div>
-                    <div class="fw-semibold">{{ sh.full_name }}</div>
-                    {% if sh.promoter_id %}{{ linked_mini('promoter', sh.promoter_id) }}{% endif %}
-                    <div class="small text-muted">
-                      Editorial: {{ sh.publisher_name or '—' }}
-                      {% if sh.contact_email %} · {{ sh.contact_email }}{% endif %}
-                      {% if sh.contact_phone %} · {{ sh.contact_phone }}{% endif %}
-                    </div>
-                    {% if sh.publisher_id %}{{ linked_mini('publishing', sh.publisher_id) }}{% endif %}
-                  </div>
-                  <div class="d-flex align-items-center gap-2 flex-wrap">
-                    {% if sh.role == 'AUTHOR' %}
-                      <span class="badge text-bg-info">Autor (Letra)</span>
-                    {% elif sh.role == 'COMPOSER' %}
-                      <span class="badge text-bg-info">Compositor (Música)</span>
-                    {% else %}
-                      <span class="badge text-bg-info">Autor y compositor (Letra y música)</span>
-                    {% endif %}
-                    <span class="badge text-bg-dark">{{ sh.pct }}%</span>
-
-                    {% if CAN_EDIT_DISCOGRAFICA %}
-                      <div class="d-flex gap-2 align-items-center">
-                        <button type="button"
-                                class="btn btn-sm btn-outline-secondary btn-edit-editorial"
-                                data-share-id="{{ sh.id }}"
-                                data-current-pct="{{ sh.pct }}">
-                          <i class="fa fa-pen"></i> Editar
-                        </button>
-
-                        <form method="post"
-                              action="{{ url_for('discografica_song_editorial_share_delete', song_id=song.id, share_id=sh.id) }}"
-                              class="m-0"
-                              onsubmit="return confirm('¿Eliminar este autor/compositor?');">
-                          <button type="submit" class="btn btn-sm btn-outline-danger">
-                            <i class="fa fa-trash"></i>
-                          </button>
-                        </form>
+                <div class="list-group-item">
+                  <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                    <div>
+                      <div class="fw-semibold">{{ sh.full_name }}</div>
+                      {% if sh.promoter_id %}{{ linked_mini('promoter', sh.promoter_id) }}{% endif %}
+                      <div class="small text-muted">
+                        Editorial: {{ sh.publisher_name or '—' }}
+                        {% if sh.contact_email %} · {{ sh.contact_email }}{% endif %}
+                        {% if sh.contact_phone %} · {{ sh.contact_phone }}{% endif %}
                       </div>
-                    {% endif %}
+                      {% if sh.publisher_id %}{{ linked_mini('publishing', sh.publisher_id) }}{% endif %}
+                    </div>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                      {% if sh.role == 'AUTHOR' %}
+                        <span class="badge text-bg-info">Autor (Letra)</span>
+                      {% elif sh.role == 'COMPOSER' %}
+                        <span class="badge text-bg-info">Compositor (Música)</span>
+                      {% else %}
+                        <span class="badge text-bg-info">Autor y compositor (Letra y música)</span>
+                      {% endif %}
+                      <span class="badge text-bg-dark">{{ sh.pct }}%</span>
+
+                      {% if CAN_EDIT_DISCOGRAFICA %}
+                        <div class="d-flex gap-2 align-items-center">
+                          <button type="button"
+                                  class="btn btn-sm btn-outline-secondary btn-edit-editorial"
+                                  data-share-id="{{ sh.id }}"
+                                  data-current-pct="{{ sh.pct }}">
+                            <i class="fa fa-pen"></i> Editar
+                          </button>
+
+                          <form method="post"
+                                action="{{ url_for('discografica_song_editorial_share_delete', song_id=song.id, share_id=sh.id) }}"
+                                class="m-0"
+                                onsubmit="return confirm('¿Eliminar este autor/compositor?');">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                              <i class="fa fa-trash"></i>
+                            </button>
+                          </form>
+                        </div>
+                      {% endif %}
+                    </div>
                   </div>
+
+                  {# REPARTO de la parte de un autor NUESTRO: arriba su parte autoral en la obra y
+                     debajo cómo se reparte esa parte entre él y Plataforma Musical, con el porcentaje
+                     final sobre el conjunto de la obra. #}
+                  {% if sh.is_platform %}
+                    <div class="ed-split mt-2">
+                      <div class="ed-split__head">
+                        <span class="ed-split__part">Parte autoral en la obra: <strong>{{ '%.2f'|format(sh.pct) }}%</strong></span>
+                        {% if sh.split and sh.split.source == 'special' %}
+                          <span class="badge text-bg-warning text-dark">Reparto especial</span>
+                        {% elif sh.split and sh.split.source == 'frozen' %}
+                          <span class="badge text-bg-light border" title="Congelado el día del registro">Según contrato al registrar</span>
+                        {% elif sh.split and sh.split.source == 'contract' %}
+                          <span class="badge text-bg-light border">Según contrato</span>
+                        {% endif %}
+                        {% if CAN_EDIT_DISCOGRAFICA %}
+                          <button type="button" class="btn btn-sm btn-outline-secondary ms-auto"
+                                  data-split-edit
+                                  data-split-url="{{ url_for('discografica_song_editorial_share_split', song_id=song.id, share_id=sh.id) }}"
+                                  data-split-name="{{ sh.full_name }}"
+                                  data-split-pct="{{ sh.pct }}"
+                                  data-split-special="{{ '1' if sh.special_split else '' }}"
+                                  data-split-author="{{ sh.special_pct_author if sh.special_pct_author is not none else (sh.split.pct_author if sh.split and sh.split.pct_author is defined else '') }}"
+                                  data-split-platform="{{ sh.special_pct_platform if sh.special_pct_platform is not none else (sh.split.pct_platform if sh.split and sh.split.pct_platform is defined else '') }}">
+                            <i class="fa fa-percent"></i> Reparto
+                          </button>
+                        {% endif %}
+                      </div>
+                      {% if sh.split and sh.split.source != 'none' %}
+                        <div class="ed-split__rows">
+                          <div class="ed-split__row">
+                            <span class="text-truncate">{{ sh.full_name }}</span>
+                            <span class="text-muted small">{{ '%.2f'|format(sh.split.pct_author) }}% de su parte</span>
+                            <span class="badge text-bg-dark">{{ '%.2f'|format(sh.split.final_author) }}% de la obra</span>
+                          </div>
+                          <div class="ed-split__row">
+                            <span class="text-truncate">Plataforma Musical</span>
+                            <span class="text-muted small">{{ '%.2f'|format(sh.split.pct_platform) }}% de su parte</span>
+                            <span class="badge text-bg-dark">{{ '%.2f'|format(sh.split.final_platform) }}% de la obra</span>
+                          </div>
+                        </div>
+                      {% else %}
+                        <div class="small text-muted">
+                          No hay contrato editorial del artista con el que repartir esta parte. Puedes fijar un reparto especial.
+                        </div>
+                      {% endif %}
+                    </div>
+                  {% endif %}
                 </div>
               {% endfor %}
+            </div>
+
+            {# El LC con este detalle solo se comparte desde aquí (el LC normal no lo lleva). #}
+            <div class="d-flex flex-wrap gap-2 mt-3 align-items-center">
+              <a class="btn btn-sm btn-outline-primary" href="{{ editorial_split_pdf_url }}">
+                <i class="fa fa-file-pdf me-1"></i>Descargar LC con el Reparto Editorial
+              </a>
+              <div class="dropdown" {% if not CAN_EDIT_DISCOGRAFICA %}hidden{% endif %}>
+                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                  <i class="fa fa-share-nodes me-1"></i>Compartir Reparto Editorial
+                </button>
+                <ul class="dropdown-menu">
+                  <li><button class="dropdown-item" type="button" onclick="shareByMail('Reparto Editorial · {{ song.title|e }}', '{{ editorial_split_public_url }}')"><i class="fa fa-envelope fa-fw me-1"></i>Correo</button></li>
+                  <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Reparto Editorial · {{ song.title|e }}', '{{ editorial_split_public_url }}')"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>WhatsApp</button></li>
+                  <li><button class="dropdown-item" type="button" onclick="shareBySms('Reparto Editorial · {{ song.title|e }}', '{{ editorial_split_public_url }}')"><i class="fa fa-comment-sms fa-fw me-1"></i>SMS</button></li>
+                  <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ editorial_split_public_url }}')"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+                </ul>
+              </div>
+              {% if editorial_split_contract and editorial_split_contract.found %}
+                <span class="small text-muted">
+                  Contrato editorial: {{ '%.2f'|format(editorial_split_contract.pct_author) }}% autor ·
+                  {{ '%.2f'|format(editorial_split_contract.pct_platform) }}% Plataforma Musical
+                  {% if editorial_split_contract.contract_name %}({{ editorial_split_contract.contract_name }}){% endif %}
+                </span>
+              {% endif %}
             </div>
           {% else %}
             <div class="text-muted mt-3">Aún no hay autores/compositores añadidos.</div>
@@ -2279,6 +2354,98 @@
           </form>
         </div>
       </div>
+
+      {# REPARTO ESPECIAL de la parte de un autor nuestro: los dos porcentajes suman siempre 100 (son
+         el reparto de SU parte, no de la obra). Sin reparto especial manda el contrato. #}
+      <div class="modal fade" id="editorialSplitModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+          <form class="modal-content" method="post" id="editorialSplitForm">
+            <div class="modal-header">
+              <h5 class="modal-title">Reparto de la parte del autor</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+              <div class="text-muted small mb-2" id="editorialSplitWho"></div>
+              <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" value="1" id="editorialSplitSpecial" name="special_split">
+                <label class="form-check-label" for="editorialSplitSpecial">Reparto especial (a mano)</label>
+                <div class="form-text">Sin marcar se aplica el reparto editorial del contrato del artista vigente el día del registro.</div>
+              </div>
+              <div class="row g-2" id="editorialSplitFields">
+                <div class="col-6">
+                  <label class="form-label" id="editorialSplitAuthorLabel">Autor</label>
+                  <div class="input-group">
+                    <input class="form-control" type="number" min="0" max="100" step="0.01" name="special_pct_author" id="editorialSplitAuthor">
+                    <span class="input-group-text">%</span>
+                  </div>
+                </div>
+                <div class="col-6">
+                  <label class="form-label">Plataforma Musical</label>
+                  <div class="input-group">
+                    <input class="form-control" type="number" min="0" max="100" step="0.01" name="special_pct_platform" id="editorialSplitPlatform">
+                    <span class="input-group-text">%</span>
+                  </div>
+                </div>
+                <div class="col-12">
+                  <div class="small" id="editorialSplitSum"></div>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button class="btn btn-primary" id="editorialSplitSave"><i class="fa fa-save"></i> Guardar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+      <script>
+        (function(){
+          var form = document.getElementById('editorialSplitForm');
+          if(!form) return;
+          var chk = document.getElementById('editorialSplitSpecial');
+          var fields = document.getElementById('editorialSplitFields');
+          var inAuthor = document.getElementById('editorialSplitAuthor');
+          var inPlatform = document.getElementById('editorialSplitPlatform');
+          var sum = document.getElementById('editorialSplitSum');
+          var save = document.getElementById('editorialSplitSave');
+          var who = document.getElementById('editorialSplitWho');
+          var lblAuthor = document.getElementById('editorialSplitAuthorLabel');
+          function num(v){ var n = parseFloat(String(v == null ? '' : v).replace(',', '.')); return isNaN(n) ? 0 : n; }
+          function refresh(){
+            var on = chk.checked;
+            fields.classList.toggle('d-none', !on);
+            if(!on){ sum.textContent = ''; save.disabled = false; return; }
+            var t = num(inAuthor.value) + num(inPlatform.value);
+            var ok = Math.abs(t - 100) < 0.01;
+            sum.textContent = 'Suma: ' + t.toFixed(2) + '% ' + (ok ? '' : '— tiene que ser 100%');
+            sum.className = 'small ' + (ok ? 'text-muted' : 'text-danger');
+            save.disabled = !ok;
+          }
+          chk.addEventListener('change', refresh);
+          [inAuthor, inPlatform].forEach(function(el){
+            el.addEventListener('input', function(){
+              // El reparto es de la parte del autor: lo que no es de uno es del otro.
+              var otro = (el === inAuthor) ? inPlatform : inAuthor;
+              var v = num(el.value);
+              if(el.value !== '') otro.value = Math.max(0, Math.min(100, 100 - v)).toFixed(2).replace(/\.00$/, '');
+              refresh();
+            });
+          });
+          document.querySelectorAll('[data-split-edit]').forEach(function(btn){
+            btn.addEventListener('click', function(){
+              form.setAttribute('action', btn.getAttribute('data-split-url') || '');
+              var nombre = btn.getAttribute('data-split-name') || 'el autor';
+              who.textContent = nombre + ' · parte autoral en la obra: ' + (btn.getAttribute('data-split-pct') || '0') + '%';
+              lblAuthor.textContent = nombre;
+              chk.checked = !!btn.getAttribute('data-split-special');
+              inAuthor.value = btn.getAttribute('data-split-author') || '';
+              inPlatform.value = btn.getAttribute('data-split-platform') || '';
+              refresh();
+              new bootstrap.Modal(document.getElementById('editorialSplitModal')).show();
+            });
+          });
+        })();
+      </script>
 
       <div class="modal fade" id="songLyricsModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">

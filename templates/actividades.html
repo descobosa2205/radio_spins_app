@@ -57,15 +57,19 @@
     <div class="alert alert-light border">No hay actividades con estos filtros.</div>
   {% endif %}
 {% else %}
+  {# DE QUIÉN estamos viendo las actividades: foto, nombre y su TOTAL, para no perder de vista en la
+     ficha de quién se está trabajando. #}
   <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
     {% set _tipos = type_chips|selectattr('active')|map(attribute='key')|list %}
     <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('activities_view', when=when_f, tipo=_tipos) }}"><i class="fa fa-arrow-left me-1"></i>Volver</a>
     <h5 class="mb-0 me-2 d-flex align-items-center gap-2">
       <img src="{{ drill_subject.photo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"
-           style="width:34px;height:34px;border-radius:50%;object-fit:cover;">
+           style="width:42px;height:42px;border-radius:50%;object-fit:cover;">
       {% if drill_subject.url %}<a class="text-reset text-decoration-none" href="{{ drill_subject.url }}">{{ drill_subject.name }}</a>{% else %}{{ drill_subject.name }}{% endif %}
+      {% if drill_subject.kind == 'event' %}<span class="badge text-bg-light border align-self-center">Evento</span>{% endif %}
     </h5>
-    <span class="badge text-bg-light border">{{ items|length }}</span>
+    {% set _tot = drill_subject.count if drill_subject.count is not none else items|length %}
+    <span class="badge text-bg-light border"><i class="fa fa-shapes me-1"></i>{{ _tot }} actividad{{ '' if _tot == 1 else 'es' }}</span>
   </div>
 
   {% if items %}

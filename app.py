@@ -5025,8 +5025,13 @@ def _build_certification_notification_email(session_db, media_kind: str, item, c
     }
 
 
-def _song_label_copy_share_token(song_id) -> str:
-    return _song_public_serializer().dumps({'kind': 'LABEL_COPY_PDF', 'sid': str(song_id)})
+def _song_label_copy_share_token(song_id, editorial: bool = False) -> str:
+    """Token del LC público. ⚠️ Con `editorial` se comparte el LC **con el reparto editorial** (el
+    reparto entre el autor y Plataforma Musical): el LC normal NUNCA lo lleva."""
+    payload = {'kind': 'LABEL_COPY_PDF', 'sid': str(song_id)}
+    if editorial:
+        payload['ed'] = 1
+    return _song_public_serializer().dumps(payload)
 
 
 def _song_contract_share_token(song_id, contract_id) -> str:
@@ -5142,18 +5147,18 @@ def _producer_contract_public_url(media_kind: str, item_id, contract_id) -> str:
     return _external_url_for('public_song_production_contract_download', token=_song_contract_share_token(item_id, contract_id))
 
 
-def _label_copy_public_pdf_url(media_kind: str, item_id) -> str:
+def _label_copy_public_pdf_url(media_kind: str, item_id, editorial: bool = False) -> str:
     media_kind = (media_kind or 'SONG').strip().upper()
     if media_kind == 'ALBUM':
         return _external_url_for('public_album_label_copy_pdf', token=_album_label_copy_share_token(item_id))
-    return _external_url_for('public_song_label_copy_pdf', token=_song_label_copy_share_token(item_id))
+    return _external_url_for('public_song_label_copy_pdf', token=_song_label_copy_share_token(item_id, editorial=editorial))
 
 
-def _label_copy_public_url(media_kind: str, item_id) -> str:
+def _label_copy_public_url(media_kind: str, item_id, editorial: bool = False) -> str:
     media_kind = (media_kind or 'SONG').strip().upper()
     if media_kind == 'ALBUM':
         return _external_url_for('public_album_label_copy_view', token=_album_label_copy_share_token(item_id))
-    return _external_url_for('public_song_label_copy_view', token=_song_label_copy_share_token(item_id))
+    return _external_url_for('public_song_label_copy_view', token=_song_label_copy_share_token(item_id, editorial=editorial))
 
 
 def _resolve_or_create_promoter_for_contract(session_db, nick: str, tax_id: str = '', contact_email: str = '', contact_phone: str = '') -> Promoter:
@@ -5311,6 +5316,15 @@ def _convert_image_content(data: bytes, target_format: str) -> tuple[bytes, str,
 def _convert_audio_content_to_mp3(data: bytes, source_ext: str | None = None) -> tuple[bytes, str, str]:
     if not PYDUB_AVAILABLE:
         raise RuntimeError("pydub no está disponible para convertir audio.")
+    # ⚠️ pydub busca `ffmpeg` en el PATH y en el servidor no está: se le apunta al binario estático de
+    # imageio-ffmpeg (el mismo que usa el póster de los vídeos). Sin esto la exportación a MP3 falla.
+    try:
+        _exe = _ffmpeg_exe()
+        if _exe:
+            AudioSegment.converter = _exe
+            AudioSegment.ffmpeg = _exe
+    except Exception:
+        pass
     fmt = (source_ext or "").lower().lstrip(".") or None
     seg = AudioSegment.from_file(BytesIO(data), format=fmt or None)
     out = BytesIO()
@@ -5898,6 +5912,192 @@ def _share_publisher(share):
     return getattr(promoter, "publishing_company", None) if promoter else None
 
 
+# ============================ REPARTO EDITORIAL (autor de Plataforma ↔ Plataforma Musical) =========
+# La parte autoral que le corresponde a un autor NUESTRO (editorial «Plataforma Musical») no es toda
+# suya: se reparte con nosotros según el compromiso **EDITORIAL** de su contrato («oficina» =
+# Plataforma Musical). Ejemplo: si el autor tiene el 60% de la obra y el contrato editorial es 50/50,
+# sobre el conjunto de la obra le quedan un 30% al autor y un 30% a Plataforma.
+#
+# Manda lo VIGENTE EL DÍA DEL REGISTRO (por si las condiciones cambian): al registrar la obra en SGAE
+# el reparto se **congela** en el propio registro de autoría. Con «reparto especial» se fija a mano
+# (los dos porcentajes suman siempre 100 sobre la parte del autor) y eso pisa al contrato.
+EDITORIAL_CONTRACT_CONCEPTS = ["editorial", "editoriales", "edición", "edicion", "editorial musical"]
+PLATFORM_PUBLISHER_NAME = "plataforma musical"
+
+
+def _publisher_is_platform(publisher) -> bool:
+    """¿Esta editorial somos nosotros (Plataforma Musical)?"""
+    return _norm_text_key(getattr(publisher, "name", "") or "") == _norm_text_key(PLATFORM_PUBLISHER_NAME)
+
+
+def _song_registration_date(session_db, song, status=None):
+    """Día en que se REGISTRA la obra (el registro en SGAE). Mientras no esté registrada devuelve
+    None: se enseña el reparto que tocaría hoy, que es una previsión."""
+    if song is None:
+        return None
+    st = status if status is not None else session_db.get(SongStatus, getattr(song, "id", None))
+    if not st or not bool(getattr(st, "sgae_done", False)):
+        return None
+    when = getattr(st, "sgae_updated_at", None)
+    try:
+        return when.date() if when is not None else None
+    except Exception:
+        return None
+
+
+def _artist_editorial_split(session_db, artist_id, *, as_of=None, material_date=None) -> dict:
+    """Reparto editorial del contrato del artista vigente en `as_of` (hoy si no se dice otra cosa)."""
+    salida = {"found": False, "pct_author": None, "pct_platform": None,
+              "contract_name": "", "signed_date": None}
+    if not artist_id:
+        return salida
+    try:
+        commitment, contract = _pick_artist_commitment(
+            session_db, to_uuid(str(artist_id)), EDITORIAL_CONTRACT_CONCEPTS,
+            material_date=material_date, as_of_date=(as_of or today_local()))
+    except Exception:
+        return salida
+    if commitment is None:
+        return salida
+    autor = float(getattr(commitment, "pct_artist", 0) or 0)
+    plataforma = float(getattr(commitment, "pct_office", 0) or 0)
+    return {
+        "found": True,
+        "pct_author": round(autor, 2),
+        "pct_platform": round(plataforma, 2),
+        "contract_name": (getattr(contract, "name", "") or "").strip(),
+        "signed_date": getattr(contract, "signed_date", None),
+    }
+
+
+def _song_editorial_split_map(session_db, song, shares=None, status=None) -> dict:
+    """Cómo se reparte la parte de CADA autor de Plataforma, por id de registro de autoría.
+
+    Cada entrada trae la parte autoral del autor en la obra (`pct`), los porcentajes del reparto de
+    ESA parte (`pct_author`/`pct_platform`, que suman 100) y lo que supone cada uno **sobre el
+    conjunto de la obra** (`final_author`/`final_platform`)."""
+    if song is None:
+        return {}
+    if shares is None:
+        shares = (
+            session_db.query(SongEditorialShare)
+            .options(joinedload(SongEditorialShare.promoter).joinedload(Promoter.publishing_company),
+                     joinedload(SongEditorialShare.publishing_company))
+            .filter(SongEditorialShare.song_id == song.id)
+            .order_by(SongEditorialShare.created_at.asc())
+            .all()
+        )
+    reg_date = _song_registration_date(session_db, song, status=status)
+    artist = _song_primary_artist(session_db, song)
+    contrato = _artist_editorial_split(
+        session_db, getattr(artist, "id", None),
+        as_of=reg_date, material_date=getattr(song, "release_date", None))
+    salida = {}
+    for share in shares or []:
+        if not _publisher_is_platform(_share_publisher(share)):
+            continue
+        pct = float(getattr(share, "pct", 0) or 0)
+        autor = plataforma = None
+        fuente = "none"
+        if bool(getattr(share, "special_split", False)):
+            autor = getattr(share, "special_pct_author", None)
+            plataforma = getattr(share, "special_pct_platform", None)
+            if autor is not None or plataforma is not None:
+                fuente = "special"
+        if fuente == "none" and getattr(share, "split_pct_author", None) is not None:
+            # Congelado el día del registro: no se mueve aunque cambie el contrato.
+            autor = getattr(share, "split_pct_author", None)
+            plataforma = getattr(share, "split_pct_platform", None)
+            fuente = "frozen"
+        if fuente == "none" and contrato["found"]:
+            autor, plataforma = contrato["pct_author"], contrato["pct_platform"]
+            fuente = "contract"
+        if fuente == "none":
+            salida[str(share.id)] = {"pct": round(pct, 2), "source": "none", "contract": contrato,
+                                     "registration_date": reg_date}
+            continue
+        autor = float(autor or 0)
+        plataforma = float(plataforma or 0)
+        total = autor + plataforma
+        if total <= 0:
+            autor, plataforma, total = 100.0, 0.0, 100.0
+        elif abs(total - 100.0) > 0.01:
+            # El reparto de la parte del autor SIEMPRE suma 100: si un contrato antiguo trae otra cosa
+            # (p. ej. 50/25), se normaliza en vez de inventar un porcentaje de la obra que no cuadra.
+            autor, plataforma = autor * 100.0 / total, plataforma * 100.0 / total
+        salida[str(share.id)] = {
+            "pct": round(pct, 2),
+            "pct_author": round(autor, 2),
+            "pct_platform": round(plataforma, 2),
+            "final_author": round(pct * autor / 100.0, 2),
+            "final_platform": round(pct * plataforma / 100.0, 2),
+            "source": fuente,
+            "contract": contrato,
+            "registration_date": reg_date,
+        }
+    return salida
+
+
+def _freeze_song_editorial_split(session_db, song, shares=None) -> None:
+    """Congela en cada parte de autor de Plataforma el reparto del contrato vigente HOY (el día del
+    registro). Solo se congela lo que no lo estaba: lo ya registrado no se reescribe."""
+    if song is None:
+        return
+    if shares is None:
+        shares = (
+            session_db.query(SongEditorialShare)
+            .options(joinedload(SongEditorialShare.promoter).joinedload(Promoter.publishing_company),
+                     joinedload(SongEditorialShare.publishing_company))
+            .filter(SongEditorialShare.song_id == song.id)
+            .all()
+        )
+    artist = _song_primary_artist(session_db, song)
+    contrato = _artist_editorial_split(
+        session_db, getattr(artist, "id", None),
+        as_of=today_local(), material_date=getattr(song, "release_date", None))
+    if not contrato["found"]:
+        return
+    for share in shares or []:
+        if not _publisher_is_platform(_share_publisher(share)):
+            continue
+        if bool(getattr(share, "special_split", False)):
+            continue
+        if getattr(share, "split_pct_author", None) is not None:
+            continue
+        share.split_pct_author = contrato["pct_author"]
+        share.split_pct_platform = contrato["pct_platform"]
+        share.split_frozen_at = datetime.now(TZ_MADRID)
+        session_db.add(share)
+
+
+def _song_editorial_split_rows(session_db, song, status=None) -> list[dict]:
+    """El reparto editorial listo para pintar (PDF del LC de reparto editorial y correos)."""
+    shares = (
+        session_db.query(SongEditorialShare)
+        .options(joinedload(SongEditorialShare.promoter).joinedload(Promoter.publishing_company),
+                 joinedload(SongEditorialShare.publishing_company))
+        .filter(SongEditorialShare.song_id == song.id)
+        .order_by(SongEditorialShare.created_at.asc())
+        .all()
+    )
+    mapa = _song_editorial_split_map(session_db, song, shares=shares, status=status)
+    filas = []
+    for share in shares:
+        info = mapa.get(str(share.id))
+        if not info or info.get("source") == "none":
+            continue
+        filas.append({
+            "author_name": _promoter_display_name(getattr(share, "promoter", None)) or "—",
+            "pct": info["pct"],
+            "pct_author": info["pct_author"],
+            "pct_platform": info["pct_platform"],
+            "final_author": info["final_author"],
+            "final_platform": info["final_platform"],
+            "special": info["source"] == "special",
+        })
+    return filas
+
+
 def _song_label_copy_author_rows(session_db, song: Song) -> tuple[list[list[str]], float]:
     shares = (
         session_db.query(SongEditorialShare)
@@ -6175,7 +6375,12 @@ def _album_label_copy_public_context(session_db, album: Album) -> dict:
     }
 
 
-def _build_song_label_copy_pdf_bytes(session_db, song_id) -> tuple[bytes, str]:
+def _build_song_label_copy_pdf_bytes(session_db, song_id, editorial: bool = False) -> tuple[bytes, str]:
+    """El Label Copy de una canción.
+
+    ⚠️ Con `editorial=True` se añade al final el **REPARTO EDITORIAL**: cuánto de la parte de cada
+    autor nuestro es del autor y cuánto de Plataforma Musical. Ese detalle es interno de editorial:
+    el LC que se comparte normalmente NO lo lleva."""
     if not REPORTLAB_AVAILABLE:
         raise RuntimeError('ReportLab no está disponible.')
     song = session_db.get(Song, to_uuid(song_id))
@@ -6188,7 +6393,8 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id) -> tuple[bytes, str]:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import cm
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle('LCSongTitle', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=18, leading=21, textColor=colors.HexColor('#111827'))
+    # Estilo de casa: logo de la empresa arriba a la DERECHA y el título CENTRADO.
+    title_style = ParagraphStyle('LCSongTitle', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=18, leading=21, alignment=TA_CENTER, textColor=colors.HexColor('#111827'))
     small_style = ParagraphStyle('LCSmall', parent=styles['BodyText'], fontSize=9.2, leading=12, textColor=colors.HexColor('#374151'))
     label_style = ParagraphStyle('LCLabel', parent=styles['BodyText'], fontName='Helvetica-Bold', fontSize=9.3, leading=12, textColor=colors.HexColor('#111827'))
     buf = BytesIO()
@@ -6196,8 +6402,9 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id) -> tuple[bytes, str]:
     story = []
     logo = _rl_image_flowable_from_url(brand.get('logo_url'), 3.4, 1.2)
     if logo:
-        header = Table([[logo, Paragraph(' ', small_style)]], colWidths=[4.3*cm, 13.2*cm])
-        header.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING',(0,0),(-1,-1),0)]))
+        header = Table([[Paragraph(' ', small_style), logo]], colWidths=[13.2*cm, 4.3*cm])
+        header.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('ALIGN', (1,0), (1,0), 'RIGHT'),
+                                    ('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),0)]))
         story.append(header)
     story.append(Paragraph('Label Copy', title_style))
     story.append(Spacer(1, 0.25*cm))
@@ -6272,8 +6479,37 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id) -> tuple[bytes, str]:
             ('BOTTOMPADDING', (0,0), (-1,-1), 4),
         ]))
         story.append(author_table)
+    # REPARTO EDITORIAL (solo en el LC de editorial): la parte de cada autor nuestro y cómo se reparte
+    # entre él y Plataforma Musical sobre el conjunto de la obra.
+    split_rows = _song_editorial_split_rows(session_db, song) if editorial else []
+    if split_rows:
+        story.append(Spacer(1, 0.3*cm))
+        story.append(Paragraph('Reparto editorial', label_style))
+        cabecera = [Paragraph('Autor', label_style), Paragraph('Parte autoral', label_style),
+                    Paragraph('Autor', label_style), Paragraph('Plataforma Musical', label_style)]
+        cuerpo = []
+        for row in split_rows:
+            cuerpo.append([
+                Paragraph(html.escape(row['author_name']), small_style),
+                Paragraph(f"{row['pct']:.2f}%", small_style),
+                Paragraph(f"{row['final_author']:.2f}% <font size=7>({row['pct_author']:.2f}% de su parte)</font>", small_style),
+                Paragraph(f"{row['final_platform']:.2f}% <font size=7>({row['pct_platform']:.2f}% de su parte)</font>", small_style),
+            ])
+        split_table = Table([cabecera] + cuerpo, colWidths=[5.0*cm, 3.0*cm, 5.0*cm, 5.0*cm])
+        split_table.setStyle(TableStyle([
+            ('GRID', (0,0), (-1,-1), 0.35, colors.HexColor('#d1d5db')),
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#f3f4f6')),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('LEFTPADDING', (0,0), (-1,-1), 5),
+            ('RIGHTPADDING', (0,0), (-1,-1), 5),
+            ('TOPPADDING', (0,0), (-1,-1), 4),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ]))
+        story.append(split_table)
+        story.append(Spacer(1, 0.15*cm))
+        story.append(Paragraph('Los porcentajes de «Autor» y «Plataforma Musical» están referidos al conjunto de la obra.', small_style))
     doc.build(story)
-    filename = f"LC_{song.title}_{artist_name}.pdf"
+    filename = f"LC{'_reparto_editorial' if editorial else ''}_{song.title}_{artist_name}.pdf"
     return buf.getvalue(), _safe_download_filename(filename, 'LC_cancion.pdf')
 
 
@@ -6289,7 +6525,8 @@ def _build_album_label_copy_pdf_bytes(session_db, album_id) -> tuple[bytes, str]
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import cm
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle('LCAlbumTitle', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=15, leading=18, textColor=colors.HexColor('#111827'))
+    # Estilo de casa: logo de la empresa arriba a la DERECHA y el título CENTRADO.
+    title_style = ParagraphStyle('LCAlbumTitle', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=15, leading=18, alignment=TA_CENTER, textColor=colors.HexColor('#111827'))
     small_style = ParagraphStyle('LCAlbumSmall', parent=styles['BodyText'], fontSize=8.2, leading=10, textColor=colors.HexColor('#374151'))
     label_style = ParagraphStyle('LCAlbumLabel', parent=styles['BodyText'], fontName='Helvetica-Bold', fontSize=8.3, leading=10, textColor=colors.HexColor('#111827'))
     buf = BytesIO()
@@ -6297,8 +6534,9 @@ def _build_album_label_copy_pdf_bytes(session_db, album_id) -> tuple[bytes, str]
     story = []
     logo = _rl_image_flowable_from_url(brand.get('logo_url'), 3.0, 1.0)
     if logo:
-        header = Table([[logo, Paragraph(' ', small_style)]], colWidths=[4.2*cm, 13.8*cm])
-        header.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING',(0,0),(-1,-1),0)]))
+        header = Table([[Paragraph(' ', small_style), logo]], colWidths=[13.8*cm, 4.2*cm])
+        header.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('ALIGN', (1,0), (1,0), 'RIGHT'),
+                                    ('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),0)]))
         story.append(header)
     story.append(Paragraph('Label Copy', title_style))
     story.append(Spacer(1, 0.15*cm))
@@ -6782,9 +7020,16 @@ def _build_song_sgae_notification_email(session_db, song: Song, registration_dt=
     publication_label = song.release_date.strftime('%d/%m/%Y') if getattr(song, 'release_date', None) else '—'
     subject = f"Su obra {song.title} ya se ha registrado en SGAE."
 
+    # El logo de la editorial va arriba a la DERECHA (estilo de casa) y el título centrado debajo.
     logo_html = ''
     if brand.get('logo_url'):
-        logo_html = f'<img src="{html.escape(brand.get("logo_url") or "")}" alt="{html.escape(brand.get("company_name") or "Plataforma Musical")}" style="display:block;max-width:180px;max-height:64px;object-fit:contain;">'
+        logo_html = (
+            '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">'
+            '<tr><td align="right">'
+            f'<img src="{html.escape(brand.get("logo_url") or "")}" alt="{html.escape(brand.get("company_name") or "Plataforma Musical")}" '
+            'style="display:inline-block;max-width:180px;max-height:64px;object-fit:contain;">'
+            '</td></tr></table>'
+        )
 
     cover_url = (getattr(song, 'cover_url', None) or '').strip()
     if not cover_url:
@@ -6804,8 +7049,7 @@ def _build_song_sgae_notification_email(session_db, song: Song, registration_dt=
           <td valign="top" style="padding-left:16px;">
             <div style="font-size:22px;line-height:1.2;font-weight:700;color:#111827;">{html.escape(song.title or '—')}</div>
             <div style="margin-top:8px;font-size:14px;color:#4b5563;"><strong>Intérpretes:</strong> {html.escape(interpreters_label)}</div>
-            <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:10px;">
-              <span style="display:inline-block;padding:6px 10px;border-radius:999px;background:#eef2ff;color:#3730a3;font-size:13px;"><strong>Fecha de registro:</strong> {html.escape(registration_label)}</span>
+            <div style="margin-top:12px;">
               <span style="display:inline-block;padding:6px 10px;border-radius:999px;background:#f3f4f6;color:#111827;font-size:13px;"><strong>Fecha de publicación:</strong> {html.escape(publication_label)}</span>
             </div>
           </td>
@@ -6813,31 +7057,34 @@ def _build_song_sgae_notification_email(session_db, song: Song, registration_dt=
       </table>
     '''
 
+    # REPARTO AUTORAL: solo el reparto entre los AUTORES de la canción. El reparto de la parte de cada
+    # autor con Plataforma Musical (el editorial) NO va aquí: eso es interno.
     row_html = ''
     for row in editorial_rows:
         row_html += f'''
           <tr>
             <td style="padding:12px 10px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#111827;">{html.escape(row.get('full_name') or '—')}</td>
-            <td style="padding:12px 10px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#4b5563;">{html.escape(row.get('publisher_name') or '—')}</td>
+            <td style="padding:12px 10px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#4b5563;">{html.escape(row.get('role_label') or '—')}</td>
             <td style="padding:12px 10px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#111827;text-align:center;white-space:nowrap;">{row.get('pct', 0):.2f}%</td>
-            <td style="padding:12px 10px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#111827;">{html.escape(row.get('role_label') or '—')}</td>
           </tr>
         '''
 
     if not row_html:
         row_html = '''
           <tr>
-            <td colspan="4" style="padding:14px 10px;color:#6b7280;font-size:14px;text-align:center;">No hay reparto autoral registrado todavía.</td>
+            <td colspan="3" style="padding:14px 10px;color:#6b7280;font-size:14px;text-align:center;">No hay reparto autoral registrado todavía.</td>
           </tr>
         '''
 
+    intro_text = ('Tu obra ya ha sido registrada en SGAE, pero recuerda que puede tardar un tiempo '
+                  'hasta que lo veas reflejado en SGAE.')
     html_body = f'''
     <div style="margin:0;padding:24px;background:#f5f7fb;font-family:Arial,Helvetica,sans-serif;color:#111827;">
       <div style="max-width:760px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:20px;overflow:hidden;">
-        <div style="padding:28px 30px 18px;">
+        <div style="padding:24px 30px 18px;">
           {logo_html}
-          <div style="margin-top:18px;font-size:28px;line-height:1.15;font-weight:700;color:#111827;">Registro Autoral</div>
-          <p style="margin:16px 0 0;font-size:15px;line-height:1.7;color:#374151;">El registro de tu obra ya se ha presentado a registro en SGAE.</p>
+          <div style="margin-top:14px;font-size:28px;line-height:1.15;font-weight:700;color:#111827;text-align:center;">Registro de Obra</div>
+          <p style="margin:16px 0 0;font-size:15px;line-height:1.7;color:#374151;">{html.escape(intro_text)}</p>
         </div>
 
         <div style="padding:0 30px 28px;">
@@ -6845,15 +7092,14 @@ def _build_song_sgae_notification_email(session_db, song: Song, registration_dt=
             {detail_table_html}
           </div>
 
-          <div style="margin-top:26px;font-size:18px;font-weight:700;color:#111827;">Autores</div>
+          <div style="margin-top:26px;font-size:18px;font-weight:700;color:#111827;">Reparto autoral</div>
           <div style="margin-top:12px;border:1px solid #e5e7eb;border-radius:16px;overflow:hidden;">
             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
               <thead>
                 <tr style="background:#f8fafc;">
                   <th align="left" style="padding:12px 10px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#6b7280;">Autor</th>
-                  <th align="left" style="padding:12px 10px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#6b7280;">Compañía editorial</th>
-                  <th align="center" style="padding:12px 10px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#6b7280;">Porcentaje</th>
                   <th align="left" style="padding:12px 10px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#6b7280;">Rol</th>
+                  <th align="center" style="padding:12px 10px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#6b7280;">Porcentaje</th>
                 </tr>
               </thead>
               <tbody>{row_html}</tbody>
@@ -6861,41 +7107,37 @@ def _build_song_sgae_notification_email(session_db, song: Song, registration_dt=
                 <tr style="background:#f8fafc;">
                   <td colspan="2" style="padding:13px 10px;font-size:14px;font-weight:700;color:#111827;">Porcentaje total de la obra</td>
                   <td style="padding:13px 10px;font-size:14px;font-weight:700;color:#111827;text-align:center;white-space:nowrap;">{total_pct:.2f}%</td>
-                  <td style="padding:13px 10px;"></td>
                 </tr>
               </tfoot>
             </table>
           </div>
 
-          <div style="margin-top:22px;padding:16px 18px;border-radius:18px;background:#eef6ff;border:1px solid #cfe0ff;color:#1f3b73;font-size:14px;line-height:1.7;">Recuerda que SGAE lleva una gran demora desde que se inscriben las obras hasta que aparecen reflejadas en su plataforma, pero esto no implica que se pierdan los ingresos generados durante ese periodo.</div>
-          <div style="margin-top:14px;padding:16px 18px;border-radius:18px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;font-size:14px;line-height:1.7;">Por favor avísanos si detectas cualquier error.</div>
+          <div style="margin-top:22px;padding:16px 18px;border-radius:18px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;font-size:14px;line-height:1.7;">Por favor avísanos si detectas cualquier error.</div>
         </div>
       </div>
     </div>
     '''
 
     text_lines = [
-        'Registro Autoral',
+        'Registro de Obra',
         '',
-        'El registro de tu obra ya se ha presentado a registro en SGAE.',
+        intro_text,
         '',
         f'Canción: {song.title or "—"}',
         f'Intérpretes: {interpreters_label}',
-        f'Fecha de registro: {registration_label}',
         f'Fecha de publicación: {publication_label}',
         '',
-        'Autores:',
+        'Reparto autoral:',
     ]
     for row in editorial_rows:
         text_lines.append(
-            f"- {row.get('full_name') or '—'} | {row.get('publisher_name') or '—'} | {row.get('pct', 0):.2f}% | {row.get('role_label') or '—'}"
+            f"- {row.get('full_name') or '—'} | {row.get('role_label') or '—'} | {row.get('pct', 0):.2f}%"
         )
     text_lines.extend(
         [
             '',
             f'Porcentaje total de la obra: {total_pct:.2f}%',
             '',
-            'Recuerda que SGAE lleva una gran demora desde que se inscriben las obras hasta que aparecen reflejadas en su plataforma, pero esto no implica que se pierdan los ingresos generados durante ese periodo.',
             'Por favor avísanos si detectas cualquier error.',
         ]
     )
@@ -9681,6 +9923,21 @@ def _mark_song_sgae_pending_from_editorial_change(session_db, song_id) -> SongSt
     return st
 
 
+# La DECLARACIÓN DE OBRA FIRMADA es lo que se entrega a la sociedad, así que una obra publicada de
+# aquí en adelante no se puede dar por registrada sin ella. A las anteriores se les pide igual (el
+# botón de subirla está para todas), pero no bloquea.
+SGAE_SIGNED_DECLARATION_FROM = date(2026, 8, 4)
+
+
+def _song_sgae_declaration_missing(song) -> bool:
+    if song is None:
+        return False
+    release = getattr(song, "release_date", None)
+    if not release or release < SGAE_SIGNED_DECLARATION_FROM:
+        return False
+    return not bool(getattr(song, "work_declaration_signed", False))
+
+
 def _mark_song_sgae_registered(session_db, song_id) -> SongStatus:
     sid = to_uuid(song_id) if not isinstance(song_id, UUID) else song_id
     st = _ensure_song_status_row(session_db, sid)
@@ -9689,6 +9946,12 @@ def _mark_song_sgae_registered(session_db, song_id) -> SongStatus:
     st.sgae_updated_at = datetime.now(TZ_MADRID)
     st.updated_at = datetime.now(TZ_MADRID)
     session_db.add(st)
+    # Al registrar la obra se CONGELA el reparto editorial con las condiciones del contrato de HOY:
+    # si mañana cambian, esta obra sigue repartiéndose como se registró.
+    try:
+        _freeze_song_editorial_split(session_db, session_db.get(Song, sid))
+    except Exception:
+        pass
     return st
 
 
@@ -15589,14 +15852,23 @@ def discografica_song_detail(song_id):
     # Editorial (solo si se pide esa pestaña)
     editorial_shares = []
     editorial_total_pct = 0.0
+    editorial_split_contract = None
     if tab == "editorial":
         shares = (
             session_db.query(SongEditorialShare)
-            .options(joinedload(SongEditorialShare.promoter).joinedload(Promoter.publishing_company))
+            .options(joinedload(SongEditorialShare.promoter).joinedload(Promoter.publishing_company),
+                     joinedload(SongEditorialShare.publishing_company))
             .filter(SongEditorialShare.song_id == s.id)
             .order_by(SongEditorialShare.created_at.asc())
             .all()
         )
+        # REPARTO de la parte de cada autor NUESTRO entre él y Plataforma Musical (contrato editorial
+        # vigente el día del registro, o reparto especial si se ha fijado a mano).
+        split_map = _song_editorial_split_map(session_db, s, shares=shares, status=st)
+        editorial_split_contract = _artist_editorial_split(
+            session_db, getattr(primary_artist, "id", None),
+            as_of=_song_registration_date(session_db, s, status=st),
+            material_date=getattr(s, "release_date", None))
 
         for sh in shares:
             p = sh.promoter
@@ -15621,6 +15893,13 @@ def discografica_song_detail(song_id):
                 "contact_phone": (p.contact_phone or ""),
                 "role": (sh.role or "").upper(),
                 "pct": pct_val,
+                "is_platform": _publisher_is_platform(pub),
+                "split": split_map.get(str(sh.id)),
+                "special_split": bool(getattr(sh, "special_split", False)),
+                "special_pct_author": (float(getattr(sh, "special_pct_author", 0) or 0)
+                                       if getattr(sh, "special_pct_author", None) is not None else None),
+                "special_pct_platform": (float(getattr(sh, "special_pct_platform", 0) or 0)
+                                         if getattr(sh, "special_pct_platform", None) is not None else None),
             })
 
     promotion_requests_display = []
@@ -15663,6 +15942,9 @@ def discografica_song_detail(song_id):
         editorial_shares=editorial_shares,
         editorial_total_pct=round(editorial_total_pct, 2),
         editorial_remaining_pct=round(max(0.0, 100.0 - editorial_total_pct), 2),
+        editorial_split_contract=editorial_split_contract,
+        editorial_split_pdf_url=url_for("discografica_song_label_copy_pdf", song_id=s.id, editorial=1),
+        editorial_split_public_url=_label_copy_public_url("SONG", s.id, editorial=True),
         editorial_sgae_modification_pending=bool(getattr(st, "sgae_modification_pending", False)),
         song_income_group_mode=song_income_group_mode,
         song_income_groups=song_income_groups,
@@ -15871,6 +16153,54 @@ def discografica_song_editorial_share_delete(song_id, share_id):
         session_db.close()
 
 
+@app.post("/discografica/canciones/<song_id>/editorial/share/<share_id>/reparto")
+@admin_required
+def discografica_song_editorial_share_split(song_id, share_id):
+    """REPARTO de la parte de un autor nuestro entre él y Plataforma Musical.
+
+    Sin reparto especial manda el contrato editorial del artista (vigente el día del registro). Con
+    reparto especial se fija a mano y los dos porcentajes tienen que sumar **exactamente 100**: son el
+    reparto de la parte del autor, no del conjunto de la obra."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar la pestaña Editorial.")
+
+    nxt = url_for("discografica_song_detail", song_id=song_id, tab="editorial")
+    session_db = db()
+    try:
+        sid = to_uuid(song_id)
+        sh = session_db.get(SongEditorialShare, to_uuid(share_id))
+        if not sh or sh.song_id != sid:
+            flash("Registro editorial no encontrado.", "warning")
+            return redirect(nxt)
+
+        especial = _truthy(request.form.get("special_split"))
+        if especial:
+            autor = float(_parse_pct(request.form.get("special_pct_author")))
+            plataforma = float(_parse_pct(request.form.get("special_pct_platform")))
+            if abs((autor + plataforma) - 100.0) > 0.01:
+                flash("El reparto especial tiene que sumar exactamente 100% "
+                      f"(ahora suma {autor + plataforma:.2f}%).", "warning")
+                return redirect(nxt)
+            sh.special_split = True
+            sh.special_pct_author = autor
+            sh.special_pct_platform = plataforma
+        else:
+            sh.special_split = False
+            sh.special_pct_author = None
+            sh.special_pct_platform = None
+        sh.updated_at = datetime.now(TZ_MADRID)
+        session_db.add(sh)
+        session_db.commit()
+        flash("Reparto especial guardado." if especial else "Se aplica el reparto del contrato.", "success")
+        return redirect(nxt)
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error guardando el reparto: {e}", "danger")
+        return redirect(nxt)
+    finally:
+        session_db.close()
+
+
 @app.post("/discografica/canciones/<song_id>/editorial/declaration/upload")
 @admin_required
 def discografica_song_declaration_upload(song_id):
@@ -15960,6 +16290,12 @@ def discografica_song_sgae_register(song_id):
 
         st = _ensure_song_status_row(session_db, sid)
         already_done = bool(getattr(st, "sgae_done", False))
+        if not already_done and _song_sgae_declaration_missing(s):
+            message = ("Falta la declaración de obra firmada. Súbela y vuelve a marcar el registro.")
+            if request.is_json:
+                return jsonify({"ok": False, "message": message}), 400
+            flash(message, "warning")
+            return redirect(nxt)
         _mark_song_sgae_registered(session_db, sid)
         session_db.commit()
 
@@ -16065,6 +16401,12 @@ def discografica_song_sgae_notify(song_id):
 
         st = _ensure_song_status_row(session_db, sid)
         if not bool(getattr(st, "sgae_done", False)):
+            if _song_sgae_declaration_missing(s):
+                message = "Falta la declaración de obra firmada. Súbela y vuelve a marcar el registro."
+                if request.is_json:
+                    return jsonify({"ok": False, "message": message}), 400
+                flash(message, "warning")
+                return redirect(nxt)
             _mark_song_sgae_registered(session_db, sid)
             session_db.commit()
             st = session_db.get(SongStatus, sid)
@@ -16160,6 +16502,9 @@ def discografica_song_status_toggle(song_id):
                 st.sgae_updated_at = now_dt
                 st.updated_at = now_dt
             else:
+                if _song_sgae_declaration_missing(s):
+                    flash("Falta la declaración de obra firmada. Súbela y vuelve a marcar el registro.", "warning")
+                    return redirect(nxt)
                 _mark_song_sgae_registered(session_db, sid)
         else:
             setattr(st, done_attr, not current)
@@ -18520,9 +18865,12 @@ def discografica_album_certification_notify(album_id):
 @app.get("/discografica/canciones/<song_id>/label-copy/pdf")
 @admin_required
 def discografica_song_label_copy_pdf(song_id):
+    # `?editorial=1` = el MISMO LC pero con el detalle del reparto entre el autor y Plataforma
+    # Musical (solo se pide desde Editorial).
+    editorial = _truthy(request.args.get("editorial"))
     session_db = db()
     try:
-        pdf_bytes, filename = _build_song_label_copy_pdf_bytes(session_db, song_id)
+        pdf_bytes, filename = _build_song_label_copy_pdf_bytes(session_db, song_id, editorial=editorial)
         return send_file(BytesIO(pdf_bytes), mimetype="application/pdf", as_attachment=True, download_name=filename)
     except Exception as e:
         flash(f"No se pudo generar el Label Copy: {e}", "danger")
@@ -18548,6 +18896,10 @@ def public_song_label_copy_view():
             abort(404)
         ctx = _song_label_copy_public_context(session_db, song)
         ctx["pdf_url"] = _external_url_for("public_song_label_copy_pdf", token=token)
+        # El reparto entre el autor y Plataforma Musical solo se ve si el enlace se generó DESDE
+        # editorial (token con `ed`): el LC que se comparte normalmente no lo lleva.
+        ctx["editorial_split_rows"] = (_song_editorial_split_rows(session_db, song)
+                                       if payload.get("ed") else [])
         return render_template("public_song_label_copy.html", **ctx)
 
 
@@ -18563,7 +18915,8 @@ def public_song_label_copy_pdf():
         abort(404)
     with get_db() as session_db:
         try:
-            pdf_bytes, filename = _build_song_label_copy_pdf_bytes(session_db, sid)
+            pdf_bytes, filename = _build_song_label_copy_pdf_bytes(
+                session_db, sid, editorial=bool(payload.get("ed")))
         except Exception:
             abort(404)
     return send_file(BytesIO(pdf_bytes), mimetype="application/pdf", as_attachment=True, download_name=filename)
@@ -22760,14 +23113,30 @@ def contracting_view():
             _mine = _contracting_task_artist_ids()
             if _mine:
                 rows = [c for c in rows if str(getattr(c, "artist_id", "") or "") in _mine]
-            # Etiquetas de TIPO: se cuentan sobre todo lo que puede ver esta persona.
+            # Etiquetas de TIPO: se cuentan sobre lo que se está VIENDO (lo que puede ver esta persona
+            # y, si ha entrado en un artista o evento, solo lo suyo), sin aplicar el propio filtro de
+            # tipo. Solo se ofrece el filtro de los tipos que TIENEN actividades.
             tipos_sel = {(_activity_kind_key(x) or "") for x in request.args.getlist("tipo") if (x or "").strip()}
             tipos_sel = {t for t in tipos_sel if t in OTHER_ACTIVITY_TYPE_KEYS}
+            _sel_art = (request.args.get("artist") or "").strip()
+            _sel_ev = (request.args.get("event") or "").strip()
+
+            def _en_sujeto(c):
+                if _sel_ev:
+                    return str(getattr(c, "event_id", "") or "") == _sel_ev
+                if _sel_art:
+                    return (not getattr(c, "event_id", None)) and str(getattr(c, "artist_id", "") or "") == _sel_art
+                return True
+
             cuenta_tipos = {}
             for c in rows:
+                if not _en_sujeto(c):
+                    continue
                 k = _activity_kind_key(c.activity_type) or "OTROS"
                 cuenta_tipos[k] = cuenta_tipos.get(k, 0) + 1
             for k in OTHER_ACTIVITY_TYPE_KEYS:
+                if not cuenta_tipos.get(k, 0) and k not in tipos_sel:
+                    continue
                 otros = sorted(tipos_sel - {k}) if k in tipos_sel else sorted(tipos_sel | {k})
                 type_chips.append({
                     "key": k,
@@ -22814,19 +23183,20 @@ def contracting_view():
                              if g["kind"] == "artist" and to_uuid(g["id"]) in by_id]
             _drill_art = to_uuid(request.args.get("artist") or "")
             _drill_ev = to_uuid(request.args.get("event") or "")
+            _subject_total = sum(cuenta_tipos.values())
             if _drill_ev:
                 rows = [c for c in rows if str(getattr(c, "event_id", "") or "") == str(_drill_ev)]
                 ev = eventos.get(str(_drill_ev)) or session_db.get(AppEvent, _drill_ev)
                 drill_subject = {"kind": "event", "id": str(_drill_ev),
                                  "name": (getattr(ev, "name", "") or "Evento"),
-                                 "photo_url": (getattr(ev, "logo_url", "") or ""),
+                                 "photo_url": (getattr(ev, "logo_url", "") or ""), "count": _subject_total,
                                  "url": (url_for("event_detail_view", eid=_drill_ev) if ev else "")}
             elif _drill_art:
                 rows = [c for c in rows if c.artist_id == _drill_art and not getattr(c, "event_id", None)]
                 drill_artist = by_id.get(_drill_art)
                 drill_subject = {"kind": "artist", "id": str(_drill_art),
                                  "name": (getattr(drill_artist, "name", "") or ""),
-                                 "photo_url": (getattr(drill_artist, "photo_url", "") or ""),
+                                 "photo_url": (getattr(drill_artist, "photo_url", "") or ""), "count": _subject_total,
                                  "url": (url_for("artist_detail_view", artist_id=_drill_art) if drill_artist else "")}
             # El LISTADO no lleva nombre ni foto de artista: manda QUÉ es la actividad.
             for c in rows:
@@ -24827,12 +25197,24 @@ def activities_view():
                 "status_label": (a.status or ""), "status_badge": _action_status_badge(a.status),
                 "url": url_for("action_detail_view", action_id=a.id),
             })
-        # Contadores de las etiquetas de tipo (sobre TODO lo del periodo, no sobre lo ya filtrado).
+        # Contadores de las etiquetas de tipo: sobre lo que se está VIENDO (el periodo y, si se ha
+        # entrado en un artista o evento, solo lo suyo) pero sin aplicar el propio filtro de tipo —si
+        # no, la etiqueta que acabas de pulsar dejaría a las demás a cero.
+        def _en_sujeto(it):
+            if event_f:
+                return it["event_id"] == event_f
+            if artist_f:
+                return not it["event_id"] and (it["artist_id"] == artist_f or artist_f in it["artist_ids"])
+            return True
         cuenta = {}
         for it in items:
-            cuenta[it["type_key"]] = cuenta.get(it["type_key"], 0) + 1
+            if _en_sujeto(it):
+                cuenta[it["type_key"]] = cuenta.get(it["type_key"], 0) + 1
         type_chips = []
         for k in ACTIVITIES_TYPE_KEYS:
+            # Solo se ofrece el filtro de los tipos que TIENEN actividades (o el que esté puesto).
+            if not cuenta.get(k, 0) and k not in tipos_sel:
+                continue
             otros = sorted(tipos_sel - {k}) if k in tipos_sel else sorted(tipos_sel | {k})
             extra = {}
             if artist_f:
@@ -24879,20 +25261,22 @@ def activities_view():
             g["url"] = url_for("activities_view", when=when_f, tipo=sorted(tipos_sel),
                                **({"event_id": g["id"]} if g["kind"] == "event" else {"artist_id": g["id"]}))
         subject_groups = sorted(grupos.values(), key=lambda x: (x["name"] or "").lower())
-        # Al pinchar un sujeto: solo sus actividades.
+        # Al pinchar un sujeto: solo sus actividades. Arriba se enseña de QUIÉN son (foto y nombre) y
+        # su TOTAL de actividades, que es el del sujeto (no el del filtro de tipo que haya puesto).
         drill_subject = None
+        _subject_total = sum(cuenta.values())
         if event_f:
             items = [it for it in items if it["event_id"] == event_f]
             ev = eventos.get(event_f)
             drill_subject = {"kind": "event", "id": event_f, "name": (getattr(ev, "name", "") or "Evento"),
-                             "photo_url": (getattr(ev, "logo_url", "") or ""),
+                             "photo_url": (getattr(ev, "logo_url", "") or ""), "count": _subject_total,
                              "url": (url_for("event_detail_view", eid=event_f) if ev else "")}
         elif artist_f:
             items = [it for it in items
                      if not it["event_id"] and (it["artist_id"] == artist_f or artist_f in it["artist_ids"])]
             art = by_id.get(artist_f)
             drill_subject = {"kind": "artist", "id": artist_f, "name": (getattr(art, "name", "") or ""),
-                             "photo_url": (getattr(art, "photo_url", "") or ""),
+                             "photo_url": (getattr(art, "photo_url", "") or ""), "count": _subject_total,
                              "url": (url_for("artist_detail_view", artist_id=artist_f) if art else "")}
         items.sort(key=lambda x: (x["date"] or date.max), reverse=(when_f == "past"))
         counts = {"all": len(items)}
@@ -29363,7 +29747,14 @@ def concert_production_owner_save(cid):
         c = session_db.get(Concert, to_uuid(cid))
         if c is None:
             return jsonify({"ok": False, "error": "Actividad no encontrada."}), 404
-        if not can_edit_concerts():
+        # Activar la producción = decir quién se encarga. Lo hace contratación, PRODUCCIÓN (desde su
+        # listado de «pendientes de asignar») o **quien creó la actividad**, que es de quien es la
+        # tarea; si no, el botón de su Inicio moría en un 403.
+        _yo = str((_current_user_state() or {}).get("user_id") or "")
+        _soy_creador = bool(_yo and str(getattr(c, "created_by_user_id", "") or "") == _yo)
+        if not (can_edit_concerts()
+                or has_access_key("produccion", edit=True, include_descendants=True)
+                or _soy_creador):
             return jsonify({"ok": False, "error": "Sin permiso."}), 403
         uid = to_uuid((request.form.get("user_id") or "").strip() or "")
         c.production_owner_user_id = uid
@@ -38982,6 +39373,193 @@ def registros_promo_declare(activity_id):
     return redirect(nxt)
 
 
+# ============================ REGISTROS · material para registrar (AGEDI / SGAE) ==================
+# Un solo clic baja TODO lo que hay que presentar, en una carpeta con el nombre que espera la
+# sociedad: AGEDI_<Artista>_<Canción> / SGAE_<Artista>_<Canción>.
+#  · AGEDI: master en MP3 + portada en JPG + el PDF del Label Copy.
+#  · SGAE: lo mismo, pero el LC es el de **reparto editorial** y va además la letra en su formato de
+#    editorial (sin logo).
+# Lo que no se pueda incluir (no hay master, no hay letra…) NO se calla: va un LEEME dentro diciendo
+# qué falta, que es mejor que entregar una carpeta incompleta sin saberlo.
+REGISTROS_PACK_KINDS = ("AGEDI", "SGAE")
+
+
+def _registros_pack_cover_jpeg(data: bytes) -> bytes:
+    """Portada en JPG de calidad para registrar, sin que pese de más: hasta 2000 px de lado, calidad
+    85 y optimizada."""
+    if not PILLOW_AVAILABLE:
+        raise RuntimeError('Pillow no está disponible para convertir la portada.')
+    lanczos = getattr(getattr(PILImage, 'Resampling', PILImage), 'LANCZOS', None)
+    with PILImage.open(BytesIO(data)) as src:
+        img = src
+        if img.mode not in ('RGB', 'L'):
+            if 'A' in img.getbands():
+                bg = PILImage.new('RGB', img.size, (255, 255, 255))
+                bg.paste(img, mask=img.getchannel('A'))
+                img = bg
+            else:
+                img = img.convert('RGB')
+        elif img.mode == 'L':
+            img = img.convert('RGB')
+        if lanczos is not None:
+            img.thumbnail((2000, 2000), lanczos)
+        else:
+            img.thumbnail((2000, 2000))
+        out = BytesIO()
+        img.save(out, format='JPEG', quality=85, optimize=True, progressive=True)
+    return out.getvalue()
+
+
+def _registros_pack_path_part(value: str | None, fallback: str) -> str:
+    """Trozo de nombre de carpeta/fichero: sin barras ni caracteres que rompan un ZIP."""
+    txt = re.sub(r'[\\/:*?"<>|\r\n\t]+', ' ', (value or '')).strip()
+    txt = re.sub(r'\s{2,}', ' ', txt)
+    return txt or fallback
+
+
+def _registros_song_master_material(session_db, song: Song):
+    """El master de la canción (el de mejor calidad disponible)."""
+    return (
+        session_db.query(SongMaterial)
+        .filter(SongMaterial.song_id == song.id)
+        .filter(func.upper(SongMaterial.category) == 'MASTER')
+        .order_by(SongMaterial.slot_key.desc(), SongMaterial.created_at.desc())
+        .first()
+    )
+
+
+def _registros_song_pack_zip(session_db, song: Song, kind: str) -> tuple[bytes, str]:
+    kind = (kind or 'AGEDI').strip().upper()
+    if kind not in REGISTROS_PACK_KINDS:
+        raise ValueError('Registro no válido.')
+    artist = _song_primary_artist(session_db, song)
+    artist_name = _registros_pack_path_part(getattr(artist, 'name', None), 'Artista')
+    song_title = _registros_pack_path_part(getattr(song, 'title', None), 'Cancion')
+    carpeta = f"{kind}_{artist_name}_{song_title}"
+    faltan = []
+    piezas: list[tuple[str, bytes]] = []
+
+    # 1) Master en MP3.
+    master = _registros_song_master_material(session_db, song)
+    if master is None or not (getattr(master, 'file_url', None) or '').strip():
+        faltan.append('El master de audio (no hay ningún master subido en Materiales).')
+    else:
+        try:
+            data, _ctype = _download_remote_content(master.file_url)
+            suffix = Path((master.file_name or '').replace('\\', '/')).suffix.lower()
+            mp3, _mime, _ext = _convert_audio_content_to_mp3(data, suffix)
+            piezas.append((f"{artist_name} - {song_title}.mp3", mp3))
+        except Exception as exc:
+            faltan.append(f'El master en MP3 (no se pudo convertir: {exc}).')
+
+    # 2) Portada en JPG.
+    cover_url = ''
+    cover_material = (
+        session_db.query(SongMaterial)
+        .filter(SongMaterial.song_id == song.id)
+        .filter(func.upper(SongMaterial.category) == 'COVER')
+        .order_by(SongMaterial.slot_key.asc(), SongMaterial.created_at.desc())
+        .first()
+    )
+    if cover_material is not None:
+        cover_url = (getattr(cover_material, 'file_url', None) or '').strip()
+    if not cover_url:
+        cover_url = (getattr(song, 'cover_url', None) or '').strip()
+    if not cover_url:
+        faltan.append('La portada (la canción no tiene portada).')
+    else:
+        try:
+            data, _ctype = _download_remote_content(cover_url)
+            piezas.append((f"Portada_{artist_name}_{song_title}.jpg", _registros_pack_cover_jpeg(data)))
+        except Exception as exc:
+            faltan.append(f'La portada en JPG (no se pudo convertir: {exc}).')
+
+    # 3) Label Copy (en SGAE, el de reparto editorial).
+    try:
+        pdf, _name = _build_song_label_copy_pdf_bytes(session_db, song.id, editorial=(kind == 'SGAE'))
+        piezas.append((('Label Copy - reparto editorial.pdf' if kind == 'SGAE' else 'Label Copy.pdf'), pdf))
+    except Exception as exc:
+        faltan.append(f'El PDF del Label Copy ({exc}).')
+
+    # 4) Solo SGAE: la letra en formato de editorial (sin logo).
+    if kind == 'SGAE':
+        try:
+            pdf, _name = _build_song_lyrics_pdf_bytes(session_db, song.id, include_logo=False)
+            piezas.append(('Letra.pdf', pdf))
+        except LookupError:
+            faltan.append('El PDF de la letra (la canción no tiene letra guardada).')
+        except Exception as exc:
+            faltan.append(f'El PDF de la letra ({exc}).')
+
+    if not piezas:
+        raise LookupError('No hay nada que descargar: ' + ' '.join(faltan))
+
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+        for nombre, contenido in piezas:
+            zf.writestr(f"{carpeta}/{nombre}", contenido)
+        if faltan:
+            aviso = ('En esta carpeta FALTA lo siguiente:\n\n- ' + '\n- '.join(faltan)
+                     + '\n\nRevísalo antes de presentar el registro.\n')
+            zf.writestr(f"{carpeta}/LEEME - falta material.txt", aviso.encode('utf-8'))
+    return buf.getvalue(), _safe_download_filename(f"{carpeta}.zip", f"{kind}.zip")
+
+
+@app.get('/registros/canciones/<song_id>/material', endpoint='registros_song_pack')
+@admin_required
+def registros_song_pack(song_id):
+    """Descarga en un ZIP todo el material que hace falta para registrar la canción."""
+    kind = (request.args.get('kind') or 'AGEDI').strip().upper()
+    nxt = safe_next_or(request.args.get('next') or url_for('registros_view', tab='pendiente'))
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        if not song:
+            flash('Canción no encontrada.', 'warning')
+            return redirect(nxt)
+        data, filename = _registros_song_pack_zip(session_db, song, kind)
+        return send_file(BytesIO(data), mimetype='application/zip', as_attachment=True, download_name=filename)
+    except LookupError as exc:
+        flash(str(exc), 'warning')
+        return redirect(nxt)
+    except Exception as exc:
+        flash(f'No se pudo preparar el material: {exc}', 'danger')
+        return redirect(nxt)
+    finally:
+        session_db.close()
+
+
+@app.post('/registros/canciones/<song_id>/declaracion-firmada', endpoint='registros_song_declaration_signed')
+@admin_required
+def registros_song_declaration_signed(song_id):
+    """Sube la DECLARACIÓN DE OBRA ya firmada; queda en la ficha, en «Declaración de obra»."""
+    if not (can_edit_discografica() or is_master()):
+        return forbid('No tienes permisos para subir la declaración de obra.')
+    nxt = safe_next_or(request.form.get('next') or url_for('registros_view', tab='pendiente'))
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        if not song:
+            flash('Canción no encontrada.', 'warning')
+            return redirect(nxt)
+        url = upload_pdf(request.files.get('declaration_pdf'), 'song_declarations')
+        if not url:
+            flash('Selecciona el PDF de la declaración de obra firmada.', 'warning')
+            return redirect(nxt)
+        song.work_declaration_url = url
+        song.work_declaration_uploaded_at = datetime.now(TZ_MADRID)
+        song.work_declaration_signed = True
+        session_db.add(song)
+        session_db.commit()
+        flash('Declaración de obra firmada subida.', 'success')
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'Error subiendo la declaración: {exc}', 'danger')
+    finally:
+        session_db.close()
+    return redirect(nxt)
+
+
 @app.get('/registros/sgae/repertorio/link', endpoint='registros_repertoire_link')
 @admin_required
 def registros_repertoire_link():
@@ -44300,7 +44878,8 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
     # Cartelería de TODA una gira / ciclo / evento: vive en su ficha, dentro de Contratación.
     if endpoint.startswith("group_artwork"):
         return "contratacion.conciertos"
-    if endpoint in {"registros_view", "registros_concert_declare", "registros_promo_declare", "registros_repertoire_link"}:
+    if endpoint in {"registros_view", "registros_concert_declare", "registros_promo_declare",
+                    "registros_repertoire_link", "registros_song_pack", "registros_song_declaration_signed"}:
         return "registros.pendiente"
     if endpoint in {"media_gallery_view", "media_artist_view", "media_panel_view", "api_media_artist_activities"}:
         return "fotos"
@@ -44897,7 +45476,8 @@ def _resolve_request_resource_key() -> str | None:
             "gastos": "contabilidad",
         }
         return mapping.get(tab, "discografica.canciones")
-    if endpoint in {"registros_view", "registros_concert_declare", "registros_promo_declare", "registros_repertoire_link"}:
+    if endpoint in {"registros_view", "registros_concert_declare", "registros_promo_declare",
+                    "registros_repertoire_link", "registros_song_pack", "registros_song_declaration_signed"}:
         tab = (request.args.get("tab") or "pendiente").strip().lower()
         return "registros.sgae" if tab == "sgae" else "registros.pendiente"
     if endpoint == "discografica_album_detail":
@@ -46371,6 +46951,10 @@ SUPPORT_ACTION_ENDPOINTS = {
     "fotos_approval_create", "fotos_zip", "fotos_share_create", "fotos_share_email", "fotos_share_email_preview",
     # Agenda: bloqueos y notas libres (botón + del calendario, Inicio y ficha de artista)
     "agenda_block_create", "agenda_note_create", "agenda_item_delete",
+    # Activar la producción (decir quién se encarga): se usa desde la ficha —por quien creó la
+    # actividad—, desde su módulo de Inicio y desde los «pendientes de asignar» de Producción. El
+    # propio endpoint comprueba que sea contratación, producción o el creador.
+    "concert_production_owner_save",
     # Plantillas del artista cargadas en la hoja de ruta (misma herramienta transversal).
     "roadmap_template_load", "roadmap_template_save_from",
     "artist_calendar_link_create", "artist_calendar_link_cancel",
@@ -53315,6 +53899,9 @@ def produccion_view():
             "produccion.html",
             tab=tab,
             counts=counts,
+            # Para el listado de «pendientes de asignar»: lo único que se hace desde ahí es elegir a la
+            # persona de producción que se encarga.
+            production_people=(_production_people(session_db) if (activas and activas["unassigned"]) else []),
             requests=request_rows,
             active_rows=active_rows,
             activas=activas,
@@ -59413,6 +60000,7 @@ def _production_active_rows(session_db) -> list[dict]:
             "subject_kind": sujeto[0], "subject_id": sujeto[1],
             "subject_name": sujeto[2], "subject_photo": sujeto[3],
             "icon": QUAD_ACTIVITY_ICONS.get(kind, "fa-guitar"),
+            "type_key": kind,
             "type_label": _activity_kind_label(kind),
             "title": ((c.festival_name or "").strip() or _activity_kind_label(kind)),
             "date": c.date,
@@ -59432,8 +60020,13 @@ def _production_active_context(session_db) -> dict:
     """La pestaña «Activas» de Producción: rejilla por SUJETO y, al entrar, sus actividades.
 
     Cada persona de producción ve **solo lo que se le ha asignado**; dirección (y quien no es de
-    producción) lo ve todo. Lo que NO tiene responsable no es de nadie: sale aparte, para que no se
-    pierda, y le aparece como tarea pendiente a quien creó la actividad."""
+    producción) lo ve todo. Lo que NO tiene responsable no es de nadie: sale en su propio listado
+    **debajo de la rejilla** (y solo ahí: dentro de un artista o evento no pinta nada), donde lo único
+    que se puede hacer es **elegir a la persona de producción** que se encarga.
+
+    Al entrar en un sujeto se enseña de quién son las actividades (foto, nombre y total) y, debajo,
+    los FILTROS POR TIPO — solo los tipos que tienen actividades, igual que en la sección
+    Actividades."""
     estado = _current_user_state() or {}
     uid = str(estado.get("user_id") or "")
     deps = [str(d).strip().lower() for d in (getattr(estado.get("profile"), "departments", None) or [])]
@@ -59471,12 +60064,42 @@ def _production_active_context(session_db) -> dict:
     for g in sujetos:
         g["url"] = url_for("produccion_view", tab="activas",
                            **({"event": g["id"]} if g["kind"] == "event" else {"artist": g["id"]}))
+    # FILTROS POR TIPO dentro del sujeto: se cuentan sobre sus actividades (sin aplicar el propio
+    # filtro) y solo se ofrecen los tipos que tienen algo.
+    tipos_sel = set()
+    for x in request.args.getlist("tipo"):
+        k = (x or "").strip().upper()
+        k = QUAD_ACTIVITY_ALIASES.get(k, k)
+        if k:
+            tipos_sel.add(k)
+    cuenta_tipos = {}
+    for f in filas:
+        cuenta_tipos[f["type_key"]] = cuenta_tipos.get(f["type_key"], 0) + 1
+    type_chips = []
+    base_args = {"tab": "activas"}
+    if sujeto is not None:
+        base_args.update({"event": sujeto["id"]} if sujeto["kind"] == "event" else {"artist": sujeto["id"]})
+        for k in ACTIVITIES_TYPE_KEYS:
+            if not cuenta_tipos.get(k, 0) and k not in tipos_sel:
+                continue
+            otros = sorted(tipos_sel - {k}) if k in tipos_sel else sorted(tipos_sel | {k})
+            type_chips.append({
+                "key": k, "label": _activity_kind_label(k),
+                "icon": QUAD_ACTIVITY_ICONS.get(k, "fa-calendar-day"),
+                "count": cuenta_tipos.get(k, 0), "active": k in tipos_sel,
+                "url": url_for("produccion_view", tipo=otros, **base_args),
+            })
+        if tipos_sel:
+            filas = [f for f in filas if f["type_key"] in tipos_sel]
     return {
         "subjects": sujetos,
         "rows": filas,
         "subject": sujeto,
-        "unassigned": ([] if soy_produccion else sin_dueno),
+        # Pendientes de asignar: solo FUERA de un artista o evento (dentro de uno no vienen a cuento).
+        "unassigned": ([] if (soy_produccion or sujeto is not None) else sin_dueno),
         "only_mine": soy_produccion,
+        "type_chips": type_chips,
+        "clear_types_url": (url_for("produccion_view", **base_args) if (sujeto is not None and tipos_sel) else ""),
         "total": sum(g["count"] for g in sujetos),
     }
 

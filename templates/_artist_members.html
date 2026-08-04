@@ -13,11 +13,23 @@
     también en Terceros, en las hojas de ruta y en la subida de facturas.
   </div>
 
+  {# EDITAR el módulo: añadir integrantes y quitarlos solo se ve cuando se está editando. #}
+  {% if CAN_EDIT_ARTISTS_STATIONS %}
+    <div class="d-flex justify-content-end mb-2" data-members-editbar>
+      <button type="button" class="btn btn-sm btn-outline-primary" data-members-edit>
+        <i class="fa fa-pen me-1"></i>Editar integrantes
+      </button>
+      <button type="button" class="btn btn-sm btn-outline-secondary d-none" data-members-done>
+        <i class="fa fa-check me-1"></i>Listo
+      </button>
+    </div>
+  {% endif %}
+
   {% if CAN_EDIT_ARTISTS_STATIONS %}
     {# AÑADIR PERSONA = BUSCAR EN TERCEROS. Resultados con foto en tiempo real desde el primer
        carácter (`/api/search/promoters`, acento-insensible y por palabras). Si no hay coincidencias,
        el propio buscador ofrece crear el tercero con lo escrito. #}
-    <div class="ficha-section mb-3">
+    <div class="ficha-section mb-3 d-none" data-members-only>
       <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-user-plus"></i>Añadir persona</h6></div>
       <div class="ficha-section__body">
         <form method="post" action="{{ url_for('artist_person_add', artist_id=artist.id) }}" id="apsForm">
@@ -160,30 +172,82 @@
       </div>
 
       <div class="ficha-section__body">
-        {# ---------- Vista consolidada (solo lo que está relleno) ---------- #}
+        {# ---------- Vista del integrante: datos a la IZQUIERDA, DNI y documentos a la DERECHA ----- #}
         <div id="personaView-{{ c.id }}" data-section-view>
           <div class="row g-4">
             <div class="col-lg-7 col-xl-8">
               {% set pr = c.promoter %}
-              {% if pr and (pr.tax_id or pr.contact_email or pr.contact_phone or pr.address or pr.fiscal_address or pr.bank_account) %}
-                <dl class="psum-list">
-                  {% if pr.tax_id %}<div><span class="psum-k">DNI / NIF</span><span class="psum-v">{{ pr.tax_id }}</span></div>{% endif %}
-                  {% if pr.contact_email %}<div><span class="psum-k">Email</span><span class="psum-v">{{ pr.contact_email }}</span></div>{% endif %}
-                  {% if pr.contact_phone %}<div><span class="psum-k">Teléfono</span><span class="psum-v">{{ pr.contact_phone }}</span></div>{% endif %}
-                  {% if pr.address %}<div><span class="psum-k">Domicilio</span><span class="psum-v">{{ pr.address }}</span></div>{% endif %}
-                  {% if pr.fiscal_address %}<div><span class="psum-k">Dirección fiscal</span><span class="psum-v">{{ pr.fiscal_address }}</span></div>{% endif %}
-                  {% if pr.bank_account %}<div><span class="psum-k">Cuenta bancaria</span><span class="psum-v">{{ pr.bank_account }}</span></div>{% endif %}
-                </dl>
-              {% elif not pr %}
+              {# Nombre con foto (la del tercero si la tiene). #}
+              <div class="d-flex align-items-center gap-2 mb-2">
+                <img src="{{ (pr.logo_url if pr else '') or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1"
+                     style="width:44px;height:44px;border-radius:50%;object-fit:cover;">
+                <div>
+                  <div class="fw-semibold">{{ c.name }}</div>
+                  {% if pr %}<a class="small text-muted text-decoration-none" href="{{ url_for('promoter_detail_view', pid=pr.id) }}">Ficha de tercero</a>{% endif %}
+                </div>
+              </div>
+              {# DNI · nacimiento · email · teléfono, en ese orden. #}
+              <dl class="psum-list">
+                {% if pr and pr.tax_id %}<div><span class="psum-k">DNI / NIF</span><span class="psum-v">{{ pr.tax_id }}</span></div>{% endif %}
+                {% if c.person.birth_date %}<div><span class="psum-k">Nacimiento</span><span class="psum-v">{{ c.person.birth_date.strftime('%d/%m/%Y') }}</span></div>{% endif %}
+                {% if pr and pr.contact_email %}<div><span class="psum-k">Email</span><span class="psum-v">{{ pr.contact_email }}</span></div>{% endif %}
+                {% if pr and pr.contact_phone %}<div><span class="psum-k">Teléfono</span><span class="psum-v">{{ pr.contact_phone }}</span></div>{% endif %}
+              </dl>
+              {% if not pr %}
                 <div class="text-muted">Todavía no tiene datos. Pulsa <strong>Editar</strong> para rellenarlos o
-                  sube su DNI aquí abajo: se le crea la ficha de tercero sola.</div>
+                  sube su DNI: se le crea la ficha de tercero sola.</div>
+              {% endif %}
+              {# TARJETAS de fidelización y MATRÍCULAS, debajo de los datos. #}
+              {% set pills = c.documents|selectattr('kind', 'in', ['LOYALTY', 'PLATE'])|list %}
+              {% if pills %}
+                <div class="docs-pills mt-2">
+                  {% for d in pills %}
+                    {% if d.kind == 'LOYALTY' %}
+                      <span class="docs-pill" style="background: {{ d.brand.color if d.brand else '#6c757d' }};"
+                            title="Pincha para copiar el número" data-copy-text="{{ d.doc_number }}">
+                        <span class="docs-pill__ico"><i class="fa {{ (d.brand.icon if d.brand else 'fa-credit-card') }}"></i></span>
+                        <span>{{ d.company or d.label or 'Tarjeta' }}</span>
+                        <span class="docs-pill__num">{{ d.doc_number }}</span>
+                      </span>
+                    {% else %}
+                      <span class="docs-plate-pill" title="Pincha para copiar la matrícula" data-copy-text="{{ d.doc_number }}">{{ d.doc_number }}</span>
+                    {% endif %}
+                  {% endfor %}
+                </div>
               {% endif %}
               {% if pr and pr.hotel_notes %}
                 <div class="mt-2 small"><span class="text-muted"><i class="fa fa-bed me-1"></i>Hoteles:</span> {{ pr.hotel_notes }}</div>
               {% endif %}
               {% with ts=c.travel_summary %}{% include '_travel_summary_view.html' %}{% endwith %}
             </div>
-            <div class="col-lg-5 col-xl-4"></div>
+
+            {# DERECHA: SOLO el anverso del DNI, y debajo las etiquetas de sus documentos + el «+». #}
+            <div class="col-lg-5 col-xl-4">
+              {% set dni = (c.documents|selectattr('kind', 'equalto', 'DNI')|list|first) %}
+              {% if dni and dni.front_url %}
+                <img src="{{ dni.front_url }}" alt="DNI de {{ c.name }}" class="mem-dni"
+                     data-doc-dl="{{ dni.front_url }}" data-owner-name="{{ c.name }}" title="Pincha para ampliar">
+              {% else %}
+                <div class="mem-dni mem-dni--ph"><i class="fa fa-id-card"></i><span class="small">Sin DNI subido</span></div>
+              {% endif %}
+              <div class="d-flex flex-wrap gap-1 mt-2 align-items-center">
+                {% set docicons = {'DNI': 'fa-id-card', 'LICENSE': 'fa-id-card-clip', 'PASSPORT': 'fa-passport',
+                                   'LOYALTY': 'fa-credit-card', 'PLATE': 'fa-car'} %}
+                {% set doclabels = {'DNI': 'DNI', 'LICENSE': 'Carnet', 'PASSPORT': 'Pasaporte',
+                                    'LOYALTY': 'Tarjeta', 'PLATE': 'Matrícula'} %}
+                {% for d in c.documents %}
+                  <span class="mem-doc" title="{{ doclabels.get(d.kind, d.kind) }}{% if d.doc_number %} · {{ d.doc_number }}{% endif %}">
+                    <i class="fa {{ docicons.get(d.kind, 'fa-file') }}"></i>{{ doclabels.get(d.kind, d.kind) }}
+                  </span>
+                {% endfor %}
+                {% if c.can_edit %}
+                  <button type="button" class="mem-doc mem-doc--add" data-edit-toggle="#personaForm-{{ c.id }}"
+                          data-view="#personaView-{{ c.id }}" title="Subir documentos de {{ c.name }}">
+                    <i class="fa fa-plus"></i>
+                  </button>
+                {% endif %}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -270,7 +334,8 @@
         {% endwith %}
 
         {% if c.can_edit %}
-          <form method="post" action="{{ url_for('artist_person_delete', person_id=c.id) }}" class="mt-2"
+          <form method="post" action="{{ url_for('artist_person_delete', person_id=c.id) }}" class="mt-2 d-none"
+                data-members-only
                 onsubmit="return confirm('¿Quitar a esta persona del artista? Su ficha de tercero NO se borra.');">
             <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos') }}">
             <button class="btn btn-sm btn-outline-danger"><i class="fa fa-user-minus me-1"></i>Quitar del artista</button>
@@ -286,3 +351,23 @@
   {% if CAN_EDIT_ARTISTS_STATIONS %}{% include '_person_doc_modal.html' %}{% endif %}
 
 {# ===================== TAB: CONTRATOS ===================== #}
+
+{% if CAN_EDIT_ARTISTS_STATIONS %}
+<script>
+(function () {
+  // MODO EDICIÓN del módulo de integrantes: enseña añadir y quitar (y los esconde al terminar).
+  var barra = document.querySelector('[data-members-editbar]');
+  if (!barra || barra.__wired) return;
+  barra.__wired = true;
+  function modo(editando) {
+    document.querySelectorAll('[data-members-only]').forEach(function (el) {
+      el.classList.toggle('d-none', !editando);
+    });
+    barra.querySelector('[data-members-edit]').classList.toggle('d-none', editando);
+    barra.querySelector('[data-members-done]').classList.toggle('d-none', !editando);
+  }
+  barra.querySelector('[data-members-edit]').addEventListener('click', function () { modo(true); });
+  barra.querySelector('[data-members-done]').addEventListener('click', function () { modo(false); });
+})();
+</script>
+{% endif %}

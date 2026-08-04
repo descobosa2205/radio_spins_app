@@ -3065,6 +3065,30 @@ body.doccam-open { overflow: hidden; }
    gasto se suelta y la fila vuelve a la normalidad. */
 .pay-exp.is-in-batch{ background:#e7f5ff; border-color:#a5d8ff; }
 
+/* ==================== INTEGRANTES del artista y sus NOTIFICACIONES ==================== */
+/* Solo el ANVERSO del DNI, a la derecha de los datos. */
+.mem-dni{ width:100%; max-width:320px; border-radius:12px; border:1px solid #e3e6eb; object-fit:cover;
+  cursor:zoom-in; background:#fff; }
+.mem-dni--ph{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.3rem;
+  height:120px; color:#adb5bd; cursor:default; }
+/* Etiquetas de los documentos que tenemos de esa persona (en fila, con su icono). */
+.mem-doc{ display:inline-flex; align-items:center; gap:.3rem; padding:.2rem .5rem; border-radius:999px;
+  background:#f1f3f5; border:1px solid #e9ecef; color:#495057; font-size:.72rem; font-weight:600; }
+.mem-doc--add{ cursor:pointer; border-style:dashed; color:var(--brand-primary,#E33D48);
+  background:#fff; border-color:var(--brand-primary,#E33D48); }
+/* NOTIFICACIONES: quién recibe qué. */
+.notif-contact{ display:flex; gap:.7rem; align-items:flex-start; padding:.6rem .7rem; background:#fff;
+  border:1px solid #e9ecef; border-radius:12px; }
+.notif-contact__photo{ width:42px; height:42px; flex:0 0 42px; border-radius:50%; object-fit:cover; }
+.notif-contact__body{ flex:1 1 auto; min-width:0; }
+.notif-chan{ display:inline-flex; align-items:center; gap:.3rem; padding:.15rem .5rem; border-radius:999px;
+  background:#e7f5ff; border:1px solid #d0ebff; color:#1971c2; font-size:.72rem; font-weight:600; }
+.notif-chan__ico{ display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px;
+  border-radius:8px; background:#f1f3f5; color:#495057; font-size:.8rem; }
+.notif-chan-pick{ cursor:pointer; }
+.notif-chan-pick:has(input:checked){ border-color:var(--brand-primary,#E33D48) !important;
+  background:rgba(227,61,72,.06); }
+
 /* REGISTROS: el título de la tarjeta lleva a la ficha, y se ve que es un enlace. */
 .registros-card__title{ text-decoration:none; }
 .registros-card__title:hover{ text-decoration:underline; text-decoration-thickness:1px;

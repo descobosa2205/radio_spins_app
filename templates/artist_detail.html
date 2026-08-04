@@ -34,6 +34,27 @@
   </div>
   <div class="ficha-hero__actions">
     {% if CAN_EDIT_ARTISTS_STATIONS %}<span class="badge text-bg-primary align-self-center">Edición</span>{% else %}<span class="badge text-bg-secondary align-self-center">Lectura</span>{% endif %}
+    {# LÁPIZ de la cabecera: aquí vive lo que antes era la «zona peligrosa». ELIMINAR un artista es
+       solo de DIRECCIÓN (se lleva por delante sus actividades, contratos y liquidaciones). #}
+    {% if session.get('role') == 10 %}
+      <div class="dropdown align-self-center">
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" title="Editar el artista">
+          <i class="fa fa-pen"></i>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><button class="dropdown-item" type="button" data-edit-toggle data-view="[data-section-view]">
+            <i class="fa fa-id-card fa-fw me-2"></i>Editar los datos</button></li>
+          <li><hr class="dropdown-divider"></li>
+          <li>
+            <form method="post" action="{{ url_for('artist_delete', artist_id=artist.id) }}"
+                  onsubmit="return confirm('Se va a ELIMINAR el artista {{ artist.name }} y todo lo que cuelga de él. ¿Seguimos?');">
+              <input type="hidden" name="next" value="{{ url_for('artists_view') }}">
+              <button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-2"></i>Eliminar artista</button>
+            </form>
+          </li>
+        </ul>
+      </div>
+    {% endif %}
   </div>
   {% if artist_social_icons.social or artist_social_icons.music %}
   <div class="artist-social-hero">
@@ -177,6 +198,21 @@
 {% if tab == 'datos' %}
 
   <div id="artist-datos-zone" data-inline-zone>
+  {# INTEGRANTES primero: es lo que más se consulta de un artista (antes era la pestaña «Personas»). #}
+  <div class="ficha-section mb-3">
+    <div class="ficha-section__head">
+      <h6 class="ficha-section__title"><i class="fa fa-users"></i>Integrantes:</h6>
+    </div>
+    <div class="ficha-section__body">
+      {% include '_artist_members.html' %}
+    </div>
+  </div>
+
+  {# NOTIFICACIONES: quién recibe cada comunicación del artista (antes «Emails adicionales»). #}
+  <div class="mb-3">
+    {% include '_artist_notifications.html' %}
+  </div>
+
   <div class="row g-3">
     <div class="col-12 col-lg-5">
 
@@ -238,95 +274,10 @@
         {% endif %}
       </div>
 
-      <div class="ficha-section">
-        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-envelope"></i>Emails adicionales</h6></div>
-        <div class="ficha-section__body">
-          <div class="small text-muted mb-2">Conceptos como gestor, royalties, administración, etc.</div>
 
-          {% if artist_email_addresses and (artist_email_addresses|length) > 0 %}
-            <div class="table-responsive">
-              <table class="table table-sm align-middle">
-                <thead>
-                  <tr>
-                    <th>Concepto</th>
-                    <th>Email</th>
-                    <th class="text-end">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for row in artist_email_addresses %}
-                    <form id="artist-email-update-{{ row.id }}" method="post" action="{{ url_for('artist_email_update', artist_id=artist.id, email_id=row.id) }}">
-                      <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos') }}">
-                    </form>
-                    <form id="artist-email-delete-{{ row.id }}" method="post" action="{{ url_for('artist_email_delete', artist_id=artist.id, email_id=row.id) }}" onsubmit="return confirm('¿Borrar este correo?');">
-                      <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos') }}">
-                    </form>
-                    <tr>
-                      <td>
-                        <input form="artist-email-update-{{ row.id }}" name="concept" class="form-control form-control-sm" value="{{ row.concept }}" {% if not CAN_EDIT_ARTISTS_STATIONS %}disabled{% endif %} required>
-                      </td>
-                      <td>
-                        <input form="artist-email-update-{{ row.id }}" type="email" name="email" class="form-control form-control-sm" value="{{ row.email }}" {% if not CAN_EDIT_ARTISTS_STATIONS %}disabled{% endif %} required>
-                      </td>
-                      <td class="text-end">
-                        {% if CAN_EDIT_ARTISTS_STATIONS %}
-                          <button form="artist-email-update-{{ row.id }}" class="btn btn-outline-primary btn-sm"><i class="fa fa-save"></i></button>
-                          <button form="artist-email-delete-{{ row.id }}" class="btn btn-outline-danger btn-sm"><i class="fa fa-trash"></i></button>
-                        {% else %}
-                          <span class="text-muted">—</span>
-                        {% endif %}
-                      </td>
-                    </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          {% else %}
-            <div class="text-muted small">Todavía no hay correos adicionales configurados.</div>
-          {% endif %}
-
-          {% if CAN_EDIT_ARTISTS_STATIONS %}
-            <h6 class="mt-3 mb-2">Añadir correo adicional</h6>
-            <form method="post" action="{{ url_for('artist_email_create', artist_id=artist.id) }}" class="row g-2 align-items-end">
-              <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos') }}">
-              <div class="col-md-5">
-                <label class="form-label">Concepto</label>
-                <input name="concept" class="form-control" placeholder="Ej: Royalties, gestor" required>
-              </div>
-              <div class="col-md-5">
-                <label class="form-label">Email</label>
-                <input type="email" name="email" class="form-control" required>
-              </div>
-              <div class="col-md-2 d-grid">
-                <button class="btn btn-primary"><i class="fa fa-plus"></i> Añadir</button>
-              </div>
-            </form>
-          {% endif %}
-        </div>
-      </div>
-
-      {% if CAN_EDIT_ARTISTS_STATIONS %}
-      <div class="ficha-section">
-        <div class="ficha-section__head"><h6 class="ficha-section__title text-danger"><i class="fa fa-triangle-exclamation"></i>Zona peligrosa</h6></div>
-        <div class="ficha-section__body">
-          <form method="post" action="{{ url_for('artist_delete', artist_id=artist.id) }}" onsubmit="return confirm('¿Borrar artista?');"><input type="hidden" name="next" value="{{ url_for('artists_view') }}"><button class="btn btn-outline-danger"><i class="fa fa-trash me-1"></i>Eliminar artista</button></form>
-        </div>
-      </div>
-      {% endif %}
 
     </div>
 
-    <div class="col-12">
-      {# INTEGRANTES: antes era la pestaña «Personas». Vive aquí porque son los datos del artista. #}
-      <div class="ficha-section">
-        <div class="ficha-section__head">
-          <h6 class="ficha-section__title"><i class="fa fa-users"></i>Integrantes:</h6>
-        </div>
-        <div class="ficha-section__body">
-          {% include '_artist_members.html' %}
-        </div>
-      </div>
-    </div>
   </div>
   </div><!-- /artist-datos-zone -->
 

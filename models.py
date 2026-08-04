@@ -200,6 +200,59 @@ def ensure_artist_calendar_schema():
     ], "artist_calendar")
 
 
+class ArtistNotificationContact(Base):
+    """QUIÉN recibe las COMUNICACIONES de un artista y de qué.
+
+    Una persona (un tercero: normalmente un INTEGRANTE del artista, pero puede ser su mánager o su
+    gestor) con los canales que recibe: liquidaciones (y de qué conceptos del contrato), producción,
+    discográfica, editorial, promoción e invitaciones. Un mismo canal lo pueden recibir VARIAS
+    personas, y lo que se configure aquí manda en toda la app de ese momento en adelante."""
+
+    __tablename__ = "artist_notification_contacts"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="CASCADE"),
+                       nullable=False, index=True)
+    # La persona. Si es un tercero de la base, `promoter_id`; si se apuntó a mano, basta el correo.
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    name = Column(Text)
+    email = Column(Text)
+    # Canales que recibe: ["LIQUIDACIONES", "PRODUCCION", "DISCOGRAFICA", "EDITORIAL", "PROMOCION",
+    # "INVITACIONES"].
+    channels = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # Qué LIQUIDACIONES concretas (conceptos del contrato del artista: royalties, discográfico…).
+    liquidation_concepts = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    promoter = relationship("Promoter")
+
+    __table_args__ = (
+        Index("idx_artist_notif_contacts_artist", "artist_id"),
+    )
+
+
+def ensure_artist_notifications_schema():
+    """Tabla de contactos de comunicaciones de un artista (idempotente)."""
+    stmts = [
+        """
+        CREATE TABLE IF NOT EXISTS artist_notification_contacts (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            artist_id uuid NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+            promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL,
+            name text,
+            email text,
+            channels jsonb NOT NULL DEFAULT '[]'::jsonb,
+            liquidation_concepts jsonb NOT NULL DEFAULT '[]'::jsonb,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_artist_notif_contacts_artist ON artist_notification_contacts(artist_id);",
+    ]
+    _exec_ddl_statements(stmts, "artist_notifications")
+
+
 class ArtistEmail(Base):
     """Correos adicionales asociados a un artista.
 

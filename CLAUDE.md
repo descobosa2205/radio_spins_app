@@ -992,6 +992,30 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   pasarela). El fotógrafo es un tercero (`Promoter`) con alta rápida (`quick_create.js` sobre un
   `<select>` oculto) o «Desconocido».
 
+- **FICHA DEL ARTISTA · integrantes y NOTIFICACIONES** (ago 2026):
+  · En «Datos» va **primero el módulo INTEGRANTES**: por cada uno, a la izquierda foto + nombre, DNI,
+  nacimiento, email y teléfono, y debajo sus **tarjetas de fidelización y matrículas**; a la derecha
+  **solo el ANVERSO del DNI** (`.mem-dni`) y bajo él las **etiquetas de sus documentos** con icono
+  (`.mem-doc`) y un **+** que abre el panel para subir más. Uno debajo de otro.
+  · **Editar integrantes** (botón arriba del módulo): añadir y quitar solo se ven en modo edición
+  (`[data-members-only]`, que nacen con `d-none`).
+  · Debajo, **NOTIFICACIONES** (`templates/_artist_notifications.html`, antes «Emails adicionales»,
+  que se ha retirado): quién recibe cada comunicación. Modelo **`ArtistNotificationContact`**
+  (`ensure_artist_notifications_schema`): persona (tercero, se sugieren los INTEGRANTES que faltan) +
+  `channels` de `ARTIST_NOTIFICATION_CHANNELS` (LIQUIDACIONES · PRODUCCION · DISCOGRAFICA · EDITORIAL ·
+  PROMOCION · INVITACIONES) + `liquidation_concepts` (los conceptos del contrato del artista, que da
+  `_artist_liquidation_concepts`). **Un canal lo pueden recibir varias personas.** Endpoints
+  `artist_notification_contact_save` / `_delete`.
+  · **Punto ÚNICO para mandar: `_artist_notification_emails(session_db, artist_id, channel,
+  concept=None)`** — lo que se configure manda de ese momento en adelante. En LIQUIDACIONES, quien no
+  haya marcado conceptos recibe todas. ⚠️ Con **nadie** configurado en un canal cae al correo del
+  artista y a sus correos adicionales (`fallback=True`): mejor eso que no llegar a nadie. Ya
+  enganchado en las **liquidaciones de royalties** (`_beneficiary_email_delivery_data`), las
+  **certificaciones de disco** (`_artist_email_delivery_data` → canal DISCOGRAFICA) y el aviso de
+  **registro en SGAE** (canal EDITORIAL). Para cablear otro envío basta llamar a ese helper.
+  · **Eliminar un artista es SOLO de dirección** y vive en el **lápiz de la cabecera** (la «zona
+  peligrosa» de Datos se ha retirado).
+
 - **PERSONAS DEL ARTISTA = TERCEROS que forman parte de él** (`ArtistPerson.promoter_id`): un miembro
   de un grupo (o el solista) es un **tercero particular** con exactamente los mismos datos (DNI,
   pasaporte, carnet, tarjetas de fidelización, matrículas, necesidades de viaje, cuenta bancaria,

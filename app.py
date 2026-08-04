@@ -147,6 +147,8 @@ from models import (
     ArtistAgendaItem,
     ArtistCalendarLink,
     ArtistEmail,
+    ArtistNotificationContact,
+    ensure_artist_notifications_schema,
     ArtistContract,
     ArtistContractCommitment,
     Song,
@@ -1817,6 +1819,19 @@ def artist_detail_view(artist_id):
                           if tab in ("datos", "personas") else []),
             loyalty_brands=PERSON_LOYALTY_BRANDS,
             artist_email_addresses=artist_email_addresses,
+            # NOTIFICACIONES del artista: quién recibe qué (manda en toda la app).
+            notif_contacts=([{
+                "id": str(c.id),
+                "promoter_id": (str(c.promoter_id) if c.promoter_id else ""),
+                "name": _contact_name(c),
+                "email": _contact_email(c),
+                "photo_url": (getattr(getattr(c, "promoter", None), "logo_url", "") or ""),
+                "channels": [str(x).upper() for x in (c.channels or [])],
+                "liquidation_concepts": [str(x) for x in (c.liquidation_concepts or [])],
+            } for c in _artist_notification_contacts(session_db, artist.id)] if tab == "datos" else []),
+            notif_channels=ARTIST_NOTIFICATION_CHANNELS,
+            notif_liquidation_concepts=(_artist_liquidation_concepts(session_db, artist.id)
+                                        if tab == "datos" else []),
             contracts=contracts,
             songs=songs,
             albums=albums,
@@ -1962,6 +1977,84 @@ def artist_email_delete(artist_id, email_id):
     finally:
         session_db.close()
     return redirect(safe_next_or(url_for("artist_detail_view", artist_id=artist_id, tab="datos")))
+
+
+@app.post("/artistas/<artist_id>/notificaciones", endpoint="artist_notification_contact_save")
+@admin_required
+def artist_notification_contact_save(artist_id):
+    """Guarda QUÉ COMUNICACIONES recibe una persona de este artista (o la añade).
+
+    Lo que se configure aquí manda en toda la app de ese momento en adelante: quien esté marcado en
+    un canal es quien recibe los correos de ese concepto. Un canal lo pueden recibir varias personas."""
+    if not can_edit_artists_stations():
+        return forbid("Tu usuario no puede editar los artistas.")
+    session_db = db()
+    volver = safe_next_or(request.form.get("next")
+                          or url_for("artist_detail_view", artist_id=artist_id, tab="datos"))
+    try:
+        artist = session_db.get(Artist, to_uuid(artist_id))
+        if artist is None:
+            abort(404)
+        cid = (request.form.get("contact_id") or "").strip()
+        contacto = (session_db.get(ArtistNotificationContact, to_uuid(cid))
+                    if cid else None)
+        if contacto is not None and str(contacto.artist_id) != str(artist.id):
+            abort(404)
+        pid = to_uuid((request.form.get("promoter_id") or "").strip() or None)
+        nombre = (request.form.get("name") or "").strip() or None
+        correo = (request.form.get("email") or "").strip() or None
+        if correo and not _looks_like_email_address(correo):
+            flash("La dirección de correo no es válida.", "warning")
+            return redirect(volver)
+        canales = [x.strip().upper() for x in request.form.getlist("channels")
+                   if x.strip().upper() in ARTIST_NOTIFICATION_CHANNEL_KEYS]
+        conceptos = [x.strip() for x in request.form.getlist("liquidation_concepts") if x.strip()]
+        if contacto is None:
+            if not (pid or correo):
+                flash("Elige la persona o escribe un correo.", "warning")
+                return redirect(volver)
+            contacto = ArtistNotificationContact(artist_id=artist.id)
+            session_db.add(contacto)
+        if pid is not None or contacto.promoter_id is None:
+            contacto.promoter_id = pid
+        contacto.name = nombre
+        contacto.email = correo
+        contacto.channels = canales
+        # Los conceptos solo tienen sentido si recibe liquidaciones.
+        contacto.liquidation_concepts = (conceptos if "LIQUIDACIONES" in canales else [])
+        contacto.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Comunicaciones guardadas: %s." % (", ".join(
+            ARTIST_NOTIFICATION_CHANNEL_LABELS.get(k, k) for k in canales) or "ninguna"), "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudieron guardar las comunicaciones: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(volver)
+
+
+@app.post("/artistas/<artist_id>/notificaciones/<contact_id>/eliminar",
+          endpoint="artist_notification_contact_delete")
+@admin_required
+def artist_notification_contact_delete(artist_id, contact_id):
+    """Quita a una persona de las comunicaciones del artista."""
+    if not can_edit_artists_stations():
+        return forbid("Tu usuario no puede editar los artistas.")
+    session_db = db()
+    try:
+        row = session_db.get(ArtistNotificationContact, to_uuid(contact_id))
+        if row is not None and str(row.artist_id) == str(to_uuid(artist_id)):
+            session_db.delete(row)
+            session_db.commit()
+            flash("Se ha quitado de las comunicaciones.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo quitar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(request.form.get("next")
+                                 or url_for("artist_detail_view", artist_id=artist_id, tab="datos")))
 
 
 @app.post("/artistas/<artist_id>/delete")
@@ -4862,6 +4955,13 @@ def _artist_email_delivery_data(session_db, artist: Artist | None) -> dict:
     primary_email = (getattr(artist, 'email', None) or '').strip()
     people_count = session_db.query(ArtistPerson).filter(ArtistPerson.artist_id == artist.id).count()
     is_group = people_count > 1
+    # ⚠️ QUIÉN RECIBE lo DISCOGRÁFICO (una certificación de disco de oro, por ejemplo) lo manda el
+    # módulo «Notificaciones» de la ficha del artista. Sin nadie configurado, como antes.
+    canal_disc = []
+    try:
+        canal_disc = _artist_notification_emails(session_db, artist.id, "DISCOGRAFICA", fallback=False)
+    except Exception:
+        canal_disc = []
     extra_rows = (
         session_db.query(ArtistEmail)
         .filter(ArtistEmail.artist_id == artist.id)
@@ -4890,7 +4990,14 @@ def _artist_email_delivery_data(session_db, artist: Artist | None) -> dict:
         deduped.append((email, label))
 
     default_limit = 2 if is_group else 1
-    default_recipients = [email for email, _ in deduped[:default_limit]]
+    # Si hay gente configurada en el canal DISCOGRÁFICA, esos son los destinatarios por defecto.
+    if canal_disc:
+        default_recipients = list(canal_disc)
+        for correo in canal_disc:
+            if correo.lower() not in {e.lower() for e, _l in deduped}:
+                deduped.append((correo, 'Notificaciones discográficas'))
+    else:
+        default_recipients = [email for email, _ in deduped[:default_limit]]
     suggested_recipients = [email for email, _ in deduped]
     email_options = []
     for idx, (email, label) in enumerate(deduped):
@@ -5942,9 +6049,149 @@ EDITORIAL_CONTRACT_CONCEPTS = ["editorial", "editoriales", "edición", "edicion"
 PLATFORM_PUBLISHER_NAME = "plataforma musical"
 
 
+# ============ COMUNICACIONES DE UN ARTISTA: quién recibe qué (módulo «Notificaciones») ============
+# Se configura en la ficha del artista y manda en TODA la app de ese momento en adelante: quien esté
+# marcado en un canal es quien recibe los correos de ese concepto.
+ARTIST_NOTIFICATION_CHANNELS = [
+    ("LIQUIDACIONES", "Liquidaciones", "fa-file-invoice-dollar"),
+    ("PRODUCCION", "Producción", "fa-screwdriver-wrench"),
+    ("DISCOGRAFICA", "Discográfica", "fa-compact-disc"),
+    ("EDITORIAL", "Editorial", "fa-pen-nib"),
+    ("PROMOCION", "Promoción", "fa-bullhorn"),
+    ("INVITACIONES", "Invitaciones", "fa-envelope-open-text"),
+]
+ARTIST_NOTIFICATION_CHANNEL_KEYS = [k for k, _l, _i in ARTIST_NOTIFICATION_CHANNELS]
+ARTIST_NOTIFICATION_CHANNEL_LABELS = {k: l for k, l, _i in ARTIST_NOTIFICATION_CHANNELS}
+ARTIST_NOTIFICATION_CHANNEL_ICONS = {k: i for k, _l, i in ARTIST_NOTIFICATION_CHANNELS}
+
+
+def _artist_liquidation_concepts(session_db, artist_id) -> list[str]:
+    """Los CONCEPTOS de ingreso que tiene configurados el contrato del artista (discográfico,
+    editorial, catálogo, distribución…). Son las liquidaciones que puede recibir cada persona."""
+    aid = to_uuid(str(artist_id or ""))
+    if not aid:
+        return []
+    salida, vistos = [], set()
+    try:
+        filas = (session_db.query(ArtistContractCommitment.concept)
+                 .join(ArtistContract, ArtistContract.id == ArtistContractCommitment.contract_id)
+                 .filter(ArtistContract.artist_id == aid).all())
+    except Exception:
+        filas = []
+    for (concepto,) in filas:
+        texto = (concepto or "").strip()
+        clave = _norm_text_key(texto)
+        if not texto or clave in vistos:
+            continue
+        vistos.add(clave)
+        salida.append(texto)
+    # Los royalties se liquidan siempre (es la liquidación por excelencia), aunque el contrato no los
+    # nombre con esa palabra.
+    if "royalties" not in {_norm_text_key(x) for x in salida}:
+        salida.insert(0, "Royalties")
+    return salida
+
+
+def _artist_notification_contacts(session_db, artist_id) -> list:
+    """Los contactos de comunicaciones de un artista (los de su módulo «Notificaciones»)."""
+    aid = to_uuid(str(artist_id or ""))
+    if not aid:
+        return []
+    return (session_db.query(ArtistNotificationContact)
+            .options(joinedload(ArtistNotificationContact.promoter))
+            .filter(ArtistNotificationContact.artist_id == aid)
+            .order_by(ArtistNotificationContact.created_at.asc()).all())
+
+
+def _contact_email(contact) -> str:
+    """El correo de un contacto: el que se puso a mano o el de la ficha del tercero."""
+    directo = (getattr(contact, "email", None) or "").strip()
+    if directo:
+        return directo
+    prom = getattr(contact, "promoter", None)
+    return (getattr(prom, "contact_email", None) or "").strip()
+
+
+def _contact_name(contact) -> str:
+    nombre = (getattr(contact, "name", None) or "").strip()
+    if nombre:
+        return nombre
+    prom = getattr(contact, "promoter", None)
+    return (_promoter_display_name(prom) or (getattr(prom, "nick", None) or "").strip() or "Contacto")
+
+
+def _artist_notification_emails(session_db, artist_id, channel, *, concept=None,
+                                fallback=True) -> list[str]:
+    """A QUIÉN se le manda una comunicación de este artista por ese canal.
+
+    Es el punto ÚNICO que usa toda la app: lo que se configure en el módulo «Notificaciones» de la
+    ficha manda de ese momento en adelante. En LIQUIDACIONES, si se dice el `concept` solo reciben
+    quienes lo tengan marcado (o quienes no hayan marcado ninguno: eso significa «todas»).
+    Con `fallback` (por defecto) y sin nadie configurado, se cae al correo del artista y a sus correos
+    adicionales, que es lo que había antes: así no deja de llegar nada por no haberlo configurado."""
+    aid = to_uuid(str(artist_id or ""))
+    canal = (channel or "").strip().upper()
+    if not aid or canal not in ARTIST_NOTIFICATION_CHANNEL_KEYS:
+        return []
+    salida, vistos = [], set()
+    for c in _artist_notification_contacts(session_db, aid):
+        canales = {str(x).strip().upper() for x in (getattr(c, "channels", None) or [])}
+        if canal not in canales:
+            continue
+        if canal == "LIQUIDACIONES" and concept:
+            marcados = {_norm_text_key(x) for x in (getattr(c, "liquidation_concepts", None) or [])}
+            if marcados and _norm_text_key(concept) not in marcados:
+                continue
+        correo = _contact_email(c)
+        clave = correo.lower()
+        if correo and "@" in correo and clave not in vistos:
+            vistos.add(clave)
+            salida.append(correo)
+    if salida or not fallback:
+        return salida
+    # Nada configurado: como antes (correo principal del artista + sus correos adicionales).
+    try:
+        artist = session_db.get(Artist, aid)
+        principal = (getattr(artist, "email", None) or "").strip()
+        if principal and "@" in principal:
+            salida.append(principal)
+            vistos.add(principal.lower())
+        for row in (session_db.query(ArtistEmail)
+                    .filter(ArtistEmail.artist_id == aid).all()):
+            correo = (getattr(row, "email", None) or "").strip()
+            if correo and "@" in correo and correo.lower() not in vistos:
+                vistos.add(correo.lower())
+                salida.append(correo)
+    except Exception:
+        pass
+    return salida
+
+
 def _publisher_is_platform(publisher) -> bool:
     """¿Esta editorial somos nosotros (Plataforma Musical)?"""
     return _norm_text_key(getattr(publisher, "name", "") or "") == _norm_text_key(PLATFORM_PUBLISHER_NAME)
+
+
+def _share_split_frozen(share) -> bool:
+    """¿Este registro de autoría YA tiene su reparto fijado (a mano o congelado al registrar)?"""
+    if bool(getattr(share, "special_split", False)) and (
+            getattr(share, "special_pct_author", None) is not None
+            or getattr(share, "special_pct_platform", None) is not None):
+        return True
+    return getattr(share, "split_pct_author", None) is not None
+
+
+def _share_split_applies_live(share) -> bool:
+    """¿Se le puede CALCULAR hoy el reparto a esta parte autoral?
+
+    Hacen falta las dos cosas: que el registro sea de **Plataforma Musical** (la editorial congelada en
+    el propio registro) y que el autor **siga siendo nuestro** ahora mismo. Si deja de serlo —le cambian
+    la editorial o se la quitan— de ahí en adelante no se aplica ningún porcentaje; lo anterior se
+    mantiene porque quedó congelado al registrar la obra (`_share_split_frozen`)."""
+    if not _publisher_is_platform(_share_publisher(share)):
+        return False
+    promoter = getattr(share, "promoter", None)
+    return _publisher_is_platform(getattr(promoter, "publishing_company", None) if promoter else None)
 
 
 def _song_registration_date(session_db, song, status=None):
@@ -6062,7 +6309,10 @@ def _song_editorial_split_map(session_db, song, shares=None, status=None) -> dic
     reg_date = _song_registration_date(session_db, song, status=status)
     salida = {}
     for share in shares or []:
-        if not _publisher_is_platform(_share_publisher(share)):
+        # Lo que ya está FIJADO (congelado al registrar o a mano) se enseña siempre, aunque el autor
+        # haya dejado de ser de Plataforma: lo anterior se mantiene. Lo que no está fijado solo se
+        # calcula mientras el autor siga siendo nuestro.
+        if not (_share_split_frozen(share) or _share_split_applies_live(share)):
             continue
         # El contrato es del ARTISTA del que este autor es INTEGRANTE (no el de la canción a secas).
         contrato = _editorial_split_for_author(
@@ -6124,7 +6374,9 @@ def _freeze_song_editorial_split(session_db, song, shares=None) -> None:
             .all()
         )
     for share in shares or []:
-        if not _publisher_is_platform(_share_publisher(share)):
+        # Si el autor ya no es de Plataforma no se congela nada nuevo: de ahí en adelante no se aplican
+        # porcentajes (lo que se registró cuando era nuestro ya está congelado y se mantiene).
+        if not _share_split_applies_live(share):
             continue
         if bool(getattr(share, "special_split", False)):
             continue
@@ -6140,6 +6392,116 @@ def _freeze_song_editorial_split(session_db, song, shares=None) -> None:
         share.split_pct_platform = contrato["pct_platform"]
         share.split_frozen_at = datetime.now(TZ_MADRID)
         session_db.add(share)
+
+
+# ---- Relleno PUNTUAL del reparto editorial de las obras que ya estaban registradas ----------------
+# ⚠️ Esto NO es la norma. La norma es la de arriba: el reparto se congela **al registrar** la obra en
+# SGAE. Esto es un relleno de UNA SOLA VEZ (marca en `AppSetting`) para poner al día las obras que ya
+# estaban registradas antes de que existiera el reparto, respetando las dos reglas de siempre:
+#   · manda el contrato editorial VIGENTE EL DÍA DE SU REGISTRO — si después se firmó otro con
+#     porcentajes distintos, ese solo vale de su firma en adelante (`as_of_date` + `material_scope`);
+#   · si el autor ya no es de Plataforma Musical (le cambiaron la editorial o se la quitaron), de ahí
+#     en adelante no se le aplica nada, y lo anterior se queda como estaba.
+# Las obras que AÚN NO están registradas no se tocan a propósito: su reparto se decide el día que se
+# registren, y hasta entonces la ficha ya lo enseña calculado con el contrato de hoy.
+EDITORIAL_SPLIT_BACKFILL_KEY = "editorial_split_backfill_v1"
+
+
+def _editorial_split_backfill(session_db=None) -> dict:
+    """Congela el reparto editorial de las obras YA REGISTRADAS que no lo tenían. Devuelve el recuento."""
+    propia = session_db is None
+    if propia:
+        session_db = db()
+    salida = {"revisadas": 0, "congeladas": 0, "ya_fijadas": 0,
+              "sin_registrar": 0, "sin_contrato": 0, "obras": 0, "error": False}
+    try:
+        plataforma = (session_db.query(PublishingCompany)
+                      .filter(func.lower(PublishingCompany.name) == PLATFORM_PUBLISHER_NAME)
+                      .first())
+        if plataforma is None:
+            return salida
+        # Partes de autoría que son de Plataforma: por el snapshot del propio registro o, en los
+        # registros antiguos que no lo tienen, por la editorial actual del tercero.
+        shares = (
+            session_db.query(SongEditorialShare)
+            .join(Promoter, Promoter.id == SongEditorialShare.promoter_id)
+            .options(joinedload(SongEditorialShare.promoter).joinedload(Promoter.publishing_company),
+                     joinedload(SongEditorialShare.publishing_company))
+            .filter(or_(SongEditorialShare.publishing_company_id == plataforma.id,
+                        and_(SongEditorialShare.publishing_company_id.is_(None),
+                             Promoter.publishing_company_id == plataforma.id)))
+            .all()
+        )
+        if not shares:
+            return salida
+        song_ids = sorted({sh.song_id for sh in shares if sh.song_id}, key=lambda x: str(x))
+        canciones = {c.id: c for c in (session_db.query(Song)
+                                       .options(selectinload(Song.artists))
+                                       .filter(Song.id.in_(song_ids)).all())}
+        estados = {r.song_id: r for r in (session_db.query(SongStatus)
+                                          .filter(SongStatus.song_id.in_(song_ids)).all())
+                   if r and r.song_id}
+        ahora = datetime.now(TZ_MADRID)
+        tocadas = set()
+        for share in shares:
+            salida["revisadas"] += 1
+            if _share_split_frozen(share):
+                salida["ya_fijadas"] += 1
+                continue
+            song = canciones.get(share.song_id)
+            estado = estados.get(share.song_id)
+            if song is None or not bool(getattr(estado, "sgae_done", False)):
+                salida["sin_registrar"] += 1
+                continue
+            # El día que se registró la obra: es el que decide qué condiciones se le aplican. Si no
+            # quedó apuntado, se usa su fecha de publicación (nunca un contrato posterior).
+            registrado = getattr(estado, "sgae_updated_at", None)
+            try:
+                fecha = registrado.date() if registrado is not None else None
+            except Exception:
+                fecha = None
+            fecha = fecha or getattr(song, "release_date", None) or today_local()
+            contrato = _editorial_split_for_author(
+                session_db, song, share,
+                as_of=fecha, material_date=getattr(song, "release_date", None))
+            if not contrato["found"]:
+                salida["sin_contrato"] += 1
+                continue
+            share.split_pct_author = contrato["pct_author"]
+            share.split_pct_platform = contrato["pct_platform"]
+            share.split_frozen_at = ahora
+            session_db.add(share)
+            salida["congeladas"] += 1
+            tocadas.add(str(share.song_id))
+        salida["obras"] = len(tocadas)
+        session_db.commit()
+    except Exception:
+        session_db.rollback()
+        salida["error"] = True
+        app.logger.exception("_editorial_split_backfill")
+    finally:
+        if propia:
+            session_db.close()
+    return salida
+
+
+def _editorial_split_backfill_once():
+    """El relleno de arriba, UNA SOLA VEZ (marca en `AppSetting`). No se repite en cada arranque."""
+    if (_get_app_setting(EDITORIAL_SPLIT_BACKFILL_KEY) or "").strip() == "done":
+        return
+    # `_promoter_member_artist_ids` cachea en `g`, así que hace falta contexto de aplicación (esto
+    # corre en el hilo del arranque, fuera de una petición).
+    with app.app_context():
+        datos = _editorial_split_backfill()
+    if datos.get("error"):
+        # Si se ha caído a medias NO se marca: así el siguiente arranque lo vuelve a intentar en vez
+        # de dejar las obras antiguas sin poner al día para siempre.
+        return
+    _set_app_setting(EDITORIAL_SPLIT_BACKFILL_KEY, "done")
+    app.logger.info("Reparto editorial puesto al día: %s partes de autoría congeladas en %s obras "
+                    "(%s ya lo tenían, %s sin registrar en SGAE, %s sin contrato editorial), de %s "
+                    "revisadas.", datos["congeladas"], datos["obras"], datos["ya_fijadas"],
+                    datos["sin_registrar"], datos["sin_contrato"], datos["revisadas"])
 
 
 def _song_editorial_split_rows(session_db, song, status=None) -> list[dict]:
@@ -6849,7 +7211,18 @@ def _beneficiary_email_delivery_data(session_db, kind: str, beneficiary_id) -> d
         )
         fallback_email = (getattr(contact, 'email', None) or '').strip()
 
-    default_recipients = _dedupe_valid_email_addresses([primary_email] + royalty_extra)
+    # ⚠️ QUIÉN RECIBE manda desde el módulo «Notificaciones» de la ficha del artista: si hay alguien
+    # marcado en LIQUIDACIONES (de este concepto), esos son los destinatarios por defecto. Sin nadie
+    # configurado se sigue como antes (correo principal + los adicionales de royalties).
+    configurados = []
+    if kind == 'ARTIST':
+        try:
+            configurados = _artist_notification_emails(session_db, bid, "LIQUIDACIONES",
+                                                       concept="Royalties", fallback=False)
+        except Exception:
+            configurados = []
+    default_recipients = _dedupe_valid_email_addresses(
+        configurados or ([primary_email] + royalty_extra))
     if not default_recipients and fallback_email:
         default_recipients = _dedupe_valid_email_addresses([fallback_email])
 
@@ -7010,6 +7383,16 @@ def _song_sgae_platform_author_delivery(session_db, song: Song) -> dict:
     authors = []
     default_recipients = []
     suggested_recipients = []
+    # ⚠️ Además del autor, reciben lo EDITORIAL quienes estén marcados en ese canal en la ficha del
+    # artista (módulo «Notificaciones»).
+    try:
+        _art_ed = _song_primary_artist(session_db, song)
+        for _correo in _artist_notification_emails(session_db, getattr(_art_ed, "id", None),
+                                                   "EDITORIAL", fallback=False):
+            default_recipients.append(_correo)
+            suggested_recipients.append(_correo)
+    except Exception:
+        pass
     seen_authors = set()
 
     for share in shares or []:
@@ -39891,6 +40274,7 @@ def _bootstrap_schema_bg():
         (ensure_artist_templates_schema, "ensure_artist_templates_schema"),
         (ensure_push_schema, "ensure_push_schema"),
         (ensure_notifications_schema, "ensure_notifications_schema"),
+        (ensure_artist_notifications_schema, "ensure_artist_notifications_schema"),
         (ensure_app_settings_schema, "ensure_app_settings_schema"),
     ]:
         _safe_ensure(_fn, _name)
@@ -39907,6 +40291,11 @@ def _bootstrap_schema_bg():
     # `_royalty_freeze_backfill`.
     _safe_ensure(lambda: globals()["_royalty_freeze_backfill_once"](),
                  "_royalty_freeze_backfill_once")
+    # Una sola vez: poner al día el REPARTO EDITORIAL de las obras que ya estaban registradas en SGAE
+    # antes de que existiera (se congela con el contrato vigente el día de SU registro). Es un relleno
+    # puntual, no la norma: lo normal es que se congele al registrar. Ver `_editorial_split_backfill`.
+    _safe_ensure(lambda: globals()["_editorial_split_backfill_once"](),
+                 "_editorial_split_backfill_once")
     # Una sola vez: devolverles su tipo a los contenedores de EVENTO que el modal de editar degradó
     # a ciclo. Va aquí (con marca) y NO como sentencia del esquema: si corriera en cada arranque
     # convertiría en EVENTO las giras y ciclos legítimos de un evento creados después.

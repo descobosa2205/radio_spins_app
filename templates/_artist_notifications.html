@@ -1,0 +1,222 @@
+{# NOTIFICACIONES DEL ARTISTA: quién recibe cada comunicación.
+   Antes esto era el módulo de «Emails». Lo que se configura aquí manda en TODA la app de este
+   momento en adelante: quien esté marcado en un canal es quien recibe los correos de ese concepto, y
+   un mismo canal lo pueden recibir varias personas.
+   Requiere: `artist`, `notif_contacts`, `notif_channels`, `notif_liquidation_concepts`, `people`
+   (los integrantes, para sugerirlos) y `CAN_EDIT_ARTISTS_STATIONS`. #}
+<div class="ficha-section">
+  <div class="ficha-section__head">
+    <h6 class="ficha-section__title"><i class="fa fa-bell"></i>Notificaciones:</h6>
+    {% if CAN_EDIT_ARTISTS_STATIONS %}
+      <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#notifContactModal"
+              data-notif-new title="Añadir a alguien a las comunicaciones"><i class="fa fa-plus"></i></button>
+    {% endif %}
+  </div>
+  <div class="ficha-section__body">
+    <div class="text-muted small mb-3">
+      Quién recibe las comunicaciones de {{ artist.name }}. Lo que se configure aquí es lo que usa la
+      app para mandar cada cosa.
+    </div>
+
+    {% if notif_contacts %}
+      <div class="d-flex flex-column gap-2">
+        {% for c in notif_contacts %}
+          <div class="notif-contact">
+            <img src="{{ c.photo_url or DEFAULT_PHOTO_URL }}" alt="" class="notif-contact__photo" data-default-photo="1">
+            <div class="notif-contact__body">
+              <div class="fw-semibold">{{ c.name }}</div>
+              <div class="small text-muted">{% if c.email %}{{ c.email }}{% else %}<span class="text-danger">sin correo</span>{% endif %}</div>
+              <div class="d-flex flex-wrap gap-1 mt-1">
+                {% for key, label, icon in notif_channels %}
+                  {% if key in c.channels %}
+                    <span class="notif-chan" title="{{ label }}"><i class="fa {{ icon }}"></i>{{ label }}</span>
+                  {% endif %}
+                {% endfor %}
+                {% if not c.channels %}<span class="text-muted small">Sin comunicaciones marcadas</span>{% endif %}
+              </div>
+              {% if 'LIQUIDACIONES' in c.channels %}
+                <div class="small text-muted mt-1">
+                  <i class="fa fa-file-invoice-dollar me-1"></i>
+                  {% if c.liquidation_concepts %}{{ c.liquidation_concepts|join(' · ') }}
+                  {% else %}Todas las liquidaciones{% endif %}
+                </div>
+              {% endif %}
+            </div>
+            {% if CAN_EDIT_ARTISTS_STATIONS %}
+              <div class="d-flex gap-1 align-items-start">
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#notifContactModal"
+                        data-notif-edit='{{ c|tojson }}' title="Qué comunicaciones recibe"><i class="fa fa-pen"></i></button>
+                <form method="post" action="{{ url_for('artist_notification_contact_delete', artist_id=artist.id, contact_id=c.id) }}"
+                      onsubmit="return confirm('¿Quitar a {{ c.name }} de las comunicaciones?');">
+                  <input type="hidden" name="next" value="{{ request.url }}">
+                  <button class="btn btn-sm btn-outline-danger" title="Quitar"><i class="fa fa-xmark"></i></button>
+                </form>
+              </div>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="alert alert-light border mb-0 small">
+        Todavía no hay nadie configurado: por ahora las comunicaciones van al correo del artista.
+        {% if CAN_EDIT_ARTISTS_STATIONS %}Añade a alguien con el <i class="fa fa-plus"></i>.{% endif %}
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if CAN_EDIT_ARTISTS_STATIONS %}
+{# Elegir persona → qué comunicaciones recibe. Se sugieren los INTEGRANTES que aún no están. #}
+<div class="modal fade" id="notifContactModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg"><div class="modal-content">
+    <form method="post" action="{{ url_for('artist_notification_contact_save', artist_id=artist.id) }}">
+      <input type="hidden" name="next" value="{{ request.url }}">
+      <input type="hidden" name="contact_id" data-notif-id value="">
+      <input type="hidden" name="promoter_id" data-notif-promoter value="">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-bell me-2 text-muted"></i><span data-notif-title>Añadir a las comunicaciones</span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        {# ---------- PASO 1: quién ---------- #}
+        <div data-notif-step="who">
+          <div class="fw-semibold small mb-2">¿Quién recibe las comunicaciones?</div>
+          {% set ya = notif_contacts|map(attribute='promoter_id')|list %}
+          {% set sugeridos = people|selectattr('promoter_id')|rejectattr('promoter_id', 'in', ya)|list %}
+          {% if sugeridos %}
+            <div class="text-muted small mb-2">Integrantes de {{ artist.name }} que todavía no están:</div>
+            <div class="row g-2 mb-3">
+              {% for p in sugeridos %}
+                <div class="col-6 col-md-4">
+                  <button type="button" class="activity-choice-card border rounded p-2 d-flex gap-2 align-items-center w-100 bg-white text-start"
+                          data-notif-pick="{{ p.promoter_id }}"
+                          data-notif-pick-name="{{ ((p.first_name or '') ~ ' ' ~ (p.last_name or ''))|trim }}">
+                    <i class="fa fa-user text-muted"></i>
+                    <span class="fw-semibold small">{{ ((p.first_name or '') ~ ' ' ~ (p.last_name or ''))|trim }}</span>
+                  </button>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+          <div class="row g-2 align-items-end">
+            <div class="col-12 col-md-7">
+              <label class="form-label small">Buscar un tercero <span class="text-muted">(o crearlo con el +)</span></label>
+              <div class="input-group">
+                <select class="form-select select-providers" id="notifPromoterPick"></select>
+                <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter" data-target="notifPromoterPick"><i class="fa fa-plus"></i></button>
+              </div>
+            </div>
+            <div class="col-12 col-md-5">
+              <label class="form-label small">Correo <span class="text-muted">(si quieres otro)</span></label>
+              <input class="form-control" name="email" data-notif-email placeholder="correo@ejemplo.com">
+            </div>
+            <div class="col-12">
+              <label class="form-label small">Nombre <span class="text-muted">(opcional)</span></label>
+              <input class="form-control" name="name" data-notif-name placeholder="Como quieras que se vea">
+            </div>
+          </div>
+        </div>
+
+        <hr>
+
+        {# ---------- PASO 2: qué comunicaciones ---------- #}
+        <div class="fw-semibold small mb-2">¿Qué comunicaciones recibe?</div>
+        <div class="row g-2">
+          {% for key, label, icon in notif_channels %}
+            <div class="col-12 col-md-6">
+              <label class="notif-chan-pick border rounded p-2 d-flex gap-2 align-items-center w-100 bg-white">
+                <input class="form-check-input m-0" type="checkbox" name="channels" value="{{ key }}"
+                       data-notif-chan="{{ key }}">
+                <span class="notif-chan__ico"><i class="fa {{ icon }}"></i></span>
+                <span class="fw-semibold small">{{ label }}</span>
+              </label>
+            </div>
+          {% endfor %}
+        </div>
+
+        {# Liquidaciones: QUÉ liquidaciones (los conceptos del contrato del artista). #}
+        <div class="mt-3 d-none" data-notif-liq>
+          <div class="fw-semibold small mb-2"><i class="fa fa-file-invoice-dollar me-1"></i>¿Qué liquidaciones?</div>
+          {% if notif_liquidation_concepts %}
+            <div class="d-flex flex-wrap gap-2">
+              {% for concepto in notif_liquidation_concepts %}
+                <label class="filter-chip">
+                  <input type="checkbox" name="liquidation_concepts" value="{{ concepto }}" data-notif-liq-item>
+                  <i class="fa fa-file-invoice-dollar"></i>{{ concepto }}
+                </label>
+              {% endfor %}
+            </div>
+            <div class="form-text">Si no marcas ninguna, recibe todas.</div>
+          {% else %}
+            <div class="alert alert-light border small mb-0">
+              Este artista no tiene conceptos en su contrato todavía: recibirá todas las liquidaciones.
+            </div>
+          {% endif %}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary">Guardar</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+<script>
+(function () {
+  var modal = document.getElementById('notifContactModal');
+  if (!modal || modal.__wired) return;
+  modal.__wired = true;
+  function q(sel) { return modal.querySelector(sel); }
+
+  // Liquidaciones: los conceptos solo se preguntan si recibe liquidaciones.
+  function syncLiq() {
+    var chk = q('[data-notif-chan="LIQUIDACIONES"]');
+    var zona = q('[data-notif-liq]');
+    if (zona) zona.classList.toggle('d-none', !(chk && chk.checked));
+  }
+  modal.addEventListener('change', function (e) {
+    if (e.target.matches('[data-notif-chan]')) syncLiq();
+  });
+
+  // Sugerencias: al pinchar un integrante queda elegido.
+  modal.addEventListener('click', function (e) {
+    var pick = e.target.closest('[data-notif-pick]');
+    if (!pick) return;
+    q('[data-notif-promoter]').value = pick.getAttribute('data-notif-pick') || '';
+    q('[data-notif-name]').value = pick.getAttribute('data-notif-pick-name') || '';
+    modal.querySelectorAll('[data-notif-pick]').forEach(function (b) { b.classList.remove('is-selected'); });
+    pick.classList.add('is-selected');
+  });
+
+  // El buscador de terceros rellena el mismo hidden.
+  var sel = document.getElementById('notifPromoterPick');
+  if (sel) {
+    sel.addEventListener('change', function () {
+      q('[data-notif-promoter]').value = sel.value || '';
+    });
+  }
+
+  // Abrir en modo NUEVO o EDITAR.
+  document.addEventListener('click', function (e) {
+    var nuevo = e.target.closest('[data-notif-new]');
+    var editar = e.target.closest('[data-notif-edit]');
+    if (!nuevo && !editar) return;
+    var datos = editar ? JSON.parse(editar.getAttribute('data-notif-edit') || '{}') : {};
+    q('[data-notif-title]').textContent = editar ? 'Comunicaciones de ' + (datos.name || '') : 'Añadir a las comunicaciones';
+    q('[data-notif-id]').value = datos.id || '';
+    q('[data-notif-promoter]').value = datos.promoter_id || '';
+    q('[data-notif-name]').value = datos.name || '';
+    q('[data-notif-email]').value = datos.email || '';
+    var paso = q('[data-notif-step="who"]');
+    if (paso) paso.classList.toggle('d-none', !!editar);
+    modal.querySelectorAll('[data-notif-chan]').forEach(function (c) {
+      c.checked = (datos.channels || []).indexOf(c.value) >= 0;
+    });
+    modal.querySelectorAll('[data-notif-liq-item]').forEach(function (c) {
+      c.checked = (datos.liquidation_concepts || []).indexOf(c.value) >= 0;
+    });
+    syncLiq();
+  });
+})();
+</script>
+{% endif %}

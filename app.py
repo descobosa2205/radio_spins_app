@@ -274,8 +274,10 @@ from models import (
     PleoEmployeeLink,
     CabifyAccount,
     CabifyUserLink,
+    HoldedAccount,
     ensure_pleo_schema,
     ensure_cabify_schema,
+    ensure_holded_schema,
     PersonDocRequest,
     ThirdPartyIntakeLink,
     ensure_third_party_intake_schema,
@@ -763,7 +765,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_expired_documents", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
+    allowed = {"landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
     if request.endpoint in allowed:
         return
 
@@ -1283,6 +1285,9 @@ def inject_globals():
         artist_chip=artist_chip,
         artist_avatar=artist_avatar,
         linked_mini=linked_mini,
+        # DIRECCIÓN FISCAL: se pide en piezas (Holded las necesita separadas) y se muestra junta.
+        fiscal_parts=_fiscal_parts_for_form,
+        fiscal_address_text=_fiscal_address_text,
         CONCERT_CONTACT_ROLES=CONCERT_CONTACT_ROLES,
         AGENDA_KIND_ORDER=AGENDA_KIND_ORDER,
         AGENDA_KIND_META=AGENDA_KIND_META,
@@ -2309,10 +2314,12 @@ def artist_person_data_save(person_id):
             return redirect(volver)
         for attr, campo in (("tax_id", "tax_id"), ("contact_email", "contact_email"),
                             ("contact_phone", "contact_phone"), ("address", "address"),
-                            ("fiscal_address", "fiscal_address"), ("bank_account", "bank_account"),
-                            ("hotel_notes", "hotel_notes")):
+                            ("bank_account", "bank_account"), ("hotel_notes", "hotel_notes")):
             if campo in request.form:
                 setattr(promoter, attr, (request.form.get(campo) or "").strip() or None)
+        # Dirección fiscal EN PIEZAS (la contabilidad necesita CP, municipio y provincia aparte).
+        if "fiscal_address" in request.form or "fiscal_postal_code" in request.form:
+            _apply_fiscal_address(promoter, _fiscal_form_values(request.form))
         # Necesidades de viaje (mismo panel que en tercero y personal).
         if request.form.get("travel_prefs_present"):
             promoter.travel_notes = (request.form.get("travel_notes") or "").strip() or None
@@ -2689,7 +2696,7 @@ def _concert_contract_sheet_seed(concert: Concert | None) -> dict:
         'company_tax_id': (getattr(billing_company, 'tax_info', None) or '').strip(),
         'local_legal_name': (getattr(promoter_company, 'legal_name', None) or '').strip(),
         'local_tax_id': (getattr(promoter_company, 'tax_id', None) or '').strip(),
-        'local_address': (getattr(promoter_company, 'fiscal_address', None) or '').strip(),
+        'local_address': _fiscal_address_text(promoter_company),
         'economics_cache': _concert_cache_summary(concert) or '',
         'show_types': ([_sale_type_label(getattr(concert, 'sale_type', None), getattr(concert, 'activity_type', None))]
                         if getattr(concert, 'sale_type', None) else []),
@@ -2706,7 +2713,7 @@ def _serialize_promoter_company(row: PromoterCompany | None) -> dict:
         'id': str(row.id),
         'legal_name': (row.legal_name or '').strip(),
         'tax_id': (row.tax_id or '').strip(),
-        'fiscal_address': (row.fiscal_address or '').strip(),
+        'fiscal_address': _fiscal_address_text(row),
     }
 
 
@@ -22156,6 +22163,11 @@ def promoter_update(pid):
     p.contact_phone = (request.form.get("contact_phone") or p.contact_phone or "").strip() or None
     if "address" in request.form:
         p.address = (request.form.get("address") or "").strip() or None
+    # DIRECCIÓN FISCAL en piezas (calle, CP, municipio, provincia, país): es la que se manda a Holded
+    # al crear el proveedor. Solo se toca si el formulario la trae, para no pisarla desde otras
+    # pantallas que también guardan terceros.
+    if "fiscal_address" in request.form or "fiscal_postal_code" in request.form:
+        _apply_fiscal_address(p, _fiscal_form_values(request.form))
     if "hotel_notes" in request.form:
         p.hotel_notes = (request.form.get("hotel_notes") or "").strip() or None
     # Necesidades de viaje (solo si el formulario las trae, para no pisarlas desde otras pantallas).
@@ -36625,8 +36637,9 @@ def promoter_company_create(pid):
             promoter_id=promoter.id,
             legal_name=legal_name,
             tax_id=(request.form.get('tax_id') or '').strip() or None,
-            fiscal_address=(request.form.get('fiscal_address') or '').strip() or None,
         )
+        # Dirección fiscal en piezas (Holded las necesita separadas para crear el contacto).
+        _apply_fiscal_address(company, _fiscal_form_values(request.form))
         session.add(company)
         session.flush()
         linked_embargos = _auto_link_embargo_orders_for_promoter(session, promoter) if "_auto_link_embargo_orders_for_promoter" in globals() else 0
@@ -36653,7 +36666,7 @@ def promoter_company_update(pid, company_id):
             return redirect(url_for('promoter_detail_view', pid=pid, tab='general'))
         company.legal_name = (request.form.get('legal_name') or company.legal_name or '').strip()
         company.tax_id = (request.form.get('tax_id') or '').strip() or None
-        company.fiscal_address = (request.form.get('fiscal_address') or '').strip() or None
+        _apply_fiscal_address(company, _fiscal_form_values(request.form))
         company.updated_at = datetime.now(ZoneInfo('Europe/Madrid'))
         promoter = session.get(Promoter, company.promoter_id) if company.promoter_id else None
         linked_embargos = _auto_link_embargo_orders_for_promoter(session, promoter) if promoter and "_auto_link_embargo_orders_for_promoter" in globals() else 0
@@ -40270,6 +40283,7 @@ def _bootstrap_schema_bg():
         (ensure_enterticket_schema, "ensure_enterticket_schema"),
         (ensure_pleo_schema, "ensure_pleo_schema"),
         (ensure_cabify_schema, "ensure_cabify_schema"),
+        (ensure_holded_schema, "ensure_holded_schema"),
         (ensure_third_party_intake_schema, "ensure_third_party_intake_schema"),
         (ensure_artist_templates_schema, "ensure_artist_templates_schema"),
         (ensure_push_schema, "ensure_push_schema"),
@@ -45036,7 +45050,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -45376,6 +45390,8 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         "pleo_account_sync": "integraciones", "pleo_employee_link_save": "integraciones",
         "cabify_account_save": "integraciones", "cabify_account_test": "integraciones",
         "cabify_account_sync": "integraciones", "cabify_user_link_save": "integraciones",
+        # Holded se configura por empresa desde Integraciones (los endpoints exigen además dirección).
+        "holded_account_save": "integraciones", "holded_account_test": "integraciones",
         # Chartmetric: re-resolver, vincular a mano (enlace pegado o buscador) y limpiar un enlace. Los
         # endpoints exigen además dirección o edición en discográfica.
         "cm_song_reresolve": "integraciones", "cm_album_reresolve": "integraciones",
@@ -45424,8 +45440,10 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return "produccion"
     if endpoint == "administracion_view":
         return "administracion"
-    if endpoint == "contabilidad_view":
+    if endpoint == "contabilidad_view" or endpoint.startswith("accounting_"):
         return "contabilidad"
+    if endpoint.startswith("holded_account_"):
+        return "integraciones"
     if endpoint == "personnel_view":
         return "personal.usuarios"
     if endpoint in {"personnel_detail_view", "personnel_bulk_access", "personnel_document_save",
@@ -46152,8 +46170,11 @@ def _resolve_request_resource_key() -> str | None:
         return "playlisting"
     if (endpoint == "integrations_view" or endpoint.startswith("pleo_")
             or endpoint.startswith("cabify_") or endpoint.startswith("cm_")
-            or endpoint == "api_cm_search"):
+            or endpoint.startswith("holded_account_") or endpoint == "api_cm_search"):
         return "integraciones"
+    # Contabilidad: subir a Holded, cambiar el estado contable, omitir… todo cuelga de la sección.
+    if endpoint == "contabilidad_view" or endpoint.startswith("accounting_"):
+        return "contabilidad"
     auto_key = f"auto.{endpoint}"
     if auto_key in _ACCESS_RESOURCE_MAP:
         return auto_key
@@ -51467,6 +51488,13 @@ def _payment_expense_row(session_db, expense) -> dict:
         "invoice_number": (getattr(expense, "invoice_number", None) or ""),
         "batch_id": batch_id,
         "in_batch": bool(batch_id),
+        # Estado CONTABLE: un gasto ya contabilizado se ve como tal en cualquier pantalla donde salga.
+        "accounting_status": (getattr(expense, "accounting_status", None) or "PENDIENTE").upper(),
+        "accounting_label": _accounting_status_meta(getattr(expense, "accounting_status", None))[0],
+        "accounting_badge": _accounting_status_meta(getattr(expense, "accounting_status", None))[1],
+        "accounting_icon": _accounting_status_meta(getattr(expense, "accounting_status", None))[2],
+        "accounting_at": (expense.accounting_at.strftime("%d/%m/%Y %H:%M")
+                          if getattr(expense, "accounting_at", None) else ""),
     }
 
 
@@ -51715,10 +51743,19 @@ def _royalty_mark_paid(rec, *, method: str = "", batch=None):
 
 
 def _royalty_accounting_pending_rows(session_db, limit: int = 300) -> list[dict]:
-    """Liquidaciones PAGADAS que contabilidad todavía no ha contabilizado."""
+    """Liquidaciones PAGADAS que contabilidad todavía no ha contabilizado.
+
+    ⚠️ Solo entra lo que ADMINISTRACIÓN HA VALIDADO: se cruza con su factura (`SupplierInvoice`
+    en estado VALIDADA). Sin ese cruce se colaban liquidaciones que alguien había marcado pagadas a
+    mano sin factura —las pruebas antiguas, ninguna con número de factura— y contabilidad empezaba con
+    trabajo que no existía. Nada se borra: simplemente no es pendiente de contabilizar lo que no ha
+    pasado por administración.
+    """
     try:
         recs = (session_db.query(RoyaltyLiquidation)
+                .join(SupplierInvoice, SupplierInvoice.id == RoyaltyLiquidation.invoice_id)
                 .filter(func.upper(func.coalesce(RoyaltyLiquidation.status, "")) == "PAID")
+                .filter(func.upper(func.coalesce(SupplierInvoice.status, "")) == "VALIDADA")
                 .filter(RoyaltyLiquidation.accounted_at.is_(None))
                 .order_by(RoyaltyLiquidation.paid_at.asc().nullslast()).limit(limit).all())
     except Exception:
@@ -55737,24 +55774,726 @@ def administration_invoice_mark_paid(invoice_id):
 
 
 
+# ===========================================================================
+#  CONTABILIDAD · PENDIENTE DE CONTABILIZAR
+#  ------------------------------------------------------------------------
+#  Lo que llega aquí es lo que ADMINISTRACIÓN YA HA VALIDADO (gastos consolidados: con su factura, con
+#  su ticket o con el «sin factura» aceptado) y todavía no está contabilizado. De cada gasto se sube a
+#  Holded una compra nueva (los tickets, un gasto) y el estado contable se queda en el propio gasto,
+#  así que la etiqueta «Contabilizado» se ve también en la bolsa y en cualquier pantalla donde salga.
+#
+#  Las pestañas son SERVIDAS (enlaces con ?tab=), como en Administración: la zona que se refresca sin
+#  recargar (`#accZone`) va DENTRO, nunca es la pestaña (ver la nota de ajax_inline en CLAUDE.md).
+# ===========================================================================
+
+ACCOUNTING_TABS = [
+    ("pendiente", "Pendiente de contabilizar", "fa-hourglass-half"),
+    ("contabilizado", "Contabilizado", "fa-circle-check"),
+    ("facturas", "Facturas", "fa-file-invoice"),
+]
+# Subpestañas de «Pendiente de contabilizar». Cada una lleva su número de pendientes.
+ACCOUNTING_PENDING_TABS = [
+    ("facturas", "Facturas", "fa-file-invoice"),
+    ("bolsas", "Bolsas", "fa-sack-dollar"),
+    ("tickets", "Tickets", "fa-receipt"),
+    ("sin-ticket", "Sin ticket", "fa-ban"),
+]
+# Subpestaña → tipo de documento del gasto.
+ACCOUNTING_SUBTAB_DOC = {"facturas": "FACTURA", "tickets": "TICKET", "sin-ticket": "SIN_DOCUMENTO"}
+ACCOUNTING_DOC_META = {
+    "FACTURA": ("Factura", "fa-file-invoice", "text-bg-primary"),
+    "TICKET": ("Ticket", "fa-receipt", "text-bg-info text-dark"),
+    "SIN_DOCUMENTO": ("Sin ticket", "fa-ban", "text-bg-light border text-dark"),
+}
+
+
+def can_edit_accounting() -> bool:
+    """¿Puede esta persona contabilizar (subir a Holded, cambiar el estado, omitir)?"""
+    return is_master() or has_access_key("contabilidad", edit=True, include_descendants=True)
+
+
+def _accounting_doc_meta(document_type: str | None) -> tuple[str, str, str]:
+    return ACCOUNTING_DOC_META.get((document_type or "FACTURA").strip().upper(),
+                                   ACCOUNTING_DOC_META["FACTURA"])
+
+
+def _accounting_base_query(session_db, *, doc_types=None, include_done: bool = False,
+                           only_done: bool = False):
+    """Gastos que le tocan a contabilidad: validados por administración y de un tipo de documento."""
+    q = (session_db.query(BagExpense)
+         .options(joinedload(BagExpense.bag).joinedload(WorkflowBag.artist),
+                  joinedload(BagExpense.provider),
+                  joinedload(BagExpense.provider_company))
+         .filter(BagExpense.status != "ELIMINADO",
+                 BagExpense.consolidation_status.in_(list(BAG_CONSOLIDATED_STATUSES))))
+    if doc_types:
+        q = q.filter(func.upper(func.coalesce(BagExpense.document_type, "FACTURA")).in_(list(doc_types)))
+    estado = func.upper(func.coalesce(BagExpense.accounting_status, "PENDIENTE"))
+    if only_done:
+        q = q.filter(estado.in_(list(ACCOUNTING_DONE_STATUSES)))
+    elif not include_done:
+        q = q.filter(~estado.in_(list(ACCOUNTING_DONE_STATUSES)))
+    return q
+
+
+def _accounting_counts(session_db) -> dict:
+    """Números de las pestañas: solo cuentas (`func.count`), sin cargar filas."""
+    salida = {"facturas": 0, "tickets": 0, "sin-ticket": 0, "bolsas": 0, "pendiente": 0,
+              "contabilizado": 0}
+    try:
+        filas = (_accounting_base_query(session_db)
+                 .with_entities(func.upper(func.coalesce(BagExpense.document_type, "FACTURA")),
+                                func.count(BagExpense.id))
+                 .group_by(func.upper(func.coalesce(BagExpense.document_type, "FACTURA"))).all())
+        por_tipo = {str(k or "FACTURA"): int(n or 0) for k, n in filas}
+        for clave, tipo in ACCOUNTING_SUBTAB_DOC.items():
+            salida[clave] = por_tipo.get(tipo, 0)
+        salida["pendiente"] = sum(salida[c] for c in ACCOUNTING_SUBTAB_DOC)
+        # Bolsas: cuántas tienen algo pendiente (una bolsa con tres gastos cuenta UNA).
+        salida["bolsas"] = (session_db.query(func.count(func.distinct(BagExpense.bag_id)))
+                            .filter(BagExpense.status != "ELIMINADO",
+                                    BagExpense.consolidation_status.in_(list(BAG_CONSOLIDATED_STATUSES)),
+                                    ~func.upper(func.coalesce(BagExpense.accounting_status, "PENDIENTE"))
+                                    .in_(list(ACCOUNTING_DONE_STATUSES))).scalar()) or 0
+        salida["contabilizado"] = (_accounting_base_query(session_db, only_done=True)
+                                   .with_entities(func.count(BagExpense.id)).scalar()) or 0
+    except Exception:
+        pass
+    return salida
+
+
+def _accounting_bag_label(session_db, bag, *, concert=None, promotion=None) -> str:
+    """Cómo se llama la bolsa en el listado.
+
+    El nombre de la bolsa; si no lo tiene, el del evento/actividad; y una promoción sin nombre se
+    dice «Promoción» con su fecha, que es lo que la identifica.
+    """
+    titulo = (getattr(bag, "title", None) or "").strip()
+    if titulo:
+        return titulo
+    if concert is not None:
+        partes = [(getattr(concert, "festival_name", None) or "").strip(),
+                  ((getattr(getattr(concert, "venue", None), "municipality", None) or "").strip()
+                   or (getattr(concert, "manual_municipality", None) or "").strip())]
+        fecha = getattr(concert, "date", None)
+        etiqueta = " · ".join([x for x in partes if x])
+        if fecha:
+            etiqueta = (etiqueta + " · " if etiqueta else "") + fecha.strftime("%d/%m/%Y")
+        if etiqueta:
+            return etiqueta
+    if promotion is not None:
+        nombre = (getattr(promotion, "name", None) or "").strip()
+        if nombre:
+            return nombre
+        fecha = (getattr(promotion, "starts_on", None) or getattr(promotion, "target_date", None)
+                 or getattr(bag, "start_date", None))
+        return "Promoción" + (" · " + fecha.strftime("%d/%m/%Y") if fecha else "")
+    return (getattr(bag, "linked_title", None) or "Sin bolsa").strip()
+
+
+def _accounting_prefetch(session_db, expenses) -> dict:
+    """Todo lo que hacen falta las filas, cargado DE GOLPE (nada de una consulta por gasto)."""
+    datos = {"concerts": {}, "promotions": {}, "invoices": {}, "files": {}, "batches": {},
+             "companies": {}, "artists": {}, "payers": {}}
+    if not expenses:
+        return datos
+    ids = [e.id for e in expenses]
+    bags = {}
+    for e in expenses:
+        b = getattr(e, "bag", None)
+        if b is not None:
+            bags[str(b.id)] = b
+    concert_ids = [b.linked_id for b in bags.values()
+                   if (b.linked_type or "").upper() == "CONCERT" and b.linked_id]
+    promo_ids = [b.linked_id for b in bags.values()
+                 if (b.linked_type or "").upper() == "PROMOTION" and b.linked_id]
+    if concert_ids:
+        for c in (session_db.query(Concert)
+                  .options(joinedload(Concert.venue), joinedload(Concert.artist))
+                  .filter(Concert.id.in_(concert_ids)).all()):
+            datos["concerts"][str(c.id)] = c
+    if promo_ids:
+        for p in session_db.query(Promotion).filter(Promotion.id.in_(promo_ids)).all():
+            datos["promotions"][str(p.id)] = p
+    # Facturas imputadas al gasto (de ahí salen los importes reales y el archivo que se adjunta).
+    filas = (session_db.query(BagExpenseInvoice)
+             .filter(BagExpenseInvoice.bag_expense_id.in_(ids))
+             .order_by(BagExpenseInvoice.created_at.desc()).all())
+    sup_ids = [r.supplier_invoice_id for r in filas if getattr(r, "supplier_invoice_id", None)]
+    sups = {}
+    if sup_ids:
+        sups = {str(s.id): s for s in session_db.query(SupplierInvoice)
+                .filter(SupplierInvoice.id.in_(sup_ids)).all()}
+    pers_ids = [r.personal_expense_id for r in filas if getattr(r, "personal_expense_id", None)]
+    for r in filas:
+        clave = str(r.bag_expense_id)
+        datos["files"].setdefault(clave, {"url": (r.file_url or ""), "name": (r.file_name or "")})
+        if getattr(r, "supplier_invoice_id", None) and clave not in datos["invoices"]:
+            inv = sups.get(str(r.supplier_invoice_id))
+            if inv is not None:
+                datos["invoices"][clave] = inv
+    for s in (session_db.query(SupplierInvoice)
+              .filter(SupplierInvoice.bag_expense_id.in_(ids)).all()):
+        datos["invoices"].setdefault(str(s.bag_expense_id), s)
+    # De quién era la tarjeta (Pleo/Cabify): para la nota de «cómo se pagó».
+    personales = (session_db.query(PersonalExpense)
+                  .filter(or_(PersonalExpense.bag_expense_id.in_(ids),
+                              PersonalExpense.id.in_(pers_ids or [uuid.uuid4()]))).all())
+    nicks = {}
+    if personales:
+        uids = [p.user_id for p in personales if p.user_id]
+        if uids:
+            nicks = {str(uid): (nick or "") for uid, nick in
+                     session_db.query(UserProfile.user_id, UserProfile.nick)
+                     .filter(UserProfile.user_id.in_(uids)).all()}
+    por_personal = {str(p.id): p for p in personales}
+    for p in personales:
+        if p.bag_expense_id:
+            datos["payers"][str(p.bag_expense_id)] = nicks.get(str(p.user_id), "")
+    for r in filas:
+        if getattr(r, "personal_expense_id", None) and str(r.bag_expense_id) not in datos["payers"]:
+            p = por_personal.get(str(r.personal_expense_id))
+            if p is not None:
+                datos["payers"][str(r.bag_expense_id)] = nicks.get(str(p.user_id), "")
+    batch_ids = [e.payment_batch_id for e in expenses if getattr(e, "payment_batch_id", None)]
+    if batch_ids:
+        for b in (session_db.query(PaymentBatch).options(joinedload(PaymentBatch.bank))
+                  .filter(PaymentBatch.id.in_(batch_ids)).all()):
+            datos["batches"][str(b.id)] = b
+    comp_ids = [b.company_id for b in bags.values() if getattr(b, "company_id", None)]
+    if comp_ids:
+        for c in session_db.query(GroupCompany).filter(GroupCompany.id.in_(comp_ids)).all():
+            datos["companies"][str(c.id)] = c
+        # Qué empresas tienen cuenta de Holded activa (para avisar antes de intentar subir).
+        for acc in (session_db.query(HoldedAccount)
+                    .filter(HoldedAccount.group_company_id.in_(comp_ids)).all()):
+            comp = datos["companies"].get(str(acc.group_company_id))
+            if comp is not None:
+                setattr(comp, "_holded_ready", bool(acc.is_active and (acc.api_key or "").strip()))
+    # Artistas de la bolsa (el primero es el que se enseña con su foto).
+    art_ids = []
+    for b in bags.values():
+        if getattr(b, "artist_id", None):
+            art_ids.append(b.artist_id)
+        for raw in (getattr(b, "artist_ids", None) or []):
+            aid = to_uuid(str(raw))
+            if aid:
+                art_ids.append(aid)
+    if art_ids:
+        for a in session_db.query(Artist).filter(Artist.id.in_(art_ids)).all():
+            datos["artists"][str(a.id)] = a
+    return datos
+
+
+def _accounting_expense_row(session_db, expense, datos: dict) -> dict:
+    """Una línea de contabilidad, con TODO lo que se ve en pantalla."""
+    bag = getattr(expense, "bag", None)
+    concert = promotion = None
+    if bag is not None and bag.linked_id:
+        tipo_enlace = (bag.linked_type or "").upper()
+        if tipo_enlace == "CONCERT":
+            concert = datos["concerts"].get(str(bag.linked_id))
+        elif tipo_enlace == "PROMOTION":
+            promotion = datos["promotions"].get(str(bag.linked_id))
+    invoice = datos["invoices"].get(str(expense.id))
+    importes = _accounting_amounts(session_db, expense, invoice=invoice)
+    proveedor = _accounting_provider_info(session_db, expense)
+    doc_label, doc_icon, doc_badge = _accounting_doc_meta(expense.document_type)
+    estado_label, estado_badge, estado_icon = _accounting_status_meta(expense.accounting_status)
+    archivo = datos["files"].get(str(expense.id)) or {}
+    doc_url = (getattr(expense, "attachment_url", None) or archivo.get("url") or
+               (getattr(invoice, "file_url", None) or "")).strip()
+    doc_name = (getattr(expense, "attachment_name", None) or archivo.get("name") or
+                (getattr(invoice, "original_name", None) or "") or "Documento")
+    # Artista de la bolsa: el suyo o el primero de la lista.
+    artista = None
+    if bag is not None:
+        if getattr(bag, "artist", None) is not None:
+            artista = bag.artist
+        elif getattr(bag, "artist_id", None):
+            artista = datos["artists"].get(str(bag.artist_id))
+        if artista is None:
+            for raw in (getattr(bag, "artist_ids", None) or []):
+                artista = datos["artists"].get(str(raw))
+                if artista is not None:
+                    break
+    if artista is None and concert is not None:
+        artista = getattr(concert, "artist", None)
+    numero = ((getattr(expense, "invoice_number", None) or "").strip()
+              or (getattr(invoice, "invoice_number", None) or "").strip())
+    emision = getattr(expense, "issue_date", None) or getattr(invoice, "issue_date", None)
+    company = datos["companies"].get(str(getattr(bag, "company_id", "") or "")) if bag is not None else None
+    batch = datos["batches"].get(str(getattr(expense, "payment_batch_id", "") or ""))
+    pagado_label = BAG_PAYMENT_STATUS_LABELS.get((expense.payment_status or "NO_PAGADO").upper(),
+                                                 expense.payment_status or "")
+    pago_badge = {"PAGADO": "text-bg-success", "PARCIAL": "text-bg-warning text-dark",
+                  "PENDIENTE": "text-bg-warning text-dark"}.get(
+        (expense.payment_status or "NO_PAGADO").upper(), "text-bg-secondary")
+    metodo = (getattr(expense, "payment_method", None) or "").strip()
+    pagador = datos["payers"].get(str(expense.id)) or ""
+    if metodo and pagador:
+        metodo_label = "%s · %s" % (metodo, pagador)
+    else:
+        metodo_label = metodo or ("Remesa %s" % batch.reference if batch is not None else "")
+    return {
+        "id": str(expense.id),
+        "concept": (getattr(expense, "concept", None) or "Sin concepto").strip(),
+        "document_type": (expense.document_type or "FACTURA").upper(),
+        "doc_label": doc_label, "doc_icon": doc_icon, "doc_badge": doc_badge,
+        "provider_name": (proveedor["name"] or "Sin proveedor"),
+        "provider_tax_id": proveedor["tax_id"],
+        "invoice_number": numero,
+        "issue_date": (emision.strftime("%d/%m/%Y") if emision else ""),
+        "payment_status": (expense.payment_status or "NO_PAGADO").upper(),
+        "payment_label": pagado_label, "payment_badge": pago_badge,
+        "payment_method": metodo_label,
+        "batch_reference": (batch.reference if batch is not None else ""),
+        "batch_url": (url_for("payment_batch_detail", batch_id=batch.id) if batch is not None else ""),
+        "artist_name": (getattr(artista, "name", None) or ""),
+        "artist_photo": (getattr(artista, "photo_url", None) or ""),
+        "artist_id": (str(artista.id) if artista is not None else ""),
+        "bag_id": (str(bag.id) if bag is not None else ""),
+        "bag_label": _accounting_bag_label(session_db, bag, concert=concert, promotion=promotion),
+        "bag_url": (url_for("bag_detail_view", bag_id=bag.id) if bag is not None else ""),
+        "company_name": (getattr(company, "name", None) or ""),
+        "holded_ready": bool(getattr(company, "_holded_ready", False)),
+        "net": importes["net"], "vat": importes["vat"], "vat_pct": importes["vat_pct"],
+        "retention": importes["retention"], "retention_pct": importes["retention_pct"],
+        "total": importes["total"], "breakdown": importes["breakdown"],
+        "accounting_status": (expense.accounting_status or "PENDIENTE").upper(),
+        "status_label": estado_label, "status_badge": estado_badge, "status_icon": estado_icon,
+        "accounting_at": (expense.accounting_at.strftime("%d/%m/%Y %H:%M")
+                          if getattr(expense, "accounting_at", None) else ""),
+        "accounting_by": (getattr(expense, "accounting_by_nick", None) or ""),
+        "accounting_note": (getattr(expense, "accounting_note", None) or ""),
+        "doc_url": doc_url, "doc_name": doc_name,
+        "holded_doc_id": (getattr(expense, "holded_doc_id", None) or ""),
+        "holded_doc_number": (getattr(expense, "holded_doc_number", None) or ""),
+        "holded_error": (getattr(expense, "holded_error", None) or ""),
+        "holded_warning": (getattr(expense, "holded_warning", None) or ""),
+        "category_label": BAG_EXPENSE_CATEGORY_LABELS.get(
+            _bag_expense_display_cat(expense.category), ""),
+    }
+
+
+def _accounting_expense_rows(session_db, expenses) -> list[dict]:
+    datos = _accounting_prefetch(session_db, expenses)
+    return [_accounting_expense_row(session_db, e, datos) for e in expenses]
+
+
+def _accounting_bag_groups(session_db, *, limit: int = 400) -> list[dict]:
+    """Bolsas con gastos PENDIENTES de contabilizar (subpestaña «Bolsas»).
+
+    Una bolsa con todos sus gastos contabilizados u omitidos no sale: se cierra para contabilidad
+    (`accounting_done_at`) y desaparece.
+    """
+    expenses = (_accounting_base_query(session_db)
+                .order_by(BagExpense.created_at.desc()).limit(2000).all())
+    if not expenses:
+        return []
+    datos = _accounting_prefetch(session_db, expenses)
+    grupos = {}
+    bolsas = {}
+    for e in expenses:
+        bag = getattr(e, "bag", None)
+        if bag is None:
+            continue
+        clave = str(bag.id)
+        bolsas[clave] = bag
+        grupo = grupos.get(clave)
+        if grupo is None:
+            concert = promotion = None
+            if bag.linked_id:
+                tipo_enlace = (bag.linked_type or "").upper()
+                concert = datos["concerts"].get(str(bag.linked_id)) if tipo_enlace == "CONCERT" else None
+                promotion = datos["promotions"].get(str(bag.linked_id)) if tipo_enlace == "PROMOTION" else None
+            company = datos["companies"].get(str(getattr(bag, "company_id", "") or ""))
+            artista = (getattr(bag, "artist", None)
+                       or datos["artists"].get(str(getattr(bag, "artist_id", "") or "")))
+            if artista is None:
+                for raw in (getattr(bag, "artist_ids", None) or []):
+                    artista = datos["artists"].get(str(raw))
+                    if artista is not None:
+                        break
+            fecha = (getattr(concert, "date", None) if concert is not None else None) or bag.start_date
+            grupo = grupos[clave] = {
+                "bag_id": clave,
+                "title": _accounting_bag_label(session_db, bag, concert=concert, promotion=promotion),
+                "url": url_for("bag_detail_view", bag_id=bag.id),
+                "artist_name": (getattr(artista, "name", None) or ""),
+                "artist_photo": (getattr(artista, "photo_url", None) or ""),
+                "artist_id": (str(artista.id) if artista is not None else ""),
+                "company_name": (getattr(company, "name", None) or ""),
+                "holded_ready": bool(getattr(company, "_holded_ready", False)),
+                "venue": ((getattr(getattr(concert, "venue", None), "name", None) or "")
+                          if concert is not None else ""),
+                "municipality": ((getattr(getattr(concert, "venue", None), "municipality", None)
+                                  or getattr(concert, "manual_municipality", None) or "")
+                                 if concert is not None else ""),
+                "date": (fecha.strftime("%d/%m/%Y") if fecha else ""),
+                "activity_type": (_activity_kind_label(getattr(concert, "activity_type", None))
+                                  if concert is not None else
+                                  ("Promoción" if promotion is not None else "")),
+                "kind": (getattr(bag, "bag_type", None) or "GENERAL").upper(),
+                "rows": [],
+                "total": Decimal("0"),
+                "tag": _accounting_bag_tag(session_db, bag),
+            }
+        fila = _accounting_expense_row(session_db, e, datos)
+        grupo["rows"].append(fila)
+        grupo["total"] += _money_or_zero(fila["total"])
+    # AUTOCURADO: una bolsa que estaba cerrada para contabilidad y a la que le ha entrado un gasto
+    # nuevo vuelve a tener trabajo, así que su «cerrada el …» ya no es verdad. Se limpia aquí (es
+    # donde se sabe) en vez de dejar una fecha que engaña.
+    reabiertas = [bolsas[g["bag_id"]] for g in grupos.values()
+                  if getattr(bolsas.get(g["bag_id"]), "accounting_done_at", None)]
+    if reabiertas:
+        try:
+            for b in reabiertas:
+                b.accounting_done_at = None
+                b.updated_at = _now_madrid()
+            session_db.commit()
+        except Exception:
+            session_db.rollback()
+    salida = sorted(grupos.values(), key=lambda g: (g["artist_name"] or "").casefold())
+    return salida[:limit]
+
+
+def _accounting_expenses_from_request(session_db, form) -> list:
+    """Los gastos sobre los que actúa una acción en bloque.
+
+    ⚠️ El ÁMBITO manda sobre lo marcado: «Subir todo» va en el `value` del propio botón, así que si
+    alguien tiene tres gastos marcados y pulsa «Subir todo», sube todo (que es lo que ha pedido).
+    """
+    ambito = (form.get("scope") or "").strip().lower()
+    if ambito in ACCOUNTING_SUBTAB_DOC:
+        return _accounting_base_query(session_db, doc_types=[ACCOUNTING_SUBTAB_DOC[ambito]]).all()
+    if ambito == "todo":
+        return _accounting_base_query(session_db).all()
+    bag_id = to_uuid(form.get("bag_id") or "")
+    if bag_id:
+        return _accounting_base_query(session_db).filter(BagExpense.bag_id == bag_id).all()
+    ids = [to_uuid(x) for x in form.getlist("expense_ids") if to_uuid(x)]
+    if ids:
+        return (_accounting_base_query(session_db, include_done=True)
+                .filter(BagExpense.id.in_(ids)).all())
+    return []
+
+
+def _accounting_upload_many(session_db, expenses, *, nick: str) -> dict:
+    """Sube varios gastos a Holded. Cada uno en su savepoint: si uno falla, los demás siguen."""
+    salida = {"ok": 0, "fail": 0, "warnings": 0, "skipped": 0, "errors": []}
+    for expense in expenses:
+        if (expense.accounting_status or "PENDIENTE").upper() in ACCOUNTING_DONE_STATUSES:
+            salida["skipped"] += 1
+            continue
+        if (expense.holded_doc_id or "").strip():
+            salida["skipped"] += 1
+            continue          # ya está en Holded: no se sube dos veces
+        try:
+            with session_db.begin_nested():
+                res = _holded_upload_expense(session_db, expense, nick=nick)
+            if res["ok"]:
+                salida["ok"] += 1
+                if res.get("warning"):
+                    salida["warnings"] += 1
+                    salida["errors"].append("%s: %s" % (
+                        (expense.concept or "Gasto")[:40], res["warning"]))
+            else:
+                salida["fail"] += 1
+                salida["errors"].append("%s: %s" % ((expense.concept or "Gasto")[:40], res["message"]))
+        except Exception as exc:
+            salida["fail"] += 1
+            salida["errors"].append("%s: %s" % ((expense.concept or "Gasto")[:40], str(exc)[:200]))
+    session_db.commit()
+    return salida
+
+
+def _accounting_flash_result(res: dict, *, total: int) -> None:
+    """Un solo aviso con lo que ha pasado: lo que ha entrado, lo que no y por qué."""
+    saltados = int(res.get("skipped") or 0)
+    if not total:
+        flash("No había nada que subir.", "info")
+        return
+    if res["ok"] and not res["fail"]:
+        flash("%d gasto(s) subido(s) a Holded." % res["ok"], "success")
+    elif res["ok"]:
+        flash("%d subido(s) y %d con problemas." % (res["ok"], res["fail"]), "warning")
+    elif res["fail"]:
+        flash("No se ha podido subir nada a Holded.", "danger")
+    elif saltados:
+        # ⚠️ Ni un fallo: estaban YA en Holded (o contabilizados). Decir «no se ha podido» sería
+        # mentir y dar un susto.
+        flash("Ya estaba todo en Holded: %d gasto(s) sin cambios." % saltados, "info")
+    else:
+        flash("No había nada que subir.", "info")
+    if saltados and (res["ok"] or res["fail"]):
+        flash("%d gasto(s) ya estaban en Holded y no se han vuelto a subir." % saltados, "info")
+    for detalle in res["errors"][:8]:
+        flash(detalle, "warning")
+    if len(res["errors"]) > 8:
+        flash("… y %d aviso(s) más (los verás en cada gasto)." % (len(res["errors"]) - 8), "info")
+
+
+@app.post("/contabilidad/gastos/<expense_id>/holded", endpoint="accounting_expense_upload")
+@admin_required
+def accounting_expense_upload(expense_id):
+    """Sube UN gasto a Holded."""
+    if not can_edit_accounting():
+        return forbid("No tienes permisos para contabilizar.")
+    session_db = db()
+    try:
+        expense = session_db.get(BagExpense, to_uuid(expense_id) or uuid.uuid4())
+        if expense is None:
+            flash("Gasto no encontrado.", "warning")
+            return redirect(safe_next_or(url_for("contabilidad_view")))
+        if (expense.holded_doc_id or "").strip():
+            flash("Este gasto ya está en Holded (documento %s)."
+                  % (expense.holded_doc_number or expense.holded_doc_id), "info")
+            return redirect(safe_next_or(url_for("contabilidad_view")))
+        res = _holded_upload_expense(session_db, expense, nick=((_current_user_state() or {}).get("nick") or ""))
+        session_db.commit()
+        if res["ok"]:
+            flash(res["message"], "success")
+            if res.get("warning"):
+                flash(res["warning"], "warning")
+        else:
+            flash("No se ha subido a Holded: %s" % res["message"], "danger")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se ha podido subir a Holded: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("contabilidad_view")))
+
+
+@app.post("/contabilidad/gastos/holded", endpoint="accounting_bulk_upload")
+@admin_required
+def accounting_bulk_upload():
+    """Sube a Holded lo marcado, todo lo de una bolsa o todo lo pendiente de un ámbito."""
+    if not can_edit_accounting():
+        return forbid("No tienes permisos para contabilizar.")
+    session_db = db()
+    try:
+        expenses = _accounting_expenses_from_request(session_db, request.form)
+        res = _accounting_upload_many(session_db, expenses, nick=((_current_user_state() or {}).get("nick") or ""))
+        _accounting_flash_result(res, total=len(expenses))
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se ha podido subir a Holded: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("contabilidad_view")))
+
+
+@app.post("/contabilidad/gastos/<expense_id>/estado", endpoint="accounting_expense_status")
+@admin_required
+def accounting_expense_status(expense_id):
+    """Cambia el estado contable de un gasto (es lo que hace la etiqueta al pincharla)."""
+    if not can_edit_accounting():
+        return forbid("No tienes permisos para contabilizar.")
+    session_db = db()
+    try:
+        expense = session_db.get(BagExpense, to_uuid(expense_id) or uuid.uuid4())
+        if expense is None:
+            flash("Gasto no encontrado.", "warning")
+            return redirect(safe_next_or(url_for("contabilidad_view")))
+        nuevo = (request.form.get("status") or "").strip().upper()
+        if nuevo not in ACCOUNTING_STATUS_LABELS:
+            # Sin estado explícito, la etiqueta AVANZA en su ciclo: pendiente → subido →
+            # contabilizado → pendiente.
+            orden = ["PENDIENTE", "SUBIDO", "CONTABILIZADO"]
+            actual = (expense.accounting_status or "PENDIENTE").upper()
+            nuevo = orden[(orden.index(actual) + 1) % len(orden)] if actual in orden else "PENDIENTE"
+        _accounting_set_status(session_db, expense, nuevo, nick=((_current_user_state() or {}).get("nick") or ""),
+                               note=(request.form.get("note") or ""))
+        session_db.commit()
+        flash("«%s» → %s." % ((expense.concept or "Gasto"), ACCOUNTING_STATUS_LABELS[nuevo]), "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo cambiar el estado: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("contabilidad_view")))
+
+
+@app.post("/contabilidad/gastos/estado", endpoint="accounting_bulk_status")
+@admin_required
+def accounting_bulk_status():
+    """Marca en bloque (normalmente, «contabilizado») lo que esté seleccionado."""
+    if not can_edit_accounting():
+        return forbid("No tienes permisos para contabilizar.")
+    nuevo = (request.form.get("status") or "CONTABILIZADO").strip().upper()
+    if nuevo not in ACCOUNTING_STATUS_LABELS:
+        nuevo = "CONTABILIZADO"
+    session_db = db()
+    try:
+        expenses = _accounting_expenses_from_request(session_db, request.form)
+        for expense in expenses:
+            _accounting_set_status(session_db, expense, nuevo, nick=((_current_user_state() or {}).get("nick") or ""))
+        session_db.commit()
+        flash("%d gasto(s) marcados como %s." % (len(expenses), ACCOUNTING_STATUS_LABELS[nuevo]),
+              "success" if expenses else "info")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo cambiar el estado: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("contabilidad_view")))
+
+
+@app.post("/contabilidad/gastos/<expense_id>/omitir", endpoint="accounting_expense_skip")
+@admin_required
+def accounting_expense_skip(expense_id):
+    """OMITIR un gasto: no se contabiliza y ahí acaba su proceso (o se devuelve a pendiente)."""
+    if not can_edit_accounting():
+        return forbid("No tienes permisos para contabilizar.")
+    session_db = db()
+    try:
+        expense = session_db.get(BagExpense, to_uuid(expense_id) or uuid.uuid4())
+        if expense is None:
+            flash("Gasto no encontrado.", "warning")
+            return redirect(safe_next_or(url_for("contabilidad_view")))
+        volver = (expense.accounting_status or "").upper() == "OMITIDO"
+        _accounting_set_status(session_db, expense, "PENDIENTE" if volver else "OMITIDO",
+                               nick=((_current_user_state() or {}).get("nick") or ""), note=(request.form.get("note") or ""))
+        session_db.commit()
+        flash(("«%s» vuelve a pendiente de contabilizar." if volver
+               else "«%s» no se contabilizará.") % (expense.concept or "Gasto"), "info")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo omitir el gasto: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("contabilidad_view")))
+
+
+@app.post("/contabilidad/gastos/<expense_id>/editar", endpoint="accounting_expense_edit")
+@admin_required
+def accounting_expense_edit(expense_id):
+    """Corrige los datos contables de un gasto antes de subirlo (nº, fecha, concepto e importes)."""
+    if not can_edit_accounting():
+        return forbid("No tienes permisos para contabilizar.")
+    session_db = db()
+    try:
+        expense = session_db.get(BagExpense, to_uuid(expense_id) or uuid.uuid4())
+        if expense is None:
+            flash("Gasto no encontrado.", "warning")
+            return redirect(safe_next_or(url_for("contabilidad_view")))
+        form = request.form
+        if (form.get("concept") or "").strip():
+            expense.concept = (form.get("concept") or "").strip()[:300]
+        expense.invoice_number = (form.get("invoice_number") or "").strip() or None
+        fecha = parse_optional_date(form.get("issue_date"))
+        if fecha or not (form.get("issue_date") or "").strip():
+            expense.issue_date = fecha
+        for campo, clave in (("amount_net", "amount_net"), ("amount_tax", "amount_tax"),
+                             ("amount_gross", "amount_gross"),
+                             ("retention_amount", "retention_amount")):
+            crudo = (form.get(clave) or "").strip()
+            if crudo != "":
+                setattr(expense, campo, _parse_money_decimal(crudo))
+        expense.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Datos del gasto actualizados.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudieron guardar los datos: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("contabilidad_view")))
+
+
+@app.post("/contabilidad/holded/sincronizar", endpoint="accounting_holded_sync")
+@admin_required
+def accounting_holded_sync():
+    """Pregunta a Holded qué documentos ya están contabilizados y pone al día las etiquetas."""
+    if not can_edit_accounting():
+        return forbid("No tienes permisos para contabilizar.")
+    session_db = db()
+    try:
+        out = _holded_refresh_accounted(session_db)
+        aviso = "Holded: %d documento(s) comprobados, %d ya contabilizados." % (
+            out.get("checked", 0), out.get("accounted", 0))
+        flash(aviso, "success" if not out.get("errors") else "warning")
+        for detalle in (out.get("errors") or [])[:4]:
+            flash(detalle, "warning")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo consultar Holded: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("contabilidad_view")))
+
+
 @app.route("/contabilidad", endpoint="contabilidad_view")
 @admin_required
 def contabilidad_view():
+    """CONTABILIDAD: lo que administración ha validado y todavía no está contabilizado.
+
+    Pestañas servidas (?tab=) con sus contadores; dentro de «Pendiente de contabilizar», las
+    subpestañas Facturas · Bolsas · Tickets · Sin ticket.
+    """
+    tab = (request.args.get("tab") or "pendiente").strip().lower()
+    if tab not in dict((k, l) for k, l, _i in ACCOUNTING_TABS):
+        tab = "pendiente"
+    subtab = (request.args.get("subtab") or "facturas").strip().lower()
+    if subtab not in dict((k, l) for k, l, _i in ACCOUNTING_PENDING_TABS):
+        subtab = "facturas"
+    estado_filtro = (request.args.get("estado") or "").strip().upper()
     session_db = db()
     try:
-        recent_invoices = session_db.query(InvoiceRecord).order_by(InvoiceRecord.issue_date.desc(), InvoiceRecord.created_at.desc()).limit(8).all()
-        issued_count = session_db.query(InvoiceRecord).filter(InvoiceRecord.invoice_kind == "ISSUED").count()
-        received_count = session_db.query(InvoiceRecord).filter(InvoiceRecord.invoice_kind == "RECEIVED").count()
-        # PENDIENTE DE CONTABILIZAR: lo que administración ya ha pagado y archivado pasa aquí.
-        royalty_pending = _royalty_accounting_pending_rows(session_db)
+        # DETECCIÓN AUTOMÁTICA: si hay documentos subidos y hace rato que no se pregunta, se consulta
+        # a Holded EN SEGUNDO PLANO y la etiqueta se pone al día sola (en la siguiente carga).
+        if tab == "pendiente" and _holded_autodetect_due(session_db):
+            threading.Thread(target=_holded_autodetect_bg, daemon=True).start()
+        counts = _accounting_counts(session_db)
+        rows, bag_groups, done_rows = [], [], []
+        recent_invoices = issued_count = received_count = None
+        if tab == "pendiente":
+            if subtab == "bolsas":
+                bag_groups = _accounting_bag_groups(session_db)
+                if estado_filtro in ACCOUNTING_STATUS_LABELS:
+                    for g in bag_groups:
+                        g["rows"] = [r for r in g["rows"] if r["accounting_status"] == estado_filtro]
+                    bag_groups = [g for g in bag_groups if g["rows"]]
+            else:
+                q = _accounting_base_query(session_db, doc_types=[ACCOUNTING_SUBTAB_DOC[subtab]])
+                if estado_filtro in ACCOUNTING_STATUS_LABELS:
+                    q = q.filter(func.upper(func.coalesce(BagExpense.accounting_status, "PENDIENTE"))
+                                 == estado_filtro)
+                rows = _accounting_expense_rows(
+                    session_db, q.order_by(BagExpense.issue_date.desc().nullslast(),
+                                           BagExpense.created_at.desc()).limit(600).all())
+        elif tab == "contabilizado":
+            done_rows = _accounting_expense_rows(
+                session_db, _accounting_base_query(session_db, only_done=True)
+                .order_by(BagExpense.accounting_at.desc().nullslast()).limit(400).all())
+        else:
+            recent_invoices = (session_db.query(InvoiceRecord)
+                               .order_by(InvoiceRecord.issue_date.desc(),
+                                         InvoiceRecord.created_at.desc()).limit(12).all())
+            issued_count = session_db.query(InvoiceRecord).filter(
+                InvoiceRecord.invoice_kind == "ISSUED").count()
+            received_count = session_db.query(InvoiceRecord).filter(
+                InvoiceRecord.invoice_kind == "RECEIVED").count()
+        # Liquidaciones de royalties pagadas y validadas: también son pendiente de contabilizar.
+        royalty_pending = _royalty_accounting_pending_rows(session_db) if tab == "pendiente" else []
         return render_template(
             "contabilidad.html",
             title="Contabilidad",
-            subtitle="Facturas emitidas y recibidas, y lo que queda por contabilizar.",
-            issued_count=issued_count,
-            received_count=received_count,
+            subtitle="Lo que administración ha validado y todavía no está contabilizado.",
+            tab=tab, subtab=subtab, estado_filtro=estado_filtro,
+            accounting_tabs=ACCOUNTING_TABS,
+            accounting_pending_tabs=ACCOUNTING_PENDING_TABS,
+            accounting_states=HOLDED_ACCOUNTING_STATES,
+            counts=counts,
+            rows=rows, bag_groups=bag_groups, done_rows=done_rows,
             royalty_pending=royalty_pending,
             recent_invoices=recent_invoices,
+            issued_count=issued_count, received_count=received_count,
+            holded_ready=_holded_configured_any(session_db),
+            CAN_EDIT=can_edit_accounting(),
         )
     finally:
         session_db.close()
@@ -57344,7 +58083,7 @@ def _bag_provider_snapshot(provider: Promoter | None, company: PromoterCompany |
             "id": str(company.id),
             "legal_name": company.legal_name or "",
             "tax_id": company.tax_id or "",
-            "fiscal_address": company.fiscal_address or "",
+            "fiscal_address": _fiscal_address_text(company),
         }
     return data
 
@@ -57361,7 +58100,7 @@ def _bag_provider_label(expense: BagExpense) -> str:
 def _bag_provider_tooltip(expense: BagExpense) -> str:
     company = getattr(expense, "provider_company", None)
     if company:
-        bits = [company.legal_name or "Sociedad", company.tax_id or "", company.fiscal_address or ""]
+        bits = [company.legal_name or "Sociedad", company.tax_id or "", _fiscal_address_text(company)]
         return " · ".join([b for b in bits if b])
     snap = getattr(expense, "provider_snapshot", None) or {}
     comp = snap.get("company") or {}
@@ -62584,6 +63323,906 @@ def cron_pleo_refresh():
     return jsonify({"ok": True, **out})
 
 
+# ===========================================================================
+#  HOLDED · CONTABILIDAD (integración)
+#  ------------------------------------------------------------------------
+#  Cada empresa del grupo lleva su contabilidad en SU cuenta de Holded, así que la API Key va por
+#  empresa (`HoldedAccount`), igual que Pleo y Cabify. Lo que se sube es cada GASTO de una bolsa:
+#  las facturas como COMPRA y los tickets / gastos sin ticket como GASTO (ticket), que en Holded no
+#  llevan proveedor, ni número de documento, ni desglose de IVA.
+#
+#  El estado contable vive en el propio gasto (`BagExpense.accounting_status`), que es lo que permite
+#  enseñar la etiqueta «Contabilizado» en la bolsa y en cualquier pantalla donde salga el gasto.
+# ===========================================================================
+
+# (clave, etiqueta, clase de la pastilla, icono) — el ORDEN es el del ciclo de vida.
+HOLDED_ACCOUNTING_STATES = [
+    ("PENDIENTE", "Pendiente", "text-bg-secondary", "fa-hourglass-half"),
+    ("SUBIDO", "Subido a Holded", "text-bg-info text-dark", "fa-cloud-arrow-up"),
+    ("CONTABILIZADO", "Contabilizado", "text-bg-success", "fa-circle-check"),
+    ("OMITIDO", "Omitido", "text-bg-light border text-dark", "fa-ban"),
+]
+ACCOUNTING_STATUS_LABELS = {k: l for k, l, _c, _i in HOLDED_ACCOUNTING_STATES}
+# Estados que sacan al gasto de «pendiente de contabilizar»: ya no hay nada que hacer con él.
+ACCOUNTING_DONE_STATUSES = {"CONTABILIZADO", "OMITIDO"}
+
+
+def _accounting_status_meta(status: str | None) -> tuple[str, str, str]:
+    """Etiqueta, clase y icono del estado contable de un gasto."""
+    st = (status or "PENDIENTE").strip().upper()
+    for clave, etiqueta, clase, icono in HOLDED_ACCOUNTING_STATES:
+        if clave == st:
+            return etiqueta, clase, icono
+    return (st or "Pendiente"), "text-bg-secondary", "fa-hourglass-half"
+
+
+# ------------------------------------------------------------------ Dirección fiscal en piezas
+
+def _fiscal_address_parts(obj) -> dict:
+    """Dirección fiscal de un tercero (o de su sociedad) EN PIEZAS.
+
+    ⚠️ Holded exige el código postal, el municipio y la provincia SEPARADOS para dar de alta al
+    proveedor: con la dirección en un único cuadro de texto no se puede crear el contacto. Por eso en
+    la app se piden en campos distintos y este helper es el único sitio del que se leen.
+    """
+    if obj is None:
+        return {"address": "", "postal_code": "", "city": "", "province": "", "country": ""}
+    return {
+        "address": (getattr(obj, "fiscal_address", None) or "").strip(),
+        "postal_code": (getattr(obj, "fiscal_postal_code", None) or "").strip(),
+        "city": (getattr(obj, "fiscal_city", None) or "").strip(),
+        "province": (getattr(obj, "fiscal_province", None) or "").strip(),
+        "country": (getattr(obj, "fiscal_country", None) or "").strip(),
+    }
+
+
+def _fiscal_address_text(obj) -> str:
+    """La dirección fiscal JUNTA, para mostrarla como un solo campo (que es como se lee mejor)."""
+    p = _fiscal_address_parts(obj)
+    linea2 = " ".join([x for x in [p["postal_code"], p["city"]] if x]).strip()
+    trozos = [p["address"], linea2]
+    if p["province"] and p["province"].casefold() != (p["city"] or "").casefold():
+        trozos.append(p["province"])
+    if p["country"] and p["country"].casefold() not in {"españa", "espana", "spain"}:
+        trozos.append(p["country"])
+    return ", ".join([x for x in trozos if x])
+
+
+_FISCAL_CP_RE = re.compile(r"\b(\d{5})\b")
+
+
+def _split_fiscal_address(texto: str | None) -> dict:
+    """Reparte en piezas una dirección fiscal escrita de un tirón (lo que hay guardado de antes).
+
+    Es un apaño de LECTURA, no la norma: a partir de ahora se piden en campos separados. Se busca el
+    código postal (5 dígitos), lo de antes se toma como calle y lo de después como municipio; si
+    detrás hay una coma o un paréntesis, eso es la provincia. Lo que no se pueda repartir se deja
+    entero en la calle: nunca se inventa un municipio.
+    """
+    bruto = " ".join((texto or "").split())
+    if not bruto:
+        return {"address": "", "postal_code": "", "city": "", "province": "", "country": ""}
+    m = _FISCAL_CP_RE.search(bruto)
+    if not m:
+        return {"address": bruto, "postal_code": "", "city": "", "province": "", "country": ""}
+    calle = bruto[:m.start()].strip(" ,.-·")
+    resto = bruto[m.end():].strip(" ,.-·")
+    provincia = ""
+    if resto:
+        entre = re.search(r"\(([^)]+)\)\s*$", resto)
+        if entre:
+            provincia = entre.group(1).strip()
+            resto = resto[:entre.start()].strip(" ,.-·")
+        elif "," in resto:
+            partes = [x.strip() for x in resto.split(",") if x.strip()]
+            if len(partes) >= 2:
+                provincia = partes[-1]
+                resto = ", ".join(partes[:-1])
+    return {"address": calle, "postal_code": m.group(1), "city": resto,
+            "province": provincia, "country": ""}
+
+
+def _intake_fiscal_parts(promoter, company=None, *, masked: bool = False) -> dict:
+    """Dirección fiscal en piezas para el formulario del enlace público de alta / facturación.
+
+    Manda la de la SOCIEDAD si la tiene; si no, la del tercero. Cuando el enlace no es de esa persona
+    (`masked`) se enmascara la calle, pero el código postal, el municipio y la provincia se ven tal
+    cual: no son un dato sensible y así se comprueba de un vistazo que están bien.
+    """
+    fuente = company if (company is not None and (getattr(company, "fiscal_address", None)
+                                                  or getattr(company, "fiscal_postal_code", None))) else promoter
+    piezas = _fiscal_parts_for_form(fuente)
+    if masked and piezas["address"]:
+        piezas = {**piezas, "address": _mask_value(piezas["address"], 6)}
+    return piezas
+
+
+def _fiscal_parts_for_form(obj) -> dict:
+    """Las piezas con las que se rellena un formulario.
+
+    Si lo guardado es de antes (todo en el cuadro de la calle), se reparte al vuelo para que el
+    formulario salga ya con el código postal y el municipio en su sitio y quien lo abra solo tenga
+    que revisarlo. Lo repartido NO se guarda hasta que se envía el formulario.
+    """
+    piezas = _fiscal_address_parts(obj)
+    if piezas["address"] and not (piezas["postal_code"] or piezas["city"] or piezas["province"]):
+        repartida = _split_fiscal_address(piezas["address"])
+        repartida["country"] = piezas["country"]
+        return repartida
+    return piezas
+
+
+def _fiscal_form_values(form, prefix: str = "") -> dict:
+    """Lee del formulario la dirección fiscal en piezas.
+
+    Acepta también el campo antiguo de un solo cuadro (`fiscal_address` con todo junto): si llega sin
+    las piezas, se reparte con `_split_fiscal_address` para no perder lo que escriba la gente en un
+    formulario cacheado.
+    """
+    def _g(nombre):
+        return (form.get(prefix + nombre) or "").strip()
+    piezas = {
+        "address": _g("fiscal_address"),
+        "postal_code": _g("fiscal_postal_code"),
+        "city": _g("fiscal_city"),
+        "province": _g("fiscal_province"),
+        "country": _g("fiscal_country"),
+    }
+    if piezas["address"] and not (piezas["postal_code"] or piezas["city"] or piezas["province"]):
+        repartida = _split_fiscal_address(piezas["address"])
+        if repartida.get("postal_code"):
+            piezas.update({k: repartida.get(k) or piezas.get(k) for k in piezas})
+    return piezas
+
+
+def _apply_fiscal_address(target, piezas: dict, *, only_empty: bool = False) -> None:
+    """Guarda la dirección fiscal en piezas en un tercero o en su sociedad."""
+    if target is None or not isinstance(piezas, dict):
+        return
+    for campo, clave in (("fiscal_address", "address"), ("fiscal_postal_code", "postal_code"),
+                         ("fiscal_city", "city"), ("fiscal_province", "province"),
+                         ("fiscal_country", "country")):
+        valor = (piezas.get(clave) or "").strip() or None
+        if valor is None:
+            continue
+        if only_empty and (getattr(target, campo, None) or "").strip():
+            continue
+        setattr(target, campo, valor)
+
+
+# ------------------------------------------------------------------ Cuenta de Holded
+
+def _holded_account_for_company(session_db, company_id):
+    if not company_id:
+        return None
+    try:
+        cid = to_uuid(str(company_id))
+    except Exception:
+        return None
+    if not cid:
+        return None
+    return (session_db.query(HoldedAccount)
+            .filter(HoldedAccount.group_company_id == cid).first())
+
+
+def _holded_client_for_account(acc):
+    """Cliente de Holded de una cuenta. Lanza HoldedError con el motivo si no se puede usar.
+
+    Se REUTILIZA el mismo cliente en toda la petición (cacheado en `g`): así, al subir 50 gastos del
+    mismo proveedor, el contacto se busca en Holded UNA vez y no cincuenta (el cliente guarda los
+    contactos que ya ha resuelto).
+    """
+    from holded_utils import HoldedClient, HoldedError
+    if acc is None:
+        raise HoldedError("Esta empresa del grupo no tiene cuenta de Holded configurada.")
+    if not (acc.api_key or "").strip():
+        raise HoldedError("Falta la API Key de Holded de esta empresa (Integraciones → Holded).")
+    if not acc.is_active:
+        raise HoldedError("La integración con Holded de esta empresa está desactivada.")
+    clave = str(getattr(acc, "id", "") or "")
+    almacen = None
+    try:
+        almacen = getattr(g, "_holded_clients", None)
+        if almacen is None:
+            almacen = {}
+            g._holded_clients = almacen
+    except Exception:
+        almacen = None          # fuera de contexto de petición (cron, scripts): sin caché
+    if almacen is not None and clave and clave in almacen:
+        return almacen[clave]
+    client = HoldedClient(acc.api_key, endpoints=dict(acc.endpoints or {}))
+    if almacen is not None and clave:
+        almacen[clave] = client
+    return client
+
+
+def _holded_persist_client_state(acc, client) -> None:
+    """Guarda las rutas que el cliente ha descubierto (adjuntos, formas de pago)."""
+    if acc is None or client is None:
+        return
+    if getattr(client, "endpoints_changed", False):
+        acc.endpoints = dict(client.endpoints or {})
+        acc.updated_at = _now_madrid()
+
+
+def _holded_account_rows(session_db) -> list:
+    """Una fila por EMPRESA DEL GRUPO para la pestaña Holded de Integraciones."""
+    companies = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+    accounts = {str(a.group_company_id): a for a in session_db.query(HoldedAccount).all()}
+    # Cuántos gastos hay pendientes de subir por empresa (es el trabajo que tiene esa cuenta).
+    pendientes = {}
+    try:
+        for cid, n in (session_db.query(WorkflowBag.company_id, func.count(BagExpense.id))
+                       .join(BagExpense, BagExpense.bag_id == WorkflowBag.id)
+                       .filter(BagExpense.status != "ELIMINADO",
+                               BagExpense.consolidation_status.in_(list(BAG_CONSOLIDATED_STATUSES)),
+                               func.upper(func.coalesce(BagExpense.accounting_status, "PENDIENTE")) == "PENDIENTE")
+                       .group_by(WorkflowBag.company_id).all()):
+            pendientes[str(cid or "")] = int(n or 0)
+    except Exception:
+        pendientes = {}
+    filas = []
+    for comp in companies:
+        acc = accounts.get(str(comp.id))
+        clave = (acc.api_key or "") if acc is not None else ""
+        filas.append({
+            "company_id": str(comp.id),
+            "company_name": comp.name,
+            "company_logo": (getattr(comp, "logo_url", None) or ""),
+            "slug": _company_slug(comp.name or "empresa"),
+            "account": acc,
+            "has_key": bool(clave.strip()),
+            "key_hint": ("…" + clave.strip()[-4:]) if clave.strip() else "",
+            "is_active": bool(getattr(acc, "is_active", False)),
+            "invoice_doc_type": (getattr(acc, "invoice_doc_type", None) or "purchase"),
+            "ticket_doc_type": (getattr(acc, "ticket_doc_type", None) or "dailyexpense"),
+            "payment_methods": dict(getattr(acc, "payment_methods", None) or {}),
+            "last_test": (_et_fmt_dt(acc.last_test_at) if acc is not None and acc.last_test_at else ""),
+            "last_test_ok": (getattr(acc, "last_test_ok", None) if acc is not None else None),
+            "last_sync": (_et_fmt_dt(acc.last_sync_at) if acc is not None and acc.last_sync_at else ""),
+            "last_error": (getattr(acc, "last_error", None) or "") if acc is not None else "",
+            "pending": pendientes.get(str(comp.id), 0),
+        })
+    return filas
+
+
+def _holded_configured_any(session_db) -> bool:
+    try:
+        return bool(session_db.query(HoldedAccount)
+                    .filter(HoldedAccount.is_active.is_(True),
+                            HoldedAccount.api_key.isnot(None)).count())
+    except Exception:
+        return False
+
+
+@app.post("/integraciones/holded/<company_id>/guardar", endpoint="holded_account_save")
+@admin_required
+def holded_account_save(company_id):
+    """Guarda la API Key de Holded de UNA empresa del grupo."""
+    if not is_master():
+        flash("Solo dirección puede configurar las integraciones.", "warning")
+        return redirect(url_for("integrations_view", tab="holded"))
+    session_db = db()
+    try:
+        comp = session_db.get(GroupCompany, to_uuid(company_id) or uuid.uuid4())
+        if comp is None:
+            flash("Empresa no válida.", "warning")
+            return redirect(url_for("integrations_view") + "#tab-holded")
+        acc = _holded_account_for_company(session_db, comp.id)
+        if acc is None:
+            acc = HoldedAccount(group_company_id=comp.id)
+            session_db.add(acc)
+        nueva = (request.form.get("api_key") or "").strip()
+        if _truthy(request.form.get("clear_key")):
+            acc.api_key = None
+            acc.is_active = False
+        elif nueva and not nueva.startswith("•"):
+            acc.api_key = nueva
+        acc.invoice_doc_type = (request.form.get("invoice_doc_type") or "purchase").strip() or "purchase"
+        acc.ticket_doc_type = (request.form.get("ticket_doc_type") or "dailyexpense").strip() or "dailyexpense"
+        acc.is_active = _truthy(request.form.get("is_active")) and bool((acc.api_key or "").strip())
+        acc.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Cuenta de Holded de %s guardada." % comp.name, "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo guardar la cuenta de Holded: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("integrations_view") + "#tab-holded")
+
+
+@app.post("/integraciones/holded/<company_id>/probar", endpoint="holded_account_test")
+@admin_required
+def holded_account_test(company_id):
+    """Comprueba la API Key, detecta el tipo de documento de los tickets y trae las formas de pago."""
+    if not is_master():
+        flash("Solo dirección puede configurar las integraciones.", "warning")
+        return redirect(url_for("integrations_view") + "#tab-holded")
+    from holded_utils import HoldedError
+    session_db = db()
+    try:
+        acc = _holded_account_for_company(session_db, company_id)
+        if acc is None or not (acc.api_key or "").strip():
+            flash("Esta empresa todavía no tiene API Key de Holded.", "warning")
+            return redirect(url_for("integrations_view") + "#tab-holded")
+        from holded_utils import HoldedClient
+        client = HoldedClient(acc.api_key, endpoints=dict(acc.endpoints or {}))
+        try:
+            client.test()
+            # El tipo de documento de los TICKETS no se llama igual en todas las cuentas: se
+            # comprueba con un GET (no crea nada) y se guarda el que la cuenta acepta.
+            ticket_type = client.detect_ticket_doc_type()
+            metodos = {}
+            for m in client.payment_methods():
+                mid = str(m.get("id") or "").strip()
+                nombre = (m.get("name") or m.get("description") or "").strip()
+                if mid and nombre:
+                    metodos[mid] = nombre
+            acc.ticket_doc_type = ticket_type
+            acc.payment_methods = metodos
+            acc.last_test_at = _now_madrid()
+            acc.last_test_ok = True
+            acc.last_error = None
+            _holded_persist_client_state(acc, client)
+            session_db.commit()
+            aviso = ("Holded responde. Documento de compra: «%s» · tickets: «%s»."
+                     % (acc.invoice_doc_type or "purchase", ticket_type))
+            if metodos:
+                aviso += " %d forma(s) de pago leídas." % len(metodos)
+            else:
+                aviso += (" No se han podido leer las formas de pago: la forma de pago se dejará"
+                          " escrita en la nota interna del documento.")
+            flash(aviso, "success")
+        except HoldedError as exc:
+            acc.last_test_at = _now_madrid()
+            acc.last_test_ok = False
+            acc.last_error = str(exc)[:500]
+            session_db.commit()
+            flash("Holded: %s" % exc, "danger")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo probar la conexión con Holded: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("integrations_view") + "#tab-holded")
+
+
+# ------------------------------------------------------------------ Datos que se vuelcan a Holded
+
+def _accounting_provider_info(session_db, expense) -> dict:
+    """Datos del PROVEEDOR de un gasto, tal como hay que crearlo en Holded."""
+    provider = getattr(expense, "provider", None)
+    company = getattr(expense, "provider_company", None)
+    snapshot = dict(getattr(expense, "provider_snapshot", None) or {})
+    if company is not None:
+        nombre = (getattr(company, "legal_name", None) or "").strip()
+        cif = (getattr(company, "tax_id", None) or "").strip()
+        piezas = _fiscal_address_parts(company)
+        es_persona = False
+    else:
+        nombre = _promoter_display_name(provider) if provider is not None else ""
+        cif = (getattr(provider, "tax_id", None) or "").strip()
+        piezas = _fiscal_address_parts(provider)
+        es_persona = True
+    if not nombre:
+        nombre = (snapshot.get("company_name") or snapshot.get("nick") or "").strip()
+    if not cif:
+        cif = (snapshot.get("tax_id") or "").strip()
+    # De lo guardado de antes (dirección en un solo cuadro) se reparte lo que se pueda.
+    if piezas["address"] and not (piezas["postal_code"] or piezas["city"]):
+        repartida = _split_fiscal_address(piezas["address"])
+        for clave in ("address", "postal_code", "city", "province"):
+            piezas[clave] = piezas[clave] or repartida.get(clave) or ""
+    return {
+        "name": nombre,
+        "tax_id": cif,
+        "email": (getattr(provider, "contact_email", None) or "").strip() if provider is not None else "",
+        "phone": (getattr(provider, "contact_phone", None) or "").strip() if provider is not None else "",
+        "is_person": es_persona,
+        **piezas,
+    }
+
+
+def _accounting_bag_tag(session_db, bag) -> str:
+    """ETIQUETA con la que se agrupan en Holded los gastos de una misma bolsa.
+
+    Formato pactado: `Artista (o evento)_Actividad o municipio_Fecha`. Es lo que permite en Holded
+    sacar de un tirón todo el gasto de una fecha concreta.
+    """
+    if bag is None:
+        return ""
+    artista = ""
+    concert = None
+    if (getattr(bag, "linked_type", None) or "").upper() == "CONCERT" and bag.linked_id:
+        concert = session_db.get(Concert, bag.linked_id)
+    if concert is not None and getattr(concert, "event_id", None):
+        evento = session_db.get(AppEvent, concert.event_id)
+        artista = (getattr(evento, "name", None) or "").strip()
+    if not artista:
+        artista = (getattr(getattr(bag, "artist", None), "name", None) or "").strip()
+    if not artista and getattr(bag, "artist_id", None):
+        art = session_db.get(Artist, bag.artist_id)
+        artista = (getattr(art, "name", None) or "").strip()
+    medio = ""
+    fecha = None
+    if concert is not None:
+        medio = (getattr(concert, "festival_name", None) or "").strip()
+        if not medio:
+            medio = ((getattr(getattr(concert, "venue", None), "municipality", None) or "").strip()
+                     or (getattr(concert, "manual_municipality", None) or "").strip())
+        fecha = getattr(concert, "date", None)
+    if not medio:
+        medio = (getattr(bag, "linked_title", None) or getattr(bag, "title", None) or "").strip()
+    fecha = fecha or getattr(bag, "start_date", None)
+    trozos = [x for x in [artista, medio, (fecha.strftime("%d-%m-%Y") if fecha else "")] if x]
+    return "_".join(trozos)[:120]
+
+
+def _accounting_payment_person(session_db, expense) -> str:
+    """De quién es la tarjeta con la que se pagó (Pleo / Cabify), para la nota interna.
+
+    «Pagado con Pleo» a secas no dice nada en contabilidad: lo que hace falta es de quién era la
+    tarjeta. Se saca del gasto importado que se imputó a este gasto de bolsa.
+    """
+    try:
+        fila = (session_db.query(PersonalExpense)
+                .filter(PersonalExpense.bag_expense_id == expense.id).first())
+        if fila is None:
+            imput = (session_db.query(BagExpenseInvoice)
+                     .filter(BagExpenseInvoice.bag_expense_id == expense.id,
+                             BagExpenseInvoice.personal_expense_id.isnot(None))
+                     .order_by(BagExpenseInvoice.created_at.desc()).first())
+            if imput is not None:
+                fila = session_db.get(PersonalExpense, imput.personal_expense_id)
+        if fila is None or not fila.user_id:
+            return ""
+        prof = (session_db.query(UserProfile)
+                .filter(UserProfile.user_id == fila.user_id).first())
+        return (getattr(prof, "nick", None) or "").strip()
+    except Exception:
+        return ""
+
+
+def _accounting_internal_note(session_db, expense) -> str:
+    """NOTA INTERNA del documento de Holded: cómo se ha pagado ese gasto.
+
+    Si salió por una REMESA se dice cuál (con su referencia, banco y fecha); si no, con qué se pagó
+    y de quién era la tarjeta (p. ej. «Pagado con Pleo · Caco»). Lo que no está pagado se dice
+    también: en contabilidad no es lo mismo.
+    """
+    metodo = (getattr(expense, "payment_method", None) or "").strip()
+    estado = (getattr(expense, "payment_status", None) or "NO_PAGADO").strip().upper()
+    batch = None
+    if getattr(expense, "payment_batch_id", None):
+        batch = session_db.get(PaymentBatch, expense.payment_batch_id)
+    if batch is not None and (batch.status or "").upper() == "PAGADA":
+        partes = ["Pagado en remesa %s" % (batch.reference or "")]
+        banco = (getattr(getattr(batch, "bank", None), "name", None) or "").strip()
+        if banco:
+            partes.append(banco)
+        cuenta = getattr(batch, "account", None)
+        alias = (getattr(cuenta, "alias", None) or "").strip() if cuenta is not None else ""
+        if alias:
+            partes.append(alias)
+        if batch.paid_at:
+            partes.append(batch.paid_at.strftime("%d/%m/%Y"))
+        return " · ".join([x for x in partes if x])
+    if estado == "PAGADO" or _money_or_zero(getattr(expense, "paid_amount", 0)) > 0:
+        persona = _accounting_payment_person(session_db, expense)
+        texto = "Pagado con %s" % (metodo or "método sin indicar")
+        if persona:
+            texto += " · " + persona
+        if estado != "PAGADO":
+            texto = "Pagado en parte (%s de %s) · %s" % (
+                format_eur(_money_or_zero(getattr(expense, "paid_amount", 0))),
+                format_eur(_money_or_zero(getattr(expense, "amount_gross", 0))), texto)
+        return texto
+    return "Pendiente de pago" + (" · %s previsto" % metodo if metodo else "")
+
+
+def _accounting_expense_invoice(session_db, expense):
+    """La FACTURA (SupplierInvoice) imputada a un gasto, si la hay: de ahí salen los importes reales."""
+    try:
+        filas = (session_db.query(BagExpenseInvoice)
+                 .filter(BagExpenseInvoice.bag_expense_id == expense.id)
+                 .order_by(BagExpenseInvoice.created_at.desc()).all())
+    except Exception:
+        filas = []
+    for fila in filas:
+        if getattr(fila, "supplier_invoice_id", None):
+            inv = session_db.get(SupplierInvoice, fila.supplier_invoice_id)
+            if inv is not None:
+                return inv
+    try:
+        return (session_db.query(SupplierInvoice)
+                .filter(SupplierInvoice.bag_expense_id == expense.id)
+                .order_by(SupplierInvoice.created_at.desc()).first())
+    except Exception:
+        return None
+
+
+def _accounting_amounts(session_db, expense, *, invoice=None) -> dict:
+    """DESGLOSE del gasto para contabilidad: base, IVA (con su %), retención (con su %) y total.
+
+    Manda lo que dice la FACTURA (se leyó del documento) y, si no hay, lo que tiene el gasto. Un
+    TICKET no desglosa: el total es el total. Los porcentajes se despejan de los importes cuando no
+    vienen dados, y un 0 no es «no lo sé»: si no hay dato, se devuelve None.
+    """
+    tipo = (getattr(expense, "document_type", None) or "FACTURA").strip().upper()
+    total = _money_or_zero(getattr(expense, "amount_gross", 0))
+    base = _money_or_zero(getattr(expense, "amount_net", 0))
+    iva = _money_or_zero(getattr(expense, "amount_tax", 0))
+    ret = _money_or_zero(getattr(expense, "retention_amount", 0))
+    iva_pct = ret_pct = None
+    if invoice is not None:
+        if _money_or_zero(getattr(invoice, "amount_gross", None)) > 0:
+            total = _money_or_zero(invoice.amount_gross)
+        if _money_or_zero(getattr(invoice, "amount_net", None)) > 0:
+            base = _money_or_zero(invoice.amount_net)
+        if getattr(invoice, "amount_vat", None) is not None:
+            iva = _money_or_zero(invoice.amount_vat)
+        if getattr(invoice, "retention_amount", None) is not None:
+            ret = _money_or_zero(invoice.retention_amount)
+        if getattr(invoice, "vat_pct", None) is not None:
+            iva_pct = _money_or_zero(invoice.vat_pct)
+        if getattr(invoice, "retention_pct", None) is not None:
+            ret_pct = _money_or_zero(invoice.retention_pct)
+    if tipo in {"TICKET", "SIN_DOCUMENTO"}:
+        # Un ticket no diferencia IVA: el total es el total y no se inventa ningún desglose.
+        return {"net": total, "vat": Decimal("0"), "vat_pct": None,
+                "retention": Decimal("0"), "retention_pct": None, "total": total,
+                "breakdown": False}
+    if base <= 0 and total > 0 and iva > 0:
+        base = total - iva + ret
+    if base <= 0 and total > 0:
+        base = total
+    if iva_pct is None and base > 0 and iva > 0:
+        iva_pct = (iva / base * Decimal("100")).quantize(Decimal("0.01"))
+    if ret_pct is None and base > 0 and ret > 0:
+        ret_pct = (ret / base * Decimal("100")).quantize(Decimal("0.01"))
+    return {"net": base, "vat": iva, "vat_pct": iva_pct,
+            "retention": ret, "retention_pct": ret_pct, "total": total,
+            "breakdown": True}
+
+
+def _accounting_document_file(session_db, expense, *, invoice=None) -> dict:
+    """El documento que se adjunta en Holded (la factura o el ticket) y su nombre."""
+    url = (getattr(expense, "attachment_url", None) or "").strip()
+    nombre = (getattr(expense, "attachment_name", None) or "").strip()
+    if not url and invoice is not None:
+        url = (getattr(invoice, "file_url", None) or "").strip()
+        nombre = nombre or (getattr(invoice, "original_name", None) or "").strip()
+    if not url:
+        try:
+            fila = (session_db.query(BagExpenseInvoice)
+                    .filter(BagExpenseInvoice.bag_expense_id == expense.id)
+                    .order_by(BagExpenseInvoice.created_at.desc()).first())
+        except Exception:
+            fila = None
+        if fila is not None:
+            url = (fila.file_url or "").strip()
+            nombre = nombre or (fila.file_name or "").strip()
+    return {"url": url, "name": (nombre or "documento.pdf")}
+
+
+def _accounting_holded_payment_method_id(acc, metodo: str) -> str:
+    """Forma de pago de Holded que se parece a la nuestra (por nombre). Sin coincidencia, vacío."""
+    objetivo = (metodo or "").strip().casefold()
+    if not objetivo:
+        return ""
+    catalogo = dict(getattr(acc, "payment_methods", None) or {})
+    for mid, nombre in catalogo.items():
+        if (nombre or "").strip().casefold() == objetivo:
+            return str(mid)
+    for mid, nombre in catalogo.items():
+        limpio = (nombre or "").strip().casefold()
+        if limpio and (limpio in objetivo or objetivo in limpio):
+            return str(mid)
+    return ""
+
+
+def _holded_upload_expense(session_db, expense, *, nick: str = "") -> dict:
+    """Sube UN gasto a Holded como compra nueva (o como ticket) y deja el resultado en el gasto.
+
+    Devuelve `{"ok": bool, "message": str, "warning": str}`. Si algo falla NO se calla: el motivo se
+    guarda en `holded_error` y se le enseña a quien lo ha intentado, que es lo que se pidió.
+    """
+    from holded_utils import (HoldedError, build_contact_payload, build_purchase_payload,
+                              DOC_TYPE_INVOICE)
+    bag = getattr(expense, "bag", None) or (session_db.get(WorkflowBag, expense.bag_id)
+                                            if getattr(expense, "bag_id", None) else None)
+    company_id = getattr(bag, "company_id", None)
+    if not company_id:
+        return _holded_upload_fail(expense, "El gasto no tiene empresa del grupo (la bolsa no la "
+                                            "tiene puesta), así que no se sabe a qué cuenta de "
+                                            "Holded va.")
+    acc = _holded_account_for_company(session_db, company_id)
+    try:
+        client = _holded_client_for_account(acc)
+    except HoldedError as exc:
+        return _holded_upload_fail(expense, str(exc))
+
+    tipo = (getattr(expense, "document_type", None) or "FACTURA").strip().upper()
+    es_factura = tipo == "FACTURA"
+    factura = _accounting_expense_invoice(session_db, expense)
+    importes = _accounting_amounts(session_db, expense, invoice=factura)
+    if importes["total"] <= 0:
+        return _holded_upload_fail(expense, "El gasto no tiene importe: en Holded no se puede crear "
+                                            "una compra de 0 €.")
+    concepto = (getattr(expense, "concept", None) or "Gasto").strip()
+    avisos = []
+
+    # 1) CONTACTO (solo las facturas): se busca por CIF/DNI/NIE y, si no está, se crea.
+    contact_id = ""
+    proveedor = _accounting_provider_info(session_db, expense)
+    if es_factura:
+        if not (proveedor["name"] or proveedor["tax_id"]):
+            return _holded_upload_fail(expense, "La factura no tiene proveedor: en Holded hace falta "
+                                                "el contacto para crear la compra.")
+        try:
+            encontrado = client.find_contact(proveedor["tax_id"], name=proveedor["name"])
+            if encontrado:
+                contact_id = str(encontrado.get("id") or "").strip()
+            if not contact_id:
+                if not proveedor["postal_code"] or not proveedor["city"]:
+                    avisos.append("El proveedor se ha creado en Holded sin código postal o sin "
+                                  "municipio: complétalos en su ficha para que la dirección fiscal "
+                                  "esté bien.")
+                contact_id = client.create_contact(build_contact_payload(
+                    name=proveedor["name"] or ("Proveedor " + (proveedor["tax_id"] or "")),
+                    tax_id=proveedor["tax_id"],
+                    email=proveedor["email"], phone=proveedor["phone"],
+                    address=proveedor["address"], postal_code=proveedor["postal_code"],
+                    city=proveedor["city"], province=proveedor["province"],
+                    country=(proveedor["country"] or "España"),
+                    is_person=proveedor["is_person"],
+                ))
+        except HoldedError as exc:
+            return _holded_upload_fail(expense, "No se ha podido preparar el proveedor en Holded: %s" % exc)
+
+    # 2) DOCUMENTO
+    doc_type = ((acc.invoice_doc_type or DOC_TYPE_INVOICE) if es_factura
+                else (acc.ticket_doc_type or "dailyexpense"))
+    etiqueta = _accounting_bag_tag(session_db, bag)
+    nota = _accounting_internal_note(session_db, expense)
+    metodo_id = _accounting_holded_payment_method_id(acc, getattr(expense, "payment_method", None))
+    payload = build_purchase_payload(
+        concept=concepto,
+        total=importes["total"],
+        net=(importes["net"] if es_factura else importes["total"]),
+        vat_pct=(importes["vat_pct"] if es_factura else 0),
+        retention_pct=(importes["retention_pct"] if es_factura else 0),
+        contact_id=(contact_id or None),
+        contact_name=(proveedor["name"] if (es_factura and not contact_id) else None),
+        # Un ticket no lleva número de documento ni fecha de emisión: no existen.
+        doc_number=((getattr(expense, "invoice_number", None) or "").strip() or None) if es_factura else None,
+        issue_date=(getattr(expense, "issue_date", None) if es_factura else None),
+        tags=([etiqueta] if etiqueta else None),
+        notes=nota,
+        payment_method_id=(metodo_id or None),
+    )
+    try:
+        creado = client.create_document(doc_type, payload)
+    except HoldedError as exc:
+        return _holded_upload_fail(expense, "Holded no ha creado el documento: %s" % exc)
+
+    # 3) COMPROBAR que el total que ha calculado Holded es el nuestro (red del mapeo de impuestos).
+    try:
+        cuadra, total_holded = client.verify_document_total(doc_type, creado["id"], importes["total"])
+        if not cuadra:
+            avisos.append("En Holded ha quedado por %s y aquí son %s: revisa el IVA o la retención."
+                          % (format_eur(total_holded), format_eur(importes["total"])))
+    except HoldedError:
+        avisos.append("No se ha podido releer el documento en Holded para comprobar el total.")
+
+    # 4) ADJUNTAR el documento (la factura o el ticket).
+    doc = _accounting_document_file(session_db, expense, invoice=factura)
+    if doc["url"]:
+        datos = _download_url_bytes(doc["url"], max_bytes=20 * 1024 * 1024)
+        if not datos:
+            avisos.append("No se ha podido descargar el documento para adjuntarlo (¿se ha borrado "
+                          "el archivo?).")
+        else:
+            try:
+                client.attach_file(doc_type, creado["id"], filename=doc["name"], content=datos,
+                                   mime=(getattr(expense, "attachment_mime", None) or None))
+            except HoldedError as exc:
+                avisos.append("El documento se ha creado pero el archivo NO se ha adjuntado: %s" % exc)
+    elif (getattr(expense, "consolidation_status", "") or "").upper() != "SIN_FACTURA_ACEPTADO":
+        avisos.append("Este gasto no tiene archivo que adjuntar.")
+
+    expense.holded_company_id = to_uuid(str(company_id))
+    expense.holded_doc_id = creado["id"]
+    expense.holded_doc_type = doc_type
+    expense.holded_doc_number = creado.get("number") or None
+    expense.holded_contact_id = contact_id or None
+    expense.holded_uploaded_at = _now_madrid()
+    expense.holded_error = None
+    expense.holded_warning = (" · ".join(avisos)[:800] or None)
+    if (expense.accounting_status or "PENDIENTE").upper() not in ACCOUNTING_DONE_STATUSES:
+        expense.accounting_status = "SUBIDO"
+        expense.accounting_by_nick = (nick or "").strip() or expense.accounting_by_nick
+    expense.updated_at = _now_madrid()
+    _holded_persist_client_state(acc, client)
+    mensaje = "«%s» subido a Holded como %s." % (concepto, "compra" if es_factura else "gasto")
+    return {"ok": True, "message": mensaje, "warning": " · ".join(avisos)}
+
+
+def _holded_upload_fail(expense, motivo: str) -> dict:
+    """Deja escrito en el gasto por qué no se ha podido subir (y lo devuelve para enseñarlo)."""
+    try:
+        expense.holded_error = (motivo or "")[:800] or None
+        expense.updated_at = _now_madrid()
+    except Exception:
+        pass
+    return {"ok": False, "message": motivo, "warning": ""}
+
+
+def _accounting_set_status(session_db, expense, status: str, *, nick: str = "",
+                           note: str = "") -> None:
+    """Punto ÚNICO para cambiar el estado contable de un gasto."""
+    st = (status or "").strip().upper()
+    if st not in ACCOUNTING_STATUS_LABELS:
+        return
+    expense.accounting_status = st
+    expense.accounting_by_nick = (nick or "").strip() or expense.accounting_by_nick
+    expense.accounting_note = (note or "").strip() or (None if st != "OMITIDO" else expense.accounting_note)
+    # `accounting_at` es la fecha que se enseña al pasar el ratón por la etiqueta: solo tiene sentido
+    # cuando el gasto ya está resuelto.
+    expense.accounting_at = _now_madrid() if st in ACCOUNTING_DONE_STATUSES else None
+    expense.updated_at = _now_madrid()
+    bag = getattr(expense, "bag", None) or (session_db.get(WorkflowBag, expense.bag_id)
+                                            if getattr(expense, "bag_id", None) else None)
+    _accounting_bag_close_if_done(session_db, bag)
+
+
+def _accounting_bag_close_if_done(session_db, bag) -> bool:
+    """Una bolsa con TODOS sus gastos contabilizados (u omitidos) sale de pendiente de contabilizar.
+
+    Se marca `accounting_done_at` y, si además no queda nada por pagar, se archiva: a partir de ahí
+    no hay nada que hacer con ella. Devuelve True si la ha cerrado ahora.
+    """
+    if bag is None:
+        return False
+    try:
+        # ⚠️ La sesión de esta app es `autoflush=False`: sin este flush, la consulta de abajo NO ve
+        # los estados que se acaban de cambiar en memoria y la bolsa nunca se daba por cerrada
+        # (marcar los cuatro gastos de golpe dejaba `accounting_done_at` a null: bug real).
+        session_db.flush()
+        quedan = (session_db.query(func.count(BagExpense.id))
+                  .filter(BagExpense.bag_id == bag.id,
+                          BagExpense.status != "ELIMINADO",
+                          BagExpense.consolidation_status.in_(list(BAG_CONSOLIDATED_STATUSES)),
+                          ~func.upper(func.coalesce(BagExpense.accounting_status, "PENDIENTE"))
+                          .in_(list(ACCOUNTING_DONE_STATUSES)))
+                  .scalar()) or 0
+    except Exception:
+        return False
+    if quedan:
+        if getattr(bag, "accounting_done_at", None):
+            bag.accounting_done_at = None      # ha vuelto a haber trabajo (p. ej. un gasto nuevo)
+        return False
+    if getattr(bag, "accounting_done_at", None):
+        return False
+    bag.accounting_done_at = _now_madrid()
+    bag.updated_at = _now_madrid()
+    if not bag.is_archived:
+        bag.status = "ARCHIVADA"
+        bag.is_archived = True
+        bag.archived_at = _now_madrid()
+    return True
+
+
+def _holded_refresh_accounted(session_db, *, limit: int = 400) -> dict:
+    """Pregunta a Holded por los documentos ya SUBIDOS y marca como contabilizados los que lo estén.
+
+    Así la etiqueta se pone al día sola. Lo que Holded no diga NO se toca: preferimos no saberlo a
+    inventarlo.
+    """
+    from holded_utils import HoldedError
+    salida = {"checked": 0, "accounted": 0, "errors": []}
+    filas = (session_db.query(BagExpense)
+             .filter(BagExpense.holded_doc_id.isnot(None),
+                     func.upper(func.coalesce(BagExpense.accounting_status, "PENDIENTE")) == "SUBIDO")
+             .order_by(BagExpense.holded_uploaded_at.asc().nullslast()).limit(limit).all())
+    clientes = {}
+    for expense in filas:
+        cid = str(getattr(expense, "holded_company_id", "") or "")
+        if not cid:
+            bag = session_db.get(WorkflowBag, expense.bag_id) if expense.bag_id else None
+            cid = str(getattr(bag, "company_id", "") or "")
+        if not cid:
+            continue
+        if cid not in clientes:
+            acc = _holded_account_for_company(session_db, cid)
+            try:
+                clientes[cid] = (_holded_client_for_account(acc), acc)
+            except HoldedError as exc:
+                clientes[cid] = (None, acc)
+                salida["errors"].append(str(exc)[:200])
+        client, acc = clientes[cid]
+        if client is None:
+            continue
+        salida["checked"] += 1
+        try:
+            contabilizado, _doc = client.document_is_accounted(
+                expense.holded_doc_type or "purchase", expense.holded_doc_id)
+        except HoldedError as exc:
+            salida["errors"].append(str(exc)[:200])
+            continue
+        if contabilizado:
+            _accounting_set_status(session_db, expense, "CONTABILIZADO", nick="Holded")
+            salida["accounted"] += 1
+        _holded_persist_client_state(acc, client)
+    session_db.commit()
+    return salida
+
+
+def _holded_autodetect_due(session_db, *, minutes: int = 15) -> bool:
+    """¿Toca preguntar a Holded qué se ha contabilizado ya? (como mucho, cada 15 minutos)."""
+    try:
+        pendientes = (session_db.query(func.count(BagExpense.id))
+                      .filter(BagExpense.holded_doc_id.isnot(None),
+                              func.upper(func.coalesce(BagExpense.accounting_status, "PENDIENTE")) == "SUBIDO")
+                      .scalar()) or 0
+        if not pendientes:
+            return False
+        cuentas = (session_db.query(HoldedAccount)
+                   .filter(HoldedAccount.is_active.is_(True),
+                           HoldedAccount.api_key.isnot(None)).all())
+        if not cuentas:
+            return False
+        limite = _now_madrid() - timedelta(minutes=minutes)
+        return any((c.last_sync_at is None or c.last_sync_at < limite) for c in cuentas)
+    except Exception:
+        return False
+
+
+def _holded_autodetect_bg() -> None:
+    """Sondeo en SEGUNDO PLANO al abrir Contabilidad: la etiqueta se pone al día sola.
+
+    En primer plano no: preguntar por 40 documentos son 40 llamadas y la pantalla se quedaría
+    colgada. Así se abre al momento y lo detectado se ve en la siguiente carga.
+    """
+    session_db = db()
+    try:
+        for acc in (session_db.query(HoldedAccount)
+                    .filter(HoldedAccount.is_active.is_(True),
+                            HoldedAccount.api_key.isnot(None)).all()):
+            acc.last_sync_at = _now_madrid()
+        session_db.commit()
+        _holded_refresh_accounted(session_db, limit=120)
+    except Exception:
+        try:
+            session_db.rollback()
+        except Exception:
+            pass
+        app.logger.exception("[holded] sondeo en segundo plano falló")
+    finally:
+        session_db.close()
+
+
+@app.get("/cron/holded/refresh", endpoint="cron_holded_refresh")
+def cron_holded_refresh():
+    """Sondeo periódico: mira en Holded qué documentos ya están contabilizados. Sin sesión (?key=)."""
+    expected = (getattr(settings, "HOLDED_CRON_KEY", "") or settings.PLEO_CRON_KEY
+                or settings.CHARTMETRIC_CRON_KEY or "").strip()
+    key = (request.args.get("key") or "").strip()
+    if not expected or key != expected:
+        return ("forbidden", 403)
+    session_db = db()
+    try:
+        out = _holded_refresh_accounted(session_db)
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[holded] cron falló")
+        return (jsonify({"ok": False, "error": str(exc)}), 500)
+    finally:
+        session_db.close()
+    return jsonify({"ok": True, **out})
+
+
 @app.post('/mi-menu/orden', endpoint='nav_menu_order_save')
 @admin_required
 def nav_menu_order_save():
@@ -64104,7 +65743,14 @@ def _billing_profile_payload(session_db, promoter) -> dict:
     full_name = " ".join([x for x in [(promoter.first_name or "").strip(), (promoter.last_name or "").strip()] if x]).strip()
     contact_name = " ".join([x for x in [(contact.first_name or "").strip() if contact else "",
                                          (contact.last_name or "").strip() if contact else ""] if x]).strip()
-    fiscal = (promoter.fiscal_address or getattr(company, "fiscal_address", None) or promoter.address or "").strip()
+    # DIRECCIÓN FISCAL EN PIEZAS: la de la sociedad si la tiene y, si no, la del tercero. El texto
+    # junto es solo para MOSTRARLO; lo que hace falta para contabilizar son las piezas.
+    piezas = _fiscal_parts_for_form(company if (company is not None
+                                                and (getattr(company, "fiscal_address", None)
+                                                     or getattr(company, "fiscal_postal_code", None)))
+                                    else promoter)
+    fiscal = (_fiscal_address_text(company if company is not None else promoter)
+              or piezas["address"] or (promoter.address or "").strip())
     missing = []
     if kind == "EMPRESA":
         if not (promoter.nick or "").strip():
@@ -64114,8 +65760,16 @@ def _billing_profile_payload(session_db, promoter) -> dict:
     else:
         if not full_name:
             missing.append("full_name")
-    if not fiscal:
+    if not piezas["address"] and not fiscal:
         missing.append("fiscal_address")
+    # ⚠️ Sin código postal, municipio y provincia no se puede dar de alta al proveedor en la
+    # contabilidad: se le piden aunque ya tuviera la dirección puesta de un tirón.
+    if not piezas["postal_code"]:
+        missing.append("fiscal_postal_code")
+    if not piezas["city"]:
+        missing.append("fiscal_city")
+    if not piezas["province"]:
+        missing.append("fiscal_province")
     if not (promoter.contact_email or "").strip():
         missing.append("email")
     if not (promoter.contact_phone or "").strip():
@@ -64145,7 +65799,12 @@ def _billing_profile_payload(session_db, promoter) -> dict:
             "full_name": full_name,
             "company_name": ((promoter.nick or "").strip() if kind == "EMPRESA" else ""),
             "contact_name": contact_name,
-            "fiscal_address": _mask_value(fiscal, 6),
+            "fiscal_address": _mask_value(piezas["address"], 6),
+            # El código postal, el municipio y la provincia se ven TAL CUAL: no son un dato sensible
+            # y así se comprueba de un vistazo que están bien.
+            "fiscal_postal_code": piezas["postal_code"],
+            "fiscal_city": piezas["city"],
+            "fiscal_province": piezas["province"],
             "email": _mask_value(promoter.contact_email or ""),
             "phone": _mask_value(promoter.contact_phone or "", 3),
             "bank_account": _mask_value(promoter.bank_account or ""),
@@ -64671,7 +66330,14 @@ def public_invoice_register():
                     break
         fields = {k: (request.form.get(k) or "").strip() for k in
                   ("full_name", "company_name", "contact_name", "fiscal_address", "email", "phone", "bank_account")}
-        required = ["fiscal_address", "email", "phone", "bank_account"]
+        # DIRECCIÓN FISCAL EN PIEZAS: el código postal, el municipio y la provincia se piden aparte
+        # porque son imprescindibles para dar de alta al proveedor en la contabilidad.
+        piezas_fiscal = _fiscal_form_values(request.form)
+        fields.update({"fiscal_postal_code": piezas_fiscal["postal_code"],
+                       "fiscal_city": piezas_fiscal["city"],
+                       "fiscal_province": piezas_fiscal["province"]})
+        required = ["fiscal_address", "fiscal_postal_code", "fiscal_city", "fiscal_province",
+                    "email", "phone", "bank_account"]
         required += ["company_name", "contact_name"] if kind == "EMPRESA" else ["full_name"]
         faltan = [f for f in required if not fields.get(f)]
         if faltan and promoter is None:
@@ -64692,12 +66358,13 @@ def public_invoice_register():
             promoter.nick = fields["company_name"][:120]
             promoter.kind = "empresa"
         promoter.tax_id = raw_tax
-        for attr, key in (("fiscal_address", "fiscal_address"), ("contact_email", "email"),
-                          ("contact_phone", "phone"), ("bank_account", "bank_account")):
+        for attr, key in (("contact_email", "email"), ("contact_phone", "phone"),
+                          ("bank_account", "bank_account")):
             if fields[key]:
                 setattr(promoter, attr, fields[key])
+        _apply_fiscal_address(promoter, piezas_fiscal)
         if fields["fiscal_address"] and not (promoter.address or "").strip():
-            promoter.address = fields["fiscal_address"]
+            promoter.address = _fiscal_address_text(promoter) or fields["fiscal_address"]
         promoter.data_consent_at = _now_madrid()
         promoter.billing_updated_at = _now_madrid()
         # Empresa: sociedad + contacto vinculado.
@@ -64709,8 +66376,7 @@ def public_invoice_register():
                 company = PromoterCompany(promoter_id=promoter.id, legal_name=(fields["company_name"] or promoter.nick)[:200])
                 session_db.add(company)
             company.tax_id = raw_tax
-            if fields["fiscal_address"]:
-                company.fiscal_address = fields["fiscal_address"]
+            _apply_fiscal_address(company, piezas_fiscal)
             if fields["contact_name"]:
                 parts = fields["contact_name"].split()
                 contact = (session_db.query(PromoterContact)
@@ -65676,8 +67342,11 @@ def _intake_promoter_payload(session_db, promoter, masked: bool) -> dict:
         "tax_id": (promoter.tax_id or ""),
         "full_name": nombre,
         "company_name": (promoter.nick or "") if kind == "EMPRESA" else "",
-        "fiscal_address": (promoter.fiscal_address or getattr(company, "fiscal_address", None)
+        # Dirección fiscal: junta para MOSTRARLA y en piezas para el formulario (la contabilidad
+        # necesita el código postal, el municipio y la provincia por separado).
+        "fiscal_address": (_fiscal_address_text(company if company is not None else promoter)
                            or promoter.address or ""),
+        "fiscal": _intake_fiscal_parts(promoter, company, masked=masked),
         "email": _v(promoter.contact_email),
         "phone": _v(promoter.contact_phone),
         "bank_account": (_mask_value(promoter.bank_account or "") if masked
@@ -66022,13 +67691,15 @@ def public_intake_submit(token):
             promoter.last_name = " ".join(partes[1:]) or None
             if not (promoter.nick or "").strip():
                 promoter.nick = _intake_unique_nick(session_db, nombre[:120], promoter.id)
-        for attr, campo in (("fiscal_address", "fiscal_address"), ("contact_email", "email"),
-                            ("contact_phone", "phone")):
+        for attr, campo in (("contact_email", "email"), ("contact_phone", "phone")):
             valor = (f.get(campo) or "").strip()
             if valor:
                 setattr(promoter, attr, valor)
+        # Dirección fiscal EN PIEZAS (CP, municipio y provincia aparte: la contabilidad los exige).
+        piezas_fiscal = _fiscal_form_values(f)
+        _apply_fiscal_address(promoter, piezas_fiscal)
         if (f.get("fiscal_address") or "").strip() and not (promoter.address or "").strip():
-            promoter.address = (f.get("fiscal_address") or "").strip()
+            promoter.address = _fiscal_address_text(promoter) or (f.get("fiscal_address") or "").strip()
 
         # --- Cuenta bancaria + certificado de titularidad (ya subido en su paso) ---
         iban = _iban_clean(f.get("bank_account"))
@@ -66055,8 +67726,7 @@ def public_intake_submit(token):
                                           legal_name=(nombre or promoter.nick or "")[:200])
                 session_db.add(company)
             company.tax_id = raw_tax
-            if (f.get("fiscal_address") or "").strip():
-                company.fiscal_address = (f.get("fiscal_address") or "").strip()
+            _apply_fiscal_address(company, piezas_fiscal)
             nombres = f.getlist("contact_name")[:INTAKE_MAX_ROWS]
             funciones = f.getlist("contact_title")[:INTAKE_MAX_ROWS]
             correos = f.getlist("contact_email")[:INTAKE_MAX_ROWS]
@@ -81703,6 +83373,16 @@ def integrations_view():
         cabify_rows, cabify_any = [], False
     finally:
         s2.close()
+    # Holded: una subpestaña por empresa del grupo (cada una lleva su contabilidad en su cuenta).
+    holded_rows, holded_any = [], False
+    s3 = db()
+    try:
+        holded_rows = _holded_account_rows(s3)
+        holded_any = _holded_configured_any(s3)
+    except Exception:
+        holded_rows, holded_any = [], False
+    finally:
+        s3.close()
     return render_template(
         "integraciones.html",
         title="Integraciones",
@@ -81711,6 +83391,8 @@ def integrations_view():
         pleo_people=pleo_people,
         cabify_configured=cabify_any,
         cabify_rows=cabify_rows,
+        holded_configured=holded_any,
+        holded_rows=holded_rows,
         personnel_options=[{"id": p["id"], "nick": p["label"]} for p in pleo_people],
         pleo_default_window=PLEO_DEFAULT_WINDOW_DAYS,
         chartmetric_configured=chartmetric_utils.chartmetric_configured(),

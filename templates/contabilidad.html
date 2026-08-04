@@ -1,94 +1,505 @@
 {% extends "layout.html" %}
 {% block content %}
-{# CONTABILIDAD: las facturas y, arriba, lo que administración ya ha pagado y todavía no se ha
-   contabilizado (las liquidaciones pagadas se archivan de administración y aparecen aquí). #}
+{# ============================================================================
+   CONTABILIDAD. Pestañas SERVIDAS (?tab=) con sus contadores y, dentro de «Pendiente de
+   contabilizar», las subpestañas Facturas · Bolsas · Tickets · Sin ticket.
+
+   ⚠️ La zona que se refresca sin recargar es `#accZone`, DENTRO de la pestaña: nunca la pestaña
+   (ver la nota de ajax_inline en CLAUDE.md).
+   ⚠️ TODO va dentro de UN SOLO formulario (`#accForm`): las acciones de cada fila usan `formaction`
+   en su botón, porque un formulario dentro de otro no es HTML válido. Los modales (ver documento y
+   editar) viven FUERA, al final.
+   ============================================================================ #}
+{%- macro pct(v) -%}{%- if v is not none and v != 0 -%}{{ ('%g' % (v|float))|replace('.', ',') }}%{%- endif -%}{%- endmacro -%}
+
+{# ---------- Una fila de gasto (se usa en las tres subpestañas y en cada bolsa) ---------- #}
+{% macro acc_row(r, show_bag=True) %}
+  <tr class="acc-row{% if r.holded_error %} acc-row--error{% endif %}">
+    <td class="acc-check">
+      {% if CAN_EDIT %}<input class="form-check-input" type="checkbox" name="expense_ids" value="{{ r.id }}" data-acc-check>{% endif %}
+    </td>
+    <td>
+      <div class="fw-semibold">{{ r.provider_name }}</div>
+      {% if r.provider_tax_id %}<div class="small text-muted font-monospace">{{ r.provider_tax_id }}</div>{% endif %}
+      {% if not show_bag %}<span class="badge {{ r.doc_badge }} mt-1"><i class="fa {{ r.doc_icon }} me-1"></i>{{ r.doc_label }}</span>{% endif %}
+    </td>
+    <td class="small">{{ r.invoice_number or '—' }}</td>
+    <td>
+      <div>{{ r.concept }}</div>
+      {% if r.category_label %}<div class="small text-muted">{{ r.category_label }}</div>{% endif %}
+    </td>
+    <td class="small text-nowrap">{{ r.issue_date or '—' }}</td>
+    <td>
+      <span class="badge {{ r.payment_badge }}">{{ r.payment_label }}</span>
+      {% if r.payment_method %}<div class="small text-muted">{{ r.payment_method }}</div>{% endif %}
+      {% if r.batch_reference %}<div class="small text-muted"><i class="fa fa-building-columns me-1"></i>{{ r.batch_reference }}</div>{% endif %}
+    </td>
+    <td class="small">
+      {% if r.artist_name %}{{ artist_chip(r.artist_name, r.artist_photo, artist_id=r.artist_id) }}{% else %}—{% endif %}
+    </td>
+    {% if show_bag %}
+      <td class="small">
+        {% if r.bag_url %}<a href="{{ r.bag_url }}" class="text-decoration-none">{{ r.bag_label }}</a>
+        {% else %}{{ r.bag_label }}{% endif %}
+        {% if r.company_name %}<div class="small text-muted">{{ r.company_name }}</div>{% endif %}
+      </td>
+    {% endif %}
+    <td class="text-end text-nowrap">{{ r.net|eur }}</td>
+    <td class="text-end text-nowrap">
+      {% if r.retention and r.retention > 0 %}
+        <span class="text-danger">−{{ r.retention|eur }}</span>
+        {% if r.retention_pct %}<span class="badge text-bg-light border ms-1">{{ pct(r.retention_pct) }}</span>{% endif %}
+      {% else %}<span class="text-muted">—</span>{% endif %}
+    </td>
+    <td class="text-end text-nowrap">
+      {% if r.breakdown and r.vat and r.vat > 0 %}
+        {{ r.vat|eur }}{% if r.vat_pct %}<span class="badge text-bg-light border ms-1">{{ pct(r.vat_pct) }}</span>{% endif %}
+      {% elif not r.breakdown %}<span class="text-muted small" title="Un ticket no desglosa IVA: el total es el total">—</span>
+      {% else %}<span class="text-muted">—</span>{% endif %}
+    </td>
+    <td class="text-end fw-bold text-nowrap">{{ r.total|eur }}</td>
+    <td class="text-nowrap">
+      {# La ETIQUETA de estado se cambia PINCHÁNDOLA (avanza en su ciclo) y al pasar el ratón dice
+         desde cuándo está contabilizado. #}
+      {% if CAN_EDIT %}
+        <button class="badge {{ r.status_badge }} border-0 acc-badge" type="submit"
+                formaction="{{ url_for('accounting_expense_status', expense_id=r.id) }}"
+                title="{% if r.accounting_at %}{{ r.status_label }} el {{ r.accounting_at }}{% if r.accounting_by %} · {{ r.accounting_by }}{% endif %}{% else %}Pincha para cambiar el estado{% endif %}">
+          <i class="fa {{ r.status_icon }} me-1"></i>{{ r.status_label }}
+        </button>
+      {% else %}
+        <span class="badge {{ r.status_badge }}" title="{% if r.accounting_at %}{{ r.status_label }} el {{ r.accounting_at }}{% endif %}"><i class="fa {{ r.status_icon }} me-1"></i>{{ r.status_label }}</span>
+      {% endif %}
+      {% if r.holded_doc_number or r.holded_doc_id %}
+        <div class="small text-muted">Holded: {{ r.holded_doc_number or r.holded_doc_id }}</div>
+      {% endif %}
+      {% if r.holded_error %}<div class="small text-danger"><i class="fa fa-triangle-exclamation me-1"></i>{{ r.holded_error }}</div>{% endif %}
+      {% if r.holded_warning %}<div class="small text-warning-emphasis"><i class="fa fa-circle-exclamation me-1"></i>{{ r.holded_warning }}</div>{% endif %}
+      {% if r.accounting_note %}<div class="small text-muted">{{ r.accounting_note }}</div>{% endif %}
+    </td>
+    <td class="text-end text-nowrap">
+      {% if r.doc_url %}
+        <button class="btn btn-sm btn-outline-dark" type="button" title="Ver el documento"
+                data-acc-doc="{{ r.doc_url }}" data-acc-doc-name="{{ r.doc_name }}"
+                data-acc-doc-title="{{ r.provider_name }} · {{ r.concept }}">
+          <i class="fa fa-file-invoice"></i></button>
+      {% else %}
+        <span class="text-muted small" title="Este gasto no tiene documento"><i class="fa fa-file-circle-xmark"></i></span>
+      {% endif %}
+      <div class="dropdown d-inline-block">
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          {% if CAN_EDIT %}
+            <li><button class="dropdown-item" type="submit" formaction="{{ url_for('accounting_expense_upload', expense_id=r.id) }}"
+                        {% if not r.holded_ready %}disabled title="La empresa de esta bolsa no tiene Holded configurado"{% endif %}>
+              <i class="fa fa-cloud-arrow-up fa-fw me-1"></i>Subir a Holded</button></li>
+            <li><button class="dropdown-item" type="submit" name="status" value="CONTABILIZADO"
+                        formaction="{{ url_for('accounting_expense_status', expense_id=r.id) }}">
+              <i class="fa fa-circle-check fa-fw me-1"></i>Marcar como contabilizado</button></li>
+          {% endif %}
+          {% if r.doc_url %}
+            <li><a class="dropdown-item" href="{{ r.doc_url }}" download target="_blank" rel="noopener"><i class="fa fa-download fa-fw me-1"></i>Descargar</a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item" href="mailto:?subject={{ (r.provider_name ~ ' · ' ~ r.concept)|urlencode }}&body={{ r.doc_url|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Compartir por correo</a></li>
+            <li><a class="dropdown-item" href="https://wa.me/?text={{ ((r.concept ~ ' — ' ~ r.doc_url))|urlencode }}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Compartir por WhatsApp</a></li>
+            <li><a class="dropdown-item" href="sms:?&body={{ ((r.concept ~ ' — ' ~ r.doc_url))|urlencode }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Compartir por SMS</a></li>
+          {% endif %}
+          {% if CAN_EDIT %}
+            <li><hr class="dropdown-divider"></li>
+            <li><button class="dropdown-item" type="button" data-acc-edit
+                        data-acc-id="{{ r.id }}" data-acc-concept="{{ r.concept }}"
+                        data-acc-number="{{ r.invoice_number }}" data-acc-date="{{ r.issue_date }}"
+                        data-acc-net="{{ r.net }}" data-acc-vat="{{ r.vat }}"
+                        data-acc-retention="{{ r.retention }}" data-acc-total="{{ r.total }}">
+              <i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
+            <li><button class="dropdown-item text-danger" type="submit"
+                        formaction="{{ url_for('accounting_expense_skip', expense_id=r.id) }}"
+                        data-confirm="{% if r.accounting_status == 'OMITIDO' %}¿Devolver este gasto a pendiente de contabilizar?{% else %}Si lo omites no se contabilizará y su proceso termina aquí. ¿Seguir?{% endif %}">
+              <i class="fa fa-ban fa-fw me-1"></i>{% if r.accounting_status == 'OMITIDO' %}Volver a pendiente{% else %}Omitir{% endif %}</button></li>
+          {% endif %}
+        </ul>
+      </div>
+    </td>
+  </tr>
+{% endmacro %}
+
+{% macro acc_head(show_bag=True) %}
+  <thead class="table-light">
+    <tr>
+      <th class="acc-check">{% if CAN_EDIT %}<input class="form-check-input" type="checkbox" data-acc-all title="Seleccionar todo">{% endif %}</th>
+      <th>Proveedor</th><th>Nº factura</th><th>Concepto</th><th>Emisión</th><th>Pago</th><th>Artista</th>
+      {% if show_bag %}<th>Bolsa</th>{% endif %}
+      <th class="text-end">Base</th><th class="text-end">Retención</th><th class="text-end">IVA</th>
+      <th class="text-end">Total</th><th>Contabilidad</th><th></th>
+    </tr>
+  </thead>
+{% endmacro %}
+
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
   <div>
     <h5 class="mb-0"><i class="fa fa-calculator me-2 text-danger"></i>{{ title }}</h5>
     <div class="small text-muted">{{ subtitle }}</div>
   </div>
+  {% if not holded_ready %}
+    <a class="btn btn-outline-danger btn-sm" href="{{ url_for('integrations_view') }}#tab-holded">
+      <i class="fa fa-plug me-1"></i>Configurar Holded</a>
+  {% endif %}
 </div>
 
-{% if royalty_pending %}
-<div class="card mb-4 border-warning">
-  <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
-    <strong><i class="fa fa-percent me-1 text-warning"></i>Pendiente de contabilizar · liquidaciones de royalties</strong>
-    <span class="badge text-bg-warning text-dark">{{ royalty_pending|length }}</span>
-  </div>
-  <div class="table-responsive">
-    <table class="table table-sm align-middle mb-0">
-      <thead class="table-light"><tr>
-        <th>Beneficiario</th><th>Periodo</th><th>Nº factura</th><th>Pagada</th><th>Forma de pago</th>
-        <th class="text-end">Importe</th><th class="text-end">Documentos</th><th></th>
-      </tr></thead>
-      <tbody>
-        {% for r in royalty_pending %}
-          <tr>
-            <td class="fw-semibold">{{ r.name }}</td>
-            <td class="small">{{ r.period_label }}</td>
-            <td class="small">{{ r.invoice_number or '—' }}</td>
-            <td class="small">{{ r.paid_label or '—' }}</td>
-            <td class="small">{{ r.method or '—' }}</td>
-            <td class="text-end fw-semibold">{{ r.amount|eur }}</td>
-            <td class="text-end">
-              {% if r.pdf_url %}<a class="btn btn-sm btn-outline-dark" href="{{ r.pdf_url }}" target="_blank" rel="noopener" title="Liquidación"><i class="fa fa-file-pdf"></i></a>{% endif %}
-              {% if r.invoice_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ r.invoice_url }}" target="_blank" rel="noopener" title="Factura"><i class="fa fa-file-invoice"></i></a>{% endif %}
-            </td>
-            <td class="text-end">
-              <form method="post" action="{{ url_for('royalty_liquidation_accounted', liq_id=r.id) }}">
-                <input type="hidden" name="next" value="{{ request.full_path }}">
-                <button class="btn btn-sm btn-success" type="submit"><i class="fa fa-check me-1"></i>Contabilizada</button>
-              </form>
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
-{% endif %}
-
-<div class="row g-3 mb-4">
-  <div class="col-12 col-md-6">
-    <a class="card h-100 text-decoration-none text-reset" href="{{ url_for('invoices_view', tab='ISSUED') }}">
-      <div class="card-body d-flex align-items-center gap-3">
-        <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-danger-subtle flex-shrink-0" style="width:46px;height:46px;">
-          <i class="fa fa-file-invoice-dollar text-danger"></i>
-        </span>
-        <div>
-          <div class="fw-semibold fs-4 lh-1">{{ issued_count|k }}</div>
-          <div class="small text-muted">Facturas emitidas desde la app</div>
-        </div>
-      </div>
-    </a>
-  </div>
-  <div class="col-12 col-md-6">
-    <a class="card h-100 text-decoration-none text-reset" href="{{ url_for('invoices_view', tab='RECEIVED') }}">
-      <div class="card-body d-flex align-items-center gap-3">
-        <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-primary-subtle flex-shrink-0" style="width:46px;height:46px;">
-          <i class="fa fa-file-invoice text-primary"></i>
-        </span>
-        <div>
-          <div class="fw-semibold fs-4 lh-1">{{ received_count|k }}</div>
-          <div class="small text-muted">Facturas recibidas</div>
-        </div>
-      </div>
-    </a>
-  </div>
-</div>
-
-{% if recent_invoices %}
-<div class="card">
-  <div class="card-header bg-white"><strong>Últimas facturas</strong></div>
-  <div class="list-group list-group-flush">
-    {% for inv in recent_invoices %}
-      <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-2"
-         href="{{ url_for('invoices_view', tab=inv.invoice_kind) }}">
-        <span class="fw-semibold">{{ inv.invoice_number or 'Sin número' }}</span>
-        <span class="small text-muted">{{ inv.third_party_name }} · {{ inv.status }}</span>
+{# ---------- Pestañas principales ---------- #}
+<ul class="nav nav-tabs mb-3">
+  {% for key, label, icon in accounting_tabs %}
+    <li class="nav-item">
+      <a class="nav-link {% if tab == key %}active{% endif %}" href="{{ url_for('contabilidad_view', tab=key) }}">
+        <i class="fa {{ icon }} me-1"></i>{{ label }}
+        {% if counts.get(key) %}<span class="badge text-bg-secondary ms-1">{{ counts.get(key) }}</span>{% endif %}
       </a>
+    </li>
+  {% endfor %}
+</ul>
+
+{% if tab == 'pendiente' %}
+  {# ---------- Subpestañas ---------- #}
+  <ul class="nav nav-pills mb-3 flex-wrap">
+    {% for key, label, icon in accounting_pending_tabs %}
+      <li class="nav-item">
+        <a class="nav-link {% if subtab == key %}active{% endif %}" href="{{ url_for('contabilidad_view', tab='pendiente', subtab=key) }}">
+          <i class="fa {{ icon }} me-1"></i>{{ label }}
+          {% if counts.get(key) %}<span class="badge {% if subtab == key %}text-bg-light text-dark{% else %}text-bg-secondary{% endif %} ms-1">{{ counts.get(key) }}</span>{% endif %}
+        </a>
+      </li>
     {% endfor %}
+  </ul>
+
+  <div id="accZone" data-inline-zone>
+    <form method="post" id="accForm" action="{{ url_for('accounting_bulk_upload') }}"
+          data-inline data-inline-target="#accZone">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+
+      {# ---------- Barra de acciones + filtros por estado ---------- #}
+      <div class="card mb-3">
+        <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            {% if CAN_EDIT %}
+              <button class="btn btn-danger btn-sm" type="submit" name="scope"
+                      value="{{ 'todo' if subtab == 'bolsas' else subtab }}"
+                      data-confirm="Se subirá a Holded todo lo que no esté subido. ¿Seguir?"
+                      {% if not holded_ready %}disabled title="Configura antes la integración con Holded"{% endif %}>
+                <i class="fa fa-cloud-arrow-up me-1"></i>Subir todo a Holded</button>
+              <button class="btn btn-outline-primary btn-sm" type="submit"
+                      formaction="{{ url_for('accounting_holded_sync') }}"
+                      {% if not holded_ready %}disabled{% endif %}
+                      title="Pregunta a Holded qué documentos ya están contabilizados y pone al día las etiquetas">
+                <i class="fa fa-rotate me-1"></i>Comprobar en Holded</button>
+            {% endif %}
+          </div>
+          <div class="d-flex align-items-center gap-1 flex-wrap">
+            <span class="small text-muted me-1">Estado:</span>
+            <a class="btn btn-sm {{ 'btn-secondary' if not estado_filtro else 'btn-outline-secondary' }}"
+               href="{{ url_for('contabilidad_view', tab='pendiente', subtab=subtab) }}">Todos</a>
+            {% for key, label, badge, icon in accounting_states %}
+              {% if key != 'OMITIDO' %}
+                <a class="btn btn-sm {{ 'btn-secondary' if estado_filtro == key else 'btn-outline-secondary' }}"
+                   href="{{ url_for('contabilidad_view', tab='pendiente', subtab=subtab, estado=key) }}">
+                  <i class="fa {{ icon }} me-1"></i>{{ label }}</a>
+              {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+        {# Barra de SELECCIÓN: aparece al marcar gastos. #}
+        {% if CAN_EDIT %}
+          <div class="card-footer bg-white d-none" data-acc-bulk>
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <span class="fw-semibold"><span data-acc-count>0</span> seleccionado(s)</span>
+              <button class="btn btn-danger btn-sm" type="submit"><i class="fa fa-cloud-arrow-up me-1"></i>Subir a Holded</button>
+              <button class="btn btn-success btn-sm" type="submit" name="status" value="CONTABILIZADO"
+                      formaction="{{ url_for('accounting_bulk_status') }}"><i class="fa fa-circle-check me-1"></i>Marcar como contabilizado</button>
+              <button class="btn btn-outline-secondary btn-sm" type="button" data-acc-clear>Quitar la selección</button>
+            </div>
+          </div>
+        {% endif %}
+      </div>
+
+      {% if subtab == 'bolsas' %}
+        {# ================= BOLSAS ================= #}
+        {% if not bag_groups %}
+          <div class="alert alert-success"><i class="fa fa-circle-check me-1"></i>No hay bolsas con gastos pendientes de contabilizar.</div>
+        {% elif not estado_filtro and counts.get('bolsas', 0) > bag_groups|length %}
+          <div class="alert alert-warning small">
+            <i class="fa fa-circle-info me-1"></i>Se muestran {{ bag_groups|length }} de {{ counts.get('bolsas') }} bolsas.
+            Ve contabilizándolas y vuelve a entrar para ver el resto.
+          </div>
+        {% endif %}
+        {% for g in bag_groups %}
+          <div class="card mb-3">
+            {# CABECERA de la bolsa: de qué es (como en un concierto o una promoción). #}
+            <div class="card-header bg-light-subtle">
+              <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+                <div class="d-flex align-items-center gap-3">
+                  <img src="{{ g.artist_photo or url_for('static', filename='img/logo.png') }}" alt=""
+                       class="rounded-circle border bg-white" style="width:48px;height:48px;object-fit:cover;"
+                       {% if g.artist_id %}data-artist-link="{{ g.artist_id }}"{% endif %}>
+                  <div>
+                    <div class="fw-semibold"><a class="text-reset text-decoration-none" href="{{ g.url }}">{{ g.title }}</a></div>
+                    <div class="small text-muted">
+                      {% if g.artist_name %}{{ g.artist_name }}{% endif %}
+                      {% if g.activity_type %} · {{ g.activity_type }}{% endif %}
+                      {% if g.date %} · {{ g.date }}{% endif %}
+                      {% if g.venue %} · {{ g.venue }}{% endif %}
+                      {% if g.municipality %} · {{ g.municipality }}{% endif %}
+                    </div>
+                    <div class="small text-muted">
+                      {% if g.company_name %}<i class="fa fa-building me-1"></i>{{ g.company_name }}{% endif %}
+                      {% if g.tag %} · <span class="font-monospace" title="Etiqueta con la que se agrupan estos gastos en Holded">{{ g.tag }}</span>{% endif %}
+                    </div>
+                  </div>
+                </div>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                  <span class="badge text-bg-light border">{{ g.rows|length }} gasto(s)</span>
+                  <span class="fw-bold">{{ g.total|eur }}</span>
+                  {% if CAN_EDIT %}
+                    <button class="btn btn-danger btn-sm" type="submit" name="bag_id" value="{{ g.bag_id }}"
+                            {% if not g.holded_ready %}disabled title="La empresa de esta bolsa no tiene Holded configurado"{% endif %}
+                            data-confirm="¿Subir a Holded todos los gastos de esta bolsa?">
+                      <i class="fa fa-cloud-arrow-up me-1"></i>Subir todos</button>
+                    <button class="btn btn-success btn-sm" type="submit" name="bag_id" value="{{ g.bag_id }}"
+                            formaction="{{ url_for('accounting_bulk_status') }}"
+                            data-confirm="¿Marcar como contabilizados todos los gastos de esta bolsa?">
+                      <i class="fa fa-circle-check me-1"></i>Contabilizar todos</button>
+                  {% endif %}
+                  <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse"
+                          data-bs-target="#accBag-{{ g.bag_id }}" aria-expanded="false">
+                    <i class="fa fa-chevron-down"></i></button>
+                </div>
+              </div>
+            </div>
+            <div class="collapse" id="accBag-{{ g.bag_id }}">
+              <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0 acc-table">
+                  {{ acc_head(show_bag=False) }}
+                  <tbody>
+                    {% for r in g.rows %}{{ acc_row(r, show_bag=False) }}{% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      {% else %}
+        {# ================= FACTURAS / TICKETS / SIN TICKET ================= #}
+        <div class="card">
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0 acc-table">
+              {{ acc_head() }}
+              <tbody>
+                {% for r in rows %}{{ acc_row(r) }}{% endfor %}
+                {% if not rows %}
+                  <tr><td colspan="14" class="text-center text-muted py-4">
+                    <i class="fa fa-circle-check me-1 text-success"></i>
+                    {% if estado_filtro %}Nada con ese estado.{% else %}Nada pendiente de contabilizar aquí.{% endif %}
+                  </td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+          {# Si la lista se ha recortado, se DICE (no se deja creer que eso es todo). #}
+          {% if rows and not estado_filtro and counts.get(subtab, 0) > rows|length %}
+            <div class="card-footer bg-white small text-warning-emphasis">
+              <i class="fa fa-circle-info me-1"></i>Se muestran {{ rows|length }} de {{ counts.get(subtab) }}.
+              Ve subiéndolos o contabilizándolos y vuelve a entrar para ver el resto.
+            </div>
+          {% endif %}
+          {% if subtab == 'tickets' or subtab == 'sin-ticket' %}
+            <div class="card-footer bg-white small text-muted">
+              {% if subtab == 'tickets' %}
+                Un ticket <strong>no diferencia IVA</strong>: el total es el total, y en Holded entra como
+                <strong>gasto</strong> (sin proveedor, sin número de documento y sin fecha de emisión).
+              {% else %}
+                Gastos que administración ha aceptado <strong>sin factura ni ticket</strong>. En Holded entran
+                como gasto, con su concepto y su importe.
+              {% endif %}
+            </div>
+          {% endif %}
+        </div>
+      {% endif %}
+    </form>
+
+    {# ---------- Liquidaciones de royalties (pagadas y con su factura validada) ---------- #}
+    {% if royalty_pending %}
+      <div class="card mt-4 border-warning">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <strong><i class="fa fa-percent me-1 text-warning"></i>Liquidaciones de royalties pendientes de contabilizar</strong>
+          <span class="badge text-bg-warning text-dark">{{ royalty_pending|length }}</span>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead class="table-light"><tr>
+              <th>Beneficiario</th><th>Periodo</th><th>Nº factura</th><th>Pagada</th><th>Forma de pago</th>
+              <th class="text-end">Importe</th><th class="text-end">Documentos</th><th></th>
+            </tr></thead>
+            <tbody>
+              {% for r in royalty_pending %}
+                <tr>
+                  <td class="fw-semibold">{{ r.name }}</td>
+                  <td class="small">{{ r.period_label }}</td>
+                  <td class="small">{{ r.invoice_number or '—' }}</td>
+                  <td class="small">{{ r.paid_label or '—' }}</td>
+                  <td class="small">{{ r.method or '—' }}</td>
+                  <td class="text-end fw-semibold">{{ r.amount|eur }}</td>
+                  <td class="text-end">
+                    {% if r.pdf_url %}<a class="btn btn-sm btn-outline-dark" href="{{ r.pdf_url }}" target="_blank" rel="noopener" title="Liquidación"><i class="fa fa-file-pdf"></i></a>{% endif %}
+                    {% if r.invoice_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ r.invoice_url }}" target="_blank" rel="noopener" title="Factura"><i class="fa fa-file-invoice"></i></a>{% endif %}
+                  </td>
+                  <td class="text-end">
+                    <form method="post" action="{{ url_for('royalty_liquidation_accounted', liq_id=r.id) }}">
+                      <input type="hidden" name="next" value="{{ request.full_path }}">
+                      <button class="btn btn-sm btn-success" type="submit"><i class="fa fa-check me-1"></i>Contabilizada</button>
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+{% elif tab == 'contabilizado' %}
+  {# ================= YA CONTABILIZADO (y omitido) ================= #}
+  <div id="accZone" data-inline-zone>
+    <form method="post" id="accForm" action="{{ url_for('accounting_bulk_upload') }}"
+          data-inline data-inline-target="#accZone">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="card">
+        <div class="card-header bg-white small text-muted">
+          Lo que ya está contabilizado o se decidió no contabilizar. Al pasar el ratón por la etiqueta se ve la fecha.
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0 acc-table">
+            {{ acc_head() }}
+            <tbody>
+              {% for r in done_rows %}{{ acc_row(r) }}{% endfor %}
+              {% if not done_rows %}
+                <tr><td colspan="14" class="text-center text-muted py-4">Todavía no hay nada contabilizado.</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </form>
+  </div>
+
+{% else %}
+  {# ================= REGISTRO DE FACTURAS ================= #}
+  <div class="row g-3 mb-4">
+    <div class="col-12 col-md-6">
+      <a class="card h-100 text-decoration-none text-reset" href="{{ url_for('invoices_view', tab='ISSUED') }}">
+        <div class="card-body d-flex align-items-center gap-3">
+          <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-danger-subtle flex-shrink-0" style="width:46px;height:46px;">
+            <i class="fa fa-file-invoice-dollar text-danger"></i>
+          </span>
+          <div>
+            <div class="fw-semibold fs-4 lh-1">{{ issued_count|k }}</div>
+            <div class="small text-muted">Facturas emitidas desde la app</div>
+          </div>
+        </div>
+      </a>
+    </div>
+    <div class="col-12 col-md-6">
+      <a class="card h-100 text-decoration-none text-reset" href="{{ url_for('invoices_view', tab='RECEIVED') }}">
+        <div class="card-body d-flex align-items-center gap-3">
+          <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-primary-subtle flex-shrink-0" style="width:46px;height:46px;">
+            <i class="fa fa-file-invoice text-primary"></i>
+          </span>
+          <div>
+            <div class="fw-semibold fs-4 lh-1">{{ received_count|k }}</div>
+            <div class="small text-muted">Facturas recibidas</div>
+          </div>
+        </div>
+      </a>
+    </div>
+  </div>
+  {% if recent_invoices %}
+    <div class="card">
+      <div class="card-header bg-white"><strong>Últimas facturas</strong></div>
+      <div class="list-group list-group-flush">
+        {% for inv in recent_invoices %}
+          <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-2"
+             href="{{ url_for('invoices_view', tab=inv.invoice_kind) }}">
+            <span class="fw-semibold">{{ inv.invoice_number or 'Sin número' }}</span>
+            <span class="small text-muted">{{ inv.third_party_name }} · {{ inv.status }}</span>
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+{% endif %}
+
+{# ================= MODALES (fuera del formulario) ================= #}
+<div class="modal fade" id="accDocModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" data-acc-doc-modal-title>Documento</h5>
+        <div class="ms-auto d-flex gap-2 align-items-center">
+          <a class="btn btn-sm btn-outline-secondary" data-acc-doc-open target="_blank" rel="noopener" href="#"><i class="fa fa-up-right-from-square me-1"></i>Abrir</a>
+          <a class="btn btn-sm btn-outline-secondary" data-acc-doc-download download href="#"><i class="fa fa-download me-1"></i>Descargar</a>
+          <button class="btn-close ms-1" data-bs-dismiss="modal"></button>
+        </div>
+      </div>
+      <div class="modal-body p-0" data-acc-doc-body style="min-height:70vh;"></div>
+    </div>
+  </div>
+</div>
+
+{% if CAN_EDIT %}
+<div class="modal fade" id="accEditModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" data-acc-edit-form action="#">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <div class="modal-header"><h5 class="modal-title">Corregir los datos del gasto</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body row g-3">
+          <div class="col-12">
+            <label class="form-label">Concepto</label>
+            <input class="form-control" name="concept" data-acc-f="concept">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Nº de factura</label>
+            <input class="form-control" name="invoice_number" data-acc-f="number">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Fecha de emisión</label>
+            <input class="form-control" type="date" name="issue_date" data-acc-f="date">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Base imponible</label>
+            <input class="form-control" name="amount_net" data-acc-f="net" inputmode="decimal">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">IVA</label>
+            <input class="form-control" name="amount_tax" data-acc-f="vat" inputmode="decimal">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Retención</label>
+            <input class="form-control" name="retention_amount" data-acc-f="retention" inputmode="decimal">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Total</label>
+            <input class="form-control" name="amount_gross" data-acc-f="total" inputmode="decimal">
+          </div>
+          <div class="col-12 small text-muted">
+            Es lo que se manda a Holded. Si el gasto ya está subido, corregirlo aquí no cambia el documento
+            de Holded: habría que corregirlo también allí.
+          </div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-danger">Guardar</button></div>
+      </form>
+    </div>
   </div>
 </div>
 {% endif %}
+
+<script src="{{ url_for('static', filename='js/contabilidad.js', v=ASSET_V) }}"></script>
 {% endblock %}

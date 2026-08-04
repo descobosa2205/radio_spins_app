@@ -1,4 +1,5 @@
 {% extends "layout.html" %}
+{% import '_fiscal_address_fields.html' as fiscal with context %}
 {% block content %}
 {# Botón «volver» homogéneo: solo flecha, gris, arriba a la izquierda. #}
 <div class="mb-2"><a class="btn btn-outline-secondary btn-volver" href="{{ url_for('promoters_view') }}" title="Volver a terceros" aria-label="Volver a terceros"><i class="fa fa-arrow-left"></i></a></div>
@@ -120,7 +121,7 @@
                 {% endif %}
               </div>
               {% if company.fiscal_address %}
-                <div class="mt-3 small">{{ company.fiscal_address }}</div>
+                <div class="mt-3 small">{{ fiscal_address_text(company) }}</div>
               {% endif %}
             </div>
           </div>
@@ -458,6 +459,9 @@
           <div class="col-md-6"><label class="form-label">Email principal</label><input type="email" class="form-control" name="contact_email" value="{{ promoter.contact_email or '' }}"></div>
           <div class="col-md-6"><label class="form-label">Teléfono</label><input class="form-control" name="contact_phone" value="{{ promoter.contact_phone or '' }}"></div>
           <div class="col-12"><label class="form-label">Domicilio</label><input class="form-control" name="address" value="{{ promoter.address or '' }}"></div>
+          {# DIRECCIÓN FISCAL en piezas: es la que se vuelca a Holded al crear el proveedor. #}
+          <div class="col-12"><hr class="my-2"></div>
+          {{ fiscal.fields(fiscal_parts(promoter)) }}
           <div class="col-12">
             <hr class="my-2">
             <input type="hidden" name="travel_prefs_present" value="1">
@@ -487,7 +491,7 @@
       <div class="modal-body row g-3">
         <div class="col-md-6"><label class="form-label">Nombre social</label><input class="form-control" name="legal_name" required></div>
         <div class="col-md-6"><label class="form-label">CIF</label><input class="form-control" name="tax_id"></div>
-        <div class="col-12"><label class="form-label">Dirección fiscal</label><textarea class="form-control" name="fiscal_address" rows="3"></textarea></div>
+        {{ fiscal.fields() }}
       </div>
       <div class="modal-footer"><button class="btn btn-primary">Crear sociedad</button></div>
     </form>
@@ -517,7 +521,7 @@
         <div class="modal-body row g-3">
           <div class="col-md-6"><label class="form-label">Nombre social</label><input class="form-control" name="legal_name" value="{{ company.legal_name }}" required></div>
           <div class="col-md-6"><label class="form-label">CIF</label><input class="form-control" name="tax_id" value="{{ company.tax_id or '' }}"></div>
-          <div class="col-12"><label class="form-label">Dirección fiscal</label><textarea class="form-control" name="fiscal_address" rows="3">{{ company.fiscal_address or '' }}</textarea></div>
+          {{ fiscal.fields(fiscal_parts(company)) }}
         </div>
         <div class="modal-footer"><button class="btn btn-primary">Guardar cambios</button></div>
       </form>

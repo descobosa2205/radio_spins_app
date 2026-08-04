@@ -1,3 +1,4 @@
+{% import '_fiscal_address_fields.html' as fiscal with context %}
 <!doctype html>
 <html lang="es">
 {# ============================================================================
@@ -132,11 +133,9 @@
               <label class="form-label">Nombre de la sociedad</label>
               <input class="form-control" name="company_name" value="{{ profile.company_name or '' }}">
             </div>
-            <div class="col-12">
-              <label class="form-label">Dirección fiscal</label>
-              <input class="form-control" name="fiscal_address" value="{{ profile.fiscal_address or '' }}"
-                     placeholder="Calle, número, código postal y municipio">
-            </div>
+            {# La dirección fiscal se pide EN PIEZAS: la contabilidad necesita el código postal,
+               el municipio y la provincia por separado. #}
+            {{ fiscal.fields(profile.fiscal, hint=False) }}
             <div class="col-md-6">
               <label class="form-label">Email</label>
               <input class="form-control" type="email" name="email" value="{{ profile.email or '' }}">

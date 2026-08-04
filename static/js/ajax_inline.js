@@ -46,17 +46,21 @@
     var zone = targetSel ? document.querySelector(targetSel) : form.closest('[data-inline-zone]');
     if (!zone || !zone.id) { form.submit(); return; }  // sin zona localizable -> envío normal
 
-    var confirmMsg = form.getAttribute('data-confirm');
+    // ⚠️ Manda el BOTÓN que ha enviado, si trae lo suyo: su `data-confirm` (para preguntar solo en
+    // esa acción) y su `formaction`/`formmethod` (varias acciones en un mismo formulario, que es la
+    // única forma de tener botones por fila sin anidar formularios — eso no es HTML válido).
+    var submitter = e.submitter || null;
+    var confirmMsg = (submitter && submitter.getAttribute('data-confirm')) || form.getAttribute('data-confirm');
     if (confirmMsg && !window.confirm(confirmMsg)) return;
 
     if (window.appLoader) window.appLoader.show();
     var fd = new FormData(form);
     // Si el submit lo disparó un botón con name/value, incluirlo.
-    var sb = form.querySelector('button[type="submit"][name], input[type="submit"][name]');
-    if (e.submitter && e.submitter.name) fd.append(e.submitter.name, e.submitter.value || '');
+    if (submitter && submitter.name) fd.append(submitter.name, submitter.value || '');
 
-    fetch(form.action || window.location.href, {
-      method: (form.getAttribute('method') || 'post').toUpperCase(),
+    var action = (submitter && submitter.getAttribute('formaction')) || form.action || window.location.href;
+    fetch(action, {
+      method: ((submitter && submitter.getAttribute('formmethod')) || form.getAttribute('method') || 'post').toUpperCase(),
       body: fd,
       headers: { 'X-Requested-With': 'XMLHttpRequest' },
       redirect: 'follow'

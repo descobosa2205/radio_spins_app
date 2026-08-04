@@ -53,6 +53,10 @@ class Settings:
     PLEO_CRON_KEY = os.getenv("PLEO_CRON_KEY") or os.getenv("CHARTMETRIC_CRON_KEY")
     # Cabify: si no se define la suya, vale la de Pleo/Chartmetric (una sola clave de cron).
     CABIFY_CRON_KEY = os.getenv("CABIFY_CRON_KEY") or os.getenv("PLEO_CRON_KEY") or os.getenv("CHARTMETRIC_CRON_KEY")
+    # Holded (contabilidad): la API Key va POR EMPRESA DEL GRUPO en la tabla `holded_accounts` (se
+    # edita en Integraciones → Holded), no aquí. Lo único global es la clave del cron que pregunta a
+    # Holded qué documentos ya están contabilizados; si falta, vale la de Pleo/Chartmetric.
+    HOLDED_CRON_KEY = os.getenv("HOLDED_CRON_KEY") or os.getenv("PLEO_CRON_KEY") or os.getenv("CHARTMETRIC_CRON_KEY")
     # Chartmetric (métricas): refresh token de larga duración que Chartmetric envía por email.
     CHARTMETRIC_REFRESH_TOKEN = os.getenv("CHARTMETRIC_REFRESH_TOKEN")
     CHARTMETRIC_API_BASE = os.getenv("CHARTMETRIC_API_BASE", "https://api.chartmetric.com")

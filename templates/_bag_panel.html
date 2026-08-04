@@ -304,6 +304,16 @@
                 {% if not is_consolidated %}<span class="badge text-bg-secondary">Sin consolidar</span>{% endif %}
                 {% if expense.consolidation_status == 'SIN_FACTURA_RECHAZADO' %}<span class="text-danger" title="{{ expense.no_invoice_rejection_reason or 'Rechazado por administración' }}"><i class="fa fa-triangle-exclamation"></i></span>{% endif %}
                 {% if expense.covered_by != 'BOLSA' %}<span class="badge text-bg-warning">{{ bag_covered_by_labels.get(expense.covered_by, expense.covered_by) }}</span>{% endif %}
+                {# CONTABILIDAD: un gasto ya contabilizado se ve como tal aquí también, y al pasar el
+                   ratón por la etiqueta dice cuándo se contabilizó. #}
+                {% set _acc = (expense.accounting_status or 'PENDIENTE')|upper %}
+                {% if _acc == 'CONTABILIZADO' %}
+                  <span class="badge text-bg-success acc-tag" title="Contabilizado{% if expense.accounting_at %} el {{ expense.accounting_at.strftime('%d/%m/%Y %H:%M') }}{% endif %}{% if expense.accounting_by_nick %} · {{ expense.accounting_by_nick }}{% endif %}"><i class="fa fa-circle-check me-1"></i>Contabilizado</span>
+                {% elif _acc == 'SUBIDO' %}
+                  <span class="badge text-bg-info text-dark acc-tag" title="Subido a Holded{% if expense.holded_uploaded_at %} el {{ expense.holded_uploaded_at.strftime('%d/%m/%Y %H:%M') }}{% endif %}{% if expense.holded_doc_number %} · documento {{ expense.holded_doc_number }}{% endif %}"><i class="fa fa-cloud-arrow-up me-1"></i>Subido a Holded</span>
+                {% elif _acc == 'OMITIDO' %}
+                  <span class="badge text-bg-light border text-dark acc-tag" title="No se contabiliza{% if expense.accounting_note %}: {{ expense.accounting_note }}{% endif %}"><i class="fa fa-ban me-1"></i>No se contabiliza</span>
+                {% endif %}
               </div>
               <div class="small text-muted mt-1">
                 <span title="{{ expense.provider_company.legal_name if expense.provider_company else '' }}">{{ expense.provider.nick if expense.provider else (expense.ticket_establishment or 'Sin proveedor') }}</span>

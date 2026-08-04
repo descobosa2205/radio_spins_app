@@ -9,6 +9,7 @@
 {% set integrations = [
   {'key': 'pleo', 'name': 'Pleo', 'subtitle': 'Gastos', 'icon': 'fa-receipt', 'configured': pleo_configured},
   {'key': 'cabify', 'name': 'Cabify', 'subtitle': 'Gastos de viajes', 'icon': 'fa-taxi', 'configured': cabify_configured},
+  {'key': 'holded', 'name': 'Holded', 'subtitle': 'Contabilidad', 'icon': 'fa-calculator', 'configured': holded_configured},
   {'key': 'chartmetric', 'name': 'Chartmetric', 'subtitle': 'Métricas', 'icon': 'fa-chart-line', 'configured': chartmetric_configured},
   {'key': 'enterticket', 'name': 'Enterticket', 'subtitle': 'Ticketing', 'icon': 'fa-ticket', 'configured': enterticket_configured},
 ] %}
@@ -422,6 +423,148 @@
               Aún no se han leído las personas de Cabify en esta empresa. Pulsa <strong>«Sincronizar ahora»</strong>.
             </div>
           {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+
+  {# ============================ HOLDED ============================
+     Cada empresa del grupo lleva su contabilidad en SU cuenta de Holded, así que dentro de esta
+     pestaña va una SUBPESTAÑA por empresa con su API Key. Todo se guarda sin recargar
+     (`data-inline` sobre `#holdedZone-N`, dentro del pane, para no perder la subpestaña). #}
+  <div class="tab-pane fade" id="tab-holded" role="tabpanel" aria-labelledby="tab-holded-tab">
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <h2 class="h5 mb-0">Holded <span class="text-muted small fw-normal">· Contabilidad</span></h2>
+          {% if holded_configured %}<span class="badge text-bg-success">Configurada</span>{% else %}<span class="badge text-bg-secondary">Desactivada</span>{% endif %}
+        </div>
+        <p class="text-muted small mb-2">
+          Desde <strong>Contabilidad → Pendiente de contabilizar</strong> cada gasto se sube a Holded como
+          <strong>una compra nueva</strong> (los tickets y los gastos sin ticket, como <strong>gasto</strong>): con su
+          proveedor, su número de factura, su fecha, sus impuestos, su forma de pago, la etiqueta de la bolsa
+          y <strong>el documento adjunto</strong>.
+        </p>
+        <div class="alert alert-light border small mb-0">
+          <div class="fw-semibold mb-1"><i class="fa fa-key me-1"></i>Qué hay que crear en Holded (una vez por empresa)</div>
+          <ol class="mb-2 ps-3">
+            <li>En Holded, con el usuario de esa empresa: <strong>menú de tu cuenta → Configuración → Desarrolladores → API Key</strong>.</li>
+            <li>Copia la clave y pégala abajo, en la subpestaña de su empresa del grupo.</li>
+            <li>Pulsa <strong>«Probar conexión»</strong>: se comprueba la clave, se detecta con qué tipo de documento
+                acepta los tickets y se leen sus <strong>formas de pago</strong>.</li>
+            <li>Marca <strong>«Integración activa»</strong> y guarda.</li>
+          </ol>
+          <div class="text-muted">
+            La <strong>dirección fiscal</strong> de un proveedor se manda a Holded en piezas (calle, código postal,
+            municipio y provincia): por eso en la app se piden separadas. Un proveedor que no exista en Holded se
+            crea buscándolo antes por su <strong>CIF/DNI/NIE</strong>, para no duplicarlo.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {% if not holded_rows %}
+      <div class="alert alert-warning">
+        Todavía no hay <strong>empresas del grupo</strong> dadas de alta. Créalas en
+        <em>Bases de datos → Empresas del grupo</em> y aquí saldrá una subpestaña por cada una.
+      </div>
+    {% else %}
+      <ul class="nav nav-pills mb-3 flex-wrap" role="tablist">
+        {% for row in holded_rows %}
+        <li class="nav-item">
+          <button class="nav-link {% if loop.first %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#holded-{{ row.slug }}-{{ loop.index }}" type="button">
+            {% if row.company_logo %}<img src="{{ row.company_logo }}" alt="" style="width:18px;height:18px;object-fit:contain;margin-right:6px;vertical-align:-3px;">{% endif %}{{ row.company_name }}
+            {% if row.is_active and row.has_key %}<i class="fa fa-circle-check text-success ms-1" title="Activa"></i>
+            {% elif row.has_key %}<i class="fa fa-circle-pause text-muted ms-1" title="Configurada pero desactivada"></i>
+            {% else %}<i class="fa fa-circle-exclamation text-warning ms-1" title="Sin credencial"></i>{% endif %}
+            {% if row.pending %}<span class="badge text-bg-warning text-dark ms-1" title="Gastos pendientes de subir a Holded">{{ row.pending }}</span>{% endif %}
+          </button>
+        </li>
+        {% endfor %}
+      </ul>
+
+      <div class="tab-content">
+      {% for row in holded_rows %}
+        <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="holded-{{ row.slug }}-{{ loop.index }}" role="tabpanel">
+          <div id="holdedZone-{{ loop.index }}" data-inline-zone>
+          <div class="card mb-3">
+            <div class="card-body">
+              <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+                <h3 class="h6 mb-0">
+                  {% if row.company_logo %}<img src="{{ row.company_logo }}" alt="" style="width:22px;height:22px;object-fit:contain;margin-right:6px;vertical-align:-4px;">{% endif %}
+                  {{ row.company_name }}
+                </h3>
+                <div class="d-flex align-items-center gap-2">
+                  {% if row.last_test %}
+                    <span class="small text-muted"><i class="fa fa-clock-rotate-left me-1"></i>{{ row.last_test }}</span>
+                    {% if row.last_test_ok %}<span class="badge text-bg-success">Conexión OK</span>
+                    {% elif row.last_test_ok is not none %}<span class="badge text-bg-danger">Última prueba con error</span>{% endif %}
+                  {% else %}<span class="small text-muted">Sin probar todavía</span>{% endif %}
+                </div>
+              </div>
+
+              {% if row.last_error %}
+                <div class="alert alert-danger py-2 px-3 small"><i class="fa fa-triangle-exclamation me-1"></i>{{ row.last_error }}</div>
+              {% endif %}
+
+              <form method="post" action="{{ url_for('holded_account_save', company_id=row.company_id) }}" class="row g-3" data-inline data-inline-target="#holdedZone-{{ loop.index }}">
+                <div class="col-md-6">
+                  <label class="form-label">API Key de Holded</label>
+                  <input type="password" name="api_key" class="form-control" autocomplete="new-password"
+                         placeholder="{% if row.has_key %}Guardada ({{ row.key_hint }}) — escribe una nueva para cambiarla{% else %}Pega aquí la clave{% endif %}">
+                  {% if row.has_key %}
+                    <div class="form-check mt-1">
+                      <input class="form-check-input" type="checkbox" name="clear_key" value="1" id="holdedClear{{ loop.index }}">
+                      <label class="form-check-label small text-danger" for="holdedClear{{ loop.index }}">Borrar la credencial guardada</label>
+                    </div>
+                  {% endif %}
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Documento de las facturas</label>
+                  <input class="form-control" name="invoice_doc_type" value="{{ row.invoice_doc_type }}">
+                  <div class="form-text">Tipo de documento de compra en Holded.</div>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Documento de los tickets</label>
+                  <input class="form-control" name="ticket_doc_type" value="{{ row.ticket_doc_type }}">
+                  <div class="form-text">Lo detecta «Probar conexión».</div>
+                </div>
+                <div class="col-12">
+                  <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" role="switch" name="is_active" value="1"
+                           id="holdedActive{{ loop.index }}" {% if row.is_active %}checked{% endif %}>
+                    <label class="form-check-label" for="holdedActive{{ loop.index }}">Integración activa</label>
+                  </div>
+                </div>
+                <div class="col-12 d-flex gap-2 flex-wrap">
+                  <button class="btn btn-danger btn-sm"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+                </div>
+              </form>
+
+              <hr class="my-3">
+              <div class="d-flex gap-2 flex-wrap align-items-center">
+                <form method="post" action="{{ url_for('holded_account_test', company_id=row.company_id) }}" class="d-inline" data-inline data-inline-target="#holdedZone-{{ loop.index }}">
+                  <button class="btn btn-outline-primary btn-sm" {% if not row.has_key %}disabled title="Guarda antes la API Key"{% endif %}><i class="fa fa-plug-circle-check me-1"></i>Probar conexión</button>
+                </form>
+                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('contabilidad_view') }}"><i class="fa fa-calculator me-1"></i>Ir a Contabilidad</a>
+                {% if row.pending %}<span class="small text-muted">{{ row.pending }} gasto(s) de esta empresa pendientes de subir.</span>{% endif %}
+              </div>
+
+              {% if row.payment_methods %}
+                <div class="mt-3">
+                  <div class="small fw-semibold mb-1">Formas de pago leídas de Holded</div>
+                  <div class="d-flex flex-wrap gap-1">
+                    {% for mid, nombre in row.payment_methods.items() %}
+                      <span class="badge text-bg-light border">{{ nombre }}</span>
+                    {% endfor %}
+                  </div>
+                  <div class="form-text">Se casa con el método de pago del gasto por su nombre; lo que no cuadre se queda escrito en la nota interna del documento.</div>
+                </div>
+              {% endif %}
+            </div>
+          </div>
           </div>
         </div>
       {% endfor %}

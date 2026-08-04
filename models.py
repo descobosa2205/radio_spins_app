@@ -793,7 +793,15 @@ class Promoter(Base):
     # Datos de facturación que el propio proveedor rellena una vez en /facturacion.
     bank_account = Column(Text)          # IBAN / nº de cuenta
     bank_bic = Column(Text)              # SWIFT/BIC (para las remesas; en SEPA suele bastar el IBAN)
-    fiscal_address = Column(Text)        # dirección fiscal (particular o empresa)
+    # DIRECCIÓN FISCAL EN PIEZAS. `fiscal_address` es solo la calle: el código postal, el municipio y
+    # la provincia van aparte porque Holded los exige separados para dar de alta al proveedor (y
+    # porque una dirección en un único cuadro de texto no se puede volcar a ninguna contabilidad).
+    # Para MOSTRARLA junta hay un único helper en app.py (`_fiscal_address_text`).
+    fiscal_address = Column(Text)        # calle, número, piso…
+    fiscal_postal_code = Column(Text)    # código postal
+    fiscal_city = Column(Text)           # municipio
+    fiscal_province = Column(Text)       # provincia
+    fiscal_country = Column(Text)        # país (por defecto España)
     data_consent_at = Column(DateTime(timezone=True))   # aceptó las condiciones de datos
     billing_updated_at = Column(DateTime(timezone=True))
 
@@ -840,7 +848,12 @@ class PromoterCompany(Base):
     )
     legal_name = Column(Text, nullable=False)
     tax_id = Column(Text)
+    # Dirección fiscal en piezas (ver el comentario de Promoter.fiscal_address).
     fiscal_address = Column(Text)
+    fiscal_postal_code = Column(Text)
+    fiscal_city = Column(Text)
+    fiscal_province = Column(Text)
+    fiscal_country = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -3723,6 +3736,9 @@ class WorkflowBag(Base):
     liquidation_paid_at = Column(DateTime(timezone=True))
     liquidation_snapshot = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     liquidation_adjustments = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # Cuando TODOS sus gastos están contabilizados (u omitidos) la bolsa se cierra para contabilidad
+    # y desaparece de «pendiente de contabilizar».
+    accounting_done_at = Column(DateTime(timezone=True))
     closed_liquidation_pdf_url = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -3817,6 +3833,23 @@ class BagExpense(Base):
     admin_reviewed_at = Column(DateTime(timezone=True))
     payment_receipt_url = Column(Text)
     payment_receipt_name = Column(Text)
+    # --- CONTABILIDAD (Holded) ---
+    # PENDIENTE | SUBIDO (ya está en Holded) | CONTABILIZADO | OMITIDO (se decidió no contabilizarlo).
+    # `accounting_at` es la fecha que se enseña al pasar el ratón por la etiqueta «Contabilizado».
+    accounting_status = Column(Text, nullable=False, server_default=text("'PENDIENTE'"))
+    accounting_at = Column(DateTime(timezone=True))
+    accounting_by_nick = Column(Text)
+    accounting_note = Column(Text)
+    holded_company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
+    holded_doc_id = Column(Text)
+    holded_doc_type = Column(Text)
+    holded_doc_number = Column(Text)
+    holded_contact_id = Column(Text)
+    holded_uploaded_at = Column(DateTime(timezone=True))
+    holded_error = Column(Text)
+    # Aviso de algo que sí hay que saber aunque el documento se haya creado (p. ej. el total que
+    # calcula Holded no cuadra con el nuestro, o el adjunto no ha entrado).
+    holded_warning = Column(Text)
     is_proration = Column(Boolean, nullable=False, server_default=text("false"))
     proration_source_bag_id = Column(PGUUID(as_uuid=True), ForeignKey("workflow_bags.id", ondelete="SET NULL"))
     proration_pending_snapshot = Column(Numeric)
@@ -9551,3 +9584,107 @@ def ensure_pleo_schema():
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS integration_emails jsonb NOT NULL DEFAULT '[]'::jsonb;",
     ]
     _exec_ddl_statements(stmts, "pleo_schema")
+
+
+# ===========================================================================
+#  HOLDED · contabilidad del grupo
+#  ------------------------------------------------------------------------
+#  Cada empresa del grupo lleva su contabilidad en SU cuenta de Holded, así que
+#  la API Key se guarda por empresa (`HoldedAccount`), igual que en Pleo y en
+#  Cabify. Nada de una clave global en el `.env`.
+#
+#  Lo que se sube a Holded es cada GASTO (bag_expenses): las facturas como
+#  compra y los tickets / gastos sin ticket como gasto. El estado contable vive
+#  en el propio gasto (`accounting_status`), que es lo que permite enseñar la
+#  etiqueta «Contabilizado» en la bolsa y en todas las pantallas donde sale.
+# ===========================================================================
+
+class HoldedAccount(Base):
+    """Credencial y estado de la cuenta de Holded de UNA empresa del grupo."""
+
+    __tablename__ = "holded_accounts"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    group_company_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("group_companies.id", ondelete="CASCADE"),
+        nullable=False, unique=True,
+    )
+    # API Key de Holded (Configuración → Desarrolladores). Una por cuenta.
+    api_key = Column(Text)
+    is_active = Column(Boolean, nullable=False, server_default=text("false"))
+    # Tipos de documento con los que se crean las compras. Editables porque el tipo de «gasto»
+    # (ticket) no se llama igual en todas las cuentas: `detect_ticket_doc_type` lo comprueba.
+    invoice_doc_type = Column(Text, nullable=False, server_default=text("'purchase'"))
+    ticket_doc_type = Column(Text, nullable=False, server_default=text("'dailyexpense'"))
+    # Rutas ya descubiertas (adjuntar documento, formas de pago): mismo patrón que la URL base de
+    # Cabify, para que la integración se ajuste a la cuenta real sin tocar código.
+    endpoints = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    # Catálogo de formas de pago de la cuenta: {id: nombre}.
+    payment_methods = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    last_test_at = Column(DateTime(timezone=True))
+    last_test_ok = Column(Boolean)
+    last_sync_at = Column(DateTime(timezone=True))
+    last_error = Column(Text)
+    last_stats = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    company = relationship("GroupCompany")
+
+
+def ensure_holded_schema():
+    """Crea/actualiza el esquema de la integración con Holded (idempotente, sin Alembic)."""
+    _create_all_once()
+    _exec_ddl_statements([
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        """
+        CREATE TABLE IF NOT EXISTS holded_accounts (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            group_company_id uuid NOT NULL UNIQUE REFERENCES group_companies(id) ON DELETE CASCADE,
+            api_key text,
+            is_active boolean NOT NULL DEFAULT false,
+            invoice_doc_type text NOT NULL DEFAULT 'purchase',
+            ticket_doc_type text NOT NULL DEFAULT 'dailyexpense',
+            endpoints jsonb NOT NULL DEFAULT '{}'::jsonb,
+            payment_methods jsonb NOT NULL DEFAULT '{}'::jsonb,
+            last_test_at timestamptz,
+            last_test_ok boolean,
+            last_sync_at timestamptz,
+            last_error text,
+            last_stats jsonb NOT NULL DEFAULT '{}'::jsonb,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        # --- ESTADO CONTABLE de cada gasto ---
+        # PENDIENTE (nadie lo ha tocado) | SUBIDO (está en Holded, sin contabilizar) |
+        # CONTABILIZADO (asiento hecho) | OMITIDO (se decidió no contabilizarlo: ahí acaba).
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS accounting_status text NOT NULL DEFAULT 'PENDIENTE';",
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS accounting_at timestamptz;",
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS accounting_by_nick text;",
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS accounting_note text;",
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS holded_company_id uuid REFERENCES group_companies(id) ON DELETE SET NULL;",
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS holded_doc_id text;",
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS holded_doc_type text;",
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS holded_doc_number text;",
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS holded_contact_id text;",
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS holded_uploaded_at timestamptz;",
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS holded_error text;",
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS holded_warning text;",
+        "CREATE INDEX IF NOT EXISTS idx_bag_expenses_accounting ON bag_expenses(accounting_status);",
+        "CREATE INDEX IF NOT EXISTS idx_bag_expenses_holded_doc ON bag_expenses(holded_doc_id) WHERE holded_doc_id IS NOT NULL;",
+        # Una bolsa con TODOS sus gastos contabilizados se archiva y desaparece de pendiente.
+        "ALTER TABLE IF EXISTS workflow_bags ADD COLUMN IF NOT EXISTS accounting_done_at timestamptz;",
+        # --- DIRECCIÓN FISCAL EN PIEZAS ---
+        # Holded exige el código postal, el municipio y la provincia por separado para crear el
+        # contacto: con la dirección en un solo cuadro de texto no se puede dar de alta al proveedor.
+        "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS fiscal_postal_code text;",
+        "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS fiscal_city text;",
+        "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS fiscal_province text;",
+        "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS fiscal_country text;",
+        "ALTER TABLE IF EXISTS promoter_companies ADD COLUMN IF NOT EXISTS fiscal_postal_code text;",
+        "ALTER TABLE IF EXISTS promoter_companies ADD COLUMN IF NOT EXISTS fiscal_city text;",
+        "ALTER TABLE IF EXISTS promoter_companies ADD COLUMN IF NOT EXISTS fiscal_province text;",
+        "ALTER TABLE IF EXISTS promoter_companies ADD COLUMN IF NOT EXISTS fiscal_country text;",
+    ], "holded_schema")

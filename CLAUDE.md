@@ -996,6 +996,95 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (endpoint `person_doc_request_send`, en `SUPPORT_ACTION_ENDPOINTS`; hay también «Solicitar DNI» y
   «Solicitar pasaporte»). Si no hay SMTP o falla el correo, la respuesta trae el enlace para copiarlo.
 
+- **HOLDED · CONTABILIDAD del grupo** (ago 2026). Cliente en `holded_utils.py` (API Key en la
+  cabecera `key`; **una cuenta por empresa del grupo** en `HoldedAccount`, se edita en Integraciones
+  → Holded con una **subpestaña por empresa**, `ensure_holded_schema`). Nada en el `.env` salvo
+  `HOLDED_CRON_KEY`.
+  · ⚠️ **Holded manda errores con un HTTP 200**: `{"status": 0, "info": "..."}`. `_check_payload` los
+  convierte en `HoldedError`; mirar solo el código HTTP daba por creado un documento que no existía.
+  · ⚠️ **Lo que no se puede dar por bueno a ciegas se COMPRUEBA**: después de crear el documento se
+  relee (`verify_document_total`) y se compara el total con el nuestro. Si no cuadra se avisa en el
+  gasto (`holded_warning`) en vez de callarlo — es la red de seguridad del mapeo de impuestos.
+  · **Rutas que se descubren solas** (mismo patrón que la URL base de Cabify): la de **adjuntar** el
+  documento y la del catálogo de **formas de pago** se prueban entre varias candidatas y se guarda la
+  que responde (`HoldedAccount.endpoints`). El tipo de documento de los **tickets** lo detecta
+  «Probar conexión» con un GET (`detect_ticket_doc_type`): facturas → `purchase`, tickets y gastos
+  sin ticket → `dailyexpense`.
+  · **Qué se vuelca de cada gasto** (`_holded_upload_expense`): contacto (buscado por CIF/DNI/NIE en
+  seco para NO duplicarlo, y creado con la dirección fiscal en piezas si no está) · nº de documento ·
+  fecha de emisión · importe · concepto · impuestos (% de IVA y % de retención en la línea) ·
+  **etiqueta** `Artista (o evento)_Actividad o municipio_Fecha` (`_accounting_bag_tag`, agrupa en
+  Holded todo el gasto de una fecha) · forma de pago (`paymentMethodId` casado por nombre) · **nota
+  interna** con cómo se pagó (`_accounting_internal_note`: «Pagado en remesa REM-… · banco · fecha»
+  o «Pagado con Pleo · Caco») · y **el documento adjunto**. Un **ticket** no lleva contacto, ni nº, ni
+  fecha, ni desglose de IVA: el total es el total.
+  · **Si algo falla se DICE**: el motivo se guarda en `holded_error` y se enseña en la fila; los
+  avisos de algo que sí ha entrado pero con matices (total que no cuadra, adjunto que no ha subido)
+  en `holded_warning`. Un gasto con error NO cambia de estado.
+  · El cliente se **reutiliza por petición** (cacheado en `g`) y guarda los contactos ya resueltos:
+  subir 50 gastos del mismo proveedor busca el contacto UNA vez.
+  ⚠️ **Pendiente de la primera prueba real**: no hay cuenta de Holded para probar contra la API de
+  verdad. El mapeo sigue su API documentada y está verificado con un Holded simulado (contacto que ya
+  existe, ticket sin impuestos, total que no cuadra, adjunto que falla, `status:0`). La **primera
+  subida real** es la que confirma los nombres de los campos: si Holded rechaza algo, el mensaje sale
+  tal cual en la fila del gasto.
+
+- **CONTABILIDAD · pendiente de contabilizar** (ago 2026, `contabilidad_view` +
+  `templates/contabilidad.html` + `static/js/contabilidad.js`). Pestañas SERVIDAS (`?tab=`) con icono
+  y contador: **Pendiente de contabilizar** (subpestañas **Facturas · Bolsas · Tickets · Sin
+  ticket**) · **Contabilizado** · **Facturas** (el registro de siempre).
+  · Lo que entra es lo que **ADMINISTRACIÓN HA VALIDADO**: gastos de bolsa consolidados
+  (`BAG_CONSOLIDATED_STATUSES`, que incluye el «sin factura» aceptado) y sin contabilizar. La
+  subpestaña se elige por `BagExpense.document_type` (FACTURA / TICKET / SIN_DOCUMENTO).
+  · **ESTADO CONTABLE en el propio gasto** (`BagExpense.accounting_status`: PENDIENTE · SUBIDO ·
+  CONTABILIZADO · OMITIDO, punto único `_accounting_set_status`), así que la etiqueta
+  «Contabilizado» —con **la fecha al pasar el ratón**— se ve también en la **bolsa** (`_bag_panel.html`)
+  y en pendiente de pago. **Omitir** = no se contabiliza y ahí acaba su proceso (se puede devolver a
+  pendiente). La etiqueta se cambia **pinchándola** (avanza en su ciclo).
+  · Arriba, **«Subir todo a Holded»** y «Comprobar en Holded»; **casilla por gasto** con barra de
+  acciones en bloque (subir / marcar contabilizado); **filtros por estado** con su icono; tres
+  puntitos por fila (subir, descargar, compartir por correo/WhatsApp/SMS, editar, omitir) y el icono
+  de la factura, que la abre **en un pop-up**.
+  · **Bolsas**: una tarjeta por bolsa con su **cabecera** (foto del artista, tipo de actividad, fecha,
+  recinto, municipio, empresa y la etiqueta de Holded) que se despliega con sus gastos —cada uno con
+  su pastilla Factura/Ticket/Sin ticket— y botones de subir todos / contabilizar todos. Cuando **todos
+  sus gastos están contabilizados u omitidos** la bolsa se cierra para contabilidad
+  (`accounting_done_at`), se archiva y desaparece de pendiente (`_accounting_bag_close_if_done`).
+  ⚠️ Ese helper hace `session_db.flush()` antes de contar: la sesión es **`autoflush=False`** y sin él
+  la consulta no veía los estados recién cambiados, así que marcar la bolsa entera de golpe dejaba
+  `accounting_done_at` a null (bug real).
+  · **Detección automática**: al abrir la pestaña, si hay documentos SUBIDOS y hace más de 15 min que
+  no se pregunta, se consulta a Holded **en segundo plano** (`_holded_autodetect_bg`; en primer plano
+  serían decenas de llamadas y la pantalla se quedaría colgada) y hay cron
+  `/cron/holded/refresh?key=HOLDED_CRON_KEY`. Lo que Holded no diga **no se toca**: mejor no saberlo
+  que inventarlo.
+  · **Royalties**: las liquidaciones pagadas siguen saliendo en su módulo, pero ahora
+  `_royalty_accounting_pending_rows` **exige que su factura esté VALIDADA** — sin ese cruce se colaban
+  las que alguien había marcado pagadas a mano sin factura (las pruebas antiguas, ninguna con número).
+  · ⚠️ **Todo va en UN SOLO formulario** y las acciones de cada fila usan **`formaction`** en su botón
+  (un formulario dentro de otro no es HTML válido). Para que eso funcione con `data-inline`,
+  `ajax_inline.js` ahora respeta el **botón que envía**: su `formaction`/`formmethod` y su
+  `data-confirm` (antes siempre usaba `form.action`, así que cualquier acción de fila habría ido al
+  endpoint del formulario).
+  · Los endpoints son `accounting_*` (mapeados a la sección `contabilidad`) y el permiso de edición es
+  **`can_edit_accounting()`**.
+
+- **DIRECCIÓN FISCAL EN PIEZAS** (ago 2026): calle · **código postal** · **municipio** · **provincia**
+  · país, en `Promoter` y `PromoterCompany` (`fiscal_postal_code`/`fiscal_city`/`fiscal_province`/
+  `fiscal_country`). ⚠️ **Holded exige el CP, el municipio y la provincia separados** para dar de alta
+  al proveedor: con la dirección en un solo cuadro de texto el gasto no se puede contabilizar.
+  · Un único parcial para TODOS los formularios: **`templates/_fiscal_address_fields.html`**
+  (`{{ fiscal.fields(fiscal_parts(obj)) }}`), ya puesto en la ficha del tercero (sus datos y sus
+  sociedades), en los **integrantes del artista**, en el **enlace de alta de terceros** y en la
+  **landing de facturación** (donde además se piden como obligatorios y se enseñan bloqueados si ya
+  los tenemos).
+  · Se **muestra junta** con el global **`fiscal_address_text(obj)`**; las piezas para rellenar un
+  formulario las da **`fiscal_parts(obj)`** (`_fiscal_parts_for_form`), que **reparte al vuelo** lo que
+  estuviera guardado de un tirón (`_split_fiscal_address`: busca el CP de 5 dígitos, lo de antes es la
+  calle y lo de después el municipio; la provincia, entre paréntesis o tras la última coma). Ese
+  reparto es un apaño de LECTURA: no se inventa un municipio y no se guarda hasta que se envía el
+  formulario. Al guardar, punto único **`_apply_fiscal_address`** + `_fiscal_form_values`.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

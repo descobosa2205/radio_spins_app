@@ -1,3 +1,4 @@
+{% import '_fiscal_address_fields.html' as fiscal with context %}
 {% extends "layout.html" %}
 {% block content %}
 {# Landing pública de SUBIDA DE FACTURAS en 3 pasos.
@@ -237,9 +238,23 @@
               <label class="form-label" id="invRegTaxLabel">DNI <span class="text-danger">*</span></label>
               <input class="form-control" id="invRegTaxShown" disabled>
             </div>
+            {# EN PIEZAS: sin el código postal, el municipio y la provincia no se puede dar de alta
+               al proveedor en la contabilidad. #}
             <div class="col-12" data-reg-field="fiscal_address">
               <label class="form-label">Dirección fiscal <span class="text-danger">*</span></label>
-              <input class="form-control" name="fiscal_address">
+              <input class="form-control" name="fiscal_address" placeholder="Calle, número, piso…">
+            </div>
+            <div class="col-4 col-md-3" data-reg-field="fiscal_postal_code">
+              <label class="form-label">Código postal <span class="text-danger">*</span></label>
+              <input class="form-control" name="fiscal_postal_code" inputmode="numeric" maxlength="10" placeholder="28001">
+            </div>
+            <div class="col-8 col-md-4" data-reg-field="fiscal_city">
+              <label class="form-label">Municipio <span class="text-danger">*</span></label>
+              <input class="form-control" name="fiscal_city">
+            </div>
+            <div class="col-12 col-md-5" data-reg-field="fiscal_province">
+              <label class="form-label">Provincia <span class="text-danger">*</span></label>
+              <input class="form-control" name="fiscal_province">
             </div>
             <div class="col-12 col-md-6" data-reg-field="email">
               <label class="form-label">Email <span class="text-danger">*</span></label>
@@ -500,6 +515,8 @@
   const REG_LABELS = {
     full_name: 'nombre y apellidos', company_name: 'nombre de la empresa',
     contact_name: 'nombre del contacto', fiscal_address: 'dirección fiscal',
+    fiscal_postal_code: 'código postal', fiscal_city: 'municipio',
+    fiscal_province: 'provincia',
     email: 'email', phone: 'teléfono', bank_account: 'número de cuenta'
   };
 

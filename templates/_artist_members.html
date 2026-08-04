@@ -1,3 +1,4 @@
+{% import '_fiscal_address_fields.html' as fiscal with context %}
 {# INTEGRANTES DEL ARTISTA (viñeta dentro de «Datos del artista»).
    Cada integrante ES UN TERCERO que forma parte del artista: tiene los mismos datos que un tercero
    particular (DNI, pasaporte, carnet, tarjetas de fidelización, matrículas, necesidades de viaje,
@@ -284,10 +285,8 @@
                 <label class="form-label">Domicilio</label>
                 <input class="form-control" name="address" value="{{ c.promoter.address if c.promoter else '' }}">
               </div>
-              <div class="col-md-6">
-                <label class="form-label">Dirección fiscal</label>
-                <input class="form-control" name="fiscal_address" value="{{ c.promoter.fiscal_address if c.promoter else '' }}">
-              </div>
+              {# Dirección fiscal EN PIEZAS: es la que se vuelca a Holded al facturar. #}
+              {{ fiscal.fields(fiscal_parts(c.promoter) if c.promoter else None, hint=False) }}
               <div class="col-md-6">
                 <label class="form-label">Cuenta bancaria (IBAN)</label>
                 <input class="form-control" name="bank_account" value="{{ c.promoter.bank_account if c.promoter else '' }}">

@@ -3547,3 +3547,16 @@ body.doccam-open { overflow: hidden; }
 .decl-drop__icon{ display:block; font-size:1.6rem; color:#adb5bd; margin-bottom:.35rem; }
 .decl-drop.is-set{ border-color:#198754; background:#f6fff9; }
 .decl-drop.is-set .decl-drop__icon{ color:#198754; }
+
+/* ==================== CONTABILIDAD · pendiente de contabilizar ====================
+   Tabla ancha (proveedor, factura, importes, estado contable). La etiqueta de estado es un BOTÓN
+   (se cambia pinchándola), así que hay que quitarle el aspecto de botón y dejarle el de pastilla. */
+.acc-table { font-size: .92rem; }
+.acc-table th { white-space: nowrap; font-size: .8rem; text-transform: uppercase; letter-spacing: .02em; }
+.acc-table td { vertical-align: middle; }
+.acc-check { width: 34px; }
+.acc-row--error { background: rgba(227, 61, 72, .05); }
+.acc-badge { cursor: pointer; padding: .35em .6em; font-size: .75rem; line-height: 1.1; }
+.acc-badge:hover { filter: brightness(.94); }
+/* Etiqueta «Contabilizado» de un gasto donde salga (bolsa, pendiente de pago…). */
+.acc-tag { font-size: .7rem; }

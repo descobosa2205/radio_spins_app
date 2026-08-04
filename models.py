@@ -9727,3 +9727,62 @@ def ensure_geo_schema():
         """,
         "CREATE INDEX IF NOT EXISTS idx_address_lookups_updated ON address_lookups(updated_at);",
     ], "geo_schema")
+
+
+# ===========================================================================
+#  INTENTOS DE SUBIDA DE FACTURA que el servidor RECHAZA
+#  ------------------------------------------------------------------------
+#  Cuando a un proveedor no se le acepta la factura (el importe no cuadra, le
+#  faltan datos, el enlace no vale, ya había una…) el aviso se le enseña a él y
+#  aquí no quedaba constancia de nada. Resultado: alguien dice «yo la subí» y no
+#  hay forma de saber si es verdad. Cada rechazo se apunta aquí para poder
+#  contestar a eso con datos.
+# ===========================================================================
+
+class InvoiceUploadAttempt(Base):
+    """Un intento de subir una factura que NO se aceptó, con su motivo."""
+
+    __tablename__ = "invoice_upload_attempts"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    # De dónde venía: ROYALTY (enlace de una liquidación) | REQUEST (petición de una bolsa) | LANDING.
+    origin = Column(Text, nullable=False, server_default=text("'LANDING'"))
+    royalty_liquidation_id = Column(PGUUID(as_uuid=True), ForeignKey("royalty_liquidations.id", ondelete="SET NULL"))
+    bag_id = Column(PGUUID(as_uuid=True), ForeignKey("workflow_bags.id", ondelete="SET NULL"))
+    # Por qué no se aceptó (el mismo texto que se le enseñó a quien la subía).
+    reason = Column(Text, nullable=False)
+    reason_code = Column(Text)          # AMOUNT | DATA | LINK | DUPLICATE | DOCS
+    file_name = Column(Text)
+    invoice_number = Column(Text)
+    amount_gross = Column(Numeric)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    promoter = relationship("Promoter")
+
+    __table_args__ = (
+        Index("idx_invoice_upload_attempts_fecha", "created_at"),
+    )
+
+
+def ensure_invoice_attempts_schema():
+    """Crea/actualiza la tabla de intentos de subida rechazados (idempotente, sin Alembic)."""
+    _create_all_once()
+    _exec_ddl_statements([
+        """
+        CREATE TABLE IF NOT EXISTS invoice_upload_attempts (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL,
+            origin text NOT NULL DEFAULT 'LANDING',
+            royalty_liquidation_id uuid REFERENCES royalty_liquidations(id) ON DELETE SET NULL,
+            bag_id uuid REFERENCES workflow_bags(id) ON DELETE SET NULL,
+            reason text NOT NULL,
+            reason_code text,
+            file_name text,
+            invoice_number text,
+            amount_gross numeric,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_invoice_upload_attempts_fecha ON invoice_upload_attempts(created_at);",
+    ], "invoice_attempts_schema")

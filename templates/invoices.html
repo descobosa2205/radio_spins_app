@@ -140,6 +140,54 @@
     <div class="sim-stat"><div class="sim-stat__n {{ 'text-warning' if supplier_incomplete }}">{{ supplier_incomplete|k }}</div><div class="sim-stat__l">Con datos por leer</div></div>
   </div>
 
+  {# ¿ESTÁ LLEGANDO ALGO? Dos contrastes que responden a eso sin salir de aquí. #}
+  {% if sent_no_invoice %}
+    <div class="card mb-3 border-warning">
+      <div class="card-header bg-white d-flex align-items-center gap-2 flex-wrap">
+        <strong><i class="fa fa-paper-plane me-1 text-warning"></i>Liquidaciones enviadas de las que NO ha llegado factura</strong>
+        <span class="badge text-bg-warning text-dark">{{ sent_no_invoice|length }}</span>
+        <span class="small text-muted ms-auto">Si aquí hay muchas, no es que las facturas se pierdan: es que no han entrado.</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead class="table-light"><tr><th>Beneficiario</th><th>Periodo</th><th>Enviada</th><th class="text-end">A facturar</th></tr></thead>
+          <tbody>
+            {% for r in sent_no_invoice %}
+              <tr><td class="fw-semibold">{{ r.name }}</td><td class="small">{{ r.period }}</td>
+                  <td class="small">{{ r.sent or '—' }}</td><td class="text-end">{{ r.amount|eur }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% endif %}
+  {% if rejected_attempts %}
+    <div class="card mb-3 border-danger">
+      <div class="card-header bg-white d-flex align-items-center gap-2 flex-wrap">
+        <strong><i class="fa fa-ban me-1 text-danger"></i>Intentos de subida que NO se aceptaron</strong>
+        <span class="badge text-bg-danger">{{ rejected_attempts|length }}</span>
+        <span class="small text-muted ms-auto">Alguien intentó facturar y el sistema no se lo aceptó: aquí está por qué.</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead class="table-light"><tr><th>Quién</th><th>Por dónde</th><th>Nº</th><th class="text-end">Importe</th><th>Motivo</th><th>Cuándo</th></tr></thead>
+          <tbody>
+            {% for a in rejected_attempts %}
+              <tr>
+                <td class="fw-semibold">{% if a.promoter_url %}<a href="{{ a.promoter_url }}" class="text-reset">{{ a.name }}</a>{% else %}{{ a.name }}{% endif %}</td>
+                <td class="small">{{ a.origin }}</td>
+                <td class="small">{{ a.number or '—' }}</td>
+                <td class="text-end small">{% if a.amount %}{{ a.amount|eur }}{% else %}—{% endif %}</td>
+                <td class="small text-danger">{{ a.reason }}</td>
+                <td class="small text-nowrap">{{ a.when }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% endif %}
+
   {# LO QUE HAY QUE LIMPIAR. Nada se borra por su cuenta: se dice qué hay y dirección decide. #}
   {% if supplier_incomplete or supplier_duplicates or supplier_ghosts %}
     <div class="alert alert-light border d-flex flex-wrap align-items-center gap-2 mb-3">

@@ -1139,6 +1139,15 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   de quien sea** (los `PersonalExpense` en PENDING, con de quién es, su origen y su plazo) **más las
   del limbo**, marcadas «Sin destinatario» porque nadie las ve en su Inicio. El bloque de
   Administración se queda: es donde trabaja administración.
+  · ⚠️ **UN RECHAZO YA NO ES INVISIBLE** (`InvoiceUploadAttempt` + `_invoice_attempt_log`,
+  `ensure_invoice_attempts_schema`). Cuando el servidor NO acepta una factura (el enlace no vale, le
+  faltan datos, el importe no cuadra, ya había una, le falta documentación) el aviso se le enseñaba a
+  quien subía **y aquí no quedaba constancia de nada**: un rechazo era indistinguible de no haber
+  intentado, así que a «yo sí la subí» no se podía contestar. Ahora cada rechazo se apunta con su
+  motivo, y en **Bases de datos → Facturas → Subidas por terceros** salen dos bloques:
+  **«Intentos de subida que NO se aceptaron»** (quién, por dónde, nº, importe, motivo y cuándo) y
+  **«Liquidaciones enviadas de las que NO ha llegado factura»** (`_royalty_sent_without_invoice`), que
+  es el contraste que dice si de verdad está entrando algo o no.
   · **La alerta de datos que faltan se ve en las TRES pantallas** (bandeja de royalties, «Subidas por
   terceros» y las pestañas nuevas): línea roja con qué falta + botón **«Completar a mano»** →
   `supplier_invoice_edit`. Antes en «Subidas por terceros» solo había una lupa para releer el PDF y el

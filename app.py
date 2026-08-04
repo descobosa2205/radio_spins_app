@@ -276,10 +276,12 @@ from models import (
     CabifyUserLink,
     HoldedAccount,
     AddressLookup,
+    InvoiceUploadAttempt,
     ensure_pleo_schema,
     ensure_cabify_schema,
     ensure_holded_schema,
     ensure_geo_schema,
+    ensure_invoice_attempts_schema,
     PersonDocRequest,
     ThirdPartyIntakeLink,
     ensure_third_party_intake_schema,
@@ -40303,6 +40305,7 @@ def _bootstrap_schema_bg():
         (ensure_cabify_schema, "ensure_cabify_schema"),
         (ensure_holded_schema, "ensure_holded_schema"),
         (ensure_geo_schema, "ensure_geo_schema"),
+        (ensure_invoice_attempts_schema, "ensure_invoice_attempts_schema"),
         (ensure_third_party_intake_schema, "ensure_third_party_intake_schema"),
         (ensure_artist_templates_schema, "ensure_artist_templates_schema"),
         (ensure_push_schema, "ensure_push_schema"),
@@ -59967,6 +59970,91 @@ def _supplier_invoice_groups(session_db, *, q: str = "", promoter_id: str = "",
     return salida, [str(x.id) for x in fantasmas]
 
 
+def _invoice_attempt_log(session_db, *, promoter, reason: str, code: str = "", origin: str = "LANDING",
+                         liquidation=None, bag_id=None, form=None, filename: str = "") -> None:
+    """Apunta un intento de subida que NO se ha aceptado, con su motivo.
+
+    ⚠️ Esto es lo que permite contestar a «yo sí la subí»: antes el aviso se le enseñaba a quien subía
+    y aquí no quedaba constancia de nada, así que un rechazo era indistinguible de no haber intentado.
+    Se guarda con su propio savepoint: que falle el registro no puede cambiar la respuesta.
+    """
+    try:
+        dinero = _invoice_amount_fields_from_form(form) if form is not None else {}
+        with session_db.begin_nested():
+            session_db.add(InvoiceUploadAttempt(
+                promoter_id=(getattr(promoter, "id", None) if promoter is not None else None),
+                origin=(origin or "LANDING")[:20],
+                royalty_liquidation_id=(getattr(liquidation, "id", None) if liquidation is not None else None),
+                bag_id=bag_id,
+                reason=(reason or "")[:1000] or "Sin motivo",
+                reason_code=(code or None),
+                file_name=(filename or "")[:200] or None,
+                invoice_number=((form.get("invoice_number") if form is not None else "") or "").strip()[:60] or None,
+                amount_gross=dinero.get("amount_gross"),
+            ))
+        session_db.commit()
+    except Exception:
+        try:
+            session_db.rollback()
+        except Exception:
+            pass
+
+
+def _invoice_rejected_attempts(session_db, *, limit: int = 60) -> list[dict]:
+    """Los últimos intentos de subida RECHAZADOS (para saber quién intentó facturar y por qué falló)."""
+    filas = []
+    try:
+        rows = (session_db.query(InvoiceUploadAttempt)
+                .options(joinedload(InvoiceUploadAttempt.promoter))
+                .order_by(InvoiceUploadAttempt.created_at.desc()).limit(limit).all())
+    except Exception:
+        return filas
+    etiquetas = {"ROYALTY": "Liquidación de royalties", "REQUEST": "Petición de una bolsa",
+                 "LANDING": "Enlace de facturas"}
+    for a in rows:
+        filas.append({
+            "id": str(a.id),
+            "name": (_promoter_display_name(a.promoter) or getattr(a.promoter, "nick", None) or "Proveedor"),
+            "promoter_url": (url_for("promoter_detail_view", pid=a.promoter_id) if a.promoter_id else ""),
+            "origin": etiquetas.get((a.origin or "").upper(), (a.origin or "")),
+            "reason": (a.reason or ""),
+            "code": (a.reason_code or ""),
+            "number": (a.invoice_number or ""),
+            "amount": _money_or_zero(a.amount_gross),
+            "when": (a.created_at.strftime("%d/%m/%Y %H:%M") if a.created_at else ""),
+        })
+    return filas
+
+
+def _royalty_sent_without_invoice(session_db, *, limit: int = 200) -> list[dict]:
+    """Liquidaciones ENVIADAS de las que NO ha llegado factura.
+
+    Es el contraste que dice si de verdad está llegando algo: si aquí hay muchas, no es que las
+    facturas se pierdan en la app, es que no han entrado.
+    """
+    filas = []
+    try:
+        recs = (session_db.query(RoyaltyLiquidation)
+                .filter(func.upper(func.coalesce(RoyaltyLiquidation.status, "")).in_(["SENT", "GENERATED"]))
+                .order_by(RoyaltyLiquidation.period_start.desc()).limit(limit).all())
+    except Exception:
+        return filas
+    for rec in recs:
+        if getattr(rec, "invoice_id", None):
+            continue
+        congelada = _royalty_frozen_beneficiary(rec) or {}
+        enviada = getattr(rec, "last_sent_at", None) or getattr(rec, "updated_at", None)
+        filas.append({
+            "id": str(rec.id),
+            "name": (congelada.get("name") or "Beneficiario"),
+            "period": _royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end),
+            "status": (rec.status or "").upper(),
+            "amount": _royalty_invoice_totals(congelada)["gross"],
+            "sent": (enviada.strftime("%d/%m/%Y") if enviada else ""),
+        })
+    return filas
+
+
 def _invoices_pending_assign_rows(session_db, *, limit: int = 500) -> list[dict]:
     """TODAS las facturas PENDIENTES DE ASIGNAR a una bolsa, sea de quien sea.
 
@@ -60145,6 +60233,10 @@ def invoices_view():
             f_status = (request.args.get("status") or "").strip().upper()
             f_year = (request.args.get("year") or "").strip()
             grupos, fantasmas = _supplier_invoice_groups(session_db, q=f_q, status=f_status, year=f_year)
+            # ¿Está llegando algo? El contraste que lo dice: liquidaciones enviadas SIN factura, y los
+            # intentos de subida que el servidor rechazó (que antes no dejaban rastro).
+            sent_no_invoice = _royalty_sent_without_invoice(session_db)
+            rejected_attempts = _invoice_rejected_attempts(session_db)
             years_up = sorted({str(getattr(x, "issue_date", None).year) for x in
                                session_db.query(SupplierInvoice).filter(SupplierInvoice.issue_date.isnot(None)).all()},
                               reverse=True)
@@ -60158,6 +60250,8 @@ def invoices_view():
                 supplier_incomplete=sum(g["incomplete"] for g in grupos),
                 supplier_duplicates=sum(g["duplicates"] for g in grupos),
                 supplier_ghosts=fantasmas,
+                sent_no_invoice=sent_no_invoice,
+                rejected_attempts=rejected_attempts,
                 supplier_can_clean=is_master(),
                 supplier_can_edit=can_edit_invoices(),
                 supplier_status_options=list(SUPPLIER_INVOICE_STATUS_META.keys()),
@@ -67268,6 +67362,9 @@ def public_invoice_upload():
         # antes que los certificados para no mandar a nadie a buscar papeles que no son el problema.
         if (request.form.get("liq_token") or "").strip() and not _parse_public_royalty_liquidation_token(
                 (request.form.get("liq_token") or "").strip()):
+            _invoice_attempt_log(session_db, promoter=promoter, origin="ROYALTY", code="LINK",
+                                 form=request.form, filename=(getattr(f, "filename", "") or ""),
+                                 reason="El enlace de la liquidación no es válido")
             return jsonify({"ok": False, "error": (
                 "El enlace de esta liquidación no es válido, así que no podemos aceptar la factura "
                 "por aquí: se quedaría sin vincular. Escríbenos a %s y te mandamos uno nuevo."
@@ -67277,7 +67374,13 @@ def public_invoice_upload():
                                                   worker_type=wt, issue_date=emision)
                    if d["key"] != "INVOICE" and not d["ok"]]
         if pending:
-            return jsonify({"ok": False, "error": "Antes sube: " + ", ".join(d["label"] for d in pending)}), 400
+            _falta_docs = ", ".join(d["label"] for d in pending)
+            _invoice_attempt_log(session_db, promoter=promoter, code="DOCS", form=request.form,
+                                 filename=(getattr(f, "filename", "") or ""),
+                                 origin=("ROYALTY" if (request.form.get("liq_token") or "").strip()
+                                         else ("REQUEST" if (request.form.get("token") or "").strip() else "LANDING")),
+                                 reason="Le faltaba documentación: " + _falta_docs)
+            return jsonify({"ok": False, "error": "Antes sube: " + _falta_docs}), 400
         filename = (f.filename or "factura").strip()
         is_pdf = filename.lower().endswith(".pdf") or (f.mimetype or "") == "application/pdf"
         url = upload_pdf(f, "invoices") if is_pdf else upload_file(f, "invoices")
@@ -67313,6 +67416,9 @@ def public_invoice_upload():
                         pass
             if rec is None:
                 # Sin liquidación identificada la factura quedaría huérfana: no se acepta a ciegas.
+                _invoice_attempt_log(session_db, promoter=promoter, origin="ROYALTY", code="LINK",
+                                     form=request.form, filename=(getattr(f, "filename", "") or ""),
+                                     reason="No se pudo identificar la liquidación del enlace")
                 return jsonify({"ok": False, "error": (
                     "No hemos podido identificar la liquidación de este enlace. Escríbenos a %s "
                     "antes de subir la factura, para que no se quede sin vincular."
@@ -67326,15 +67432,26 @@ def public_invoice_upload():
                 anterior = None          # se le pidió corregirla: la nueva entra sin más
             if anterior is not None and (anterior.file_url or "").strip():
                 if (anterior.status or "").upper() == "VALIDADA":
+                    _invoice_attempt_log(session_db, promoter=promoter, origin="ROYALTY", code="DUPLICATE",
+                                         liquidation=rec, form=request.form,
+                                         filename=(getattr(f, "filename", "") or ""),
+                                         reason="Ya había una factura VALIDADA para esa liquidación")
                     return jsonify({"ok": False, "error": INVOICE_ALREADY_VALIDATED_MSG,
                                     "already": "VALIDADA"}), 409
                 if not reemplazar:
+                    _invoice_attempt_log(session_db, promoter=promoter, origin="ROYALTY", code="DUPLICATE",
+                                         liquidation=rec, form=request.form,
+                                         filename=(getattr(f, "filename", "") or ""),
+                                         reason="Ya había una factura subida (no pidió reemplazarla)")
                     return jsonify({"ok": False, "error": INVOICE_ALREADY_UPLOADED_MSG,
                                     "already": "PENDIENTE", "can_replace": True}), 409
             # LOS DATOS DE LA FACTURA tienen que estar: si no se pudieron leer, se escriben a mano
             # ANTES de enviarla (el navegador ya lo pide; la última palabra la tiene el servidor).
             _ok_datos, _falta = _invoice_required_data_check(request.form)
             if not _ok_datos:
+                _invoice_attempt_log(session_db, promoter=promoter, origin="ROYALTY", code="DATA",
+                                     liquidation=rec, form=request.form,
+                                     filename=(getattr(f, "filename", "") or ""), reason=_falta)
                 return jsonify({"ok": False, "error": _falta, "needs_data": True}), 400
             # EL IMPORTE TIENE QUE CUADRAR con lo que se le pidió facturar.
             _dinero = _invoice_amount_fields_from_form(request.form)
@@ -67344,6 +67461,9 @@ def public_invoice_upload():
                 _dinero.get("amount_gross"), _dinero.get("retention_amount"),
                 net=_dinero.get("amount_net"), vat=_dinero.get("amount_vat"))
             if not _ok:
+                _invoice_attempt_log(session_db, promoter=promoter, origin="ROYALTY", code="AMOUNT",
+                                     liquidation=rec, form=request.form,
+                                     filename=(getattr(f, "filename", "") or ""), reason=_motivo)
                 return jsonify({"ok": False, "error": _motivo,
                                 "expected": str(_money_or_zero(_esperado.get("gross")))}), 400
             if anterior is not None and reemplazar:
@@ -67392,13 +67512,24 @@ def public_invoice_upload():
                        and (x.status or "").upper() != "RECHAZADA"]
             if previas:
                 if any((x.status or "").upper() == "VALIDADA" for x in previas):
+                    _invoice_attempt_log(session_db, promoter=promoter, origin="REQUEST", code="DUPLICATE",
+                                         bag_id=bag_req.bag_id, form=request.form,
+                                         filename=(getattr(f, "filename", "") or ""),
+                                         reason="Ya había una factura VALIDADA en esa petición")
                     return jsonify({"ok": False, "error": INVOICE_ALREADY_VALIDATED_MSG,
                                     "already": "VALIDADA"}), 409
                 if not _truthy(request.form.get("replace")):
+                    _invoice_attempt_log(session_db, promoter=promoter, origin="REQUEST", code="DUPLICATE",
+                                         bag_id=bag_req.bag_id, form=request.form,
+                                         filename=(getattr(f, "filename", "") or ""),
+                                         reason="Ya había una factura subida (no pidió reemplazarla)")
                     return jsonify({"ok": False, "error": INVOICE_ALREADY_UPLOADED_MSG,
                                     "already": "PENDIENTE", "can_replace": True}), 409
             _ok_datos, _falta = _invoice_required_data_check(request.form)
             if not _ok_datos:
+                _invoice_attempt_log(session_db, promoter=promoter, origin="REQUEST", code="DATA",
+                                     bag_id=bag_req.bag_id, form=request.form,
+                                     filename=(getattr(f, "filename", "") or ""), reason=_falta)
                 return jsonify({"ok": False, "error": _falta, "needs_data": True}), 400
             # EL IMPORTE TIENE QUE CUADRAR con la suma de los conceptos que cubre esta factura.
             _dinero = _invoice_amount_fields_from_form(request.form)
@@ -67416,6 +67547,9 @@ def public_invoice_upload():
                                                  net=_dinero.get("amount_net"),
                                                  vat=_dinero.get("amount_vat"))
             if not _ok:
+                _invoice_attempt_log(session_db, promoter=promoter, origin="REQUEST", code="AMOUNT",
+                                     bag_id=bag_req.bag_id, form=request.form,
+                                     filename=(getattr(f, "filename", "") or ""), reason=_motivo)
                 return jsonify({"ok": False, "error": _motivo, "expected": str(_esp_gross)}), 400
             if previas and _truthy(request.form.get("replace")):
                 _supplier_invoice_mark_replaced(

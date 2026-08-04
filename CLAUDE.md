@@ -334,6 +334,16 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   «Compartir Reparto Editorial» en la pestaña Editorial.
   El **PDF del LC** (canción y álbum) lleva el logo de la empresa arriba a la **derecha** y el título
   «Label Copy» **centrado** (estilo de casa).
+- **REGISTROS · qué conciertos se declaran y cada cuánto** (ago 2026):
+  · **Solo de artistas con CONTRATO DISCOGRÁFICO**: `_artist_has_record_deal` (compromiso de
+  `ArtistContractCommitment` con concepto discográfico, vía `_pick_artist_commitment`, cacheado en
+  `g`); de los demás artistas no declaramos nosotros y no se listan.
+  · **Se declara por TRIMESTRES** (antes por semestres): `_quarter_of` / `_quarter_key` /
+  `_quarter_label` («T3 2026 (Jul-Sep)»). Cada fila de conciertos y de promociones cantadas trae su
+  `quarter_key`/`quarter_label` y la pantalla las agrupa por ahí.
+  · El **título** de la tarjeta (canción, álbum, concierto o promoción) lleva a su ficha: ya
+  enlazaba, pero no lo parecía — ahora se marca como enlace (`.registros-card__title`).
+
 - **REGISTROS · material para presentar y declaración firmada** (ago 2026):
   · Botón de **icono** en Pendientes AGEDI y en Pendiente SGAE → `registros_song_pack`
   (`/registros/canciones/<id>/material?kind=AGEDI|SGAE`): un ZIP con la carpeta

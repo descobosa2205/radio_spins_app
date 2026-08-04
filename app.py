@@ -4165,6 +4165,23 @@ def _add_semesters(year: int, half: int, delta: int) -> tuple[int, int]:
     return new_year, new_half
 
 
+def _quarter_of(when: date | None) -> int:
+    """Trimestre natural (1-4) de una fecha."""
+    if not when:
+        return 0
+    return ((when.month - 1) // 3) + 1
+
+
+def _quarter_key(year: int, quarter: int) -> str:
+    return f"{year:04d}-T{quarter}"
+
+
+def _quarter_label(year: int, quarter: int) -> str:
+    """Etiqueta del trimestre, con sus meses (es como se declara: por trimestres)."""
+    meses = {1: "Ene-Mar", 2: "Abr-Jun", 3: "Jul-Sep", 4: "Oct-Dic"}
+    return f"T{quarter} {year} ({meses.get(quarter, '')})"
+
+
 def _semester_label(year: int, half: int) -> str:
     if half == 1:
         return f"S1 {year} (Ene-Jun)"
@@ -39187,10 +39204,43 @@ def _build_registros_agedi_pending(session_db) -> list[dict]:
     return rows
 
 
+RECORD_DEAL_CONCEPTS = ["discográfico", "discografico", "discográfica", "discografica"]
+
+
+def _artist_has_record_deal(session_db, artist_id) -> bool:
+    """¿Este artista tiene CONTRATO DISCOGRÁFICO con la casa?
+
+    Se mira su contrato de artista (`ArtistContractCommitment.concept` discográfico). Solo de esos
+    artistas se declaran los conciertos: de los demás no nos toca a nosotros.
+    Se cachea por petición: la pantalla de Registros pregunta por muchos artistas."""
+    aid = to_uuid(str(artist_id or ""))
+    if not aid:
+        return False
+    cache = getattr(g, "_record_deal_cache", None)
+    if cache is None:
+        cache = {}
+        try:
+            g._record_deal_cache = cache
+        except Exception:
+            pass
+    clave = str(aid)
+    if clave in cache:
+        return cache[clave]
+    try:
+        m, _c = _pick_artist_commitment(session_db, aid, RECORD_DEAL_CONCEPTS)
+        tiene = m is not None
+    except Exception:
+        tiene = False
+    cache[clave] = tiene
+    return tiene
+
+
 def _build_registros_concerts_pending(session_db) -> list[dict]:
-    """Actividades pendientes de declarar: solo las que YA HAN PASADO y en las que se cantó
-    (conciertos y festivales siempre; el resto, si en el asistente se marcó «¿canta?» = Sí).
-    Lo que aún no se ha celebrado no se puede declarar, así que no aparece."""
+    """Actividades pendientes de declarar: solo las que YA HAN PASADO, en las que se cantó
+    (conciertos y festivales siempre; el resto, si en el asistente se marcó «¿canta?» = Sí) y **de
+    artistas con CONTRATO DISCOGRÁFICO** (de los demás no declaramos nosotros).
+    Lo que aún no se ha celebrado no se puede declarar, así que no aparece.
+    Van agrupadas por TRIMESTRE, que es como se declaran."""
     today = today_local()  # Madrid, no la del servidor (Render va en UTC)
     # Prefiltro en SQL a propósito PERMISIVO en la parte del JSONB (deja fuera solo lo que dice
     # explícitamente que NO se canta o no lo declara); quien decide de verdad es
@@ -39214,10 +39264,18 @@ def _build_registros_concerts_pending(session_db) -> list[dict]:
     for concert in concerts:
         if not _concert_has_singing(concert):
             continue
+        # SOLO artistas con contrato DISCOGRÁFICO: de los demás no declaramos nosotros.
+        if not any(_artist_has_record_deal(session_db, aid) for aid in _concert_artist_ids(concert)):
+            continue
         artist = getattr(concert, 'artist', None)
+        _when = getattr(concert, 'date', None)
+        _q = _quarter_of(_when)
         rows.append({
             'kind': 'CONCERT',
             'item_id': str(concert.id),
+            # Se declara por TRIMESTRES: cada fila sabe el suyo para poder agruparlas.
+            'quarter_key': (_quarter_key(_when.year, _q) if _when else ''),
+            'quarter_label': (_quarter_label(_when.year, _q) if _when else 'Sin fecha'),
             'title': (getattr(concert, 'festival_name', None) or _concert_venue_name(concert) or 'Concierto'),
             'cover_url': (getattr(artist, 'photo_url', None) or '').strip(),
             'artist_name': getattr(artist, 'name', None) or '—',
@@ -39233,7 +39291,7 @@ def _build_registros_concerts_pending(session_db) -> list[dict]:
 
 
 def _build_registros_promos_pending(session_db) -> list[dict]:
-    """Promociones YA CELEBRADAS en las que se CANTÓ y están sin declarar, agrupadas por semestre.
+    """Promociones YA CELEBRADAS en las que se CANTÓ y están sin declarar, agrupadas por TRIMESTRE.
 
     Una entrevista en la que el artista canta se declara igual que un concierto; lo que aún no ha
     pasado no se puede declarar, así que no aparece."""
@@ -39265,14 +39323,15 @@ def _build_registros_promos_pending(session_db) -> list[dict]:
             if song is not None:
                 songs.append((song.title or '').strip())
         when = getattr(act, 'activity_date', None)
-        half = 1 if when and when.month <= 6 else 2
+        _q = _quarter_of(when)
         rows.append({
             'kind': 'PROMO',
             'item_id': str(act.id),
             'promotion_id': str(promotion.id),
             'title': _promo_activity_title(act) or _promo_title(promotion),
-            'semester_key': _semester_key(when.year, half) if when else '',
-            'semester_label': _semester_label(when.year, half) if when else 'Sin fecha',
+            # Se declara por TRIMESTRES, igual que los conciertos.
+            'quarter_key': (_quarter_key(when.year, _q) if when else ''),
+            'quarter_label': (_quarter_label(when.year, _q) if when else 'Sin fecha'),
             'cover_url': (getattr(artists[0], 'photo_url', None) or '').strip() if artists else '',
             'artist_name': _artist_label_from_rows(artists),
             'artist_photo': (getattr(artists[0], 'photo_url', None) or '').strip() if artists else '',

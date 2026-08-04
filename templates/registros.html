@@ -23,7 +23,8 @@
         <img src="{{ item.cover_url or item.artist_photo or DEFAULT_COVER_URL }}" alt="" class="cover-square" style="width:74px;height:74px;object-fit:cover;border-radius:14px;">
       </a>
       <div class="flex-grow-1 min-w-0">
-        <a href="{{ item.detail_url }}" class="text-decoration-none text-reset"><div class="fw-semibold text-truncate">{{ item.title }}</div></a>
+        {# El TÍTULO lleva a la ficha (canción, álbum o actividad): se marca como enlace para que se vea. #}
+        <a href="{{ item.detail_url }}" class="registros-card__title text-reset" title="Abrir la ficha"><div class="fw-semibold text-truncate">{{ item.title }}</div></a>
         <div class="d-flex align-items-center gap-2 mt-1 min-w-0">
           <img src="{{ item.artist_photo or DEFAULT_PHOTO_URL }}" alt="" class="artist-mini" style="width:24px;height:24px;object-fit:cover;">
           <span class="small text-muted text-truncate">{{ item.artist_name or '—' }}</span>
@@ -122,14 +123,27 @@
     <div class="col-12 col-xl-4">
       <div class="card h-100 border-0 shadow-sm">
         <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center mb-3"><h5 class="m-0">Conciertos a declarar</h5><span class="badge text-bg-warning text-dark">{{ counts.concerts }}</span></div>
-          <div class="d-flex flex-column gap-3">
-            {% for item in pending.concerts %}{{ registro_media_card(item, 'concert') }}{% else %}<div class="text-muted">No hay conciertos pendientes de comunicar.</div>{% endfor %}
-          </div>
+          <div class="d-flex justify-content-between align-items-center mb-1"><h5 class="m-0">Conciertos a declarar</h5><span class="badge text-bg-warning text-dark">{{ counts.concerts }}</span></div>
+          <div class="text-muted small mb-3">Solo de artistas con contrato discográfico. Se declaran por trimestres.</div>
+          {% if pending.concerts %}
+            {# Por TRIMESTRE: es como se declara. #}
+            {% set gconc = {} %}
+            {% for item in pending.concerts %}
+              {% if gconc.update({item.quarter_label: (gconc.get(item.quarter_label, []) + [item])}) %}{% endif %}
+            {% endfor %}
+            {% for trimestre, items in gconc.items() %}
+              <div class="fw-semibold text-muted small text-uppercase mb-2">{{ trimestre }}</div>
+              <div class="d-flex flex-column gap-3 mb-3">
+                {% for item in items %}{{ registro_media_card(item, 'concert') }}{% endfor %}
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="text-muted">No hay conciertos pendientes de comunicar.</div>
+          {% endif %}
         </div>
       </div>
     </div>
-    {# Promociones en las que se CANTÓ: se declaran igual que un concierto, agrupadas por semestre. #}
+    {# Promociones en las que se CANTÓ: se declaran igual que un concierto, por TRIMESTRES. #}
     <div class="col-12">
       <div class="card border-0 shadow-sm">
         <div class="card-body">
@@ -140,10 +154,10 @@
           {% if pending.promos %}
             {% set grouped = {} %}
             {% for item in pending.promos %}
-              {% if grouped.update({item.semester_label: (grouped.get(item.semester_label, []) + [item])}) %}{% endif %}
+              {% if grouped.update({item.quarter_label: (grouped.get(item.quarter_label, []) + [item])}) %}{% endif %}
             {% endfor %}
-            {% for semester, items in grouped.items() %}
-              <div class="fw-semibold text-muted small text-uppercase mb-2">{{ semester }}</div>
+            {% for trimestre, items in grouped.items() %}
+              <div class="fw-semibold text-muted small text-uppercase mb-2">{{ trimestre }}</div>
               <div class="row g-3 mb-3">
                 {% for item in items %}<div class="col-12 col-lg-6 col-xl-4">{{ registro_media_card(item, 'promo') }}</div>{% endfor %}
               </div>

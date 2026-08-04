@@ -3065,6 +3065,11 @@ body.doccam-open { overflow: hidden; }
    gasto se suelta y la fila vuelve a la normalidad. */
 .pay-exp.is-in-batch{ background:#e7f5ff; border-color:#a5d8ff; }
 
+/* REGISTROS: el título de la tarjeta lleva a la ficha, y se ve que es un enlace. */
+.registros-card__title{ text-decoration:none; }
+.registros-card__title:hover{ text-decoration:underline; text-decoration-thickness:1px;
+  text-underline-offset:2px; color:var(--brand-primary,#E33D48) !important; }
+
 /* ==================== AVISOS (campanita + aviso emergente) ==================== */
 .notif-dot{ position:absolute; top:2px; right:0; min-width:17px; height:17px; padding:0 4px;
   border-radius:999px; background:var(--brand-primary,#E33D48); color:#fff; font-size:.66rem;

@@ -82,6 +82,8 @@
       <div class="tab-content">
       {% for row in pleo_rows %}
         <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="pleo-{{ row.slug }}-{{ loop.index }}" role="tabpanel">
+          {# Zona para refrescar sin recargar (ajax_inline): dentro del pane, para no perder la subpestaña. #}
+          <div id="pleoZone-{{ loop.index }}" data-inline-zone>
           <div class="card mb-3">
             <div class="card-body">
               <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
@@ -102,7 +104,7 @@
                 <div class="alert alert-danger py-2 px-3 small"><i class="fa fa-triangle-exclamation me-1"></i>{{ row.last_error }}</div>
               {% endif %}
 
-              <form method="post" action="{{ url_for('pleo_account_save', company_id=row.company_id) }}" class="row g-3">
+              <form method="post" action="{{ url_for('pleo_account_save', company_id=row.company_id) }}" class="row g-3" data-inline data-inline-target="#pleoZone-{{ loop.index }}">
                 <div class="col-md-6">
                   <label class="form-label">API Key de Pleo</label>
                   <input type="password" name="api_key" class="form-control" autocomplete="new-password"
@@ -149,14 +151,15 @@
               </form>
 
               <div class="d-flex flex-wrap gap-2 mt-3">
-                <form method="post" action="{{ url_for('pleo_account_test', company_id=row.company_id) }}" class="d-inline">
+                <form method="post" action="{{ url_for('pleo_account_test', company_id=row.company_id) }}" class="d-inline" data-inline data-inline-target="#pleoZone-{{ loop.index }}">
                   <button class="btn btn-sm btn-outline-primary"><i class="fa fa-bolt me-1"></i>Probar conexión</button>
                 </form>
-                <form method="post" action="{{ url_for('pleo_account_sync', company_id=row.company_id) }}" class="d-inline">
+                <form method="post" action="{{ url_for('pleo_account_sync', company_id=row.company_id) }}" class="d-inline" data-inline data-inline-target="#pleoZone-{{ loop.index }}">
                   <button class="btn btn-sm btn-outline-secondary" {% if not row.has_key %}disabled{% endif %}><i class="fa fa-rotate me-1"></i>Sincronizar ahora</button>
                 </form>
                 <form method="post" action="{{ url_for('pleo_account_sync', company_id=row.company_id) }}" class="d-inline"
-                      onsubmit="return confirm('Traerá TODO el histórico desde la fecha «Importar desde». Puede tardar. ¿Continuar?');">
+                      data-inline data-inline-target="#pleoZone-{{ loop.index }}"
+                      data-confirm="Traerá TODO el histórico desde la fecha «Importar desde». Puede tardar. ¿Continuar?">
                   <input type="hidden" name="full" value="1">
                   <button class="btn btn-sm btn-outline-secondary" {% if not row.has_key or not row.backfill_from %}disabled{% endif %}><i class="fa fa-cloud-arrow-down me-1"></i>Traer histórico</button>
                 </form>
@@ -210,7 +213,7 @@
                         {% endif %}
                       </td>
                       <td class="text-end">
-                        <form method="post" action="{{ url_for('pleo_employee_link_save', link_id=emp.id) }}" class="d-flex gap-1 justify-content-end mb-0">
+                        <form method="post" action="{{ url_for('pleo_employee_link_save', link_id=emp.id) }}" class="d-flex gap-1 justify-content-end mb-0" data-inline data-inline-target="#pleoZone-{{ loop.index }}">
                           <select name="user_id" class="form-select form-select-sm" style="max-width:230px">
                             <option value="">— Elegir persona —</option>
                             {% for p in pleo_people %}<option value="{{ p.id }}" {% if p.id == emp.user_id %}selected{% endif %}>{{ p.label }}</option>{% endfor %}
@@ -233,6 +236,7 @@
               Aún no se han leído las personas de Pleo en esta empresa. Pulsa <strong>«Sincronizar ahora»</strong>.
             </div>
           {% endif %}
+          </div>
         </div>
       {% endfor %}
       </div>
@@ -291,10 +295,12 @@
       <div class="tab-content">
       {% for row in cabify_rows %}
         <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="cabify-{{ loop.index }}" role="tabpanel">
+          {# Zona para refrescar sin recargar (dentro del pane, para no perder la subpestaña). #}
+          <div id="cabifyZone-{{ loop.index }}" data-inline-zone>
           <div class="card mb-3">
             <div class="card-body">
               <h3 class="h6 mb-3"><i class="fa fa-key me-1 text-danger"></i>Credenciales de {{ row.company.name }}</h3>
-              <form method="post" action="{{ url_for('cabify_account_save') }}" class="row g-3">
+              <form method="post" action="{{ url_for('cabify_account_save') }}" class="row g-3" data-inline data-inline-target="#cabifyZone-{{ loop.index }}">
                 <input type="hidden" name="group_company_id" value="{{ row.company.id }}">
                 <div class="col-md-5">
                   <label class="form-label">UUID <span class="text-muted fw-normal small">(el primer código que te da Cabify)</span></label>
@@ -338,12 +344,12 @@
                         data-url="{{ url_for('cabify_account_test', company_id=row.company.id) }}"
                         {% if not row.account %}disabled{% endif %}><i class="fa fa-bolt me-1"></i>Probar conexión</button>
                 <span class="small align-self-center" data-cabify-test-msg></span>
-                <form method="post" action="{{ url_for('cabify_account_sync', company_id=row.company.id) }}" class="d-inline">
+                <form method="post" action="{{ url_for('cabify_account_sync', company_id=row.company.id) }}" class="d-inline" data-inline data-inline-target="#cabifyZone-{{ loop.index }}">
                   <button class="btn btn-sm btn-outline-secondary" {% if not row.account %}disabled{% endif %}><i class="fa fa-rotate me-1"></i>Sincronizar ahora</button>
                 </form>
                 {# La app llegó a fabricarse un PDF por viaje y a colgarlo como si fuera el
                    justificante de Cabify. No lo era: esto los quita y los borra. #}
-                <form method="post" action="{{ url_for('cabify_purge_fake_receipts') }}" class="d-inline">
+                <form method="post" action="{{ url_for('cabify_purge_fake_receipts') }}" class="d-inline" data-inline data-inline-target="#cabifyZone-{{ loop.index }}">
                   <button class="btn btn-sm btn-outline-danger" title="Quita y borra los PDF que generaba la app; esos viajes quedan sin factura, que es lo que son"><i class="fa fa-trash me-1"></i>Quitar los justificantes que generaba la app</button>
                 </form>
               </div>
@@ -390,7 +396,7 @@
                         {% else %}<span class="badge text-bg-warning text-dark">Sin vincular</span>{% endif %}
                       </td>
                       <td class="text-end">
-                        <form method="post" action="{{ url_for('cabify_user_link_save', link_id=u.id) }}" class="d-inline-flex gap-1 align-items-center">
+                        <form method="post" action="{{ url_for('cabify_user_link_save', link_id=u.id) }}" class="d-inline-flex gap-1 align-items-center" data-inline data-inline-target="#cabifyZone-{{ loop.index }}">
                           <select name="user_id" class="form-select form-select-sm" style="max-width:220px;">
                             <option value="">— sin vincular —</option>
                             {% for p in personnel_options or [] %}
@@ -399,7 +405,7 @@
                           </select>
                           <button class="btn btn-sm btn-outline-primary" title="Vincular"><i class="fa fa-link"></i></button>
                         </form>
-                        <form method="post" action="{{ url_for('cabify_user_link_save', link_id=u.id) }}" class="d-inline">
+                        <form method="post" action="{{ url_for('cabify_user_link_save', link_id=u.id) }}" class="d-inline" data-inline data-inline-target="#cabifyZone-{{ loop.index }}">
                           <input type="hidden" name="action" value="ignore">
                           <button class="btn btn-sm btn-outline-secondary" title="Descartar"><i class="fa fa-ban"></i></button>
                         </form>
@@ -416,6 +422,7 @@
               Aún no se han leído las personas de Cabify en esta empresa. Pulsa <strong>«Sincronizar ahora»</strong>.
             </div>
           {% endif %}
+          </div>
         </div>
       {% endfor %}
       </div>
@@ -424,7 +431,8 @@
 
   {# ========================= CHARTMETRIC ========================= #}
   <div class="tab-pane fade" id="tab-chartmetric" role="tabpanel" aria-labelledby="tab-chartmetric-tab">
-    <div class="card">
+    {# Zona propia: las acciones de esta tarjeta se hacen sin recargar (ajax_inline). #}
+    <div class="card" id="cmZoneSummary" data-inline-zone>
       <div class="card-body">
         <div class="d-flex align-items-center justify-content-between mb-2">
           <h2 class="h5 mb-0">Chartmetric <span class="text-muted small fw-normal">· Métricas</span></h2>
@@ -439,16 +447,19 @@
             Recarga el plan de Chartmetric y vuelve a pulsar «Actualizar todos».
           </div>
           {% endif %}
-          <form method="post" class="d-inline">
+          <form method="post" class="d-inline" data-inline data-inline-target="#cmZoneSummary">
             <button name="action" value="ping_chartmetric" class="btn btn-sm btn-outline-primary"><i class="fa fa-bolt me-1"></i>Probar conexión</button>
           </form>
-          <form method="post" class="d-inline" onsubmit="return confirm('Buscará el ID de Chartmetric de TODOS los artistas aún no vinculados (consume crédito). ¿Continuar?');">
+          <form method="post" class="d-inline" data-inline data-inline-target="#cmZoneSummary"
+                data-confirm="Buscará el ID de Chartmetric de TODOS los artistas aún no vinculados (consume crédito). ¿Continuar?">
             <button name="action" value="resolve_all_chartmetric" class="btn btn-sm btn-outline-primary"><i class="fa fa-link me-1"></i>Vincular todos</button>
           </form>
-          <form method="post" class="d-inline" onsubmit="return confirm('Esto hará llamadas a Chartmetric y consume crédito de API. ¿Continuar?');">
+          <form method="post" class="d-inline" data-inline data-inline-target="#cmZoneSummary"
+                data-confirm="Esto hará llamadas a Chartmetric y consume crédito de API. ¿Continuar?">
             <button name="action" value="refresh_chartmetric_test" class="btn btn-sm btn-outline-secondary"><i class="fa fa-rotate me-1"></i>Probar refresco (3 artistas)</button>
           </form>
-          <form method="post" class="d-inline" onsubmit="return confirm('Refrescará métricas y playlists de TODOS los artistas vinculados (en segundo plano, consume crédito). ¿Continuar?');">
+          <form method="post" class="d-inline" data-inline data-inline-target="#cmZoneSummary"
+                data-confirm="Refrescará métricas y playlists de TODOS los artistas vinculados (en segundo plano, consume crédito). ¿Continuar?">
             <button name="action" value="refresh_all_chartmetric" class="btn btn-sm btn-primary"><i class="fa fa-cloud-arrow-down me-1"></i>Actualizar todos</button>
           </form>
           <div class="small text-muted mt-2">
@@ -485,6 +496,9 @@
     <div class="tab-content">
 
       <div class="tab-pane fade show active" id="cmsub-artists" role="tabpanel">
+        {# La zona NO puede ser el propio tab-pane: al reemplazarlo perdería el estado de pestaña
+           activa y desaparecería. Va dentro. #}
+        <div id="cmZoneArtists" data-inline-zone>
         {% if review_rows %}
         <div class="card">
           <div class="card-body">
@@ -512,7 +526,7 @@
                       {% if r.source %}<div class="small text-muted">por {{ r.source }}</div>{% endif %}
                     </td>
                     <td>
-                      <form method="post" class="d-flex align-items-center gap-1 mb-0">
+                      <form method="post" class="d-flex align-items-center gap-1 mb-0" data-inline data-inline-target="#cmZoneArtists">
                         <input type="hidden" name="action" value="link_chartmetric">
                         <input type="hidden" name="artist_id" value="{{ r.artist_id }}">
                         <input type="text" name="chartmetric_id" value="{{ r.cmid or '' }}" class="form-control form-control-sm" style="width:110px" placeholder="ID" inputmode="numeric">
@@ -530,7 +544,8 @@
                     </td>
                     <td class="text-end">
                       {% if r.cmid %}
-                      <form method="post" class="mb-0" onsubmit="return confirm('¿Desvincular este artista y borrar sus datos cacheados?');">
+                      <form method="post" class="mb-0" data-inline data-inline-target="#cmZoneArtists"
+                            data-confirm="¿Desvincular este artista y borrar sus datos cacheados?">
                         <input type="hidden" name="action" value="unlink_chartmetric">
                         <input type="hidden" name="artist_id" value="{{ r.artist_id }}">
                         <button class="btn btn-sm btn-outline-danger" title="Desvincular"><i class="fa fa-link-slash"></i></button>
@@ -545,14 +560,17 @@
           </div>
         </div>
         {% endif %}
+        </div>
       </div>
 
       <div class="tab-pane fade" id="cmsub-songs" role="tabpanel">
+        <div id="cmZoneSongs" data-inline-zone>
         <div class="card">
           <div class="card-body">
             <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-1">
               <h2 class="h5 mb-0">Canciones · enlaces y reproducciones</h2>
-              <form method="post" class="mb-0" onsubmit="return confirm('Actualizará las reproducciones de las canciones con track de Chartmetric (consume crédito). ¿Continuar?');">
+              <form method="post" class="mb-0" data-inline data-inline-target="#cmZoneSongs"
+                    data-confirm="Actualizará las reproducciones de las canciones con track de Chartmetric (consume crédito). ¿Continuar?">
                 <button name="action" value="refresh_songs_chartmetric" class="btn btn-sm btn-primary"><i class="fa fa-cloud-arrow-down me-1"></i>Actualizar reproducciones</button>
               </form>
             </div>
@@ -575,7 +593,7 @@
                     <td>{% if r.spotify_plays %}<strong>{{ r.spotify_plays }}</strong>{% else %}<span class="text-muted">—</span>{% endif %}</td>
                     <td>{{ cm_status_badge(r.status) }}{% if r.cm_track %}<div class="small text-muted">id {{ r.cm_track }}</div>{% endif %}</td>
                     <td class="text-end text-nowrap">
-                      <form method="post" action="{{ url_for('cm_song_reresolve', song_id=r.id) }}" class="d-inline mb-0"><input type="hidden" name="next" value="{{ request.full_path }}"><button class="btn btn-sm btn-outline-primary" title="Re-resolver con Chartmetric"><i class="fa fa-rotate"></i></button></form>
+                      <form method="post" action="{{ url_for('cm_song_reresolve', song_id=r.id) }}" class="d-inline mb-0" data-inline data-inline-target="#cmZoneSongs"><input type="hidden" name="next" value="{{ request.full_path }}"><button class="btn btn-sm btn-outline-primary" title="Re-resolver con Chartmetric"><i class="fa fa-rotate"></i></button></form>
                       <button type="button" class="btn btn-sm btn-outline-secondary" title="Vincular a mano (pegar enlace o buscar)"
                               data-cm-link="song" data-cm-id="{{ r.id }}" data-cm-name="{{ r.title }}"
                               data-cm-track="{{ r.cm_track }}"><i class="fa fa-link"></i></button>
@@ -590,9 +608,11 @@
             </div>
           </div>
         </div>
+        </div>
       </div>
 
       <div class="tab-pane fade" id="cmsub-albums" role="tabpanel">
+        <div id="cmZoneAlbums" data-inline-zone>
         <div class="card">
           <div class="card-body">
             <h2 class="h5 mb-1">Álbumes · enlaces</h2>
@@ -613,7 +633,7 @@
                     <td>{{ cm_link_icons(r.links) }}</td>
                     <td>{{ cm_status_badge(r.status) }}{% if r.cm_track %}<div class="small text-muted">id {{ r.cm_track }}</div>{% endif %}</td>
                     <td class="text-end text-nowrap">
-                      <form method="post" action="{{ url_for('cm_album_reresolve', album_id=r.id) }}" class="d-inline mb-0"><input type="hidden" name="next" value="{{ request.full_path }}"><button class="btn btn-sm btn-outline-primary" title="Re-resolver con Chartmetric"><i class="fa fa-rotate"></i></button></form>
+                      <form method="post" action="{{ url_for('cm_album_reresolve', album_id=r.id) }}" class="d-inline mb-0" data-inline data-inline-target="#cmZoneAlbums"><input type="hidden" name="next" value="{{ request.full_path }}"><button class="btn btn-sm btn-outline-primary" title="Re-resolver con Chartmetric"><i class="fa fa-rotate"></i></button></form>
                       <button type="button" class="btn btn-sm btn-outline-secondary" title="Vincular a mano (pegar enlace o buscar)"
                               data-cm-link="album" data-cm-id="{{ r.id }}" data-cm-name="{{ r.title }}"
                               data-cm-track="{{ r.cm_track }}"><i class="fa fa-link"></i></button>
@@ -628,6 +648,7 @@
             </div>
           </div>
         </div>
+        </div>
       </div>
 
     </div>
@@ -636,6 +657,8 @@
 
   {# ========================= ENTERTICKET ========================= #}
   <div class="tab-pane fade" id="tab-enterticket" role="tabpanel" aria-labelledby="tab-enterticket-tab">
+    {# Zona para refrescar sin recargar: dentro del pane, para no perder la pestaña activa. #}
+    <div id="etZone" data-inline-zone>
     <div class="card mb-3">
       <div class="card-body">
         <div class="d-flex align-items-center justify-content-between mb-2">
@@ -645,13 +668,13 @@
         <p class="text-muted small mb-3">Venta de entradas en tiempo casi real de los eventos del grupo: informe de ventas por tipo, histórico diario, compradores e invitaciones en la pestaña <strong>Ticketing</strong> de cada concierto vinculado. Los eventos se detectan por artista, recinto y fecha.</p>
         {% if enterticket_configured %}
           <div class="d-flex flex-wrap gap-2 mb-3">
-            <form method="post" class="d-inline">
+            <form method="post" class="d-inline" data-inline data-inline-target="#etZone">
               <button name="action" value="ping_enterticket" class="btn btn-sm btn-outline-primary"><i class="fa fa-bolt me-1"></i>Probar conexión</button>
             </form>
-            <form method="post" class="d-inline">
+            <form method="post" class="d-inline" data-inline data-inline-target="#etZone">
               <button name="action" value="et_sync_catalog" class="btn btn-sm btn-outline-secondary"><i class="fa fa-rotate me-1"></i>Sincronizar catálogo</button>
             </form>
-            <form method="post" class="d-inline">
+            <form method="post" class="d-inline" data-inline data-inline-target="#etZone">
               <button name="action" value="et_sync_all" class="btn btn-sm btn-outline-secondary"><i class="fa fa-cloud-arrow-down me-1"></i>Sincronizar todo (catálogo + ventas)</button>
             </form>
           </div>
@@ -711,7 +734,7 @@
                       {{ ev.concert_label }}
                       {% if ev.last_synced %}<div class="text-muted">Sync {{ ev.last_synced }}</div>{% endif %}
                     {% elif ev.status == 'PENDING' and ev.candidates %}
-                      <form method="post" class="d-flex gap-1 align-items-center">
+                      <form method="post" class="d-flex gap-1 align-items-center" data-inline data-inline-target="#etZone">
                         <input type="hidden" name="et_event_pk" value="{{ ev.pk }}">
                         <select name="concert_id" class="form-select form-select-sm" style="max-width:280px">
                           {% for cand in ev.candidates %}<option value="{{ cand.id }}">{{ cand.label }}</option>{% endfor %}
@@ -726,7 +749,7 @@
                     {% endif %}
                   </td>
                   <td class="text-end text-nowrap">
-                    <form method="post" class="d-inline"><input type="hidden" name="et_event_pk" value="{{ ev.pk }}">
+                    <form method="post" class="d-inline" data-inline data-inline-target="#etZone"><input type="hidden" name="et_event_pk" value="{{ ev.pk }}">
                       {% if ev.status == 'LINKED' %}
                         <button name="action" value="et_sync_event" class="btn btn-sm btn-outline-primary" title="Sincronizar ventas ahora"><i class="fa fa-rotate"></i></button>
                         <button name="action" value="et_unlink" class="btn btn-sm btn-outline-danger" title="Desvincular" onclick="return confirm('¿Desvincular este evento del concierto?');"><i class="fa fa-link-slash"></i></button>
@@ -771,7 +794,7 @@
             <h6 class="modal-title"><i class="fa fa-link me-1 text-danger"></i>Vincular «<span id="etLinkName"></span>»</h6>
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
           </div>
-          <form method="post">
+          <form method="post" data-inline data-inline-target="#etZone">
             <div class="modal-body">
               <input type="hidden" name="et_event_pk" id="etLinkPk">
               <label class="form-label small text-muted">Concierto o actividad existente</label>
@@ -812,8 +835,16 @@
       }
       new bootstrap.Modal(document.getElementById('etLinkModal')).show();
     });
+    /* Al vincular no se recarga: cuando la zona se ha refrescado, se cierra el modal. */
+    document.addEventListener('inline:updated', function (ev) {
+      var zona = ev.detail && ev.detail.scope;
+      if (!zona || zona.id !== 'etZone') return;
+      var m = bootstrap.Modal.getInstance(document.getElementById('etLinkModal'));
+      if (m) m.hide();
+    });
     </script>
     {% endif %}
+    </div>
   </div>
 
 </div>
@@ -828,17 +859,21 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 
-<div class="alert alert-light border mt-4 small mb-0">
+<div class="mt-4">
+<div class="alert alert-light border small mb-0">
   <i class="fa fa-shield-halved me-1"></i>
   Las credenciales de Chartmetric y Enterticket se configuran como variables de entorno en Render (nunca en el
   código). Las de <strong>Pleo van aquí</strong>, porque hay una por empresa del grupo: se guardan en la base de
   datos, solo las ve dirección y nunca se vuelven a mostrar completas. Mientras una integración no tenga
   credencial queda <strong>desactivada</strong> y no afecta al resto de la web.
 </div>
+</div>
 {# Modal de vincular a mano (canción o álbum) #}
 <div class="modal fade" id="cmLinkModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered">
-    <form class="modal-content" method="post" action="{{ url_for('cm_link_manual') }}" id="cmLinkForm">
+    {# Se envía sin recargar: `data-inline-target` se pone al abrirlo según sea canción o álbum. #}
+    <form class="modal-content" method="post" action="{{ url_for('cm_link_manual') }}" id="cmLinkForm"
+          data-inline data-inline-target="#cmZoneSongs">
       <div class="modal-header">
         <h5 class="modal-title">Vincular con Chartmetric</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
@@ -901,20 +936,30 @@ document.querySelectorAll('.js-cabify-test').forEach(function (btn) {
   });
 });
 
-/* Buscadores de las listas de Chartmetric: filtran NUESTRAS filas (canciones y álbumes) sin recargar. */
-document.querySelectorAll('[data-cm-filter]').forEach(function (input) {
-  var cuerpo = document.querySelector(input.getAttribute('data-cm-filter'));
-  if (!cuerpo) return;
+/* Buscadores de las listas de Chartmetric: filtran NUESTRAS filas (canciones y álbumes) sin recargar.
+   Se vuelven a enganchar cuando una acción refresca la zona (`inline:updated`), porque los inputs de
+   dentro son elementos nuevos. */
+function cmWireFilters(raiz) {
   function normaliza(v) {
     return window.normalizeSearchText ? window.normalizeSearchText(v) : String(v || '').toLowerCase();
   }
-  input.addEventListener('input', function () {
-    var q = normaliza(input.value).trim();
-    cuerpo.querySelectorAll('tr').forEach(function (tr) {
-      var hay = normaliza(tr.getAttribute('data-cm-search') || '');
-      tr.style.display = (!q || hay.indexOf(q) >= 0) ? '' : 'none';
+  (raiz || document).querySelectorAll('[data-cm-filter]').forEach(function (input) {
+    if (input.dataset.cmFilterReady) return;
+    var cuerpo = document.querySelector(input.getAttribute('data-cm-filter'));
+    if (!cuerpo) return;
+    input.dataset.cmFilterReady = '1';
+    input.addEventListener('input', function () {
+      var q = normaliza(input.value).trim();
+      cuerpo.querySelectorAll('tr').forEach(function (tr) {
+        var hay = normaliza(tr.getAttribute('data-cm-search') || '');
+        tr.style.display = (!q || hay.indexOf(q) >= 0) ? '' : 'none';
+      });
     });
   });
+}
+cmWireFilters(document);
+document.addEventListener('inline:updated', function (ev) {
+  cmWireFilters((ev.detail && ev.detail.scope) || document);
 });
 
 /* VINCULAR A MANO con Chartmetric: pegar el enlace de la canción/álbum o buscarlo por nombre y
@@ -985,10 +1030,30 @@ document.querySelectorAll('[data-cm-filter]').forEach(function (input) {
     if (ev.key === 'Enter') { ev.preventDefault(); buscar(); }
   });
 
-  document.querySelectorAll('[data-cm-link]').forEach(function (btn) {
+  /* Al vincular no se recarga la página: se refresca solo la lista que toca (ajax_inline) y se cierra
+     el modal cuando la zona ya está actualizada. */
+  document.addEventListener('inline:updated', function (ev) {
+    var zona = ev.detail && ev.detail.scope;
+    if (!zona || (zona.id !== 'cmZoneSongs' && zona.id !== 'cmZoneAlbums')) return;
+    var abierto = bootstrap.Modal.getInstance(modalEl);
+    if (abierto) abierto.hide();
+    inUrl.value = '';
+    elResults.innerHTML = '';
+    elMsg.textContent = '';
+    cablea(zona);
+  });
+
+  function cablea(raiz) {
+    (raiz || document).querySelectorAll('[data-cm-link]').forEach(abre);
+  }
+
+  function abre(btn) {
+    if (btn.dataset.cmLinkReady) return;      // no engancharlo dos veces al refrescar la zona
+    btn.dataset.cmLinkReady = '1';
     btn.addEventListener('click', function () {
       kind = btn.getAttribute('data-cm-link') || 'song';
       inKind.value = kind;
+      form.setAttribute('data-inline-target', kind === 'album' ? '#cmZoneAlbums' : '#cmZoneSongs');
       inId.value = btn.getAttribute('data-cm-id') || '';
       inUrl.value = '';
       inQuery.value = btn.getAttribute('data-cm-name') || '';
@@ -999,10 +1064,13 @@ document.querySelectorAll('[data-cm-filter]').forEach(function (input) {
         (btn.getAttribute('data-cm-name') || '') + (actual ? ' · ahora vinculada al id ' + actual : '');
       bootstrap.Modal.getOrCreateInstance(modalEl).show();
     });
-  });
+  }
+
+  cablea(document);
 
   form.addEventListener('submit', function (ev) {
     if (!(inUrl.value || '').trim()) {
+      // ⚠️ Cancelar aquí basta: ajax_inline respeta `defaultPrevented` y no lo manda por fetch.
       ev.preventDefault();
       elMsg.textContent = 'Pega el enlace de Chartmetric o elige uno de los resultados.';
     }

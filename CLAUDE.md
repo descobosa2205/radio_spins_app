@@ -407,6 +407,15 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ni mover el scroll; si no localiza la zona, hace recarga normal (fallback seguro). NO usarlo en
   borrados ni acciones que navegan a otra página. Ya AJAX nativo aparte: `concert_quick_status`,
   `setRoyaltyLiquidationStatus`.
+  ⚠️ Para PREGUNTAR usa **`data-confirm`** (lo soporta el propio motor), **no**
+  `onsubmit="return confirm(...)"`: el evento `submit` sigue burbujeando aunque el `onsubmit` lo
+  cancele, así que decir «no» enviaba el formulario igual por fetch. El motor ahora también respeta
+  `defaultPrevented` (una validación propia que cancele el envío ya no se manda).
+  ⚠️ La zona **no puede ser un `tab-pane`**: al reemplazarlo llega una copia del HTML servido, donde
+  esa pestaña no es la activa, y el contenido desaparece. La zona va SIEMPRE dentro del pane.
+  ⚠️ `showFlashes` borra y reinserta arriba del `<main>` **todos los `.alert` que son hijos directos**
+  de `main`: un aviso fijo al final de la página tiene que ir envuelto en otro `div`, o salta al
+  principio en cada acción.
 - **Simulaciones (Contratación) — rediseño jul 2026**: el sujeto puede ser un **artista o un EVENTO**
   (`AppEvent`, Bases de datos → Eventos, `/eventos`; alta rápida `data-quick-create="event"` y
   buscador `api_search_events`; NO sale en búsquedas de artistas). Motor puro en `sim_calc.py`
@@ -1959,6 +1968,13 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `_cm_album_platform_urls` (el deep link de Spotify de un disco es `/album/…`, no `/track/…`).
   · Los endpoints `cm_*` y `api_cm_search` se mapean a la sección **`integraciones`** (a mano y por
   prefijo) y exigen además dirección o edición en discográfica.
+  · **NADA en Integraciones recarga la página**: todas las acciones de las cuatro pestañas (Pleo,
+  Cabify, Chartmetric y Enterticket) son `data-inline` con su zona —`#pleoZone-N`, `#cabifyZone-N`,
+  `#cmZoneSummary`/`#cmZoneArtists`/`#cmZoneSongs`/`#cmZoneAlbums`, `#etZone`—, así que se refresca
+  solo ese trozo y no se pierden la pestaña, la subpestaña ni el scroll (antes cada acción devolvía a
+  la portada de Integraciones). Los modales de vincular (Chartmetric y Enterticket) se cierran al
+  recibir `inline:updated` de su zona, y los buscadores y botones de dentro se **vuelven a enganchar**
+  ahí mismo (los elementos de la zona son nuevos).
   ⚠️ El modal vive **antes** del `<script>` que lo cablea: en esta plantilla el JS va dentro del
   bloque de contenido y se ejecuta al vuelo, así que si el modal fuera después, al inicializar no
   existiría y no se engancharía nada.

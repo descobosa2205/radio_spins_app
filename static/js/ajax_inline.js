@@ -36,6 +36,10 @@
   document.addEventListener('submit', function (e) {
     var form = e.target.closest('form[data-inline]');
     if (!form) return;
+    // ⚠️ Si otro handler ya canceló el envío (un `onsubmit="return confirm(...)"` al que se ha dicho
+    // que NO, o una validación propia), aquí NO se manda nada: el evento sigue burbujeando aunque
+    // esté cancelado, y sin esto se enviaba igual por fetch. Para preguntar, usa `data-confirm`.
+    if (e.defaultPrevented) return;
     e.preventDefault();
 
     var targetSel = form.getAttribute('data-inline-target');

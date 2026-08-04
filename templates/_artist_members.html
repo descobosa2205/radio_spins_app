@@ -1,0 +1,288 @@
+{# INTEGRANTES DEL ARTISTA (viñeta dentro de «Datos del artista»).
+   Cada integrante ES UN TERCERO que forma parte del artista: tiene los mismos datos que un tercero
+   particular (DNI, pasaporte, carnet, tarjetas de fidelización, matrículas, necesidades de viaje,
+   cuenta bancaria, dirección fiscal…) y se rellenan aquí, sin salir de la ficha. Antes esto era la
+   pestaña «Personas»: se quitó y su contenido vive aquí. #}
+  {# Cada persona del artista ES UN TERCERO que forma parte de él: tiene los mismos datos que un
+     tercero particular (DNI, pasaporte, carnet, tarjetas de fidelización, matrículas, necesidades de
+     viaje, cuenta bancaria, dirección fiscal…) y se rellenan aquí, sin salir de la ficha. Los
+     documentos usan el MISMO panel (con escaneo y OCR) que la ficha del tercero y del personal. #}
+  <div class="alert alert-light border small">
+    <i class="fa fa-circle-info me-1"></i>Cada persona del artista es un <strong>tercero que forma parte de él</strong>:
+    lo que rellenes aquí es su ficha (DNI, pasaporte, carnet, tarjetas, viaje, cuenta bancaria) y se ve
+    también en Terceros, en las hojas de ruta y en la subida de facturas.
+  </div>
+
+  {% if CAN_EDIT_ARTISTS_STATIONS %}
+    {# AÑADIR PERSONA = BUSCAR EN TERCEROS. Resultados con foto en tiempo real desde el primer
+       carácter (`/api/search/promoters`, acento-insensible y por palabras). Si no hay coincidencias,
+       el propio buscador ofrece crear el tercero con lo escrito. #}
+    <div class="ficha-section mb-3">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-user-plus"></i>Añadir persona</h6></div>
+      <div class="ficha-section__body">
+        <form method="post" action="{{ url_for('artist_person_add', artist_id=artist.id) }}" id="apsForm">
+          <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos') }}">
+          <input type="hidden" name="link_promoter_id" id="apsPickId">
+          <input type="hidden" name="first_name" id="apsPickFirst">
+          <input type="hidden" name="last_name" id="apsPickLast">
+          <div class="aps position-relative">
+            <div class="input-group">
+              <span class="input-group-text"><i class="fa fa-magnifying-glass"></i></span>
+              <input type="text" class="form-control" id="apsInput" autocomplete="off"
+                     placeholder="Busca a la persona en terceros: nombre, DNI, email, teléfono…">
+              {# El + está SIEMPRE, aunque la búsqueda traiga resultados: es para cuando no es ninguno
+                 de los que salen y hay que darla de alta. #}
+              <button type="button" class="btn btn-primary" id="apsAdd"
+                      title="Añadirla como tercero nuevo (si no es ninguna de las que salen)">
+                <i class="fa fa-plus"></i>
+              </button>
+            </div>
+            <div class="aps__results dropdown-menu w-100" id="apsResults"></div>
+            <div class="form-text">Si no es ninguna de las que salen, escribe su nombre y pulsa el <strong>+</strong> para darla de alta.</div>
+          </div>
+        </form>
+      </div>
+    </div>
+    <script>
+    (function () {
+      var input = document.getElementById('apsInput');
+      if (!input) return;
+      var caja = document.getElementById('apsResults');
+      var form = document.getElementById('apsForm');
+      var fId = document.getElementById('apsPickId');
+      var fFirst = document.getElementById('apsPickFirst');
+      var fLast = document.getElementById('apsPickLast');
+      // Quién está YA en este artista (para no duplicarlo).
+      var yaEstan = {{ person_cards|map(attribute='promoter_id')|list|tojson }};
+      var timer = null, ultima = '';
+
+      function esc(s) { return String(s == null ? '' : s).replace(/[<>&"]/g, function (c) { return { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]; }); }
+      function foto(url) {
+        return url ? '<span class="aps__ph"><img src="' + esc(url) + '" alt=""></span>'
+                   : '<span class="aps__ph aps__ph--none"><i class="fa fa-user"></i></span>';
+      }
+      function filaCrear(txt) {
+        return '<a class="dropdown-item d-flex align-items-center gap-2" href="#" data-crear="1">'
+          + '<span class="aps__ph aps__ph--new"><i class="fa fa-plus"></i></span>'
+          + '<span class="text-truncate">Crear <strong>' + esc(txt) + '</strong> como persona nueva</span></a>';
+      }
+      function pintar(rows, q) {
+        var html = rows.slice(0, 12).map(function (r) {
+          var nombre = r.label || r.nick || r.text || 'Sin nombre';
+          var sub = [r.contact_email, r.contact_phone, r.link_summary_text].filter(Boolean).join(' · ');
+          var puesto = yaEstan.indexOf(String(r.id)) >= 0;
+          return '<a class="dropdown-item d-flex align-items-center gap-2' + (puesto ? ' disabled' : '') + '" href="#"'
+            + ' data-id="' + esc(r.id) + '" data-first="' + esc(r.first_name || '') + '" data-last="' + esc(r.last_name || '') + '">'
+            + foto(r.logo_url)
+            + '<span class="min-w-0"><span class="d-block text-truncate">' + esc(nombre) + '</span>'
+            + (sub ? '<span class="d-block small text-muted text-truncate">' + esc(sub) + '</span>' : '')
+            + '</span>'
+            + (puesto ? '<span class="badge text-bg-light ms-auto">ya está</span>' : '') + '</a>';
+        }).join('');
+        if (!rows.length) html = '<span class="dropdown-item-text text-muted small">Nadie con ese nombre en terceros.</span>' + filaCrear(q);
+        caja.innerHTML = html;
+        caja.classList.add('show');
+      }
+      function buscar(q) {
+        fetch('/api/search/promoters?q=' + encodeURIComponent(q), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+          .then(function (r) { return r.json(); })
+          .then(function (rows) {
+            if (input.value.trim() !== q) return;      // llegó tarde: ya se escribió otra cosa
+            pintar(Array.isArray(rows) ? rows : (rows.results || []), q);
+          })
+          .catch(function () { caja.innerHTML = '<span class="dropdown-item-text text-danger small">No se pudo buscar.</span>'; caja.classList.add('show'); });
+      }
+      input.addEventListener('input', function () {
+        var q = input.value.trim();
+        clearTimeout(timer);
+        if (!q) { caja.classList.remove('show'); caja.innerHTML = ''; return; }
+        if (q === ultima) return;
+        ultima = q;
+        timer = setTimeout(function () { buscar(q); }, 120);   // desde el PRIMER carácter
+      });
+      caja.addEventListener('click', function (ev) {
+        var a = ev.target.closest('a'); if (!a) return;
+        ev.preventDefault();
+        if (a.classList.contains('disabled')) return;
+        if (a.hasAttribute('data-crear')) {
+          var partes = input.value.trim().split(/\s+/);
+          fFirst.value = partes.shift() || '';
+          fLast.value = partes.join(' ');
+          fId.value = '';
+        } else {
+          fId.value = a.getAttribute('data-id');
+          fFirst.value = a.getAttribute('data-first') || '';
+          fLast.value = a.getAttribute('data-last') || '';
+        }
+        form.submit();
+      });
+      document.addEventListener('click', function (ev) {
+        if (!ev.target.closest('.aps')) caja.classList.remove('show');
+      });
+      input.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();                                  // Enter = el primer resultado (o crear)
+          var a = caja.querySelector('a:not(.disabled)');
+          if (a) a.click();
+        }
+      });
+      // Botón + : crea la persona con lo escrito (no es ninguna de las que salen en la búsqueda).
+      document.getElementById('apsAdd').addEventListener('click', function () {
+        var txt = input.value.trim();
+        if (!txt) { input.focus(); input.classList.add('is-invalid'); setTimeout(function () { input.classList.remove('is-invalid'); }, 1200); return; }
+        var partes = txt.split(/\s+/);
+        fFirst.value = partes.shift() || '';
+        fLast.value = partes.join(' ');
+        fId.value = '';
+        form.submit();
+      });
+    })();
+    </script>
+  {% endif %}
+
+  {% for c in person_cards %}
+    <div class="ficha-section mb-3">
+      <div class="ficha-section__head">
+        <h6 class="ficha-section__title">
+          <i class="fa fa-user"></i>{{ c.name }}
+          {% if c.person.birth_date %}<span class="text-muted fw-normal small ms-2"><i class="fa fa-cake-candles me-1"></i>{{ c.person.birth_date.strftime('%d/%m/%Y') }}</span>{% endif %}
+        </h6>
+        <div class="d-flex gap-2 align-items-center">
+          {% if c.promoter %}
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('promoter_detail_view', pid=c.promoter.id) }}"
+               title="Abrir su ficha completa de tercero"><i class="fa fa-id-card me-1"></i>Ficha de tercero</a>
+          {% endif %}
+          {% if c.can_edit %}
+            <button type="button" class="btn btn-sm btn-outline-primary" data-edit-toggle="#personaForm-{{ c.id }}"
+                    data-view="#personaView-{{ c.id }}"><i class="fa fa-pen me-1"></i>Editar</button>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="ficha-section__body">
+        {# ---------- Vista consolidada (solo lo que está relleno) ---------- #}
+        <div id="personaView-{{ c.id }}" data-section-view>
+          <div class="row g-4">
+            <div class="col-lg-7 col-xl-8">
+              {% set pr = c.promoter %}
+              {% if pr and (pr.tax_id or pr.contact_email or pr.contact_phone or pr.address or pr.fiscal_address or pr.bank_account) %}
+                <dl class="psum-list">
+                  {% if pr.tax_id %}<div><span class="psum-k">DNI / NIF</span><span class="psum-v">{{ pr.tax_id }}</span></div>{% endif %}
+                  {% if pr.contact_email %}<div><span class="psum-k">Email</span><span class="psum-v">{{ pr.contact_email }}</span></div>{% endif %}
+                  {% if pr.contact_phone %}<div><span class="psum-k">Teléfono</span><span class="psum-v">{{ pr.contact_phone }}</span></div>{% endif %}
+                  {% if pr.address %}<div><span class="psum-k">Domicilio</span><span class="psum-v">{{ pr.address }}</span></div>{% endif %}
+                  {% if pr.fiscal_address %}<div><span class="psum-k">Dirección fiscal</span><span class="psum-v">{{ pr.fiscal_address }}</span></div>{% endif %}
+                  {% if pr.bank_account %}<div><span class="psum-k">Cuenta bancaria</span><span class="psum-v">{{ pr.bank_account }}</span></div>{% endif %}
+                </dl>
+              {% elif not pr %}
+                <div class="text-muted">Todavía no tiene datos. Pulsa <strong>Editar</strong> para rellenarlos o
+                  sube su DNI aquí abajo: se le crea la ficha de tercero sola.</div>
+              {% endif %}
+              {% if pr and pr.hotel_notes %}
+                <div class="mt-2 small"><span class="text-muted"><i class="fa fa-bed me-1"></i>Hoteles:</span> {{ pr.hotel_notes }}</div>
+              {% endif %}
+              {% with ts=c.travel_summary %}{% include '_travel_summary_view.html' %}{% endwith %}
+            </div>
+            <div class="col-lg-5 col-xl-4"></div>
+          </div>
+        </div>
+
+        {# ---------- Formulario (todos los campos) ---------- #}
+        {% if c.can_edit %}
+          <form id="personaForm-{{ c.id }}" class="d-none" method="post" action="{{ c.data_url }}">
+            <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos') }}">
+            <div class="row g-3">
+              <div class="col-md-4">
+                <label class="form-label">Nombre</label>
+                <input class="form-control" name="first_name" value="{{ c.person.first_name or '' }}" required>
+              </div>
+              <div class="col-md-5">
+                <label class="form-label">Apellidos</label>
+                <input class="form-control" name="last_name" value="{{ c.person.last_name or '' }}">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Cumpleaños</label>
+                <input type="date" class="form-control" name="birth_date" value="{{ c.person.birth_date.isoformat() if c.person.birth_date else '' }}">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">DNI / NIF</label>
+                <input class="form-control" name="tax_id" value="{{ c.promoter.tax_id if c.promoter else '' }}">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Email</label>
+                <input type="email" class="form-control" name="contact_email" value="{{ c.promoter.contact_email if c.promoter else '' }}">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Teléfono</label>
+                <input class="form-control" name="contact_phone" value="{{ c.promoter.contact_phone if c.promoter else '' }}">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Domicilio</label>
+                <input class="form-control" name="address" value="{{ c.promoter.address if c.promoter else '' }}">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Dirección fiscal</label>
+                <input class="form-control" name="fiscal_address" value="{{ c.promoter.fiscal_address if c.promoter else '' }}">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Cuenta bancaria (IBAN)</label>
+                <input class="form-control" name="bank_account" value="{{ c.promoter.bank_account if c.promoter else '' }}">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Petición especial de hoteles</label>
+                <input class="form-control" name="hotel_notes" value="{{ c.promoter.hotel_notes if c.promoter else '' }}"
+                       placeholder="Cama grande, planta baja, no fumador…">
+              </div>
+              {% if not c.promoter %}
+                <div class="col-12">
+                  <div class="alert alert-light border small mb-0">
+                    <i class="fa fa-circle-info me-1"></i>Al guardar se le crea su <strong>ficha de tercero</strong>
+                    (o se reutiliza la que ya exista con este mismo nombre).
+                  </div>
+                </div>
+              {% endif %}
+              <div class="col-12">
+                <hr class="my-1">
+                <input type="hidden" name="travel_prefs_present" value="1">
+                {% with tp_prefs=c.travel_prefs, tp_row=(c.promoter or c.person), tp_can_edit=True %}
+                  {% include '_travel_prefs_panel.html' %}
+                {% endwith %}
+              </div>
+            </div>
+            <div class="d-flex justify-content-end gap-2 mt-3">
+              <button type="button" class="btn btn-outline-secondary" data-edit-cancel="#personaForm-{{ c.id }}">Cancelar</button>
+              <button class="btn btn-primary"><i class="fa fa-check me-1"></i>Guardar</button>
+            </div>
+          </form>
+        {% endif %}
+
+        {# ---------- Documentos (mismo panel, con escaneo y OCR) ---------- #}
+        <hr>
+        <h6 class="mb-2"><i class="fa fa-folder-open me-1"></i>Documentos de {{ c.name }}</h6>
+        {% with person_documents=c.documents,
+                person_docs_owner_type='PROMOTER',
+                person_docs_owner_name=c.name,
+                person_docs_save_url=c.docs_save_url,
+                person_docs_delete_base=c.docs_delete_base,
+                person_docs_can_edit=c.can_edit,
+                person_docs_modal=False %}
+          {% include '_person_documents_panel.html' %}
+        {% endwith %}
+
+        {% if c.can_edit %}
+          <form method="post" action="{{ url_for('artist_person_delete', person_id=c.id) }}" class="mt-2"
+                onsubmit="return confirm('¿Quitar a esta persona del artista? Su ficha de tercero NO se borra.');">
+            <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos') }}">
+            <button class="btn btn-sm btn-outline-danger"><i class="fa fa-user-minus me-1"></i>Quitar del artista</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+  {% else %}
+    <div class="alert alert-light border">Este artista todavía no tiene personas.</div>
+  {% endfor %}
+
+  {# El modal de documentos es UNO para todas las personas de la página. #}
+  {% if CAN_EDIT_ARTISTS_STATIONS %}{% include '_person_doc_modal.html' %}{% endif %}
+
+{# ===================== TAB: CONTRATOS ===================== #}

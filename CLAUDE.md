@@ -869,7 +869,9 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
 - **PERSONAS DEL ARTISTA = TERCEROS que forman parte de él** (`ArtistPerson.promoter_id`): un miembro
   de un grupo (o el solista) es un **tercero particular** con exactamente los mismos datos (DNI,
   pasaporte, carnet, tarjetas de fidelización, matrículas, necesidades de viaje, cuenta bancaria,
-  dirección fiscal…), que se rellenan en la **pestaña «Personas»** de la ficha del artista sin salir.
+  dirección fiscal…), que se rellenan en la viñeta **«Integrantes:»** de la pestaña «Datos» de la
+  ficha del artista sin salir (ago 2026: era la pestaña «Personas»; su contenido vive en
+  `templates/_artist_members.html`, incluido desde «Datos», y `?tab=personas` redirige allí).
   No se duplica nada: los datos viven en su `Promoter` + `PersonDocument`, así que el mismo músico
   puede estar en dos grupos y, cuando factura, la búsqueda por DNI/CIF lo encuentra.
   Helpers `_artist_person_full_name` / `_artist_person_promoter` / `_ensure_promoter_for_artist_person`

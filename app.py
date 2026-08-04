@@ -1620,10 +1620,11 @@ def artist_detail_view(artist_id):
             "fotos",
             "plantilla-gastos",
             "plantillas",
-            # Personas del artista: cada una es un TERCERO que forma parte de él, con sus datos
-            # personales completos (DNI, pasaporte, carnet, tarjetas, viaje, cuenta bancaria…).
-            "personas",
         }
+        # Los INTEGRANTES son una viñeta de «Datos» (antes eran la pestaña «Personas»): los enlaces
+        # antiguos siguen funcionando y caen donde ahora está.
+        if tab == "personas":
+            tab = "datos"
         if tab not in allowed_tabs:
             tab = "datos"
 
@@ -1808,9 +1809,10 @@ def artist_detail_view(artist_id):
             artist_fotos_groups=artist_fotos_groups,
             disc_tab=disc_tab,
             people=people,
-            # Pestaña «Personas»: cada persona con su ficha de tercero (documentos + viaje + banco).
+            # INTEGRANTES (viñeta dentro de «Datos»): cada uno con su ficha de tercero
+            # (documentos + viaje + banco). Antes era la pestaña «Personas», que ya no existe.
             person_cards=(_artist_person_cards(session_db, artist, can_edit_artists_stations())
-                          if tab == "personas" else []),
+                          if tab in ("datos", "personas") else []),
             loyalty_brands=PERSON_LOYALTY_BRANDS,
             artist_email_addresses=artist_email_addresses,
             contracts=contracts,
@@ -1990,7 +1992,7 @@ def artist_person_add(artist_id):
             flash("Artista no encontrado.", "warning")
             return redirect(safe_next_or(url_for("artists_view")))
 
-        volver = safe_next_or(url_for("artist_detail_view", artist_id=a.id, tab="personas"))
+        volver = safe_next_or(url_for("artist_detail_view", artist_id=a.id, tab="datos"))
         # Se añade buscando en TERCEROS: si se eligió uno, el nombre sale de su ficha (quien busca no
         # tiene por qué volver a teclearlo). Si no había coincidencias, se crea con lo escrito.
         vinculado = session_db.get(Promoter, to_uuid(request.form.get("link_promoter_id") or "") or uuid.uuid4())
@@ -2192,7 +2194,7 @@ def artist_person_data_save(person_id):
         if not person:
             flash("Persona no encontrada.", "warning")
             return redirect(safe_next_or(url_for("artists_view")))
-        volver = safe_next_or(url_for("artist_detail_view", artist_id=person.artist_id, tab="personas"))
+        volver = safe_next_or(url_for("artist_detail_view", artist_id=person.artist_id, tab="datos"))
         if not can_edit_artists_stations():
             abort(403)
         # Nombre, apellidos y cumpleaños son de la persona (y se copian al tercero si le faltan).

@@ -556,20 +556,29 @@
                 <button name="action" value="refresh_songs_chartmetric" class="btn btn-sm btn-primary"><i class="fa fa-cloud-arrow-down me-1"></i>Actualizar reproducciones</button>
               </form>
             </div>
-            <p class="text-muted small mb-3">Los enlaces se resuelven solos al actualizar los artistas. Si alguno falta o está mal: «Re-resolver» reintenta desde Chartmetric; para corregir uno concreto, ábrelo en la ficha y pincha el icono en gris para meter el enlace a mano (queda fijado).</p>
+            <p class="text-muted small mb-2">Los enlaces se resuelven solos al actualizar los artistas (el ISRC se busca en seco, sin guiones). Si alguno falta o está mal: «Re-resolver» reintenta desde Chartmetric y <strong>«Vincular»</strong> deja pegar el enlace de Chartmetric o buscar la canción por nombre. Para corregir un enlace concreto, ábrelo en la ficha y pincha el icono en gris (queda fijado).</p>
+            {# Buscador para localizar NUESTRA canción en la lista (que es larga). #}
+            <div class="input-group input-group-sm mb-3" style="max-width:420px;">
+              <span class="input-group-text"><i class="fa fa-magnifying-glass"></i></span>
+              <input class="form-control" type="search" data-cm-filter="#cmSongsBody"
+                     placeholder="Buscar canción, artista o ISRC…" autocomplete="off">
+            </div>
             <div class="table-responsive">
               <table class="table table-sm align-middle">
                 <thead><tr><th>Canción</th><th>Artista</th><th>Enlaces</th><th>Reproducciones (Spotify)</th><th>Estado</th><th></th></tr></thead>
-                <tbody>
+                <tbody id="cmSongsBody">
                 {% for r in cm_song_rows %}
-                  <tr>
+                  <tr data-cm-search="{{ r.title }} {{ r.artists }} {{ r.isrc }} {{ r.cm_track }}">
                     <td><a href="{{ r.detail_url }}" class="text-decoration-none">{{ r.title }}</a>{% if r.isrc %}<div class="small text-muted">{{ r.isrc }}</div>{% endif %}</td>
                     <td class="small">{{ r.artists }}</td>
                     <td>{{ cm_link_icons(r.links) }}</td>
                     <td>{% if r.spotify_plays %}<strong>{{ r.spotify_plays }}</strong>{% else %}<span class="text-muted">—</span>{% endif %}</td>
-                    <td>{{ cm_status_badge(r.status) }}</td>
+                    <td>{{ cm_status_badge(r.status) }}{% if r.cm_track %}<div class="small text-muted">id {{ r.cm_track }}</div>{% endif %}</td>
                     <td class="text-end text-nowrap">
                       <form method="post" action="{{ url_for('cm_song_reresolve', song_id=r.id) }}" class="d-inline mb-0"><input type="hidden" name="next" value="{{ request.full_path }}"><button class="btn btn-sm btn-outline-primary" title="Re-resolver con Chartmetric"><i class="fa fa-rotate"></i></button></form>
+                      <button type="button" class="btn btn-sm btn-outline-secondary" title="Vincular a mano (pegar enlace o buscar)"
+                              data-cm-link="song" data-cm-id="{{ r.id }}" data-cm-name="{{ r.title }}"
+                              data-cm-track="{{ r.cm_track }}"><i class="fa fa-link"></i></button>
                       <a href="{{ r.detail_url }}" class="btn btn-sm btn-outline-secondary" title="Abrir ficha"><i class="fa fa-arrow-up-right-from-square"></i></a>
                     </td>
                   </tr>
@@ -587,18 +596,29 @@
         <div class="card">
           <div class="card-body">
             <h2 class="h5 mb-1">Álbumes · enlaces</h2>
-            <p class="text-muted small mb-3">Los enlaces de álbum se meten/corrigen a mano desde la ficha del álbum (pincha el icono en gris). Aquí ves de un vistazo cuáles faltan.</p>
+            <p class="text-muted small mb-2">«Re-resolver» busca el álbum en Chartmetric por su UPC (en seco, sin guiones) y <strong>«Vincular»</strong> deja pegar su enlace de Chartmetric o buscarlo por nombre. Para corregir un enlace concreto, ábrelo en la ficha y pincha el icono en gris.</p>
+            <div class="input-group input-group-sm mb-3" style="max-width:420px;">
+              <span class="input-group-text"><i class="fa fa-magnifying-glass"></i></span>
+              <input class="form-control" type="search" data-cm-filter="#cmAlbumsBody"
+                     placeholder="Buscar álbum o artista…" autocomplete="off">
+            </div>
             <div class="table-responsive">
               <table class="table table-sm align-middle">
                 <thead><tr><th>Álbum</th><th>Artista</th><th>Enlaces</th><th>Estado</th><th></th></tr></thead>
-                <tbody>
+                <tbody id="cmAlbumsBody">
                 {% for r in cm_album_rows %}
-                  <tr>
+                  <tr data-cm-search="{{ r.title }} {{ r.artists }} {{ r.cm_track }}">
                     <td><a href="{{ r.detail_url }}" class="text-decoration-none">{{ r.title }}</a></td>
                     <td class="small">{{ r.artists }}</td>
                     <td>{{ cm_link_icons(r.links) }}</td>
-                    <td>{{ cm_status_badge(r.status) }}</td>
-                    <td class="text-end"><a href="{{ r.detail_url }}" class="btn btn-sm btn-outline-secondary" title="Abrir ficha"><i class="fa fa-arrow-up-right-from-square"></i></a></td>
+                    <td>{{ cm_status_badge(r.status) }}{% if r.cm_track %}<div class="small text-muted">id {{ r.cm_track }}</div>{% endif %}</td>
+                    <td class="text-end text-nowrap">
+                      <form method="post" action="{{ url_for('cm_album_reresolve', album_id=r.id) }}" class="d-inline mb-0"><input type="hidden" name="next" value="{{ request.full_path }}"><button class="btn btn-sm btn-outline-primary" title="Re-resolver con Chartmetric"><i class="fa fa-rotate"></i></button></form>
+                      <button type="button" class="btn btn-sm btn-outline-secondary" title="Vincular a mano (pegar enlace o buscar)"
+                              data-cm-link="album" data-cm-id="{{ r.id }}" data-cm-name="{{ r.title }}"
+                              data-cm-track="{{ r.cm_track }}"><i class="fa fa-link"></i></button>
+                      <a href="{{ r.detail_url }}" class="btn btn-sm btn-outline-secondary" title="Abrir ficha"><i class="fa fa-arrow-up-right-from-square"></i></a>
+                    </td>
                   </tr>
                 {% else %}
                   <tr><td colspan="5" class="text-muted small">No hay álbumes.</td></tr>
@@ -815,6 +835,40 @@ document.addEventListener('DOMContentLoaded', function () {
   datos, solo las ve dirección y nunca se vuelven a mostrar completas. Mientras una integración no tenga
   credencial queda <strong>desactivada</strong> y no afecta al resto de la web.
 </div>
+{# Modal de vincular a mano (canción o álbum) #}
+<div class="modal fade" id="cmLinkModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post" action="{{ url_for('cm_link_manual') }}" id="cmLinkForm">
+      <div class="modal-header">
+        <h5 class="modal-title">Vincular con Chartmetric</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="text-muted small mb-2" id="cmLinkWhat"></div>
+        <input type="hidden" name="kind" id="cmLinkKind" value="song">
+        <input type="hidden" name="id" id="cmLinkId">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <label class="form-label">Enlace de Chartmetric</label>
+        <input class="form-control" name="cm_url" id="cmLinkUrl"
+               placeholder="https://app.chartmetric.com/track/123456 (o el id)">
+        <div class="form-text">Copia la URL de la canción o del álbum en Chartmetric. Se comprueba contra Chartmetric antes de guardarla.</div>
+        <hr>
+        <label class="form-label">…o búscalo en Chartmetric</label>
+        <div class="input-group">
+          <input class="form-control" id="cmLinkQuery" placeholder="Nombre, ISRC o UPC" autocomplete="off">
+          <button class="btn btn-outline-secondary" type="button" id="cmLinkSearchBtn"><i class="fa fa-magnifying-glass"></i></button>
+        </div>
+        <div class="small text-muted mt-2" id="cmLinkMsg"></div>
+        <div class="list-group mt-2" id="cmLinkResults" style="max-height:320px;overflow:auto;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary"><i class="fa fa-link me-1"></i>Vincular</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
 /* «Probar conexión» de Cabify: además de validar las claves, el servidor busca la URL de la API
    (que Cabify no publica) y la guarda. Aquí solo se cuenta el resultado. */
@@ -846,5 +900,114 @@ document.querySelectorAll('.js-cabify-test').forEach(function (btn) {
       });
   });
 });
+
+/* Buscadores de las listas de Chartmetric: filtran NUESTRAS filas (canciones y álbumes) sin recargar. */
+document.querySelectorAll('[data-cm-filter]').forEach(function (input) {
+  var cuerpo = document.querySelector(input.getAttribute('data-cm-filter'));
+  if (!cuerpo) return;
+  function normaliza(v) {
+    return window.normalizeSearchText ? window.normalizeSearchText(v) : String(v || '').toLowerCase();
+  }
+  input.addEventListener('input', function () {
+    var q = normaliza(input.value).trim();
+    cuerpo.querySelectorAll('tr').forEach(function (tr) {
+      var hay = normaliza(tr.getAttribute('data-cm-search') || '');
+      tr.style.display = (!q || hay.indexOf(q) >= 0) ? '' : 'none';
+    });
+  });
+});
+
+/* VINCULAR A MANO con Chartmetric: pegar el enlace de la canción/álbum o buscarlo por nombre y
+   elegirlo de la lista. Es la salida cuando no se encuentra solo por el ISRC. */
+(function () {
+  var modalEl = document.getElementById('cmLinkModal');
+  if (!modalEl) return;
+  var form = document.getElementById('cmLinkForm');
+  var inKind = document.getElementById('cmLinkKind');
+  var inId = document.getElementById('cmLinkId');
+  var inUrl = document.getElementById('cmLinkUrl');
+  var inQuery = document.getElementById('cmLinkQuery');
+  var elWhat = document.getElementById('cmLinkWhat');
+  var elResults = document.getElementById('cmLinkResults');
+  var elMsg = document.getElementById('cmLinkMsg');
+  var btnSearch = document.getElementById('cmLinkSearchBtn');
+  var kind = 'song';
+
+  function pinta(items) {
+    elResults.innerHTML = '';
+    if (!items || !items.length) {
+      elResults.innerHTML = '<div class="list-group-item text-muted small">Sin resultados en Chartmetric.</div>';
+      return;
+    }
+    items.forEach(function (it) {
+      var a = document.createElement('button');
+      a.type = 'button';
+      a.className = 'list-group-item list-group-item-action d-flex align-items-center gap-2';
+      var img = it.image_url
+        ? '<img src="' + it.image_url + '" alt="" style="width:38px;height:38px;object-fit:cover;border-radius:8px;">'
+        : '<span class="text-muted" style="width:38px;text-align:center;"><i class="fa fa-compact-disc"></i></span>';
+      a.innerHTML = img + '<span class="flex-grow-1 text-start" style="min-width:0;">' +
+        '<span class="d-block fw-semibold text-truncate"></span>' +
+        '<span class="d-block small text-muted text-truncate"></span></span>' +
+        '<span class="badge text-bg-light border">id ' + it.cm_id + '</span>';
+      var spans = a.querySelectorAll('span.d-block');
+      spans[0].textContent = it.name || '—';
+      spans[1].textContent = [it.artists, it.code, it.release_date].filter(Boolean).join(' · ');
+      a.addEventListener('click', function () {
+        inUrl.value = it.url || it.cm_id;
+        elResults.querySelectorAll('.list-group-item').forEach(function (el) { el.classList.remove('active'); });
+        a.classList.add('active');
+      });
+      elResults.appendChild(a);
+    });
+  }
+
+  async function buscar() {
+    var q = (inQuery.value || '').trim();
+    if (q.length < 2) { elMsg.textContent = 'Escribe al menos dos letras.'; return; }
+    elMsg.textContent = 'Buscando en Chartmetric…';
+    btnSearch.disabled = true;
+    try {
+      var res = await fetch('{{ url_for("api_cm_search") }}?kind=' + kind + '&q=' + encodeURIComponent(q),
+                            { headers: { 'Accept': 'application/json' } });
+      var data = await res.json();
+      btnSearch.disabled = false;
+      if (!res.ok || !data.ok) { elMsg.textContent = data.message || 'No se pudo buscar.'; return; }
+      elMsg.textContent = '';
+      pinta(data.results);
+    } catch (e) {
+      btnSearch.disabled = false;
+      elMsg.textContent = 'No se pudo buscar.';
+    }
+  }
+  btnSearch.addEventListener('click', buscar);
+  inQuery.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Enter') { ev.preventDefault(); buscar(); }
+  });
+
+  document.querySelectorAll('[data-cm-link]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      kind = btn.getAttribute('data-cm-link') || 'song';
+      inKind.value = kind;
+      inId.value = btn.getAttribute('data-cm-id') || '';
+      inUrl.value = '';
+      inQuery.value = btn.getAttribute('data-cm-name') || '';
+      elResults.innerHTML = '';
+      elMsg.textContent = '';
+      var actual = btn.getAttribute('data-cm-track') || '';
+      elWhat.textContent = (kind === 'album' ? 'Álbum: ' : 'Canción: ') +
+        (btn.getAttribute('data-cm-name') || '') + (actual ? ' · ahora vinculada al id ' + actual : '');
+      bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    });
+  });
+
+  form.addEventListener('submit', function (ev) {
+    if (!(inUrl.value || '').trim()) {
+      ev.preventDefault();
+      elMsg.textContent = 'Pega el enlace de Chartmetric o elige uno de los resultados.';
+    }
+  });
+})();
 </script>
+
 {% endblock %}

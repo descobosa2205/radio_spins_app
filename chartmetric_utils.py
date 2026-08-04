@@ -160,11 +160,24 @@ def get_track(cm_track: int | str) -> dict:
     return obj if isinstance(obj, dict) else {}
 
 
+def norm_isrc(value) -> str:
+    """El ISRC tal y como lo espera la API: solo alfanumérico y en MAYÚSCULAS.
+
+    ⚠️ Nosotros lo guardamos con guiones (ES-A2A-25-00001) porque así se lee mejor, pero Chartmetric
+    busca por el código SEGUIDO: mandándoselo con guiones no encuentra nada."""
+    return "".join(ch for ch in str(value or "") if ch.isalnum()).upper()
+
+
+def norm_code(value) -> str:
+    """UPC/EAN de un álbum: solo dígitos (igual que el ISRC, los separadores no viajan)."""
+    return "".join(ch for ch in str(value or "") if ch.isdigit())
+
+
 def get_track_ids_from_isrc(isrc: str) -> dict:
     """Resuelve el cm_track (y otros ids) de una canción a partir de su ISRC.
-    Endpoint: GET /api/track/isrc/{isrc}/get-ids  → {obj: {...}} (CONFIRMAR al integrar).
+    Endpoint: GET /api/track/isrc/{isrc}/get-ids  → {obj: {...}}.
     Devuelve {} ante cualquier problema (no lanza)."""
-    code = (isrc or "").strip()
+    code = norm_isrc(isrc)
     if not code:
         return {}
     try:
@@ -173,6 +186,71 @@ def get_track_ids_from_isrc(isrc: str) -> dict:
         return {}
     obj = data.get("obj", data) if isinstance(data, dict) else data
     return obj if isinstance(obj, dict) else {}
+
+
+def get_album(cm_album: int | str) -> dict:
+    """Metadata de un ÁLBUM por su id de Chartmetric. Endpoint: GET /api/album/:id → {obj: {...}}.
+    Devuelve {} ante cualquier problema (no lanza)."""
+    if not str(cm_album or "").strip():
+        return {}
+    try:
+        data = _get(f"/api/album/{cm_album}")
+    except RuntimeError:
+        return {}
+    obj = data.get("obj", data) if isinstance(data, dict) else data
+    if isinstance(obj, list):
+        obj = obj[0] if obj else {}
+    return obj if isinstance(obj, dict) else {}
+
+
+def get_album_ids_from_upc(upc: str) -> dict:
+    """Ids de un álbum a partir de su UPC/EAN (el equivalente del ISRC en un disco).
+    Endpoint: GET /api/album/upc/{upc}/get-ids. Devuelve {} ante cualquier problema (no lanza)."""
+    code = norm_code(upc)
+    if not code:
+        return {}
+    try:
+        data = _get(f"/api/album/upc/{code}/get-ids")
+    except RuntimeError:
+        return {}
+    obj = data.get("obj", data) if isinstance(data, dict) else data
+    if isinstance(obj, list):
+        obj = obj[0] if obj else {}
+    return obj if isinstance(obj, dict) else {}
+
+
+def _search(query: str, kind: str, limit: int = 10) -> list:
+    """Búsqueda genérica en Chartmetric (`/api/search`), tolerante con la forma de la respuesta:
+    unas veces viene {obj: {tracks: [...]}} y otras directamente la lista."""
+    q = (query or "").strip()
+    if not q:
+        return []
+    try:
+        data = _get("/api/search", {"q": q, "type": kind, "limit": limit})
+    except RuntimeError:
+        return []
+    payload = data.get("obj", data) if isinstance(data, dict) else data
+    if isinstance(payload, dict):
+        for clave in (kind, kind.rstrip("s"), "results"):
+            val = payload.get(clave)
+            if isinstance(val, list):
+                return val
+        # Última red: la primera lista de dicts que traiga.
+        for val in payload.values():
+            if isinstance(val, list) and val and isinstance(val[0], dict):
+                return val
+        return []
+    return payload if isinstance(payload, list) else []
+
+
+def search_tracks(query: str, limit: int = 10) -> list:
+    """Busca CANCIONES por nombre. Cada item trae (según catálogo) id/cm_track, name, isrc, artists…"""
+    return _search(query, "tracks", limit=limit)
+
+
+def search_albums(query: str, limit: int = 10) -> list:
+    """Busca ÁLBUMES por nombre."""
+    return _search(query, "albums", limit=limit)
 
 
 def get_track_stat(cm_track: int | str, platform: str, params: dict | None = None) -> dict:

@@ -45376,6 +45376,11 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         "pleo_account_sync": "integraciones", "pleo_employee_link_save": "integraciones",
         "cabify_account_save": "integraciones", "cabify_account_test": "integraciones",
         "cabify_account_sync": "integraciones", "cabify_user_link_save": "integraciones",
+        # Chartmetric: re-resolver, vincular a mano (enlace pegado o buscador) y limpiar un enlace. Los
+        # endpoints exigen además dirección o edición en discográfica.
+        "cm_song_reresolve": "integraciones", "cm_album_reresolve": "integraciones",
+        "cm_link_manual": "integraciones", "cm_link_clear": "integraciones",
+        "api_cm_search": "integraciones",
     }
     if endpoint in fixed:
         return fixed[endpoint]
@@ -46145,7 +46150,9 @@ def _resolve_request_resource_key() -> str | None:
         return "discografica.canciones"
     if endpoint == "playlisting_view":
         return "playlisting"
-    if endpoint == "integrations_view" or endpoint.startswith("pleo_") or endpoint.startswith("cabify_"):
+    if (endpoint == "integrations_view" or endpoint.startswith("pleo_")
+            or endpoint.startswith("cabify_") or endpoint.startswith("cm_")
+            or endpoint == "api_cm_search"):
         return "integraciones"
     auto_key = f"auto.{endpoint}"
     if auto_key in _ACCESS_RESOURCE_MAP:
@@ -81777,6 +81784,50 @@ def _cm_track_platform_urls(t: dict) -> dict:
     return out
 
 
+def _cm_album_platform_urls(a: dict) -> dict:
+    """Igual que la de un track pero con los ids de ÁLBUM (el deep link de Spotify es /album/…)."""
+    out = {}
+    if not isinstance(a, dict):
+        return out
+    sp = _cm_first(a, "spotify_album_id", "spotify_id", "spotify_album_ids")
+    if sp:
+        out["spotify"] = f"https://open.spotify.com/album/{sp}"
+    for key in ("itunes_url", "apple_music_url", "apple_url", "applemusic_url"):
+        u = a.get(key)
+        if isinstance(u, str) and u.startswith("http"):
+            out["apple_music"] = u
+            break
+    for key in ("amazon_url", "amazon_music_url", "amazonmusic_url"):
+        u = a.get(key)
+        if isinstance(u, str) and u.startswith("http"):
+            out["amazon_music"] = u
+            break
+    return out
+
+
+# Enlace de Chartmetric pegado a mano: se acepta la URL de la app (…/track/123, …/album/456, con o sin
+# cola de parámetros) y también el id a pelo, que es lo que la gente copia a veces.
+_CM_URL_RE = re.compile(r"/(track|album|song|release)s?/(\d+)", re.I)
+
+
+def _cm_id_from_url(value: str) -> tuple[str, str]:
+    """Devuelve (tipo, id) de un enlace de Chartmetric: ('track'|'album', '12345').
+    Con un número a secas devuelve ('', '12345') —el tipo lo pone quien llama— y ('', '') si no hay
+    nada reconocible."""
+    txt = (value or "").strip()
+    if not txt:
+        return "", ""
+    if txt.isdigit():
+        return "", txt
+    m = _CM_URL_RE.search(txt)
+    if m:
+        tipo = m.group(1).lower()
+        return ("album" if tipo == "album" else "track"), m.group(2)
+    # Un último intento: el último número largo del texto (URLs raras o pegadas a medias).
+    nums = re.findall(r"(\d{3,})", txt)
+    return "", (nums[-1] if nums else "")
+
+
 def _cm_apply_song_links(row, cm_track, urls: dict) -> bool:
     """Rellena SOLO los *_url vacíos y no bloqueados; guarda cm_track; marca cm_link_status.
     Sirve para Song y Album (ambos tienen los mismos campos). Nunca pisa enlaces existentes."""
@@ -82109,9 +82160,15 @@ def cm_song_reresolve(song_id):
         if not song:
             abort(404)
         cm_track = (song.cm_track or "").strip()
-        if not cm_track and (getattr(song, "isrc", None) or "").strip():
-            ids = cm.get_track_ids_from_isrc(song.isrc)
-            cm_track = str(_cm_first(ids, "cm_track", "id", "chartmetric_id", "chartmetric_ids") or "")
+        if not cm_track:
+            # ⚠️ El ISRC se busca SIEMPRE en seco (sin guiones: lo hace `cm.norm_isrc`), y se prueban
+            # todos los que tenga la canción —el del campo y los de la pestaña de códigos—, no solo
+            # `Song.isrc`, que en muchas está vacío.
+            for code in (_current_song_isrcs(session_db, song.id, include_song_field=True) or []):
+                ids = cm.get_track_ids_from_isrc(code)
+                cm_track = str(_cm_first(ids, "cm_track", "id", "chartmetric_id", "chartmetric_ids") or "")
+                if cm_track:
+                    break
         if cm_track:
             td = cm.get_track(cm_track) or {}
             td.setdefault("cm_track", cm_track)
@@ -82127,6 +82184,184 @@ def cm_song_reresolve(song_id):
     finally:
         session_db.close()
     return redirect(request.form.get("next") or url_for("integrations_view"))
+
+
+@app.post("/integraciones/chartmetric/album/<album_id>/reresolver", endpoint="cm_album_reresolve")
+@admin_required
+def cm_album_reresolve(album_id):
+    """Re-resuelve los enlaces de UN álbum vía Chartmetric (por su id o por el UPC/EAN, en seco)."""
+    if not (is_master() or can_edit_discografica()):
+        return forbid("Sin permisos.")
+    import chartmetric_utils as cm
+    session_db = db()
+    try:
+        album = session_db.get(Album, to_uuid(album_id))
+        if not album:
+            abort(404)
+        cm_album = (getattr(album, "cm_track", None) or "").strip()
+        if not cm_album:
+            # El UPC del álbum y, si no lo tiene, los códigos de producto de sus formatos.
+            codigos = [getattr(album, "upc_code", None)]
+            codigos += [r.code for r in (session_db.query(AlbumProductCode)
+                                         .filter(AlbumProductCode.album_id == album.id)
+                                         .order_by(AlbumProductCode.created_at.asc()).all())]
+            for code in codigos:
+                ids = cm.get_album_ids_from_upc(code) if code else {}
+                cm_album = str(_cm_first(ids, "cm_album", "id", "chartmetric_id") or "")
+                if cm_album:
+                    break
+        if cm_album:
+            ok, mensaje = _cm_link_row_manual(session_db, album, "album", cm_album)
+            if ok:
+                session_db.commit()
+                flash("Álbum re-resuelto con Chartmetric.", "success")
+            else:
+                flash(mensaje, "warning")
+        else:
+            flash("No se encontró el álbum en Chartmetric. Pega su enlace para vincularlo a mano.", "warning")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error al re-resolver: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(request.form.get("next") or url_for("integrations_view"))
+
+
+def _cm_link_row_manual(session_db, row, kind: str, cm_id: str) -> tuple[bool, str]:
+    """Vincula NUESTRA canción o álbum con un id de Chartmetric y rellena los enlaces que falten.
+
+    Devuelve (ok, mensaje). No confía en el id: primero se lo pide a Chartmetric, y si ese id no
+    existe no se guarda nada (así un enlace mal pegado no deja la ficha apuntando a otra obra)."""
+    import chartmetric_utils as cm
+    cm_id = (cm_id or "").strip()
+    if not cm_id:
+        return False, "No he encontrado el id en lo que has pegado. Copia el enlace de Chartmetric de la canción o del álbum."
+    if kind == "album":
+        datos = cm.get_album(cm_id) or {}
+        urls = _cm_album_platform_urls(datos)
+    else:
+        datos = cm.get_track(cm_id) or {}
+        urls = _cm_track_platform_urls(datos)
+    if not datos:
+        return False, ("En Chartmetric no hay ningún %s con el id %s. Comprueba el enlace."
+                       % ("álbum" if kind == "album" else "track", cm_id))
+    datos.setdefault("cm_track", cm_id)
+    # `cm_track` puede venir ya puesto de un vínculo anterior equivocado: al hacerlo a mano manda lo
+    # que dice quien vincula.
+    row.cm_track = str(cm_id)
+    _cm_apply_song_links(row, cm_id, urls)
+    nombre = (_cm_first(datos, "name", "title") or "").strip()
+    return True, ("Vinculado con «%s» (id %s)." % (nombre, cm_id) if nombre else "Vinculado (id %s)." % cm_id)
+
+
+@app.post("/integraciones/chartmetric/vincular", endpoint="cm_link_manual")
+@admin_required
+def cm_link_manual():
+    """Vincula A MANO una canción o un álbum con Chartmetric, pegando su ENLACE (o eligiéndolo en el
+    buscador). Es la salida para cuando no se encuentra solo por el ISRC."""
+    if not (is_master() or can_edit_discografica()):
+        return forbid("Sin permisos.")
+    kind = (request.form.get("kind") or "song").strip().lower()
+    obj_id = (request.form.get("id") or "").strip()
+    pegado = (request.form.get("cm_url") or request.form.get("cm_id") or "").strip()
+    nxt = request.form.get("next") or url_for("integrations_view")
+    tipo_url, cm_id = _cm_id_from_url(pegado)
+    if tipo_url and ((tipo_url == "album") != (kind == "album")):
+        flash("Ese enlace es de un %s y lo estás vinculando a %s. Revísalo."
+              % ("álbum" if tipo_url == "album" else "track",
+                 "un álbum" if kind == "album" else "una canción"), "warning")
+        return redirect(nxt)
+    session_db = db()
+    try:
+        row = session_db.get(Album if kind == "album" else Song, to_uuid(obj_id))
+        if not row:
+            abort(404)
+        ok, mensaje = _cm_link_row_manual(session_db, row, kind, cm_id)
+        if not ok:
+            flash(mensaje, "warning")
+            return redirect(nxt)
+        if kind != "album":
+            _cm_refresh_song_streams(session_db, row)
+        session_db.commit()
+        flash(mensaje, "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"No se pudo vincular: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(nxt)
+
+
+@app.get("/api/chartmetric/buscar", endpoint="api_cm_search")
+@admin_required
+def api_cm_search():
+    """Buscador de Chartmetric para vincular a mano: canciones o álbumes por nombre.
+    Acepta también un ISRC/UPC o un enlace pegado, que es lo que uno tiene a mano."""
+    if not (is_master() or can_edit_discografica()):
+        return jsonify({"ok": False, "message": "Sin permisos."}), 403
+    import chartmetric_utils as cm
+    if not cm.chartmetric_configured():
+        return jsonify({"ok": False, "message": "Chartmetric no está configurada."}), 400
+    kind = (request.args.get("kind") or "song").strip().lower()
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify({"ok": True, "results": []})
+    salida = []
+    try:
+        # 1) ¿Es un enlace o un id? Se resuelve directo, que es más fiable que buscar por nombre.
+        tipo_url, cm_id = _cm_id_from_url(q)
+        if cm_id and (tipo_url or q.isdigit()):
+            datos = (cm.get_album(cm_id) if kind == "album" else cm.get_track(cm_id)) or {}
+            if datos:
+                salida.append(_cm_search_result(datos, kind, cm_id))
+        # 2) ¿Es un ISRC (canción) o un UPC (álbum)?
+        if not salida:
+            if kind == "album":
+                code = cm.norm_code(q)
+                ids = cm.get_album_ids_from_upc(code) if len(code) >= 8 else {}
+            else:
+                code = cm.norm_isrc(q)
+                ids = cm.get_track_ids_from_isrc(code) if len(code) == 12 else {}
+            ref = str(_cm_first(ids, "cm_track", "cm_album", "id", "chartmetric_id") or "")
+            if ref:
+                datos = (cm.get_album(ref) if kind == "album" else cm.get_track(ref)) or {}
+                salida.append(_cm_search_result(datos or ids, kind, ref))
+        # 3) Por nombre.
+        if not salida:
+            filas = cm.search_albums(q, limit=12) if kind == "album" else cm.search_tracks(q, limit=12)
+            for it in (filas or []):
+                if not isinstance(it, dict):
+                    continue
+                ref = str(_cm_first(it, "cm_track", "cm_album", "id") or "")
+                if not ref:
+                    continue
+                salida.append(_cm_search_result(it, kind, ref))
+    except Exception as e:
+        return jsonify({"ok": False, "message": str(e)}), 400
+    return jsonify({"ok": True, "results": salida})
+
+
+def _cm_search_result(d: dict, kind: str, cm_id: str) -> dict:
+    """Un resultado del buscador de Chartmetric, con lo justo para reconocerlo de un vistazo."""
+    d = d if isinstance(d, dict) else {}
+    artistas = d.get("artists") or d.get("artist_names") or d.get("artist")
+    if isinstance(artistas, (list, tuple)):
+        nombres = []
+        for a in artistas:
+            if isinstance(a, dict):
+                nombres.append((a.get("name") or "").strip())
+            elif a:
+                nombres.append(str(a).strip())
+        artistas = ", ".join([x for x in nombres if x])
+    return {
+        "cm_id": str(cm_id),
+        "name": (_cm_first(d, "name", "title") or "—"),
+        "artists": (artistas or ""),
+        "code": (_cm_first(d, "isrc", "upc", "ean") or ""),
+        "release_date": (str(_cm_first(d, "release_date", "releaseDate") or "")[:10]),
+        "image_url": _chartmetric_track_image(d),
+        "url": ("https://app.chartmetric.com/%s/%s" % ("album" if kind == "album" else "track", cm_id)),
+    }
 
 
 @app.post("/integraciones/chartmetric/limpiar-enlace", endpoint="cm_link_clear")

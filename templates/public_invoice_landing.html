@@ -28,7 +28,30 @@
     {# ============================ YA HAY UNA FACTURA SUBIDA ============================
        No se empieza el proceso otra vez: si la anterior está pendiente se puede REEMPLAZAR (y ahí
        sí se abre el formulario); si ya está validada, no se toca y se le manda a administración. #}
-    {% if existing_invoice %}
+    {# ⚠️ ENLACE DE LIQUIDACIÓN QUE NO SE HA PODIDO IDENTIFICAR: no se deja empezar. Si se dejara, la
+       factura entraría sin vincular a su liquidación y no llegaría a «pendiente de liquidar» (pasó). #}
+    {% if liq_error is defined and liq_error %}
+      <div class="card shadow-sm mb-4 border-danger">
+        <div class="card-body">
+          <div class="fw-semibold mb-1"><i class="fa fa-triangle-exclamation me-2 text-danger"></i>No podemos aceptar la factura por este enlace</div>
+          <div class="small">{{ liq_error }}</div>
+        </div>
+      </div>
+    {% endif %}
+    {# Si su factura anterior se RECHAZÓ, se le recuerda por qué (y puede subir la corregida). #}
+    {% if rejected_invoice is defined and rejected_invoice %}
+      <div class="card shadow-sm mb-4 border-warning">
+        <div class="card-body">
+          <div class="fw-semibold mb-1"><i class="fa fa-rotate-left me-2 text-warning"></i>
+            Tu factura anterior{% if rejected_invoice.number %} ({{ rejected_invoice.number }}){% endif %} no se aceptó</div>
+          {% if rejected_invoice.reason %}<div class="small">Motivo: {{ rejected_invoice.reason }}</div>{% endif %}
+          <div class="small text-muted mt-1">Sube la corregida aquí abajo: entra directamente, no hace falta hacer nada más.</div>
+        </div>
+      </div>
+    {% endif %}
+    {% if liq_error is defined and liq_error %}
+      {# Sin pasos: no hay proceso que empezar. #}
+    {% elif existing_invoice %}
       <div class="card shadow-sm mb-4 border-{{ 'danger' if existing_invoice.validated else 'warning' }}" id="invAlready">
         <div class="card-body">
           <h6 class="mb-2">

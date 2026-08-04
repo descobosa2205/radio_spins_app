@@ -566,12 +566,70 @@
                 <div class="fw-semibold">{{ r.name }}</div>
                 <div class="small text-muted">{{ r.period_label }} · recibida el {{ r.invoice.created_at.strftime('%d/%m/%Y') if r.invoice.created_at else '—' }}</div>
                 {% if r.embargos %}<span class="badge text-bg-danger mt-1"><i class="fa fa-triangle-exclamation me-1"></i>Embargo vigente: no abonar</span>{% endif %}
+                {# DATOS QUE NO SE PUDIERON LEER: se avisa y se corrigen a mano, para que la factura
+                   se reincorpore a su proceso en vez de quedarse muerta. #}
+                {% if r.missing %}
+                  <div class="small text-danger mt-1"><i class="fa fa-triangle-exclamation me-1"></i>
+                    Faltan datos: {{ r.missing|join(', ') }}</div>
+                {% endif %}
               </div>
               <div class="d-flex align-items-center gap-2">
                 <span class="badge text-bg-warning text-dark"><i class="fa fa-clock me-1"></i>Pendiente de validar</span>
                 <span class="btn btn-sm btn-outline-primary"><i class="fa fa-file-invoice me-1"></i>Revisar</span>
               </div>
             </a>
+            {% if r.missing %}
+              <div class="px-3 pb-3 mt-n2">
+                <a class="btn btn-sm btn-danger" href="{{ r.edit_url }}"><i class="fa fa-pen me-1"></i>Completar los datos a mano</a>
+              </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+    {# FACTURAS SUELTAS: subidas y sin colgar de nada (ni liquidación, ni bolsa, ni persona). Es la
+       red de seguridad del enlace de royalties: desde aquí se vinculan a su liquidación y vuelven al
+       proceso. #}
+    {% if orphan_invoice_rows %}
+      <div class="card mb-3 border-warning">
+        <div class="card-header bg-white d-flex align-items-center gap-2">
+          <strong><i class="fa fa-link-slash me-1 text-warning"></i>Facturas subidas SIN VINCULAR</strong>
+          <span class="badge text-bg-warning text-dark">{{ orphan_invoice_rows|length }}</span>
+          <span class="small text-muted ms-auto">Están en el sistema pero no cuelgan de nada: o perdieron el vínculo con su liquidación, o se subieron por la landing sin decir para quién eran.</span>
+        </div>
+        <div class="card-body p-0">
+          {% for o in orphan_invoice_rows %}
+            <div class="p-3 border-bottom">
+              <div class="d-flex justify-content-between gap-3 flex-wrap">
+                <div class="min-w-0">
+                  <div class="fw-semibold">{{ o.name }}{% if o.number %} · Nº {{ o.number }}{% endif %}</div>
+                  <div class="small text-muted">
+                    {% if o.concept %}{{ o.concept }} · {% endif %}Subida el {{ o.uploaded or '—' }}
+                    {% if o.amount %} · {{ o.amount|eur }}{% endif %}
+                  </div>
+                  {% if o.missing %}
+                    <div class="small text-danger"><i class="fa fa-triangle-exclamation me-1"></i>Faltan datos: {{ o.missing|join(', ') }}</div>
+                  {% endif %}
+                </div>
+                <div class="d-flex align-items-start gap-2 flex-wrap">
+                  {% if o.file_url %}
+                    <a class="btn btn-sm btn-outline-dark" href="{{ o.file_url }}" target="_blank" rel="noopener" title="Ver la factura"><i class="fa fa-file-invoice"></i></a>
+                  {% endif %}
+                  <a class="btn btn-sm btn-outline-secondary" href="{{ o.edit_url }}"><i class="fa fa-pen me-1"></i>Datos</a>
+                </div>
+              </div>
+              <form method="post" action="{{ url_for('administration_invoice_link_royalty', invoice_id=o.id) }}"
+                    class="d-flex gap-2 align-items-center flex-wrap mt-2">
+                <input type="hidden" name="next" value="{{ request.full_path }}">
+                <select class="form-select form-select-sm" name="liquidation_id" style="max-width:520px;" required>
+                  <option value="">Vincular a la liquidación de royalties…</option>
+                  {% for opt in royalty_link_options %}
+                    <option value="{{ opt.id }}">{{ opt.label }}</option>
+                  {% endfor %}
+                </select>
+                <button class="btn btn-sm btn-success"><i class="fa fa-link me-1"></i>Vincular</button>
+              </form>
+            </div>
           {% endfor %}
         </div>
       </div>

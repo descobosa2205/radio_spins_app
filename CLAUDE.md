@@ -1108,6 +1108,52 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   reparto es un apaño de LECTURA: no se inventa un municipio y no se guarda hasta que se envía el
   formulario. Al guardar, punto único **`_apply_fiscal_address`** + `_fiscal_form_values`.
 
+- **FACTURAS DE ROYALTIES: lo que se perdía por el camino** (ago 2026, tres bugs reales encadenados).
+  Había gente que había facturado por el enlace del correo y su factura **no aparecía en «pendiente de
+  liquidar»**. Causas y arreglos:
+  · ⚠️ **El enlace caducaba al año** (`_parse_public_royalty_liquidation_token`, `max_age` 31536000) y,
+  al caducar, `/facturacion?liq=…` **se comportaba como la landing genérica**: el proveedor subía su
+  factura, la app le decía que todo bien y la factura se creaba **sin `royalty_liquidation_id`**, así
+  que no salía en ninguna bandeja y nadie se enteraba. Ahora el margen es de **10 años** y, si aun así
+  hubiera caducado, **el contenido se recupera** (`SignatureExpired` solo se lanza DESPUÉS de validar
+  la firma: viejo no es falso). Y si el token viene pero **no se puede resolver la liquidación**, ni la
+  landing ni la subida siguen como genéricas: **se avisa y no se acepta la factura** (mejor eso que
+  aceptarla y perderla). La comprobación del enlace va **antes que la de los certificados**, para no
+  mandar a nadie a buscar papeles que no son el problema.
+  · ⚠️ **Al rechazar una factura no se soltaba el vínculo** salvo que la liquidación estuviera en
+  `INVOICED`, así que el enlace le seguía diciendo al proveedor «ya hay una factura subida» y no podía
+  mandar la corregida. Ahora `supplier_invoice_reject` suelta `invoice_id` **siempre** que apuntara a
+  esa factura, vuelve a `SENT` y lo apunta en el historial; y **una factura RECHAZADA nunca bloquea**
+  el enlace (`_invoice_existing_block` y los dos ramales de subida), que justamente se le ha pedido
+  que la corrija — además se le recuerda **por qué** se le devolvió.
+  · **Red de seguridad para lo ya perdido**: bloque **«Facturas subidas SIN VINCULAR»** en
+  Administración → Pendiente → De liquidación (`_orphan_supplier_invoices`: PENDIENTE y sin
+  liquidación, bolsa, gasto, petición ni persona) con un selector para **vincularla a su liquidación**
+  (`administration_invoice_link_royalty`) y que vuelva al proceso. Ahí caen también las subidas por la
+  landing genérica sin destinatario, que son igual de invisibles.
+
+- ⚠️⚠️ **LO QUE TIENE QUE CUADRAR DE UNA FACTURA ES LA BASE, NO EL TOTAL** (ago 2026). La
+  **retención** es la que diga la factura: baja el importe a pagar, pero **no cambia lo que se ha
+  facturado ni lo que cuesta el gasto** (lo retenido lo ingresa la casa en Hacienda). Antes
+  `_invoice_amount_check` comparaba el TOTAL, así que una factura con retención cuya retención no se
+  hubiera leído bien se rechazaba con «faltan X €» y el proveedor no podía enviarla (bug real). Ahora
+  cuadra si: **la base es la esperada** · base + IVA es el bruto esperado · total + retención es el
+  bruto esperado · el total es el bruto esperado · o el total es la base (facturado sin IVA). El aviso
+  se da en términos de BASE y dice que la retención no cuenta para esto.
+  · **La BASE es un dato OBLIGATORIO** al subir: es el número contra el que se compara.
+  `_invoice_required_data_check` (comprobación del SERVIDOR, no solo del navegador) exige número,
+  fecha de emisión, **base** e importe total; si algo no se pudo leer, se dice cuál y no se envía.
+  · **Si alguna se cuela sin datos**, se avisa y se puede corregir a mano:
+  `_supplier_invoice_missing_fields` marca qué falta y la bandeja de royalties (y el bloque de
+  facturas sueltas) enseña el aviso con botón **«Completar los datos a mano»** →
+  `supplier_invoice_edit` (pantalla partida). Al completarlos la factura sigue su proceso normal.
+
+- **CONTABILIDAD · pestaña RETENCIONES** (`_accounting_retention_rows`): todas las facturas recibidas
+  **con retención** y sus importes (proveedor y CIF, nº, emisión, **trimestre**, concepto, de dónde
+  viene —liquidación de royalties, bolsa o gasto de una persona—, base, IVA, retención con su %, total
+  y estado), con **total retenido**, resumen **por trimestre** (que es como se declara) y filtro por
+  año. ⚠️ En la cabecera se dice lo importante: **la retención no se descuenta del gasto**.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

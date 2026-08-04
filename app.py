@@ -4625,13 +4625,29 @@ def _make_public_royalty_liquidation_token(kind: str, bid: str, sem_key: str) ->
     })
 
 
-def _parse_public_royalty_liquidation_token(token: str | None, max_age: int = 31536000) -> dict | None:
+def _parse_public_royalty_liquidation_token(token: str | None, max_age: int = 315360000) -> dict | None:
+    """Lee el token del enlace de facturación de una liquidación de royalties.
+
+    ⚠️ UN ENLACE ANTIGUO NO SE TIRA. Antes caducaba al año y, cuando eso pasaba, el enlace se
+    comportaba como la landing genérica: el proveedor subía su factura, la app le decía que todo
+    bien… y la factura quedaba SIN VINCULAR a la liquidación, así que no aparecía en «pendiente de
+    liquidar» y nadie se enteraba (bug real: gente que había facturado y no nos llegaba).
+    Ahora el margen es de 10 años y, si aun así hubiera caducado, se recupera el contenido: que un
+    token sea VIEJO no es que sea falso — `SignatureExpired` solo se lanza DESPUÉS de comprobar la
+    firma, así que el contenido es de fiar.
+    """
     token = (token or "").strip()
     if not token:
         return None
+    serializer = _royalty_public_serializer()
     try:
-        data = _royalty_public_serializer().loads(token, max_age=max_age)
-    except (BadSignature, SignatureExpired):
+        data = serializer.loads(token, max_age=max_age)
+    except SignatureExpired as caducado:
+        try:
+            data = serializer.load_payload(caducado.payload)
+        except Exception:
+            return None
+    except BadSignature:
         return None
     if not isinstance(data, dict):
         return None
@@ -42989,6 +43005,164 @@ def _party_debt_rows(session_db, *, promoter_id=None, artist_id=None, only_open:
         return []
 
 
+# Datos que una factura tiene que traer para poder validarla y contabilizarla.
+SUPPLIER_INVOICE_REQUIRED = [
+    ("invoice_number", "el número de factura"),
+    ("issue_date", "la fecha de emisión"),
+    ("amount_net", "la base imponible"),
+    ("amount_gross", "el importe total"),
+]
+
+
+def _supplier_invoice_missing_fields(inv) -> list[str]:
+    """Qué DATOS le faltan a una factura (los que no se pudieron leer del documento).
+
+    Es lo que hace que una factura no se pueda dar por buena. Se comprueba al subirla (para que quien
+    la sube los escriba) y se avisa en la bandeja de administración, con enlace para corregirla a
+    mano: así una que se haya colado se reincorpora a su proceso en vez de quedarse muerta.
+    """
+    if inv is None:
+        return []
+    faltan = []
+    for campo, etiqueta in SUPPLIER_INVOICE_REQUIRED:
+        valor = getattr(inv, campo, None)
+        if campo in ("amount_net", "amount_gross"):
+            if _money_or_zero(valor) <= 0:
+                faltan.append(etiqueta)
+        elif not valor:
+            faltan.append(etiqueta)
+    return faltan
+
+
+def _invoice_required_data_check(form) -> tuple[bool, str]:
+    """¿Trae el formulario los datos obligatorios de la factura? (comprobación del SERVIDOR).
+
+    El navegador ya no deja enviar sin ellos, pero eso solo vale si el JS ha corrido: la última
+    palabra la tiene el servidor.
+    """
+    dinero = _invoice_amount_fields_from_form(form)
+    faltan = []
+    if not (form.get("invoice_number") or "").strip():
+        faltan.append("el número de factura")
+    if not parse_optional_date(form.get("issue_date")):
+        faltan.append("la fecha de emisión")
+    # ⚠️ La BASE es obligatoria: es el número que se compara con lo que hay que facturar. Sin ella, una
+    # factura con retención no se puede dar por buena (el total ya lleva la retención descontada).
+    if _money_or_zero(dinero.get("amount_net")) <= 0:
+        faltan.append("la base imponible")
+    if _money_or_zero(dinero.get("amount_gross")) <= 0:
+        faltan.append("el importe total")
+    if not faltan:
+        return True, ""
+    return False, ("No hemos podido leer %s: escríbelo a mano antes de enviar la factura."
+                   % _join_es(faltan))
+
+
+def _join_es(items) -> str:
+    """«a, b y c» (para los mensajes en claro)."""
+    items = [x for x in (items or []) if x]
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    return ", ".join(items[:-1]) + " y " + items[-1]
+
+
+def _orphan_supplier_invoices(session_db, *, limit: int = 100) -> list[dict]:
+    """Facturas subidas que NO cuelgan de nada: ni de una liquidación, ni de una bolsa, ni de una
+    persona. Son las que se quedaron en el limbo y nadie ve.
+
+    Es la red de seguridad del enlace de royalties: si alguna se subió cuando el enlace caducado se
+    comportaba como la landing genérica, aquí aparece y se puede vincular a su liquidación.
+    """
+    filas = []
+    try:
+        invoices = (session_db.query(SupplierInvoice)
+                    .options(joinedload(SupplierInvoice.promoter))
+                    .filter(func.upper(func.coalesce(SupplierInvoice.status, "")) == "PENDIENTE")
+                    .filter(SupplierInvoice.royalty_liquidation_id.is_(None))
+                    .filter(SupplierInvoice.bag_id.is_(None))
+                    .filter(SupplierInvoice.bag_expense_id.is_(None))
+                    .filter(SupplierInvoice.invoice_request_id.is_(None))
+                    .filter(SupplierInvoice.target_user_id.is_(None))
+                    .order_by(SupplierInvoice.created_at.desc()).limit(limit).all())
+    except Exception:
+        return filas
+    for inv in invoices:
+        promoter = inv.promoter
+        filas.append({
+            "invoice": inv,
+            "id": str(inv.id),
+            "name": (_promoter_display_name(promoter) or getattr(promoter, "nick", None) or "Proveedor"),
+            "promoter_id": (str(promoter.id) if promoter is not None else ""),
+            "number": (inv.invoice_number or ""),
+            "concept": (inv.concept_text or ""),
+            "amount": _money_or_zero(inv.amount_gross),
+            "uploaded": (inv.created_at.strftime("%d/%m/%Y") if inv.created_at else ""),
+            "file_url": (inv.file_url or ""),
+            "missing": _supplier_invoice_missing_fields(inv),
+            "edit_url": url_for("supplier_invoice_edit", invoice_id=inv.id),
+        })
+    return filas
+
+
+def _royalty_liquidation_link_options(session_db, *, limit: int = 300) -> list[dict]:
+    """Liquidaciones a las que se puede vincular una factura suelta (enviadas o ya facturadas)."""
+    salida = []
+    try:
+        recs = (session_db.query(RoyaltyLiquidation)
+                .filter(func.upper(func.coalesce(RoyaltyLiquidation.status, "")).in_(
+                    ["SENT", "GENERATED", "INVOICED"]))
+                .order_by(RoyaltyLiquidation.period_start.desc()).limit(limit).all())
+    except Exception:
+        return salida
+    for rec in recs:
+        congelada = _royalty_frozen_beneficiary(rec) or {}
+        salida.append({
+            "id": str(rec.id),
+            "label": "%s · %s%s" % (
+                (congelada.get("name") or "Beneficiario"),
+                _royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end),
+                (" · ya tiene factura" if getattr(rec, "invoice_id", None) else "")),
+        })
+    return salida
+
+
+@app.post("/administracion/facturas/<invoice_id>/vincular-royalties", endpoint="administration_invoice_link_royalty")
+@admin_required
+def administration_invoice_link_royalty(invoice_id):
+    """Vincula una factura SUELTA a su liquidación de royalties, para reincorporarla al proceso."""
+    if not (can_edit_invoices() or has_access_key("administracion", edit=True, include_descendants=True)):
+        return forbid("Tu usuario no puede vincular facturas.")
+    session_db = db()
+    try:
+        inv = session_db.get(SupplierInvoice, to_uuid(invoice_id) or uuid.uuid4())
+        rec = session_db.get(RoyaltyLiquidation, to_uuid(request.form.get("liquidation_id") or "") or uuid.uuid4())
+        if inv is None or rec is None:
+            flash("No se ha encontrado la factura o la liquidación.", "warning")
+            return redirect(safe_next_or(url_for("administracion_view", tab="pendiente", subtab="liquidacion")))
+        if getattr(rec, "invoice_id", None) and str(rec.invoice_id) != str(inv.id):
+            anterior = session_db.get(SupplierInvoice, rec.invoice_id)
+            if anterior is not None and (anterior.status or "").upper() == "VALIDADA":
+                flash("Esa liquidación ya tiene una factura VALIDADA: revísala antes de cambiarla.", "warning")
+                return redirect(safe_next_or(url_for("administracion_view", tab="pendiente", subtab="liquidacion")))
+        inv.royalty_liquidation_id = rec.id
+        rec.invoice_id = inv.id
+        rec.status = "INVOICED"
+        rec.invoice_uploaded_at = rec.invoice_uploaded_at or (inv.created_at or _now_madrid())
+        rec.updated_at = _now_madrid()
+        _royalty_history_add(rec, "INVOICED", file_url=(inv.file_url or ""),
+                             note="Vinculada a mano por administración")
+        session_db.commit()
+        flash("Factura vinculada a la liquidación: ya está pendiente de validar.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo vincular la factura: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("administracion_view", tab="pendiente", subtab="liquidacion")))
+
+
 def _royalty_invoice_pending_rows(session_db) -> list:
     """Facturas de liquidaciones de royalties recibidas y PENDIENTES de validar (tarea de
     administración). Incluye el aviso de EMBARGO vigente sobre el proveedor."""
@@ -43015,6 +43189,9 @@ def _royalty_invoice_pending_rows(session_db) -> list:
             "liquidation": rec,
             "promoter": promoter,
             "name": (promoter.nick if promoter else "Proveedor"),
+            # Datos que no se pudieron leer del documento: se avisa y se corrigen a mano.
+            "missing": _supplier_invoice_missing_fields(inv),
+            "edit_url": url_for("supplier_invoice_edit", invoice_id=inv.id),
             "period_label": (_royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end) if rec else ""),
             "embargos": embargos,
             "url": url_for("administration_royalty_invoice_review", invoice_id=inv.id),
@@ -55549,8 +55726,14 @@ def administracion_view():
         admin_promo_bag_ids = (_admin_promo_bag_ids(session_db)
                                if (tab == "pendiente" and pending_subtab in {"liquidacion", "cierre"}) else set())
         altas_ctx = _prl_admin_altas_context(session_db) if tab == "altas" else {"altas_rows": [], "altas_today": date.today()}
+        # Facturas SUELTAS (sin liquidación, bolsa ni persona): la red de seguridad del enlace de
+        # royalties. Solo se buscan en su pestaña, que la consulta no es gratis.
+        _en_liquidacion = (tab == "pendiente" and pending_subtab == "liquidacion")
+        orphan_invoice_rows = _orphan_supplier_invoices(session_db) if _en_liquidacion else []
+        royalty_link_options = (_royalty_liquidation_link_options(session_db)
+                                if orphan_invoice_rows else [])
         royalty_invoice_rows = (_royalty_invoice_pending_rows(session_db)
-                                if (tab == "pendiente" and pending_subtab == "liquidacion") else [])
+                                if _en_liquidacion else [])
         afavor_invoice_rows = (_afavor_admin_pending_rows(session_db)
                                if (tab == "pendiente" and pending_subtab == "facturacion") else [])
         return render_template(
@@ -55576,6 +55759,8 @@ def administracion_view():
             direct_no_invoice=direct_no_invoice,
             direct_payable=direct_payable,
             royalty_invoice_rows=royalty_invoice_rows,
+            orphan_invoice_rows=orphan_invoice_rows,
+            royalty_link_options=royalty_link_options,
             afavor_invoice_rows=afavor_invoice_rows,
             embargo_subtab=embargo_subtab,
             pending_counts=pending_counts,
@@ -55792,6 +55977,7 @@ def administration_invoice_mark_paid(invoice_id):
 ACCOUNTING_TABS = [
     ("pendiente", "Pendiente de contabilizar", "fa-hourglass-half"),
     ("contabilizado", "Contabilizado", "fa-circle-check"),
+    ("retenciones", "Retenciones", "fa-percent"),
     ("facturas", "Facturas", "fa-file-invoice"),
 ]
 # Subpestañas de «Pendiente de contabilizar». Cada una lleva su número de pendientes.
@@ -55863,6 +56049,100 @@ def _accounting_counts(session_db) -> dict:
     except Exception:
         pass
     return salida
+
+
+def _accounting_retention_rows(session_db, *, year: int | None = None, limit: int = 800) -> dict:
+    """TODAS las facturas recibidas CON RETENCIÓN, con sus importes.
+
+    ⚠️ La retención **no se descuenta del gasto**: el gasto es la base más su IVA. Lo retenido se le
+    queda la casa para ingresarlo en Hacienda, así que se declara aparte —por eso esta pantalla— y por
+    eso las filas llevan su TRIMESTRE (que es como se declara).
+    """
+    q = (session_db.query(SupplierInvoice)
+         .options(joinedload(SupplierInvoice.promoter))
+         .filter(SupplierInvoice.retention_amount.isnot(None))
+         .filter(SupplierInvoice.retention_amount > 0)
+         .filter(func.upper(func.coalesce(SupplierInvoice.status, "")) != "RECHAZADA"))
+    if year:
+        q = q.filter(or_(
+            and_(SupplierInvoice.issue_date.isnot(None),
+                 func.extract("year", SupplierInvoice.issue_date) == year),
+            and_(SupplierInvoice.issue_date.is_(None),
+                 func.extract("year", SupplierInvoice.created_at) == year)))
+    invoices = q.order_by(SupplierInvoice.issue_date.desc().nullslast(),
+                          SupplierInvoice.created_at.desc()).limit(limit).all()
+    # De qué es cada factura (para saber a qué gasto pertenece la retención), de golpe.
+    liq_ids = [i.royalty_liquidation_id for i in invoices if getattr(i, "royalty_liquidation_id", None)]
+    liquidaciones = {}
+    if liq_ids:
+        for rec in session_db.query(RoyaltyLiquidation).filter(RoyaltyLiquidation.id.in_(liq_ids)).all():
+            liquidaciones[str(rec.id)] = rec
+    bag_ids = [i.bag_id for i in invoices if getattr(i, "bag_id", None)]
+    bolsas = {}
+    if bag_ids:
+        for b in session_db.query(WorkflowBag).filter(WorkflowBag.id.in_(bag_ids)).all():
+            bolsas[str(b.id)] = b
+    filas, total_ret, total_base = [], Decimal("0"), Decimal("0")
+    por_trimestre = {}
+    for inv in invoices:
+        fecha = inv.issue_date or (inv.created_at.date() if inv.created_at else None)
+        ret = _money_or_zero(inv.retention_amount)
+        base = _money_or_zero(inv.amount_net)
+        iva = _money_or_zero(inv.amount_vat)
+        bruto = _money_or_zero(inv.amount_gross)
+        ret_pct = inv.retention_pct
+        if ret_pct in (None, "") and base > 0 and ret > 0:
+            ret_pct = (ret / base * Decimal("100")).quantize(Decimal("0.01"))
+        origen, origen_url = "", ""
+        rec = liquidaciones.get(str(getattr(inv, "royalty_liquidation_id", "") or ""))
+        bag = bolsas.get(str(getattr(inv, "bag_id", "") or ""))
+        if rec is not None:
+            origen = "Royalties · " + _royalty_liquidation_period_label_from_dates(
+                rec.period_start, rec.period_end)
+        elif bag is not None:
+            origen = (bag.title or "Bolsa").strip()
+            origen_url = url_for("bag_detail_view", bag_id=bag.id)
+        elif getattr(inv, "target_user_id", None):
+            origen = "Gasto de una persona"
+        clave_trim = _quarter_key(fecha.year, _quarter_of(fecha)) if fecha else ""
+        filas.append({
+            "id": str(inv.id),
+            "name": (_promoter_display_name(inv.promoter) or getattr(inv.promoter, "nick", None)
+                     or "Proveedor"),
+            "tax_id": (getattr(inv.promoter, "tax_id", None) or ""),
+            "number": (inv.invoice_number or ""),
+            "concept": (inv.concept_text or ""),
+            "date": (fecha.strftime("%d/%m/%Y") if fecha else ""),
+            "quarter_key": clave_trim,
+            "quarter_label": (_quarter_label(fecha.year, _quarter_of(fecha)) if fecha else "Sin fecha"),
+            "net": base, "vat": iva, "gross": bruto,
+            "retention": ret, "retention_pct": ret_pct,
+            "status": (inv.status or "PENDIENTE").upper(),
+            "origin": origen, "origin_url": origen_url,
+            "file_url": (inv.file_url or ""),
+            "edit_url": url_for("supplier_invoice_edit", invoice_id=inv.id),
+            "missing": _supplier_invoice_missing_fields(inv),
+        })
+        total_ret += ret
+        total_base += base
+        grupo = por_trimestre.setdefault(clave_trim or "zz", {
+            "label": (_quarter_label(fecha.year, _quarter_of(fecha)) if fecha else "Sin fecha"),
+            "retention": Decimal("0"), "net": Decimal("0"), "n": 0})
+        grupo["retention"] += ret
+        grupo["net"] += base
+        grupo["n"] += 1
+    años = []
+    try:
+        años = [int(a) for (a,) in session_db.query(
+            func.distinct(func.extract("year", func.coalesce(SupplierInvoice.issue_date,
+                                                             SupplierInvoice.created_at))))
+            .filter(SupplierInvoice.retention_amount.isnot(None),
+                    SupplierInvoice.retention_amount > 0).all() if a]
+        años.sort(reverse=True)
+    except Exception:
+        años = []
+    return {"rows": filas, "total_retention": total_ret, "total_net": total_base,
+            "quarters": [por_trimestre[k] for k in sorted(por_trimestre)], "years": años}
 
 
 def _accounting_bag_label(session_db, bag, *, concert=None, promotion=None) -> str:
@@ -56452,6 +56732,7 @@ def contabilidad_view():
             threading.Thread(target=_holded_autodetect_bg, daemon=True).start()
         counts = _accounting_counts(session_db)
         rows, bag_groups, done_rows = [], [], []
+        retenciones, retention_year = None, None
         recent_invoices = issued_count = received_count = None
         if tab == "pendiente":
             if subtab == "bolsas":
@@ -56468,6 +56749,13 @@ def contabilidad_view():
                 rows = _accounting_expense_rows(
                     session_db, q.order_by(BagExpense.issue_date.desc().nullslast(),
                                            BagExpense.created_at.desc()).limit(600).all())
+        elif tab == "retenciones":
+            try:
+                _anyo = int(request.args.get("anio") or 0) or None
+            except (TypeError, ValueError):
+                _anyo = None
+            retenciones = _accounting_retention_rows(session_db, year=_anyo)
+            retention_year = _anyo
         elif tab == "contabilizado":
             done_rows = _accounting_expense_rows(
                 session_db, _accounting_base_query(session_db, only_done=True)
@@ -56492,6 +56780,7 @@ def contabilidad_view():
             accounting_states=HOLDED_ACCOUNTING_STATES,
             counts=counts,
             rows=rows, bag_groups=bag_groups, done_rows=done_rows,
+            retenciones=retenciones, retention_year=retention_year,
             royalty_pending=royalty_pending,
             recent_invoices=recent_invoices,
             issued_count=issued_count, received_count=received_count,
@@ -60114,10 +60403,16 @@ def supplier_invoice_reject(invoice_id):
         inv.reject_reason = motivo[:500]
         rec = (session_db.get(RoyaltyLiquidation, inv.royalty_liquidation_id)
                if getattr(inv, "royalty_liquidation_id", None) else None)
-        if rec is not None and (rec.status or "").upper() == "INVOICED":
-            rec.status = "SENT"          # vuelve a estar pendiente de factura
+        # ⚠️ Al rechazar, la liquidación VUELVE A LA ETAPA ANTERIOR y se suelta el vínculo SIEMPRE que
+        # apuntara a esta factura. Antes solo se hacía si estaba en INVOICED: en cualquier otro estado
+        # el vínculo se quedaba puesto y el enlace del proveedor le decía «ya hay una factura subida»,
+        # así que no podía mandar la corregida (bug real).
+        if rec is not None and str(getattr(rec, "invoice_id", "") or "") == str(inv.id):
             rec.invoice_id = None
+            if (rec.status or "").upper() == "INVOICED":
+                rec.status = "SENT"          # vuelve a estar pendiente de factura
             rec.updated_at = _now_madrid()
+            _royalty_history_add(rec, "INVOICE_REJECTED", note=motivo[:200])
         avisado, detalle = _supplier_invoice_reject_notify(session_db, inv, motivo)
         session_db.commit()
         if avisado:
@@ -60163,7 +60458,9 @@ def bag_expense_amount_save(expense_id):
         if inv is not None:
             ok, motivo = _invoice_amount_check(imp["gross"], imp["net"],
                                               getattr(inv, "amount_gross", None),
-                                              getattr(inv, "retention_amount", None))
+                                              getattr(inv, "retention_amount", None),
+                                              net=getattr(inv, "amount_net", None),
+                                              vat=getattr(inv, "amount_vat", None))
             if not ok:
                 aviso = motivo
         session_db.commit()
@@ -66365,6 +66662,25 @@ def public_invoice_landing():
                     liq_token=liq_token,
                     **_invoice_existing_block(inv_previa),
                 )
+        # ⚠️ VIENE de un enlace de liquidación y NO se ha podido identificar: NO se sigue como landing
+        # genérica. Si se siguiera, el proveedor subiría su factura, la app le diría que todo bien y la
+        # factura quedaría SIN VINCULAR a la liquidación (no aparecería en «pendiente de liquidar» y
+        # nadie se enteraría). Mejor decirlo y que nos avise.
+        if liq_token:
+            return render_template(
+                "public_invoice_landing.html",
+                inv_mode="REQUEST",
+                companies=companies,
+                company=_pies_group_company(session_db) or (companies[0] if companies else None),
+                cert_docs=INVOICE_CERT_DOCS,
+                request_row=None, request_rows=[], provider=None, provider_payload=None,
+                liq_token="",
+                liq_error=("No hemos podido identificar la liquidación de este enlace, así que no "
+                           "podemos aceptar la factura por aquí (se quedaría sin vincular). "
+                           "Escríbenos a %s y te mandamos un enlace nuevo."
+                           % ADMIN_INVOICE_CONTACT_EMAIL),
+                existing_invoice=None,
+            )
         return render_template(
             "public_invoice_landing.html",
             inv_mode="LANDING",
@@ -66638,10 +66954,20 @@ def _invoice_existing_block(invoice) -> dict:
     """Lo que hay que decirle a quien abre el enlace y YA tiene una factura subida.
 
     · Pendiente de validar → «ya hay una factura subida» + poder REEMPLAZARLA.
-    · Validada → no se toca: que hable con administración."""
+    · Validada → no se toca: que hable con administración.
+    · ⚠️ RECHAZADA → NO bloquea: justamente se le ha pedido que la corrija y la vuelva a mandar. Antes
+      cualquier estado distinto de VALIDADA se trataba como «ya hay una», así que a quien se le
+      rechazaba una factura el enlace no le dejaba subir la nueva (bug real).
+    """
     if invoice is None or not (getattr(invoice, "file_url", None) or "").strip():
         return {"existing_invoice": None}
     estado = (getattr(invoice, "status", None) or "PENDIENTE").upper()
+    if estado == "RECHAZADA":
+        # No bloquea, pero se le RECUERDA por qué se le devolvió: si no, vuelve a mandar lo mismo.
+        return {"existing_invoice": None, "rejected_invoice": {
+            "reason": (getattr(invoice, "reject_reason", None) or ""),
+            "number": (getattr(invoice, "invoice_number", None) or ""),
+        }}
     return {"existing_invoice": {
         "id": str(invoice.id),
         "status": estado,
@@ -66675,31 +67001,52 @@ def _supplier_invoice_mark_replaced(session_db, invoices, nota: str = "") -> int
     return n
 
 
-def _invoice_amount_check(expected_gross, expected_net, total, retention=0) -> tuple[bool, str]:
+def _invoice_amount_check(expected_gross, expected_net, total, retention=0, net=None,
+                          vat=None) -> tuple[bool, str]:
     """¿El importe de la factura CUADRA con lo que hay que facturar?
 
-    Se comprueba ANTES de dejar enviarla (liquidación de royalties y petición de un gasto), para que
-    no entren facturas con importes que no son. Cuadra si es lo mismo, si lo es al sumarle la
-    retención practicada (esa se la queda Hacienda) o si se facturó sin IVA (la base)."""
+    ⚠️ **LO QUE TIENE QUE COINCIDIR ES LA BASE** (y su IVA), no el total. La RETENCIÓN es la que
+    diga la factura: baja el importe a pagar, pero no cambia lo que se ha facturado ni lo que cuesta
+    el gasto (esa retención se la ingresa la casa a Hacienda). Antes se comparaba el TOTAL, así que
+    una factura con retención cuya retención no se hubiera leído bien se rechazaba con «faltan X €» y
+    el proveedor no podía enviarla (bug real).
+
+    Cuadra si: la base es la esperada · base + IVA es el bruto esperado · el total más la retención es
+    el bruto esperado · el total es el bruto esperado · o el total es la base (facturado sin IVA).
+    """
     esperado = _money_or_zero(expected_gross)
-    base = _money_or_zero(expected_net)
+    base_esperada = _money_or_zero(expected_net)
     fac = _money_or_zero(total)
     ret = _money_or_zero(retention)
-    if esperado <= 0:
+    base = _money_or_zero(net)
+    iva = _money_or_zero(vat)
+    tol = Decimal("0.01")
+    if esperado <= 0 and base_esperada <= 0:
         return True, ""                       # no sabemos qué pedir: no se puede exigir nada
-    if fac <= 0:
-        return False, ("Falta el importe total de la factura. Tiene que ser %s."
-                       % format_eur(esperado))
-    for candidato in (fac, fac + ret):
-        if abs(candidato - esperado) <= Decimal("0.01"):
+    # 1) LA BASE, que es el criterio bueno.
+    if base > 0 and base_esperada > 0 and abs(base - base_esperada) <= tol:
+        return True, ""
+    if base > 0 and esperado > 0 and abs(base + iva - esperado) <= tol:
+        return True, ""
+    if fac <= 0 and base <= 0:
+        return False, ("Falta el importe de la factura. La base tiene que ser %s (%s con el IVA)."
+                       % (format_eur(base_esperada), format_eur(esperado)))
+    # 2) Por el total: con la retención sumada (es lo que se ha facturado) o sin ella.
+    for candidato in (fac + ret, fac):
+        if esperado > 0 and abs(candidato - esperado) <= tol:
             return True, ""
-    if base > 0 and abs(fac - base) <= Decimal("0.01"):
-        return True, ""                       # facturado sin IVA
-    diferencia = esperado - fac - ret
+    # 3) Facturado sin IVA.
+    if base_esperada > 0 and abs(fac - base_esperada) <= tol:
+        return True, ""
+    # El aviso se da en términos de BASE, que es lo que se compara.
+    referencia = base if base > 0 else (fac + ret if ret > 0 else fac)
+    diferencia = (base_esperada - referencia) if base_esperada > 0 else (esperado - referencia)
+    objetivo = base_esperada if base_esperada > 0 else esperado
     return False, (
-        "El importe de la factura (%s) no coincide con lo que hay que facturar (%s): %s %s. "
-        "Corrige la factura y vuelve a subirla, o revisa el importe que has escrito."
-        % (format_eur(fac), format_eur(esperado),
+        "La base de la factura (%s) no coincide con lo que hay que facturar (%s): %s %s. "
+        "La retención, si la hay, no importa para esto: solo tiene que cuadrar la base con su IVA. "
+        "Corrige la factura y vuelve a subirla, o revisa los importes que has escrito."
+        % (format_eur(referencia), format_eur(objetivo),
            ("faltan" if diferencia > 0 else "sobran"), format_eur(abs(diferencia))))
 
 
@@ -66773,6 +67120,16 @@ def public_invoice_upload():
                             "warn": aviso})
         if doc_key != "INVOICE":
             return jsonify({"ok": False, "error": "Documento no válido"}), 400
+        # ⚠️ LO PRIMERO: ¿el enlace de la liquidación vale? Si no, no se acepta la factura por aquí.
+        # Antes se colaba por el ramal genérico y quedaba SIN VINCULAR a su liquidación: se aceptaba y
+        # no aparecía en «pendiente de liquidar», así que nadie se enteraba (bug real). Se comprueba
+        # antes que los certificados para no mandar a nadie a buscar papeles que no son el problema.
+        if (request.form.get("liq_token") or "").strip() and not _parse_public_royalty_liquidation_token(
+                (request.form.get("liq_token") or "").strip()):
+            return jsonify({"ok": False, "error": (
+                "El enlace de esta liquidación no es válido, así que no podemos aceptar la factura "
+                "por aquí: se quedaría sin vincular. Escríbenos a %s y te mandamos uno nuevo."
+                % ADMIN_INVOICE_CONTACT_EMAIL)}), 400
         payload = _billing_profile_payload(session_db, promoter)
         pending = [d for d in _billing_docs_state(session_db, promoter, payload["kind"],
                                                   worker_type=wt, issue_date=emision)
@@ -66812,11 +67169,19 @@ def public_invoice_upload():
                         _royalty_freeze(session_db, rec, _benef)
                     except Exception:
                         pass
+            if rec is None:
+                # Sin liquidación identificada la factura quedaría huérfana: no se acepta a ciegas.
+                return jsonify({"ok": False, "error": (
+                    "No hemos podido identificar la liquidación de este enlace. Escríbenos a %s "
+                    "antes de subir la factura, para que no se quede sin vincular."
+                    % ADMIN_INVOICE_CONTACT_EMAIL)}), 400
             # ⚠️ YA HAY FACTURA: no se deja subir otra encima salvo que se pida REEMPLAZARLA, y eso
             # solo mientras no esté validada (una vez validada, lo arregla administración).
             anterior = (session_db.get(SupplierInvoice, rec.invoice_id)
                         if (rec is not None and getattr(rec, "invoice_id", None)) else None)
             reemplazar = _truthy(request.form.get("replace"))
+            if (anterior is not None and (anterior.status or "").upper() == "RECHAZADA"):
+                anterior = None          # se le pidió corregirla: la nueva entra sin más
             if anterior is not None and (anterior.file_url or "").strip():
                 if (anterior.status or "").upper() == "VALIDADA":
                     return jsonify({"ok": False, "error": INVOICE_ALREADY_VALIDATED_MSG,
@@ -66824,12 +67189,18 @@ def public_invoice_upload():
                 if not reemplazar:
                     return jsonify({"ok": False, "error": INVOICE_ALREADY_UPLOADED_MSG,
                                     "already": "PENDIENTE", "can_replace": True}), 409
+            # LOS DATOS DE LA FACTURA tienen que estar: si no se pudieron leer, se escriben a mano
+            # ANTES de enviarla (el navegador ya lo pide; la última palabra la tiene el servidor).
+            _ok_datos, _falta = _invoice_required_data_check(request.form)
+            if not _ok_datos:
+                return jsonify({"ok": False, "error": _falta, "needs_data": True}), 400
             # EL IMPORTE TIENE QUE CUADRAR con lo que se le pidió facturar.
             _dinero = _invoice_amount_fields_from_form(request.form)
             _esperado = _royalty_invoice_totals(_royalty_frozen_beneficiary(rec) or {}) if rec is not None else {}
             _ok, _motivo = _invoice_amount_check(
                 _esperado.get("gross"), _esperado.get("net"),
-                _dinero.get("amount_gross"), _dinero.get("retention_amount"))
+                _dinero.get("amount_gross"), _dinero.get("retention_amount"),
+                net=_dinero.get("amount_net"), vat=_dinero.get("amount_vat"))
             if not _ok:
                 return jsonify({"ok": False, "error": _motivo,
                                 "expected": str(_money_or_zero(_esperado.get("gross")))}), 400
@@ -66874,7 +67245,9 @@ def public_invoice_upload():
             previas = (session_db.query(SupplierInvoice)
                        .filter(SupplierInvoice.invoice_request_id == bag_req.id)
                        .order_by(SupplierInvoice.created_at.desc()).all())
-            previas = [x for x in previas if (x.file_url or "").strip()]
+            # Una RECHAZADA no cuenta: se le pidió corregirla y volver a mandarla.
+            previas = [x for x in previas if (x.file_url or "").strip()
+                       and (x.status or "").upper() != "RECHAZADA"]
             if previas:
                 if any((x.status or "").upper() == "VALIDADA" for x in previas):
                     return jsonify({"ok": False, "error": INVOICE_ALREADY_VALIDATED_MSG,
@@ -66882,6 +67255,9 @@ def public_invoice_upload():
                 if not _truthy(request.form.get("replace")):
                     return jsonify({"ok": False, "error": INVOICE_ALREADY_UPLOADED_MSG,
                                     "already": "PENDIENTE", "can_replace": True}), 409
+            _ok_datos, _falta = _invoice_required_data_check(request.form)
+            if not _ok_datos:
+                return jsonify({"ok": False, "error": _falta, "needs_data": True}), 400
             # EL IMPORTE TIENE QUE CUADRAR con la suma de los conceptos que cubre esta factura.
             _dinero = _invoice_amount_fields_from_form(request.form)
             _esp_net = _esp_gross = Decimal("0")
@@ -66894,7 +67270,9 @@ def public_invoice_upload():
                 _esp_net += _imp["net"]
                 _esp_gross += _imp["gross"]
             _ok, _motivo = _invoice_amount_check(_esp_gross, _esp_net, _dinero.get("amount_gross"),
-                                                 _dinero.get("retention_amount"))
+                                                 _dinero.get("retention_amount"),
+                                                 net=_dinero.get("amount_net"),
+                                                 vat=_dinero.get("amount_vat"))
             if not _ok:
                 return jsonify({"ok": False, "error": _motivo, "expected": str(_esp_gross)}), 400
             if previas and _truthy(request.form.get("replace")):

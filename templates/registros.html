@@ -286,8 +286,18 @@
         <div class="modal-body">
           <div class="text-muted small mb-2" id="declSignedWhat"></div>
           <input type="hidden" name="next" value="{{ url_for('registros_view', tab=tab) }}">
-          <label class="form-label">PDF firmado</label>
-          <input class="form-control" type="file" name="declaration_pdf" accept="application/pdf" required>
+          <label class="form-label">Declaración de obra firmada (PDF)</label>
+          {# Se puede ARRASTRAR el documento aquí o pinchar para elegirlo (el arrastre lo resuelve el
+             file_drop.js global a través de `data-file-drop-for`). #}
+          <div class="decl-drop" id="declSignedZone" role="button" tabindex="0"
+               data-file-drop-for="#declSignedFile">
+            <i class="fa fa-file-arrow-up decl-drop__icon"></i>
+            <div class="fw-semibold">Arrastra aquí el PDF firmado</div>
+            <div class="small text-muted">o pincha para seleccionarlo</div>
+            <div class="small mt-1 fw-semibold text-success" data-decl-name></div>
+          </div>
+          <input class="form-control mt-2" type="file" name="declaration_pdf" id="declSignedFile"
+                 accept="application/pdf" required>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -339,10 +349,28 @@
   // Subir la declaración de obra firmada (un modal para todas las obras del listado).
   var declForm = document.getElementById('declSignedForm');
   if(declForm){
+    var declFile = document.getElementById('declSignedFile');
+    var declZone = document.getElementById('declSignedZone');
+    var declName = declForm.querySelector('[data-decl-name]');
+    // Pinchar la zona = elegir archivo; al soltarlo (o elegirlo) se enseña el nombre.
+    if(declZone && declFile){
+      declZone.addEventListener('click', function(){ declFile.click(); });
+      declZone.addEventListener('keydown', function(ev){
+        if(ev.key === 'Enter' || ev.key === ' '){ ev.preventDefault(); declFile.click(); }
+      });
+      declFile.addEventListener('change', function(){
+        var f = declFile.files && declFile.files[0];
+        if(declName) declName.textContent = f ? f.name : '';
+        declZone.classList.toggle('is-set', !!f);
+      });
+    }
     document.querySelectorAll('[data-decl-upload]').forEach(function(btn){
       btn.addEventListener('click', function(){
         declForm.setAttribute('action', btn.getAttribute('data-decl-url') || '');
         document.getElementById('declSignedWhat').textContent = btn.getAttribute('data-decl-title') || '';
+        if(declFile) declFile.value = '';
+        if(declName) declName.textContent = '';
+        if(declZone) declZone.classList.remove('is-set');
         bootstrap.Modal.getOrCreateInstance(document.getElementById('declSignedModal')).show();
       });
     });

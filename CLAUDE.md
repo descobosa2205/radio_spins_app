@@ -381,7 +381,9 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `_convert_audio_content_to_mp3` le apunta al binario estático de **imageio-ffmpeg** (`_ffmpeg_exe`,
   el mismo del póster de los vídeos); sin eso la exportación a MP3 falla en Render.
   · **Declaración de obra FIRMADA**: botón de icono en Pendiente SGAE (`registros_song_declaration_signed`)
-  que la sube a la misma «Declaración de obra» de la ficha y marca `Song.work_declaration_signed`.
+  que la sube a la misma «Declaración de obra» de la ficha y marca `Song.work_declaration_signed`. El
+  modal admite **arrastrar el PDF o elegirlo** (zona `.decl-drop` + `data-file-drop-for`, que resuelve
+  el `file_drop.js` global; al soltarlo se enseña el nombre del archivo).
   **Sin ella no se puede marcar el registro en SGAE de una obra publicada desde
   `SGAE_SIGNED_DECLARATION_FROM` (04-ago-2026) en adelante** (`_song_sgae_declaration_missing`, aplicado
   en los TRES caminos: `discografica_song_sgae_register`, `_notify` y `discografica_song_status_toggle`);
@@ -1934,6 +1936,32 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   está asignado se avisa en `sync_warning` en vez de tocarlo. El **concepto** lo construimos siempre
   nosotros: `dd/mm/aaaa · Origen → Destino` (fecha en formato de España). La `description` de Cabify
   **no se usa nunca**: es donde vienen los suplementos y ensucia la información.
+
+- **CHARTMETRIC · vincular canciones y álbumes** (ago 2026):
+  · ⚠️ **El ISRC se busca SIEMPRE EN SECO**: nosotros lo guardamos con guiones (ES-A2A-25-00001)
+  porque se lee mejor, pero la API busca por el código seguido y con guiones **no encuentra nada**.
+  Punto único **`chartmetric_utils.norm_isrc`** (y **`norm_code`** para el UPC/EAN de un álbum),
+  aplicado dentro de `get_track_ids_from_isrc`/`get_album_ids_from_upc`, así que no hay que acordarse
+  en cada llamada. `cm_song_reresolve` prueba además **todos** los ISRC de la canción
+  (`_current_song_isrcs`), no solo `Song.isrc`, que en muchas está vacío.
+  · **Pegar el ENLACE** cuando no lo encuentra solo: botón «Vincular» en Integraciones → Chartmetric
+  (Canciones y Álbumes) → modal con la URL de Chartmetric (`cm_link_manual`). `_cm_id_from_url` saca
+  el id de `…/track/123`, `…/album/456`, con cola de parámetros o del id a pelo, y
+  **`_cm_link_row_manual` lo comprueba contra la API antes de guardar**: un enlace mal pegado no deja
+  la ficha apuntando a otra obra. Si el enlace es de un álbum y se está vinculando una canción (o al
+  revés), se avisa y no se toca nada.
+  · **Buscador**: en el mismo modal se busca por nombre —o pegando un ISRC/UPC— con
+  `api_cm_search` (`/api/chartmetric/buscar`, JSON) → `search_tracks`/`search_albums` (`/api/search`,
+  extracción tolerante con la forma de la respuesta). Y arriba de cada lista hay un buscador que
+  filtra **nuestras** filas (`[data-cm-filter]`, las listas son de 400).
+  · **Álbumes**: ya tienen «Re-resolver» propio (`cm_album_reresolve`) por UPC y por los códigos de
+  producto de sus formatos, con `get_album`/`get_album_ids_from_upc` y
+  `_cm_album_platform_urls` (el deep link de Spotify de un disco es `/album/…`, no `/track/…`).
+  · Los endpoints `cm_*` y `api_cm_search` se mapean a la sección **`integraciones`** (a mano y por
+  prefijo) y exigen además dirección o edición en discográfica.
+  ⚠️ El modal vive **antes** del `<script>` que lo cablea: en esta plantilla el JS va dentro del
+  bloque de contenido y se ejecuta al vuelo, así que si el modal fuera después, al inicializar no
+  existiría y no se engancharía nada.
 
 - ⚠️ **Subida de archivos GRANDES (audio, vídeo, PDF) a Storage**: `storage3` solo admite `bytes`,
   `BufferedReader`/`FileIO` o una **ruta**. El stream de una subida de Flask es un

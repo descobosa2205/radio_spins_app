@@ -3538,3 +3538,12 @@ body.doccam-open { overflow: hidden; }
   border-radius:10px; padding:.32rem .55rem; font-size:.9rem; }
 .ed-split__row > span:first-child{ flex:1 1 auto; min-width:0; font-weight:600; }
 .ed-split__row .badge{ flex:0 0 auto; }
+
+/* Zona para ARRASTRAR o elegir la declaración de obra firmada (Registros → SGAE). El resaltado al
+   arrastrar por encima lo pone `file_drop.js` (.file-drop-hover). */
+.decl-drop{ border:2px dashed #ced4da; border-radius:14px; padding:1.1rem .9rem; text-align:center;
+  background:#f8f9fa; cursor:pointer; transition:border-color .15s, background-color .15s; }
+.decl-drop:hover{ border-color:var(--brand-primary,#E33D48); background:#fff; }
+.decl-drop__icon{ display:block; font-size:1.6rem; color:#adb5bd; margin-bottom:.35rem; }
+.decl-drop.is-set{ border-color:#198754; background:#f6fff9; }
+.decl-drop.is-set .decl-drop__icon{ color:#198754; }

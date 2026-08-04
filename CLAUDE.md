@@ -828,6 +828,28 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (`_concert_needs_production_owner` + `_production_people`, modal `#prodOwnerModal` que se abre solo si
   está confirmada y sin responsable). Se guarda con `concert_production_owner_save` y se ve en la
   cabecera de la ficha.
+  · **ACTIVAR LA PRODUCCIÓN es de quien crea la actividad** (ago 2026): activar = decir QUIÉN de
+  producción se encarga. `Concert.created_by_user_id`/`created_by_nick` (los rellenan los tres sitios
+  donde se crea un `Concert`) + `production_activated_at`. Mientras no haya responsable, la actividad
+  le sale a quien la creó en el módulo de Inicio **«Activar la producción»**
+  (`_home_production_activation_pending`: dice «Activar producción», o **«Asignar producción»** si ya
+  tiene bolsa —la producción estaba en marcha sin responsable—; dirección ve además las antiguas, que
+  no tienen creador apuntado). En la ficha hay botón **«Activar producción»** en la cabecera siempre
+  que haga falta (`_concert_production_pending`); el modal se abre SOLO en los casos de antes
+  (`ask_production_owner`).
+
+- **Producción → ACTIVAS por sujeto** (ago 2026, `_production_active_rows` + `_production_active_context`):
+  igual que la sección Actividades — rejilla de **artistas y eventos** con su nº y, al entrar, sus
+  actividades con la fila `.oa-row` y el **icono de su tipo**. **Cada persona de producción ve SOLO lo
+  que se le ha asignado** (`production_owner_user_id`); dirección y quien no es de producción lo ven
+  todo. Lo que **no tiene responsable** no es de nadie: sale en su bloque «Sin responsable» (para que
+  no se pierda) y es tarea de quien la creó. **«Nueva actividad»**: se compara `created_at` con
+  `UserProfile.production_seen_at`, que se marca al mirar la REJILLA (no al entrar en un artista, para
+  que el destacado siga estando donde hay que verlo).
+  ⚠️ Dos trampas reales de esto: `production_seen_at` hay que añadirlo a **`_snapshot_user_profile`**
+  (lo que no esté ahí es invisible desde `_current_user_state`) y **quién es dirección se decide con
+  `estado["role"]`**, no con `is_master()`: ese lee el rol de la SESIÓN y sin él cae a 10, con lo que
+  producción vería todo.
 
 - **Documentos CADUCADOS: aviso automático y renovación por enlace** (`PersonDocRequest`): un cron
   diario (`/cron/documentos-caducados?key=DOCS_CRON_KEY`, acepta también la de gastos/Chartmetric)

@@ -1317,6 +1317,12 @@ class Concert(Base):
     # comprada promovida por una empresa del grupo hay que decir A QUIÉN de producción le toca, para
     # que le aparezca. Se pregunta al confirmar la actividad.
     production_owner_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    # Cuándo se ACTIVÓ la producción (se asignó a alguien). Sin responsable, la actividad le sale
+    # como tarea pendiente a quien la creó: nadie está produciéndola.
+    production_activated_at = Column(DateTime(timezone=True))
+    # QUIÉN creó la actividad: es a quien le toca activar la producción.
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
 
     # nombre interno / festival
     festival_name = Column(Text)
@@ -2594,6 +2600,8 @@ class UserProfile(Base):
     # ORDEN DEL MENÚ elegido por la persona (lista de claves de sección, arrastrando). Vacío = el
     # orden automático por uso.
     menu_order = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # Última vez que esta persona entró en Producción → Activas (para marcar «Nueva actividad»).
+    production_seen_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -5665,6 +5673,10 @@ def ensure_artist_feature_schema():
         # Responsable de producción de la actividad (eventos y fechas de gira sin artista de la casa).
         "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS production_owner_user_id uuid REFERENCES users(id) ON DELETE SET NULL;",
         "CREATE INDEX IF NOT EXISTS ix_concerts_production_owner ON concerts (production_owner_user_id);",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS production_activated_at timestamptz;",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL;",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS created_by_nick text;",
+        "CREATE INDEX IF NOT EXISTS ix_concerts_created_by ON concerts (created_by_user_id);",
         # Contenedor de EVENTO (categoría «Eventos» de Contratación): de qué evento sale.
         "ALTER TABLE IF EXISTS cycle_festivals ADD COLUMN IF NOT EXISTS event_id uuid REFERENCES app_events(id) ON DELETE SET NULL;",
         "CREATE INDEX IF NOT EXISTS ix_cycle_festivals_event ON cycle_festivals (event_id);",
@@ -6760,6 +6772,7 @@ def ensure_third_party_and_contract_sheet_schema():
         # Reparto de las tareas de ADMINISTRACIÓN por persona (liquidar bolsas, pagos, ITAs…).
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS admin_responsibilities jsonb NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS menu_order jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS production_seen_at timestamptz;",
         # Tipo de trabajador a efectos de PRL (autónomo / alta puntual / empresa fija).
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS prl_type text;",
         # Documentación de alta y PRL (personas y empresas del grupo) + peticiones de subida.

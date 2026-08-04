@@ -22,6 +22,12 @@
       {% if location_summary %}<span><i class="fa fa-location-dot"></i>{{ location_summary }}</span>{% endif %}
       {% if concert.festival_name %}<span><i class="fa fa-star"></i>{{ concert.festival_name }}</span>{% endif %}
       {% if production_owner_name %}<span title="Responsable de producción"><i class="fa fa-user-gear"></i>{{ production_owner_name }}</span>{% endif %}
+      {% if needs_production_owner and CAN_EDIT_CONCERTS %}
+        {# ACTIVAR LA PRODUCCIÓN: quien crea la actividad tiene que decir quién se encarga. #}
+        <button type="button" class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#prodOwnerModal">
+          <i class="fa fa-user-gear me-1"></i>Activar producción
+        </button>
+      {% endif %}
     </div>
     {% if (concert.tags_clean or concert.hashtags or []) %}
       <div class="mt-2 d-flex flex-wrap gap-1">
@@ -2903,8 +2909,10 @@ document.addEventListener('DOMContentLoaded', function(){
         .then(function (j) { if (j && j.ok) window.location.reload(); else { b.disabled = false; alert((j && j.error) || 'No se pudo guardar.'); } });
     });
   });
-  // Ya está confirmada y nadie la lleva: se pregunta al entrar.
-  if (SIN_RESP && CONFIRMADO) setTimeout(abrir, 400);
+  // Ya está confirmada y nadie la lleva: se pregunta al entrar (solo donde antes ya se hacía; en el
+  // resto está el botón «Activar producción» de la cabecera).
+  var PREGUNTAR = {{ (ask_production_owner or False)|tojson }};
+  if (SIN_RESP && CONFIRMADO && PREGUNTAR) setTimeout(abrir, 400);
   // Y justo al confirmarla desde la etiqueta de estado.
   document.addEventListener('concert:status-changed', function (ev) {
     if (ev.detail && ev.detail.needs_production_owner) abrir();

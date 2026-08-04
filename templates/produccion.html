@@ -139,19 +139,103 @@
     {% endfor %}
   </div>
 {% elif tab == 'activas' %}
-  <div class="d-flex justify-content-between align-items-center mb-3">
+  {# ACTIVAS igual que la sección Actividades: primero DE QUIÉN es (artistas y eventos con su nº) y
+     al entrar sus actividades, con el icono de su tipo. Cada persona de producción ve solo lo que se
+     le ha asignado. #}
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
     <div>
       <div class="production-section-title">Actividades activas</div>
-      <div class="text-muted small">Permanecen activas hasta que se cierre su bolsa.</div>
+      <div class="text-muted small">
+        {% if activas and activas.only_mine %}Las que se te han asignado.{% else %}Permanecen activas hasta que se cierre su bolsa.{% endif %}
+      </div>
     </div>
   </div>
-  <div id="productionRowsWrap">
-    {% for row in active_rows %}
-      {{ activity_row(row, False) }}
+
+  {# SIN RESPONSABLE: no son de nadie todavía. Se enseñan para que no se pierdan; la tarea de
+     activarlas la tiene quien creó la actividad. #}
+  {% if activas and activas.unassigned %}
+    <div class="alert alert-warning d-flex flex-wrap align-items-center gap-2">
+      <div class="flex-grow-1 small">
+        <i class="fa fa-user-slash me-1"></i><strong>{{ activas.unassigned|length }}</strong>
+        actividad{{ '' if activas.unassigned|length == 1 else 'es' }} sin responsable de producción:
+        quien las creó tiene que activar la producción.
+      </div>
+    </div>
+    <div class="card mb-3"><div class="card-body p-0">
+      {% for a in activas.unassigned %}
+        <a href="{{ a.url }}" class="oa-row text-decoration-none text-reset">
+          <span class="oa-row__icon" title="{{ a.type_label }}"><i class="fa {{ a.icon }}"></i></span>
+          <span class="oa-row__body">
+            <span class="oa-row__top">
+              <span class="oa-row__title">{{ a.subject_name }} · {{ a.title }}</span>
+              {% if a.municipality %}<span class="oa-row__sep">·</span><span class="oa-row__place">{{ a.municipality }}</span>{% endif %}
+            </span>
+            <span class="oa-row__sub">{{ a.date_label }} · {{ a.venue }}</span>
+          </span>
+          <span class="badge text-bg-warning text-dark">Sin responsable</span>
+        </a>
+      {% endfor %}
+    </div></div>
+  {% endif %}
+
+  {% if activas and not activas.subject %}
+    {% if activas.subjects %}
+      <div class="row g-3">
+        {% for g in activas.subjects %}
+          <div class="col-6 col-md-4 col-lg-3 col-xl-2">
+            <a href="{{ g.url }}" class="card h-100 text-decoration-none text-reset text-center position-relative">
+              {% if g.new_count %}
+                <span class="badge text-bg-danger position-absolute" style="top:.5rem;right:.5rem;">Nueva actividad</span>
+              {% endif %}
+              <div class="card-body">
+                <img src="{{ g.photo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"
+                     style="width:84px;height:84px;border-radius:50%;object-fit:cover;margin-bottom:.5rem;">
+                <div class="fw-semibold text-truncate">{{ g.name }}</div>
+                <div class="small text-muted">
+                  <span class="badge text-bg-light border"><i class="fa fa-shapes me-1"></i>{{ g.count }} actividad{{ '' if g.count == 1 else 'es' }}</span>
+                  {% if g.kind == 'event' %}<div class="mt-1"><span class="badge text-bg-light border">Evento</span></div>{% endif %}
+                </div>
+              </div>
+            </a>
+          </div>
+        {% endfor %}
+      </div>
     {% else %}
-      <div class="alert alert-light border">No hay actividades activas con estos filtros.</div>
-    {% endfor %}
-  </div>
+      <div class="alert alert-light border">
+        {% if activas.only_mine %}No tienes actividades de producción asignadas.{% else %}No hay actividades activas.{% endif %}
+      </div>
+    {% endif %}
+  {% elif activas %}
+    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('produccion_view', tab='activas') }}"><i class="fa fa-arrow-left me-1"></i>Volver</a>
+      <h5 class="mb-0 me-2 d-flex align-items-center gap-2">
+        <img src="{{ activas.subject.photo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"
+             style="width:34px;height:34px;border-radius:50%;object-fit:cover;">
+        {{ activas.subject.name }}
+      </h5>
+      <span class="badge text-bg-light border">{{ activas.rows|length }}</span>
+    </div>
+    <div class="card"><div class="card-body p-0">
+      {% for a in activas.rows %}
+        <a href="{{ a.url }}" class="oa-row text-decoration-none text-reset">
+          <span class="oa-row__icon" title="{{ a.type_label }}"><i class="fa {{ a.icon }}"></i></span>
+          <span class="oa-row__body">
+            <span class="oa-row__top">
+              <span class="oa-row__title">{{ a.title }}</span>
+              {% if a.is_new %}<span class="badge text-bg-danger">Nueva actividad</span>{% endif %}
+              {% if a.municipality %}<span class="oa-row__sep">·</span><span class="oa-row__place">{{ a.municipality }}</span>{% endif %}
+              {% if a.province and a.province != a.municipality %}<span class="oa-row__sep">·</span><span class="oa-row__place">{{ a.province }}</span>{% endif %}
+            </span>
+            <span class="oa-row__sub">{{ a.date_label }} · {{ a.venue }}</span>
+          </span>
+          {% if a.has_bag %}<span class="badge text-bg-light border" title="Ya tiene bolsa de gastos"><i class="fa fa-sack-dollar"></i></span>{% endif %}
+          <span class="badge {{ a.status_badge }}">{{ a.status_label }}</span>
+        </a>
+      {% else %}
+        <div class="p-4 text-muted">No hay actividades activas de {{ activas.subject.name }}.</div>
+      {% endfor %}
+    </div></div>
+  {% endif %}
 {% else %}
   <div class="d-flex justify-content-between align-items-center mb-3">
     <div>

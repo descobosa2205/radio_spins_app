@@ -28736,13 +28736,21 @@ def concert_detail_view(cid):
             _gk, _gid = _concert_group_ref(c)
             if _gk and _gid:
                 grupo_art = _artwork_group_context(session, _gk, _gid)
-        # Responsable de producción: en eventos y fechas sin artista de la casa hay que elegirlo al
-        # confirmar (si no, nadie de producción lo ve como suyo).
+        # ACTIVAR LA PRODUCCIÓN = decir QUIÉN de producción se encarga. Hace falta en TODA actividad
+        # que va a producción y no tiene responsable: mientras no lo tenga, nadie la está
+        # produciendo y le sale como tarea pendiente a quien la creó.
         needs_prod_owner = False
         try:
-            needs_prod_owner = _concert_needs_production_owner(session, c)
+            needs_prod_owner = _concert_production_pending(c)
         except Exception:
             needs_prod_owner = False
+        # Se pregunta SOLA (al entrar o al confirmar) en los casos en los que antes ya se hacía;
+        # en el resto se activa con el botón de la cabecera.
+        ask_prod_owner = False
+        try:
+            ask_prod_owner = needs_prod_owner and _concert_needs_production_owner(session, c)
+        except Exception:
+            ask_prod_owner = False
         break_even_info = None
         if tab == "resultado":
             try:
@@ -28848,6 +28856,7 @@ def concert_detail_view(cid):
             roadmap_ctx=roadmap_ctx,
             break_even_info=break_even_info,
             needs_production_owner=needs_prod_owner,
+            ask_production_owner=ask_prod_owner,
             production_people=(_production_people(session) if needs_prod_owner else []),
             production_owner_name=_concert_production_owner_name(session, c),
             **grupo_art,
@@ -29328,6 +29337,8 @@ def concert_production_owner_save(cid):
             return jsonify({"ok": False, "error": "Sin permiso."}), 403
         uid = to_uuid((request.form.get("user_id") or "").strip() or "")
         c.production_owner_user_id = uid
+        # Se apunta CUÁNDO se activó la producción: con responsable, ya hay alguien produciéndola.
+        c.production_activated_at = (_now_madrid() if uid else None)
         session_db.commit()
         nombre = _concert_production_owner_name(session_db, c)
         if request.headers.get("X-Requested-With") == "XMLHttpRequest":
@@ -36436,6 +36447,9 @@ def _simulation_dump_activity(session, sim, act, *, sale_type, group_name=None,
     capacity = sum(int(t["qty_for_sale"] or 0) for t in tickets)
     venue = act.venue if not act.venue_unknown else None
     concert = Concert(
+        # QUIÉN la crea: es quien tiene que activar la producción.
+        created_by_user_id=to_uuid(session.get('user_id') or '') or None,
+        created_by_nick=((_current_user_state() or {}).get('nick') or None),
         date=act.event_date,
         festival_name=(label or group_name or None),
         venue_id=(venue.id if venue else None),
@@ -36744,6 +36758,9 @@ def concert_wizard_create():
             if not promoter_email:
                 raise ValueError('Debes indicar el email del promotor.')
             concert = Concert(
+                # QUIÉN la crea: es quien tiene que activar la producción.
+                created_by_user_id=to_uuid(session.get('user_id') or '') or None,
+                created_by_nick=((_current_user_state() or {}).get('nick') or None),
                 date=event_date,
                 festival_name=festival_name,
                 venue_id=venue_id,
@@ -36902,6 +36919,9 @@ def concert_wizard_create():
         initial_status = _norm_status(request.form.get('status'))
 
         concert = Concert(
+            # QUIÉN la crea: es quien tiene que activar la producción.
+            created_by_user_id=to_uuid(session.get('user_id') or '') or None,
+            created_by_nick=((_current_user_state() or {}).get('nick') or None),
             date=event_date,
             festival_name=festival_name,
             venue_id=venue_id,
@@ -44962,6 +44982,7 @@ def _snapshot_user_profile(profile: UserProfile | None) -> SimpleNamespace | Non
         # plantillas: es un SimpleNamespace, no el objeto del ORM.
         admin_responsibilities=list(getattr(profile, "admin_responsibilities", None) or []),
         menu_order=[str(x) for x in (getattr(profile, "menu_order", None) or [])],
+        production_seen_at=getattr(profile, "production_seen_at", None),
         legacy_permissions_seeded=bool(getattr(profile, "legacy_permissions_seeded", False)),
     )
 
@@ -46042,6 +46063,11 @@ def inject_personnel_globals():
         "HOME_PROMO_ALERTS": (_home_promo_alerts()
                               if request.endpoint == "home" and session.get("user_id")
                               and "_home_promo_alerts" in globals() else []),
+        # ACTIVAR LA PRODUCCIÓN: actividades que creó esta persona y todavía no tienen a nadie de
+        # producción. Mientras no lo tengan, nadie las está produciendo.
+        "HOME_PRODUCTION_ACTIVATION": (_home_production_activation_wrap()
+                                       if request.endpoint == "home" and session.get("user_id")
+                                       and "_home_production_activation_wrap" in globals() else []),
         # Carteles que subió esta persona y diseño ha rechazado (con la nota de qué cambiar).
         "HOME_ARTWORK_REJECTED": (_home_artwork_rejected()
                                   if request.endpoint == "home" and session.get("user_id")
@@ -53177,12 +53203,18 @@ def produccion_view():
             "activas": len(active_rows),
             "archivadas": len(archived_rows),
         }
+        # ACTIVAS: por SUJETO (artista o evento) y, al entrar, sus actividades con la estética de la
+        # sección Actividades. Cada persona de producción ve solo lo suyo.
+        activas = _production_active_context(session_db) if tab == "activas" else None
+        if activas is not None:
+            counts["activas"] = activas["total"]
         return render_template(
             "produccion.html",
             tab=tab,
             counts=counts,
             requests=request_rows,
             active_rows=active_rows,
+            activas=activas,
             archived_rows=archived_rows,
             archived_groups=archived_groups,
             artists=artists,
@@ -53193,6 +53225,16 @@ def produccion_view():
             filter_activity_type=f_type,
         )
     finally:
+        # ⚠️ Se marca DESPUÉS de renderizar: si se hiciera antes, el destacado «Nueva actividad»
+        # nunca se vería (la propia visita lo borraría).
+        # Se marca «visto» solo en la REJILLA (sin artista concreto): así, al entrar en un artista, el
+        # destacado de lo nuevo sigue estando donde hace falta verlo.
+        if ((request.args.get("tab") or "").strip().lower() == "activas"
+                and not (request.args.get("artist") or request.args.get("event"))):
+            try:
+                _production_mark_seen(session_db)
+            except Exception:
+                pass
         session_db.close()
 
 
@@ -58724,6 +58766,79 @@ def _production_people(session_db) -> list:
     return salida
 
 
+def _concert_production_pending(concert) -> bool:
+    """¿Esta actividad está SIN PRODUCCIÓN ACTIVADA?
+
+    Activar la producción = decir QUIÉN de producción se encarga. Mientras no haya responsable no hay
+    nadie produciéndola, así que le sale como tarea pendiente a quien la creó."""
+    if concert is None:
+        return False
+    if getattr(concert, "production_owner_user_id", None):
+        return False
+    return bool(_concert_needs_production(concert))
+
+
+def _home_production_activation_pending(session_db, user_id, *, limit: int = 40) -> list[dict]:
+    """Actividades a las que hay que ACTIVAR LA PRODUCCIÓN, para quien las creó.
+
+    · Sin bolsa todavía → «Activar producción» (elegir quién se encarga).
+    · Con bolsa (la producción ya estaba en marcha) pero sin responsable → «Asignar producción».
+    Dirección ve además las antiguas, que no tienen creador apuntado (nadie las reclamaría)."""
+    uid = to_uuid(str(user_id or ""))
+    if not uid:
+        return []
+    hoy = today_local()
+    consulta = (session_db.query(Concert)
+                .options(joinedload(Concert.artist), joinedload(Concert.venue))
+                .filter(Concert.production_owner_user_id.is_(None),
+                        Concert.status.in_(["HABLADO", "RESERVADO", "CONFIRMADO"]),
+                        or_(Concert.date.is_(None), Concert.date >= hoy)))
+    if is_master():
+        consulta = consulta.filter(or_(Concert.created_by_user_id == uid,
+                                       Concert.created_by_user_id.is_(None)))
+    else:
+        consulta = consulta.filter(Concert.created_by_user_id == uid)
+    filas = []
+    for c in consulta.order_by(Concert.date.asc().nullslast()).limit(200).all():
+        if not _concert_needs_production(c, session_db):
+            continue
+        tiene_bolsa = bool(session_db.query(WorkflowBag.id)
+                           .filter(WorkflowBag.linked_type.in_(("CONCERT", "concert")),
+                                   WorkflowBag.linked_id == c.id).first())
+        kind = _activity_kind_key(c.activity_type) or "CONCIERTO"
+        filas.append({
+            "id": str(c.id),
+            "url": url_for("concert_detail_view", cid=c.id),
+            "icon": QUAD_ACTIVITY_ICONS.get(kind, "fa-guitar"),
+            "type_label": _activity_kind_label(kind),
+            "title": ((c.festival_name or "").strip()
+                      or (c.artist.name if c.artist else "") or _activity_kind_label(kind)),
+            "date_label": (c.date.strftime("%d/%m/%Y") if c.date else "Sin fecha"),
+            "venue": (_concert_venue_name(c) or ""),
+            "municipality": _concert_city(c),
+            # Con bolsa ya se estaba produciendo: lo que falta es DECIR QUIÉN.
+            "action_label": ("Asignar producción" if tiene_bolsa else "Activar producción"),
+            "started": tiene_bolsa,
+        })
+        if len(filas) >= limit:
+            break
+    return filas
+
+
+def _home_production_activation_wrap() -> list[dict]:
+    """Envoltorio para el contexto de plantillas: abre su sesión y cierra siempre."""
+    uid = (_current_user_state() or {}).get("user_id")
+    if not uid:
+        return []
+    session_db = db()
+    try:
+        return _home_production_activation_pending(session_db, uid)
+    except Exception:
+        return []
+    finally:
+        session_db.close()
+
+
 def _concert_production_owner_name(session_db, concert) -> str:
     uid = getattr(concert, "production_owner_user_id", None)
     if not uid:
@@ -59110,6 +59225,145 @@ def _production_concert_row(session_db, concert):
         "status": getattr(concert, "status", None) or "",
         "detail_url": url_for("concert_detail_view", cid=concert.id, tab="produccion"),
     }
+
+
+def _production_active_rows(session_db) -> list[dict]:
+    """ACTIVAS de producción, en el mismo formato que la sección Actividades.
+
+    Una fila por actividad, con el icono de SU TIPO, el sujeto (artista o evento), la fecha, el
+    recinto y quién la produce. Es lo que se agrupa por artista en la pestaña «Activas»."""
+    hoy = today_local()
+    filas = []
+    eventos = {}
+    conciertos = (session_db.query(Concert)
+                  .options(joinedload(Concert.artist), joinedload(Concert.venue))
+                  .filter(Concert.status.in_(["RESERVADO", "CONFIRMADO"]))
+                  .order_by(Concert.date.asc().nullslast())
+                  .limit(600).all())
+    ids = [c.id for c in conciertos]
+    con_bolsa = set()
+    if ids:
+        try:
+            con_bolsa = {r[0] for r in session_db.query(WorkflowBag.linked_id).filter(
+                WorkflowBag.linked_type.in_(("CONCERT", "concert")),
+                WorkflowBag.linked_id.in_(ids)).all()}
+        except Exception:
+            con_bolsa = set()
+    ev_ids = [c.event_id for c in conciertos if getattr(c, "event_id", None)]
+    if ev_ids:
+        eventos = {str(e.id): e for e in session_db.query(AppEvent).filter(AppEvent.id.in_(ev_ids)).all()}
+    duenos = {}
+    dueno_ids = [c.production_owner_user_id for c in conciertos if getattr(c, "production_owner_user_id", None)]
+    if dueno_ids:
+        for u, prof in (session_db.query(User, UserProfile)
+                        .join(UserProfile, UserProfile.user_id == User.id)
+                        .filter(User.id.in_(dueno_ids)).all()):
+            duenos[str(u.id)] = (prof.nick or u.email or "").strip()
+    for c in conciertos:
+        # Lo que ya se está trabajando (tiene bolsa) se conserva aunque hoy no cumpla el criterio.
+        if not (_concert_needs_production(c, session_db) or c.id in con_bolsa):
+            continue
+        # Lo pasado sin bolsa no es trabajo activo.
+        if c.date and c.date < hoy and c.id not in con_bolsa:
+            continue
+        kind = _activity_kind_key(c.activity_type) or "CONCIERTO"
+        if getattr(c, "event_id", None):
+            ev = eventos.get(str(c.event_id))
+            sujeto = ("event", str(c.event_id), (getattr(ev, "name", "") or "Evento"),
+                      (getattr(ev, "logo_url", "") or ""))
+        else:
+            art = getattr(c, "artist", None)
+            sujeto = ("artist", (str(c.artist_id) if c.artist_id else ""),
+                      (getattr(art, "name", "") or "Sin artista"),
+                      (getattr(art, "photo_url", "") or ""))
+        etiqueta, clase = _concert_status_meta(c.status)
+        oid = str(getattr(c, "production_owner_user_id", "") or "")
+        filas.append({
+            "id": str(c.id),
+            "url": url_for("concert_detail_view", cid=c.id, tab="produccion"),
+            "subject_kind": sujeto[0], "subject_id": sujeto[1],
+            "subject_name": sujeto[2], "subject_photo": sujeto[3],
+            "icon": QUAD_ACTIVITY_ICONS.get(kind, "fa-guitar"),
+            "type_label": _activity_kind_label(kind),
+            "title": ((c.festival_name or "").strip() or _activity_kind_label(kind)),
+            "date": c.date,
+            "date_label": (c.date.strftime("%d/%m/%Y") if c.date else "Sin fecha"),
+            "venue": (_concert_venue_name(c) or "Sin recinto"),
+            "municipality": _concert_city(c), "province": _concert_province_value(c),
+            "status_label": etiqueta, "status_badge": clase,
+            "owner_id": oid, "owner_name": duenos.get(oid, ""),
+            "created_at": getattr(c, "created_at", None),
+            "has_bag": c.id in con_bolsa,
+        })
+    filas.sort(key=lambda f: (f["date"] or date.max))
+    return filas
+
+
+def _production_active_context(session_db) -> dict:
+    """La pestaña «Activas» de Producción: rejilla por SUJETO y, al entrar, sus actividades.
+
+    Cada persona de producción ve **solo lo que se le ha asignado**; dirección (y quien no es de
+    producción) lo ve todo. Lo que NO tiene responsable no es de nadie: sale aparte, para que no se
+    pierda, y le aparece como tarea pendiente a quien creó la actividad."""
+    estado = _current_user_state() or {}
+    uid = str(estado.get("user_id") or "")
+    deps = [str(d).strip().lower() for d in (getattr(estado.get("profile"), "departments", None) or [])]
+    # ⚠️ Dirección se decide por el ROL DE LA BD (`estado["role"]`), no con `is_master()`: ese lee el
+    # rol de la SESIÓN y sin él cae a dirección, con lo que producción vería todo.
+    es_direccion = int(estado.get("role") or 0) == 10
+    soy_produccion = ("producción" in deps or "produccion" in deps) and not es_direccion
+    filas = _production_active_rows(session_db)
+    sin_dueno = [f for f in filas if not f["owner_id"]]
+    if soy_produccion:
+        filas = [f for f in filas if f["owner_id"] == uid]
+    # NUEVAS desde la última vez que entró.
+    visto = getattr(estado.get("profile"), "production_seen_at", None)
+    for f in filas:
+        f["is_new"] = bool(visto and f["created_at"] and f["created_at"] > visto)
+    grupos = {}
+    for f in filas:
+        clave = (f["subject_kind"], f["subject_id"])
+        g = grupos.setdefault(clave, {"kind": f["subject_kind"], "id": f["subject_id"],
+                                      "name": f["subject_name"], "photo_url": f["subject_photo"],
+                                      "count": 0, "new_count": 0})
+        g["count"] += 1
+        if f.get("is_new"):
+            g["new_count"] += 1
+    sujetos = sorted(grupos.values(), key=lambda g: (g["name"] or "").lower())
+    drill_art = (request.args.get("artist") or "").strip()
+    drill_ev = (request.args.get("event") or "").strip()
+    sujeto = None
+    if drill_ev:
+        filas = [f for f in filas if f["subject_kind"] == "event" and f["subject_id"] == drill_ev]
+        sujeto = next((g for g in sujetos if g["kind"] == "event" and g["id"] == drill_ev), None)
+    elif drill_art:
+        filas = [f for f in filas if f["subject_kind"] == "artist" and f["subject_id"] == drill_art]
+        sujeto = next((g for g in sujetos if g["kind"] == "artist" and g["id"] == drill_art), None)
+    for g in sujetos:
+        g["url"] = url_for("produccion_view", tab="activas",
+                           **({"event": g["id"]} if g["kind"] == "event" else {"artist": g["id"]}))
+    return {
+        "subjects": sujetos,
+        "rows": filas,
+        "subject": sujeto,
+        "unassigned": ([] if soy_produccion else sin_dueno),
+        "only_mine": soy_produccion,
+        "total": sum(g["count"] for g in sujetos),
+    }
+
+
+def _production_mark_seen(session_db) -> None:
+    """Apunta que esta persona ya ha visto sus Activas (para el destacado «Nueva actividad»)."""
+    uid = to_uuid(str((_current_user_state() or {}).get("user_id") or ""))
+    if not uid:
+        return
+    try:
+        perfil = session_db.query(UserProfile).filter(UserProfile.user_id == uid).first()
+        if perfil is not None:
+            perfil.production_seen_at = _now_madrid()
+            session_db.commit()
+    except Exception:
+        session_db.rollback()
 
 
 def _norm_action_status(status):

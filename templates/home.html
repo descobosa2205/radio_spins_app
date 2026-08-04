@@ -70,6 +70,37 @@ document.addEventListener('click', function (ev) {
    acciones rápidas. Solo si hay contexto (wizard_available). #}
 {% if wizard_available %}{% include '_concert_wizard_modal.html' %}{% endif %}
 
+{# ACTIVAR LA PRODUCCIÓN de las actividades que ha creado esta persona: mientras no digan quién de
+   producción se encarga, nadie las está produciendo. #}
+{% if HOME_PRODUCTION_ACTIVATION %}
+<div class="card mb-4 border-danger">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <div>
+        <h5 class="mb-0"><i class="fa fa-user-gear text-danger me-2"></i>Activar la producción</h5>
+        <div class="text-muted small">Actividades tuyas que todavía no tienen a nadie de producción.</div>
+      </div>
+      <span class="badge text-bg-danger">{{ HOME_PRODUCTION_ACTIVATION|length }}</span>
+    </div>
+    <div class="list-group list-group-flush">
+      {% for a in HOME_PRODUCTION_ACTIVATION %}
+        <a href="{{ a.url }}" class="oa-row text-decoration-none text-reset">
+          <span class="oa-row__icon" title="{{ a.type_label }}"><i class="fa {{ a.icon }}"></i></span>
+          <span class="oa-row__body">
+            <span class="oa-row__top">
+              <span class="oa-row__title">{{ a.title }}</span>
+              {% if a.municipality %}<span class="oa-row__sep">·</span><span class="oa-row__place">{{ a.municipality }}</span>{% endif %}
+            </span>
+            <span class="oa-row__sub">{{ a.date_label }}{% if a.venue %} · {{ a.venue }}{% endif %}</span>
+          </span>
+          <span class="badge text-bg-danger">{{ a.action_label }}</span>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {# Tareas de administración que le tocan a esta persona: las de sus responsabilidades, más las que
    no tienen responsable asignado (nada se pierde). Quien no tenga reparto propio las ve todas. #}
 {% if HOME_ADMIN_PENDING %}

@@ -5987,6 +5987,61 @@ def _artist_editorial_split(session_db, artist_id, *, as_of=None, material_date=
     }
 
 
+def _promoter_member_artist_ids(session_db, promoter_id) -> list[str]:
+    """De qué ARTISTAS es INTEGRANTE este tercero (`ArtistPerson.promoter_id`).
+
+    Un autor de una canción casi nunca es «el artista»: es una persona que forma parte de él (el
+    cantante del grupo, el guitarrista). El contrato se firma con el ARTISTA, así que para saber qué
+    contrato le toca a un autor hay que subir del integrante a su artista."""
+    pid = to_uuid(str(promoter_id or ""))
+    if not pid:
+        return []
+    cache = getattr(g, "_member_artist_cache", None)
+    if cache is None:
+        cache = {}
+        try:
+            g._member_artist_cache = cache
+        except Exception:
+            pass
+    clave = str(pid)
+    if clave in cache:
+        return cache[clave]
+    try:
+        filas = (session_db.query(ArtistPerson.artist_id)
+                 .filter(ArtistPerson.promoter_id == pid).all())
+        salida = [str(x[0]) for x in filas if x and x[0]]
+    except Exception:
+        salida = []
+    cache[clave] = salida
+    return salida
+
+
+def _editorial_split_for_author(session_db, song, share, *, as_of=None, material_date=None) -> dict:
+    """El reparto editorial que le toca a ESTE autor.
+
+    ⚠️ El contrato se configura con el **ARTISTA**, y los autores son sus **INTEGRANTES**: por eso se
+    busca el contrato del artista del que el autor forma parte (`ArtistPerson`). Si el autor está en
+    varios artistas se prefiere el de la propia canción; y si no es integrante de ninguno, se cae al
+    artista principal de la canción (el caso de un solista que figura como autor de su propia obra).
+    Antes se usaba SIEMPRE el artista de la canción, así que a los integrantes no se les detectaba el
+    contrato (bug real)."""
+    principal = _song_primary_artist(session_db, song)
+    pid_principal = str(getattr(principal, "id", "") or "")
+    candidatos = []
+    del_autor = _promoter_member_artist_ids(session_db, getattr(share, "promoter_id", None))
+    if pid_principal and pid_principal in del_autor:
+        candidatos.append(pid_principal)          # es integrante del artista de la canción
+    candidatos.extend([x for x in del_autor if x != pid_principal])
+    if pid_principal and pid_principal not in candidatos:
+        candidatos.append(pid_principal)          # último recurso: el artista de la canción
+    for aid in candidatos:
+        info = _artist_editorial_split(session_db, aid, as_of=as_of, material_date=material_date)
+        if info["found"]:
+            return info
+    return {"found": False, "pct_author": None, "pct_platform": None,
+            "contract_name": "", "signed_date": None}
+
+
 def _song_editorial_split_map(session_db, song, shares=None, status=None) -> dict:
     """Cómo se reparte la parte de CADA autor de Plataforma, por id de registro de autoría.
 
@@ -6005,14 +6060,14 @@ def _song_editorial_split_map(session_db, song, shares=None, status=None) -> dic
             .all()
         )
     reg_date = _song_registration_date(session_db, song, status=status)
-    artist = _song_primary_artist(session_db, song)
-    contrato = _artist_editorial_split(
-        session_db, getattr(artist, "id", None),
-        as_of=reg_date, material_date=getattr(song, "release_date", None))
     salida = {}
     for share in shares or []:
         if not _publisher_is_platform(_share_publisher(share)):
             continue
+        # El contrato es del ARTISTA del que este autor es INTEGRANTE (no el de la canción a secas).
+        contrato = _editorial_split_for_author(
+            session_db, song, share,
+            as_of=reg_date, material_date=getattr(song, "release_date", None))
         pct = float(getattr(share, "pct", 0) or 0)
         autor = plataforma = None
         fuente = "none"
@@ -6068,18 +6123,18 @@ def _freeze_song_editorial_split(session_db, song, shares=None) -> None:
             .filter(SongEditorialShare.song_id == song.id)
             .all()
         )
-    artist = _song_primary_artist(session_db, song)
-    contrato = _artist_editorial_split(
-        session_db, getattr(artist, "id", None),
-        as_of=today_local(), material_date=getattr(song, "release_date", None))
-    if not contrato["found"]:
-        return
     for share in shares or []:
         if not _publisher_is_platform(_share_publisher(share)):
             continue
         if bool(getattr(share, "special_split", False)):
             continue
         if getattr(share, "split_pct_author", None) is not None:
+            continue
+        # Cada autor con el contrato de SU artista (el que lo tiene como integrante).
+        contrato = _editorial_split_for_author(
+            session_db, song, share,
+            as_of=today_local(), material_date=getattr(song, "release_date", None))
+        if not contrato["found"]:
             continue
         share.split_pct_author = contrato["pct_author"]
         share.split_pct_platform = contrato["pct_platform"]
@@ -15882,10 +15937,17 @@ def discografica_song_detail(song_id):
         # REPARTO de la parte de cada autor NUESTRO entre él y Plataforma Musical (contrato editorial
         # vigente el día del registro, o reparto especial si se ha fijado a mano).
         split_map = _song_editorial_split_map(session_db, s, shares=shares, status=st)
-        editorial_split_contract = _artist_editorial_split(
-            session_db, getattr(primary_artist, "id", None),
-            as_of=_song_registration_date(session_db, s, status=st),
-            material_date=getattr(s, "release_date", None))
+        # El rótulo «Contrato editorial: X% autor · Y% Plataforma» tiene que ser el que DE VERDAD se
+        # está aplicando: el del artista del que el autor es integrante (lo resuelve el mapa), no el
+        # del artista de la canción a secas.
+        editorial_split_contract = next(
+            (info["contract"] for info in split_map.values()
+             if (info.get("contract") or {}).get("found")), None)
+        if editorial_split_contract is None:
+            editorial_split_contract = _artist_editorial_split(
+                session_db, getattr(primary_artist, "id", None),
+                as_of=_song_registration_date(session_db, s, status=st),
+                material_date=getattr(s, "release_date", None))
 
         for sh in shares:
             p = sh.promoter

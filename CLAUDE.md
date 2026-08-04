@@ -314,6 +314,16 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   **`_song_editorial_split_map`** (por id de registro: `pct` de la parte, `pct_author`/`pct_platform` de
   ESA parte y `final_author`/`final_platform` sobre la obra) · `_song_editorial_split_rows` (para PDF y
   páginas públicas) · `_freeze_song_editorial_split`.
+  · ⚠️ **EL CONTRATO ES DEL ARTISTA Y SE APLICA A SUS INTEGRANTES** (corregido ago 2026): los autores
+  de una obra casi nunca son «el artista», son **personas que forman parte de él** (el cantante, el
+  guitarrista), así que buscar el contrato del propio autor no encontraba nada y el reparto no se
+  detectaba (bug real). Punto único **`_editorial_split_for_author`**: sube del integrante a su
+  artista con **`_promoter_member_artist_ids`** (`ArtistPerson.promoter_id`, cacheado en `g`),
+  prefiere el artista **de la canción** si el autor es integrante de él, luego cualquier otro artista
+  del que lo sea, y como último recurso el artista principal de la canción (un solista que figura
+  como autor de su propia obra). Lo usan el MAPA y el CONGELADO, así que dos integrantes de artistas
+  distintos en la misma obra reciben **cada uno el contrato de su artista**. El rótulo «Contrato
+  editorial: X% autor · Y% Plataforma» de la ficha enseña el que de verdad se aplica.
   · **Manda lo VIGENTE EL DÍA DEL REGISTRO**: al marcar la obra como registrada en SGAE
   (`_mark_song_sgae_registered`) el reparto se **congela** en el registro de autoría
   (`SongEditorialShare.split_pct_author`/`split_pct_platform`/`split_frozen_at`), así que cambiar el

@@ -70751,8 +70751,13 @@ def _filter_manageable_concerts(session_db, concerts, state: dict | None = None)
     Criterio de negocio:
       - Rol 10 (dirección): todos.
       - Requiere acceso a 'invitaciones.gestionar'.
-      - Producción (artistas asignados): conciertos de esos artistas cuyo promotor NO sea una
-        empresa del grupo (sin group_company_id ni participación del grupo).
+      - **Promotor de FUERA** (ni `group_company_id` ni participación del grupo): las gestiona **la
+        persona de PRODUCCIÓN ASIGNADA** a esa actividad (`Concert.production_owner_user_id`). Antes
+        valía cualquiera que tuviera ese artista asignado, y eso repartía mal el trabajo: quien las
+        pide y las entrega es quien la produce.
+        ⚠️ Si la actividad **todavía no tiene responsable** (producción sin activar) se mantiene la
+        regla antigua (artistas asignados) como red de seguridad: si no, la lista de invitados de esa
+        fecha se quedaría sin nadie que la gestione.
       - Ticketing: solo conciertos cuyo promotor SÍ sea una empresa del grupo (group_company_id
         o participación vía ConcertCompanyShare).
       - Además, los añadidos manualmente vía 'Gestionar otros' (opt-in), sin filtrar por grupo.
@@ -70796,10 +70801,18 @@ def _filter_manageable_concerts(session_db, concerts, state: dict | None = None)
             out.append(c)
             continue
         is_group = bool(getattr(c, "group_company_id", None)) or (cid in group_share_ids)
-        # Producción: conciertos de sus artistas asignados con promotor externo (no del grupo).
-        if assigned and not is_group and (assigned & set(_concert_artist_ids(c))):
-            out.append(c)
-            continue
+        if not is_group:
+            # PROMOTOR DE FUERA: las gestiona quien PRODUCE esa actividad.
+            dueno = str(getattr(c, "production_owner_user_id", "") or "")
+            if dueno:
+                if uid and dueno == str(uid):
+                    out.append(c)
+                continue
+            # Sin responsable todavía: red de seguridad con la regla antigua (artistas asignados),
+            # para que la lista de invitados no se quede sin nadie.
+            if assigned and (assigned & set(_concert_artist_ids(c))):
+                out.append(c)
+                continue
         # Ticketing: solo conciertos cuyo promotor es una empresa del grupo.
         if is_ticketing and is_group:
             out.append(c)
@@ -70824,7 +70837,7 @@ def _user_can_manage_invitations(concert, *, state: dict | None = None, session_
 
 def _ensure_can_manage_invitations(session_db, concert):
     """Aborta con 403 si el usuario actual no puede gestionar las invitaciones del concierto.
-    Refuerza server-side la restricción que la UI ya aplica (artistas asignados / Ticketing /
+    Refuerza server-side la restricción que la UI ya aplica (producción asignada / Ticketing /
     'Gestionar otros' / dirección)."""
     if not concert or not _user_can_manage_invitations(concert, session_db=session_db):
         abort(403)

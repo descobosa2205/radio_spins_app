@@ -246,6 +246,8 @@
             {% if item.key != 'home' %}
               <div class="navord__item" draggable="true" data-navord-key="{{ item.key }}">
                 <i class="fa fa-grip-vertical navord__grip"></i>
+                {# El MISMO icono que en el menú: así se reconoce la sección de un vistazo. #}
+                <span class="navord__ico"><i class="fa {{ SECTION_ICONS.get(item.key, 'fa-circle-dot') }}"></i></span>
                 <span class="navord__lab">{{ item.label }}</span>
                 <input type="hidden" name="keys" value="{{ item.key }}">
               </div>

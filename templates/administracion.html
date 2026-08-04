@@ -87,7 +87,9 @@
       <a class="nav-link {% if tab == key %}active{% endif %}" href="{{ url_for('administracion_view', tab=key) }}">
         {% if key in (admin_my_tabs or []) %}<span class="admin-mine-dot" title="Es tuyo: te lo han asignado"></span>{% endif %}
         {{ label }}
-        {% if counts.get(key, 0) %}<span class="badge text-bg-warning ms-1">{{ counts.get(key) }}</span>{% endif %}
+        {# SOLO «Pendiente» y «Altas» llevan número: son las que tienen trabajo por hacer. Las demás
+           son registros (liquidaciones, pagos, cobros, embargos) y un contador ahí no dice nada. #}
+        {% if key in ('pendiente', 'altas') and counts.get(key, 0) %}<span class="badge text-bg-warning ms-1">{{ counts.get(key) }}</span>{% endif %}
       </a>
     </li>
   {% endfor %}
@@ -236,8 +238,43 @@
     {# Pendiente de pago AGRUPADO POR EMPRESA DEL GRUPO: una remesa es de una sola empresa, así que
        mezclarlas en una lista única era pedir líos. Dentro, cada liquidación (bolsa) se ve con su
        total pendiente y cuántos gastos incluye; se despliega para ver el detalle. #}
-    {% if not payment_groups %}
+    {% if not payment_groups and not paid_no_receipt %}
       <div class="card"><div class="card-body text-muted">No hay pagos pendientes.</div></div>
+    {% endif %}
+
+    {# PAGADOS A LOS QUE LES FALTA EL JUSTIFICANTE: el pago no está cerrado hasta que hay prueba de
+       que se hizo, así que sigue siendo trabajo. Ya están pagados, o sea que no van a una remesa:
+       lo único que hace falta es adjuntar el documento. #}
+    {% if paid_no_receipt %}
+      <div class="card mb-3 border-warning">
+        <div class="card-header bg-white d-flex align-items-center gap-2 flex-wrap">
+          <strong><i class="fa fa-receipt me-1 text-warning"></i>Pagados, falta el justificante</strong>
+          <span class="badge text-bg-warning text-dark">{{ paid_no_receipt|length }}</span>
+          <span class="small text-muted">Al subirlo, el pago se archiva en la pestaña «Pagos».</span>
+        </div>
+        <div class="card-body p-0">
+          {% for e in paid_no_receipt %}
+            <div class="p-3 border-bottom d-flex justify-content-between gap-3 flex-wrap align-items-start">
+              <div class="min-w-0">
+                <div class="fw-semibold">{{ e.concept or 'Sin concepto' }}</div>
+                <div class="small text-muted">
+                  {{ e.bag.title if e.bag else 'Gasto suelto' }}
+                  {% if e.provider %} · {{ e.provider.nick }}{% endif %}
+                  {% if e.payment_method %} · {{ e.payment_method }}{% endif %}
+                </div>
+              </div>
+              <form method="post" action="{{ url_for('administration_expense_mark_paid', expense_id=e.id) }}"
+                    enctype="multipart/form-data" class="d-flex gap-2 align-items-center flex-wrap">
+                <input type="hidden" name="next" value="{{ request.full_path }}">
+                <input type="hidden" name="only_receipt" value="1">
+                <span class="fw-semibold">{{ e.paid_amount|eur }}</span>
+                <input type="file" class="form-control form-control-sm" name="receipt" required style="max-width:230px;">
+                <button class="btn btn-sm btn-outline-success">Subir justificante</button>
+              </form>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
     {% endif %}
     {% for grupo in payment_groups %}
       <div class="card mb-3 pay-group" data-pay-company="{{ grupo.company_id }}">
@@ -601,44 +638,65 @@
     </div>
   </div>
 {% elif tab == 'pagos' %}
-  <div class="row g-3">
-    <div class="col-12 col-xl-6">
-      <div class="card h-100">
-        <div class="card-header bg-white"><strong>Solicitudes de pago inmediato / en proceso</strong></div>
-        <div class="card-body p-0">
-          {% for expense in payment_requests %}
-            <div class="p-3 border-bottom" id="admin-pay-{{ expense.id }}" data-inline-zone>
-              <div class="d-flex justify-content-between gap-3 align-items-start">
-                <div>
-                  <div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div>
-                  <div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>
-                  {% if expense.provider %}{{ linked_mini('promoter', expense.provider.id) }}{% endif %}
-                  <div class="small mt-2">{{ expense.immediate_payment_reason or 'Sin motivo indicado' }}</div>
-                  <span class="badge text-bg-warning mt-2">{{ payment_status_labels.get(expense.payment_status, expense.payment_status) }}</span>
-                </div>
-                <form method="post" action="{{ url_for('administration_expense_mark_paid', expense_id=expense.id) }}" class="text-end" style="min-width:220px;" data-inline data-inline-target="#admin-pay-{{ expense.id }}">
-                  <input type="text" name="paid_amount" class="form-control form-control-sm mb-2" value="{{ expense.immediate_payment_amount or expense_pending(expense) }}">
-                  <select name="payment_method" class="form-select form-select-sm mb-2"><option value="">Método</option>{% for method in payment_methods %}<option value="{{ method }}" {% if expense.payment_method == method %}selected{% endif %}>{{ method }}</option>{% endfor %}</select>
-                  <button class="btn btn-sm btn-success w-100">Registrar pago</button>
-                </form>
-              </div>
-            </div>
-          {% else %}<div class="p-3 text-muted">No hay solicitudes de pago.</div>{% endfor %}
-        </div>
+  {# ARCHIVO DE PAGOS: todo lo que ya se ha pagado (gastos de bolsa, liquidaciones de royalties y
+     gastos directos), con buscador por cualquier campo. Lo que todavía no se ha pagado —o se pagó
+     pero falta el justificante— vive en Pendiente → De pago. #}
+  <form method="get" class="card card-body mb-3">
+    <input type="hidden" name="tab" value="pagos">
+    <div class="d-flex gap-2 flex-wrap align-items-end">
+      <div class="flex-grow-1" style="min-width:240px;">
+        <label class="form-label mb-1">Buscar un pago</label>
+        <input type="search" name="q" class="form-control" value="{{ payments_q }}"
+               placeholder="Beneficiario, concepto, bolsa, método, remesa, importe o fecha…">
+      </div>
+      <div class="d-flex gap-2">
+        {% if payments_q %}<a class="btn btn-outline-secondary" href="{{ url_for('administracion_view', tab='pagos') }}">Limpiar</a>{% endif %}
+        <button class="btn btn-primary"><i class="fa fa-magnifying-glass me-1"></i>Buscar</button>
       </div>
     </div>
-    <div class="col-12 col-xl-6">
-      <div class="card h-100">
-        <div class="card-header bg-white"><strong>Gastos consolidados pendientes de pago</strong></div>
-        <div class="card-body p-0">
-          {% for expense in payable_expenses %}
-            <div class="p-3 border-bottom d-flex justify-content-between gap-3" id="admin-payexp-{{ expense.id }}" data-inline-zone>
-              <div><div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div><div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>{% if expense.provider %}{{ linked_mini('promoter', expense.provider.id) }}{% endif %}{% set exp_embargo_alerts = admin_expense_embargo_alerts.get(expense.id|string, []) if admin_expense_embargo_alerts is defined else [] %}{% if exp_embargo_alerts %}<div class="alert alert-warning small py-1 px-2 mt-2 mb-0"><i class="fa fa-triangle-exclamation me-1"></i>Esta persona no puede facturar porque tiene una orden de embargo activa.</div>{% endif %}</div>
-              <form method="post" action="{{ url_for('administration_expense_mark_paid', expense_id=expense.id) }}" class="d-flex gap-2 align-items-start" data-inline data-inline-target="#admin-payexp-{{ expense.id }}"><input type="text" name="paid_amount" class="form-control form-control-sm" value="{{ expense_pending(expense) }}" style="max-width:120px;"><select name="payment_method" class="form-select form-select-sm" style="max-width:120px;"><option value="">Método</option>{% for method in payment_methods %}<option value="{{ method }}">{{ method }}</option>{% endfor %}</select><button class="btn btn-sm btn-outline-success">Pagar</button></form>
-            </div>
-          {% else %}<div class="p-3 text-muted">No hay gastos consolidados pendientes.</div>{% endfor %}
-        </div>
-      </div>
+  </form>
+
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    <div class="sim-stat"><div class="sim-stat__n">{{ payments_history|length|k }}</div><div class="sim-stat__l">Pagos</div></div>
+    <div class="sim-stat"><div class="sim-stat__n">{{ (payments_history|sum(attribute='amount'))|eur }}</div><div class="sim-stat__l">Total pagado</div></div>
+    {% set _sin = payments_history|selectattr('needs_receipt')|list|length %}
+    <div class="sim-stat"><div class="sim-stat__n {{ 'text-warning' if _sin }}">{{ _sin|k }}</div><div class="sim-stat__l">Sin justificante</div></div>
+  </div>
+
+  <div class="card">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0 sup-inv">
+        <thead class="table-light"><tr>
+          <th>Fecha</th><th>Beneficiario</th><th>Concepto</th><th>De dónde</th>
+          <th>Método</th><th>Remesa</th><th class="text-end">Importe</th><th class="text-end">Documentos</th>
+        </tr></thead>
+        <tbody>
+          {% for p in payments_history %}
+            <tr>
+              <td class="small">{{ p.date_label or '—' }}</td>
+              <td class="small fw-semibold">{{ p.beneficiary }}</td>
+              <td class="small">{{ p.concept }}{% if p.invoice_number %}<div class="text-muted">Fra. {{ p.invoice_number }}</div>{% endif %}</td>
+              <td class="small">{% if p.source_url %}<a href="{{ p.source_url }}">{{ p.source }}</a>{% else %}{{ p.source }}{% endif %}</td>
+              <td class="small">{{ p.method or '—' }}</td>
+              <td class="small">{% if p.batch_url %}<a href="{{ p.batch_url }}">{{ p.batch_ref }}</a>{% else %}{{ p.batch_ref or '—' }}{% endif %}</td>
+              <td class="text-end fw-semibold">
+                {{ p.amount|eur }}
+                {% if p.partial %}<div class="small text-warning-emphasis fw-normal">parcial de {{ p.gross|eur }}</div>{% endif %}
+              </td>
+              <td class="text-end text-nowrap">
+                {% if p.invoice_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ p.invoice_url }}" target="_blank" rel="noopener" title="Factura"><i class="fa fa-file-invoice"></i></a>{% endif %}
+                {% if p.receipt_url %}
+                  <a class="btn btn-sm btn-outline-secondary" href="{{ p.receipt_url }}" target="_blank" rel="noopener" title="Justificante del pago"><i class="fa fa-receipt"></i></a>
+                {% else %}
+                  <span class="sup-tag" title="El pago no está cerrado hasta que se sube el justificante">Sin justificante</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="8" class="text-muted p-3">{% if payments_q %}Ningún pago coincide con «{{ payments_q }}».{% else %}Todavía no hay pagos realizados.{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
   </div>
 {% elif tab == 'cobros' %}

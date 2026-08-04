@@ -1220,6 +1220,48 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   liquidación está generada (`b.is_generated` = tiene congelado). El tooltip dice desde cuándo y que
   para cambiarlos hay que generar una nueva.
 
+- **CONTROL DE LO QUE ENTRA: la factura tiene que cuadrar y solo se sube una vez** (ago 2026). Antes
+  llegaban facturas con importes que no eran, repetidas y con los datos sin leer.
+  · **El importe se comprueba ANTES de dejar enviarla** (`_invoice_amount_check`, en los dos caminos
+  de `public_invoice_upload`: liquidación de royalties y petición de un gasto). Cuadra si es lo
+  mismo, si lo es **sumándole la retención** o si se facturó **sin IVA** (la base). Si no, se
+  responde 400 con lo que falta o sobra. Lo esperado sale del congelado de la liquidación
+  (`_royalty_invoice_totals`) o de la suma de los conceptos marcados (`_invoice_request_amounts`).
+  · **Repaso en PANTALLA PARTIDA antes de enviar** (`public_invoice_landing.html`, clases
+  `.inv-split*`): al elegir el archivo se pinta **la factura a la izquierda** (desde el propio
+  fichero, con `URL.createObjectURL`) y **sus datos a la derecha**. Lo leído sale relleno y editable;
+  lo que falta, **resaltado en amarillo** (`.inv-need` / `input.is-need`) con el texto «lo sentimos,
+  no hemos podido leer los datos automáticamente…». **El botón de enviar está deshabilitado** hasta
+  que los obligatorios (número, fecha, concepto, base y total) estén puestos: `invMarkMissing` /
+  `invMissingLabels`.
+  · **Ya hay factura subida** (`_invoice_existing_block`): el enlace **no deja empezar** (los pasos
+  salen bloqueados, `.inv-blocked`) y dice que ya hay una. Si está **pendiente**, botón «¿Quieres
+  reemplazar la factura?» que abre el proceso y manda `replace=1` (la anterior queda RECHAZADA con
+  «Reemplazada por…», `_supplier_invoice_mark_replaced`, y se le quita la imputación para no contar
+  el importe dos veces). Si está **VALIDADA**, no se toca: `INVOICE_ALREADY_VALIDATED_MSG` manda a
+  `ADMIN_INVOICE_CONTACT_EMAIL` (administracion@33producciones.es). El servidor lo vuelve a
+  comprobar (409): el bloqueo no vive solo en el navegador.
+  · **Base de facturas · tres puntitos** (con `can_edit_invoices()` = edición de
+  `databases.invoices`): **editar los datos** en pantalla partida (`supplier_invoice_edit` +
+  `templates/supplier_invoice_edit.html`: la factura a la izquierda, todos los campos a la derecha,
+  los que faltan en amarillo, y lo que se pidió facturar a la vista vía
+  `_supplier_invoice_expected`), **corregir importes**, **leer del PDF**, **reemplazar el documento**
+  (`supplier_invoice_replace`: vale **aunque esté validada**, relee los datos nuevos del documento y
+  la deja PENDIENTE), **modificar el gasto** (`bag_expense_amount_save`: administración cambia a mano
+  el importe que se pidió facturar; si la factura deja de cuadrar se avisa y se lleva a su ficha),
+  **rechazar** (`supplier_invoice_reject`: avisa por correo a quien la subió con el motivo y **el
+  enlace para subirla otra vez**, `_supplier_invoice_reject_notify`) y **eliminar**
+  (`supplier_invoice_delete`: suelta la imputación y devuelve la liquidación a «enviada»).
+
+- **Administración · pagos** (ago 2026): **solo «Pendiente» y «Altas» llevan contador** (las demás son
+  registros y un número ahí no dice nada). La pestaña **Pagos** es el **archivo de pagos realizados**
+  (`_payments_history_rows`: gastos de bolsa pagados + liquidaciones de royalties pagadas + gastos
+  directos) con **buscador por cualquier campo** (casa por palabras contra todo lo que se ve, porque
+  son tablas distintas). ⚠️ **Un pago no termina hasta que hay JUSTIFICANTE**: los pagados sin él
+  siguen contando en «De pago» y salen en su propio bloque «Pagados, falta el justificante»
+  (`_paid_without_receipt_expenses`), que solo pide adjuntar el documento
+  (`administration_expense_mark_paid` con `only_receipt=1`: no toca importes ni apunta otro pago).
+
 - **RETENCIONES: se detectan y se pueden CORREGIR A MANO** (ago 2026). Cuando lo que hay que pagar no
   cuadra con la factura, casi siempre es una **retención**.
   · **Detección** (`_detect_invoice_amounts`): sinónimos ampliados (retención/retenciones/ret./IRPF/a

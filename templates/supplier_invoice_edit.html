@@ -1,0 +1,212 @@
+{% extends "layout.html" %}
+{% block content %}
+{# EDITAR UNA FACTURA SUBIDA. La factura a la IZQUIERDA y todos sus datos a la DERECHA, para poder
+   contrastar sin cambiar de pantalla. Lo que no se pudo leer sale resaltado en amarillo; lo demás,
+   con su valor y editable. Desde aquí también se reemplaza el documento o se elimina la factura. #}
+<div class="mb-2">
+  <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('invoices_view', tab='UPLOADED') }}"
+     title="Volver a facturas" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
+</div>
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <div>
+    <h5 class="mb-0"><i class="fa fa-file-invoice me-2 text-danger"></i>Datos de la factura</h5>
+    <div class="small text-muted">
+      {{ promoter.nick if promoter else 'Proveedor' }}
+      {% if inv.invoice_number %} · Nº {{ inv.invoice_number }}{% endif %}
+      {% if inv.created_at %} · subida el {{ inv.created_at.strftime('%d/%m/%Y') }}{% endif %}
+    </div>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <span class="badge {{ status_badge }}">{{ status_label }}</span>
+    <div class="dropdown">
+      <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown" title="Más acciones">
+        <i class="fa fa-ellipsis-vertical"></i>
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end">
+        <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#invReplaceModal">
+          <i class="fa fa-rotate fa-fw me-2"></i>Reemplazar la factura</button></li>
+        {% if inv.file_url %}
+          <li><a class="dropdown-item" href="{{ inv.file_url }}" target="_blank" rel="noopener">
+            <i class="fa fa-arrow-up-right-from-square fa-fw me-2"></i>Abrir en una pestaña</a></li>
+          <li><a class="dropdown-item" href="{{ inv.file_url }}" download>
+            <i class="fa fa-download fa-fw me-2"></i>Descargar</a></li>
+        {% endif %}
+        <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#invRejectModal">
+          <i class="fa fa-ban fa-fw me-2"></i>Rechazar y pedir que la suban de nuevo</button></li>
+        <li><hr class="dropdown-divider"></li>
+        <li>
+          <form method="post" action="{{ url_for('supplier_invoice_delete', invoice_id=inv.id) }}"
+                onsubmit="return confirm('Se va a eliminar esta factura. ¿Seguimos?');">
+            <input type="hidden" name="next" value="{{ url_for('invoices_view', tab='UPLOADED') }}">
+            <button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-2"></i>Eliminar la factura</button>
+          </form>
+        </li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+{% if missing %}
+  <div class="alert alert-warning">
+    <i class="fa fa-triangle-exclamation me-1"></i>
+    <strong>No se pudieron leer todos los datos de esta factura.</strong>
+    Los que faltan salen resaltados en amarillo: complétalos mirando el documento.
+  </div>
+{% endif %}
+
+<div class="row g-3">
+  {# ---------- IZQUIERDA: la factura ---------- #}
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header bg-white"><strong><i class="fa fa-file-lines me-1 text-muted"></i>{{ inv.original_name or 'Factura' }}</strong></div>
+      <div class="card-body p-0">
+        {% if invoice_is_pdf %}
+          <iframe class="rinv__frame" src="{{ inv.file_url }}{{ '&' if '#' in (inv.file_url or '') else '#' }}view=FitH&zoom=page-width&toolbar=1" title="Factura"></iframe>
+        {% elif invoice_is_image %}
+          <img class="rinv__img" src="{{ inv.file_url }}" alt="Factura">
+        {% else %}
+          <div class="p-3 small text-muted">
+            {% if inv.file_url %}No se puede mostrar aquí este tipo de archivo.
+              <a href="{{ inv.file_url }}" target="_blank" rel="noopener">Ábrelo en una pestaña</a>.
+            {% else %}Esta factura no tiene archivo.{% endif %}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {# ---------- DERECHA: todos los campos ---------- #}
+  <div class="col-12 col-xl-6">
+    <form method="post" action="{{ url_for('supplier_invoice_data_save', invoice_id=inv.id) }}" class="card">
+      <input type="hidden" name="next" value="{{ request.url }}">
+      <div class="card-header bg-white"><strong><i class="fa fa-pen-to-square me-1 text-muted"></i>Datos detectados</strong></div>
+      <div class="card-body">
+        {% if expected.gross %}
+          <div class="alert alert-light border small">
+            <i class="fa fa-list-check me-1"></i>Se le pidió facturar <strong>{{ expected.gross|eur }}</strong>
+            {% if expected.source %}(según {{ expected.source }}){% endif %}.
+          </div>
+        {% endif %}
+
+        <div class="row g-3">
+          <div class="col-6 {{ 'inv-need' if 'invoice_number' in missing }}">
+            <label class="form-label small">Nº de factura</label>
+            <input class="form-control {{ 'is-need' if 'invoice_number' in missing }}" name="invoice_number" value="{{ inv.invoice_number or '' }}">
+          </div>
+          <div class="col-6 {{ 'inv-need' if 'issue_date' in missing }}">
+            <label class="form-label small">Fecha de emisión</label>
+            <input type="date" class="form-control {{ 'is-need' if 'issue_date' in missing }}" name="issue_date"
+                   value="{{ inv.issue_date.isoformat() if inv.issue_date else '' }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label small">Artista <span class="text-muted">(como viene en la factura)</span></label>
+            <input class="form-control" name="artist_text" value="{{ inv.artist_text or '' }}" list="invArtistList">
+            <datalist id="invArtistList">{% for a in artists %}<option value="{{ a.name }}">{% endfor %}</datalist>
+          </div>
+          <div class="col-12 {{ 'inv-need' if 'concept_text' in missing }}">
+            <label class="form-label small">Concepto</label>
+            <input class="form-control {{ 'is-need' if 'concept_text' in missing }}" name="concept_text" value="{{ inv.concept_text or '' }}">
+          </div>
+
+          <div class="col-6 {{ 'inv-need' if 'amount_net' in missing }}">
+            <label class="form-label small">Base imponible</label>
+            <div class="input-group">
+              <input class="form-control {{ 'is-need' if 'amount_net' in missing }}" name="amount_net" data-money="1" inputmode="decimal"
+                     value="{{ inv.amount_net|eur|replace(' €','') if inv.amount_net else '' }}">
+              <span class="input-group-text">€</span>
+            </div>
+          </div>
+          <div class="col-6">
+            <label class="form-label small">IVA</label>
+            <div class="input-group">
+              <input class="form-control" name="amount_vat" data-money="1" inputmode="decimal"
+                     value="{{ inv.amount_vat|eur|replace(' €','') if inv.amount_vat else '' }}">
+              <span class="input-group-text">€</span>
+              <input class="form-control" name="vat_pct" inputmode="decimal" style="max-width:76px" placeholder="%"
+                     value="{{ '%g'|format(inv.vat_pct|float) if inv.vat_pct else '' }}">
+              <span class="input-group-text">%</span>
+            </div>
+          </div>
+          <div class="col-6">
+            <label class="form-label small">Retención <span class="text-muted">(si la hay)</span></label>
+            <div class="input-group">
+              <input class="form-control" name="retention_amount" data-money="1" inputmode="decimal"
+                     value="{{ inv.retention_amount|eur|replace(' €','') if inv.retention_amount else '' }}">
+              <span class="input-group-text">€</span>
+              <input class="form-control" name="retention_pct" inputmode="decimal" style="max-width:76px" placeholder="%"
+                     value="{{ '%g'|format(inv.retention_pct|float) if inv.retention_pct else '' }}">
+              <span class="input-group-text">%</span>
+            </div>
+          </div>
+          <div class="col-6 {{ 'inv-need' if 'amount_gross' in missing }}">
+            <label class="form-label small">Total de la factura</label>
+            <div class="input-group">
+              <input class="form-control fw-semibold {{ 'is-need' if 'amount_gross' in missing }}" name="amount_gross" data-money="1" inputmode="decimal"
+                     value="{{ inv.amount_gross|eur|replace(' €','') if inv.amount_gross else '' }}">
+              <span class="input-group-text">€</span>
+            </div>
+            <div class="form-text">Es lo que se paga: ya lleva la retención descontada.</div>
+          </div>
+        </div>
+      </div>
+      <div class="card-footer bg-white d-flex justify-content-end gap-2">
+        <a class="btn btn-outline-secondary" href="{{ url_for('invoices_view', tab='UPLOADED') }}">Cancelar</a>
+        <button class="btn btn-primary"><i class="fa fa-floppy-disk me-1"></i>Guardar los datos</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# REEMPLAZAR el documento: la nueva sustituye a la anterior y se le releen los datos. #}
+<div class="modal fade" id="invReplaceModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <form method="post" action="{{ url_for('supplier_invoice_replace', invoice_id=inv.id) }}" enctype="multipart/form-data">
+      <input type="hidden" name="next" value="{{ request.url }}">
+      <div class="modal-header">
+        <h5 class="modal-title">Reemplazar la factura</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted mb-2">
+          La factura que subas sustituye a la que hay. Se leen sus datos nuevos (quién la emite, la
+          fecha de emisión, los importes…) y la factura vuelve a quedar <strong>pendiente de validar</strong>.
+        </p>
+        {% if (inv.status or '')|upper == 'VALIDADA' %}
+          <div class="alert alert-warning small py-2">
+            <i class="fa fa-triangle-exclamation me-1"></i>Esta factura ya estaba <strong>validada</strong>:
+            al reemplazarla habrá que volver a validarla.
+          </div>
+        {% endif %}
+        <input type="file" class="form-control" name="file" required accept=".pdf,image/*">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-rotate me-1"></i>Reemplazar</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+{# RECHAZAR: se le dice el motivo y se le manda el aviso con el enlace para subirla otra vez. #}
+<div class="modal fade" id="invRejectModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <form method="post" action="{{ url_for('supplier_invoice_reject', invoice_id=inv.id) }}">
+      <input type="hidden" name="next" value="{{ url_for('invoices_view', tab='UPLOADED') }}">
+      <div class="modal-header"><h5 class="modal-title">Rechazar la factura</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <p class="small text-muted">Se le avisa por correo a quien la subió, con el motivo y el enlace
+          para mandarla corregida.</p>
+        <label class="form-label small">Motivo</label>
+        <textarea class="form-control" name="reason" rows="3"
+                  placeholder="El importe no corresponde con el gasto: hay que facturar {{ expected.gross|eur if expected.gross else '…' }}."></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-ban me-1"></i>Rechazar y avisar</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+{% endblock %}

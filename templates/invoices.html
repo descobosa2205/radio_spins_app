@@ -180,20 +180,67 @@
                         <button class="btn btn-sm btn-outline-primary" title="Leer del PDF lo que falta: {{ r.missing|join(', ') }}"><i class="fa fa-magnifying-glass"></i></button>
                       </form>
                     {% endif %}
-                    {# Corregir los importes a mano (lo típico: una retención que no se detectó). #}
-                    <button type="button" class="btn btn-sm btn-outline-secondary" data-inv-amounts
-                            data-inv-id="{{ r.id }}"
-                            data-inv-net="{{ r.net|eur|replace(' €','') if r.net > 0 else '' }}"
-                            data-inv-vat="{{ r.vat|eur|replace(' €','') if r.vat > 0 else '' }}"
-                            data-inv-ret="{{ r.retention|eur|replace(' €','') if r.retention > 0 else '' }}"
-                            data-inv-gross="{{ r.amount|eur|replace(' €','') if r.amount > 0 else '' }}"
-                            data-inv-vat-pct="{{ '%g'|format(r.vat_pct|float) if r.vat_pct else '' }}"
-                            data-inv-ret-pct="{{ '%g'|format(r.retention_pct|float) if r.retention_pct else '' }}"
-                            title="Corregir los importes a mano"><i class="fa fa-pen-to-square"></i></button>
                     {% if r.file_url %}
                       <a class="btn btn-sm btn-outline-secondary" href="{{ r.file_url }}" target="_blank" rel="noopener" title="{{ r.file_name }}"><i class="fa fa-file-invoice"></i></a>
-                      <a class="btn btn-sm btn-outline-secondary" href="{{ r.file_url }}" download title="Descargar"><i class="fa fa-download"></i></a>
                     {% endif %}
+                    {# TRES PUNTITOS: editar los datos (con la factura al lado), corregir importes,
+                       reemplazar el documento, modificar el gasto y eliminar la factura. #}
+                    <div class="dropdown d-inline">
+                      <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" title="Más acciones">
+                        <i class="fa fa-ellipsis-vertical"></i>
+                      </button>
+                      <ul class="dropdown-menu dropdown-menu-end">
+                        {% if supplier_can_edit %}
+                          <li><a class="dropdown-item" href="{{ url_for('supplier_invoice_edit', invoice_id=r.id) }}">
+                            <i class="fa fa-pen-to-square fa-fw me-2"></i>Editar los datos</a></li>
+                        {% endif %}
+                        <li><button class="dropdown-item" type="button" data-inv-amounts
+                                data-inv-id="{{ r.id }}"
+                                data-inv-net="{{ r.net|eur|replace(' €','') if r.net > 0 else '' }}"
+                                data-inv-vat="{{ r.vat|eur|replace(' €','') if r.vat > 0 else '' }}"
+                                data-inv-ret="{{ r.retention|eur|replace(' €','') if r.retention > 0 else '' }}"
+                                data-inv-gross="{{ r.amount|eur|replace(' €','') if r.amount > 0 else '' }}"
+                                data-inv-vat-pct="{{ '%g'|format(r.vat_pct|float) if r.vat_pct else '' }}"
+                                data-inv-ret-pct="{{ '%g'|format(r.retention_pct|float) if r.retention_pct else '' }}">
+                          <i class="fa fa-calculator fa-fw me-2"></i>Corregir los importes</button></li>
+                        {% if r.can_read %}
+                          <li>
+                            <form method="post" action="{{ url_for('supplier_invoices_read_meta') }}">
+                              <input type="hidden" name="next" value="{{ request.url }}">
+                              <input type="hidden" name="invoice_id" value="{{ r.id }}">
+                              <button class="dropdown-item"><i class="fa fa-magnifying-glass fa-fw me-2"></i>Leer del PDF lo que falta</button>
+                            </form>
+                          </li>
+                        {% endif %}
+                        {% if supplier_can_edit %}
+                          <li><button class="dropdown-item" type="button" data-inv-replace
+                                  data-inv-id="{{ r.id }}" data-inv-validated="{{ '1' if r.status == 'VALIDADA' else '' }}">
+                            <i class="fa fa-rotate fa-fw me-2"></i>Reemplazar la factura</button></li>
+                          {% if r.expense_ids %}
+                            <li><button class="dropdown-item" type="button" data-exp-amount
+                                    data-exp-id="{{ r.expense_ids[0] }}" data-inv-id="{{ r.id }}"
+                                    data-exp-gross="{{ r.expense_gross|eur|replace(' €','') if r.expense_gross else '' }}"
+                                    data-exp-net="{{ r.expense_net|eur|replace(' €','') if r.expense_net else '' }}"
+                                    data-exp-concept="{{ r.expense_concept }}"
+                                    data-inv-gross="{{ r.amount|eur|replace(' €','') if r.amount > 0 else '' }}">
+                              <i class="fa fa-money-bill-wave fa-fw me-2"></i>Modificar el gasto</button></li>
+                          {% endif %}
+                        {% endif %}
+                        {% if r.file_url %}
+                          <li><a class="dropdown-item" href="{{ r.file_url }}" download><i class="fa fa-download fa-fw me-2"></i>Descargar</a></li>
+                        {% endif %}
+                        {% if supplier_can_edit %}
+                          <li><hr class="dropdown-divider"></li>
+                          <li>
+                            <form method="post" action="{{ url_for('supplier_invoice_delete', invoice_id=r.id) }}"
+                                  onsubmit="return confirm('Se va a eliminar esta factura. ¿Seguimos?');">
+                              <input type="hidden" name="next" value="{{ request.url }}">
+                              <button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-2"></i>Eliminar la factura</button>
+                            </form>
+                          </li>
+                        {% endif %}
+                      </ul>
+                    </div>
                   </td>
                 </tr>
               {% endfor %}
@@ -373,6 +420,97 @@
   });
 })();
 </script>
+
+{# REEMPLAZAR el documento de una factura (aunque esté validada) y MODIFICAR el importe del gasto
+   que se pidió facturar. Los dos se abren desde los tres puntitos de cada fila. #}
+{% if supplier_can_edit %}
+<div class="modal fade" id="invReplaceRowModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <form method="post" enctype="multipart/form-data" data-inv-replace-form>
+      <input type="hidden" name="next" value="{{ request.url }}">
+      <div class="modal-header"><h5 class="modal-title">Reemplazar la factura</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <p class="small text-muted mb-2">La que subas sustituye a la que hay: se leen sus datos nuevos
+          (quién la emite, la fecha, los importes…) y queda <strong>pendiente de validar</strong>.</p>
+        <div class="alert alert-warning small py-2 d-none" data-inv-replace-validated>
+          <i class="fa fa-triangle-exclamation me-1"></i>Esta factura ya estaba <strong>validada</strong>:
+          al reemplazarla habrá que volver a validarla.
+        </div>
+        <input type="file" class="form-control" name="file" required accept=".pdf,image/*">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-rotate me-1"></i>Reemplazar</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+<div class="modal fade" id="expAmountModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <form method="post" data-exp-amount-form>
+      <input type="hidden" name="next" value="{{ request.url }}">
+      <input type="hidden" name="invoice_id" data-exp-inv>
+      <div class="modal-header"><h5 class="modal-title">Modificar el gasto</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="small text-muted mb-2">Gasto: <strong data-exp-concept></strong></div>
+        <div class="row g-2">
+          <div class="col-6">
+            <label class="form-label small">Base imponible</label>
+            <div class="input-group"><input class="form-control" name="amount_net" data-money="1" inputmode="decimal" data-exp-net><span class="input-group-text">€</span></div>
+          </div>
+          <div class="col-6">
+            <label class="form-label small">Total a facturar (con IVA)</label>
+            <div class="input-group"><input class="form-control fw-semibold" name="amount_gross" data-money="1" inputmode="decimal" data-exp-gross><span class="input-group-text">€</span></div>
+          </div>
+        </div>
+        <div class="form-text">Con uno de los dos se calcula el otro (IVA 21%).</div>
+        <div class="alert alert-warning small mt-3 mb-0">
+          La factura subida dice <strong data-exp-invgross></strong>. Si al cambiar el gasto deja de
+          cuadrar, se avisa y podrás <strong>rechazarla</strong> para que la suban de nuevo.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary">Guardar el importe</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+<script>
+(function () {
+  var URL_REPLACE = {{ url_for('supplier_invoice_replace', invoice_id='__ID__')|tojson }};
+  var URL_EXP = {{ url_for('bag_expense_amount_save', expense_id='__ID__')|tojson }};
+  document.addEventListener('click', function (e) {
+    var rep = e.target.closest('[data-inv-replace]');
+    if (rep) {
+      var m = document.getElementById('invReplaceRowModal');
+      m.querySelector('[data-inv-replace-form]').setAttribute(
+        'action', URL_REPLACE.replace('__ID__', rep.getAttribute('data-inv-id') || ''));
+      m.querySelector('[data-inv-replace-validated]').classList.toggle(
+        'd-none', !rep.getAttribute('data-inv-validated'));
+      if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(m).show();
+      return;
+    }
+    var exp = e.target.closest('[data-exp-amount]');
+    if (exp) {
+      var m2 = document.getElementById('expAmountModal');
+      m2.querySelector('[data-exp-amount-form]').setAttribute(
+        'action', URL_EXP.replace('__ID__', exp.getAttribute('data-exp-id') || ''));
+      m2.querySelector('[data-exp-inv]').value = exp.getAttribute('data-inv-id') || '';
+      m2.querySelector('[data-exp-net]').value = exp.getAttribute('data-exp-net') || '';
+      m2.querySelector('[data-exp-gross]').value = exp.getAttribute('data-exp-gross') || '';
+      m2.querySelector('[data-exp-concept]').textContent = exp.getAttribute('data-exp-concept') || 'Gasto';
+      m2.querySelector('[data-exp-invgross]').textContent = (exp.getAttribute('data-inv-gross') || '—') + ' €';
+      if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(m2).show();
+    }
+  });
+})();
+</script>
+{% endif %}
 
 {% include '_invoice_amounts_modal.html' %}
 {% endblock %}

@@ -2691,6 +2691,21 @@ img.docs-id__face { width:100%; height:100%; object-fit:cover; display:block; cu
 .inv-step.is-locked .inv-step__head{ background:#f4f5f7; color:#6c757d; }
 .inv-step.is-locked .inv-step__sub{ color:#9aa1a9; }
 .inv-missing input{ border-color:#E33D48; box-shadow:0 0 0 .15rem rgba(227,61,72,.12); }
+/* YA HAY FACTURA SUBIDA: el proceso no se puede empezar hasta pedir reemplazarla. */
+.inv-step.inv-blocked{ opacity:.45; pointer-events:none; filter:grayscale(.4); }
+/* REPASO EN PANTALLA PARTIDA: la factura a la izquierda y sus datos a la derecha. */
+.inv-split{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:1rem; align-items:start; }
+@media (max-width: 860px){ .inv-split{ grid-template-columns:1fr; } }
+.inv-split__doc{ border:1px solid #e3e6eb; border-radius:12px; overflow:hidden; background:#f8f9fa; }
+.inv-split__doclab{ font-size:.75rem; font-weight:700; text-transform:uppercase; letter-spacing:.03em;
+  color:#6c757d; padding:.5rem .75rem; border-bottom:1px solid #e9ecef; background:#fff; }
+.inv-split__frame{ height:min(70vh, 560px); }
+.inv-split__frame iframe{ width:100%; height:100%; border:0; }
+.inv-split__frame img{ width:100%; height:100%; object-fit:contain; background:#fff; }
+/* Campo que NO se ha podido leer: resaltado en AMARILLO hasta que se rellena. */
+.inv-need{ background:#fff8d6; border-radius:10px; padding:.35rem .45rem; margin:-.35rem -.45rem; }
+.inv-need > label{ color:#8a6d00; font-weight:600; }
+input.is-need{ border-color:#e0b400; box-shadow:0 0 0 .15rem rgba(255,214,0,.18); background:#fffdf2; }
 /* Dato que YA tenemos: se ve censurado y no se envía; al pinchar se ofrece actualizarlo. */
 .inv-locked{ cursor:pointer; }
 .inv-locked input{ background:#f6f8fa; border-style:dashed; color:#5b6672; pointer-events:none; }

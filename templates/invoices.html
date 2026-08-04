@@ -3,20 +3,134 @@
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
   <div>
     <h3 class="m-0">Facturas</h3>
-    <div class="text-muted">{% if tab == 'UPLOADED' %}Todas las facturas que se suben por la app, por tercero.{% else %}Centralización de facturas recibidas y emitidas.{% endif %}</div>
+    <div class="text-muted">
+      {%- if tab == 'UPLOADED' %}Todas las facturas que se suben por la app, por tercero.
+      {%- elif tab == 'UNLINKED' %}Facturas subidas que no cuelgan de ninguna liquidación, bolsa ni persona.
+      {%- elif tab == 'TOASSIGN' %}Todo lo que espera que alguien lo meta en una bolsa.
+      {%- else %}Centralización de facturas recibidas y emitidas.{% endif %}</div>
   </div>
-  {% if tab != 'UPLOADED' %}
+  {% if tab in ['RECEIVED', 'ISSUED'] %}
   <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newInvoiceModal"><i class="fa fa-plus me-1"></i>Nueva factura</button>
   {% endif %}
 </div>
 
 <ul class="nav nav-tabs mb-3">
   {% for value, label in invoice_kinds %}
-    <li class="nav-item"><a class="nav-link {% if tab == value %}active{% endif %}" href="{{ url_for('invoices_view', tab=value) }}">{{ label }}</a></li>
+    <li class="nav-item"><a class="nav-link {% if tab == value %}active{% endif %}" href="{{ url_for('invoices_view', tab=value) }}">
+      {{ label }}
+      {%- if value == 'UNLINKED' and unlinked_rows %}<span class="badge text-bg-warning text-dark ms-1">{{ unlinked_rows|length }}</span>{% endif -%}
+    </a></li>
   {% endfor %}
 </ul>
 
-{% if tab == 'UPLOADED' %}
+{% if tab == 'UNLINKED' or tab == 'TOASSIGN' %}
+  {# ====================== SIN VINCULAR / PENDIENTES DE ASIGNAR ======================
+     · SIN VINCULAR: facturas que están en el sistema y NO cuelgan de nada (ni liquidación de
+       royalties, ni petición de una bolsa, ni persona). Aquí caen las que se quedaron en el limbo
+       cuando el enlace de las liquidaciones caducaba. Esta pestaña SOLO EXISTE si hay alguna.
+     · PENDIENTES DE ASIGNAR: TODO lo que espera que alguien lo meta en una bolsa, sea de quien sea,
+       más las que no tienen destinatario (que si no, no las ve nadie en su Inicio). #}
+  {% set filas = unlinked_rows if tab == 'UNLINKED' else to_assign_rows %}
+  {% macro acciones(f, invoice_id, es_huerfana) %}
+    {% if es_huerfana and invoice_id %}
+      <div class="d-flex flex-column gap-2 mt-2" style="max-width:640px;">
+        {# 1) Vincularla a su liquidación de royalties: vuelve a «pendiente de liquidar». #}
+        <form method="post" action="{{ url_for('administration_invoice_link_royalty', invoice_id=invoice_id) }}"
+              class="d-flex gap-2 align-items-center flex-wrap">
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <select class="form-select form-select-sm" name="liquidation_id" style="max-width:420px;" required>
+            <option value="">Vincular a una liquidación de royalties…</option>
+            {% for opt in royalty_link_options %}<option value="{{ opt.id }}">{{ opt.label }}</option>{% endfor %}
+          </select>
+          <button class="btn btn-sm btn-success"><i class="fa fa-link me-1"></i>Vincular</button>
+        </form>
+        {# 2) O asignársela a una persona: entra en su «Mis gastos» con su plazo. #}
+        <form method="post" action="{{ url_for('supplier_invoice_assign_person', invoice_id=invoice_id) }}"
+              class="d-flex gap-2 align-items-center flex-wrap">
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <select class="form-select form-select-sm" name="user_id" style="max-width:420px;" required>
+            <option value="">Asignársela a una persona…</option>
+            {% for p in assign_people %}<option value="{{ p.user_id }}">{{ p.nick or p.email }}</option>{% endfor %}
+          </select>
+          <button class="btn btn-sm btn-outline-primary"><i class="fa fa-user-check me-1"></i>Asignar</button>
+        </form>
+      </div>
+    {% endif %}
+  {% endmacro %}
+
+  <div class="card">
+    <div class="card-header bg-white d-flex align-items-center gap-2 flex-wrap">
+      <strong>
+        {% if tab == 'UNLINKED' %}<i class="fa fa-link-slash me-1 text-warning"></i>Facturas sin vincular
+        {% else %}<i class="fa fa-inbox me-1 text-danger"></i>Pendientes de asignar a una bolsa{% endif %}
+      </strong>
+      <span class="badge text-bg-secondary">{{ filas|length }}</span>
+      <span class="small text-muted ms-auto">
+        {% if tab == 'UNLINKED' %}Están subidas pero no cuelgan de ninguna liquidación, bolsa ni persona.
+        {% else %}Todo lo que espera bolsa, de quien sea. Lo que no tiene destinatario sale marcado.{% endif %}
+      </span>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Proveedor</th><th>Nº</th><th>Concepto</th><th>Fecha</th>
+            {% if tab == 'TOASSIGN' %}<th>De quién es</th><th>Origen</th><th>Plazo</th>{% endif %}
+            <th class="text-end">Importe</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for f in filas %}
+            {% set invoice_id = f.invoice_id if f.invoice_id is defined and f.invoice_id else f.id %}
+            {% set es_huerfana = (tab == 'UNLINKED') or (f.kind is defined and f.kind == 'ORPHAN') %}
+            <tr>
+              <td>
+                <div class="fw-semibold">{{ f.name or '—' }}</div>
+                {% if f.missing %}
+                  {# ALERTA de datos que no se pudieron leer, con el botón para corregirlos a mano. #}
+                  <div class="small text-danger"><i class="fa fa-triangle-exclamation me-1"></i>Faltan datos: {{ f.missing|join(', ') }}</div>
+                  {% if f.edit_url %}
+                    <a class="btn btn-sm btn-danger mt-1" href="{{ f.edit_url }}"><i class="fa fa-pen me-1"></i>Completar los datos a mano</a>
+                  {% endif %}
+                {% endif %}
+                {{ acciones(f, invoice_id, es_huerfana) }}
+              </td>
+              <td class="small">{{ f.number or '—' }}</td>
+              <td class="small">{{ f.concept or '—' }}</td>
+              <td class="small text-nowrap">{{ f.date or '—' }}</td>
+              {% if tab == 'TOASSIGN' %}
+                <td class="small">
+                  {% if f.owner %}{{ f.owner }}{% else %}<span class="badge text-bg-warning text-dark">Sin destinatario</span>{% endif %}
+                </td>
+                <td class="small">{{ f.source or '' }}</td>
+                <td class="small text-nowrap">
+                  {% if f.days_left is not none %}
+                    {% if f.days_left < 0 %}<span class="badge text-bg-danger">Fuera de plazo</span>
+                    {% else %}{{ f.days_left }} día(s){% endif %}
+                  {% else %}—{% endif %}
+                </td>
+              {% endif %}
+              <td class="text-end fw-semibold text-nowrap">{{ (f.amount or 0)|eur }}</td>
+              <td class="text-end text-nowrap">
+                {% if f.file_url %}
+                  <a class="btn btn-sm btn-outline-dark" href="{{ f.file_url }}" target="_blank" rel="noopener" title="Ver la factura"><i class="fa fa-file-invoice"></i></a>
+                {% endif %}
+                {% if f.edit_url %}
+                  <a class="btn btn-sm btn-outline-secondary" href="{{ f.edit_url }}" title="Datos de la factura"><i class="fa fa-pen"></i></a>
+                {% endif %}
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="9" class="text-center text-muted py-4">
+              {% if tab == 'UNLINKED' %}No hay facturas sin vincular.{% else %}No hay nada pendiente de asignar.{% endif %}
+            </td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+{% elif tab == 'UPLOADED' %}
   {# TODAS las facturas que suben los terceros a la app, AGRUPADAS POR QUIEN LAS EMITE (por dónde
      hayan entrado da igual: enlace general, petición de una bolsa, liquidación o gasto de alguien). #}
   <div class="d-flex flex-wrap gap-2 mb-3">
@@ -142,6 +256,13 @@
                   <td>
                     <span class="badge {{ r.status_badge }}">{{ r.status_label }}</span>
                     {% if r.reject_reason %}<div class="small text-danger">{{ r.reject_reason }}</div>{% endif %}
+                    {# ALERTA de datos sin leer, a la vista y con el botón para corregirlos a mano:
+                       una factura así no se puede validar ni contabilizar hasta que se completen. #}
+                    {% if r.missing %}
+                      <div class="small text-danger mt-1"><i class="fa fa-triangle-exclamation me-1"></i>Faltan datos: {{ r.missing|join(', ') }}</div>
+                      <a class="btn btn-sm btn-danger mt-1" href="{{ url_for('supplier_invoice_edit', invoice_id=r.id) }}">
+                        <i class="fa fa-pen me-1"></i>Completar a mano</a>
+                    {% endif %}
                   </td>
                   <td class="text-end small">{% if r.net > 0 %}{{ r.net|eur }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
                   <td class="text-end small">

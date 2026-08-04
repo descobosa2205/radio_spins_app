@@ -1131,6 +1131,21 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   liquidación, bolsa, gasto, petición ni persona) con un selector para **vincularla a su liquidación**
   (`administration_invoice_link_royalty`) y que vuelva al proceso. Ahí caen también las subidas por la
   landing genérica sin destinatario, que son igual de invisibles.
+  · **Y donde de verdad se busca: BASES DE DATOS → FACTURAS**, con dos pestañas nuevas
+  (`INVOICE_KINDS`): **«Sin vincular»** —que **solo existe si hay alguna** (`INVOICE_CONDITIONAL_TABS`,
+  con su contador) y desde la que se puede **vincular a una liquidación** o **asignársela a una
+  persona** (`supplier_invoice_assign_person`: entra en su «Mis gastos» y arranca su plazo)— y
+  **«Pendientes de asignar»** (`_invoices_pending_assign_rows`), que es TODO lo que espera bolsa **sea
+  de quien sea** (los `PersonalExpense` en PENDING, con de quién es, su origen y su plazo) **más las
+  del limbo**, marcadas «Sin destinatario» porque nadie las ve en su Inicio. El bloque de
+  Administración se queda: es donde trabaja administración.
+  · **La alerta de datos que faltan se ve en las TRES pantallas** (bandeja de royalties, «Subidas por
+  terceros» y las pestañas nuevas): línea roja con qué falta + botón **«Completar a mano»** →
+  `supplier_invoice_edit`. Antes en «Subidas por terceros» solo había una lupa para releer el PDF y el
+  editar estaba escondido en los tres puntitos: no se encontraba.
+  · **El módulo «Mis gastos» de Inicio solo sale si esa persona tiene algo pendiente** de asignar
+  (antes salía siempre, con un «sin gastos pendientes» que solo hacía ruido). La sección sigue en el
+  menú, así que no se pierde el acceso.
 
 - ⚠️⚠️ **LO QUE TIENE QUE CUADRAR DE UNA FACTURA ES LA BASE, NO EL TOTAL** (ago 2026). La
   **retención** es la que diga la factura: baja el importe a pagar, pero **no cambia lo que se ha

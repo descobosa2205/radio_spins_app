@@ -43668,17 +43668,20 @@ def _prl_admin_altas_context(session_db) -> dict:
 def _home_my_expenses_summary() -> dict:
     """Panel de Inicio: mis facturas y gastos de Pleo sin asignar a una bolsa, con la cuenta atrás.
 
-    El módulo se muestra SIEMPRE (también a dirección y sin nada pendiente: entonces dice «sin gastos
-    pendientes de asignar»), así se sabe que la sección existe. Lo que no aplica a dirección es la
-    RECLAMACIÓN por correo ni el escalado (eso lo decide el cron, ver `cron_unassigned_expenses`).
+    ⚠️ El módulo se muestra SOLO SI ESA PERSONA TIENE ALGO PENDIENTE de asignar: sin nada pendiente no
+    pinta nada (antes salía siempre con un «sin gastos pendientes» que solo hacía ruido). La sección
+    sigue estando en el menú, así que no se pierde. Lo que no aplica a dirección es la RECLAMACIÓN por
+    correo ni el escalado (eso lo decide el cron, ver `cron_unassigned_expenses`).
     """
-    empty = {"rows": [], "overdue": 0, "total": 0, "visible": bool(session.get("user_id"))}
+    empty = {"rows": [], "overdue": 0, "total": 0, "visible": False}
     uid = session.get("user_id")
     if not uid:
         return empty
     session_db = db()
     try:
         rows = _personal_expenses_for(session_db, uid, status=("PENDING", "IN_BAG"))
+        if not rows:
+            return empty                     # nada pendiente: el módulo no se pinta
         pause = _expense_pause_context(session_db, uid)
         return {
             "rows": rows[:8],
@@ -44929,7 +44932,10 @@ PERSONNEL_DEPARTMENTS = [
 MEDIA_TYPES = ["TV", "Radio", "Prensa", "Digital", "Agencia", "Podcast"]
 # La pestaña UPLOADED lista TODAS las facturas que suben los terceros a la app (SupplierInvoice),
 # agrupadas por quien las emite; RECEIVED/ISSUED siguen siendo el registro manual (InvoiceRecord).
-INVOICE_KINDS = [("UPLOADED", "Subidas por terceros"), ("RECEIVED", "Recibidas"), ("ISSUED", "Emitidas")]
+INVOICE_KINDS = [("UPLOADED", "Subidas por terceros"), ("TOASSIGN", "Pendientes de asignar"),
+                 ("UNLINKED", "Sin vincular"), ("RECEIVED", "Recibidas"), ("ISSUED", "Emitidas")]
+# La pestaña «Sin vincular» solo se muestra cuando HAY facturas sin vincular (si no, no existe).
+INVOICE_CONDITIONAL_TABS = {"UNLINKED"}
 INVOICE_STATUS_OPTIONS = [
     "PENDIENTE",
     "RECIBIDA",
@@ -59961,6 +59967,114 @@ def _supplier_invoice_groups(session_db, *, q: str = "", promoter_id: str = "",
     return salida, [str(x.id) for x in fantasmas]
 
 
+def _invoices_pending_assign_rows(session_db, *, limit: int = 500) -> list[dict]:
+    """TODAS las facturas PENDIENTES DE ASIGNAR a una bolsa, sea de quien sea.
+
+    Dos cosas caben aquí:
+      · las que llegaron por el enlace GENERAL diciendo para quién eran → están en «Mis gastos» de esa
+        persona esperando que las meta en una bolsa (`PersonalExpense` en PENDING);
+      · las que se quedaron **sin destinatario** (el limbo): nadie las ve en su Inicio, así que se
+        listan aquí para poder asignárselas a alguien o vincularlas a su liquidación.
+    """
+    filas = []
+    # --- 1) Las que tienen dueño y siguen sin bolsa ---
+    try:
+        pendientes = (session_db.query(PersonalExpense)
+                      .filter(PersonalExpense.status == "PENDING")
+                      .order_by(PersonalExpense.received_at.asc().nullslast()).limit(limit).all())
+    except Exception:
+        pendientes = []
+    nicks = {}
+    uids = [p.user_id for p in pendientes if p.user_id]
+    if uids:
+        nicks = {str(uid): (nick or "") for uid, nick in
+                 session_db.query(UserProfile.user_id, UserProfile.nick)
+                 .filter(UserProfile.user_id.in_(uids)).all()}
+    inv_ids = [p.supplier_invoice_id for p in pendientes if getattr(p, "supplier_invoice_id", None)]
+    invoices = {}
+    if inv_ids:
+        invoices = {str(i.id): i for i in session_db.query(SupplierInvoice)
+                    .filter(SupplierInvoice.id.in_(inv_ids)).all()}
+    pausas = {}          # el contexto de pausa se pide UNA vez por persona, no una por fila
+    for p in pendientes:
+        clave_pausa = str(p.user_id or "")
+        if clave_pausa not in pausas:
+            pausas[clave_pausa] = _expense_pause_context(session_db, p.user_id)
+        inv = invoices.get(str(getattr(p, "supplier_invoice_id", "") or ""))
+        origen = {"INVOICE": "Enlace de facturas", "PLEO": "Pleo", "CABIFY": "Cabify"}.get(
+            (p.source or "").upper(), (p.source or "").title())
+        filas.append({
+            "kind": "PERSONAL",
+            "id": str(p.id),
+            "invoice_id": (str(inv.id) if inv is not None else ""),
+            "name": (p.provider_name or "—"),
+            "number": (p.invoice_number or ""),
+            "concept": (p.concept or ""),
+            "date": (p.expense_date.strftime("%d/%m/%Y") if p.expense_date else ""),
+            "amount": _money_or_zero(p.amount_gross),
+            "owner": nicks.get(str(p.user_id), "") or "Sin nombre",
+            "owner_id": (str(p.user_id) if p.user_id else ""),
+            "source": origen,
+            "file_url": (p.file_url or (getattr(inv, "file_url", None) or "")),
+            "missing": (_supplier_invoice_missing_fields(inv) if inv is not None else []),
+            "edit_url": (url_for("supplier_invoice_edit", invoice_id=inv.id) if inv is not None else ""),
+            "days_left": _expense_days_left(p, pausas[clave_pausa]),
+        })
+    # --- 2) Las del LIMBO: sin destinatario y sin colgar de nada ---
+    for o in _orphan_supplier_invoices(session_db):
+        filas.append({
+            "kind": "ORPHAN",
+            "id": o["id"],
+            "invoice_id": o["id"],
+            "name": o["name"],
+            "number": o["number"],
+            "concept": o["concept"],
+            "date": o["uploaded"],
+            "amount": o["amount"],
+            "owner": "",
+            "owner_id": "",
+            "source": "Enlace de facturas · sin destinatario",
+            "file_url": o["file_url"],
+            "missing": o["missing"],
+            "edit_url": o["edit_url"],
+            "days_left": None,
+        })
+    return filas
+
+
+@app.post("/facturas/subidas/<invoice_id>/asignar", endpoint="supplier_invoice_assign_person")
+@admin_required
+def supplier_invoice_assign_person(invoice_id):
+    """Le asigna una factura suelta a UNA PERSONA: entra en su «Mis gastos» y arranca su plazo."""
+    if not (can_edit_invoices() or has_access_key("administracion", edit=True, include_descendants=True)):
+        return forbid("Tu usuario no puede asignar facturas.")
+    session_db = db()
+    try:
+        inv = session_db.get(SupplierInvoice, to_uuid(invoice_id) or uuid.uuid4())
+        uid = to_uuid(request.form.get("user_id") or "")
+        if inv is None or not uid:
+            flash("No se ha encontrado la factura o la persona.", "warning")
+            return redirect(safe_next_or(url_for("invoices_view", tab="TOASSIGN")))
+        ya = (session_db.query(PersonalExpense)
+              .filter(PersonalExpense.supplier_invoice_id == inv.id).first())
+        if ya is not None:
+            flash("Esa factura ya estaba asignada a alguien.", "info")
+            return redirect(safe_next_or(url_for("invoices_view", tab="TOASSIGN")))
+        inv.target_user_id = uid
+        inv.promoter = session_db.get(Promoter, inv.promoter_id) if inv.promoter_id else None
+        _personal_expense_from_invoice(session_db, inv, uid)
+        session_db.commit()
+        prof = session_db.query(UserProfile).filter(UserProfile.user_id == uid).first()
+        flash("Factura asignada a %s: ya la tiene en «Mis gastos»."
+              % ((getattr(prof, "nick", None) or "esa persona")), "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo asignar la factura: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("invoices_view", tab="TOASSIGN")))
+
+
 @app.route("/facturas", methods=["GET", "POST"], endpoint="invoices_view")
 @admin_required
 def invoices_view():
@@ -59997,8 +60111,34 @@ def invoices_view():
             return redirect(url_for("invoices_view", tab=invoice_kind))
 
         tab = (request.args.get("tab") or "UPLOADED").strip().upper()
-        if tab not in {"UPLOADED", "RECEIVED", "ISSUED"}:
+        if tab not in {t for t, _l in INVOICE_KINDS}:
             tab = "UPLOADED"
+        # «Sin vincular» solo existe si hay facturas sin vincular: se cuentan siempre (es una consulta
+        # de contador) para saber si se pinta la pestaña.
+        unlinked_rows = _orphan_supplier_invoices(session_db)
+        visible_kinds = [(v, l) for v, l in INVOICE_KINDS
+                         if v not in INVOICE_CONDITIONAL_TABS or unlinked_rows]
+        if tab == "UNLINKED" and not unlinked_rows:
+            tab = "UPLOADED"
+        if tab in {"UNLINKED", "TOASSIGN"}:
+            asignables = (_invoices_pending_assign_rows(session_db) if tab == "TOASSIGN" else [])
+            return render_template(
+                "invoices.html",
+                tab=tab,
+                invoices=[], supplier_groups=[], supplier_count=0, supplier_pending=0,
+                supplier_incomplete=0, supplier_duplicates=0, supplier_ghosts=0,
+                supplier_can_clean=is_master(), supplier_can_edit=can_edit_invoices(),
+                supplier_status_options=list(SUPPLIER_INVOICE_STATUS_META.keys()),
+                artists=[], companies=[], bags=[], years=[],
+                invoice_kinds=visible_kinds,
+                unlinked_rows=unlinked_rows,
+                to_assign_rows=asignables,
+                royalty_link_options=_royalty_liquidation_link_options(session_db),
+                assign_people=_invoice_target_people(session_db),
+                invoice_status_options=INVOICE_STATUS_OPTIONS,
+                filter_artist="", filter_year="", filter_company="", filter_status="",
+                filter_start="", filter_end="", filter_q="",
+            )
         # Pestaña SUBIDAS POR TERCEROS: todas las facturas que entran por la app, por tercero.
         if tab == "UPLOADED":
             f_q = (request.args.get("q") or "").strip()
@@ -60023,7 +60163,8 @@ def invoices_view():
                 supplier_status_options=list(SUPPLIER_INVOICE_STATUS_META.keys()),
                 artists=[], companies=[], bags=[],
                 years=years_up,
-                invoice_kinds=INVOICE_KINDS,
+                invoice_kinds=visible_kinds,
+                unlinked_rows=unlinked_rows,
                 invoice_status_options=INVOICE_STATUS_OPTIONS,
                 filter_artist="", filter_year=f_year, filter_company="", filter_status=f_status,
                 filter_start="", filter_end="", filter_q=f_q,
@@ -60077,7 +60218,8 @@ def invoices_view():
             companies=companies,
             bags=bags,
             years=years,
-            invoice_kinds=INVOICE_KINDS,
+            invoice_kinds=visible_kinds,
+            unlinked_rows=unlinked_rows,
             invoice_status_options=INVOICE_STATUS_OPTIONS,
             filter_artist=f_artist,
             filter_year=f_year,

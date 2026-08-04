@@ -151,6 +151,13 @@
             <li><button class="dropdown-item" type="button" onclick="openRoyaltyLiquidationPreview('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')">
               <i class="fa fa-paper-plane fa-fw me-2"></i>Reenviar liquidación</button></li>
           {% endif %}
+          {# SUBIR LA FACTURA desde dentro: cuando el beneficiario la manda por otro canal. Se lee lo
+             que se pueda del documento y solo se pide a mano lo que no se haya podido leer. #}
+          {% if b.liquidation_id %}
+            <li><button class="dropdown-item" type="button"
+                        onclick="openRoyaltyInvoiceUpload('{{ b.liquidation_id }}', {{ (b.name or '')|tojson }}, {{ (b.total_amount or 0)|string|tojson }})">
+              <i class="fa fa-file-arrow-up fa-fw me-2"></i>{{ 'Reemplazar la factura' if b.has_invoice else 'Subir la factura' }}</button></li>
+          {% endif %}
           <li><button class="dropdown-item" type="button" onclick="generateRoyaltyLiquidation('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')">
             <i class="fa fa-file-pdf fa-fw me-2"></i>Generar una nueva</button></li>
           {% if b.generated_pdf_url %}
@@ -692,3 +699,192 @@
     </div>
   </div>
 </div>
+
+{# ============================ SUBIR LA FACTURA DE UNA LIQUIDACIÓN ============================
+   Para cuando el beneficiario manda su factura por otro canal (correo, WhatsApp, en mano). Se
+   arrastra o se elige, se leen del documento los datos que se puedan y solo se piden a mano los que
+   no se hayan podido leer; al guardar, la liquidación pasa a FACTURADA y queda pendiente de validar
+   en Administración → Pendiente → De liquidación. #}
+<div class="modal fade" id="royInvoiceModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-file-arrow-up me-2 text-danger"></i>Subir la factura de la liquidación</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="royInvoiceForm" enctype="multipart/form-data">
+        <div class="modal-body">
+          <div class="small text-muted mb-2" data-roy-inv-who></div>
+          {# Zona de arrastre (o clic para elegir). #}
+          <label class="d-block border rounded-3 p-4 text-center mb-3" style="border-style:dashed!important;cursor:pointer;"
+                 id="royInvoiceDrop">
+            <i class="fa fa-cloud-arrow-up fa-2x text-muted mb-2 d-block"></i>
+            <span data-roy-inv-name>Arrastra aquí la factura o pincha para elegirla</span>
+            <input type="file" name="file" accept=".pdf,image/*" class="d-none" id="royInvoiceFile" required>
+          </label>
+          <div class="small text-muted mb-2 d-none" data-roy-inv-reading><i class="fa fa-spinner fa-spin me-1"></i>Leyendo los datos de la factura…</div>
+          <div class="row g-3" id="royInvoiceFields">
+            <div class="col-md-6">
+              <label class="form-label">Nº de factura</label>
+              <input class="form-control" name="invoice_number" data-roy-f="invoice_number">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Fecha de emisión</label>
+              <input class="form-control" type="date" name="issue_date" data-roy-f="issue_date">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Base imponible</label>
+              <input class="form-control" name="amount_net" data-roy-f="amount_net" inputmode="decimal">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">IVA</label>
+              <input class="form-control" name="amount_vat" data-roy-f="amount_vat" inputmode="decimal">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Retención <span class="text-muted small">(si la lleva)</span></label>
+              <input class="form-control" name="retention_amount" data-roy-f="retention_amount" inputmode="decimal">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Total de la factura</label>
+              <input class="form-control" name="amount_gross" data-roy-f="amount_gross" inputmode="decimal">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Concepto</label>
+              <input class="form-control" name="concept_text" data-roy-f="concept_text" placeholder="Liquidación de royalties">
+            </div>
+          </div>
+          <div class="alert alert-warning small mt-3 d-none" data-roy-inv-msg></div>
+        </div>
+        <div class="modal-footer">
+          <div class="small text-muted me-auto">Lo que no se haya podido leer sale resaltado: complétalo antes de guardar.</div>
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-danger" type="submit" data-roy-inv-save>Guardar la factura</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Subida interna de la factura de una liquidación: leer del documento lo que se pueda, pedir a mano
+   solo lo que falte, y guardar. Los campos que no se han leído se resaltan (`is-invalid`). */
+(function () {
+  var LIQ_ID = '';
+  var FORZAR = false;
+  var OBLIGATORIOS = ['invoice_number', 'issue_date', 'amount_net', 'amount_gross'];
+
+  function $f(n) { return document.querySelector('[data-roy-f="' + n + '"]'); }
+  function aviso(txt, clase) {
+    var box = document.querySelector('[data-roy-inv-msg]');
+    if (!box) return;
+    box.className = 'alert small mt-3 ' + (clase || 'alert-warning') + (txt ? '' : ' d-none');
+    box.textContent = txt || '';
+  }
+
+  function marcarQueFalta() {
+    OBLIGATORIOS.forEach(function (n) {
+      var el = $f(n);
+      if (!el) return;
+      el.classList.toggle('is-invalid', !(el.value || '').trim());
+    });
+  }
+
+  window.openRoyaltyInvoiceUpload = function (liqId, nombre, importe) {
+    LIQ_ID = liqId || '';
+    FORZAR = false;
+    var modalEl = document.getElementById('royInvoiceModal');
+    if (!modalEl || !window.bootstrap) return;
+    document.getElementById('royInvoiceForm').reset();
+    ['invoice_number', 'issue_date', 'amount_net', 'amount_vat', 'retention_amount',
+     'amount_gross', 'concept_text'].forEach(function (n) {
+      var el = $f(n); if (el) { el.value = ''; el.classList.remove('is-invalid'); }
+    });
+    var who = document.querySelector('[data-roy-inv-who]');
+    if (who) who.textContent = (nombre ? nombre + ' · ' : '') + 'a facturar: ' + (importe || '') + ' € (base)';
+    var nom = document.querySelector('[data-roy-inv-name]');
+    if (nom) nom.textContent = 'Arrastra aquí la factura o pincha para elegirla';
+    aviso('');
+    window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
+  };
+
+  var input = document.getElementById('royInvoiceFile');
+  var drop = document.getElementById('royInvoiceDrop');
+  if (drop) {
+    ['dragenter', 'dragover'].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('border-danger'); });
+    });
+    ['dragleave', 'drop'].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('border-danger'); });
+    });
+    drop.addEventListener('drop', function (e) {
+      var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (!f || !input) return;
+      var dt = new DataTransfer(); dt.items.add(f); input.files = dt.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  }
+
+  if (input) input.addEventListener('change', function () {
+    var f = input.files && input.files[0];
+    if (!f) return;
+    var nom = document.querySelector('[data-roy-inv-name]');
+    if (nom) nom.textContent = f.name;
+    var leyendo = document.querySelector('[data-roy-inv-reading]');
+    if (leyendo) leyendo.classList.remove('d-none');
+    var fd = new FormData(); fd.append('file', f);
+    fetch('{{ url_for("public_invoice_detect") }}', { method: 'POST', body: fd })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (leyendo) leyendo.classList.add('d-none');
+        var m = (d && d.meta) || d || {};
+        [['invoice_number', 'invoice_number'], ['issue_date', 'issue_date'],
+         ['amount_net', 'amount_net'], ['amount_vat', 'amount_vat'],
+         ['retention_amount', 'retention_amount'], ['amount_gross', 'amount_gross'],
+         ['concept_text', 'concept']].forEach(function (par) {
+          var el = $f(par[0]);
+          if (el && !el.value && m[par[1]]) el.value = m[par[1]];
+        });
+        marcarQueFalta();
+        var faltan = OBLIGATORIOS.filter(function (n) { var e = $f(n); return !e || !(e.value || '').trim(); });
+        aviso(faltan.length ? 'No se han podido leer todos los datos: completa los campos resaltados.' : '',
+              'alert-warning');
+      })
+      .catch(function () {
+        if (leyendo) leyendo.classList.add('d-none');
+        marcarQueFalta();
+        aviso('No se han podido leer los datos del documento: escríbelos a mano.', 'alert-warning');
+      });
+  });
+
+  var form = document.getElementById('royInvoiceForm');
+  if (form) form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    marcarQueFalta();
+    if (OBLIGATORIOS.some(function (n) { var el = $f(n); return !el || !(el.value || '').trim(); })) {
+      aviso('Faltan datos obligatorios: número, fecha, base e importe total.', 'alert-danger');
+      return;
+    }
+    var fd = new FormData(form);
+    if (FORZAR) fd.append('force', '1');
+    var btn = form.querySelector('[data-roy-inv-save]');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Guardando…'; }
+    fetch('/discografica/royalties/liquidacion/' + encodeURIComponent(LIQ_ID) + '/factura',
+          { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (btn) { btn.disabled = false; btn.innerHTML = 'Guardar la factura'; }
+        if (d && d.ok) { window.location.reload(); return; }
+        if (d && d.can_force) {
+          FORZAR = true;
+          aviso((d.error || '') + ' Si aun así es correcta, vuelve a pulsar «Guardar la factura».', 'alert-danger');
+          return;
+        }
+        aviso((d && d.error) || 'No se ha podido guardar la factura.', 'alert-danger');
+      })
+      .catch(function () {
+        if (btn) { btn.disabled = false; btn.innerHTML = 'Guardar la factura'; }
+        aviso('Error de conexión al guardar la factura.', 'alert-danger');
+      });
+  });
+})();
+</script>

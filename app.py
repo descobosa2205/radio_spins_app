@@ -7861,6 +7861,8 @@ def _apply_royalty_liquidation_meta(bucket: dict, rec: RoyaltyLiquidation | None
         bucket['is_generated'] = False
         bucket['is_sent'] = False
         bucket['needs_regeneration'] = False
+        bucket['liquidation_id'] = ''
+        bucket['has_invoice'] = False
         bucket['liquidation_status'] = 'PENDING'
         lbl, color = _royalty_status_meta('PENDING')
         bucket['liquidation_label'] = lbl
@@ -7885,6 +7887,9 @@ def _apply_royalty_liquidation_meta(bucket: dict, rec: RoyaltyLiquidation | None
     # La información se puede consultar SIEMPRE que exista la liquidación (no solo si se envió): ahí
     # está toda la trazabilidad (generada, enviada, factura, cobro).
     bucket['has_sent_info'] = True
+    # Id de la liquidación: hace falta para subirle la factura desde dentro (los 3 puntitos).
+    bucket['liquidation_id'] = str(getattr(rec, 'id', '') or '')
+    bucket['has_invoice'] = bool(getattr(rec, 'invoice_id', None))
     congelada = _royalty_frozen_beneficiary(rec)
     bucket['is_generated'] = bool(congelada)
     bucket['generated_at_label'] = _format_madrid_datetime_label(getattr(rec, 'generated_at', None))
@@ -10069,7 +10074,16 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
     pdf.setFont('Helvetica-Bold', 8.5)
     link_text = 'Subir factura'
     pdf.drawString(left, y, link_text)
-    pdf.linkURL('https://www.piesrecords.com/facturacion', (left, y - 2, left + stringWidth(link_text, 'Helvetica-Bold', 8.5), y + 8), relative=0)
+    # ⚠️ El enlace lleva a la factura DE ESTA LIQUIDACIÓN, el mismo sitio que el botón del correo.
+    # Antes iba al formulario GENÉRICO de facturación: quien lo usaba subía su factura sin vincular a
+    # la liquidación, así que no llegaba a «pendiente de liquidar» (bug real).
+    try:
+        _pub_tok = _make_public_royalty_liquidation_token(
+            kind, str(bid), _semester_key(sem_year, sem_half))
+        _subir_url = _external_url_for('public_royalty_liquidation_view', token=_pub_tok)
+    except Exception:
+        _subir_url = 'https://www.piesrecords.com/facturacion'
+    pdf.linkURL(_subir_url, (left, y - 2, left + stringWidth(link_text, 'Helvetica-Bold', 8.5), y + 8), relative=0)
 
     _draw_page_footer(page_no)
     pdf.save()
@@ -43166,6 +43180,95 @@ def administration_invoice_link_royalty(invoice_id):
     return redirect(safe_next_or(url_for("administracion_view", tab="pendiente", subtab="liquidacion")))
 
 
+@app.post("/discografica/royalties/liquidacion/<liq_id>/factura", endpoint="royalty_liquidation_invoice_upload")
+@admin_required
+def royalty_liquidation_invoice_upload(liq_id):
+    """Sube DESDE DENTRO la factura de una liquidación (la manda el beneficiario por otro canal).
+
+    Hace lo mismo que el enlace público: crea la `SupplierInvoice` vinculada, deja la liquidación en
+    FACTURADA y la pone en «pendiente de liquidar» para administración. Los datos se leen del propio
+    documento y lo que no se haya podido leer llega escrito a mano desde el modal.
+    """
+    if not (can_edit_discografica() or can_edit_invoices()
+            or has_access_key("administracion", edit=True, include_descendants=True)):
+        return jsonify({"ok": False, "error": "No tienes permisos para subir esta factura."}), 403
+    session_db = db()
+    try:
+        rec = session_db.get(RoyaltyLiquidation, to_uuid(liq_id) or uuid.uuid4())
+        if rec is None:
+            return jsonify({"ok": False, "error": "No se ha encontrado la liquidación."}), 404
+        f = request.files.get("file")
+        if not f or not f.filename:
+            return jsonify({"ok": False, "error": "Falta el archivo de la factura."}), 400
+        anterior = (session_db.get(SupplierInvoice, rec.invoice_id)
+                    if getattr(rec, "invoice_id", None) else None)
+        if (anterior is not None and (anterior.file_url or "").strip()
+                and (anterior.status or "").upper() == "VALIDADA"):
+            return jsonify({"ok": False, "error": (
+                "Esa liquidación ya tiene una factura VALIDADA. Si hay que cambiarla, primero "
+                "recházala desde la base de facturas.")}), 409
+        # Datos obligatorios: los mismos que se le exigen al proveedor (la BASE es la que cuadra).
+        ok_datos, falta = _invoice_required_data_check(request.form)
+        if not ok_datos:
+            return jsonify({"ok": False, "error": falta, "needs_data": True}), 400
+        dinero = _invoice_amount_fields_from_form(request.form)
+        esperado = _royalty_invoice_totals(_royalty_frozen_beneficiary(rec) or {})
+        ok_importe, motivo = _invoice_amount_check(
+            esperado.get("gross"), esperado.get("net"), dinero.get("amount_gross"),
+            dinero.get("retention_amount"), net=dinero.get("amount_net"),
+            vat=dinero.get("amount_vat"))
+        if not ok_importe and not _truthy(request.form.get("force")):
+            # Se avisa, pero desde dentro se puede forzar: administración sabe lo que hace.
+            return jsonify({"ok": False, "error": motivo, "can_force": True}), 400
+        nombre = (f.filename or "factura").strip()
+        es_pdf = nombre.lower().endswith(".pdf") or (f.mimetype or "") == "application/pdf"
+        url = upload_pdf(f, "invoices") if es_pdf else upload_file(f, "invoices")
+        if not url:
+            return jsonify({"ok": False, "error": "No se pudo guardar el archivo."}), 400
+        if anterior is not None and (anterior.file_url or "").strip():
+            _supplier_invoice_mark_replaced(
+                session_db, [anterior],
+                "Reemplazada por la factura subida desde la app el %s" % today_local().strftime("%d/%m/%Y"))
+        congelada = _royalty_frozen_beneficiary(rec) or {}
+        promoter_id = rec.beneficiary_id if (rec.beneficiary_kind or "").upper() == "PROMOTER" else None
+        if not promoter_id:
+            # Beneficiario que no es un tercero (p. ej. un artista): la factura la emite su tercero
+            # vinculado si lo hay; si no, no se puede crear (la factura necesita quién la emite).
+            return jsonify({"ok": False, "error": (
+                "Esta liquidación no es de un tercero, así que no se puede registrar su factura "
+                "aquí: hazlo desde la base de facturas.")}), 400
+        invoice = SupplierInvoice(
+            promoter_id=promoter_id, source="REQUEST", royalty_liquidation_id=rec.id,
+            concept_text=((request.form.get("concept_text") or "").strip()
+                          or "Liquidación de royalties"),
+            artist_text=(request.form.get("artist_text") or "").strip() or None,
+            invoice_number=(request.form.get("invoice_number") or "").strip() or None,
+            issue_date=parse_optional_date(request.form.get("issue_date")),
+            group_company_id=getattr(_pies_group_company(session_db), "id", None),
+            file_url=url, original_name=nombre[:200], mime_type=f.mimetype, status="PENDIENTE",
+            **dinero,
+        )
+        session_db.add(invoice)
+        session_db.flush()
+        rec.invoice_id = invoice.id
+        rec.status = "INVOICED"
+        rec.invoice_uploaded_at = _now_madrid()
+        rec.updated_at = _now_madrid()
+        _royalty_history_add(rec, "INVOICED", file_url=url,
+                             note="Subida desde la app por %s"
+                                  % ((_current_user_state() or {}).get("nick") or "la oficina"))
+        session_db.commit()
+        return jsonify({"ok": True, "warning": ("" if ok_importe else motivo),
+                        "message": "Factura registrada: la liquidación pasa a facturada y queda "
+                                   "pendiente de validar en administración."})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("royalty_liquidation_invoice_upload")
+        return jsonify({"ok": False, "error": str(exc)[:200]}), 500
+    finally:
+        session_db.close()
+
+
 def _royalty_invoice_pending_rows(session_db) -> list:
     """Facturas de liquidaciones de royalties recibidas y PENDIENTES de validar (tarea de
     administración). Incluye el aviso de EMBARGO vigente sobre el proveedor."""
@@ -45027,6 +45130,12 @@ ADMINISTRATION_TABS = [
     ("embargos", "Embargos"),
     ("altas", "Altas"),
 ]
+# Subpestañas de la pestaña «Liquidaciones»: las bolsas de siempre y, aparte, las liquidaciones de
+# royalties que se enviaron y de las que NO ha llegado la factura (para poder volver a pedirla).
+ADMINISTRATION_LIQ_TABS = [
+    ("bolsas", "Bolsas", "fa-sack-dollar"),
+    ("pendiente-factura", "Enviadas pendientes de factura", "fa-paper-plane"),
+]
 ADMINISTRATION_PENDING_TABS = [
     ("solicitudes", "Solicitudes"),
     ("oficina", "De oficina"),
@@ -45647,7 +45756,8 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return "discografica.adelantos"
     # Royalties: acciones en bloque y liquidaciones «a favor» (sus endpoints no llevan el prefijo
     # discografica_, así que hay que mapearlos a mano: si no, solo dirección podría usarlos).
-    if endpoint.startswith("royalty_liquidations") or endpoint.startswith("afavor_"):
+    if (endpoint.startswith("royalty_liquidations") or endpoint.startswith("afavor_")
+            or endpoint == "royalty_liquidation_invoice_upload"):
         return "discografica.royalties"
     if endpoint.startswith("administration_afavor"):
         return "administracion.pendiente"
@@ -46277,7 +46387,8 @@ def _resolve_request_resource_key() -> str | None:
         return "discografica.adelantos"
     # Royalties: acciones en bloque y liquidaciones «a favor» (sus endpoints no llevan el prefijo
     # discografica_, así que hay que mapearlos a mano: si no, solo dirección podría usarlos).
-    if endpoint.startswith("royalty_liquidations") or endpoint.startswith("afavor_"):
+    if (endpoint.startswith("royalty_liquidations") or endpoint.startswith("afavor_")
+            or endpoint == "royalty_liquidation_invoice_upload"):
         return "discografica.royalties"
     if endpoint.startswith("administration_afavor"):
         return "administracion.pendiente"
@@ -55629,6 +55740,12 @@ def administracion_view():
         pending_subtab = (request.args.get("subtab") or "solicitudes").strip().lower()
         if pending_subtab not in {key for key, _label in ADMINISTRATION_PENDING_TABS}:
             pending_subtab = "solicitudes"
+        liq_subtab = (request.args.get("liq_tab") or request.args.get("subtab") or "bolsas").strip().lower()
+        if liq_subtab not in {k for k, _l, _i in ADMINISTRATION_LIQ_TABS}:
+            liq_subtab = "bolsas"
+        # Liquidaciones enviadas de las que no ha llegado factura (solo se buscan en su subpestaña).
+        sent_no_invoice = (_royalty_sent_without_invoice(session_db)
+                           if (tab == "liquidaciones" and liq_subtab == "pendiente-factura") else [])
         embargo_subtab = (request.args.get("embargo_tab") or request.args.get("subtab") or "activas").strip().lower()
         if embargo_subtab not in {"activas", "archivadas"}:
             embargo_subtab = "activas"
@@ -55753,6 +55870,9 @@ def administracion_view():
             **altas_ctx,
             pending_subtab=pending_subtab,
             pending_tabs=ADMINISTRATION_PENDING_TABS,
+            liq_tabs=ADMINISTRATION_LIQ_TABS,
+            liq_subtab=liq_subtab,
+            sent_no_invoice=sent_no_invoice,
             # Misma fuente de verdad que el contador: el número y las filas no pueden discrepar.
             ADMIN_BAG_LIQUIDACION_STATUSES=ADMIN_BAG_LIQUIDACION_STATUSES,
             ADMIN_BAG_CIERRE_STATUSES=ADMIN_BAG_CIERRE_STATUSES,
@@ -60044,6 +60164,7 @@ def _royalty_sent_without_invoice(session_db, *, limit: int = 200) -> list[dict]
             continue
         congelada = _royalty_frozen_beneficiary(rec) or {}
         enviada = getattr(rec, "last_sent_at", None) or getattr(rec, "updated_at", None)
+        _sem = _semester_key(rec.period_start.year, 1 if rec.period_start.month <= 6 else 2)
         filas.append({
             "id": str(rec.id),
             "name": (congelada.get("name") or "Beneficiario"),
@@ -60051,6 +60172,13 @@ def _royalty_sent_without_invoice(session_db, *, limit: int = 200) -> list[dict]
             "status": (rec.status or "").upper(),
             "amount": _royalty_invoice_totals(congelada)["gross"],
             "sent": (enviada.strftime("%d/%m/%Y") if enviada else ""),
+            # Con esto se puede volver a pedir la factura, abrir su trazabilidad y verla.
+            "kind": (rec.beneficiary_kind or "").upper(),
+            "beneficiary_id": str(rec.beneficiary_id or ""),
+            "sem_key": _sem,
+            "view_url": url_for("discografica_view", section="royalties", s=_sem),
+            "pdf_url": ((getattr(rec, "last_sent_pdf_url", None) or
+                         getattr(rec, "snapshot_pdf_url", None) or "").strip()),
         })
     return filas
 
@@ -60233,9 +60361,9 @@ def invoices_view():
             f_status = (request.args.get("status") or "").strip().upper()
             f_year = (request.args.get("year") or "").strip()
             grupos, fantasmas = _supplier_invoice_groups(session_db, q=f_q, status=f_status, year=f_year)
-            # ¿Está llegando algo? El contraste que lo dice: liquidaciones enviadas SIN factura, y los
-            # intentos de subida que el servidor rechazó (que antes no dejaban rastro).
-            sent_no_invoice = _royalty_sent_without_invoice(session_db)
+            # Los intentos de subida que el servidor rechazó (que antes no dejaban rastro). El
+            # contraste de «liquidaciones enviadas sin factura» vive en Administración →
+            # Liquidaciones → Enviadas pendientes de factura, que es donde se trabaja.
             rejected_attempts = _invoice_rejected_attempts(session_db)
             years_up = sorted({str(getattr(x, "issue_date", None).year) for x in
                                session_db.query(SupplierInvoice).filter(SupplierInvoice.issue_date.isnot(None)).all()},
@@ -60250,7 +60378,6 @@ def invoices_view():
                 supplier_incomplete=sum(g["incomplete"] for g in grupos),
                 supplier_duplicates=sum(g["duplicates"] for g in grupos),
                 supplier_ghosts=fantasmas,
-                sent_no_invoice=sent_no_invoice,
                 rejected_attempts=rejected_attempts,
                 supplier_can_clean=is_master(),
                 supplier_can_edit=can_edit_invoices(),

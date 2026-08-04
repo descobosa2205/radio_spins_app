@@ -1156,6 +1156,26 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (antes salía siempre, con un «sin gastos pendientes» que solo hacía ruido). La sección sigue en el
   menú, así que no se pierde el acceso.
 
+- **ROYALTIES · pedir la factura y registrarla desde dentro** (ago 2026):
+  · **Administración → Liquidaciones** tiene subpestañas (`ADMINISTRATION_LIQ_TABS`, `?liq_tab=`):
+  **Bolsas** (lo de siempre) y **«Enviadas pendientes de factura»**
+  (`_royalty_sent_without_invoice`): liquidaciones enviadas de las que NO ha llegado la factura, con
+  el nombre enlazado a su liquidación, su **«i» de trazabilidad** (modal propio y compacto que pinta
+  el `timeline` del endpoint `/discografica/royalties/liquidacion/info` — el modal grande de
+  Discográfica no existe en esta pantalla), el PDF, y en los tres puntitos **«Volver a solicitar la
+  factura»** (reenvía la liquidación, cuyo correo lleva el botón de subirla). Arriba, **«Volver a
+  pedir la factura a todas»**, que las recorre una a una y dice cuántas han salido.
+  · ⚠️ **El enlace «Subir factura» del PDF iba al formulario GENÉRICO** (`piesrecords.com/facturacion`
+  a pelo): quien lo usaba subía su factura **sin vincular a la liquidación** y no llegaba a «pendiente
+  de liquidar». Ahora apunta al **mismo sitio que el botón del correo** (el enlace público de ESA
+  liquidación); si no se pudiera construir, cae al genérico.
+  · **Subir la factura DESDE DENTRO** (`royalty_liquidation_invoice_upload`, en los tres puntitos de
+  la liquidación): modal para **arrastrar o elegir** el documento, se leen sus datos con el mismo
+  lector que la landing (`public_invoice_detect`) y **solo se piden a mano los que no se han podido
+  leer** (salen resaltados). Al guardar, la liquidación pasa a **FACTURADA** y queda pendiente de
+  validar en administración. Si el importe no cuadra se avisa, pero desde dentro **se puede forzar**
+  (`force=1`): administración sabe lo que hace. Una factura ya VALIDADA no se pisa.
+
 - ⚠️⚠️ **LO QUE TIENE QUE CUADRAR DE UNA FACTURA ES LA BASE, NO EL TOTAL** (ago 2026). La
   **retención** es la que diga la factura: baja el importe a pagar, pero **no cambia lo que se ha
   facturado ni lo que cuesta el gasto** (lo retenido lo ingresa la casa en Hacienda). Antes

@@ -140,27 +140,8 @@
     <div class="sim-stat"><div class="sim-stat__n {{ 'text-warning' if supplier_incomplete }}">{{ supplier_incomplete|k }}</div><div class="sim-stat__l">Con datos por leer</div></div>
   </div>
 
-  {# ¿ESTÁ LLEGANDO ALGO? Dos contrastes que responden a eso sin salir de aquí. #}
-  {% if sent_no_invoice %}
-    <div class="card mb-3 border-warning">
-      <div class="card-header bg-white d-flex align-items-center gap-2 flex-wrap">
-        <strong><i class="fa fa-paper-plane me-1 text-warning"></i>Liquidaciones enviadas de las que NO ha llegado factura</strong>
-        <span class="badge text-bg-warning text-dark">{{ sent_no_invoice|length }}</span>
-        <span class="small text-muted ms-auto">Si aquí hay muchas, no es que las facturas se pierdan: es que no han entrado.</span>
-      </div>
-      <div class="table-responsive">
-        <table class="table table-sm align-middle mb-0">
-          <thead class="table-light"><tr><th>Beneficiario</th><th>Periodo</th><th>Enviada</th><th class="text-end">A facturar</th></tr></thead>
-          <tbody>
-            {% for r in sent_no_invoice %}
-              <tr><td class="fw-semibold">{{ r.name }}</td><td class="small">{{ r.period }}</td>
-                  <td class="small">{{ r.sent or '—' }}</td><td class="text-end">{{ r.amount|eur }}</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  {% endif %}
+  {# Los intentos de subida RECHAZADOS: el contraste de «liquidaciones enviadas sin factura»
+     vive en Administración → Liquidaciones → Enviadas pendientes de factura. #}
   {% if rejected_attempts %}
     <div class="card mb-3 border-danger">
       <div class="card-header bg-white d-flex align-items-center gap-2 flex-wrap">

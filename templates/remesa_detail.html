@@ -31,12 +31,22 @@
       </div>
     </div>
     <div class="text-end">
-      {% if batch.status != 'PAGADA' %}
+      {% if batch.status not in ['PAGADA', 'ANULADA'] %}
         <a class="btn btn-primary {% if not batch.account_id or not count_ready %}disabled{% endif %}"
            href="{{ url_for('payment_batch_export', batch_id=batch.id) }}">
           <i class="fa fa-file-arrow-down me-1"></i>Descargar fichero para el banco
         </a>
         {% if not batch.account_id %}<div class="small text-danger mt-1">Elige antes la cuenta desde la que se paga.</div>{% endif %}
+        {# ANULAR: se sueltan sus pagos y vuelven a estar pendientes, como estaban. #}
+        <div class="mt-2">
+          <form method="post" action="{{ url_for('payment_batch_cancel', batch_id=batch.id) }}"
+                onsubmit="return confirm('Se va a anular la remesa {{ batch.reference }}. Sus pagos volverán a estar pendientes. ¿Seguimos?');">
+            <input type="hidden" name="next" value="{{ url_for('administracion_view', tab='pendiente', subtab='pago') }}">
+            <button class="btn btn-outline-danger btn-sm"><i class="fa fa-ban me-1"></i>Anular remesa</button>
+          </form>
+        </div>
+      {% elif batch.status == 'ANULADA' %}
+        <div class="small text-muted">Esta remesa está anulada: sus pagos volvieron a estar pendientes.</div>
       {% else %}
         {% if batch.receipt_url %}<a class="btn btn-outline-primary" href="{{ batch.receipt_url }}" target="_blank" rel="noopener"><i class="fa fa-file-lines me-1"></i>Ver justificante</a>{% endif %}
       {% endif %}

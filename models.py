@@ -2591,6 +2591,9 @@ class UserProfile(Base):
     expense_deadline_paused = Column(Boolean, nullable=False, server_default=text("false"))
     expense_paused_since = Column(Date)
     expense_pause_log = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # ORDEN DEL MENÚ elegido por la persona (lista de claves de sección, arrastrando). Vacío = el
+    # orden automático por uso.
+    menu_order = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -6750,6 +6753,7 @@ def ensure_third_party_and_contract_sheet_schema():
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS expense_pause_log jsonb NOT NULL DEFAULT '[]'::jsonb;",
         # Reparto de las tareas de ADMINISTRACIÓN por persona (liquidar bolsas, pagos, ITAs…).
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS admin_responsibilities jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS menu_order jsonb NOT NULL DEFAULT '[]'::jsonb;",
         # Tipo de trabajador a efectos de PRL (autónomo / alta puntual / empresa fija).
         "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS prl_type text;",
         # Documentación de alta y PRL (personas y empresas del grupo) + peticiones de subida.

@@ -3061,6 +3061,17 @@ body.doccam-open { overflow: hidden; }
 .pay-chip__x:hover{ color:var(--brand-primary,#E33D48); }
 .pay-exp{ border:1px solid #eceef0; border-radius:10px; padding:.5rem .6rem; margin-bottom:.4rem; background:#fff; }
 .pay-exp.is-dragging, .pay-bag.is-dragging{ opacity:.5; }
+/* Ya METIDO en una remesa: fondo azul clarito para verlo de un golpe. Si la remesa se anula, el
+   gasto se suelta y la fila vuelve a la normalidad. */
+.pay-exp.is-in-batch{ background:#e7f5ff; border-color:#a5d8ff; }
+
+/* ORDENAR MI MENÚ: lista de secciones que se arrastran. */
+.navord{ display:flex; flex-direction:column; gap:.4rem; max-height:60vh; overflow:auto; }
+.navord__item{ display:flex; align-items:center; gap:.6rem; padding:.5rem .7rem; background:#fff;
+  border:1px solid #e3e6eb; border-radius:10px; cursor:grab; user-select:none; }
+.navord__item.is-dragging{ opacity:.45; border-style:dashed; }
+.navord__grip{ color:#adb5bd; }
+.navord__lab{ font-weight:600; font-size:.92rem; }
 .pay-bag [data-bs-toggle="collapse"]{ color:inherit; }
 .pay-exp .fa-grip-vertical, .pay-bag .fa-grip-vertical{ cursor:grab; }
 

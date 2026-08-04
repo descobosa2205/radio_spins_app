@@ -43772,7 +43772,7 @@ CURATED_ACCESS_RESOURCES = [
 
     {"key": "contabilidad", "label": "Contabilidad", "section_key": "contabilidad", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 240, "description": "Contabilidad del grupo: gastos e ingresos contables (importes)."},
 
-    {"key": "personal", "label": "Personal", "section_key": "personal", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 250, "description": "Personal y permisos de la aplicación."},
+    {"key": "personal", "label": "Personal de la Oficina", "section_key": "personal", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 250, "description": "Personal de la oficina y permisos de la aplicación."},
     {"key": "personal.usuarios", "label": "Usuarios", "section_key": "personal", "parent_key": "personal", "level": "TAB", "economic_capable": False, "sort_order": 251, "description": "Listado y ficha de usuarios del Back Office."},
     {"key": "personal.usuarios.accesos", "label": "Accesos", "section_key": "personal", "parent_key": "personal.usuarios", "level": "SUBTAB", "economic_capable": False, "sort_order": 252, "description": "Configurar accesos/permisos de cada usuario. Editable solo por dirección."},
 
@@ -44959,6 +44959,7 @@ def _snapshot_user_profile(profile: UserProfile | None) -> SimpleNamespace | Non
         # ⚠️ Lo que no esté en este snapshot es INVISIBLE desde `_current_user_state()` y desde las
         # plantillas: es un SimpleNamespace, no el objeto del ORM.
         admin_responsibilities=list(getattr(profile, "admin_responsibilities", None) or []),
+        menu_order=[str(x) for x in (getattr(profile, "menu_order", None) or [])],
         legacy_permissions_seeded=bool(getattr(profile, "legacy_permissions_seeded", False)),
     )
 
@@ -45356,7 +45357,25 @@ SECTION_ICONS = {
 }
 
 
+def _current_menu_order() -> list[str]:
+    """El orden del menú que ha puesto la propia persona arrastrando (vacío = automático)."""
+    try:
+        perfil = (_current_user_state() or {}).get("profile")
+        return [str(x) for x in (getattr(perfil, "menu_order", None) or [])]
+    except Exception:
+        return []
+
+
 def _sort_nav_menu_for_user(items: list[dict]) -> list[dict]:
+    # SI LA PERSONA HA ORDENADO SU MENÚ, manda ella: el orden automático por uso solo se aplica
+    # mientras no lo haya tocado. «Inicio» se queda siempre primero.
+    manual = _current_menu_order()
+    if manual:
+        posicion = {clave: i for i, clave in enumerate(manual)}
+        fijos = [it for it in items if it.get("key") == "home"]
+        resto = [it for it in items if it.get("key") != "home"]
+        resto.sort(key=lambda it: (posicion.get(it.get("key"), len(posicion) + 1),))
+        return fijos + resto
     scores = _current_nav_usage_scores()
     if not scores:
         return items
@@ -45411,7 +45430,7 @@ def _build_nav_menu() -> list[dict]:
         # SECCIÓN propia: el menú agrupa por dónde lo busca la gente, no por el árbol de accesos
         # (renombrar las claves borraría en cascada los permisos ya concedidos).
         {"type": "dropdown", "key": "databases", "label": "Bases de datos", "children": [
-            {"key": "personal", "label": "Personal", "url": _resource_default_url("personal")},
+            {"key": "personal", "label": "Personal de la Oficina", "url": _resource_default_url("personal")},
             {"key": "third_parties", "label": "Terceros", "url": _resource_default_url("third_parties")},
             {"key": "databases.venues", "label": "Recintos", "url": _resource_default_url("databases.venues")},
             {"key": "databases.ticketers", "label": "Ticketeras", "url": _resource_default_url("databases.ticketers")},
@@ -46304,7 +46323,9 @@ def _user_is_actor(state: dict | None = None) -> bool:
 # Endpoints de datos PROPIOS: los deja pasar cualquier sesión y la comprobación de que el gasto es
 # tuyo se hace dentro (`_my_expense_or_403`).
 PERSONAL_ENDPOINTS = {"my_expenses_view", "my_expenses_assign", "my_expense_assign_bag",
-                      "my_expense_upload_invoice", "my_expense_no_invoice", "my_expense_send_direct"}
+                      "my_expense_upload_invoice", "my_expense_no_invoice", "my_expense_send_direct",
+                      # El ORDEN DEL MENÚ es cosa de cada uno: son sus preferencias, no una sección.
+                      "nav_menu_order_save"}
 
 
 # PEDIR promoción o marketing lo puede hacer CUALQUIERA de la empresa, aunque no tenga permiso de
@@ -50075,7 +50096,10 @@ PAYMENT_BATCH_STATUS_META = {
     "BORRADOR": ("En preparación", "text-bg-light border text-dark"),
     "EXPORTADA": ("Fichero generado", "text-bg-info text-dark"),
     "PAGADA": ("Pagada", "text-bg-success"),
+    "ANULADA": ("Anulada", "text-bg-secondary"),
 }
+# Remesas VIVAS: las que están en marcha (se pueden tocar y sus gastos siguen «dentro»).
+PAYMENT_BATCH_OPEN_STATUSES = ["BORRADOR", "EXPORTADA"]
 # Etiquetas de lo que le falta a un pago para poder ir en la remesa.
 REMESA_MISSING_LABELS = {
     "name": "el nombre del beneficiario",
@@ -50351,7 +50375,7 @@ def _payment_pending_context(session_db) -> list:
         accounts[str(acc.company_id)].append(acc)
     batches = (session_db.query(PaymentBatch)
                .options(joinedload(PaymentBatch.bank), joinedload(PaymentBatch.account))
-               .filter(PaymentBatch.status.in_(["BORRADOR", "EXPORTADA"]))
+               .filter(PaymentBatch.status.in_(PAYMENT_BATCH_OPEN_STATUSES))
                .order_by(PaymentBatch.created_at.desc()).limit(200).all())
     batch_counts = defaultdict(lambda: {"n": 0, "total": Decimal("0")})
     for item in (session_db.query(PaymentBatchItem)
@@ -51467,6 +51491,51 @@ def payment_batch_export(batch_id):
                         headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
     finally:
         session_db.close()
+
+
+@app.post("/administracion/remesas/<batch_id>/anular", endpoint="payment_batch_cancel")
+@admin_required
+def payment_batch_cancel(batch_id):
+    """ANULA una remesa en marcha: sus gastos y liquidaciones vuelven a estar libres.
+
+    Sirve para cuando se prepara mal (una cuenta que no era, un pago que no iba): se sueltan las
+    líneas y lo que había dentro vuelve a pendiente de pago como estaba. Una remesa **ya pagada no se
+    anula**: para eso hay que deshacer el pago, que es otra cosa."""
+    session_db = db()
+    try:
+        batch = session_db.get(PaymentBatch, to_uuid(batch_id))
+        if batch is None:
+            flash("Remesa no encontrada.", "warning")
+            return redirect(url_for("administracion_view", tab="pendiente", subtab="pago"))
+        if (batch.status or "").upper() == "PAGADA":
+            flash("Esta remesa ya está pagada: no se puede anular.", "warning")
+            return redirect(url_for("payment_batch_detail", batch_id=batch_id))
+        sueltos = 0
+        for item in session_db.query(PaymentBatchItem).filter(PaymentBatchItem.batch_id == batch.id).all():
+            if getattr(item, "expense_id", None):
+                exp = session_db.get(BagExpense, item.expense_id)
+                if exp is not None and str(getattr(exp, "payment_batch_id", "")) == str(batch.id):
+                    exp.payment_batch_id = None
+                    exp.updated_at = _now_madrid()
+            if getattr(item, "royalty_liquidation_id", None):
+                rec = session_db.get(RoyaltyLiquidation, item.royalty_liquidation_id)
+                if rec is not None and str(getattr(rec, "payment_batch_id", "")) == str(batch.id):
+                    rec.payment_batch_id = None
+                    rec.updated_at = _now_madrid()
+            session_db.delete(item)
+            sueltos += 1
+        batch.status = "ANULADA"
+        batch.total_amount = Decimal("0")
+        batch.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Remesa %s anulada: %d pago%s vuelve%s a estar pendiente."
+              % (batch.reference, sueltos, "" if sueltos == 1 else "s", "" if sueltos == 1 else "n"),
+              "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo anular la remesa: %s" % exc, "danger")
+    return redirect(safe_next_or(request.form.get("next")
+                                 or url_for("administracion_view", tab="pendiente", subtab="pago")))
 
 
 @app.post("/administracion/remesas/<batch_id>/justificante", endpoint="payment_batch_receipt")
@@ -60925,6 +60994,48 @@ def cron_pleo_refresh():
         app.logger.exception("[pleo] cron falló")
         return (jsonify({"ok": False, "error": str(exc)}), 500)
     return jsonify({"ok": True, **out})
+
+
+@app.post('/mi-menu/orden', endpoint='nav_menu_order_save')
+@admin_required
+def nav_menu_order_save():
+    """Guarda el ORDEN DEL MENÚ que ha puesto la persona arrastrando sus secciones.
+
+    Es una preferencia suya (no un permiso): manda sobre el orden automático por uso, y vaciándolo se
+    vuelve a ese automático."""
+    uid = to_uuid(session.get("user_id") or "")
+    if not uid:
+        abort(403)
+    session_db = db()
+    try:
+        claves = [str(x).strip() for x in request.form.getlist("keys") if str(x or "").strip()]
+        if not claves:
+            crudo = (request.form.get("order") or "").strip()
+            claves = [x.strip() for x in crudo.split(",") if x.strip()]
+        # Sin duplicados y sin «home» (siempre va primero).
+        vistos, limpio = set(), []
+        for k in claves:
+            if k == "home" or k in vistos:
+                continue
+            vistos.add(k)
+            limpio.append(k)
+        perfil = (session_db.query(UserProfile).filter(UserProfile.user_id == uid).first())
+        if perfil is None:
+            abort(404)
+        perfil.menu_order = limpio
+        perfil.updated_at = _now_madrid()
+        session_db.commit()
+        if _wants_json_response():
+            return jsonify({"ok": True, "order": limpio})
+        flash("Menú ordenado." if limpio else "Se ha vuelto al orden automático.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        if _wants_json_response():
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        flash("No se pudo guardar el orden: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(request.form.get("next") or url_for("home")))
 
 
 @app.get('/mis-gastos', endpoint='my_expenses_view')

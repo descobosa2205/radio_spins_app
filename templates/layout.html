@@ -131,8 +131,11 @@
               {# «Mis gastos» es personal y lo tiene cualquiera: también aquí, para que se vea siempre
                  (en el menú de secciones puede quedar escondido en «más» si tienes muchas). #}
               <li><a class="dropdown-item" href="{{ url_for('my_expenses_view') }}"><i class="fa fa-receipt me-2"></i> Mis gastos</a></li>
+              {# ORDENAR MI MENÚ: cada uno se coloca sus secciones arrastrándolas. #}
+              <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#navOrderModal">
+                <i class="fa fa-arrows-up-down-left-right me-2"></i> Ordenar mi menú</a></li>
               {% if has_access_key('personal', include_descendants=True) %}
-                <li><a class="dropdown-item" href="{{ url_for('personnel_view') }}"><i class="fa fa-users-cog me-2"></i> Personal</a></li>
+                <li><a class="dropdown-item" href="{{ url_for('personnel_view') }}"><i class="fa fa-users-cog me-2"></i> Personal de la Oficina</a></li>
               {% endif %}
               {% if session.get('role') == 10 %}
                 <li><a class="dropdown-item" href="{{ url_for('integrations_view') }}"><i class="fa fa-plug me-2"></i> Integraciones</a></li>
@@ -205,6 +208,79 @@
   </script>
   {% block content %}{% endblock %}
 </main>
+
+{# ORDENAR MI MENÚ: las secciones que ve esta persona, para arrastrarlas y dejarlas como quiera.
+   Es una preferencia propia (se guarda en su perfil) y manda sobre el orden automático por uso. #}
+{% if CURRENT_USER %}
+<div class="modal fade" id="navOrderModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <form method="post" action="{{ url_for('nav_menu_order_save') }}" id="navOrderForm">
+      <input type="hidden" name="next" value="{{ request.url }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-arrows-up-down-left-right me-2 text-muted"></i>Ordenar mi menú</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="small text-muted mb-2">Arrastra las secciones para dejarlas en el orden que quieras.
+          «Inicio» siempre va primero.</div>
+        <div class="navord" id="navOrderList">
+          {% for item in NAV_MENU or [] %}
+            {% if item.key != 'home' %}
+              <div class="navord__item" draggable="true" data-navord-key="{{ item.key }}">
+                <i class="fa fa-grip-vertical navord__grip"></i>
+                <span class="navord__lab">{{ item.label }}</span>
+                <input type="hidden" name="keys" value="{{ item.key }}">
+              </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <button class="btn btn-outline-secondary btn-sm" type="submit" name="order" value=""
+                title="Volver al orden automático (por lo que más usas)">Orden automático</button>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary">Guardar el orden</button>
+        </div>
+      </div>
+    </form>
+  </div></div>
+</div>
+<script>
+(function () {
+  var lista = document.getElementById('navOrderList');
+  if (!lista) return;
+  var arrastrado = null;
+  lista.addEventListener('dragstart', function (e) {
+    arrastrado = e.target.closest('.navord__item');
+    if (arrastrado) arrastrado.classList.add('is-dragging');
+  });
+  lista.addEventListener('dragend', function () {
+    if (arrastrado) arrastrado.classList.remove('is-dragging');
+    arrastrado = null;
+  });
+  lista.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    if (!arrastrado) return;
+    var sobre = e.target.closest('.navord__item');
+    if (!sobre || sobre === arrastrado) return;
+    var caja = sobre.getBoundingClientRect();
+    var despues = (e.clientY - caja.top) > caja.height / 2;
+    lista.insertBefore(arrastrado, despues ? sobre.nextSibling : sobre);
+  });
+  // El «Orden automático» manda la lista vacía: se borra el orden guardado.
+  var form = document.getElementById('navOrderForm');
+  if (form) {
+    form.addEventListener('submit', function (e) {
+      var boton = e.submitter;
+      if (boton && boton.name === 'order') {
+        lista.querySelectorAll('input[name=keys]').forEach(function (i) { i.disabled = true; });
+      }
+    });
+  }
+})();
+</script>
+{% endif %}
 
 <div class="modal fade" id="chartModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered">

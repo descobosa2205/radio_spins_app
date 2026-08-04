@@ -9688,3 +9688,42 @@ def ensure_holded_schema():
         "ALTER TABLE IF EXISTS promoter_companies ADD COLUMN IF NOT EXISTS fiscal_province text;",
         "ALTER TABLE IF EXISTS promoter_companies ADD COLUMN IF NOT EXISTS fiscal_country text;",
     ], "holded_schema")
+
+
+# ===========================================================================
+#  DIRECCIONES · caché del buscador
+#  ------------------------------------------------------------------------
+#  Autocompletar una dirección son varias peticiones por dirección escrita. El
+#  proveedor (Photon, sobre OpenStreetMap) es gratis pero no es nuestro, así que
+#  lo que ya se ha buscado se guarda: la segunda vez que alguien escriba la misma
+#  calle sale al instante y sin salir a Internet.
+# ===========================================================================
+
+class AddressLookup(Base):
+    """Lo que devolvió el buscador de direcciones para una búsqueda concreta."""
+
+    __tablename__ = "address_lookups"
+
+    # La propia búsqueda normalizada (minúsculas, sin espacios de más) es la clave.
+    query_key = Column(Text, primary_key=True)
+    payload = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    hits = Column(Integer, nullable=False, server_default=text("1"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+def ensure_geo_schema():
+    """Crea/actualiza la caché del buscador de direcciones (idempotente, sin Alembic)."""
+    _create_all_once()
+    _exec_ddl_statements([
+        """
+        CREATE TABLE IF NOT EXISTS address_lookups (
+            query_key text PRIMARY KEY,
+            payload jsonb NOT NULL DEFAULT '[]'::jsonb,
+            hits integer NOT NULL DEFAULT 1,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_address_lookups_updated ON address_lookups(updated_at);",
+    ], "geo_schema")

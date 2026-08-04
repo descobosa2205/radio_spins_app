@@ -52,7 +52,7 @@ from decimal import Decimal, InvalidOperation
 from email.message import EmailMessage
 from email.utils import formataddr
 from difflib import SequenceMatcher
-from collections import defaultdict
+from collections import defaultdict, deque
 from types import SimpleNamespace
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
@@ -275,9 +275,11 @@ from models import (
     CabifyAccount,
     CabifyUserLink,
     HoldedAccount,
+    AddressLookup,
     ensure_pleo_schema,
     ensure_cabify_schema,
     ensure_holded_schema,
+    ensure_geo_schema,
     PersonDocRequest,
     ThirdPartyIntakeLink,
     ensure_third_party_intake_schema,
@@ -765,7 +767,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
+    allowed = {"landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
     if request.endpoint in allowed:
         return
 
@@ -40284,6 +40286,7 @@ def _bootstrap_schema_bg():
         (ensure_pleo_schema, "ensure_pleo_schema"),
         (ensure_cabify_schema, "ensure_cabify_schema"),
         (ensure_holded_schema, "ensure_holded_schema"),
+        (ensure_geo_schema, "ensure_geo_schema"),
         (ensure_third_party_intake_schema, "ensure_third_party_intake_schema"),
         (ensure_artist_templates_schema, "ensure_artist_templates_schema"),
         (ensure_push_schema, "ensure_push_schema"),
@@ -45050,7 +45053,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -63612,7 +63615,10 @@ def holded_account_save(company_id):
         if acc is None:
             acc = HoldedAccount(group_company_id=comp.id)
             session_db.add(acc)
-        nueva = (request.form.get("api_key") or "").strip()
+        # ⚠️ La clave se limpia al guardarla: al copiarla de Holded se arrastran espacios, saltos de
+        # línea, comillas o el propio «key:» delante, y eso hace que Holded conteste «Invalid key».
+        from holded_utils import clean_api_key
+        nueva = clean_api_key(request.form.get("api_key"))
         if _truthy(request.form.get("clear_key")):
             acc.api_key = None
             acc.is_active = False
@@ -63623,7 +63629,11 @@ def holded_account_save(company_id):
         acc.is_active = _truthy(request.form.get("is_active")) and bool((acc.api_key or "").strip())
         acc.updated_at = _now_madrid()
         session_db.commit()
-        flash("Cuenta de Holded de %s guardada." % comp.name, "success")
+        pista = ""
+        if (acc.api_key or "").strip():
+            pista = " Clave guardada: %d caracteres, termina en «%s»." % (
+                len(acc.api_key), acc.api_key[-4:])
+        flash("Cuenta de Holded de %s guardada.%s" % (comp.name, pista), "success")
     except Exception as exc:
         session_db.rollback()
         flash("No se pudo guardar la cuenta de Holded: %s" % exc, "danger")
@@ -63666,8 +63676,10 @@ def holded_account_test(company_id):
             acc.last_error = None
             _holded_persist_client_state(acc, client)
             session_db.commit()
-            aviso = ("Holded responde. Documento de compra: «%s» · tickets: «%s»."
-                     % (acc.invoice_doc_type or "purchase", ticket_type))
+            aviso = ("Holded responde (clave aceptada en la cabecera «%s»). Documento de compra: "
+                     "«%s» · tickets: «%s»."
+                     % (getattr(client, "auth_header", "key"),
+                        acc.invoice_doc_type or "purchase", ticket_type))
             if metodos:
                 aviso += " %d forma(s) de pago leídas." % len(metodos)
             else:
@@ -64199,6 +64211,106 @@ def _holded_autodetect_bg() -> None:
         except Exception:
             pass
         app.logger.exception("[holded] sondeo en segundo plano falló")
+    finally:
+        session_db.close()
+
+
+# ------------------------------------------------------------------ Buscador de direcciones
+#  Autocompletar la dirección fiscal: se escribe la calle y se rellenan solos el código postal, el
+#  municipio, la provincia y el país (que es lo que la contabilidad necesita separado).
+#
+#  ⚠️ La PROVINCIA no la pone el geocodificador: se deduce del código postal (`geo_utils`), porque
+#  Photon devuelve la comunidad autónoma o la comarca y ninguna de las dos vale.
+#  ⚠️ Lo buscado se GUARDA en `address_lookups`: la segunda vez que alguien escriba la misma calle
+#  sale al instante y sin salir a Internet (el proveedor es gratis, pero no es nuestro).
+
+# Vigencia de la caché: una calle no se mueve, pero un CP puede cambiar.
+ADDRESS_CACHE_DAYS = 180
+# Tope por IP y minuto: el endpoint es público (lo usan el enlace de alta y la landing de facturación).
+_ADDRESS_RATE = defaultdict(deque)
+ADDRESS_RATE_LIMIT = 40
+
+
+def _address_rate_ok(ip: str) -> bool:
+    """Freno sencillo por IP (en memoria): el endpoint es público y no debe poder abusarse."""
+    ahora = time.time()
+    cola = _ADDRESS_RATE[ip or "?"]
+    while cola and ahora - cola[0] > 60:
+        cola.popleft()
+    if len(cola) >= ADDRESS_RATE_LIMIT:
+        return False
+    cola.append(ahora)
+    return True
+
+
+def _address_search_cached(session_db, query: str) -> list[dict]:
+    """Sugerencias de dirección, mirando primero lo que ya se buscó otra vez."""
+    import geo_utils
+    clave = " ".join((query or "").split()).casefold()[:160]
+    if len(clave) < 4:
+        return []
+    fila = session_db.get(AddressLookup, clave)
+    if fila is not None and fila.updated_at and (
+            _now_madrid() - fila.updated_at).days < ADDRESS_CACHE_DAYS:
+        try:
+            fila.hits = int(fila.hits or 0) + 1
+            session_db.commit()
+        except Exception:
+            session_db.rollback()
+        return list(fila.payload or [])
+    filas = geo_utils.search_addresses(query)
+    try:
+        if fila is None:
+            session_db.add(AddressLookup(query_key=clave, payload=filas))
+        else:
+            fila.payload = filas
+            fila.hits = int(fila.hits or 0) + 1
+            fila.updated_at = _now_madrid()
+        session_db.commit()
+    except Exception:
+        session_db.rollback()
+    return filas
+
+
+@app.get("/api/direcciones", endpoint="api_address_search")
+def api_address_search():
+    """Sugerencias para autocompletar una dirección (calle → CP, municipio, provincia y país).
+
+    Es un BUSCADOR: lo usa cualquiera con sesión y también los enlaces públicos (alta de terceros y
+    landing de facturación), donde es justo donde más falta hace. Si el proveedor falla se devuelve
+    una lista vacía con el motivo: el formulario se sigue rellenando a mano.
+    """
+    if not _address_rate_ok((request.headers.get("X-Forwarded-For") or request.remote_addr or "").split(",")[0].strip()):
+        return jsonify({"ok": False, "error": "Demasiadas búsquedas seguidas: espera un momento.",
+                        "results": []}), 429
+    import geo_utils
+    q = (request.args.get("q") or "").strip()
+    # Solo el código postal: la provincia sale de la tabla, sin pedir nada a nadie.
+    cp = geo_utils.normalize_postal_code(q)
+    if cp and q.replace(" ", "").isdigit():
+        session_db = db()
+        try:
+            filas = _address_search_cached(session_db, "%s España" % cp)
+        except geo_utils.GeoError:
+            filas = []
+        finally:
+            session_db.close()
+        municipios, vistos = [], set()
+        for f in filas:
+            nombre = (f.get("city") or "").strip()
+            if nombre and nombre.casefold() not in vistos and f.get("postal_code") == cp:
+                vistos.add(nombre.casefold())
+                municipios.append(nombre)
+        return jsonify({"ok": True, "postal_code": cp,
+                        "province": geo_utils.province_for_postal_code(cp),
+                        "cities": municipios[:6], "results": []})
+    if len(q) < 4:
+        return jsonify({"ok": True, "results": []})
+    session_db = db()
+    try:
+        return jsonify({"ok": True, "results": _address_search_cached(session_db, q)})
+    except geo_utils.GeoError as exc:
+        return jsonify({"ok": False, "error": str(exc), "results": []})
     finally:
         session_db.close()
 

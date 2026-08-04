@@ -3560,3 +3560,20 @@ body.doccam-open { overflow: hidden; }
 .acc-badge:hover { filter: brightness(.94); }
 /* Etiqueta «Contabilizado» de un gasto donde salga (bolsa, pendiente de pago…). */
 .acc-tag { font-size: .7rem; }
+
+/* ==================== AUTOCOMPLETAR DIRECCIONES ====================
+   Lista de sugerencias bajo el campo de la calle (address_autocomplete.js). Se posiciona sobre el
+   contenedor del campo, que lleva `position-relative`. */
+.addr-suggest {
+  position: absolute; z-index: 1056; left: 0; right: 0; top: 100%;
+  background: #fff; border: 1px solid rgba(0, 0, 0, .15); border-radius: .5rem;
+  box-shadow: 0 .5rem 1rem rgba(0, 0, 0, .12); overflow: hidden; max-height: 320px; overflow-y: auto;
+}
+.addr-suggest__item {
+  display: block; width: 100%; text-align: left; border: 0; background: none;
+  padding: .5rem .75rem; cursor: pointer; line-height: 1.25;
+}
+.addr-suggest__item + .addr-suggest__item { border-top: 1px solid rgba(0, 0, 0, .06); }
+.addr-suggest__item:hover, .addr-suggest__item:focus { background: rgba(227, 61, 72, .08); outline: none; }
+.addr-suggest__main { display: block; font-weight: 600; font-size: .92rem; }
+.addr-suggest__sub { display: block; font-size: .8rem; color: #6c757d; }

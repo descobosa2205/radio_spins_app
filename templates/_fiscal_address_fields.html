@@ -6,6 +6,11 @@
    no se puede contabilizar. Por eso se piden en campos distintos aunque LUEGO SE MUESTREN JUNTOS
    (helper global `fiscal_address_text`).
 
+   AUTOCOMPLETADO: al escribir la calle salen sugerencias y, al elegir una, se rellenan el código
+   postal, el municipio, la provincia y el país. Escribiendo solo el código postal, la provincia se
+   pone al instante (tabla de las 52 provincias en `address_autocomplete.js`, sin pedir nada al
+   servidor). Es una AYUDA: todo se puede corregir a mano y si el buscador no responde no pasa nada.
+
    Uso:
      {% import '_fiscal_address_fields.html' as fiscal with context %}
      {{ fiscal.fields(fiscal_parts(promoter)) }}                    ← desde un modelo
@@ -17,31 +22,42 @@
 
 {% macro fields(p=None, required=False, prefix='', disabled=False, hint=True, label='Dirección fiscal') %}
   {% set p = p or {} %}
-  <div class="col-12">
-    <label class="form-label">{{ label }}{% if required %} <span class="text-danger">*</span>{% endif %}</label>
-    <input class="form-control" name="{{ prefix }}fiscal_address" value="{{ p.get('address') or '' }}"
-           placeholder="Calle, número, piso…" {% if required %}required{% endif %} {% if disabled %}disabled{% endif %}>
-    {% if hint %}<div class="form-text">Solo la calle: el código postal, el municipio y la provincia van debajo (la contabilidad los necesita separados).</div>{% endif %}
-  </div>
-  <div class="col-4 col-md-3">
-    <label class="form-label">Código postal{% if required %} <span class="text-danger">*</span>{% endif %}</label>
-    <input class="form-control" name="{{ prefix }}fiscal_postal_code" value="{{ p.get('postal_code') or '' }}"
-           inputmode="numeric" maxlength="10" placeholder="28001"
-           {% if required %}required{% endif %} {% if disabled %}disabled{% endif %}>
-  </div>
-  <div class="col-8 col-md-5">
-    <label class="form-label">Municipio{% if required %} <span class="text-danger">*</span>{% endif %}</label>
-    <input class="form-control" name="{{ prefix }}fiscal_city" value="{{ p.get('city') or '' }}"
-           placeholder="Madrid" {% if required %}required{% endif %} {% if disabled %}disabled{% endif %}>
-  </div>
-  <div class="col-12 col-md-4">
-    <label class="form-label">Provincia{% if required %} <span class="text-danger">*</span>{% endif %}</label>
-    <input class="form-control" name="{{ prefix }}fiscal_province" value="{{ p.get('province') or '' }}"
-           placeholder="Madrid" {% if required %}required{% endif %} {% if disabled %}disabled{% endif %}>
-  </div>
-  <div class="col-12 col-md-4">
-    <label class="form-label">País</label>
-    <input class="form-control" name="{{ prefix }}fiscal_country" value="{{ p.get('country') or '' }}"
-           placeholder="España" {% if disabled %}disabled{% endif %}>
+  {# `data-address-autocomplete` marca el bloque y `data-addr` cada campo: de eso vive el JS. #}
+  <div class="col-12" data-address-autocomplete>
+    <div class="row g-3">
+      <div class="col-12 position-relative">
+        <label class="form-label">{{ label }}{% if required %} <span class="text-danger">*</span>{% endif %}</label>
+        <input class="form-control" name="{{ prefix }}fiscal_address" data-addr="address"
+               value="{{ p.get('address') or '' }}" autocomplete="off"
+               placeholder="Empieza a escribir la calle y el número…"
+               {% if required %}required{% endif %} {% if disabled %}disabled{% endif %}>
+        {% if hint %}<div class="form-text">Escribe la calle y elige la dirección: el código postal, el municipio y la provincia se rellenan solos.</div>{% endif %}
+      </div>
+      <div class="col-4 col-md-3">
+        <label class="form-label">Código postal{% if required %} <span class="text-danger">*</span>{% endif %}</label>
+        <input class="form-control" name="{{ prefix }}fiscal_postal_code" data-addr="postal_code"
+               value="{{ p.get('postal_code') or '' }}" inputmode="numeric" maxlength="10"
+               placeholder="28001" autocomplete="off"
+               {% if required %}required{% endif %} {% if disabled %}disabled{% endif %}>
+      </div>
+      <div class="col-8 col-md-5">
+        <label class="form-label">Municipio{% if required %} <span class="text-danger">*</span>{% endif %}</label>
+        <input class="form-control" name="{{ prefix }}fiscal_city" data-addr="city"
+               value="{{ p.get('city') or '' }}" placeholder="Madrid" autocomplete="off"
+               {% if required %}required{% endif %} {% if disabled %}disabled{% endif %}>
+      </div>
+      <div class="col-12 col-md-4">
+        <label class="form-label">Provincia{% if required %} <span class="text-danger">*</span>{% endif %}</label>
+        <input class="form-control" name="{{ prefix }}fiscal_province" data-addr="province"
+               value="{{ p.get('province') or '' }}" placeholder="Madrid" autocomplete="off"
+               {% if required %}required{% endif %} {% if disabled %}disabled{% endif %}>
+      </div>
+      <div class="col-12 col-md-4">
+        <label class="form-label">País</label>
+        <input class="form-control" name="{{ prefix }}fiscal_country" data-addr="country"
+               value="{{ p.get('country') or '' }}" placeholder="España" autocomplete="off"
+               {% if disabled %}disabled{% endif %}>
+      </div>
+    </div>
   </div>
 {% endmacro %}

@@ -1023,6 +1023,15 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   en `holded_warning`. Un gasto con error NO cambia de estado.
   · El cliente se **reutiliza por petición** (cacheado en `g`) y guarda los contactos ya resueltos:
   subir 50 gastos del mismo proveedor busca el contacto UNA vez.
+  · ⚠️ **«Invalid key»**: pasó en la primera prueba real. Dos cosas lo provocan y las dos están
+  cubiertas: (a) la clave se pega con basura invisible —espacios, saltos de línea, comillas o el
+  propio «key:» delante—, así que se limpia al guardarla (`clean_api_key`) y se dice cuántos
+  caracteres se han guardado; y (b) la CABECERA: la documentada es `key`, pero si Holded contesta que
+  la clave no vale se prueban también `X-API-KEY` y `Authorization: Bearer`, y se **guarda la que
+  funcione** (`endpoints['auth_header']`). El aviso de «Probar conexión» dice con cuál ha entrado.
+  Si aun así falla, el mensaje repite el motivo exacto de Holded y recuerda que tiene que ser la
+  **API Key** de Configuración → Desarrolladores (no el código de integración de una app del
+  marketplace ni el secreto de un webhook) y que el plan debe incluir acceso a la API.
   ⚠️ **Pendiente de la primera prueba real**: no hay cuenta de Holded para probar contra la API de
   verdad. El mapeo sigue su API documentada y está verificado con un Holded simulado (contacto que ya
   existe, ticket sin impuestos, total que no cuadra, adjunto que falla, `status:0`). La **primera
@@ -1078,6 +1087,20 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   sociedades), en los **integrantes del artista**, en el **enlace de alta de terceros** y en la
   **landing de facturación** (donde además se piden como obligatorios y se enseñan bloqueados si ya
   los tenemos).
+  · **AUTOCOMPLETADO** (`geo_utils.py` + `static/js/address_autocomplete.js` + endpoint
+  `api_address_search`, `/api/direcciones`): al escribir la calle salen sugerencias y, al elegir una,
+  se rellenan CP, municipio, provincia y país; escribiendo solo el **código postal**, la provincia se
+  pone **al instante** (tabla de las 52 provincias por los dos primeros dígitos, en el JS y en
+  `geo_utils.PROVINCE_BY_CP` — ⚠️ **espejadas: si se toca una, se toca la otra**).
+  ⚠️ **Nominatim NO se puede usar para autocompletar** (su política lo prohíbe: una petición por
+  tecla); el `/api/geocode` que ya existía sigue valiendo porque hace UNA consulta por ciudad. El
+  proveedor es **Photon** (komoot, sobre OSM, gratis y sin clave), sesgado a España con `bbox`.
+  ⚠️ **La provincia NO se coge del geocodificador**: Photon devuelve `state` = comunidad autónoma
+  («Andalucía») y `county` a veces la comarca («Sierra de Cádiz»). Sale del CP, que es determinista.
+  · Lo buscado se **guarda** en `address_lookups` (`ensure_geo_schema`, 180 días): la segunda vez que
+  alguien escriba la misma calle sale al instante y sin salir a Internet. El endpoint es **público**
+  (lo usan el enlace de alta y la landing de facturación) con un freno de 40 búsquedas por IP y
+  minuto. Es una AYUDA: si el proveedor no responde, no pasa nada y se escribe a mano.
   · Se **muestra junta** con el global **`fiscal_address_text(obj)`**; las piezas para rellenar un
   formulario las da **`fiscal_parts(obj)`** (`_fiscal_parts_for_form`), que **reparte al vuelo** lo que
   estuviera guardado de un tirón (`_split_fiscal_address`: busca el CP de 5 dígitos, lo de antes es la

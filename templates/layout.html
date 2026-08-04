@@ -344,6 +344,9 @@
 <script src="{{ url_for('static', filename='js/ajax_inline.js', v=ASSET_V) }}"></script>
 {# Arrastrar y soltar archivos en cualquier input file de la app (global). #}
 <script src="{{ url_for('static', filename='js/file_drop.js', v=ASSET_V) }}"></script>
+{# AUTOCOMPLETAR DIRECCIONES: global y no hace nada si la página no tiene un bloque
+   [data-address-autocomplete] (el parcial `_fiscal_address_fields.html`). #}
+<script src="{{ url_for('static', filename='js/address_autocomplete.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/ficha_inline.js', v=ASSET_V) }}"></script>
 <script src="{{ url_for('static', filename='js/agenda_calendar.js', v=ASSET_V) }}"></script>
 {# Contactos de la actividad (producción/ticketing/comunicación) — solo actúa en

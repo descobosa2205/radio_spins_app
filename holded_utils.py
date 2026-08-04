@@ -67,8 +67,65 @@ _PAYMENT_METHOD_PATHS = ("/paymentmethods", "/payment-methods", "/paymentsmethod
 _TWO = Decimal("0.01")
 
 
+# Cabeceras con las que se puede mandar la clave, en orden de preferencia.
+AUTH_HEADERS = ("key", "X-API-KEY", "Authorization")
+# Textos con los que Holded dice «esa clave no vale» (llegan con 200, 400 o 401, según el caso).
+_AUTH_ERROR_HINTS = ("invalid key", "invalid api key", "unauthorized", "not authorized",
+                     "invalid token", "api key")
+
+
+def clean_api_key(value: str | None) -> str:
+    """Limpia la clave TAL COMO se pega desde Holded.
+
+    Al copiarla se arrastran cosas que la invalidan sin que se vea: espacios y saltos de línea,
+    comillas, espacios de ancho cero, o el propio nombre de la cabecera («key: abc…», «Bearer abc…»).
+    Esto es lo primero que hay que descartar cuando Holded contesta «Invalid key».
+    """
+    texto = str(value or "")
+    for basura in ("\u200b", "\u200c", "\u200d", "\ufeff", "\xa0"):
+        texto = texto.replace(basura, "")
+    texto = texto.strip().strip('"\'').strip()
+    for prefijo in ("key:", "key =", "key=", "x-api-key:", "authorization:", "bearer "):
+        if texto.lower().startswith(prefijo):
+            texto = texto[len(prefijo):].strip()
+    return texto.strip().strip('"\'').strip()
+
+
 class HoldedError(RuntimeError):
     """Error de la integración con Holded, con un mensaje en claro para mostrar al usuario."""
+
+
+def _body_message(resp) -> str:
+    """El motivo que da Holded en el cuerpo (`info`), o el texto tal cual si no viene en JSON."""
+    try:
+        datos = resp.json()
+    except Exception:
+        return (getattr(resp, "text", "") or "")[:200]
+    if isinstance(datos, dict):
+        for clave in ("info", "message", "error", "description"):
+            if datos.get(clave):
+                return str(datos[clave])[:200]
+        # Respuestas como `{"status": 401}` no dicen nada: mejor no pegar el JSON crudo.
+        if set(datos.keys()) <= {"status", "code"}:
+            return "la clave no vale"
+    return (getattr(resp, "text", "") or "")[:200]
+
+
+def _looks_like_auth_error(texto: str | None) -> bool:
+    bajo = (texto or "").lower()
+    return any(h in bajo for h in _AUTH_ERROR_HINTS)
+
+
+def _auth_error_message(resp) -> str:
+    """Qué decirle a quien acaba de pegar la clave: el motivo de Holded y dónde está la clave buena."""
+    return (
+        "Holded no acepta la clave (%s: %s).\n"
+        "Comprueba que es la API KEY de la cuenta: en Holded, arriba a la derecha en tu usuario → "
+        "Configuración → Desarrolladores → API Key (no el «código de integración» de una app del "
+        "marketplace, ni el secreto de un webhook). Tiene que ser la clave de ESTA empresa y su plan "
+        "de Holded debe incluir acceso a la API."
+        % (resp.status_code, _body_message(resp))
+    )
 
 
 def norm_tax_id(value: str | None) -> str:
@@ -230,7 +287,7 @@ class HoldedClient:
 
     def __init__(self, api_key: str, *, base: str | None = None, timeout: int = _TIMEOUT,
                  endpoints: dict | None = None):
-        self.api_key = (api_key or "").strip()
+        self.api_key = clean_api_key(api_key)
         self.base = (base or BASE_URL).rstrip("/")
         self.timeout = timeout
         self.endpoints = dict(endpoints or {})
@@ -239,6 +296,11 @@ class HoldedClient:
         # Contactos ya buscados en ESTA tanda: subir 50 gastos del mismo proveedor no puede volver a
         # recorrer el listado de contactos 50 veces.
         self._contact_cache: dict[str, dict | None] = {}
+        # Cabecera con la que se manda la clave. La documentada es `key`, pero hay cuentas que solo
+        # responden con `X-API-KEY`, así que si la primera da «Invalid key» se prueba la otra y se
+        # GUARDA la que funcione (mismo patrón que las rutas de adjuntar).
+        self.auth_header = (self.endpoints or {}).get("auth_header") or AUTH_HEADERS[0]
+        self._auth_tried: set[str] = set()
 
     # ------------------------------------------------------------------ HTTP
 
@@ -253,6 +315,26 @@ class HoldedClient:
                 raise HoldedError(str(texto)[:400])
         return payload
 
+    def _auth_headers(self) -> dict:
+        cabecera = self.auth_header or AUTH_HEADERS[0]
+        valor = ("Bearer " + self.api_key) if cabecera == "Authorization" else self.api_key
+        return {cabecera: valor, "Accept": "application/json"}
+
+    def _switch_auth_header(self) -> bool:
+        """Pasa a la siguiente cabecera candidata. Devuelve False si ya se han probado todas."""
+        self._auth_tried.add(self.auth_header)
+        for candidata in AUTH_HEADERS:
+            if candidata not in self._auth_tried:
+                self.auth_header = candidata
+                return True
+        return False
+
+    def _remember_auth_header(self) -> None:
+        """Guarda la cabecera que ha funcionado, para no volver a probar."""
+        if (self.endpoints or {}).get("auth_header") != self.auth_header:
+            self.endpoints["auth_header"] = self.auth_header
+            self.endpoints_changed = True
+
     def _request(self, method: str, path: str, *, params: dict | None = None,
                  json_body: dict | None = None, files=None, data: dict | None = None,
                  raw: bool = False, check: bool = True):
@@ -265,7 +347,7 @@ class HoldedClient:
                 resp = self._session.request(
                     method, url,
                     params=params, json=json_body, files=files, data=data,
-                    headers={"key": self.api_key, "Accept": "application/json"},
+                    headers=self._auth_headers(),
                     timeout=self.timeout,
                 )
             except requests.RequestException as e:
@@ -274,10 +356,12 @@ class HoldedClient:
                     time.sleep(_BACKOFF ** attempt)
                     continue
                 raise HoldedError(last) from e
-            if resp.status_code in (401, 403):
-                raise HoldedError(
-                    "Holded ha rechazado la API Key (%s). Revisa la clave de esta empresa en "
-                    "Holded → Configuración → Desarrolladores." % resp.status_code)
+            if resp.status_code in (401, 403) or (
+                    resp.status_code == 400 and _looks_like_auth_error(resp.text)):
+                # ¿Es cosa de la CABECERA? Se prueba la siguiente candidata antes de rendirse.
+                if self._switch_auth_header():
+                    continue
+                raise HoldedError(_auth_error_message(resp))
             if resp.status_code == 404:
                 raise HoldedError("Holded no encuentra la ruta o el documento (404): %s" % path)
             if resp.status_code == 429 or resp.status_code >= 500:
@@ -291,13 +375,25 @@ class HoldedClient:
                     continue
                 raise HoldedError(f"{last}: {resp.text[:200]}")
             if resp.status_code >= 400:
-                raise HoldedError(f"Holded ha devuelto un error {resp.status_code}: {resp.text[:300]}")
+                # El cuerpo suele traer el motivo en claro (`info`): eso es lo que hay que enseñar,
+                # no el JSON crudo.
+                raise HoldedError("Holded dice: %s (error %s)" % (_body_message(resp), resp.status_code))
             if raw:
+                self._remember_auth_header()
                 return resp
             try:
                 payload = resp.json()
             except ValueError:
+                self._remember_auth_header()
                 return {}
+            # ⚠️ Holded contesta «Invalid key» también con un 200 y `{"status": 0}`: aquí también hay
+            # que probar la otra cabecera antes de dar la clave por mala.
+            if (isinstance(payload, dict) and payload.get("status") in (0, "0", False)
+                    and _looks_like_auth_error(str(payload.get("info") or payload.get("message") or ""))):
+                if self._switch_auth_header():
+                    continue
+                raise HoldedError(_auth_error_message(resp))
+            self._remember_auth_header()
             return self._check_payload(payload) if check else payload
         raise HoldedError(last or "Holded no ha respondido.")
 

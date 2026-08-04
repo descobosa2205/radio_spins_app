@@ -76,7 +76,82 @@
       });
       var empty = root.querySelector('[data-docs-empty]');
       if (empty) empty.classList.toggle('d-none', any);
+      renderTags();
     }
+
+    /* DOCUMENTOS EN ETIQUETAS (bajo el DNI, en el resumen de la ficha): una por documento subido más
+       el «+» de añadir. Al pinchar una se abre el documento ENTERO en un pop-up. El módulo completo de
+       documentos no se pinta aquí: vive en la pestaña «Documentos». */
+    function renderTags() {
+      var caja = root.querySelector('[data-docs-tags]');
+      if (!caja) return;
+      var etiquetas = {
+        DNI: ['DNI', 'fa-id-card'], PASSPORT: ['Pasaporte', 'fa-passport'],
+        LICENSE: ['Carnet de conducir', 'fa-id-card-clip'],
+        LOYALTY: ['Fidelización', 'fa-credit-card'], PLATE: ['Matrícula', 'fa-car']
+      };
+      var html = docs.map(function (d) {
+        var meta = etiquetas[d.kind] || [d.kind, 'fa-file'];
+        var nombre = meta[0];
+        if (d.kind === 'LOYALTY') nombre = (d.company || d.label || 'Fidelización');
+        if (d.kind === 'PLATE') nombre = (d.doc_number || d.label || 'Matrícula');
+        return '<button type="button" class="pdoc-tag" data-doc-open="' + d.id + '">' +
+          '<i class="fa ' + meta[1] + '"></i>' + esc(nombre) + '</button>';
+      }).join('');
+      if (caja.dataset.canAdd === '1') {
+        html += '<button type="button" class="pdoc-tag pdoc-tag--add" data-doc-add="DNI" ' +
+          'title="Añadir un documento"><i class="fa fa-plus"></i></button>';
+      }
+      caja.innerHTML = html || '<span class="small text-muted">Sin documentos</span>';
+      var wrap = root.querySelector('[data-docs-tags-wrap]');
+      if (wrap) wrap.classList.remove('d-none');
+    }
+
+    /* POP-UP del documento: imágenes a la IZQUIERDA, datos mecanografiados a la DERECHA, con
+       descargar y compartir (correo, WhatsApp, SMS). */
+    function openDocModal(id) {
+      var d = docs.filter(function (x) { return String(x.id) === String(id); })[0];
+      if (!d) return;
+      var modalEl = document.getElementById('pdocViewModal');
+      if (!modalEl || !window.bootstrap) return;
+      var titulos = { DNI: 'DNI', PASSPORT: 'Pasaporte', LICENSE: 'Carnet de conducir',
+                      LOYALTY: (d.company || 'Tarjeta de fidelización'), PLATE: 'Matrícula' };
+      var titulo = titulos[d.kind] || d.kind;
+      modalEl.querySelector('[data-pdoc-title]').textContent = titulo + (ownerName ? ' · ' + ownerName : '');
+      var imgs = [d.front_url, d.back_url].filter(Boolean);
+      modalEl.querySelector('[data-pdoc-imgs]').innerHTML = imgs.length
+        ? imgs.map(function (u) { return '<img src="' + esc(u) + '" alt="">'; }).join('')
+        : '<div class="text-muted small">Este documento no tiene imagen.</div>';
+      var campos = [
+        ['Tipo', titulo], ['Nombre', d.full_name],
+        ['Número', d.doc_number], ['Nacimiento', fmtDate(d.birth_date)],
+        ['Expedición', fmtDate(d.issue_date)], ['Caducidad', fmtDate(d.expiry_date)],
+        ['Domicilio', d.address], ['Compañía', d.company], ['Etiqueta', d.label]
+      ].filter(function (c) { return c[1]; });
+      modalEl.querySelector('[data-pdoc-data]').innerHTML = campos.map(function (c) {
+        return '<dt>' + esc(c[0]) + '</dt><dd>' + esc(c[1]) + '</dd>';
+      }).join('');
+      // Descargar / compartir: sobre la primera imagen (es el documento).
+      var url = imgs[0] || '';
+      var abs = url ? (url.indexOf('http') === 0 ? url : (window.location.origin + url)) : '';
+      var texto = titulo + (ownerName ? ' de ' + ownerName : '');
+      modalEl.querySelectorAll('[data-pdoc-act]').forEach(function (a) {
+        var tipo = a.getAttribute('data-pdoc-act');
+        a.classList.toggle('d-none', !abs);
+        if (!abs) return;
+        if (tipo === 'download') { a.href = abs; a.setAttribute('download', texto); }
+        if (tipo === 'mail') a.href = 'mailto:?subject=' + encodeURIComponent(texto) + '&body=' + encodeURIComponent(abs);
+        if (tipo === 'wa') a.href = 'https://wa.me/?text=' + encodeURIComponent(texto + ' — ' + abs);
+        if (tipo === 'sms') a.href = 'sms:?&body=' + encodeURIComponent(texto + ' — ' + abs);
+      });
+      window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    }
+    root.addEventListener('click', function (e) {
+      var t = e.target.closest ? e.target.closest('[data-doc-open]') : null;
+      if (!t) return;
+      e.preventDefault();
+      openDocModal(t.getAttribute('data-doc-open'));
+    });
 
     // La cara es un <img>: se puede AMPLIAR al pinchar y ARRASTRAR para guardar con el nombre del
     // documento + la persona (data-doc-dl). El pasaporte se ve completo (CSS is-full).

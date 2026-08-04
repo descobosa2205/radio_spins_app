@@ -319,18 +319,28 @@
           </form>
         {% endif %}
 
-        {# ---------- Documentos (mismo panel, con escaneo y OCR) ---------- #}
+        {# ---------- Identidad: el MISMO resumen que en personal y en tercero ----------
+           El módulo completo de documentos NO se pinta aquí: a la derecha va el DNI y, bajo él, las
+           ETIQUETAS de sus documentos con el «+» para añadir (y el pop-up al pincharlas). Para
+           gestionarlos todos está la pestaña «Documentos» de su ficha de tercero. #}
         <hr>
-        <h6 class="mb-2"><i class="fa fa-folder-open me-1"></i>Documentos de {{ c.name }}</h6>
-        {% with person_documents=c.documents,
+        {% with identity_id='memberIdentity-' ~ c.id,
+                identity_owner_name=c.name,
+                identity_can_add=c.can_edit,
+                identity_fields=c.identity_fields,
+                person_documents=c.documents,
                 person_docs_owner_type='PROMOTER',
                 person_docs_owner_name=c.name,
                 person_docs_save_url=c.docs_save_url,
                 person_docs_delete_base=c.docs_delete_base,
                 person_docs_can_edit=c.can_edit,
                 person_docs_modal=False %}
-          {% include '_person_documents_panel.html' %}
+          {% include '_person_identity_summary.html' %}
         {% endwith %}
+        {% if c.promoter_url %}
+          <div class="mt-2"><a class="btn btn-sm btn-outline-secondary" href="{{ c.promoter_url }}?tab=documentos">
+            <i class="fa fa-folder-open me-1"></i>Gestionar todos sus documentos</a></div>
+        {% endif %}
 
         {% if c.can_edit %}
           <form method="post" action="{{ url_for('artist_person_delete', person_id=c.id) }}" class="mt-2 d-none"

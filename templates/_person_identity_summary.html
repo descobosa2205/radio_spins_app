@@ -1,0 +1,67 @@
+{# ============================================================================
+   RESUMEN DE IDENTIDAD de una persona (una sola copia para las TRES fichas: personal, tercero e
+   integrante de un artista). Así las tres se ven igual, que es de lo que se trata.
+
+   A la IZQUIERDA los datos (el valor pegado a su etiqueta y todos alineados) y debajo las tarjetas de
+   fidelización y las matrículas. A la DERECHA el DNI y, bajo él, **DOCUMENTOS** en etiquetas con un
+   **+** para añadir: pinchando una etiqueta se abre el documento entero en un pop-up (imágenes a la
+   izquierda, datos mecanografiados a la derecha, con descargar y compartir).
+
+   ⚠️ Los campos vienen CRUZADOS con los documentos (`_person_identity_fields`): si un dato no está
+   escrito en la ficha pero sí en el DNI o el pasaporte, se muestra y se dice de dónde sale. El módulo
+   completo de documentos NO va aquí: vive en la pestaña «Documentos» de la ficha.
+
+   Contexto:
+     identity_fields  → lista de {label, value, source} ya cruzada
+     person_documents → payloads de los documentos (los pinta person_docs.js)
+     loyalty_brands   → catálogo de marcas de fidelización
+     identity_id      → id único del bloque en la página
+     identity_can_add → si se puede añadir un documento con el +
+     identity_extra   → (opcional) nombre de un parcial que se incluye bajo los datos
+   ============================================================================ #}
+{% set _iid = identity_id or 'personIdentity' %}
+<div id="{{ _iid }}" data-person-docs data-can-edit="" data-docs-compact
+     data-owner-name="{{ identity_owner_name or '' }}">
+  <script type="application/json" data-person-docs-json>{{ (person_documents or [])|tojson }}</script>
+  <script type="application/json" data-loyalty-brands-json>{{ (loyalty_brands or [])|tojson }}</script>
+  <div class="row g-4">
+    <div class="col-lg-7 col-xl-8">
+      {% if identity_fields %}
+        <h6 class="psum-docs__title">{{ identity_title or 'Datos' }}</h6>
+        <dl class="psum-list">
+          {% for f in identity_fields %}
+            <div>
+              <span class="psum-k">{{ f.label }}</span>
+              <span class="psum-v">{{ f.value }}{% if f.source %}<span class="psum-v__src" title="Este dato no estaba escrito en la ficha: sale {{ f.source }}">({{ f.source }})</span>{% endif %}</span>
+            </div>
+          {% endfor %}
+        </dl>
+      {% endif %}
+      {{ identity_slot if identity_slot }}
+      <div data-docs-section="LOYALTY" class="docs-section d-none mt-3">
+        <h6 class="psum-docs__title">Tarjetas de fidelización</h6>
+        <div class="docs-pills" data-docs-grid="LOYALTY"></div>
+      </div>
+      <div data-docs-section="PLATE" class="docs-section d-none mt-3">
+        <h6 class="psum-docs__title">Matrículas</h6>
+        <div class="docs-pills" data-docs-grid="PLATE"></div>
+      </div>
+      {% if identity_extra %}{% include identity_extra %}{% endif %}
+    </div>
+    <div class="col-lg-5 col-xl-4">
+      {# Solo el DNI se enseña con su imagen; el resto va en las etiquetas de abajo. #}
+      <div data-docs-section="DNI" class="docs-section d-none">
+        <h6 class="psum-docs__title">Documento de identidad</h6>
+        <div class="docs-grid" data-docs-grid="DNI"></div>
+      </div>
+      {# DOCUMENTOS: etiquetas de todo lo que hay subido + el botón de añadir. Las pinta
+         person_docs.js dentro de [data-docs-tags]. #}
+      <div class="mt-3" data-docs-tags-wrap>
+        <h6 class="psum-docs__title">Documentos</h6>
+        <div class="pdoc-tags" data-docs-tags
+             data-can-add="{{ '1' if identity_can_add else '' }}"
+             data-add-url="{{ identity_add_url or '' }}"></div>
+      </div>
+    </div>
+  </div>
+</div>

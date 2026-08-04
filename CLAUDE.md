@@ -1198,6 +1198,25 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   y estado), con **total retenido**, resumen **por trimestre** (que es como se declara) y filtro por
   año. ⚠️ En la cabecera se dice lo importante: **la retención no se descuenta del gasto**.
 
+- **FICHAS DE PERSONA: las TRES se ven igual** (ago 2026). Personal, tercero e integrante de un
+  artista comparten **`templates/_person_identity_summary.html`**: a la izquierda los datos, debajo las
+  **tarjetas de fidelización y las matrículas**, y a la derecha el **DNI** con las **etiquetas de sus
+  documentos** y un **+** para añadir.
+  · ⚠️ **El VALOR va pegado a su etiqueta y todos alineados**: `.psum-list` es una rejilla de dos
+  columnas (`grid-template-columns: max-content 1fr`). Antes era `space-between`, así que cada valor se
+  iba al borde derecho y quedaban desparejados.
+  · **El módulo completo de documentos NO se pinta en la vista de datos**: vive en la pestaña
+  «Documentos» de la ficha. En la vista solo están las **etiquetas** (`renderTags` en `person_docs.js`)
+  y, al pinchar una, el documento se abre **entero en un pop-up**
+  (`templates/_person_doc_view_modal.html`, cargado UNA vez desde `layout.html`): imágenes a la
+  izquierda, datos mecanografiados a la derecha, con **descargar y compartir** (correo, WhatsApp, SMS).
+  · ⚠️⚠️ **CAMPOS CRUZADOS** (`_person_identity_fields`): **ningún campo se queda vacío si ese dato
+  está en otra parte de la ficha de esa persona**. Lo escrito en la ficha MANDA (no se pisa nunca) y lo
+  que falta se rellena con lo que diga el documento —**DNI primero, luego pasaporte, luego carnet**
+  (`_PERSON_DOC_TRUST`)— diciendo **de dónde sale** (`(del DNI)`), que no es lo mismo que estar
+  escrito. El nº de un documento solo vale como DNI/NIF si el documento ES un DNI. Cada ficha le pasa
+  al helper sus campos con etiqueta y valor; el resto lo hace él.
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

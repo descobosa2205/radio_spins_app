@@ -1,0 +1,32 @@
+{# Pop-up de UN documento: imágenes a la IZQUIERDA y sus datos mecanografiados a la DERECHA, con
+   descargar y compartir (correo, WhatsApp, SMS). Lo rellena `person_docs.js` (openDocModal) cuando se
+   pincha una etiqueta de documento. Va UNA sola vez por página (lo carga layout.html). #}
+<div class="modal fade" id="pdocViewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" data-pdoc-title>Documento</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-4">
+          <div class="col-md-7">
+            <div class="pdoc-modal__imgs" data-pdoc-imgs></div>
+          </div>
+          <div class="col-md-5">
+            <dl class="pdoc-modal__data mb-0" data-pdoc-data></dl>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer justify-content-between flex-wrap gap-2">
+        <div class="d-flex gap-2 flex-wrap">
+          <a class="btn btn-sm btn-outline-secondary d-none" data-pdoc-act="download" href="#" download><i class="fa fa-download me-1"></i>Descargar</a>
+          <a class="btn btn-sm btn-outline-secondary d-none" data-pdoc-act="mail" href="#"><i class="fa fa-envelope me-1"></i>Correo</a>
+          <a class="btn btn-sm btn-outline-secondary d-none" data-pdoc-act="wa" href="#" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp me-1"></i>WhatsApp</a>
+          <a class="btn btn-sm btn-outline-secondary d-none" data-pdoc-act="sms" href="#"><i class="fa fa-comment-sms me-1"></i>SMS</a>
+        </div>
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>

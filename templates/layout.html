@@ -362,6 +362,8 @@
 <script src="{{ url_for('static', filename='js/doc_scan.js', v=ASSET_V) }}"></script>
 {# Documentos personales (DNI, carnet, pasaporte, tarjetas, matrículas) — solo actúa si la página
    incluye el panel [data-person-docs]; usa DocScan (tesseract.js/pdf.js bajo demanda). #}
+{# Pop-up de un documento (imágenes + datos + compartir): uno por página, lo rellena person_docs.js. #}
+{% if session.get('user_id') %}{% include '_person_doc_view_modal.html' %}{% endif %}
 <script src="{{ url_for('static', filename='js/person_docs.js', v=ASSET_V) }}"></script>
 {# Alta de tercero/personal desde documento (DNI/pasaporte) o manual — actúa en [data-doc-intake]. #}
 <script src="{{ url_for('static', filename='js/doc_intake.js', v=ASSET_V) }}"></script>

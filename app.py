@@ -2270,13 +2270,27 @@ def _artist_person_cards(session_db, artist, can_edit: bool) -> list:
     cards = []
     for p in (artist.people or []):
         pr = _artist_person_promoter(session_db, p)
+        _docs = (_person_documents_for(session_db, "PROMOTER", pr.id) if pr else [])
         cards.append({
             "person": p,
             "id": str(p.id),
             "name": _artist_person_full_name(p) or "Sin nombre",
             "promoter": pr,
             "promoter_id": (str(pr.id) if pr else ""),
-            "documents": (_person_documents_for(session_db, "PROMOTER", pr.id) if pr else []),
+            "promoter_url": (url_for("promoter_detail_view", pid=pr.id) if pr else ""),
+            # CRUZADO con sus documentos: si el dato está en su DNI o pasaporte, no se queda vacío.
+            "identity_fields": _person_identity_fields({
+                "full_name": {"label": "Nombre", "value": (_artist_person_full_name(p) or "")},
+                "tax_id": {"label": "DNI / NIF", "value": (getattr(pr, "tax_id", None) or "")},
+                "birth_date": {"label": "Fecha de nacimiento",
+                               "value": (p.birth_date.strftime("%d/%m/%Y") if getattr(p, "birth_date", None) else "")},
+                "contact_email": {"label": "Email", "value": (getattr(pr, "contact_email", None) or "")},
+                "contact_phone": {"label": "Teléfono", "value": (getattr(pr, "contact_phone", None) or "")},
+                "address": {"label": "Domicilio", "value": (getattr(pr, "address", None) or "")},
+                "fiscal_address": {"label": "Dirección fiscal", "value": _fiscal_address_text(pr)},
+                "bank_account": {"label": "Cuenta bancaria", "value": (getattr(pr, "bank_account", None) or "")},
+            }, _docs),
+            "documents": _docs,
             "travel_prefs": (_travel_prefs_of(pr) if pr else _travel_prefs_of(None)),
             "travel_summary": (_travel_summary(pr) if pr else _travel_summary(None)),
             "docs_save_url": url_for("artist_person_document_save", person_id=p.id),
@@ -36555,6 +36569,17 @@ def promoter_detail_view(pid):
             entity_link_types=APP33_ENTITY_LINK_TYPES,
             entity_links_can_edit=(can_edit_catalogs() or can_edit_discografica()),
             person_documents=_person_documents_for(session, "PROMOTER", promoter.id),
+            # CRUZADOS con los documentos: ningún campo vacío si el dato está en su DNI o pasaporte.
+            identity_fields=_person_identity_fields({
+                "full_name": {"label": "Nombre", "value": _promoter_display_name(promoter)},
+                "tax_id": {"label": "NIF / CIF", "value": (promoter.tax_id or "")},
+                "birth_date": {"label": "Fecha de nacimiento", "value": ""},
+                "contact_email": {"label": "Email", "value": (promoter.contact_email or "")},
+                "contact_phone": {"label": "Teléfono", "value": (promoter.contact_phone or "")},
+                "address": {"label": "Domicilio", "value": (promoter.address or "")},
+                "fiscal_address": {"label": "Dirección fiscal", "value": _fiscal_address_text(promoter)},
+                "bank_account": {"label": "Cuenta bancaria", "value": (promoter.bank_account or "")},
+            }, _person_documents_for(session, "PROMOTER", promoter.id)),
             person_docs_owner_type="PROMOTER",
             person_docs_owner_name=(" ".join([x for x in [(promoter.first_name or "").strip(), (promoter.last_name or "").strip()] if x]).strip() or promoter.nick or ""),
             person_docs_owner_id=str(promoter.id),
@@ -57096,6 +57121,66 @@ def _person_doc_store_image(fs):
         return None
 
 
+# Prioridad de los documentos al CRUZAR datos: manda el DNI, luego el pasaporte y luego el carnet.
+_PERSON_DOC_TRUST = ("DNI", "PASSPORT", "LICENSE")
+_PERSON_DOC_SOURCE_LABEL = {"DNI": "del DNI", "PASSPORT": "del pasaporte", "LICENSE": "del carnet"}
+
+
+def _person_identity_fields(base: dict, documents: list[dict]) -> list[dict]:
+    """CRUZA los datos de la ficha con los de sus documentos: ningún campo se queda vacío si ese dato
+    está en otra parte de la ficha de esa persona.
+
+    ⚠️ Lo que ya está escrito en la ficha MANDA (no se pisa nunca). Lo que falta se rellena con lo que
+    diga el documento —el DNI primero, después el pasaporte y por último el carnet— y se dice **de
+    dónde sale** (`source`), que no es lo mismo que estar escrito en la ficha.
+
+    `base` = {clave: {"label":…, "value":…}} con lo que hay escrito. Devuelve la lista lista para
+    pintar (solo lo que tiene valor, en el orden dado).
+    """
+    porkind = {}
+    for d in (documents or []):
+        porkind.setdefault((d.get("kind") or "").upper(), []).append(d)
+
+    def _del_documento(campo):
+        """Primer valor que dé un documento para ese campo, por orden de confianza."""
+        for kind in _PERSON_DOC_TRUST:
+            for d in porkind.get(kind, []):
+                valor = (d.get(campo) or "").strip()
+                if not valor:
+                    continue
+                # El nº de un documento solo vale como DNI/NIF si el documento ES un DNI.
+                if campo == "doc_number" and kind != "DNI":
+                    continue
+                return valor, _PERSON_DOC_SOURCE_LABEL.get(kind, "")
+        return "", ""
+
+    # Campo de la ficha → campo del documento del que se puede cruzar.
+    equivalencias = {"full_name": "full_name", "dni": "doc_number", "tax_id": "doc_number",
+                     "birth_date": "birth_date", "address": "address"}
+    salida = []
+    for clave, info in (base or {}).items():
+        valor = (info.get("value") or "").strip() if isinstance(info, dict) else str(info or "").strip()
+        etiqueta = (info.get("label") or clave) if isinstance(info, dict) else clave
+        origen = ""
+        if not valor and clave in equivalencias:
+            valor, origen = _del_documento(equivalencias[clave])
+            if valor and clave == "birth_date":
+                valor = _person_doc_date_label(valor)
+        if not valor:
+            continue
+        salida.append({"key": clave, "label": etiqueta, "value": valor, "source": origen})
+    return salida
+
+
+def _person_doc_date_label(iso: str) -> str:
+    """Una fecha ISO del documento tal como se lee en la ficha (dd/mm/aaaa)."""
+    try:
+        y, m, d = str(iso)[:10].split("-")
+        return "%s/%s/%s" % (d, m, y)
+    except Exception:
+        return str(iso or "")
+
+
 def _person_document_payload(doc):
     brand = _person_loyalty_brand_for(doc.company) if doc.kind == "LOYALTY" else None
     return {
@@ -57918,6 +58003,15 @@ def personnel_detail_view(user_id):
             container_keys=set(_ACCESS_CHILDREN.keys()),
             target_is_master=(int(getattr(user, "role", 0) or 0) == 10),
             person_documents=_person_documents_for(session_db, "USER", user.id),
+            identity_fields=_person_identity_fields({
+                "full_name": {"label": "Nombre", "value": (" ".join([x for x in [
+                    (profile.first_name or "").strip(), (profile.last_name or "").strip()] if x]).strip())},
+                "email": {"label": "Email", "value": (user.email or "")},
+                "dni": {"label": "DNI", "value": (profile.dni or "")},
+                "birth_date": {"label": "Fecha de nacimiento",
+                               "value": (profile.birth_date.strftime("%d/%m/%Y") if profile.birth_date else "")},
+                "address": {"label": "Domicilio", "value": (profile.address or "")},
+            }, _person_documents_for(session_db, "USER", user.id)),
             person_docs_owner_type="USER",
             person_docs_owner_name=(" ".join([x for x in [(profile.first_name or "").strip(), (profile.last_name or "").strip()] if x]).strip() or profile.nick or ""),
             person_docs_owner_id=str(user.id),

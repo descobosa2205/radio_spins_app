@@ -2544,13 +2544,31 @@ img.docs-id__face { width:100%; height:100%; object-fit:cover; display:block; cu
 .docs-plate-pill .docs-pill__copied { border-radius:6px; }
 .docs-plate-pill.is-copied .docs-pill__copied { opacity:1; }
 
-/* Resumen de la ficha principal: datos a la izquierda (solo campos rellenos) + DNI a la derecha. */
-.psum-list { margin:0; }
-.psum-list > div { display:flex; justify-content:space-between; gap:1rem; padding:.35rem 0; border-top:1px dashed #eef0f2; font-size:.92rem; }
+/* Resumen de la ficha principal: datos a la izquierda (solo campos rellenos) + DNI a la derecha.
+   ⚠️ El VALOR va PEGADO a su etiqueta y todos los valores ALINEADOS en la misma columna (rejilla de
+   dos columnas: la primera del ancho de la etiqueta más larga). Antes iba con `space-between`, así que
+   cada valor se pegaba al borde derecho y quedaban desparejados y lejos de su campo. */
+.psum-list { margin:0; display:grid; grid-template-columns:max-content 1fr; column-gap:1.25rem; }
+.psum-list > div { display:grid; grid-column:1 / -1; grid-template-columns:subgrid; padding:.35rem 0; border-top:1px dashed #eef0f2; font-size:.92rem; }
 .psum-list > div:first-child { border-top:0; }
-.psum-k { color:#8a9199; font-weight:600; flex:0 0 auto; }
-.psum-v { font-weight:700; color:#1a1a1a; text-align:right; overflow-wrap:anywhere; }
+.psum-k { color:#8a9199; font-weight:600; }
+.psum-v { font-weight:700; color:#1a1a1a; text-align:left; overflow-wrap:anywhere; }
+/* De dónde sale un dato que no estaba escrito en la ficha (se ha cruzado con un documento). */
+.psum-v__src { display:inline-block; margin-left:.4rem; font-weight:600; font-size:.72rem; color:#8a9199; }
 .psum-docs__title { font-size:.75rem; font-weight:800; text-transform:uppercase; letter-spacing:.04em; color:#8a9199; margin:0 0 .5rem; }
+
+/* DOCUMENTOS como ETIQUETAS bajo el DNI: se pinchan y se abren enteros en un pop-up. */
+.pdoc-tags { display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; }
+.pdoc-tag { display:inline-flex; align-items:center; gap:.35rem; border:1px solid #e6e8eb; background:#fff;
+  border-radius:999px; padding:.3rem .7rem; font-size:.82rem; font-weight:600; color:#1a1a1a; cursor:pointer; }
+.pdoc-tag:hover { border-color:var(--brand-primary); color:var(--brand-primary); }
+.pdoc-tag--add { border-style:dashed; color:#8a9199; font-weight:700; }
+.pdoc-tag--add:hover { color:var(--brand-primary); }
+/* Pop-up del documento: imágenes a la izquierda, datos mecanografiados a la derecha. */
+.pdoc-modal__imgs { display:flex; flex-direction:column; gap:.75rem; }
+.pdoc-modal__imgs img { width:100%; border-radius:12px; border:1px solid #e6e8eb; background:#f8f9fa; }
+.pdoc-modal__data dt { font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; color:#8a9199; font-weight:800; }
+.pdoc-modal__data dd { margin:0 0 .6rem; font-weight:700; color:#1a1a1a; overflow-wrap:anywhere; }
 
 /* --- Matrícula: placa española (banda azul EU + números) con el nombre del coche encima --- */
 .docs-plate-wrap { position:relative; background:#fff; border:1px solid #e6e8eb; border-radius:14px; padding:.85rem; box-shadow:0 1px 3px rgba(0,0,0,.05); }

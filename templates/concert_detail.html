@@ -13,21 +13,25 @@
     <div class="d-flex flex-wrap align-items-center gap-2">
       <h1 class="ficha-hero__title"{% if concert.artist %} data-artist-link="{{ concert.artist.id }}"{% endif %}>{{ concert.artist.name if concert.artist else 'Concierto' }}</h1>
       {% with cs_id=concert.id, cs_status=concert.status %}{% include '_concert_status_badge.html' %}{% endwith %}
-      {% if contract_sheet_badge %}<span class="badge {{ contract_sheet_badge.class }}">{{ contract_sheet_badge.label }}</span>{% endif %}
-      {% if announcement_badge %}<span class="badge {{ announcement_badge.class }}">{{ announcement_badge.label }}</span>{% endif %}
+      {# ANUNCIO y SALIDA A LA VENTA, al lado del estado y con el mismo comportamiento: se pinchan
+         para cambiarlos. La de la venta solo si la actividad vende entradas. #}
+      {% include '_concert_announcement_badge.html' %}
+      {% include '_concert_onsale_badge.html' %}
     </div>
     {% if concert.artist %}{{ linked_mini('artist', concert.artist.id) }}{% endif %}
     <div class="ficha-hero__facts">
       {% if concert.date %}<span><i class="fa fa-calendar-day"></i>{{ concert.date.strftime('%d/%m/%Y') }}</span>{% endif %}
       {% if location_summary %}<span><i class="fa fa-location-dot"></i>{{ location_summary }}</span>{% endif %}
+      {# AFORO: con su icono, junto al recinto y la fecha (antes solo estaba en una tarjeta). #}
+      {% if concert.no_capacity %}
+        <span title="Aforo libre"><i class="fa fa-people-group"></i>Aforo libre</span>
+      {% elif capacity_sale %}
+        <span title="Aforo a la venta"><i class="fa fa-people-group"></i>{{ capacity_sale|k }}</span>
+      {% elif concert.capacity %}
+        <span title="Aforo"><i class="fa fa-people-group"></i>{{ concert.capacity|k }}</span>
+      {% endif %}
       {% if concert.festival_name %}<span><i class="fa fa-star"></i>{{ concert.festival_name }}</span>{% endif %}
       {% if production_owner_name %}<span title="Responsable de producción"><i class="fa fa-user-gear"></i>{{ production_owner_name }}</span>{% endif %}
-      {% if needs_production_owner and CAN_EDIT_CONCERTS %}
-        {# ACTIVAR LA PRODUCCIÓN: quien crea la actividad tiene que decir quién se encarga. #}
-        <button type="button" class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#prodOwnerModal">
-          <i class="fa fa-user-gear me-1"></i>Activar producción
-        </button>
-      {% endif %}
     </div>
     {% if (concert.tags_clean or concert.hashtags or []) %}
       <div class="mt-2 d-flex flex-wrap gap-1">
@@ -35,6 +39,25 @@
       </div>
     {% endif %}
   </div>
+  {# LA EMPRESA DEL GRUPO QUE FACTURA, arriba a la derecha de la cabecera: es el dato que dice de
+     quién es la actividad a efectos de dinero, y antes había que buscarlo en una tarjeta.
+     Si no se ha dicho quién factura, se enseña la empresa del grupo que la promueve. #}
+  {% set _hero_co = concert.billing_company or concert.group_company %}
+  {% if _hero_co %}
+    <div class="ficha-hero__actions align-items-start">
+      <div class="hero-company" title="{{ 'Empresa del grupo que factura' if concert.billing_company else 'Empresa del grupo' }}">
+        {% if _hero_co.logo_url %}
+          <img src="{{ _hero_co.logo_url }}" alt="{{ _hero_co.name }}">
+        {% else %}
+          <span class="hero-company__ph"><i class="fa fa-building"></i></span>
+        {% endif %}
+        <span class="hero-company__t">
+          <span class="hero-company__lab">{{ 'Factura' if concert.billing_company else 'Empresa' }}</span>
+          <span class="hero-company__name">{{ _hero_co.name }}</span>
+        </span>
+      </div>
+    </div>
+  {% endif %}
 </div>
 
 {# ---------- ACCESOS RÁPIDOS: justo debajo de la cabecera, con iconos ---------- #}
@@ -50,11 +73,14 @@
   {% if CAN_EDIT_CONCERTS %}
     <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#requestContractSheetModal"><i class="fa fa-file-signature me-1"></i>Solicitar ficha al promotor</button>
   {% endif %}
-  {% if concert.contract_sheet %}
-    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('concert_contract_sheet_edit', cid=concert.id) }}"><i class="fa fa-file-pen me-1"></i>Ficha interna</a>
-  {% endif %}
   <a class="btn btn-outline-dark btn-sm" href="{{ url_for('concert_contract_sheet_pdf', cid=concert.id) }}" target="_blank"><i class="fa fa-file-pdf me-1"></i>PDF ficha</a>
-  <a class="btn btn-outline-success btn-sm" href="{{ url_for('concert_detail_view', cid=concert.id, tab='produccion') }}"><i class="fa fa-clipboard-list me-1"></i>Producción</a>
+  {# PRODUCCIÓN: mientras no esté activada, este botón es el que la activa (decir quién se encarga).
+     En cuanto lo está, desaparece: ya no hay nada que hacer aquí y la pestaña sigue en su sitio. #}
+  {% if needs_production_owner and CAN_EDIT_CONCERTS %}
+    <button class="btn btn-outline-success btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#prodOwnerModal">
+      <i class="fa fa-user-gear me-1"></i>Activar producción
+    </button>
+  {% endif %}
   <a class="btn btn-outline-danger btn-sm" href="{{ url_for('concert_detail_view', cid=concert.id, tab='invitations') }}"><i class="fa fa-envelope-open-text me-1"></i>Invitaciones</a>
 </div>
 
@@ -68,18 +94,14 @@
   <li class="nav-item"><a class="nav-link {% if tab == 'produccion' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='produccion') }}">Producción</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'resultado' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='resultado') }}">Resultado</a></li>
   <li class="nav-item"><a class="nav-link {% if tab in ['promocion','marketing'] %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='marketing') }}">Marketing</a></li>
-  <li class="nav-item"><a class="nav-link {% if tab == 'ficha' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='ficha') }}">Ficha promotor</a></li>
+  {# La pestaña «Ficha promotor» se RETIRÓ: era la misma ficha de contratación duplicada. Lo que
+     manda el promotor se revisa en su pantalla (aviso amarillo + «Revisar datos»). #}
   <li class="nav-item"><a class="nav-link {% if tab == 'fotos' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='fotos') }}">Fotos / Vídeos</a></li>
 </ul>
 
 <div class="ficha-tabpane">
   {% if tab == 'general' %}
     <div id="concert-general-zone" data-inline-zone>
-    {% if contract_sheet_status == 'RECEIVED' %}
-    <div class="d-flex justify-content-end mb-2">
-      <a class="btn btn-warning btn-sm" href="{{ url_for('concert_contract_sheet_review', cid=concert.id) }}"><i class="fa fa-file-import me-1"></i>Importar datos recibidos</a>
-    </div>
-    {% endif %}
 
     {% if CAN_EDIT_CONCERTS %}
     <form id="concert-datos-edit" class="ficha-section d-none mb-3" method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='datos') }}" data-inline data-inline-target="#concert-general-zone" data-concert-datos-form data-view="[data-datos-view]">
@@ -197,106 +219,36 @@
 
     <div data-datos-view>
 
-    {% if contract_sheet_status == 'RECEIVED' %}
+    {# EL PROMOTOR HA CUMPLIMENTADO LA FICHA: aviso en amarillo con el botón de revisar. Lo que ha
+       mandado NO ha pisado nada; se decide campo por campo en la pantalla partida. El aviso se va
+       cuando se revisa. #}
+    {% if promoter_sheet_pending %}
       <div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap gap-2">
         <div>
-          <strong>Recibida ficha de contratación</strong>
+          <i class="fa fa-user-tie me-1"></i><strong>El promotor ha cumplimentado la ficha del promotor</strong>
           {% if concert.contract_sheet and concert.contract_sheet.submitted_at %} el {{ concert.contract_sheet.submitted_at.strftime('%d/%m/%Y %H:%M') }}{% endif %}.
-          Revisa los campos enviados por el promotor antes de consolidarlos.
+          Compara sus datos con los nuestros y elige cuáles se quedan.
         </div>
-        <a class="btn btn-sm btn-dark" href="{{ url_for('concert_contract_sheet_review', cid=concert.id) }}">Importar datos</a>
+        <a class="btn btn-sm btn-dark" href="{{ url_for('concert_contract_sheet_review', cid=concert.id) }}">
+          <i class="fa fa-code-compare me-1"></i>Revisar datos</a>
       </div>
     {% endif %}
 
     {% set cpay_g = concert.contracting_payload or {} %}
     {% set perf_g = cpay_g.get('performance') or {} %}
-    {# ---------- RESUMEN VISUAL: datos básicos seguidos, con iconos, solo lo cumplimentado ---------- #}
-    {# Orden pedido: estado · tipo · fecha · recinto · aforo · empresa que factura, y a
-       continuación promotor · anuncio · salida a la venta. Van en un solo flujo que envuelve
-       solo cuando no cabe, para que en pantallas anchas entren en una línea. #}
-    {% set _cap_free = concert.capacity if (concert.capacity and not capacity_sale) else 0 %}
-    <div class="ficha-summary ficha-summary--compact mb-3">
-      <div class="fs-item">
-        <div class="fs-item__label"><i class="fa fa-flag"></i>Estado</div>
-        <div class="fs-item__value">{% with cs_id=concert.id, cs_status=concert.status %}{% include '_concert_status_badge.html' %}{% endwith %}</div>
-      </div>
-      <div class="fs-item">
-        <div class="fs-item__label"><i class="fa fa-shapes"></i>Tipo</div>
-        <div class="fs-item__value"><span class="badge text-bg-light border">{{ activity_type_label }}</span>
-          {% if is_concert_like %}<span class="badge text-bg-light border">{{ sale_type_label }}</span>
-          {% elif activity_cache_label %}<span class="badge text-bg-light border">{{ activity_cache_label }}</span>{% endif %}</div>
-      </div>
-      {% if concert.date %}
-      <div class="fs-item">
-        <div class="fs-item__label"><i class="fa fa-calendar-day"></i>Fecha</div>
-        <div class="fs-item__value">
-          <span class="cal-tile"><span class="cal-tile__day">{{ concert.date.strftime('%d') }}</span><span class="cal-tile__month">{{ ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'][concert.date.month - 1] }} {{ concert.date.strftime('%y') }}</span></span>
+    {# Las TARJETAS de resumen que había aquí se han retirado: repetían lo que ya dice la cabecera
+       (estado, tipo, fecha, recinto, aforo, empresa que factura, anuncio y salida a la venta). Lo
+       que no está arriba —el promotor y su sociedad— va abajo, en la tabla compacta. #}
+    {% if concert.promoter %}
+      <div class="cfila mb-3">
+        <img class="cfila__ph" src="{{ concert.promoter.logo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">
+        <div class="min-w-0">
+          <div class="cfila__lab">Promotor</div>
+          <a class="fw-semibold text-reset text-decoration-none" href="{{ url_for('promoter_detail_view', pid=concert.promoter.id) }}">{{ concert.promoter.nick }}</a>
+          {% if concert.promoter_company %}<span class="small text-muted ms-2"><i class="fa fa-landmark me-1"></i>{{ concert.promoter_company.legal_name }}</span>{% endif %}
         </div>
       </div>
-      {% endif %}
-      {% if concert.venue or concert.manual_venue_name %}
-      <div class="fs-item fs-item--wide">
-        <div class="fs-item__label"><i class="fa fa-location-dot"></i>Recinto</div>
-        <div class="fs-item__value d-flex align-items-center gap-2">
-          <img src="{{ (concert.venue.photo_url if concert.venue else None) or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:44px;height:34px;border-radius:9px;object-fit:cover;">
-          <span>
-            {% if concert.venue %}<a class="fw-semibold text-reset text-decoration-none" href="{{ url_for('venue_detail_view', vid=concert.venue.id) }}">{{ concert.venue.name }}</a>{% else %}<span class="fw-semibold">{{ concert.manual_venue_name }}</span>{% endif %}
-            {% if location_summary %}<span class="d-block small text-muted">{{ location_summary }}</span>{% endif %}
-          </span>
-        </div>
-      </div>
-      {% endif %}
-      {# Aforo como módulo propio: el que está a la venta o, en las gratuitas, el del recinto. #}
-      {% if capacity_sale or _cap_free or concert.no_capacity %}
-      <div class="fs-item">
-        <div class="fs-item__label"><i class="fa fa-people-group"></i>{{ 'Aforo a la venta' if capacity_sale else 'Aforo' }}</div>
-        <div class="fs-item__value fw-semibold">
-          {% if capacity_sale %}{{ capacity_sale|k }}{% elif _cap_free %}{{ _cap_free|k }}{% else %}<span class="badge text-bg-light border"><i class="fa fa-infinity me-1"></i>Libre</span>{% endif %}
-        </div>
-      </div>
-      {% endif %}
-      {% if concert.billing_company %}
-      <div class="fs-item">
-        <div class="fs-item__label"><i class="fa fa-building"></i>Factura</div>
-        <div class="fs-item__value">
-          {% if concert.billing_company.logo_url %}<img src="{{ concert.billing_company.logo_url }}" alt="{{ concert.billing_company.name }}" title="{{ concert.billing_company.name }}" style="height:30px;max-width:104px;object-fit:contain;">
-          {% else %}<span class="fw-semibold">{{ concert.billing_company.name }}</span>{% endif %}
-        </div>
-      </div>
-      {% endif %}
-      {% if concert.promoter %}
-      <div class="fs-item fs-item--wide">
-        <div class="fs-item__label"><i class="fa fa-user-tie"></i>Promotor</div>
-        <div class="fs-item__value d-flex align-items-center gap-2">
-          <img src="{{ concert.promoter.logo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:30px;height:30px;border-radius:50%;object-fit:cover;">
-          <span><a class="fw-semibold text-reset text-decoration-none" href="{{ url_for('promoter_detail_view', pid=concert.promoter.id) }}">{{ concert.promoter.nick }}</a>
-          {% if concert.promoter_company %}<span class="d-block small text-muted"><i class="fa fa-landmark me-1"></i>{{ concert.promoter_company.legal_name }}</span>{% endif %}</span>
-        </div>
-      </div>
-      {% endif %}
-      {% if concert.do_not_announce %}
-      <div class="fs-item"><div class="fs-item__label"><i class="fa fa-bullhorn"></i>Anuncio</div><div class="fs-item__value"><span class="badge text-bg-secondary">No anunciar</span></div></div>
-      {% elif concert.announcement_date %}
-      <div class="fs-item"><div class="fs-item__label"><i class="fa fa-bullhorn"></i>Anuncio</div><div class="fs-item__value fw-semibold">{{ concert.announcement_date.strftime('%d/%m/%Y') }}</div></div>
-      {% else %}
-      <div class="fs-item"><div class="fs-item__label"><i class="fa fa-bullhorn"></i>Anuncio</div><div class="fs-item__value"><span class="badge text-bg-light border">TBC</span></div></div>
-      {% endif %}
-      {% if concert.sale_start_tbc %}
-      <div class="fs-item"><div class="fs-item__label"><i class="fa fa-calendar-check"></i>A la venta</div><div class="fs-item__value"><span class="badge text-bg-light border">TBC</span></div></div>
-      {% elif concert.sale_start_date %}
-      <div class="fs-item"><div class="fs-item__label"><i class="fa fa-calendar-check"></i>A la venta</div><div class="fs-item__value fw-semibold">{{ concert.sale_start_date.strftime('%d/%m/%Y') }}</div></div>
-      {% endif %}
-      {% if perf_g.get('sings') is not none %}
-      <div class="fs-item"><div class="fs-item__label"><i class="fa fa-microphone"></i>¿Canta?</div><div class="fs-item__value"><span class="badge {{ 'text-bg-success' if perf_g.get('sings') else 'text-bg-secondary' }}">{{ 'Sí' if perf_g.get('sings') else 'No' }}</span></div></div>
-      {% endif %}
-      {% if cpay_g.get('formation') %}
-      <div class="fs-item"><div class="fs-item__label"><i class="fa fa-users"></i>Formación</div><div class="fs-item__value fw-semibold">{{ cpay_g.get('formation') }}</div></div>
-      {% endif %}
-      {% set mg_g = cpay_g.get('meet_greet') or {} %}
-      {% if mg_g.get('enabled') %}
-      <div class="fs-item"><div class="fs-item__label"><i class="fa fa-handshake"></i>M&amp;G</div><div class="fs-item__value"><span class="badge text-bg-success">Sí{% if mg_g.get('quantity') %} · {{ mg_g.get('quantity') }} pers.{% endif %}</span></div></div>
-      {% endif %}
-    </div>
+    {% endif %}
 
     {# ---------- Descripción de la actividad, primero ---------- #}
     {% if cpay_g.get('description') %}
@@ -306,18 +258,22 @@
     </div>
     {% endif %}
 
-    {# ---------- Resto de la información cumplimentada (sin lo ya mostrado arriba) ---------- #}
-    {% set summary_labels = ['Artista/s', 'Tipo de actividad', 'Subtipo', 'Estado', 'Fecha', 'Empresa que factura', 'Promotor', 'Sociedad promotor', 'Salida a la venta', 'Aforo', 'En qué consiste', '¿El artista canta?', 'Formación', 'Anuncio', 'Meet & Greet'] %}
+    {# ---------- Resto de la información cumplimentada (sin lo ya mostrado en la cabecera) ----------
+       COMPACTA, en dos columnas de etiqueta+valor pegados (el mismo patrón `psum-list` de la ficha del
+       tercero): así se ve todo de un vistazo en vez de una rejilla de dos líneas por dato.
+       ⚠️ Esta lista de etiquetas que NO se repiten está también en el PDF de la ficha
+       (`concert_contract_sheet_pdf`): si se toca una, se toca la otra. #}
+    {% set summary_labels = ['Artista/s', 'Tipo de actividad', 'Subtipo', 'Estado', 'Fecha', 'Empresa que factura', 'Promotor', 'Sociedad promotor', 'Salida a la venta', 'Aforo', 'En qué consiste', 'Anuncio'] %}
     {% set resto_rows = contracting_general_rows|rejectattr('label', 'in', summary_labels)|list %}
     {% if resto_rows %}
     <div class="ficha-section">
       <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-list"></i>Más información de la actividad</h6></div>
       <div class="ficha-section__body">
-        <div class="ficha-fields">
+        <dl class="psum-list psum-list--2col mb-0">
           {% for row in resto_rows %}
-            <div><div class="ficha-field__label">{{ row.label }}</div><div class="ficha-field__value">{{ row.value }}</div></div>
+            <div><dt class="psum-k">{{ row.label }}</dt><dd class="psum-v">{{ row.value }}</dd></div>
           {% endfor %}
-        </div>
+        </dl>
       </div>
     </div>
     {% endif %}
@@ -2558,105 +2514,6 @@
       <h5 class="mb-3"><i class="fa fa-music me-2 text-danger"></i>Set list / repertorio</h5>
       {% if setlist %}{% include '_setlist_panel.html' %}{% endif %}
     </div>
-  {% else %}
-    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-      <div>
-        <h5 class="mb-0">Ficha de contratación</h5>
-        <div class="text-muted small">
-          {% if contract_sheet_status == 'NONE' %}
-            Todavía no se ha solicitado ninguna ficha de contratación.
-          {% elif contract_sheet_status == 'DRAFT' %}
-            Ficha interna en preparación. Puedes completarla manualmente.
-          {% elif contract_sheet_status == 'REQUESTED' %}
-            Ficha solicitada al promotor y pendiente de envío.
-          {% elif contract_sheet_status == 'RECEIVED' %}
-            Ficha recibida y pendiente de revisión.
-          {% elif contract_sheet_status == 'REJECTED' %}
-            Ficha rechazada a la espera de subsanación.
-          {% else %}
-            Ficha aceptada y fijada en el concierto.
-          {% endif %}
-        </div>
-      </div>
-      {% if concert.contract_sheet %}
-        <div class="d-flex gap-2 flex-wrap">
-          {% if contract_sheet_status == 'RECEIVED' %}
-            <a class="btn btn-primary btn-sm" href="{{ url_for('concert_contract_sheet_review', cid=concert.id) }}">Aceptar ficha</a>
-          {% endif %}
-          {% if contract_sheet_status in ['DRAFT', 'RECEIVED', 'ACCEPTED', 'REJECTED'] %}
-            <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('concert_contract_sheet_edit', cid=concert.id) }}">Editar ficha</a>
-          {% endif %}
-          {% if contract_sheet_status in ['DRAFT', 'ACCEPTED', 'RECEIVED', 'REJECTED'] %}
-            <a class="btn btn-outline-primary btn-sm" href="{{ url_for('concert_contract_sheet_pdf', cid=concert.id) }}" target="_blank">Imprimir ficha PDF</a>
-          {% endif %}
-        </div>
-      {% endif %}
-    </div>
-
-    {% if contract_sheet_status == 'RECEIVED' %}
-      <div class="card border-danger mb-3">
-        <div class="card-body">
-          <h6 class="mb-3">Rechazar ficha</h6>
-          <form method="post" action="{{ url_for('concert_contract_sheet_reject', cid=concert.id) }}" class="row g-2">
-            <div class="col-12">
-              <textarea class="form-control" name="reason" rows="3" placeholder="Indica por qué se rechaza la ficha y qué debe subsanarse" required></textarea>
-            </div>
-            <div class="col-12 d-flex justify-content-end">
-              <button class="btn btn-danger">Solicitar subsanación</button>
-            </div>
-          </form>
-        </div>
-      </div>
-    {% endif %}
-
-    {% if concert.contract_sheet %}
-      <div class="row g-3">
-        {% for section in contract_sheet_sections %}
-          <div class="col-12 col-xl-6">
-            <div class="card h-100">
-              <div class="card-body">
-                <h6 class="mb-3">{{ section.title }}</h6>
-                {% set has_rows = namespace(value=false) %}
-                <table class="table table-sm mb-0">
-                  <tbody>
-                    {% for label, value in section.rows %}
-                      {% if value not in [None, '', []] %}
-                        {% set has_rows.value = true %}
-                        <tr><th style="width:220px;">{{ label }}</th><td>{{ value }}</td></tr>
-                      {% endif %}
-                    {% endfor %}
-                  </tbody>
-                </table>
-                {% if not has_rows.value %}<div class="text-muted">Sin información.</div>{% endif %}
-                {% if section.ticket_rows %}
-                  <hr>
-                  <div class="table-responsive">
-                    <table class="table table-sm align-middle mb-0">
-                      <thead class="table-light">
-                        <tr><th>Tipo</th><th class="text-end">Entradas</th><th class="text-end">Importe</th><th class="text-end">Inv. totales</th><th class="text-end">Inv. artista</th></tr>
-                      </thead>
-                      <tbody>
-                        {% for row in section.ticket_rows %}
-                          <tr>
-                            <td>{{ row.name }}</td>
-                            <td class="text-end">{{ (row.qty_for_sale)|k }}</td>
-                            <td class="text-end">{{ row.amount }}</td>
-                            <td class="text-end">{{ row.invites_total }}</td>
-                            <td class="text-end">{{ row.invites_artist }}</td>
-                          </tr>
-                        {% endfor %}
-                      </tbody>
-                    </table>
-                  </div>
-                {% endif %}
-              </div>
-            </div>
-          </div>
-        {% endfor %}
-      </div>
-    {% else %}
-      <div class="alert alert-light border mb-0">Este concierto aún no tiene ficha de contratación vinculada.</div>
-    {% endif %}
   {% endif %}
 </div>
 

@@ -906,6 +906,71 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · La **fecha de pago** solo se toca en cada pago de la lista: en «¿Desde qué cuenta se paga?» no se
   repite (era el mismo dato en dos sitios).
 
+- **FICHA DE ACTIVIDAD · la cabecera lo dice todo** (rediseño ago 2026, `concert_detail.html`):
+  · Arriba a la **derecha**, la **empresa del grupo que factura** (`.hero-company`; si no se ha dicho
+  quién factura, la empresa del grupo que promueve).
+  · En la línea de datos, el **AFORO** con su icono (`fa-people-group`), junto a fecha y recinto.
+  · Al lado del estado, dos etiquetas nuevas y **clicables** (parciales
+  `_concert_announcement_badge.html` y `_concert_onsale_badge.html`): **ANUNCIO** (rojo «No anunciar»
+  · verde «Anunciado» · amarillo «Anuncio: fecha») y, **solo si la actividad vende entradas**
+  (`ticketing_payload.entry_mode == 'SALE'`), **VENTA** (verde «A la venta», con la fecha en que
+  salió al pasar el ratón · amarillo «Venta: fecha»). Se cambian en su propio desplegable, con
+  endpoints propios **`concert_announcement_set`** y **`concert_onsale_set`**.
+  ⚠️ NO pasan por `concert_section_update`: la sección «datos» EXIGE la fecha de salida a la venta
+  (revienta si llega vacía) y la sección «entradas» BORRA toda la configuración de venta si no le
+  llega `entry_mode`. Escriben solo sus dos columnas.
+  ⚠️ El parcial de la venta saca el `entry_mode` del **propio concierto**, no de una variable de
+  contexto: así vale en cualquier pantalla (en la ficha, `entry_mode` es un `{% set %}` local de la
+  pestaña de ticketing y no se ve desde la cabecera).
+  · **Fuera** el botón de «Ficha interna» de la fila de accesos rápidos, el de «Activar producción»
+  de la cabecera y **las 12 tarjetas** de resumen que había bajo las pestañas (repetían la cabecera).
+  El botón **«Producción» pasa a ser «Activar producción»** (misma estética verde) y **desaparece en
+  cuanto la producción está activada**.
+  · La **ficha de contratación es COMPACTA**: «Más información» usa el patrón de tabla de la ficha del
+  tercero (`psum-list` a dos columnas, `.psum-list--2col`), etiqueta y valor pegados.
+  ⚠️ La lista `summary_labels` de lo que NO se repite está DUPLICADA en el PDF
+  (`concert_contract_sheet_pdf`): si se toca una, se toca la otra.
+
+- **FICHA DE CONTRATACIÓN · una sola, y lo del promotor aparte** (ago 2026). La pestaña «Ficha
+  promotor» se **retiró**: era la misma ficha duplicada (y `?tab=ficha` cae a «general»).
+  · ⚠️ **`ConcertContractSheet` es UNA fila por actividad** y antes el promotor escribía en el MISMO
+  `data` que la casa, así que **se pisaban**. Ahora lo que manda él va a **`promoter_data`** (+
+  `promoter_reviewed_at`), y `data` sigue siendo la ficha de la casa.
+  · En la ficha sale un **aviso amarillo** («El promotor ha cumplimentado la ficha del promotor») con
+  el botón **«Revisar datos»** mientras haya `promoter_data` sin revisar (`promoter_sheet_pending`).
+  · **`concert_contract_sheet_review`** es una **pantalla partida campo a campo**
+  (`concert_contract_merge.html`, clases `.cmp-*`): a la izquierda lo nuestro, a la derecha lo suyo, se
+  pincha la columna que se queda (por defecto lo suyo donde no teníamos nada, lo nuestro donde ya
+  había dato) y al guardar se reemplaza la ficha **y** se aplican al Concert los campos que le tocan.
+  · **Un solo catálogo de campos**: `CONTRACT_SHEET_GROUPS` + `CONTRACT_SHEET_CHOICES` (con
+  `CONTRACT_SHEET_LABELS`) es la fuente de verdad de qué campos hay, cómo se llaman y en qué módulo
+  van; lo usan el formulario, la vista consolidada, el PDF y la comparación. Un campo nuevo se añade
+  UNA vez. Helpers: `_contract_sheet_show` (cómo se enseña cada tipo), `_contract_sheet_compare_rows`
+  y `_contract_sheet_compare_groups`.
+  · ⚠️ Editar la ficha por dentro (`concert_contract_sheet_edit`) **ya no la pone en RECEIVED**: antes
+  hacía pasar por «el promotor la ha enviado» y disparaba el aviso.
+  · Al recibirla se **avisa** a quien la pidió y a Contratación (`_contract_sheet_notify_received`).
+
+- **El FORMULARIO del promotor, por módulos** (ago 2026, `concert_contract_public.html`, clases
+  `.csheet*`): logo de la empresa del grupo arriba a la **derecha**, título centrado «Solicitud ficha
+  de contratación», el texto de contratación y **la MISMA cabecera de la actividad** que su ficha
+  (`_contract_sheet_hero_rows`, compartida con el correo). Seis módulos con su icono:
+  **promotor** (datos que ya tenemos + dirección FISCAL con autocompletado `data-address-autocomplete`
+  + «la factura otra empresa promotora» que busca por CIF con **`public_contract_sheet_company`**) ·
+  **producción local** (quién la hace, con iconos; si es otra empresa, nombre y CIF; y su responsable)
+  · **show** (tipo de concierto con iconos —Concierto/Gratuito/Festival/Ciclo, y el nombre si es
+  festival o ciclo—, aire libre o cubierto, formato, duración, comienzo, apertura y observaciones) ·
+  **ticketing** (aforo; y si NO es gratuito: salida a la venta, puntos de venta, **ticketeras con su
+  logo** + otras a mano + taquilla física, desglose de entradas con filas que se añaden, M&G y su
+  cantidad, y responsable) · **promoción** · **anuncio y cartelería**.
+  ⚠️ Los paneles que se ocultan **DESHABILITAN sus campos** (un campo oculto se envía igual, y un
+  `required` invisible impide enviar el formulario).
+  ⚠️ El correo de solicitud (`_contract_sheet_request_email_html`) lleva el logo a la derecha, el
+  título centrado, el texto y una **viñeta con la cabecera de la actividad** y el botón
+  «Cumplimentar ficha de contratación» dentro.
+  ⚠️ `concert_contract_sheet_request` **fusiona** `request_payload` en vez de reemplazarlo (ahí viven
+  el artista y los datos de la gala que deja el asistente, y `_contract_sheet_prefill` los usa).
+
 - **Administración · Pendiente: el orden del trabajo** (ago 2026): las subpestañas van
   **Solicitudes · De liquidación · De pago · De facturación · De oficina · De cierre**, con la
   estética del resto de la app (`nav-tabs contract-tabs` + icono + contador `.contract-tabs__n`).

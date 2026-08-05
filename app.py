@@ -407,6 +407,7 @@ _CSRF_EXEMPT_ENDPOINTS = {
     "concert_artwork_public_submit",
     "public_sale_channels",
     "concert_contract_public_form",
+    "public_contract_sheet_company",
     "public_bag_expense_document_upload",
     "public_invitation_guest_list_status",
     "public_invitation_request_submit",
@@ -529,6 +530,8 @@ def inject_country_helpers():
         # Lo que QUEDA por pagar de un gasto (bruto menos lo ya pagado): con pagos parciales, es el
         # importe que hay que ofrecer en cualquier formulario de pago.
         "expense_pending": globals().get("_expense_pending_amount", lambda _e: 0),
+        # HOY (en Madrid), para las plantillas que comparan fechas (etiquetas de anuncio y de venta).
+        "today_local_date": globals().get("today_local", lambda: date.today()),
         "DEFAULT_PHOTO_URL": url_for("static", filename="img/placeholder_photo.png"),
     }
 
@@ -770,7 +773,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
+    allowed = {"landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
     if request.endpoint in allowed:
         return
 
@@ -3543,6 +3546,18 @@ def _parse_payment_terms_rows(form) -> list[dict]:
     return rows
 
 
+def _dedupe_keep_order(valores) -> list:
+    """Sin repetidos y conservando el orden en que se eligieron (comparando sin mayúsculas)."""
+    vistos, salida = set(), []
+    for v in (valores or []):
+        clave = str(v or "").strip().casefold()
+        if not clave or clave in vistos:
+            continue
+        vistos.add(clave)
+        salida.append(str(v).strip())
+    return salida
+
+
 def _parse_contract_sheet_form(form) -> dict:
     payload = {
         'gala_municipality': (form.get('gala_municipality') or '').strip(),
@@ -3595,6 +3610,28 @@ def _parse_contract_sheet_form(form) -> dict:
         'promotion_announcement_date': (form.get('promotion_announcement_date') or '').strip(),
         'promotion_sale_date': (form.get('promotion_sale_date') or '').strip(),
         'promotion_poster_logos': (form.get('promotion_poster_logos') or '').strip(),
+        # --- Campos del formulario NUEVO (por módulos). Los antiguos se conservan arriba porque las
+        # fichas ya rellenadas los tienen. ---
+        # Producción local: quién la hace y su responsable.
+        'local_by': (form.get('local_by') or '').strip().upper(),
+        # Show: tipo de concierto (y el nombre del festival/ciclo si toca), sitio y formato.
+        'show_kind': (form.get('show_kind') or '').strip().upper(),
+        'show_series_name': (form.get('show_series_name') or '').strip(),
+        'show_venue_kind': (form.get('show_venue_kind') or '').strip().upper(),
+        # Ticketing: ticketeras, taquilla física, M&G y responsable.
+        # Ticketeras marcadas MÁS las que haya escrito a mano (separadas por comas), sin repetir.
+        'ticketing_ticketers': _dedupe_keep_order(
+            [x.strip() for x in (form.getlist('ticketing_ticketers[]') or []) if (x or '').strip()]
+            + [x.strip() for x in re.split(r'[;,\n]+', form.get('ticketing_ticketers_other') or '') if x.strip()]),
+        'ticketing_box_office': _truthy(form.get('ticketing_box_office')),
+        'ticketing_mg_qty': (form.get('ticketing_mg_qty') or '').strip(),
+        'ticketing_responsible': (form.get('ticketing_responsible') or '').strip(),
+        'ticketing_email': (form.get('ticketing_email') or '').strip(),
+        'ticketing_phone': (form.get('ticketing_phone') or '').strip(),
+        # Cartelería: quién la lleva.
+        'poster_responsible': (form.get('poster_responsible') or '').strip(),
+        'poster_email': (form.get('poster_email') or '').strip(),
+        'poster_phone': (form.get('poster_phone') or '').strip(),
     }
     ticket_types = []
     tt_names = form.getlist('ticket_type_name[]')
@@ -29558,14 +29595,13 @@ def concert_detail_view(cid):
         sgae_pct = float(getattr(sales_cfg, "sgae_pct", 0) or 0) if sales_cfg else 0.0
         net_breakdown = _sales_net_breakdown(gross_total, vat_pct, sgae_pct)
 
+        # ⚠️ «ficha» ya NO es una pestaña: la ficha del promotor duplicaba la de contratación y se
+        # retiró. Los enlaces antiguos con ?tab=ficha caen a «general», que es donde está la ficha.
         tab = (request.args.get("tab") or "general").strip().lower()
-        if tab not in {"general", "invitations", "ticketing", "menores", "ficha", "carteleria", "produccion", "resultado", "promocion", "marketing", "fotos", "repertorio"}:
+        if tab not in {"general", "invitations", "ticketing", "menores", "carteleria", "produccion", "resultado", "promocion", "marketing", "fotos", "repertorio"}:
             tab = "general"
 
         sheet = c.contract_sheet
-        if tab == 'ficha' and not sheet:
-            sheet = _ensure_internal_contract_sheet(session, c)
-            session.flush()
         contract_sheet_data = _contract_sheet_prefill(c, sheet) if sheet else {}
         # Siempre calculadas (con {} si aún no hay sheet) para poder previsualizar en la solicitud.
         contract_sheet_sections = _contract_sheet_sections(contract_sheet_data)
@@ -29773,6 +29809,11 @@ def concert_detail_view(cid):
             contract_sheet_status=_contract_sheet_status(sheet),
             contract_sheet_data=contract_sheet_data,
             contract_sheet_sections=contract_sheet_sections,
+            # ¿El promotor ha cumplimentado la ficha y todavía no se ha revisado? Entonces sale el
+            # aviso amarillo con el botón de comparar sus datos con los nuestros.
+            promoter_sheet_pending=bool(sheet is not None
+                                        and (getattr(sheet, 'promoter_data', None) or {})
+                                        and not getattr(sheet, 'promoter_reviewed_at', None)),
             invitation_rows=invitation_rows,
             invitation_totals=invitation_totals,
             invitation_counts=invitation_counts,
@@ -31986,6 +32027,104 @@ def concert_quick_status(cid):
 
     finally:
         session.close()
+
+
+# --------- ANUNCIO y SALIDA A LA VENTA: se cambian PINCHANDO su etiqueta en la cabecera ----------
+# Son dos datos que se consultan y se cambian todo el rato, así que tienen su propia acción en vez de
+# obligar a abrir la sección y guardar la ficha entera.
+# ⚠️ NO se pasa por `concert_section_update`: la sección «datos» exige la fecha de salida a la venta
+# (revienta con ValueError si llega vacía) y la sección «entradas» BORRA toda la configuración de
+# venta si no le llega `entry_mode`. Aquí se escriben solo las dos columnas que toca.
+@app.post("/conciertos/<cid>/anuncio", endpoint="concert_announcement_set")
+@admin_required
+def concert_announcement_set(cid):
+    """Anuncio de la actividad: anunciado (hoy), no anunciar, o la fecha en que se anuncia."""
+    if not can_edit_concerts():
+        return forbid("No tienes permisos para editar actividades.")
+    next_url = safe_next_or(request.form.get("next") or url_for("concert_detail_view", cid=cid, tab="general"))
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(cid) or uuid.uuid4())
+        if concert is None:
+            flash("Actividad no encontrada.", "warning")
+            return redirect(next_url)
+        modo = (request.form.get("mode") or "").strip().upper()
+        if modo == "NONE":
+            concert.do_not_announce = True
+            concert.announcement_date = None
+            aviso = "Esta actividad no se anuncia."
+        elif modo == "DONE":
+            concert.do_not_announce = False
+            # «Anunciado» sin fecha guardada = se anunció hoy (la fecha anterior se conserva si ya
+            # había pasado: lo que se anunció ayer no se anunció hoy).
+            if not (concert.announcement_date and concert.announcement_date <= today_local()):
+                concert.announcement_date = today_local()
+            aviso = "Anunciado."
+        elif modo == "DATE":
+            fecha = parse_optional_date(request.form.get("announcement_date"))
+            if not fecha:
+                flash("Esa fecha de anuncio no vale.", "warning")
+                return redirect(next_url)
+            concert.do_not_announce = False
+            concert.announcement_date = fecha
+            aviso = "Se anuncia el %s." % fecha.strftime("%d/%m/%Y")
+        else:
+            flash("No se ha entendido qué hacer con el anuncio.", "warning")
+            return redirect(next_url)
+        concert.updated_at = _now_madrid()
+        session_db.commit()
+        flash(aviso, "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo cambiar el anuncio: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.post("/conciertos/<cid>/salida-venta", endpoint="concert_onsale_set")
+@admin_required
+def concert_onsale_set(cid):
+    """Salida a la venta: ya está a la venta (hoy), por confirmar, o el día en que sale."""
+    if not can_edit_concerts():
+        return forbid("No tienes permisos para editar actividades.")
+    next_url = safe_next_or(request.form.get("next") or url_for("concert_detail_view", cid=cid, tab="general"))
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(cid) or uuid.uuid4())
+        if concert is None:
+            flash("Actividad no encontrada.", "warning")
+            return redirect(next_url)
+        modo = (request.form.get("mode") or "").strip().upper()
+        if modo == "TBC":
+            concert.sale_start_tbc = True
+            concert.sale_start_date = None
+            aviso = "Salida a la venta por confirmar."
+        elif modo == "NOW":
+            concert.sale_start_tbc = False
+            if not (concert.sale_start_date and concert.sale_start_date <= today_local()):
+                concert.sale_start_date = today_local()
+            aviso = "A la venta."
+        elif modo == "DATE":
+            fecha = parse_optional_date(request.form.get("sale_start_date"))
+            if not fecha:
+                flash("Esa fecha de salida a la venta no vale.", "warning")
+                return redirect(next_url)
+            concert.sale_start_tbc = False
+            concert.sale_start_date = fecha
+            aviso = "Sale a la venta el %s." % fecha.strftime("%d/%m/%Y")
+        else:
+            flash("No se ha entendido qué hacer con la salida a la venta.", "warning")
+            return redirect(next_url)
+        concert.updated_at = _now_madrid()
+        session_db.commit()
+        flash(aviso, "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo cambiar la salida a la venta: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
 
 
 # ----------- NOTAS (crear / borrar) -----------
@@ -36366,6 +36505,196 @@ def _contract_sheet_prefill(concert: Concert, sheet: ConcertContractSheet | None
     return merged
 
 
+# ============ FICHA DE CONTRATACIÓN: UN SOLO CATÁLOGO DE CAMPOS ==================================
+# Es la fuente de verdad de qué campos tiene la ficha, cómo se llaman y en qué módulo van. Lo usan:
+#   · el formulario que rellena el promotor (para pintar los módulos),
+#   · la vista consolidada y el PDF (`_contract_sheet_sections`),
+#   · y la pantalla partida que compara lo nuestro con lo que él ha mandado.
+# Así un campo nuevo se añade UNA vez y aparece en los tres sitios.
+CONTRACT_SHEET_CHOICES = {
+    "local_by": [("PROMOTER", "El promotor", "fa-user-tie"),
+                 ("OTHER", "Otra empresa", "fa-building")],
+    "show_kind": [("CONCIERTO", "Concierto", "fa-guitar"),
+                  ("GRATUITO", "Gratuito", "fa-ticket-simple"),
+                  ("FESTIVAL", "Festival", "fa-star"),
+                  ("CICLO", "Ciclo", "fa-repeat")],
+    "show_venue_kind": [("OUTDOOR", "Al aire libre", "fa-sun"),
+                        ("INDOOR", "Cubierto", "fa-warehouse")],
+    "show_format": [("COMPLETO", "Completo", "fa-users"),
+                    ("ACUSTICO", "Acústico", "fa-guitar"),
+                    ("REDUCIDO", "Reducido", "fa-user-group")],
+}
+CONTRACT_SHEET_GROUPS = [
+    {"key": "promotor", "title": "Datos del promotor", "icon": "fa-user-tie", "fields": [
+        ("company_legal_name", "Razón social", "text"),
+        ("company_tax_id", "CIF", "text"),
+        ("company_address", "Dirección fiscal", "text"),
+        ("company_postal_code", "Código postal", "text"),
+        ("company_municipality", "Municipio", "text"),
+        ("company_province", "Provincia", "text"),
+        ("company_representative", "Representante", "text"),
+        ("company_representative_dni", "DNI del representante", "text"),
+        ("company_email", "Email", "text"),
+        ("company_phone", "Teléfono", "text"),
+    ]},
+    {"key": "local", "title": "Producción local", "icon": "fa-people-carry-box", "fields": [
+        ("local_by", "¿Quién hace la producción local?", "choice"),
+        ("local_legal_name", "Empresa de producción local", "text"),
+        ("local_tax_id", "CIF", "text"),
+        ("local_representative", "Responsable de producción local", "text"),
+        ("local_phone", "Teléfono", "text"),
+        ("local_email", "Email", "text"),
+    ]},
+    {"key": "show", "title": "Datos del show", "icon": "fa-guitar", "fields": [
+        ("show_kind", "Tipo de concierto", "choice"),
+        ("show_series_name", "Nombre del festival o ciclo", "text"),
+        ("show_venue_kind", "¿Al aire libre o cubierto?", "choice"),
+        ("show_format", "Formato", "choice"),
+        ("show_duration", "Duración", "text"),
+        ("gala_show_time", "Hora de comienzo", "text"),
+        ("gala_doors_time", "Apertura de puertas", "text"),
+        ("show_notes", "Observaciones", "long"),
+    ]},
+    {"key": "ticketing", "title": "Ticketing", "icon": "fa-ticket", "fields": [
+        ("gala_capacity", "Aforo", "text"),
+        ("promotion_sale_date", "Fecha de salida a la venta", "text"),
+        ("ticketing_points_of_sale", "Puntos de venta", "long"),
+        ("ticketing_ticketers", "Ticketeras", "list"),
+        ("ticketing_box_office", "Taquilla física", "bool"),
+        ("ticketing_has_mg", "¿Hay entradas con M&G?", "bool"),
+        ("ticketing_mg_qty", "Entradas con M&G", "text"),
+        ("ticketing_responsible", "Responsable de ticketing", "text"),
+        ("ticketing_email", "Email", "text"),
+        ("ticketing_phone", "Teléfono", "text"),
+    ]},
+    {"key": "promocion", "title": "Promoción", "icon": "fa-bullhorn", "fields": [
+        ("promotion_actions", "Acciones previstas", "long"),
+        ("promotion_responsible", "Responsable de promoción", "text"),
+        ("promotion_email", "Email", "text"),
+        ("promotion_phone", "Teléfono", "text"),
+    ]},
+    {"key": "carteleria", "title": "Anuncio y cartelería", "icon": "fa-image", "fields": [
+        ("promotion_poster_logos", "Datos que deben aparecer en el cartel", "long"),
+        ("poster_responsible", "Responsable de cartelería", "text"),
+        ("poster_email", "Email", "text"),
+        ("poster_phone", "Teléfono", "text"),
+    ]},
+    # Datos del recinto y económicos: no se piden en el formulario nuevo, pero se conservan porque las
+    # fichas ya rellenadas los tienen y se siguen enseñando y comparando.
+    {"key": "gala", "title": "Recinto y gala", "icon": "fa-location-dot", "fields": [
+        ("gala_date", "Fecha", "text"),
+        ("gala_venue", "Recinto", "text"),
+        ("gala_venue_address", "Dirección del recinto", "text"),
+        ("gala_postal_code", "Código postal", "text"),
+        ("gala_municipality", "Municipio", "text"),
+        ("gala_province", "Provincia", "text"),
+    ]},
+    {"key": "economicos", "title": "Datos económicos", "icon": "fa-euro-sign", "fields": [
+        ("economics_cache", "Caché", "long"),
+        ("economics_box_office_split", "Reparto de taquilla", "long"),
+        ("economics_notes", "Observaciones", "long"),
+    ]},
+    {"key": "tecnica", "title": "Producción técnica", "icon": "fa-sliders", "fields": [
+        ("technical_responsible", "Responsable", "text"),
+        ("technical_phone", "Teléfono", "text"),
+        ("technical_email", "Email", "text"),
+        ("technical_mobile", "Móvil", "text"),
+    ]},
+]
+CONTRACT_SHEET_LABELS = {k: (lab, kind, g["title"])
+                         for g in CONTRACT_SHEET_GROUPS for k, lab, kind in g["fields"]}
+
+
+def _contract_sheet_choice_label(key: str, value) -> str:
+    """La etiqueta legible de una opción («PROMOTER» → «El promotor»)."""
+    for v, lab, _icon in CONTRACT_SHEET_CHOICES.get(key, []):
+        if str(value or "").strip().upper() == v:
+            return lab
+    return str(value or "").strip()
+
+
+def _contract_sheet_show(key: str, value) -> str:
+    """Cómo se ENSEÑA el valor de un campo de la ficha (para la vista y la comparación)."""
+    _lab, kind, _grupo = CONTRACT_SHEET_LABELS.get(key, ("", "text", ""))
+    if value in (None, "", [], {}):
+        return ""
+    if kind == "choice":
+        return _contract_sheet_choice_label(key, value)
+    if kind == "bool":
+        return "Sí" if _truthy(value) else "No"
+    if kind == "list":
+        if isinstance(value, (list, tuple)):
+            return ", ".join(str(x) for x in value if str(x or "").strip())
+        return str(value)
+    return str(value)
+
+
+def _contract_sheet_compare_rows(nuestro: dict, suyo: dict) -> list[dict]:
+    """Campo a campo: lo que tenemos nosotros y lo que ha mandado el promotor.
+
+    Solo entran los campos que ÉL ha rellenado (lo que no ha tocado no hay nada que decidir)."""
+    filas = []
+    for grupo in CONTRACT_SHEET_GROUPS:
+        for clave, etiqueta, _kind in grupo["fields"]:
+            mio = _contract_sheet_show(clave, (nuestro or {}).get(clave))
+            suyo_txt = _contract_sheet_show(clave, (suyo or {}).get(clave))
+            if not suyo_txt:
+                continue
+            filas.append({
+                "key": clave, "label": etiqueta, "group": grupo["title"],
+                "ours": mio, "theirs": suyo_txt,
+                "different": (mio.strip() != suyo_txt.strip()),
+                "empty_ours": not mio.strip(),
+            })
+    return filas
+
+
+def _contract_sheet_compare_groups(nuestro: dict, suyo: dict) -> list[dict]:
+    """Lo mismo, agrupado por módulo (más las entradas, que son una tabla aparte)."""
+    filas = _contract_sheet_compare_rows(nuestro, suyo)
+    salida, por_grupo = [], {}
+    for f in filas:
+        por_grupo.setdefault(f["group"], []).append(f)
+    for grupo in CONTRACT_SHEET_GROUPS:
+        if grupo["title"] in por_grupo:
+            salida.append({"title": grupo["title"], "icon": grupo["icon"],
+                           "rows": por_grupo[grupo["title"]]})
+    # Los TIPOS DE ENTRADA se comparan como bloque (es una tabla, no un campo).
+    mias = (nuestro or {}).get("ticket_types") or []
+    suyas = (suyo or {}).get("ticket_types") or []
+    if suyas:
+        salida.append({"title": "Tipos de entrada", "icon": "fa-ticket",
+                       "tickets_ours": mias, "tickets_theirs": suyas,
+                       "rows": [{"key": "ticket_types", "label": "Tipos de entrada",
+                                 "group": "Tipos de entrada",
+                                 "ours": "%d tipo(s)" % len(mias),
+                                 "theirs": "%d tipo(s)" % len(suyas),
+                                 "different": True, "empty_ours": not mias}]})
+    return salida
+
+
+def _contract_sheet_notify_received(session_db, concert, sheet) -> None:
+    """Avisa de que el promotor ha cumplimentado la ficha: a quien la pidió y a contratación."""
+    destinos = []
+    try:
+        pedida_por = ((sheet.request_payload or {}) or {}).get("requested_by_user_id")
+        if pedida_por:
+            destinos.append(str(pedida_por))
+        destinos += [str(x) for x in _department_user_ids(session_db, "Contratación")]
+    except Exception:
+        pass
+    if not destinos:
+        return
+    quien = (getattr(getattr(concert, "artist", None), "name", None) or "la actividad")
+    _notify_users(
+        session_db, destinos, "TAREA",
+        "El promotor ha cumplimentado la ficha de contratación",
+        "%s%s · revisa los datos y decide qué se queda"
+        % (quien, (" · " + concert.date.strftime("%d/%m/%Y")) if getattr(concert, "date", None) else ""),
+        url_for("concert_contract_sheet_review", cid=concert.id),
+        ref_type="concert", ref_id=str(concert.id))
+
+
 def _contract_sheet_sections(data: dict | None) -> list[dict]:
     data = data or {}
     tickets = data.get('ticket_types') or []
@@ -37825,7 +38154,7 @@ def concert_wizard_create():
                 flash('Concierto creado en borrador y ficha de contratación enviada al promotor.', 'success')
             else:
                 flash(f'Concierto creado en borrador. No se pudo enviar el correo automáticamente: {error}', 'warning')
-            return redirect(url_for('concert_detail_view', cid=concert.id, tab='ficha'))
+            return redirect(url_for('concert_detail_view', cid=concert.id, tab='general'))
 
         promoter_id = to_uuid((request.form.get('promoter_id') or '').strip() or None)
         promoter_company_id = to_uuid((request.form.get('promoter_company_id') or '').strip() or None)
@@ -38091,6 +38420,70 @@ def concert_wizard_create():
         session.close()
 
 
+def _contract_sheet_form_context(session_db, concert, sheet, data, *, public_mode: bool) -> dict:
+    """Lo que necesita el formulario de la ficha, en un solo sitio (lo usan el enlace público y la
+    edición interna, para que las dos pantallas sean la MISMA)."""
+    try:
+        ticketeras = session_db.query(Ticketer).order_by(Ticketer.name.asc()).all()
+    except Exception:
+        ticketeras = []
+    return {
+        "hero_rows": _contract_sheet_hero_rows(concert),
+        "activity_type_label": _activity_kind_label(getattr(concert, "activity_type", None)),
+        "ticketers": ticketeras,
+        "ticketer_names": [t.name for t in ticketeras],
+        "local_by_choices": CONTRACT_SHEET_CHOICES["local_by"],
+        "show_kind_choices": CONTRACT_SHEET_CHOICES["show_kind"],
+        "show_venue_kind_choices": CONTRACT_SHEET_CHOICES["show_venue_kind"],
+        "show_format_choices": CONTRACT_SHEET_CHOICES["show_format"],
+        "lookup_url": url_for("public_contract_sheet_company", token=sheet.public_token),
+    }
+
+
+@app.post('/ficha-contratacion/<token>/empresa', endpoint='public_contract_sheet_company')
+def public_contract_sheet_company(token):
+    """¿Tenemos ya esta empresa promotora? Se busca por CIF desde el formulario del promotor.
+
+    Devuelve sus datos para que los actualice o los complete; si no está, se dice que no y él la
+    rellena de cero (al enviar la ficha queda anotada como la empresa que promueve). Solo responde si
+    el token de la ficha es válido: es un enlace público, no un buscador abierto."""
+    session_db = db()
+    try:
+        sheet = (session_db.query(ConcertContractSheet)
+                 .filter(ConcertContractSheet.public_token == (token or '').strip()).first())
+        if not sheet:
+            return jsonify({"ok": False, "error": "Enlace no válido"}), 404
+        raw = (request.form.get("tax_id") or "").strip()
+        norm = _prl_norm_dni(raw)
+        if not norm:
+            return jsonify({"ok": False, "error": "Escribe el CIF"}), 400
+        # Se buscan las DOS vías (el tercero y sus sociedades), sin cortar en la primera.
+        encontrada = None
+        for p in session_db.query(Promoter).filter(Promoter.tax_id.isnot(None)).all():
+            if _prl_norm_dni(p.tax_id) == norm:
+                encontrada = {"legal_name": (_promoter_display_name(p) or p.nick or ""),
+                              "address": (p.fiscal_address or ""),
+                              "postal_code": (p.fiscal_postal_code or ""),
+                              "city": (p.fiscal_city or ""),
+                              "province": (p.fiscal_province or ""),
+                              "email": (p.contact_email or ""),
+                              "phone": (p.contact_phone or "")}
+                break
+        if encontrada is None:
+            for c in session_db.query(PromoterCompany).filter(PromoterCompany.tax_id.isnot(None)).all():
+                if _prl_norm_dni(c.tax_id) == norm:
+                    encontrada = {"legal_name": (c.legal_name or ""),
+                                  "address": (c.fiscal_address or ""),
+                                  "postal_code": (c.fiscal_postal_code or ""),
+                                  "city": (c.fiscal_city or ""),
+                                  "province": (c.fiscal_province or ""),
+                                  "email": "", "phone": ""}
+                    break
+        return jsonify({"ok": True, "found": bool(encontrada), "company": encontrada or {}})
+    finally:
+        session_db.close()
+
+
 @app.route('/ficha-contratacion/<token>', methods=['GET', 'POST'], endpoint='concert_contract_public_form')
 def concert_contract_public_form(token):
     session = db()
@@ -38119,11 +38512,20 @@ def concert_contract_public_form(token):
                 flash('Esta ficha ya no admite más envíos.', 'warning')
                 return redirect(url_for('concert_contract_public_form', token=token))
             data = _parse_contract_sheet_form(request.form)
-            sheet.data = data
+            # ⚠️ LO QUE MANDA EL PROMOTOR NO PISA LA FICHA DE LA CASA: se guarda aparte
+            # (`promoter_data`) y contratación decide campo por campo qué se queda, en la pantalla de
+            # revisión. Antes se escribía en `data` y borraba lo que hubiera.
+            sheet.promoter_data = data
+            sheet.promoter_reviewed_at = None          # hay algo nuevo que revisar
             sheet.status = 'RECEIVED'
             sheet.submitted_at = datetime.now(ZoneInfo('Europe/Madrid'))
             sheet.updated_at = datetime.now(ZoneInfo('Europe/Madrid'))
             sheet.allow_resubmission = False
+            # Aviso a quien la pidió (y a contratación): la ficha ya está.
+            try:
+                _contract_sheet_notify_received(session, concert, sheet)
+            except Exception:
+                pass
             session.commit()
             return render_template(
                 'concert_contract_public.html',
@@ -38133,9 +38535,15 @@ def concert_contract_public_form(token):
                 submitted=True,
                 can_submit=False,
                 public_mode=True,
+                hide_backoffice_nav=True,
                 form_action=url_for('concert_contract_public_form', token=token),
+                **_contract_sheet_form_context(session, concert, sheet, data, public_mode=True),
             )
+        # El promotor rellena SU ficha: se le prellena con lo que él mandó la última vez (y, si es la
+        # primera, con lo que sabemos de la actividad).
         data = _contract_sheet_prefill(concert, sheet)
+        data.update({k: v for k, v in (getattr(sheet, 'promoter_data', None) or {}).items()
+                     if v not in (None, '', [], {})})
         can_submit = _contract_sheet_can_submit(sheet)
         return render_template(
             'concert_contract_public.html',
@@ -38145,7 +38553,9 @@ def concert_contract_public_form(token):
             submitted=False,
             can_submit=can_submit,
             public_mode=True,
+            hide_backoffice_nav=True,
             form_action=url_for('concert_contract_public_form', token=token),
+            **_contract_sheet_form_context(session, concert, sheet, data, public_mode=True),
         )
     finally:
         session.close()
@@ -38168,46 +38578,59 @@ def concert_contract_sheet_review(cid):
         )
         if not concert or not concert.contract_sheet:
             flash('No hay ficha de contratación para este concierto.', 'warning')
-            return redirect(url_for('concert_detail_view', cid=cid, tab='ficha'))
+            return redirect(url_for('concert_detail_view', cid=cid, tab='general'))
         sheet = concert.contract_sheet
-        auto_updates, conflicts = _prepare_contract_sheet_merge(concert, sheet.data or {})
+        nuestro = dict(sheet.data or {})
+        suyo = dict(getattr(sheet, "promoter_data", None) or {})
         if request.method == 'POST':
-            updates = list(auto_updates)
-            for item in conflicts:
-                updates.append({'field': item['field'], 'label': item['label'], 'value': item['incoming']})
-            decisions = {}
-            for item in conflicts:
-                decisions[item['field']] = (request.form.get(f'decision_{item["field"]}') or 'keep').strip().lower()
-            applied = _apply_contract_sheet_merge(concert, updates, decisions)
+            # PANTALLA PARTIDA: por cada campo se ha elegido si se queda LO NUESTRO o LO DEL PROMOTOR.
+            elegidos, cambiados = dict(nuestro), []
+            for fila in _contract_sheet_compare_rows(nuestro, suyo):
+                clave = fila["key"]
+                if (request.form.get("pick_" + clave) or "").strip().lower() != "theirs":
+                    continue
+                elegidos[clave] = suyo.get(clave)
+                cambiados.append(fila["label"])
+            sheet.data = elegidos
+            # Y lo que de esa ficha va al PROPIO CONCIERTO (fecha, recinto, aforo, horas…).
+            auto_updates, conflicts = _prepare_contract_sheet_merge(concert, elegidos)
+            updates = list(auto_updates) + [
+                {'field': c['field'], 'label': c['label'], 'value': c['incoming']} for c in conflicts]
+            aplicados = _apply_contract_sheet_merge(concert, updates, {})
             try:
                 session.flush()
                 session.expire(concert, ['venue'])
             except Exception:
                 pass
             _sync_artwork_request_refresh_flag(concert)
+            now = datetime.now(ZoneInfo('Europe/Madrid'))
             sheet.status = 'ACCEPTED'
             sheet.allow_resubmission = False
-            now = datetime.now(ZoneInfo('Europe/Madrid'))
             sheet.accepted_at = now
             sheet.reviewed_at = now
+            sheet.promoter_reviewed_at = now       # revisado: el aviso amarillo desaparece
             sheet.updated_at = now
             sheet.merge_log = list(sheet.merge_log or []) + [{
                 'at': now.isoformat(),
-                'applied': applied,
-                'decisions': decisions,
+                'by': ((_current_user_state() or {}).get('nick') or ''),
+                'replaced': cambiados,
+                'applied': aplicados,
             }]
             session.commit()
-            if applied:
-                flash('Ficha aceptada. Se completaron automáticamente: ' + ', '.join(applied), 'success')
-            else:
-                flash('Ficha aceptada.', 'success')
-            return redirect(url_for('concert_detail_view', cid=cid, tab='ficha'))
+            aviso = "Ficha revisada."
+            if cambiados:
+                aviso += " Se ha quedado lo del promotor en: " + ", ".join(cambiados[:8])
+                if len(cambiados) > 8:
+                    aviso += " y %d más" % (len(cambiados) - 8)
+                aviso += "."
+            flash(aviso, "success")
+            return redirect(url_for('concert_detail_view', cid=cid, tab='general'))
         return render_template(
             'concert_contract_merge.html',
             concert=concert,
             sheet=sheet,
-            auto_updates=auto_updates,
-            conflicts=conflicts,
+            compare_groups=_contract_sheet_compare_groups(nuestro, suyo),
+            compare_diff=len([1 for r in _contract_sheet_compare_rows(nuestro, suyo) if r["different"]]),
         )
     finally:
         session.close()
@@ -38226,11 +38649,11 @@ def concert_contract_sheet_reject(cid):
         )
         if not concert or not concert.contract_sheet:
             flash('No hay ficha de contratación para este concierto.', 'warning')
-            return redirect(url_for('concert_detail_view', cid=cid, tab='ficha'))
+            return redirect(url_for('concert_detail_view', cid=cid, tab='general'))
         reason = (request.form.get('reason') or '').strip()
         if not reason:
             flash('Debes indicar el motivo del rechazo.', 'warning')
-            return redirect(url_for('concert_detail_view', cid=cid, tab='ficha'))
+            return redirect(url_for('concert_detail_view', cid=cid, tab='general'))
         sheet = concert.contract_sheet
         now = datetime.now(ZoneInfo('Europe/Madrid'))
         sheet.status = 'REJECTED'
@@ -38252,7 +38675,7 @@ def concert_contract_sheet_reject(cid):
         flash(f'Error rechazando ficha: {exc}', 'danger')
     finally:
         session.close()
-    return redirect(url_for('concert_detail_view', cid=cid, tab='ficha'))
+    return redirect(url_for('concert_detail_view', cid=cid, tab='general'))
 
 
 @app.route('/conciertos/<cid>/ficha-contratacion/editar', methods=['GET', 'POST'], endpoint='concert_contract_sheet_edit')
@@ -38268,26 +38691,28 @@ def concert_contract_sheet_edit(cid):
         )
         if not concert:
             flash('No hay ficha de contratación para este concierto.', 'warning')
-            return redirect(url_for('concert_detail_view', cid=cid, tab='ficha'))
+            return redirect(url_for('concert_detail_view', cid=cid, tab='general'))
         sheet = concert.contract_sheet or _ensure_internal_contract_sheet(session, concert)
         if request.method == 'POST':
             sheet.data = _parse_contract_sheet_form(request.form)
             sheet.updated_at = datetime.now(ZoneInfo('Europe/Madrid'))
-            if sheet.status == 'REQUESTED':
-                sheet.status = 'RECEIVED'
+            # ⚠️ Editar la ficha POR DENTRO no es «el promotor la ha enviado»: antes esto ponía el
+            # estado en RECEIVED y disparaba el aviso amarillo como si hubiera contestado él.
             session.commit()
             flash('Ficha actualizada.', 'success')
-            return redirect(url_for('concert_detail_view', cid=cid, tab='ficha'))
+            return redirect(url_for('concert_detail_view', cid=cid, tab='general'))
+        _datos = _contract_sheet_prefill(concert, sheet)
         return render_template(
             'concert_contract_public.html',
             concert=concert,
             sheet=sheet,
-            data=_contract_sheet_prefill(concert, sheet),
+            data=_datos,
             submitted=False,
             can_submit=True,
             public_mode=False,
             admin_mode=True,
             form_action=url_for('concert_contract_sheet_edit', cid=cid),
+            **_contract_sheet_form_context(session, concert, sheet, _datos, public_mode=False),
         )
     finally:
         session.close()
@@ -38488,10 +38913,11 @@ def concert_contract_sheet_pdf(cid):
             sec('Descripción de la actividad')
             story.append(Paragraph(str(cpay.get('description')), body_txt))
 
-        # Más información de la actividad (mismos campos y filtro que la ficha)
+        # Más información de la actividad (mismos campos y MISMO FILTRO que la ficha: si se toca uno,
+        # se toca el otro, o pantalla y PDF dejan de decir lo mismo).
         summary_labels = {'Artista/s', 'Tipo de actividad', 'Subtipo', 'Estado', 'Fecha', 'Empresa que factura',
                           'Promotor', 'Sociedad promotor', 'Salida a la venta', 'Aforo', 'En qué consiste',
-                          '¿El artista canta?', 'Formación', 'Anuncio', 'Meet & Greet'}
+                          'Anuncio'}
         info_pairs = [(r['label'], r['value']) for r in _concert_contracting_general_rows(session, concert)
                       if r.get('label') not in summary_labels and r.get('kind', 'text') == 'text']
         if info_pairs:
@@ -47810,7 +48236,7 @@ def _require_login_v2():
         return
     if session.get("user_id"):
         return
-    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -63104,6 +63530,75 @@ def _create_bag_for_action(session_db, action):
     return bag
 
 
+def _contract_sheet_hero_rows(concert) -> list:
+    """Los datos de la CABECERA de la actividad, en el orden en que se enseñan (ficha, correo y
+    formulario del promotor los pintan igual: es la misma cabecera en los tres sitios)."""
+    filas = []
+    if getattr(concert, "date", None):
+        filas.append(("fa-calendar-day", "Fecha", concert.date.strftime("%d/%m/%Y")))
+    sitio = " · ".join([x for x in [
+        (getattr(getattr(concert, "venue", None), "name", None) or getattr(concert, "manual_venue_name", None) or ""),
+        (getattr(getattr(concert, "venue", None), "municipality", None) or getattr(concert, "manual_municipality", None) or ""),
+        (getattr(getattr(concert, "venue", None), "province", None) or getattr(concert, "manual_province", None) or ""),
+    ] if str(x or "").strip()])
+    if sitio:
+        filas.append(("fa-location-dot", "Recinto", sitio))
+    if getattr(concert, "festival_name", None):
+        filas.append(("fa-star", "Festival", concert.festival_name))
+    if getattr(concert, "no_capacity", False):
+        filas.append(("fa-people-group", "Aforo", "Libre"))
+    elif getattr(concert, "capacity", None):
+        filas.append(("fa-people-group", "Aforo", format_thousands(concert.capacity)))
+    if getattr(concert, "show_time", None):
+        filas.append(("fa-clock", "Hora", str(concert.show_time)[:5]))
+    return filas
+
+
+def _contract_sheet_request_email_html(session_db, concert, public_url: str, message: str = "") -> str:
+    """Correo de SOLICITUD de la ficha de contratación, con el estilo de casa: el logo de la empresa
+    del grupo arriba a la DERECHA, el título centrado, el texto de contratación y una viñeta con la
+    MISMA cabecera de la actividad que se ve en su ficha, con el botón dentro."""
+    company = getattr(concert, "billing_company", None) or getattr(concert, "group_company", None)
+    logo = (getattr(company, "logo_url", None) or "").strip()
+    artista = (getattr(getattr(concert, "artist", None), "name", None) or "la actividad")
+    foto = (getattr(getattr(concert, "artist", None), "photo_url", None) or "").strip()
+    tipo = ""
+    try:
+        tipo = _activity_kind_label(getattr(concert, "activity_type", None)) or ""
+    except Exception:
+        tipo = ""
+    datos = "".join(
+        '<tr><td style="padding:2px 10px 2px 0;color:#6b7683;font-size:12px;white-space:nowrap;">%s</td>'
+        '<td style="padding:2px 0;color:#212529;font-size:13px;font-weight:700;">%s</td></tr>'
+        % (escape(lab), escape(str(val))) for _ico, lab, val in _contract_sheet_hero_rows(concert))
+    return f"""
+<div style="font-family:Arial,Helvetica,sans-serif;color:#212529;max-width:640px;">
+  <div style="text-align:right;margin-bottom:6px;">
+    {f'<img src="{logo}" alt="" style="max-height:52px;max-width:190px;">' if logo else ''}
+  </div>
+  <h2 style="text-align:center;font-size:20px;margin:0 0 14px;">Solicitud ficha de contratación</h2>
+  <p style="margin:0 0 16px;">Contratación le solicita que rellene los datos de la ficha de contratación.</p>
+  <div style="border:1px solid #e6e8eb;border-radius:14px;padding:14px;background:#fff;">
+    <table style="width:100%;border-collapse:collapse;"><tr>
+      <td style="width:64px;vertical-align:top;">
+        {f'<img src="{foto}" alt="" style="width:56px;height:56px;border-radius:50%;object-fit:cover;">' if foto else ''}
+      </td>
+      <td style="vertical-align:top;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#8b95a1;">{escape(tipo)}</div>
+        <div style="font-size:18px;font-weight:800;margin:1px 0 6px;">{escape(artista)}</div>
+        <table style="border-collapse:collapse;">{datos}</table>
+      </td>
+      <td style="vertical-align:middle;text-align:right;white-space:nowrap;">
+        <a href="{public_url}" style="display:inline-block;padding:11px 16px;background:#E33D48;color:#fff;
+           text-decoration:none;border-radius:9px;font-weight:700;font-size:14px;">Cumplimentar ficha de contratación</a>
+      </td>
+    </tr></table>
+  </div>
+  {f'<p style="margin:16px 0 0;white-space:pre-line;">{escape(message)}</p>' if (message or "").strip() else ''}
+  <p style="margin:16px 0 0;color:#6b7683;font-size:12px;">Si el botón no funciona, copia este enlace: {public_url}</p>
+</div>"""
+
+
 @app.post('/conciertos/<cid>/ficha-contratacion/solicitar', endpoint='concert_contract_sheet_request')
 @admin_required
 def concert_contract_sheet_request(cid):
@@ -63128,23 +63623,24 @@ def concert_contract_sheet_request(cid):
         sheet.status = 'REQUESTED'
         sheet.promoter_email = emails[0] if emails else None
         sheet.allow_resubmission = True
-        sheet.request_payload = {
+        # ⚠️ NO se borra lo que hubiera en `request_payload` (el asistente deja ahí el artista y los
+        # datos de la gala, y `_contract_sheet_prefill` los usa): se FUSIONA.
+        _prev_req = dict(sheet.request_payload or {})
+        _estado_req = _current_user_state() or {}
+        _prev_req.update({
             'sent_to': emails,
             'message': message,
             'requested_by': _current_user_email(),
+            'requested_by_user_id': (_estado_req.get('user_id') or ''),
             'requested_at': _now_madrid().isoformat(),
-        }
+        })
+        sheet.request_payload = _prev_req
         sheet.updated_at = _now_madrid()
         public_url = _external_url_for('concert_contract_public_form', token=sheet.public_token)
         if emails:
             artist_name = getattr(getattr(concert, 'artist', None), 'name', None) or 'actividad'
-            subject = f"Ficha de contratación · {artist_name}"
-            html_body = (
-                f"<p>Hola,</p>"
-                f"<p>Necesitamos que completes la ficha de contratación de <strong>{artist_name}</strong>.</p>"
-                f"<p><a href=\"{public_url}\" style=\"display:inline-block;padding:10px 14px;background:#111;color:#fff;text-decoration:none;border-radius:8px;\">Rellenar ficha de contratación</a></p>"
-                f"<p>{message}</p>"
-            )
+            subject = f"Solicitud ficha de contratación · {artist_name}"
+            html_body = _contract_sheet_request_email_html(session_db, concert, public_url, message)
             ok, err = _send_optional_email(emails, subject, html_body, reply_to=_current_user_email())
             if ok:
                 flash('Ficha de contratación solicitada al promotor.', 'success')

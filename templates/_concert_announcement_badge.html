@@ -1,0 +1,63 @@
+{# Etiqueta del ANUNCIO de una actividad, al lado del estado y CLICABLE (quien no puede editar la ve
+   normal). Tres estados, con su color:
+     · rojo    → No anunciar      (do_not_announce)
+     · verde   → Anunciado        (announcement_date ya pasada o de hoy)
+     · amarillo→ Anuncio: fecha   (fecha por venir) o «Anuncio: sin fecha» si aún no se sabe
+   Al pinchar se elige el estado o se pone la fecha en el mismo desplegable (POST a
+   `concert_announcement_set`). Uso: {% include '_concert_announcement_badge.html' %} con `concert`
+   en el contexto. #}
+{% set _hoy = today_local_date() %}
+{% set _fecha = concert.announcement_date %}
+{% if concert.do_not_announce %}
+  {% set _cls, _lab, _tip = 'text-bg-danger', 'No anunciar', 'Esta actividad no se anuncia' %}
+{% elif _fecha and _fecha <= _hoy %}
+  {% set _cls, _lab, _tip = 'text-bg-success', 'Anunciado', 'Anunciado el ' ~ _fecha.strftime('%d/%m/%Y') %}
+{% elif _fecha %}
+  {% set _cls, _lab, _tip = 'text-bg-warning text-dark', 'Anuncio: ' ~ _fecha.strftime('%d/%m/%Y'), 'Se anuncia el ' ~ _fecha.strftime('%d/%m/%Y') %}
+{% else %}
+  {% set _cls, _lab, _tip = 'text-bg-warning text-dark', 'Anuncio: sin fecha', 'Todavía no hay fecha de anuncio' %}
+{% endif %}
+{% if CAN_EDIT_CONCERTS %}
+  <span class="dropdown" onclick="event.preventDefault(); event.stopPropagation();">
+    <button type="button" class="badge border-0 dropdown-toggle {{ _cls }}" data-bs-toggle="dropdown" data-no-loader
+            title="{{ _tip }} · pincha para cambiarlo">{{ _lab }}</button>
+    <ul class="dropdown-menu p-2" style="min-width:16rem;">
+      <li><h6 class="dropdown-header px-1">Anuncio de la actividad</h6></li>
+      <li>
+        <form method="post" action="{{ url_for('concert_announcement_set', cid=concert.id) }}" class="px-1">
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <button class="dropdown-item d-flex align-items-center gap-2 px-1 {% if not concert.do_not_announce and _fecha and _fecha <= _hoy %}active{% endif %}"
+                  name="mode" value="DONE" type="submit">
+            <span class="badge text-bg-success">Anunciado</span><span class="small text-muted">hoy</span>
+          </button>
+        </form>
+      </li>
+      <li>
+        <form method="post" action="{{ url_for('concert_announcement_set', cid=concert.id) }}" class="px-1">
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <button class="dropdown-item d-flex align-items-center gap-2 px-1 {% if concert.do_not_announce %}active{% endif %}"
+                  name="mode" value="NONE" type="submit">
+            <span class="badge text-bg-danger">No anunciar</span>
+          </button>
+        </form>
+      </li>
+      <li><hr class="dropdown-divider"></li>
+      <li>
+        {# Poner (o cambiar) la FECHA de anuncio sin salir del desplegable. #}
+        <form method="post" action="{{ url_for('concert_announcement_set', cid=concert.id) }}" class="px-1">
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <input type="hidden" name="mode" value="DATE">
+          <label class="form-label small mb-1">Se anuncia el día</label>
+          <div class="input-group input-group-sm">
+            <input type="date" class="form-control" name="announcement_date"
+                   value="{{ _fecha.isoformat() if _fecha else '' }}" required>
+            <button class="btn btn-primary" type="submit"><i class="fa fa-check"></i></button>
+          </div>
+          <div class="form-text">Déjalo en blanco y elige «Anunciado» si ya está anunciado.</div>
+        </form>
+      </li>
+    </ul>
+  </span>
+{% else %}
+  <span class="badge {{ _cls }}" title="{{ _tip }}">{{ _lab }}</span>
+{% endif %}

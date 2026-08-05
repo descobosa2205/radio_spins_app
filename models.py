@@ -1949,7 +1949,14 @@ class ConcertContractSheet(Base):
     status = Column(Text, nullable=False, server_default=text("'REQUESTED'"))
     allow_resubmission = Column(Boolean, nullable=False, server_default=text("false"))
     request_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    # `data` = LA FICHA DE CONTRATACIÓN de la casa (la única que se enseña y se usa).
     data = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    # `promoter_data` = LO QUE MANDÓ EL PROMOTOR, aparte y sin pisar lo nuestro: así se pueden
+    # comparar los dos en pantalla partida y elegir campo por campo qué se queda. Antes el promotor
+    # escribía en `data` y borraba lo que hubiera.
+    promoter_data = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    # Cuándo se revisó lo que mandó (si es NULL y hay `promoter_data`, está pendiente de revisar).
+    promoter_reviewed_at = Column(DateTime(timezone=True))
     merge_log = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     rejection_reason = Column(Text)
     requested_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -7305,6 +7312,13 @@ def ensure_third_party_and_contract_sheet_schema():
         );
         """,
         'CREATE INDEX IF NOT EXISTS idx_concert_contract_sheets_status ON concert_contract_sheets(status);',
+        # LO QUE MANDA EL PROMOTOR va aparte de la ficha de la casa (antes la pisaba), y se apunta
+        # cuándo se revisó para poder avisar de que hay algo nuevo que mirar.
+        """
+        ALTER TABLE IF EXISTS concert_contract_sheets
+            ADD COLUMN IF NOT EXISTS promoter_data jsonb NOT NULL DEFAULT '{}'::jsonb,
+            ADD COLUMN IF NOT EXISTS promoter_reviewed_at timestamptz;
+        """,
     ]
 
     _exec_ddl_statements(stmts, "third_party")

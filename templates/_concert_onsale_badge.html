@@ -1,0 +1,63 @@
+{# Etiqueta de SALIDA A LA VENTA, solo en las actividades que VENDEN ENTRADAS (si es gratuita o no
+   hay venta, no se pinta nada). Dos estados:
+     · verde    → A la venta         (la fecha ya pasó; al pasar el ratón dice cuándo salió)
+     · amarillo → Venta: <fecha>     (todavía no ha salido) o «Venta: sin fecha» / «Venta: por
+                  confirmar» si está en TBC
+   Clicable para quien puede editar (POST a `concert_onsale_set`). Uso:
+   {% include '_concert_onsale_badge.html' %} con `concert` en el contexto (el modo de entrada se
+   saca del propio concierto, para que el parcial valga en cualquier pantalla). #}
+{% set _venta = ((concert.ticketing_payload or {}).get('entry_mode') or '')|upper == 'SALE' %}
+{% if _venta %}
+  {% set _hoy = today_local_date() %}
+  {% set _f = concert.sale_start_date %}
+  {% if _f and _f <= _hoy %}
+    {% set _cls, _lab, _tip = 'text-bg-success', 'A la venta', 'Salió a la venta el ' ~ _f.strftime('%d/%m/%Y') %}
+  {% elif _f %}
+    {% set _cls, _lab, _tip = 'text-bg-warning text-dark', 'Venta: ' ~ _f.strftime('%d/%m/%Y'), 'Sale a la venta el ' ~ _f.strftime('%d/%m/%Y') %}
+  {% elif concert.sale_start_tbc %}
+    {% set _cls, _lab, _tip = 'text-bg-warning text-dark', 'Venta: por confirmar', 'La fecha de salida a la venta está por confirmar' %}
+  {% else %}
+    {% set _cls, _lab, _tip = 'text-bg-warning text-dark', 'Venta: sin fecha', 'Todavía no hay fecha de salida a la venta' %}
+  {% endif %}
+  {% if CAN_EDIT_CONCERTS %}
+    <span class="dropdown" onclick="event.preventDefault(); event.stopPropagation();">
+      <button type="button" class="badge border-0 dropdown-toggle {{ _cls }}" data-bs-toggle="dropdown" data-no-loader
+              title="{{ _tip }} · pincha para cambiarlo">{{ _lab }}</button>
+      <ul class="dropdown-menu p-2" style="min-width:16rem;">
+        <li><h6 class="dropdown-header px-1">Salida a la venta</h6></li>
+        <li>
+          <form method="post" action="{{ url_for('concert_onsale_set', cid=concert.id) }}" class="px-1">
+            <input type="hidden" name="next" value="{{ request.full_path }}">
+            <button class="dropdown-item d-flex align-items-center gap-2 px-1 {% if _f and _f <= _hoy %}active{% endif %}"
+                    name="mode" value="NOW" type="submit">
+              <span class="badge text-bg-success">A la venta</span><span class="small text-muted">desde hoy</span>
+            </button>
+          </form>
+        </li>
+        <li>
+          <form method="post" action="{{ url_for('concert_onsale_set', cid=concert.id) }}" class="px-1">
+            <input type="hidden" name="next" value="{{ request.full_path }}">
+            <button class="dropdown-item d-flex align-items-center gap-2 px-1 {% if concert.sale_start_tbc %}active{% endif %}"
+                    name="mode" value="TBC" type="submit">
+              <span class="badge text-bg-warning text-dark">Por confirmar</span>
+            </button>
+          </form>
+        </li>
+        <li><hr class="dropdown-divider"></li>
+        <li>
+          <form method="post" action="{{ url_for('concert_onsale_set', cid=concert.id) }}" class="px-1">
+            <input type="hidden" name="next" value="{{ request.full_path }}">
+            <input type="hidden" name="mode" value="DATE">
+            <label class="form-label small mb-1">Sale a la venta el día</label>
+            <div class="input-group input-group-sm">
+              <input type="date" class="form-control" name="sale_start_date" value="{{ _f.isoformat() if _f else '' }}" required>
+              <button class="btn btn-primary" type="submit"><i class="fa fa-check"></i></button>
+            </div>
+          </form>
+        </li>
+      </ul>
+    </span>
+  {% else %}
+    <span class="badge {{ _cls }}" title="{{ _tip }}">{{ _lab }}</span>
+  {% endif %}
+{% endif %}

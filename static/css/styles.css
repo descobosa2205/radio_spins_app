@@ -1520,6 +1520,77 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 .ficha-hero__facts{ display:flex; flex-wrap:wrap; gap:.35rem .9rem; color:var(--muted-2); font-size:.9rem; }
 .ficha-hero__facts i{ color:var(--brand-accent); width:1rem; text-align:center; margin-right:.25rem; }
 .ficha-hero__actions{ display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
+/* LA EMPRESA DEL GRUPO QUE FACTURA, arriba a la derecha de la cabecera de la actividad. */
+.hero-company{ display:flex; align-items:center; gap:.55rem; padding:.4rem .6rem; border:1px solid var(--line-2);
+  border-radius:12px; background:#fff; max-width:230px; }
+.hero-company img{ height:34px; max-width:96px; object-fit:contain; }
+.hero-company__ph{ display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px;
+  border-radius:9px; background:#f1f3f8; color:var(--muted-2); }
+.hero-company__t{ display:flex; flex-direction:column; min-width:0; }
+.hero-company__lab{ font-size:.66rem; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--muted-2); }
+.hero-company__name{ font-size:.86rem; font-weight:700; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* ============ FICHA DE CONTRATACIÓN que rellena el promotor (por módulos con icono) ============ */
+.csheet{ max-width:1000px; margin:0 auto; }
+.csheet__logo{ text-align:right; margin-bottom:.35rem; }
+.csheet__logo img{ max-height:56px; max-width:200px; object-fit:contain; }
+.csheet__title{ font-size:1.5rem; font-weight:800; text-align:center; margin:0 0 .25rem; }
+.csheet__sub{ text-align:center; color:var(--muted-2); margin:0 0 1.25rem; }
+.csheet-mod{ background:#fff; border:1px solid var(--line-2); border-radius:16px; margin-bottom:1.1rem;
+  overflow:hidden; box-shadow:var(--shadow-sm-2); }
+.csheet-mod__head{ display:flex; align-items:center; gap:.85rem; padding:.8rem 1rem;
+  background:#fdeced; color:#b02a37; }
+.csheet-mod__ico{ display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px;
+  flex:0 0 34px; border-radius:50%; background:var(--brand-primary,#E33D48); color:#fff; }
+.csheet-mod__t{ font-weight:800; font-size:1.02rem; }
+.csheet-mod__s{ font-size:.82rem; opacity:.85; }
+.csheet-mod__body{ padding:1rem; }
+.csheet-sub{ font-size:.74rem; font-weight:800; text-transform:uppercase; letter-spacing:.05em;
+  color:var(--muted-2); margin:.25rem 0 .5rem; }
+/* Ticketeras: tarjetas con su logo que se marcan (varias). */
+.csheet-tks{ display:flex; flex-wrap:wrap; gap:.5rem; }
+.csheet-tk{ margin:0; cursor:pointer; }
+.csheet-tk input{ position:absolute; opacity:0; width:0; height:0; }
+.csheet-tk__box{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.3rem;
+  width:104px; padding:.5rem .35rem; border:1.5px solid var(--line-2); border-radius:12px; background:#fff;
+  transition:.12s ease; }
+.csheet-tk__box img{ height:26px; max-width:82px; object-fit:contain; }
+.csheet-tk__ph{ display:inline-flex; align-items:center; justify-content:center; height:26px; color:var(--muted-2); }
+.csheet-tk__n{ font-size:.74rem; font-weight:700; text-align:center; color:var(--ink); line-height:1.1; }
+.csheet-tk:hover .csheet-tk__box{ border-color:#b9c2cc; }
+.csheet-tk input:checked + .csheet-tk__box{ border-color:var(--brand-primary,#E33D48); background:#fff6f6;
+  box-shadow:0 0 0 2px rgba(227,61,72,.10); }
+.csheet-tt input{ min-width:70px; }
+
+/* ====== COMPARAR la ficha del promotor con la nuestra (pantalla partida, campo a campo) ====== */
+.cmp-legend{ display:flex; gap:.75rem; align-items:center; flex-wrap:wrap; font-size:.86rem; color:#5b6570;
+  background:#f6f8fa; border:1px solid var(--line-2); border-radius:12px; padding:.5rem .7rem; }
+.cmp-head, .cmp-row{ display:grid; grid-template-columns:minmax(150px,1fr) minmax(0,1.4fr) minmax(0,1.4fr);
+  gap:.5rem; align-items:center; padding:.35rem .75rem; }
+.cmp-head{ background:#f1f4f8; font-size:.72rem; font-weight:800; text-transform:uppercase;
+  letter-spacing:.04em; color:#6b7683; border-bottom:1px solid var(--line-2); }
+.cmp-row{ border-bottom:1px dashed #eef0f2; }
+.cmp-row:last-child{ border-bottom:0; }
+.cmp-row__k{ font-size:.86rem; font-weight:600; color:#6b7683; }
+.cmp-row.is-same .cmp-opt__box{ background:#fbfcfd; }
+.cmp-opt{ display:block; margin:0; cursor:pointer; }
+.cmp-opt input{ position:absolute; opacity:0; width:0; height:0; }
+.cmp-opt__box{ display:block; border:1.5px solid var(--line-2); border-radius:10px; padding:.35rem .55rem;
+  font-size:.9rem; font-weight:600; color:#1a1a1a; background:#fff; transition:.12s ease; overflow-wrap:anywhere; }
+.cmp-opt:hover .cmp-opt__box{ border-color:#b9c2cc; }
+.cmp-opt input:checked + .cmp-opt__box{ border-color:var(--brand-primary,#E33D48); background:#fff6f6;
+  box-shadow:0 0 0 2px rgba(227,61,72,.10); }
+.cmp-tickets{ display:grid; grid-template-columns:1fr 1fr; gap:.75rem; padding:.75rem; border-top:1px solid var(--line-2); }
+.cmp-tickets__t{ font-size:.72rem; font-weight:800; text-transform:uppercase; color:#6b7683; margin-bottom:.25rem; }
+@media (max-width: 767.98px){
+  .cmp-head{ display:none; }
+  .cmp-row{ grid-template-columns:1fr; }
+  .cmp-tickets{ grid-template-columns:1fr; }
+}
+
+/* Fila del PROMOTOR en la ficha de contratación (foto + nombre + sociedad), compacta. */
+.cfila{ display:flex; align-items:center; gap:.6rem; }
+.cfila__ph{ width:38px; height:38px; border-radius:50%; object-fit:cover; border:1px solid var(--line-2); background:#f1f3f8; }
+.cfila__lab{ font-size:.68rem; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--muted-2); }
 
 /* Pestañas de ficha (sobre el contenido en tarjeta) */
 .ficha-tabs.nav-tabs{ border-bottom:0; gap:.25rem; }
@@ -2553,6 +2624,14 @@ img.docs-id__face { width:100%; height:100%; object-fit:cover; display:block; cu
 .psum-list > div:first-child { border-top:0; }
 .psum-k { color:#8a9199; font-weight:600; }
 .psum-v { font-weight:700; color:#1a1a1a; text-align:left; overflow-wrap:anywhere; }
+/* La misma tabla compacta a DOS COLUMNAS de pares: en la ficha de contratación hay muchos datos y
+   así se ven todos de un vistazo sin bajar. En pantalla estrecha, una sola columna. */
+.psum-list--2col { grid-template-columns:max-content 1fr max-content 1fr; column-gap:1.25rem; }
+.psum-list--2col > div { grid-column:span 2; }
+@media (max-width: 991.98px){
+  .psum-list--2col { grid-template-columns:max-content 1fr; }
+  .psum-list--2col > div { grid-column:1 / -1; }
+}
 /* De dónde sale un dato que no estaba escrito en la ficha (se ha cruzado con un documento). */
 .psum-v__src { display:inline-block; margin-left:.4rem; font-weight:600; font-size:.72rem; color:#8a9199; }
 .psum-docs__title { font-size:.75rem; font-weight:800; text-transform:uppercase; letter-spacing:.04em; color:#8a9199; margin:0 0 .5rem; }

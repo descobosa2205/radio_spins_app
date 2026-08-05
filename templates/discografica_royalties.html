@@ -721,8 +721,12 @@
         <div class="modal-body">
           <div class="small text-muted mb-2" data-roy-inv-who></div>
           {# Zona de arrastre (o clic para elegir). #}
+          {# La zona de arrastre la gestiona el mecanismo GLOBAL de la app (`file_drop.js`), el mismo
+             que usa la landing cuando la sube un tercero: asigna el fichero al input y dispara su
+             `change`. ⚠️ NO se pone un `drop` propio aquí: al hacer `preventDefault` el global se
+             aparta («lo ha gestionado una dropzone propia») y se quedaba sin hacer nada (bug real). #}
           <label class="d-block border rounded-3 p-4 text-center mb-3" style="border-style:dashed!important;cursor:pointer;"
-                 id="royInvoiceDrop">
+                 id="royInvoiceDrop" data-file-drop-for="#royInvoiceFile">
             <i class="fa fa-cloud-arrow-up fa-2x text-muted mb-2 d-block"></i>
             <span data-roy-inv-name>Arrastra aquí la factura o pincha para elegirla</span>
             <input type="file" name="file" accept=".pdf,image/*" class="d-none" id="royInvoiceFile" required>
@@ -824,24 +828,11 @@
                                     btn.getAttribute('data-liq-amount'));
   });
 
-  var input = document.getElementById('royInvoiceFile');
-  var drop = document.getElementById('royInvoiceDrop');
-  if (drop) {
-    ['dragenter', 'dragover'].forEach(function (ev) {
-      drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('border-danger'); });
-    });
-    ['dragleave', 'drop'].forEach(function (ev) {
-      drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('border-danger'); });
-    });
-    drop.addEventListener('drop', function (e) {
-      var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-      if (!f || !input) return;
-      var dt = new DataTransfer(); dt.items.add(f); input.files = dt.files;
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-  }
-
-  if (input) input.addEventListener('change', function () {
+  /* La lectura del documento se engancha por DELEGACIÓN: da igual quién dispare el `change` (el
+     usuario eligiendo el fichero o el arrastre global) y da igual cuándo se cree el modal. */
+  document.addEventListener('change', function (ev) {
+    var input = ev.target;
+    if (!input || !input.id || input.id !== 'royInvoiceFile') return;
     var f = input.files && input.files[0];
     if (!f) return;
     var nom = document.querySelector('[data-roy-inv-name]');
@@ -863,8 +854,15 @@
         });
         marcarQueFalta();
         var faltan = OBLIGATORIOS.filter(function (n) { var e = $f(n); return !e || !(e.value || '').trim(); });
-        aviso(faltan.length ? 'No se han podido leer todos los datos: completa los campos resaltados.' : '',
-              'alert-warning');
+        if (!faltan.length) {
+          aviso('Datos leídos de la factura: revísalos y guarda.', 'alert-success');
+        } else if (d && d.ok) {
+          aviso('No se han podido leer todos los datos: completa los campos resaltados (' +
+                faltan.length + ').', 'alert-warning');
+        } else {
+          aviso('No se han podido leer los datos del documento' +
+                ((d && d.error) ? ': ' + d.error : '') + '. Escríbelos a mano.', 'alert-warning');
+        }
       })
       .catch(function () {
         if (leyendo) leyendo.classList.add('d-none');

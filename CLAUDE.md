@@ -1181,7 +1181,12 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · **Subir la factura DESDE DENTRO** (`royalty_liquidation_invoice_upload`, en los tres puntitos de
   la liquidación): modal para **arrastrar o elegir** el documento, se leen sus datos con el mismo
   lector que la landing (`public_invoice_detect`) y **solo se piden a mano los que no se han podido
-  leer** (salen resaltados). Al guardar, la liquidación pasa a **FACTURADA** y queda pendiente de
+  leer** (salen resaltados).
+  ⚠️ El arrastre lo hace el mecanismo **GLOBAL** (`file_drop.js` + `data-file-drop-for="#royInvoiceFile"`),
+  igual que cuando la sube un tercero. Un `drop` PROPIO en la zona **rompe la detección**: al hacer
+  `preventDefault` el global se aparta («lo ha gestionado una dropzone propia») y nadie asigna el
+  fichero (bug real). Y la lectura se engancha por **delegación** sobre el `change` del input, para que
+  dé igual quién lo dispare y cuándo se cree el modal. Al guardar, la liquidación pasa a **FACTURADA** y queda pendiente de
   validar en administración. Si el importe no cuadra se avisa, pero desde dentro **se puede forzar**
   (`force=1`): administración sabe lo que hace. Una factura ya VALIDADA no se pisa.
 

@@ -720,8 +720,11 @@
               <td><span class="badge text-bg-warning text-dark">Sin factura</span></td>
               <td class="text-end text-nowrap">
                 {# «i» con la trazabilidad completa: generación, envío, factura y cobro. #}
+                {# ⚠️ Los datos van en `data-*`: `|tojson` mete comillas DOBLES y dentro de un atributo
+                   delimitado por comillas dobles el atributo se corta (el clic no haría nada). #}
                 <button class="btn btn-sm btn-outline-secondary" type="button" title="Seguimiento: generación, envío, factura y cobro"
-                        onclick="showRoyaltyTraceability('{{ r.kind }}','{{ r.beneficiary_id }}','{{ r.sem_key }}', {{ (r.name or '')|tojson }})">
+                        data-roy-trace data-kind="{{ r.kind }}" data-bid="{{ r.beneficiary_id }}"
+                        data-sem="{{ r.sem_key }}" data-name="{{ r.name or '' }}">
                   <i class="fa fa-circle-info"></i></button>
                 {% if r.pdf_url %}
                   <a class="btn btn-sm btn-outline-dark" href="{{ r.pdf_url }}" target="_blank" rel="noopener" title="Ver la liquidación"><i class="fa fa-file-pdf"></i></a>
@@ -817,6 +820,13 @@
       }).then(function (r) { return r.json().catch(function () { return {}; }); });
     }
     document.addEventListener('click', function (e) {
+      var trace = e.target.closest ? e.target.closest('[data-roy-trace]') : null;
+      if (trace) {
+        e.preventDefault();
+        window.showRoyaltyTraceability(trace.getAttribute('data-kind'), trace.getAttribute('data-bid'),
+                                       trace.getAttribute('data-sem'), trace.getAttribute('data-name'));
+        return;
+      }
       var btn = e.target.closest ? e.target.closest('[data-roy-ask]') : null;
       if (btn) {
         e.preventDefault();

@@ -1336,10 +1336,10 @@
     {# Menú de compartir + descargar reutilizable (audio o portada). #}
     {% macro mat_share_dl(concept, item, is_cover=False) %}
       <li><h6 class="dropdown-header">Compartir</h6></li>
-      <li><button class="dropdown-item" type="button" onclick="shareByMail({{ (concept ~ ' · ' ~ song.title)|tojson }}, {{ item.share_url|tojson }})"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por mail</button></li>
-      <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp({{ (concept ~ ' · ' ~ song.title)|tojson }}, {{ item.share_url|tojson }})"><i class="fab fa-whatsapp fa-fw me-1"></i>WhatsApp</button></li>
-      <li><button class="dropdown-item" type="button" onclick="shareBySms({{ (concept ~ ' · ' ~ song.title)|tojson }}, {{ item.share_url|tojson }})"><i class="fa fa-comment fa-fw me-1"></i>SMS</button></li>
-      <li><button class="dropdown-item" type="button" onclick="copyShareLink({{ item.share_url|tojson }})"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+      <li><button class="dropdown-item" type="button" onclick="shareByMail({{ (concept ~ ' · ' ~ song.title)|tojson|forceescape }}, {{ item.share_url|tojson|forceescape }})"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por mail</button></li>
+      <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp({{ (concept ~ ' · ' ~ song.title)|tojson|forceescape }}, {{ item.share_url|tojson|forceescape }})"><i class="fab fa-whatsapp fa-fw me-1"></i>WhatsApp</button></li>
+      <li><button class="dropdown-item" type="button" onclick="shareBySms({{ (concept ~ ' · ' ~ song.title)|tojson|forceescape }}, {{ item.share_url|tojson|forceescape }})"><i class="fa fa-comment fa-fw me-1"></i>SMS</button></li>
+      <li><button class="dropdown-item" type="button" onclick="copyShareLink({{ item.share_url|tojson|forceescape }})"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
       <li><hr class="dropdown-divider"></li>
       <li><h6 class="dropdown-header">Descargar</h6></li>
       {% if is_cover %}
@@ -1369,9 +1369,9 @@
             {% if CAN_EDIT_DISCOGRAFICA %}
               <li><hr class="dropdown-divider"></li>
               {% if fixed_slot %}
-                <li><button class="dropdown-item" type="button" onclick="openSongMaterialModal({title:'Sustituir', category:{{ item.category|tojson }}, slotKey:{{ item.slot_key|tojson }}, materialId:{{ item.id|tojson }}, showDisplayName:false, multiple:false, stemMode:false})"><i class="fa fa-rotate fa-fw me-1"></i>Reemplazar</button></li>
+                <li><button class="dropdown-item" type="button" onclick="openSongMaterialModal({title:'Sustituir', category:{{ item.category|tojson|forceescape }}, slotKey:{{ item.slot_key|tojson|forceescape }}, materialId:{{ item.id|tojson|forceescape }}, showDisplayName:false, multiple:false, stemMode:false})"><i class="fa fa-rotate fa-fw me-1"></i>Reemplazar</button></li>
               {% else %}
-                <li><button class="dropdown-item" type="button" onclick="openSongMaterialModal({title:'Sustituir subproducto', category:{{ item.category|tojson }}, slotKey:'SUBPRODUCT', materialId:{{ item.id|tojson }}, showDisplayName:true, multiple:false, stemMode:false, displayName:{{ item.label|tojson }}})"><i class="fa fa-rotate fa-fw me-1"></i>Reemplazar</button></li>
+                <li><button class="dropdown-item" type="button" onclick="openSongMaterialModal({title:'Sustituir subproducto', category:{{ item.category|tojson|forceescape }}, slotKey:'SUBPRODUCT', materialId:{{ item.id|tojson|forceescape }}, showDisplayName:true, multiple:false, stemMode:false, displayName:{{ item.label|tojson|forceescape }}})"><i class="fa fa-rotate fa-fw me-1"></i>Reemplazar</button></li>
               {% endif %}
               <li><form method="post" action="{{ url_for('discografica_song_material_delete', song_id=song.id, material_id=item.id) }}" onsubmit="return confirm('¿Eliminar este archivo?');"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></form></li>
             {% endif %}
@@ -1439,7 +1439,7 @@
               {% if CAN_EDIT_DISCOGRAFICA %}
                 <li><hr class="dropdown-divider"></li>
                 <li><form method="post" action="{{ url_for('discografica_song_cover_role', song_id=song.id, material_id=role_item.id) }}"><button class="dropdown-item"><i class="fa fa-arrows-rotate fa-fw me-1"></i>{{ 'Convertir en provisional' if role_slot == 'COVER' else 'Convertir en principal' }}</button></form></li>
-                <li><button class="dropdown-item" type="button" onclick="openSongMaterialModal({title:'Sustituir portada', category:'COVER', slotKey:'{{ role_slot }}', materialId:{{ role_item.id|tojson }}, showDisplayName:false, multiple:false, stemMode:false})"><i class="fa fa-rotate fa-fw me-1"></i>Reemplazar</button></li>
+                <li><button class="dropdown-item" type="button" onclick="openSongMaterialModal({title:'Sustituir portada', category:'COVER', slotKey:'{{ role_slot }}', materialId:{{ role_item.id|tojson|forceescape }}, showDisplayName:false, multiple:false, stemMode:false})"><i class="fa fa-rotate fa-fw me-1"></i>Reemplazar</button></li>
                 <li><form method="post" action="{{ url_for('discografica_song_material_delete', song_id=song.id, material_id=role_item.id) }}" onsubmit="return confirm('¿Eliminar esta portada?');"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></form></li>
               {% endif %}
             </ul>
@@ -1576,15 +1576,15 @@
                             <li><hr class="dropdown-divider"></li>
                           {% endif %}
                           <li><h6 class="dropdown-header">Compartir (paquete completo)</h6></li>
-                          <li><button class="dropdown-item" type="button" onclick="shareByMail({{ (group.label ~ ' · ' ~ song.title)|tojson }}, {{ group.share_url|tojson }})"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por mail</button></li>
-                          <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp({{ (group.label ~ ' · ' ~ song.title)|tojson }}, {{ group.share_url|tojson }})"><i class="fab fa-whatsapp fa-fw me-1"></i>WhatsApp</button></li>
-                          <li><button class="dropdown-item" type="button" onclick="shareBySms({{ (group.label ~ ' · ' ~ song.title)|tojson }}, {{ group.share_url|tojson }})"><i class="fa fa-comment fa-fw me-1"></i>SMS</button></li>
-                          <li><button class="dropdown-item" type="button" onclick="copyShareLink({{ group.share_url|tojson }})"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+                          <li><button class="dropdown-item" type="button" onclick="shareByMail({{ (group.label ~ ' · ' ~ song.title)|tojson|forceescape }}, {{ group.share_url|tojson|forceescape }})"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por mail</button></li>
+                          <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp({{ (group.label ~ ' · ' ~ song.title)|tojson|forceescape }}, {{ group.share_url|tojson|forceescape }})"><i class="fab fa-whatsapp fa-fw me-1"></i>WhatsApp</button></li>
+                          <li><button class="dropdown-item" type="button" onclick="shareBySms({{ (group.label ~ ' · ' ~ song.title)|tojson|forceescape }}, {{ group.share_url|tojson|forceescape }})"><i class="fa fa-comment fa-fw me-1"></i>SMS</button></li>
+                          <li><button class="dropdown-item" type="button" onclick="copyShareLink({{ group.share_url|tojson|forceescape }})"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
                           <li><hr class="dropdown-divider"></li>
                           <li><a class="dropdown-item" href="{{ group.download_zip_url }}"><i class="fa fa-file-zipper fa-fw me-1"></i>Descargar ZIP</a></li>
                           {% if CAN_EDIT_DISCOGRAFICA %}
                             <li><hr class="dropdown-divider"></li>
-                            <li><button class="dropdown-item" type="button" onclick="openSongMaterialModal({title:'Sustituir stems', category:'STEMS', slotKey:'BUNDLE', bundleKey:{{ group.bundle_key|tojson }}, showDisplayName:true, multiple:true, stemMode:true, displayName:{{ group.label|tojson }}})"><i class="fa fa-rotate fa-fw me-1"></i>Reemplazar</button></li>
+                            <li><button class="dropdown-item" type="button" onclick="openSongMaterialModal({title:'Sustituir stems', category:'STEMS', slotKey:'BUNDLE', bundleKey:{{ group.bundle_key|tojson|forceescape }}, showDisplayName:true, multiple:true, stemMode:true, displayName:{{ group.label|tojson|forceescape }}})"><i class="fa fa-rotate fa-fw me-1"></i>Reemplazar</button></li>
                             <li><form method="post" action="{{ url_for('discografica_song_material_bundle_delete', song_id=song.id, bundle_key=group.bundle_key) }}" onsubmit="return confirm('¿Eliminar este grupo de stems?');"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></form></li>
                           {% endif %}
                         </ul>

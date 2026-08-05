@@ -1965,6 +1965,16 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   devolvía el día 1 del mes, la otra conserva el día). Resueltos: hoy `_wants_json_response` es «el
   cliente PIDE json» y **`_is_xhr_request()`** es «viene de un fetch/XHR del front». Comprobación:
   `grep -oE "^def [a-zA-Z_][a-zA-Z0-9_]*" app.py | sort | uniq -d` **tiene que salir vacío**.
+- ⚠️⚠️ **`|tojson` DENTRO de un atributo con comillas dobles NO funciona** (bug real, ago 2026):
+  `onclick="f({{ x|tojson }})"` renderiza `onclick="f("Los Ñus")"` → el atributo se **corta en la
+  primera comilla**, el handler queda inválido y **el clic no hace nada** (pasó con «Subir la factura»
+  de una liquidación de royalties: no fallaba, simplemente no ocurría nada). `tojson` escapa `<`, `>`,
+  `&` y `'`, pero **no** la comilla doble.
+  Dos formas correctas: pasar los datos en **`data-*`** y engancharlos con un listener delegado (lo
+  preferido: sobrevive a que la fila se repinte), o **`{{ x|tojson|forceescape }}`**, que convierte la
+  comilla en `&#34;` y el navegador la devuelve como JS válido. Comprobación:
+  `grep -rn 'onclick="[^"]*|tojson }}' templates/*.html` **tiene que salir vacío** (sin `forceescape`).
+
 - ⚠️ **Dicts en plantillas**: `d.items`/`d.keys`/`d.values` en Jinja devuelven el **método**, no la
   clave → hay que escribir `d['items']`. Ha causado dos 500 reales (el set list del concierto y
   «Royalties → A favor»). El checker de esprima NO lo detecta: revisar el HTML servido con curl.

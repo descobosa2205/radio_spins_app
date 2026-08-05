@@ -154,8 +154,13 @@
           {# SUBIR LA FACTURA desde dentro: cuando el beneficiario la manda por otro canal. Se lee lo
              que se pueda del documento y solo se pide a mano lo que no se haya podido leer. #}
           {% if b.liquidation_id %}
-            <li><button class="dropdown-item" type="button"
-                        onclick="openRoyaltyInvoiceUpload('{{ b.liquidation_id }}', {{ (b.name or '')|tojson }}, {{ (b.total_amount or 0)|string|tojson }})">
+            {# ⚠️ Los datos van en `data-*`, NO en el onclick: `|tojson` mete comillas DOBLES y, dentro
+               de un atributo delimitado por comillas dobles, el atributo se corta y el clic no hacía
+               nada (bug real). Lo abre el listener delegado de abajo. #}
+            <li><button class="dropdown-item" type="button" data-roy-inv-open
+                        data-liq-id="{{ b.liquidation_id }}"
+                        data-liq-name="{{ b.name or '' }}"
+                        data-liq-amount="{{ (b.total_amount or 0)|eur }}">
               <i class="fa fa-file-arrow-up fa-fw me-2"></i>{{ 'Reemplazar la factura' if b.has_invoice else 'Subir la factura' }}</button></li>
           {% endif %}
           <li><button class="dropdown-item" type="button" onclick="generateRoyaltyLiquidation('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')">
@@ -793,19 +798,31 @@
     LIQ_ID = liqId || '';
     FORZAR = false;
     var modalEl = document.getElementById('royInvoiceModal');
-    if (!modalEl || !window.bootstrap) return;
+    // Si algo falta no se puede quedar en silencio: un clic que no hace nada no se puede depurar.
+    if (!modalEl) { alert('No se ha encontrado el formulario de subida. Recarga la página.'); return; }
+    if (!window.bootstrap) { alert('La página todavía se está cargando: inténtalo en un segundo.'); return; }
     document.getElementById('royInvoiceForm').reset();
     ['invoice_number', 'issue_date', 'amount_net', 'amount_vat', 'retention_amount',
      'amount_gross', 'concept_text'].forEach(function (n) {
       var el = $f(n); if (el) { el.value = ''; el.classList.remove('is-invalid'); }
     });
     var who = document.querySelector('[data-roy-inv-who]');
-    if (who) who.textContent = (nombre ? nombre + ' · ' : '') + 'a facturar: ' + (importe || '') + ' € (base)';
+    if (who) who.textContent = (nombre ? nombre + ' · ' : '') + 'base a facturar: ' + (importe || '—');
     var nom = document.querySelector('[data-roy-inv-name]');
     if (nom) nom.textContent = 'Arrastra aquí la factura o pincha para elegirla';
     aviso('');
     window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
   };
+
+  // Delegación: el botón vive en un menú que se pinta con la fila, así que no se engancha uno a uno.
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest ? e.target.closest('[data-roy-inv-open]') : null;
+    if (!btn) return;
+    e.preventDefault();
+    window.openRoyaltyInvoiceUpload(btn.getAttribute('data-liq-id'),
+                                    btn.getAttribute('data-liq-name'),
+                                    btn.getAttribute('data-liq-amount'));
+  });
 
   var input = document.getElementById('royInvoiceFile');
   var drop = document.getElementById('royInvoiceDrop');

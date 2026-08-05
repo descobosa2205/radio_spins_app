@@ -165,7 +165,7 @@
                 <form method="post" action="{{ url_for('direccion_toggle_maintenance') }}" class="m-0">
                   <input type="hidden" name="active" value="{{ '0' if MAINTENANCE_ACTIVE else '1' }}">
                   <button type="submit" class="dropdown-item {{ 'text-success' if MAINTENANCE_ACTIVE else 'text-danger' }}"
-                          onclick="return confirm({{ ('¿Reactivar la app para todos los usuarios?' if MAINTENANCE_ACTIVE else '¿Poner la app en MODO TRABAJO? Todos menos dirección verán la pantalla de mantenimiento al usarla o intentar entrar.')|tojson }});">
+                          onclick="return confirm({{ ('¿Reactivar la app para todos los usuarios?' if MAINTENANCE_ACTIVE else '¿Poner la app en MODO TRABAJO? Todos menos dirección verán la pantalla de mantenimiento al usarla o intentar entrar.')|tojson|forceescape }});">
                     <i class="fa {{ 'fa-circle-play' if MAINTENANCE_ACTIVE else 'fa-screwdriver-wrench' }} me-2"></i>
                     {{ 'Reactivar la app (salir de modo trabajo)' if MAINTENANCE_ACTIVE else 'Poner la app en modo trabajo' }}
                   </button>

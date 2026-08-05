@@ -1032,6 +1032,15 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   Si aun así falla, el mensaje repite el motivo exacto de Holded y recuerda que tiene que ser la
   **API Key** de Configuración → Desarrolladores (no el código de integración de una app del
   marketplace ni el secreto de un webhook) y que el plan debe incluir acceso a la API.
+  · **La CABECERA se puede fijar a mano** (`HoldedAccount.auth_header`, selector en Integraciones):
+  **Automática** (prueba `key`, `X-API-KEY` y `Authorization: Bearer` y se queda con la que va) o la
+  que Holded haya indicado al crear la credencial —hay credenciales que Holded entrega diciendo
+  literalmente «usa `Authorization: Bearer <tu_clave_secreta>`»—. Fijada, NO se prueban las otras: si
+  falla, el problema es la clave.
+  · ⚠️ **Y lo primero que hay que mirar cuando «no acepta la clave»: EN QUÉ RECUADRO se ha pegado.**
+  Pasó de verdad: la clave de Holded se pegó en el de **Pleo** y el error («Pleo rechazó la
+  credencial») venía de Pleo, no de Holded. Las claves de Pleo empiezan por `pls_`, así que al guardar
+  una que no lo parece se avisa en el momento y se dice que la de Holded va en su pestaña.
   ⚠️ **Pendiente de la primera prueba real**: no hay cuenta de Holded para probar contra la API de
   verdad. El mapeo sigue su API documentada y está verificado con un Holded simulado (contacto que ya
   existe, ticket sin impuestos, total que no cuadra, adjunto que falla, `status:0`). La **primera

@@ -9617,6 +9617,10 @@ class HoldedAccount(Base):
     # (ticket) no se llama igual en todas las cuentas: `detect_ticket_doc_type` lo comprueba.
     invoice_doc_type = Column(Text, nullable=False, server_default=text("'purchase'"))
     ticket_doc_type = Column(Text, nullable=False, server_default=text("'dailyexpense'"))
+    # Cabecera con la que se manda la clave: AUTO (se prueban las tres y se guarda la que funcione),
+    # `key` (la documentada), `X-API-KEY` o `Authorization` (Bearer, que es la que indica Holded al
+    # crear algunas credenciales). Se puede fijar a mano desde Integraciones.
+    auth_header = Column(Text, nullable=False, server_default=text("'AUTO'"))
     # Rutas ya descubiertas (adjuntar documento, formas de pago): mismo patrón que la URL base de
     # Cabify, para que la integración se ajuste a la cuenta real sin tocar código.
     endpoints = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
@@ -9646,6 +9650,7 @@ def ensure_holded_schema():
             is_active boolean NOT NULL DEFAULT false,
             invoice_doc_type text NOT NULL DEFAULT 'purchase',
             ticket_doc_type text NOT NULL DEFAULT 'dailyexpense',
+            auth_header text NOT NULL DEFAULT 'AUTO',
             endpoints jsonb NOT NULL DEFAULT '{}'::jsonb,
             payment_methods jsonb NOT NULL DEFAULT '{}'::jsonb,
             last_test_at timestamptz,
@@ -9660,6 +9665,7 @@ def ensure_holded_schema():
         # --- ESTADO CONTABLE de cada gasto ---
         # PENDIENTE (nadie lo ha tocado) | SUBIDO (está en Holded, sin contabilizar) |
         # CONTABILIZADO (asiento hecho) | OMITIDO (se decidió no contabilizarlo: ahí acaba).
+        "ALTER TABLE IF EXISTS holded_accounts ADD COLUMN IF NOT EXISTS auth_header text NOT NULL DEFAULT 'AUTO';",
         "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS accounting_status text NOT NULL DEFAULT 'PENDIENTE';",
         "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS accounting_at timestamptz;",
         "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS accounting_by_nick text;",

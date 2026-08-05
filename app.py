@@ -63379,6 +63379,13 @@ def pleo_account_save(company_id):
         acc.pleo_organization_id = (request.form.get("pleo_organization_id") or "").strip() or None
         # La credencial solo se toca si escriben una nueva (el campo va vacío por seguridad).
         new_key = (request.form.get("api_key") or "").strip()
+        # ⚠️ Las API Keys de Pleo empiezan por `pls_`. Si lo que se pega no lo parece, casi siempre es
+        # que se ha confundido de integración (pasó con la clave de Holded): se avisa en el momento en
+        # vez de dejar que «pruebe conexión» y le salga un 401 que no dice de qué es la clave.
+        aviso_clave = ""
+        if new_key and not new_key.lower().startswith("pls_"):
+            aviso_clave = ("Ojo: esa clave no parece de Pleo (las suyas empiezan por «pls_»). "
+                           "Si es la de Holded, va en la pestaña Holded de esta misma pantalla.")
         if new_key:
             acc.api_key = new_key
         if request.form.get("clear_key") == "1":
@@ -63393,6 +63400,8 @@ def pleo_account_save(company_id):
         acc.updated_at = _now_madrid()
         session_db.commit()
         flash("Pleo · %s: configuración guardada." % (comp.name or "empresa"), "success")
+        if aviso_clave:
+            flash(aviso_clave, "warning")
     except Exception as exc:
         session_db.rollback()
         flash("No se pudo guardar la configuración de Pleo: %s" % exc, "danger")
@@ -64287,7 +64296,8 @@ def _holded_client_for_account(acc):
         almacen = None          # fuera de contexto de petición (cron, scripts): sin caché
     if almacen is not None and clave and clave in almacen:
         return almacen[clave]
-    client = HoldedClient(acc.api_key, endpoints=dict(acc.endpoints or {}))
+    client = HoldedClient(acc.api_key, endpoints=dict(acc.endpoints or {}),
+                         auth_header=(getattr(acc, "auth_header", None) or "AUTO"))
     if almacen is not None and clave:
         almacen[clave] = client
     return client
@@ -64334,6 +64344,7 @@ def _holded_account_rows(session_db) -> list:
             "invoice_doc_type": (getattr(acc, "invoice_doc_type", None) or "purchase"),
             "ticket_doc_type": (getattr(acc, "ticket_doc_type", None) or "dailyexpense"),
             "payment_methods": dict(getattr(acc, "payment_methods", None) or {}),
+            "auth_header": (getattr(acc, "auth_header", None) or "AUTO"),
             "last_test": (_et_fmt_dt(acc.last_test_at) if acc is not None and acc.last_test_at else ""),
             "last_test_ok": (getattr(acc, "last_test_ok", None) if acc is not None else None),
             "last_sync": (_et_fmt_dt(acc.last_sync_at) if acc is not None and acc.last_sync_at else ""),
@@ -64380,6 +64391,10 @@ def holded_account_save(company_id):
             acc.api_key = nueva
         acc.invoice_doc_type = (request.form.get("invoice_doc_type") or "purchase").strip() or "purchase"
         acc.ticket_doc_type = (request.form.get("ticket_doc_type") or "dailyexpense").strip() or "dailyexpense"
+        # Cabecera con la que se manda la clave. AUTO = se prueban las tres y se guarda la que va;
+        # se puede fijar a mano cuando Holded dice cuál usar (p. ej. «Authorization: Bearer»).
+        _cab = (request.form.get("auth_header") or "AUTO").strip()
+        acc.auth_header = _cab if _cab in ("AUTO", "key", "X-API-KEY", "Authorization") else "AUTO"
         acc.is_active = _truthy(request.form.get("is_active")) and bool((acc.api_key or "").strip())
         acc.updated_at = _now_madrid()
         session_db.commit()
@@ -64411,7 +64426,8 @@ def holded_account_test(company_id):
             flash("Esta empresa todavía no tiene API Key de Holded.", "warning")
             return redirect(url_for("integrations_view") + "#tab-holded")
         from holded_utils import HoldedClient
-        client = HoldedClient(acc.api_key, endpoints=dict(acc.endpoints or {}))
+        client = HoldedClient(acc.api_key, endpoints=dict(acc.endpoints or {}),
+                              auth_header=(getattr(acc, "auth_header", None) or "AUTO"))
         try:
             client.test()
             # El tipo de documento de los TICKETS no se llama igual en todas las cuentas: se
@@ -64425,6 +64441,7 @@ def holded_account_test(company_id):
                     metodos[mid] = nombre
             acc.ticket_doc_type = ticket_type
             acc.payment_methods = metodos
+            acc.auth_header = getattr(client, "auth_header", None) or acc.auth_header
             acc.last_test_at = _now_madrid()
             acc.last_test_ok = True
             acc.last_error = None

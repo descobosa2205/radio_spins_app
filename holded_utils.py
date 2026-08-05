@@ -286,7 +286,7 @@ class HoldedClient:
     """
 
     def __init__(self, api_key: str, *, base: str | None = None, timeout: int = _TIMEOUT,
-                 endpoints: dict | None = None):
+                 endpoints: dict | None = None, auth_header: str | None = None):
         self.api_key = clean_api_key(api_key)
         self.base = (base or BASE_URL).rstrip("/")
         self.timeout = timeout
@@ -299,7 +299,13 @@ class HoldedClient:
         # Cabecera con la que se manda la clave. La documentada es `key`, pero hay cuentas que solo
         # responden con `X-API-KEY`, así que si la primera da «Invalid key» se prueba la otra y se
         # GUARDA la que funcione (mismo patrón que las rutas de adjuntar).
-        self.auth_header = (self.endpoints or {}).get("auth_header") or AUTH_HEADERS[0]
+        # Cabecera con la que se manda la clave. Si viene FIJADA (la que Holded haya indicado), se usa
+        # esa y no se prueban las demás; con AUTO se prueban las tres y se recuerda la que funcione.
+        fijada = (auth_header or "").strip()
+        self.auth_header_fixed = fijada if fijada in AUTH_HEADERS else ""
+        self.auth_header = (self.auth_header_fixed
+                            or (self.endpoints or {}).get("auth_header")
+                            or AUTH_HEADERS[0])
         self._auth_tried: set[str] = set()
 
     # ------------------------------------------------------------------ HTTP
@@ -321,7 +327,12 @@ class HoldedClient:
         return {cabecera: valor, "Accept": "application/json"}
 
     def _switch_auth_header(self) -> bool:
-        """Pasa a la siguiente cabecera candidata. Devuelve False si ya se han probado todas."""
+        """Pasa a la siguiente cabecera candidata. Devuelve False si ya se han probado todas.
+
+        Si la cabecera está FIJADA a mano no se cambia: el problema es la clave, no la cabecera.
+        """
+        if self.auth_header_fixed:
+            return False
         self._auth_tried.add(self.auth_header)
         for candidata in AUTH_HEADERS:
             if candidata not in self._auth_tried:

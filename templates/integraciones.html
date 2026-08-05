@@ -535,6 +535,17 @@
                   <input class="form-control" name="ticket_doc_type" value="{{ row.ticket_doc_type }}">
                   <div class="form-text">Lo detecta «Probar conexión».</div>
                 </div>
+                <div class="col-md-6">
+                  <label class="form-label">Cabecera de autenticación</label>
+                  <select class="form-select" name="auth_header">
+                    {% for val, lbl in [('AUTO', 'Automática (se prueban todas)'), ('key', 'key'),
+                                        ('X-API-KEY', 'X-API-KEY'),
+                                        ('Authorization', 'Authorization: Bearer <clave>')] %}
+                      <option value="{{ val }}" {% if row.auth_header == val %}selected{% endif %}>{{ lbl }}</option>
+                    {% endfor %}
+                  </select>
+                  <div class="form-text">Si al crear la credencial Holded te dijo <code>Authorization: Bearer</code>, elígela aquí.</div>
+                </div>
                 <div class="col-12">
                   <div class="form-check form-switch">
                     <input class="form-check-input" type="checkbox" role="switch" name="is_active" value="1"

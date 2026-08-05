@@ -3638,6 +3638,11 @@ class PaymentBatch(Base):
     receipt_name = Column(Text)
     paid_at = Column(DateTime(timezone=True))
     notes = Column(Text)
+    # APROBACIÓN DE DIRECCIÓN: una remesa no sale al banco hasta que dirección ha repasado sus
+    # facturas una a una. Se apunta quién dio el visto bueno y cuándo.
+    approved_at = Column(DateTime(timezone=True))
+    approved_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    approved_by_nick = Column(Text)
     created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_by_nick = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -3671,6 +3676,13 @@ class PaymentBatchItem(Base):
     beneficiary_bic = Column(Text)
     concept = Column(Text)
     amount = Column(Numeric, nullable=False, server_default=text("0"))
+    # FECHA DE PAGO de ESTE pago (en el fichero del banco es la «fecha de emisión»: el día en que el
+    # banco lo ejecuta). Por defecto, el día en que se crea la remesa; se puede cambiar pago a pago.
+    payment_date = Column(Date)
+    # Visto bueno de dirección a ESTE pago (la remesa se aprueba cuando lo tienen todos).
+    approved_at = Column(DateTime(timezone=True))
+    approved_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    approved_by_nick = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     batch = relationship("PaymentBatch", back_populates="items")
@@ -7956,6 +7968,27 @@ def ensure_payment_batches_schema():
         """,
         'CREATE INDEX IF NOT EXISTS idx_payment_batch_items_batch ON payment_batch_items(batch_id);',
         'CREATE INDEX IF NOT EXISTS idx_payment_batch_items_expense ON payment_batch_items(expense_id);',
+        # FECHA DE PAGO por pago (el banco la lee como fecha de EMISIÓN) y visto bueno de dirección,
+        # pago a pago y de la remesa entera.
+        """
+        ALTER TABLE IF EXISTS payment_batch_items
+            ADD COLUMN IF NOT EXISTS payment_date date,
+            ADD COLUMN IF NOT EXISTS approved_at timestamptz,
+            ADD COLUMN IF NOT EXISTS approved_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS approved_by_nick text;
+        """,
+        """
+        ALTER TABLE IF EXISTS payment_batches
+            ADD COLUMN IF NOT EXISTS approved_at timestamptz,
+            ADD COLUMN IF NOT EXISTS approved_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS approved_by_nick text;
+        """,
+        # Las remesas que ya existían se quedan con la fecha de la propia remesa como fecha de pago.
+        """
+        UPDATE payment_batch_items i SET payment_date = b.execution_date
+          FROM payment_batches b
+         WHERE i.batch_id = b.id AND i.payment_date IS NULL AND b.execution_date IS NOT NULL;
+        """,
         # Las liquidaciones de royalties validadas se pagan por remesa como cualquier otro pago.
         """
         ALTER TABLE IF EXISTS payment_batch_items

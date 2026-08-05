@@ -848,6 +848,55 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · Responsabilidad de administración: `_bag_liquidation_responsibility` manda las bolsas de
   promoción **sin pagos pendientes** a `LIQUIDACIONES_PROMO` y el resto a `LIQUIDACIONES`.
 
+- ⚠️⚠️ **COMPROBAR una factura y PAGARLA no es lo mismo con la retención en medio** (ago 2026):
+  · al **COMPROBAR** que la factura cuadra manda la **BASE** (`_invoice_amount_check`): la retención
+  no cambia lo que se ha facturado ni lo que cuesta el gasto.
+  · al **PAGAR**, el importe es el **TOTAL DE LA FACTURA**, o sea base + IVA **menos la retención**:
+  es lo que va a recibir el tercero (lo retenido lo ingresa la casa en Hacienda). Punto único
+  **`_expense_retention`** (manda la de la FACTURA; una factura que cubre varios gastos no vale
+  porque su retención es del conjunto) + **`_expense_retention_map`** (la de cientos de gastos en una
+  tacada, que es lo que lista pendiente de pago) + **`_expense_payable_gross`** (bruto − retención) +
+  **`_expense_payment_amount`** (lo que queda por pagarle). Lo usan pendiente de pago, los items de
+  la remesa, `administration_expense_mark_paid` (si no, pagar lo que decía la factura dejaba el gasto
+  en PARCIAL para siempre) y `payment_batch_receipt`. En royalties,
+  `_payment_batch_add_royalties` manda el total de la factura igual que `_royalty_payment_pending_rows`
+  (antes mandaba base + IVA y con retención se pagaba de más).
+
+- **REMESAS · fecha de pago por pago, PDF y aprobación de dirección** (ago 2026):
+  · **FECHA DE PAGO de cada pago** (`PaymentBatchItem.payment_date`): el día en que el banco lo
+  emite. Nace **hoy** (la de la remesa) y se cambia **pinchándola** en la ficha
+  (`payment_batch_item_date`, calendario inline en `pagos.js`); la fecha de la remesa es la de POR
+  DEFECTO y con la casilla «Ponerla en todos los pagos» se copia a todos.
+  ⚠️ **En `pain.001.001.03` la fecha de emisión (`ReqdExctnDt`) vive en el `PmtInf`, no en el
+  apunte**: `sepa_utils.build_credit_transfer_xml` agrupa los pagos por fecha y emite **un `PmtInf`
+  por día** (con su `NbOfTxs`/`CtrlSum`; el `PmtInfId` lleva el orden detrás porque tiene que ser
+  único, y con una sola fecha se queda la referencia a secas, como antes).
+  · **PDF de la remesa** (`payment_batch_pdf` → `_build_payment_batch_pdf_bytes`, estilo de casa):
+  logo de la empresa arriba a la derecha, «Remesa de pagos» centrado, cabecera con el nombre de la
+  remesa y su fecha, el **importe total destacado** y la tabla tercero · concepto · **artista con
+  foto** · fecha de pago («Hoy» si es hoy) · importe, con la suma total al final. Se genera **al
+  vuelo**: siempre dice lo que la remesa dice hoy.
+  · **APROBACIÓN DE DIRECCIÓN** (`PaymentBatch.approved_at` + `PaymentBatchItem.approved_at`): al
+  crear una remesa le sale a dirección en Inicio (**`_home_payment_batch_approvals`** →
+  `HOME_BATCH_APPROVALS`, «Remesa pendiente de aprobación») y por notificación (`_notify_users`, kind
+  `REMESA`). La pantalla **`payment_batch_approve_view`** (`templates/remesa_aprobar.html`, clases
+  `.ra-*`) enseña la MISMA cabecera del PDF y debajo las facturas **una a una**: Anterior · **Ok**
+  verde · Siguiente, cada OK se guarda al momento (`payment_batch_item_approve`, JSON) y **pasa sola
+  a la siguiente**; al terminar todas sale el resumen (el listado del PDF con las etiquetas verdes) y
+  la remesa queda **aprobada**. La factura de cada pago se carga **solo al mirarla** (si no, se
+  bajarían todas al abrir). Quitar un OK devuelve la remesa a pendiente.
+  ⚠️ **Sin aprobar NO se baja el fichero para el banco** (`payment_batch_export` rebota diciéndolo):
+  para eso está el repaso. El PDF sí se puede bajar siempre.
+  · **Trazabilidad**: el OK se apunta en el propio gasto (`BagPaymentInteraction` kind
+  `REMESA_APROBADA`, con quién de dirección y cuándo) y en el historial de la liquidación de
+  royalties (`BATCH_APPROVED`).
+  · **Lo que ya está en una remesa se ve APAGADO** en pendiente de pago (gris y atenuado:
+  `.pay-exp/.pay-royalty/.pay-bag.is-in-batch`), y vuelve a la normalidad al sacarlo. Se apaga
+  también **en vivo** al arrastrarlo a la caja (y se enciende al quitar el chip, `dim()` en
+  `pagos.js`). Una bolsa se apaga cuando **todos** sus gastos están ya en una remesa.
+  ⚠️ `payment_batch_remove_item` suelta también el `payment_batch_id` de la **liquidación de
+  royalties**: sin eso se quedaba como «ya está en una remesa» y no se podía meter en ninguna otra.
+
 - **AUTORIZACIONES DE ACCESO A MENORES** — ago 2026. Pestaña **«Menores»** de la ficha de la
   actividad, **solo donde promovemos nosotros** (`_concert_is_ours` → `_concert_is_group_promoted`):
   es nuestra política de menores la que se aplica. ⚠️ Al añadir la pestaña hay que meterla en la

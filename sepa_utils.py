@@ -115,9 +115,15 @@ def build_credit_transfer_xml(
 ) -> bytes:
     """Devuelve el XML `pain.001.001.03` de una remesa de transferencias.
 
-    `payments`: [{name, iban, bic, amount, concept, end_to_end}]. `execution_date` y `created_at` en
-    ISO (aaaa-mm-dd y aaaa-mm-ddThh:mm:ss). Las fechas y el identificador se pasan de fuera a
-    propósito: así el motor es determinista y se puede probar."""
+    `payments`: [{name, iban, bic, amount, concept, end_to_end, execution_date}]. `execution_date` y
+    `created_at` en ISO (aaaa-mm-dd y aaaa-mm-ddThh:mm:ss). Las fechas y el identificador se pasan de
+    fuera a propósito: así el motor es determinista y se puede probar.
+
+    ⚠️ **LA FECHA DE EMISIÓN VA POR BLOQUE, NO POR PAGO**: en `pain.001.001.03` la fecha en que el
+    banco ejecuta (`ReqdExctnDt`) vive en el `PmtInf`, no en el apunte. Así que cada pago puede
+    llevar SU fecha (`execution_date`), y aquí se agrupan por fecha en **un `PmtInf` por día**, que
+    es la forma que admite el estándar (y los tres bancos). Un pago sin fecha propia usa la de la
+    remesa (`execution_date`)."""
     perfil = bank_profile(bank_slug)
     max_id = int(perfil.get("max_id") or 35)
     validos = [p for p in payments if not check_payment(p, require_bic=bool(perfil.get("require_bic")))]
@@ -125,6 +131,12 @@ def build_credit_transfer_xml(
         raise ValueError("No hay ningún pago con los datos completos para generar la remesa.")
 
     total = sum((money(p.get("amount")) for p in validos), Decimal("0.00"))
+    # Un bloque por FECHA DE PAGO, en orden (el más próximo primero).
+    por_fecha: dict[str, list[dict]] = {}
+    for p in validos:
+        clave = str(p.get("execution_date") or "").strip() or execution_date
+        por_fecha.setdefault(clave, []).append(p)
+    bloques = sorted(por_fecha.items(), key=lambda kv: kv[0])
     ns = "urn:iso:std:iso:20022:tech:xsd:pain.001.001.03"
     ET.register_namespace("", ns)
     root = ET.Element(f"{{{ns}}}Document")
@@ -143,47 +155,52 @@ def build_credit_transfer_xml(
         othr = _el(_el(_el(initg, "Id"), "OrgId"), "Othr")
         _el(othr, "Id", sepa_text(debtor_tax_id, limit=max_id))
 
-    # --- Bloque de pago (uno solo: misma cuenta y misma fecha) ---
-    pmt = _el(cstmr, "PmtInf")
-    _el(pmt, "PmtInfId", sepa_text(message_id, limit=max_id))
-    _el(pmt, "PmtMtd", "TRF")
-    _el(pmt, "BtchBookg", "true")
-    _el(pmt, "NbOfTxs", str(len(validos)))
-    _el(pmt, "CtrlSum", f"{total:.2f}")
-    tp = _el(pmt, "PmtTpInf")
-    _el(_el(tp, "SvcLvl"), "Cd", "SEPA")
-    _el(pmt, "ReqdExctnDt", execution_date)
-    dbtr = _el(pmt, "Dbtr")
-    _el(dbtr, "Nm", sepa_text(debtor_name, limit=70))
-    if debtor_tax_id:
-        othr = _el(_el(_el(dbtr, "Id"), "OrgId"), "Othr")
-        _el(othr, "Id", sepa_text(debtor_tax_id, limit=max_id))
-    _el(_el(_el(pmt, "DbtrAcct"), "Id"), "IBAN", normalize_iban(debtor_iban))
-    dbtr_agt = _el(pmt, "DbtrAgt")
-    fin = _el(dbtr_agt, "FinInstnId")
-    if bic_is_valid(debtor_bic):
-        _el(fin, "BIC", re.sub(r"\s+", "", str(debtor_bic).upper()))
-    else:
-        # Sin BIC, SEPA admite «no facilitado» (los tres bancos lo aceptan con IBAN español).
-        _el(_el(fin, "Othr"), "Id", "NOTPROVIDED")
-    _el(pmt, "ChrgBr", "SLEV")
+    # --- Un bloque de pago por FECHA DE PAGO (misma cuenta, misma fecha de emisión) ---
+    # Con una sola fecha, el identificador del bloque es la referencia de la remesa (como siempre);
+    # con varias se le añade el orden, porque el `PmtInfId` tiene que ser único en el fichero.
+    for bidx, (fecha, pagos) in enumerate(bloques, start=1):
+        sub_total = sum((money(p.get("amount")) for p in pagos), Decimal("0.00"))
+        pmt_id = message_id if len(bloques) == 1 else f"{message_id}-{bidx}"
+        pmt = _el(cstmr, "PmtInf")
+        _el(pmt, "PmtInfId", sepa_text(pmt_id, limit=max_id))
+        _el(pmt, "PmtMtd", "TRF")
+        _el(pmt, "BtchBookg", "true")
+        _el(pmt, "NbOfTxs", str(len(pagos)))
+        _el(pmt, "CtrlSum", f"{sub_total:.2f}")
+        tp = _el(pmt, "PmtTpInf")
+        _el(_el(tp, "SvcLvl"), "Cd", "SEPA")
+        _el(pmt, "ReqdExctnDt", fecha)
+        dbtr = _el(pmt, "Dbtr")
+        _el(dbtr, "Nm", sepa_text(debtor_name, limit=70))
+        if debtor_tax_id:
+            othr = _el(_el(_el(dbtr, "Id"), "OrgId"), "Othr")
+            _el(othr, "Id", sepa_text(debtor_tax_id, limit=max_id))
+        _el(_el(_el(pmt, "DbtrAcct"), "Id"), "IBAN", normalize_iban(debtor_iban))
+        dbtr_agt = _el(pmt, "DbtrAgt")
+        fin = _el(dbtr_agt, "FinInstnId")
+        if bic_is_valid(debtor_bic):
+            _el(fin, "BIC", re.sub(r"\s+", "", str(debtor_bic).upper()))
+        else:
+            # Sin BIC, SEPA admite «no facilitado» (los tres bancos lo aceptan con IBAN español).
+            _el(_el(fin, "Othr"), "Id", "NOTPROVIDED")
+        _el(pmt, "ChrgBr", "SLEV")
 
-    # --- Un apunte por pago ---
-    for idx, pago in enumerate(validos, start=1):
-        tx = _el(pmt, "CdtTrfTxInf")
-        pid = _el(tx, "PmtId")
-        _el(pid, "EndToEndId", sepa_text(pago.get("end_to_end") or f"{message_id}-{idx}", limit=max_id) or "NOTPROVIDED")
-        amt = _el(tx, "Amt")
-        inst = _el(amt, "InstdAmt", f"{money(pago.get('amount')):.2f}")
-        inst.set("Ccy", "EUR")
-        if bic_is_valid(pago.get("bic")):
-            _el(_el(_el(tx, "CdtrAgt"), "FinInstnId"), "BIC", re.sub(r"\s+", "", str(pago["bic"]).upper()))
-        cdtr = _el(tx, "Cdtr")
-        _el(cdtr, "Nm", sepa_text(pago.get("name"), limit=70))
-        _el(_el(_el(tx, "CdtrAcct"), "Id"), "IBAN", normalize_iban(pago.get("iban")))
-        concepto = sepa_text(pago.get("concept"), limit=140)
-        if concepto:
-            _el(_el(tx, "RmtInf"), "Ustrd", concepto)
+        # --- Un apunte por pago ---
+        for idx, pago in enumerate(pagos, start=1):
+            tx = _el(pmt, "CdtTrfTxInf")
+            pid = _el(tx, "PmtId")
+            _el(pid, "EndToEndId", sepa_text(pago.get("end_to_end") or f"{pmt_id}-{idx}", limit=max_id) or "NOTPROVIDED")
+            amt = _el(tx, "Amt")
+            inst = _el(amt, "InstdAmt", f"{money(pago.get('amount')):.2f}")
+            inst.set("Ccy", "EUR")
+            if bic_is_valid(pago.get("bic")):
+                _el(_el(_el(tx, "CdtrAgt"), "FinInstnId"), "BIC", re.sub(r"\s+", "", str(pago["bic"]).upper()))
+            cdtr = _el(tx, "Cdtr")
+            _el(cdtr, "Nm", sepa_text(pago.get("name"), limit=70))
+            _el(_el(_el(tx, "CdtrAcct"), "Id"), "IBAN", normalize_iban(pago.get("iban")))
+            concepto = sepa_text(pago.get("concept"), limit=140)
+            if concepto:
+                _el(_el(tx, "RmtInf"), "Ustrd", concepto)
 
     xml = ET.tostring(root, encoding="UTF-8", xml_declaration=True)
     return xml

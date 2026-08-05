@@ -20,6 +20,13 @@
     <div class="flex-grow-1">
       <div class="d-flex gap-2 flex-wrap mb-2">
         <span class="badge {{ status_badge }}">{{ status_label }}</span>
+        {# APROBACIÓN DE DIRECCIÓN: sin ella la remesa no sale al banco. #}
+        {% if approved %}
+          <span class="badge text-bg-success" title="{{ batch.approved_by_nick }}{% if batch.approved_at %} · {{ batch.approved_at.strftime('%d/%m/%Y %H:%M') }}{% endif %}">
+            <i class="fa fa-circle-check me-1"></i>Aprobada por {{ batch.approved_by_nick or 'dirección' }}</span>
+        {% else %}
+          <span class="badge text-bg-warning text-dark"><i class="fa fa-hourglass-half me-1"></i>Pendiente de aprobación</span>
+        {% endif %}
         {% if batch.company %}<span class="badge text-bg-light border"><i class="fa fa-building me-1"></i>{{ batch.company.name }}</span>{% endif %}
         {% if batch.bank %}<span class="badge text-bg-light border">{{ batch.bank.name }}</span>{% endif %}
         {% if batch.execution_date %}<span class="badge text-bg-light border"><i class="fa fa-calendar-day me-1"></i>{{ batch.execution_date.strftime('%d/%m/%Y') }}</span>{% endif %}
@@ -31,12 +38,26 @@
       </div>
     </div>
     <div class="text-end">
+      {# El PDF de la remesa (logo de la empresa, cabecera y el listado de pagos) siempre disponible. #}
+      <a class="btn btn-outline-secondary mb-2" href="{{ url_for('payment_batch_pdf', batch_id=batch.id) }}" target="_blank" rel="noopener">
+        <i class="fa fa-file-pdf me-1"></i>PDF de la remesa
+      </a>
       {% if batch.status not in ['PAGADA', 'ANULADA'] %}
-        <a class="btn btn-primary {% if not batch.account_id or not count_ready %}disabled{% endif %}"
-           href="{{ url_for('payment_batch_export', batch_id=batch.id) }}">
-          <i class="fa fa-file-arrow-down me-1"></i>Descargar fichero para el banco
-        </a>
+        <div>
+          <a class="btn btn-primary {% if not batch.account_id or not count_ready or not approved %}disabled{% endif %}"
+             href="{{ url_for('payment_batch_export', batch_id=batch.id) }}">
+            <i class="fa fa-file-arrow-down me-1"></i>Descargar fichero para el banco
+          </a>
+        </div>
         {% if not batch.account_id %}<div class="small text-danger mt-1">Elige antes la cuenta desde la que se paga.</div>{% endif %}
+        {% if not approved %}
+          <div class="small text-danger mt-1">Falta la aprobación de dirección ({{ count_approved }} de {{ rows|length }} pagos con el OK).</div>
+          {% if IS_MASTER %}
+            <a class="btn btn-success btn-sm mt-2" href="{{ url_for('payment_batch_approve_view', batch_id=batch.id) }}">
+              <i class="fa fa-clipboard-check me-1"></i>Repasar y aprobar
+            </a>
+          {% endif %}
+        {% endif %}
         {# ANULAR: se sueltan sus pagos y vuelven a estar pendientes, como estaban. #}
         <div class="mt-2">
           <form method="post" action="{{ url_for('payment_batch_cancel', batch_id=batch.id) }}"
@@ -78,8 +99,13 @@
             <div class="mb-3">
               {{ accpick.account_picker(accounts, current_id=batch.account_id, company_id=batch.company_id) }}
             </div>
-            <label class="form-label">Fecha de ejecución</label>
-            <input type="date" class="form-control mb-3" name="execution_date" value="{{ batch.execution_date.isoformat() if batch.execution_date else '' }}">
+            <label class="form-label">Fecha de pago de la remesa</label>
+            <input type="date" class="form-control mb-2" name="execution_date" value="{{ batch.execution_date.isoformat() if batch.execution_date else '' }}">
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" name="apply_all_dates" value="1" id="applyAllDates" checked>
+              <label class="form-check-label small" for="applyAllDates">Ponerla en todos los pagos</label>
+            </div>
+            <div class="form-text mb-3">Es el día en que el banco emite los pagos. Cada pago puede llevar la suya: se pincha su fecha en la lista.</div>
             <button class="btn btn-outline-primary w-100"><i class="fa fa-check me-1"></i>Guardar</button>
           </form>
         {% endif %}
@@ -118,10 +144,30 @@
           <div class="p-3 border-bottom {{ 'bg-warning-subtle' if row.missing else '' }}">
             <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
               <div class="min-w-0">
-                <div class="fw-semibold">{{ row.name or 'Sin beneficiario' }}</div>
+                <div class="fw-semibold d-flex align-items-center gap-2 flex-wrap">
+                  {% if row.artist_name %}{{ artist_chip(row.artist_name, row.artist_photo) }}{% endif %}
+                  <span>{{ row.name or 'Sin beneficiario' }}</span>
+                  {% if row.approved %}
+                    <span class="badge text-bg-success" title="{{ row.approved_by }}{% if row.approved_at_label %} · {{ row.approved_at_label }}{% endif %}"><i class="fa fa-check me-1"></i>OK dirección</span>
+                  {% endif %}
+                </div>
                 <div class="small text-muted">
                   {{ row.concept or 'Sin concepto' }}
                   {% if row.iban_masked %} · <span class="font-monospace">{{ row.iban_masked }}</span>{% endif %}
+                </div>
+                {# FECHA DE PAGO de este pago: se pincha y se elige otra en el calendario. #}
+                <div class="small mt-1 pay-date" data-pay-date-row>
+                  <i class="fa fa-calendar-day text-muted me-1"></i>
+                  <span class="text-muted">Fecha de pago:</span>
+                  {% if batch.status == 'PAGADA' %}
+                    <span class="fw-semibold ms-1">{{ row.payment_date_label }}</span>
+                  {% else %}
+                    <button type="button" class="btn btn-link btn-sm p-0 align-baseline ms-1 pay-date__btn"
+                            data-pay-date="{{ url_for('payment_batch_item_date', batch_id=batch.id, item_id=row.id) }}"
+                            data-pay-date-value="{{ row.payment_date_iso }}"
+                            title="Cambiar la fecha en que se emite este pago">{{ row.payment_date_label }}</button>
+                    <input type="date" class="form-control form-control-sm d-none pay-date__input" value="{{ row.payment_date_iso }}">
+                  {% endif %}
                 </div>
                 {% if row.missing %}
                   <div class="small text-danger mt-1"><i class="fa fa-triangle-exclamation me-1"></i>Falta {{ row.missing_labels|join(', ') }}</div>
@@ -160,4 +206,8 @@
     </div>
   </div>
 </div>
+
+{# `pagos.js` trae el editor de la FECHA DE PAGO de cada pago (y no molesta con el resto: todo va
+   por delegación y no hace nada si no está en la página). #}
+<script src="{{ url_for('static', filename='js/pagos.js', v=ASSET_V) }}"></script>
 {% endblock %}

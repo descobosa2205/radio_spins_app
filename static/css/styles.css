@@ -3079,9 +3079,39 @@ body.doccam-open { overflow: hidden; }
 .pay-chip__x:hover{ color:var(--brand-primary,#E33D48); }
 .pay-exp{ border:1px solid #eceef0; border-radius:10px; padding:.5rem .6rem; margin-bottom:.4rem; background:#fff; }
 .pay-exp.is-dragging, .pay-bag.is-dragging{ opacity:.5; }
-/* Ya METIDO en una remesa: fondo azul clarito para verlo de un golpe. Si la remesa se anula, el
-   gasto se suelta y la fila vuelve a la normalidad. */
-.pay-exp.is-in-batch{ background:#e7f5ff; border-color:#a5d8ff; }
+/* Ya METIDO en una remesa: la fila se ve APAGADA, sobre gris clarito, para saber de un golpe que ya
+   está repartida. Si se saca de la remesa (o la remesa se anula) vuelve a la normalidad. */
+.pay-exp.is-in-batch, .pay-royalty.is-in-batch, .pay-bag.is-in-batch{
+  background:#f1f3f5; border-color:#dee2e6; opacity:.62; }
+.pay-exp.is-in-batch:hover, .pay-royalty.is-in-batch:hover, .pay-bag.is-in-batch:hover{ opacity:.85; }
+/* Los gastos DE DENTRO de una bolsa ya apagada no se apagan otra vez (se vería casi transparente). */
+.pay-bag.is-in-batch .pay-exp.is-in-batch{ opacity:1; }
+/* La FECHA DE PAGO se pincha para cambiarla (el día en que el banco la emite). */
+.pay-date__btn{ font-weight:600; text-decoration:underline dotted; text-underline-offset:2px; }
+.pay-date__input{ display:inline-block; width:auto; max-width:11rem; }
+
+/* ============ APROBACIÓN DE LA REMESA POR DIRECCIÓN (misma cabecera que el PDF) ============ */
+.ra-head{ background:#fff; border:1px solid #e6e8eb; border-radius:16px; padding:1.1rem 1.2rem; }
+.ra-head__top{ display:flex; gap:1rem; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; }
+.ra-head__title{ font-size:.74rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+  color:#8b95a1; margin-bottom:.15rem; }
+.ra-head__logo{ width:120px; max-height:56px; object-fit:contain; }
+.ra-total{ margin-top:1rem; border:1px solid var(--brand-primary,#E33D48); background:#fdecee;
+  border-radius:12px; padding:.6rem .8rem; text-align:center; }
+.ra-total__lab{ font-size:.7rem; font-weight:700; letter-spacing:.05em; color:#8d2630; }
+.ra-total__val{ font-size:1.7rem; font-weight:800; color:var(--brand-primary,#E33D48); line-height:1.1; }
+.ra-progress{ height:8px; background:#eef1f5; border-radius:999px; overflow:hidden; }
+.ra-progress__bar{ height:100%; background:#1e7e34; border-radius:999px; transition:width .25s ease; }
+.ra-item__head{ display:flex; gap:1rem; justify-content:space-between; align-items:flex-start;
+  flex-wrap:wrap; padding:1rem 1.1rem; border-bottom:1px solid #eceef0; }
+.ra-item__amount{ font-size:1.5rem; font-weight:800; }
+.ra-item__doc{ background:#f4f6f8; min-height:420px; display:flex; align-items:center; justify-content:center; }
+.ra-item__frame{ width:100%; height:70vh; min-height:420px; border:0; background:#fff; }
+.ra-item__img{ max-width:100%; max-height:70vh; object-fit:contain; }
+.ra-item__nodoc{ color:#8b95a1; padding:2rem; }
+.ra-item__nav{ display:flex; gap:.75rem; align-items:center; justify-content:space-between;
+  padding:.9rem 1.1rem; border-top:1px solid #eceef0; }
+.ra-item__links{ padding:0 1.1rem .9rem; font-size:.85rem; }
 
 /* ==================== INTEGRANTES del artista y sus NOTIFICACIONES ==================== */
 /* Solo el ANVERSO del DNI, a la derecha de los datos. */

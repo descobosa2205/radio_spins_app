@@ -7723,6 +7723,7 @@ ROYALTY_EVENT_LABELS = {
     "PAYMENT_REOPENED": "Vuelta a pendiente de pago",
     "CONSIGNED": "Datos consignados",
     "ACCOUNTED": "Contabilizada",
+    "BATCH_APPROVED": "Pago aprobado por dirección",
 }
 
 
@@ -47652,6 +47653,10 @@ def inject_personnel_globals():
                                if request.endpoint == "home" and session.get("user_id")
                                and "_home_admin_pending" in globals()
                                and has_access_key("administracion", include_descendants=True) else []),
+        # DIRECCIÓN: remesas de pago montadas que esperan su visto bueno.
+        "HOME_BATCH_APPROVALS": (_home_payment_batch_approvals()
+                                 if request.endpoint == "home" and session.get("user_id")
+                                 and "_home_payment_batch_approvals" in globals() else []),
         # Lo que LE PIDEN a administración: pasar un gasto sin factura, pagar ya, y las facturas
         # pedidas a proveedores que no han llegado.
         "HOME_ADMIN_REQUESTS": (_home_admin_requests()
@@ -51810,6 +51815,104 @@ def _expense_pending_amount(expense) -> Decimal:
     return resto if resto > 0 else Decimal("0")
 
 
+# ⚠️⚠️ COMPROBAR una factura y PAGARLA no son lo mismo con la retención en medio:
+#   · al COMPROBAR que la factura cuadra, lo que se compara es la BASE (`_invoice_amount_check`): la
+#     retención no cambia lo que se ha facturado ni lo que cuesta el gasto.
+#   · al PAGAR, el importe es el TOTAL DE LA FACTURA, o sea base + IVA **menos la retención**: es lo
+#     que de verdad va a recibir el tercero (lo retenido lo ingresa la casa en Hacienda).
+# Estos dos helpers son el punto único de lo segundo: lo que se le paga y lo que va al banco.
+def _expense_retention(session_db, expense, *, invoice=None) -> Decimal:
+    """La RETENCIÓN de un gasto: manda la de su FACTURA (es donde se lee) y si no, la del gasto.
+
+    ⚠️ Una factura que cubre VARIOS gastos no sirve para esto: su retención es del conjunto, no de
+    cada gasto, así que en ese caso vale la que tenga apuntada el gasto."""
+    if invoice is not None and getattr(invoice, "retention_amount", None) is not None:
+        return _money_or_zero(invoice.retention_amount)
+    inv = invoice
+    if inv is None:
+        try:
+            inv = (session_db.query(SupplierInvoice)
+                   .filter(SupplierInvoice.bag_expense_id == expense.id)
+                   .order_by(SupplierInvoice.created_at.desc()).first())
+            if inv is None:
+                fila = (session_db.query(BagExpenseInvoice)
+                        .filter(BagExpenseInvoice.bag_expense_id == expense.id,
+                                BagExpenseInvoice.supplier_invoice_id.isnot(None))
+                        .order_by(BagExpenseInvoice.created_at.desc()).first())
+                if fila is not None:
+                    cuantos = (session_db.query(func.count(BagExpenseInvoice.id))
+                               .filter(BagExpenseInvoice.supplier_invoice_id == fila.supplier_invoice_id)
+                               .scalar() or 1)
+                    if int(cuantos) <= 1:
+                        inv = session_db.get(SupplierInvoice, fila.supplier_invoice_id)
+        except Exception:
+            inv = None
+    if inv is not None and getattr(inv, "retention_amount", None) is not None:
+        return _money_or_zero(inv.retention_amount)
+    return _money_or_zero(getattr(expense, "retention_amount", 0))
+
+
+def _expense_retention_map(session_db, expenses) -> dict:
+    """La retención de MUCHOS gastos de una tacada.
+
+    «Pendiente de pago» lista cientos de gastos: preguntando uno a uno serían cientos de consultas."""
+    salida, ids = {}, []
+    for e in (expenses or []):
+        clave = str(getattr(e, "id", "") or "")
+        if not clave:
+            continue
+        salida[clave] = _money_or_zero(getattr(e, "retention_amount", 0))
+        ids.append(e.id)
+    if not ids:
+        return salida
+    try:
+        # Factura atada DIRECTAMENTE al gasto: es 1 a 1, así que su retención es la de este gasto.
+        for inv in (session_db.query(SupplierInvoice)
+                    .filter(SupplierInvoice.bag_expense_id.in_(ids)).all()):
+            if getattr(inv, "retention_amount", None) is not None:
+                salida[str(inv.bag_expense_id)] = _money_or_zero(inv.retention_amount)
+        # Facturas IMPUTADAS (una factura puede cubrir varios gastos): solo valen las de un solo gasto.
+        filas = (session_db.query(BagExpenseInvoice)
+                 .filter(BagExpenseInvoice.bag_expense_id.in_(ids),
+                         BagExpenseInvoice.supplier_invoice_id.isnot(None)).all())
+        if filas:
+            sup_ids = list({r.supplier_invoice_id for r in filas})
+            cuantos = {}
+            for sid, n in (session_db.query(BagExpenseInvoice.supplier_invoice_id,
+                                            func.count(func.distinct(BagExpenseInvoice.bag_expense_id)))
+                           .filter(BagExpenseInvoice.supplier_invoice_id.in_(sup_ids))
+                           .group_by(BagExpenseInvoice.supplier_invoice_id).all()):
+                cuantos[str(sid)] = int(n or 0)
+            solas = [to_uuid(x) for x in cuantos if cuantos.get(x, 0) <= 1]
+            invs = {}
+            if solas:
+                invs = {str(i.id): i for i in session_db.query(SupplierInvoice)
+                        .filter(SupplierInvoice.id.in_(solas)).all()}
+            for r in filas:
+                inv = invs.get(str(r.supplier_invoice_id))
+                clave = str(r.bag_expense_id)
+                if inv is not None and getattr(inv, "retention_amount", None) is not None:
+                    salida[clave] = _money_or_zero(inv.retention_amount)
+    except Exception:
+        pass
+    return salida
+
+
+def _expense_payable_gross(expense, retention) -> Decimal:
+    """LO QUE HAY QUE PAGARLE POR ESE GASTO: el total de la factura (bruto menos la retención)."""
+    bruto = _money_or_zero(getattr(expense, "amount_gross", 0))
+    resto = bruto - _money_or_zero(retention)
+    return resto if resto > 0 else Decimal("0")
+
+
+def _expense_payment_amount(session_db, expense, *, retention=None) -> Decimal:
+    """Lo que queda por PAGARLE: el total de la factura menos lo que ya se le haya pagado."""
+    if retention is None:
+        retention = _expense_retention(session_db, expense)
+    resto = _expense_payable_gross(expense, retention) - _money_or_zero(getattr(expense, "paid_amount", 0))
+    return resto if resto > 0 else Decimal("0")
+
+
 def _payment_pending_expenses(session_db, *, company_id=None, limit=800) -> list:
     """Gastos de bolsa pendientes de pago, ya consolidados (lo que de verdad hay que pagar)."""
     query = (session_db.query(BagExpense)
@@ -51826,10 +51929,13 @@ def _payment_pending_expenses(session_db, *, company_id=None, limit=800) -> list
     return rows
 
 
-def _payment_expense_row(session_db, expense) -> dict:
+def _payment_expense_row(session_db, expense, *, retention=None) -> dict:
     """Una línea de «pendiente de pago» lista para pintar."""
     ben = _expense_beneficiary(session_db, expense)
-    importe = _expense_pending_amount(expense)
+    if retention is None:
+        retention = _expense_retention(session_db, expense)
+    # LO QUE SE PAGA es el total de la factura: la retención NO se le abona al tercero.
+    importe = _expense_payment_amount(session_db, expense, retention=retention)
     faltan = sepa_check_payment({"name": ben["name"], "iban": ben["iban"], "bic": ben["bic"], "amount": importe})
     bag = getattr(expense, "bag", None)
     batch_id = str(getattr(expense, "payment_batch_id", "") or "")
@@ -51853,6 +51959,9 @@ def _payment_expense_row(session_db, expense) -> dict:
         # `amount` es SIEMPRE lo que queda por pagar: es lo que se manda al banco y lo que se ve.
         "amount": importe,
         "gross": bruto,
+        # Lo que hay que pagarle en total por este gasto (bruto − retención): con retención NO es el
+        # bruto, y es contra esto contra lo que se mide si queda algo pendiente.
+        "payable": _expense_payable_gross(expense, retention),
         "paid": ya_pagado,
         "partial": bool(ya_pagado > 0 and importe > 0),
         "beneficiary": ben["name"] or "Sin proveedor",
@@ -51869,7 +51978,7 @@ def _payment_expense_row(session_db, expense) -> dict:
         # factura con lo que se paga, y es lo que se enseña al abrir la factura.
         "net": _money_or_zero(getattr(expense, "amount_net", 0)),
         "vat": _money_or_zero(getattr(expense, "amount_tax", 0)),
-        "retention": _money_or_zero(getattr(expense, "retention_amount", 0)),
+        "retention": _money_or_zero(retention),
         "invoice_number": (getattr(expense, "invoice_number", None) or ""),
         "batch_id": batch_id,
         "in_batch": bool(batch_id),
@@ -52049,8 +52158,11 @@ def _payment_pending_context(session_db) -> list:
             }
         return grupos[clave]
 
+    # Las retenciones, de una tacada: son las que descuentan lo que se le paga a cada tercero.
+    retenciones = _expense_retention_map(session_db, expenses)
     for expense in expenses:
-        row = _payment_expense_row(session_db, expense)
+        row = _payment_expense_row(session_db, expense,
+                                   retention=retenciones.get(str(expense.id), Decimal("0")))
         grupo = _grupo(row["company_id"])
         grupo["total"] += row["amount"]
         grupo["count"] += 1
@@ -52091,6 +52203,9 @@ def _payment_pending_context(session_db) -> list:
 
     salida = []
     for grupo in grupos.values():
+        for bolsa in grupo["bags"].values():
+            # La bolsa se ve apagada cuando TODOS sus gastos ya están en una remesa.
+            bolsa["in_batch"] = bool(bolsa["rows"]) and all(r["in_batch"] for r in bolsa["rows"])
         grupo["bags"] = sorted(grupo["bags"].values(), key=lambda b: (b["title"] or "").casefold())
         salida.append(grupo)
     salida.sort(key=lambda g: (g["company_name"] or "").casefold())
@@ -52296,14 +52411,123 @@ def _payment_batch_next_reference(session_db) -> str:
     return f"{prefijo}{siguiente:04d}"
 
 
-def _payment_batch_context(session_db, batch) -> dict:
+def _payment_batch_item_artists(session_db, items) -> dict:
+    """De qué ARTISTA es cada pago de la remesa (para el PDF y la pantalla de aprobación).
+
+    De un gasto de bolsa sale por su bolsa; de una liquidación de royalties, del beneficiario. Se
+    resuelve de una tacada: una remesa puede llevar decenas de pagos."""
+    salida = {}
+    bag_por_item, art_ids = {}, set()
+    exp_ids = [i.expense_id for i in items if getattr(i, "expense_id", None)]
+    bags = {}
+    if exp_ids:
+        try:
+            gastos = (session_db.query(BagExpense.id, BagExpense.bag_id)
+                      .filter(BagExpense.id.in_(exp_ids)).all())
+            bag_ids = [b for _e, b in gastos if b]
+            if bag_ids:
+                bags = {str(b.id): b for b in session_db.query(WorkflowBag)
+                        .filter(WorkflowBag.id.in_(bag_ids)).all()}
+            for eid, bid in gastos:
+                bag = bags.get(str(bid or ""))
+                if bag is not None:
+                    bag_por_item[str(eid)] = bag
+                    if getattr(bag, "artist_id", None):
+                        art_ids.add(bag.artist_id)
+        except Exception:
+            bag_por_item = {}
+    liq_ids = [i.royalty_liquidation_id for i in items if getattr(i, "royalty_liquidation_id", None)]
+    liqs = {}
+    if liq_ids:
+        try:
+            for rec in session_db.query(RoyaltyLiquidation).filter(RoyaltyLiquidation.id.in_(liq_ids)).all():
+                liqs[str(rec.id)] = rec
+                if (rec.beneficiary_kind or "").upper() == "ARTIST" and rec.beneficiary_id:
+                    art_ids.add(rec.beneficiary_id)
+        except Exception:
+            liqs = {}
+    artistas = {}
+    if art_ids:
+        try:
+            artistas = {str(a.id): a for a in session_db.query(Artist)
+                        .filter(Artist.id.in_(list(art_ids))).all()}
+        except Exception:
+            artistas = {}
+    for item in items:
+        nombre, foto, origen = "", "", ""
+        bag = bag_por_item.get(str(getattr(item, "expense_id", "") or ""))
+        if bag is not None:
+            origen = (getattr(bag, "title", None) or "").strip()
+            art = artistas.get(str(getattr(bag, "artist_id", "") or ""))
+            if art is not None:
+                nombre = (getattr(art, "name", None) or "").strip()
+                foto = (getattr(art, "photo_url", None) or "")
+        rec = liqs.get(str(getattr(item, "royalty_liquidation_id", "") or ""))
+        if rec is not None:
+            origen = origen or "Liquidación de royalties"
+            art = artistas.get(str(getattr(rec, "beneficiary_id", "") or ""))
+            if art is not None:
+                nombre = nombre or (getattr(art, "name", None) or "").strip()
+                foto = foto or (getattr(art, "photo_url", None) or "")
+            if not nombre:
+                congelada = _royalty_frozen_beneficiary(rec) or {}
+                nombre = (congelada.get("name") or "").strip()
+                foto = foto or (congelada.get("photo_url") or "")
+        salida[str(item.id)] = {"artist_name": nombre, "artist_photo": foto, "source": origen}
+    return salida
+
+
+def _payment_batch_item_documents(session_db, items) -> dict:
+    """La FACTURA de cada pago, para poder repasarla en la pantalla de aprobación."""
+    salida = {}
+    exp_ids = [i.expense_id for i in items if getattr(i, "expense_id", None)]
+    gastos = {}
+    if exp_ids:
+        try:
+            gastos = {str(e.id): e for e in session_db.query(BagExpense)
+                      .filter(BagExpense.id.in_(exp_ids)).all()}
+        except Exception:
+            gastos = {}
+    liq_ids = [i.royalty_liquidation_id for i in items if getattr(i, "royalty_liquidation_id", None)]
+    facturas = {}
+    if liq_ids:
+        try:
+            for rec in session_db.query(RoyaltyLiquidation).filter(RoyaltyLiquidation.id.in_(liq_ids)).all():
+                inv = (session_db.get(SupplierInvoice, rec.invoice_id)
+                       if getattr(rec, "invoice_id", None) else None)
+                facturas[str(rec.id)] = inv
+        except Exception:
+            facturas = {}
+    for item in items:
+        url, numero = "", ""
+        exp = gastos.get(str(getattr(item, "expense_id", "") or ""))
+        if exp is not None:
+            url = (getattr(exp, "attachment_url", None) or "")
+            numero = (getattr(exp, "invoice_number", None) or "")
+        inv = facturas.get(str(getattr(item, "royalty_liquidation_id", "") or ""))
+        if inv is not None:
+            url = url or (getattr(inv, "file_url", None) or "")
+            numero = numero or (getattr(inv, "invoice_number", None) or "")
+        bajo = url.lower()
+        salida[str(item.id)] = {
+            "doc_url": url,
+            "invoice_number": numero,
+            "doc_is_image": bool(re.search(r"\.(png|jpe?g|webp|gif|heic)(\?|$)", bajo)),
+        }
+    return salida
+
+
+def _payment_batch_context(session_db, batch, *, with_documents: bool = False) -> dict:
     """Todo lo que enseña la ficha de una remesa: sus pagos, lo que falta y los totales."""
     items = (session_db.query(PaymentBatchItem)
              .options(joinedload(PaymentBatchItem.expense), joinedload(PaymentBatchItem.provider))
              .filter(PaymentBatchItem.batch_id == batch.id)
              .order_by(PaymentBatchItem.created_at.asc()).all())
     bank_slug = (getattr(getattr(batch, "bank", None), "file_format", None) or "SEPA_PAIN001")
-    filas, total, incompletos = [], Decimal("0"), 0
+    hoy = today_local()
+    sujetos = _payment_batch_item_artists(session_db, items)
+    docs = _payment_batch_item_documents(session_db, items) if with_documents else {}
+    filas, total, incompletos, aprobados = [], Decimal("0"), 0, 0
     for item in items:
         importe = _money_or_zero(item.amount)
         faltan = sepa_check_payment({"name": item.beneficiary_name, "iban": item.beneficiary_iban,
@@ -52313,9 +52537,15 @@ def _payment_batch_context(session_db, batch) -> dict:
             incompletos += 1
         else:
             total += importe
+        # FECHA DE PAGO: la del propio pago; los pagos de antes de que existiera este campo se quedan
+        # con la de la remesa.
+        fecha = getattr(item, "payment_date", None) or batch.execution_date or hoy
+        if getattr(item, "approved_at", None):
+            aprobados += 1
         filas.append({
             "id": str(item.id),
             "expense_id": str(item.expense_id or ""),
+            "royalty_id": str(getattr(item, "royalty_liquidation_id", "") or ""),
             "provider_id": str(item.provider_id or ""),
             "name": (item.beneficiary_name or ""),
             "iban": (item.beneficiary_iban or ""),
@@ -52325,6 +52555,18 @@ def _payment_batch_context(session_db, batch) -> dict:
             "amount": importe,
             "missing": faltan,
             "missing_labels": [REMESA_MISSING_LABELS.get(x, x) for x in faltan],
+            # Fecha en que se emite el pago (en el fichero del banco, la fecha de ejecución).
+            "payment_date": fecha,
+            "payment_date_iso": fecha.isoformat(),
+            "payment_date_label": ("Hoy" if fecha == hoy else fecha.strftime("%d/%m/%Y")),
+            "is_today": fecha == hoy,
+            # Visto bueno de dirección a este pago.
+            "approved": bool(getattr(item, "approved_at", None)),
+            "approved_by": (getattr(item, "approved_by_nick", None) or ""),
+            "approved_at_label": (item.approved_at.strftime("%d/%m/%Y %H:%M")
+                                  if getattr(item, "approved_at", None) else ""),
+            **(sujetos.get(str(item.id)) or {"artist_name": "", "artist_photo": "", "source": ""}),
+            **(docs.get(str(item.id)) or {}),
         })
     etiqueta, clase = _payment_batch_status_meta(batch.status)
     return {
@@ -52332,6 +52574,9 @@ def _payment_batch_context(session_db, batch) -> dict:
         "total": total,
         "count_ready": len(filas) - incompletos,
         "count_incomplete": incompletos,
+        "count_approved": aprobados,
+        "count_pending_approval": len(filas) - aprobados,
+        "approved": bool(getattr(batch, "approved_at", None)),
         "status_label": etiqueta,
         "status_badge": clase,
         "bank_slug": bank_slug,
@@ -52381,7 +52626,11 @@ def _payment_batch_add_expenses(session_db, batch, expense_ids) -> int:
             beneficiary_bic=(ben["bic"] or None),
             # El concepto del pago = el de la FACTURA que se paga (ver `_payment_concept_for_expense`).
             concept=_payment_concept_for_expense(session_db, expense),
-            amount=_expense_pending_amount(expense),
+            # LO QUE SE LE PAGA es el TOTAL DE LA FACTURA (con la retención ya descontada): es el
+            # importe que va a recibir.
+            amount=_expense_payment_amount(session_db, expense),
+            # Por defecto se paga HOY; se puede cambiar pago a pago en la ficha de la remesa.
+            payment_date=(batch.execution_date or today_local()),
         ))
         expense.payment_batch_id = batch.id
         ya.add(str(expense.id))
@@ -52493,10 +52742,16 @@ def _payment_batch_add_royalties(session_db, batch, liquidation_ids) -> int:
         congelada = _royalty_frozen_beneficiary(rec) or {}
         inv = session_db.get(SupplierInvoice, rec.invoice_id) if getattr(rec, "invoice_id", None) else None
         promoter = session_db.get(Promoter, inv.promoter_id) if (inv is not None and inv.promoter_id) else None
-        # Lo que va al banco es lo que se le pidió facturar: base de la liquidación + IVA.
-        importe = _royalty_invoice_totals(congelada)["gross"]
-        if importe <= 0 and inv is not None:
-            importe = _money_or_zero(getattr(inv, "amount_gross", None))
+        # ⚠️ LO QUE VA AL BANCO es el TOTAL DE LA FACTURA (que ya lleva descontada la retención, si la
+        # hay): es lo que va a recibir el beneficiario. Si la factura no trae importe, lo que se le
+        # pidió facturar MENOS la retención. Antes se mandaba base + IVA y con retención se pagaba
+        # de más. Es el mismo número que enseña «pendiente de pago».
+        ret_inv = (_money_or_zero(getattr(inv, "retention_amount", None))
+                   or _money_or_zero(congelada.get("retention_amount")))
+        fac_inv = _money_or_zero(getattr(inv, "amount_gross", None)) if inv is not None else Decimal("0")
+        importe = fac_inv if fac_inv > 0 else (_royalty_invoice_totals(congelada)["gross"] - ret_inv)
+        if importe < 0:
+            importe = Decimal("0")
         session_db.add(PaymentBatchItem(
             batch_id=batch.id,
             royalty_liquidation_id=rec.id,
@@ -52506,6 +52761,7 @@ def _payment_batch_add_royalties(session_db, batch, liquidation_ids) -> int:
             beneficiary_bic=((getattr(promoter, "bank_bic", None) or "").strip() or None),
             concept=("Royalties " + _royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end))[:140],
             amount=importe,
+            payment_date=(batch.execution_date or today_local()),
         ))
         rec.payment_batch_id = batch.id
         rec.updated_at = _now_madrid()
@@ -52804,8 +53060,11 @@ def payment_batch_create():
         session_db.flush()
         n = _payment_batch_add_expenses(session_db, batch, expense_ids)
         n += _payment_batch_add_royalties(session_db, batch, royalty_ids)
+        # Recién montada, la remesa está PENDIENTE DE APROBACIÓN: le sale a dirección en sus tareas.
+        _payment_batch_notify_approval(session_db, batch, n)
         session_db.commit()
-        flash(f"Remesa {batch.reference} creada con {n} pago(s).", "success")
+        flash(f"Remesa {batch.reference} creada con {n} pago(s). Queda pendiente de la aprobación de "
+              f"dirección; su PDF ya se puede descargar.", "success")
         return redirect(url_for("payment_batch_detail", batch_id=batch.id))
     except Exception as exc:
         session_db.rollback()
@@ -52887,6 +53146,7 @@ def royalty_liquidation_batch(liq_id):
             session_db.rollback()
             flash("No se pudo añadir la liquidación a la remesa.", "warning")
             return redirect(next_url)
+        _payment_batch_notify_approval(session_db, batch, n)
         session_db.commit()
         return redirect(url_for("payment_batch_detail", batch_id=batch.id))
     except Exception as exc:
@@ -52982,11 +53242,21 @@ def payment_batch_set_account(batch_id):
         batch.account_id = account.id
         batch.bank_id = account.bank_id
         fecha = parse_optional_date(request.form.get("execution_date"))
+        aviso = "Cuenta de pago actualizada."
         if fecha:
             batch.execution_date = fecha
+            # La fecha de la remesa es la de POR DEFECTO. Si se pide, se le pone a todos sus pagos
+            # (y cada uno se puede volver a cambiar por su cuenta).
+            if _truthy(request.form.get("apply_all_dates")):
+                n = 0
+                for item in session_db.query(PaymentBatchItem).filter(PaymentBatchItem.batch_id == batch.id).all():
+                    item.payment_date = fecha
+                    n += 1
+                if n:
+                    aviso += " Fecha de pago puesta en %d pago%s." % (n, "" if n == 1 else "s")
         batch.updated_at = _now_madrid()
         session_db.commit()
-        flash("Cuenta de pago actualizada.", "success")
+        flash(aviso, "success")
     except Exception as exc:
         session_db.rollback()
         flash(f"No se pudo guardar: {exc}", "danger")
@@ -53040,6 +53310,52 @@ def payment_batch_fix_item(batch_id, item_id):
     return redirect(next_url)
 
 
+@app.post("/administracion/remesas/<batch_id>/pago/<item_id>/fecha", endpoint="payment_batch_item_date")
+@admin_required
+def payment_batch_item_date(batch_id, item_id):
+    """FECHA DE PAGO de UN pago de la remesa (en el fichero del banco, su fecha de emisión: el día en
+    que el banco lo ejecuta). Se pincha la fecha en la ficha y se elige otra en el calendario."""
+    next_url = safe_next_or(request.form.get("next") or url_for("payment_batch_detail", batch_id=batch_id))
+    session_db = db()
+    try:
+        item = session_db.get(PaymentBatchItem, to_uuid(item_id))
+        if item is None or str(item.batch_id) != str(to_uuid(batch_id)):
+            if _is_xhr_request():
+                return jsonify({"ok": False, "error": "Pago no encontrado."}), 404
+            flash("Pago no encontrado.", "warning")
+            return redirect(next_url)
+        batch = session_db.get(PaymentBatch, to_uuid(batch_id))
+        if batch is not None and (batch.status or "").upper() == "PAGADA":
+            if _is_xhr_request():
+                return jsonify({"ok": False, "error": "La remesa ya está pagada."}), 400
+            flash("La remesa ya está pagada: su fecha de pago no se cambia.", "warning")
+            return redirect(next_url)
+        fecha = parse_optional_date(request.form.get("payment_date"))
+        if not fecha:
+            if _is_xhr_request():
+                return jsonify({"ok": False, "error": "Esa fecha no vale."}), 400
+            flash("Esa fecha no vale.", "warning")
+            return redirect(next_url)
+        item.payment_date = fecha
+        if batch is not None:
+            batch.updated_at = _now_madrid()
+        session_db.commit()
+        hoy = today_local()
+        if _is_xhr_request():
+            return jsonify({"ok": True, "payment_date": fecha.isoformat(),
+                            "label": ("Hoy" if fecha == hoy else fecha.strftime("%d/%m/%Y")),
+                            "is_today": fecha == hoy})
+        flash("Fecha de pago actualizada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        if _is_xhr_request():
+            return jsonify({"ok": False, "error": str(exc)}), 500
+        flash(f"No se pudo guardar la fecha: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
 @app.post("/administracion/remesas/<batch_id>/quitar/<item_id>", endpoint="payment_batch_remove_item")
 @admin_required
 def payment_batch_remove_item(batch_id, item_id):
@@ -53052,6 +53368,13 @@ def payment_batch_remove_item(batch_id, item_id):
             expense = session_db.get(BagExpense, item.expense_id) if item.expense_id else None
             if expense is not None and str(getattr(expense, "payment_batch_id", "")) == str(item.batch_id):
                 expense.payment_batch_id = None
+            # ⚠️ Una LIQUIDACIÓN DE ROYALTIES también tiene que quedar libre: si no, se seguía viendo
+            # como «ya está en una remesa» y no se podía volver a meter en ninguna.
+            if getattr(item, "royalty_liquidation_id", None):
+                rec = session_db.get(RoyaltyLiquidation, item.royalty_liquidation_id)
+                if rec is not None and str(getattr(rec, "payment_batch_id", "")) == str(item.batch_id):
+                    rec.payment_batch_id = None
+                    rec.updated_at = _now_madrid()
             session_db.delete(item)
             session_db.flush()
             batch = session_db.get(PaymentBatch, to_uuid(batch_id))
@@ -53092,6 +53415,251 @@ def payment_batch_add(batch_id):
     return redirect(next_url)
 
 
+def _build_payment_batch_pdf_bytes(batch, ctx) -> bytes:
+    """PDF de la REMESA DE PAGOS, con el estilo de casa: logo de la empresa del grupo arriba a la
+    DERECHA, «Remesa de pagos» centrado, cabecera con el nombre de la remesa, su fecha y el importe
+    total destacado, y debajo la tabla de los pagos (tercero · concepto · artista con foto · fecha de
+    pago · importe) con la suma total al final."""
+    if not REPORTLAB_AVAILABLE:
+        abort(503, "Generación de PDF no disponible en el servidor.")
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.platypus import Image as RLImage
+
+    company = getattr(batch, "company", None)
+    page_w, page_h = A4
+    margin = 14 * mm
+    usable_w = page_w - 2 * margin
+    BRAND = colors.HexColor("#E33D48")
+    GREY_T = colors.HexColor("#6b7683")
+
+    def eur_txt(x):
+        try:
+            q = Decimal(str(x or 0)).quantize(Decimal("0.01"))
+        except (InvalidOperation, ValueError):
+            q = Decimal("0")
+        ent, dec = f"{q:.2f}".split(".")
+        ent = "{:,}".format(int(ent)).replace(",", ".")
+        return f"{ent},{dec} €"
+
+    def _reader(url):
+        """Imagen para el PDF (remota o del propio servidor). Si falla, no se pinta nada."""
+        if not url:
+            return None
+        try:
+            if str(url).lower().startswith("http"):
+                import urllib.request
+                raw = urllib.request.urlopen(url, timeout=6).read()
+                return ImageReader(BytesIO(raw))
+            return ImageReader(url)
+        except Exception:
+            return None
+
+    logo_reader = _reader(getattr(company, "logo_url", None))
+    if logo_reader is None:
+        logo_reader = _reader(os.path.join(app.static_folder, "img", "logo_33_producciones.png"))
+
+    def _photo_flowable(url):
+        """Foto del artista, pequeña y redondeada (si no se puede bajar, celda vacía)."""
+        if not url:
+            return ""
+        try:
+            import urllib.request
+            raw = urllib.request.urlopen(url, timeout=5).read()
+            if PILLOW_AVAILABLE and PILImage is not None:
+                with PILImage.open(BytesIO(raw)) as img:
+                    img = img.convert("RGB")
+                    resampling = getattr(getattr(PILImage, "Resampling", PILImage), "LANCZOS",
+                                         getattr(PILImage, "LANCZOS", 1))
+                    img.thumbnail((80, 80), resampling)
+                    out = BytesIO()
+                    img.save(out, format="JPEG", quality=80)
+                    out.seek(0)
+                    raw = out.getvalue()
+            return RLImage(BytesIO(raw), width=15, height=15)
+        except Exception:
+            return ""
+
+    fecha_remesa = (batch.execution_date or (batch.created_at.date() if batch.created_at else today_local()))
+    pills = [
+        "Remesa: " + (batch.reference or "—"),
+        "Fecha de la remesa: " + fecha_remesa.strftime("%d/%m/%Y"),
+        "Pagos: %d" % len(ctx["rows"]),
+    ]
+    if company is not None:
+        pills.insert(0, "Empresa: " + (getattr(company, "name", None) or "—"))
+    if getattr(batch, "bank", None) is not None:
+        pills.append("Banco: " + (getattr(batch.bank, "name", None) or "—"))
+    if getattr(batch, "approved_at", None):
+        pills.append("Aprobada por %s el %s" % ((batch.approved_by_nick or "dirección"),
+                                                batch.approved_at.strftime("%d/%m/%Y")))
+
+    pill_font, pill_sz, pill_h, pill_gap = "Helvetica", 8.2, 15.0, 5.0
+
+    def pill_rows(texts):
+        rows, cur, cur_w = [], [], 0.0
+        for t in texts:
+            w = min(stringWidth(t, pill_font, pill_sz) + 14, usable_w)
+            if cur and cur_w + pill_gap + w > usable_w:
+                rows.append(cur)
+                cur, cur_w = [], 0.0
+            cur.append((t, w))
+            cur_w += (pill_gap if len(cur) > 1 else 0) + w
+        if cur:
+            rows.append(cur)
+        return rows
+
+    pill_layout = pill_rows(pills)
+    header_top = page_h - 12 * mm
+    y_cursor = header_top - 40            # logo + título
+    y_cursor -= 14                        # rótulo del grupo de pastillas
+    y_cursor -= len(pill_layout) * (pill_h + 4) + 4
+    cookie_h = 46.0
+    y_cursor -= 10 + cookie_h             # importe total destacado
+    y_cursor -= 12                        # holgura antes de la tabla
+    header_h = header_top - y_cursor
+
+    def draw_header(pdf_c, _doc):
+        y = header_top
+        if logo_reader:
+            try:
+                iw, ih = logo_reader.getSize()
+                sc = min(110.0 / iw, 34.0 / ih)
+                pdf_c.drawImage(logo_reader, page_w - margin - iw * sc, y - ih * sc,
+                                width=iw * sc, height=ih * sc, preserveAspectRatio=True, mask="auto")
+            except Exception:
+                pass
+        y -= 40
+        pdf_c.setFillColor(colors.HexColor("#212529"))
+        pdf_c.setFont("Helvetica-Bold", 18)
+        pdf_c.drawCentredString(page_w / 2, y, "Remesa de pagos")
+        y -= 4
+        # Cabecera de la remesa en pastillas
+        y -= 10
+        pdf_c.setFillColor(GREY_T)
+        pdf_c.setFont("Helvetica-Bold", 6.6)
+        pdf_c.drawString(margin, y, "DATOS DE LA REMESA")
+        y -= 4
+        for row in pill_layout:
+            y -= pill_h
+            x = margin
+            for txt, w in row:
+                pdf_c.setFillColor(colors.HexColor("#f6f8fa"))
+                pdf_c.setStrokeColor(colors.HexColor("#c9d2dc"))
+                pdf_c.setLineWidth(0.8)
+                pdf_c.roundRect(x, y, w, pill_h, pill_h / 2, fill=1, stroke=1)
+                pdf_c.setFillColor(colors.HexColor("#212529"))
+                pdf_c.setFont(pill_font, pill_sz)
+                pdf_c.drawString(x + 7, y + 4.2, txt)
+                x += w + pill_gap
+            y -= 4
+        y -= 4
+        # IMPORTE TOTAL, destacado
+        y -= 10 + cookie_h
+        pdf_c.setFillColor(colors.HexColor("#fdecee"))
+        pdf_c.setStrokeColor(BRAND)
+        pdf_c.setLineWidth(1)
+        pdf_c.roundRect(margin, y, usable_w, cookie_h, 9, fill=1, stroke=1)
+        pdf_c.setFillColor(colors.HexColor("#8d2630"))
+        pdf_c.setFont("Helvetica-Bold", 7.4)
+        pdf_c.drawCentredString(page_w / 2, y + cookie_h - 14, "IMPORTE TOTAL DE LA REMESA")
+        pdf_c.setFillColor(BRAND)
+        pdf_c.setFont("Helvetica-Bold", 20)
+        pdf_c.drawCentredString(page_w / 2, y + 11, eur_txt(ctx["total"]))
+        pdf_c.setFillColor(GREY_T)
+        pdf_c.setFont("Helvetica", 8)
+        pdf_c.drawRightString(page_w - margin, 10 * mm, "Página 1")
+
+    def draw_later(pdf_c, _doc):
+        if logo_reader:
+            try:
+                iw, ih = logo_reader.getSize()
+                sc = min(70.0 / iw, 22.0 / ih)
+                pdf_c.drawImage(logo_reader, page_w - margin - iw * sc, page_h - 10 * mm - ih * sc,
+                                width=iw * sc, height=ih * sc, preserveAspectRatio=True, mask="auto")
+            except Exception:
+                pass
+        pdf_c.setFillColor(GREY_T)
+        pdf_c.setFont("Helvetica", 8)
+        pdf_c.drawRightString(page_w - margin, 10 * mm, f"Página {pdf_c.getPageNumber()}")
+
+    styles = getSampleStyleSheet()
+    celda = ParagraphStyle("pbCell", parent=styles["Normal"], fontSize=8.4, leading=10.2)
+    fuerte = ParagraphStyle("pbStrong", parent=celda, fontName="Helvetica-Bold")
+
+    def esc(txt):
+        return (str(txt or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+    data = [["Tercero", "Concepto del pago", "", "Artista", "Fecha de pago", "Importe"]]
+    for r in ctx["rows"]:
+        data.append([
+            Paragraph(esc(r["name"] or "Sin beneficiario"), fuerte),
+            Paragraph(esc(r["concept"] or "Sin concepto"), celda),
+            _photo_flowable(r.get("artist_photo")),
+            Paragraph(esc(r.get("artist_name") or "—"), celda),
+            r["payment_date_label"],
+            eur_txt(r["amount"]),
+        ])
+    data.append(["", "", "", "", "TOTAL A PAGAR", eur_txt(ctx["total"])])
+    tabla = Table(data, colWidths=[None, None, 19 * mm, 32 * mm, 25 * mm, 25 * mm], repeatRows=1)
+    tabla.setStyle(TableStyle([
+        ("FONT", (0, 0), (-1, -1), "Helvetica", 8.4),
+        ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 8.2),
+        ("FONT", (0, -1), (-1, -1), "Helvetica-Bold", 9.4),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#49515d")),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f4f8")),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.7, colors.HexColor("#c9d2dc")),
+        ("LINEABOVE", (0, -1), (-1, -1), 1.0, colors.HexColor("#9aa8b5")),
+        ("TEXTCOLOR", (5, -1), (5, -1), BRAND),
+        ("ALIGN", (4, 0), (-1, -1), "RIGHT"),
+        ("ALIGN", (2, 0), (2, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#fafbfc")]),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story = [Spacer(1, header_h), tabla]
+    if ctx["count_incomplete"]:
+        story.append(Spacer(1, 8))
+        story.append(Paragraph(
+            "Hay %d pago(s) con datos incompletos: no van en el fichero del banco y no suman en el total."
+            % ctx["count_incomplete"],
+            ParagraphStyle("pbWarn", parent=celda, textColor=colors.HexColor("#b02a37"))))
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=12 * mm, bottomMargin=16 * mm,
+                            leftMargin=margin, rightMargin=margin,
+                            title="Remesa de pagos %s" % (batch.reference or ""))
+    doc.build(story, onFirstPage=draw_header, onLaterPages=draw_later)
+    return buf.getvalue()
+
+
+@app.get("/administracion/remesas/<batch_id>/pdf", endpoint="payment_batch_pdf")
+@admin_required
+def payment_batch_pdf(batch_id):
+    """El PDF de la remesa: se genera al vuelo, así que siempre dice lo que la remesa dice HOY."""
+    session_db = db()
+    try:
+        batch = (session_db.query(PaymentBatch)
+                 .options(joinedload(PaymentBatch.company), joinedload(PaymentBatch.account),
+                          joinedload(PaymentBatch.bank))
+                 .filter(PaymentBatch.id == to_uuid(batch_id)).first())
+        if batch is None:
+            flash("Remesa no encontrada.", "warning")
+            return redirect(url_for("administracion_view", tab="pendiente", subtab="pago"))
+        ctx = _payment_batch_context(session_db, batch)
+        pdf = _build_payment_batch_pdf_bytes(batch, ctx)
+        nombre = "%s_%s.pdf" % (_payment_batch_file_name(session_db, batch), batch.reference)
+        return Response(pdf, mimetype="application/pdf",
+                        headers={"Content-Disposition": f'inline; filename="{nombre}"'})
+    finally:
+        session_db.close()
+
+
 @app.get("/administracion/remesas/<batch_id>/fichero", endpoint="payment_batch_export")
 @admin_required
 def payment_batch_export(batch_id):
@@ -53111,9 +53679,17 @@ def payment_batch_export(batch_id):
             return redirect(url_for("payment_batch_detail", batch_id=batch.id))
         company = getattr(batch, "company", None)
         ctx = _payment_batch_context(session_db, batch)
+        # ⚠️ SIN LA APROBACIÓN DE DIRECCIÓN no sale al banco: para eso está el repaso.
+        if not ctx["approved"]:
+            flash("Esta remesa está pendiente de la aprobación de dirección: hasta que dé el visto "
+                  "bueno a sus facturas no se puede bajar el fichero para el banco.", "warning")
+            return redirect(url_for("payment_batch_detail", batch_id=batch.id))
         pagos = [{
             "name": r["name"], "iban": r["iban"], "bic": r["bic"],
             "amount": r["amount"], "concept": r["concept"],
+            # La FECHA DE PAGO de cada uno: el banco la lee como fecha de emisión. Los pagos con la
+            # misma fecha van en el mismo bloque del fichero (ver `sepa_utils`).
+            "execution_date": r["payment_date_iso"],
             "end_to_end": f"{batch.reference}-{idx + 1}",
         } for idx, r in enumerate(ctx["rows"]) if not r["missing"]]
         if not pagos:
@@ -53143,6 +53719,182 @@ def payment_batch_export(batch_id):
         session_db.commit()
         return Response(xml, mimetype="application/xml",
                         headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
+    finally:
+        session_db.close()
+
+
+# ------------------- APROBACIÓN DE LA REMESA POR DIRECCIÓN ---------------------------------------
+# Una remesa recién montada está PENDIENTE DE APROBACIÓN: le sale a dirección en sus tareas de
+# Inicio, repasa las facturas una a una (anterior · OK · siguiente) y cuando todas tienen el visto
+# bueno la remesa queda aprobada y ya se puede bajar el fichero para el banco. Quién dio el OK y
+# cuándo queda en la trazabilidad de cada gasto.
+def _direccion_user_ids(session_db) -> list:
+    """Quién es DIRECCIÓN (role 10), sin bloqueados ni eliminados."""
+    try:
+        fuera = _inactive_user_ids(session_db)
+        return [str(u.id) for u in session_db.query(User).filter(User.role == 10).all()
+                if u.id not in fuera]
+    except Exception:
+        return []
+
+
+def _payment_batch_notify_approval(session_db, batch, n_pagos: int) -> None:
+    """Avisa a dirección de que hay una remesa esperando su visto bueno."""
+    try:
+        _notify_users(
+            session_db, _direccion_user_ids(session_db), "REMESA",
+            "Remesa %s pendiente de aprobación" % (batch.reference or ""),
+            "%d pago%s · %s%s" % (n_pagos, "" if n_pagos == 1 else "s",
+                                  format_eur(_money_or_zero(batch.total_amount)),
+                                  (" · " + getattr(getattr(batch, "company", None), "name", "")
+                                   if getattr(batch, "company", None) is not None else "")),
+            url_for("payment_batch_approve_view", batch_id=batch.id),
+            ref_type="payment_batch", ref_id=str(batch.id))
+    except Exception:
+        pass
+
+
+def _payment_batches_pending_approval(session_db, limit: int = 30) -> list:
+    """Remesas montadas y todavía sin aprobar (ni pagadas ni anuladas)."""
+    try:
+        return (session_db.query(PaymentBatch)
+                .options(joinedload(PaymentBatch.company))
+                .filter(PaymentBatch.approved_at.is_(None))
+                .filter(PaymentBatch.status.in_(PAYMENT_BATCH_OPEN_STATUSES))
+                .order_by(PaymentBatch.created_at.asc()).limit(limit).all())
+    except Exception:
+        return []
+
+
+def _home_payment_batch_approvals() -> list:
+    """Módulo de Inicio de DIRECCIÓN: «Remesa pendiente de aprobación»."""
+    if not is_master():
+        return []
+    session_db = db()
+    try:
+        filas = []
+        for batch in _payment_batches_pending_approval(session_db):
+            n = (session_db.query(func.count(PaymentBatchItem.id))
+                 .filter(PaymentBatchItem.batch_id == batch.id).scalar() or 0)
+            aprobados = (session_db.query(func.count(PaymentBatchItem.id))
+                         .filter(PaymentBatchItem.batch_id == batch.id,
+                                 PaymentBatchItem.approved_at.isnot(None)).scalar() or 0)
+            if not n:
+                continue           # una remesa vacía no es nada que aprobar
+            filas.append({
+                "id": str(batch.id),
+                "reference": batch.reference or "",
+                "company_name": (getattr(getattr(batch, "company", None), "name", None) or ""),
+                "company_logo": (getattr(getattr(batch, "company", None), "logo_url", None) or ""),
+                "count": int(n),
+                "approved": int(aprobados),
+                "total": _money_or_zero(batch.total_amount),
+                "date_label": (batch.execution_date.strftime("%d/%m/%Y") if batch.execution_date else ""),
+                "url": url_for("payment_batch_approve_view", batch_id=batch.id),
+            })
+        return filas
+    except Exception:
+        return []
+    finally:
+        session_db.close()
+
+
+@app.get("/administracion/remesas/<batch_id>/aprobar", endpoint="payment_batch_approve_view")
+@admin_required
+def payment_batch_approve_view(batch_id):
+    """Repaso de la remesa por dirección: la cabecera de la remesa y, debajo, sus facturas una a una."""
+    if not is_master():
+        return forbid("Solo dirección aprueba las remesas de pago.")
+    session_db = db()
+    try:
+        batch = (session_db.query(PaymentBatch)
+                 .options(joinedload(PaymentBatch.company), joinedload(PaymentBatch.account),
+                          joinedload(PaymentBatch.bank))
+                 .filter(PaymentBatch.id == to_uuid(batch_id)).first())
+        if batch is None:
+            flash("Remesa no encontrada.", "warning")
+            return redirect(url_for("administracion_view", tab="pendiente", subtab="pago"))
+        ctx = _payment_batch_context(session_db, batch, with_documents=True)
+        return render_template("remesa_aprobar.html", batch=batch,
+                               iban_masked=_iban_masked, today=today_local(), **ctx)
+    finally:
+        session_db.close()
+
+
+@app.post("/administracion/remesas/<batch_id>/pago/<item_id>/ok", endpoint="payment_batch_item_approve")
+@admin_required
+def payment_batch_item_approve(batch_id, item_id):
+    """Dirección da (o quita) el visto bueno a UN pago de la remesa.
+
+    Cuando lo tienen todos, la remesa queda APROBADA. El OK se apunta en la trazabilidad del gasto
+    (quién de dirección y cuándo), que es donde se busca después."""
+    if not is_master():
+        return jsonify({"ok": False, "error": "Solo dirección aprueba las remesas."}), 403
+    session_db = db()
+    try:
+        item = session_db.get(PaymentBatchItem, to_uuid(item_id))
+        if item is None or str(item.batch_id) != str(to_uuid(batch_id)):
+            return jsonify({"ok": False, "error": "Pago no encontrado."}), 404
+        batch = session_db.get(PaymentBatch, to_uuid(batch_id))
+        if batch is None:
+            return jsonify({"ok": False, "error": "Remesa no encontrada."}), 404
+        estado = _current_user_state() or {}
+        quien = (estado.get("nick") or estado.get("email") or "dirección").strip()
+        deshacer = _truthy(request.form.get("undo"))
+        if deshacer:
+            item.approved_at = None
+            item.approved_by_user_id = None
+            item.approved_by_nick = None
+        else:
+            if not item.approved_at:
+                item.approved_at = _now_madrid()
+                item.approved_by_user_id = to_uuid(estado.get("user_id")) if estado.get("user_id") else None
+                item.approved_by_nick = quien or None
+                # TRAZABILIDAD: en el propio gasto, para que se vea desde la bolsa.
+                if getattr(item, "expense_id", None):
+                    session_db.add(BagPaymentInteraction(
+                        expense_id=item.expense_id, kind="REMESA_APROBADA",
+                        description="Dirección aprobó el pago en la remesa %s." % (batch.reference or ""),
+                        amount=_money_or_zero(item.amount), method=("Remesa %s" % (batch.reference or "")).strip(),
+                        created_by_user_id=item.approved_by_user_id, created_by_nick=quien or None))
+                if getattr(item, "royalty_liquidation_id", None):
+                    rec = session_db.get(RoyaltyLiquidation, item.royalty_liquidation_id)
+                    if rec is not None:
+                        _royalty_history_add(rec, "BATCH_APPROVED",
+                                             note="Remesa %s · %s" % ((batch.reference or ""), quien))
+                        rec.updated_at = _now_madrid()
+        session_db.flush()
+        total = (session_db.query(func.count(PaymentBatchItem.id))
+                 .filter(PaymentBatchItem.batch_id == batch.id).scalar() or 0)
+        aprobados = (session_db.query(func.count(PaymentBatchItem.id))
+                     .filter(PaymentBatchItem.batch_id == batch.id,
+                             PaymentBatchItem.approved_at.isnot(None)).scalar() or 0)
+        completa = bool(total and int(aprobados) >= int(total))
+        if completa and not batch.approved_at:
+            batch.approved_at = _now_madrid()
+            batch.approved_by_user_id = to_uuid(estado.get("user_id")) if estado.get("user_id") else None
+            batch.approved_by_nick = quien or None
+        elif not completa and batch.approved_at:
+            # Se ha quitado un OK: la remesa vuelve a estar pendiente de aprobación.
+            batch.approved_at = None
+            batch.approved_by_user_id = None
+            batch.approved_by_nick = None
+        batch.updated_at = _now_madrid()
+        session_db.commit()
+        return jsonify({
+            "ok": True,
+            "approved": bool(item.approved_at),
+            "approved_by": (item.approved_by_nick or ""),
+            "approved_at_label": (item.approved_at.strftime("%d/%m/%Y %H:%M") if item.approved_at else ""),
+            "count": int(total),
+            "count_approved": int(aprobados),
+            "batch_approved": bool(batch.approved_at),
+            "batch_approved_by": (batch.approved_by_nick or ""),
+            "batch_approved_at_label": (batch.approved_at.strftime("%d/%m/%Y %H:%M") if batch.approved_at else ""),
+        })
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 500
     finally:
         session_db.close()
 
@@ -53223,8 +53975,9 @@ def payment_batch_receipt(batch_id):
                 continue
             expense.payment_status = "PAGADO"
             # Si el gasto ya llevaba un pago parcial, la remesa paga la DIFERENCIA: se suma a lo que
-            # ya había (topando en el bruto), no se sustituye.
-            bruto = _money_or_zero(getattr(expense, "amount_gross", 0))
+            # ya había (topando en lo que hay que pagarle, o sea el bruto menos la retención), no se
+            # sustituye.
+            bruto = _expense_payable_gross(expense, _expense_retention(session_db, expense))
             acumulado = _money_or_zero(getattr(expense, "paid_amount", 0)) + _money_or_zero(item.amount)
             expense.paid_amount = bruto if (bruto > 0 and acumulado > bruto) else acumulado
             expense.payment_method = f"Remesa {batch.reference}"
@@ -56058,7 +56811,10 @@ def administration_expense_mark_paid(expense_id):
             session_db.commit()
             flash("Justificante guardado: el pago queda cerrado y archivado en «Pagos».", "success")
             return redirect(volver)
-        gross = _money_or_zero(getattr(expense, "amount_gross", 0))
+        # ⚠️ LO QUE HAY QUE PAGARLE es el TOTAL DE LA FACTURA (bruto − retención): la retención no se
+        # le abona (la ingresa la casa en Hacienda). Medir contra el bruto dejaba el gasto en PARCIAL
+        # para siempre al pagar lo que decía la factura.
+        gross = _expense_payable_gross(expense, _expense_retention(session_db, expense))
         ya_pagado = _money_or_zero(getattr(expense, "paid_amount", 0))
         pendiente = gross - ya_pagado
         if pendiente < 0:
@@ -70450,6 +71206,7 @@ NOTIFICATION_KIND_META = {
     "DISENO": ("Nueva solicitud de diseño", "fa-palette"),
     "ADMIN_PETICION": ("Nueva petición para administración", "fa-inbox"),
     "ADMIN_BOLSA": ("Nueva bolsa para liquidar", "fa-sack-dollar"),
+    "REMESA": ("Remesa pendiente de aprobación", "fa-file-invoice-dollar"),
 }
 
 

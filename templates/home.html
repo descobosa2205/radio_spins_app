@@ -134,6 +134,41 @@ document.addEventListener('click', function (ev) {
 </div>
 {% endif %}
 
+{# DIRECCIÓN: remesas de pago montadas que esperan su visto bueno. Se repasan factura a factura. #}
+{% if HOME_BATCH_APPROVALS %}
+<div class="card mb-4 border-danger">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <div>
+        <h5 class="mb-0"><i class="fa fa-file-invoice-dollar text-danger me-2"></i>Remesa pendiente de aprobación</h5>
+        <div class="small text-muted">Repasa sus facturas una a una: hasta que las apruebes, la remesa no sale al banco.</div>
+      </div>
+      <span class="badge text-bg-danger">{{ HOME_BATCH_APPROVALS|length }}</span>
+    </div>
+    <div class="row g-3">
+      {% for row in HOME_BATCH_APPROVALS %}
+        <div class="col-12 col-lg-6">
+          <a href="{{ row.url }}" class="text-decoration-none text-reset">
+            <div class="d-flex align-items-center gap-3 border rounded p-2 h-100">
+              {% if row.company_logo %}<img src="{{ row.company_logo }}" alt="" style="width:48px;height:48px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff;">{% else %}<span class="d-inline-flex align-items-center justify-content-center" style="width:48px;height:48px;border-radius:8px;background:#f1f3f7;"><i class="fa fa-building text-muted"></i></span>{% endif %}
+              <div class="flex-grow-1 min-w-0">
+                <div class="fw-semibold text-truncate">Remesa {{ row.reference }}{% if row.company_name %} · {{ row.company_name }}{% endif %}</div>
+                <div class="small text-muted text-truncate">
+                  {{ row.count }} pago{{ '' if row.count == 1 else 's' }} · {{ row.total|eur }}
+                  {% if row.date_label %} · {{ row.date_label }}{% endif %}
+                  {% if row.approved %} · {{ row.approved }} ya con el OK{% endif %}
+                </div>
+              </div>
+              <span class="badge text-bg-danger">Aprobar</span>
+            </div>
+          </a>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% if HOME_ADMIN_ALTAS_PENDING %}
 <div class="card mb-4 border-danger">
   <div class="card-body">

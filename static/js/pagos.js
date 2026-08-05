@@ -29,6 +29,20 @@
     if (pista) pista.classList.toggle('d-none', chips.length > 0);
   }
 
+  // Lo que ya se ha echado a la remesa se ve APAGADO en la lista (y vuelve a la normalidad si se
+  // quita el chip): así, de un vistazo, se sabe qué queda por repartir.
+  function dim(id, puesto) {
+    document.querySelectorAll('[data-pay-item][data-pay-id="' + id + '"]').forEach(function (el) {
+      el.classList.toggle('is-in-batch', !!puesto);
+      // Una bolsa entera apaga también sus gastos (van todos dentro).
+      if (el.getAttribute('data-pay-item') === 'bag') {
+        el.querySelectorAll('[data-pay-item="expense"]').forEach(function (h) {
+          h.classList.toggle('is-in-batch', !!puesto);
+        });
+      }
+    });
+  }
+
   function addChip(form, datos) {
     var zona = form.querySelector('[data-pay-zone]');
     if (!zona) return;
@@ -48,9 +62,11 @@
     chip.querySelector('.pay-chip__t').textContent = datos.label || 'Gasto';
     chip.querySelector('.pay-chip__x').addEventListener('click', function () {
       chip.remove();
+      dim(datos.id, false);
       refresh(form);
     });
     zona.appendChild(chip);
+    dim(datos.id, true);
     refresh(form);
   }
 
@@ -257,6 +273,78 @@
     }
     if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(modal).show();
   });
+
+  // --- FECHA DE PAGO de un pago de la remesa ---------------------------------------------------
+  // Es el día en que el banco emite el pago (en el fichero, la fecha de ejecución). Se pincha la
+  // fecha y se elige otra en el calendario; se guarda sin recargar.
+  function dateRow(el) { return el.closest('[data-pay-date-row]'); }
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('[data-pay-date]');
+    if (!btn) return;
+    e.preventDefault();
+    var fila = dateRow(btn);
+    var input = fila && fila.querySelector('.pay-date__input');
+    if (!input) return;
+    btn.classList.add('d-none');
+    input.classList.remove('d-none');
+    input.focus();
+    // Chrome/Edge abren el calendario solos; en el resto vale con el campo enfocado.
+    try { if (input.showPicker) input.showPicker(); } catch (_) { /* nada */ }
+  });
+
+  function saveDate(input) {
+    var fila = dateRow(input);
+    var btn = fila && fila.querySelector('[data-pay-date]');
+    if (!btn) return;
+    var valor = input.value || '';
+    var previo = btn.getAttribute('data-pay-date-value') || '';
+    function cerrar() {
+      input.classList.add('d-none');
+      btn.classList.remove('d-none');
+    }
+    if (!valor || valor === previo) { input.value = previo; cerrar(); return; }
+    var datos = new FormData();
+    datos.append('payment_date', valor);
+    input.disabled = true;
+    fetch(btn.getAttribute('data-pay-date'), {
+      method: 'POST', body: datos, credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      input.disabled = false;
+      if (!d || !d.ok) {
+        input.value = previo;
+        alert((d && d.error) || 'No se pudo guardar la fecha.');
+        cerrar();
+        return;
+      }
+      btn.textContent = d.label || valor;
+      btn.setAttribute('data-pay-date-value', d.payment_date || valor);
+      input.value = d.payment_date || valor;
+      cerrar();
+    }).catch(function () {
+      input.disabled = false;
+      input.value = previo;
+      cerrar();
+    });
+  }
+
+  document.addEventListener('change', function (e) {
+    var input = e.target.closest && e.target.closest('.pay-date__input');
+    if (input) saveDate(input);
+  });
+  document.addEventListener('blur', function (e) {
+    var input = e.target.closest && e.target.closest('.pay-date__input');
+    // Al salir sin tocar nada se cierra el campo y se deja la fecha como estaba.
+    if (input && !input.classList.contains('d-none')) {
+      var fila = dateRow(input);
+      var btn = fila && fila.querySelector('[data-pay-date]');
+      if (btn && input.value === (btn.getAttribute('data-pay-date-value') || '')) {
+        input.classList.add('d-none');
+        btn.classList.remove('d-none');
+      }
+    }
+  }, true);
 
   document.querySelectorAll('[data-pay-drop]').forEach(refresh);
 })();

@@ -24,8 +24,13 @@
       </div>
       <div class="small text-muted">{{ row.beneficiary }}{% if row.iban_masked %} · <span class="font-monospace">{{ row.iban_masked }}</span>{% endif %}</div>
       {% if row.partial %}
+        {# El total a pagar es el de la FACTURA (con la retención ya descontada): es contra ese
+           número contra el que se mide lo que queda. #}
         <div class="small"><span class="badge text-bg-warning text-dark">Pagado en parte</span>
-          <span class="text-muted ms-1">{{ row.paid|eur }} de {{ row.gross|eur }} · quedan {{ row.amount|eur }}</span></div>
+          <span class="text-muted ms-1">{{ row.paid|eur }} de {{ row.payable|eur }} · quedan {{ row.amount|eur }}</span></div>
+      {% endif %}
+      {% if row.retention %}
+        <div class="small text-muted"><i class="fa fa-scissors me-1"></i>Retención {{ row.retention|eur }} (no se le abona: la ingresa la casa)</div>
       {% endif %}
       {% if row.missing %}<div class="small text-danger"><i class="fa fa-triangle-exclamation me-1"></i>Falta {{ row.missing_labels|join(', ') }}</div>{% endif %}
       {# Avisos antes de abonar: orden de embargo vigente y adelantos/deudas con la casa. #}
@@ -329,7 +334,7 @@
           {# Liquidaciones (bolsas): el total pendiente y cuántos gastos incluye; al pinchar se abren #}
           {% for bolsa in grupo.bags %}
             {% set bid = bolsa.bag_id|replace('-','') %}
-            <div class="p-3 border-bottom pay-bag" draggable="true"
+            <div class="p-3 border-bottom pay-bag{{ ' is-in-batch' if bolsa.in_batch }}" draggable="true"
                  data-pay-item="bag" data-pay-id="{{ bolsa.bag_id }}" data-pay-company="{{ grupo.company_id }}"
                  data-pay-label="{{ bolsa.title }}" data-pay-amount="{{ bolsa.total }}">
               <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
@@ -356,7 +361,7 @@
             <div class="p-3 border-bottom">
               <div class="small text-muted mb-2"><i class="fa fa-percent me-1"></i>Liquidaciones de royalties</div>
               {% for r in grupo.royalties %}
-                <div class="d-flex align-items-center gap-2 border rounded p-2 mb-2 flex-wrap pay-royalty" draggable="true"
+                <div class="d-flex align-items-center gap-2 border rounded p-2 mb-2 flex-wrap pay-royalty{{ ' is-in-batch' if r.batch_id }}" draggable="true"
                      data-pay-item="royalty" data-pay-id="{{ r.id }}" data-pay-company="{{ grupo.company_id }}"
                      data-pay-label="{{ r.name }} · {{ r.period_label }}" data-pay-amount="{{ r.amount }}">
                   <i class="fa fa-grip-vertical text-muted"></i>

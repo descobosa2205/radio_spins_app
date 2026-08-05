@@ -46,7 +46,11 @@
         <h6 class="psum-docs__title">Matrículas</h6>
         <div class="docs-pills" data-docs-grid="PLATE"></div>
       </div>
-      {% if identity_extra %}{% include identity_extra %}{% endif %}
+      {# ⚠️ Las NECESIDADES DE VIAJE se pintan con `_travel_summary_view.html`, que pide su dato en
+         `ts`: sin pasárselo se quedaba vacío y la información desaparecía de la ficha (bug real). #}
+      {% if identity_travel %}
+        {% with ts=identity_travel %}{% include '_travel_summary_view.html' %}{% endwith %}
+      {% endif %}
     </div>
     <div class="col-lg-5 col-xl-4">
       {# Solo el DNI se enseña con su imagen; el resto va en las etiquetas de abajo. #}
@@ -65,3 +69,8 @@
     </div>
   </div>
 </div>
+{# ⚠️ El MODAL de alta/edición de un documento (el que abre el «+») lo trae normalmente el módulo
+   COMPLETO de documentos, que en esta vista ya no está: sin él, el «+» no hacía nada (bug real). Se
+   incluye cuando el llamante dice que en esta pantalla no hay panel, y UNA sola vez por página
+   (person_docs.js comparte un único modal entre todos los paneles). #}
+{% if identity_with_doc_modal %}{% include '_person_doc_modal.html' %}{% endif %}

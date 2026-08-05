@@ -49,7 +49,8 @@
       {% set identity_id = 'promoterIdentity' %}
       {% set identity_owner_name = ((promoter.first_name ~ ' ' ~ promoter.last_name)|trim) or promoter.nick %}
       {% set identity_can_add = person_docs_can_edit %}
-      {% set identity_extra = '_travel_summary_view.html' %}
+      {% set identity_travel = travel_summary %}
+      {% set identity_with_doc_modal = True %}
       {% include '_person_identity_summary.html' %}
     </div></div>
 

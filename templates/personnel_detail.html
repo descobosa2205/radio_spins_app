@@ -71,6 +71,7 @@
     {% set identity_id = 'personDatosIdentity' %}
     {% set identity_owner_name = full_name or profile.nick %}
     {% set identity_can_add = True %}
+    {% set identity_with_doc_modal = True %}
     {% include '_person_identity_summary.html' %}
       {% if profile.departments %}<div class="d-flex flex-wrap gap-1 mt-3">{% for dept in profile.departments %}<span class="badge text-bg-light border">{{ dept }}</span>{% endfor %}</div>{% endif %}
       {% if profile.admin_responsibilities and 'Administración' in (profile.departments or []) %}

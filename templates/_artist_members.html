@@ -324,9 +324,12 @@
            ETIQUETAS de sus documentos con el «+» para añadir (y el pop-up al pincharlas). Para
            gestionarlos todos está la pestaña «Documentos» de su ficha de tercero. #}
         <hr>
+        {# El modal de alta de documento (el «+») NO se pide aquí: esta plantilla ya lo incluye UNA
+           vez al final para todos los integrantes (person_docs.js comparte un único modal). #}
         {% with identity_id='memberIdentity-' ~ c.id,
                 identity_owner_name=c.name,
                 identity_can_add=c.can_edit,
+                identity_with_doc_modal=False,
                 identity_fields=c.identity_fields,
                 person_documents=c.documents,
                 person_docs_owner_type='PROMOTER',

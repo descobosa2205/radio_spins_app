@@ -43383,10 +43383,14 @@ def administration_royalty_invoice_review(invoice_id):
                          and abs(esperado["gross"] - (fac_bruto + fac_ret)) > Decimal("0.01")
                          and abs(esperado["gross"] - fac_bruto) > Decimal("0.01")
                          and abs(esperado["net"] - fac_bruto) > Decimal("0.01"))
+        cuadre = _royalty_invoice_checks(inv, esperado, totales, fac_ret, pago)
         return render_template(
             "administration_royalty_invoice.html",
             inv=inv, liquidation=rec, promoter=promoter, beneficiary=beneficiary,
             invoice_totals=totales,
+            # CUADRE concepto a concepto (base · IVA · retención · a pagar): verde lo que cuadra y
+            # rojo lo que no, para verlo de un golpe antes de validar.
+            checks=cuadre,
             # Retención (de la propia factura o del congelado) y lo que de verdad se abona.
             retention=fac_ret,
             retention_pct=_money_or_zero(getattr(inv, "retention_pct", None)),
@@ -43406,6 +43410,76 @@ def administration_royalty_invoice_review(invoice_id):
         )
     finally:
         session_db.close()
+
+
+def _royalty_invoice_checks(inv, esperado: dict, totales: dict, retencion, pago) -> dict:
+    """¿CUADRA la factura con la liquidación? Concepto a concepto, para pintarlo verde o rojo.
+
+    Lo que se comprueba, y por qué cada uno:
+      · BASE     → tiene que ser la de la liquidación (es el número que se pidió facturar).
+      · IVA      → el que sale de aplicar su % a la base (si la factura no lo desglosa, no se juzga).
+      · RETENCIÓN→ solo si la factura la trae: que el % que dice cuadre con el importe.
+      · A PAGAR  → base + IVA − retención. ⚠️ Con retención el importe a pagar es MENOR que lo que se
+        liquida, y eso es correcto: lo que se comprueba es que el cálculo salga, no que sea igual.
+    Cada entrada trae `ok` (True/False/None = no se puede juzgar) y una explicación."""
+    cent = Decimal("0.01")
+
+    def _cerca(a, b, tol=cent):
+        return abs(_money_or_zero(a) - _money_or_zero(b)) <= tol
+
+    base_esp = _money_or_zero(esperado.get("net"))
+    base_fac = _money_or_zero(getattr(inv, "amount_net", None)) or _money_or_zero(totales.get("net"))
+    iva_fac = _money_or_zero(getattr(inv, "amount_vat", None))
+    pct_iva = _money_or_zero(getattr(inv, "vat_pct", None)) or _money_or_zero(esperado.get("vat_pct"))
+    ret = _money_or_zero(retencion)
+    pct_ret = _money_or_zero(getattr(inv, "retention_pct", None))
+    total_fac = _money_or_zero(getattr(inv, "amount_gross", None))
+
+    filas = {}
+    # BASE
+    if base_esp <= 0 or base_fac <= 0:
+        filas["net"] = {"ok": None, "note": "No se puede comprobar: falta la base."}
+    elif _cerca(base_fac, base_esp):
+        filas["net"] = {"ok": True, "note": "Es la base de la liquidación."}
+    else:
+        filas["net"] = {"ok": False,
+                        "note": "La liquidación dice %s y la factura %s." % (format_eur(base_esp), format_eur(base_fac))}
+    # IVA
+    if iva_fac <= 0:
+        filas["vat"] = {"ok": None, "note": ("La factura no desglosa el IVA."
+                                             if base_fac > 0 else "Sin datos.")}
+    elif pct_iva > 0 and base_fac > 0:
+        esperado_iva = (base_fac * pct_iva / Decimal("100")).quantize(cent)
+        filas["vat"] = ({"ok": True, "note": "%g%% de la base." % float(pct_iva)}
+                        if _cerca(iva_fac, esperado_iva, Decimal("0.02"))
+                        else {"ok": False, "note": "El %g%% de %s serían %s."
+                              % (float(pct_iva), format_eur(base_fac), format_eur(esperado_iva))})
+    else:
+        filas["vat"] = {"ok": None, "note": "Sin porcentaje no se puede comprobar."}
+    # RETENCIÓN (solo si la hay)
+    if ret <= 0:
+        filas["retention"] = {"ok": None, "note": "La factura no lleva retención."}
+    elif pct_ret > 0 and base_fac > 0:
+        esperada_ret = (base_fac * pct_ret / Decimal("100")).quantize(cent)
+        filas["retention"] = ({"ok": True, "note": "%g%% de la base." % float(pct_ret)}
+                              if _cerca(ret, esperada_ret, Decimal("0.02"))
+                              else {"ok": False, "note": "El %g%% de %s serían %s."
+                                    % (float(pct_ret), format_eur(base_fac), format_eur(esperada_ret))})
+    else:
+        filas["retention"] = {"ok": True, "note": "Se descuenta de lo que se le paga."}
+    # A PAGAR: base + IVA − retención
+    calculado = (base_fac + iva_fac - ret) if base_fac > 0 else Decimal("0")
+    a_pagar = total_fac if total_fac > 0 else _money_or_zero(pago)
+    if base_fac <= 0 or a_pagar <= 0:
+        filas["total"] = {"ok": None, "note": "No se puede comprobar."}
+    elif _cerca(a_pagar, calculado, Decimal("0.02")):
+        filas["total"] = {"ok": True,
+                          "note": ("Base + IVA − retención." if ret > 0 else "Base + IVA.")}
+    else:
+        filas["total"] = {"ok": False, "note": "Base + IVA%s serían %s."
+                          % ((" − retención" if ret > 0 else ""), format_eur(calculado))}
+    filas["all_ok"] = all(v.get("ok") is not False for k, v in filas.items() if k != "all_ok")
+    return filas
 
 
 @app.post('/administracion/royalties/factura/<invoice_id>/validar', endpoint='administration_royalty_invoice_validate')
@@ -45147,13 +45221,15 @@ ADMINISTRATION_LIQ_TABS = [
     ("bolsas", "Bolsas", "fa-sack-dollar"),
     ("pendiente-factura", "Enviadas pendientes de factura", "fa-paper-plane"),
 ]
+# Subpestañas de «Pendiente», EN EL ORDEN DEL TRABAJO: primero lo que nos piden, después liquidar la
+# bolsa, pagarla, y las facturas que hemos pedido. Cada una con su icono, como el resto de la app.
 ADMINISTRATION_PENDING_TABS = [
-    ("solicitudes", "Solicitudes"),
-    ("oficina", "De oficina"),
-    ("pago", "De pago"),
-    ("facturacion", "De facturación"),
-    ("liquidacion", "De liquidación"),
-    ("cierre", "De cierre"),
+    ("solicitudes", "Solicitudes", "fa-inbox"),
+    ("liquidacion", "De liquidación", "fa-scale-balanced"),
+    ("pago", "De pago", "fa-money-bill-transfer"),
+    ("facturacion", "De facturación", "fa-file-invoice"),
+    ("oficina", "De oficina", "fa-building"),
+    ("cierre", "De cierre", "fa-box-archive"),
 ]
 # Estados de bolsa de cada subpestaña de «Pendiente». Los usan el CONTADOR **y** las listas de la
 # plantilla, para que el número y las filas digan siempre lo mismo (antes el contador de
@@ -53602,11 +53678,12 @@ def payment_batch_export(batch_id):
             return redirect(url_for("payment_batch_detail", batch_id=batch.id))
         company = getattr(batch, "company", None)
         ctx = _payment_batch_context(session_db, batch)
-        # ⚠️ SIN LA APROBACIÓN DE DIRECCIÓN no sale al banco: para eso está el repaso.
+        # ⚠️ EL FICHERO SE PUEDE BAJAR ANTES DE LA APROBACIÓN, a propósito: así se deja PRECARGADO en
+        # la plataforma del banco mientras dirección repasa las facturas, y cuando da el visto bueno
+        # solo hay que confirmarlo allí. Se avisa de que aún no está aprobada, pero no se bloquea.
         if not ctx["approved"]:
-            flash("Esta remesa está pendiente de la aprobación de dirección: hasta que dé el visto "
-                  "bueno a sus facturas no se puede bajar el fichero para el banco.", "warning")
-            return redirect(url_for("payment_batch_detail", batch_id=batch.id))
+            flash("Ojo: esta remesa todavía no la ha aprobado dirección. Puedes dejar el fichero "
+                  "precargado en el banco, pero no lo confirmes hasta que dé el visto bueno.", "warning")
         pagos = [{
             "name": r["name"], "iban": r["iban"], "bic": r["bic"],
             "amount": r["amount"], "concept": r["concept"],
@@ -53939,34 +54016,6 @@ def payment_batch_receipt(batch_id):
     except Exception as exc:
         session_db.rollback()
         flash(f"No se pudo cerrar la remesa: {exc}", "danger")
-    finally:
-        session_db.close()
-    return redirect(next_url)
-
-
-@app.post("/administracion/remesas/<batch_id>/eliminar", endpoint="payment_batch_delete")
-@admin_required
-def payment_batch_delete(batch_id):
-    """Deshacer una remesa que aún no se ha pagado: sus gastos vuelven a pendiente de pago."""
-    next_url = safe_next_or(request.form.get("next") or url_for("administracion_view", tab="pendiente", subtab="pago"))
-    session_db = db()
-    try:
-        batch = session_db.get(PaymentBatch, to_uuid(batch_id))
-        if batch is None:
-            return redirect(next_url)
-        if (batch.status or "BORRADOR").upper() == "PAGADA":
-            flash("Una remesa ya pagada no se borra.", "warning")
-            return redirect(url_for("payment_batch_detail", batch_id=batch.id))
-        for item in session_db.query(PaymentBatchItem).filter(PaymentBatchItem.batch_id == batch.id).all():
-            expense = session_db.get(BagExpense, item.expense_id) if item.expense_id else None
-            if expense is not None and str(getattr(expense, "payment_batch_id", "")) == str(batch.id):
-                expense.payment_batch_id = None
-        session_db.delete(batch)
-        session_db.commit()
-        flash("Remesa deshecha. Sus gastos vuelven a pendiente de pago.", "success")
-    except Exception as exc:
-        session_db.rollback()
-        flash(f"No se pudo deshacer: {exc}", "danger")
     finally:
         session_db.close()
     return redirect(next_url)
@@ -56499,7 +56548,7 @@ def administracion_view():
         if tab not in valid_tabs:
             tab = "pendiente"
         pending_subtab = (request.args.get("subtab") or "solicitudes").strip().lower()
-        if pending_subtab not in {key for key, _label in ADMINISTRATION_PENDING_TABS}:
+        if pending_subtab not in {key for key, _label, _icon in ADMINISTRATION_PENDING_TABS}:
             pending_subtab = "solicitudes"
         liq_subtab = (request.args.get("liq_tab") or request.args.get("subtab") or "bolsas").strip().lower()
         if liq_subtab not in {k for k, _l, _i in ADMINISTRATION_LIQ_TABS}:

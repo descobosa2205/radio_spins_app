@@ -1,15 +1,9 @@
 {% extends "layout.html" %}
 {% import '_bank_account_picker.html' as accpick with context %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+<div class="mb-2">
   <a href="{{ url_for('administracion_view', tab='pendiente', subtab='pago') }}" class="btn btn-outline-secondary btn-volver"
      title="Volver a Pendiente de pago" aria-label="Volver a Pendiente de pago"><i class="fa fa-arrow-left"></i></a>
-  {% if batch.status != 'PAGADA' %}
-    <form method="post" action="{{ url_for('payment_batch_delete', batch_id=batch.id) }}"
-          onsubmit="return confirm('¿Deshacer la remesa? Sus gastos vuelven a pendiente de pago.');">
-      <button class="btn btn-outline-danger"><i class="fa fa-rotate-left me-1"></i>Deshacer remesa</button>
-    </form>
-  {% endif %}
 </div>
 
 <div class="ficha-hero artist-hero mb-4">
@@ -35,41 +29,39 @@
       <div class="text-muted mt-1">
         {{ count_ready }} pago{{ '' if count_ready == 1 else 's' }} listo{{ '' if count_ready == 1 else 's' }} · <strong>{{ total|eur }}</strong>
         {% if count_incomplete %} · <span class="text-danger">{{ count_incomplete }} con datos incompletos</span>{% endif %}
+        {% if not approved %} · <span class="text-warning-emphasis">{{ count_approved }} de {{ rows|length }} con el OK de dirección</span>{% endif %}
       </div>
     </div>
-    <div class="text-end">
-      {# El PDF de la remesa (logo de la empresa, cabecera y el listado de pagos) siempre disponible. #}
-      <a class="btn btn-outline-secondary mb-2" href="{{ url_for('payment_batch_pdf', batch_id=batch.id) }}" target="_blank" rel="noopener">
-        <i class="fa fa-file-pdf me-1"></i>PDF de la remesa
-      </a>
+    {# TODOS LOS BOTONES EN UNA FILA, en orden de uso: el fichero para el banco, el PDF, el repaso de
+       dirección y, el último, anular. El fichero se puede bajar ANTES de los OK: así se deja
+       precargado en la plataforma del banco mientras dirección repasa. #}
+    <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
       {% if batch.status not in ['PAGADA', 'ANULADA'] %}
-        <div>
-          <a class="btn btn-primary {% if not batch.account_id or not count_ready or not approved %}disabled{% endif %}"
-             href="{{ url_for('payment_batch_export', batch_id=batch.id) }}">
-            <i class="fa fa-file-arrow-down me-1"></i>Descargar fichero para el banco
-          </a>
-        </div>
-        {% if not batch.account_id %}<div class="small text-danger mt-1">Elige antes la cuenta desde la que se paga.</div>{% endif %}
-        {% if not approved %}
-          <div class="small text-danger mt-1">Falta la aprobación de dirección ({{ count_approved }} de {{ rows|length }} pagos con el OK).</div>
-          {% if IS_MASTER %}
-            <a class="btn btn-success btn-sm mt-2" href="{{ url_for('payment_batch_approve_view', batch_id=batch.id) }}">
-              <i class="fa fa-clipboard-check me-1"></i>Repasar y aprobar
-            </a>
-          {% endif %}
-        {% endif %}
+        <a class="btn btn-primary {% if not batch.account_id or not count_ready %}disabled{% endif %}"
+           href="{{ url_for('payment_batch_export', batch_id=batch.id) }}"
+           title="{{ 'Elige antes la cuenta desde la que se paga' if not batch.account_id else 'Fichero SEPA para subirlo al banco' }}">
+          <i class="fa fa-file-arrow-down me-1"></i>Descargar fichero
+        </a>
+      {% endif %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('payment_batch_pdf', batch_id=batch.id) }}" target="_blank" rel="noopener">
+        <i class="fa fa-file-pdf me-1"></i>Descargar PDF
+      </a>
+      {% if batch.status not in ['PAGADA', 'ANULADA'] and IS_MASTER %}
+        <a class="btn {{ 'btn-outline-success' if approved else 'btn-success' }}" href="{{ url_for('payment_batch_approve_view', batch_id=batch.id) }}">
+          <i class="fa fa-clipboard-check me-1"></i>{{ 'Repasar de nuevo' if approved else 'Repasar y aprobar' }}
+        </a>
+      {% endif %}
+      {% if batch.status not in ['PAGADA', 'ANULADA'] %}
         {# ANULAR: se sueltan sus pagos y vuelven a estar pendientes, como estaban. #}
-        <div class="mt-2">
-          <form method="post" action="{{ url_for('payment_batch_cancel', batch_id=batch.id) }}"
-                onsubmit="return confirm('Se va a anular la remesa {{ batch.reference }}. Sus pagos volverán a estar pendientes. ¿Seguimos?');">
-            <input type="hidden" name="next" value="{{ url_for('administracion_view', tab='pendiente', subtab='pago') }}">
-            <button class="btn btn-outline-danger btn-sm"><i class="fa fa-ban me-1"></i>Anular remesa</button>
-          </form>
-        </div>
+        <form method="post" action="{{ url_for('payment_batch_cancel', batch_id=batch.id) }}"
+              onsubmit="return confirm('Se va a anular la remesa {{ batch.reference }}. Sus pagos volverán a estar pendientes. ¿Seguimos?');">
+          <input type="hidden" name="next" value="{{ url_for('administracion_view', tab='pendiente', subtab='pago') }}">
+          <button class="btn btn-outline-danger"><i class="fa fa-ban me-1"></i>Anular remesa</button>
+        </form>
       {% elif batch.status == 'ANULADA' %}
-        <div class="small text-muted">Esta remesa está anulada: sus pagos volvieron a estar pendientes.</div>
-      {% else %}
-        {% if batch.receipt_url %}<a class="btn btn-outline-primary" href="{{ batch.receipt_url }}" target="_blank" rel="noopener"><i class="fa fa-file-lines me-1"></i>Ver justificante</a>{% endif %}
+        <span class="small text-muted">Esta remesa está anulada: sus pagos volvieron a estar pendientes.</span>
+      {% elif batch.receipt_url %}
+        <a class="btn btn-outline-primary" href="{{ batch.receipt_url }}" target="_blank" rel="noopener"><i class="fa fa-file-lines me-1"></i>Ver justificante</a>
       {% endif %}
     </div>
   </div>
@@ -99,13 +91,8 @@
             <div class="mb-3">
               {{ accpick.account_picker(accounts, current_id=batch.account_id, company_id=batch.company_id) }}
             </div>
-            <label class="form-label">Fecha de pago de la remesa</label>
-            <input type="date" class="form-control mb-2" name="execution_date" value="{{ batch.execution_date.isoformat() if batch.execution_date else '' }}">
-            <div class="form-check mb-2">
-              <input class="form-check-input" type="checkbox" name="apply_all_dates" value="1" id="applyAllDates" checked>
-              <label class="form-check-label small" for="applyAllDates">Ponerla en todos los pagos</label>
-            </div>
-            <div class="form-text mb-3">Es el día en que el banco emite los pagos. Cada pago puede llevar la suya: se pincha su fecha en la lista.</div>
+            {# La FECHA DE PAGO va en cada pago (se pincha en la lista): aquí no se repite. #}
+            <div class="form-text mb-3">La fecha en que el banco emite cada pago se cambia en la propia lista de pagos.</div>
             <button class="btn btn-outline-primary w-100"><i class="fa fa-check me-1"></i>Guardar</button>
           </form>
         {% endif %}

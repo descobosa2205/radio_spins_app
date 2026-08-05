@@ -3530,6 +3530,15 @@ body.doccam-open { overflow: hidden; }
 /* La factura de la liquidación se ve ABIERTA junto a la liquidación, para contrastarlas. */
 .rinv__frame{ width:100%; height:70vh; min-height:420px; border:0; display:block; }
 .rinv__img{ width:100%; height:auto; display:block; }
+/* Un documento requerido se PINCHA para verlo en el pop-up. */
+.rinv-doc{ cursor:pointer; transition:background .12s ease, border-color .12s ease; }
+.rinv-doc:hover{ background:#f8f9fa; border-color:#c9d2dc !important; }
+/* CUADRE de la factura con la liquidación: verde lo que cuadra, rojo lo que no. El marco de fuera
+   resume: si algo falla, se ve antes de leer los números. */
+.chk-frame-ok{ border:1.5px solid #1e7e34; border-radius:12px; padding:.45rem; background:rgba(30,126,52,.04); }
+.chk-frame-bad{ border:1.5px solid #dc3545; border-radius:12px; padding:.45rem; background:rgba(220,53,69,.04); }
+.pay-doc__cell.chk-ok{ box-shadow:inset 0 0 0 1.5px #1e7e34; border-radius:9px; }
+.pay-doc__cell.chk-bad{ box-shadow:inset 0 0 0 1.5px #dc3545; border-radius:9px; }
 .rliq__note{ font-size:.8rem; color:#8a6d1f; background:#fff8e1; border-bottom:1px solid #f2e3b3;
   padding:.5rem .9rem; }
 

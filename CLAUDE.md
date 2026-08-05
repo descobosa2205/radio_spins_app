@@ -896,6 +896,34 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `pagos.js`). Una bolsa se apaga cuando **todos** sus gastos están ya en una remesa.
   ⚠️ `payment_batch_remove_item` suelta también el `payment_batch_id` de la **liquidación de
   royalties**: sin eso se quedaba como «ya está en una remesa» y no se podía meter en ninguna otra.
+  · ⚠️ **EL FICHERO PARA EL BANCO SE PUEDE BAJAR ANTES DE LA APROBACIÓN** (ago 2026, corrección): así
+  se deja **precargado** en la plataforma del banco mientras dirección repasa, y al dar el visto
+  bueno solo hay que confirmarlo allí. `payment_batch_export` avisa de que aún no está aprobada
+  («no lo confirmes hasta que dé el visto bueno») pero **no bloquea**.
+  · **Cabecera de la remesa**: todos los botones en UNA fila y en orden de uso — Descargar fichero ·
+  Descargar PDF · Repasar y aprobar · **Anular remesa (el último)**. «Deshacer remesa»
+  (`payment_batch_delete`) se **retiró**: anular ya suelta los pagos y además deja constancia.
+  · La **fecha de pago** solo se toca en cada pago de la lista: en «¿Desde qué cuenta se paga?» no se
+  repite (era el mismo dato en dos sitios).
+
+- **Administración · Pendiente: el orden del trabajo** (ago 2026): las subpestañas van
+  **Solicitudes · De liquidación · De pago · De facturación · De oficina · De cierre**, con la
+  estética del resto de la app (`nav-tabs contract-tabs` + icono + contador `.contract-tabs__n`).
+  ⚠️ `ADMINISTRATION_PENDING_TABS` son TRIPLETAS `(clave, etiqueta, icono)`: al añadir el icono hay
+  que tocar también el desempaquetado de `administracion_view` y el `{% for %}` de la plantilla.
+
+- **Validar la factura de una liquidación · el CUADRE en verde o rojo** (ago 2026,
+  `_royalty_invoice_checks`): cada importe lleva su marco **verde si cuadra y rojo si no** (con el
+  motivo al pasar el ratón) y el marco de fuera resume, para verlo antes de leer los números. Se
+  comprueban la **base** (que sea la de la liquidación), el **IVA** (que sea su % de la base), la
+  **retención** (que el % cuadre con el importe) y **lo que se paga** (base + IVA − retención).
+  ⚠️ **Con retención, lo que se paga es MENOR que lo que se liquida y eso es CORRECTO**: lo que se
+  juzga es que el cálculo salga, no que los dos números sean iguales. Un concepto que no se puede
+  juzgar (falta el dato) se queda sin marca en vez de darse por bueno o por malo.
+  · **Los documentos requeridos se PINCHAN** y se abren en el mismo pop-up que la factura, con
+  descargar y **enviar** (correo, WhatsApp, SMS o copiar el enlace): parcial único
+  **`templates/_doc_view_modal.html`** (`#payDocModal`) + `static/js/pagos.js`, compartidos con
+  «pendiente de pago». Cualquier elemento con `data-pay-doc="<url>"` lo abre.
 
 - **AUTORIZACIONES DE ACCESO A MENORES** — ago 2026. Pestaña **«Menores»** de la ficha de la
   actividad, **solo donde promovemos nosotros** (`_concert_is_ours` → `_concert_is_group_promoted`):

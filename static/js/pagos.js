@@ -196,6 +196,29 @@
     if (abrir) abrir.setAttribute('href', url);
     var bajar = modal.querySelector('[data-pay-doc-dl]');
     if (bajar) bajar.setAttribute('href', url);
+    // ENVIAR el documento: correo, WhatsApp o SMS con su enlace, y copiarlo. Enlaces del sistema.
+    (function () {
+      var nombre = btn.getAttribute('data-pay-doc-title') || 'Documento';
+      var abs = url;
+      try { abs = new URL(url, window.location.href).href; } catch (_) { }
+      var texto = nombre + ': ' + abs;
+      var correo = modal.querySelector('[data-pay-doc-mail]');
+      if (correo) correo.setAttribute('href', 'mailto:?subject=' + encodeURIComponent(nombre) + '&body=' + encodeURIComponent(texto));
+      var wa = modal.querySelector('[data-pay-doc-wa]');
+      if (wa) wa.setAttribute('href', 'https://wa.me/?text=' + encodeURIComponent(texto));
+      var sms = modal.querySelector('[data-pay-doc-sms]');
+      if (sms) sms.setAttribute('href', 'sms:?&body=' + encodeURIComponent(texto));
+      var copiar = modal.querySelector('[data-pay-doc-copy]');
+      if (copiar) {
+        copiar.onclick = function () {
+          try {
+            navigator.clipboard.writeText(abs);
+            copiar.innerHTML = '<i class="fa fa-check fa-fw me-2"></i>Enlace copiado';
+            setTimeout(function () { copiar.innerHTML = '<i class="fa fa-link fa-fw me-2"></i>Copiar el enlace'; }, 1800);
+          } catch (_) { window.prompt('Copia el enlace:', abs); }
+        };
+      }
+    })();
     // RESUMEN del pago: importe, IVA, retención (si la hay) y la cuenta a la que se abona.
     var sum = modal.querySelector('[data-pay-doc-sum]');
     if (sum) {

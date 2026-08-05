@@ -65,15 +65,37 @@
       <div class="card-body">
         {# DESGLOSE: base, IVA y (si la hay) retención, para que cuadre lo que se factura con lo que se
            va a pagar. Y la CUENTA a la que se abona, bien visible. #}
-        <div class="pay-doc__nums mb-3">
-          <div class="pay-doc__cell"><span class="pay-doc__lab">Base</span><span class="pay-doc__val">{{ (invoice_totals.net if invoice_totals else 0)|eur }}</span></div>
+        {# CUADRE a la vista: cada importe con su MARCO VERDE si cuadra y ROJO si no (con el motivo al
+           pasar el ratón). Con retención, lo que se paga es MENOR que lo que se liquida y eso está
+           bien: lo que se comprueba es que el cálculo salga. #}
+        {% set chk = checks or {} %}
+        {% macro cell(key, label, value, extra='') %}
+          {% set c = chk.get(key) or {} %}
+          <div class="pay-doc__cell {{ extra }} {{ 'chk-ok' if c.ok else ('chk-bad' if c.ok is false else '') }}"
+               {% if c.note %}title="{{ c.note }}"{% endif %}>
+            <span class="pay-doc__lab">{{ label }}
+              {%- if c.ok %} <i class="fa fa-circle-check text-success"></i>
+              {%- elif c.ok is false %} <i class="fa fa-circle-xmark text-danger"></i>{% endif %}</span>
+            <span class="pay-doc__val">{{ value }}</span>
+          </div>
+        {% endmacro %}
+        <div class="pay-doc__nums mb-2 {{ 'chk-frame-ok' if chk.all_ok else 'chk-frame-bad' }}">
+          {{ cell('net', 'Base', (invoice_totals.net if invoice_totals else 0)|eur) }}
           {% if invoice_totals and invoice_totals.vat %}
-            <div class="pay-doc__cell"><span class="pay-doc__lab">IVA {{ '%.0f'|format(invoice_totals.vat_pct|float) }}%</span><span class="pay-doc__val">{{ invoice_totals.vat|eur }}</span></div>
+            {{ cell('vat', 'IVA ' ~ '%.0f'|format(invoice_totals.vat_pct|float) ~ '%', invoice_totals.vat|eur) }}
           {% endif %}
           {% if retention and retention > 0 %}
-            <div class="pay-doc__cell is-neg"><span class="pay-doc__lab">Retención{% if retention_pct %} {{ '%g'|format(retention_pct|float) }}%{% endif %}</span><span class="pay-doc__val">−{{ retention|eur }}</span></div>
+            {{ cell('retention', 'Retención' ~ (' ' ~ '%g'|format(retention_pct|float) ~ '%' if retention_pct else ''), '−' ~ (retention|eur), 'is-neg') }}
           {% endif %}
-          <div class="pay-doc__cell is-total"><span class="pay-doc__lab">A facturar y pagar</span><span class="pay-doc__val">{{ (pay_total if pay_total else (invoice_totals.gross if invoice_totals else 0))|eur }}</span></div>
+          {{ cell('total', 'A facturar y pagar', (pay_total if pay_total else (invoice_totals.gross if invoice_totals else 0))|eur, 'is-total') }}
+        </div>
+        <div class="small mb-3 {{ 'text-success' if chk.all_ok else 'text-danger' }}">
+          {% if chk.all_ok %}
+            <i class="fa fa-circle-check me-1"></i>Los números cuadran con la liquidación.
+          {% else %}
+            <i class="fa fa-triangle-exclamation me-1"></i>Revísalo:
+            {% for k in ['net','vat','retention','total'] %}{% set c = chk.get(k) or {} %}{% if c.ok is false %}{{ c.note }} {% endif %}{% endfor %}
+          {% endif %}
         </div>
         {# Si el lector no acertó (lo típico: una retención que la factura no nombra), se corrige a
            mano aquí mismo. #}
@@ -128,18 +150,21 @@
           </div>
         {% endif %}
 
+        {# DOCUMENTACIÓN: se PINCHA la fila y el documento se abre en el MISMO pop-up que la factura,
+           con descargar y enviar (correo, WhatsApp, SMS o copiar el enlace). #}
         <div class="fw-semibold small text-muted mb-2"><i class="fa fa-file-shield me-1"></i>Documentación requerida para validar</div>
         <div class="d-grid gap-2">
           {% for d in required_docs %}
-            <div class="d-flex align-items-center gap-2 border rounded p-2">
+            <div class="d-flex align-items-center gap-2 border rounded p-2{{ ' rinv-doc' if d.existing_url }}"
+                 {% if d.existing_url %}data-pay-doc="{{ d.existing_url }}" data-pay-doc-title="{{ d.label }}" role="button" title="Ver el documento"{% endif %}>
               <i class="fa {{ d.icon }} text-danger"></i>
               <span class="small flex-grow-1">{{ d.label }}</span>
               {% if d.ok %}
                 <span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>En vigor</span>
-                {% if d.existing_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ d.existing_url }}" target="_blank" rel="noopener" title="Ver"><i class="fa fa-eye"></i></a>{% endif %}
               {% else %}
                 <span class="badge text-bg-danger">Falta o caducado</span>
               {% endif %}
+              {% if d.existing_url %}<i class="fa fa-up-right-and-down-left-from-center text-muted small"></i>{% endif %}
             </div>
           {% else %}
             <div class="text-muted small">Sin documentación adicional exigida.</div>
@@ -175,6 +200,14 @@
       <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
         <strong class="small">{{ inv.original_name or 'Factura' }}</strong>
         <div class="d-flex gap-2">
+          {# El mismo pop-up que los documentos: ahí están descargar y enviar. #}
+          <button type="button" class="btn btn-outline-secondary btn-sm" title="Verla en grande, descargar o enviar"
+                  data-pay-doc="{{ inv.file_url }}" data-pay-doc-title="{{ inv.original_name or 'Factura' }}"
+                  data-pay-doc-number="{{ inv.invoice_number or '' }}"
+                  data-pay-doc-net="{{ inv.amount_net or '' }}" data-pay-doc-vat="{{ inv.amount_vat or '' }}"
+                  data-pay-doc-retention="{{ retention or 0 }}" data-pay-doc-total="{{ pay_total or inv.amount_gross or '' }}"
+                  data-pay-doc-beneficiary="{{ promoter.nick if promoter else '' }}"
+                  data-pay-doc-iban="{{ promoter.bank_account if promoter and promoter.bank_account else '' }}"><i class="fa fa-expand"></i></button>
           <a class="btn btn-outline-secondary btn-sm" href="{{ inv.file_url }}" target="_blank" rel="noopener" title="Abrir en una pestaña"><i class="fa fa-arrow-up-right-from-square"></i></a>
           <a class="btn btn-outline-secondary btn-sm" href="{{ inv.file_url }}" download title="Descargar"><i class="fa fa-download"></i></a>
         </div>
@@ -195,4 +228,7 @@
 </div>
 
 {% include '_invoice_amounts_modal.html' %}
+{# El pop-up de documentos es el MISMO de pendiente de pago (parcial + pagos.js compartidos). #}
+{% include '_doc_view_modal.html' %}
+<script src="{{ url_for('static', filename='js/pagos.js', v=ASSET_V) }}"></script>
 {% endblock %}

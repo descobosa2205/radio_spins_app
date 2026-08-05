@@ -108,12 +108,14 @@
 </ul>
 
 {% if tab == 'pendiente' %}
-  <ul class="nav nav-pills mb-3">
-    {% for key,label in pending_tabs %}
+  {# Subpestañas con la estética del resto de la app (nav-tabs + icono + contador de marca). #}
+  <ul class="nav nav-tabs contract-tabs mb-3">
+    {% for key,label,icon in pending_tabs %}
       <li class="nav-item">
         <a class="nav-link {% if pending_subtab == key %}active{% endif %}" href="{{ url_for('administracion_view', tab='pendiente', subtab=key) }}">
           {% if key in (admin_my_pending_tabs or []) %}<span class="admin-mine-dot" title="Es tuyo: te lo han asignado"></span>{% endif %}
-          {{ label }}{% if pending_counts.get(key, 0) %}<span class="badge text-bg-warning ms-1">{{ (pending_counts.get(key))|k }}</span>{% endif %}
+          <i class="fa {{ icon }}"></i>{{ label }}
+          {% if pending_counts.get(key, 0) %}<span class="contract-tabs__n">{{ (pending_counts.get(key))|k }}</span>{% endif %}
         </a>
       </li>
     {% endfor %}
@@ -458,32 +460,8 @@
     {% endfor %}
 
     {# Modal único para «marcar como pagado» (lo rellena el JS con el gasto que se elija) #}
-    {# Pop-up de la FACTURA VALIDADA: se abre al pinchar en cualquier pendiente de pago, para poder
-       comprobarla sin salir de la pantalla. #}
-    <div class="modal fade" id="payDocModal" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title"><i class="fa fa-file-invoice me-2 text-danger"></i><span data-pay-doc-title>Factura</span></h5>
-          <div class="ms-auto d-flex gap-2 me-2">
-            <button type="button" class="btn btn-sm btn-outline-secondary" data-pay-doc-full title="Ver a pantalla completa"><i class="fa fa-expand"></i></button>
-            <a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener" data-pay-doc-open title="Abrir en una pestaña"><i class="fa fa-arrow-up-right-from-square"></i></a>
-            <a class="btn btn-sm btn-outline-secondary" download data-pay-doc-dl title="Descargar"><i class="fa fa-download"></i></a>
-          </div>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-        </div>
-        {# RESUMEN del pago: importe, IVA, retención (si la hay) y LA CUENTA a la que se paga. Es lo
-           que hace que cuadre lo que se factura con lo que se va a pagar. #}
-        <div class="pay-doc__sum d-none" data-pay-doc-sum></div>
-        {# Si el importe a pagar no cuadra con la factura (lo típico: una RETENCIÓN que no se
-           detectó), se corrige a mano sin salir de aquí. #}
-        <div class="px-3 pb-2 d-none" data-pay-doc-fixwrap>
-          <button type="button" class="btn btn-sm btn-outline-secondary" data-inv-amounts data-pay-doc-fix>
-            <i class="fa fa-pen-to-square me-1"></i>Corregir importes de la factura
-          </button>
-        </div>
-        <div class="modal-body p-0" data-pay-doc-body></div>
-      </div></div>
-    </div>
+    {# Pop-up del DOCUMENTO (la factura de un pago, un certificado…): parcial ÚNICO compartido. #}
+    {% include '_doc_view_modal.html' %}
 
     <div class="modal fade" id="payPaidModal" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog modal-dialog-centered"><div class="modal-content">

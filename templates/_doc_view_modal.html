@@ -1,0 +1,44 @@
+{# POP-UP para ver un DOCUMENTO sin salir de la pantalla (una factura, un certificado, un alta…).
+   Es UNO SOLO para toda la app: lo abre cualquier elemento con `data-pay-doc="<url>"` y lo maneja
+   `static/js/pagos.js`. Al ser el mismo, lo que se mejore aquí vale en todos los sitios.
+
+   Opcionales en el elemento que lo abre:
+     · data-pay-doc-title, -number, -beneficiary, -iban → cabecera y resumen
+     · data-pay-doc-net / -vat / -retention / -total     → desglose del pago
+     · data-pay-doc-invoice (+ -expected, -vat-pct, -ret-pct) → botón de corregir importes  #}
+<div class="modal fade" id="payDocModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header">
+      <h5 class="modal-title"><i class="fa fa-file-invoice me-2 text-danger"></i><span data-pay-doc-title>Documento</span></h5>
+      <div class="ms-auto d-flex gap-2 me-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-pay-doc-full title="Ver a pantalla completa"><i class="fa fa-expand"></i></button>
+        <a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener" data-pay-doc-open title="Abrir en una pestaña"><i class="fa fa-arrow-up-right-from-square"></i></a>
+        <a class="btn btn-sm btn-outline-secondary" download data-pay-doc-dl title="Descargar"><i class="fa fa-download"></i></a>
+        {# ENVIAR: correo, WhatsApp o SMS con el enlace, y copiarlo. Los tres son enlaces del sistema
+           (no hay pasarela), igual que en fotos y cartelería. #}
+        <div class="dropdown">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown" title="Enviar"><i class="fa fa-paper-plane"></i></button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><a class="dropdown-item" data-pay-doc-mail href="#"><i class="fa fa-envelope fa-fw me-2"></i>Enviar por correo</a></li>
+            <li><a class="dropdown-item" data-pay-doc-wa target="_blank" rel="noopener" href="#"><i class="fa-brands fa-whatsapp fa-fw me-2"></i>Enviar por WhatsApp</a></li>
+            <li><a class="dropdown-item" data-pay-doc-sms href="#"><i class="fa fa-comment-sms fa-fw me-2"></i>Enviar por SMS</a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><button class="dropdown-item" type="button" data-pay-doc-copy><i class="fa fa-link fa-fw me-2"></i>Copiar el enlace</button></li>
+          </ul>
+        </div>
+      </div>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    {# RESUMEN del pago: importe, IVA, retención (si la hay) y LA CUENTA a la que se paga. Es lo
+       que hace que cuadre lo que se factura con lo que se va a pagar. #}
+    <div class="pay-doc__sum d-none" data-pay-doc-sum></div>
+    {# Si el importe a pagar no cuadra con la factura (lo típico: una RETENCIÓN que no se
+       detectó), se corrige a mano sin salir de aquí. #}
+    <div class="px-3 pb-2 d-none" data-pay-doc-fixwrap>
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-inv-amounts data-pay-doc-fix>
+        <i class="fa fa-pen-to-square me-1"></i>Corregir importes de la factura
+      </button>
+    </div>
+    <div class="modal-body p-0" data-pay-doc-body></div>
+  </div></div>
+</div>

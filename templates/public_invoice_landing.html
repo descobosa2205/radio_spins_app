@@ -22,8 +22,21 @@
        si no, sobre un fondo oscuro no se leería. #}
     {% if inv_embed %}<div class="inv-embed-head">{% endif %}
     <h3 class="text-center mb-1">Subida de Facturas</h3>
-    <p class="text-center text-muted small {{ 'mb-0' if inv_embed else 'mb-4' }}">{{ 'Cuatro' if inv_mode == 'LANDING' else 'Tres' }} pasos y listo. Los datos solo hay que rellenarlos una vez.</p>
+    <p class="text-center text-muted small {{ 'mb-0' if inv_embed else 'mb-4' }}">{{ 'Cinco' if inv_mode == 'LANDING' else 'Cuatro' }} pasos y listo. Los datos solo hay que rellenarlos una vez.</p>
     {% if inv_embed %}</div>{% endif %}
+
+    {# LA SUBE LA OFICINA en nombre del proveedor (los tres puntitos de la liquidación): es la MISMA
+       pantalla que ve él, para que no haya dos sitios que mantener. #}
+    {% if inv_internal is defined and inv_internal %}
+      <div class="alert alert-info d-flex align-items-start gap-2">
+        <i class="fa fa-user-shield mt-1"></i>
+        <div>
+          <div class="fw-semibold">La estás subiendo tú, desde dentro{% if provider %}, en nombre de {{ provider.nick or 'el proveedor' }}{% endif %}.</div>
+          <div class="small">Es el mismo proceso que ve el proveedor. Si el importe no cuadra con lo que se le
+            pidió facturar, se te avisará y podrás enviarla igualmente.</div>
+        </div>
+      </div>
+    {% endif %}
 
     {# ============================ YA HAY UNA FACTURA SUBIDA ============================
        No se empieza el proceso otra vez: si la anterior está pendiente se puede REEMPLAZAR (y ahí
@@ -368,12 +381,77 @@
     {% endif %}
 
     {# ============================ PASO 4 · SUBIR ============================ #}
+    {# PASO DE LA FACTURA: se sube, se leen sus datos y se repasan AQUÍ MISMO. Todavía no se envía
+       nada: al darle a «Continuar» se pasa a la documentación y la factura se manda al final. #}
     <div class="inv-step is-locked" data-inv-step="4">
       <div class="inv-step__head">
         <span class="inv-step__num">{{ 4 if inv_mode == 'LANDING' else 3 }}</span>
         <div>
-          <div class="inv-step__title">Sube la factura y la documentación</div>
-          <div class="inv-step__sub">Todos los documentos son obligatorios. Lo que ya tengas en vigor no se te vuelve a pedir.</div>
+          <div class="inv-step__title">Sube la factura</div>
+          <div class="inv-step__sub">Leemos sus datos y te los enseñamos para que los repases antes de enviarla.</div>
+        </div>
+      </div>
+      <div class="inv-step__body">
+        <div class="inv-drop border border-2 border-dashed rounded-3 p-4 text-center text-muted" id="invFileDrop" style="cursor:pointer;">
+          <i class="fa fa-cloud-arrow-up me-1"></i>Arrastra aquí tu factura o pulsa para elegirla
+          <div class="small mt-1">PDF o foto</div>
+          <input type="file" class="d-none" id="invFile" accept="application/pdf,image/*">
+        </div>
+        <div class="small mt-2" id="invFileMsg"></div>
+
+        {# REPASO, en pantalla partida: los DATOS a la IZQUIERDA y la FACTURA a la DERECHA. Lo que se
+           ha leído sale relleno (se puede corregir) y lo que falta, resaltado en amarillo: así no
+           llega ninguna factura con los datos sin leer. #}
+        <div class="d-none mt-3" id="invMetaBox">
+          <div class="alert alert-info small d-none" id="invConfirmMeta">
+            <i class="fa fa-triangle-exclamation me-1"></i><span data-meta-note></span>
+          </div>
+          <div class="alert alert-light border small" id="invReadOk">
+            <i class="fa fa-circle-check me-1 text-success"></i>Hemos leído los datos de tu factura.
+            Repásalos: si algo no está bien, corrígelo aquí mismo.
+          </div>
+          <div class="inv-split">
+            <div class="inv-split__fields">
+              <div class="row g-3" id="invInvoiceMeta">
+                <div class="col-12 col-md-6" data-meta-field="number"><label class="form-label">Nº de factura</label><input class="form-control" id="invNumber"></div>
+                <div class="col-12 col-md-6" data-meta-field="issue"><label class="form-label">Fecha de emisión</label><input type="date" class="form-control" id="invIssueDate"></div>
+                <div class="col-12 col-md-6" data-meta-field="artist"><label class="form-label">Artista <span class="text-muted">(como en la factura)</span></label><input class="form-control" id="invArtist"></div>
+                <div class="col-12 col-md-6" data-meta-field="concept"><label class="form-label">Concepto</label><input class="form-control" id="invConcept"></div>
+                {# IMPORTES: se leen de la propia factura; solo hay que tocar los que no se hayan
+                   podido sacar. La retención, únicamente si la factura la lleva. #}
+                <div class="col-12 col-md-6" data-meta-field="net"><label class="form-label">Base imponible</label><input class="form-control" id="invNet" inputmode="decimal" placeholder="0,00"></div>
+                <div class="col-12 col-md-6" data-meta-field="vat"><label class="form-label">IVA</label><input class="form-control" id="invVat" inputmode="decimal" placeholder="0,00"></div>
+                <div class="col-12 col-md-6" data-meta-field="retention"><label class="form-label">Retención <span class="text-muted">(si la hay)</span></label><input class="form-control" id="invRetention" inputmode="decimal" placeholder="0,00"></div>
+                <div class="col-12 col-md-6" data-meta-field="gross"><label class="form-label">Total de la factura</label><input class="form-control" id="invGross" inputmode="decimal" placeholder="0,00"></div>
+                <input type="hidden" id="invVatPct"><input type="hidden" id="invRetentionPct">
+              </div>
+              {# Lo leído, en claro, para que se confirme de un vistazo. #}
+              <div class="alert alert-light border small mt-3 d-none" id="invAmountsBox">
+                <span data-amounts-read></span>
+              </div>
+              <div class="alert alert-warning small mt-2 d-none" id="invAmountsWarn"></div>
+              <div class="mt-3 text-end">
+                <button class="btn btn-danger" type="button" id="invMetaNext" disabled>
+                  <i class="fa fa-arrow-right me-1"></i>Continuar
+                </button>
+              </div>
+            </div>
+            <div class="inv-split__doc">
+              <div class="inv-split__doclab"><i class="fa fa-file-invoice me-1"></i>Tu factura</div>
+              <div id="invPreview" class="inv-split__frame"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {# ÚLTIMO PASO: la documentación que le toca a quien emite la factura, y el envío. #}
+    <div class="inv-step is-locked" data-inv-step="5">
+      <div class="inv-step__head">
+        <span class="inv-step__num">{{ 5 if inv_mode == 'LANDING' else 4 }}</span>
+        <div>
+          <div class="inv-step__title">Documentación</div>
+          <div class="inv-step__sub">Es obligatoria. Lo que ya tengas subido y en vigor no se te vuelve a pedir.</div>
         </div>
       </div>
       <div class="inv-step__body">
@@ -386,46 +464,15 @@
 
         <div class="d-grid gap-3" id="invDocs"></div>
 
-        {# REPASO ANTES DE ENVIAR, en pantalla partida: la factura a la IZQUIERDA y sus datos a la
-           DERECHA. Lo que se ha leído sale relleno (se puede corregir) y lo que falta, resaltado en
-           amarillo: así no llega ninguna factura con los datos sin leer. #}
-        <div class="d-none mt-3" id="invMetaBox">
-          <div class="alert alert-info small d-none" id="invConfirmMeta">
-            <i class="fa fa-triangle-exclamation me-1"></i><span data-meta-note></span>
-          </div>
-          <div class="alert alert-light border small" id="invReadOk">
-            <i class="fa fa-circle-check me-1 text-success"></i>Hemos leído los datos de tu factura.
-            Repásalos: si algo no está bien, corrígelo aquí mismo.
-          </div>
-          <div class="inv-split">
-            <div class="inv-split__doc">
-              <div class="inv-split__doclab"><i class="fa fa-file-invoice me-1"></i>Tu factura</div>
-              <div id="invPreview" class="inv-split__frame"></div>
-            </div>
-            <div class="inv-split__fields">
-          <div class="row g-2" id="invInvoiceMeta">
-            <div class="col-6 col-md-3" data-meta-field="number"><label class="form-label small">Nº de factura</label><input class="form-control form-control-sm" id="invNumber"></div>
-            <div class="col-6 col-md-3" data-meta-field="issue"><label class="form-label small">Fecha de emisión</label><input type="date" class="form-control form-control-sm" id="invIssueDate"></div>
-            <div class="col-12 col-md-3" data-meta-field="artist"><label class="form-label small">Artista <span class="text-muted">(como en la factura)</span></label><input class="form-control form-control-sm" id="invArtist"></div>
-            <div class="col-12 col-md-3" data-meta-field="concept"><label class="form-label small">Concepto</label><input class="form-control form-control-sm" id="invConcept"></div>
-            {# IMPORTES: se leen de la propia factura; solo se preguntan los que no se hayan podido
-               sacar. La retención únicamente si la factura la lleva. #}
-            <div class="col-6 col-md-3" data-meta-field="net"><label class="form-label small">Base imponible</label><input class="form-control form-control-sm" id="invNet" inputmode="decimal" placeholder="0,00"></div>
-            <div class="col-6 col-md-3" data-meta-field="vat"><label class="form-label small">IVA</label><input class="form-control form-control-sm" id="invVat" inputmode="decimal" placeholder="0,00"></div>
-            <div class="col-6 col-md-3" data-meta-field="retention"><label class="form-label small">Retención <span class="text-muted">(si la hay)</span></label><input class="form-control form-control-sm" id="invRetention" inputmode="decimal" placeholder="0,00"></div>
-            <div class="col-6 col-md-3" data-meta-field="gross"><label class="form-label small">Total de la factura</label><input class="form-control form-control-sm" id="invGross" inputmode="decimal" placeholder="0,00"></div>
-            <input type="hidden" id="invVatPct"><input type="hidden" id="invRetentionPct">
-          </div>
-          {# Lo leído, en claro, para que se confirme de un vistazo. #}
-          <div class="alert alert-light border small mt-2 d-none" id="invAmountsBox">
-            <span data-amounts-read></span>
-          </div>
-          <div class="alert alert-warning small mt-2 d-none" id="invAmountsWarn"></div>
-            </div>
-          </div>
+        <div class="mt-3 d-flex justify-content-between align-items-center flex-wrap gap-2" id="invSendBar">
+          <div class="small text-muted" id="invSendHint"></div>
+          <button class="btn btn-danger btn-lg" type="button" id="invSend">
+            <i class="fa fa-paper-plane me-1"></i>Enviar factura
+          </button>
         </div>
         <div class="alert alert-success mt-3 d-none" id="invDone">
-          <i class="fa fa-circle-check me-1"></i>¡Factura recibida! La revisaremos y te avisaremos si falta algo. Muchas gracias.
+          <i class="fa fa-circle-check me-1"></i><strong>Su factura ha sido subida.</strong>
+          La revisaremos y te avisaremos si falta algo. Muchas gracias.
         </div>
       </div>
     </div>
@@ -442,6 +489,8 @@
   const URL_DOCS = {{ url_for('public_invoice_docs_state')|tojson }};
   const URL_UPLOAD = {{ url_for('public_invoice_upload')|tojson }};
   const PRESET = {{ (provider_payload if provider_payload else None)|tojson }};
+  const INTERNO = {{ ('1' if (inv_internal is defined and inv_internal) else '')|tojson }};
+  window.invForce = false;
 
   let profile = PRESET || null;
 
@@ -469,7 +518,9 @@
   // DNI se quedaba bloqueado: al pulsar «Comprobar» no pasaba nada (bug real).
   function stepNumOf(el){ var st = el ? el.closest('[data-inv-step]') : null; return st ? Number(st.getAttribute('data-inv-step')) : 0; }
   const IDENT_STEP = stepNumOf(document.getElementById('invTaxId')) || 3;
-  const UPLOAD_STEP = stepNumOf(document.getElementById('invDocs')) || (IDENT_STEP + 1);
+  // Subir la FACTURA y, después, la DOCUMENTACIÓN (que es donde se envía todo).
+  const UPLOAD_STEP = stepNumOf(document.getElementById('invFileDrop')) || (IDENT_STEP + 1);
+  const DOCS_STEP = stepNumOf(document.getElementById('invDocs')) || (UPLOAD_STEP + 1);
   // SUPLIDOS A DETALLAR: si los hay, van entre identificarse y subir la factura.
   const SUP_STEP = document.getElementById('invSupStep') ? 35 : null;
 
@@ -766,7 +817,17 @@
 
   function renderDocs(docs){
     const wrap = document.getElementById('invDocs');
-    wrap.innerHTML = (docs || []).map(function(doc){
+    // La FACTURA ya tiene su propio paso: aquí solo va la documentación que le toca a quien la emite.
+    const lista = (docs || []).filter(function (d) { return d.key !== 'INVOICE'; });
+    DOCS_STATE = lista;
+    if (!lista.length) {
+      wrap.innerHTML = '<div class="alert alert-light border small mb-0">'
+        + '<i class="fa fa-circle-check me-1 text-success"></i>No hace falta ninguna documentación más.'
+        + ' Ya puedes enviar la factura.</div>';
+      refreshSendBar();
+      return;
+    }
+    wrap.innerHTML = lista.map(function(doc){
       const okBadge = doc.ok
         ? '<span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>' + (doc.note || 'En vigor') + '</span>'
         : '<span class="badge text-bg-secondary">Pendiente</span>';
@@ -787,7 +848,29 @@
         + '</div></div></div>';
     }).join('');
     wireDocs();
-    wireInvoiceConfirm();
+    refreshSendBar();
+  }
+
+  // El botón de ENVIAR solo se activa cuando toda la documentación está en vigor: el servidor lo
+  // vuelve a comprobar, pero así no se envía para nada.
+  let DOCS_STATE = [];
+  function docsPendientes(){
+    return (DOCS_STATE || []).filter(function (d) { return !d.ok; });
+  }
+  function refreshSendBar(){
+    const boton = document.getElementById('invSend');
+    const pista = document.getElementById('invSendHint');
+    if (!boton) return;
+    const faltan = docsPendientes();
+    const sinFactura = !INVOICE_FILE;
+    boton.disabled = faltan.length > 0 || sinFactura;
+    if (pista) {
+      pista.textContent = sinFactura
+        ? 'Primero sube la factura en el paso anterior.'
+        : (faltan.length
+            ? ('Falta subir: ' + faltan.map(function (d) { return d.label; }).join(', ') + '.')
+            : 'Todo listo: ya puedes enviar la factura.');
+    }
   }
 
   function wireDocs(){
@@ -806,51 +889,60 @@
     });
   }
 
-  // La FACTURA no se sube a la primera: se leen sus datos, se muestran para el OK y hay un botón
-  // de confirmar. Los certificados sí se suben directos.
-  function wireInvoiceConfirm(){
-    document.querySelectorAll('.inv-doc[data-doc-key="INVOICE"]').forEach(function(slot){
-      if (slot.dataset.confirmWired === '1') return;
-      slot.dataset.confirmWired = '1';
-      var drop = slot.querySelector('.inv-drop');
-      if (!drop) return;
-      var input = drop.querySelector('input[type=file]');
-      var pending = null;
-      // Anulamos el envío automático del wireDocs para este hueco.
-      var clone = input.cloneNode(true);
-      input.parentNode.replaceChild(clone, input);
-      var dropClone = drop.cloneNode(true);
-      drop.parentNode.replaceChild(dropClone, drop);
-      drop = dropClone;
-      input = drop.querySelector('input[type=file]');
-      var bar = document.createElement('div');
-      bar.className = 'text-end mt-2 d-none';
-      bar.innerHTML = '<button type="button" class="btn btn-danger btn-sm" data-inv-confirm><i class="fa fa-check me-1"></i>Todo correcto, enviar factura</button>';
-      drop.parentNode.insertBefore(bar, drop.nextSibling);
-      function take(file){
-        pending = file;
-        drop.querySelector('i').className = 'fa fa-file-circle-check me-1';
-        if (window.invShowPreview) window.invShowPreview(file);
-        detectAndConfirm(file, function(){
-          bar.classList.remove('d-none');
-          const btn = bar.querySelector('[data-inv-confirm]');
-          // No se envía nada con datos sin leer: primero se completan.
-          if (btn) btn.disabled = (window.invMissingLabels && window.invMissingLabels().length > 0);
-        });
-      }
-      drop.addEventListener('click', function(){ input.click(); });
-      drop.addEventListener('dragover', function(e){ e.preventDefault(); drop.classList.add('bg-light'); });
-      drop.addEventListener('dragleave', function(){ drop.classList.remove('bg-light'); });
-      drop.addEventListener('drop', function(e){
-        e.preventDefault(); drop.classList.remove('bg-light');
-        if (e.dataTransfer.files && e.dataTransfer.files.length) take(e.dataTransfer.files[0]);
+  // ---------- LA FACTURA: se elige, se leen sus datos y se repasan (todavía no se envía) ----------
+  let INVOICE_FILE = null;
+  (function wireInvoiceFile(){
+    const drop = document.getElementById('invFileDrop');
+    const input = document.getElementById('invFile');
+    const msg = document.getElementById('invFileMsg');
+    if (!drop || !input) return;
+    function take(file){
+      if (!file) return;
+      INVOICE_FILE = file;
+      const icono = drop.querySelector('i');
+      if (icono) icono.className = 'fa fa-file-circle-check me-1 text-success';
+      if (msg) { msg.className = 'small mt-2 text-muted'; msg.textContent = 'Leyendo los datos de ' + (file.name || 'la factura') + '…'; }
+      if (window.invShowPreview) window.invShowPreview(file);
+      detectAndConfirm(file, function(){
+        if (msg) {
+          const faltan = window.invMissingLabels ? window.invMissingLabels() : [];
+          msg.className = 'small mt-2 ' + (faltan.length ? 'text-warning-emphasis' : 'text-success');
+          msg.textContent = faltan.length
+            ? 'Repasa los datos que faltan y pulsa «Continuar».'
+            : (file.name || 'Factura') + ' · datos leídos. Repásalos y pulsa «Continuar».';
+        }
+        actualizarContinuar();
       });
-      input.addEventListener('change', function(){ if (input.files.length) take(input.files[0]); });
-      bar.querySelector('[data-inv-confirm]').addEventListener('click', function(){
-        if (pending) { bar.classList.add('d-none'); uploadDoc(slot, pending); }
-      });
+    }
+    drop.addEventListener('click', function(){ input.click(); });
+    drop.addEventListener('dragover', function(e){ e.preventDefault(); drop.classList.add('bg-light'); });
+    drop.addEventListener('dragleave', function(){ drop.classList.remove('bg-light'); });
+    drop.addEventListener('drop', function(e){
+      e.preventDefault(); drop.classList.remove('bg-light');
+      if (e.dataTransfer.files && e.dataTransfer.files.length) take(e.dataTransfer.files[0]);
     });
+    input.addEventListener('change', function(){ if (input.files.length) take(input.files[0]); });
+  })();
+
+  function actualizarContinuar(){
+    const boton = document.getElementById('invMetaNext');
+    if (!boton) return;
+    const faltan = window.invMissingLabels ? window.invMissingLabels() : [];
+    boton.disabled = !INVOICE_FILE || faltan.length > 0;
   }
+
+  // CONTINUAR: se pasa a la documentación, que ya se pide sabiendo la FECHA DE EMISIÓN de la factura
+  // (es la que decide si el alta del proveedor estaba en vigor ese día).
+  (function wireMetaNext(){
+    const boton = document.getElementById('invMetaNext');
+    if (!boton) return;
+    boton.addEventListener('click', function(){
+      const faltan = window.invMissingLabels ? window.invMissingLabels() : [];
+      if (!INVOICE_FILE || faltan.length) return;
+      unlock(DOCS_STEP);
+      loadDocs((profile && profile.id) || '');
+    });
+  })();
 
   // ---------- Repaso de los datos: qué falta, cómo se marca y la vista de la factura ----------
   // Los campos que la factura tiene que traer SIEMPRE para poder tramitarla.
@@ -888,7 +980,8 @@
     return faltan;
   };
 
-  // La factura, a la izquierda: se pinta desde el propio archivo elegido (sin subirlo).
+  // La factura, a la DERECHA (los campos van a la izquierda): se pinta desde el propio archivo
+  // elegido, sin subirlo todavía.
   window.invShowPreview = function (file) {
     const caja = document.getElementById('invPreview');
     if (!caja || !file) return;
@@ -905,8 +998,7 @@
     if (!e.target.closest || !e.target.closest('#invInvoiceMeta')) return;
     window.invMarkMissing();
     const faltan = window.invMissingLabels();
-    const boton = document.querySelector('[data-inv-confirm]');
-    if (boton) boton.disabled = faltan.length > 0;
+    actualizarContinuar();
     const aviso = document.getElementById('invConfirmMeta');
     const nota = aviso ? aviso.querySelector('[data-meta-note]') : null;
     if (aviso) aviso.classList.toggle('d-none', faltan.length === 0);
@@ -987,12 +1079,8 @@
       }).catch(cb);
   }
 
-  function uploadDoc(slot, file){
-    const key = slot.getAttribute('data-doc-key');
-    const prog = slot.querySelector('.inv-progress');
-    const bar = prog.querySelector('.progress-bar');
-    const msg = slot.querySelector('.inv-msg');
-    prog.classList.remove('d-none'); msg.textContent = '';
+  // Lo que se manda al servidor. Es UN SOLO sitio: da igual que sea un certificado o la factura.
+  function formData(key, file){
     const fd = new FormData();
     fd.append('promoter_id', (profile && profile.id) || '');
     fd.append('doc_key', key);
@@ -1000,38 +1088,99 @@
     if (WORKER_TYPE) fd.append('worker_type', WORKER_TYPE);
     const _fecha = document.getElementById('invIssueDate');
     if (_fecha && _fecha.value) fd.append('issue_date', _fecha.value);
-    if (key === 'INVOICE') {
-      fd.append('invoice_number', (document.getElementById('invNumber')||{}).value || '');
-      fd.append('issue_date', (document.getElementById('invIssueDate')||{}).value || '');
-      var person = document.querySelector('.inv-person-radio:checked');
-      if (person) fd.append('target_user_id', person.value);
-      fd.append('artist_text', (document.getElementById('invArtist')||{}).value || '');
-      fd.append('concept_text', (document.getElementById('invConcept')||{}).value || '');
-      // Importes: lo leído de la factura (o lo corregido a mano).
-      [['amount_net','invNet'], ['amount_vat','invVat'], ['retention_amount','invRetention'],
-       ['amount_gross','invGross'], ['vat_pct','invVatPct'], ['retention_pct','invRetentionPct']
-      ].forEach(function(par){ fd.append(par[0], (document.getElementById(par[1])||{}).value || ''); });
-      {% if inv_mode == 'REQUEST' and company %}fd.append('group_company_id', {{ (company.id|string)|tojson }});{% endif %}
-      if (TOKEN) fd.append('token', TOKEN);
-      if (LIQ) fd.append('liq_token', LIQ);
-      if (window.invReplace) fd.append('replace', '1');
-      // Conceptos que cubre esta factura (petición de bolsa): uno, varios o todos.
-      document.querySelectorAll('.js-inv-expense:checked').forEach(function(c){ fd.append('expense_ids', c.value); });
-    }
+    if (key !== 'INVOICE') return fd;
+    fd.append('invoice_number', (document.getElementById('invNumber')||{}).value || '');
+    fd.append('issue_date', (document.getElementById('invIssueDate')||{}).value || '');
+    var person = document.querySelector('.inv-person-radio:checked');
+    if (person) fd.append('target_user_id', person.value);
+    fd.append('artist_text', (document.getElementById('invArtist')||{}).value || '');
+    fd.append('concept_text', (document.getElementById('invConcept')||{}).value || '');
+    // Importes: lo leído de la factura (o lo corregido a mano).
+    [['amount_net','invNet'], ['amount_vat','invVat'], ['retention_amount','invRetention'],
+     ['amount_gross','invGross'], ['vat_pct','invVatPct'], ['retention_pct','invRetentionPct']
+    ].forEach(function(par){ fd.append(par[0], (document.getElementById(par[1])||{}).value || ''); });
+    {% if inv_mode == 'REQUEST' and company %}fd.append('group_company_id', {{ (company.id|string)|tojson }});{% endif %}
+    if (TOKEN) fd.append('token', TOKEN);
+    if (LIQ) fd.append('liq_token', LIQ);
+    if (window.invReplace) fd.append('replace', '1');
+    // DESDE DENTRO se puede enviar una factura cuyo importe no cuadre (administración sabe lo que
+    // hace): la primera vez se avisa y, si se vuelve a pulsar, se manda con `force`.
+    if (INTERNO && window.invForce) fd.append('force', '1');
+    // Conceptos que cubre esta factura (petición de bolsa): uno, varios o todos.
+    document.querySelectorAll('.js-inv-expense:checked').forEach(function(c){ fd.append('expense_ids', c.value); });
+    return fd;
+  }
+
+  function post(fd, onProgress, onDone){
     const xhr = new XMLHttpRequest();
     xhr.open('POST', URL_UPLOAD);
-    xhr.upload.addEventListener('progress', function(e){ if (e.lengthComputable) bar.style.width = Math.round(e.loaded/e.total*100) + '%'; });
+    xhr.upload.addEventListener('progress', function(e){
+      if (e.lengthComputable && onProgress) onProgress(Math.round(e.loaded / e.total * 100));
+    });
     xhr.addEventListener('load', function(){
       let resp = {};
       try { resp = JSON.parse(xhr.responseText || '{}'); } catch(e){}
+      onDone(xhr.status === 200 && resp.ok, resp);
+    });
+    xhr.addEventListener('error', function(){ onDone(false, {error: 'Error de conexión'}); });
+    xhr.send(fd);
+  }
+
+  // Los CERTIFICADOS y los papeles del alta se suben en el momento (cada uno en su hueco).
+  function uploadDoc(slot, file){
+    const key = slot.getAttribute('data-doc-key');
+    const prog = slot.querySelector('.inv-progress');
+    const bar = prog.querySelector('.progress-bar');
+    const msg = slot.querySelector('.inv-msg');
+    prog.classList.remove('d-none'); msg.textContent = '';
+    post(formData(key, file), function(pct){ bar.style.width = pct + '%'; }, function(ok, resp){
       prog.classList.add('d-none');
-      if (xhr.status === 200 && resp.ok) {
-        if (resp.warn) { msg.className = 'inv-msg small mt-2 text-warning-emphasis'; msg.textContent = resp.warn; }
-        if (resp.docs) renderDocs(resp.docs);
-        else {
-          slot.querySelector('.inv-drop').classList.add('d-none');
-          const b = slot.querySelector('.badge'); if (b) { b.className = 'badge text-bg-success'; b.innerHTML = '<i class="fa fa-circle-check me-1"></i>Recibida'; }
+      if (!ok) {
+        msg.className = 'inv-msg small mt-2 text-danger';
+        msg.textContent = (resp && resp.error) || 'No se pudo subir el archivo';
+        return;
+      }
+      if (resp.warn) { msg.className = 'inv-msg small mt-2 text-warning-emphasis'; msg.textContent = resp.warn; }
+      if (resp.docs) renderDocs(resp.docs);
+      else {
+        slot.querySelector('.inv-drop').classList.add('d-none');
+        const b = slot.querySelector('.badge');
+        if (b) { b.className = 'badge text-bg-success'; b.innerHTML = '<i class="fa fa-circle-check me-1"></i>Recibido'; }
+        refreshSendBar();
+      }
+    });
+  }
+
+  // ---------- ENVIAR LA FACTURA (el último paso) ----------
+  (function wireSend(){
+    const boton = document.getElementById('invSend');
+    const pista = document.getElementById('invSendHint');
+    if (!boton) return;
+    boton.addEventListener('click', function(){
+      if (!INVOICE_FILE) { unlock(UPLOAD_STEP); return; }
+      boton.disabled = true;
+      const antes = boton.innerHTML;
+      boton.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Enviando…';
+      post(formData('INVOICE', INVOICE_FILE), null, function(ok, resp){
+        boton.innerHTML = antes;
+        if (!ok) {
+          boton.disabled = false;
+          let aviso = (resp && resp.error) || 'No se pudo enviar la factura.';
+          // Desde dentro, un importe que no cuadra se avisa y se puede enviar igualmente.
+          if (INTERNO && resp && resp.can_force && !window.invForce) {
+            window.invForce = true;
+            aviso += ' Si aun así es correcta, vuelve a pulsar «Enviar factura».';
+          }
+          if (pista) { pista.className = 'small text-danger'; pista.textContent = aviso; }
+          // Si le faltan datos o hay que reemplazar la anterior, se vuelve al paso de la factura.
+          if (resp && (resp.needs_data || resp.can_replace)) unlock(UPLOAD_STEP);
+          if (resp && resp.docs) renderDocs(resp.docs);
+          return;
         }
+        if (resp.docs) renderDocs(resp.docs);
+        document.getElementById('invDone').classList.remove('d-none');
+        const barra = document.getElementById('invSendBar');
+        if (barra) barra.classList.add('d-none');
         // Con la petición de bolsa: si quedan conceptos por facturar, se puede subir otra factura.
         if (resp.pending) {
           document.querySelectorAll('.js-inv-expense').forEach(function(c){
@@ -1039,24 +1188,14 @@
               var lbl = c.closest('label'); if (lbl) lbl.classList.add('bg-light-subtle'); }
           });
           if (window.invRefreshTotal) window.invRefreshTotal();
-          const drop = slot.querySelector('.inv-drop');
-          if (drop) { drop.classList.remove('d-none'); }
-          const b2 = slot.querySelector('.badge');
-          if (b2) { b2.className = 'badge text-bg-warning text-dark'; b2.innerHTML = '<i class="fa fa-clock me-1"></i>Quedan ' + resp.pending + ' concepto(s)'; }
+          INVOICE_FILE = null;
+          if (barra) barra.classList.remove('d-none');
+          if (pista) { pista.className = 'small text-warning-emphasis'; pista.textContent = 'Quedan ' + resp.pending + ' concepto(s) por facturar: sube la siguiente factura.'; }
+          unlock(UPLOAD_STEP);
         }
-        if (resp.done) document.getElementById('invDone').classList.remove('d-none');
-      } else {
-        msg.className = 'inv-msg small mt-2 text-danger';
-        msg.textContent = (resp && resp.error) || 'No se pudo subir el archivo';
-      }
+      });
     });
-    xhr.addEventListener('error', function(){
-      prog.classList.add('d-none');
-      msg.className = 'inv-msg small mt-2 text-danger';
-      msg.textContent = 'Error de conexión';
-    });
-    xhr.send(fd);
-  }
+  })();
 
   // ¿REEMPLAZAR la factura anterior? Hasta que se pide, el proceso NO se abre: los pasos se
   // bloquean (y con una factura ya validada se quedan bloqueados: eso lo arregla administración).

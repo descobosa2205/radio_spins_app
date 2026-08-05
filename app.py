@@ -290,6 +290,7 @@ from models import (
 )
 import sim_calc  # motor de cálculo puro de Simulaciones
 import seatmap_calc  # motor puro del mapa de butacas del recinto (conteos/plantillas)
+import invoice_read  # motor puro de LECTURA de facturas (nº, fechas e importes del PDF)
 from mrz_utils import (
     extract_fields as mrz_extract_fields,
     parse_mrz as mrz_parse,
@@ -7862,6 +7863,24 @@ def _royalty_timeline(rec) -> list:
     return salida
 
 
+def _royalty_internal_invoice_url(rec) -> str:
+    """Dónde se sube la factura de una liquidación DESDE DENTRO.
+
+    ⚠️ Es el MISMO módulo que usa el beneficiario (`/facturacion?liq=<token>`), con `interno=1`: subir
+    una factura tiene que funcionar igual se haga desde donde se haga, así que no hay una pantalla
+    aparte para nosotros. Lo único que cambia el `interno=1` es que se puede FORZAR un importe que no
+    cuadra (administración sabe lo que hace) y que se dice en nombre de quién se está subiendo."""
+    if rec is None or not getattr(rec, "period_start", None):
+        return ""
+    try:
+        token = _make_public_royalty_liquidation_token(
+            rec.beneficiary_kind, str(rec.beneficiary_id),
+            _semester_key(rec.period_start.year, 1 if rec.period_start.month <= 6 else 2))
+        return url_for("public_invoice_landing", liq=token, interno=1)
+    except Exception:
+        return ""
+
+
 def _apply_royalty_liquidation_meta(bucket: dict, rec: RoyaltyLiquidation | None,
                                     apply_frozen: bool = True) -> None:
     if not bucket:
@@ -7905,6 +7924,10 @@ def _apply_royalty_liquidation_meta(bucket: dict, rec: RoyaltyLiquidation | None
     # Id de la liquidación: hace falta para subirle la factura desde dentro (los 3 puntitos).
     bucket['liquidation_id'] = str(getattr(rec, 'id', '') or '')
     bucket['has_invoice'] = bool(getattr(rec, 'invoice_id', None))
+    # SUBIR LA FACTURA DESDE DENTRO: se hace en el MISMO sitio que la sube el beneficiario (el
+    # módulo de facturación con el token de esta liquidación) y con `interno=1`. Así no hay dos
+    # pantallas que mantener: lo que se mejore ahí, vale para los dos.
+    bucket['invoice_upload_url'] = _royalty_internal_invoice_url(rec)
     congelada = _royalty_frozen_beneficiary(rec)
     bucket['is_generated'] = bool(congelada)
     bucket['generated_at_label'] = _format_madrid_datetime_label(getattr(rec, 'generated_at', None))
@@ -43257,104 +43280,6 @@ def _royalty_beneficiary_promoter(session_db, rec):
     return None, candidatos
 
 
-@app.post("/discografica/royalties/liquidacion/<liq_id>/factura", endpoint="royalty_liquidation_invoice_upload")
-@admin_required
-def royalty_liquidation_invoice_upload(liq_id):
-    """Sube DESDE DENTRO la factura de una liquidación (la manda el beneficiario por otro canal).
-
-    Hace lo mismo que el enlace público: crea la `SupplierInvoice` vinculada, deja la liquidación en
-    FACTURADA y la pone en «pendiente de liquidar» para administración. Los datos se leen del propio
-    documento y lo que no se haya podido leer llega escrito a mano desde el modal.
-    """
-    if not (can_edit_discografica() or can_edit_invoices()
-            or has_access_key("administracion", edit=True, include_descendants=True)):
-        return jsonify({"ok": False, "error": "No tienes permisos para subir esta factura."}), 403
-    session_db = db()
-    try:
-        rec = session_db.get(RoyaltyLiquidation, to_uuid(liq_id) or uuid.uuid4())
-        if rec is None:
-            return jsonify({"ok": False, "error": "No se ha encontrado la liquidación."}), 404
-        f = request.files.get("file")
-        if not f or not f.filename:
-            return jsonify({"ok": False, "error": "Falta el archivo de la factura."}), 400
-        anterior = (session_db.get(SupplierInvoice, rec.invoice_id)
-                    if getattr(rec, "invoice_id", None) else None)
-        if (anterior is not None and (anterior.file_url or "").strip()
-                and (anterior.status or "").upper() == "VALIDADA"):
-            return jsonify({"ok": False, "error": (
-                "Esa liquidación ya tiene una factura VALIDADA. Si hay que cambiarla, primero "
-                "recházala desde la base de facturas.")}), 409
-        # Datos obligatorios: los mismos que se le exigen al proveedor (la BASE es la que cuadra).
-        ok_datos, falta = _invoice_required_data_check(request.form)
-        if not ok_datos:
-            return jsonify({"ok": False, "error": falta, "needs_data": True}), 400
-        dinero = _invoice_amount_fields_from_form(request.form)
-        esperado = _royalty_invoice_totals(_royalty_frozen_beneficiary(rec) or {})
-        ok_importe, motivo = _invoice_amount_check(
-            esperado.get("gross"), esperado.get("net"), dinero.get("amount_gross"),
-            dinero.get("retention_amount"), net=dinero.get("amount_net"),
-            vat=dinero.get("amount_vat"))
-        if not ok_importe and not _truthy(request.form.get("force")):
-            # Se avisa, pero desde dentro se puede forzar: administración sabe lo que hace.
-            return jsonify({"ok": False, "error": motivo, "can_force": True}), 400
-        nombre = (f.filename or "factura").strip()
-        es_pdf = nombre.lower().endswith(".pdf") or (f.mimetype or "") == "application/pdf"
-        url = upload_pdf(f, "invoices") if es_pdf else upload_file(f, "invoices")
-        if not url:
-            return jsonify({"ok": False, "error": "No se pudo guardar el archivo."}), 400
-        if anterior is not None and (anterior.file_url or "").strip():
-            _supplier_invoice_mark_replaced(
-                session_db, [anterior],
-                "Reemplazada por la factura subida desde la app el %s" % today_local().strftime("%d/%m/%Y"))
-        # QUIÉN emite la factura: el tercero del beneficiario (si es un artista, el suyo).
-        elegido = to_uuid(request.form.get("promoter_id") or "")
-        emisor = session_db.get(Promoter, elegido) if elegido else None
-        candidatos = []
-        if emisor is None:
-            emisor, candidatos = _royalty_beneficiary_promoter(session_db, rec)
-        if emisor is None:
-            if candidatos:
-                return jsonify({"ok": False, "needs_promoter": True,
-                                "options": [{"id": str(p.id),
-                                             "label": (_promoter_display_name(p) or p.nick or "Tercero")}
-                                            for p in candidatos],
-                                "error": "Dinos quién emite la factura de esta liquidación."}), 400
-            return jsonify({"ok": False, "error": (
-                "No sabemos qué tercero factura esta liquidación. Vincula a su artista con el tercero "
-                "que le factura (en la ficha del artista o en Vinculaciones) y vuelve a intentarlo.")}), 400
-        promoter_id = emisor.id
-        invoice = SupplierInvoice(
-            promoter_id=promoter_id, source="REQUEST", royalty_liquidation_id=rec.id,
-            concept_text=((request.form.get("concept_text") or "").strip()
-                          or "Liquidación de royalties"),
-            artist_text=(request.form.get("artist_text") or "").strip() or None,
-            invoice_number=(request.form.get("invoice_number") or "").strip() or None,
-            issue_date=parse_optional_date(request.form.get("issue_date")),
-            group_company_id=getattr(_pies_group_company(session_db), "id", None),
-            file_url=url, original_name=nombre[:200], mime_type=f.mimetype, status="PENDIENTE",
-            **dinero,
-        )
-        session_db.add(invoice)
-        session_db.flush()
-        rec.invoice_id = invoice.id
-        rec.status = "INVOICED"
-        rec.invoice_uploaded_at = _now_madrid()
-        rec.updated_at = _now_madrid()
-        _royalty_history_add(rec, "INVOICED", file_url=url,
-                             note="Subida desde la app por %s"
-                                  % ((_current_user_state() or {}).get("nick") or "la oficina"))
-        session_db.commit()
-        return jsonify({"ok": True, "warning": ("" if ok_importe else motivo),
-                        "message": "Factura registrada: la liquidación pasa a facturada y queda "
-                                   "pendiente de validar en administración."})
-    except Exception as exc:
-        session_db.rollback()
-        app.logger.exception("royalty_liquidation_invoice_upload")
-        return jsonify({"ok": False, "error": str(exc)[:200]}), 500
-    finally:
-        session_db.close()
-
-
 def _royalty_invoice_pending_rows(session_db) -> list:
     """Facturas de liquidaciones de royalties recibidas y PENDIENTES de validar (tarea de
     administración). Incluye el aviso de EMBARGO vigente sobre el proveedor."""
@@ -45842,8 +45767,7 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return "discografica.adelantos"
     # Royalties: acciones en bloque y liquidaciones «a favor» (sus endpoints no llevan el prefijo
     # discografica_, así que hay que mapearlos a mano: si no, solo dirección podría usarlos).
-    if (endpoint.startswith("royalty_liquidations") or endpoint.startswith("afavor_")
-            or endpoint == "royalty_liquidation_invoice_upload"):
+    if endpoint.startswith("royalty_liquidations") or endpoint.startswith("afavor_"):
         return "discografica.royalties"
     if endpoint.startswith("administration_afavor"):
         return "administracion.pendiente"
@@ -46473,8 +46397,7 @@ def _resolve_request_resource_key() -> str | None:
         return "discografica.adelantos"
     # Royalties: acciones en bloque y liquidaciones «a favor» (sus endpoints no llevan el prefijo
     # discografica_, así que hay que mapearlos a mano: si no, solo dirección podría usarlos).
-    if (endpoint.startswith("royalty_liquidations") or endpoint.startswith("afavor_")
-            or endpoint == "royalty_liquidation_invoice_upload"):
+    if endpoint.startswith("royalty_liquidations") or endpoint.startswith("afavor_"):
         return "discografica.royalties"
     if endpoint.startswith("administration_afavor"):
         return "administracion.pendiente"
@@ -61089,6 +61012,8 @@ def _royalty_sent_without_invoice(session_db, *, limit: int = 200) -> list[dict]
             "view_url": url_for("discografica_view", section="royalties", s=_sem),
             "pdf_url": ((getattr(rec, "last_sent_pdf_url", None) or
                          getattr(rec, "snapshot_pdf_url", None) or "").strip()),
+            # Subirla desde dentro: el MISMO módulo que usa el beneficiario.
+            "upload_url": _royalty_internal_invoice_url(rec),
         })
     return filas
 
@@ -67667,6 +67592,21 @@ def _detect_invoice_amounts(text: str) -> dict:
                 salida[clave] = float(str(m.group(1)).replace(",", "."))
             except Exception:
                 salida[clave] = None
+    return _invoice_amounts_coherence(salida)
+
+
+def _invoice_amounts_coherence(datos: dict) -> dict:
+    """COMPLETA el desglose de una factura y comprueba que cuadre.
+
+    Se aplica a lo que se haya leído (venga del motor `invoice_read` o de las expresiones de aquí):
+    si falta una pieza y las otras la determinan, se calcula; si el desglose no cuadra con el total,
+    manda el total (es lo que se paga) y se avisa. Y si al total le falta justo un porcentaje de
+    retención de los que existen, se reconoce como retención en vez de darlo por descuadre."""
+    salida = {"amount_net": datos.get("amount_net"), "amount_vat": datos.get("amount_vat"),
+              "retention_amount": datos.get("retention_amount"),
+              "amount_gross": datos.get("amount_gross"), "vat_pct": datos.get("vat_pct"),
+              "retention_pct": datos.get("retention_pct"), "amounts_warn": "",
+              "retention_guessed": False}
     base = salida["amount_net"]
     iva = salida["amount_vat"]
     ret = salida["retention_amount"] or Decimal("0")
@@ -67722,17 +67662,40 @@ def _detect_invoice_amounts(text: str) -> dict:
 
 
 def _detect_invoice_meta(data: bytes, is_pdf: bool) -> dict:
-    """Detecta el NÚMERO de factura y la FECHA DE EMISIÓN del documento (mejor esfuerzo). Lo que
-    salga se le muestra a la persona para que lo confirme o lo corrija a mano antes de enviar."""
+    """Detecta el NÚMERO de factura, la FECHA DE EMISIÓN y los IMPORTES del documento (mejor
+    esfuerzo). Lo que salga se le muestra a la persona para que lo confirme o lo corrija antes de
+    enviar.
+
+    Manda el motor **`invoice_read`**, que reconstruye los renglones del PDF con las coordenadas de
+    cada trozo y empareja rótulo → valor por columnas: es la única forma de leer bien las facturas
+    maquetadas como TABLA (donde el texto plano saca los rótulos y los valores desordenados, y
+    «número de factura» acaba pareciendo la fecha de vencimiento). Lo que ese motor no saque se
+    intenta con las expresiones de aquí, y al final se completa el desglose con
+    `_detect_invoice_amounts` (que también reconoce una retención que no se dijo con palabras)."""
     out = {"invoice_number": "", "issue_date": "", "concept": "", "detected": False,
            "amount_net": None, "amount_vat": None, "retention_amount": None, "amount_gross": None,
            "vat_pct": None, "retention_pct": None, "amounts_warn": "", "retention_guessed": False}
     if not is_pdf:
         return out
     text = _pdf_extract_text_bytes(data)
-    if not text:
+    leido = {}
+    try:
+        leido = invoice_read.read_fields(text=text, data=data)
+    except Exception:
+        leido = {}
+    if not text and not leido:
         return out
-    m = _INV_NUM_RE.search(text)
+    for clave in ("invoice_number", "issue_date", "concept"):
+        if leido.get(clave):
+            out[clave] = leido[clave]
+    for clave in ("amount_net", "amount_vat", "retention_amount", "amount_gross",
+                  "vat_pct", "retention_pct"):
+        if leido.get(clave) is not None:
+            out[clave] = leido[clave]
+    if not text:
+        return {**out, "detected": bool(out["invoice_number"] or out["issue_date"]
+                                        or out["amount_gross"] is not None), "text": ""}
+    m = _INV_NUM_RE.search(text) if not out["invoice_number"] else None
     if m:
         num = (m.group(1) or "").strip(" .:-")
         # Descartamos solo lo que sea claramente una FECHA o un IMPORTE (un número de factura como
@@ -67741,18 +67704,22 @@ def _detect_invoice_meta(data: bytes, is_pdf: bool) -> dict:
         looks_amount = bool(re.search(r"\d,\d{2}$", num)) or num.upper().endswith(("EUR", "€"))
         if num and not looks_date and not looks_amount:
             out["invoice_number"] = num[:40]
-    for rx in _INV_DATE_RES:
-        m = rx.search(text)
-        if not m:
-            continue
-        d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
-        if y < 100:
-            y += 2000
-        try:
-            out["issue_date"] = date(y, mo, d).isoformat()
-            break
-        except ValueError:
-            continue
+    # ⚠️ Los respaldos de aquí abajo SOLO rellenan lo que el motor no haya podido leer: si pisaran lo
+    # leído, la fecha de emisión volvería a ser «la primera fecha que aparezca» (a menudo la de
+    # vencimiento) y el número de factura, cualquier cosa.
+    if not out["issue_date"]:
+        for rx in _INV_DATE_RES:
+            m = rx.search(text)
+            if not m:
+                continue
+            d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            if y < 100:
+                y += 2000
+            try:
+                out["issue_date"] = date(y, mo, d).isoformat()
+                break
+            except ValueError:
+                continue
     if not out["issue_date"]:
         m = _INV_DATE_ISO_RE.search(text)
         if m:
@@ -67761,13 +67728,23 @@ def _detect_invoice_meta(data: bytes, is_pdf: bool) -> dict:
             except ValueError:
                 pass
     # CONCEPTO: la línea que venga tras «concepto» / «descripción» (mejor esfuerzo).
-    m = re.search(r"(?:concepto|descripci[oó]n|detalle)\s*[:\-]?\s*(.{3,90})", text, re.I)
-    if m:
-        linea = re.split(r"[\r\n]", (m.group(1) or ""))[0].strip(" .:-;|")
-        if linea and not re.fullmatch(r"[\d\s.,€]+", linea):
-            out["concept"] = linea[:120]
-    # IMPORTES leídos del documento: base, IVA, retención y total.
-    out.update(_detect_invoice_amounts(text))
+    if not out["concept"]:
+        m = re.search(r"(?:concepto|descripci[oó]n|detalle)\s*[:\-]?\s*(.{3,90})", text, re.I)
+        if m:
+            linea = re.split(r"[\r\n]", (m.group(1) or ""))[0].strip(" .:-;|")
+            if linea and not re.fullmatch(r"[\d\s.,€]+", linea):
+                out["concept"] = linea[:120]
+    # IMPORTES: lo que falte se busca con las expresiones de aquí y, sobre todo, se COMPLETA el
+    # desglose (y se reconoce una retención que el documento no nombra).
+    _viejos = _detect_invoice_amounts(text)
+    for clave in ("amount_net", "amount_vat", "retention_amount", "amount_gross",
+                  "vat_pct", "retention_pct"):
+        if out.get(clave) is None and _viejos.get(clave) is not None:
+            out[clave] = _viejos[clave]
+    out["amounts_warn"] = _viejos.get("amounts_warn") or ""
+    out["retention_guessed"] = bool(_viejos.get("retention_guessed"))
+    # Con lo leído por el motor, el desglose se recompone y se comprueba que cuadre.
+    out.update(_invoice_amounts_coherence(out))
     out["detected"] = bool(out["invoice_number"] or out["issue_date"] or out.get("concept")
                            or out.get("amount_gross") is not None)
     out["text"] = text[:20000]     # se reutiliza para buscar el ARTISTA (no se devuelve al cliente)
@@ -67939,9 +67916,16 @@ def public_invoice_landing():
                 # se ofrece reemplazarla, salvo que esté validada (ahí lo arregla administración).
                 inv_previa = (session_db.get(SupplierInvoice, rec_liq.invoice_id)
                               if (rec_liq is not None and getattr(rec_liq, "invoice_id", None)) else None)
+                # ¿La sube la OFICINA (los tres puntitos de la liquidación) en nombre del
+                # beneficiario? Es la misma pantalla: solo se le presta quién emite la factura (para
+                # no tener que teclear su DNI) y se permite forzar un importe que no cuadre.
+                interno = bool(_truthy(request.args.get("interno")) and session.get("user_id"))
+                if interno and provider is None and rec_liq is not None:
+                    provider, _candidatos = _royalty_beneficiary_promoter(session_db, rec_liq)
                 return render_template(
                     "public_invoice_landing.html",
                     inv_mode="REQUEST",
+                    inv_internal=interno,
                     companies=[company] if company else companies,
                     company=company,
                     cert_docs=INVOICE_CERT_DOCS,
@@ -68368,9 +68352,22 @@ def _invoice_amount_fields_from_form(form) -> dict:
     }
 
 
+def _invoice_upload_can_force() -> bool:
+    """¿Se puede enviar una factura cuyo importe NO cuadra?
+
+    Solo cuando la sube la OFICINA desde dentro (hay sesión y lo pide expresamente con `force`):
+    administración sabe si el descuadre es correcto. Al proveedor se le sigue avisando y no se le
+    acepta, que es lo que evita que entren facturas con el importe equivocado."""
+    return bool(session.get("user_id") and _truthy(request.form.get("force")))
+
+
 @app.post('/facturacion/subir', endpoint='public_invoice_upload')
 def public_invoice_upload():
-    """Sube la factura o uno de los certificados exigidos (landing genérica)."""
+    """Sube la factura o uno de los certificados exigidos.
+
+    ⚠️ Es el ÚNICO sitio por el que entra una factura: el enlace del proveedor, la petición de un
+    gasto, la liquidación de royalties y la subida DESDE DENTRO (`/facturacion?...&interno=1`) pasan
+    todas por aquí, así que cualquier cambio vale para todas."""
     session_db = db()
     try:
         promoter = session_db.get(Promoter, to_uuid(request.form.get("promoter_id") or "") or uuid.uuid4())
@@ -68514,11 +68511,11 @@ def public_invoice_upload():
                 _esperado.get("gross"), _esperado.get("net"),
                 _dinero.get("amount_gross"), _dinero.get("retention_amount"),
                 net=_dinero.get("amount_net"), vat=_dinero.get("amount_vat"))
-            if not _ok:
+            if not _ok and not _invoice_upload_can_force():
                 _invoice_attempt_log(session_db, promoter=promoter, origin="ROYALTY", code="AMOUNT",
                                      liquidation=rec, form=request.form,
                                      filename=(getattr(f, "filename", "") or ""), reason=_motivo)
-                return jsonify({"ok": False, "error": _motivo,
+                return jsonify({"ok": False, "error": _motivo, "can_force": bool(session.get("user_id")),
                                 "expected": str(_money_or_zero(_esperado.get("gross")))}), 400
             if anterior is not None and reemplazar:
                 _supplier_invoice_mark_replaced(
@@ -68600,11 +68597,12 @@ def public_invoice_upload():
                                                  _dinero.get("retention_amount"),
                                                  net=_dinero.get("amount_net"),
                                                  vat=_dinero.get("amount_vat"))
-            if not _ok:
+            if not _ok and not _invoice_upload_can_force():
                 _invoice_attempt_log(session_db, promoter=promoter, origin="REQUEST", code="AMOUNT",
                                      bag_id=bag_req.bag_id, form=request.form,
                                      filename=(getattr(f, "filename", "") or ""), reason=_motivo)
-                return jsonify({"ok": False, "error": _motivo, "expected": str(_esp_gross)}), 400
+                return jsonify({"ok": False, "error": _motivo, "can_force": bool(session.get("user_id")),
+                                "expected": str(_esp_gross)}), 400
             if previas and _truthy(request.form.get("replace")):
                 _supplier_invoice_mark_replaced(
                     session_db, previas,

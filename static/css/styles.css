@@ -2712,7 +2712,9 @@ img.docs-id__face { width:100%; height:100%; object-fit:cover; display:block; cu
 /* YA HAY FACTURA SUBIDA: el proceso no se puede empezar hasta pedir reemplazarla. */
 .inv-step.inv-blocked{ opacity:.45; pointer-events:none; filter:grayscale(.4); }
 /* REPASO EN PANTALLA PARTIDA: la factura a la izquierda y sus datos a la derecha. */
-.inv-split{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:1rem; align-items:start; }
+/* Repaso de la factura: los CAMPOS a la izquierda (con sitio de sobra para escribir) y la FACTURA a
+   la derecha, para irlos comparando. En pantalla estrecha, la factura debajo. */
+.inv-split{ display:grid; grid-template-columns:minmax(0,1.05fr) minmax(0,1fr); gap:1.25rem; align-items:start; }
 @media (max-width: 860px){ .inv-split{ grid-template-columns:1fr; } }
 .inv-split__doc{ border:1px solid #e3e6eb; border-radius:12px; overflow:hidden; background:#f8f9fa; }
 .inv-split__doclab{ font-size:.75rem; font-weight:700; text-transform:uppercase; letter-spacing:.03em;

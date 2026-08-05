@@ -740,6 +740,11 @@
                     <li><button class="dropdown-item" type="button" data-roy-ask
                                 data-kind="{{ r.kind }}" data-bid="{{ r.beneficiary_id }}" data-sem="{{ r.sem_key }}">
                       <i class="fa fa-envelope fa-fw me-2"></i>Volver a solicitar la factura</button></li>
+                    {# Subirla nosotros: se abre el MISMO módulo que ve el beneficiario. #}
+                    {% if r.upload_url %}
+                      <li><a class="dropdown-item" href="{{ r.upload_url }}" target="_blank" rel="noopener">
+                        <i class="fa fa-file-arrow-up fa-fw me-2"></i>Subir la factura</a></li>
+                    {% endif %}
                     {% if r.view_url %}
                       <li><a class="dropdown-item" href="{{ r.view_url }}"><i class="fa fa-up-right-from-square fa-fw me-2"></i>Ver la liquidación</a></li>
                     {% endif %}

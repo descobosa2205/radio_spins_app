@@ -1665,6 +1665,59 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   enseña en el resumen del pago y en la pantalla de validar (que lo prefiere al recálculo cuando la
   factura trae total). ⚠️ Un 0 no es «no lo sé»: los campos vacíos se guardan como NULL.
 
+- **SUBIR UNA FACTURA = UN SOLO MÓDULO** (ago 2026). Da igual desde dónde se haga: el enlace del
+  proveedor, la petición de un gasto, la liquidación de royalties y la subida **DESDE DENTRO** pasan
+  todas por `templates/public_invoice_landing.html` + `public_invoice_detect` +
+  **`public_invoice_upload`** (el ÚNICO sitio por el que entra una factura). Así, lo que se mejore ahí
+  vale para todos.
+  · **Desde dentro** (los tres puntitos de una liquidación en Discográfica → Royalties y en
+  Administración → Liquidaciones → «Enviadas pendientes de factura») se abre **la misma pantalla** con
+  `interno=1` (`_royalty_internal_invoice_url`): sale un aviso de que la estás subiendo tú, se
+  **presta el proveedor** que emite la factura (`_royalty_beneficiary_promoter`, así no hay que
+  teclear su DNI) y se puede **forzar** un importe que no cuadre (`_invoice_upload_can_force`: exige
+  sesión y `force`; al proveedor se le sigue avisando y NO se le acepta).
+  ⚠️ La pantalla interna que había aparte (`royalty_liquidation_invoice_upload` + su modal en
+  `discografica_royalties.html`) se **retiró**: eran dos sitios que mantener y se desincronizaban.
+  · **Los PASOS** (rediseño ago 2026): 1 haz la factura · 2 ¿para quién es? (solo en la landing
+  general) · 3 identifícate · **4 sube la factura** · **5 documentación y enviar**.
+  ⚠️ En el paso 4 la factura **NO se envía todavía**: se lee (`public_invoice_detect`), se pinta
+  **desde el propio archivo** (`URL.createObjectURL`) y se repasa en **pantalla partida** con los
+  **CAMPOS A LA IZQUIERDA** (grandes, en dos columnas) y **LA FACTURA A LA DERECHA** (`.inv-split`);
+  los que no se hayan podido leer salen en amarillo y el botón **«Continuar»** no se activa hasta que
+  están. En el paso 5 se piden los documentos que le tocan a quien emite (los que ya están **en vigor**
+  salen marcados) y el botón **«Enviar factura»** —que solo se activa cuando no falta ninguno— es el
+  que manda la factura de verdad; al terminar sale **«Su factura ha sido subida»**.
+  · Así la fecha de emisión se conoce ANTES de pedir los papeles, que es contra la que se mide si el
+  alta del proveedor estaba en vigor.
+
+- **LEER LOS DATOS DE UNA FACTURA · motor `invoice_read.py`** (ago 2026). Manda él en
+  `_detect_invoice_meta`; las expresiones de `app.py` quedan solo como **respaldo de lo que no
+  saque** (⚠️ no pisan lo leído: si lo pisaran, la fecha de emisión volvería a ser «la primera fecha
+  del documento», que suele ser la de **vencimiento**).
+  · ⚠️ **Muchas facturas son TABLAS** y el texto plano saca los rótulos y los valores en bloques
+  separados y desordenados (en una real, «Número de factura» aparecía justo antes de la fecha de
+  vencimiento y el valor «1003» quince líneas más abajo). Por eso se reconstruyen los **renglones
+  visuales** con las coordenadas de cada trozo (`pdf_rows`, matriz de texto × matriz de
+  transformación: con `tm` a secas el texto de dentro de un formulario sale donde no es) y se
+  empareja **rótulo → valor** por columnas: pegado al rótulo · a su derecha · k rótulos y k valores en
+  el mismo renglón · renglón de rótulos y el siguiente de valores.
+  · ⚠️ **El bug de los importes de cuatro cifras**: la expresión empezaba por
+  `\d{1,3}(?:[.\s]\d{3})*(?:,\d{1,2})?`, así que «1140,97» casaba **«114»**. En `AMOUNT` van primero
+  los formatos completos y el entero suelto al final.
+  · Los rótulos se buscan **sin acentos, con puntuación por medio y con las letras separadas**
+  (`_label_pattern`): así casan «Número de factura», «N.º de factura», «I.V.A» y «TOT AL» sin
+  enumerarlos. Y `(?<![A-Za-z])` en vez de `\b`, porque en los PDF los datos vienen PEGADOS
+  («Fecha: 28/7/2026N.º de factura: 8») — por lo mismo, las fechas terminan en `(?!\d)`.
+  · `NOT_LABELS` descarta lo que se parece pero no es: «número de **cliente**», «**vencimiento**»,
+  «número de registro de IVA», «PAGADA». Y en `amount_gross` **«Total a pagar» gana a «Total»** (con
+  retención, «Total» es base + IVA y lo que se paga es el otro): los rótulos se prueban EN ORDEN sobre
+  todo el documento, no renglón a renglón.
+  · Con el TOTAL y el **% de IVA** se despejan la base y el IVA (facturas donde el rótulo de la base
+  no hay forma de leerlo).
+  · **Prueba de regresión: `python3 tools/check_invoice_read.py`** — tres facturas reales de
+  proveedores distintos (tabla · con retención y «total a pagar» · datos pegados y «TOT AL»). Si se
+  toca el motor, tiene que seguir en verde.
+
 - **BASE DE FACTURAS · una línea por factura, con su desglose** (ago 2026). La pestaña «Subidas por
   terceros» enseñaba fechas, números e importes en blanco y la misma factura varias veces.
   · **Una fila = una factura FÍSICA** (`_supplier_invoice_same_doc_key`: el mismo archivo —sin el «?»

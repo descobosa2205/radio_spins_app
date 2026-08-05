@@ -1182,6 +1182,16 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   la liquidación): modal para **arrastrar o elegir** el documento, se leen sus datos con el mismo
   lector que la landing (`public_invoice_detect`) y **solo se piden a mano los que no se han podido
   leer** (salen resaltados).
+  · **PANTALLA PARTIDA como en la landing** (mismas clases `.inv-split*`): la factura a la IZQUIERDA
+  —pintada del propio archivo con `URL.createObjectURL`, sin subirla— y a la DERECHA los campos ya
+  rellenos con lo leído (nº, fecha, base, IVA, retención, total, **artista** y concepto). Arriba se dice
+  **a quién se le vincula** (el beneficiario) y la base a facturar.
+  · **QUIÉN EMITE la factura** lo resuelve `_royalty_beneficiary_promoter`: si el beneficiario es un
+  TERCERO, él mismo; si es un ARTISTA, el tercero que le factura —primero sus **integrantes**
+  (`ArtistPerson.promoter_id`: el solista o quien cobra por el grupo) y si no el tercero **vinculado**
+  al artista—. Con **más de un candidato NO se elige por su cuenta**: el endpoint responde
+  `needs_promoter` con la lista y el modal enseña el selector. Sin ninguno, se dice que hay que
+  vincular al artista con su tercero.
   ⚠️ El arrastre lo hace el mecanismo **GLOBAL** (`file_drop.js` + `data-file-drop-for="#royInvoiceFile"`),
   igual que cuando la sube un tercero. Un `drop` PROPIO en la zona **rompe la detección**: al hacer
   `preventDefault` el global se aparta («lo ha gestionado una dropzone propia») y nadie asigna el

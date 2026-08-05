@@ -43205,6 +43205,57 @@ def administration_invoice_link_royalty(invoice_id):
     return redirect(safe_next_or(url_for("administracion_view", tab="pendiente", subtab="liquidacion")))
 
 
+def _royalty_beneficiary_promoter(session_db, rec):
+    """QUIÉN emite la factura de una liquidación: el tercero al que se le vincula.
+
+    · Beneficiario TERCERO → él mismo.
+    · Beneficiario ARTISTA → el tercero que le factura: primero sus INTEGRANTES
+      (`ArtistPerson.promoter_id`, que es el caso de un solista o de quien cobra por el grupo) y, si
+      no, el tercero VINCULADO al artista (mánager, sociedad que le factura…). Si hay más de un
+      candidato no se elige por su cuenta: se devuelve la lista para preguntarlo.
+
+    Devuelve `(promoter, candidatos)`: con `promoter` puesto ya se puede crear la factura; si viene
+    None y hay `candidatos`, hay que elegir.
+    """
+    kind = (getattr(rec, "beneficiary_kind", None) or "").upper()
+    bid = getattr(rec, "beneficiary_id", None)
+    if not bid:
+        return None, []
+    if kind == "PROMOTER":
+        return session_db.get(Promoter, bid), []
+    candidatos = []
+    vistos = set()
+    try:
+        for pr in (session_db.query(Promoter)
+                   .join(ArtistPerson, ArtistPerson.promoter_id == Promoter.id)
+                   .filter(ArtistPerson.artist_id == bid).all()):
+            if str(pr.id) not in vistos:
+                vistos.add(str(pr.id))
+                candidatos.append(pr)
+    except Exception:
+        pass
+    if not candidatos:
+        try:
+            for link in (session_db.query(ThirdPartyLink)
+                         .filter(ThirdPartyLink.is_active.is_(True))
+                         .filter(or_(and_(ThirdPartyLink.source_type == "artist",
+                                          ThirdPartyLink.source_id == bid,
+                                          ThirdPartyLink.target_type == "promoter"),
+                                     and_(ThirdPartyLink.target_type == "artist",
+                                          ThirdPartyLink.target_id == bid,
+                                          ThirdPartyLink.source_type == "promoter"))).all()):
+                pid = (link.target_id if (link.source_type or "") == "artist" else link.source_id)
+                pr = session_db.get(Promoter, pid) if pid else None
+                if pr is not None and str(pr.id) not in vistos:
+                    vistos.add(str(pr.id))
+                    candidatos.append(pr)
+        except Exception:
+            pass
+    if len(candidatos) == 1:
+        return candidatos[0], candidatos
+    return None, candidatos
+
+
 @app.post("/discografica/royalties/liquidacion/<liq_id>/factura", endpoint="royalty_liquidation_invoice_upload")
 @admin_required
 def royalty_liquidation_invoice_upload(liq_id):
@@ -43254,14 +43305,23 @@ def royalty_liquidation_invoice_upload(liq_id):
             _supplier_invoice_mark_replaced(
                 session_db, [anterior],
                 "Reemplazada por la factura subida desde la app el %s" % today_local().strftime("%d/%m/%Y"))
-        congelada = _royalty_frozen_beneficiary(rec) or {}
-        promoter_id = rec.beneficiary_id if (rec.beneficiary_kind or "").upper() == "PROMOTER" else None
-        if not promoter_id:
-            # Beneficiario que no es un tercero (p. ej. un artista): la factura la emite su tercero
-            # vinculado si lo hay; si no, no se puede crear (la factura necesita quién la emite).
+        # QUIÉN emite la factura: el tercero del beneficiario (si es un artista, el suyo).
+        elegido = to_uuid(request.form.get("promoter_id") or "")
+        emisor = session_db.get(Promoter, elegido) if elegido else None
+        candidatos = []
+        if emisor is None:
+            emisor, candidatos = _royalty_beneficiary_promoter(session_db, rec)
+        if emisor is None:
+            if candidatos:
+                return jsonify({"ok": False, "needs_promoter": True,
+                                "options": [{"id": str(p.id),
+                                             "label": (_promoter_display_name(p) or p.nick or "Tercero")}
+                                            for p in candidatos],
+                                "error": "Dinos quién emite la factura de esta liquidación."}), 400
             return jsonify({"ok": False, "error": (
-                "Esta liquidación no es de un tercero, así que no se puede registrar su factura "
-                "aquí: hazlo desde la base de facturas.")}), 400
+                "No sabemos qué tercero factura esta liquidación. Vincula a su artista con el tercero "
+                "que le factura (en la ficha del artista o en Vinculaciones) y vuelve a intentarlo.")}), 400
+        promoter_id = emisor.id
         invoice = SupplierInvoice(
             promoter_id=promoter_id, source="REQUEST", royalty_liquidation_id=rec.id,
             concept_text=((request.form.get("concept_text") or "").strip()

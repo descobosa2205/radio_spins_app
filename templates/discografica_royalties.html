@@ -711,7 +711,7 @@
    no se hayan podido leer; al guardar, la liquidación pasa a FACTURADA y queda pendiente de validar
    en Administración → Pendiente → De liquidación. #}
 <div class="modal fade" id="royInvoiceModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title"><i class="fa fa-file-arrow-up me-2 text-danger"></i>Subir la factura de la liquidación</h5>
@@ -719,50 +719,72 @@
       </div>
       <form id="royInvoiceForm" enctype="multipart/form-data">
         <div class="modal-body">
-          <div class="small text-muted mb-2" data-roy-inv-who></div>
-          {# Zona de arrastre (o clic para elegir). #}
-          {# La zona de arrastre la gestiona el mecanismo GLOBAL de la app (`file_drop.js`), el mismo
-             que usa la landing cuando la sube un tercero: asigna el fichero al input y dispara su
-             `change`. ⚠️ NO se pone un `drop` propio aquí: al hacer `preventDefault` el global se
-             aparta («lo ha gestionado una dropzone propia») y se quedaba sin hacer nada (bug real). #}
-          <label class="d-block border rounded-3 p-4 text-center mb-3" style="border-style:dashed!important;cursor:pointer;"
+          {# PANTALLA PARTIDA, como cuando la sube un tercero: la factura a la IZQUIERDA (se pinta del
+             propio archivo, sin subirlo) y a la DERECHA los campos que se han leído. Lo que no se haya
+             podido leer sale resaltado para escribirlo a mano. #}
+          <div class="alert alert-light border small d-flex flex-wrap gap-3 align-items-center mb-3">
+            <span><i class="fa fa-user-tie me-1 text-danger"></i><strong data-roy-inv-who></strong></span>
+            <span data-roy-inv-amount class="text-muted"></span>
+          </div>
+          {# Zona de arrastre (o clic para elegir). El arrastre lo hace el mecanismo global. #}
+          <label class="d-block border rounded-3 p-3 text-center mb-3" style="border-style:dashed!important;cursor:pointer;"
                  id="royInvoiceDrop" data-file-drop-for="#royInvoiceFile">
-            <i class="fa fa-cloud-arrow-up fa-2x text-muted mb-2 d-block"></i>
+            <i class="fa fa-cloud-arrow-up me-2 text-muted"></i>
             <span data-roy-inv-name>Arrastra aquí la factura o pincha para elegirla</span>
             <input type="file" name="file" accept=".pdf,image/*" class="d-none" id="royInvoiceFile" required>
           </label>
           <div class="small text-muted mb-2 d-none" data-roy-inv-reading><i class="fa fa-spinner fa-spin me-1"></i>Leyendo los datos de la factura…</div>
-          <div class="row g-3" id="royInvoiceFields">
-            <div class="col-md-6">
-              <label class="form-label">Nº de factura</label>
-              <input class="form-control" name="invoice_number" data-roy-f="invoice_number">
+
+          <div class="inv-split d-none" data-roy-inv-split>
+            <div class="inv-split__doc">
+              <div class="inv-split__doclab"><i class="fa fa-file-invoice me-1"></i>La factura</div>
+              <div class="inv-split__frame" data-roy-inv-preview></div>
             </div>
-            <div class="col-md-6">
-              <label class="form-label">Fecha de emisión</label>
-              <input class="form-control" type="date" name="issue_date" data-roy-f="issue_date">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Base imponible</label>
-              <input class="form-control" name="amount_net" data-roy-f="amount_net" inputmode="decimal">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">IVA</label>
-              <input class="form-control" name="amount_vat" data-roy-f="amount_vat" inputmode="decimal">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Retención <span class="text-muted small">(si la lleva)</span></label>
-              <input class="form-control" name="retention_amount" data-roy-f="retention_amount" inputmode="decimal">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Total de la factura</label>
-              <input class="form-control" name="amount_gross" data-roy-f="amount_gross" inputmode="decimal">
-            </div>
-            <div class="col-12">
-              <label class="form-label">Concepto</label>
-              <input class="form-control" name="concept_text" data-roy-f="concept_text" placeholder="Liquidación de royalties">
+            <div class="inv-split__fields">
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label">Nº de factura</label>
+                  <input class="form-control" name="invoice_number" data-roy-f="invoice_number">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Fecha de emisión</label>
+                  <input class="form-control" type="date" name="issue_date" data-roy-f="issue_date">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Base imponible</label>
+                  <input class="form-control" name="amount_net" data-roy-f="amount_net" inputmode="decimal">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">IVA</label>
+                  <input class="form-control" name="amount_vat" data-roy-f="amount_vat" inputmode="decimal">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Retención <span class="text-muted small">(si la lleva)</span></label>
+                  <input class="form-control" name="retention_amount" data-roy-f="retention_amount" inputmode="decimal">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Total de la factura</label>
+                  <input class="form-control" name="amount_gross" data-roy-f="amount_gross" inputmode="decimal">
+                </div>
+                <div class="col-12">
+                  <label class="form-label">Artista <span class="text-muted small">(como aparece en la factura)</span></label>
+                  <input class="form-control" name="artist_text" data-roy-f="artist_text">
+                </div>
+                <div class="col-12">
+                  <label class="form-label">Concepto</label>
+                  <input class="form-control" name="concept_text" data-roy-f="concept_text" placeholder="Liquidación de royalties">
+                </div>
+                {# Solo si la liquidación es de un ARTISTA y hay más de un tercero que podría
+                   facturarla: entonces se pregunta quién la emite (si solo hay uno, se coge solo). #}
+                <div class="col-12 d-none" data-roy-inv-promoter-box>
+                  <label class="form-label">¿Quién emite la factura? <span class="text-danger">*</span></label>
+                  <select class="form-select" name="promoter_id" data-roy-inv-promoter></select>
+                  <div class="form-text">La liquidación es de un artista: dinos con qué tercero se vincula la factura.</div>
+                </div>
+              </div>
+              <div class="alert alert-warning small mt-3 d-none" data-roy-inv-msg></div>
             </div>
           </div>
-          <div class="alert alert-warning small mt-3 d-none" data-roy-inv-msg></div>
         </div>
         <div class="modal-footer">
           <div class="small text-muted me-auto">Lo que no se haya podido leer sale resaltado: complétalo antes de guardar.</div>
@@ -798,6 +820,22 @@
     });
   }
 
+  // La factura, a la izquierda: se pinta del propio archivo elegido (sin subirlo), igual que en la
+  // landing del proveedor.
+  function pintarPreview(file) {
+    var caja = document.querySelector('[data-roy-inv-preview]');
+    if (!caja || !file) return;
+    if (window.__royPrevUrl) { try { URL.revokeObjectURL(window.__royPrevUrl); } catch (e) {} }
+    var url = URL.createObjectURL(file);
+    window.__royPrevUrl = url;
+    var nombre = (file.name || '').toLowerCase();
+    caja.innerHTML = /\.(png|jpe?g|webp|gif|heic)$/.test(nombre)
+      ? '<img src="' + url + '" alt="Factura">'
+      : '<iframe src="' + url + '#view=FitH&zoom=page-width" title="Factura"></iframe>';
+    var split = document.querySelector('[data-roy-inv-split]');
+    if (split) split.classList.remove('d-none');
+  }
+
   window.openRoyaltyInvoiceUpload = function (liqId, nombre, importe) {
     LIQ_ID = liqId || '';
     FORZAR = false;
@@ -807,13 +845,22 @@
     if (!window.bootstrap) { alert('La página todavía se está cargando: inténtalo en un segundo.'); return; }
     document.getElementById('royInvoiceForm').reset();
     ['invoice_number', 'issue_date', 'amount_net', 'amount_vat', 'retention_amount',
-     'amount_gross', 'concept_text'].forEach(function (n) {
+     'amount_gross', 'concept_text', 'artist_text'].forEach(function (n) {
       var el = $f(n); if (el) { el.value = ''; el.classList.remove('is-invalid'); }
     });
+    // A quién se le vincula la factura: el beneficiario de la liquidación (su tercero).
     var who = document.querySelector('[data-roy-inv-who]');
-    if (who) who.textContent = (nombre ? nombre + ' · ' : '') + 'base a facturar: ' + (importe || '—');
+    if (who) who.textContent = nombre || 'Beneficiario';
+    var imp = document.querySelector('[data-roy-inv-amount]');
+    if (imp) imp.textContent = 'Base a facturar: ' + (importe || '—');
     var nom = document.querySelector('[data-roy-inv-name]');
     if (nom) nom.textContent = 'Arrastra aquí la factura o pincha para elegirla';
+    var split = document.querySelector('[data-roy-inv-split]');
+    if (split) split.classList.add('d-none');
+    var cajaProm = document.querySelector('[data-roy-inv-promoter-box]');
+    if (cajaProm) cajaProm.classList.add('d-none');
+    var prev = document.querySelector('[data-roy-inv-preview]');
+    if (prev) prev.innerHTML = '';
     aviso('');
     window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
   };
@@ -837,6 +884,7 @@
     if (!f) return;
     var nom = document.querySelector('[data-roy-inv-name]');
     if (nom) nom.textContent = f.name;
+    pintarPreview(f);
     var leyendo = document.querySelector('[data-roy-inv-reading]');
     if (leyendo) leyendo.classList.remove('d-none');
     var fd = new FormData(); fd.append('file', f);
@@ -848,7 +896,7 @@
         [['invoice_number', 'invoice_number'], ['issue_date', 'issue_date'],
          ['amount_net', 'amount_net'], ['amount_vat', 'amount_vat'],
          ['retention_amount', 'retention_amount'], ['amount_gross', 'amount_gross'],
-         ['concept_text', 'concept']].forEach(function (par) {
+         ['concept_text', 'concept'], ['artist_text', 'artist']].forEach(function (par) {
           var el = $f(par[0]);
           if (el && !el.value && m[par[1]]) el.value = m[par[1]];
         });
@@ -889,6 +937,21 @@
       .then(function (d) {
         if (btn) { btn.disabled = false; btn.innerHTML = 'Guardar la factura'; }
         if (d && d.ok) { window.location.reload(); return; }
+        if (d && d.needs_promoter) {
+          var caja = document.querySelector('[data-roy-inv-promoter-box]');
+          var sel = document.querySelector('[data-roy-inv-promoter]');
+          if (caja && sel) {
+            sel.innerHTML = '<option value="">Elige el tercero…</option>' +
+              (d.options || []).map(function (o) {
+                return '<option value="' + o.id + '">' + o.label + '</option>';
+              }).join('');
+            caja.classList.remove('d-none');
+            var split = document.querySelector('[data-roy-inv-split]');
+            if (split) split.classList.remove('d-none');
+          }
+          aviso(d.error || 'Dinos quién emite la factura.', 'alert-warning');
+          return;
+        }
         if (d && d.can_force) {
           FORZAR = true;
           aviso((d.error || '') + ' Si aun así es correcta, vuelve a pulsar «Guardar la factura».', 'alert-danger');

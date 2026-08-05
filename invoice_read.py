@@ -477,7 +477,11 @@ def _concept_from(text: str, filas: list) -> str:
             continue
         # La línea de detalle: quitamos los importes y las cantidades del final.
         sin_importes = re.sub(r"(\d{1,3}(?:[.  ]\d{3})*(?:,\d{1,2})?|\d+[.,]\d{1,2}|\d+)\s*(?:%|€)?", " ", limpia)
-        sin_importes = " ".join(sin_importes.split()).strip(" -·|")
+        # Al quitar los importes quedan comas y puntos huérfanos («Liquidación de Royalties ,»): fuera
+        # todo trozo que no lleve ni una letra ni un dígito.
+        sin_importes = " ".join(p for p in sin_importes.split()
+                               if re.search(r"[0-9A-Za-zÁÉÍÓÚÜÑáéíóúüñ]", p))
+        sin_importes = sin_importes.strip(" -·|,;:.")
         if len(sin_importes) >= 3 and re.search(r"[A-Za-zÁÉÍÓÚÑáéíóúñ]{3}", sin_importes):
             return sin_importes[:120]
     # Sin tabla reconocible, lo que venga tras «concepto»/«descripción».

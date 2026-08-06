@@ -280,13 +280,26 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   provisional). Audio **solo `.wav`**; barra de estado de 5 básicos, verde solo con portada **principal**.
   Reproductor inline `<audio>` + menú de 3 puntos (compartir/descargar/reemplazar/eliminar) vía macros
   locales de la plantilla.
-- **«Solicitar Masters» va en la BARRA DE BOTONES** (ago 2026): el botón que abre
-  `#masterDeliveryModal` estaba a la derecha de las pestañas y ahora vive en una **`.ficha-quick`**
-  (la misma barra bajo la cabecera que la ficha de actividad), renombrado de «Entrega de masters» a
-  **«Solicitar Masters»** (el título del modal también). ⚠️ El **modal NO se mueve**: vive fuera de las
-  pestañas, así que el botón vale desde cualquiera y el auto-open de `?delivery_created=1` sigue
-  funcionando. La página pública sigue llamándose «Entrega de masters» a propósito: eso es lo que
-  entrega el tercero, no lo que pedimos nosotros.
+- **BARRA DE BOTONES de la ficha de CANCIÓN y de ÁLBUM** (ago 2026): las dos tienen ya la
+  **`.ficha-quick`** bajo la cabecera (la misma de la ficha de actividad) y en ellas se llena de
+  **DERECHA A IZQUIERDA** (`.ficha-quick--end` = `flex-direction: row-reverse`): el primer botón del
+  HTML es el de más a la derecha y los que se añadan salen a su izquierda. En la ficha de ACTIVIDAD
+  la barra sigue siendo de izquierda a derecha (sin el modificador).
+  · «Entrega de masters» pasó a **«Solicitar Masters»** (el título del modal también) y vive ahí.
+  ⚠️ El **modal NO se mueve**: está fuera de las pestañas, así que el botón vale desde cualquiera y el
+  auto-open de `?delivery_created=1` sigue funcionando. La página pública sigue llamándose «Entrega de
+  masters» a propósito: es lo que entrega el tercero, no lo que pedimos nosotros.
+  · **«Compartir LC»** subió también a la barra (antes estaba en la cabecera de la pestaña
+  Información), así que se comparte el Label Copy desde cualquier pestaña.
+  ⚠️⚠️ Y por eso las funciones de COMPARTIR son **GLOBALES** (`static/js/scripts.js`:
+  `shareByMail`/`shareByWhatsapp`/`shareBySms`/`copyShareLink`). Estaban definidas DENTRO de los
+  bloques `{% elif tab == ... %}` de canción (materiales, editorial) y álbum (beneficiarios), así que
+  en las demás pestañas no existían: el «Compartir LC» de la pestaña Información llamaba a una función
+  inexistente y el clic **no hacía nada** (bug real). Las tres copias locales se han retirado: una sola
+  implementación. Al añadir un botón de compartir a cualquier pantalla, usar las globales.
+  · `initTypeahead` (`static/js/typeahead.js`) **sale si el campo no está en la pantalla**: se llama
+  desde scripts que corren en TODAS las pestañas de una ficha y petaba con «Cannot read properties of
+  null», llevándose por delante el resto del arranque de esa página.
 - **Entrega de masters (enlace público)**: `SongMasterDeliveryLink` (token, `sections_json`, `status`
   ACTIVE/SUBMITTED/CANCELLED, `data` JSONB). Botón en la ficha (modal: secciones producción/autoral/letra/
   masters) → endpoints `discografica_song_delivery_create`/`_cancel`; formulario público

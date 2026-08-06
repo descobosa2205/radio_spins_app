@@ -870,6 +870,35 @@ function shareTextWithClickableUrl(title, url){
 window.ensureAbsoluteShareUrl = ensureAbsoluteShareUrl;
 window.shareTextWithClickableUrl = shareTextWithClickableUrl;
 
+/* ============================================================================
+   COMPARTIR un enlace (correo · WhatsApp · SMS · copiar): GLOBALES.
+   ⚠️ Estaban definidas DENTRO de bloques de pestaña de la ficha de canción y de
+   álbum, así que en las demás pestañas no existían: el «Compartir LC» de la
+   pestaña Información llamaba a una función inexistente y el clic no hacía nada
+   (bug real). Aquí valen desde cualquier pantalla.
+   ========================================================================== */
+function _shareUrl(mode, title, url){
+  const text = (window.shareTextWithClickableUrl ? window.shareTextWithClickableUrl(title, url) : (title + '\n\n' + url));
+  if (mode === 'mail') window.location.href = 'mailto:?subject=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(text);
+  if (mode === 'wa') window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+  if (mode === 'sms') window.location.href = 'sms:?body=' + encodeURIComponent(text);
+}
+function shareByMail(title, url){ _shareUrl('mail', title, url); }
+function shareByWhatsapp(title, url){ _shareUrl('wa', title, url); }
+function shareBySms(title, url){ _shareUrl('sms', title, url); }
+async function copyShareLink(url){
+  try {
+    await navigator.clipboard.writeText(url);
+    alert('Enlace copiado.');
+  } catch (e) {
+    window.prompt('Copia este enlace:', url);
+  }
+}
+window.shareByMail = shareByMail;
+window.shareByWhatsapp = shareByWhatsapp;
+window.shareBySms = shareBySms;
+window.copyShareLink = copyShareLink;
+
 function initImageFallbacks(){
   const defaultUrl = document.body ? (document.body.getAttribute('data-default-photo-url') || '') : '';
   const coverUrl = document.body ? (document.body.getAttribute('data-default-cover-url') || '') : '';

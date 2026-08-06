@@ -45,16 +45,31 @@
   </div>
 </div>
 
-{# ---------- BARRA DE BOTONES: justo debajo de la cabecera, como en la ficha de actividad ---------- #}
-{% if CAN_EDIT_DISCOGRAFICA %}
-  <div class="ficha-quick mb-0">
+{# ---------- BARRA DE BOTONES: justo debajo de la cabecera ----------
+   Se llena de DERECHA a IZQUIERDA (`ficha-quick--end`): el primero de aquí es el de más a la
+   derecha y los que se añadan van saliendo a su izquierda. #}
+<div class="ficha-quick ficha-quick--end mb-0">
+  {% if CAN_EDIT_DISCOGRAFICA %}
     {# El modal vive fuera de las pestañas, así que el botón vale desde cualquiera. #}
     <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#masterDeliveryModal">
       <i class="fa fa-paper-plane me-1"></i>Solicitar Masters
       {% if master_delivery %}<span class="badge text-bg-success ms-1">activo</span>{% endif %}
     </button>
+  {% endif %}
+  {# Compartir el Label Copy: vale desde cualquier pestaña (las funciones de compartir son globales). #}
+  <div class="dropdown">
+    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+      <i class="fa fa-share-alt me-1"></i>Compartir LC
+    </button>
+    <ul class="dropdown-menu dropdown-menu-end">
+      <li><a class="dropdown-item" href="{{ url_for('discografica_song_label_copy_pdf', song_id=song.id) }}"><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar en PDF</a></li>
+      <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Label Copy · {{ song.title|e }}', '{{ label_copy_pdf_public_url }}')"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar por WhatsApp</button></li>
+      <li><button class="dropdown-item" type="button" onclick="shareByMail('Label Copy · {{ song.title|e }}', '{{ label_copy_pdf_public_url }}')"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por correo</button></li>
+      <li><button class="dropdown-item" type="button" onclick="shareBySms('Label Copy · {{ song.title|e }}', '{{ label_copy_pdf_public_url }}')"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar por SMS</button></li>
+      <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ label_copy_public_url }}')"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+    </ul>
   </div>
-{% endif %}
+</div>
 
 <!-- Pestañas de la ficha -->
 <ul class="nav nav-tabs ficha-tabs mt-3 mb-0">
@@ -174,18 +189,7 @@
         <h5 class="m-0">Información</h5>
       </div>
       <div class="d-flex gap-2 flex-wrap">
-        <div class="dropdown">
-          <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-            <i class="fa fa-share-alt"></i> Compartir LC
-          </button>
-          <ul class="dropdown-menu dropdown-menu-end">
-            <li><a class="dropdown-item" href="{{ url_for('discografica_song_label_copy_pdf', song_id=song.id) }}"><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar en PDF</a></li>
-            <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Label Copy · {{ song.title|e }}', '{{ label_copy_pdf_public_url }}')"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar por WhatsApp</button></li>
-            <li><button class="dropdown-item" type="button" onclick="shareByMail('Label Copy · {{ song.title|e }}', '{{ label_copy_pdf_public_url }}')"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por correo</button></li>
-            <li><button class="dropdown-item" type="button" onclick="shareBySms('Label Copy · {{ song.title|e }}', '{{ label_copy_pdf_public_url }}')"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar por SMS</button></li>
-            <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ label_copy_public_url }}')"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
-          </ul>
-        </div>
+        {# «Compartir LC» se subió a la barra de botones de debajo de la cabecera. #}
         {% if CAN_EDIT_DISCOGRAFICA %}
           <button type="button" class="btn btn-primary" data-edit-toggle="#songInfoForm"><i class="fa fa-edit"></i> Editar</button>
         {% endif %}
@@ -1683,23 +1687,7 @@
           _songMaterialUploadModal = new bootstrap.Modal(document.getElementById('songMaterialUploadModal'));
           _songMaterialUploadModal.show();
         }
-        function _shareUrl(mode, title, url){
-          const text = (window.shareTextWithClickableUrl ? window.shareTextWithClickableUrl(title, url) : (title + '\\n\\n' + url));
-          if(mode === 'mail') window.location.href = 'mailto:?subject=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(text);
-          if(mode === 'wa') window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
-          if(mode === 'sms') window.location.href = 'sms:?body=' + encodeURIComponent(text);
-        }
-        function shareByMail(title, url){ _shareUrl('mail', title, url); }
-        function shareByWhatsapp(title, url){ _shareUrl('wa', title, url); }
-        function shareBySms(title, url){ _shareUrl('sms', title, url); }
-        async function copyShareLink(url){
-          try {
-            await navigator.clipboard.writeText(url);
-            alert('Enlace copiado.');
-          } catch (e) {
-            window.prompt('Copia este enlace:', url);
-          }
-        }
+        {# Compartir (correo/WhatsApp/SMS/copiar) es GLOBAL: static/js/scripts.js #}
       </script>
     {% endif %}
 
@@ -2481,23 +2469,7 @@
           _songLyricsModal = new bootstrap.Modal(document.getElementById('songLyricsModal'));
           _songLyricsModal.show();
         }
-        function _shareUrl(mode, title, url){
-          const text = (window.shareTextWithClickableUrl ? window.shareTextWithClickableUrl(title, url) : (title + '\\n\\n' + url));
-          if(mode === 'mail') window.location.href = 'mailto:?subject=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(text);
-          if(mode === 'wa') window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
-          if(mode === 'sms') window.location.href = 'sms:?body=' + encodeURIComponent(text);
-        }
-        function shareByMail(title, url){ _shareUrl('mail', title, url); }
-        function shareByWhatsapp(title, url){ _shareUrl('wa', title, url); }
-        function shareBySms(title, url){ _shareUrl('sms', title, url); }
-        async function copyShareLink(url){
-          try {
-            await navigator.clipboard.writeText(url);
-            alert('Enlace copiado.');
-          } catch (e) {
-            window.prompt('Copia este enlace:', url);
-          }
-        }
+        {# Compartir (correo/WhatsApp/SMS/copiar) es GLOBAL: static/js/scripts.js #}
       </script>
     {% endif %}
 

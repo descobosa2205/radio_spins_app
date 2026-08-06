@@ -2,6 +2,10 @@ function debounce(fn, ms){ let t; return function(...args){ clearTimeout(t); t=s
 
 function initTypeahead(inputId, hiddenId, endpoint){
   const input  = document.getElementById(inputId);
+  // ⚠️ Si ese campo no está en la pantalla (se llama desde un script que corre en TODAS las
+  // pestañas de la ficha), no hay nada que cablear: sin esta guarda petaba con
+  // «Cannot read properties of null» y se llevaba por delante el resto del arranque de la página.
+  if (!input) return;
   const hidden = document.getElementById(hiddenId);
   const listId = inputId + "_list";
   let dl = document.getElementById(listId);

@@ -3799,3 +3799,7 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 .an-history:last-child { border-bottom: 0; }
 /* El ojo va dentro del HTML del aviso (solo en la vista previa). */
 .an-preview .an-eye:hover { color: var(--brand-primary, #E33D48) !important; }
+
+/* La barra de botones de la ficha que se llena de DERECHA a IZQUIERDA (canción y álbum):
+   el primero del HTML es el de más a la derecha y los siguientes salen a su izquierda. */
+.ficha-quick--end { flex-direction: row-reverse; }

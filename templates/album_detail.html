@@ -34,6 +34,25 @@
   </div>
 </div>
 
+{# ---------- BARRA DE BOTONES: justo debajo de la cabecera, como en canción y actividad ----------
+   Se llena de DERECHA a IZQUIERDA (`ficha-quick--end`): el primero de aquí es el de más a la
+   derecha y los que se añadan van saliendo a su izquierda. #}
+<div class="ficha-quick ficha-quick--end mb-0">
+  {# Compartir el Label Copy: vale desde cualquier pestaña (las funciones de compartir son globales). #}
+  <div class="dropdown">
+    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+      <i class="fa fa-share-alt me-1"></i>Compartir LC
+    </button>
+    <ul class="dropdown-menu dropdown-menu-end">
+      <li><a class="dropdown-item" href="{{ url_for('discografica_album_label_copy_pdf', album_id=album.id) }}"><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar en PDF</a></li>
+      <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Label Copy · {{ album.title|e }}', '{{ label_copy_pdf_public_url }}')"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar por WhatsApp</button></li>
+      <li><button class="dropdown-item" type="button" onclick="shareByMail('Label Copy · {{ album.title|e }}', '{{ label_copy_pdf_public_url }}')"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por correo</button></li>
+      <li><button class="dropdown-item" type="button" onclick="shareBySms('Label Copy · {{ album.title|e }}', '{{ label_copy_pdf_public_url }}')"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar por SMS</button></li>
+      <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ label_copy_public_url }}')"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+    </ul>
+  </div>
+</div>
+
 <ul class="nav nav-tabs ficha-tabs mt-3 mb-0">
   {% set tabs = [
     ('informacion','Información','discografica.canciones'),
@@ -58,18 +77,7 @@
         <h5 class="m-0">Información</h5>
       </div>
       <div class="d-flex gap-2 flex-wrap">
-        <div class="dropdown">
-          <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-            <i class="fa fa-share-alt"></i> Compartir LC
-          </button>
-          <ul class="dropdown-menu dropdown-menu-end">
-            <li><a class="dropdown-item" href="{{ url_for('discografica_album_label_copy_pdf', album_id=album.id) }}"><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar en PDF</a></li>
-            <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Label Copy · {{ album.title|e }}', '{{ label_copy_pdf_public_url }}')"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar por WhatsApp</button></li>
-            <li><button class="dropdown-item" type="button" onclick="shareByMail('Label Copy · {{ album.title|e }}', '{{ label_copy_pdf_public_url }}')"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por correo</button></li>
-            <li><button class="dropdown-item" type="button" onclick="shareBySms('Label Copy · {{ album.title|e }}', '{{ label_copy_pdf_public_url }}')"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar por SMS</button></li>
-            <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ label_copy_public_url }}')"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
-          </ul>
-        </div>
+        {# «Compartir LC» se subió a la barra de botones de debajo de la cabecera. #}
         {% if CAN_EDIT_DISCOGRAFICA %}
           <button type="button" class="btn btn-primary" data-edit-toggle="#albumInfoForm"><i class="fa fa-edit"></i> Editar</button>
         {% endif %}
@@ -1169,26 +1177,7 @@
 </div>
 
 
-<script>
-  function _shareUrl(mode, title, url){
-    const subject = encodeURIComponent(title || 'Compartir');
-    const body = encodeURIComponent(window.shareTextWithClickableUrl ? window.shareTextWithClickableUrl(title, url) : ((title ? title + '\\n\\n' : '') + (url || '')));
-    if (mode === 'mail') return window.open(`mailto:?subject=${subject}&body=${body}`, '_self');
-    if (mode === 'wa') return window.open(`https://wa.me/?text=${body}`, '_blank');
-    if (mode === 'sms') return window.open(`sms:?body=${body}`, '_self');
-  }
-  function shareByMail(title, url){ _shareUrl('mail', title, url); }
-  function shareByWhatsapp(title, url){ _shareUrl('wa', title, url); }
-  function shareBySms(title, url){ _shareUrl('sms', title, url); }
-  async function copyShareLink(url){
-    try {
-      await navigator.clipboard.writeText(url || '');
-      alert('Enlace copiado al portapapeles.');
-    } catch (e) {
-      window.prompt('Copia este enlace:', url || '');
-    }
-  }
-</script>
+{# Compartir (correo/WhatsApp/SMS/copiar) es GLOBAL: static/js/scripts.js #}
 
 {% if CAN_EDIT_DISCOGRAFICA %}
 <script>

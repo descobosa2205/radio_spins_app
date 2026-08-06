@@ -547,6 +547,8 @@
     </div><!-- /data-section-view -->
     </div><!-- /album-info-zone -->
 
+    {% if pitch %}{% include '_pitch_panel.html' %}{% endif %}
+
     {% if CAN_EDIT_DISCOGRAFICA %}
       <div class="modal fade" id="albumProductCodeModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">

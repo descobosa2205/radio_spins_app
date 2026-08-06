@@ -554,6 +554,38 @@ document.addEventListener('click', function (ev) {
 </div>
 {% endif %}
 
+{% if HOME_PITCH_PENDING %}
+<div class="card mb-4 border-warning">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <div>
+        <h5 class="mb-0"><i class="fa fa-bullhorn text-warning me-2"></i>Tareas pendientes · Pitch de lanzamiento</h5>
+        <div class="small text-muted">Lanzamientos nuevos a los que les falta el pitch.</div>
+      </div>
+      <span class="badge text-bg-warning text-dark">{{ HOME_PITCH_PENDING|length }}</span>
+    </div>
+    <div class="row g-3">
+      {% for row in HOME_PITCH_PENDING[:8] %}
+        <div class="col-12 col-lg-6">
+          <a href="{{ row.url }}" class="text-decoration-none text-reset">
+            <div class="d-flex align-items-center gap-3 border rounded p-2 h-100">
+              <img class="dash-pitch__cover" src="{{ row.cover_url or DEFAULT_COVER_URL }}" alt="">
+              <div class="flex-grow-1 min-w-0">
+                <div class="fw-semibold text-truncate">{{ row.title }}</div>
+                <div class="small text-muted text-truncate">
+                  {{ row.artist_name }} · {{ row.kind_label }}{% if row.release_label %} · {{ row.release_label }}{% endif %}
+                </div>
+              </div>
+              <span class="badge text-bg-warning text-dark">Añadir pitch</span>
+            </div>
+          </a>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% include "_quick_create_modals.html" %}
 {% include "_peticion_wizard_modal.html" %}
 {% endblock %}

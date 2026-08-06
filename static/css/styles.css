@@ -3183,16 +3183,29 @@ body.doccam-open { overflow: hidden; }
 .ra-total__val{ font-size:1.7rem; font-weight:800; color:var(--brand-primary,#E33D48); line-height:1.1; }
 .ra-progress{ height:8px; background:#eef1f5; border-radius:999px; overflow:hidden; }
 .ra-progress__bar{ height:100%; background:#1e7e34; border-radius:999px; transition:width .25s ease; }
+/* La ficha de cada pago CABE EN LA PANTALLA: cabecera arriba, la factura ocupando el hueco que
+   quede y los botones abajo. Así no hay que deslizar para dar el OK. */
+.ra-item{ display:flex; flex-direction:column; height:calc(100vh - 340px); min-height:460px; }
+.ra-item.d-none{ display:none !important; }
 .ra-item__head{ display:flex; gap:1rem; justify-content:space-between; align-items:flex-start;
-  flex-wrap:wrap; padding:1rem 1.1rem; border-bottom:1px solid #eceef0; }
+  flex-wrap:wrap; padding:.7rem 1.1rem; border-bottom:1px solid #eceef0; flex:0 0 auto; }
 .ra-item__amount{ font-size:1.5rem; font-weight:800; }
-.ra-item__doc{ background:#f4f6f8; min-height:420px; display:flex; align-items:center; justify-content:center; }
-.ra-item__frame{ width:100%; height:70vh; min-height:420px; border:0; background:#fff; }
-.ra-item__img{ max-width:100%; max-height:70vh; object-fit:contain; }
+.ra-item__doc{ background:#f4f6f8; flex:1 1 auto; min-height:0; display:flex;
+  align-items:center; justify-content:center; overflow:hidden; }
+.ra-item__frame{ width:100%; height:100%; border:0; background:#fff; }
+.ra-item__img{ max-width:100%; max-height:100%; object-fit:contain; }
 .ra-item__nodoc{ color:#8b95a1; padding:2rem; }
 .ra-item__nav{ display:flex; gap:.75rem; align-items:center; justify-content:space-between;
-  padding:.9rem 1.1rem; border-top:1px solid #eceef0; }
-.ra-item__links{ padding:0 1.1rem .9rem; font-size:.85rem; }
+  padding:.65rem 1.1rem; border-top:1px solid #eceef0; flex:0 0 auto; }
+.ra-item__links{ padding:0 1.1rem .6rem; font-size:.85rem; flex:0 0 auto; }
+
+/* PANTALLA COMPLETA: el visor ocupa todo y la cabecera de la remesa se queda como una barra fina. */
+body.ra-full{ overflow:hidden; }
+body.ra-full .ra-viewer{ position:fixed; inset:0; z-index:1080; margin:0 !important; border-radius:0;
+  border:0; display:flex; flex-direction:column; background:#fff; }
+body.ra-full .ra-viewer > .card-body{ flex:1 1 auto; min-height:0; display:flex; flex-direction:column; }
+body.ra-full .ra-item{ height:100%; min-height:0; flex:1 1 auto; }
+body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la factura ya se ve entera */
 
 /* ==================== INTEGRANTES del artista y sus NOTIFICACIONES ==================== */
 /* Solo el ANVERSO del DNI, a la derecha de los datos. */
@@ -3715,3 +3728,74 @@ body.doccam-open { overflow: hidden; }
 .addr-suggest__item:hover, .addr-suggest__item:focus { background: rgba(227, 61, 72, .08); outline: none; }
 .addr-suggest__main { display: block; font-weight: 600; font-size: .92rem; }
 .addr-suggest__sub { display: block; font-size: .8rem; color: #6c757d; }
+
+/* ── PITCH DE LANZAMIENTO ─────────────────────────────────────────────────────
+   El texto se lee tal cual se escribió (saltos de línea) y JUSTIFICADO, igual que
+   en el PDF y en el correo: un solo diseño en tres sitios. */
+.pitch-text {
+  white-space: pre-line;
+  text-align: justify;
+  font-size: .96rem;
+  line-height: 1.75;
+  color: #212529;
+}
+.dash-pitch__cover {
+  width: 44px; height: 44px; border-radius: 10px; object-fit: cover;
+  border: 1px solid rgba(0, 0, 0, .08); background: #fff; flex: 0 0 auto;
+}
+
+/* ── IMPORTAR TERCEROS DESDE UN FICHERO ───────────────────────────────────────
+   Modal de /promotores: zona de arrastre, tabla de columnas y la pantalla partida
+   con la que se decide, campo a campo, qué se queda. */
+.pi-drop {
+  display: block; text-align: center; padding: 1.6rem 1rem; cursor: pointer;
+  border: 2px dashed rgba(0, 0, 0, .18); border-radius: 14px; background: #fbfbfc;
+  transition: border-color .15s, background-color .15s;
+}
+.pi-drop:hover { border-color: var(--brand-primary, #E33D48); background: rgba(227, 61, 72, .04); }
+.pi-drop__icon { font-size: 1.7rem; color: var(--brand-primary, #E33D48); display: block; margin-bottom: .5rem; }
+.pi-cols .pi-row--unknown { background: rgba(255, 193, 7, .1); }
+.pi-list { max-height: 190px; overflow: auto; }
+.pi-list__row { padding: .2rem 0; border-bottom: 1px solid rgba(0, 0, 0, .05); font-size: .9rem; }
+.pi-list__row:last-child { border-bottom: 0; }
+.pi-avatar { width: 42px; height: 42px; border-radius: 50%; object-fit: cover; border: 1px solid rgba(0, 0, 0, .08); background: #fff; }
+.pi-split-head {
+  display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; margin-bottom: .4rem;
+  font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: #6c757d; font-weight: 700;
+}
+.pi-field { border: 1px solid rgba(0, 0, 0, .08); border-radius: 12px; padding: .6rem .7rem; margin-bottom: .6rem; }
+.pi-field--same { opacity: .65; }
+.pi-field__label { font-weight: 600; font-size: .88rem; margin-bottom: .35rem; }
+.pi-field__cols { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+.pi-opt {
+  display: flex; align-items: flex-start; gap: .45rem; cursor: pointer; padding: .45rem .55rem;
+  border: 1px solid rgba(0, 0, 0, .1); border-radius: 10px; background: #fff; min-height: 100%;
+}
+.pi-opt.is-on { border-color: var(--brand-primary, #E33D48); background: rgba(227, 61, 72, .06); }
+.pi-opt__val { font-size: .9rem; word-break: break-word; }
+.pi-both { display: inline-flex; align-items: center; gap: .35rem; margin-top: .45rem; font-size: .85rem; cursor: pointer; }
+.pi-both__names { margin-top: .5rem; }
+@media (max-width: 700px) {
+  .pi-split-head, .pi-field__cols { grid-template-columns: 1fr; }
+}
+
+/* ── AVISO AL ARTISTA DE UNA ACTIVIDAD (vista previa) ─────────────────────────
+   La vista previa es el MISMO HTML que el correo (estilos en línea): aquí solo va
+   el marco, el selector de canal y el ojo de cada módulo. */
+.an-preview { background: #f5f7fb; border-radius: 14px; padding: 14px; overflow-x: auto; }
+.an-channels { display: flex; gap: .4rem; flex-wrap: wrap; }
+.an-channel {
+  display: inline-flex; align-items: center; gap: .4rem; cursor: pointer;
+  padding: .45rem .7rem; border: 1px solid rgba(0, 0, 0, .12); border-radius: 999px;
+  background: #fff; font-size: .88rem; font-weight: 600;
+}
+.an-channel.is-on { border-color: var(--brand-primary, #E33D48); background: rgba(227, 61, 72, .08); }
+.an-channel i { color: #6c757d; }
+.an-channel.is-on i { color: var(--brand-primary, #E33D48); }
+.an-recipient { padding: .15rem 0; border-bottom: 1px solid rgba(0, 0, 0, .05); }
+.an-recipient:last-child { border-bottom: 0; }
+.an-mod-toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem; cursor: pointer; }
+.an-history { padding: .2rem 0; border-bottom: 1px solid rgba(0, 0, 0, .05); }
+.an-history:last-child { border-bottom: 0; }
+/* El ojo va dentro del HTML del aviso (solo en la vista previa). */
+.an-preview .an-eye:hover { color: var(--brand-primary, #E33D48) !important; }

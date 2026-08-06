@@ -2257,7 +2257,25 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
     opt.classList.add('disabled');
     fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString() })
       .then(function (r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
+        // ⚠️ Se LEE el cuerpo aunque venga un error: el servidor explica por qué no se puede
+        // (p. ej. «hay que avisar al artista antes de confirmar») y ofrece a dónde ir. Antes solo se
+        // miraba r.ok y el motivo se perdía: el usuario veía «No se pudo cambiar el estado».
+        return r.json().catch(function () { return null; }).then(function (d) { return { r: r, d: d }; });
+      })
+      .then(function (res) {
+        var d = res.d || {};
+        if (!res.r.ok) {
+          opt.classList.remove('disabled');
+          // El artista no está avisado: se ofrece avisarle ahora (y al enviar se confirma solo).
+          if (d.needs_artist_notice && d.notify_url) {
+            if (confirm((d.error || 'Falta avisar al artista.') + '\n\n¿Quieres avisarle ahora?')) {
+              window.location.href = d.notify_url;
+            }
+            return;
+          }
+          alert(d.error || 'No se pudo cambiar el estado.');
+          return;
+        }
         window.location.reload();
       })
       .catch(function () {

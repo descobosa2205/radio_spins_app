@@ -1,0 +1,49 @@
+{# AVISO DE ACTIVIDAD · página pública (lo que se abre desde WhatsApp o SMS).
+   Standalone a propósito: hace falta el juego de og: para que la previsualización enseñe la foto del
+   artista. El cuerpo es el MISMO HTML que se mandó por correo (congelado en el aviso), así que el
+   contenido es exactamente el mismo por los tres canales. #}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }}{% if subject_name %} · {{ subject_name }}{% endif %}</title>
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="{{ title }}{% if subject_name %} · {{ subject_name }}{% endif %}">
+  {% if og_description %}
+    <meta property="og:description" content="{{ og_description }}">
+    <meta name="description" content="{{ og_description }}">
+  {% endif %}
+  {% if og_image_url %}
+    <meta property="og:image" content="{{ og_image_url }}">
+    <meta property="og:image:secure_url" content="{{ og_image_url }}">
+    <meta property="og:image:type" content="image/jpeg">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta name="twitter:image" content="{{ og_image_url }}">
+    <meta name="twitter:card" content="summary_large_image">
+  {% endif %}
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <style>
+    body{ margin:0; background:#f5f7fb; }
+    .wrap{ max-width:720px; margin:24px auto; padding:0 14px 40px; }
+    .sheet{ background:#fff; border:1px solid #e6e8eb; border-radius:20px;
+            box-shadow:0 18px 42px rgba(15,23,42,.08); padding:24px 22px 30px; }
+    @media(max-width:640px){ .sheet{ padding:18px 14px 22px; } }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    {% if rebuilt %}
+      {# No hay copia de lo que se mandó (aviso antiguo): se enseña con los datos de hoy y se dice. #}
+      <div style="max-width:660px;margin:0 auto 12px;padding:10px 14px;border-radius:12px;
+                  background:#fff3cd;border:1px solid #ffe69c;color:#664d03;font-size:13px;
+                  font-family:Arial,Helvetica,sans-serif;">
+        Este aviso se mandó{% if sent_at_label %} el {{ sent_at_label }}{% endif %} y no se guardó copia:
+        lo que ves está montado con los datos de hoy.
+      </div>
+    {% endif %}
+    <article class="sheet">{{ body_html }}</article>
+  </main>
+</body>
+</html>

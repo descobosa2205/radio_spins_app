@@ -157,6 +157,50 @@
         {% endif %}
       </div>
     </div>
+    {# OTROS DATOS: los valores con nombre («casa de Madrid», «teléfono del local») que salen de
+       «conservar los dos» al importar terceros, y las columnas del fichero que no eran un campo. #}
+    {% if promoter_alt_values %}
+      <div class="card mt-3">
+        <div class="card-body">
+          <div class="mb-2">
+            <h5 class="mb-0">Otros datos</h5>
+            <div class="text-muted small">Datos con nombre: segundas direcciones, otros teléfonos, referencias del fichero de origen…</div>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Nombre</th>
+                  <th>Dato</th>
+                  <th>Campo</th>
+                  <th class="text-end"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in promoter_alt_values %}
+                  <tr>
+                    <td class="fw-semibold">
+                      {{ row.label }}
+                      {% if row.is_primary %}<span class="badge text-bg-success ms-1" title="Es el que está en la ficha">principal</span>{% endif %}
+                    </td>
+                    <td>{{ row.value }}</td>
+                    <td class="text-muted small">{{ row.field_label or '—' }}</td>
+                    <td class="text-end">
+                      {% if CAN_EDIT_SONGS_PROMOTERS %}
+                        <form method="post" action="{{ url_for('promoter_alt_value_delete', pid=promoter.id, value_id=row.id) }}" class="m-0 d-inline" data-confirm="¿Eliminar este dato?">
+                          <input type="hidden" name="next" value="{{ url_for('promoter_detail_view', pid=promoter.id, tab='general') }}">
+                          <button class="btn btn-outline-danger btn-sm" title="Eliminar"><i class="fa fa-trash"></i></button>
+                        </form>
+                      {% endif %}
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    {% endif %}
   {% elif tab == 'vinculaciones' %}
     {% include '_entity_links_panel.html' %}
   {% elif tab == 'documentos' %}

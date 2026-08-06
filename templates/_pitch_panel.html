@@ -1,0 +1,127 @@
+{# Pitch de lanzamiento · un campo más de la ficha de Información (single y álbum).
+   Contexto: `pitch` = _pitch_context(...). Requiere CAN_EDIT_DISCOGRAFICA para editar.
+   Los tres puntitos: editar · descargar en PDF · enviar por correo/WhatsApp/SMS · copiar enlace.
+   ⚠️ El texto se guarda por su PROPIO endpoint (no por el formulario de Información, que anula lo
+   que no se le manda).
+   ⚠️ El modal de correo y los datos de compartir van DENTRO de la zona inline: al guardar por AJAX
+   se reemplaza la zona entera, y si estuvieran fuera el primer pitch guardado se quedaría sin
+   modal (no existiría hasta recargar). #}
+<div id="pitch-zone" data-inline-zone>
+  <div class="card mt-3 ficha-section">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+        <div>
+          <h6 class="m-0"><i class="fa fa-bullhorn me-1 text-muted"></i>Pitch de lanzamiento</h6>
+          {% if pitch.pitch_updated_at %}
+            <div class="text-muted small mt-1">Actualizado el {{ pitch.pitch_updated_at.strftime('%d/%m/%Y') }}</div>
+          {% endif %}
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          {% if pitch.pitch_text %}
+            <div class="dropdown">
+              <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Acciones">
+                <i class="fa fa-ellipsis-h"></i>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                {% if CAN_EDIT_DISCOGRAFICA %}
+                  <li><button class="dropdown-item" type="button" data-edit-toggle="#pitchForm"><i class="fa fa-edit fa-fw me-1"></i>Editar</button></li>
+                {% endif %}
+                <li><a class="dropdown-item" href="{{ pitch.pdf_url }}"><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar en PDF</a></li>
+                {% if CAN_EDIT_DISCOGRAFICA %}
+                  <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#pitchEmailModal"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por correo</button></li>
+                {% endif %}
+                <li><button class="dropdown-item" type="button" data-pitch-share="whatsapp"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar por WhatsApp</button></li>
+                <li><button class="dropdown-item" type="button" data-pitch-share="sms"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar por SMS</button></li>
+                <li><button class="dropdown-item" type="button" data-pitch-share="copy"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+              </ul>
+            </div>
+          {% elif CAN_EDIT_DISCOGRAFICA %}
+            <button class="btn btn-sm btn-outline-primary" type="button" data-edit-toggle="#pitchForm">
+              <i class="fa fa-plus"></i> Añadir pitch
+            </button>
+          {% endif %}
+        </div>
+      </div>
+
+      {% if CAN_EDIT_DISCOGRAFICA %}
+        <form id="pitchForm" class="d-none mt-3" method="post" action="{{ pitch.save_url }}"
+              data-inline data-inline-target="#pitch-zone" data-view="[data-pitch-view]">
+          <label class="form-label">Pitch de lanzamiento</label>
+          <textarea class="form-control" name="pitch_text" rows="10"
+                    placeholder="Cómo se presenta este lanzamiento: la historia, el sonido, lo que lo hace especial…">{{ pitch.pitch_text }}</textarea>
+          <div class="form-text">Se usa tal cual en el PDF y en el correo del pitch.</div>
+          <div class="d-flex gap-2 mt-3">
+            <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
+            <button class="btn btn-outline-secondary" type="button" data-edit-cancel="#pitchForm">Cancelar</button>
+          </div>
+        </form>
+      {% endif %}
+
+      <div data-pitch-view data-section-view class="mt-3">
+        {% if pitch.pitch_text %}
+          <div class="pitch-text">{{ pitch.pitch_text }}</div>
+        {% else %}
+          <div class="alert alert-warning m-0 py-2 px-3 small">
+            <i class="fa fa-triangle-exclamation me-1"></i>Falta el pitch de este lanzamiento.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {% if CAN_EDIT_DISCOGRAFICA and pitch.pitch_text %}
+    <div class="modal fade" id="pitchEmailModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <form class="modal-content" method="post" action="{{ pitch.email_url }}">
+          <div class="modal-header">
+            <h5 class="modal-title">Enviar el pitch por correo</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body">
+            <label class="form-label">¿A quién?</label>
+            <input class="form-control" name="emails" required placeholder="correo@ejemplo.com, otro@ejemplo.com">
+            <div class="form-text">Varios, separados por comas.</div>
+            <label class="form-label mt-3">Nota (opcional)</label>
+            <textarea class="form-control" name="note" rows="3" placeholder="Unas líneas antes del pitch."></textarea>
+            <div class="text-muted small mt-3">
+              <i class="fa fa-paperclip me-1"></i>Va con el PDF adjunto y con el botón de descargarlo.
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button class="btn btn-primary"><i class="fa fa-paper-plane"></i> Enviar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  {% endif %}
+
+  {# ⚠️ Los datos van en data-* y el clic se engancha por delegación: `|tojson` dentro de un atributo
+     con comillas dobles rompe el atributo (el título de un lanzamiento puede llevar comillas). #}
+  <div class="d-none" data-pitch-share-data
+       data-subject="{{ pitch.share_subject }}"
+       data-url="{{ pitch.public_url }}"></div>
+</div>
+
+<script>
+(function(){
+  if (window.__pitchShareBound) return;
+  window.__pitchShareBound = true;
+  document.addEventListener('click', function(ev){
+    var btn = ev.target.closest('[data-pitch-share]');
+    if (!btn) return;
+    ev.preventDefault();
+    var box = document.querySelector('[data-pitch-share-data]');
+    if (!box) return;
+    var subject = box.getAttribute('data-subject') || 'Pitch';
+    var url = box.getAttribute('data-url') || '';
+    var kind = btn.getAttribute('data-pitch-share');
+    if (kind === 'whatsapp' && window.shareByWhatsapp) return window.shareByWhatsapp(subject, url);
+    if (kind === 'sms' && window.shareBySms) return window.shareBySms(subject, url);
+    if (kind === 'copy' && window.copyShareLink) return window.copyShareLink(url);
+    if (kind === 'whatsapp') window.open('https://wa.me/?text=' + encodeURIComponent(subject + ' ' + url), '_blank');
+    else if (kind === 'sms') window.location.href = 'sms:?&body=' + encodeURIComponent(subject + ' ' + url);
+    else if (navigator.clipboard) navigator.clipboard.writeText(url);
+  });
+})();
+</script>

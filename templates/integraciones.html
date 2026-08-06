@@ -622,6 +622,8 @@
           </form>
           <div class="small text-muted mt-2">
             En caché: <strong>{{ cm_linked|default(0) }}</strong> artistas vinculados ·
+            <strong>{{ cm_songs_linked|default(0) }}</strong> de <strong>{{ cm_songs_total|default(0) }}</strong> canciones ·
+            <strong>{{ cm_albums_linked|default(0) }}</strong> de <strong>{{ cm_albums_total|default(0) }}</strong> álbumes ·
             <strong>{{ cm_points|default(0) }}</strong> puntos de métrica ·
             <strong>{{ cm_playlists|default(0) }}</strong> playlists actuales.
             <br><i class="fa fa-clock-rotate-left me-1"></i>Últimos datos:
@@ -642,8 +644,13 @@
         <img src="{{ url_for('static', filename='img/platforms/' ~ pk ~ '.png') }}" alt="{{ plabel }}" title="{{ plabel }}{{ '' if links[pk] else ' · falta' }}" style="width:20px;height:20px;object-fit:contain;margin-right:2px;{% if not links[pk] %}filter:grayscale(1);opacity:.35;{% endif %}">
       {% endfor %}
     {% endmacro %}
+    {# Tres estados: sin vincular · vinculada (hay id de Chartmetric) · completa (los 5 enlaces).
+       Antes solo había Pendiente/Completo y «Completo» exigía las cinco plataformas, que Chartmetric
+       no da nunca: una canción bien vinculada se quedaba en «Pendiente» para siempre. #}
     {% macro cm_status_badge(st) %}
-      {% if st == 'COMPLETE' %}<span class="badge text-bg-success">Completo</span>{% else %}<span class="badge text-bg-secondary">Pendiente</span>{% endif %}
+      {% if st == 'COMPLETE' %}<span class="badge text-bg-success">Completo</span>
+      {% elif st == 'LINKED' %}<span class="badge text-bg-primary">Vinculada</span>
+      {% else %}<span class="badge text-bg-secondary">Sin vincular</span>{% endif %}
     {% endmacro %}
 
     <ul class="nav nav-pills mt-3 mb-2" role="tablist">
@@ -744,7 +751,9 @@
                 <thead><tr><th>Canción</th><th>Artista</th><th>Enlaces</th><th>Reproducciones (Spotify)</th><th>Estado</th><th></th></tr></thead>
                 <tbody id="cmSongsBody">
                 {% for r in cm_song_rows %}
-                  <tr data-cm-search="{{ r.title }} {{ r.artists }} {{ r.isrc }} {{ r.cm_track }}">
+                  {# El ISRC se busca también EN SECO: el filtro parte por los guiones, así que pegando
+                     «ESA2A2500001» no encontraba la fila que lo tiene como «ES-A2A-25-00001». #}
+                  <tr data-cm-search="{{ r.title }} {{ r.artists }} {{ r.isrc }} {{ r.isrc|replace('-','') }} {{ r.cm_track }}">
                     <td><a href="{{ r.detail_url }}" class="text-decoration-none">{{ r.title }}</a>{% if r.isrc %}<div class="small text-muted">{{ r.isrc }}</div>{% endif %}</td>
                     <td class="small">{{ r.artists }}</td>
                     <td>{{ cm_link_icons(r.links) }}</td>
@@ -778,15 +787,16 @@
             <div class="input-group input-group-sm mb-3" style="max-width:420px;">
               <span class="input-group-text"><i class="fa fa-magnifying-glass"></i></span>
               <input class="form-control" type="search" data-cm-filter="#cmAlbumsBody"
-                     placeholder="Buscar álbum o artista…" autocomplete="off">
+                     placeholder="Buscar álbum, artista o UPC…" autocomplete="off">
             </div>
             <div class="table-responsive">
               <table class="table table-sm align-middle">
                 <thead><tr><th>Álbum</th><th>Artista</th><th>Enlaces</th><th>Estado</th><th></th></tr></thead>
                 <tbody id="cmAlbumsBody">
                 {% for r in cm_album_rows %}
-                  <tr data-cm-search="{{ r.title }} {{ r.artists }} {{ r.cm_track }}">
-                    <td><a href="{{ r.detail_url }}" class="text-decoration-none">{{ r.title }}</a></td>
+                  {# El UPC también en seco, por lo mismo que el ISRC de las canciones. #}
+                  <tr data-cm-search="{{ r.title }} {{ r.artists }} {{ r.upc }} {{ r.upc|replace('-','') }} {{ r.cm_track }}">
+                    <td><a href="{{ r.detail_url }}" class="text-decoration-none">{{ r.title }}</a>{% if r.upc %}<div class="small text-muted">{{ r.upc }}</div>{% endif %}</td>
                     <td class="small">{{ r.artists }}</td>
                     <td>{{ cm_link_icons(r.links) }}</td>
                     <td>{{ cm_status_badge(r.status) }}{% if r.cm_track %}<div class="small text-muted">id {{ r.cm_track }}</div>{% endif %}</td>
@@ -1199,7 +1209,23 @@ document.addEventListener('inline:updated', function (ev) {
     elResults.innerHTML = '';
     elMsg.textContent = '';
     cablea(zona);
+    // Los CONTADORES del resumen viven en otra zona (#cmZoneSummary), que nadie refrescaba: al
+    // vincular una canción o un álbum, los números de arriba se quedaban como estaban.
+    refrescaResumen();
   });
+
+  function refrescaResumen() {
+    var destino = document.getElementById('cmZoneSummary');
+    if (!destino) return;
+    fetch(window.location.href, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var nuevo = doc.getElementById('cmZoneSummary');
+        if (nuevo) destino.innerHTML = nuevo.innerHTML;
+      })
+      .catch(function () {});
+  }
 
   function cablea(raiz) {
     (raiz || document).querySelectorAll('[data-cm-link]').forEach(abre);

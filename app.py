@@ -148,6 +148,7 @@ from models import (
     ArtistCalendarLink,
     ArtistEmail,
     ArtistNotificationContact,
+    ConcertArtistNotification,
     ensure_artist_notifications_schema,
     ArtistContract,
     ArtistContractCommitment,
@@ -172,6 +173,7 @@ from models import (
     PromoterCompany,
     PromoterContact,
     PromoterEmail,
+    PromoterAltValue,
     SongRoyaltyBeneficiary,
     PublishingCompany,
     SongEditorialShare,
@@ -291,6 +293,7 @@ from models import (
 import sim_calc  # motor de cálculo puro de Simulaciones
 import seatmap_calc  # motor puro del mapa de butacas del recinto (conteos/plantillas)
 import invoice_read  # motor puro de LECTURA de facturas (nº, fechas e importes del PDF)
+import promoter_import  # motor puro de IMPORTACIÓN de terceros (columnas de un Excel/CSV)
 from mrz_utils import (
     extract_fields as mrz_extract_fields,
     parse_mrz as mrz_parse,
@@ -773,7 +776,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
+    allowed = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
     if request.endpoint in allowed:
         return
 
@@ -1838,6 +1841,7 @@ def artist_detail_view(artist_id):
                 "promoter_id": (str(c.promoter_id) if c.promoter_id else ""),
                 "name": _contact_name(c),
                 "email": _contact_email(c),
+                "phone": _contact_phone(c),
                 "photo_url": (getattr(getattr(c, "promoter", None), "logo_url", "") or ""),
                 "channels": [str(x).upper() for x in (c.channels or [])],
                 "liquidation_concepts": [str(x) for x in (c.liquidation_concepts or [])],
@@ -2016,6 +2020,7 @@ def artist_notification_contact_save(artist_id):
         pid = to_uuid((request.form.get("promoter_id") or "").strip() or None)
         nombre = (request.form.get("name") or "").strip() or None
         correo = (request.form.get("email") or "").strip() or None
+        telefono = (request.form.get("phone") or "").strip() or None
         if correo and not _looks_like_email_address(correo):
             flash("La dirección de correo no es válida.", "warning")
             return redirect(volver)
@@ -2032,6 +2037,7 @@ def artist_notification_contact_save(artist_id):
             contacto.promoter_id = pid
         contacto.name = nombre
         contacto.email = correo
+        contacto.phone = telefono
         contacto.channels = canales
         # Los conceptos solo tienen sentido si recibe liquidaciones.
         contacto.liquidation_concepts = (conceptos if "LIQUIDACIONES" in canales else [])
@@ -6132,6 +6138,11 @@ PLATFORM_PUBLISHER_NAME = "plataforma musical"
 # Se configura en la ficha del artista y manda en TODA la app de ese momento en adelante: quien esté
 # marcado en un canal es quien recibe los correos de ese concepto.
 ARTIST_NOTIFICATION_CHANNELS = [
+    # ⚠️ Los dos primeros son los que se usan para AVISAR AL ARTISTA DE UNA ACTIVIDAD antes de
+    # confirmarla: si la actividad lleva caché se avisa a los de ACTIVIDADES_CACHE y si no a los de
+    # ACTIVIDADES_SIN_CACHE (punto único `_activity_notification_channel`).
+    ("ACTIVIDADES_CACHE", "Nuevas actividades con caché", "fa-calendar-check"),
+    ("ACTIVIDADES_SIN_CACHE", "Actividades sin caché", "fa-calendar-day"),
     ("LIQUIDACIONES", "Liquidaciones", "fa-file-invoice-dollar"),
     ("PRODUCCION", "Producción", "fa-screwdriver-wrench"),
     ("DISCOGRAFICA", "Discográfica", "fa-compact-disc"),
@@ -6139,6 +6150,8 @@ ARTIST_NOTIFICATION_CHANNELS = [
     ("PROMOCION", "Promoción", "fa-bullhorn"),
     ("INVITACIONES", "Invitaciones", "fa-envelope-open-text"),
 ]
+# Los canales de aviso de una actividad, por si lleva caché o no.
+ACTIVITY_NOTIFICATION_CHANNELS = ("ACTIVIDADES_CACHE", "ACTIVIDADES_SIN_CACHE")
 ARTIST_NOTIFICATION_CHANNEL_KEYS = [k for k, _l, _i in ARTIST_NOTIFICATION_CHANNELS]
 ARTIST_NOTIFICATION_CHANNEL_LABELS = {k: l for k, l, _i in ARTIST_NOTIFICATION_CHANNELS}
 ARTIST_NOTIFICATION_CHANNEL_ICONS = {k: i for k, _l, i in ARTIST_NOTIFICATION_CHANNELS}
@@ -6189,6 +6202,15 @@ def _contact_email(contact) -> str:
         return directo
     prom = getattr(contact, "promoter", None)
     return (getattr(prom, "contact_email", None) or "").strip()
+
+
+def _contact_phone(contact) -> str:
+    """El teléfono de un contacto (para WhatsApp / SMS): el que se puso a mano o el de su ficha."""
+    directo = (getattr(contact, "phone", None) or "").strip()
+    if directo:
+        return directo
+    prom = getattr(contact, "promoter", None)
+    return (getattr(prom, "contact_phone", None) or "").strip()
 
 
 def _contact_name(contact) -> str:
@@ -6244,6 +6266,36 @@ def _artist_notification_emails(session_db, artist_id, channel, *, concept=None,
     except Exception:
         pass
     return salida
+
+
+def _artist_notification_recipients(session_db, artist_id, channel, *, fallback=True) -> list[dict]:
+    """A QUIÉN se avisa por ese canal, con nombre, correo y TELÉFONO.
+
+    Hermano de `_artist_notification_emails` para los avisos que también salen por WhatsApp o SMS
+    (el aviso de una actividad). Devuelve [{'name', 'email', 'phone'}] en el orden configurado.
+    ⚠️ Con `fallback` y sin nadie marcado se cae al correo del artista: mejor eso que no avisar a
+    nadie. Del teléfono no hay fallback posible (el artista no tiene columna de teléfono)."""
+    aid = to_uuid(str(artist_id or ""))
+    canal = (channel or "").strip().upper()
+    if not aid or canal not in ARTIST_NOTIFICATION_CHANNEL_KEYS:
+        return []
+    filas, vistos = [], set()
+    for c in _artist_notification_contacts(session_db, aid):
+        canales = {str(x).strip().upper() for x in (getattr(c, "channels", None) or [])}
+        if canal not in canales:
+            continue
+        correo = _contact_email(c)
+        telefono = _contact_phone(c)
+        clave = (correo.lower(), telefono)
+        if not (correo or telefono) or clave in vistos:
+            continue
+        vistos.add(clave)
+        filas.append({"name": _contact_name(c), "email": correo, "phone": telefono})
+    if filas or not fallback:
+        return filas
+    for correo in _artist_notification_emails(session_db, aid, canal, fallback=True):
+        filas.append({"name": "", "email": correo, "phone": ""})
+    return filas
 
 
 def _publisher_is_platform(publisher) -> bool:
@@ -6886,6 +6938,262 @@ def _album_label_copy_public_context(session_db, album: Album) -> dict:
         'platform_links': _album_platform_links(album),
         'info_rows': info_rows,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PITCH DE LANZAMIENTO (single / álbum)
+#
+# El pitch es el texto con el que se presenta un lanzamiento (a plataformas, a medios…). Vive en
+# la ficha de Información del single o del álbum (`Song.pitch_text` / `Album.pitch_text`) y desde
+# ahí se descarga en PDF o se manda por correo/WhatsApp/SMS.
+# ⚠️ El PDF y el correo son IGUALES a propósito (mismo estilo de casa: logo de la empresa arriba a
+# la DERECHA, «Pitch» centrado, la viñeta del lanzamiento —portada, título, intérpretes, fecha y
+# etiqueta Single/Álbum— y el texto JUSTIFICADO): un solo diseño en dos formatos.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Desde cuándo se RECLAMA el pitch: solo los lanzamientos nuevos. El catálogo antiguo no genera
+# tarea (mismo criterio que el resto de cortes históricos de la app).
+PITCH_TASK_FROM = date(2026, 8, 1)
+
+
+def _pitch_kind_normalize(kind) -> str:
+    return 'ALBUM' if str(kind or '').strip().upper() in {'ALBUM', 'ALBUMES', 'DISCO', 'EP'} else 'SONG'
+
+
+def _pitch_load(session_db, kind, obj_id):
+    """(kind, objeto) del sujeto de un pitch: una canción o un álbum."""
+    kind = _pitch_kind_normalize(kind)
+    obj = session_db.get(Album if kind == 'ALBUM' else Song, to_uuid(obj_id))
+    return kind, obj
+
+
+def _pitch_share_token(kind, obj_id) -> str:
+    kind = _pitch_kind_normalize(kind)
+    if kind == 'ALBUM':
+        return _album_public_serializer().dumps({'kind': 'PITCH', 'aid': str(obj_id)})
+    return _make_public_song_share_token('PITCH', str(obj_id))
+
+
+def _parse_pitch_token(token: str | None):
+    """(kind, uuid) del enlace público de un pitch. Los dos serializadores llevan salt distinto,
+    así que no hay forma de que un token de canción pase por uno de álbum."""
+    payload = _parse_public_song_share_token(token)
+    if payload and (payload.get('kind') or '').upper() == 'PITCH':
+        try:
+            return 'SONG', to_uuid((payload.get('sid') or '').strip())
+        except Exception:
+            return None
+    payload = _parse_public_album_share_token(token)
+    if payload and (payload.get('kind') or '').upper() == 'PITCH':
+        try:
+            return 'ALBUM', to_uuid((payload.get('aid') or '').strip())
+        except Exception:
+            return None
+    return None
+
+
+def _pitch_context(session_db, kind, obj) -> dict:
+    """Lo que necesitan la ficha, el PDF, el correo y la página pública del pitch."""
+    kind = _pitch_kind_normalize(kind)
+    if kind == 'ALBUM':
+        artist = session_db.get(Artist, getattr(obj, 'artist_id', None)) if getattr(obj, 'artist_id', None) else None
+        artist_name = (getattr(artist, 'name', None) or '').strip() or 'Artista'
+        interpreters_label = artist_name
+        badge_label = _album_kind_label(obj)
+        detail_url = url_for('discografica_album_detail', album_id=obj.id, tab='informacion')
+        pdf_url = url_for('discografica_album_pitch_pdf', album_id=obj.id)
+        save_url = url_for('discografica_album_pitch_save', album_id=obj.id)
+        email_url = url_for('discografica_album_pitch_email', album_id=obj.id)
+    else:
+        artist = _song_primary_artist(session_db, obj)
+        artist_name = (getattr(artist, 'name', None) or '').strip() or 'Artista'
+        interpreters_label = _song_interpreters_label(session_db, obj)
+        badge_label = 'Single'
+        detail_url = url_for('discografica_song_detail', song_id=obj.id, tab='informacion')
+        pdf_url = url_for('discografica_song_pitch_pdf', song_id=obj.id)
+        save_url = url_for('discografica_song_pitch_save', song_id=obj.id)
+        email_url = url_for('discografica_song_pitch_email', song_id=obj.id)
+
+    cover_url = (getattr(obj, 'cover_url', None) or '').strip()
+    artist_photo = (getattr(artist, 'photo_url', None) or '').strip()
+    title = (getattr(obj, 'title', None) or '').strip() or '—'
+    token = _pitch_share_token(kind, obj.id)
+    return {
+        'kind': kind,
+        'id': str(obj.id),
+        'title': title,
+        'artist': artist,
+        'artist_name': artist_name,
+        'interpreters_label': interpreters_label or '—',
+        'badge_label': badge_label,
+        'cover_url': cover_url,
+        # La miniatura del enlace (WhatsApp/SMS): la portada y, si todavía no hay, la foto del artista.
+        'preview_url': cover_url or artist_photo,
+        'release_date': getattr(obj, 'release_date', None),
+        'release_label': (obj.release_date.strftime('%d/%m/%Y') if getattr(obj, 'release_date', None) else '—'),
+        'pitch_text': (getattr(obj, 'pitch_text', None) or '').strip(),
+        'pitch_updated_at': getattr(obj, 'pitch_updated_at', None),
+        'brand': _pies_brand_assets(session_db),
+        'detail_url': detail_url,
+        'pdf_url': pdf_url,
+        'save_url': save_url,
+        'email_url': email_url,
+        'share_token': token,
+        'public_url': _external_url_for('public_pitch_view', token=token),
+        'public_pdf_url': _external_url_for('public_pitch_pdf', token=token),
+        'share_subject': f"Pitch {artist_name} {title}".strip(),
+    }
+
+
+def _pitch_paragraphs(text: str) -> list[str]:
+    body = (text or '').replace('\r\n', '\n').replace('\r', '\n').strip()
+    if not body:
+        return []
+    chunks = [chunk.strip() for chunk in body.split('\n\n') if chunk.strip()]
+    return chunks or [body]
+
+
+def _build_pitch_pdf_bytes(session_db, kind, obj_id) -> tuple[bytes, str]:
+    """El PDF del pitch: estilo de casa (logo a la derecha, «Pitch» centrado, viñeta + texto)."""
+    if not REPORTLAB_AVAILABLE:
+        raise RuntimeError('ReportLab no está disponible.')
+    kind, obj = _pitch_load(session_db, kind, obj_id)
+    if not obj:
+        raise LookupError('Lanzamiento no encontrado.')
+    ctx = _pitch_context(session_db, kind, obj)
+    if not ctx['pitch_text']:
+        raise LookupError('Este lanzamiento todavía no tiene pitch.')
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import cm
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('PitchTitle', parent=styles['Heading1'], fontName='Helvetica-Bold',
+                                 fontSize=20, leading=24, alignment=TA_CENTER,
+                                 textColor=colors.HexColor('#111827'))
+    small_style = ParagraphStyle('PitchSmall', parent=styles['BodyText'], fontSize=9.5, leading=13,
+                                 textColor=colors.HexColor('#374151'))
+    name_style = ParagraphStyle('PitchName', parent=styles['BodyText'], fontName='Helvetica-Bold',
+                                fontSize=16, leading=19, textColor=colors.HexColor('#111827'))
+    body_style = ParagraphStyle('PitchBody', parent=styles['BodyText'], fontSize=10.8, leading=17,
+                                alignment=TA_JUSTIFY, textColor=colors.HexColor('#111827'), spaceAfter=10)
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=2*cm, rightMargin=2*cm,
+                            topMargin=1.4*cm, bottomMargin=1.6*cm)
+    story = []
+
+    logo = _rl_image_flowable_from_url(ctx['brand'].get('logo_url'), 3.4, 1.2)
+    if logo:
+        header = Table([[Paragraph(' ', small_style), logo]], colWidths=[12.6*cm, 4.4*cm])
+        header.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP'), ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+                                    ('LEFTPADDING', (0, 0), (-1, -1), 0), ('RIGHTPADDING', (0, 0), (-1, -1), 0)]))
+        story.append(header)
+    story.append(Paragraph('Pitch', title_style))
+    story.append(Spacer(1, 0.4*cm))
+
+    # Viñeta del lanzamiento: portada + título + intérpretes + fecha + Single/Álbum.
+    cover = _rl_image_flowable_from_url(
+        ctx['cover_url'] or url_for('static', filename='img/placeholder_photo.png'), 3.2, 3.2)
+    right_col = [
+        Paragraph(html.escape(ctx['title']), name_style),
+        Spacer(1, 0.12*cm),
+        Paragraph(f"<b>Intérpretes:</b> {html.escape(ctx['interpreters_label'])}", small_style),
+        Paragraph(f"<b>Fecha de publicación:</b> {html.escape(ctx['release_label'])}", small_style),
+        Spacer(1, 0.1*cm),
+        Paragraph(f"<b>{html.escape(ctx['badge_label'])}</b>", small_style),
+    ]
+    galleta = Table([[cover or Paragraph('Sin portada', small_style), right_col]], colWidths=[3.7*cm, 13.3*cm])
+    galleta.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('BOX', (0, 0), (-1, -1), 0.6, colors.HexColor('#e5e7eb')),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#fcfcfd')),
+        ('LEFTPADDING', (0, 0), (-1, -1), 8), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+        ('TOPPADDING', (0, 0), (-1, -1), 8), ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    story.append(galleta)
+    story.append(Spacer(1, 0.55*cm))
+
+    for chunk in _pitch_paragraphs(ctx['pitch_text']):
+        story.append(Paragraph(html.escape(chunk).replace('\n', '<br/>'), body_style))
+
+    doc.build(story)
+    base = f"Pitch - {ctx['artist_name']} - {ctx['title']}".replace('/', '-').replace('\\', '-').strip()
+    return buf.getvalue(), f"{base or 'Pitch'}.pdf"
+
+
+def _pitch_email_html(ctx: dict, *, note: str = '') -> str:
+    """El correo del pitch: el MISMO diseño que el PDF, con el botón de descargarlo."""
+    brand = ctx.get('brand') or {}
+    logo_html = ''
+    if brand.get('logo_url'):
+        logo_html = (
+            '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">'
+            '<tr><td align="right">'
+            f'<img src="{html.escape(_absolute_media_url(brand.get("logo_url") or ""))}" '
+            f'alt="{html.escape(brand.get("company_name") or "PIES")}" '
+            'style="display:inline-block;max-width:180px;max-height:64px;object-fit:contain;">'
+            '</td></tr></table>'
+        )
+
+    cover_url = _absolute_media_url(ctx.get('preview_url') or '') if (ctx.get('preview_url') or '') else ''
+    # Sin portada NO se deja la celda vacía (quedaba un hueco y el texto estrujado): la fila pasa a
+    # tener una sola columna.
+    cover_cell = ''
+    if cover_url:
+        cover_cell = (
+            '<td width="124" valign="top">'
+            f'<img src="{html.escape(cover_url)}" alt="{html.escape(ctx.get("title") or "")}" '
+            'style="display:block;width:104px;height:104px;object-fit:cover;border-radius:14px;'
+            'border:1px solid #e5e7eb;background:#ffffff;">'
+            '</td>'
+        )
+
+    body_html = ''
+    for chunk in _pitch_paragraphs(ctx.get('pitch_text') or ''):
+        body_html += ('<p style="margin:0 0 14px;font-size:15px;line-height:1.75;color:#111827;'
+                      f'text-align:justify;">{html.escape(chunk).replace(chr(10), "<br/>")}</p>')
+
+    note_html = ''
+    if (note or '').strip():
+        note_html = ('<div style="margin:0 0 18px;padding:14px 16px;border-radius:14px;background:#f8fafc;'
+                     'border:1px solid #e5e7eb;font-size:14px;line-height:1.7;color:#374151;">'
+                     f'{html.escape(note.strip()).replace(chr(10), "<br/>")}</div>')
+
+    pdf_url = html.escape(ctx.get('public_pdf_url') or '')
+    return f'''
+    <div style="margin:0;padding:24px;background:#f5f7fb;font-family:Arial,Helvetica,sans-serif;color:#111827;">
+      <div style="max-width:760px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:20px;overflow:hidden;">
+        <div style="padding:24px 30px 8px;">
+          {logo_html}
+          <div style="margin-top:14px;font-size:28px;line-height:1.15;font-weight:700;color:#111827;text-align:center;">Pitch</div>
+        </div>
+        <div style="padding:18px 30px 28px;">
+          <div style="border:1px solid #e5e7eb;border-radius:18px;padding:18px;background:#fcfcfd;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+              <tr>
+                {cover_cell}
+                <td valign="top" style="{'padding-left:16px;' if cover_cell else ''}">
+                  <div style="font-size:22px;line-height:1.2;font-weight:700;color:#111827;">{html.escape(ctx.get('title') or '—')}</div>
+                  <div style="margin-top:8px;font-size:14px;color:#4b5563;"><strong>Intérpretes:</strong> {html.escape(ctx.get('interpreters_label') or '—')}</div>
+                  <div style="margin-top:10px;">
+                    <span style="display:inline-block;padding:6px 10px;border-radius:999px;background:#f3f4f6;color:#111827;font-size:13px;"><strong>Fecha de publicación:</strong> {html.escape(ctx.get('release_label') or '—')}</span>
+                    <span style="display:inline-block;margin-left:6px;padding:6px 10px;border-radius:999px;background:#111827;color:#ffffff;font-size:13px;">{html.escape(ctx.get('badge_label') or '')}</span>
+                  </div>
+                </td>
+              </tr>
+            </table>
+          </div>
+          <div style="height:22px;"></div>
+          {note_html}
+          {body_html}
+          <div style="margin-top:26px;text-align:center;">
+            <a href="{pdf_url}" style="display:inline-block;padding:13px 22px;border-radius:999px;background:#E33D48;color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;">Descargar en PDF</a>
+          </div>
+        </div>
+      </div>
+    </div>
+    '''
 
 
 def _build_song_label_copy_pdf_bytes(session_db, song_id, editorial: bool = False) -> tuple[bytes, str]:
@@ -14031,6 +14339,12 @@ def discografica_song_create():
         s.collaborator = _song_collaborator_from_names([primary_name] if primary_name else [], [name for name, _is_main in interpreter_rows])
 
         session_db.commit()
+        # Lanzamiento nuevo -> al sello le toca añadir el pitch (aviso + tarea en Inicio).
+        try:
+            if _pitch_notify_new_release(session_db, "SONG", s, artist_id):
+                session_db.commit()
+        except Exception:
+            session_db.rollback()
         flash("Canción creada.", "success")
         return redirect(url_for("discografica_song_detail", song_id=str(s.id)))
     except Exception as e:
@@ -16544,6 +16858,7 @@ def discografica_song_detail(song_id):
         lyrics_public_pdf_url=lyrics_public_pdf_url,
         label_copy_public_url=_label_copy_public_url('SONG', s.id),
         label_copy_pdf_public_url=_label_copy_public_pdf_url('SONG', s.id),
+        pitch=_pitch_context(session_db, 'SONG', s),
         song_producer_rows=song_producer_rows,
         song_cert_delivery=song_cert_delivery,
         song_team_recipients=song_cert_delivery.get('team_recipients') or [],
@@ -19134,6 +19449,201 @@ def public_song_lyrics_pdf():
     return send_file(BytesIO(pdf_bytes), mimetype="application/pdf", as_attachment=True, download_name=filename)
 
 
+# ── PITCH DE LANZAMIENTO ─────────────────────────────────────────────────────
+# Guardar · PDF · correo (los tres, iguales para canción y álbum: un solo motor).
+
+def _pitch_save(kind, obj_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar el pitch.")
+    session_db = db()
+    try:
+        kind, obj = _pitch_load(session_db, kind, obj_id)
+        if not obj:
+            flash("Lanzamiento no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+        text = (request.form.get("pitch_text") or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+        obj.pitch_text = text or None
+        obj.pitch_updated_at = datetime.now(TZ_MADRID) if text else None
+        session_db.add(obj)
+        session_db.commit()
+        flash("Pitch guardado." if text else "Pitch eliminado.", "success")
+        target = (url_for("discografica_album_detail", album_id=obj_id, tab="informacion")
+                  if kind == "ALBUM" else
+                  url_for("discografica_song_detail", song_id=obj_id, tab="informacion"))
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error guardando el pitch: {e}", "danger")
+        target = (url_for("discografica_album_detail", album_id=obj_id, tab="informacion")
+                  if _pitch_kind_normalize(kind) == "ALBUM" else
+                  url_for("discografica_song_detail", song_id=obj_id, tab="informacion"))
+    finally:
+        session_db.close()
+    return redirect(target)
+
+
+def _pitch_pdf_response(kind, obj_id):
+    session_db = db()
+    try:
+        pdf_bytes, filename = _build_pitch_pdf_bytes(session_db, kind, obj_id)
+        return send_file(BytesIO(pdf_bytes), mimetype="application/pdf", as_attachment=True, download_name=filename)
+    except LookupError as e:
+        flash(str(e) or "Este lanzamiento todavía no tiene pitch.", "warning")
+    except Exception as e:
+        flash(f"No se pudo generar el PDF del pitch: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_album_detail", album_id=obj_id, tab="informacion")
+                    if _pitch_kind_normalize(kind) == "ALBUM" else
+                    url_for("discografica_song_detail", song_id=obj_id, tab="informacion"))
+
+
+def _pitch_send_email(kind, obj_id):
+    """Manda el pitch por correo: el MISMO diseño que el PDF y el PDF adjunto."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para enviar el pitch.")
+    session_db = db()
+    try:
+        kind, obj = _pitch_load(session_db, kind, obj_id)
+        if not obj:
+            flash("Lanzamiento no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+        ctx = _pitch_context(session_db, kind, obj)
+        target = ctx["detail_url"]
+        if not ctx["pitch_text"]:
+            flash("Escribe el pitch antes de enviarlo.", "warning")
+            return redirect(target)
+        recipients = (request.form.get("emails") or "").strip()
+        if not recipients:
+            flash("Indica a quién se lo mandamos.", "warning")
+            return redirect(target)
+        note = (request.form.get("note") or "").strip()
+        attachments = []
+        try:
+            pdf_bytes, filename = _build_pitch_pdf_bytes(session_db, kind, obj.id)
+            attachments.append({"data": pdf_bytes, "filename": filename, "mimetype": "application/pdf"})
+        except Exception:
+            attachments = []
+        ok, error = _send_optional_email(
+            recipients,
+            ctx["share_subject"],
+            _pitch_email_html(ctx, note=note),
+            attachments=attachments or None,
+        )
+        flash("Pitch enviado." if ok else f"No se pudo enviar el pitch: {error or 'error desconocido'}",
+              "success" if ok else "danger")
+        return redirect(target)
+    except Exception as e:
+        flash(f"No se pudo enviar el pitch: {e}", "danger")
+        return redirect(url_for("discografica_album_detail", album_id=obj_id, tab="informacion")
+                        if _pitch_kind_normalize(kind) == "ALBUM" else
+                        url_for("discografica_song_detail", song_id=obj_id, tab="informacion"))
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/canciones/<song_id>/pitch/save")
+@admin_required
+def discografica_song_pitch_save(song_id):
+    return _pitch_save("SONG", song_id)
+
+
+@app.post("/discografica/albumes/<album_id>/pitch/save")
+@admin_required
+def discografica_album_pitch_save(album_id):
+    return _pitch_save("ALBUM", album_id)
+
+
+@app.get("/discografica/canciones/<song_id>/pitch/pdf")
+@admin_required
+def discografica_song_pitch_pdf(song_id):
+    return _pitch_pdf_response("SONG", song_id)
+
+
+@app.get("/discografica/albumes/<album_id>/pitch/pdf")
+@admin_required
+def discografica_album_pitch_pdf(album_id):
+    return _pitch_pdf_response("ALBUM", album_id)
+
+
+@app.post("/discografica/canciones/<song_id>/pitch/email")
+@admin_required
+def discografica_song_pitch_email(song_id):
+    return _pitch_send_email("SONG", song_id)
+
+
+@app.post("/discografica/albumes/<album_id>/pitch/email")
+@admin_required
+def discografica_album_pitch_email(album_id):
+    return _pitch_send_email("ALBUM", album_id)
+
+
+@app.get("/pitch/<token>", endpoint="public_pitch_view")
+def public_pitch_view(token):
+    """El pitch por enlace público (lo que se comparte por WhatsApp/SMS/correo)."""
+    parsed = _parse_pitch_token(token)
+    if not parsed:
+        abort(404)
+    kind, oid = parsed
+    with get_db() as session_db:
+        kind, obj = _pitch_load(session_db, kind, oid)
+        if not obj or not (getattr(obj, "pitch_text", None) or "").strip():
+            abort(404)
+        ctx = _pitch_context(session_db, kind, obj)
+        ctx["paragraphs"] = _pitch_paragraphs(ctx["pitch_text"])
+        ctx["og_image_url"] = _external_url_for("public_pitch_og_image", token=token)
+        return render_template("public_pitch.html", **ctx)
+
+
+@app.get("/pitch/<token>/pdf", endpoint="public_pitch_pdf")
+def public_pitch_pdf(token):
+    parsed = _parse_pitch_token(token)
+    if not parsed:
+        abort(404)
+    kind, oid = parsed
+    with get_db() as session_db:
+        try:
+            pdf_bytes, filename = _build_pitch_pdf_bytes(session_db, kind, oid)
+        except Exception:
+            abort(404)
+    return send_file(BytesIO(pdf_bytes), mimetype="application/pdf", as_attachment=True, download_name=filename)
+
+
+# Miniaturas og:image de pitches ya procesadas, por token: {token: (src, bytes)}.
+_PITCH_OG_IMAGE_CACHE: dict = {}
+
+
+@app.get("/pitch/<token>/og.jpg", endpoint="public_pitch_og_image")
+def public_pitch_og_image(token):
+    """La miniatura del enlace del pitch: la PORTADA del lanzamiento y, si todavía no hay, la foto
+    del artista (normalizada a 1200×630 y servida desde nuestro dominio, como el resto)."""
+    parsed = _parse_pitch_token(token)
+    if not parsed:
+        abort(404)
+    kind, oid = parsed
+    s = db()
+    try:
+        kind, obj = _pitch_load(s, kind, oid)
+        if not obj:
+            abort(404)
+        ctx = _pitch_context(s, kind, obj)
+        src = (ctx.get("preview_url") or "").strip() or url_for("static", filename="img/logo.png")
+    finally:
+        s.close()
+    cached = _PITCH_OG_IMAGE_CACHE.get(token)
+    data = cached[1] if (cached and cached[0] == src) else None
+    if data is None:
+        data = _og_image_jpeg_bytes(src if src.startswith("/static/") else _absolute_media_url(src))
+        if data:
+            if len(_PITCH_OG_IMAGE_CACHE) > 200:
+                _PITCH_OG_IMAGE_CACHE.clear()
+            _PITCH_OG_IMAGE_CACHE[token] = (src, data)
+    if not data:
+        return redirect(_absolute_media_url(src))
+    resp = send_file(BytesIO(data), mimetype="image/jpeg")
+    resp.headers["Cache-Control"] = "public, max-age=21600"
+    return resp
+
+
 @app.post("/discografica/canciones/<song_id>/certifications/save")
 @admin_required
 def discografica_song_certification_save(song_id):
@@ -20294,6 +20804,12 @@ def discografica_album_create():
         )
         session_db.add(album)
         session_db.commit()
+        # Lanzamiento nuevo -> al sello le toca añadir el pitch (aviso + tarea en Inicio).
+        try:
+            if _pitch_notify_new_release(session_db, "ALBUM", album, artist_id):
+                session_db.commit()
+        except Exception:
+            session_db.rollback()
         flash(f"{_album_kind_label(album)} creado.", "success")
         return redirect(url_for("discografica_album_detail", album_id=str(album.id)))
     except Exception as e:
@@ -20547,6 +21063,7 @@ def discografica_album_detail(album_id):
         country_options=country_options,
         label_copy_public_url=_label_copy_public_url('ALBUM', album.id),
         label_copy_pdf_public_url=_label_copy_public_pdf_url('ALBUM', album.id),
+        pitch=_pitch_context(session_db, 'ALBUM', album),
         album_producer_rows=album_producer_rows,
         album_cert_delivery=album_cert_delivery,
         album_team_recipients=album_cert_delivery.get('team_recipients') or [],
@@ -22253,9 +22770,390 @@ def promoters_view():
             "promoters.html",
             promoters=promoters,
             promoter_tag_tabs=promoter_tag_tabs,
+            import_fields=[{"key": k, "label": l} for k, l, _kind, _al in promoter_import.FIELDS],
+            import_target_ignore=promoter_import.TARGET_IGNORE,
+            import_target_alt=promoter_import.TARGET_ALT,
         )
     finally:
         session.close()
+
+
+# ==================== IMPORTAR TERCEROS DESDE UN FICHERO ====================
+# Excel o CSV. El motor puro (leer el fichero y reconocer sus columnas) está en `promoter_import.py`;
+# aquí solo se decide quién existe ya, qué se crea y cómo se fusiona.
+# Flujo: analizar (columnas) → preparar (nuevos vs. ya existentes, con el diff campo a campo) →
+# crear los nuevos → fusionar los existentes UNO A UNO en pantalla partida.
+
+def _promoter_alt_value_rows(session_db, promoter) -> list[dict]:
+    """Los datos con nombre de un tercero, para la ficha. El que además está en la ficha se marca
+    como **principal** (no se repite dos veces la misma dirección con y sin nombre)."""
+    if not promoter:
+        return []
+    filas = []
+    for row in (session_db.query(PromoterAltValue)
+                .filter(PromoterAltValue.promoter_id == promoter.id)
+                .order_by(PromoterAltValue.created_at.asc()).all()):
+        campo = (getattr(row, "field", None) or "").strip()
+        actual = (getattr(promoter, campo, None) or "").strip() if campo else ""
+        filas.append({
+            "id": str(row.id),
+            "field": campo,
+            "field_label": promoter_import.FIELD_LABELS.get(campo, ""),
+            "label": (row.label or "").strip(),
+            "value": (row.value or "").strip(),
+            "is_primary": bool(actual and _norm_text_key(actual) == _norm_text_key(row.value or "")),
+        })
+    return filas
+
+
+def _promoter_import_can_edit() -> bool:
+    return bool(is_master() or has_access_key("third_parties", edit=True, include_descendants=True))
+
+
+def _promoter_import_indexes(session_db) -> dict:
+    """Índices para saber si un tercero del fichero ya está: por DNI/NIF (también el de sus
+    sociedades), por nick y por nombre y apellidos."""
+    por_doc, por_nick, por_nombre = {}, {}, {}
+    for p in session_db.query(Promoter).all():
+        pid = str(p.id)
+        doc = _prl_norm_dni(getattr(p, "tax_id", None) or "")
+        if doc:
+            por_doc.setdefault(doc, pid)
+        nick_key = _norm_text_key(getattr(p, "nick", None) or "")
+        if nick_key:
+            por_nick.setdefault(nick_key, pid)
+        nombre = _norm_text_key(" ".join([x for x in [(getattr(p, "first_name", None) or ""),
+                                                      (getattr(p, "last_name", None) or "")] if x]))
+        if nombre:
+            por_nombre.setdefault(nombre, pid)
+    for row in session_db.query(PromoterCompany).all():
+        doc = _prl_norm_dni(getattr(row, "tax_id", None) or "")
+        if doc and getattr(row, "promoter_id", None):
+            por_doc.setdefault(doc, str(row.promoter_id))
+    return {"doc": por_doc, "nick": por_nick, "name": por_nombre}
+
+
+def _promoter_import_match(indexes: dict, values: dict) -> tuple[str | None, str]:
+    """(id del tercero, por qué se ha reconocido). El DNI/NIF manda: es el único dato que no se
+    repite. Luego el nick exacto y, por último, el nombre y los apellidos."""
+    doc = _prl_norm_dni(values.get("tax_id") or "")
+    if doc and doc in indexes["doc"]:
+        return indexes["doc"][doc], "por su DNI / NIF"
+    nick_key = _norm_text_key(values.get("nick") or "")
+    if nick_key and nick_key in indexes["nick"]:
+        return indexes["nick"][nick_key], "por el nick"
+    nombre = _norm_text_key(" ".join([x for x in [(values.get("first_name") or ""),
+                                                  (values.get("last_name") or "")] if x]))
+    if nombre:
+        if nombre in indexes["name"]:
+            return indexes["name"][nombre], "por el nombre y los apellidos"
+        if nombre in indexes["nick"]:
+            return indexes["nick"][nombre], "por el nombre"
+    return None, ""
+
+
+def _promoter_import_nick(values: dict) -> str:
+    """El nick con el que se da de alta: el del fichero, o el nombre completo, o el DNI/NIF."""
+    for candidato in (values.get("nick"),
+                      " ".join([x for x in [(values.get("first_name") or ""),
+                                            (values.get("last_name") or "")] if x]),
+                      values.get("tax_id")):
+        texto = re.sub(r"\s+", " ", str(candidato or "")).strip()
+        if texto:
+            return texto
+    return ""
+
+
+def _promoter_import_label(session_db, promoter) -> dict:
+    return {
+        "id": str(promoter.id),
+        "nick": (getattr(promoter, "nick", None) or "").strip(),
+        "name": _promoter_display_name(promoter),
+        "logo_url": (getattr(promoter, "logo_url", None) or "").strip(),
+        "tax_id": (getattr(promoter, "tax_id", None) or "").strip(),
+        "url": url_for("promoter_detail_view", pid=promoter.id),
+    }
+
+
+def _promoter_import_apply_values(session_db, promoter, values: dict, *, only_empty: bool) -> list[str]:
+    """Escribe los campos en el tercero. Con `only_empty` solo rellena lo que está vacío."""
+    tocados = []
+    for campo, valor in (values or {}).items():
+        if campo not in promoter_import.FIELD_LABELS or campo == "nick":
+            continue
+        valor = (valor or "").strip()
+        if not valor:
+            continue
+        actual = (getattr(promoter, campo, None) or "").strip()
+        if only_empty and actual:
+            continue
+        if actual == valor:
+            continue
+        setattr(promoter, campo, valor)
+        tocados.append(campo)
+    return tocados
+
+
+def _promoter_import_add_alt(session_db, promoter, field, label, value) -> bool:
+    """Guarda un dato alternativo con nombre (sin repetir el mismo par nombre+valor).
+    Los correos van a `PromoterEmail`, que es donde los busca el resto de la app."""
+    label = re.sub(r"\s+", " ", str(label or "")).strip() or "Otro dato"
+    value = re.sub(r"\s+", " ", str(value or "")).strip()
+    if not value:
+        return False
+    if field == "contact_email":
+        ya = (session_db.query(PromoterEmail.id)
+              .filter(PromoterEmail.promoter_id == promoter.id,
+                      func.lower(PromoterEmail.email) == value.lower()).first())
+        if ya:
+            return False
+        session_db.add(PromoterEmail(promoter_id=promoter.id, concept=label[:120], email=value))
+        return True
+    ya = (session_db.query(PromoterAltValue.id)
+          .filter(PromoterAltValue.promoter_id == promoter.id,
+                  PromoterAltValue.label == label[:120],
+                  PromoterAltValue.value == value).first())
+    if ya:
+        return False
+    session_db.add(PromoterAltValue(promoter_id=promoter.id, field=(field or None),
+                                    label=label[:120], value=value))
+    return True
+
+
+@app.post("/promotores/importar/analizar", endpoint="promoters_import_analyze")
+@admin_required
+def promoters_import_analyze():
+    """Lee el fichero y devuelve SUS COLUMNAS con el campo que se les ha reconocido. Lo que no se
+    reconoce se devuelve sin campo para que la pantalla pregunte a qué corresponde."""
+    if not _promoter_import_can_edit():
+        return jsonify({"ok": False, "error": "No tienes permisos para añadir terceros."}), 403
+    f = request.files.get("file")
+    if not f or not getattr(f, "filename", ""):
+        return jsonify({"ok": False, "error": "Sube un fichero de Excel (.xlsx) o CSV."}), 400
+    try:
+        data = f.read()
+        if not data:
+            return jsonify({"ok": False, "error": "El fichero está vacío."}), 400
+        parsed = promoter_import.parse_file(data, getattr(f, "filename", ""))
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"No se pudo leer el fichero: {e}"}), 400
+    if not parsed["rows"]:
+        return jsonify({"ok": False, "error": "El fichero no tiene ninguna fila con datos."}), 400
+    return jsonify({
+        "ok": True,
+        "filename": getattr(f, "filename", ""),
+        "columns": parsed["columns"],
+        "rows": parsed["rows"],
+        "count": parsed["sheet_rows"],
+        "unknown": sum(1 for c in parsed["columns"] if not c["field"]),
+    })
+
+
+@app.post("/promotores/importar/preparar", endpoint="promoters_import_prepare")
+@admin_required
+def promoters_import_prepare():
+    """Con las columnas ya asignadas: quién es NUEVO y quién YA ESTABA (con el diff campo a campo)."""
+    if not _promoter_import_can_edit():
+        return jsonify({"ok": False, "error": "No tienes permisos para añadir terceros."}), 403
+    payload = request.get_json(silent=True) or {}
+    fichas = promoter_import.apply_mapping(payload.get("rows") or [], payload.get("mapping") or {})
+    if not fichas:
+        return jsonify({"ok": False, "error": "Con las columnas elegidas no queda ningún dato que importar."}), 400
+    session_db = db()
+    try:
+        indexes = _promoter_import_indexes(session_db)
+        nuevos, existentes, sin_nombre = [], [], 0
+        for i, ficha in enumerate(fichas):
+            values = ficha["values"]
+            pid, motivo = _promoter_import_match(indexes, values)
+            if pid:
+                p = session_db.get(Promoter, to_uuid(pid))
+                if not p:
+                    pid = None
+            if pid and p:
+                campos = []
+                for campo in promoter_import.FIELD_KEYS:
+                    entra = (values.get(campo) or "").strip()
+                    if not entra:
+                        continue
+                    actual = (getattr(p, campo, None) or "").strip()
+                    campos.append({
+                        "key": campo,
+                        "label": promoter_import.FIELD_LABELS[campo],
+                        "current": actual,
+                        "incoming": entra,
+                        "same": _norm_text_key(actual) == _norm_text_key(entra),
+                    })
+                existentes.append({
+                    "row": i,
+                    "promoter": _promoter_import_label(session_db, p),
+                    "match_reason": motivo,
+                    "values": values,
+                    "alt": ficha["alt"],
+                    "fields": campos,
+                    "diff": sum(1 for c in campos if not c["same"]),
+                })
+                continue
+            nick = _promoter_import_nick(values)
+            if not nick:
+                sin_nombre += 1
+                continue
+            nuevos.append({"row": i, "nick": nick, "values": values, "alt": ficha["alt"]})
+        return jsonify({
+            "ok": True,
+            "new": nuevos,
+            "existing": existentes,
+            "skipped_no_name": sin_nombre,
+            "counts": {"new": len(nuevos), "existing": len(existentes), "skipped": sin_nombre},
+        })
+    finally:
+        session_db.close()
+
+
+@app.post("/promotores/importar/crear", endpoint="promoters_import_create")
+@admin_required
+def promoters_import_create():
+    """Da de alta los terceros nuevos. Cada uno en su savepoint: si uno falla, los demás entran."""
+    if not _promoter_import_can_edit():
+        return jsonify({"ok": False, "error": "No tienes permisos para añadir terceros."}), 403
+    payload = request.get_json(silent=True) or {}
+    filas = payload.get("rows") or []
+    if not filas:
+        return jsonify({"ok": False, "error": "No hay terceros nuevos que crear."}), 400
+    session_db = db()
+    creados, errores = [], []
+    try:
+        for fila in filas:
+            values = (fila or {}).get("values") or {}
+            alt = (fila or {}).get("alt") or []
+            nick = _promoter_import_nick(values)
+            if not nick:
+                errores.append("Una fila no tiene ni nombre ni DNI/NIF: no se puede dar de alta.")
+                continue
+            try:
+                with session_db.begin_nested():
+                    p = Promoter(nick=_intake_unique_nick(session_db, nick))
+                    session_db.add(p)
+                    session_db.flush()
+                    _promoter_import_apply_values(session_db, p, values, only_empty=False)
+                    for extra in alt:
+                        _promoter_import_add_alt(session_db, p, None,
+                                                 (extra or {}).get("label"), (extra or {}).get("value"))
+                    if "_auto_link_embargo_orders_for_promoter" in globals():
+                        _auto_link_embargo_orders_for_promoter(session_db, p)
+                    creados.append({"id": str(p.id), "nick": p.nick})
+            except Exception as e:
+                errores.append(f"{nick}: {e}")
+        session_db.commit()
+        return jsonify({"ok": True, "created": creados, "errors": errores})
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": f"No se pudieron crear los terceros: {e}"}), 400
+    finally:
+        session_db.close()
+
+
+@app.post("/promotores/<pid>/importar/fusionar", endpoint="promoters_import_merge")
+@admin_required
+def promoters_import_merge(pid):
+    """Actualiza un tercero que ya existía con lo que trae el fichero, campo a campo.
+
+    Por cada campo: `current` (se queda lo nuestro), `incoming` (manda el fichero) o `both`
+    (**conservar los dos**: uno se queda en la ficha y el otro se guarda como dato con nombre —el
+    ejemplo de Dani: dos direcciones, «casa de Madrid» y «casa de Cádiz»—)."""
+    if not _promoter_import_can_edit():
+        return jsonify({"ok": False, "error": "No tienes permisos para editar terceros."}), 403
+    payload = request.get_json(silent=True) or {}
+    decisiones = payload.get("decisions") or {}
+    values = payload.get("values") or {}
+    alt = payload.get("alt") or []
+    session_db = db()
+    try:
+        p = session_db.get(Promoter, to_uuid(pid))
+        if not p:
+            return jsonify({"ok": False, "error": "Tercero no encontrado."}), 404
+        cambios, extras = 0, 0
+        for campo, decision in decisiones.items():
+            if campo not in promoter_import.FIELD_LABELS:
+                continue
+            decision = decision if isinstance(decision, dict) else {"choice": str(decision or "")}
+            eleccion = (decision.get("choice") or "").strip().lower()
+            entra = (values.get(campo) or "").strip()
+            actual = (getattr(p, campo, None) or "").strip()
+            if not entra or eleccion in ("", "current"):
+                continue
+            if eleccion == "incoming":
+                if campo == "nick":
+                    nuevo = _intake_unique_nick(session_db, entra, exclude_id=p.id)
+                    if nuevo != actual:
+                        p.nick = nuevo
+                        cambios += 1
+                elif actual != entra:
+                    setattr(p, campo, entra)
+                    cambios += 1
+                continue
+            if eleccion == "both":
+                principal = (decision.get("primary") or "current").strip().lower()
+                et_actual = (decision.get("label_current") or "").strip()
+                et_nueva = (decision.get("label_incoming") or "").strip()
+                # Uno se queda en la ficha y el otro pasa a «otros datos» con su nombre.
+                if principal == "incoming":
+                    valor_ficha, valor_otro = entra, actual
+                    et_ficha, et_otro = et_nueva, et_actual
+                else:
+                    valor_ficha, valor_otro = actual, entra
+                    et_ficha, et_otro = et_actual, et_nueva
+                if valor_ficha != actual:
+                    if campo == "nick":
+                        p.nick = _intake_unique_nick(session_db, valor_ficha, exclude_id=p.id)
+                    else:
+                        setattr(p, campo, valor_ficha)
+                    cambios += 1
+                # ⚠️ El que NO se queda en la ficha se guarda SIEMPRE (con un nombre por defecto si
+                # no se le puso ninguno): la idea de «conservar los dos» es no perder nada.
+                if valor_otro and _promoter_import_add_alt(
+                        session_db, p, campo,
+                        et_otro or f"Otro/a {promoter_import.FIELD_LABELS[campo].lower()}", valor_otro):
+                    extras += 1
+                # El de la ficha solo se apunta si se le ha puesto nombre (así se sabe cuál es cuál:
+                # «casa de Madrid» / «casa de Cádiz»). En la ficha sale marcado como principal.
+                if valor_ficha and et_ficha and _promoter_import_add_alt(session_db, p, campo, et_ficha, valor_ficha):
+                    extras += 1
+        for extra in alt:
+            if _promoter_import_add_alt(session_db, p, None, (extra or {}).get("label"), (extra or {}).get("value")):
+                extras += 1
+        session_db.commit()
+        return jsonify({"ok": True, "changed": cambios, "extras": extras,
+                        "promoter": {"id": str(p.id), "nick": p.nick}})
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": f"No se pudo actualizar: {e}"}), 400
+    finally:
+        session_db.close()
+
+
+@app.post("/promotores/<pid>/otros-datos/<value_id>/eliminar", endpoint="promoter_alt_value_delete")
+@admin_required
+def promoter_alt_value_delete(pid, value_id):
+    if not _promoter_import_can_edit():
+        return forbid("No tienes permisos para editar terceros.")
+    session_db = db()
+    try:
+        row = session_db.get(PromoterAltValue, to_uuid(value_id))
+        if row and str(row.promoter_id) == str(to_uuid(pid)):
+            session_db.delete(row)
+            session_db.commit()
+            flash("Dato eliminado.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"No se pudo eliminar: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(request.form.get("next") or url_for("promoter_detail_view", pid=pid))
+
+
 @app.post("/promotores/<pid>/update")
 @admin_required
 def promoter_update(pid):
@@ -23437,6 +24335,127 @@ def _replace_concert_caches(session, concert_id, rows):
                 config=r.get("config"),
             )
         )
+
+
+# Etiquetas legibles de la CONDICIÓN de un caché variable (`ConcertCache.config['option']`).
+# ⚠️ Estas etiquetas vivían SOLO en el navegador (static/js/concert_form.js) y en el HTML del
+# asistente: aquí están para poder escribirlas también en un correo o en un PDF. Si se cambia una,
+# hay que cambiarla en el JS (y al revés).
+CACHE_VARIABLE_OPTION_LABELS = {
+    "FIXED_PER_TICKET_FROM": "Importe fijo por entrada vendida (desde la entrada {from_ticket})",
+    "FIXED_FROM_TICKETS": "Importe fijo desde {min_tickets} entradas vendidas",
+    "FIXED_FROM_REVENUE": "Importe fijo desde {min_revenue} de recaudación",
+    "PCT_FROM_REVENUE": "% de taquilla desde {min_revenue} de recaudación",
+    "PCT_FROM_TICKETS": "% de taquilla desde {min_tickets} entradas vendidas",
+    "PCT_TICKET_TYPE": "% de las entradas del tipo «{ticket_type}»",
+}
+
+
+def _cache_variable_condition_label(config) -> str:
+    """La condición de un caché variable, en una línea legible."""
+    cfg = config if isinstance(config, dict) else {}
+    plantilla = CACHE_VARIABLE_OPTION_LABELS.get((cfg.get("option") or "").strip().upper())
+    if not plantilla:
+        return ""
+    def _num(valor):
+        try:
+            return format_thousands(int(valor))
+        except Exception:
+            return str(valor or "")
+    return plantilla.format(
+        from_ticket=_num(cfg.get("from_ticket")),
+        min_tickets=_num(cfg.get("min_tickets")),
+        min_revenue=(format_eur(cfg.get("min_revenue")) if cfg.get("min_revenue") is not None else ""),
+        ticket_type=(cfg.get("ticket_type") or ""),
+    ).strip()
+
+
+def _concert_cache_readable_rows(session_db, concert) -> list[dict]:
+    """Los cachés de una actividad en filas legibles: [{'label', 'value', 'note'}].
+
+    Es lo que se le puede enseñar al artista: qué caché es, cuánto y con qué condición."""
+    if concert is None:
+        return []
+    filas = []
+    for ch in (session_db.query(ConcertCache)
+               .filter(ConcertCache.concert_id == concert.id)
+               .order_by(ConcertCache.created_at.asc()).all()):
+        kind = (getattr(ch, "kind", None) or "").strip().upper()
+        etiqueta = {"FIXED": "Caché fijo", "VARIABLE": "Caché variable"}.get(
+            kind, (getattr(ch, "concept", None) or "Otros"))
+        if ch.pct is not None:
+            base = "Bruto" if (ch.pct_base or "GROSS").upper() == "GROSS" else "Neto"
+            valor = f"{(('%g' % float(ch.pct)).replace('.', ','))}% · {base}"
+        elif ch.amount is not None:
+            valor = format_eur(ch.amount)
+        else:
+            valor = "—"
+        filas.append({
+            "label": etiqueta,
+            "value": valor,
+            "note": _cache_variable_condition_label(getattr(ch, "config", None)),
+        })
+    return filas
+
+
+def _concert_has_cache(session_db, concert) -> bool:
+    """¿Esta actividad lleva CACHÉ?
+
+    Manda lo que hay apuntado: si tiene alguna fila de caché con importe o porcentaje, lo lleva. Si
+    no hay ninguna, se mira el apunte del alta (`sale_type`): en el asistente, «¿Tiene caché?» Sí se
+    guarda como VENDIDO y No como GRATUITO — y un concierto VENDIDO es, por definición, uno que se
+    le vende a un promotor por un caché. Todo lo demás (lo que promovemos nosotros, participado,
+    gratuito) se considera sin caché."""
+    if concert is None:
+        return False
+    try:
+        if _concert_cache_readable_rows(session_db, concert):
+            return True
+    except Exception:
+        pass
+    return (getattr(concert, "sale_type", None) or "").strip().upper() == "VENDIDO"
+
+
+def _activity_notification_channel(session_db, concert) -> str:
+    """Por qué canal de la configuración del artista se avisa de esta actividad."""
+    return "ACTIVIDADES_CACHE" if _concert_has_cache(session_db, concert) else "ACTIVIDADES_SIN_CACHE"
+
+
+def _concert_equipment_label(session_db, concert) -> tuple[str, list[str]]:
+    """La etiqueta legible del equipamiento y sus notas.
+
+    ⚠️ Esta cadena de condiciones está copiada a mano en el PDF de la ficha y en dos sitios de la
+    plantilla: aquí queda en un helper, que es lo que debería usar todo el mundo."""
+    if concert is None:
+        return "", []
+    eq = (session_db.query(ConcertEquipment)
+          .filter(ConcertEquipment.concert_id == concert.id).first())
+    if not eq:
+        return "", []
+    modo = (getattr(eq, "covered_mode", None) or "").strip().upper()
+    if getattr(eq, "covered_by_promoter", False) and modo == "RIDER":
+        etiqueta = "Rider de festival"
+    elif getattr(eq, "covered_by_promoter", False):
+        etiqueta = "El promotor cubre los equipos"
+    elif modo == "ARTIST":
+        etiqueta = "Equipo a cargo del artista"
+    elif (getattr(eq, "included", None) or getattr(eq, "other", None)):
+        etiqueta = "Equipos incluidos"
+    else:
+        etiqueta = ""
+    if getattr(eq, "covered_amount", None):
+        etiqueta = (etiqueta + f" · hasta {format_eur(eq.covered_amount)}").strip(" ·")
+    notas = []
+    otro = (getattr(eq, "other", None) or "").strip()
+    if otro:
+        notas.append(otro)
+    for nota in (session_db.query(ConcertEquipmentNote)
+                 .filter(ConcertEquipmentNote.concert_id == concert.id)
+                 .order_by(ConcertEquipmentNote.created_at.asc()).all()):
+        cuerpo = (getattr(nota, "body", None) or "").strip()
+        if cuerpo:
+            notas.append(cuerpo)
+    return etiqueta, notas
 
 
 @app.get("/conciertos/<cid>/contratos/<ctid>/ver", endpoint="concert_contract_download")
@@ -29278,6 +30297,13 @@ def concerts_page():
                 s.add(c)
                 s.flush()
 
+                # COMPUERTA del aviso al artista (misma regla que en el asistente: se deja RESERVADA
+                # en vez de tirar el alta). Esta ruta ya no tiene pantalla, pero sigue viva.
+                if (c.status or "").upper() == "CONFIRMADO" and _concert_notice_gate(s, c, "CONFIRMADO"):
+                    c.status = "RESERVADO"
+                    flash("La actividad se ha creado como RESERVADA: antes de confirmarla hay que "
+                          "avisar al artista desde su ficha.", "warning")
+
                 if sale_type != "VENDIDO":
                     p_rows = _parse_share_rows(
                         request.form.getlist("promoter_share_id[]"),
@@ -29761,7 +30787,9 @@ def concert_detail_view(cid):
         edit_type_choices = []
         all_concert_tags = []
         activity_songs = []
-        is_promo_activity = (c.activity_type or "").strip().upper() in ("EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS")
+        # El bloque «Actividad» (qué tiene que hacer el artista) se enseña donde el asistente lo
+        # pregunta: promocionales, ensayos y discográficas.
+        is_promo_activity = _activity_has_performance_detail(c.activity_type)
         if tab == "general" and (is_master() or can_edit_concerts()):
             edit_artists = session.query(Artist).order_by(Artist.name.asc()).all()
             edit_venues = session.query(Venue).order_by(Venue.name.asc()).all()
@@ -29858,6 +30886,9 @@ def concert_detail_view(cid):
             break_even_info=break_even_info,
             needs_production_owner=needs_prod_owner,
             ask_production_owner=ask_prod_owner,
+            # AVISO AL ARTISTA: si está avisado (y sigue valiendo), la barra enseña la etiqueta
+            # «Notificado» con a quién y cuándo; si no, el botón para avisarle.
+            artist_notice=_concert_notice_state(session, c),
             production_people=(_production_people(session) if needs_prod_owner else []),
             production_owner_name=_concert_production_owner_name(session, c),
             **grupo_art,
@@ -31393,7 +32424,17 @@ def concert_section_update_handler(cid, section):
             c.capacity = requested_capacity
             c.sale_start_date = parse_concert_sale_start_date(request.form.get("sale_start_date"), sale_type)
             c.break_even_ticket = None if sale_type in ("VENDIDO", "GRATUITO") else _parse_optional_positive_int((request.form.get("break_even_ticket") or "").strip())
-            c.status = _norm_status(request.form.get("status"))
+            # COMPUERTA: confirmar exige haber avisado al artista. Si falta el aviso NO se tira todo
+            # el guardado: se queda el resto de cambios y el estado se deja como estaba, con el
+            # enlace para avisar en ese momento.
+            _nuevo_estado = _norm_status(request.form.get("status"))
+            _puerta = _concert_notice_gate(session, c, _nuevo_estado)
+            if _puerta:
+                flash(Markup(
+                    '%s <a class="alert-link" href="%s">Avisar al artista ahora</a>.'
+                    % (escape(_puerta["reason"]), _puerta["notify_url"])), "warning")
+            else:
+                c.status = _nuevo_estado
             c.promoter_id = to_uuid(request.form.get("promoter_id") or None) if sale_type in ("VENDIDO", "GRATUITO", "GIRAS_COMPRADAS") else None
             c.hashtags = _dedupe_concert_tags(request.form.getlist("concert_tags[]"))
             # Anuncio (solo si el formulario lo incluye, para no pisar datos desde forms antiguos).
@@ -31496,7 +32537,7 @@ def concert_section_update_handler(cid, section):
             flash("Cachés actualizados.", "success")
         elif section == "actividad":
             # Detalle de eventos promocionales/TV/marca/otros: descripción + actuación.
-            is_promo = (c.activity_type or "").strip().upper() in ("EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS")
+            is_promo = _activity_has_performance_detail(c.activity_type)
             payload = dict(c.contracting_payload or {})
             # El detalle (descripción/actuación) solo se toca si el formulario lo trae: la sección
             # M&G de los conciertos postea a esta misma sección sin esos campos.
@@ -31608,6 +32649,18 @@ def concert_delete_handler(cid):
         concert_uuid = to_uuid(cid)
         if not concert_uuid:
             raise ValueError("ID de concierto inválido")
+
+        # CANCELAR también obliga a avisar: si el artista ya sabía de esta actividad, no se puede
+        # borrar sin decirle que se cae. Si nunca se le avisó (un borrador), no hay nada que contar.
+        _c_prev = session.get(Concert, concert_uuid)
+        if _c_prev is not None and getattr(_c_prev, "artist_notified_at", None) \
+                and (getattr(_c_prev, "artist_notified_kind", None) or "").upper() != "CANCELACION":
+            flash(Markup(
+                'El artista está avisado de esta actividad: antes de darla de baja hay que '
+                'comunicarle la cancelación. '
+                '<a class="alert-link" href="%s">Avisar de la cancelación</a>.'
+                % url_for("concert_artist_notice_view", cid=cid, kind="CANCELACION")), "warning")
+            return redirect(url_for("concert_detail_view", cid=cid, tab="general"))
 
         # limpia hijos (por si los FKs no tienen ON DELETE CASCADE)
         session.query(TicketSale).filter_by(concert_id=concert_uuid).delete(synchronize_session=False)
@@ -32005,6 +33058,13 @@ def concert_quick_status(cid):
         if not new_status and request.is_json:
             payload = request.get_json(silent=True) or {}
             new_status = payload.get("status")
+
+        # COMPUERTA: no se confirma una actividad sin habérsela comunicado al artista.
+        puerta = _concert_notice_gate(session, c, _norm_status(new_status))
+        if puerta:
+            return jsonify({"ok": False, "error": puerta["reason"],
+                            "needs_artist_notice": True,
+                            "notify_url": puerta["notify_url"]}), 409
 
         c.status = _norm_status(new_status)
         if c.status in {"RESERVADO", "CONFIRMADO"}:
@@ -36908,6 +37968,9 @@ def promoter_detail_view(pid):
             travel_summary=_travel_summary(promoter),
             contacts_by_title=sorted(grouped.items(), key=lambda x: _norm_text_key(x[0])),
             promoter_email_addresses=promoter_email_addresses,
+            # «Otros datos»: los valores con nombre que salen de conservar los dos al importar
+            # (dos direcciones, dos teléfonos…) y las columnas del fichero que no eran un campo.
+            promoter_alt_values=_promoter_alt_value_rows(session, promoter),
             # Adelantos y deudas con las empresas del grupo (lo que avisa al ir a pagarle).
             party_debts=(_party_debt_rows(session, promoter_id=promoter.id, only_open=False) if tab == 'adelantos' else []),
             party_debt_kinds=PARTY_DEBT_KINDS,
@@ -38044,7 +39107,8 @@ def concert_wizard_create():
 
         # ¿Es una actividad promocional (no concierto/festival)? Cambia pasos y opciones.
         is_promo_activity = activity_type in ('EVENTO_PROMOCIONAL', 'TV', 'MARCA', 'OTROS')
-        performance = _wizard_performance_payload(session, request.form, is_promo_activity)
+        performance = _wizard_performance_payload(
+            session, request.form, _activity_has_performance_detail(activity_type))
         formation_label = _performance_formation_label(performance) or (request.form.get('formation') or '').strip()
 
         wizard_payload = {
@@ -38293,6 +39357,18 @@ def concert_wizard_create():
         )
         session.add(concert)
         session.flush()
+
+        # COMPUERTA del aviso al artista: una actividad NUEVA no puede nacer confirmada sin habérselo
+        # comunicado al artista. ⚠️ Aquí no se aborta el alta (se le cuelgan entradas, cachés,
+        # cartelería, hoja de ruta…): se deja RESERVADA y se avisa con el enlace para notificar.
+        if (concert.status or "").upper() == "CONFIRMADO":
+            _puerta_alta = _concert_notice_gate(session, concert, "CONFIRMADO")
+            if _puerta_alta:
+                concert.status = "RESERVADO"
+                flash(Markup(
+                    'La actividad se ha creado como RESERVADA: %s '
+                    '<a class="alert-link" href="%s">Avisar al artista y confirmarla</a>.'
+                    % (escape(_puerta_alta["reason"]), _puerta_alta["notify_url"])), "warning")
 
         # LOGÍSTICA de las actividades cortas (ensayos y discográficas): si hace falta, se activa la
         # producción con la persona elegida (le sale en sus Activas y se le avisa).
@@ -39413,6 +40489,19 @@ DISCOGRAFICA_ACTIVITY_TYPES = ["DISC_PREMIOS", "DISC_FIRMA", "DISC_AUDIO", "DISC
 SIMPLE_ACTIVITY_TYPES = ["ENSAYO"] + DISCOGRAFICA_ACTIVITY_TYPES
 # ¿Canta el artista? Solo se pregunta donde tiene sentido.
 SINGING_ACTIVITY_TYPES = ["DISC_PREMIOS", "DISC_FIRMA"]
+# Las actividades PROMOCIONALES (no de contratación, pero con promotor y entradas).
+PROMO_LIKE_ACTIVITY_TYPES = ("EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS")
+
+
+def _activity_has_performance_detail(activity_type) -> bool:
+    """¿A esta actividad se le pregunta QUÉ TIENE QUE HACER el artista?
+
+    (la descripción, si canta, el repertorio y la formación).
+    ⚠️ El asistente enseña ese panel también en los ENSAYOS y en las DISCOGRÁFICAS, pero el servidor
+    solo lo guardaba en las promocionales: en una firma de discos o en unos premios se tiraba a la
+    basura lo de «canta», las canciones y la formación (bug real, lo destapó el aviso al artista)."""
+    tipo = (activity_type or "").strip().upper()
+    return tipo in PROMO_LIKE_ACTIVITY_TYPES or tipo in set(SIMPLE_ACTIVITY_TYPES)
 QUAD_ACTIVITY_LABELS = {k: l for k, l, _i in QUAD_ACTIVITY_CHOICES}
 QUAD_ACTIVITY_ICONS = {k: i for k, _l, i in QUAD_ACTIVITY_CHOICES}
 QUAD_ACTIVITY_ALIASES = {
@@ -45861,7 +46950,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -48070,6 +49159,11 @@ def inject_personnel_globals():
         "HOME_INVITATIONS": _home_invitation_requests_for_current_user() if request.endpoint == "home" and session.get("user_id") and "_home_invitation_requests_for_current_user" in globals() else [],
         "HOME_INVITATIONS_TO_MANAGE": _home_invitations_to_manage() if request.endpoint == "home" and session.get("user_id") and "_home_invitations_to_manage" in globals() and has_access_key("invitaciones.gestionar", include_descendants=True) else [],
         "HOME_REGISTROS_PENDING": _home_registros_pending() if request.endpoint == "home" and session.get("user_id") and "_home_registros_pending" in globals() and has_access_key("registros") else [],
+        # SELLO: lanzamientos nuevos a los que les falta el pitch.
+        "HOME_PITCH_PENDING": (_home_pitch_pending()
+                               if request.endpoint == "home" and session.get("user_id")
+                               and "_home_pitch_pending" in globals()
+                               and has_access_key("discografica", include_descendants=True) else []),
         "HOME_PENDING_PETICIONES": _home_pending_peticiones() if request.endpoint == "home" and session.get("user_id") and "_home_pending_peticiones" in globals() else [],
         "HOME_PRODUCCION_PENDING": _home_produccion_pending() if request.endpoint == "home" and session.get("user_id") and "_home_produccion_pending" in globals() and has_access_key("produccion", include_descendants=True) else [],
         "HOME_ADMIN_ALTAS_PENDING": _home_admin_altas_pending() if request.endpoint == "home" and session.get("user_id") and "_home_admin_altas_pending" in globals() and has_access_key("administracion", include_descendants=True) else [],
@@ -48236,7 +49330,7 @@ def _require_login_v2():
         return
     if session.get("user_id"):
         return
-    allowed = {"landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -63599,6 +64693,768 @@ def _contract_sheet_request_email_html(session_db, concert, public_url: str, mes
 </div>"""
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# AVISO AL ARTISTA DE UNA ACTIVIDAD
+#
+# Antes de CONFIRMAR una actividad (y antes de darla de baja) hay que habérsela comunicado al
+# artista. El aviso se manda por CORREO, WhatsApp o SMS y en los tres el contenido es EXACTAMENTE el
+# mismo: un solo motor (`_activity_notice_html`) genera el HTML con estilos en línea, y ese mismo
+# HTML es el del correo, el de la página pública que se comparte por WhatsApp/SMS y el de la vista
+# previa. Lo que se manda queda CONGELADO en `ConcertArtistNotification.snapshot`.
+# ═════════════════════════════════════════════════════════════════════════════
+
+ACTIVITY_NOTICE_KINDS = {
+    "CONFIRMACION": "Confirmación nueva actividad",
+    "CAMBIOS": "Cambios en la actividad",
+    "CANCELACION": "Actividad cancelada",
+}
+ACTIVITY_NOTICE_CHANNELS = [
+    ("EMAIL", "Correo", "fa-envelope"),
+    ("WHATSAPP", "WhatsApp", "fa-brands fa-whatsapp"),
+    ("SMS", "SMS", "fa-comment-sms"),
+]
+ACTIVITY_NOTICE_CHANNEL_KEYS = [k for k, _l, _i in ACTIVITY_NOTICE_CHANNELS]
+# Los MÓDULOS del aviso, en el orden en que salen. Cada uno se puede ocultar con su «ojo».
+ACTIVITY_NOTICE_MODULES = [
+    ("descripcion", "Descripción"),
+    ("cache", "Caché"),
+    ("promotor", "Lo que cubre el promotor"),
+    ("formato", "Formato"),
+    ("equipamiento", "Equipamiento"),
+]
+ACTIVITY_NOTICE_MODULE_LABELS = {k: l for k, l in ACTIVITY_NOTICE_MODULES}
+
+
+def _concert_notice_signature(session_db, concert) -> str:
+    """Huella de lo GORDO de la actividad: fecha, hora, recinto y caché.
+
+    Si esta huella cambia después de haber avisado, el aviso deja de valer y hay que volver a
+    notificar (decisión de la casa: un cambio de fecha, hora, recinto o caché invalida el aviso)."""
+    if concert is None:
+        return ""
+    sitio = str(getattr(concert, "venue_id", None) or (getattr(concert, "manual_venue_name", None) or "").strip().lower())
+    caches = "|".join(
+        f"{r['label']}={r['value']}={r['note']}" for r in _concert_cache_readable_rows(session_db, concert)
+    )
+    partes = [
+        str(getattr(concert, "date", None) or ""),
+        str(getattr(concert, "end_date", None) or ""),
+        str(getattr(concert, "show_time", None) or ""),
+        sitio,
+        caches,
+        (getattr(concert, "sale_type", None) or "").upper(),
+    ]
+    return hashlib.sha1("¬".join(partes).encode("utf-8")).hexdigest()[:16]
+
+
+def _concert_notice_state(session_db, concert) -> dict:
+    """¿Está el artista avisado de esta actividad, y de qué?
+
+    Punto ÚNICO que usan la etiqueta de la ficha y la compuerta de confirmar. Devuelve:
+      notified   – hay un aviso y sigue valiendo
+      stale      – hay un aviso pero ha cambiado algo gordo desde entonces
+      needs_kind – de qué habría que avisar ahora (CONFIRMACION | CAMBIOS | CANCELACION)
+      to / at / by – a quién, cuándo y quién lo mandó (para el tooltip)
+    """
+    if concert is None:
+        return {"notified": False, "stale": False, "needs_kind": "CONFIRMACION", "to": [], "at": None, "by": ""}
+    at = getattr(concert, "artist_notified_at", None)
+    destinos = [d for d in (getattr(concert, "artist_notified_to", None) or []) if isinstance(d, dict)]
+    firma_ahora = _concert_notice_signature(session_db, concert)
+    firma_aviso = (getattr(concert, "artist_notified_signature", None) or "").strip()
+    kind_aviso = (getattr(concert, "artist_notified_kind", None) or "").strip().upper()
+    stale = bool(at) and bool(firma_aviso) and firma_aviso != firma_ahora
+    return {
+        "notified": bool(at) and not stale,
+        "stale": stale,
+        "kind": kind_aviso or ("CONFIRMACION" if at else ""),
+        "needs_kind": "CAMBIOS" if stale else "CONFIRMACION",
+        "to": destinos,
+        "to_label": " · ".join([(d.get("name") or d.get("email") or d.get("phone") or "").strip()
+                                for d in destinos if (d.get("name") or d.get("email") or d.get("phone"))]),
+        "at": at,
+        "at_label": (at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if at else ""),
+        "by": (getattr(concert, "artist_notified_by_nick", None) or ""),
+        "signature": firma_ahora,
+    }
+
+
+# Estados que EXIGEN que el artista esté avisado antes.
+ACTIVITY_NOTICE_REQUIRED_STATUSES = {"CONFIRMADO"}
+
+
+def _concert_notice_gate(session_db, concert, new_status: str) -> dict | None:
+    """Compuerta: ¿se puede poner la actividad en ese estado sin avisar al artista?
+
+    Devuelve None si se puede; si no, un dict con el motivo y el enlace para avisar ahora. Se llama
+    desde los CUATRO caminos que escriben el estado (la etiqueta, el formulario de datos, el
+    asistente y el alta clásica): así no queda ninguna puerta abierta."""
+    if concert is None:
+        return None
+    if (new_status or "").strip().upper() not in ACTIVITY_NOTICE_REQUIRED_STATUSES:
+        return None
+    if not getattr(concert, "artist_id", None):
+        return None
+    # ⚠️ Una actividad de EVENTO no es de ningún artista: el `artist_id` que lleva es su espejo
+    # (`Artist.event_id`), que no tiene contactos ni correo. No hay a quién avisar, así que no se
+    # bloquea (si no, un evento no se podría confirmar nunca).
+    if getattr(concert, "event_id", None):
+        return None
+    # El HISTÓRICO no genera trabajo (misma regla que producción): una actividad anterior al corte no
+    # se queda sin poder confirmarse por un aviso que nadie va a mandar.
+    try:
+        if _concert_is_legacy(concert):
+            return None
+    except Exception:
+        pass
+    estado = _concert_notice_state(session_db, concert)
+    if estado["notified"] and estado.get("kind") != "CANCELACION":
+        return None
+    motivo = ("Han cambiado datos de la actividad desde el último aviso: hay que volver a avisar al artista."
+              if estado["stale"] else "Todavía no se le ha comunicado la actividad al artista.")
+    return {
+        "reason": motivo,
+        "needs_kind": estado["needs_kind"],
+        "notify_url": url_for("concert_artist_notice_view", cid=concert.id, confirmar=1),
+    }
+
+
+def _activity_notice_description(session_db, concert) -> dict | None:
+    """El bloque «Descripción»: lo que tiene que hacer el artista.
+
+    ⚠️ En un CONCIERTO (o si no se ha rellenado) no hay bloque: devuelve None y el aviso no enseña
+    ni el título ni el texto, como pidió Dani."""
+    if concert is None:
+        return None
+    tipo = (getattr(concert, "activity_type", None) or "").strip().upper()
+    if tipo in CONCERT_LIKE_ACTIVITY_TYPES:
+        return None
+    pay = _json_loads_safe(getattr(concert, "contracting_payload", None), {})
+    pay = pay if isinstance(pay, dict) else {}
+    perf = pay.get("performance") if isinstance(pay.get("performance"), dict) else {}
+    mg = pay.get("meet_greet") if isinstance(pay.get("meet_greet"), dict) else {}
+    texto = (pay.get("description") or "").strip()
+
+    canciones = []
+    ids = [str((s or {}).get("id") or "").strip() for s in (perf.get("songs") or []) if isinstance(s, dict)]
+    ids = [x for x in ids if x]
+    if ids:
+        try:
+            uuids = [to_uuid(x) for x in ids if to_uuid(x)]
+            filas = {str(s.id): s for s in session_db.query(Song).filter(Song.id.in_(uuids)).all()} if uuids else {}
+            for sid in ids:
+                fila = filas.get(sid)
+                if fila is None:
+                    continue
+                canciones.append({
+                    "title": (getattr(fila, "title", None) or "").strip() or "—",
+                    "cover_url": (getattr(fila, "cover_url", None) or "").strip(),
+                })
+        except Exception:
+            canciones = []
+
+    mg_texto = ""
+    if mg.get("enabled"):
+        cantidad = (str(mg.get("quantity") or "")).strip()
+        momento = (str(mg.get("moment") or "")).strip()
+        mg_texto = " · ".join([x for x in [(f"{cantidad} personas" if cantidad else ""), momento] if x]) or "Sí"
+
+    bloque = {
+        "text": texto,
+        "meet_greet": mg_texto,
+        "sings": perf.get("sings"),
+        "songs_count": perf.get("songs_count"),
+        "songs": canciones,
+        "formation": (pay.get("formation") or _performance_formation_label(perf) or "").strip(),
+        "duration": (pay.get("performance_duration") or "").strip(),
+        "other": (pay.get("other_commitments") or "").strip(),
+    }
+    if not any([bloque["text"], bloque["meet_greet"], bloque["sings"] is not None, bloque["songs"],
+                bloque["formation"], bloque["duration"], bloque["other"]]):
+        return None
+    return bloque
+
+
+def _activity_notice_conditions(session_db, concert) -> list[dict]:
+    """Los módulos de «Condiciones»: caché, lo que cubre el promotor, formato y equipamiento.
+
+    El de CACHÉ sale siempre (si no hay, dice «Sin Caché»); los demás solo si tienen algo que decir."""
+    modulos = []
+
+    caches = _concert_cache_readable_rows(session_db, concert)
+    modulos.append({
+        "key": "cache",
+        "label": "Caché",
+        "icon": "fa-money-bill-wave",
+        "rows": [{"label": r["label"], "value": r["value"], "note": r["note"]} for r in caches],
+        "empty_text": "Sin Caché",
+    })
+
+    filas_promotor = []
+    for pc in _promoter_costs_rows(getattr(concert, "promoter_costs_payload", None)):
+        quien = ("Lo gestionamos y facturamos nosotros" if pc["managed_by"] == "US"
+                 else "Lo gestiona el promotor")
+        if pc.get("max_amount"):
+            quien += f" · máx. {format_eur(pc['max_amount'])}"
+        filas_promotor.append({"label": pc["label"], "value": quien, "note": pc.get("note") or ""})
+    if filas_promotor:
+        modulos.append({"key": "promotor", "label": "Lo que cubre el promotor",
+                        "icon": "fa-hand-holding-heart", "rows": filas_promotor, "empty_text": ""})
+
+    filas_formato = []
+    # El formato del show vive en la ficha de contratación: lo nuestro (`data`) y, si ahí no está, lo
+    # que rellenó el promotor (`promoter_data`) — si no se mira lo suyo, el módulo sale vacío justo
+    # cuando el dato SÍ existe.
+    hoja = getattr(concert, "contract_sheet", None)
+    datos_hoja = dict((getattr(hoja, "promoter_data", None) or {}) if hoja is not None else {})
+    datos_hoja.update({k: v for k, v in ((getattr(hoja, "data", None) or {}) if hoja is not None else {}).items()
+                       if str(v or "").strip()})
+    for clave in ("show_kind", "show_format", "show_venue_kind", "show_duration"):
+        valor = _contract_sheet_show(clave, datos_hoja.get(clave)) if datos_hoja else ""
+        if valor:
+            etiqueta = (CONTRACT_SHEET_LABELS.get(clave) or (clave, "", ""))[0]
+            filas_formato.append({"label": etiqueta, "value": valor, "note": ""})
+    pay = _json_loads_safe(getattr(concert, "contracting_payload", None), {})
+    pay = pay if isinstance(pay, dict) else {}
+    duracion = (pay.get("performance_duration") or "").strip()
+    if duracion and not any(f["label"].lower().startswith("duraci") for f in filas_formato):
+        filas_formato.append({"label": "Duración", "value": duracion, "note": ""})
+    formacion = (pay.get("formation") or "").strip()
+    if formacion:
+        filas_formato.append({"label": "Formación", "value": formacion, "note": ""})
+    if filas_formato:
+        modulos.append({"key": "formato", "label": "Formato", "icon": "fa-guitar",
+                        "rows": filas_formato, "empty_text": ""})
+
+    etiqueta_eq, notas_eq = _concert_equipment_label(session_db, concert)
+    if etiqueta_eq or notas_eq:
+        filas_eq = []
+        if etiqueta_eq:
+            filas_eq.append({"label": "Equipos", "value": etiqueta_eq, "note": ""})
+        for nota in notas_eq:
+            filas_eq.append({"label": "Nota", "value": nota, "note": ""})
+        modulos.append({"key": "equipamiento", "label": "Equipamiento", "icon": "fa-sliders",
+                        "rows": filas_eq, "empty_text": ""})
+    return modulos
+
+
+def _activity_notice_context(session_db, concert, *, kind: str = "CONFIRMACION") -> dict:
+    """Todo lo que necesitan el correo, la página pública y la vista previa del aviso."""
+    kind = (kind or "CONFIRMACION").strip().upper()
+    if kind not in ACTIVITY_NOTICE_KINDS:
+        kind = "CONFIRMACION"
+    company = getattr(concert, "billing_company", None) or getattr(concert, "group_company", None)
+    # Si la actividad no tiene empresa del grupo (la promueve un tercero), el logo es el de la casa:
+    # un correo nuestro sin logo no es de nadie.
+    logo_url = (getattr(company, "logo_url", None) or "").strip()
+    if not logo_url:
+        try:
+            logo_url = url_for("static", filename="img/logo_33_producciones.png")
+        except Exception:
+            logo_url = ""
+    artist = getattr(concert, "artist", None)
+    # En una actividad de EVENTO manda el evento (nombre y logo), no su artista espejo.
+    evento = None
+    if getattr(concert, "event_id", None):
+        try:
+            evento = session_db.get(AppEvent, concert.event_id)
+        except Exception:
+            evento = None
+    nombre = ((getattr(evento, "name", None) or "").strip()
+              or (getattr(artist, "name", None) or "").strip() or "Actividad")
+    foto = ((getattr(evento, "logo_url", None) or "").strip()
+            or (getattr(artist, "photo_url", None) or "").strip())
+    try:
+        eyebrow = _activity_kind_label(getattr(concert, "activity_type", None)) or ""
+    except Exception:
+        eyebrow = ""
+
+    # Botón «Ver hoja de ruta»: solo si esa hoja está activada (si no, el enlace daría 404).
+    roadmap_url = ""
+    try:
+        if _roadmap_kinds(concert).get("GENERAL", True):
+            token = _ensure_roadmap_token(session_db, concert, "GENERAL")
+            roadmap_url = _external_url_for("public_roadmap_view", token=token)
+    except Exception:
+        roadmap_url = ""
+
+    return {
+        "concert_id": str(getattr(concert, "id", "") or ""),
+        "kind": kind,
+        "title": ACTIVITY_NOTICE_KINDS[kind],
+        "company_name": (getattr(company, "name", None) or "").strip(),
+        "logo_url": logo_url,
+        "subject_name": nombre,
+        "subject_photo": foto,
+        "eyebrow": eyebrow,
+        "hero_rows": [{"icon": i, "label": l, "value": str(v)} for i, l, v in _contract_sheet_hero_rows(concert)],
+        "roadmap_url": roadmap_url,
+        "description": _activity_notice_description(session_db, concert),
+        "conditions": _activity_notice_conditions(session_db, concert),
+        "has_cache": _concert_has_cache(session_db, concert),
+        "channel_key": _activity_notification_channel(session_db, concert),
+    }
+
+
+def _activity_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool = False) -> str:
+    """EL motor del aviso: el mismo HTML para el correo, la página pública y la vista previa.
+
+    Estilos EN LÍNEA a propósito (los clientes de correo se comen las hojas de estilo). Con
+    `preview=True` cada módulo lleva su botón de OJO para ocultarlo antes de enviar."""
+    # ⚠️ `esc()` devuelve Markup y `'<div>' + Markup(...)` ESCAPA el trozo de la izquierda: el
+    # HTML del aviso salía como texto (bug real). Aquí se escapa SIEMPRE a str con `esc`.
+    def esc(valor) -> str:
+        return str(escape("" if valor is None else valor))
+
+    ocultos = {str(x).strip().lower() for x in (hidden or [])}
+    logo = _absolute_media_url(ctx.get("logo_url") or "") if (ctx.get("logo_url") or "") else ""
+    foto = _absolute_media_url(ctx.get("subject_photo") or "") if (ctx.get("subject_photo") or "") else ""
+
+    def ojo(clave, etiqueta):
+        if not preview:
+            return ""
+        return (f'<button type="button" class="an-eye" data-notice-eye="{esc(clave)}" '
+                f'title="Ocultar «{esc(etiqueta)}» del aviso" '
+                'style="border:0;background:transparent;cursor:pointer;color:#8b95a1;font-size:14px;">'
+                '<i class="fa fa-eye"></i></button>')
+
+    def modulo(clave, etiqueta, cuerpo_html, icono="", mostrar_etiqueta=True):
+        if clave in ocultos and not preview:
+            return ""
+        oculto_ahora = ' data-notice-hidden="1"' if clave in ocultos else ""
+        estilo_extra = "opacity:.35;" if (preview and clave in ocultos) else ""
+        icono_html = ('<i class="fa %s" style="margin-right:6px;color:#8b95a1;"></i>' % esc(icono)) if icono else ""
+        cabecera = (
+            '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">'
+            '<tr><td style="font-size:14px;font-weight:800;color:#212529;">'
+            # El módulo de la descripción no repite su nombre: el título centrado ya lo dice. Pero
+            # conserva su ojo, que es lo que permite dejarlo fuera del aviso.
+            + ((icono_html + esc(etiqueta)) if mostrar_etiqueta else "")
+            + '</td>'
+            + f'<td align="right">{ojo(clave, etiqueta)}</td></tr></table>'
+        )
+        return (f'<div class="an-module" data-notice-module="{esc(clave)}"{oculto_ahora} '
+                f'style="border:1px solid #e6e8eb;border-radius:14px;padding:12px 14px;margin:0 0 10px;'
+                f'background:#fff;{estilo_extra}">{cabecera}{cuerpo_html}</div>')
+
+    def filas_html(rows, empty_text=""):
+        if not rows:
+            if not empty_text:
+                return ""
+            return f'<div style="margin-top:6px;font-size:14px;color:#6b7683;">{esc(empty_text)}</div>'
+        out = '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin-top:8px;">'
+        for r in rows:
+            out += (
+                '<tr>'
+                f'<td style="padding:3px 12px 3px 0;color:#6b7683;font-size:12px;vertical-align:top;white-space:nowrap;">{esc(r.get("label") or "")}</td>'
+                f'<td style="padding:3px 0;color:#212529;font-size:14px;font-weight:700;">{esc(r.get("value") or "")}'
+                + (f'<div style="font-weight:400;color:#6b7683;font-size:12px;">{esc(r.get("note"))}</div>' if (r.get("note") or "").strip() else "")
+                + '</td></tr>'
+            )
+        return out + "</table>"
+
+    # ---- cabecera: logo a la derecha y el título centrado ----
+    partes = ['<div style="font-family:Arial,Helvetica,sans-serif;color:#212529;max-width:660px;margin:0 auto;">']
+    partes.append('<div style="text-align:right;margin-bottom:6px;">'
+                  + (f'<img src="{esc(logo)}" alt="{esc(ctx.get("company_name") or "")}" '
+                     'style="max-height:54px;max-width:190px;">' if logo else "")
+                  + '</div>')
+    partes.append(f'<h2 style="text-align:center;font-size:22px;margin:0 0 14px;">{esc(ctx.get("title") or "")}</h2>')
+
+    # ---- la NOTA, justo debajo del primer título ----
+    if (note or "").strip():
+        partes.append('<div style="margin:0 0 16px;padding:12px 14px;border-radius:12px;background:#f8fafc;'
+                      'border:1px solid #e6e8eb;font-size:14px;line-height:1.7;color:#374151;white-space:pre-line;">'
+                      + esc(note.strip()) + '</div>')
+
+    # ---- la CABECERA DE LA ACTIVIDAD (la galleta, igual que en la ficha) ----
+    datos = "".join(
+        '<tr>'
+        f'<td style="padding:2px 10px 2px 0;color:#6b7683;font-size:12px;white-space:nowrap;">{esc(r["label"])}</td>'
+        f'<td style="padding:2px 0;color:#212529;font-size:13px;font-weight:700;">{esc(r["value"])}</td>'
+        '</tr>' for r in (ctx.get("hero_rows") or [])
+    )
+    partes.append(
+        '<div style="border:1px solid #e6e8eb;border-radius:14px;padding:14px;background:#fff;">'
+        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;"><tr>'
+        + (f'<td style="width:76px;vertical-align:top;"><img src="{esc(foto)}" alt="" '
+           'style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:1px solid #e6e8eb;"></td>' if foto else "")
+        + '<td style="vertical-align:top;">'
+        + (f'<div style="font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#8b95a1;">{esc(ctx.get("eyebrow") or "")}</div>' if (ctx.get("eyebrow") or "") else "")
+        + f'<div style="font-size:19px;font-weight:800;margin:1px 0 6px;">{esc(ctx.get("subject_name") or "")}</div>'
+        + f'<table role="presentation" style="border-collapse:collapse;">{datos}</table>'
+        + '</td></tr></table></div>'
+    )
+
+    # ---- BARRA DE BOTONES (de momento solo la hoja de ruta; los futuros van a su derecha) ----
+    if (ctx.get("roadmap_url") or "").strip():
+        partes.append(
+            '<div style="margin:14px 0 4px;">'
+            # Sin iconos de fuente: en un correo no cargan. Los botones futuros van a su derecha.
+            f'<a href="{esc(ctx["roadmap_url"])}" style="display:inline-block;padding:10px 16px;background:#212529;'
+            'color:#fff;text-decoration:none;border-radius:9px;font-weight:700;font-size:14px;margin-right:8px;">'
+            'Ver hoja de ruta</a>'
+            '</div>'
+        )
+
+    # ---- DESCRIPCIÓN (solo si la actividad la tiene: en un concierto no sale ni el título) ----
+    desc = ctx.get("description") or None
+    if desc:
+        cuerpo = ""
+        if (desc.get("text") or "").strip():
+            cuerpo += ('<div style="font-size:15px;line-height:1.7;color:#212529;white-space:pre-line;">'
+                       + esc(desc["text"].strip()) + '</div>')
+        filas = []
+        if (desc.get("meet_greet") or "").strip():
+            filas.append({"label": "Meet & Greet", "value": desc["meet_greet"], "note": ""})
+        if desc.get("sings") is not None:
+            filas.append({"label": "¿Canta?", "value": ("Sí" if desc.get("sings") else "No"), "note": ""})
+        if desc.get("songs_count"):
+            filas.append({"label": "Nº de canciones", "value": str(desc["songs_count"]), "note": ""})
+        if (desc.get("formation") or "").strip():
+            filas.append({"label": "Formación", "value": desc["formation"], "note": ""})
+        if (desc.get("duration") or "").strip():
+            filas.append({"label": "Duración", "value": desc["duration"], "note": ""})
+        if (desc.get("other") or "").strip():
+            filas.append({"label": "Otros compromisos", "value": desc["other"], "note": ""})
+        cuerpo += filas_html(filas)
+        if desc.get("songs"):
+            cuerpo += '<div style="margin-top:10px;font-size:12px;color:#6b7683;font-weight:700;">Canciones</div>'
+            cuerpo += '<table role="presentation" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin-top:4px;">'
+            for i, s in enumerate(desc["songs"], start=1):
+                portada = _absolute_media_url(s.get("cover_url") or "") if (s.get("cover_url") or "") else ""
+                cuerpo += (
+                    '<tr>'
+                    f'<td style="padding:3px 8px 3px 0;color:#8b95a1;font-size:12px;">{i}</td>'
+                    + (f'<td style="padding:3px 8px 3px 0;"><img src="{esc(portada)}" alt="" '
+                       'style="width:34px;height:34px;border-radius:6px;object-fit:cover;border:1px solid #e6e8eb;"></td>'
+                       if portada else '<td style="padding:3px 8px 3px 0;"></td>')
+                    + f'<td style="padding:3px 0;font-size:14px;color:#212529;font-weight:600;">{esc(s.get("title") or "")}</td>'
+                    '</tr>'
+                )
+            cuerpo += "</table>"
+        bloque = modulo("descripcion", "Descripción", cuerpo, mostrar_etiqueta=False)
+        if bloque:
+            partes.append('<h3 style="text-align:center;font-size:16px;margin:20px 0 10px;">Descripción:</h3>')
+            partes.append(bloque)
+
+    # ---- CONDICIONES ----
+    condiciones = [m for m in (ctx.get("conditions") or [])]
+    bloques = [modulo(m["key"], m["label"], filas_html(m["rows"], m.get("empty_text") or ""), m.get("icon") or "")
+               for m in condiciones]
+    bloques = [b for b in bloques if b]
+    if bloques:
+        partes.append('<h3 style="text-align:center;font-size:16px;margin:22px 0 10px;">Condiciones</h3>')
+        partes.extend(bloques)
+
+    partes.append("</div>")
+    return "".join(partes)
+
+
+def _activity_notice_token() -> str:
+    """El token del enlace público del aviso.
+
+    ⚠️ Es un token OPACO guardado en la propia fila (`public_token`, con su índice UNIQUE), NO un
+    token firmado con caducidad: un aviso que se mandó hace dos años sigue siendo el mismo aviso, y
+    los enlaces firmados a un año ya dieron un bug real («viejo no es falso»)."""
+    return _uuid_token()
+
+
+def _activity_notice_share_text(ctx: dict) -> str:
+    """El texto con el que se comparte por WhatsApp o SMS (el contenido va en el enlace)."""
+    cuando = ""
+    for r in (ctx.get("hero_rows") or []):
+        if (r.get("label") or "").lower() == "fecha":
+            cuando = r.get("value") or ""
+            break
+    partes = [ctx.get("title") or "", ctx.get("subject_name") or ""]
+    if cuando:
+        partes.append(cuando)
+    return " · ".join([p for p in partes if p])
+
+
+def _concert_for_notice(session_db, cid):
+    # ⚠️ `Concert` NO tiene relación `event` (solo la columna `event_id`): el evento se carga aparte
+    # en `_activity_notice_context`.
+    return (session_db.query(Concert)
+            .options(joinedload(Concert.artist), joinedload(Concert.venue),
+                     joinedload(Concert.billing_company), joinedload(Concert.group_company),
+                     selectinload(Concert.contract_sheet))
+            .filter(Concert.id == to_uuid(cid)).first())
+
+
+@app.get("/conciertos/<cid>/avisar-artista", endpoint="concert_artist_notice_view")
+@admin_required
+def concert_artist_notice_view(cid):
+    """VISTA PREVIA del aviso al artista: se ve tal como le va a llegar, se le puede añadir una nota
+    y ocultar módulos con el ojo, y desde ahí se envía."""
+    if not can_edit_concerts():
+        return forbid("No tienes permisos para avisar al artista de una actividad.")
+    session_db = db()
+    try:
+        concert = _concert_for_notice(session_db, cid)
+        if not concert:
+            abort(404)
+        kind = (request.args.get("kind") or "").strip().upper()
+        estado = _concert_notice_state(session_db, concert)
+        if kind not in ACTIVITY_NOTICE_KINDS:
+            kind = estado["needs_kind"]
+        ctx = _activity_notice_context(session_db, concert, kind=kind)
+        destinatarios = _artist_notification_recipients(
+            session_db, getattr(concert, "artist_id", None), ctx["channel_key"])
+        historial = (session_db.query(ConcertArtistNotification)
+                     .filter(ConcertArtistNotification.concert_id == concert.id)
+                     .order_by(ConcertArtistNotification.sent_at.desc()).limit(10).all())
+        # El token de la hoja de ruta se crea al vuelo: hay que guardarlo o el enlace no resolvería.
+        try:
+            session_db.commit()
+        except Exception:
+            session_db.rollback()
+        return render_template(
+            "concert_artist_notice.html",
+            concert=concert,
+            notice=ctx,
+            notice_kind=kind,
+            notice_kinds=ACTIVITY_NOTICE_KINDS,
+            notice_channels=ACTIVITY_NOTICE_CHANNELS,
+            notice_modules=ACTIVITY_NOTICE_MODULES,
+            notice_state=estado,
+            recipients=destinatarios,
+            channel_label=ARTIST_NOTIFICATION_CHANNEL_LABELS.get(ctx["channel_key"], ctx["channel_key"]),
+            preview_html=_activity_notice_html(ctx, preview=True),
+            history=historial,
+            confirm_after=bool((request.args.get("confirmar") or "").strip()),
+            artist_config_url=(url_for("artist_detail_view", artist_id=concert.artist_id, tab="datos")
+                               if getattr(concert, "artist_id", None) else ""),
+        )
+    finally:
+        session_db.close()
+
+
+@app.post("/conciertos/<cid>/avisar-artista/vista-previa", endpoint="concert_artist_notice_preview")
+@admin_required
+def concert_artist_notice_preview(cid):
+    """Recalcula la vista previa con la nota y los módulos ocultos (se pide al escribir/ocultar)."""
+    if not can_edit_concerts():
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    payload = request.get_json(silent=True) or {}
+    session_db = db()
+    try:
+        concert = _concert_for_notice(session_db, cid)
+        if not concert:
+            return jsonify({"ok": False, "error": "Actividad no encontrada."}), 404
+        ctx = _activity_notice_context(session_db, concert, kind=(payload.get("kind") or "CONFIRMACION"))
+        html_preview = _activity_notice_html(ctx, note=(payload.get("note") or ""),
+                                             hidden=(payload.get("hidden") or []), preview=True)
+        return jsonify({"ok": True, "html": html_preview})
+    finally:
+        session_db.close()
+
+
+@app.post("/conciertos/<cid>/avisar-artista", endpoint="concert_artist_notice_send")
+@admin_required
+def concert_artist_notice_send(cid):
+    """Manda el aviso (correo, WhatsApp o SMS) y lo deja apuntado.
+
+    ⚠️ WhatsApp y SMS no se mandan desde el servidor (no hay pasarela): se abre la app con el enlace
+    público, que enseña EXACTAMENTE el mismo contenido que el correo. Aquí se registra el aviso y se
+    devuelve ese enlace para que el navegador abra WhatsApp/SMS."""
+    if not can_edit_concerts():
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    es_json = _wants_json_response() or _is_xhr_request()
+    session_db = db()
+    try:
+        concert = _concert_for_notice(session_db, cid)
+        if not concert:
+            return (jsonify({"ok": False, "error": "Actividad no encontrada."}), 404) if es_json else abort(404)
+
+        datos = request.get_json(silent=True) if request.is_json else None
+        datos = datos if isinstance(datos, dict) else request.form
+        canal = (datos.get("channel") or "EMAIL").strip().upper()
+        if canal not in ACTIVITY_NOTICE_CHANNEL_KEYS:
+            canal = "EMAIL"
+        kind = (datos.get("kind") or "CONFIRMACION").strip().upper()
+        if kind not in ACTIVITY_NOTICE_KINDS:
+            kind = "CONFIRMACION"
+        nota = (datos.get("note") or "").strip()
+        ocultos = ([str(x).strip().lower() for x in datos.getlist("hidden")]
+                   if hasattr(datos, "getlist") else
+                   [str(x).strip().lower() for x in (datos.get("hidden") or [])])
+        ocultos = [x for x in ocultos if x in ACTIVITY_NOTICE_MODULE_LABELS]
+        confirmar = _truthy(datos.get("confirm_after"))
+
+        ctx = _activity_notice_context(session_db, concert, kind=kind)
+        cuerpo = _activity_notice_html(ctx, note=nota, hidden=ocultos)
+
+        # A quién: lo configurado en el canal que toca, o lo que se haya escrito a mano.
+        manual_correos = [x.strip() for x in re.split(r"[;,\n]+", str(datos.get("emails") or "")) if x.strip()]
+        manual_tel = [x.strip() for x in re.split(r"[;,\n]+", str(datos.get("phones") or "")) if x.strip()]
+        configurados = _artist_notification_recipients(
+            session_db, getattr(concert, "artist_id", None), ctx["channel_key"])
+        if canal == "EMAIL":
+            destinos = manual_correos or [r["email"] for r in configurados if r.get("email")]
+        else:
+            destinos = manual_tel or [r["phone"] for r in configurados if r.get("phone")]
+        if not destinos:
+            falta = ("correo" if canal == "EMAIL" else "teléfono")
+            msg = (f"No hay ningún {falta} para avisar al artista. Configúralo en «Notificaciones» de "
+                   f"su ficha, en «{ARTIST_NOTIFICATION_CHANNEL_LABELS.get(ctx['channel_key'], '')}».")
+            return (jsonify({"ok": False, "error": msg}), 400) if es_json else (flash(msg, "warning") or redirect(
+                url_for("concert_artist_notice_view", cid=cid)))
+
+        aviso = ConcertArtistNotification(
+            concert_id=concert.id,
+            channel=canal,
+            kind=kind,
+            recipients=[({"email": d} if canal == "EMAIL" else {"phone": d}) for d in destinos],
+            note=nota or None,
+            hidden_modules=ocultos,
+            snapshot={"context": dict(ctx), "html": cuerpo},
+            signature=_concert_notice_signature(session_db, concert),
+            sent_by_user_id=to_uuid((_current_user_state() or {}).get("user_id") or "") or None,
+            sent_by_nick=((_current_user_state() or {}).get("nick") or None),
+        )
+        session_db.add(aviso)
+        session_db.flush()
+        aviso.public_token = _activity_notice_token()
+        enlace = _external_url_for("public_activity_notice_view", token=aviso.public_token)
+
+        error = None
+        if canal == "EMAIL":
+            asunto = f"{ctx['title']} · {ctx['subject_name']}"
+            ok, error = _send_optional_email(destinos, asunto, cuerpo)
+            if not ok:
+                session_db.rollback()
+                msg = f"No se pudo enviar el correo: {error or 'error desconocido'}"
+                return (jsonify({"ok": False, "error": msg}), 400) if es_json else (
+                    flash(msg, "danger") or redirect(url_for("concert_artist_notice_view", cid=cid)))
+
+        # Queda apuntado en la actividad: es lo que enseña la etiqueta y lo que mira la compuerta.
+        ahora = _now_madrid()
+        concert.artist_notified_at = ahora
+        concert.artist_notified_by_user_id = aviso.sent_by_user_id
+        concert.artist_notified_by_nick = aviso.sent_by_nick
+        # ⚠️ El nombre se busca por el dato (correo o teléfono), NO por posición: `destinos` filtra
+        # los configurados que tienen ese dato, así que emparejar por índice sacaría otro nombre.
+        _por_correo = {(r.get("email") or "").lower(): (r.get("name") or "") for r in configurados}
+        _por_tel = {(r.get("phone") or ""): (r.get("name") or "") for r in configurados}
+        concert.artist_notified_to = [
+            dict(d, name=(_por_correo.get((d.get("email") or "").lower())
+                          or _por_tel.get(d.get("phone") or "") or ""))
+            for d in aviso.recipients
+        ]
+        concert.artist_notified_signature = aviso.signature
+        concert.artist_notified_kind = kind
+        concert.updated_at = ahora
+
+        confirmada = False
+        if confirmar and kind != "CANCELACION" and (concert.status or "").upper() != "CONFIRMADO":
+            concert.status = "CONFIRMADO"
+            confirmada = True
+            try:
+                _ensure_production_request_for_concert(session_db, concert)
+            except Exception:
+                pass
+        session_db.commit()
+
+        texto = _activity_notice_share_text(ctx)
+        if es_json:
+            return jsonify({"ok": True, "channel": canal, "url": enlace, "share_text": texto,
+                            "recipients": destinos, "confirmed": confirmada})
+        flash("Aviso registrado." if canal != "EMAIL" else "Aviso enviado al artista.", "success")
+        if confirmada:
+            flash("La actividad ha pasado a CONFIRMADA.", "success")
+        return redirect(url_for("concert_detail_view", cid=cid, tab="general"))
+    except Exception as e:
+        session_db.rollback()
+        if es_json:
+            return jsonify({"ok": False, "error": str(e)}), 400
+        flash(f"No se pudo avisar al artista: {e}", "danger")
+        return redirect(url_for("concert_artist_notice_view", cid=cid))
+    finally:
+        session_db.close()
+
+
+@app.get("/actividad/<token>", endpoint="public_activity_notice_view")
+def public_activity_notice_view(token):
+    """El aviso de la actividad por enlace público (lo que se manda por WhatsApp o SMS).
+
+    Enseña el aviso TAL COMO SE MANDÓ (el HTML congelado), así que el contenido es exactamente el
+    mismo que el del correo."""
+    token = (token or "").strip()
+    if not token:
+        abort(404)
+    with get_db() as session_db:
+        aviso = (session_db.query(ConcertArtistNotification)
+                 .filter(ConcertArtistNotification.public_token == token).first())
+        if not aviso:
+            abort(404)
+        snap = aviso.snapshot if isinstance(aviso.snapshot, dict) else {}
+        cuerpo = (snap.get("html") or "").strip()
+        ctx = snap.get("context") if isinstance(snap.get("context"), dict) else {}
+        rehecho = False
+        if not cuerpo:
+            # Respaldo: no hay congelado (un aviso antiguo). Se monta con los datos de HOY y se DICE,
+            # porque no es lo que se mandó.
+            concert = _concert_for_notice(session_db, aviso.concert_id)
+            if not concert:
+                abort(404)
+            ctx = _activity_notice_context(session_db, concert, kind=(aviso.kind or "CONFIRMACION"))
+            cuerpo = _activity_notice_html(ctx, note=(aviso.note or ""),
+                                           hidden=(aviso.hidden_modules or []))
+            rehecho = True
+        return render_template(
+            "public_activity_notice.html",
+            body_html=Markup(cuerpo),
+            rebuilt=rehecho,
+            sent_at_label=(aviso.sent_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y") if aviso.sent_at else ""),
+            title=(ctx.get("title") or "Actividad"),
+            subject_name=(ctx.get("subject_name") or ""),
+            og_image_url=_external_url_for("public_activity_notice_og_image", token=token),
+            og_description=" · ".join([x for x in [
+                (ctx.get("eyebrow") or ""),
+                next((r.get("value") for r in (ctx.get("hero_rows") or []) if (r.get("label") or "").lower() == "fecha"), ""),
+            ] if x]),
+        )
+
+
+# Miniaturas og:image de los avisos ya procesadas, por token: {token: (src, bytes)}.
+_ACTIVITY_NOTICE_OG_CACHE: dict = {}
+
+
+@app.get("/actividad/<token>/og.jpg", endpoint="public_activity_notice_og_image")
+def public_activity_notice_og_image(token):
+    """Miniatura del enlace del aviso: la foto del artista (o el logo de la empresa)."""
+    token = (token or "").strip()
+    if not token:
+        abort(404)
+    s = db()
+    try:
+        aviso = (s.query(ConcertArtistNotification)
+                 .filter(ConcertArtistNotification.public_token == token).first())
+        if not aviso:
+            abort(404)
+        snap = aviso.snapshot if isinstance(aviso.snapshot, dict) else {}
+        ctx = snap.get("context") if isinstance(snap.get("context"), dict) else {}
+        src = ((ctx.get("subject_photo") or "").strip() or (ctx.get("logo_url") or "").strip()
+               or url_for("static", filename="img/logo_33_producciones.png"))
+    finally:
+        s.close()
+    cached = _ACTIVITY_NOTICE_OG_CACHE.get(token)
+    data = cached[1] if (cached and cached[0] == src) else None
+    if data is None:
+        data = _og_image_jpeg_bytes(src if src.startswith("/static/") else _absolute_media_url(src))
+        if data:
+            if len(_ACTIVITY_NOTICE_OG_CACHE) > 200:
+                _ACTIVITY_NOTICE_OG_CACHE.clear()
+            _ACTIVITY_NOTICE_OG_CACHE[token] = (src, data)
+    if not data:
+        return redirect(_absolute_media_url(src))
+    resp = send_file(BytesIO(data), mimetype="image/jpeg")
+    resp.headers["Cache-Control"] = "public, max-age=21600"
+    return resp
+
+
 @app.post('/conciertos/<cid>/ficha-contratacion/solicitar', endpoint='concert_contract_sheet_request')
 @admin_required
 def concert_contract_sheet_request(cid):
@@ -71750,6 +73606,7 @@ NOTIFICATION_KIND_META = {
     "ADMIN_PETICION": ("Nueva petición para administración", "fa-inbox"),
     "ADMIN_BOLSA": ("Nueva bolsa para liquidar", "fa-sack-dollar"),
     "REMESA": ("Remesa pendiente de aprobación", "fa-file-invoice-dollar"),
+    "PITCH": ("Falta el pitch de un lanzamiento", "fa-bullhorn"),
 }
 
 
@@ -84761,6 +86618,112 @@ def _home_afavor_alert():
         session_db.close()
 
 
+def _pitch_sello_user_ids(session_db, artist_id) -> list[str]:
+    """Quién del SELLO lleva a ese artista (los que lo tienen asignado en la faceta sello).
+    ⚠️ Si nadie lo tiene asignado, se avisa a TODO el departamento Sello: mejor que se lo miren
+    varios que dejar el lanzamiento sin pitch porque no había nadie apuntado."""
+    aid = str(artist_id or '')
+    if not aid:
+        return []
+    fuera = _inactive_user_ids(session_db)
+    salida = []
+    try:
+        for prof in session_db.query(UserProfile).all():
+            uid = str(getattr(prof, 'user_id', '') or '')
+            if not uid or to_uuid(uid) in fuera:
+                continue
+            asignados = [str(x) for x in (getattr(prof, 'assigned_artist_ids_sello', None) or [])]
+            if aid in asignados:
+                salida.append(uid)
+    except Exception:
+        return []
+    return salida or _department_user_ids(session_db, 'Sello')
+
+
+def _pitch_notify_new_release(session_db, kind, obj, artist_id) -> int:
+    """Aviso al crear un lanzamiento: a quien del sello le toca, que le falta el pitch."""
+    try:
+        kind = _pitch_kind_normalize(kind)
+        title = (getattr(obj, 'title', None) or '').strip() or 'Lanzamiento'
+        url = (url_for('discografica_album_detail', album_id=obj.id, tab='informacion')
+               if kind == 'ALBUM' else
+               url_for('discografica_song_detail', song_id=obj.id, tab='informacion'))
+        etiqueta = 'del disco' if kind == 'ALBUM' else 'del single'
+        return _notify_users(
+            session_db, _pitch_sello_user_ids(session_db, artist_id), 'PITCH',
+            f"Falta el pitch {etiqueta} «{title}»",
+            'Añade el pitch de lanzamiento en la ficha de información.',
+            url, ref_type=('ALBUM' if kind == 'ALBUM' else 'SONG'), ref_id=str(obj.id),
+        )
+    except Exception:
+        return 0
+
+
+def _home_pitch_pending(limit: int = 20) -> list[dict]:
+    """Tareas pendientes · Sello: lanzamientos NUEVOS sin pitch. A cada uno los de sus artistas
+    asignados (faceta sello); dirección y quien está en Sello sin artistas asignados, todos.
+    ⚠️ Solo desde `PITCH_TASK_FROM`: el catálogo antiguo no genera tarea."""
+    state = _current_user_state()
+    uid = state.get('user_id')
+    if not uid:
+        return []
+    session_db = db()
+    try:
+        es_direccion = int(state.get('role') or 0) == 10
+        # ⚠️ Los artistas de la faceta SELLO viven en el snapshot del perfil, no en la raíz del
+        # estado (ahí solo está la unión `assigned_artist_ids`).
+        sello_ids = list(getattr(state.get('profile'), 'assigned_artist_ids_sello', None) or [])
+        asignados = [] if es_direccion else [to_uuid(x) for x in sello_ids if to_uuid(x)]
+        if not es_direccion and not asignados:
+            deps = {str(d).strip().casefold() for d in (state.get('departments') or [])}
+            if 'sello' not in deps:
+                return []
+        desde = datetime.combine(PITCH_TASK_FROM, datetime.min.time()).replace(tzinfo=TZ_MADRID)
+        sin_pitch = or_(Song.pitch_text.is_(None), func.length(func.trim(Song.pitch_text)) == 0)
+        song_q = (session_db.query(Song)
+                  .options(joinedload(Song.artists))
+                  .filter(sin_pitch)
+                  .filter(Song.created_at >= desde))
+        if asignados:
+            song_q = song_q.filter(Song.id.in_(
+                session_db.query(SongArtist.song_id).filter(SongArtist.artist_id.in_(asignados))))
+        rows = []
+        for s in song_q.order_by(Song.release_date.desc().nullslast()).limit(limit).all():
+            artista = _song_primary_artist(session_db, s)
+            rows.append({
+                'kind': 'SONG',
+                'kind_label': 'Single',
+                'title': s.title,
+                'artist_name': (getattr(artista, 'name', None) or '—'),
+                'cover_url': (s.cover_url or '').strip(),
+                'release_label': s.release_date.strftime('%d/%m/%Y') if s.release_date else '',
+                'url': url_for('discografica_song_detail', song_id=s.id, tab='informacion'),
+            })
+
+        album_sin = or_(Album.pitch_text.is_(None), func.length(func.trim(Album.pitch_text)) == 0)
+        album_q = (session_db.query(Album)
+                   .filter(album_sin)
+                   .filter(Album.created_at >= desde))
+        if asignados:
+            album_q = album_q.filter(Album.artist_id.in_(asignados))
+        for a in album_q.order_by(Album.release_date.desc().nullslast()).limit(limit).all():
+            artista = session_db.get(Artist, a.artist_id) if a.artist_id else None
+            rows.append({
+                'kind': 'ALBUM',
+                'kind_label': _album_kind_label(a),
+                'title': a.title,
+                'artist_name': (getattr(artista, 'name', None) or '—'),
+                'cover_url': (getattr(a, 'cover_url', None) or '').strip(),
+                'release_label': a.release_date.strftime('%d/%m/%Y') if a.release_date else '',
+                'url': url_for('discografica_album_detail', album_id=a.id, tab='informacion'),
+            })
+        return rows[:limit]
+    except Exception:
+        return []
+    finally:
+        session_db.close()
+
+
 def _home_registros_pending(limit: int = 20) -> list[dict]:
     """Canciones con entregas de masters pendientes de validar (materiales PENDING o datos sin consolidar)."""
     session_db = db()
@@ -85598,6 +87561,9 @@ def integrations_view():
         return redirect(url_for("integrations_view"))
     # Resumen de la caché + tabla de revisión (artista -> ID de Chartmetric elegido).
     cm_linked = cm_points = cm_playlists = 0
+    # Cuántas canciones y álbumes están vinculados: es el número que tiene que cambiar al vincular
+    # uno (antes solo se contaban los artistas y el resumen parecía no enterarse de nada).
+    cm_songs_linked = cm_songs_total = cm_albums_linked = cm_albums_total = 0
     review_rows = []
     cm_song_rows = []
     cm_album_rows = []
@@ -85609,6 +87575,12 @@ def integrations_view():
             cm_linked = s.query(ChartmetricArtist).filter(ChartmetricArtist.chartmetric_id.isnot(None)).count()
             cm_points = s.query(ChartmetricMetricPoint).count()
             cm_playlists = s.query(ChartmetricPlaylistEntry).filter_by(status="current").count()
+            cm_songs_total = s.query(func.count(Song.id)).scalar() or 0
+            cm_songs_linked = (s.query(func.count(Song.id))
+                               .filter(func.coalesce(Song.cm_track, '') != '').scalar() or 0)
+            cm_albums_total = s.query(func.count(Album.id)).scalar() or 0
+            cm_albums_linked = (s.query(func.count(Album.id))
+                                .filter(func.coalesce(Album.cm_track, '') != '').scalar() or 0)
             review_rows = _chartmetric_review_rows(s)
             cm_song_rows = _cm_song_review_rows(s)
             cm_album_rows = _cm_album_review_rows(s)
@@ -85768,6 +87740,10 @@ def integrations_view():
         et_counts=et_counts,
         et_past_count=et_past_count,
         cm_linked=cm_linked,
+        cm_songs_linked=cm_songs_linked,
+        cm_songs_total=cm_songs_total,
+        cm_albums_linked=cm_albums_linked,
+        cm_albums_total=cm_albums_total,
         cm_points=cm_points,
         cm_playlists=cm_playlists,
         review_rows=review_rows,
@@ -85874,25 +87850,49 @@ def _cm_id_from_url(value: str) -> tuple[str, str]:
     return "", (nums[-1] if nums else "")
 
 
-def _cm_apply_song_links(row, cm_track, urls: dict) -> bool:
-    """Rellena SOLO los *_url vacíos y no bloqueados; guarda cm_track; marca cm_link_status.
-    Sirve para Song y Album (ambos tienen los mismos campos). Nunca pisa enlaces existentes."""
+def _cm_recompute_link_status(row) -> None:
+    """El estado del enlace de una fila: PENDIENTE · VINCULADA · COMPLETA.
+
+    ⚠️ Antes solo había PENDING/COMPLETE y COMPLETE exigía las CINCO plataformas, que Chartmetric no
+    da nunca (de un track saca Spotify y YouTube, de un álbum tres): el estado se quedaba en
+    «Pendiente» para siempre aunque la canción estuviera perfectamente vinculada. Ahora, en cuanto hay
+    `cm_track`, la fila está VINCULADA (LINKED) y solo pasa a COMPLETE con los cinco enlaces."""
+    if row is None:
+        return
+    tiene = sum(1 for f in _CM_TRACK_SONG_FIELDS.values() if (getattr(row, f, None) or "").strip())
+    if tiene >= len(_CM_TRACK_SONG_FIELDS):
+        row.cm_link_status = "COMPLETE"
+    elif (getattr(row, "cm_track", None) or "").strip():
+        row.cm_link_status = "LINKED"
+    else:
+        row.cm_link_status = "PENDING"
+
+
+def _cm_apply_song_links(row, cm_track, urls: dict, force: bool = False) -> bool:
+    """Rellena los *_url vacíos y no bloqueados; guarda cm_track; recalcula cm_link_status.
+
+    Sirve para Song y Album (ambos tienen los mismos campos). Con `force` (vinculación A MANO) PISA
+    los enlaces que hubiera: si se estaba apuntando a otra obra, corregir el vínculo tiene que
+    cambiar también los enlaces — si no, los botones se quedan como estaban. Lo BLOQUEADO a mano
+    (`cm_links_locked`) no se toca nunca, ni con force."""
     changed = False
-    if cm_track and not (getattr(row, "cm_track", None) or "").strip():
-        row.cm_track = str(cm_track)
-        changed = True
+    nuevo = str(cm_track or "").strip()
+    if nuevo and nuevo != (getattr(row, "cm_track", None) or "").strip():
+        if force or not (getattr(row, "cm_track", None) or "").strip():
+            row.cm_track = nuevo
+            changed = True
     locked = set(_json_list(getattr(row, "cm_links_locked", None)))
     for platform, field in _CM_TRACK_SONG_FIELDS.items():
         if platform in locked:
             continue
-        if (getattr(row, field, None) or "").strip():
+        actual = (getattr(row, field, None) or "").strip()
+        if actual and not force:
             continue
         u = (urls or {}).get(platform)
-        if u:
+        if u and u != actual:
             setattr(row, field, u)
             changed = True
-    have = sum(1 for f in _CM_TRACK_SONG_FIELDS.values() if (getattr(row, f, None) or "").strip())
-    row.cm_link_status = "COMPLETE" if have >= len(_CM_TRACK_SONG_FIELDS) else "PENDING"
+    _cm_recompute_link_status(row)
     return changed
 
 
@@ -85913,10 +87913,28 @@ def _cm_resolve_artist_song_links(session_db, artist, track_objs) -> None:
         nm = t.get("name")
         if nm:
             by_name.setdefault(_chartmetric_norm_name(nm), t)
-    for sg in (getattr(artist, "songs", None) or []):
+    # ⚠️ El ISRC de la canción no está solo en `Song.isrc`: la mayoría lo tienen en la pestaña de
+    # códigos (`SongISRCCode`), y mirando solo el campo el casado automático no encontraba nada.
+    # Se cargan TODOS los códigos de estas canciones de una vez (no una consulta por canción).
+    canciones = list(getattr(artist, "songs", None) or [])
+    otros_isrc = {}
+    try:
+        ids = [sg.id for sg in canciones if getattr(sg, "id", None)]
+        if ids:
+            for fila in (session_db.query(SongISRCCode)
+                         .filter(SongISRCCode.song_id.in_(ids)).all()):
+                otros_isrc.setdefault(str(fila.song_id), []).append(getattr(fila, "code", None))
+    except Exception:
+        otros_isrc = {}
+    for sg in canciones:
         t = None
-        if getattr(sg, "isrc", None):
-            t = by_isrc.get(_chartmetric_norm_isrc(sg.isrc))
+        candidatos = [getattr(sg, "isrc", None)] + list(otros_isrc.get(str(getattr(sg, "id", "")), []))
+        for code in candidatos:
+            if not code:
+                continue
+            t = by_isrc.get(_chartmetric_norm_isrc(code))
+            if t:
+                break
         if not t and getattr(sg, "title", None):
             t = by_name.get(_chartmetric_norm_name(sg.title))
         if not t:
@@ -86116,6 +88134,7 @@ def _cm_album_review_rows(session_db, limit=400):
             "title": a.title or "—",
             "artists": getattr(art, "name", "") or "—",
             "cm_track": a.cm_track or "",
+            "upc": (getattr(a, "upc_code", None) or ""),
             "status": a.cm_link_status or "PENDING",
             "links": links,
             "missing": [p for p, ok in links.items() if not ok],
@@ -86210,8 +88229,11 @@ def cm_song_reresolve(song_id):
             # ⚠️ El ISRC se busca SIEMPRE en seco (sin guiones: lo hace `cm.norm_isrc`), y se prueban
             # todos los que tenga la canción —el del campo y los de la pestaña de códigos—, no solo
             # `Song.isrc`, que en muchas está vacío.
+            # ⚠️ `raise_on_error`: si Chartmetric falla (sin créditos, 429, red), se dice ESO. Sin
+            # eso el fallo de la API era indistinguible de «ese ISRC no está» y el aviso mandaba a
+            # revisar un ISRC que estaba bien.
             for code in (_current_song_isrcs(session_db, song.id, include_song_field=True) or []):
-                ids = cm.get_track_ids_from_isrc(code)
+                ids = cm.get_track_ids_from_isrc(code, raise_on_error=True)
                 cm_track = str(_cm_first(ids, "cm_track", "id", "chartmetric_id", "chartmetric_ids") or "")
                 if cm_track:
                     break
@@ -86247,12 +88269,17 @@ def cm_album_reresolve(album_id):
         cm_album = (getattr(album, "cm_track", None) or "").strip()
         if not cm_album:
             # El UPC del álbum y, si no lo tiene, los códigos de producto de sus formatos.
+            # ⚠️ Las REFERENCIAS que genera la casa (REF00001) NO son un código de barras: se
+            # descartan (`generated_sequence` las delata) y además se exige forma de UPC/EAN, o se
+            # acabaría preguntando a Chartmetric por «00001» y vinculando el disco de otro.
             codigos = [getattr(album, "upc_code", None)]
             codigos += [r.code for r in (session_db.query(AlbumProductCode)
-                                         .filter(AlbumProductCode.album_id == album.id)
+                                         .filter(AlbumProductCode.album_id == album.id,
+                                                 AlbumProductCode.generated_sequence.is_(None))
                                          .order_by(AlbumProductCode.created_at.asc()).all())]
             for code in codigos:
-                ids = cm.get_album_ids_from_upc(code) if code else {}
+                code_n = cm.norm_code(code)
+                ids = cm.get_album_ids_from_upc(code_n) if len(code_n) >= 8 else {}
                 cm_album = str(_cm_first(ids, "cm_album", "id", "chartmetric_id") or "")
                 if cm_album:
                     break
@@ -86293,9 +88320,10 @@ def _cm_link_row_manual(session_db, row, kind: str, cm_id: str) -> tuple[bool, s
                        % ("álbum" if kind == "album" else "track", cm_id))
     datos.setdefault("cm_track", cm_id)
     # `cm_track` puede venir ya puesto de un vínculo anterior equivocado: al hacerlo a mano manda lo
-    # que dice quien vincula.
+    # que dice quien vincula, y con él los ENLACES (force=True) — si no, los botones se quedarían
+    # apuntando a la obra equivocada.
     row.cm_track = str(cm_id)
-    _cm_apply_song_links(row, cm_id, urls)
+    _cm_apply_song_links(row, cm_id, urls, force=True)
     nombre = (_cm_first(datos, "name", "title") or "").strip()
     return True, ("Vinculado con «%s» (id %s)." % (nombre, cm_id) if nombre else "Vinculado (id %s)." % cm_id)
 
@@ -86355,8 +88383,12 @@ def api_cm_search():
     salida = []
     try:
         # 1) ¿Es un enlace o un id? Se resuelve directo, que es más fiable que buscar por nombre.
+        # ⚠️ Un UPC/EAN es TODO dígitos (12-13) y se estaba probando primero como id de Chartmetric,
+        # que es otra cosa: si por casualidad existía ese id, el resultado era de otra obra. Con
+        # pinta de código de barras se va al paso 2 (buscar por UPC).
         tipo_url, cm_id = _cm_id_from_url(q)
-        if cm_id and (tipo_url or q.isdigit()):
+        parece_codigo = q.isdigit() and len(q) >= 8
+        if cm_id and (tipo_url or (q.isdigit() and not parece_codigo)):
             datos = (cm.get_album(cm_id) if kind == "album" else cm.get_track(cm_id)) or {}
             if datos:
                 salida.append(_cm_search_result(datos, kind, cm_id))

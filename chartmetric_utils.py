@@ -173,16 +173,22 @@ def norm_code(value) -> str:
     return "".join(ch for ch in str(value or "") if ch.isdigit())
 
 
-def get_track_ids_from_isrc(isrc: str) -> dict:
+def get_track_ids_from_isrc(isrc: str, raise_on_error: bool = False) -> dict:
     """Resuelve el cm_track (y otros ids) de una canción a partir de su ISRC.
     Endpoint: GET /api/track/isrc/{isrc}/get-ids  → {obj: {...}}.
-    Devuelve {} ante cualquier problema (no lanza)."""
+    Devuelve {} ante cualquier problema (no lanza).
+
+    ⚠️ Con `raise_on_error` SÍ lanza el motivo (sin créditos, 429, red caída…). Sin eso, «no hay
+    datos» y «la API ha fallado» son la misma cosa, y en pantalla se acaba diciendo «revisa el ISRC»
+    cuando el ISRC está perfecto."""
     code = norm_isrc(isrc)
     if not code:
         return {}
     try:
         data = _get(f"/api/track/isrc/{code}/get-ids")
     except RuntimeError:
+        if raise_on_error:
+            raise
         return {}
     obj = data.get("obj", data) if isinstance(data, dict) else data
     return obj if isinstance(obj, dict) else {}

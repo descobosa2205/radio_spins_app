@@ -10,6 +10,10 @@
       <span class="badge text-bg-primary">Edición</span>
       {# Enlace para que el propio tercero se dé de alta (correo, WhatsApp, SMS o copiándolo). #}
       <button type="button" class="btn btn-outline-primary" data-intake-link title="Enviar un enlace para que se dé de alta él mismo"><i class="fa fa-link me-1"></i>Link de alta</button>
+      {# Alta en bloque desde un Excel/CSV: detecta las columnas, crea los nuevos y deja actualizar
+         uno a uno los que ya estaban. #}
+      <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#promoterImportModal"
+              title="Importar terceros desde un Excel o un CSV"><i class="fa fa-file-import me-1"></i>Añadir desde fichero</button>
       <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newPromoterModal"><i class="fa fa-plus me-1"></i>Añadir tercero</button>
     {% else %}
       <span class="badge text-bg-secondary">Lectura</span>
@@ -237,4 +241,5 @@
   })();
 </script>
 {% if CAN_EDIT_SONGS_PROMOTERS %}{% include '_merge_modal.html' %}{% endif %}
+{% if CAN_EDIT_SONGS_PROMOTERS %}{% include '_promoter_import_modal.html' %}{% endif %}
 {% endblock %}

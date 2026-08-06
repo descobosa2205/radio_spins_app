@@ -45,33 +45,36 @@
   </div>
 </div>
 
-<!-- Pestañas ficha + acción de entrega de masters -->
-<div class="d-flex justify-content-between align-items-end gap-2 flex-wrap mt-3">
-  <ul class="nav nav-tabs ficha-tabs mb-0">
-    {% set tabs = [
-      ('informacion','Información','discografica.canciones'),
-      ('editorial','Editorial','discografica.editorial'),
-      ('materiales','Materiales','discografica.canciones'),
-      ('royalties','Royalties','discografica.royalties'),
-      ('ingresos','Ingresos','discografica.ingresos'),
-      ('gastos','Gastos','contabilidad'),
-      ('marketing','Marketing','promocion'),
-      ('radio','Radio','radio.reportes'),
-      ('playlisting','Playlisting','discografica.canciones')
-    ] %}
-    {% for k, label, access_key in tabs if has_access_key(access_key, include_descendants=True) %}
-      <li class="nav-item">
-        <a class="nav-link {% if tab==k %}active{% endif %}" href="{{ url_for('discografica_song_detail', song_id=song.id, tab=k) }}">{{ label }}</a>
-      </li>
-    {% endfor %}
-  </ul>
-  {% if CAN_EDIT_DISCOGRAFICA %}
-    <button type="button" class="btn btn-sm btn-outline-primary mb-1 {% if master_delivery %}position-relative{% endif %}" data-bs-toggle="modal" data-bs-target="#masterDeliveryModal">
-      <i class="fa fa-paper-plane me-1"></i>Entrega de masters
+{# ---------- BARRA DE BOTONES: justo debajo de la cabecera, como en la ficha de actividad ---------- #}
+{% if CAN_EDIT_DISCOGRAFICA %}
+  <div class="ficha-quick mb-0">
+    {# El modal vive fuera de las pestañas, así que el botón vale desde cualquiera. #}
+    <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#masterDeliveryModal">
+      <i class="fa fa-paper-plane me-1"></i>Solicitar Masters
       {% if master_delivery %}<span class="badge text-bg-success ms-1">activo</span>{% endif %}
     </button>
-  {% endif %}
-</div>
+  </div>
+{% endif %}
+
+<!-- Pestañas de la ficha -->
+<ul class="nav nav-tabs ficha-tabs mt-3 mb-0">
+  {% set tabs = [
+    ('informacion','Información','discografica.canciones'),
+    ('editorial','Editorial','discografica.editorial'),
+    ('materiales','Materiales','discografica.canciones'),
+    ('royalties','Royalties','discografica.royalties'),
+    ('ingresos','Ingresos','discografica.ingresos'),
+    ('gastos','Gastos','contabilidad'),
+    ('marketing','Marketing','promocion'),
+    ('radio','Radio','radio.reportes'),
+    ('playlisting','Playlisting','discografica.canciones')
+  ] %}
+  {% for k, label, access_key in tabs if has_access_key(access_key, include_descendants=True) %}
+    <li class="nav-item">
+      <a class="nav-link {% if tab==k %}active{% endif %}" href="{{ url_for('discografica_song_detail', song_id=song.id, tab=k) }}">{{ label }}</a>
+    </li>
+  {% endfor %}
+</ul>
 
 {% if CAN_EDIT_DISCOGRAFICA %}
 {% if request.args.get('delivery_created') and master_delivery %}
@@ -80,7 +83,7 @@
 <div class="modal fade" id="masterDeliveryModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
-      <div class="modal-header"><h5 class="modal-title"><i class="fa fa-paper-plane me-2"></i>Entrega de masters</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-header"><h5 class="modal-title"><i class="fa fa-paper-plane me-2"></i>Solicitar Masters</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">
         {% set sec_labels = {'PRODUCTION':'Información de producción','AUTHORAL':'Información autoral','LYRICS':'Letra','MASTERS':'Masters / materiales'} %}
         {% if master_delivery %}
@@ -702,6 +705,8 @@
           </div>
         </div><!-- /data-section-view -->
         </div><!-- /song-info-zone -->
+
+        {% if pitch %}{% include '_pitch_panel.html' %}{% endif %}
 
       </div>
 

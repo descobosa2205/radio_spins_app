@@ -1,0 +1,149 @@
+{# Importar TERCEROS desde un Excel o un CSV.
+   Cuatro pasos: 1 el fichero · 2 las columnas (las que no se reconocen se preguntan) ·
+   3 el resumen (nuevos / ya existían) · 4 los que ya existían, uno a uno en PANTALLA PARTIDA
+   eligiendo en cada campo qué se queda (o conservar los dos, poniéndoles nombre).
+   Los datos van en `data-*` y el JS vive en static/js/promoter_import.js. #}
+<div class="modal fade" id="promoterImportModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content" data-promoter-import
+         data-url-analyze="{{ url_for('promoters_import_analyze') }}"
+         data-url-prepare="{{ url_for('promoters_import_prepare') }}"
+         data-url-create="{{ url_for('promoters_import_create') }}"
+         data-url-merge="{{ url_for('promoters_import_merge', pid='__PID__') }}"
+         data-target-ignore="{{ import_target_ignore }}"
+         data-target-alt="{{ import_target_alt }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title">Añadir terceros desde un fichero</h5>
+          <div class="text-muted small" data-pi-subtitle>Excel (.xlsx) o CSV. Se detectan las columnas solas.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+
+      <div class="modal-body">
+        <div class="alert alert-danger d-none" data-pi-error></div>
+
+        {# ── Paso 1: el fichero ─────────────────────────────────────────────────────── #}
+        <div data-pi-step="file">
+          <label class="pi-drop" for="promoterImportFile" role="button" tabindex="0"
+                 data-file-drop-for="#promoterImportFile">
+            <i class="fa fa-file-import pi-drop__icon"></i>
+            <div class="fw-semibold">Arrastra aquí el fichero</div>
+            <div class="small text-muted">o pincha para seleccionarlo (.xlsx o .csv)</div>
+            <div class="small mt-1 fw-semibold text-success" data-pi-filename></div>
+          </label>
+          <input class="form-control mt-2" type="file" id="promoterImportFile"
+                 accept=".xlsx,.xlsm,.csv,.txt">
+          <div class="d-flex justify-content-end mt-3">
+            <button class="btn btn-primary" type="button" data-pi-analyze disabled>
+              <i class="fa fa-magnifying-glass me-1"></i>Leer el fichero
+            </button>
+          </div>
+        </div>
+
+        {# ── Paso 2: las columnas ───────────────────────────────────────────────────── #}
+        <div class="d-none" data-pi-step="columns">
+          <div class="alert alert-warning py-2 px-3 small d-none" data-pi-unknown></div>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle pi-cols">
+              <thead class="table-light">
+                <tr>
+                  <th>Columna del fichero</th>
+                  <th>Ejemplos</th>
+                  <th style="width:34%">¿A qué campo de la ficha corresponde?</th>
+                </tr>
+              </thead>
+              <tbody data-pi-cols></tbody>
+            </table>
+          </div>
+          <div class="d-flex justify-content-between mt-3">
+            <button class="btn btn-outline-secondary" type="button" data-pi-back="file">Atrás</button>
+            <button class="btn btn-primary" type="button" data-pi-prepare>
+              Continuar <i class="fa fa-arrow-right ms-1"></i>
+            </button>
+          </div>
+        </div>
+
+        {# ── Paso 3: el resumen ─────────────────────────────────────────────────────── #}
+        <div class="d-none" data-pi-step="summary">
+          <div class="row g-3">
+            <div class="col-12 col-md-6">
+              <div class="card h-100 border-success">
+                <div class="card-body">
+                  <div class="d-flex align-items-center justify-content-between">
+                    <h6 class="m-0"><i class="fa fa-user-plus text-success me-1"></i>Nuevos</h6>
+                    <span class="badge text-bg-success" data-pi-count-new>0</span>
+                  </div>
+                  <div class="small text-muted mt-1">No los tenemos: se dan de alta.</div>
+                  <div class="pi-list mt-2" data-pi-list-new></div>
+                  <button class="btn btn-success w-100 mt-2" type="button" data-pi-create>
+                    <i class="fa fa-plus me-1"></i>Crear los nuevos
+                  </button>
+                  <div class="small mt-2" data-pi-created></div>
+                </div>
+              </div>
+            </div>
+            <div class="col-12 col-md-6">
+              <div class="card h-100 border-warning">
+                <div class="card-body">
+                  <div class="d-flex align-items-center justify-content-between">
+                    <h6 class="m-0"><i class="fa fa-user-check text-warning me-1"></i>Ya existían</h6>
+                    <span class="badge text-bg-warning text-dark" data-pi-count-existing>0</span>
+                  </div>
+                  <div class="small text-muted mt-1">Se revisan uno a uno: tú decides qué se queda.</div>
+                  <div class="pi-list mt-2" data-pi-list-existing></div>
+                  <button class="btn btn-warning w-100 mt-2" type="button" data-pi-review>
+                    <i class="fa fa-code-compare me-1"></i>Revisar los que ya existían
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="small text-muted mt-3 d-none" data-pi-skipped></div>
+          <div class="d-flex justify-content-between mt-3">
+            <button class="btn btn-outline-secondary" type="button" data-pi-back="columns">Atrás</button>
+            <button class="btn btn-outline-primary" type="button" data-pi-finish>Terminar</button>
+          </div>
+        </div>
+
+        {# ── Paso 4: pantalla partida, uno a uno ────────────────────────────────────── #}
+        <div class="d-none" data-pi-step="merge">
+          <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap mb-2">
+            <div class="d-flex align-items-center gap-2">
+              <img class="pi-avatar" data-pi-merge-logo src="" alt="">
+              <div>
+                <div class="fw-semibold" data-pi-merge-name></div>
+                <div class="small text-muted" data-pi-merge-reason></div>
+              </div>
+            </div>
+            <span class="badge text-bg-secondary" data-pi-merge-pos></span>
+          </div>
+          <div class="pi-split-head">
+            <div>Lo que tenemos</div>
+            <div>Lo que trae el fichero</div>
+          </div>
+          <div data-pi-merge-fields></div>
+          <div class="small text-muted mt-2 d-none" data-pi-merge-alt></div>
+          <div class="d-flex justify-content-between gap-2 mt-3 flex-wrap">
+            <button class="btn btn-outline-secondary" type="button" data-pi-merge-prev>
+              <i class="fa fa-arrow-left me-1"></i>Anterior
+            </button>
+            <div class="d-flex gap-2">
+              <button class="btn btn-outline-secondary" type="button" data-pi-merge-skip>No tocar este</button>
+              <button class="btn btn-primary" type="button" data-pi-merge-save>
+                <i class="fa fa-save me-1"></i>Guardar y siguiente
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<datalist id="promoterImportFieldOptions">
+  {% for f in import_fields %}<option value="{{ f.key }}">{{ f.label }}</option>{% endfor %}
+</datalist>
+
+<script type="application/json" id="promoterImportFields">{{ import_fields|tojson }}</script>
+<script src="{{ url_for('static', filename='js/promoter_import.js', v=ASSET_V) }}"></script>

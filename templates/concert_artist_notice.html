@@ -1,0 +1,256 @@
+{% extends "layout.html" %}
+{% block content %}
+{# AVISO AL ARTISTA · vista previa.
+   Se ve TAL COMO le va a llegar (el mismo HTML que el correo y que el enlace público). Se le puede
+   añadir una nota, ocultar módulos con el ojo y elegir el canal. Al enviar, si se venía de intentar
+   confirmar, la actividad pasa sola a CONFIRMADA. #}
+<div class="mb-2">
+  <a class="btn-volver" href="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}"
+     title="Volver a la actividad" aria-label="Volver a la actividad">←</a>
+</div>
+
+<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+  <div>
+    <h4 class="m-0">Avisar al artista</h4>
+    <div class="text-muted small">
+      {{ notice_kinds.get(notice_kind, 'Aviso') }} ·
+      va a los contactos de <strong>{{ channel_label }}</strong>
+      {% if artist_config_url %}(<a href="{{ artist_config_url }}">configurar</a>){% endif %}
+    </div>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    {% if notice_state and notice_state.stale %}
+      <span class="badge text-bg-danger"><i class="fa fa-triangle-exclamation me-1"></i>Hay cambios desde el último aviso</span>
+    {% elif notice_state and notice_state.notified %}
+      <span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Ya avisado el {{ notice_state.at_label }}</span>
+    {% endif %}
+  </div>
+</div>
+
+<div class="row g-3" data-artist-notice
+     data-url-preview="{{ url_for('concert_artist_notice_preview', cid=concert.id) }}"
+     data-url-send="{{ url_for('concert_artist_notice_send', cid=concert.id) }}"
+     data-kind="{{ notice_kind }}"
+     data-confirm-after="{{ '1' if confirm_after else '' }}">
+
+  {# ---------- IZQUIERDA: lo que se manda ---------- #}
+  <div class="col-12 col-lg-4">
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="fa fa-paper-plane me-1 text-muted"></i>¿Cómo se lo mandamos?</h6>
+        <div class="an-channels">
+          {% for key, label, icon in notice_channels %}
+            <label class="an-channel{% if loop.first %} is-on{% endif %}">
+              <input type="radio" name="channel" value="{{ key }}" {% if loop.first %}checked{% endif %} class="visually-hidden">
+              <i class="fa {{ icon }}"></i><span>{{ label }}</span>
+            </label>
+          {% endfor %}
+        </div>
+
+        <div class="mt-3" data-an-recipients>
+          <div class="fw-semibold small mb-1">A quién</div>
+          {% if recipients %}
+            <ul class="list-unstyled small mb-2">
+              {% for r in recipients %}
+                <li class="an-recipient">
+                  <span class="fw-semibold">{{ r.name or r.email or r.phone }}</span>
+                  <span class="text-muted">
+                    {% if r.email %}<span data-an-has="EMAIL">{{ r.email }}</span>{% endif %}
+                    {% if r.phone %}<span data-an-has="PHONE"> · {{ r.phone }}</span>{% endif %}
+                  </span>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <div class="alert alert-warning py-2 px-3 small">
+              No hay nadie configurado en «{{ channel_label }}» para este artista.
+              {% if artist_config_url %}<a href="{{ artist_config_url }}" class="alert-link">Configúralo en su ficha</a>{% endif %}
+              o escribe abajo a quién se lo mandamos.
+            </div>
+          {% endif %}
+          <label class="form-label small mb-1" data-an-manual="EMAIL">Otros correos <span class="text-muted">(opcional)</span></label>
+          <input class="form-control form-control-sm" name="emails" data-an-emails placeholder="correo@ejemplo.com, otro@ejemplo.com">
+          <label class="form-label small mb-1 mt-2 d-none" data-an-manual="PHONE">Otros teléfonos <span class="text-muted">(opcional)</span></label>
+          <input class="form-control form-control-sm d-none" name="phones" data-an-phones placeholder="+34 600 00 00 00">
+        </div>
+
+        <div class="mt-3">
+          <label class="form-label small mb-1">Nota <span class="text-muted">(sale arriba, bajo el título)</span></label>
+          <textarea class="form-control form-control-sm" rows="4" data-an-note
+                    placeholder="Lo que quieras añadirle al artista."></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="fa fa-eye-slash me-1 text-muted"></i>Qué se ve</h6>
+        <div class="text-muted small mb-2">Pincha el ojo de cada módulo para dejarlo fuera del aviso.</div>
+        <div class="d-flex flex-column gap-1">
+          {% for key, label in notice_modules %}
+            <label class="an-mod-toggle" data-an-mod-row="{{ key }}">
+              <input class="form-check-input m-0" type="checkbox" checked data-an-mod="{{ key }}">
+              <span>{{ label }}</span>
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="d-grid gap-2">
+      <button class="btn btn-primary" type="button" data-an-send>
+        <i class="fa fa-paper-plane me-1"></i>Enviar el aviso
+        {% if confirm_after %}<span class="badge text-bg-light text-dark ms-1">y confirmar</span>{% endif %}
+      </button>
+      <a class="btn btn-outline-secondary" href="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}">Cancelar</a>
+    </div>
+
+    {% if history %}
+      <div class="card mt-3">
+        <div class="card-body">
+          <h6 class="mb-2"><i class="fa fa-clock-rotate-left me-1 text-muted"></i>Avisos anteriores</h6>
+          <ul class="list-unstyled small mb-0">
+            {% for h in history %}
+              <li class="an-history">
+                <span class="badge text-bg-light text-dark">{{ h.channel }}</span>
+                {{ notice_kinds.get(h.kind, h.kind) }} ·
+                {{ h.sent_at.strftime('%d/%m/%Y %H:%M') if h.sent_at }}
+                {% if h.sent_by_nick %} · {{ h.sent_by_nick }}{% endif %}
+                {% if h.public_token %}
+                  · <a href="{{ url_for('public_activity_notice_view', token=h.public_token) }}" target="_blank" rel="noopener">ver lo que se mandó</a>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+  {# ---------- DERECHA: la vista previa ---------- #}
+  <div class="col-12 col-lg-8">
+    <div class="card">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="m-0"><i class="fa fa-envelope-open-text me-1 text-muted"></i>Vista previa</h6>
+          <span class="text-muted small">Igual por correo, WhatsApp y SMS</span>
+        </div>
+        <div class="an-preview" data-an-preview>{{ preview_html|safe }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var root = document.querySelector('[data-artist-notice]');
+  if (!root) return;
+  var preview = root.querySelector('[data-an-preview]');
+  var note = root.querySelector('[data-an-note]');
+  var timer = null;
+
+  function hidden() {
+    return Array.prototype.slice.call(root.querySelectorAll('[data-an-mod]'))
+      .filter(function (c) { return !c.checked; })
+      .map(function (c) { return c.getAttribute('data-an-mod'); });
+  }
+  function channel() {
+    var r = root.querySelector('input[name="channel"]:checked');
+    return r ? r.value : 'EMAIL';
+  }
+
+  function repaint() {
+    fetch(root.getAttribute('data-url-preview'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note: note ? note.value : '', hidden: hidden(), kind: root.getAttribute('data-kind') })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d && d.ok && preview) preview.innerHTML = d.html;
+    }).catch(function () {});
+  }
+  function repaintSoon() { clearTimeout(timer); timer = setTimeout(repaint, 350); }
+
+  // El OJO de la vista previa y la casilla de la izquierda son lo mismo.
+  root.addEventListener('click', function (ev) {
+    var eye = ev.target.closest('[data-notice-eye]');
+    if (eye) {
+      ev.preventDefault();
+      var key = eye.getAttribute('data-notice-eye');
+      var box = root.querySelector('[data-an-mod="' + key + '"]');
+      if (box) { box.checked = !box.checked; repaint(); }
+      return;
+    }
+  });
+  root.addEventListener('change', function (ev) {
+    if (ev.target.matches('[data-an-mod]')) return repaint();
+    if (ev.target.matches('input[name="channel"]')) {
+      root.querySelectorAll('.an-channel').forEach(function (l) {
+        l.classList.toggle('is-on', !!l.querySelector('input:checked'));
+      });
+      var esCorreo = channel() === 'EMAIL';
+      root.querySelectorAll('[data-an-manual="EMAIL"], [data-an-emails]').forEach(function (el) {
+        el.classList.toggle('d-none', !esCorreo);
+      });
+      root.querySelectorAll('[data-an-manual="PHONE"], [data-an-phones]').forEach(function (el) {
+        el.classList.toggle('d-none', esCorreo);
+      });
+    }
+  });
+  if (note) note.addEventListener('input', repaintSoon);
+
+  root.querySelector('[data-an-send]').addEventListener('click', function () {
+    var btn = this;
+    btn.disabled = true;
+    var previo = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Enviando…';
+    fetch(root.getAttribute('data-url-send'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        channel: channel(),
+        kind: root.getAttribute('data-kind'),
+        note: note ? note.value : '',
+        hidden: hidden(),
+        emails: (root.querySelector('[data-an-emails]') || {}).value || '',
+        phones: (root.querySelector('[data-an-phones]') || {}).value || '',
+        confirm_after: root.getAttribute('data-confirm-after') ? '1' : ''
+      })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (!d || !d.ok) {
+        btn.disabled = false; btn.innerHTML = previo;
+        alert((d && d.error) || 'No se pudo enviar el aviso.');
+        return;
+      }
+      // WhatsApp y SMS no se mandan del servidor (no hay pasarela): se abre la app con el ENLACE,
+      // que enseña exactamente el mismo contenido que el correo.
+      // ⚠️ El teléfono sale de `d.recipients` (lo que el servidor ha usado de verdad: los contactos
+      // configurados o los escritos a mano), no del cuadro de texto.
+      var ficha = {{ url_for('concert_detail_view', cid=concert.id, tab='general')|tojson }};
+      var texto = (d.share_text || '') + '\n\n' + (d.url || '');
+      var tel = ((d.recipients && d.recipients[0]) || '').replace(/[^0-9+]/g, '');
+      if (d.channel === 'WHATSAPP') {
+        // Pestaña nueva: la de aquí sigue viva y puede redirigir a la ficha.
+        window.open('https://wa.me/' + tel.replace('+', '') + '?text=' + encodeURIComponent(texto), '_blank');
+        window.location.href = ficha;
+        return;
+      }
+      if (d.channel === 'SMS') {
+        // ⚠️ NO se redirige después: el sms: se lo lleva el sistema y una segunda navegación lo
+        // anulaba (el aviso quedaba registrado pero no se abría la app de mensajes).
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa fa-check me-1"></i>Aviso registrado · <span class="small">volver a la actividad</span>';
+        btn.onclick = function () { window.location.href = ficha; };
+        window.location.href = 'sms:' + tel + '?&body=' + encodeURIComponent(texto);
+        return;
+      }
+      window.location.href = ficha;
+    }).catch(function () {
+      btn.disabled = false; btn.innerHTML = previo;
+      alert('No se pudo enviar el aviso.');
+    });
+  });
+})();
+</script>
+{% endblock %}

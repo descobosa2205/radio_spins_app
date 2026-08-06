@@ -81,6 +81,24 @@
       <i class="fa fa-user-gear me-1"></i>Activar producción
     </button>
   {% endif %}
+  {# AVISO AL ARTISTA: sin avisar, el botón; avisado, la etiqueta con a quién y cuándo (al pasar el
+     ratón). Si desde el aviso ha cambiado algo gordo (fecha, hora, recinto o caché) el aviso deja de
+     valer y vuelve a hacer falta. #}
+  {% if concert.artist_id and CAN_EDIT_CONCERTS %}
+    {% if artist_notice and artist_notice.notified %}
+      <span class="badge text-bg-success align-self-center" data-bs-toggle="tooltip"
+            title="Avisado el {{ artist_notice.at_label }}{% if artist_notice.to_label %} a {{ artist_notice.to_label }}{% endif %}{% if artist_notice.by %} · lo mandó {{ artist_notice.by }}{% endif %}">
+        <i class="fa fa-circle-check me-1"></i>Notificado
+      </span>
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('concert_artist_notice_view', cid=concert.id) }}"
+         title="Volver a avisar al artista"><i class="fa fa-rotate"></i></a>
+    {% else %}
+      <a class="btn btn-outline-warning btn-sm" href="{{ url_for('concert_artist_notice_view', cid=concert.id) }}">
+        <i class="fa fa-bell me-1"></i>Notificar al artista
+        {% if artist_notice and artist_notice.stale %}<span class="badge text-bg-danger ms-1">hay cambios</span>{% endif %}
+      </a>
+    {% endif %}
+  {% endif %}
   <a class="btn btn-outline-danger btn-sm" href="{{ url_for('concert_detail_view', cid=concert.id, tab='invitations') }}"><i class="fa fa-envelope-open-text me-1"></i>Invitaciones</a>
 </div>
 

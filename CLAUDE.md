@@ -280,6 +280,13 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   provisional). Audio **solo `.wav`**; barra de estado de 5 básicos, verde solo con portada **principal**.
   Reproductor inline `<audio>` + menú de 3 puntos (compartir/descargar/reemplazar/eliminar) vía macros
   locales de la plantilla.
+- **«Solicitar Masters» va en la BARRA DE BOTONES** (ago 2026): el botón que abre
+  `#masterDeliveryModal` estaba a la derecha de las pestañas y ahora vive en una **`.ficha-quick`**
+  (la misma barra bajo la cabecera que la ficha de actividad), renombrado de «Entrega de masters» a
+  **«Solicitar Masters»** (el título del modal también). ⚠️ El **modal NO se mueve**: vive fuera de las
+  pestañas, así que el botón vale desde cualquiera y el auto-open de `?delivery_created=1` sigue
+  funcionando. La página pública sigue llamándose «Entrega de masters» a propósito: eso es lo que
+  entrega el tercero, no lo que pedimos nosotros.
 - **Entrega de masters (enlace público)**: `SongMasterDeliveryLink` (token, `sections_json`, `status`
   ACTIVE/SUBMITTED/CANCELLED, `data` JSONB). Botón en la ficha (modal: secciones producción/autoral/letra/
   masters) → endpoints `discografica_song_delivery_create`/`_cancel`; formulario público
@@ -359,6 +366,36 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   «Compartir Reparto Editorial» en la pestaña Editorial.
   El **PDF del LC** (canción y álbum) lleva el logo de la empresa arriba a la **derecha** y el título
   «Label Copy» **centrado** (estilo de casa).
+
+- **PITCH DE LANZAMIENTO** (ago 2026): el texto con el que se presenta un single o un disco.
+  · **Un campo más de la ficha de Información** (`Song.pitch_text`/`Album.pitch_text` +
+  `pitch_updated_at`), panel único **`templates/_pitch_panel.html`** (incluido en `song_detail.html`
+  y `album_detail.html` con `pitch=_pitch_context(...)`), con sus **tres puntitos**: editar ·
+  descargar en PDF · enviar por correo · WhatsApp · SMS · copiar enlace. Sin pitch, botón «Añadir
+  pitch» y aviso amarillo «Falta el pitch de este lanzamiento».
+  ⚠️ Se guarda por su **propio endpoint** (`discografica_song_pitch_save`/`_album_pitch_save`), NO
+  por el formulario de Información: ese anula lo que no se le manda.
+  · **El PDF y el correo son IGUALES a propósito** (mismo diseño en dos formatos): logo de PIES
+  arriba a la **derecha**, «Pitch» **centrado**, la **viñeta** del lanzamiento (portada, título,
+  intérpretes, fecha de publicación y etiqueta Single/Álbum/EP) y el texto **justificado**.
+  Motor: `_pitch_context` (lo que necesitan ficha, PDF, correo y página pública) ·
+  `_build_pitch_pdf_bytes` · `_pitch_email_html` (con el botón **«Descargar en PDF»**; el PDF va
+  además **adjunto**) · `_pitch_paragraphs`. Asunto y mensaje: **`Pitch <artista> <título>`**.
+  · **WhatsApp/SMS comparten el ENLACE PÚBLICO** (`public_pitch_view`, `/pitch/<token>`, plantilla
+  `public_pitch.html` standalone), que tiene el juego de **og:** completo para que la
+  previsualización enseñe la **PORTADA** del lanzamiento y, si todavía no hay, la **foto del
+  artista** (`public_pitch_og_image` → `_og_image_jpeg_bytes`, 1200×630 desde nuestro dominio).
+  La página lleva su botón «Descargar en PDF» (`public_pitch_pdf`).
+  · **Tarea pendiente al crear un lanzamiento**: `_pitch_notify_new_release` avisa (kind `PITCH`) a
+  **quien del sello lleva ese artista** (`_pitch_sello_user_ids`: `assigned_artist_ids_sello`; si
+  nadie lo tiene asignado, a **todo el departamento Sello** — mejor que lo vean varios que dejarlo
+  sin dueño) y el módulo de Inicio **`HOME_PITCH_PENDING`** (`_home_pitch_pending`) lista los
+  lanzamientos sin pitch. ⚠️ Solo desde **`PITCH_TASK_FROM`** (01-ago-2026): el catálogo antiguo no
+  genera tarea. Dirección lo ve todo; quien está en Sello sin artistas asignados, también.
+  ⚠️ Los artistas de la faceta sello se leen de **`state["profile"].assigned_artist_ids_sello`**
+  (en la raíz del estado solo está la unión `assigned_artist_ids`).
+  · Los endpoints `discografica_*_pitch_*` heredan la sección por la ruta `/discografica`; los tres
+  públicos están en `PUBLIC_ENDPOINTS_EXTRA` **y** en las dos listas `allowed`.
 - **REGISTROS · qué conciertos se declaran y cada cuánto** (ago 2026):
   · **Solo de artistas con CONTRATO DISCOGRÁFICO**: `_artist_has_record_deal` (compromiso de
   `ArtistContractCommitment` con concepto discográfico, vía `_pick_artist_commitment`, cacheado en
@@ -906,6 +943,63 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · La **fecha de pago** solo se toca en cada pago de la lista: en «¿Desde qué cuenta se paga?» no se
   repite (era el mismo dato en dos sitios).
 
+- **AVISO AL ARTISTA DE UNA ACTIVIDAD** (ago 2026). Antes de CONFIRMAR una actividad hay que
+  habérsela comunicado al artista.
+  · **Dos canales nuevos** en la configuración de notificaciones del artista (en cabeza de
+  `ARTIST_NOTIFICATION_CHANNELS`): **ACTIVIDADES_CACHE** («Nuevas actividades con caché») y
+  **ACTIVIDADES_SIN_CACHE** («Actividades sin caché»). Punto único
+  **`_activity_notification_channel`**: si la actividad lleva caché se avisa a los primeros y si no a
+  los segundos. **`_concert_has_cache`**: manda lo apuntado (`ConcertCache` con importe o %) y, si no
+  hay filas, el apunte del alta (`sale_type == 'VENDIDO'` = «¿Tiene caché?» Sí).
+  ⚠️ Decisión de Dani: **NO hay validación del artista**, basta con avisarle.
+  · El contacto tiene ahora **teléfono** (`ArtistNotificationContact.phone`, cae al del tercero) para
+  WhatsApp y SMS, y **`_artist_notification_recipients`** devuelve nombre + correo + teléfono
+  (hermano de `_artist_notification_emails`, que solo da correos).
+  · **UN SOLO MOTOR para los tres canales**: `_activity_notice_html(ctx, note, hidden, preview)`
+  genera el HTML con **estilos en línea**, y ese mismo HTML es el del correo, el de la **página
+  pública** que se manda por WhatsApp/SMS (`public_activity_notice_view`, `/actividad/<token>`) y el
+  de la vista previa. Contenido, en orden: logo de la empresa del grupo arriba a la **derecha** (si la
+  actividad no tiene, el de la casa), título centrado (`ACTIVITY_NOTICE_KINDS`: «Confirmación nueva
+  actividad» · «Cambios en la actividad» · «Actividad cancelada»), la **nota** si la hay, la
+  **cabecera de la actividad** (`_contract_sheet_hero_rows`, la misma de la ficha), la **barra de
+  botones** (de momento solo «Ver hoja de ruta»; los futuros van a su derecha), **«Descripción:»**
+  con lo que tiene que hacer el artista (M&G, ¿canta?, canciones **en orden y con portada**,
+  formación, duración, otros compromisos) y **«Condiciones»** por módulos
+  (`ACTIVITY_NOTICE_MODULES`): **Caché** (si no hay, dice «Sin Caché»), lo que cubre el promotor,
+  formato y equipamiento. ⚠️ En un **concierto** (o sin rellenar) no sale ni la descripción ni su
+  título, como se pidió.
+  ⚠️ **`'<div>' + escape(x)` ESCAPA el HTML de la izquierda** (Markup en la derecha): el aviso salía
+  como texto (bug real). Dentro del motor se escapa con un `esc()` local que devuelve `str`.
+  · **Vista previa** (`concert_artist_notice_view`, página propia + `concert_artist_notice.html`):
+  canal (correo/WhatsApp/SMS), destinatarios, **nota** que se pinta bajo el primer título, y un
+  **OJO por módulo** para dejarlo fuera (`data-notice-eye`; en la previa los ocultos se ven atenuados,
+  en el envío no van). Se repinta con `concert_artist_notice_preview` (JSON).
+  · **La COMPUERTA está en los CUATRO caminos** que escriben el estado, no solo en la etiqueta:
+  `concert_quick_status` (409 con `needs_artist_notice` + `notify_url`; el handler de
+  `[data-status-option]` de `scripts.js` **lee el cuerpo** y ofrece avisar), `concert_section_update`
+  sección «datos» (guarda el resto y deja el estado como estaba, con el enlace en el aviso),
+  `concert_wizard_create` y el alta clásica `POST /conciertos` (nacen **RESERVADAS** en vez de tirar
+  el alta). Al avisar con `?confirmar=1` la actividad pasa **sola** a CONFIRMADA.
+  · **Un cambio GORDO invalida el aviso**: `_concert_notice_signature` (fecha, hora, recinto, cachés)
+  se guarda al avisar; si cambia, la etiqueta vuelve a «Notificar al artista» con «hay cambios» y la
+  compuerta salta otra vez. **CANCELAR** (borrar la actividad) también obliga: si el artista estaba
+  avisado, `concert_delete_handler` rebota pidiendo comunicar la cancelación.
+  ⚠️ **Exenciones**: las actividades de **EVENTO** (`event_id`: su `artist_id` es el espejo, no hay a
+  quién avisar) y el **HISTÓRICO** (`_concert_is_legacy`), o no se podrían confirmar nunca.
+  · **Queda apuntado**: `Concert.artist_notified_*` (para la etiqueta «Notificado» con **a quién y
+  cuándo** al pasar el ratón) y el histórico completo en **`ConcertArtistNotification`**, que
+  **congela** en `snapshot` el HTML que se mandó — la página pública enseña eso, no lo de hoy.
+  ⚠️ El `public_token` es **opaco** (`_uuid_token`, con su índice UNIQUE), no firmado: un enlace de
+  hace dos años sigue valiendo (los firmados a un año ya dieron un bug real).
+  · ⚠️ **En ensayos y discográficas se tiraba a la basura** el «¿canta?», las canciones y la
+  formación: el asistente las pregunta pero el servidor solo las guardaba en las promocionales. Punto
+  único **`_activity_has_performance_detail`** (promocionales + `SIMPLE_ACTIVITY_TYPES`), aplicado en
+  los TRES sitios (asistente, `concert_section_update` sección «actividad» y el `is_promo_activity`
+  de la ficha).
+  · **Etiquetas nuevas en Python**: `CACHE_VARIABLE_OPTION_LABELS` (las 6 condiciones de un caché
+  variable, que solo vivían en `concert_form.js` — si se toca una, se toca la otra) y
+  `_concert_equipment_label` (la cadena del equipamiento, que estaba copiada a mano en tres sitios).
+
 - **FICHA DE ACTIVIDAD · la cabecera lo dice todo** (rediseño ago 2026, `concert_detail.html`):
   · Arriba a la **derecha**, la **empresa del grupo que factura** (`.hero-company`; si no se ha dicho
   quién factura, la empresa del grupo que promueve).
@@ -1229,6 +1323,35 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · Los endpoints son `accounting_*` (mapeados a la sección `contabilidad`) y el permiso de edición es
   **`can_edit_accounting()`**.
 
+- **IMPORTAR TERCEROS DESDE UN FICHERO** (ago 2026). Botón **«Añadir desde fichero»** en
+  Bases de datos → Terceros: se arrastra (o se elige) un **Excel (.xlsx) o un CSV** y se dan de alta
+  en bloque.
+  · **Motor puro `promoter_import.py`** (ni Flask ni BD): lee el fichero y **reconoce sus columnas**
+  (`FIELDS` con alias por campo, `guess_field`, `normalize_value`, `apply_mapping`). La cabecera
+  **no tiene que estar en la primera fila** (`_header_index`) y solo se lee la **primera hoja**.
+  ⚠️ Los rótulos se casan con **puntuación permitida entre las letras** (`_alias_re`): sin eso
+  «N.º de C.I.F.» no se reconocía (al normalizar queda «n o de c i f»); y hace falta el límite de
+  palabra por la izquierda para que el «nie» de «conveniente» no pase por un NIE.
+  ⚠️ Un CSV exportado de Excel trae los números **con decimales**: un teléfono llegaba como
+  «638123456.0» y un CP como «41001.0» (los dos bugs salieron en la primera prueba).
+  · **Lo que no se reconoce NO se calla**: la columna se devuelve sin campo y la pantalla pregunta a
+  qué campo va, deja **guardarla como «dato extra»** con el nombre de la columna, o dejarla fuera.
+  · **Cuatro pasos** (`_promoter_import_modal.html` + `static/js/promoter_import.js`, clases `.pi-*`):
+  fichero → columnas → **resumen (nuevos / ya existían)** → los que ya existían **uno a uno en
+  PANTALLA PARTIDA**, eligiendo en cada campo qué se queda. El fichero se lee UNA vez
+  (`promoters_import_analyze`) y el resto va en JSON (`promoters_import_prepare` /
+  `promoters_import_create` / `promoters_import_merge`), así no hay que volver a subirlo.
+  · **Quién ya está** (`_promoter_import_match`): manda el **DNI/NIF** (también el de sus sociedades,
+  `PromoterCompany.tax_id`), luego el nick exacto y por último nombre y apellidos. El nick de alta
+  sale del fichero, del nombre completo o del DNI (`_promoter_import_nick` + `_intake_unique_nick`,
+  que `Promoter.nick` es UNIQUE). Cada alta va en su **savepoint**: una que falle no tumba las demás.
+  · **CONSERVAR LOS DOS** (el caso de Dani: una persona con dos direcciones): modelo nuevo
+  **`PromoterAltValue`** (`field`, `label`, `value`) — uno se queda en la ficha y el otro se guarda
+  con su **nombre** («casa de Madrid» / «casa de Cádiz»), y se puede nombrar también el de la ficha
+  (sale marcado como **principal** en «Otros datos» de la ficha del tercero, `_promoter_alt_value_rows`).
+  ⚠️ El que NO se queda en la ficha se guarda **siempre**, con un nombre por defecto si no se le pone
+  ninguno: la idea es no perder nada. Los **correos** van a `PromoterEmail` (con `concept` = el
+  nombre), que es donde los busca el resto de la app — no se duplica una tabla que ya existía.
 - **DIRECCIÓN FISCAL EN PIEZAS** (ago 2026): calle · **código postal** · **municipio** · **provincia**
   · país, en `Promoter` y `PromoterCompany` (`fiscal_postal_code`/`fiscal_city`/`fiscal_province`/
   `fiscal_country`). ⚠️ **Holded exige el CP, el municipio y la provincia separados** para dar de alta
@@ -2416,6 +2539,29 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · **Álbumes**: ya tienen «Re-resolver» propio (`cm_album_reresolve`) por UPC y por los códigos de
   producto de sus formatos, con `get_album`/`get_album_ids_from_upc` y
   `_cm_album_platform_urls` (el deep link de Spotify de un disco es `/album/…`, no `/track/…`).
+  ⚠️ Las **REFERENCIAS que genera la casa** (REF00001, `AlbumProductCode.generated_sequence`) NO son
+  un código de barras: se descartan y además se exige forma de UPC/EAN (`len(norm_code) >= 8`). Si no,
+  se le preguntaba a Chartmetric por «00001» y el disco podía quedar vinculado al de otro.
+  · ⚠️ **El casado AUTOMÁTICO también mira los ISRC de la pestaña de códigos**
+  (`_cm_resolve_artist_song_links` + `SongISRCCode`, cargados de una vez para todas las canciones del
+  artista): mirando solo `Song.isrc` —vacío en la mayoría— no vinculaba nada solo.
+  · ⚠️ **Un UPC no es un id de Chartmetric**: `api_cm_search` probaba primero cualquier cosa toda
+  dígitos como id, así que un código de barras podía traer otra obra. Con pinta de UPC/EAN
+  (≥8 dígitos) se va directo a la búsqueda por UPC.
+  · ⚠️ **Sin créditos o con 429 NO se dice «revisa el ISRC»**: `get_track_ids_from_isrc(...,
+  raise_on_error=True)` deja subir el motivo real (lo usa `cm_song_reresolve`). Con el `except` a
+  secas, un fallo de la API era indistinguible de «ese ISRC no está».
+  · **Al VINCULAR se actualizan los botones y los números en ese momento**:
+  `_cm_apply_song_links(..., force=True)` en la vinculación A MANO **pisa** los enlaces (corregir un
+  vínculo equivocado tiene que cambiarlos; lo bloqueado a mano en `cm_links_locked` no se toca ni con
+  force); `_cm_recompute_link_status` da **tres** estados —**Sin vincular** (sin `cm_track`) ·
+  **Vinculada** (hay id) · **Completo** (los cinco enlaces)—, porque el antiguo COMPLETE exigía cinco
+  plataformas que Chartmetric no da nunca y todo se quedaba en «Pendiente»; y al recibir
+  `inline:updated` de la zona de canciones o álbumes se **refresca también `#cmZoneSummary`**
+  (los contadores viven en OTRA zona, así que antes los números de arriba no se enteraban). El resumen
+  cuenta ahora **canciones y álbumes vinculados**, no solo artistas.
+  · Los buscadores de las listas indexan el ISRC y el UPC **también en seco** (`data-cm-search` con
+  `|replace('-','')`): pegando el código seguido no encontraba la fila que lo tiene con guiones.
   · Los endpoints `cm_*` y `api_cm_search` se mapean a la sección **`integraciones`** (a mano y por
   prefijo) y exigen además dirección o edición en discográfica.
   · **NADA en Integraciones recarga la página**: todas las acciones de las cuatro pestañas (Pleo,

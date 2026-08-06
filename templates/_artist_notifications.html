@@ -25,7 +25,10 @@
             <img src="{{ c.photo_url or DEFAULT_PHOTO_URL }}" alt="" class="notif-contact__photo" data-default-photo="1">
             <div class="notif-contact__body">
               <div class="fw-semibold">{{ c.name }}</div>
-              <div class="small text-muted">{% if c.email %}{{ c.email }}{% else %}<span class="text-danger">sin correo</span>{% endif %}</div>
+              <div class="small text-muted">
+                {% if c.email %}{{ c.email }}{% else %}<span class="text-danger">sin correo</span>{% endif %}
+                {% if c.phone %} · <i class="fa fa-mobile-screen-button me-1"></i>{{ c.phone }}{% endif %}
+              </div>
               <div class="d-flex flex-wrap gap-1 mt-1">
                 {% for key, label, icon in notif_channels %}
                   {% if key in c.channels %}
@@ -99,21 +102,32 @@
             </div>
           {% endif %}
           <div class="row g-2 align-items-end">
-            <div class="col-12 col-md-7">
+            <div class="col-12">
               <label class="form-label small">Buscar un tercero <span class="text-muted">(o crearlo con el +)</span></label>
               <div class="input-group">
                 <select class="form-select select-providers" id="notifPromoterPick"></select>
                 <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter" data-target="notifPromoterPick"><i class="fa fa-plus"></i></button>
               </div>
             </div>
-            <div class="col-12 col-md-5">
-              <label class="form-label small">Correo <span class="text-muted">(si quieres otro)</span></label>
-              <input class="form-control" name="email" data-notif-email placeholder="correo@ejemplo.com">
-            </div>
-            <div class="col-12">
-              <label class="form-label small">Nombre <span class="text-muted">(opcional)</span></label>
-              <input class="form-control" name="name" data-notif-name placeholder="Como quieras que se vea">
-            </div>
+          </div>
+        </div>
+
+        {# Los datos de contacto se ven SIEMPRE (también al editar): si no, no habría forma de
+           añadirle el teléfono a alguien que ya estaba. #}
+        <div class="row g-2 align-items-end mt-2">
+          <div class="col-12 col-md-7">
+            <label class="form-label small">Nombre <span class="text-muted">(opcional)</span></label>
+            <input class="form-control" name="name" data-notif-name placeholder="Como quieras que se vea">
+          </div>
+          <div class="col-12 col-md-5">
+            <label class="form-label small">Correo <span class="text-muted">(si quieres otro)</span></label>
+            <input class="form-control" name="email" data-notif-email placeholder="correo@ejemplo.com">
+          </div>
+          {# El teléfono es para los avisos por WhatsApp o SMS. Si la persona es un tercero de la base
+             y no se pone nada, se usa el de su ficha. #}
+          <div class="col-12 col-md-5">
+            <label class="form-label small">Teléfono <span class="text-muted">(WhatsApp / SMS)</span></label>
+            <input class="form-control" name="phone" data-notif-phone placeholder="+34 600 00 00 00">
           </div>
         </div>
 
@@ -207,6 +221,7 @@
     q('[data-notif-promoter]').value = datos.promoter_id || '';
     q('[data-notif-name]').value = datos.name || '';
     q('[data-notif-email]').value = datos.email || '';
+    q('[data-notif-phone]').value = datos.phone || '';
     var paso = q('[data-notif-step="who"]');
     if (paso) paso.classList.toggle('d-none', !!editar);
     modal.querySelectorAll('[data-notif-chan]').forEach(function (c) {

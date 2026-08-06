@@ -217,8 +217,11 @@ class ArtistNotificationContact(Base):
     promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
     name = Column(Text)
     email = Column(Text)
-    # Canales que recibe: ["LIQUIDACIONES", "PRODUCCION", "DISCOGRAFICA", "EDITORIAL", "PROMOCION",
-    # "INVITACIONES"].
+    # Teléfono para WhatsApp / SMS. Si la persona es un tercero de la base se cae al suyo; este campo
+    # es para las que se apuntan a mano.
+    phone = Column(Text)
+    # Canales que recibe: ["ACTIVIDADES_CACHE", "ACTIVIDADES_SIN_CACHE", "LIQUIDACIONES",
+    # "PRODUCCION", "DISCOGRAFICA", "EDITORIAL", "PROMOCION", "INVITACIONES"].
     channels = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     # Qué LIQUIDACIONES concretas (conceptos del contrato del artista: royalties, discográfico…).
     liquidation_concepts = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
@@ -229,6 +232,40 @@ class ArtistNotificationContact(Base):
 
     __table_args__ = (
         Index("idx_artist_notif_contacts_artist", "artist_id"),
+    )
+
+
+class ConcertArtistNotification(Base):
+    """Cada AVISO al artista de una actividad (uno por envío).
+
+    Es el histórico y, a la vez, lo que se comparte: `snapshot` congela lo que se mandó (cabecera,
+    descripción y condiciones tal como estaban ese día) y `public_token` es el enlace que se manda
+    por WhatsApp o SMS, para que lleve EXACTAMENTE el mismo contenido que el correo.
+    """
+
+    __tablename__ = "concert_artist_notifications"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"),
+                        nullable=False, index=True)
+    # EMAIL | WHATSAPP | SMS
+    channel = Column(Text, nullable=False)
+    # CONFIRMACION (nueva actividad) | CAMBIOS | CANCELACION
+    kind = Column(Text, nullable=False, server_default=text("'CONFIRMACION'"))
+    # A quién fue: [{"name": ..., "email": ..., "phone": ...}]
+    recipients = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    note = Column(Text)
+    # Módulos que se ocultaron al enviar (los «ojos» de la vista previa).
+    hidden_modules = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    snapshot = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    public_token = Column(Text)
+    signature = Column(Text)          # huella de lo gordo en el momento del envío
+    sent_at = Column(DateTime(timezone=True), server_default=func.now())
+    sent_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    sent_by_nick = Column(Text)
+
+    __table_args__ = (
+        Index("idx_concert_artist_notif_concert", "concert_id"),
     )
 
 
@@ -249,6 +286,38 @@ def ensure_artist_notifications_schema():
         );
         """,
         "CREATE INDEX IF NOT EXISTS idx_artist_notif_contacts_artist ON artist_notification_contacts(artist_id);",
+        # Teléfono del contacto (WhatsApp / SMS).
+        "ALTER TABLE IF EXISTS artist_notification_contacts ADD COLUMN IF NOT EXISTS phone text;",
+        # AVISO AL ARTISTA de una actividad: el último aviso en la propia actividad (para la etiqueta
+        # y la compuerta de confirmar) y el histórico completo en su tabla.
+        """
+        ALTER TABLE IF EXISTS concerts
+            ADD COLUMN IF NOT EXISTS artist_notified_at timestamptz,
+            ADD COLUMN IF NOT EXISTS artist_notified_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS artist_notified_by_nick text,
+            ADD COLUMN IF NOT EXISTS artist_notified_to jsonb NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS artist_notified_signature text,
+            ADD COLUMN IF NOT EXISTS artist_notified_kind text;
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS concert_artist_notifications (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            concert_id uuid NOT NULL REFERENCES concerts(id) ON DELETE CASCADE,
+            channel text NOT NULL,
+            kind text NOT NULL DEFAULT 'CONFIRMACION',
+            recipients jsonb NOT NULL DEFAULT '[]'::jsonb,
+            note text,
+            hidden_modules jsonb NOT NULL DEFAULT '[]'::jsonb,
+            snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+            public_token text,
+            signature text,
+            sent_at timestamptz DEFAULT now(),
+            sent_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            sent_by_nick text
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_concert_artist_notif_concert ON concert_artist_notifications(concert_id);",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_concert_artist_notif_token ON concert_artist_notifications(public_token) WHERE public_token IS NOT NULL AND public_token <> '';",
     ]
     _exec_ddl_statements(stmts, "artist_notifications")
 
@@ -409,6 +478,10 @@ class Song(Base):
     work_declaration_signed = Column(Boolean, nullable=False, server_default=text("false"))
     lyrics_text = Column(Text)
     lyrics_updated_at = Column(DateTime(timezone=True))
+    # PITCH DE LANZAMIENTO: el texto con el que se presenta el lanzamiento (a plataformas, medios,
+    # playlists…). Es un campo más de la ficha, y se puede descargar en PDF o mandar.
+    pitch_text = Column(Text)
+    pitch_updated_at = Column(DateTime(timezone=True))
     # Contenido explícito (se marca al subir la letra); muestra etiqueta "Explícita".
     is_explicit = Column(Boolean, nullable=False, server_default=text("false"))
 
@@ -903,6 +976,30 @@ class PromoterEmail(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class PromoterAltValue(Base):
+    """Un dato ALTERNATIVO **con nombre** de un tercero.
+
+    Nace del importador de terceros: al comparar lo que ya tenemos con lo que trae el fichero se
+    puede decidir **conservar los dos**. El que se queda va a su campo de la ficha y el otro se
+    guarda aquí con el nombre que se le ponga («casa de Madrid», «teléfono del local»…). Sirve
+    también para las columnas del fichero que no son ningún campo de la ficha y que no se quieren
+    perder (el nombre es entonces el de la columna).
+    """
+
+    __tablename__ = "promoter_alt_values"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    promoter_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("promoters.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    field = Column(Text)              # campo de la ficha del que es alternativa (NULL = dato suelto)
+    label = Column(Text, nullable=False)
+    value = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class SongRoyaltyBeneficiary(Base):
     """Beneficiarios de royalties por canción (otros beneficiarios).
 
@@ -1174,6 +1271,9 @@ class Album(Base):
     edited_by = Column(Text)
     distributed_by = Column(Text)
     producers = Column(JSONB)
+    # PITCH DE LANZAMIENTO (igual que en la canción): con qué texto se presenta el disco.
+    pitch_text = Column(Text)
+    pitch_updated_at = Column(DateTime(timezone=True))
 
     physical_cd = Column(Boolean, nullable=False, server_default=text("false"))
     physical_vinyl = Column(Boolean, nullable=False, server_default=text("false"))
@@ -1472,6 +1572,20 @@ class Concert(Base):
     # sobre el plano, el asignador y el plano en vivo de Enterticket, así que si la actividad usa un
     # formato distinto del habitual las butacas casan con el bueno.
     seat_map_id = Column(PGUUID(as_uuid=True), ForeignKey("venue_seat_maps.id", ondelete="SET NULL"))
+
+    # AVISO AL ARTISTA. Antes de confirmar (o cancelar) una actividad hay que habérsela comunicado al
+    # artista. Aquí queda el último aviso: cuándo, quién lo mandó y a quién le llegó (para el tooltip
+    # de la etiqueta «Notificado»).
+    # ⚠️ `artist_notified_signature` es la huella de lo GORDO que se avisó (fecha, hora, recinto y
+    # caché): si cambia, el aviso deja de valer y hay que volver a notificar. `artist_notified_kind`
+    # dice de qué se avisó (CONFIRMACION / CAMBIOS / CANCELACION), para que cancelar exija su propio
+    # aviso aunque ya se hubiera avisado de la confirmación.
+    artist_notified_at = Column(DateTime(timezone=True))
+    artist_notified_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    artist_notified_by_nick = Column(Text)
+    artist_notified_to = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    artist_notified_signature = Column(Text)
+    artist_notified_kind = Column(Text)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -6200,6 +6314,8 @@ def ensure_isrc_and_song_detail_schema():
         """,
         # Contenido explícito de la canción (se marca al subir la letra).
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS is_explicit boolean NOT NULL DEFAULT false;",
+        # PITCH DE LANZAMIENTO: el texto con el que se presenta el lanzamiento.
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS pitch_text text, ADD COLUMN IF NOT EXISTS pitch_updated_at timestamptz;",
         # Colaboración externa (canción de otra compañía en la que participamos).
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS is_external_collab boolean NOT NULL DEFAULT false;",
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS external_company_id uuid REFERENCES promoters(id) ON DELETE SET NULL;",
@@ -6454,6 +6570,19 @@ def ensure_song_royalties_schema():
         """,
         'CREATE INDEX IF NOT EXISTS idx_promoter_emails_promoter_id ON promoter_emails(promoter_id);',
 
+        # Datos alternativos con nombre de un tercero (importador: «conservar los dos»).
+        """
+        CREATE TABLE IF NOT EXISTS promoter_alt_values (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            promoter_id uuid NOT NULL REFERENCES promoters(id) ON DELETE CASCADE,
+            field text,
+            label text NOT NULL,
+            value text NOT NULL,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_promoter_alt_values_promoter_id ON promoter_alt_values(promoter_id);',
+
         # Beneficiarios adicionales por canción
         """
         CREATE TABLE IF NOT EXISTS song_royalty_beneficiaries (
@@ -6691,6 +6820,8 @@ def ensure_album_schema():
             ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now(),
             ADD COLUMN IF NOT EXISTS album_type text NOT NULL DEFAULT 'ALBUM';
         """,
+        # PITCH DE LANZAMIENTO del disco.
+        "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS pitch_text text, ADD COLUMN IF NOT EXISTS pitch_updated_at timestamptz;",
         'CREATE INDEX IF NOT EXISTS idx_albums_artist_release ON albums(artist_id, release_date);',
         """
         CREATE TABLE IF NOT EXISTS album_product_codes (

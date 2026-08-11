@@ -3918,3 +3918,23 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 .mat-video__body{ flex:1; min-width:0; }
 .mat-video__thumbs{ display:flex; gap:.3rem; flex-wrap:wrap; margin-top:.4rem; }
 .mat-video__thumbs img{ width:44px; height:26px; object-fit:cover; border-radius:.25rem; border:1px solid #eee; }
+
+/* Listado de personal de Vacaciones: en MÓVIL la tabla se convierte en TARJETAS.
+   Con 8 columnas, el ancho que le queda al nombre lo partía letra a letra en vertical. Mismo
+   marcado para las dos vistas: cada celda lleva su rótulo en `data-label`. */
+@media (max-width: 991.98px){
+  .vac-people thead{ display:none; }
+  .vac-people, .vac-people tbody, .vac-people tr, .vac-people td{ display:block; width:100%; }
+  .vac-people tbody tr{ border:1px solid var(--bs-border-color,#dee2e6); border-radius:.75rem;
+                        padding:.75rem .9rem; margin-bottom:.75rem; background:#fff; position:relative; }
+  .vac-people tbody td{ border:0 !important; padding:.25rem 0 !important; text-align:left !important;
+                        display:flex; align-items:center; justify-content:space-between; gap:.75rem; }
+  .vac-people tbody td[data-label]::before{ content:attr(data-label); color:#6c757d; font-size:.82rem; font-weight:600; }
+  /* El nombre manda: ocupa la fila entera y deja sitio a los 3 puntitos, que se anclan arriba. */
+  .vac-people tbody td.vac-people__name{ display:block; padding-bottom:.5rem !important;
+                                         margin-bottom:.35rem; border-bottom:1px dashed #e9ecef !important;
+                                         padding-right:2.5rem !important; }
+  .vac-people tbody td.vac-people__acciones{ position:absolute; top:.6rem; right:.7rem; width:auto; padding:0 !important; }
+  /* La tabla ya no necesita el scroll horizontal (y sin esto el menú de 3 puntos se recorta). */
+  .table-responsive:has(> .vac-people){ overflow: visible; }
+}

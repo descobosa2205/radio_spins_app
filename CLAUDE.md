@@ -1677,6 +1677,28 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   hacía que `elementFromPoint` no devolviera nada y el clic se perdía. Al ARRASTRAR es al revés
   (con captura de puntero `ev.target` se queda en la celda de origen).
 
+- **PERSONAL · un permiso POR PESTAÑA de la ficha** (ago 2026). Antes **toda** la ficha
+  (`personnel_detail_view`) colgaba de `personal.usuarios.accesos`, que es la pestaña de PERMISOS:
+  para dejar a alguien ver los Datos o los Documentos de una persona había que darle la de Accesos,
+  que es de dirección — por eso «conceder ver y editar el personal» acababa en **error de permisos**
+  (bug real). Ahora hay un recurso por pestaña: `personal.usuarios.` **datos · documentos · prl ·
+  contrato · vacaciones** (+ la de `accesos` de siempre), y `_personnel_tab_resource_key` resuelve
+  el permiso por el `tab` del GET o el `mode` del POST. Sin pestaña concreta se resuelve al padre
+  (`personal.usuarios`) y la vista lleva a la primera que esa persona sí puede ver.
+  ⚠️ Se comprueba el **grant EXACTO** (`_personnel_tab_grant`), NO `has_access_key`: ese acepta los
+  ANCESTROS, así que conceder «Usuarios» daría de golpe todas las pestañas y no se podría dejar a
+  alguien solo con Datos, que es justo lo que se pide.
+  ⚠️ **Nadie pierde acceso al desplegar**: `_personnel_tabs_access_seed` (marca
+  `personnel_tabs_access_seed_v1`) reparte las pestañas nuevas a quien YA podía abrir la ficha.
+  ⚠️ El resumen de identidad de la pestaña **Datos** enseña el DNI y las etiquetas de los
+  documentos: al separar los permisos, eso pasa a depender de **Documentos** (quien solo tenga
+  Datos ve los datos, no las fotos del DNI ni los campos cruzados que salen de ellos).
+  · **Guardar los accesos sigue siendo solo de dirección** (`is_master()` dentro del endpoint),
+  se conceda lo que se conceda. Y **cada uno ve SIEMPRE su propia pestaña «Vacaciones»** aunque no
+  tenga ningún permiso de Personal (`_personnel_own_vacations_request`).
+  · El listado de personal de **Vacaciones** se convierte en TARJETAS en móvil (`.vac-people` +
+  `data-label` por celda): con 8 columnas, el ancho que le quedaba al nombre lo partía letra a letra.
+
 - **MI CONTRATO · pestaña de la ficha de personal** (ago 2026): `UserContract` (fecha de comienzo,
   fecha de fin, tipo, PDF y notas; se guarda el **histórico** y la antigüedad es la fecha más antigua).
   **Solo lo ven administración y dirección** (`_can_view_person_contract`): ni la pestaña se pinta.

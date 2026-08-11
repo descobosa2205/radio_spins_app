@@ -42405,6 +42405,8 @@ def _bootstrap_schema_bg():
     # Una sola vez: la RECAUDACIÓN del reporte de ventas (permiso nuevo, apagado para todos) se
     # concede a Ticketing, que es quien lleva las entradas.
     _safe_ensure(lambda: globals()["_sales_revenue_access_seed"](), "_sales_revenue_access_seed")
+    # Las pestañas nuevas de la ficha de personal, a quien ya podía abrirla (no se pierde acceso).
+    _safe_ensure(lambda: globals()["_personnel_tabs_access_seed"](), "_personnel_tabs_access_seed")
     # A partir de aquí la instancia SÍ puede recibir tráfico. Se marca pase lo que pase (si alguna
     # migración falló, ya se ha anotado en el log): quedarse sin marcar dejaría la instancia
     # inservible, que es peor que arrancar con un aviso.
@@ -47382,7 +47384,12 @@ CURATED_ACCESS_RESOURCES = [
 
     {"key": "personal", "label": "Personal de la Oficina", "section_key": "personal", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 250, "description": "Personal de la oficina y permisos de la aplicación."},
     {"key": "personal.usuarios", "label": "Usuarios", "section_key": "personal", "parent_key": "personal", "level": "TAB", "economic_capable": False, "sort_order": 251, "description": "Listado y ficha de usuarios del Back Office."},
-    {"key": "personal.usuarios.accesos", "label": "Accesos", "section_key": "personal", "parent_key": "personal.usuarios", "level": "SUBTAB", "economic_capable": False, "sort_order": 252, "description": "Configurar accesos/permisos de cada usuario. Editable solo por dirección."},
+    {"key": "personal.usuarios.accesos", "label": "Accesos", "section_key": "personal", "parent_key": "personal.usuarios", "level": "SUBTAB", "economic_capable": False, "sort_order": 252, "description": "Pestaña «Accesos» de la ficha: los permisos de cada persona. ⚠️ Editable SOLO por dirección (aunque se conceda, guardar exige role 10)."},
+    {"key": "personal.usuarios.datos", "label": "Datos", "section_key": "personal", "parent_key": "personal.usuarios", "level": "SUBTAB", "economic_capable": False, "sort_order": 253, "description": "Pestaña «Datos» de la ficha: nombre, DNI, teléfonos, departamentos y necesidades de viaje."},
+    {"key": "personal.usuarios.documentos", "label": "Documentos", "section_key": "personal", "parent_key": "personal.usuarios", "level": "SUBTAB", "economic_capable": False, "sort_order": 254, "description": "Pestaña «Documentos» de la ficha: DNI, pasaporte, carnet, tarjetas de fidelización y matrículas."},
+    {"key": "personal.usuarios.prl", "label": "PRL", "section_key": "personal", "parent_key": "personal.usuarios", "level": "SUBTAB", "economic_capable": False, "sort_order": 255, "description": "Pestaña «PRL» de la ficha: altas, formación e información de riesgos laborales."},
+    {"key": "personal.usuarios.contrato", "label": "Contrato", "section_key": "personal", "parent_key": "personal.usuarios", "level": "SUBTAB", "economic_capable": False, "sort_order": 256, "description": "Pestaña «Contrato» de la ficha: contratos, fecha de comienzo y empresa del grupo. Además se exige ser de Administración o dirección."},
+    {"key": "personal.usuarios.vacaciones", "label": "Vacaciones", "section_key": "personal", "parent_key": "personal.usuarios", "level": "SUBTAB", "economic_capable": False, "sort_order": 257, "description": "Pestaña «Vacaciones» de la ficha. Cada persona ve SIEMPRE la suya; con este permiso se ven las de los demás."},
 
     {"key": "integraciones", "label": "Integraciones", "section_key": "integraciones", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 260, "description": "Integraciones con servicios externos (p. ej. Chartmetric)."},
 
@@ -47829,12 +47836,13 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return "integraciones"
     if endpoint == "personnel_view":
         return "personal.usuarios"
-    if endpoint in {"personnel_detail_view", "personnel_bulk_access", "personnel_document_save",
-                    "personnel_document_delete", "personnel_expense_deadline_toggle",
-                    "personnel_expense_deadline_toggle_all",
-                    # El CONTRATO vive en la ficha de personal (y dentro exige administración/dirección).
-                    "personnel_contract_save", "personnel_contract_delete"}:
+    if endpoint in {"personnel_detail_view", "personnel_bulk_access",
+                    "personnel_expense_deadline_toggle", "personnel_expense_deadline_toggle_all"}:
         return "personal.usuarios.accesos"
+    if endpoint in {"personnel_document_save", "personnel_document_delete"}:
+        return "personal.usuarios.documentos"
+    if endpoint in {"personnel_contract_save", "personnel_contract_delete"}:
+        return "personal.usuarios.contrato"
     # Vacaciones y días libres. «Mis vacaciones» NO va aquí: es PERSONAL_ENDPOINTS (datos propios).
     if endpoint == "vacaciones_view" or endpoint.startswith("vacation_"):
         return "vacaciones"
@@ -48518,18 +48526,20 @@ def _resolve_request_resource_key() -> str | None:
             "produccion_view": "produccion",
             "contabilidad_view": "contabilidad",
             "personnel_view": "personal.usuarios",
-            "personnel_detail_view": "personal.usuarios.accesos",
             "personnel_bulk_access": "personal.usuarios.accesos",
-            "personnel_document_save": "personal.usuarios.accesos",
-            "personnel_document_delete": "personal.usuarios.accesos",
+            # Cada pestaña de la ficha tiene su permiso (ver PERSONNEL_TAB_RESOURCES).
+            "personnel_document_save": "personal.usuarios.documentos",
+            "personnel_document_delete": "personal.usuarios.documentos",
             # Parar/reactivar el plazo de gastos: además exigen dirección dentro del endpoint.
-            "personnel_expense_deadline_toggle": "personal.usuarios.accesos",
-            "personnel_expense_deadline_toggle_all": "personal.usuarios.accesos",
-            # El CONTRATO de una persona: hereda el permiso de su ficha y, dentro, exige
-            # administración o dirección (_can_view_person_contract).
-            "personnel_contract_save": "personal.usuarios.accesos",
-            "personnel_contract_delete": "personal.usuarios.accesos",
+            "personnel_expense_deadline_toggle": "personal.usuarios.datos",
+            "personnel_expense_deadline_toggle_all": "personal.usuarios",
+            # El CONTRATO: su pestaña y, dentro, además administración o dirección
+            # (_can_view_person_contract).
+            "personnel_contract_save": "personal.usuarios.contrato",
+            "personnel_contract_delete": "personal.usuarios.contrato",
         }
+        if endpoint == "personnel_detail_view":
+            return _personnel_tab_resource_key()
         return mapping.get(endpoint)
     # Vacaciones y días libres (la sección de gestión). Dentro, además, _can_manage_vacations().
     if endpoint == "vacaciones_view" or endpoint.startswith("vacation_"):
@@ -50013,6 +50023,50 @@ REQUEST_ANY_ENDPOINTS = {
     "promo_peticion_create",
     "marketing_peticion_create",
 }
+
+
+# Qué recurso corresponde a cada pestaña de la ficha de personal.
+# ⚠️ Antes TODA la ficha (`personnel_detail_view`) colgaba de `personal.usuarios.accesos`, que es la
+# pestaña de PERMISOS: para dejar a alguien ver los Datos o los Documentos de una persona había que
+# darle la de Accesos. Por eso «conceder ver y editar el personal» acababa en error de permisos.
+PERSONNEL_TAB_RESOURCES = {
+    "accesos": "personal.usuarios.accesos",
+    "datos": "personal.usuarios.datos",
+    "documentos": "personal.usuarios.documentos",
+    "prl": "personal.usuarios.prl",
+    "contrato": "personal.usuarios.contrato",
+    "vacaciones": "personal.usuarios.vacaciones",
+}
+
+
+def _personnel_tab_grant(resource_key: str, *, edit: bool = False) -> bool:
+    """¿Tiene el permiso EXACTO de esa pestaña de personal?
+
+    ⚠️ A propósito NO se usa `has_access_key`: ese acepta los ANCESTROS, así que conceder «Usuarios»
+    daría de golpe todas las pestañas y no se podría dejar a alguien solo con Datos (que es justo lo
+    que se pide). Mismo criterio que la recaudación de ventas."""
+    estado = _current_user_state()
+    if int(estado.get("role") or 0) == 10:
+        return True
+    grant = (estado.get("grants") or {}).get(resource_key)
+    if not grant:
+        return False
+    return bool(grant.get("can_edit")) if edit else bool(grant.get("can_view_basic") or grant.get("can_edit"))
+
+
+def _personnel_tab_resource_key():
+    """El recurso de la pestaña que se está abriendo (GET `tab`) o guardando (POST `mode`).
+
+    Sin pestaña concreta se devuelve el padre (`personal.usuarios`): así quien tenga cualquiera de
+    las pestañas puede entrar en la ficha, y la vista lo lleva a la primera que sí puede ver."""
+    try:
+        if request.method == "GET":
+            tab = (request.args.get("tab") or "").strip().lower()
+        else:
+            tab = (request.form.get("mode") or "").strip().lower()
+    except Exception:
+        tab = ""
+    return PERSONNEL_TAB_RESOURCES.get(tab) or "personal.usuarios"
 
 
 def _personnel_own_vacations_request() -> bool:
@@ -53447,6 +53501,57 @@ def _produccion_bags_access_seed() -> None:
     """PRODUCCIÓN necesita entrar en las bolsas: es quien gestiona los gastos de lo que produce y
     quien cierra la bolsa de una promoción con producción."""
     _access_seed_for_department("produccion_bags_access_seed_v1", "databases.bags", {"producción", "produccion"})
+
+
+def _personnel_tabs_access_seed(session_db=None) -> None:
+    """Reparte las pestañas nuevas de personal a quien YA podía abrir la ficha.
+
+    Antes toda la ficha colgaba de `personal.usuarios.accesos`, así que sin esto la gente que ya
+    entraba se quedaría de golpe sin Datos, Documentos ni PRL al desplegar el desglose por pestañas.
+    Corre UNA vez (marca en AppSetting)."""
+    marca = "personnel_tabs_access_seed_v1"
+    propia = session_db is None
+    if propia:
+        session_db = db()
+    try:
+        if _get_app_setting(marca):
+            return
+        if session_db.get(UserAccessResource, "personal.usuarios.datos") is None:
+            return                                   # aún no se ha sincronizado el catálogo
+        heredables = ["personal.usuarios.datos", "personal.usuarios.documentos",
+                      "personal.usuarios.prl", "personal.usuarios.contrato",
+                      "personal.usuarios.vacaciones"]
+        previos = ("personal.usuarios.accesos", "personal.usuarios")
+        por_usuario: dict = {}
+        for g in (session_db.query(UserAccessGrant)
+                  .filter(UserAccessGrant.resource_key.in_(previos)).all()):
+            if g.can_view_basic or g.can_edit:
+                v, e = por_usuario.get(str(g.user_id), (False, False))
+                por_usuario[str(g.user_id)] = (v or bool(g.can_view_basic), e or bool(g.can_edit))
+        for uid, (ver, editar) in por_usuario.items():
+            existentes = {g.resource_key: g for g in (session_db.query(UserAccessGrant)
+                          .filter(UserAccessGrant.user_id == to_uuid(uid))
+                          .filter(UserAccessGrant.resource_key.in_(heredables)).all())}
+            for clave in heredables:
+                g = existentes.get(clave)
+                if not g:
+                    g = UserAccessGrant(user_id=to_uuid(uid), resource_key=clave)
+                    session_db.add(g)
+                g.can_view_basic = g.can_view_basic or ver
+                g.can_edit = g.can_edit or editar
+        session_db.commit()
+        _set_app_setting(marca, "1")
+    except Exception:
+        try:
+            session_db.rollback()
+        except Exception:
+            pass
+    finally:
+        if propia:
+            try:
+                session_db.close()
+            except Exception:
+                pass
 
 
 def _sales_revenue_access_seed() -> None:
@@ -60742,17 +60847,27 @@ def personnel_detail_view(user_id):
         profile = _ensure_user_profile(session_db, user, legacy_full_seed=False)
         security = _ensure_user_security(session_db, user)
         _sync_user_access_grants(session_db, user, profile)
-        tab = (request.args.get("tab") or "accesos").strip().lower()
-        if tab not in {"accesos", "datos", "documentos", "prl", "contrato", "vacaciones"}:
-            tab = "accesos"
-        # El CONTRATO solo lo ven administración y dirección: si no, ni pestaña ni contenido.
-        if tab == "contrato" and not _can_view_person_contract():
-            tab = "accesos"
-        # Las VACACIONES de una persona las ven ELLA MISMA, dirección y quien las gestione.
+        # QUÉ PESTAÑAS puede ver quien mira. Cada una tiene su permiso propio; el contrato y las
+        # vacaciones llevan además su regla (administración/dirección, y las suyas siempre).
         propia = str(user.id) == str((_current_user_state() or {}).get("user_id") or "")
         puede_ver_vacaciones = propia or _can_manage_vacations()
-        if tab == "vacaciones" and not puede_ver_vacaciones:
-            tab = "accesos"
+        tab_access = {
+            "accesos": is_master(),
+            "datos": _personnel_tab_grant("personal.usuarios.datos"),
+            "documentos": _personnel_tab_grant("personal.usuarios.documentos"),
+            "prl": _personnel_tab_grant("personal.usuarios.prl"),
+            "contrato": _can_view_person_contract() and _personnel_tab_grant("personal.usuarios.contrato"),
+            "vacaciones": puede_ver_vacaciones,
+        }
+        visibles = [k for k, v in tab_access.items() if v]
+        tab = (request.args.get("tab") or "").strip().lower()
+        if tab not in tab_access:
+            # Sin pestaña pedida (o una que no existe): a la primera que sí pueda ver.
+            tab = visibles[0] if visibles else "accesos"
+        if not tab_access.get(tab):
+            if not visibles:
+                return forbid("No tienes permisos para ver la ficha de esta persona.")
+            tab = visibles[0]
 
         if request.method == "POST":
             mode = (request.form.get("mode") or "").strip().lower()
@@ -60857,7 +60972,11 @@ def personnel_detail_view(user_id):
             assigned_sello_ids=assigned_sello_ids,
             container_keys=set(_ACCESS_CHILDREN.keys()),
             target_is_master=(int(getattr(user, "role", 0) or 0) == 10),
-            person_documents=_person_documents_for(session_db, "USER", user.id),
+            # ⚠️ El resumen de identidad de la pestaña «Datos» enseña el DNI y las etiquetas de
+            # los documentos. Al separar los permisos por pestaña, esos documentos pasan a depender
+            # de «Documentos»: quien solo tenga «Datos» ve los datos, no las fotos del DNI.
+            person_documents=(_person_documents_for(session_db, "USER", user.id)
+                              if tab_access.get("documentos") else []),
             identity_fields=_person_identity_fields({
                 "full_name": {"label": "Nombre", "value": (" ".join([x for x in [
                     (profile.first_name or "").strip(), (profile.last_name or "").strip()] if x]).strip())},
@@ -60866,7 +60985,7 @@ def personnel_detail_view(user_id):
                 "birth_date": {"label": "Fecha de nacimiento",
                                "value": (profile.birth_date.strftime("%d/%m/%Y") if profile.birth_date else "")},
                 "address": {"label": "Domicilio", "value": (profile.address or "")},
-            }, _person_documents_for(session_db, "USER", user.id)),
+            }, _person_documents_for(session_db, "USER", user.id) if tab_access.get("documentos") else []),
             person_docs_owner_type="USER",
             person_docs_owner_name=(" ".join([x for x in [(profile.first_name or "").strip(), (profile.last_name or "").strip()] if x]).strip() or profile.nick or ""),
             person_docs_owner_id=str(user.id),
@@ -60887,7 +61006,8 @@ def personnel_detail_view(user_id):
             prl_today=date.today(),
             # CONTRATO (pestaña propia, solo administración y dirección). La fecha de comienzo es
             # la que decide las vacaciones que le corresponden, de ahí el resumen al lado.
-            can_view_contract=_can_view_person_contract(),
+            can_view_contract=tab_access["contrato"],
+            tab_access=tab_access,
             # Pestaña VACACIONES: la ve la propia persona, dirección y quien las gestione.
             can_view_vacations=puede_ver_vacaciones,
             can_manage_vacations=_can_manage_vacations(),

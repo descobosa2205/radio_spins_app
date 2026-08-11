@@ -342,7 +342,7 @@
         </div>
       </div>
       <div class="table-responsive">
-        <table class="table align-middle">
+        <table class="table align-middle vac-people">
           <thead><tr>
             <th>Persona</th><th class="text-center">Le corresponden</th><th class="text-center">Disfrutados</th>
             <th class="text-center">Aprobados</th><th class="text-center">Pendientes</th>
@@ -351,7 +351,7 @@
           <tbody>
             {% for p in people %}
               <tr>
-                <td>
+                <td class="vac-people__name">
                   <div class="vac-person">
                     <img src="{{ p.photo_url or DEFAULT_AVATAR_URL }}" class="vac-person__photo" data-avatar="1" alt="">
                     <div>
@@ -363,19 +363,19 @@
                     </div>
                   </div>
                 </td>
-                <td class="text-center">
+                <td class="text-center" data-label="Le corresponden">
                   {{ p.balance.total }}
-                  {% if p.balance.prorated %}<div class="small text-muted">prorrateados</div>{% endif %}
+                  {% if p.balance.prorated %}<span class="small text-muted">prorrateados</span>{% endif %}
                 </td>
-                <td class="text-center">{{ p.balance.enjoyed }}</td>
-                <td class="text-center">{{ p.balance.used }}</td>
-                <td class="text-center">{% if p.balance.pending %}<span class="badge text-bg-warning text-dark">{{ p.balance.pending }}</span>{% else %}0{% endif %}</td>
-                <td class="text-center fw-bold">{{ p.balance.remaining }}</td>
-                <td class="text-center">
+                <td class="text-center" data-label="Disfrutados">{{ p.balance.enjoyed }}</td>
+                <td class="text-center" data-label="Aprobados">{{ p.balance.used }}</td>
+                <td class="text-center" data-label="Pendientes">{% if p.balance.pending %}<span class="badge text-bg-warning text-dark">{{ p.balance.pending }}</span>{% else %}0{% endif %}</td>
+                <td class="text-center fw-bold" data-label="Le quedan">{{ p.balance.remaining }}</td>
+                <td class="text-center" data-label="Días libres">
                   <span class="badge text-bg-light border" style="color:#6A1B9A;">{{ p.balance.free_used }}</span>
                   {% if p.balance.free_pending %}<span class="badge text-bg-warning text-dark ms-1">+{{ p.balance.free_pending }}</span>{% endif %}
                 </td>
-                <td class="text-end">
+                <td class="text-end vac-people__acciones">
                   <div class="dropdown">
                     <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-vertical"></i></button>
                     <ul class="dropdown-menu dropdown-menu-end">

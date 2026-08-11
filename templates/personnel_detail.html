@@ -45,19 +45,20 @@
   </div>
 </div>
 
+{# Cada pestaña tiene su PERMISO propio (`tab_access`): solo se pinta la que se puede ver. #}
 <ul class="nav nav-tabs mb-3">
-  <li class="nav-item"><a class="nav-link {% if tab=='accesos' %}active{% endif %}" href="{{ url_for('personnel_detail_view', user_id=user.id, tab='accesos') }}">Accesos</a></li>
-  <li class="nav-item"><a class="nav-link {% if tab=='datos' %}active{% endif %}" href="{{ url_for('personnel_detail_view', user_id=user.id, tab='datos') }}">Datos</a></li>
-  <li class="nav-item"><a class="nav-link {% if tab=='documentos' %}active{% endif %}" href="{{ url_for('personnel_detail_view', user_id=user.id, tab='documentos') }}"><i class="fa fa-id-card me-1"></i>Documentos</a></li>
-  <li class="nav-item"><a class="nav-link {% if tab=='prl' %}active{% endif %}" href="{{ url_for('personnel_detail_view', user_id=user.id, tab='prl') }}"><i class="fa fa-helmet-safety me-1"></i>PRL</a></li>
-  {# El CONTRATO solo lo ven administración y dirección. #}
-  {% if can_view_contract %}
-    <li class="nav-item"><a class="nav-link {% if tab=='contrato' %}active{% endif %}" href="{{ url_for('personnel_detail_view', user_id=user.id, tab='contrato') }}"><i class="fa fa-file-contract me-1"></i>Contrato</a></li>
-  {% endif %}
-  {# Las VACACIONES: la propia persona, dirección y quien las gestione. #}
-  {% if can_view_vacations %}
-    <li class="nav-item"><a class="nav-link {% if tab=='vacaciones' %}active{% endif %}" href="{{ url_for('personnel_detail_view', user_id=user.id, tab='vacaciones') }}"><i class="fa fa-umbrella-beach me-1"></i>Vacaciones</a></li>
-  {% endif %}
+  {% for key, label, icon in [
+      ('accesos', 'Accesos', 'fa-shield-halved'),
+      ('datos', 'Datos', 'fa-id-badge'),
+      ('documentos', 'Documentos', 'fa-id-card'),
+      ('prl', 'PRL', 'fa-helmet-safety'),
+      ('contrato', 'Contrato', 'fa-file-contract'),
+      ('vacaciones', 'Vacaciones', 'fa-umbrella-beach')] %}
+    {% if tab_access.get(key) %}
+      <li class="nav-item"><a class="nav-link {% if tab == key %}active{% endif %}"
+        href="{{ url_for('personnel_detail_view', user_id=user.id, tab=key) }}"><i class="fa {{ icon }} me-1"></i>{{ label }}</a></li>
+    {% endif %}
+  {% endfor %}
 </ul>
 
 {% if tab == 'prl' %}
@@ -78,7 +79,7 @@
     <div id="personDatosView">
     {% set identity_id = 'personDatosIdentity' %}
     {% set identity_owner_name = full_name or profile.nick %}
-    {% set identity_can_add = True %}
+    {% set identity_can_add = tab_access.get('documentos') %}
     {% set identity_with_doc_modal = True %}
     {% include '_person_identity_summary.html' %}
       {% if profile.departments %}<div class="d-flex flex-wrap gap-1 mt-3">{% for dept in profile.departments %}<span class="badge text-bg-light border">{{ dept }}</span>{% endfor %}</div>{% endif %}
@@ -422,7 +423,7 @@
 {% elif tab == 'contrato' %}
   {# CONTRATO · la fecha de comienzo es la que decide las vacaciones que le corresponden. #}
   <div class="row g-3">
-    <div class="col-12 col-lg-7">
+    <div class="col-12">
       <div class="ficha-section">
         <div class="ficha-section__head">
           <h6 class="ficha-section__title"><i class="fa fa-file-contract"></i>Contratos</h6>
@@ -433,8 +434,9 @@
           {% if not contracts %}
             <div class="alert alert-warning mb-0">
               <i class="fa fa-triangle-exclamation me-1"></i>
-              Sin contrato no se sabe desde cuándo trabaja aquí, y <strong>no se le pueden calcular las
-              vacaciones</strong>: no podrá pedirlas hasta que se suba con su fecha de comienzo.
+              Sin contrato no se sabe desde cuándo trabaja aquí, así que <strong>no se le puede
+              calcular cuántos días de vacaciones le corresponden</strong>. Pedirlos y apuntárselos
+              sigue funcionando: lo único que falta es el cálculo.
             </div>
           {% else %}
             <div class="list-group list-group-flush">
@@ -470,33 +472,6 @@
       </div>
     </div>
 
-    <div class="col-12 col-lg-5">
-      <div class="ficha-section">
-        <div class="ficha-section__head">
-          <h6 class="ficha-section__title"><i class="fa fa-umbrella-beach"></i>Vacaciones {{ vacation_balance.year if vacation_balance }}</h6>
-          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('personnel_detail_view', user_id=user.id, tab='vacaciones') }}">Ver sus vacaciones</a>
-        </div>
-        <div class="ficha-section__body">
-          {% if not contract_start %}
-            <div class="text-muted">Se calculan solas en cuanto haya un contrato con su fecha de comienzo.
-              Mientras tanto, sus días se pueden apuntar igual desde su pestaña «Vacaciones».</div>
-          {% elif vacation_balance %}
-            <table class="table table-sm mb-2">
-              <tbody>
-                <tr><td class="text-muted">Antigüedad</td><td class="text-end fw-semibold">{{ contract_start.strftime('%d/%m/%Y') }}</td></tr>
-                <tr><td class="text-muted">Días al año</td><td class="text-end fw-semibold">{{ vacation_balance.base }}{% if vacation_balance.base != vacation_days_default %} <span class="small text-muted">(propios)</span>{% endif %}</td></tr>
-                <tr><td class="text-muted">Le corresponden</td><td class="text-end fw-semibold">{{ vacation_balance.entitled }}{% if vacation_balance.prorated %} <span class="badge text-bg-light border">prorrateados</span>{% endif %}</td></tr>
-                {% if vacation_balance.adjustment %}<tr><td class="text-muted">Ajuste</td><td class="text-end fw-semibold">{{ '%+d'|format(vacation_balance.adjustment) }}</td></tr>{% endif %}
-                <tr><td class="text-muted">Aprobados</td><td class="text-end fw-semibold">{{ vacation_balance.used }}</td></tr>
-                <tr><td class="text-muted">Pendientes de aprobar</td><td class="text-end fw-semibold">{{ vacation_balance.pending }}</td></tr>
-                <tr class="table-light"><td class="fw-semibold">Le quedan</td><td class="text-end fw-bold fs-5">{{ vacation_balance.remaining }}</td></tr>
-              </tbody>
-            </table>
-            <div class="small text-muted">Se cuentan días laborables: sábados, domingos y festivos de Madrid no restan.</div>
-          {% endif %}
-        </div>
-      </div>
-    </div>
   </div>
 
   <div class="modal fade" id="contractModal" tabindex="-1">
@@ -523,9 +498,12 @@
             </div>
             <div class="col-12 col-md-6">
               <label class="form-label">Empresa del grupo</label>
-              <select name="company_id" id="contractCompany" class="form-select">
-                <option value="">— Sin especificar —</option>
-                {% for gc in group_companies %}<option value="{{ gc.id }}">{{ gc.name }}</option>{% endfor %}
+              {# `select-with-thumbs` = Select2 con la miniatura de cada empresa (initSelect2). #}
+              <select name="company_id" id="contractCompany" class="form-select select-with-thumbs" data-placeholder="— Sin especificar —">
+                <option value=""></option>
+                {% for gc in group_companies %}
+                  <option value="{{ gc.id }}" data-logo="{{ gc.logo_url or '' }}">{{ gc.name }}</option>
+                {% endfor %}
               </select>
               <div class="form-text">Con la que firma. Su logo es el que sale en los avisos de vacaciones.</div>
             </div>
@@ -554,7 +532,10 @@
       document.getElementById('contractEnd').value = fin || '';
       document.getElementById('contractType').value = tipo || '';
       document.getElementById('contractNotes').value = notas || '';
-      document.getElementById('contractCompany').value = empresa || '';
+      var sel = document.getElementById('contractCompany');
+      sel.value = empresa || '';
+      // Select2 no se entera de un cambio hecho por código si no se le dice.
+      try { if (window.jQuery) jQuery(sel).trigger('change.select2'); } catch (e) {}
     }
   </script>
 

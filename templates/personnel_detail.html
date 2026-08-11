@@ -54,6 +54,10 @@
   {% if can_view_contract %}
     <li class="nav-item"><a class="nav-link {% if tab=='contrato' %}active{% endif %}" href="{{ url_for('personnel_detail_view', user_id=user.id, tab='contrato') }}"><i class="fa fa-file-contract me-1"></i>Contrato</a></li>
   {% endif %}
+  {# Las VACACIONES: la propia persona, dirección y quien las gestione. #}
+  {% if can_view_vacations %}
+    <li class="nav-item"><a class="nav-link {% if tab=='vacaciones' %}active{% endif %}" href="{{ url_for('personnel_detail_view', user_id=user.id, tab='vacaciones') }}"><i class="fa fa-umbrella-beach me-1"></i>Vacaciones</a></li>
+  {% endif %}
 </ul>
 
 {% if tab == 'prl' %}
@@ -192,6 +196,229 @@
     <p class="text-muted mb-0">Los usuarios de dirección tienen <b>acceso total</b> a toda la plataforma de forma automática.<br>No es necesario (ni posible) configurar sus accesos.</p>
   </div></div>
 
+{% elif tab == 'vacaciones' %}
+  {# VACACIONES de esta persona. La ve ella misma, dirección y quien las gestione.
+     ⚠️ Sin fecha de comienzo NO se puede calcular lo que le corresponde, pero los días se apuntan
+     y se piden igual: solo se advierte. #}
+  {% if vacation_balance and vacation_balance.unknown_entitlement %}
+    <div class="alert alert-warning">
+      <i class="fa fa-triangle-exclamation me-1"></i>
+      No consta su <strong>fecha de comienzo</strong>, así que <strong>no se puede calcular cuántos
+      días le corresponden</strong> ni cuántos le quedan. Los días que se apunten aquí se guardan
+      igual{% if can_view_contract %} — para que cuadre el cálculo, sube su contrato en la pestaña
+      <a href="{{ url_for('personnel_detail_view', user_id=user.id, tab='contrato') }}">Contrato</a>{% endif %}.
+    </div>
+  {% endif %}
+
+  <div class="row g-3 mb-3">
+    <div class="col-6 col-lg-3">
+      <div class="vac-stat vac-stat--main">
+        <div class="vac-stat__n">{{ vacation_balance.remaining if vacation_balance and not vacation_balance.unknown_entitlement else '—' }}</div>
+        <div class="vac-stat__lbl">Vacaciones disponibles</div>
+      </div>
+    </div>
+    <div class="col-6 col-lg-3">
+      <div class="vac-stat">
+        <div class="vac-stat__n">{{ vacation_balance.used if vacation_balance else 0 }}</div>
+        <div class="vac-stat__lbl">Vacaciones cogidas en {{ vacation_year }}
+          {% if vacation_balance and vacation_balance.pending %}<span class="badge text-bg-warning text-dark ms-1">+{{ vacation_balance.pending }} sin aprobar</span>{% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-lg-3">
+      <div class="vac-stat vac-stat--free">
+        <div class="vac-stat__n">{{ vacation_balance.free_used if vacation_balance else 0 }}</div>
+        <div class="vac-stat__lbl">Días libres en {{ vacation_year }}
+          {% if vacation_balance and vacation_balance.free_pending %}<span class="badge text-bg-warning text-dark ms-1">+{{ vacation_balance.free_pending }} sin aprobar</span>{% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-lg-3">
+      <div class="vac-stat">
+        <div class="vac-stat__n">{{ vacation_balance.total if vacation_balance and not vacation_balance.unknown_entitlement else '—' }}</div>
+        <div class="vac-stat__lbl">Le corresponden en {{ vacation_year }}
+          {% if vacation_balance and vacation_balance.prorated and not vacation_balance.unknown_entitlement %}<span class="badge text-bg-light border ms-1">prorrateadas</span>{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% if can_manage_vacations %}
+    <div class="vac-actions mb-3">
+      <button class="btn btn-primary" type="button" data-apuntar-ficha data-kind="VACACIONES">
+        <i class="fa fa-umbrella-beach"></i>Apuntarle vacaciones
+      </button>
+      <button class="btn btn-outline-primary" type="button" data-apuntar-ficha data-kind="DIA_LIBRE">
+        <i class="fa fa-mug-hot"></i>Apuntarle días libres
+      </button>
+      <button class="btn btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#configVacacionesModal">
+        <i class="fa fa-sliders"></i>Configurar sus días
+      </button>
+    </div>
+  {% elif is_own_profile %}
+    <div class="vac-actions mb-3">
+      <a class="btn btn-primary" href="{{ url_for('mis_vacaciones_view') }}">
+        <i class="fa fa-umbrella-beach"></i>Pedir vacaciones o días libres
+      </a>
+    </div>
+  {% endif %}
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <h6 class="m-0">Calendario {{ vacation_year }}</h6>
+        <div class="vac-legend">
+          <span><i style="background:#e8eef3;"></i>Fin de semana</span>
+          <span><i style="background:#fdeaec;"></i>Festivo</span>
+          <span><i style="background:#ede7f6;"></i>No laborable</span>
+          <span><i style="background:#d6f0dc;"></i>Vacaciones</span>
+          <span><i style="background:#e6dcf3;"></i>Día libre</span>
+        </div>
+      </div>
+      <div id="fichaVacCalendario"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <h6 class="mb-3">Sus peticiones y días apuntados</h6>
+      {% if not vacation_requests %}
+        <div class="text-muted">Todavía no tiene ningún día.</div>
+      {% else %}
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead><tr><th>Tipo</th><th>Fechas</th><th>Días</th><th>Motivo</th><th>Estado</th>{% if can_manage_vacations %}<th></th>{% endif %}</tr></thead>
+            <tbody>
+              {% for r in vacation_requests %}
+                <tr>
+                  <td><i class="fa {{ r.kind_meta.icon }} text-muted me-1"></i>{{ r.kind_meta.label }}</td>
+                  <td>{{ r.range_label }}</td>
+                  <td>{{ r.days_count }}</td>
+                  <td class="small text-muted">{{ r.note or '—' }}</td>
+                  <td><span class="badge {{ r.status_meta.class }}">{{ r.status_meta.short }}</span></td>
+                  {% if can_manage_vacations %}
+                    <td class="text-end">
+                      <form method="post" action="{{ url_for('vacation_request_delete', request_id=r.id) }}" class="m-0" data-confirm="¿Eliminar estos días?">
+                        <button class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="fa fa-trash"></i></button>
+                      </form>
+                    </td>
+                  {% endif %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if can_manage_vacations %}
+    <div class="modal fade" id="configVacacionesModal" tabindex="-1">
+      <div class="modal-dialog">
+        <form method="post" action="{{ url_for('vacation_person_config', user_id=user.id) }}" class="modal-content">
+          <input type="hidden" name="anio" value="{{ vacation_year }}">
+          <div class="modal-header"><h5 class="modal-title">Vacaciones de {{ profile.nick }}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label">Días al año</label>
+              <input type="number" name="days_per_year" class="form-control" min="0" max="365"
+                     value="{{ profile.vacation_days_per_year or '' }}" placeholder="{{ vacation_days_default }} (los de la casa)">
+              <div class="form-text">En blanco = los {{ vacation_days_default }} de la casa.</div>
+            </div>
+            <div>
+              <label class="form-label">Ajuste para {{ vacation_year }}</label>
+              <input type="number" name="adjustment" class="form-control"
+                     value="{{ (profile.vacation_adjustments or {}).get(vacation_year|string) or '' }}" placeholder="0">
+              <div class="form-text">Días que se le suman o se le restan solo este año. Puede ser negativo.</div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button class="btn btn-primary">Guardar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal fade" id="apuntarFichaModal" tabindex="-1">
+      <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <form method="post" action="{{ url_for('vacation_person_days', user_id=user.id) }}" class="modal-content">
+          <input type="hidden" name="kind" id="apuntarFichaKind" value="VACACIONES">
+          <div class="modal-header"><h5 class="modal-title"><span id="apuntarFichaTitulo">Apuntar días</span> a {{ profile.nick }}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+          <div class="modal-body">
+            <div class="alert alert-light border small">
+              Quedan <strong>aprobados directamente</strong> y no se avisa a la persona: esto es para
+              meter en el sistema los días que ya se han disfrutado o los acordados. <strong>Los días
+              pasados también se apuntan</strong>, que es lo que hace que las cuentas cuadren.
+            </div>
+            <div class="vac-counter mb-3">
+              <div>
+                <div class="vac-counter__n" id="apuntarFichaN">0</div>
+                <div class="vac-counter__lbl">Días que cuentan</div>
+              </div>
+              <div class="flex-grow-1 small text-muted">Pincha o arrastra. Fines de semana, festivos y no laborables no cuentan.</div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="force" value="1" id="apuntarFichaForce">
+                <label class="form-check-label small" for="apuntarFichaForce">Aunque se pase de su saldo</label>
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Nota (opcional)</label>
+              <input name="note" class="form-control" placeholder="Por ejemplo: días de 2025">
+            </div>
+            <input type="hidden" name="days" id="apuntarFichaDays">
+            <div id="apuntarFichaCalendario"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button class="btn btn-primary" id="apuntarFichaEnviar" disabled>Apuntar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  {% endif %}
+
+  <script src="{{ url_for('static', filename='js/vacaciones.js') }}"></script>
+  <script id="fichaVacData" type="application/json">{{ vacation_calendar|tojson }}</script>
+  <script id="fichaVacKinds" type="application/json">{{ vacation_kinds|tojson }}</script>
+  <script>
+  (function(){
+    var datos = JSON.parse(document.getElementById('fichaVacData').textContent || '{}');
+    var TIPOS = JSON.parse(document.getElementById('fichaVacKinds').textContent || '{}');
+    VacCalendar.create('#fichaVacCalendario', {
+      mode: 'year', year: datos.year, holidays: datos.holidays, days: datos.days
+    });
+
+    /* ⚠️ El calendario del modal se monta EN EL CLIC: `shown.bs.modal` no llega con modal_stack.js
+       por medio y el modal salía vacío (por eso «apuntar» no guardaba nada). */
+    var cal = null;
+    document.querySelectorAll('[data-apuntar-ficha]').forEach(function(b){
+      b.addEventListener('click', function(){
+        var kind = b.dataset.kind || 'VACACIONES';
+        var meta = TIPOS[kind] || {};
+        document.getElementById('apuntarFichaKind').value = kind;
+        document.getElementById('apuntarFichaTitulo').textContent = 'Apuntar ' + (meta.plural || 'días');
+        document.getElementById('apuntarFichaDays').value = '';
+        document.getElementById('apuntarFichaN').textContent = '0';
+        document.getElementById('apuntarFichaEnviar').disabled = true;
+        if (!cal) {
+          cal = VacCalendar.create('#apuntarFichaCalendario', {
+            mode: 'year', year: datos.year, holidays: datos.holidays, days: [], selectable: true,
+            onChange: function(sel, cuentan){
+              document.getElementById('apuntarFichaDays').value = sel.join(',');
+              document.getElementById('apuntarFichaN').textContent = cuentan.length;
+              document.getElementById('apuntarFichaEnviar').disabled = (cuentan.length === 0);
+            }
+          });
+        } else { cal.clear(); }
+        new bootstrap.Modal(document.getElementById('apuntarFichaModal')).show();
+      });
+    });
+  })();
+  </script>
+
 {% elif tab == 'contrato' %}
   {# CONTRATO · la fecha de comienzo es la que decide las vacaciones que le corresponden. #}
   <div class="row g-3">
@@ -247,10 +474,12 @@
       <div class="ficha-section">
         <div class="ficha-section__head">
           <h6 class="ficha-section__title"><i class="fa fa-umbrella-beach"></i>Vacaciones {{ vacation_balance.year if vacation_balance }}</h6>
+          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('personnel_detail_view', user_id=user.id, tab='vacaciones') }}">Ver sus vacaciones</a>
         </div>
         <div class="ficha-section__body">
           {% if not contract_start %}
-            <div class="text-muted">Se calculan solas en cuanto haya un contrato con su fecha de comienzo.</div>
+            <div class="text-muted">Se calculan solas en cuanto haya un contrato con su fecha de comienzo.
+              Mientras tanto, sus días se pueden apuntar igual desde su pestaña «Vacaciones».</div>
           {% elif vacation_balance %}
             <table class="table table-sm mb-2">
               <tbody>

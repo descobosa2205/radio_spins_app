@@ -58,7 +58,13 @@
     // Si el submit lo disparó un botón con name/value, incluirlo.
     if (submitter && submitter.name) fd.append(submitter.name, submitter.value || '');
 
-    var action = (submitter && submitter.getAttribute('formaction')) || form.action || window.location.href;
+    // ⚠️ NADA de `form.action` (la PROPIEDAD): si el formulario tiene un campo llamado «action»
+    // —los de Integraciones lo llevan: <input name="action" value="ping_chartmetric">— el DOM
+    // expone ESE CAMPO en `form.action`, no la URL. El fetch salía a "/[object HTMLInputElement]",
+    // devolvía 404, no encontraba la zona y se caía a recargar la página entera: por eso cualquier
+    // acción de Integraciones te devolvía al principio de la página (bug real). Se lee el ATRIBUTO.
+    var action = (submitter && submitter.getAttribute('formaction'))
+                 || form.getAttribute('action') || window.location.href;
     fetch(action, {
       method: ((submitter && submitter.getAttribute('formmethod')) || form.getAttribute('method') || 'post').toUpperCase(),
       body: fd,

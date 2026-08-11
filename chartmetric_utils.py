@@ -28,9 +28,51 @@ _access_token: str | None = None
 _access_token_expiry: float = 0.0  # epoch segundos
 
 
+# EL REFRESH TOKEN se puede guardar desde la app (Integraciones → Chartmetric) además de venir por
+# entorno: si caduca o lo rotan, hay que poder cambiarlo sin tocar Render. `app.py` enchufa aquí un
+# proveedor que lo lee de la BD; lo del entorno queda como respaldo.
+_TOKEN_PROVIDER = None
+
+
+def set_token_provider(fn) -> None:
+    """Enchufa de dónde sale el refresh token (lo llama `app.py` al arrancar)."""
+    global _TOKEN_PROVIDER
+    _TOKEN_PROVIDER = fn
+
+
+def clean_api_key(raw) -> str:
+    """Limpia lo que se pega en el formulario: espacios, saltos de línea, comillas y el típico
+    «refreshtoken:» delante. Mismo problema que dio la clave de Holded."""
+    txt = str(raw or "").strip()
+    for prefijo in ("refreshtoken:", "refresh_token:", "token:", "Bearer "):
+        if txt.lower().startswith(prefijo.lower()):
+            txt = txt[len(prefijo):]
+    return txt.strip().strip('"').strip("'").strip()
+
+
+def refresh_token_value() -> str:
+    """El refresh token en vigor: el guardado en la app y, si no hay, el del entorno."""
+    if _TOKEN_PROVIDER:
+        try:
+            guardado = clean_api_key(_TOKEN_PROVIDER())
+            if guardado:
+                return guardado
+        except Exception:
+            pass
+    return clean_api_key(settings.CHARTMETRIC_REFRESH_TOKEN)
+
+
+def reset_access_token() -> None:
+    """Tira el access token cacheado. Hay que llamarlo al CAMBIAR el refresh token: si no, el
+    proceso seguiría usando el token viejo hasta que caducase y «probar conexión» mentiría."""
+    global _access_token, _access_token_expiry
+    with _token_lock:
+        _access_token, _access_token_expiry = None, 0.0
+
+
 def chartmetric_configured() -> bool:
     """True solo si hay refresh token. Si es False, la integración está desactivada."""
-    return bool(settings.CHARTMETRIC_REFRESH_TOKEN)
+    return bool(refresh_token_value())
 
 
 def _base() -> str:
@@ -40,8 +82,9 @@ def _base() -> str:
 def _get_access_token(force: bool = False) -> str:
     """Devuelve un access token válido, renovándolo si caducó. Cachea ~55 min."""
     global _access_token, _access_token_expiry
-    if not chartmetric_configured():
-        raise RuntimeError("Integración con Chartmetric no configurada (falta CHARTMETRIC_REFRESH_TOKEN).")
+    refresco = refresh_token_value()
+    if not refresco:
+        raise RuntimeError("Chartmetric no está configurada: falta el refresh token.")
     with _token_lock:
         now = time.time()
         if not force and _access_token and now < _access_token_expiry:
@@ -49,14 +92,19 @@ def _get_access_token(force: bool = False) -> str:
         try:
             resp = requests.post(
                 _base() + "/api/token",
-                json={"refreshtoken": settings.CHARTMETRIC_REFRESH_TOKEN},
+                json={"refreshtoken": refresco},
                 headers={"Accept": "application/json"},
                 timeout=_TIMEOUT,
             )
         except requests.RequestException as e:
             raise RuntimeError(f"No se pudo conectar con Chartmetric: {e}") from e
         if resp.status_code >= 400:
-            raise RuntimeError(f"Chartmetric rechazó el refresh token ({resp.status_code}).")
+            # El motivo exacto ayuda a distinguir «token caducado» de «token mal pegado».
+            detalle = (resp.text or "").strip()[:200]
+            raise RuntimeError(
+                f"Chartmetric rechazó el refresh token ({resp.status_code})."
+                + (f" Dice: {detalle}" if detalle else "")
+                + " Genera uno nuevo en Chartmetric (Developer API) y pégalo aquí.")
         data = resp.json()
         token = data.get("token")
         if not token:
@@ -71,7 +119,8 @@ def _get_access_token(force: bool = False) -> str:
 def _get(path: str, params: dict | None = None) -> dict:
     """GET autenticado a la API de Chartmetric. Reintenta una vez si el token caducó (401)."""
     if not chartmetric_configured():
-        raise RuntimeError("Integración con Chartmetric no configurada (falta CHARTMETRIC_REFRESH_TOKEN).")
+        raise RuntimeError("Chartmetric no está configurada: falta el refresh token "
+                           "(se mete en Integraciones → Chartmetric).")
     url = _base() + path
     for attempt in (1, 2):
         token = _get_access_token(force=(attempt == 2))
@@ -321,11 +370,24 @@ def search_artists(query: str, limit: int = 10) -> list:
 
 
 def chartmetric_ping() -> tuple[bool, str]:
-    """Prueba de conexión para la página de Integraciones. Devuelve (ok, mensaje). No lanza."""
+    """Prueba de conexión para la página de Integraciones. Devuelve (ok, mensaje). No lanza.
+
+    No se queda en «he sacado un token»: hace además una LLAMADA REAL de solo lectura, que es lo
+    que de verdad dice si la cuenta funciona (un token válido sin créditos saca token y luego falla
+    en todo)."""
     if not chartmetric_configured():
-        return (False, "No configurada (falta CHARTMETRIC_REFRESH_TOKEN).")
+        return (False, "No configurada: falta el refresh token.")
     try:
         _get_access_token(force=True)
-        return (True, "Conexión correcta (access token obtenido).")
     except RuntimeError as e:
         return (False, str(e))
+    try:
+        _get("/api/search", {"q": "test", "type": "artists", "limit": 1})
+        return (True, "Conexión correcta: el token vale y la API responde.")
+    except RuntimeError as e:
+        texto = str(e)
+        if "SIN CRÉDITOS" in texto or "402" in texto:
+            return (False, "El token vale, pero la cuenta está SIN CRÉDITOS de API.")
+        if "429" in texto:
+            return (False, "El token vale, pero Chartmetric está limitando las peticiones (429). Reintenta en un rato.")
+        return (False, "El token vale, pero la API no responde bien: " + texto)

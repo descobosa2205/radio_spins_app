@@ -594,9 +594,47 @@
       <div class="card-body">
         <div class="d-flex align-items-center justify-content-between mb-2">
           <h2 class="h5 mb-0">Chartmetric <span class="text-muted small fw-normal">· Métricas</span></h2>
-          {% if chartmetric_configured %}<span class="badge text-bg-success">Configurada</span>{% else %}<span class="badge text-bg-secondary">Desactivada</span>{% endif %}
+          <span class="badge {{ cm_status.badge_class }}" {% if cm_status.checked_at %}title="Última comprobación: {{ cm_status.checked_at.strftime('%d/%m/%Y %H:%M') }}"{% endif %}>{{ cm_status.badge_label }}</span>
         </div>
         <p class="text-muted small mb-3">Métricas de audiencia, playlists, charts y enlaces a las redes de vuestros artistas (los iconos del hero de cada ficha). Se actualiza solo a diario; «Actualizar todos» lo fuerza manualmente.</p>
+
+        {% if cm_status.state == 'ERROR' and cm_status.error %}
+          <div class="alert alert-danger py-2 px-3 small mb-3">
+            <i class="fa fa-circle-exclamation me-1"></i><strong>La última comprobación falló:</strong>
+            {{ cm_status.error }}
+          </div>
+        {% endif %}
+
+        {# LA CLAVE se mete aquí: los refresh token de Chartmetric caducan y se rotan, y sin esto
+           había que entrar en Render a cambiarlos. #}
+        <form method="post" class="row g-2 align-items-end mb-3" data-inline data-inline-target="#cmZoneSummary">
+          <div class="col-12 col-lg-7">
+            <label class="form-label small mb-1">Refresh token de Chartmetric</label>
+            <input type="password" name="refresh_token" class="form-control form-control-sm" autocomplete="off"
+                   placeholder="{% if cm_status.has_token %}Guardado: {{ cm_status.masked }} ({{ cm_status.length }} caracteres){% else %}Pega aquí el refresh token{% endif %}">
+            <div class="form-text">
+              {% if cm_status.has_token and cm_status.from_env %}
+                Ahora mismo se está usando el del <strong>entorno de Render</strong>. Lo que guardes aquí manda sobre él.
+              {% elif cm_status.has_token %}
+                Hay uno guardado. Escribe otro para cambiarlo, o déjalo vacío y guarda para borrarlo.
+              {% else %}
+                Te lo da Chartmetric al contratar el <strong>Developer API</strong>. Se guarda y se prueba al momento.
+              {% endif %}
+            </div>
+          </div>
+          <div class="col-12 col-lg-5">
+            <button class="btn btn-sm btn-primary" name="action" value="save_chartmetric_token"><i class="fa fa-key me-1"></i>Guardar y probar</button>
+          </div>
+        </form>
+
+        {# ⚠️ «Probar conexión» va en SU PROPIO formulario: compartiéndolo con el de guardar, los dos
+           `action` se pisaban y probar acababa guardando la clave vacía (o sea, borrándola). #}
+        {% if cm_status.has_token %}
+          <form method="post" class="d-inline" data-inline data-inline-target="#cmZoneSummary">
+            <button name="action" value="ping_chartmetric" class="btn btn-sm btn-outline-primary"><i class="fa fa-bolt me-1"></i>Probar conexión</button>
+          </form>
+        {% endif %}
+
         {% if chartmetric_configured %}
           {% if cm_credit_warning %}
           <div class="alert alert-warning py-2 px-3 small mb-2">
@@ -605,9 +643,6 @@
             Recarga el plan de Chartmetric y vuelve a pulsar «Actualizar todos».
           </div>
           {% endif %}
-          <form method="post" class="d-inline" data-inline data-inline-target="#cmZoneSummary">
-            <button name="action" value="ping_chartmetric" class="btn btn-sm btn-outline-primary"><i class="fa fa-bolt me-1"></i>Probar conexión</button>
-          </form>
           <form method="post" class="d-inline" data-inline data-inline-target="#cmZoneSummary"
                 data-confirm="Buscará el ID de Chartmetric de TODOS los artistas aún no vinculados (consume crédito). ¿Continuar?">
             <button name="action" value="resolve_all_chartmetric" class="btn btn-sm btn-outline-primary"><i class="fa fa-link me-1"></i>Vincular todos</button>
@@ -631,8 +666,8 @@
           </div>
         {% else %}
           <div class="small text-muted">
-            Para activarla: solicita el <strong>Developer API</strong> a Chartmetric y añade el refresh token
-            en Render como <code>CHARTMETRIC_REFRESH_TOKEN</code>.
+            Para activarla: solicita el <strong>Developer API</strong> a Chartmetric y pega aquí arriba el
+            refresh token que te manden.
           </div>
         {% endif %}
       </div>

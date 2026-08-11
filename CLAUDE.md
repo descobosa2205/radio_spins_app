@@ -1695,6 +1695,29 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   entiende: una imagen marcada con **`data-avatar="1"`** (o `.user-nav-avatar`) que falle cae al
   muñequito en vez de al hueco omitido (`data-default-avatar-url` en el `<body>`).
 
+- ⚠️⚠️ **`form.action` NO ES LA URL si el formulario tiene un campo llamado «action»** (bug real,
+  ago 2026). El DOM expone los controles con nombre como propiedades del formulario, así que
+  `<input name="action">` o `<button name="action">` **tapan** `form.action` y esa propiedad
+  devuelve EL CAMPO. `ajax_inline.js` la usaba para el fetch → salía a `/[object HTMLInputElement]`
+  → 404 → no encontraba la zona → **recargaba la página entera**. Efecto visible: *cualquier* acción
+  de **Integraciones** (Pleo, Cabify, Holded, Chartmetric, Enterticket — todas usan `name="action"`)
+  te devolvía al principio de la página. Arreglado leyendo el **ATRIBUTO**
+  (`form.getAttribute('action')`). Al montar un formulario con un campo «action», ojo con esto.
+  ⚠️ Y **dos botones con `name="action"` en el MISMO formulario se pisan**: hay que separarlos en
+  formularios distintos (probar la clave de Chartmetric acababa guardándola vacía).
+
+- **CHARTMETRIC · la clave se mete desde la app** (ago 2026): el refresh token caduca y se rota, así
+  que ya no hace falta entrar en Render. Se guarda en `AppSetting` (`CM_TOKEN_SETTING`) y
+  `chartmetric_utils` lo lee por un **proveedor** (`set_token_provider`, lo enchufa `app.py`), con lo
+  del entorno como respaldo. Al guardar se **prueba al momento** y se apunta el resultado
+  (`_chartmetric_record_status`), que es lo que pinta la **etiqueta de estado**
+  (`_chartmetric_status`: Desactivada · Sin comprobar · **Conectada** · **Con error**, con el motivo
+  exacto de Chartmetric debajo). `clean_api_key` quita espacios, comillas y el «refreshtoken:»
+  delante; al cambiar la clave se tira el access token cacheado (`reset_access_token`) o el proceso
+  seguiría usando el viejo y «probar conexión» mentiría.
+  ⚠️ **`chartmetric_ping` hace una LLAMADA REAL**, no solo saca el token: una cuenta sin créditos
+  saca token y falla en todo lo demás, así que un ping que solo pidiera token diría «correcta».
+
 - **CHARTMETRIC · vinculada pero sin enlaces ni reproducciones** (corregido ago 2026). Había canciones
   con `cm_track` puesto —y por tanto en verde como «Vinculada»— y con **todos los botones vacíos y cero
   reproducciones**. Dos causas independientes:

@@ -50015,6 +50015,20 @@ REQUEST_ANY_ENDPOINTS = {
 }
 
 
+def _personnel_own_vacations_request() -> bool:
+    """¿Es alguien abriendo la pestaña «Vacaciones» de SU PROPIA ficha? (solo GET)."""
+    try:
+        if request.method != "GET":
+            return False
+        if (request.args.get("tab") or "").strip().lower() != "vacaciones":
+            return False
+        mio = str((_current_user_state() or {}).get("user_id") or "")
+        suyo = str((request.view_args or {}).get("user_id") or "")
+        return bool(mio) and mio == suyo
+    except Exception:
+        return False
+
+
 def _support_endpoint_decision(endpoint: str):
     """Resuelve un endpoint de apoyo.
 
@@ -50025,6 +50039,11 @@ def _support_endpoint_decision(endpoint: str):
     if not endpoint:
         return (False, None)
     if endpoint in PERSONAL_ENDPOINTS:
+        return (True, None)
+    # SUS PROPIAS VACACIONES en SU ficha: cualquiera puede abrir la pestaña «Vacaciones» de su
+    # ficha aunque no tenga el permiso de la sección de Personal (son sus días). Solo lectura y
+    # solo esa pestaña: el resto de la ficha sigue exigiendo el permiso de siempre.
+    if endpoint == "personnel_detail_view" and _personnel_own_vacations_request():
         return (True, None)
     if endpoint in SUPPORT_READ_ENDPOINTS:
         return (True, None)  # lookups de solo lectura: cualquier sesión válida
@@ -60724,10 +60743,15 @@ def personnel_detail_view(user_id):
         security = _ensure_user_security(session_db, user)
         _sync_user_access_grants(session_db, user, profile)
         tab = (request.args.get("tab") or "accesos").strip().lower()
-        if tab not in {"accesos", "datos", "documentos", "prl", "contrato"}:
+        if tab not in {"accesos", "datos", "documentos", "prl", "contrato", "vacaciones"}:
             tab = "accesos"
         # El CONTRATO solo lo ven administración y dirección: si no, ni pestaña ni contenido.
         if tab == "contrato" and not _can_view_person_contract():
+            tab = "accesos"
+        # Las VACACIONES de una persona las ven ELLA MISMA, dirección y quien las gestione.
+        propia = str(user.id) == str((_current_user_state() or {}).get("user_id") or "")
+        puede_ver_vacaciones = propia or _can_manage_vacations()
+        if tab == "vacaciones" and not puede_ver_vacaciones:
             tab = "accesos"
 
         if request.method == "POST":
@@ -60864,12 +60888,23 @@ def personnel_detail_view(user_id):
             # CONTRATO (pestaña propia, solo administración y dirección). La fecha de comienzo es
             # la que decide las vacaciones que le corresponden, de ahí el resumen al lado.
             can_view_contract=_can_view_person_contract(),
+            # Pestaña VACACIONES: la ve la propia persona, dirección y quien las gestione.
+            can_view_vacations=puede_ver_vacaciones,
+            can_manage_vacations=_can_manage_vacations(),
+            is_own_profile=propia,
+            vacation_requests=(_vacation_request_rows(session_db, user_id=user.id)
+                               if tab == "vacaciones" else []),
+            vacation_calendar=(_vacation_calendar_payload(session_db, today_local().year,
+                                                          user_ids=[str(user.id)])
+                               if tab == "vacaciones" else None),
+            vacation_kinds=VACATION_KINDS,
+            vacation_year=today_local().year,
             contracts=(_user_contract_rows(session_db, user.id) if tab == "contrato" else []),
             group_companies=(session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
                              if tab == "contrato" else []),
             contract_start=(_user_contract_start(session_db, user.id) if tab == "contrato" else None),
             vacation_balance=(_vacation_balance(session_db, user.id, today_local().year, profile=profile)
-                              if tab == "contrato" else None),
+                              if tab in {"contrato", "vacaciones"} else None),
             vacation_days_default=VACATION_DAYS_PER_YEAR,
         )
     finally:
@@ -87979,8 +88014,21 @@ def integrations_view():
     if request.method == "POST":
         action = (request.form.get("action") or "").strip()
         # Pleo va por empresa del grupo y tiene sus propios endpoints (pleo_account_*).
-        if action == "ping_chartmetric":
+        if action == "save_chartmetric_token":
+            crudo = request.form.get("refresh_token") or ""
+            limpio = _chartmetric_set_token(crudo)
+            if not limpio:
+                _chartmetric_record_status(False, "Sin refresh token.")
+                flash("Chartmetric: se ha borrado el refresh token guardado.", "info")
+            else:
+                # Se prueba al momento: guardar una clave sin saber si vale no sirve de nada.
+                ok, msg = chartmetric_utils.chartmetric_ping()
+                _chartmetric_record_status(ok, msg)
+                flash(f"Chartmetric ({len(limpio)} caracteres guardados): {msg}",
+                      "success" if ok else "danger")
+        elif action == "ping_chartmetric":
             ok, msg = chartmetric_utils.chartmetric_ping()
+            _chartmetric_record_status(ok, msg)
             flash(f"Chartmetric: {msg}", "success" if ok else "danger")
         elif action == "refresh_chartmetric_test":
             s = db()
@@ -88335,6 +88383,7 @@ def integrations_view():
         personnel_options=[{"id": p["id"], "nick": p["label"]} for p in pleo_people],
         pleo_default_window=PLEO_DEFAULT_WINDOW_DAYS,
         chartmetric_configured=chartmetric_utils.chartmetric_configured(),
+        cm_status=_chartmetric_status(),
         enterticket_configured=et_configured,
         et_meta=et_meta,
         et_last_catalog_sync=(_et_fmt_dt(et_meta.last_catalog_sync_at) if et_meta else ""),
@@ -88356,6 +88405,85 @@ def integrations_view():
         cm_last_refresh=cm_last_refresh,
         cm_credit_warning=cm_credit_warning,
     )
+
+
+# ---------------------------------------------------------------------------
+# CHARTMETRIC · el refresh token se guarda en la app (no solo en el entorno)
+# ---------------------------------------------------------------------------
+# Los tokens de Chartmetric caducan y se rotan: hay que poder cambiarlos desde Integraciones sin
+# tocar Render. Se guardan en `AppSetting` (como el resto de ajustes globales) y `chartmetric_utils`
+# los lee por un proveedor; lo del entorno queda de respaldo.
+CM_TOKEN_SETTING = "chartmetric_refresh_token"
+CM_STATUS_SETTING = "chartmetric_last_status"      # OK | ERROR
+CM_ERROR_SETTING = "chartmetric_last_error"
+CM_CHECKED_SETTING = "chartmetric_last_check"
+# Caché corto del token: `_get_app_setting` abre una sesión de BD y esto se consulta en CADA
+# llamada a la API. 60 s basta para que un cambio se note enseguida sin machacar la BD.
+_CM_TOKEN_CACHE = {"value": None, "at": 0.0}
+
+
+def _chartmetric_stored_token() -> str:
+    ahora = time.time()
+    if _CM_TOKEN_CACHE["value"] is None or (ahora - _CM_TOKEN_CACHE["at"]) > 60:
+        try:
+            _CM_TOKEN_CACHE["value"] = (_get_app_setting(CM_TOKEN_SETTING) or "").strip()
+        except Exception:
+            _CM_TOKEN_CACHE["value"] = ""
+        _CM_TOKEN_CACHE["at"] = ahora
+    return _CM_TOKEN_CACHE["value"] or ""
+
+
+def _chartmetric_set_token(raw: str) -> str:
+    """Guarda el refresh token limpio y tira lo cacheado (token guardado y access token del proceso)."""
+    import chartmetric_utils as cm
+    limpio = cm.clean_api_key(raw)
+    _set_app_setting(CM_TOKEN_SETTING, limpio)
+    _CM_TOKEN_CACHE["value"], _CM_TOKEN_CACHE["at"] = limpio, time.time()
+    cm.reset_access_token()
+    return limpio
+
+
+def _chartmetric_record_status(ok: bool, mensaje: str) -> None:
+    """Deja apuntado el resultado de la última comprobación, para que la etiqueta de estado de
+    Integraciones diga la verdad y no un «Configurada» genérico."""
+    try:
+        _set_app_setting(CM_STATUS_SETTING, "OK" if ok else "ERROR")
+        _set_app_setting(CM_ERROR_SETTING, "" if ok else (mensaje or "")[:500])
+        _set_app_setting(CM_CHECKED_SETTING, datetime.now(TZ_MADRID).isoformat(timespec="seconds"))
+    except Exception:
+        pass
+
+
+def _chartmetric_status() -> dict:
+    """Estado de la integración para la pantalla: si hay clave, qué dijo la última prueba y cuándo."""
+    import chartmetric_utils as cm
+    token = cm.refresh_token_value()
+    estado = (_get_app_setting(CM_STATUS_SETTING) or "").strip().upper()
+    cuando = (_get_app_setting(CM_CHECKED_SETTING) or "").strip()
+    try:
+        cuando_dt = datetime.fromisoformat(cuando) if cuando else None
+    except Exception:
+        cuando_dt = None
+    if not token:
+        clase, etiqueta = "text-bg-secondary", "Desactivada"
+    elif estado == "ERROR":
+        clase, etiqueta = "text-bg-danger", "Con error"
+    elif estado == "OK":
+        clase, etiqueta = "text-bg-success", "Conectada"
+    else:
+        clase, etiqueta = "text-bg-warning text-dark", "Sin comprobar"
+    return {
+        "has_token": bool(token),
+        "masked": (token[:4] + "…" + token[-4:]) if len(token) > 10 else ("•" * len(token)),
+        "length": len(token),
+        # De dónde sale la clave: importa saber si la está mandando el entorno de Render.
+        "from_env": bool(token) and not _chartmetric_stored_token(),
+        "state": estado or "UNKNOWN",
+        "badge_class": clase,
+        "badge_label": etiqueta,
+        "error": (_get_app_setting(CM_ERROR_SETTING) or "").strip(),
+        "checked_at": cuando_dt,
+    }
 
 
 # ===========================================================================
@@ -91383,6 +91511,9 @@ def _vacation_balance(session_db, user_id, year: int, profile=None, contracts=No
         "free_pending": libres_pendientes,
         "start_date": inicio, "end_date": fin,
         "has_contract": bool(inicio),
+        # Sin fecha de comienzo NO se sabe lo que le corresponde: los días se pueden seguir
+        # apuntando y pidiendo, pero el «le quedan» no significa nada y hay que advertirlo.
+        "unknown_entitlement": not bool(inicio),
     }
 
 
@@ -92042,11 +92173,12 @@ def _vacation_check_request(session_db, user_id, days: list, *, exclude_request_
         resto = f" y {len(pisados_utiles) - 5} más" if len(pisados_utiles) > 5 else ""
         return f"Ya tienes pedidos o aprobados estos días: {muestra}{resto}.", None
 
-    if not ignore_balance and kind == "VACACIONES":
-        saldo = _vacation_balance(session_db, user_id, year)
-        if not saldo["has_contract"]:
-            return ("Todavía no consta tu fecha de comienzo: administración tiene que subir tu "
-                    "contrato para poder calcular los días que te corresponden."), None
+    # ⚠️ SIN CONTRATO no se BLOQUEA: no se sabe cuántos días le corresponden, así que no se puede
+    # aplicar el tope, pero apuntar y pedir días tiene que seguir funcionando (si no, no se podía
+    # meter en el sistema lo ya disfrutado). La advertencia la dan las pantallas.
+    saldo_previo = _vacation_balance(session_db, user_id, year) if kind == "VACACIONES" else None
+    if not ignore_balance and kind == "VACACIONES" and saldo_previo["has_contract"]:
+        saldo = saldo_previo
         disponibles = saldo["remaining"]
         if exclude_request_id:
             # Al EDITAR, los días de la propia petición vuelven al saldo.
@@ -92060,7 +92192,8 @@ def _vacation_check_request(session_db, user_id, days: list, *, exclude_request_
             return (f"Has marcado {len(cuentan)} día{'' if len(cuentan) == 1 else 's'} y solo te "
                     f"queda{'' if disponibles == 1 else 'n'} {disponibles}."), None
 
-    return None, {"solapes": _vacation_overlaps(session_db, user_id, cuentan), "cuentan": len(cuentan)}
+    return None, {"solapes": _vacation_overlaps(session_db, user_id, cuentan), "cuentan": len(cuentan),
+                  "sin_contrato": bool(saldo_previo and not saldo_previo["has_contract"])}
 
 
 def _vacation_notify_managers(session_db, req) -> None:
@@ -92779,6 +92912,14 @@ def _home_my_vacations() -> dict:
         return {}
     finally:
         session_db.close()
+
+
+# El refresh token de Chartmetric sale de la app (Integraciones) y, si no hay, del entorno.
+try:
+    import chartmetric_utils as _cm_boot
+    _cm_boot.set_token_provider(_chartmetric_stored_token)
+except Exception:
+    pass
 
 
 def _register_merge_routes():

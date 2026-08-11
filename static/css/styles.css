@@ -3876,3 +3876,17 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 .vac-person__photo{ width:40px; height:40px; border-radius:50%; object-fit:cover; flex-shrink:0; border:2px solid #fff; box-shadow:0 0 0 1px #dee2e6; }
 .vac-person__bar{ height:6px; border-radius:99px; background:#e9ecef; overflow:hidden; min-width:90px; }
 .vac-person__bar > span{ display:block; height:100%; background:var(--brand-primary,#E33D48); }
+
+/* Días libres (cuenta aparte de las vacaciones) y días no laborables de la oficina. */
+.vac-day.is-nonworking{ background:#ede7f6; color:#4527a0; font-weight:700;
+                        background-image:repeating-linear-gradient(45deg,rgba(69,39,160,.10) 0 5px,transparent 5px 10px); }
+.vac-day.is-approved.is-free{ background:#e6dcf3; color:#4a148c; }
+.vac-day.is-pending.is-free{ background:#f3e9fb; color:#6A1B9A; }
+.vac-day__dot.is-free{ background:#6A1B9A; }
+.vac-chip.is-free{ border-color:#6A1B9A; }
+.vac-chip.is-free.is-pending{ border-color:#9575cd; }
+/* La barra de botones de «Mis vacaciones», al estilo de las fichas. */
+.vac-actions{ display:flex; flex-wrap:wrap; gap:10px; }
+.vac-actions .btn{ display:inline-flex; align-items:center; gap:8px; border-radius:999px; padding:9px 18px; font-weight:600; }
+.vac-stat--free{ border-color:#6A1B9A; }
+.vac-stat--free .vac-stat__n{ color:#6A1B9A; }

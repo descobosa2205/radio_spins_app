@@ -5,7 +5,7 @@
 {% set tabs = [
   ('calendario', 'Calendario', 'fa-calendar-days', 0),
   ('peticiones', 'Peticiones', 'fa-inbox', pending|length),
-  ('festivos', 'Festivos y normas', 'fa-flag', 0)
+  ('festivos', 'Festivos y no laborables', 'fa-flag', 0)
 ] %}
 <ul class="nav nav-tabs contract-tabs mb-3">
   {% for key, label, icon, n in tabs %}
@@ -22,7 +22,7 @@
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
   <div>
     <h4 class="m-0"><i class="fa fa-umbrella-beach text-danger me-2"></i>Vacaciones y días libres</h4>
-    <div class="text-muted small">Días laborables: sábados, domingos y festivos de Madrid no consumen saldo.</div>
+    <div class="text-muted small">Días laborables: sábados, domingos, festivos y no laborables no consumen saldo.</div>
   </div>
   <form method="get" class="d-flex align-items-center gap-2 m-0">
     <input type="hidden" name="tab" value="{{ tab }}">
@@ -54,13 +54,18 @@
             <div class="list-group-item px-0">
               <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
                 <div class="vac-person" style="min-width:0;">
-                  <img src="{{ r.photo_url or DEFAULT_AVATAR_URL }}" class="vac-person__photo" alt="">
+                  <img src="{{ r.photo_url or DEFAULT_AVATAR_URL }}" class="vac-person__photo" data-avatar="1" alt="">
                   <div style="min-width:0;">
-                    <div class="fw-semibold">{{ r.nick }}</div>
-                    <div class="small text-muted">
-                      {{ r.range_label }} · {{ r.days_count }} día{{ '' if r.days_count == 1 else 's' }}
-                      {% if r.note %} · {{ r.note }}{% endif %}
+                    <div class="fw-semibold">
+                      {{ r.nick }}
+                      <span class="badge {{ 'text-bg-secondary' if r.kind == 'DIA_LIBRE' else 'text-bg-light border' }} ms-1">
+                        <i class="fa {{ r.kind_meta.icon }} me-1"></i>{{ r.kind_meta.label }}
+                      </span>
                     </div>
+                    <div class="small text-muted">
+                      {{ r.range_label }} · {{ r.days_count }} {{ r.kind_meta.singular if r.days_count == 1 else r.kind_meta.plural }}
+                    </div>
+                    {% if r.note %}<div class="small"><strong>Motivo:</strong> {{ r.note }}</div>{% endif %}
                     <div class="small text-muted">Pedidas el {{ r.created_at.strftime('%d/%m/%Y') if r.created_at else '—' }}</div>
                   </div>
                 </div>
@@ -69,8 +74,8 @@
                     <input type="hidden" name="decision" value="APPROVED">
                     <button class="btn btn-success btn-sm"><i class="fa fa-check me-1"></i>Aprobar</button>
                   </form>
-                  <button class="btn btn-outline-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#rechazarModal"
-                          onclick="prepararRechazo({{ url_for('vacation_request_decide', request_id=r.id)|tojson|forceescape }}, {{ r.nick|tojson|forceescape }})">
+                  <button class="btn btn-outline-danger btn-sm" type="button"
+                          data-rechazar="{{ url_for('vacation_request_decide', request_id=r.id) }}" data-nick="{{ r.nick }}">
                     <i class="fa fa-xmark me-1"></i>Rechazar
                   </button>
                 </div>
@@ -91,14 +96,16 @@
         <div class="table-responsive">
           <table class="table table-sm align-middle">
             <thead><tr>
-              <th>Persona</th><th>Días</th><th>Fechas</th><th>Estado</th><th>Resuelta por</th><th></th>
+              <th>Persona</th><th>Tipo</th><th>Días</th><th>Fechas</th><th>Motivo</th><th>Estado</th><th>Resuelta por</th><th></th>
             </tr></thead>
             <tbody>
               {% for r in history %}
                 <tr>
                   <td class="fw-semibold">{{ r.nick }}</td>
+                  <td><i class="fa {{ r.kind_meta.icon }} text-muted me-1"></i>{{ r.kind_meta.label }}</td>
                   <td>{{ r.days_count }}</td>
                   <td>{{ r.range_label }}</td>
+                  <td class="small text-muted">{{ r.note or '—' }}</td>
                   <td><span class="badge {{ r.status_meta.class }}">{{ r.status_meta.short }}</span></td>
                   <td class="small text-muted">{{ r.decided_by or '—' }}{% if r.decided_at %} · {{ r.decided_at.strftime('%d/%m/%Y') }}{% endif %}</td>
                   <td class="text-end">
@@ -119,7 +126,7 @@
     <div class="modal-dialog">
       <form method="post" id="rechazarForm" class="modal-content">
         <input type="hidden" name="decision" value="REJECTED">
-        <div class="modal-header"><h5 class="modal-title">Rechazar vacaciones</h5>
+        <div class="modal-header"><h5 class="modal-title">Rechazar</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
           <p class="text-muted">Se le avisa a <strong id="rechazarNick"></strong> con el motivo.</p>
@@ -134,10 +141,13 @@
     </div>
   </div>
   <script>
-    function prepararRechazo(url, nick){
-      document.getElementById('rechazarForm').action = url;
-      document.getElementById('rechazarNick').textContent = nick || '';
-    }
+    document.querySelectorAll('[data-rechazar]').forEach(function(b){
+      b.addEventListener('click', function(){
+        document.getElementById('rechazarForm').action = b.dataset.rechazar;
+        document.getElementById('rechazarNick').textContent = b.dataset.nick || '';
+        new bootstrap.Modal(document.getElementById('rechazarModal')).show();
+      });
+    });
   </script>
 
 {% elif tab == 'festivos' %}
@@ -147,30 +157,36 @@
       <div class="card">
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-            <h6 class="m-0">Festivos de Madrid · {{ year }}</h6>
-            <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#festivoModal"
-                    onclick="prepararFestivo('','','NACIONAL')"><i class="fa fa-plus me-1"></i>Añadir festivo</button>
+            <h6 class="m-0">Festivos y días no laborables · {{ year }}</h6>
+            <div class="d-flex gap-2">
+              <button class="btn btn-sm btn-outline-primary" type="button" data-abrir-festivo><i class="fa fa-plus me-1"></i>Añadir festivo</button>
+              <button class="btn btn-sm btn-primary" type="button" data-abrir-nolaborable><i class="fa fa-calendar-xmark me-1"></i>Marcar no laborables</button>
+            </div>
           </div>
           <div class="alert alert-light border small">
             <i class="fa fa-circle-info me-1"></i>
-            La lista se genera sola cada año (nacionales, Comunidad de Madrid y Madrid capital), pero el
-            calendario laboral lo publica el BOE y hay traslados: <strong>revísalo y corrígelo aquí</strong>.
-            Lo que se cambie a mano no se vuelve a pisar.
+            La lista de festivos se genera sola cada año (nacionales, Comunidad de Madrid y Madrid
+            capital), pero el calendario laboral lo publica el BOE y hay traslados:
+            <strong>revísalo y corrígelo aquí</strong>. Lo que se cambie a mano no se vuelve a pisar.
+            Un <strong>día no laborable</strong> es un día en el que la oficina no trabaja (un puente,
+            un cierre): <strong>no consume vacaciones</strong> a nadie.
           </div>
           <div class="table-responsive">
             <table class="table table-sm align-middle">
-              <thead><tr><th>Fecha</th><th>Festivo</th><th>Ámbito</th><th></th></tr></thead>
+              <thead><tr><th>Fecha</th><th>Motivo</th><th>Ámbito</th><th></th></tr></thead>
               <tbody>
                 {% for h in holidays %}
                   <tr>
                     <td class="fw-semibold">{{ h.day.strftime('%d/%m/%Y') }}</td>
                     <td>{{ h.name }}</td>
-                    <td><span class="badge text-bg-light border">{{ h.scope_label }}</span></td>
+                    <td>
+                      <span class="badge {{ 'text-bg-secondary' if h.scope == 'EMPRESA' else 'text-bg-light border' }}">{{ h.scope_label }}</span>
+                    </td>
                     <td class="text-end">
-                      <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#festivoModal"
-                              onclick="prepararFestivo({{ h.day.isoformat()|tojson|forceescape }}, {{ h.name|tojson|forceescape }}, {{ h.scope|tojson|forceescape }})"><i class="fa fa-pen"></i></button>
+                      <button class="btn btn-sm btn-outline-secondary" type="button" data-editar-festivo
+                              data-day="{{ h.day.isoformat() }}" data-name="{{ h.name }}" data-scope="{{ h.scope }}"><i class="fa fa-pen"></i></button>
                       {% if h.id %}
-                        <form method="post" action="{{ url_for('vacation_holiday_delete', holiday_id=h.id) }}" class="d-inline m-0" data-confirm="¿Quitar este festivo del calendario?">
+                        <form method="post" action="{{ url_for('vacation_holiday_delete', holiday_id=h.id) }}" class="d-inline m-0" data-confirm="¿Quitar este día del calendario?">
                           <button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash"></i></button>
                         </form>
                       {% endif %}
@@ -187,7 +203,7 @@
     <div class="col-12 col-lg-5">
       <div class="card">
         <div class="card-body">
-          <h6 class="mb-3">Normas de elección de vacaciones</h6>
+          <h6 class="mb-3">Normas de elección</h6>
           <p class="small text-muted">Es lo que se le muestra a cada persona al pedir sus días.</p>
           <form method="post" action="{{ url_for('vacation_rules_save') }}">
             <textarea name="rules_text" class="form-control" rows="12">{{ rules_text }}</textarea>
@@ -226,12 +242,74 @@
       </form>
     </div>
   </div>
+
+  {# Marcar UNO O VARIOS días como no laborables, sobre el calendario. #}
+  <div class="modal fade" id="noLaborableModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <form method="post" action="{{ url_for('vacation_nonworking_save') }}" class="modal-content">
+        <div class="modal-header"><h5 class="modal-title"><i class="fa fa-calendar-xmark me-2"></i>Marcar días no laborables</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="alert alert-light border small">
+            Días en los que <strong>la oficina no trabaja</strong>. No consumen vacaciones a nadie y
+            se ven en el calendario de todos.
+          </div>
+          <div class="vac-counter mb-3">
+            <div>
+              <div class="vac-counter__n" id="nlN">0</div>
+              <div class="vac-counter__lbl">Días marcados</div>
+            </div>
+            <div class="flex-grow-1 small text-muted">Pincha o arrastra sobre el calendario.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Motivo</label>
+            <input name="name" class="form-control" placeholder="Por ejemplo: puente de diciembre" value="No laborable">
+          </div>
+          <input type="hidden" name="days" id="nlDays">
+          <div id="nlCalendario"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary" id="nlEnviar" disabled>Marcar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/vacaciones.js') }}"></script>
+  <script id="vacFestData" type="application/json">{{ calendar_payload|tojson }}</script>
   <script>
-    function prepararFestivo(day, name, scope){
+  (function(){
+    var datos = JSON.parse(document.getElementById('vacFestData').textContent || '{}');
+
+    function abrirFestivo(day, name, scope){
       document.getElementById('festivoDay').value = day || '';
       document.getElementById('festivoName').value = name || '';
       document.getElementById('festivoScope').value = scope || 'NACIONAL';
+      new bootstrap.Modal(document.getElementById('festivoModal')).show();
     }
+    document.querySelector('[data-abrir-festivo]').addEventListener('click', function(){ abrirFestivo('', '', 'NACIONAL'); });
+    document.querySelectorAll('[data-editar-festivo]').forEach(function(b){
+      b.addEventListener('click', function(){ abrirFestivo(b.dataset.day, b.dataset.name, b.dataset.scope); });
+    });
+
+    /* ⚠️ El calendario se construye AL ABRIR, no en `shown.bs.modal`: ese evento no llega con
+       modal_stack.js por medio y el modal se quedaba vacío. */
+    var calNL = null;
+    document.querySelector('[data-abrir-nolaborable]').addEventListener('click', function(){
+      if (!calNL) {
+        calNL = VacCalendar.create('#nlCalendario', {
+          mode: 'year', year: datos.year, holidays: datos.holidays, days: [], selectable: true,
+          onChange: function(sel){
+            document.getElementById('nlDays').value = sel.join(',');
+            document.getElementById('nlN').textContent = sel.length;
+            document.getElementById('nlEnviar').disabled = (sel.length === 0);
+          }
+        });
+      } else { calNL.clear(); }
+      new bootstrap.Modal(document.getElementById('noLaborableModal')).show();
+    });
+  })();
   </script>
 
 {% else %}
@@ -242,8 +320,10 @@
         <div class="vac-legend">
           <span><i style="background:#e8eef3;"></i>Fin de semana</span>
           <span><i style="background:#fdeaec;"></i>Festivo</span>
-          <span><i style="border:2px solid #2e7d32;background:#fff;"></i>Aprobadas</span>
-          <span><i style="border:2px dashed #c99a00;background:#fff;"></i>Pendientes</span>
+          <span><i style="background:#ede7f6;"></i>No laborable</span>
+          <span><i style="border:2px solid #2e7d32;background:#fff;"></i>Vacaciones</span>
+          <span><i style="border:2px solid #6A1B9A;background:#fff;"></i>Día libre</span>
+          <span><i style="border:2px dashed #c99a00;background:#fff;"></i>Sin aprobar</span>
         </div>
       </div>
       <div id="calOficina"></div>
@@ -254,20 +334,26 @@
     <div class="card-body">
       <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
         <h6 class="m-0">Personal de la oficina · {{ year }}</h6>
-        <span class="text-muted small">{{ people|length }} persona{{ '' if people|length == 1 else 's' }}</span>
+        <div class="d-flex align-items-center gap-2">
+          <span class="text-muted small">{{ people|length }} persona{{ '' if people|length == 1 else 's' }}</span>
+          <button class="btn btn-sm btn-primary" type="button" data-abrir-conceder>
+            <i class="fa fa-gift me-1"></i>Conceder día libre
+          </button>
+        </div>
       </div>
       <div class="table-responsive">
         <table class="table align-middle">
           <thead><tr>
             <th>Persona</th><th class="text-center">Le corresponden</th><th class="text-center">Disfrutados</th>
-            <th class="text-center">Aprobados</th><th class="text-center">Pendientes</th><th class="text-center">Le quedan</th><th></th>
+            <th class="text-center">Aprobados</th><th class="text-center">Pendientes</th>
+            <th class="text-center">Le quedan</th><th class="text-center">Días libres</th><th></th>
           </tr></thead>
           <tbody>
             {% for p in people %}
               <tr>
                 <td>
                   <div class="vac-person">
-                    <img src="{{ p.photo_url or DEFAULT_AVATAR_URL }}" class="vac-person__photo" alt="">
+                    <img src="{{ p.photo_url or DEFAULT_AVATAR_URL }}" class="vac-person__photo" data-avatar="1" alt="">
                     <div>
                       <div class="fw-semibold">{{ p.nick }}</div>
                       <div class="small text-muted">
@@ -285,16 +371,25 @@
                 <td class="text-center">{{ p.balance.used }}</td>
                 <td class="text-center">{% if p.balance.pending %}<span class="badge text-bg-warning text-dark">{{ p.balance.pending }}</span>{% else %}0{% endif %}</td>
                 <td class="text-center fw-bold">{{ p.balance.remaining }}</td>
+                <td class="text-center">
+                  <span class="badge text-bg-light border" style="color:#6A1B9A;">{{ p.balance.free_used }}</span>
+                  {% if p.balance.free_pending %}<span class="badge text-bg-warning text-dark ms-1">+{{ p.balance.free_pending }}</span>{% endif %}
+                </td>
                 <td class="text-end">
                   <div class="dropdown">
                     <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-vertical"></i></button>
                     <ul class="dropdown-menu dropdown-menu-end">
-                      <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#editarPersonaModal"
-                          onclick="prepararPersona({{ p.user_id|tojson|forceescape }}, {{ p.nick|tojson|forceescape }}, {{ (p.balance.base if p.balance.base != days_per_year_default else '')|tojson|forceescape }}, {{ p.balance.adjustment|tojson|forceescape }})">
+                      <li><button class="dropdown-item" type="button" data-config-persona
+                            data-uid="{{ p.user_id }}" data-nick="{{ p.nick }}"
+                            data-dias="{{ p.balance.base if p.balance.base != days_per_year_default else '' }}"
+                            data-ajuste="{{ p.balance.adjustment or '' }}">
                           <i class="fa fa-sliders fa-fw me-1"></i>Configurar sus días</button></li>
-                      <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#apuntarDiasModal"
-                          onclick="prepararApunte({{ p.user_id|tojson|forceescape }}, {{ p.nick|tojson|forceescape }})">
-                          <i class="fa fa-calendar-plus fa-fw me-1"></i>Apuntarle días</button></li>
+                      <li><button class="dropdown-item" type="button" data-apuntar
+                            data-uid="{{ p.user_id }}" data-nick="{{ p.nick }}" data-kind="VACACIONES">
+                          <i class="fa fa-umbrella-beach fa-fw me-1"></i>Apuntarle vacaciones</button></li>
+                      <li><button class="dropdown-item" type="button" data-apuntar
+                            data-uid="{{ p.user_id }}" data-nick="{{ p.nick }}" data-kind="DIA_LIBRE">
+                          <i class="fa fa-mug-hot fa-fw me-1"></i>Apuntarle días libres</button></li>
                       <li><a class="dropdown-item" href="{{ url_for('personnel_detail_view', user_id=p.user_id, tab='contrato') }}">
                           <i class="fa fa-file-contract fa-fw me-1"></i>Ver su contrato</a></li>
                       <li><a class="dropdown-item" href="{{ url_for('vacaciones_view', tab='calendario', anio=year, mes=month, persona=p.user_id) }}">
@@ -337,10 +432,64 @@
     </div>
   </div>
 
+  {# CONCEDER un día libre: la empresa se lo regala a quien se elija y se les avisa. #}
+  <div class="modal fade" id="concederModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <form method="post" action="{{ url_for('vacation_grant_free_day') }}" class="modal-content">
+        <div class="modal-header"><h5 class="modal-title"><i class="fa fa-gift me-2"></i>Conceder día libre</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="alert alert-light border small">
+            Se les concede el día <strong>ya aprobado</strong> y se les manda el aviso de enhorabuena
+            (por correo y en la app). No consume sus vacaciones.
+          </div>
+
+          <div class="mb-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <label class="form-label m-0">¿A quién?</label>
+              <button class="btn btn-sm btn-outline-secondary" type="button" data-todos>Marcar a todos</button>
+            </div>
+            <div class="row g-2">
+              {% for p in people %}
+                <div class="col-12 col-md-6 col-lg-4">
+                  <label class="d-flex align-items-center gap-2 border rounded p-2 h-100" style="cursor:pointer;">
+                    <input class="form-check-input m-0" type="checkbox" name="user_ids" value="{{ p.user_id }}">
+                    <img src="{{ p.photo_url or DEFAULT_AVATAR_URL }}" class="vac-person__photo" data-avatar="1" alt=""
+                         style="width:30px;height:30px;">
+                    <span class="small fw-semibold text-truncate">{{ p.nick }}</span>
+                  </label>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="vac-counter mb-3">
+            <div>
+              <div class="vac-counter__n" id="concederN">0</div>
+              <div class="vac-counter__lbl">Días marcados</div>
+            </div>
+            <div class="flex-grow-1 small text-muted">Pincha o arrastra en el calendario.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Motivo</label>
+            <input name="note" class="form-control" placeholder="Por ejemplo: por el cierre del trimestre">
+          </div>
+          <input type="hidden" name="days" id="concederDays">
+          <div id="concederCalendario"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary" id="concederEnviar" disabled><i class="fa fa-gift me-1"></i>Conceder y avisar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div class="modal fade" id="apuntarDiasModal" tabindex="-1">
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
       <form method="post" id="apuntarDiasForm" class="modal-content">
-        <div class="modal-header"><h5 class="modal-title">Apuntar días a <span id="apuntarNick"></span></h5>
+        <input type="hidden" name="kind" id="apuntarKind" value="VACACIONES">
+        <div class="modal-header"><h5 class="modal-title"><span id="apuntarTitulo">Apuntar días</span> a <span id="apuntarNick"></span></h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
           <div class="alert alert-light border small">
@@ -352,15 +501,15 @@
               <div class="vac-counter__n" id="apuntarN">0</div>
               <div class="vac-counter__lbl">Días que cuentan</div>
             </div>
-            <div class="flex-grow-1 small text-muted">Pincha o arrastra. Fines de semana y festivos no restan.</div>
-            <div class="form-check">
+            <div class="flex-grow-1 small text-muted">Pincha o arrastra. Fines de semana, festivos y no laborables no cuentan.</div>
+            <div class="form-check" id="apuntarForceCaja">
               <input class="form-check-input" type="checkbox" name="force" value="1" id="apuntarForce">
               <label class="form-check-label small" for="apuntarForce">Aunque se pase de su saldo</label>
             </div>
           </div>
           <div class="mb-3">
-            <label class="form-label">Nota (opcional)</label>
-            <input name="note" class="form-control" placeholder="Por ejemplo: días acordados de 2025">
+            <label class="form-label" id="apuntarNotaLabel">Nota (opcional)</label>
+            <input name="note" id="apuntarNota" class="form-control" placeholder="Por ejemplo: días acordados de 2025">
           </div>
           <input type="hidden" name="days" id="apuntarDays">
           <div id="apuntarCalendario"></div>
@@ -375,43 +524,85 @@
 
   <script src="{{ url_for('static', filename='js/vacaciones.js') }}"></script>
   <script id="vacOficinaData" type="application/json">{{ calendar_payload|tojson }}</script>
+  <script id="vacKindsData" type="application/json">{{ vacation_kinds|tojson }}</script>
   <script>
   (function(){
     var datos = JSON.parse(document.getElementById('vacOficinaData').textContent || '{}');
+    var TIPOS = JSON.parse(document.getElementById('vacKindsData').textContent || '{}');
+
     VacCalendar.create('#calOficina', {
       mode: 'month', year: datos.year, month: {{ month }},
       holidays: datos.holidays, days: datos.days, people: datos.people || []
     });
 
-    window.prepararPersona = function(uid, nick, dias, ajuste){
-      document.getElementById('editarPersonaForm').action = '/vacaciones/persona/' + uid + '/configurar';
-      document.getElementById('editarPersonaNick').textContent = nick || '';
-      document.getElementById('editarDias').value = dias || '';
-      document.getElementById('editarAjuste').value = (ajuste && ajuste !== 0) ? ajuste : '';
-    };
-
-    var calApunte = null;
-    window.prepararApunte = function(uid, nick){
-      document.getElementById('apuntarDiasForm').action = '/vacaciones/persona/' + uid + '/dias';
-      document.getElementById('apuntarNick').textContent = nick || '';
-      document.getElementById('apuntarDays').value = '';
-      document.getElementById('apuntarN').textContent = '0';
-      document.getElementById('apuntarEnviar').disabled = true;
-      if (calApunte) calApunte.clear();
-    };
-
-    var modalApunte = document.getElementById('apuntarDiasModal');
-    modalApunte.addEventListener('shown.bs.modal', function(){
-      if (calApunte) return;
-      calApunte = VacCalendar.create('#apuntarCalendario', {
-        mode: 'year', year: datos.year, holidays: datos.holidays, days: [],
-        selectable: true,
-        onChange: function(sel, cuentan){
-          document.getElementById('apuntarDays').value = sel.join(',');
-          document.getElementById('apuntarN').textContent = cuentan.length;
-          document.getElementById('apuntarEnviar').disabled = (cuentan.length === 0);
-        }
+    // ---- Configurar los días de una persona ----
+    document.querySelectorAll('[data-config-persona]').forEach(function(b){
+      b.addEventListener('click', function(){
+        document.getElementById('editarPersonaForm').action =
+          {{ url_for('vacation_person_config', user_id='__UID__')|tojson }}.replace('__UID__', b.dataset.uid);
+        document.getElementById('editarPersonaNick').textContent = b.dataset.nick || '';
+        document.getElementById('editarDias').value = b.dataset.dias || '';
+        document.getElementById('editarAjuste').value = b.dataset.ajuste || '';
+        new bootstrap.Modal(document.getElementById('editarPersonaModal')).show();
       });
+    });
+
+    /* ---- Apuntar días (vacaciones o día libre) ----
+       ⚠️ El calendario se construye AQUÍ, en el propio clic, y NO en `shown.bs.modal`: con
+       modal_stack.js por medio ese evento no llega nunca (llega `show`, pero no `shown`), y el
+       modal salía con el calendario VACÍO — por eso «apuntar días» no guardaba nada. */
+    var calApunte = null;
+    document.querySelectorAll('[data-apuntar]').forEach(function(b){
+      b.addEventListener('click', function(){
+        var kind = b.dataset.kind || 'VACACIONES';
+        var meta = TIPOS[kind] || {};
+        var esLibre = (kind === 'DIA_LIBRE');
+        document.getElementById('apuntarDiasForm').action =
+          {{ url_for('vacation_person_days', user_id='__UID__')|tojson }}.replace('__UID__', b.dataset.uid);
+        document.getElementById('apuntarKind').value = kind;
+        document.getElementById('apuntarNick').textContent = b.dataset.nick || '';
+        document.getElementById('apuntarTitulo').textContent = 'Apuntar ' + (meta.plural || 'días');
+        document.getElementById('apuntarForceCaja').classList.toggle('d-none', esLibre);
+        document.getElementById('apuntarNotaLabel').textContent = esLibre ? 'Motivo' : 'Nota (opcional)';
+        document.getElementById('apuntarNota').value = '';
+        document.getElementById('apuntarDays').value = '';
+        document.getElementById('apuntarN').textContent = '0';
+        document.getElementById('apuntarEnviar').disabled = true;
+
+        if (!calApunte) {
+          calApunte = VacCalendar.create('#apuntarCalendario', {
+            mode: 'year', year: datos.year, holidays: datos.holidays, days: [], selectable: true,
+            onChange: function(sel, cuentan){
+              document.getElementById('apuntarDays').value = sel.join(',');
+              document.getElementById('apuntarN').textContent = cuentan.length;
+              document.getElementById('apuntarEnviar').disabled = (cuentan.length === 0);
+            }
+          });
+        } else { calApunte.clear(); }
+        new bootstrap.Modal(document.getElementById('apuntarDiasModal')).show();
+      });
+    });
+
+    // ---- Conceder día libre (mismo patrón: el calendario se crea en el clic) ----
+    var calConceder = null;
+    document.querySelector('[data-abrir-conceder]').addEventListener('click', function(){
+      if (!calConceder) {
+        calConceder = VacCalendar.create('#concederCalendario', {
+          mode: 'year', year: datos.year, holidays: datos.holidays, days: [], selectable: true,
+          onChange: function(sel){
+            document.getElementById('concederDays').value = sel.join(',');
+            document.getElementById('concederN').textContent = sel.length;
+            document.getElementById('concederEnviar').disabled = (sel.length === 0);
+          }
+        });
+      } else { calConceder.clear(); }
+      new bootstrap.Modal(document.getElementById('concederModal')).show();
+    });
+    document.querySelector('[data-todos]').addEventListener('click', function(){
+      var cajas = document.querySelectorAll('#concederModal input[name="user_ids"]');
+      var todas = [].every.call(cajas, function(c){ return c.checked; });
+      cajas.forEach(function(c){ c.checked = !todas; });
+      this.textContent = todas ? 'Marcar a todos' : 'Desmarcar a todos';
     });
   })();
   </script>

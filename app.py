@@ -49821,7 +49821,12 @@ PERSONAL_ENDPOINTS = {"my_expenses_view", "my_expenses_assign", "my_expense_assi
                       "notifications_list", "notifications_mark_read",
                       # MIS VACACIONES son datos propios: cualquiera con sesión entra en las suyas.
                       "mis_vacaciones_view", "mis_vacaciones_request", "mis_vacaciones_cancel",
-                      "mis_vacaciones_check"}
+                      "mis_vacaciones_check",
+                      # ⚠️ El AVISO de vacaciones/día libre/no laborable es SUYO: aunque el endpoint
+                      # se llame `vacation_*`, no puede exigir el permiso de la sección de gestión
+                      # (si no, la persona a la que se avisa se come un 403 al pinchar su propio
+                      # aviso). Dentro se comprueba que los días son suyos.
+                      "vacation_notice_view"}
 
 
 # PEDIR promoción o marketing lo puede hacer CUALQUIERA de la empresa, aunque no tenga permiso de
@@ -60683,6 +60688,8 @@ def personnel_detail_view(user_id):
             # la que decide las vacaciones que le corresponden, de ahí el resumen al lado.
             can_view_contract=_can_view_person_contract(),
             contracts=(_user_contract_rows(session_db, user.id) if tab == "contrato" else []),
+            group_companies=(session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+                             if tab == "contrato" else []),
             contract_start=(_user_contract_start(session_db, user.id) if tab == "contrato" else None),
             vacation_balance=(_vacation_balance(session_db, user.id, today_local().year, profile=profile)
                               if tab == "contrato" else None),
@@ -85635,7 +85642,7 @@ AGENDA_PALETTE = [
     "#20c997", "#0d6efd", "#b5179e", "#e07a5f", "#457b9d", "#9c6644",
 ]
 
-AGENDA_KIND_ORDER = ["concierto", "festival", "evento", "lanzamiento", "accion", "promocion", "medios", "cumple", "otro", "bloqueo"]
+AGENDA_KIND_ORDER = ["concierto", "festival", "evento", "lanzamiento", "accion", "promocion", "medios", "cumple", "vacaciones", "otro", "bloqueo"]
 AGENDA_KIND_META = {
     "concierto":   {"label": "Conciertos",      "icon": "fa-music",           "color": "#E33D48"},
     "festival":    {"label": "Festivales",      "icon": "fa-star",            "color": "#6f42c1"},
@@ -85647,7 +85654,67 @@ AGENDA_KIND_META = {
     "cumple":      {"label": "Cumpleaños",      "icon": "fa-cake-candles",    "color": "#e83e8c"},
     "otro":        {"label": "Otros",           "icon": "fa-thumbtack",       "color": "#0d6efd"},
     "bloqueo":     {"label": "Bloqueos",        "icon": "fa-ban",             "color": "#6c757d"},
+    # Los días propios de cada uno (vacaciones, días libres, no laborables y festivos). No son de
+    # ningún artista: solo salen en el calendario de INICIO y solo a quien le tocan.
+    "vacaciones":  {"label": "Vacaciones y días libres", "icon": "fa-umbrella-beach", "color": "#E33D48"},
 }
+
+
+def _agenda_personal_days(session_db, start_date, end_date) -> list:
+    """Los días propios de quien mira, para el calendario de INICIO: sus vacaciones y días libres
+    (aprobados o pendientes), los días no laborables de la oficina y los festivos.
+
+    ⚠️ Devuelve items SIN artista y solo se enganchan cuando se pide expresamente
+    (`include_personal`): en un calendario público / iCal de un artista no pintan nada que hacer, y
+    además serían datos personales de la oficina en un enlace que se comparte fuera."""
+    uid = _safe_uuid((_current_user_state() or {}).get("user_id"))
+    if not uid:
+        return []
+    salida = []
+    try:
+        filas = (session_db.query(VacationDay.day, VacationRequest.status, VacationRequest.kind,
+                                  VacationRequest.id)
+                 .join(VacationRequest, VacationDay.request_id == VacationRequest.id)
+                 .filter(VacationDay.user_id == uid)
+                 .filter(VacationRequest.status.in_(VACATION_LIVE_STATUSES))
+                 .filter(VacationDay.day >= start_date, VacationDay.day <= end_date).all())
+        for day, estado, tipo, rid in filas:
+            meta = VACATION_KINDS[_vacation_kind(tipo)]
+            pendiente = (estado or "").upper() == "PENDING"
+            salida.append(([], {
+                "id": f"vac-{rid}-{day.isoformat()}",
+                "kind": "vacaciones",
+                "date": day.isoformat(),
+                "end_date": day.isoformat(),
+                "title": meta["label"] + (" (sin aprobar)" if pendiente else ""),
+                "subtitle": "",
+                "artist_id": "",
+                "icon_override": meta["icon"],
+                "url": url_for("mis_vacaciones_view", anio=day.year),
+                "status_label": "Pendiente" if pendiente else "",
+                "status_class": "hablado" if pendiente else "",
+            }))
+    except Exception:
+        pass
+    try:
+        for day, meta in (_vacation_holidays(session_db, start_date.year, end_date.year) or {}).items():
+            if not (start_date <= day <= end_date):
+                continue
+            empresa = (meta.get("scope") or "") == "EMPRESA"
+            salida.append(([], {
+                "id": f"fest-{day.isoformat()}",
+                "kind": "vacaciones",
+                "date": day.isoformat(),
+                "end_date": day.isoformat(),
+                "title": meta.get("name") or ("No laborable" if empresa else "Festivo"),
+                "subtitle": VACATION_HOLIDAY_SCOPES.get(meta.get("scope"), ""),
+                "artist_id": "",
+                "icon_override": "fa-calendar-xmark" if empresa else "fa-flag",
+                "url": "",
+            }))
+    except Exception:
+        pass
+    return salida
 
 
 def _agenda_status_meta(code: str | None) -> tuple[str, str]:
@@ -85683,7 +85750,8 @@ def _user_sees_unconfirmed_activities() -> bool:
         return False
 
 
-def _agenda_build(session_db, target_ids, start_date, end_date, today_value, full_details=False) -> dict:
+def _agenda_build(session_db, target_ids, start_date, end_date, today_value, full_details=False,
+                  include_personal=False) -> dict:
     """Construye los datos del calendario de agenda.
 
     target_ids: iterable de UUIDs de artista a incluir, o None/vacío = TODOS los artistas.
@@ -85999,6 +86067,11 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
         artist_color[a["id"]] = color
         artists_out.append({**a, "color": color})
 
+    # Los días propios de quien mira (vacaciones, días libres, no laborables y festivos). Van
+    # SIN artista y solo cuando se piden: en un calendario público no pintan nada.
+    if include_personal:
+        raw.extend(_agenda_personal_days(session_db, start_date, end_date))
+
     # Tipos presentes (en orden canónico)
     present_kinds = {it["kind"] for _ids, it in raw}
     kinds_out = [
@@ -86070,7 +86143,8 @@ def _home_agenda() -> dict | None:
     try:
         today, start, end = _agenda_window()
         return _agenda_build(session_db, _home_agenda_target_ids(), start, end, today,
-                             full_details=_user_sees_unconfirmed_activities())
+                             full_details=_user_sees_unconfirmed_activities(),
+                             include_personal=True)
     except Exception:
         return None
     finally:
@@ -86101,7 +86175,9 @@ def home_agenda_data():
                 return jsonify({"error": "Artista no encontrado."}), 404
             target_ids = [str(artist.id)]
         return jsonify(_agenda_build(session_db, target_ids, start, end, today_local(),
-                                     full_details=_user_sees_unconfirmed_activities()))
+                                     full_details=_user_sees_unconfirmed_activities(),
+                                     # En la agenda de UN artista no pintan los días propios.
+                                     include_personal=not artist_raw))
     finally:
         session_db.close()
 
@@ -90875,6 +90951,23 @@ VACATION_RULES_DEFAULT = (
     "ya tiene esos días."
 )
 
+# Los DOS tipos de petición. Comparten calendario, flujo y pantalla; lo único que cambia es de qué
+# bolsa salen los días: un DÍA LIBRE no toca el saldo de vacaciones, lleva su propia cuenta.
+VACATION_KINDS = {
+    "VACACIONES": {"label": "Vacaciones", "singular": "día de vacaciones", "plural": "días de vacaciones",
+                   "icon": "fa-umbrella-beach", "color": "#2e7d32", "needs_reason": False},
+    "DIA_LIBRE": {"label": "Día libre", "singular": "día libre", "plural": "días libres",
+                  "icon": "fa-mug-hot", "color": "#6A1B9A", "needs_reason": True},
+}
+VACATION_DEFAULT_KIND = "VACACIONES"
+
+
+def _vacation_kind(value) -> str:
+    """Normaliza el tipo de petición (lo que no se reconozca son vacaciones)."""
+    k = (value or "").strip().upper()
+    return k if k in VACATION_KINDS else VACATION_DEFAULT_KIND
+
+
 VACATION_STATUS_META = {
     "PENDING":   {"label": "Pendiente de aprobar", "short": "Pendiente", "class": "text-bg-warning text-dark", "icon": "fa-hourglass-half"},
     "APPROVED":  {"label": "Aprobadas",  "short": "Aprobadas",  "class": "text-bg-success",   "icon": "fa-circle-check"},
@@ -90884,10 +90977,14 @@ VACATION_STATUS_META = {
 # Estados que OCUPAN días (para el saldo y para avisar de solapes).
 VACATION_LIVE_STATUSES = ("PENDING", "APPROVED")
 
+# Un día NO LABORABLE de la empresa es, a efectos de contar, exactamente lo mismo que un festivo
+# (no se trabaja y no consume vacaciones), así que se guarda en la misma tabla con su propio ámbito.
+# Así hereda gratis el calendario, el cómputo y el cálculo del saldo.
 VACATION_HOLIDAY_SCOPES = {
     "NACIONAL": "Nacional",
     "AUTONOMICO": "Comunidad de Madrid",
     "LOCAL": "Madrid capital",
+    "EMPRESA": "No laborable (oficina)",
 }
 
 
@@ -91066,19 +91163,28 @@ def _vacation_balance(session_db, user_id, year: int, profile=None, contracts=No
     ajuste = _vacation_adjustment(profile, year)
     total = max(0, ent["days"] + ajuste)
 
-    usados = pendientes = 0
-    disfrutados = 0
+    usados = pendientes = disfrutados = 0
+    libres_usados = libres_pendientes = libres_disfrutados = 0
     hoy = today_local()
     try:
-        filas = (session_db.query(VacationDay.day, VacationRequest.status)
+        filas = (session_db.query(VacationDay.day, VacationRequest.status, VacationRequest.kind)
                  .join(VacationRequest, VacationDay.request_id == VacationRequest.id)
                  .filter(VacationDay.user_id == uid)
                  .filter(VacationDay.counts.is_(True))
                  .filter(VacationRequest.status.in_(VACATION_LIVE_STATUSES))
                  .filter(VacationDay.day >= date(year, 1, 1))
                  .filter(VacationDay.day <= date(year, 12, 31)).all())
-        for day, estado in filas:
-            if (estado or "").upper() == "APPROVED":
+        for day, estado, tipo in filas:
+            aprobado = (estado or "").upper() == "APPROVED"
+            # ⚠️ Un DÍA LIBRE no toca el saldo de vacaciones: va a su propia cuenta.
+            if _vacation_kind(tipo) == "DIA_LIBRE":
+                if aprobado:
+                    libres_usados += 1
+                    if day and day <= hoy:
+                        libres_disfrutados += 1
+                else:
+                    libres_pendientes += 1
+            elif aprobado:
                 usados += 1
                 if day and day <= hoy:
                     disfrutados += 1
@@ -91094,6 +91200,10 @@ def _vacation_balance(session_db, user_id, year: int, profile=None, contracts=No
         "enjoyed": disfrutados,    # aprobados que ya han pasado
         "pending": pendientes,     # pedidos y aún sin aprobar
         "remaining": max(0, total - usados - pendientes),
+        # DÍAS LIBRES: cuenta aparte, sin tope (no se descuentan de las vacaciones).
+        "free_used": libres_usados,
+        "free_enjoyed": libres_disfrutados,
+        "free_pending": libres_pendientes,
         "start_date": inicio, "end_date": fin,
         "has_contract": bool(inicio),
     }
@@ -91133,7 +91243,8 @@ def _vacation_color_for(index: int) -> str:
     return paleta[index % len(paleta)]
 
 
-def _vacation_request_rows(session_db, *, user_id=None, statuses=None, year=None, limit=None) -> list[dict]:
+def _vacation_request_rows(session_db, *, user_id=None, statuses=None, year=None, limit=None,
+                           kind=None) -> list[dict]:
     """Peticiones con sus días, listas para pintar."""
     q = session_db.query(VacationRequest)
     if user_id:
@@ -91145,6 +91256,8 @@ def _vacation_request_rows(session_db, *, user_id=None, statuses=None, year=None
         q = q.filter(VacationRequest.status.in_([s.upper() for s in statuses]))
     if year:
         q = q.filter(VacationRequest.year == int(year))
+    if kind:
+        q = q.filter(VacationRequest.kind == _vacation_kind(kind))
     q = q.order_by(VacationRequest.created_at.desc())
     if limit:
         q = q.limit(int(limit))
@@ -91177,9 +91290,12 @@ def _vacation_request_rows(session_db, *, user_id=None, statuses=None, year=None
         prof = perfiles.get(str(p.user_id))
         decisor = perfiles.get(str(p.decided_by_user_id)) if p.decided_by_user_id else None
         estado = (p.status or "PENDING").upper()
+        tipo = _vacation_kind(getattr(p, "kind", None))
         out.append({
             "id": str(p.id),
             "user_id": str(p.user_id),
+            "kind": tipo,
+            "kind_meta": VACATION_KINDS[tipo],
             "nick": (getattr(prof, "nick", None) or "").strip() or "—",
             "full_name": (_profile_full_name(prof) if prof else "") or (getattr(prof, "nick", None) or ""),
             "photo_url": (getattr(prof, "photo_url", None) or "").strip(),
@@ -91384,7 +91500,7 @@ def _vacation_calendar_payload(session_db, year: int, user_ids: list[str] | None
     holidays = _vacation_holidays(session_db, year)
     estados = list(VACATION_LIVE_STATUSES) if include_pending else ["APPROVED"]
     q = (session_db.query(VacationDay.user_id, VacationDay.day, VacationDay.counts,
-                          VacationRequest.status, VacationRequest.id)
+                          VacationRequest.status, VacationRequest.id, VacationRequest.kind)
          .join(VacationRequest, VacationDay.request_id == VacationRequest.id)
          .filter(VacationRequest.status.in_(estados))
          .filter(VacationDay.day >= date(int(year), 1, 1))
@@ -91393,10 +91509,10 @@ def _vacation_calendar_payload(session_db, year: int, user_ids: list[str] | None
         q = q.filter(VacationDay.user_id.in_([_safe_uuid(u) for u in user_ids if _safe_uuid(u)]))
     dias = []
     try:
-        for uid, day, counts, estado, rid in q.all():
+        for uid, day, counts, estado, rid, tipo in q.all():
             dias.append({"user_id": str(uid), "day": day.isoformat(),
                          "counts": bool(counts), "status": (estado or "").upper(),
-                         "request_id": str(rid)})
+                         "request_id": str(rid), "kind": _vacation_kind(tipo)})
     except Exception:
         pass
     return {
@@ -91406,7 +91522,304 @@ def _vacation_calendar_payload(session_db, year: int, user_ids: list[str] | None
                      for d, meta in sorted(holidays.items())],
         "days": dias,
         "month_names": VACATION_MONTH_NAMES,
+        "kinds": {k: {"label": v["label"], "color": v["color"]} for k, v in VACATION_KINDS.items()},
     }
+
+
+# ---------------------------------------------------------------------------
+# AVISOS de vacaciones / días libres / días no laborables
+# ---------------------------------------------------------------------------
+# UN SOLO MOTOR para los dos canales: `_vacation_notice_html` genera el HTML con estilos EN LÍNEA y
+# ese mismo HTML es el del CORREO y el de la PÁGINA que se abre al pinchar el aviso de la app. Si se
+# toca el diseño, se tocan los dos a la vez.
+#
+# Contenido, en orden: logo de la EMPRESA DEL GRUPO con la que la persona tiene contrato (arriba a
+# la derecha), título centrado, el texto (de enhorabuena o sobrio si es un «no»), el calendario con
+# los días marcados —solo los meses afectados— y, al final, las etiquetas con los totales del año.
+VACATION_NOTICE_TYPES = {
+    "VACACIONES_OK": {
+        "title": "Vacaciones", "tone": "ok", "icon": "🏖️",
+        "lead": "¡Enhorabuena! Tus vacaciones han sido aprobadas.",
+    },
+    "VACACIONES_NO": {
+        "title": "Vacaciones", "tone": "bad", "icon": "",
+        "lead": "Lo sentimos, tus vacaciones no han sido aprobadas. "
+                "Por favor, consulta con Administración los motivos.",
+    },
+    "DIA_LIBRE_OK": {
+        "title": "Día libre", "tone": "ok", "icon": "☕",
+        "lead": "¡Enhorabuena! Tu día libre ha sido aprobado.",
+    },
+    "DIA_LIBRE_NO": {
+        "title": "Día libre", "tone": "bad", "icon": "",
+        "lead": "Lo sentimos, tu día libre no ha sido aprobado. "
+                "Por favor, consulta con Administración los motivos.",
+    },
+    "DIA_LIBRE_REGALO": {
+        "title": "Día libre", "tone": "ok", "icon": "🎁",
+        "lead": "¡Enhorabuena! La empresa te ha concedido un día libre.",
+    },
+    "NO_LABORABLE": {
+        "title": "Día no laborable", "tone": "ok", "icon": "🎉",
+        "lead": "",   # se compone con la fecha completa
+    },
+}
+
+VACATION_WEEKDAY_NAMES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+VACATION_MONTH_LOWER = [m.lower() for m in VACATION_MONTH_NAMES]
+
+
+def _vacation_long_date(day) -> str:
+    """«lunes 3 de junio de 2026» — la fecha como se dice, para el texto del aviso."""
+    if not day:
+        return ""
+    return (f"{VACATION_WEEKDAY_NAMES[day.weekday()]} {day.day} de "
+            f"{VACATION_MONTH_LOWER[day.month - 1]} de {day.year}")
+
+
+def _user_contract_company(session_db, user_id, contracts=None):
+    """La empresa del grupo con la que esta persona tiene contrato (la del contrato en vigor y, si
+    no hay ninguno abierto, la del más reciente). Es su logo el que va en sus avisos."""
+    filas = contracts if contracts is not None else _user_contract_rows(session_db, user_id)
+    if not filas:
+        return None
+    abiertos = [c for c in filas if not getattr(c, "end_date", None) and getattr(c, "company_id", None)]
+    candidato = (abiertos[-1] if abiertos else None)
+    if candidato is None:
+        con_empresa = [c for c in filas if getattr(c, "company_id", None)]
+        candidato = con_empresa[-1] if con_empresa else None
+    if candidato is None:
+        return None
+    try:
+        return session_db.get(GroupCompany, candidato.company_id)
+    except Exception:
+        return None
+
+
+def _vacation_notice_brand(session_db, user_id, contracts=None) -> dict:
+    """Logo y nombre para la cabecera del aviso: la empresa del contrato y, si no consta, la casa."""
+    empresa = _user_contract_company(session_db, user_id, contracts=contracts)
+    logo = (getattr(empresa, "logo_url", None) or "").strip().rstrip("?") if empresa else ""
+    nombre = (getattr(empresa, "name", None) or "").strip() if empresa else ""
+    if not logo:
+        respaldo = _treinta_y_tres_brand_assets(session_db)
+        logo = (respaldo.get("logo_url") or "").strip()
+        nombre = nombre or (respaldo.get("company_name") or "")
+    return {"logo_url": _absolute_media_url(logo) if logo else "", "company_name": nombre}
+
+
+def _vacation_notice_calendar_html(days: list, holidays: dict, color: str) -> str:
+    """El calendario del aviso: SOLO los meses afectados, con los días marcados.
+
+    Se dibuja con <table> y estilos en línea porque va dentro de un correo: ni rejillas CSS ni
+    clases (la mitad de los clientes las tiran)."""
+    marcados = sorted({d for d in (days or []) if d})
+    if not marcados:
+        return ""
+    meses = []
+    vistos = set()
+    for d in marcados:
+        if (d.year, d.month) not in vistos:
+            vistos.add((d.year, d.month))
+            meses.append((d.year, d.month))
+
+    bloques = []
+    for year, month in meses:
+        celdas = []
+        primero = date(year, month, 1)
+        for _ in range((primero.weekday()) % 7):
+            celdas.append('<td style="padding:0;"></td>')
+        ultimo = _cal.monthrange(year, month)[1]
+        for num in range(1, ultimo + 1):
+            dia = date(year, month, num)
+            marcado = dia in marcados
+            finde = dia.weekday() >= 5
+            festivo = dia in (holidays or {})
+            if marcado:
+                estilo = (f"background:{color};color:#ffffff;font-weight:700;"
+                          "border-radius:8px;")
+            elif festivo:
+                estilo = "background:#fdeaec;color:#a01f29;border-radius:8px;"
+            elif finde:
+                estilo = "background:#eef2f6;color:#7b8794;border-radius:8px;"
+            else:
+                estilo = "color:#111827;"
+            celdas.append(
+                '<td align="center" style="padding:0;">'
+                f'<div style="width:30px;height:30px;line-height:30px;margin:2px auto;'
+                f'font-size:13px;font-family:Arial,Helvetica,sans-serif;{estilo}">{num}</div></td>')
+        filas = []
+        for i in range(0, len(celdas), 7):
+            trozo = celdas[i:i + 7]
+            trozo += ['<td style="padding:0;"></td>'] * (7 - len(trozo))
+            filas.append("<tr>" + "".join(trozo) + "</tr>")
+        cabecera = "".join(
+            f'<th style="padding:0 0 6px;font-size:11px;color:#8a94a3;'
+            f'font-family:Arial,Helvetica,sans-serif;font-weight:700;">{d}</th>'
+            for d in ["L", "M", "X", "J", "V", "S", "D"])
+        bloques.append(
+            '<td valign="top" style="padding:8px 10px;">'
+            f'<div style="font-size:14px;font-weight:700;margin-bottom:8px;text-align:center;'
+            f'font-family:Arial,Helvetica,sans-serif;color:#111827;">'
+            f'{VACATION_MONTH_NAMES[month - 1]} {year}</div>'
+            '<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+            'style="border-collapse:collapse;">'
+            f"<tr>{cabecera}</tr>{''.join(filas)}</table></td>")
+
+    # Los meses, de dos en dos, para que no se salga en el móvil.
+    filas_meses = []
+    for i in range(0, len(bloques), 2):
+        filas_meses.append("<tr>" + "".join(bloques[i:i + 2]) + "</tr>")
+    return ('<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+            'align="center" style="margin:22px auto 0;border-collapse:collapse;">'
+            + "".join(filas_meses) + "</table>")
+
+
+def _vacation_notice_context(session_db, notice_type: str, user_id, days: list,
+                             note: str = "", year: int | None = None) -> dict:
+    """Todo lo que necesita el aviso (correo, página y título de la notificación)."""
+    tipo = notice_type if notice_type in VACATION_NOTICE_TYPES else "VACACIONES_OK"
+    meta = VACATION_NOTICE_TYPES[tipo]
+    dias = sorted({d for d in (days or []) if d})
+    year = int(year or (dias[0].year if dias else today_local().year))
+    contratos = _user_contract_rows(session_db, user_id)
+    saldo = _vacation_balance(session_db, user_id, year, contracts=contratos)
+    prof = session_db.get(UserProfile, _safe_uuid(user_id))
+
+    if tipo == "NO_LABORABLE":
+        if len(dias) == 1:
+            lead = (f"¡Enhorabuena! La empresa ha decidido que el <strong>{_vacation_long_date(dias[0])}</strong> "
+                    "no se trabaje.")
+        else:
+            lead = ("¡Enhorabuena! La empresa ha decidido que estos días no se trabaje: <strong>"
+                    + ", ".join(_vacation_long_date(d) for d in dias) + "</strong>.")
+        color = "#6A1B9A"
+    else:
+        lead = meta["lead"]
+        color = ("#6A1B9A" if meta["title"] == "Día libre"
+                 else ("#9aa3af" if meta["tone"] == "bad" else "#E33D48"))
+
+    return {
+        "type": tipo,
+        "tone": meta["tone"],
+        "icon": meta["icon"],
+        "title": meta["title"],
+        "lead": lead,
+        "color": color,
+        "days": dias,
+        "range_label": _vacation_range_label(dias),
+        "note": (note or "").strip(),
+        "year": year,
+        "nick": (getattr(prof, "nick", None) or "").strip(),
+        "balance": saldo,
+        "brand": _vacation_notice_brand(session_db, user_id, contracts=contratos),
+        "holidays": _vacation_holidays(session_db, year),
+        # En un «no laborable» no se enseñan los saldos: no es de nadie en particular.
+        "show_totals": tipo != "NO_LABORABLE",
+    }
+
+
+def _vacation_notice_html(ctx: dict) -> str:
+    """El HTML del aviso. Estilos EN LÍNEA (va por correo) y la animación en un <style> aparte:
+    el cliente que la tire enseña el icono quieto, que es una degradación limpia."""
+    esc = lambda v: escape(str(v or ""))
+    brand = ctx.get("brand") or {}
+    color = ctx.get("color") or "#E33D48"
+    alegre = ctx.get("tone") == "ok"
+
+    cabecera = ""
+    if brand.get("logo_url"):
+        cabecera = (f'<tr><td align="right" style="padding:0 0 10px;">'
+                    f'<img src="{esc(brand["logo_url"])}" alt="{esc(brand.get("company_name"))}" '
+                    'style="max-height:54px;max-width:180px;"></td></tr>')
+
+    # Iconitos en los colores corporativos. La animación es un extra: sin ella se ven igual.
+    adornos = ""
+    if alegre and ctx.get("icon"):
+        adornos = (
+            '<div style="text-align:center;margin:6px 0 14px;">'
+            + "".join(
+                f'<span class="vn-pop" style="display:inline-block;font-size:30px;margin:0 6px;'
+                f'animation-delay:{i * 0.15}s;">{ctx["icon"]}</span>' for i in range(3))
+            + "</div>")
+
+    totales = ""
+    if ctx.get("show_totals"):
+        b = ctx["balance"] or {}
+        if ctx["title"] == "Día libre":
+            pastillas = [("Días libres disfrutados en " + str(ctx["year"]), b.get("free_used", 0), "#6A1B9A")]
+        else:
+            pastillas = [
+                ("Días de vacaciones disfrutados", b.get("used", 0), "#2e7d32"),
+                (f"Días restantes en {ctx['year']}", b.get("remaining", 0), "#E33D48"),
+            ]
+        celdas = "".join(
+            '<td align="center" style="padding:6px 10px;">'
+            f'<div style="display:inline-block;border:2px solid {c};border-radius:14px;'
+            'padding:12px 22px;font-family:Arial,Helvetica,sans-serif;">'
+            f'<div style="font-size:30px;font-weight:800;color:{c};line-height:1;">{n}</div>'
+            f'<div style="font-size:12px;color:#4b5563;margin-top:6px;">{esc(t)}</div>'
+            "</div></td>" for t, n, c in pastillas)
+        totales = ('<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+                   f'align="center" style="margin:26px auto 0;"><tr>{celdas}</tr></table>')
+
+    nota = ""
+    if ctx.get("note"):
+        nota = ('<p style="margin:14px 0 0;font-size:14px;color:#4b5563;text-align:center;'
+                f'font-family:Arial,Helvetica,sans-serif;">{esc(ctx["note"])}</p>')
+
+    calendario = _vacation_notice_calendar_html(ctx.get("days"), ctx.get("holidays"), color)
+
+    animacion = ("""<style>
+  @keyframes vnPop { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-8px) scale(1.12); } }
+  .vn-pop { animation: vnPop 1.6s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) { .vn-pop { animation: none; } }
+</style>""" if adornos else "")
+
+    return f"""<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{animacion}</head>
+<body style="margin:0;background:#f5f7fb;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f5f7fb;padding:26px 12px;">
+<tr><td align="center">
+  <table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0"
+         style="width:640px;max-width:100%;background:#ffffff;border:1px solid #e5e7eb;border-radius:20px;padding:26px 28px 32px;">
+    {cabecera}
+    <tr><td>
+      <h1 style="margin:6px 0 4px;text-align:center;font-size:28px;color:#111827;
+                 font-family:Arial,Helvetica,sans-serif;">{esc(ctx['title'])}</h1>
+      <div style="text-align:center;font-size:14px;color:#6b7280;
+                  font-family:Arial,Helvetica,sans-serif;">{esc(ctx['range_label'])}</div>
+      {adornos}
+      <p style="margin:16px 0 0;text-align:center;font-size:17px;line-height:1.6;color:#111827;
+                font-family:Arial,Helvetica,sans-serif;">{ctx['lead']}</p>
+      {nota}
+      {calendario}
+      {totales}
+    </td></tr>
+  </table>
+</td></tr></table>
+</body></html>"""
+
+
+def _vacation_notice_send(session_db, notice_type: str, user_id, days: list, note: str = "",
+                          year: int | None = None, ref_id=None) -> None:
+    """Avisa a la persona por los DOS canales: la campanita de la app y el correo, con el mismo
+    contenido. Best-effort: si el correo falla, el aviso de la app ya está puesto."""
+    ctx = _vacation_notice_context(session_db, notice_type, user_id, days, note=note, year=year)
+    titulo = f"{ctx['title']} · {ctx['range_label']}"
+    cuerpo = re.sub(r"<[^>]+>", "", ctx["lead"] or "").strip()
+    url = url_for("vacation_notice_view", kind=notice_type.lower(), ref_id=str(ref_id or "0"))
+    _notify_user(session_db, user_id, "VACACIONES", titulo, cuerpo, url,
+                 ref_type="vacation_notice", ref_id=str(ref_id or ""))
+    try:
+        user = session_db.get(User, _safe_uuid(user_id))
+        correo = (getattr(user, "email", None) or "").strip()
+        if correo:
+            _send_optional_email(correo, titulo, _vacation_notice_html(ctx))
+    except Exception:
+        pass
 
 
 def _vacation_apply_days(session_db, req, days: list, holidays: dict) -> int:
@@ -91427,9 +91840,13 @@ def _vacation_apply_days(session_db, req, days: list, holidays: dict) -> int:
 
 
 def _vacation_check_request(session_db, user_id, days: list, *, exclude_request_id=None,
-                            ignore_balance: bool = False) -> tuple:
+                            ignore_balance: bool = False, kind: str = VACATION_DEFAULT_KIND) -> tuple:
     """Comprueba una petición contra las NORMAS que se aplican solas.
-    Devuelve (error, info): `error` = no se puede seguir; `info` = avisos (solapes)."""
+    Devuelve (error, info): `error` = no se puede seguir; `info` = avisos (solapes).
+
+    ⚠️ El tope de SALDO solo se aplica a las VACACIONES: un día libre no sale de esa bolsa.
+    Lo que sí vale para los dos es no pisar días ya pedidos y no marcar findes ni festivos."""
+    kind = _vacation_kind(kind)
     if not days:
         return "No has marcado ningún día.", None
     year = days[0].year
@@ -91448,7 +91865,7 @@ def _vacation_check_request(session_db, user_id, days: list, *, exclude_request_
         resto = f" y {len(pisados_utiles) - 5} más" if len(pisados_utiles) > 5 else ""
         return f"Ya tienes pedidos o aprobados estos días: {muestra}{resto}.", None
 
-    if not ignore_balance:
+    if not ignore_balance and kind == "VACACIONES":
         saldo = _vacation_balance(session_db, user_id, year)
         if not saldo["has_contract"]:
             return ("Todavía no consta tu fecha de comienzo: administración tiene que subir tu "
@@ -91469,15 +91886,19 @@ def _vacation_check_request(session_db, user_id, days: list, *, exclude_request_
     return None, {"solapes": _vacation_overlaps(session_db, user_id, cuentan), "cuentan": len(cuentan)}
 
 
-def _vacation_notify_managers(session_db, req, rows_ctx=None) -> None:
+def _vacation_notify_managers(session_db, req) -> None:
     """Aviso a dirección y a quien gestione las vacaciones de que hay una petición nueva."""
     try:
         prof = session_db.get(UserProfile, req.user_id)
         quien = (getattr(prof, "nick", None) or "Alguien").strip()
+        meta = VACATION_KINDS[_vacation_kind(getattr(req, "kind", None))]
         dias = [d.day for d in (req.days or []) if d.day] or []
+        n = int(req.days_count or 0)
+        cuerpo = f"{n} {meta['singular'] if n == 1 else meta['plural']} · {_vacation_range_label(dias)}"
+        if (req.note or "").strip():
+            cuerpo += f" · {(req.note or '').strip()}"
         _notify_users(session_db, _vacation_manager_user_ids(session_db), "VACACIONES",
-                      f"{quien} pide vacaciones",
-                      f"{req.days_count} día{'' if req.days_count == 1 else 's'} · {_vacation_range_label(dias)}",
+                      f"{quien} pide {meta['label'].lower()}", cuerpo,
                       url_for("vacaciones_view", tab="peticiones"),
                       ref_type="vacation_request", ref_id=str(req.id))
     except Exception:
@@ -91515,6 +91936,7 @@ def mis_vacaciones_view():
             month_names=VACATION_MONTH_NAMES,
             can_manage=_can_manage_vacations(),
             status_meta=VACATION_STATUS_META,
+            vacation_kinds=VACATION_KINDS,
         )
     finally:
         session_db.close()
@@ -91527,26 +91949,34 @@ def mis_vacaciones_request():
     uid = estado.get("user_id")
     if not uid:
         return redirect(url_for("admin_login"))
+    kind = _vacation_kind(request.form.get("kind"))
+    meta = VACATION_KINDS[kind]
     dias = _parse_vacation_days(request.form.get("days"))
     nota = (request.form.get("note") or "").strip() or None
     destino = url_for("mis_vacaciones_view", anio=(dias[0].year if dias else today_local().year))
 
+    # Un DÍA LIBRE se pide diciendo POR QUÉ: es lo que mira quien lo aprueba.
+    if meta["needs_reason"] and not nota:
+        flash("Para pedir un día libre hay que decir el motivo.", "warning")
+        return redirect(destino)
+
     session_db = db()
     try:
-        error, _info = _vacation_check_request(session_db, uid, dias)
+        error, _info = _vacation_check_request(session_db, uid, dias, kind=kind)
         if error:
             flash(error, "warning")
             return redirect(destino)
         holidays = _vacation_holidays(session_db, dias[0].year)
         req = VacationRequest(user_id=_safe_uuid(uid), status="PENDING", year=dias[0].year,
-                              note=nota, created_by_user_id=_safe_uuid(uid))
+                              kind=kind, note=nota, created_by_user_id=_safe_uuid(uid))
         session_db.add(req)
         session_db.flush()
         n = _vacation_apply_days(session_db, req, dias, holidays)
         session_db.commit()
         _vacation_notify_managers(session_db, req)
         session_db.commit()
-        flash(f"Pedidos {n} día{'' if n == 1 else 's'}. Queda a la espera del visto bueno.", "success")
+        flash(f"Pedido{'' if n == 1 else 's'} {n} {meta['singular'] if n == 1 else meta['plural']}. "
+              "Queda a la espera del visto bueno.", "success")
     except Exception as e:
         session_db.rollback()
         flash(f"No se pudieron pedir las vacaciones: {e}", "danger")
@@ -91588,10 +92018,12 @@ def mis_vacaciones_check():
     """Comprobación EN VIVO mientras se marcan días en el calendario (contador y solapes)."""
     estado = _current_user_state() or {}
     uid = estado.get("user_id")
-    dias = _parse_vacation_days((request.get_json(silent=True) or {}).get("days") or request.form.get("days"))
+    cuerpo = request.get_json(silent=True) or {}
+    dias = _parse_vacation_days(cuerpo.get("days") or request.form.get("days"))
+    kind = _vacation_kind(cuerpo.get("kind") or request.form.get("kind"))
     session_db = db()
     try:
-        error, info = _vacation_check_request(session_db, uid, dias)
+        error, info = _vacation_check_request(session_db, uid, dias, kind=kind)
         saldo = _vacation_balance(session_db, uid, dias[0].year if dias else today_local().year)
         return jsonify({
             "ok": not error, "error": error,
@@ -91686,6 +92118,7 @@ def vacaciones_view():
             rules_text=_vacation_rules_text(), month_names=VACATION_MONTH_NAMES,
             filter_user_id=filtro_uid, status_meta=VACATION_STATUS_META,
             days_per_year_default=VACATION_DAYS_PER_YEAR,
+            vacation_kinds=VACATION_KINDS,
         )
     finally:
         session_db.close()
@@ -91709,7 +92142,8 @@ def vacation_request_decide(request_id):
             flash("Petición no encontrada.", "warning")
             return redirect(url_for("vacaciones_view", tab="peticiones"))
         # Al APROBAR se vuelve a mirar el saldo: entre que se pidió y ahora puede haber cambiado.
-        if decision == "APPROVED":
+        # (Un DÍA LIBRE no sale de esa bolsa, así que ahí no hay nada que comprobar.)
+        if decision == "APPROVED" and _vacation_kind(req.kind) == "VACACIONES":
             saldo = _vacation_balance(session_db, req.user_id, req.year)
             # Los días de ESTA petición ya están contados como «pendientes»: no se descuentan dos veces.
             libres = saldo["remaining"] + int(req.days_count or 0)
@@ -91723,15 +92157,16 @@ def vacation_request_decide(request_id):
         req.updated_at = req.decided_at
         session_db.commit()
 
+        # Aviso a quien lo pidió, por los DOS canales y con el mismo diseño (ver
+        # `_vacation_notice_send`). Solo se avisa al APROBAR o al RECHAZAR.
         dias = [d.day for d in (req.days or []) if d.day]
+        es_libre = _vacation_kind(req.kind) == "DIA_LIBRE"
         if decision == "APPROVED":
-            titulo, cuerpo = "Vacaciones aprobadas", f"{_vacation_range_label(dias)} · {req.days_count} día{'' if req.days_count == 1 else 's'}"
+            tipo_aviso = "DIA_LIBRE_OK" if es_libre else "VACACIONES_OK"
         else:
-            titulo = "Vacaciones rechazadas"
-            cuerpo = _vacation_range_label(dias) + (f" · {nota}" if nota else "")
-        _notify_user(session_db, req.user_id, "VACACIONES", titulo, cuerpo,
-                     url_for("mis_vacaciones_view", anio=req.year),
-                     ref_type="vacation_request", ref_id=str(req.id))
+            tipo_aviso = "DIA_LIBRE_NO" if es_libre else "VACACIONES_NO"
+        _vacation_notice_send(session_db, tipo_aviso, req.user_id, dias,
+                              note=(nota or ""), year=req.year, ref_id=req.id)
         session_db.commit()
         flash("Vacaciones aprobadas." if decision == "APPROVED" else "Vacaciones rechazadas.", "success")
     except Exception as e:
@@ -91794,12 +92229,14 @@ def vacation_person_days(user_id):
     acordados de palabra, arrastres… No pasa por el visto bueno porque LO ESTÁ DANDO quien lo mete."""
     if not _can_manage_vacations():
         return forbid("No puedes apuntar vacaciones de nadie.")
+    kind = _vacation_kind(request.form.get("kind"))
+    meta = VACATION_KINDS[kind]
     dias = _parse_vacation_days(request.form.get("days"))
     nota = (request.form.get("note") or "").strip() or None
     year = dias[0].year if dias else today_local().year
     session_db = db()
     try:
-        error, _info = _vacation_check_request(session_db, user_id, dias,
+        error, _info = _vacation_check_request(session_db, user_id, dias, kind=kind,
                                                ignore_balance=bool(request.form.get("force")))
         if error:
             flash(error, "warning")
@@ -91807,18 +92244,17 @@ def vacation_person_days(user_id):
         holidays = _vacation_holidays(session_db, year)
         ahora = datetime.now(TZ_MADRID)
         actor = _safe_uuid((_current_user_state() or {}).get("user_id"))
-        req = VacationRequest(user_id=to_uuid(user_id), status="APPROVED", year=year, note=nota,
-                              created_by_user_id=actor, decided_by_user_id=actor, decided_at=ahora)
+        req = VacationRequest(user_id=to_uuid(user_id), status="APPROVED", year=year, kind=kind,
+                              note=nota, created_by_user_id=actor, decided_by_user_id=actor,
+                              decided_at=ahora)
         session_db.add(req)
         session_db.flush()
         n = _vacation_apply_days(session_db, req, dias, holidays)
         session_db.commit()
-        _notify_user(session_db, req.user_id, "VACACIONES", "Vacaciones apuntadas",
-                     f"{_vacation_range_label(dias)} · {n} día{'' if n == 1 else 's'}",
-                     url_for("mis_vacaciones_view", anio=year),
-                     ref_type="vacation_request", ref_id=str(req.id))
-        session_db.commit()
-        flash(f"Apuntados {n} día{'' if n == 1 else 's'}.", "success")
+        # ⚠️ Apuntar días es meter en el sistema lo que YA se disfrutó (o lo acordado de palabra):
+        # no se avisa. Para conceder un día libre y que la persona se entere está
+        # `vacation_grant_free_day`.
+        flash(f"Apuntado{'' if n == 1 else 's'} {n} {meta['singular'] if n == 1 else meta['plural']}.", "success")
     except Exception as e:
         session_db.rollback()
         flash(f"No se pudo apuntar: {e}", "danger")
@@ -91900,6 +92336,148 @@ def vacation_holiday_save():
     return redirect(url_for("vacaciones_view", tab="festivos", anio=year))
 
 
+@app.get("/vacaciones/aviso/<kind>/<path:ref_id>", endpoint="vacation_notice_view")
+@admin_required
+def vacation_notice_view(kind, ref_id):
+    """La página que se abre al pinchar el aviso: EXACTAMENTE el mismo HTML que se mandó por correo.
+
+    Se reconstruye con los datos de hoy (no se congela) porque lo que enseña —las fechas y los
+    totales del año— es justo lo que la persona quiere ver al día."""
+    tipo = (kind or "").strip().upper()
+    if tipo not in VACATION_NOTICE_TYPES:
+        abort(404)
+    estado = _current_user_state() or {}
+    yo = estado.get("user_id")
+
+    session_db = db()
+    try:
+        if tipo == "NO_LABORABLE":
+            try:
+                dia = date.fromisoformat((ref_id or "").strip())
+            except Exception:
+                abort(404)
+            ctx = _vacation_notice_context(session_db, tipo, yo, [dia], year=dia.year)
+        else:
+            req = session_db.get(VacationRequest, _safe_uuid(ref_id))
+            if not req:
+                abort(404)
+            # Los días de otra persona solo los ve ella (y quien gestiona / dirección).
+            if str(req.user_id) != str(yo) and not _can_manage_vacations():
+                return forbid("Este aviso no es tuyo.")
+            dias = [d.day for d in (req.days or []) if d.day]
+            ctx = _vacation_notice_context(session_db, tipo, req.user_id, dias,
+                                           note=(req.decision_note or req.note or ""), year=req.year)
+        return _vacation_notice_html(ctx)
+    finally:
+        session_db.close()
+
+
+@app.post("/vacaciones/conceder-dia-libre", endpoint="vacation_grant_free_day")
+@admin_required
+def vacation_grant_free_day():
+    """CONCEDER un día libre: la empresa se lo regala a una o varias personas.
+
+    A diferencia de «apuntar días» (que es meter en el sistema lo ya disfrutado), esto SÍ se
+    comunica: se les manda el aviso de enhorabuena por correo y por la app."""
+    if not _can_manage_vacations():
+        return forbid("No puedes conceder días libres.")
+    dias = _parse_vacation_days(request.form.get("days"))
+    uids = [u for u in (request.form.getlist("user_ids") or []) if _safe_uuid(u)]
+    nota = (request.form.get("note") or "").strip() or None
+    year = dias[0].year if dias else today_local().year
+    if not dias or not uids:
+        flash("Hay que elegir a quién se le concede y qué días.", "warning")
+        return redirect(url_for("vacaciones_view", anio=year))
+
+    session_db = db()
+    try:
+        holidays = _vacation_holidays(session_db, year)
+        ahora = datetime.now(TZ_MADRID)
+        actor = _safe_uuid((_current_user_state() or {}).get("user_id"))
+        concedidos, saltados = 0, []
+        for uid in uids:
+            # Si ya tiene esos días pedidos o aprobados, se le salta (no se duplican).
+            pisados = _vacation_taken_days(session_db, uid, dias)
+            libres = [d for d in dias if d not in pisados]
+            if not libres:
+                prof = session_db.get(UserProfile, _safe_uuid(uid))
+                saltados.append((getattr(prof, "nick", None) or "?").strip())
+                continue
+            req = VacationRequest(user_id=_safe_uuid(uid), status="APPROVED", year=year,
+                                  kind="DIA_LIBRE", note=nota, created_by_user_id=actor,
+                                  decided_by_user_id=actor, decided_at=ahora)
+            session_db.add(req)
+            session_db.flush()
+            _vacation_apply_days(session_db, req, libres, holidays)
+            session_db.commit()
+            _vacation_notice_send(session_db, "DIA_LIBRE_REGALO", uid, libres,
+                                  note=nota or "", year=year, ref_id=req.id)
+            session_db.commit()
+            concedidos += 1
+        if concedidos:
+            flash(f"Día libre concedido a {concedidos} persona{'' if concedidos == 1 else 's'} "
+                  "y avisada" + ("" if concedidos == 1 else "s") + ".", "success")
+        if saltados:
+            flash("Ya tenían esos días: " + ", ".join(saltados) + ".", "info")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"No se pudo conceder: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("vacaciones_view", anio=year))
+
+
+@app.post("/vacaciones/no-laborables", endpoint="vacation_nonworking_save")
+@admin_required
+def vacation_nonworking_save():
+    """Marca UNO O VARIOS días como NO LABORABLES de la oficina (puente, cierre por mudanza…).
+
+    No consumen vacaciones y no se trabaja: a efectos de contar es exactamente lo mismo que un
+    festivo, así que se guardan en la misma tabla con el ámbito EMPRESA y heredan gratis el
+    calendario, el cómputo del saldo y el «no cuenta» de `_vacation_day_counts`."""
+    if not _can_manage_vacations():
+        return forbid("No puedes marcar días no laborables.")
+    dias = _parse_vacation_days(request.form.get("days"))
+    nombre = (request.form.get("name") or "").strip() or "No laborable"
+    year = dias[0].year if dias else today_local().year
+    if not dias:
+        flash("No has marcado ningún día.", "warning")
+        return redirect(url_for("vacaciones_view", tab="festivos", anio=year))
+
+    session_db = db()
+    try:
+        nuevos = pisados = 0
+        for day in dias:
+            fila = (session_db.query(Holiday)
+                    .filter(Holiday.day == day)
+                    .filter(Holiday.region == VACATION_REGION).first())
+            if fila:
+                # Ya era festivo: no se toca (no vamos a renombrar el 25 de diciembre).
+                pisados += 1
+                continue
+            session_db.add(Holiday(day=day, name=nombre, scope="EMPRESA", region=VACATION_REGION))
+            nuevos += 1
+        session_db.commit()
+        if nuevos:
+            # Un día no laborable es de TODA la oficina: se avisa a todo el personal vivo.
+            marcados = [d for d in dias if d]
+            for uid in _vacation_office_user_ids(session_db):
+                _vacation_notice_send(session_db, "NO_LABORABLE", uid, marcados,
+                                      note=nombre if nombre != "No laborable" else "",
+                                      year=year, ref_id=marcados[0].isoformat() if marcados else "")
+            session_db.commit()
+            flash(f"Marcado{'' if nuevos == 1 else 's'} {nuevos} día{'' if nuevos == 1 else 's'} "
+                  "como no laborable" + ("" if nuevos == 1 else "s") + ". Avisado el personal.", "success")
+        if pisados:
+            flash(f"{pisados} de los días marcados ya eran festivos y se han dejado como estaban.", "info")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"No se pudieron marcar: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("vacaciones_view", tab="festivos", anio=year))
+
+
 @app.post("/vacaciones/festivos/<holiday_id>/eliminar", endpoint="vacation_holiday_delete")
 @admin_required
 def vacation_holiday_delete(holiday_id):
@@ -91950,6 +92528,8 @@ def personnel_contract_save(user_id):
         fila.start_date = inicio
         fila.end_date = parse_optional_date(request.form.get("end_date"))
         fila.contract_type = (request.form.get("contract_type") or "").strip() or None
+        # La empresa del grupo con la que firma: es su logo el que sale en sus avisos.
+        fila.company_id = _safe_uuid(request.form.get("company_id"))
         fila.notes = (request.form.get("notes") or "").strip() or None
         doc = request.files.get("file")
         if doc and getattr(doc, "filename", ""):

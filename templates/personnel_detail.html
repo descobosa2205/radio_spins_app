@@ -200,7 +200,7 @@
         <div class="ficha-section__head">
           <h6 class="ficha-section__title"><i class="fa fa-file-contract"></i>Contratos</h6>
           <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#contractModal"
-                  onclick="prepararContrato('')"><i class="fa fa-plus me-1"></i>Añadir contrato</button>
+                  onclick="prepararContrato('','','','','','')"><i class="fa fa-plus me-1"></i>Añadir contrato</button>
         </div>
         <div class="ficha-section__body">
           {% if not contracts %}
@@ -220,7 +220,9 @@
                       {% else %}<span class="badge text-bg-success ms-1">En vigor</span>{% endif %}
                     </div>
                     <div class="small text-muted">
-                      {{ c.contract_type or 'Sin tipo' }}{% if c.notes %} · {{ c.notes }}{% endif %}
+                      {{ c.contract_type or 'Sin tipo' }}
+                      {%- for gc in group_companies %}{% if gc.id == c.company_id %} · <strong>{{ gc.name }}</strong>{% endif %}{% endfor %}
+                      {%- if c.notes %} · {{ c.notes }}{% endif %}
                     </div>
                   </div>
                   <div class="d-flex gap-2">
@@ -228,7 +230,7 @@
                       <a href="{{ c.file_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary" title="{{ c.file_name or 'Ver contrato' }}"><i class="fa fa-file-pdf"></i></a>
                     {% endif %}
                     <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#contractModal"
-                            onclick="prepararContrato({{ c.id|string|tojson|forceescape }}, {{ (c.start_date.isoformat())|tojson|forceescape }}, {{ ((c.end_date.isoformat()) if c.end_date else '')|tojson|forceescape }}, {{ (c.contract_type or '')|tojson|forceescape }}, {{ (c.notes or '')|tojson|forceescape }})"><i class="fa fa-pen"></i></button>
+                            onclick="prepararContrato({{ c.id|string|tojson|forceescape }}, {{ (c.start_date.isoformat())|tojson|forceescape }}, {{ ((c.end_date.isoformat()) if c.end_date else '')|tojson|forceescape }}, {{ (c.contract_type or '')|tojson|forceescape }}, {{ (c.notes or '')|tojson|forceescape }}, {{ ((c.company_id|string) if c.company_id else '')|tojson|forceescape }})"><i class="fa fa-pen"></i></button>
                     <form method="post" action="{{ url_for('personnel_contract_delete', user_id=user.id, contract_id=c.id) }}" class="m-0" data-confirm="¿Eliminar este contrato?">
                       <button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash"></i></button>
                     </form>
@@ -286,9 +288,17 @@
               <input type="date" name="end_date" id="contractEnd" class="form-control">
               <div class="form-text">En blanco si sigue en vigor.</div>
             </div>
-            <div class="col-12">
+            <div class="col-12 col-md-6">
               <label class="form-label">Tipo de contrato</label>
               <input name="contract_type" id="contractType" class="form-control" placeholder="Indefinido, temporal, prácticas…">
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label">Empresa del grupo</label>
+              <select name="company_id" id="contractCompany" class="form-select">
+                <option value="">— Sin especificar —</option>
+                {% for gc in group_companies %}<option value="{{ gc.id }}">{{ gc.name }}</option>{% endfor %}
+              </select>
+              <div class="form-text">Con la que firma. Su logo es el que sale en los avisos de vacaciones.</div>
             </div>
             <div class="col-12">
               <label class="form-label">Contrato (PDF)</label>
@@ -309,12 +319,13 @@
   </div>
 
   <script>
-    function prepararContrato(id, inicio, fin, tipo, notas){
+    function prepararContrato(id, inicio, fin, tipo, notas, empresa){
       document.getElementById('contractId').value = id || '';
       document.getElementById('contractStart').value = inicio || '';
       document.getElementById('contractEnd').value = fin || '';
       document.getElementById('contractType').value = tipo || '';
       document.getElementById('contractNotes').value = notas || '';
+      document.getElementById('contractCompany').value = empresa || '';
     }
   </script>
 

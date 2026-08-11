@@ -145,7 +145,8 @@
     var fest = this.holidays[key];
     if (isWeekend(d)) cel.classList.add('is-weekend');
     if (fest) {
-      cel.classList.add('is-holiday');
+      // Un NO LABORABLE de la oficina se distingue del festivo oficial (los dos dejan de contar).
+      cel.classList.add(fest.scope === 'EMPRESA' ? 'is-nonworking' : 'is-holiday');
       cel.title = fest.name + (fest.scope_label ? ' · ' + fest.scope_label : '');
     }
     if (key === iso(new Date())) cel.classList.add('is-today');
@@ -160,6 +161,9 @@
     if (ocupados.length) {
       var pendiente = ocupados.some(function (o) { return o.status === 'PENDING'; });
       var aprobado = ocupados.some(function (o) { return o.status === 'APPROVED'; });
+      // VACACIONES y DÍA LIBRE se ven distintos: son dos cuentas separadas.
+      var esLibre = ocupados.every(function (o) { return o.kind === 'DIA_LIBRE'; });
+      if (esLibre) cel.classList.add('is-free');
       cel.classList.add(aprobado ? 'is-approved' : (pendiente ? 'is-pending' : ''));
       if (big && this.opts.people && this.opts.people.length) {
         var chips = document.createElement('div');
@@ -171,8 +175,10 @@
           var p = this.people[o.user_id];
           if (!p) return;
           var chip = document.createElement('span');
-          chip.className = 'vac-chip' + (o.status === 'PENDING' ? ' is-pending' : '');
-          chip.title = p.nick + (o.status === 'PENDING' ? ' · pendiente de aprobar' : '');
+          chip.className = 'vac-chip' + (o.status === 'PENDING' ? ' is-pending' : '') +
+                           (o.kind === 'DIA_LIBRE' ? ' is-free' : '');
+          chip.title = p.nick + (o.kind === 'DIA_LIBRE' ? ' · día libre' : '') +
+                       (o.status === 'PENDING' ? ' · pendiente de aprobar' : '');
           if (p.photo_url) {
             var img = document.createElement('img');
             img.src = p.photo_url; img.alt = p.nick;
@@ -187,7 +193,7 @@
         if (chips.childNodes.length) cel.appendChild(chips);
       } else if (!big) {
         var punto = document.createElement('span');
-        punto.className = 'vac-day__dot' + (aprobado ? '' : ' is-pending');
+        punto.className = 'vac-day__dot' + (aprobado ? '' : ' is-pending') + (esLibre ? ' is-free' : '');
         cel.appendChild(punto);
       }
     }
@@ -201,12 +207,25 @@
     if (!this.opts.selectable) return;
     var self = this;
 
-    function dayAt(ev) {
-      var t = document.elementFromPoint(
-        (ev.touches ? ev.touches[0].clientX : ev.clientX),
-        (ev.touches ? ev.touches[0].clientY : ev.clientY));
-      var cel = t && t.closest ? t.closest('.vac-day') : null;
+    function celdaDe(el) {
+      var cel = (el && el.closest) ? el.closest('.vac-day') : null;
       return (cel && cel.dataset.day && !cel.classList.contains('is-empty')) ? cel.dataset.day : null;
+    }
+
+    /* Qué día hay bajo el puntero.
+       ⚠️ Al EMPEZAR el gesto manda `ev.target` (el propio elemento pulsado) y `elementFromPoint`
+       queda de respaldo: dentro de un modal con scroll, una celda que no esté en el viewport hace
+       que `elementFromPoint` devuelva otra cosa (o nada) y el clic se pierda. Al ARRASTRAR es al
+       revés: con captura de puntero `ev.target` se queda en la celda de origen, así que ahí hay
+       que mirar de verdad qué hay debajo. */
+    function dayAt(ev, prefiereTarget) {
+      var porPunto = function () {
+        var t = document.elementFromPoint(
+          (ev.touches ? ev.touches[0].clientX : ev.clientX),
+          (ev.touches ? ev.touches[0].clientY : ev.clientY));
+        return celdaDe(t);
+      };
+      return prefiereTarget ? (celdaDe(ev.target) || porPunto()) : (porPunto() || celdaDe(ev.target));
     }
 
     function paintRange(desde, hasta) {
@@ -222,7 +241,7 @@
     }
 
     this.root.addEventListener('pointerdown', function (ev) {
-      var key = dayAt(ev);
+      var key = dayAt(ev, true);
       if (!key) return;
       ev.preventDefault();
       self.drag = { from: key, mode: self.selected[key] ? 'remove' : 'add' };
@@ -231,7 +250,7 @@
 
     this.root.addEventListener('pointermove', function (ev) {
       if (!self.drag) return;
-      var key = dayAt(ev);
+      var key = dayAt(ev, false);
       if (!key || key === self.drag.last) return;
       self.drag.last = key;
       // Se repinta desde el origen: al retroceder, lo que sobra se deselecciona.

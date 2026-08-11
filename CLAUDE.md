@@ -1594,6 +1594,63 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ `vacation_days_per_year`/`vacation_adjustments` hay que añadirlos a **`_snapshot_user_profile`**:
   lo que no esté ahí es invisible desde `_current_user_state()` y desde las plantillas.
 
+- **DÍAS LIBRES y DÍAS NO LABORABLES** (ago 2026, sobre lo de vacaciones):
+  · **Día libre** = `VacationRequest.kind` VACACIONES | **DIA_LIBRE** (`VACATION_KINDS`,
+  `_vacation_kind`). Comparte tabla, calendario, pantalla y flujo de aprobación con las vacaciones;
+  lo único que cambia es que **NO consume el saldo de vacaciones** y lleva su propia cuenta
+  (`_vacation_balance` devuelve `free_used`/`free_enjoyed`/`free_pending`). Se pide **con motivo
+  obligatorio** y lo aprueba quien aprueba las vacaciones. En «Mis vacaciones» hay dos botones con
+  icono (`.vac-actions`): «Solicitar vacaciones» y «Solicitar día libre», y **un solo modal** que
+  cambia de tipo. En el calendario se distinguen por color (verde vacaciones, morado día libre).
+  · **Día NO LABORABLE de la oficina** (`vacation_nonworking_save`): a efectos de contar es
+  exactamente lo mismo que un festivo —no se trabaja y no consume vacaciones—, así que se guarda en
+  la MISMA tabla `Holiday` con el ámbito **EMPRESA** y hereda gratis el calendario, el cómputo y
+  `_vacation_day_counts`. Se marcan uno o varios sobre el calendario desde Festivos. Si el día ya
+  era festivo, no se pisa.
+  · **CONCEDER día libre** (`vacation_grant_free_day`): la empresa se lo regala a **varias personas
+  a la vez** (se eligen con casillas) y **sí se les avisa**. ⚠️ No confundir con «apuntar días»
+  (`vacation_person_days`), que es meter en el sistema lo YA disfrutado: eso **no** avisa.
+
+- **AVISOS de vacaciones / día libre / día no laborable** (ago 2026). Punto único
+  **`_vacation_notice_send`**: manda el aviso por los **DOS canales** —la campanita de la app y el
+  **correo**— con el MISMO HTML (`_vacation_notice_html`, estilos en línea), y el enlace del aviso
+  abre `vacation_notice_view`, que devuelve **ese mismo HTML**. Si se toca el diseño, se tocan los
+  dos a la vez.
+  · Contenido: logo de **la empresa del grupo con la que la persona tiene contrato**
+  (`UserContract.company_id` → `_vacation_notice_brand`; sin ella, el de la casa) arriba a la
+  **derecha**, título centrado (Vacaciones · Día libre · Día no laborable) con las fechas debajo,
+  el texto, el **calendario solo de los meses afectados** (`_vacation_notice_calendar_html`, hecho
+  con `<table>` y estilos en línea porque va por correo) y las **etiquetas de totales**.
+  · **Aprobado** → «¡Enhorabuena!» con iconitos animados (`@keyframes vnPop`; el cliente de correo
+  que la tire los enseña quietos). **Rechazado** → sobrio: «Lo sentimos… consulta con
+  Administración los motivos», sin iconos ni animación (el `<style>` solo se emite si hay adornos).
+  **No laborable** → «La empresa ha decidido que el <fecha completa> no se trabaje»
+  (`_vacation_long_date`) y sin totales, que no es el saldo de nadie.
+  · **Cuándo se avisa**: al APROBAR o RECHAZAR una petición, al marcar días NO LABORABLES (a toda
+  la oficina) y al CONCEDER un día libre. **Apuntar días no avisa**.
+  ⚠️ **`vacation_notice_view` va en `PERSONAL_ENDPOINTS`**: el aviso es de la propia persona y, con
+  la regla de prefijo `vacation_*` → sección `vacaciones`, se comía un **403 al pinchar su propio
+  aviso** (bug real). Dentro se comprueba que los días son suyos (o que quien mira gestiona).
+
+- **Calendario de INICIO · categoría «Vacaciones y días libres»** (ago 2026): `_agenda_personal_days`
+  añade a la agenda los días PROPIOS de quien mira (vacaciones y días libres, aprobados o
+  pendientes, más los festivos y los no laborables) como kind **`vacaciones`** de
+  `AGENDA_KIND_META`. Van **sin artista** y solo cuando se piden: `_agenda_build(...,
+  include_personal=True)` lo activan **únicamente** `_home_agenda` y `home_agenda_data` sin
+  `artist_id`. ⚠️ Esa bandera existe a propósito: `_agenda_build` alimenta también los calendarios
+  públicos, iCal y CalDAV de los artistas, y ahí no pintan nada —serían datos personales de la
+  oficina en un enlace que se comparte fuera.
+
+- ⚠️⚠️ **`shown.bs.modal` NO ES FIABLE en esta app** (ago 2026, bug real): con `modal_stack.js` por
+  medio llega `show.bs.modal` pero **nunca `shown`**, así que cualquier cosa que se construya en ese
+  evento no se construye. Pasó con los calendarios de los modales de vacaciones: el modal se abría
+  **vacío** y «apuntar días» no guardaba nada porque no había día que marcar. **Lo que haya que
+  montar al abrir un modal se monta EN EL PROPIO CLIC** (o, como mucho, en `show.bs.modal`).
+  ⚠️ En el mismo arreglo: el gesto del calendario resuelve el día con **`ev.target`** al empezar y
+  deja `elementFromPoint` de respaldo — dentro de un modal con scroll, una celda fuera del viewport
+  hacía que `elementFromPoint` no devolviera nada y el clic se perdía. Al ARRASTRAR es al revés
+  (con captura de puntero `ev.target` se queda en la celda de origen).
+
 - **MI CONTRATO · pestaña de la ficha de personal** (ago 2026): `UserContract` (fecha de comienzo,
   fecha de fin, tipo, PDF y notas; se guarda el **histórico** y la antigüedad es la fecha más antigua).
   **Solo lo ven administración y dirección** (`_can_view_person_contract`): ni la pestaña se pinta.

@@ -1,61 +1,75 @@
 {% extends "layout.html" %}
 {% block content %}
-{# MIS VACACIONES · lo que ve cada persona de sus propios días. #}
+{# MIS VACACIONES Y DÍAS LIBRES · lo que ve cada persona de sus propios días.
+   Vacaciones y días libres comparten pantalla, calendario y flujo; lo único que cambia es de qué
+   cuenta salen los días (un día libre NO consume vacaciones). #}
 
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
   <div>
     <h4 class="m-0"><i class="fa fa-umbrella-beach text-danger me-2"></i>Mis vacaciones y días libres</h4>
-    <div class="text-muted small">Se cuentan días laborables: sábados, domingos y festivos de Madrid no restan.</div>
+    <div class="text-muted small">Se cuentan días laborables: sábados, domingos y festivos no restan.</div>
   </div>
-  <div class="d-flex align-items-center gap-2">
-    <form method="get" class="d-flex align-items-center gap-2 m-0">
-      <label class="form-label m-0 small text-muted">Año</label>
-      <select name="anio" class="form-select form-select-sm" style="width:auto;" onchange="this.form.submit()">
-        {% for y in years %}<option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>{% endfor %}
-      </select>
-    </form>
-    {% if balance.has_contract %}
-      <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#pedirVacacionesModal">
-        <i class="fa fa-plus me-1"></i>Solicitar vacaciones
-      </button>
-    {% endif %}
-  </div>
+  <form method="get" class="d-flex align-items-center gap-2 m-0">
+    <label class="form-label m-0 small text-muted">Año</label>
+    <select name="anio" class="form-select form-select-sm" style="width:auto;" onchange="this.form.submit()">
+      {% for y in years %}<option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>{% endfor %}
+    </select>
+  </form>
 </div>
 
 {% if not balance.has_contract %}
   <div class="alert alert-warning">
     <i class="fa fa-triangle-exclamation me-1"></i>
-    Todavía no consta tu <strong>fecha de comienzo</strong>, así que no se pueden calcular tus días.
-    Administración tiene que subir tu contrato en tu ficha para que puedas pedir vacaciones.
+    Todavía no consta tu <strong>fecha de comienzo</strong>, así que no se pueden calcular tus días de
+    vacaciones. Administración tiene que subir tu contrato en tu ficha. Los <strong>días libres</strong>
+    sí los puedes pedir.
   </div>
 {% endif %}
+
+{# Barra de botones, al estilo del resto de la app: icono + acción. #}
+<div class="vac-actions mb-4">
+  {% if balance.has_contract %}
+    <button class="btn btn-primary" type="button" data-vac-open="VACACIONES">
+      <i class="fa fa-umbrella-beach"></i>Solicitar vacaciones
+    </button>
+  {% endif %}
+  <button class="btn btn-outline-primary" type="button" data-vac-open="DIA_LIBRE">
+    <i class="fa fa-mug-hot"></i>Solicitar día libre
+  </button>
+</div>
 
 <div class="row g-3 mb-4">
   <div class="col-6 col-lg-3">
     <div class="vac-stat vac-stat--main">
       <div class="vac-stat__n">{{ balance.remaining }}</div>
-      <div class="vac-stat__lbl">Días disponibles</div>
+      <div class="vac-stat__lbl">Vacaciones disponibles</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="vac-stat">
+      <div class="vac-stat__n">{{ balance.used }}</div>
+      <div class="vac-stat__lbl">
+        Vacaciones cogidas en {{ year }}
+        {% if balance.pending %}<span class="badge text-bg-warning text-dark ms-1">+{{ balance.pending }} sin aprobar</span>{% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="vac-stat vac-stat--free">
+      <div class="vac-stat__n">{{ balance.free_used }}</div>
+      <div class="vac-stat__lbl">
+        Días libres en {{ year }}
+        {% if balance.free_pending %}<span class="badge text-bg-warning text-dark ms-1">+{{ balance.free_pending }} sin aprobar</span>{% endif %}
+      </div>
     </div>
   </div>
   <div class="col-6 col-lg-3">
     <div class="vac-stat">
       <div class="vac-stat__n">{{ balance.total }}</div>
       <div class="vac-stat__lbl">
-        Te corresponden en {{ year }}
-        {% if balance.prorated %}<span class="badge text-bg-light border ms-1" title="Se prorratean desde tu fecha de comienzo">prorrateados</span>{% endif %}
+        Vacaciones que te corresponden
+        {% if balance.prorated %}<span class="badge text-bg-light border ms-1" title="Se prorratean desde tu fecha de comienzo">prorrateadas</span>{% endif %}
       </div>
-    </div>
-  </div>
-  <div class="col-6 col-lg-3">
-    <div class="vac-stat">
-      <div class="vac-stat__n">{{ balance.enjoyed }}</div>
-      <div class="vac-stat__lbl">Disfrutados</div>
-    </div>
-  </div>
-  <div class="col-6 col-lg-3">
-    <div class="vac-stat">
-      <div class="vac-stat__n">{{ balance.pending }}</div>
-      <div class="vac-stat__lbl">Pendientes de aprobar</div>
     </div>
   </div>
 </div>
@@ -66,9 +80,11 @@
       <h6 class="m-0">Calendario {{ year }}</h6>
       <div class="vac-legend">
         <span><i style="background:#e8eef3;"></i>Fin de semana</span>
-        <span><i style="background:#fdeaec;"></i>Festivo en Madrid</span>
-        <span><i style="background:#d6f0dc;"></i>Aprobadas</span>
-        <span><i style="background:#fff3cd;"></i>Pendientes</span>
+        <span><i style="background:#fdeaec;"></i>Festivo</span>
+        <span><i style="background:#ede7f6;"></i>No laborable</span>
+        <span><i style="background:#d6f0dc;"></i>Vacaciones</span>
+        <span><i style="background:#e6dcf3;"></i>Día libre</span>
+        <span><i style="background:#fff3cd;"></i>Sin aprobar</span>
       </div>
     </div>
     <div id="miCalendario"></div>
@@ -85,9 +101,11 @@
         {% for r in requests %}
           <div class="list-group-item d-flex justify-content-between align-items-center gap-3 flex-wrap px-0">
             <div style="min-width:0;">
-              <div class="fw-semibold">{{ r.range_label }}</div>
+              <div class="fw-semibold">
+                <i class="fa {{ r.kind_meta.icon }} text-muted me-1"></i>{{ r.range_label }}
+              </div>
               <div class="small text-muted">
-                {{ r.days_count }} día{{ '' if r.days_count == 1 else 's' }} · {{ r.year }}
+                {{ r.days_count }} {{ r.kind_meta.singular if r.days_count == 1 else r.kind_meta.plural }} · {{ r.year }}
                 {% if r.note %} · {{ r.note }}{% endif %}
                 {% if r.decision_note %}<span class="text-danger"> · {{ r.decision_note }}</span>{% endif %}
               </div>
@@ -107,12 +125,13 @@
   </div>
 </div>
 
-{% if balance.has_contract %}
-<div class="modal fade" id="pedirVacacionesModal" tabindex="-1">
+{# UN solo modal para los dos tipos: cambia el título, el icono y si el motivo es obligatorio. #}
+<div class="modal fade" id="pedirModal" tabindex="-1">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
-    <form method="post" action="{{ url_for('mis_vacaciones_request') }}" class="modal-content" id="pedirVacacionesForm">
+    <form method="post" action="{{ url_for('mis_vacaciones_request') }}" class="modal-content" id="pedirForm">
+      <input type="hidden" name="kind" id="pedirKind" value="VACACIONES">
       <div class="modal-header">
-        <h5 class="modal-title"><i class="fa fa-umbrella-beach me-2"></i>Solicitar vacaciones</h5>
+        <h5 class="modal-title"><i class="fa fa-umbrella-beach me-2" id="pedirIcono"></i><span id="pedirTitulo">Solicitar vacaciones</span></h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
@@ -126,7 +145,7 @@
             <div class="vac-counter__n" id="vacSeleccionados">0</div>
             <div class="vac-counter__lbl">Días marcados</div>
           </div>
-          <div>
+          <div id="vacRestantesCaja">
             <div class="vac-counter__n" id="vacRestantes">{{ balance.remaining }}</div>
             <div class="vac-counter__lbl">Te quedarían</div>
           </div>
@@ -139,8 +158,8 @@
         <div id="vacSolapes" class="alert alert-warning d-none py-2 small"></div>
 
         <div class="mb-3">
-          <label class="form-label">Nota (opcional)</label>
-          <input name="note" class="form-control" placeholder="Por ejemplo: viaje familiar">
+          <label class="form-label" id="pedirNotaLabel">Nota (opcional)</label>
+          <input name="note" id="pedirNota" class="form-control" placeholder="Por ejemplo: viaje familiar">
         </div>
 
         <input type="hidden" name="days" id="vacDays">
@@ -153,39 +172,74 @@
     </form>
   </div>
 </div>
-{% endif %}
 
 <script src="{{ url_for('static', filename='js/vacaciones.js') }}"></script>
 <script id="vacData" type="application/json">{{ calendar_payload|tojson }}</script>
+<script id="vacKinds" type="application/json">{{ vacation_kinds|tojson }}</script>
 <script>
 (function(){
   var datos = JSON.parse(document.getElementById('vacData').textContent || '{}');
+  var TIPOS = JSON.parse(document.getElementById('vacKinds').textContent || '{}');
   var disponibles = {{ balance.remaining|int }};
+  var tipoActual = 'VACACIONES';
 
   // Calendario de solo lectura del año.
   VacCalendar.create('#miCalendario', {
     mode: 'year', year: datos.year, holidays: datos.holidays, days: datos.days
   });
 
-  var modal = document.getElementById('pedirVacacionesModal');
-  if (!modal) return;
+  var modal = document.getElementById('pedirModal');
   var cal = null;
+
+  /* ⚠️ El calendario del modal se construye AL ABRIR, no en `shown.bs.modal`: con modal_stack.js
+     por medio ese evento NO llega (comprobado: llega `show` pero nunca `shown`), y el modal se
+     quedaba con el calendario VACÍO, así que no se podía marcar nada ni guardar nada. */
+  function asegurarCal(){
+    if (cal) return cal;
+    cal = VacCalendar.create('#vacCalendario', {
+      mode: 'year', year: datos.year, holidays: datos.holidays, days: datos.days,
+      selectable: true, onChange: pinta
+    });
+    return cal;
+  }
+  modal.addEventListener('show.bs.modal', asegurarCal);
+
+  function abrir(kind){
+    tipoActual = TIPOS[kind] ? kind : 'VACACIONES';
+    var meta = TIPOS[tipoActual] || {};
+    document.getElementById('pedirKind').value = tipoActual;
+    document.getElementById('pedirTitulo').textContent = 'Solicitar ' + (meta.label || '').toLowerCase();
+    document.getElementById('pedirIcono').className = 'fa ' + (meta.icon || 'fa-umbrella-beach') + ' me-2';
+    var esLibre = (tipoActual === 'DIA_LIBRE');
+    // Un día libre se pide diciendo POR QUÉ, y no toca el saldo de vacaciones.
+    document.getElementById('pedirNotaLabel').textContent = esLibre ? 'Motivo' : 'Nota (opcional)';
+    document.getElementById('pedirNota').required = esLibre;
+    document.getElementById('pedirNota').placeholder = esLibre ? 'Por ejemplo: mudanza' : 'Por ejemplo: viaje familiar';
+    document.getElementById('vacRestantesCaja').classList.toggle('d-none', esLibre);
+    asegurarCal();
+    if (cal) cal.clear();
+    new bootstrap.Modal(modal).show();
+  }
+  document.querySelectorAll('[data-vac-open]').forEach(function(b){
+    b.addEventListener('click', function(){ abrir(b.dataset.vacOpen); });
+  });
 
   function pinta(sel, cuentan){
     document.getElementById('vacSeleccionados').textContent = cuentan.length;
+    var esLibre = (tipoActual === 'DIA_LIBRE');
     var quedan = disponibles - cuentan.length;
     var elQuedan = document.getElementById('vacRestantes');
     elQuedan.textContent = quedan;
     elQuedan.classList.toggle('is-over', quedan < 0);
     document.getElementById('vacDays').value = sel.join(',');
     var aviso = document.getElementById('vacAviso');
-    var pasado = cuentan.length > disponibles;
+    var pasado = (!esLibre && cuentan.length > disponibles);
     aviso.className = 'flex-grow-1 small ' + (pasado ? 'text-danger fw-semibold' : 'text-muted');
     aviso.textContent = pasado
       ? 'Te has pasado: solo te quedan ' + disponibles + ' día' + (disponibles === 1 ? '' : 's') + '.'
       : (sel.length > cuentan.length
-          ? (sel.length - cuentan.length) + ' de los días marcados son fin de semana o festivo y no te restan.'
-          : 'Marca los días pinchando o arrastrando. Los fines de semana y festivos no te restan.');
+          ? (sel.length - cuentan.length) + ' de los días marcados son fin de semana, festivo o no laborable y no cuentan.'
+          : 'Marca los días pinchando o arrastrando. Los fines de semana y festivos no cuentan.');
     document.getElementById('vacEnviar').disabled = (cuentan.length === 0 || pasado);
     comprobar(sel);
   }
@@ -197,12 +251,10 @@
     var caja = document.getElementById('vacSolapes');
     if (!sel.length){ caja.classList.add('d-none'); return; }
     timer = setTimeout(function(){
-      {# ⚠️ Aquí `|tojson` a secas: dentro de un <script> el navegador NO deshace las entidades
-         HTML, así que `|forceescape` dejaría un `&#34;` literal y el JS no compilaría. El
-         `forceescape` solo hace falta dentro de un atributo (onclick="…"). #}
+      {# ⚠️ `|tojson` a secas: dentro de un <script> el navegador no deshace las entidades HTML. #}
       fetch({{ url_for('mis_vacaciones_check')|tojson }}, {
         method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({days: sel.join(',')})
+        body: JSON.stringify({days: sel.join(','), kind: tipoActual})
       }).then(function(r){ return r.json(); }).then(function(d){
         if (!d || !d.overlaps || !d.overlaps.length){ caja.classList.add('d-none'); return; }
         caja.classList.remove('d-none');
@@ -212,13 +264,6 @@
     }, 400);
   }
 
-  modal.addEventListener('shown.bs.modal', function(){
-    if (cal) return;
-    cal = VacCalendar.create('#vacCalendario', {
-      mode: 'year', year: datos.year, holidays: datos.holidays, days: datos.days,
-      selectable: true, onChange: pinta
-    });
-  });
   document.getElementById('vacLimpiar').addEventListener('click', function(){ if (cal) cal.clear(); });
 })();
 </script>

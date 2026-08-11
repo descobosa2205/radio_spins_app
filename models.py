@@ -10013,12 +10013,18 @@ class Holiday(Base):
 
 
 class VacationRequest(Base):
-    """Petición de vacaciones / días libres de una persona de la oficina."""
+    """Petición de VACACIONES o de DÍA LIBRE de una persona de la oficina.
+
+    Las dos cosas comparten tabla, calendario y flujo de aprobación —lo único que cambia es de qué
+    bolsa salen los días—, así que `kind` es lo que las separa. ⚠️ Un DÍA LIBRE **no consume
+    vacaciones**: se lleva en su propia cuenta."""
 
     __tablename__ = "vacation_requests"
 
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    # VACACIONES | DIA_LIBRE
+    kind = Column(Text, nullable=False, server_default=text("'VACACIONES'"))
     # PENDING | APPROVED | REJECTED | CANCELLED
     status = Column(Text, nullable=False, server_default=text("'PENDING'"))
     # Año natural al que se imputan los días (el de la primera fecha pedida).
@@ -10041,6 +10047,7 @@ class VacationRequest(Base):
         Index("idx_vacation_requests_user", "user_id"),
         Index("idx_vacation_requests_status", "status"),
         Index("idx_vacation_requests_year", "user_id", "year"),
+        Index("idx_vacation_requests_kind", "user_id", "year", "kind"),
     )
 
 
@@ -10075,6 +10082,9 @@ class UserContract(Base):
 
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    # CON QUÉ EMPRESA DEL GRUPO tiene el contrato: es su logo el que va en los avisos que se le
+    # mandan (vacaciones aprobadas, día libre, día no laborable).
+    company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
     start_date = Column(Date, nullable=False)
     end_date = Column(Date)
     contract_type = Column(Text)          # indefinido, temporal, prácticas… (texto libre)
@@ -10125,6 +10135,9 @@ def ensure_vacations_schema():
         "CREATE INDEX IF NOT EXISTS idx_vacation_requests_user ON vacation_requests(user_id);",
         "CREATE INDEX IF NOT EXISTS idx_vacation_requests_status ON vacation_requests(status);",
         "CREATE INDEX IF NOT EXISTS idx_vacation_requests_year ON vacation_requests(user_id, year);",
+        # VACACIONES | DIA_LIBRE. Lo que ya existía son vacaciones (de ahí el DEFAULT).
+        "ALTER TABLE vacation_requests ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'VACACIONES';",
+        "CREATE INDEX IF NOT EXISTS idx_vacation_requests_kind ON vacation_requests(user_id, year, kind);",
         """
         CREATE TABLE IF NOT EXISTS vacation_days (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -10153,6 +10166,7 @@ def ensure_vacations_schema():
         """,
         "CREATE INDEX IF NOT EXISTS idx_user_contracts_user ON user_contracts(user_id);",
         "CREATE INDEX IF NOT EXISTS idx_user_contracts_start ON user_contracts(user_id, start_date);",
+        "ALTER TABLE user_contracts ADD COLUMN IF NOT EXISTS company_id uuid REFERENCES group_companies(id) ON DELETE SET NULL;",
         # Días de vacaciones al año de cada persona: se configura desde el panel de vacaciones.
         "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS vacation_days_per_year integer;",
         # Ajuste manual del saldo de un año {\"2026\": 3} (días arrastrados, correcciones…).

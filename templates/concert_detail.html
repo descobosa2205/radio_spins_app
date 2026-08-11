@@ -259,7 +259,7 @@
        que no está arriba —el promotor y su sociedad— va abajo, en la tabla compacta. #}
     {% if concert.promoter %}
       <div class="cfila mb-3">
-        <img class="cfila__ph" src="{{ concert.promoter.logo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">
+        <img class="cfila__ph" src="{{ concert.promoter.logo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
         <div class="min-w-0">
           <div class="cfila__lab">Promotor</div>
           <a class="fw-semibold text-reset text-decoration-none" href="{{ url_for('promoter_detail_view', pid=concert.promoter.id) }}">{{ concert.promoter.nick }}</a>
@@ -2751,7 +2751,7 @@ document.addEventListener('DOMContentLoaded', function(){
         <div class="agenda-artist-picker">
           {% for p in production_people %}
             <button type="button" class="agenda-artist-card" data-prod-owner="{{ p.id }}" data-name="{{ p.name }}">
-              <img src="{{ p.photo_url or url_for('static', filename='img/logo.png') }}" alt="" loading="lazy">
+              <img src="{{ p.photo_url or DEFAULT_AVATAR_URL }}" alt="" loading="lazy">
               <span>{{ p.name }}</span>
             </button>
           {% else %}

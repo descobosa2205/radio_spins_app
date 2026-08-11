@@ -1360,11 +1360,17 @@
       {% endif %}
     {% endmacro %}
 
-    {# Fila de archivo de audio: nombre + reproductor inline + menú de 3 puntos. #}
+    {# Fila de archivo de audio: reproductor inline + menú de 3 puntos.
+       En los huecos FIJOS (masters, instrumental, TV track) NO se pone el nombre del archivo: el
+       módulo ya se llama «Master 48 bits», así que solo va el icono y, seguido, la pre-escucha.
+       En los SUBPRODUCTOS y los stems sí, que ahí el nombre es lo único que los distingue. #}
     {% macro audio_row(concept, item, fixed_slot=True) %}
       <div class="mat-file">
         <div class="mat-file__main">
-          <div class="mat-file__name"><i class="fa fa-file-audio text-muted me-2"></i>{{ item.base_name }}{% if item.is_pending %} <span class="badge text-bg-warning text-dark ms-1">Pendiente de validar</span>{% endif %}</div>
+          <div class="mat-file__name">
+            <i class="fa fa-file-audio text-muted{% if not fixed_slot %} me-2{% endif %}"></i>{% if not fixed_slot %}{{ item.base_name }}{% endif %}
+            {% if item.is_pending %} <span class="badge text-bg-warning text-dark ms-1">Pendiente de validar</span>{% endif %}
+          </div>
           <audio class="mat-file__audio" controls preload="none" src="{{ item.file_url }}"></audio>
         </div>
         {% if item.is_pending and CAN_EDIT_DISCOGRAFICA %}
@@ -1496,8 +1502,9 @@
               <div class="mat-module">
                 <div class="mat-module__head">
                   <span class="fw-semibold">{{ slot_label }}</span>
-                  {% if CAN_EDIT_DISCOGRAFICA %}
-                    <button type="button" class="btn btn-sm {{ 'btn-outline-secondary' if item else 'btn-outline-primary' }}" onclick="openSongMaterialModal({title:'{{ 'Sustituir' if item else 'Subir' }} {{ slot_label }}', category:'MASTER', slotKey:'{{ slot_key }}', materialId:'{{ item.id if item else '' }}', showDisplayName:false, multiple:false, stemMode:false})"><i class="fa fa-upload me-1"></i>{{ 'Sustituir' if item else 'Subir' }}</button>
+                  {# Con archivo subido NO se repite «Sustituir»: está en el menú de 3 puntitos. #}
+                  {% if CAN_EDIT_DISCOGRAFICA and not item %}
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSongMaterialModal({title:'Subir {{ slot_label }}', category:'MASTER', slotKey:'{{ slot_key }}', materialId:'', showDisplayName:false, multiple:false, stemMode:false})"><i class="fa fa-upload me-1"></i>Subir</button>
                   {% endif %}
                 </div>
                 {% if item %}{{ audio_row(slot_label, item) }}{% else %}<div class="mat-empty">Pendiente de subida.</div>{% endif %}
@@ -1537,8 +1544,9 @@
               <div class="mat-module">
                 <div class="mat-module__head">
                   <span class="fw-semibold">{{ title }}</span>
-                  {% if CAN_EDIT_DISCOGRAFICA %}
-                    <button type="button" class="btn btn-sm {{ 'btn-outline-secondary' if item_default else 'btn-outline-primary' }}" onclick="openSongMaterialModal({title:'{{ 'Sustituir' if item_default else 'Subir' }} {{ title }}', category:'{{ category_key }}', slotKey:'DEFAULT', materialId:'{{ item_default.id if item_default else '' }}', showDisplayName:false, multiple:false, stemMode:false})"><i class="fa fa-upload me-1"></i>{{ 'Sustituir' if item_default else 'Subir' }}</button>
+                  {# Igual que en los masters: «Sustituir» solo en el menú de 3 puntitos. #}
+                  {% if CAN_EDIT_DISCOGRAFICA and not item_default %}
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSongMaterialModal({title:'Subir {{ title }}', category:'{{ category_key }}', slotKey:'DEFAULT', materialId:'', showDisplayName:false, multiple:false, stemMode:false})"><i class="fa fa-upload me-1"></i>Subir</button>
                   {% endif %}
                 </div>
                 {% if item_default %}{{ audio_row(title, item_default) }}{% else %}<div class="mat-empty">Pendiente de subida.</div>{% endif %}
@@ -1769,7 +1777,7 @@
                 {% for b in royalty_other_beneficiaries %}
                   <div class="list-group-item d-flex align-items-center justify-content-between flex-wrap gap-3">
                     <div class="d-flex align-items-center gap-2">
-                      <img src="{{ (b.promoter.logo_url if b.promoter else None) or DEFAULT_PHOTO_URL }}" style="width:44px;height:44px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff" alt="">
+                      <img src="{{ (b.promoter.logo_url if b.promoter else None) or DEFAULT_AVATAR_URL }}" data-avatar="1" style="width:44px;height:44px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff" alt="">
                       <div>
                         <div class="fw-semibold">{{ b.promoter.nick if b.promoter else '—' }}</div>
                         <div class="small text-muted">

@@ -902,11 +902,16 @@ window.copyShareLink = copyShareLink;
 function initImageFallbacks(){
   const defaultUrl = document.body ? (document.body.getAttribute('data-default-photo-url') || '') : '';
   const coverUrl = document.body ? (document.body.getAttribute('data-default-cover-url') || '') : '';
+  // PERSONAS (personal) y TERCEROS: caen al muñequito gris, no al «hueco omitido». Se marcan con
+  // data-avatar="1" allí donde el servidor ya pinta DEFAULT_AVATAR_URL cuando no hay foto.
+  const avatarUrl = document.body ? (document.body.getAttribute('data-default-avatar-url') || '') : '';
   if (!defaultUrl) return;
   // Las PORTADAS de canción/álbum (cover-square / song-hero-cover / .cover / [data-cover]) caen a un
   // placeholder de portada (disco gris), NO al avatar de persona.
   const isCover = (img) => !!(img && (img.classList.contains('cover-square') || img.classList.contains('song-hero-cover') || img.classList.contains('cover') || img.hasAttribute('data-cover')));
-  const fbFor = (img) => (coverUrl && isCover(img)) ? coverUrl : defaultUrl;
+  const isAvatar = (img) => !!(img && (img.dataset.avatar === '1' || img.classList.contains('user-nav-avatar')));
+  const fbFor = (img) => (coverUrl && isCover(img)) ? coverUrl
+                       : ((avatarUrl && isAvatar(img)) ? avatarUrl : defaultUrl);
   // Imágenes de Leaflet (tiles/marcadores del mapa) NUNCA pasan por el sistema de fallback: si un
   // tile falla momentáneamente (ráfaga/rate-limit de OSM) y le cambiáramos el src o lo ocultáramos,
   // el mapa entero se quedaba en gris (bug de simulaciones/cuadrantes).
@@ -917,7 +922,7 @@ function initImageFallbacks(){
     isLeafletImg(img);
   const selector = [
     'img.artist-avatar', 'img.artist-mini', 'img.song-hero-cover', 'img.cover-square', 'img.cover', 'img[data-cover]',
-    'img.station-logo', 'img.user-nav-avatar', 'img[data-default-photo="1"]',
+    'img.station-logo', 'img.user-nav-avatar', 'img[data-default-photo="1"]', 'img[data-avatar="1"]',
     'img[src$="/static/img/default_promoter.png"]',
     'img[src$="/static/img/promoter_default.png"]'
   ].join(',');

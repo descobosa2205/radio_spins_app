@@ -222,8 +222,8 @@
                   {% for p in production_people %}
                     <label class="list-group-item d-flex align-items-center gap-2">
                       <input class="form-check-input m-0" type="radio" name="user_id" value="{{ p.id }}" required>
-                      <img src="{{ p.photo_url or url_for('static', filename='img/placeholder_photo.png') }}" alt=""
-                           data-default-photo="1" style="width:30px;height:30px;border-radius:50%;object-fit:cover;">
+                      <img src="{{ p.photo_url or DEFAULT_AVATAR_URL }}" alt=""
+                           data-avatar="1" style="width:30px;height:30px;border-radius:50%;object-fit:cover;">
                       <span>{{ p.name }}</span>
                     </label>
                   {% endfor %}

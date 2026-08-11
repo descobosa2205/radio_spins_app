@@ -2807,6 +2807,12 @@ class UserProfile(Base):
     menu_order = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     # Última vez que esta persona entró en Producción → Activas (para marcar «Nueva actividad»).
     production_seen_at = Column(DateTime(timezone=True))
+    # VACACIONES: días al año de esta persona (NULL = los de la casa, VACATION_DAYS_PER_YEAR).
+    # Se configura desde el panel de administración de vacaciones, no desde su propia ficha.
+    vacation_days_per_year = Column(Integer)
+    # Ajustes manuales del saldo por año {"2026": 3}: días arrastrados del año anterior,
+    # correcciones… Suman (o restan) sobre lo que le corresponde por contrato.
+    vacation_adjustments = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -9970,3 +9976,185 @@ def ensure_invoice_attempts_schema():
         """,
         "CREATE INDEX IF NOT EXISTS idx_invoice_upload_attempts_fecha ON invoice_upload_attempts(created_at);",
     ], "invoice_attempts_schema")
+
+
+# ---------------------------------------------------------------------------
+# VACACIONES Y DÍAS LIBRES · del personal de la oficina
+# ---------------------------------------------------------------------------
+# Tres piezas:
+#   · `Holiday`         — el calendario de FESTIVOS (Madrid: nacionales, de la
+#                         Comunidad y locales). Se siembra solo por año y se
+#                         puede corregir a mano: el BOE cambia cada año y no se
+#                         puede dar por buena una lista calculada para siempre.
+#   · `VacationRequest` — una petición (BORRADOR no existe: nace PENDIENTE).
+#   · `VacationDay`     — un DÍA por fila. Es lo que hace que el calendario de
+#                         toda la oficina y el saldo de cada persona sean una
+#                         consulta y no un recorrido de listas en JSON.
+# ⚠️ `VacationDay.user_id` va DENORMALIZADO a propósito: el calendario general
+# pinta días de mucha gente y sin él haría un JOIN por cada celda.
+
+class Holiday(Base):
+    """Día festivo. `scope` NACIONAL | AUTONOMICO | LOCAL (solo informativo: a efectos
+    de contar, cualquier festivo de la lista no consume vacaciones)."""
+
+    __tablename__ = "holidays"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    day = Column(Date, nullable=False)
+    name = Column(Text, nullable=False)
+    scope = Column(Text, nullable=False, server_default=text("'NACIONAL'"))
+    region = Column(Text, nullable=False, server_default=text("'Madrid'"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("day", "region", name="uq_holidays_day_region"),
+        Index("idx_holidays_day", "day"),
+    )
+
+
+class VacationRequest(Base):
+    """Petición de vacaciones / días libres de una persona de la oficina."""
+
+    __tablename__ = "vacation_requests"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    # PENDING | APPROVED | REJECTED | CANCELLED
+    status = Column(Text, nullable=False, server_default=text("'PENDING'"))
+    # Año natural al que se imputan los días (el de la primera fecha pedida).
+    year = Column(Integer, nullable=False)
+    # Días LABORABLES que consume la petición (ya descontados findes y festivos).
+    days_count = Column(Integer, nullable=False, server_default=text("0"))
+    note = Column(Text)                 # lo que escribe quien pide
+    decision_note = Column(Text)        # el motivo de quien aprueba o rechaza
+    decided_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    decided_at = Column(DateTime(timezone=True))
+    # Lo dio de alta administración/dirección directamente (no lo pidió la persona).
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", foreign_keys=[user_id])
+    days = relationship("VacationDay", cascade="all, delete-orphan", back_populates="request")
+
+    __table_args__ = (
+        Index("idx_vacation_requests_user", "user_id"),
+        Index("idx_vacation_requests_status", "status"),
+        Index("idx_vacation_requests_year", "user_id", "year"),
+    )
+
+
+class VacationDay(Base):
+    """Un día concreto de una petición."""
+
+    __tablename__ = "vacation_days"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    request_id = Column(PGUUID(as_uuid=True), ForeignKey("vacation_requests.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    day = Column(Date, nullable=False)
+    # ¿Consume saldo? Un día pedido que cae en sábado, domingo o festivo se guarda igual (así el
+    # calendario enseña el tramo entero, de principio a fin) pero NO cuenta.
+    counts = Column(Boolean, nullable=False, server_default=text("true"))
+
+    request = relationship("VacationRequest", back_populates="days")
+
+    __table_args__ = (
+        Index("idx_vacation_days_user_day", "user_id", "day"),
+        Index("idx_vacation_days_request", "request_id"),
+        Index("idx_vacation_days_day", "day"),
+    )
+
+
+class UserContract(Base):
+    """Contrato de una persona de la oficina. La FECHA DE COMIENZO es la que manda para
+    calcular las vacaciones que le corresponden (30 días por año trabajado, prorrateados
+    en el año de alta). Se guarda el histórico: la antigüedad es la fecha más antigua."""
+
+    __tablename__ = "user_contracts"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date)
+    contract_type = Column(Text)          # indefinido, temporal, prácticas… (texto libre)
+    file_url = Column(Text)
+    file_name = Column(Text)
+    notes = Column(Text)
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_user_contracts_user", "user_id"),
+        Index("idx_user_contracts_start", "user_id", "start_date"),
+    )
+
+
+def ensure_vacations_schema():
+    """Vacaciones, festivos y contratos del personal (idempotente, sin Alembic)."""
+    _create_all_once()
+    _exec_ddl_statements([
+        """
+        CREATE TABLE IF NOT EXISTS holidays (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            day date NOT NULL,
+            name text NOT NULL,
+            scope text NOT NULL DEFAULT 'NACIONAL',
+            region text NOT NULL DEFAULT 'Madrid',
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_holidays_day_region ON holidays(day, region);",
+        "CREATE INDEX IF NOT EXISTS idx_holidays_day ON holidays(day);",
+        """
+        CREATE TABLE IF NOT EXISTS vacation_requests (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            status text NOT NULL DEFAULT 'PENDING',
+            year integer NOT NULL,
+            days_count integer NOT NULL DEFAULT 0,
+            note text,
+            decision_note text,
+            decided_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            decided_at timestamptz,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_vacation_requests_user ON vacation_requests(user_id);",
+        "CREATE INDEX IF NOT EXISTS idx_vacation_requests_status ON vacation_requests(status);",
+        "CREATE INDEX IF NOT EXISTS idx_vacation_requests_year ON vacation_requests(user_id, year);",
+        """
+        CREATE TABLE IF NOT EXISTS vacation_days (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            request_id uuid NOT NULL REFERENCES vacation_requests(id) ON DELETE CASCADE,
+            user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            day date NOT NULL,
+            counts boolean NOT NULL DEFAULT true
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_vacation_days_user_day ON vacation_days(user_id, day);",
+        "CREATE INDEX IF NOT EXISTS idx_vacation_days_request ON vacation_days(request_id);",
+        "CREATE INDEX IF NOT EXISTS idx_vacation_days_day ON vacation_days(day);",
+        """
+        CREATE TABLE IF NOT EXISTS user_contracts (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            start_date date NOT NULL,
+            end_date date,
+            contract_type text,
+            file_url text,
+            file_name text,
+            notes text,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_user_contracts_user ON user_contracts(user_id);",
+        "CREATE INDEX IF NOT EXISTS idx_user_contracts_start ON user_contracts(user_id, start_date);",
+        # Días de vacaciones al año de cada persona: se configura desde el panel de vacaciones.
+        "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS vacation_days_per_year integer;",
+        # Ajuste manual del saldo de un año {\"2026\": 3} (días arrastrados, correcciones…).
+        "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS vacation_adjustments jsonb NOT NULL DEFAULT '{}'::jsonb;",
+    ], "vacations_schema")

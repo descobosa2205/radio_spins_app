@@ -259,17 +259,52 @@ def search_albums(query: str, limit: int = 10) -> list:
     return _search(query, "albums", limit=limit)
 
 
-def get_track_stat(cm_track: int | str, platform: str, params: dict | None = None) -> dict:
+# Rutas candidatas de la serie de reproducciones de un track. La primera es la de la referencia de
+# Chartmetric (`/api/track/:type/:id/stats/:source`, con el tipo de id por delante); las otras dos se
+# conservan como respaldo.
+# ⚠️ La que había (`/api/track/{id}/{source}/stats`) estaba puesta a ojo —lo decía su propio
+# comentario, «CONFIRMAR nombres reales al integrar»— y NUNCA se confirmó: devolvía 404, `_get`
+# levantaba RuntimeError, el `except` lo tragaba y la canción se quedaba VINCULADA PERO SIN
+# REPRODUCCIONES, sin que nada lo dijera. Se prueban en orden y se recuerda la que responde (mismo
+# patrón que la URL base de Cabify y la ruta de adjuntar de Holded).
+TRACK_STAT_PATHS = (
+    "/api/track/chartmetric/{id}/stats/{source}",
+    "/api/track/{id}/stats/{source}",
+    "/api/track/{id}/{source}/stats",
+)
+_TRACK_STAT_PATH_OK: str | None = None
+
+
+def get_track_stat(cm_track: int | str, platform: str, params: dict | None = None,
+                   raise_on_error: bool = False) -> dict:
     """Serie temporal de una métrica de un TRACK por plataforma (reproducciones/vistas).
     `platform` (ej.): spotify (streams), youtube (views). Ej. params: {"since": "2024-01-01"}.
-    Endpoint: GET /api/track/{cm_track}/{platform}/stats (CONFIRMAR nombres reales al integrar).
-    Best-effort: {} ante cualquier problema (no lanza)."""
+
+    Best-effort: {} ante cualquier problema. Con `raise_on_error` se propaga el motivo real
+    (sin créditos, 429, red…), que es lo que hay que enseñar cuando alguien pulsa «Actualizar»:
+    si no, un fallo de la API es indistinguible de «esta canción no tiene datos»."""
+    global _TRACK_STAT_PATH_OK
     if not str(cm_track or "").strip():
         return {}
-    try:
-        return _get(f"/api/track/{cm_track}/{platform}/stats", params=params)
-    except RuntimeError:
-        return {}
+    candidatas = ([_TRACK_STAT_PATH_OK] if _TRACK_STAT_PATH_OK else []) + \
+                 [p for p in TRACK_STAT_PATHS if p != _TRACK_STAT_PATH_OK]
+    ultimo_error = None
+    for plantilla in candidatas:
+        try:
+            data = _get(plantilla.format(id=cm_track, source=platform), params=params)
+        except RuntimeError as e:
+            ultimo_error = e
+            texto = str(e)
+            # Un 404/400 solo dice que ESA ruta no es; sin créditos o rate limit sí es definitivo y
+            # no tiene sentido seguir gastando llamadas probando las demás.
+            if ("SIN CRÉDITOS" in texto) or ("429" in texto) or ("conectar" in texto):
+                break
+            continue
+        _TRACK_STAT_PATH_OK = plantilla
+        return data
+    if raise_on_error and ultimo_error is not None:
+        raise ultimo_error
+    return {}
 
 
 def search_artists(query: str, limit: int = 10) -> list:

@@ -284,6 +284,11 @@ from models import (
     ensure_holded_schema,
     ensure_geo_schema,
     ensure_invoice_attempts_schema,
+    Holiday,
+    VacationRequest,
+    VacationDay,
+    UserContract,
+    ensure_vacations_schema,
     PersonDocRequest,
     ThirdPartyIntakeLink,
     ensure_third_party_intake_schema,
@@ -536,6 +541,11 @@ def inject_country_helpers():
         # HOY (en Madrid), para las plantillas que comparan fechas (etiquetas de anuncio y de venta).
         "today_local_date": globals().get("today_local", lambda: date.today()),
         "DEFAULT_PHOTO_URL": url_for("static", filename="img/placeholder_photo.png"),
+        # PERSONAS (personal de la oficina) y TERCEROS sin foto ni logo: el muñequito gris.
+        # ⚠️ NO es `placeholder_photo` a propósito: ese lo esconde la política global de
+        # «sin imagen → hueco omitido» (regla `img[src*="/img/placeholder_photo"]` en
+        # styles.css), y aquí lo que se quiere es justo lo contrario: que se vea algo.
+        "DEFAULT_AVATAR_URL": url_for("static", filename="img/avatar_placeholder.png"),
     }
 
 # Asegurar esquema mínimo en producción (Render/gunicorn no ejecuta __main__)
@@ -776,7 +786,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
+    allowed = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
     if request.endpoint in allowed:
         return
 
@@ -5809,8 +5819,8 @@ def _build_song_material_context(session_db, song: Song, material_rows: list[Son
         display_name = (getattr(row, "display_name", None) or "").strip() or None
         raw_name = (getattr(row, "file_name", None) or display_name or "archivo").replace("\\", "/")
         base_name = Path(raw_name).name or "archivo"
-        share_token = _make_public_song_share_token("MATERIAL", str(song.id), ref=str(row.id), fmt="original")
-        share_url = _external_url_for("public_song_material_download") + f"?token={quote_plus(share_token)}"
+        # Lo que se COMPARTE es la página de previsualización, no el fichero (ver _material_share_url).
+        share_url = _material_share_url("MATERIAL", song.id, ref=str(row.id))
         payload = {
             "id": str(row.id),
             "category": category,
@@ -5898,7 +5908,9 @@ def _build_song_material_context(session_db, song: Song, material_rows: list[Son
             "file_url": (song.cover_url or "").strip(),
             "mime_type": mimetypes.guess_type((song.cover_url or "").split("?", 1)[0])[0] or "",
             "created_at": getattr(song, "created_at", None),
-            "share_url": (song.cover_url or "").strip(),
+            # Sin fila de material, la portada sale de Song.cover_url: aun así se comparte por
+            # NUESTRO enlace (kind SONG_COVER), no por la URL cruda de Storage.
+            "share_url": _material_share_url("SONG_COVER", song.id),
             "download_original_url": "",
             "download_jpg_url": "",
             "download_png_url": "",
@@ -5908,8 +5920,7 @@ def _build_song_material_context(session_db, song: Song, material_rows: list[Son
 
     stem_groups = []
     for bundle_key, group in stems_map.items():
-        token = _make_public_song_share_token("STEMS_BUNDLE", str(song.id), ref=bundle_key)
-        share_url = _external_url_for("public_song_material_bundle_download") + f"?token={quote_plus(token)}"
+        share_url = _material_share_url("STEMS_BUNDLE", song.id, ref=bundle_key)
         group.update({
             "label": group["label"],
             "file_count": len(group["rows"]),
@@ -5934,6 +5945,219 @@ def _build_song_material_context(session_db, song: Song, material_rows: list[Son
         "stem_groups": stem_groups,
         "completion": completion,
     }
+
+
+# ---------------------------------------------------------------------------
+# COMPARTIR MATERIALES (canción y álbum) · un solo enlace y una sola tarjeta
+# ---------------------------------------------------------------------------
+# Lo que se manda por correo/WhatsApp/SMS NUNCA es el fichero ni la URL de Storage:
+# es SIEMPRE `public_material_view`, servida desde el dominio de la casa
+# (_external_url_for → CANONICAL_HOST). Así la previsualización es idéntica en los
+# tres canales: la PORTADA de imagen, «<Artista> · <Canción o Álbum>» de título y
+# «Descarga · <tipo de material>» de subtítulo.
+# ⚠️ Antes cada sitio compartía una cosa distinta —canción, el endpoint de descarga
+# (un fichero: sin nada que previsualizar); álbum, el `file_url` crudo de Supabase
+# (dominio ajeno)—, que es justo lo que había que unificar.
+MATERIAL_SHARE_KINDS = {"MATERIAL", "STEMS_BUNDLE", "SONG_COVER", "ALBUM_MATERIAL"}
+
+ALBUM_MATERIAL_LABELS = {
+    "COVER": "Portada",
+    "DDP": "DDP",
+    "BODEGON": "Bodegón",
+    "PHYSICAL_DESIGN": "Diseño físico",
+}
+
+
+def _album_material_label(category: str | None, display_name: str | None = None) -> str:
+    cat = (category or "").strip().upper()
+    return ALBUM_MATERIAL_LABELS.get(cat) or ((display_name or "").strip() or "Archivo")
+
+
+def _material_share_url(kind: str, owner_id, ref: str | None = None) -> str:
+    """El enlace que se COMPARTE de un material: siempre la página de previsualización."""
+    token = _make_public_song_share_token(kind, str(owner_id), ref=ref or "", fmt="")
+    return _external_url_for("public_material_view", token=token)
+
+
+def _album_cover_url(session_db, album) -> str:
+    """Portada del álbum: la suya y, si todavía no la tiene, su material de portada."""
+    url = (getattr(album, "cover_url", None) or "").strip()
+    if url:
+        return url
+    row = (
+        session_db.query(AlbumMaterial)
+        .filter(AlbumMaterial.album_id == album.id)
+        .filter(func.upper(AlbumMaterial.category) == "COVER")
+        .order_by(AlbumMaterial.created_at.desc())
+        .first()
+    )
+    return (getattr(row, "file_url", None) or "").strip()
+
+
+def _material_share_context(session_db, payload: dict) -> dict | None:
+    """La tarjeta de un material compartido (de canción o de álbum): lo que necesitan la
+    página pública, su og:image y el botón de descargar. None si el enlace no vale."""
+    kind = (payload or {}).get("kind") or ""
+    kind = kind.strip().upper()
+    if kind not in MATERIAL_SHARE_KINDS:
+        return None
+    owner_raw = (payload.get("sid") or "").strip()
+    ref = (payload.get("ref") or "").strip()
+    try:
+        owner_id = to_uuid(owner_raw)
+    except Exception:
+        return None
+    # El token se rehace igual que el recibido: el botón de descargar apunta al endpoint
+    # de fichero con el MISMO token, así el enlace compartido sigue siendo uno solo.
+    token = _make_public_song_share_token(kind, owner_raw, ref=ref, fmt=(payload.get("fmt") or ""))
+    qs = "?token=" + quote_plus(token)
+
+    if kind == "ALBUM_MATERIAL":
+        album = session_db.get(Album, owner_id)
+        if not album:
+            return None
+        try:
+            row = session_db.get(AlbumMaterial, to_uuid(ref))
+        except Exception:
+            row = None
+        if not row or str(row.album_id) != str(album.id):
+            return None
+        artist = session_db.get(Artist, album.artist_id) if getattr(album, "artist_id", None) else None
+        cover = _album_cover_url(session_db, album)
+        if (row.category or "").strip().upper() == "COVER" and not cover:
+            cover = (row.file_url or "").strip()
+        return {
+            "kind": kind,
+            "artist_name": (getattr(artist, "name", None) or "").strip() or "Artista",
+            "artist_photo": (getattr(artist, "photo_url", None) or "").strip(),
+            "release_title": (getattr(album, "title", None) or "").strip() or "—",
+            "release_kind": _album_kind_label(album),
+            "release_date": getattr(album, "release_date", None),
+            "material_label": _album_material_label(row.category, row.file_name),
+            "file_name": Path((row.file_name or "").replace("\\", "/")).name,
+            "cover_url": cover,
+            "download_url": _external_url_for("public_album_material_download") + qs,
+        }
+
+    song = session_db.get(Song, owner_id)
+    if not song:
+        return None
+    artist = _song_primary_artist(session_db, song)
+    ctx = {
+        "kind": kind,
+        "artist_name": (getattr(artist, "name", None) or "").strip() or "Artista",
+        "artist_photo": (getattr(artist, "photo_url", None) or "").strip(),
+        "release_title": (getattr(song, "title", None) or "").strip() or "—",
+        "release_kind": "Single",
+        "release_date": getattr(song, "release_date", None),
+        "cover_url": (getattr(song, "cover_url", None) or "").strip(),
+        "material_label": "Archivo",
+        "file_name": "",
+        "download_url": "",
+    }
+
+    if kind == "SONG_COVER":
+        if not ctx["cover_url"]:
+            return None
+        ctx["material_label"] = "Portada"
+        ctx["download_url"] = _external_url_for("public_song_material_download") + qs
+        return ctx
+
+    if kind == "STEMS_BUNDLE":
+        rows = (
+            session_db.query(SongMaterial)
+            .filter(SongMaterial.song_id == song.id)
+            .filter(SongMaterial.bundle_key == ref)
+            .order_by(SongMaterial.created_at.asc())
+            .all()
+        )
+        if not rows:
+            return None
+        n = len(rows)
+        ctx["material_label"] = (getattr(rows[0], "display_name", None) or "").strip() or "Stems"
+        ctx["file_name"] = f"{n} archivo{'' if n == 1 else 's'} (.zip)"
+        ctx["download_url"] = _external_url_for("public_song_material_bundle_download") + qs
+        return ctx
+
+    try:
+        row = session_db.get(SongMaterial, to_uuid(ref))
+    except Exception:
+        row = None
+    if not row or str(row.song_id) != str(song.id):
+        return None
+    ctx["material_label"] = _song_material_slot_label(row.category, row.slot_key, row.display_name)
+    ctx["file_name"] = Path((row.file_name or "").replace("\\", "/")).name
+    ctx["download_url"] = _external_url_for("public_song_material_download") + qs
+    if (row.category or "").strip().upper() == "COVER" and not ctx["cover_url"]:
+        ctx["cover_url"] = (row.file_url or "").strip()
+    return ctx
+
+
+def _material_download_name(label: str, title: str, artist_name: str, ext: str = "") -> str:
+    """El nombre con el que se baja un material: **«Tipo_Título_Artista»**
+    (p. ej. «Master 48 bits_Nombre de la canción_Nombre del artista.wav»).
+
+    Antes se bajaba con el nombre que traía el archivo subido («master_final_v3.wav»), que no dice
+    de quién es: entregando material a un tercero eso era un problema real."""
+    partes = [p for p in [(label or "").strip(), (title or "").strip(), (artist_name or "").strip()] if p]
+    base = _safe_download_filename("_".join(partes) or "archivo", "archivo")
+    return f"{base}{ext or ''}"
+
+
+def _song_material_download_payload(session_db, row, fmt: str = "original") -> tuple:
+    """(bytes, mimetype, nombre) de un material de canción, ya convertido al formato pedido.
+
+    Punto ÚNICO de los DOS caminos de descarga —el interno de la ficha y el enlace público—, para
+    que el archivo se llame igual se baje por donde se baje."""
+    song = session_db.get(Song, row.song_id)
+    artist = _song_primary_artist(session_db, song) if song else None
+    label = _song_material_slot_label(row.category, row.slot_key, row.display_name)
+    titulo = (getattr(song, "title", None) or "").strip()
+    artista = (getattr(artist, "name", None) or "").strip()
+
+    data, guessed = _download_remote_content(row.file_url)
+    original_suffix = Path((row.file_name or "").replace("\\", "/")).suffix.lower()
+    mimetype = (row.mime_type or guessed
+                or mimetypes.guess_type((row.file_url or "").split("?", 1)[0])[0]
+                or "application/octet-stream")
+    ext = original_suffix or mimetypes.guess_extension(mimetype or "") or ""
+    category = (row.category or "").strip().upper()
+    fmt = (fmt or "original").strip().lower()
+    try:
+        if category == "COVER" and fmt in {"jpg", "jpeg", "png"}:
+            data, mimetype, ext = _convert_image_content(data, fmt)
+        elif category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"} and fmt == "mp3":
+            data, mimetype, ext = _convert_audio_content_to_mp3(data, original_suffix)
+        elif category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"} and fmt == "wav":
+            mimetype = mimetype or "audio/wav"
+            ext = original_suffix or ".wav"
+    except Exception:
+        pass
+    return data, mimetype, _material_download_name(label, titulo, artista, ext)
+
+
+def _stems_archive_label(session_db, song, rows) -> str:
+    """Nombre del ZIP de un grupo de stems: «Stems_Canción_Artista» (misma regla que el resto)."""
+    etiqueta = (getattr((rows or [None])[0], "display_name", None) or "Stems").strip() or "Stems"
+    artist = _song_primary_artist(session_db, song) if song else None
+    return _material_download_name(etiqueta, (getattr(song, "title", None) or "").strip(),
+                                   (getattr(artist, "name", None) or "").strip())
+
+
+def _album_material_rows_payload(session_db, album, rows) -> list[dict]:
+    """Los materiales de un álbum con su enlace de compartir (la página, no el fichero)."""
+    out = []
+    for row in rows or []:
+        out.append({
+            "id": str(row.id),
+            "category": (row.category or "").strip().upper(),
+            "label": _album_material_label(row.category, row.file_name),
+            "file_name": (row.file_name or "").strip(),
+            "file_url": (row.file_url or "").strip(),
+            "mime_type": (row.mime_type or "").strip(),
+            "share_url": _material_share_url("ALBUM_MATERIAL", album.id, ref=str(row.id)),
+        })
+    return out
 
 
 def _bundle_song_material_rows_to_zip(rows: list[SongMaterial], archive_label: str | None = None) -> tuple[bytes, str]:
@@ -19201,27 +19425,7 @@ def discografica_song_material_download(song_id, material_id):
             flash("Material no encontrado.", "warning")
             return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
 
-        data, guessed_mimetype = _download_remote_content(row.file_url)
-        base_name = Path((row.file_name or row.display_name or "archivo").replace("\\", "/")).stem or "archivo"
-        original_suffix = Path((row.file_name or "").replace("\\", "/")).suffix.lower()
-        mimetype = (row.mime_type or guessed_mimetype or mimetypes.guess_type((row.file_url or "").split("?", 1)[0])[0] or "application/octet-stream")
-        download_name = f"{base_name}{original_suffix or mimetypes.guess_extension(mimetype or '') or ''}"
-
-        category = (row.category or "").strip().upper()
-        try:
-            if category == "COVER" and fmt in {"jpg", "jpeg", "png"}:
-                data, mimetype, out_ext = _convert_image_content(data, fmt)
-                download_name = f"{base_name}{out_ext}"
-            elif category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"} and fmt == "mp3":
-                data, mimetype, out_ext = _convert_audio_content_to_mp3(data, original_suffix)
-                download_name = f"{base_name}{out_ext}"
-            elif category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"} and fmt == "wav":
-                mimetype = mimetype or "audio/wav"
-                if not original_suffix:
-                    download_name = f"{base_name}.wav"
-        except Exception:
-            pass
-
+        data, mimetype, download_name = _song_material_download_payload(session_db, row, fmt)
         return send_file(BytesIO(data), mimetype=mimetype, as_attachment=True, download_name=download_name)
     except Exception as e:
         flash(f"No se pudo descargar el material: {e}", "danger")
@@ -19233,8 +19437,34 @@ def discografica_song_material_download(song_id, material_id):
 @app.get("/public/song-materials/download")
 def public_song_material_download():
     payload = _parse_public_song_share_token(request.args.get("token"))
-    if not payload or (payload.get("kind") or "").upper() != "MATERIAL":
+    kind = ((payload or {}).get("kind") or "").upper()
+    if not payload or kind not in {"MATERIAL", "SONG_COVER"}:
         abort(404)
+
+    # Portada que solo vive en Song.cover_url (no hay fila de SongMaterial): se sirve igual
+    # desde nuestro dominio para que el enlace compartido nunca sea el de Storage.
+    if kind == "SONG_COVER":
+        try:
+            sid = to_uuid((payload.get("sid") or "").strip())
+        except Exception:
+            abort(404)
+        with get_db() as session_db:
+            song = session_db.get(Song, sid)
+            if not song:
+                abort(404)
+            cover = (getattr(song, "cover_url", None) or "").strip()
+            titulo = (getattr(song, "title", None) or "").strip()
+            artista = (getattr(_song_primary_artist(session_db, song), "name", None) or "").strip()
+        if not cover:
+            abort(404)
+        try:
+            data, guessed = _download_remote_content(cover)
+        except Exception:
+            abort(404)
+        mimetype = guessed or mimetypes.guess_type(cover.split("?", 1)[0])[0] or "image/jpeg"
+        ext = mimetypes.guess_extension(mimetype) or ".jpg"
+        return send_file(BytesIO(data), mimetype=mimetype, as_attachment=True,
+                         download_name=_material_download_name("Portada", titulo, artista, ext))
 
     sid_raw = (payload.get("sid") or "").strip()
     material_raw = (payload.get("ref") or "").strip()
@@ -19249,31 +19479,10 @@ def public_song_material_download():
         row = session_db.get(SongMaterial, material_id)
         if not row or row.song_id != sid:
             abort(404)
-
         try:
-            data, guessed_mimetype = _download_remote_content(row.file_url)
+            data, mimetype, download_name = _song_material_download_payload(session_db, row, fmt)
         except Exception:
             abort(404)
-
-        base_name = Path((row.file_name or row.display_name or "archivo").replace("\\", "/")).stem or "archivo"
-        original_suffix = Path((row.file_name or "").replace("\\", "/")).suffix.lower()
-        mimetype = (row.mime_type or guessed_mimetype or mimetypes.guess_type((row.file_url or "").split("?", 1)[0])[0] or "application/octet-stream")
-        download_name = f"{base_name}{original_suffix or mimetypes.guess_extension(mimetype or '') or ''}"
-        category = (row.category or "").strip().upper()
-
-        try:
-            if category == "COVER" and fmt in {"jpg", "jpeg", "png"}:
-                data, mimetype, out_ext = _convert_image_content(data, fmt)
-                download_name = f"{base_name}{out_ext}"
-            elif category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"} and fmt == "mp3":
-                data, mimetype, out_ext = _convert_audio_content_to_mp3(data, original_suffix)
-                download_name = f"{base_name}{out_ext}"
-            elif category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"} and fmt == "wav":
-                mimetype = mimetype or "audio/wav"
-                if not original_suffix:
-                    download_name = f"{base_name}.wav"
-        except Exception:
-            pass
 
     return send_file(BytesIO(data), mimetype=mimetype, as_attachment=True, download_name=download_name)
 
@@ -19293,7 +19502,8 @@ def discografica_song_stems_bundle_download(song_id, bundle_key):
         if not rows:
             flash("Grupo de stems no encontrado.", "warning")
             return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
-        archive_label = (getattr(rows[0], "display_name", None) or "Stems").strip() or "Stems"
+        song = session_db.get(Song, to_uuid(song_id))
+        archive_label = _stems_archive_label(session_db, song, rows)
         payload, filename = _bundle_song_material_rows_to_zip(rows, archive_label=archive_label)
         return send_file(BytesIO(payload), mimetype="application/zip", as_attachment=True, download_name=filename)
     except Exception as e:
@@ -19325,9 +19535,98 @@ def public_song_material_bundle_download():
         )
         if not rows:
             abort(404)
-        archive_label = (getattr(rows[0], "display_name", None) or "Stems").strip() or "Stems"
+        archive_label = _stems_archive_label(session_db, session_db.get(Song, sid), rows)
         payload_bytes, filename = _bundle_song_material_rows_to_zip(rows, archive_label=archive_label)
     return send_file(BytesIO(payload_bytes), mimetype="application/zip", as_attachment=True, download_name=filename)
+
+
+@app.get("/public/album-materials/download", endpoint="public_album_material_download")
+def public_album_material_download():
+    """Descarga de un material de ÁLBUM por enlace público (hermano del de canción)."""
+    payload = _parse_public_song_share_token(request.args.get("token"))
+    if not payload or (payload.get("kind") or "").upper() != "ALBUM_MATERIAL":
+        abort(404)
+    try:
+        album_id = to_uuid((payload.get("sid") or "").strip())
+        material_id = to_uuid((payload.get("ref") or "").strip())
+    except Exception:
+        abort(404)
+
+    with get_db() as session_db:
+        row = session_db.get(AlbumMaterial, material_id)
+        if not row or str(row.album_id) != str(album_id):
+            abort(404)
+        try:
+            data, guessed = _download_remote_content(row.file_url)
+        except Exception:
+            abort(404)
+        album = session_db.get(Album, album_id)
+        artist = session_db.get(Artist, album.artist_id) if getattr(album, "artist_id", None) else None
+        mimetype = (row.mime_type or guessed
+                    or mimetypes.guess_type((row.file_url or "").split("?", 1)[0])[0]
+                    or "application/octet-stream")
+        ext = (Path((row.file_name or "").replace("\\", "/")).suffix.lower()
+               or mimetypes.guess_extension(mimetype) or "")
+        nombre = _material_download_name(_album_material_label(row.category, row.file_name),
+                                         (getattr(album, "title", None) or "").strip(),
+                                         (getattr(artist, "name", None) or "").strip(), ext)
+    return send_file(BytesIO(data), mimetype=mimetype, as_attachment=True, download_name=nombre)
+
+
+@app.get("/material/<token>", endpoint="public_material_view")
+def public_material_view(token):
+    """La página que se COMPARTE de cualquier material (canción o álbum).
+
+    Es standalone a propósito: hacen falta las og: en el <head> para que la previsualización
+    de WhatsApp/correo enseñe siempre lo mismo (portada + artista y título + «Descarga · tipo»),
+    y `layout.html` no tiene bloque ahí."""
+    payload = _parse_public_song_share_token(token)
+    if not payload:
+        abort(404)
+    with get_db() as session_db:
+        ctx = _material_share_context(session_db, payload)
+        if not ctx:
+            abort(404)
+        ctx["brand"] = _pies_brand_assets(session_db)
+    ctx["og_image_url"] = _external_url_for("public_material_og_image", token=token)
+    ctx["release_label"] = (ctx["release_date"].strftime("%d/%m/%Y") if ctx.get("release_date") else "")
+    return render_template("public_material.html", **ctx)
+
+
+# Miniaturas og:image de materiales ya procesadas, por token: {token: (src, bytes)}.
+_MATERIAL_OG_IMAGE_CACHE: dict = {}
+
+
+@app.get("/material/<token>/og.jpg", endpoint="public_material_og_image")
+def public_material_og_image(token):
+    """La miniatura del enlace de un material: la PORTADA del lanzamiento y, si todavía no hay,
+    la foto del artista (1200×630 y servida desde nuestro dominio, como el resto)."""
+    payload = _parse_public_song_share_token(token)
+    if not payload:
+        abort(404)
+    s = db()
+    try:
+        ctx = _material_share_context(s, payload)
+        if not ctx:
+            abort(404)
+        src = ((ctx.get("cover_url") or "").strip()
+               or (ctx.get("artist_photo") or "").strip()
+               or url_for("static", filename="img/logo.png"))
+    finally:
+        s.close()
+    cached = _MATERIAL_OG_IMAGE_CACHE.get(token)
+    data = cached[1] if (cached and cached[0] == src) else None
+    if data is None:
+        data = _og_image_jpeg_bytes(src if src.startswith("/static/") else _absolute_media_url(src))
+        if data:
+            if len(_MATERIAL_OG_IMAGE_CACHE) > 200:
+                _MATERIAL_OG_IMAGE_CACHE.clear()
+            _MATERIAL_OG_IMAGE_CACHE[token] = (src, data)
+    if not data:
+        return redirect(_absolute_media_url(src))
+    resp = send_file(BytesIO(data), mimetype="image/jpeg")
+    resp.headers["Cache-Control"] = "public, max-age=21600"
+    return resp
 
 
 @app.post("/discografica/canciones/<song_id>/editorial/lyrics/save")
@@ -20920,9 +21219,10 @@ def discografica_album_detail(album_id):
     _sync_album_production_contract_status(session_db, album, status_obj=album_status)
     session_db.commit()
 
+    # Con su enlace de compartir (la página de previsualización, no el fichero de Storage).
     material_groups = {"COVER": [], "DDP": [], "BODEGON": [], "PHYSICAL_DESIGN": []}
-    for row in materials:
-        material_groups.setdefault((row.category or "").upper(), []).append(row)
+    for item in _album_material_rows_payload(session_db, album, materials):
+        material_groups.setdefault(item["category"], []).append(item)
 
     royalties_artist = None
     royalty_other_beneficiaries = (
@@ -41884,6 +42184,7 @@ def _bootstrap_schema_bg():
         (ensure_holded_schema, "ensure_holded_schema"),
         (ensure_geo_schema, "ensure_geo_schema"),
         (ensure_invoice_attempts_schema, "ensure_invoice_attempts_schema"),
+        (ensure_vacations_schema, "ensure_vacations_schema"),
         (ensure_third_party_intake_schema, "ensure_third_party_intake_schema"),
         (ensure_artist_templates_schema, "ensure_artist_templates_schema"),
         (ensure_push_schema, "ensure_push_schema"),
@@ -46599,6 +46900,9 @@ ADMIN_RESPONSIBILITIES = [
     ("GASTOS_SIN_TICKET", "Validar gastos sin ticket", "fa-receipt", "administracion"),
     ("ITA", "Altas e ITAs", "fa-id-card-clip", "administracion"),
     ("EMBARGOS", "Órdenes de embargo", "fa-gavel", "administracion"),
+    # Las VACACIONES no son una tarea de administración más: quien la tenga entra además en la
+    # sección «Vacaciones y días libres» (el permiso se concede solo, _sync_vacation_access_grant).
+    ("VACACIONES", "Gestionar vacaciones y días libres", "fa-umbrella-beach", "vacaciones"),
 ]
 ADMIN_RESPONSIBILITY_KEYS = [k for k, _l, _i, _r in ADMIN_RESPONSIBILITIES]
 ADMIN_RESPONSIBILITY_LABELS = {k: l for k, l, _i, _r in ADMIN_RESPONSIBILITIES}
@@ -46845,6 +47149,8 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "discografica.adelantos", "label": "Adelantos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": True, "sort_order": 138, "description": "Pestaña «Adelantos»: adelantos de distribuidoras, condiciones de recuperación y liquidación artista por artista (importes)."},
     {"key": "discografica.isrc", "label": "ISRC", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 139, "description": "Pestaña «ISRC»: gestión de códigos ISRC."},
 
+    {"key": "vacaciones", "label": "Vacaciones y días libres", "section_key": "vacaciones", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 148, "description": "Vacaciones del personal de la oficina: calendario de toda la oficina, saldo de cada persona, peticiones por aprobar y calendario de festivos. Se concede solo a quien tenga la responsabilidad «Gestionar vacaciones» del reparto de administración."},
+
     {"key": "registros", "label": "Registros", "section_key": "registros", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 150, "description": "Registro de obras/fonogramas ante entidades de gestión (SGAE, etc.)."},
     {"key": "registros.pendiente", "label": "Pendiente", "section_key": "registros", "parent_key": "registros", "level": "TAB", "economic_capable": False, "sort_order": 151, "description": "Registros pendientes de declarar/tramitar."},
     {"key": "registros.sgae", "label": "SGAE", "section_key": "registros", "parent_key": "registros", "level": "TAB", "economic_capable": False, "sort_order": 152, "description": "Registro y enlace de repertorio en SGAE."},
@@ -46950,7 +47256,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -47348,8 +47654,13 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return "personal.usuarios"
     if endpoint in {"personnel_detail_view", "personnel_bulk_access", "personnel_document_save",
                     "personnel_document_delete", "personnel_expense_deadline_toggle",
-                    "personnel_expense_deadline_toggle_all"}:
+                    "personnel_expense_deadline_toggle_all",
+                    # El CONTRATO vive en la ficha de personal (y dentro exige administración/dirección).
+                    "personnel_contract_save", "personnel_contract_delete"}:
         return "personal.usuarios.accesos"
+    # Vacaciones y días libres. «Mis vacaciones» NO va aquí: es PERSONAL_ENDPOINTS (datos propios).
+    if endpoint == "vacaciones_view" or endpoint.startswith("vacation_"):
+        return "vacaciones"
     if endpoint == "events_view" or endpoint.startswith("event_"):
         return "databases.events"
     if endpoint == "distributors_view" or endpoint.startswith("distributor_"):
@@ -48037,8 +48348,15 @@ def _resolve_request_resource_key() -> str | None:
             # Parar/reactivar el plazo de gastos: además exigen dirección dentro del endpoint.
             "personnel_expense_deadline_toggle": "personal.usuarios.accesos",
             "personnel_expense_deadline_toggle_all": "personal.usuarios.accesos",
+            # El CONTRATO de una persona: hereda el permiso de su ficha y, dentro, exige
+            # administración o dirección (_can_view_person_contract).
+            "personnel_contract_save": "personal.usuarios.accesos",
+            "personnel_contract_delete": "personal.usuarios.accesos",
         }
         return mapping.get(endpoint)
+    # Vacaciones y días libres (la sección de gestión). Dentro, además, _can_manage_vacations().
+    if endpoint == "vacaciones_view" or endpoint.startswith("vacation_"):
+        return "vacaciones"
     if endpoint.startswith("action_") or endpoint.startswith("acciones_"):
         return "acciones"
     if endpoint.startswith("promotion_"):
@@ -48102,6 +48420,8 @@ def _snapshot_user_profile(profile: UserProfile | None) -> SimpleNamespace | Non
         admin_responsibilities=list(getattr(profile, "admin_responsibilities", None) or []),
         menu_order=[str(x) for x in (getattr(profile, "menu_order", None) or [])],
         production_seen_at=getattr(profile, "production_seen_at", None),
+        vacation_days_per_year=getattr(profile, "vacation_days_per_year", None),
+        vacation_adjustments=dict(getattr(profile, "vacation_adjustments", None) or {}),
         legacy_permissions_seeded=bool(getattr(profile, "legacy_permissions_seeded", False)),
     )
 
@@ -48301,7 +48621,7 @@ def _build_current_user_summary() -> dict:
         "id": state.get("user_id"),
         "nick": state.get("nick") or "Usuario",
         "email": state.get("email") or "",
-        "photo_url": state.get("photo_url") or url_for("static", filename="img/placeholder_photo.png"),
+        "photo_url": state.get("photo_url") or url_for("static", filename="img/avatar_placeholder.png"),
         "departments": list(state.get("departments") or []),
         "full_name": state.get("full_name") or "",
         "phones": list(getattr(profile, "mobile_phones", None) or []),
@@ -48337,6 +48657,7 @@ def _resource_default_url(key: str) -> str:
         "discografica.ingresos": url_for("discografica_view", section="ingresos"),
         "discografica.adelantos": url_for("discografica_view", section="adelantos"),
         "discografica.isrc": url_for("discografica_view", section="isrc", isrc_tab="repertorio"),
+        "vacaciones": url_for("vacaciones_view"),
         "registros": url_for("registros_view", tab="pendiente"),
         "registros.pendiente": url_for("registros_view", tab="pendiente"),
         "registros.sgae": url_for("registros_view", tab="sgae"),
@@ -48493,6 +48814,7 @@ SECTION_ICONS = {
     "administracion": "fa-file-invoice-dollar",
     "contabilidad": "fa-calculator",
     "personal": "fa-users-gear",
+    "vacaciones": "fa-umbrella-beach",
     "integraciones": "fa-plug",
     "databases": "fa-database",
     "otros": "fa-shapes",
@@ -48566,6 +48888,7 @@ def _build_nav_menu() -> list[dict]:
         ]},
         {"type": "link", "key": "produccion", "label": "Producción", "url": _resource_default_url("produccion")},
         {"type": "link", "key": "administracion", "label": "Administración", "url": _resource_default_url("administracion")},
+        {"type": "link", "key": "vacaciones", "label": "Vacaciones y días libres", "url": _resource_default_url("vacaciones")},
         {"type": "link", "key": "contabilidad", "label": "Contabilidad", "url": _resource_default_url("contabilidad")},
         {"type": "link", "key": "integraciones", "label": "Integraciones", "url": _resource_default_url("integraciones")},
         # «Personal» y «Terceros» viven aquí dentro aunque su recurso de permisos siga siendo una
@@ -49183,6 +49506,14 @@ def inject_personnel_globals():
                                 and "_home_admin_requests" in globals()
                                 and has_access_key("administracion", include_descendants=True) else []),
         "HOME_MY_EXPENSES": _home_my_expenses_summary() if request.endpoint == "home" and session.get("user_id") and "_home_my_expenses_summary" in globals() else {"rows": [], "overdue": 0, "total": 0},
+        # VACACIONES: las peticiones por aprobar (dirección y quien las gestione) y el resumen
+        # propio de cada uno (los días que le quedan y lo que tiene pedido).
+        "HOME_VACATION_PENDING": (_home_vacation_pending()
+                                  if request.endpoint == "home" and session.get("user_id")
+                                  and "_home_vacation_pending" in globals() else []),
+        "HOME_MY_VACATIONS": (_home_my_vacations()
+                              if request.endpoint == "home" and session.get("user_id")
+                              and "_home_my_vacations" in globals() else {}),
         # Promoción: lo que se está gestionando (a promoción y a quien viaja con el artista) y los
         # avisos de cambios/cancelaciones para quien la produce.
         "HOME_PROMO_TASKS": (_home_promo_tasks()
@@ -49330,7 +49661,7 @@ def _require_login_v2():
         return
     if session.get("user_id"):
         return
-    allowed = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -49487,7 +49818,10 @@ PERSONAL_ENDPOINTS = {"my_expenses_view", "my_expenses_assign", "my_expense_assi
                       # El ORDEN DEL MENÚ es cosa de cada uno: son sus preferencias, no una sección.
                       "nav_menu_order_save",
                       # Los AVISOS son de cada persona (solo ve los suyos: se filtra por su user_id).
-                      "notifications_list", "notifications_mark_read"}
+                      "notifications_list", "notifications_mark_read",
+                      # MIS VACACIONES son datos propios: cualquiera con sesión entra en las suyas.
+                      "mis_vacaciones_view", "mis_vacaciones_request", "mis_vacaciones_cancel",
+                      "mis_vacaciones_check"}
 
 
 # PEDIR promoción o marketing lo puede hacer CUALQUIERA de la empresa, aunque no tenga permiso de
@@ -60208,7 +60542,10 @@ def personnel_detail_view(user_id):
         security = _ensure_user_security(session_db, user)
         _sync_user_access_grants(session_db, user, profile)
         tab = (request.args.get("tab") or "accesos").strip().lower()
-        if tab not in {"accesos", "datos", "documentos", "prl"}:
+        if tab not in {"accesos", "datos", "documentos", "prl", "contrato"}:
+            tab = "accesos"
+        # El CONTRATO solo lo ven administración y dirección: si no, ni pestaña ni contenido.
+        if tab == "contrato" and not _can_view_person_contract():
             tab = "accesos"
 
         if request.method == "POST":
@@ -60241,6 +60578,10 @@ def personnel_detail_view(user_id):
                 if request.form.get("responsibilities_present") and is_master():
                     profile.admin_responsibilities = _normalize_admin_responsibilities(
                         request.form.getlist("admin_responsibilities"))
+                    # Quien gestiona las vacaciones necesita ENTRAR en la sección: el permiso se
+                    # concede y se retira solo, sin tener que acordarse de darlo en Accesos.
+                    _sync_vacation_access_grant(session_db, user.id,
+                                                VACATION_RESPONSIBILITY in profile.admin_responsibilities)
                 _prod_ids = _normalize_assigned_artist_ids(request.form.getlist("assigned_artist_ids_produccion"))
                 _sello_ids = _normalize_assigned_artist_ids(request.form.getlist("assigned_artist_ids_sello"))
                 _union_ids = []
@@ -60338,6 +60679,14 @@ def personnel_detail_view(user_id):
             prl_worker_type="",
             prl_next=url_for("personnel_detail_view", user_id=user.id, tab="prl"),
             prl_today=date.today(),
+            # CONTRATO (pestaña propia, solo administración y dirección). La fecha de comienzo es
+            # la que decide las vacaciones que le corresponden, de ahí el resumen al lado.
+            can_view_contract=_can_view_person_contract(),
+            contracts=(_user_contract_rows(session_db, user.id) if tab == "contrato" else []),
+            contract_start=(_user_contract_start(session_db, user.id) if tab == "contrato" else None),
+            vacation_balance=(_vacation_balance(session_db, user.id, today_local().year, profile=profile)
+                              if tab == "contrato" else None),
+            vacation_days_default=VACATION_DAYS_PER_YEAR,
         )
     finally:
         session_db.close()
@@ -73607,6 +73956,7 @@ NOTIFICATION_KIND_META = {
     "ADMIN_BOLSA": ("Nueva bolsa para liquidar", "fa-sack-dollar"),
     "REMESA": ("Remesa pendiente de aprobación", "fa-file-invoice-dollar"),
     "PITCH": ("Falta el pitch de un lanzamiento", "fa-bullhorn"),
+    "VACACIONES": ("Vacaciones", "fa-umbrella-beach"),
 }
 
 
@@ -87780,29 +88130,88 @@ def _cm_first(d, *keys):
     return None
 
 
+# Tienda de Apple/Amazon para los enlaces que se construyen desde un id (somos de España).
+CM_STOREFRONT = "es"
+
+
+def _cm_scan_id(d: dict, needles: tuple, exclude: tuple = ()) -> str | None:
+    """Busca un id dentro del track/álbum de Chartmetric SIN depender del nombre exacto del campo:
+    vale cualquier clave que contenga TODAS las palabras de `needles` y ninguna de `exclude`.
+
+    ⚠️ Antes se enumeraban los nombres a mano (`spotify_track_id`, `spotify_id`, `spotify_track_ids`)
+    y bastaba que la API devolviera uno con otra forma —o dentro de un objeto anidado— para que no se
+    sacara ningún enlace: la canción se quedaba VINCULADA (que solo mira `cm_track`) pero con todos
+    los botones vacíos, que es justo el fallo que se veía."""
+    if not isinstance(d, dict):
+        return None
+    for clave, valor in d.items():
+        k = str(clave).lower()
+        if not all(n in k for n in needles) or any(x in k for x in exclude):
+            continue
+        if isinstance(valor, (list, tuple)):
+            valor = next((x for x in valor if x), None)
+        if isinstance(valor, dict):
+            valor = valor.get("id") or valor.get("value")
+        if valor in (None, "", 0, "0"):
+            continue
+        return str(valor)
+    return None
+
+
+def _cm_explicit_url(d: dict, *needles) -> str | None:
+    """Una URL que venga ya hecha en la respuesta (cualquier clave que la contenga)."""
+    if not isinstance(d, dict):
+        return None
+    for clave, valor in d.items():
+        k = str(clave).lower()
+        if "url" not in k or not any(n in k for n in needles):
+            continue
+        if isinstance(valor, (list, tuple)):
+            valor = next((x for x in valor if x), None)
+        if isinstance(valor, str) and valor.startswith("http"):
+            return valor
+    return None
+
+
 def _cm_track_platform_urls(t: dict) -> dict:
-    """Construye URLs de plataforma desde los ids de un track de Chartmetric. Solo las fiables:
-    Spotify y YouTube desde su id; Apple/Amazon solo si viene una URL explícita (los ids no permiten
-    un deep link fiable → esos huecos se rellenan a mano). No hay enlace TikTok a nivel de canción."""
+    """URLs de plataforma de un TRACK de Chartmetric. Manda la URL explícita si viene; si no, se
+    construye desde el id. No hay enlace de TikTok a nivel de canción."""
     out = {}
     if not isinstance(t, dict):
         return out
-    sp = _cm_first(t, "spotify_track_id", "spotify_id", "spotify_track_ids")
-    if sp:
+
+    sp = _cm_scan_id(t, ("spotify", "track", "id")) or \
+         _cm_scan_id(t, ("spotify", "id"), exclude=("album", "artist", "duration", "popularity", "preview"))
+    u = _cm_explicit_url(t, "spotify")
+    if u:
+        out["spotify"] = u
+    elif sp:
         out["spotify"] = f"https://open.spotify.com/track/{sp}"
-    yt = _cm_first(t, "youtube_video_id", "youtube_track_id", "youtube_id", "youtube_track_ids")
-    if yt:
+
+    yt = _cm_scan_id(t, ("youtube", "video", "id")) or \
+         _cm_scan_id(t, ("youtube", "id"), exclude=("channel", "artist", "playlist"))
+    u = _cm_explicit_url(t, "youtube")
+    if u:
+        out["youtube"] = u
+    elif yt:
         out["youtube"] = f"https://www.youtube.com/watch?v={yt}"
-    for key in ("itunes_url", "apple_music_url", "apple_url", "applemusic_url"):
-        u = t.get(key)
-        if isinstance(u, str) and u.startswith("http"):
-            out["apple_music"] = u
-            break
-    for key in ("amazon_url", "amazon_music_url", "amazonmusic_url"):
-        u = t.get(key)
-        if isinstance(u, str) and u.startswith("http"):
-            out["amazon_music"] = u
-            break
+
+    # Apple Music: `music.apple.com/<tienda>/song/<id>` con el id de iTunes es un enlace válido
+    # (redirige al canónico). Antes se exigía una URL explícita, que Chartmetric casi nunca manda,
+    # así que el botón de Apple estaba SIEMPRE vacío.
+    u = _cm_explicit_url(t, "itunes", "apple")
+    ap = _cm_scan_id(t, ("itunes", "track", "id")) or _cm_scan_id(t, ("apple", "track", "id"))
+    if u:
+        out["apple_music"] = u
+    elif ap:
+        out["apple_music"] = f"https://music.apple.com/{CM_STOREFRONT}/song/{ap}"
+
+    u = _cm_explicit_url(t, "amazon")
+    am = _cm_scan_id(t, ("amazon", "track", "id"))
+    if u:
+        out["amazon_music"] = u
+    elif am:
+        out["amazon_music"] = f"https://music.amazon.{CM_STOREFRONT}/tracks/{am}"
     return out
 
 
@@ -87811,19 +88220,28 @@ def _cm_album_platform_urls(a: dict) -> dict:
     out = {}
     if not isinstance(a, dict):
         return out
-    sp = _cm_first(a, "spotify_album_id", "spotify_id", "spotify_album_ids")
-    if sp:
+
+    sp = _cm_scan_id(a, ("spotify", "album", "id")) or \
+         _cm_scan_id(a, ("spotify", "id"), exclude=("track", "artist"))
+    u = _cm_explicit_url(a, "spotify")
+    if u:
+        out["spotify"] = u
+    elif sp:
         out["spotify"] = f"https://open.spotify.com/album/{sp}"
-    for key in ("itunes_url", "apple_music_url", "apple_url", "applemusic_url"):
-        u = a.get(key)
-        if isinstance(u, str) and u.startswith("http"):
-            out["apple_music"] = u
-            break
-    for key in ("amazon_url", "amazon_music_url", "amazonmusic_url"):
-        u = a.get(key)
-        if isinstance(u, str) and u.startswith("http"):
-            out["amazon_music"] = u
-            break
+
+    u = _cm_explicit_url(a, "itunes", "apple")
+    ap = _cm_scan_id(a, ("itunes", "album", "id")) or _cm_scan_id(a, ("apple", "album", "id"))
+    if u:
+        out["apple_music"] = u
+    elif ap:
+        out["apple_music"] = f"https://music.apple.com/{CM_STOREFRONT}/album/{ap}"
+
+    u = _cm_explicit_url(a, "amazon")
+    am = _cm_scan_id(a, ("amazon", "album", "id"))
+    if u:
+        out["amazon_music"] = u
+    elif am:
+        out["amazon_music"] = f"https://music.amazon.{CM_STOREFRONT}/albums/{am}"
     return out
 
 
@@ -87985,23 +88403,30 @@ def _cm_upsert_track_points(session_db, song_id, source, field, series, keep_day
             ))
 
 
-def _cm_refresh_song_streams(session_db, song) -> None:
-    """Reproducciones de una canción por su cm_track (Spotify streams; YouTube views). Best-effort."""
+def _cm_refresh_song_streams(session_db, song, raise_on_error: bool = False) -> dict:
+    """Reproducciones de una canción por su cm_track (Spotify streams; YouTube views).
+
+    Devuelve {'points': n, 'error': str|None} para poder DECIR lo que ha pasado: antes se tragaba
+    cualquier fallo y la canción quedaba vinculada y sin datos, sin ninguna pista de por qué."""
     import chartmetric_utils as cm
+    resumen = {"points": 0, "error": None}
     if not (getattr(song, "cm_track", None) or "").strip():
-        return
+        return resumen
     for source, field, platform, params in (
         ("spotify", "streams", "spotify", {"type": "streams"}),
         ("youtube", "views", "youtube", {"type": "views"}),
     ):
         try:
-            data = cm.get_track_stat(song.cm_track, platform, params)
-        except Exception:
+            data = cm.get_track_stat(song.cm_track, platform, params, raise_on_error=raise_on_error)
+        except Exception as e:
+            resumen["error"] = resumen["error"] or str(e)
             data = {}
         series = _cm_extract_series(data, field)
         if series:
             _cm_upsert_track_points(session_db, song.id, source, field, series)
+            resumen["points"] += len(series)
     song.cm_refreshed_at = _now_madrid()
+    return resumen
 
 
 def _cm_songs_due(session_db, limit=200):
@@ -88240,10 +88665,24 @@ def cm_song_reresolve(song_id):
         if cm_track:
             td = cm.get_track(cm_track) or {}
             td.setdefault("cm_track", cm_track)
-            _cm_apply_song_links(song, cm_track, _cm_track_platform_urls(td))
-            _cm_refresh_song_streams(session_db, song)
+            urls = _cm_track_platform_urls(td)
+            # Re-resolver a mano es para ARREGLAR lo que está mal: si lo que dice Chartmetric hoy no
+            # coincide con lo guardado, manda Chartmetric (salvo lo bloqueado a mano).
+            _cm_apply_song_links(song, cm_track, urls, force=True)
+            stats = _cm_refresh_song_streams(session_db, song, raise_on_error=True)
             session_db.commit()
-            flash("Canción re-resuelta con Chartmetric.", "success")
+            partes = [f"{len(urls)} enlace{'' if len(urls) == 1 else 's'}"]
+            if stats["points"]:
+                partes.append(f"{stats['points']} punto{'' if stats['points'] == 1 else 's'} de reproducciones")
+            flash("Canción re-resuelta con Chartmetric: " + " y ".join(partes) + ".", "success")
+            # Vinculada pero sin nada que enseñar: se DICE, en vez de dejarla en verde y vacía.
+            if not urls:
+                flash("Chartmetric no ha devuelto ningún enlace de plataforma para este track. "
+                      "Mételos a mano en la ficha de la canción.", "warning")
+            if stats["error"]:
+                flash(f"No se pudieron traer las reproducciones: {stats['error']}", "warning")
+            elif not stats["points"]:
+                flash("Chartmetric todavía no tiene reproducciones de este track.", "info")
         else:
             flash("No se encontró el track en Chartmetric. Revisa el ISRC o mete los enlaces a mano.", "warning")
     except Exception as e:
@@ -90406,6 +90845,1183 @@ def _merge_execute_view(kind):
         return redirect(back)
     finally:
         s.close()
+
+
+# =============================================================================
+# VACACIONES Y DÍAS LIBRES · del personal de la oficina
+# =============================================================================
+# Reglas de la casa (ago 2026):
+#   · A cada persona le corresponden VACATION_DAYS_PER_YEAR (30) días POR AÑO
+#     TRABAJADO. En el año de alta se PRORRATEAN desde la fecha de comienzo del
+#     contrato (`UserContract.start_date`, pestaña «Contrato» de su ficha).
+#   · Se cuentan LABORABLES: un sábado, un domingo o un festivo de Madrid no
+#     consume saldo. El día se guarda igual (así el calendario enseña el tramo
+#     entero de principio a fin) pero con `counts=False`.
+#   · Quien gestiona: DIRECCIÓN y quien tenga la responsabilidad de
+#     administración «VACACIONES» (se reparte en la ficha de cada persona).
+VACATION_DAYS_PER_YEAR = 30
+VACATION_REGION = "Madrid"
+VACATION_ACCESS_KEY = "vacaciones"
+VACATION_RESPONSIBILITY = "VACACIONES"
+VACATION_RULES_SETTING = "vacation_rules_text"
+VACATION_RULES_DEFAULT = (
+    "· Las vacaciones se piden con al menos 15 días de antelación.\n"
+    "· Solo se pueden pedir los días que te queden de saldo: el contador te lo va diciendo.\n"
+    "· Los sábados, domingos y festivos de Madrid NO consumen días: puedes marcarlos dentro de un "
+    "tramo y no te restan nada.\n"
+    "· Los días pedidos quedan a la espera del visto bueno de dirección; hasta entonces no están "
+    "confirmados.\n"
+    "· Procura no solaparte con compañeros de tu mismo departamento: al elegir se te avisa de quién "
+    "ya tiene esos días."
+)
+
+VACATION_STATUS_META = {
+    "PENDING":   {"label": "Pendiente de aprobar", "short": "Pendiente", "class": "text-bg-warning text-dark", "icon": "fa-hourglass-half"},
+    "APPROVED":  {"label": "Aprobadas",  "short": "Aprobadas",  "class": "text-bg-success",   "icon": "fa-circle-check"},
+    "REJECTED":  {"label": "Rechazadas", "short": "Rechazadas", "class": "text-bg-danger",    "icon": "fa-circle-xmark"},
+    "CANCELLED": {"label": "Anuladas",   "short": "Anuladas",   "class": "text-bg-secondary", "icon": "fa-ban"},
+}
+# Estados que OCUPAN días (para el saldo y para avisar de solapes).
+VACATION_LIVE_STATUSES = ("PENDING", "APPROVED")
+
+VACATION_HOLIDAY_SCOPES = {
+    "NACIONAL": "Nacional",
+    "AUTONOMICO": "Comunidad de Madrid",
+    "LOCAL": "Madrid capital",
+}
+
+
+def _easter_sunday(year: int) -> date:
+    """Domingo de Pascua (algoritmo anónimo gregoriano). Del él salen Jueves y Viernes Santo,
+    que son los dos únicos festivos móviles que hacen falta en Madrid."""
+    a = year % 19
+    b, c = divmod(year, 100)
+    d, e = divmod(b, 4)
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = divmod(c, 4)
+    ell = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * ell) // 451
+    month, day = divmod(h + ell - 7 * m + 114, 31)
+    return date(year, month, day + 1)
+
+
+def _madrid_holidays(year: int) -> list[tuple]:
+    """Festivos de Madrid de un año: nacionales + Comunidad de Madrid + Madrid capital.
+
+    ⚠️ Es una SIEMBRA, no la verdad absoluta: el calendario laboral se publica cada año en el BOE
+    y hay traslados (un festivo en domingo se puede mover). Por eso se guarda en BD y se puede
+    corregir a mano, y la siembra de un año solo se hace UNA vez (marca en AppSetting)."""
+    easter = _easter_sunday(year)
+    return [
+        (date(year, 1, 1),   "Año Nuevo", "NACIONAL"),
+        (date(year, 1, 6),   "Epifanía del Señor (Reyes)", "NACIONAL"),
+        (easter - timedelta(days=3), "Jueves Santo", "AUTONOMICO"),
+        (easter - timedelta(days=2), "Viernes Santo", "NACIONAL"),
+        (date(year, 5, 1),   "Fiesta del Trabajo", "NACIONAL"),
+        (date(year, 5, 2),   "Fiesta de la Comunidad de Madrid", "AUTONOMICO"),
+        (date(year, 5, 15),  "San Isidro", "LOCAL"),
+        (date(year, 8, 15),  "Asunción de la Virgen", "NACIONAL"),
+        (date(year, 10, 12), "Fiesta Nacional de España", "NACIONAL"),
+        (date(year, 11, 1),  "Todos los Santos", "NACIONAL"),
+        (date(year, 11, 9),  "Nuestra Señora de la Almudena", "LOCAL"),
+        (date(year, 12, 6),  "Día de la Constitución Española", "NACIONAL"),
+        (date(year, 12, 8),  "Inmaculada Concepción", "NACIONAL"),
+        (date(year, 12, 25), "Natividad del Señor", "NACIONAL"),
+    ]
+
+
+def _ensure_holidays_for_year(session_db, year: int) -> None:
+    """Siembra los festivos de un año si no se han sembrado nunca.
+
+    ⚠️ La marca es lo que permite BORRAR o corregir un festivo a mano sin que la siembra lo vuelva
+    a meter en el siguiente arranque."""
+    try:
+        year = int(year)
+    except Exception:
+        return
+    if year < 2000 or year > 2100:
+        return
+    marca = f"holidays_seeded_{VACATION_REGION.lower()}_{year}"
+    try:
+        if _get_app_setting(marca):
+            return
+        existentes = {
+            row.day for row in session_db.query(Holiday.day)
+            .filter(Holiday.region == VACATION_REGION)
+            .filter(Holiday.day >= date(year, 1, 1))
+            .filter(Holiday.day <= date(year, 12, 31)).all()
+        }
+        nuevos = 0
+        for day, name, scope in _madrid_holidays(year):
+            if day in existentes:
+                continue
+            session_db.add(Holiday(day=day, name=name, scope=scope, region=VACATION_REGION))
+            nuevos += 1
+        if nuevos:
+            session_db.flush()
+        session_db.commit()
+        _set_app_setting(marca, "1")
+    except Exception:
+        try:
+            session_db.rollback()
+        except Exception:
+            pass
+
+
+def _vacation_holidays(session_db, year_from: int, year_to: int | None = None) -> dict:
+    """{fecha: nombre} de los festivos del rango de años (sembrando los que falten)."""
+    year_to = year_to or year_from
+    for y in range(int(year_from), int(year_to) + 1):
+        _ensure_holidays_for_year(session_db, y)
+    try:
+        rows = (session_db.query(Holiday)
+                .filter(Holiday.region == VACATION_REGION)
+                .filter(Holiday.day >= date(int(year_from), 1, 1))
+                .filter(Holiday.day <= date(int(year_to), 12, 31))
+                .order_by(Holiday.day.asc()).all())
+    except Exception:
+        return {}
+    return {r.day: {"name": r.name, "scope": (r.scope or "NACIONAL").upper()} for r in rows}
+
+
+def _vacation_day_counts(day: date, holidays: dict) -> bool:
+    """¿Ese día CONSUME saldo? Solo de lunes a viernes y si no es festivo."""
+    if not day:
+        return False
+    if day.weekday() >= 5:          # 5 sábado, 6 domingo
+        return False
+    return day not in (holidays or {})
+
+
+def _user_contract_rows(session_db, user_id) -> list:
+    uid = _safe_uuid(user_id)
+    if not uid:
+        return []
+    try:
+        return (session_db.query(UserContract)
+                .filter(UserContract.user_id == uid)
+                .order_by(UserContract.start_date.asc()).all())
+    except Exception:
+        return []
+
+
+def _user_contract_start(session_db, user_id, rows=None) -> date | None:
+    """La ANTIGÜEDAD: la fecha de comienzo más antigua de sus contratos."""
+    rows = rows if rows is not None else _user_contract_rows(session_db, user_id)
+    fechas = [r.start_date for r in rows if getattr(r, "start_date", None)]
+    return min(fechas) if fechas else None
+
+
+def _vacation_base_days(profile) -> int:
+    """Días al año de esa persona: los suyos si se los han puesto, si no los de la casa."""
+    try:
+        val = getattr(profile, "vacation_days_per_year", None)
+        if val is not None and int(val) >= 0:
+            return int(val)
+    except Exception:
+        pass
+    return VACATION_DAYS_PER_YEAR
+
+
+def _vacation_adjustment(profile, year: int) -> int:
+    try:
+        return int((getattr(profile, "vacation_adjustments", None) or {}).get(str(year), 0) or 0)
+    except Exception:
+        return 0
+
+
+def _vacation_entitlement(base_days: int, year: int, start: date | None, end: date | None = None) -> dict:
+    """Los días que le corresponden ESE año. En el año de alta (o de baja) se prorratean por los
+    días de contrato: 30 días por año trabajado, no 30 por asomarse en diciembre."""
+    ini_year, fin_year = date(year, 1, 1), date(year, 12, 31)
+    total_dias = (fin_year - ini_year).days + 1
+    desde = max(start, ini_year) if start else ini_year
+    hasta = min(end, fin_year) if end else fin_year
+    if desde > fin_year or hasta < ini_year or desde > hasta:
+        return {"days": 0, "prorated": True, "from": None, "to": None, "worked_days": 0, "year_days": total_dias}
+    trabajados = (hasta - desde).days + 1
+    prorrateado = trabajados < total_dias
+    dias = base_days if not prorrateado else int(round(base_days * trabajados / total_dias))
+    return {"days": max(0, dias), "prorated": prorrateado, "from": desde, "to": hasta,
+            "worked_days": trabajados, "year_days": total_dias}
+
+
+def _vacation_balance(session_db, user_id, year: int, profile=None, contracts=None) -> dict:
+    """El saldo de una persona en un año: lo que le corresponde, lo aprobado, lo pendiente de
+    aprobar y lo que le queda. Punto ÚNICO: lo usan su pantalla, el panel de gestión y el
+    control de que una petición no se pase del saldo."""
+    uid = _safe_uuid(user_id)
+    year = int(year)
+    if profile is None and uid:
+        profile = session_db.get(UserProfile, uid)
+    base = _vacation_base_days(profile)
+    contratos = contracts if contracts is not None else _user_contract_rows(session_db, uid)
+    inicio = _user_contract_start(session_db, uid, rows=contratos)
+    # Fin: si TODOS sus contratos tienen fecha de fin, el último manda; si alguno sigue abierto, no.
+    fines = [r.end_date for r in contratos if getattr(r, "end_date", None)]
+    fin = max(fines) if (contratos and fines and len(fines) == len(contratos)) else None
+    ent = _vacation_entitlement(base, year, inicio, fin)
+    ajuste = _vacation_adjustment(profile, year)
+    total = max(0, ent["days"] + ajuste)
+
+    usados = pendientes = 0
+    disfrutados = 0
+    hoy = today_local()
+    try:
+        filas = (session_db.query(VacationDay.day, VacationRequest.status)
+                 .join(VacationRequest, VacationDay.request_id == VacationRequest.id)
+                 .filter(VacationDay.user_id == uid)
+                 .filter(VacationDay.counts.is_(True))
+                 .filter(VacationRequest.status.in_(VACATION_LIVE_STATUSES))
+                 .filter(VacationDay.day >= date(year, 1, 1))
+                 .filter(VacationDay.day <= date(year, 12, 31)).all())
+        for day, estado in filas:
+            if (estado or "").upper() == "APPROVED":
+                usados += 1
+                if day and day <= hoy:
+                    disfrutados += 1
+            else:
+                pendientes += 1
+    except Exception:
+        pass
+
+    return {
+        "year": year, "base": base, "entitled": ent["days"], "prorated": ent["prorated"],
+        "adjustment": ajuste, "total": total,
+        "used": usados,            # aprobados del año (los haya disfrutado o no)
+        "enjoyed": disfrutados,    # aprobados que ya han pasado
+        "pending": pendientes,     # pedidos y aún sin aprobar
+        "remaining": max(0, total - usados - pendientes),
+        "start_date": inicio, "end_date": fin,
+        "has_contract": bool(inicio),
+    }
+
+
+def _vacation_office_user_ids(session_db) -> list[str]:
+    """Personal de la oficina VIVO (sin bloqueados ni eliminados). Es a quien se le llevan las
+    vacaciones. ⚠️ is_blocked/is_deleted viven en UserSecurity, no en User."""
+    try:
+        fuera = _inactive_user_ids(session_db)
+        out = []
+        for prof in session_db.query(UserProfile).order_by(UserProfile.nick.asc()).all():
+            uid = str(getattr(prof, "user_id", "") or "")
+            if uid and to_uuid(uid) not in fuera:
+                out.append(uid)
+        return out
+    except Exception:
+        return []
+
+
+def _vacation_person_row(session_db, profile, year: int, contracts=None) -> dict:
+    saldo = _vacation_balance(session_db, profile.user_id, year, profile=profile, contracts=contracts)
+    return {
+        "user_id": str(profile.user_id),
+        "nick": (profile.nick or "").strip(),
+        "full_name": _profile_full_name(profile) or (profile.nick or "").strip(),
+        "photo_url": (getattr(profile, "photo_url", None) or "").strip(),
+        "departments": list(getattr(profile, "departments", None) or []),
+        "balance": saldo,
+    }
+
+
+def _vacation_color_for(index: int) -> str:
+    """Un color estable por persona para el calendario general (mismo criterio que la agenda)."""
+    paleta = ["#E33D48", "#007CA2", "#2E7D32", "#7B1FA2", "#EF6C00", "#00838F",
+              "#5D4037", "#C2185B", "#455A64", "#9E9D24", "#1565C0", "#6A1B9A"]
+    return paleta[index % len(paleta)]
+
+
+def _vacation_request_rows(session_db, *, user_id=None, statuses=None, year=None, limit=None) -> list[dict]:
+    """Peticiones con sus días, listas para pintar."""
+    q = session_db.query(VacationRequest)
+    if user_id:
+        uid = _safe_uuid(user_id)
+        if not uid:
+            return []
+        q = q.filter(VacationRequest.user_id == uid)
+    if statuses:
+        q = q.filter(VacationRequest.status.in_([s.upper() for s in statuses]))
+    if year:
+        q = q.filter(VacationRequest.year == int(year))
+    q = q.order_by(VacationRequest.created_at.desc())
+    if limit:
+        q = q.limit(int(limit))
+    peticiones = q.all()
+    if not peticiones:
+        return []
+
+    ids = [p.id for p in peticiones]
+    dias_por_peticion: dict = {}
+    try:
+        for d in (session_db.query(VacationDay)
+                  .filter(VacationDay.request_id.in_(ids))
+                  .order_by(VacationDay.day.asc()).all()):
+            dias_por_peticion.setdefault(str(d.request_id), []).append(d)
+    except Exception:
+        pass
+
+    perfiles = {}
+    try:
+        uids = list({p.user_id for p in peticiones} | {p.decided_by_user_id for p in peticiones if p.decided_by_user_id})
+        for prof in session_db.query(UserProfile).filter(UserProfile.user_id.in_(uids)).all():
+            perfiles[str(prof.user_id)] = prof
+    except Exception:
+        pass
+
+    out = []
+    for p in peticiones:
+        dias = dias_por_peticion.get(str(p.id), [])
+        fechas = [d.day for d in dias if d.day]
+        prof = perfiles.get(str(p.user_id))
+        decisor = perfiles.get(str(p.decided_by_user_id)) if p.decided_by_user_id else None
+        estado = (p.status or "PENDING").upper()
+        out.append({
+            "id": str(p.id),
+            "user_id": str(p.user_id),
+            "nick": (getattr(prof, "nick", None) or "").strip() or "—",
+            "full_name": (_profile_full_name(prof) if prof else "") or (getattr(prof, "nick", None) or ""),
+            "photo_url": (getattr(prof, "photo_url", None) or "").strip(),
+            "status": estado,
+            "status_meta": VACATION_STATUS_META.get(estado, VACATION_STATUS_META["PENDING"]),
+            "year": p.year,
+            "days_count": int(p.days_count or 0),
+            "days": [d.day for d in dias],
+            "days_iso": [d.day.isoformat() for d in dias if d.day],
+            "counting_days": [d.day for d in dias if d.counts],
+            "first_day": min(fechas) if fechas else None,
+            "last_day": max(fechas) if fechas else None,
+            "range_label": _vacation_range_label(fechas),
+            "note": (p.note or "").strip(),
+            "decision_note": (p.decision_note or "").strip(),
+            "decided_by": (getattr(decisor, "nick", None) or "").strip(),
+            "decided_at": p.decided_at,
+            "created_at": p.created_at,
+        })
+    return out
+
+
+def _vacation_range_label(fechas: list) -> str:
+    """«12/08/2026» · «12 – 20/08/2026» · «28/07 – 04/08/2026», y «(y 2 tramos más)» si hay saltos."""
+    fechas = sorted([f for f in (fechas or []) if f])
+    if not fechas:
+        return "—"
+    tramos, actual = [], [fechas[0]]
+    for anterior, siguiente in zip(fechas, fechas[1:]):
+        if (siguiente - anterior).days == 1:
+            actual.append(siguiente)
+        else:
+            tramos.append(actual)
+            actual = [siguiente]
+    tramos.append(actual)
+    primero = tramos[0]
+    if len(primero) == 1:
+        texto = primero[0].strftime("%d/%m/%Y")
+    elif primero[0].month == primero[-1].month and primero[0].year == primero[-1].year:
+        texto = f"{primero[0].strftime('%d')} – {primero[-1].strftime('%d/%m/%Y')}"
+    else:
+        texto = f"{primero[0].strftime('%d/%m')} – {primero[-1].strftime('%d/%m/%Y')}"
+    if len(tramos) > 1:
+        texto += f" (y {len(tramos) - 1} tramo{'' if len(tramos) == 2 else 's'} más)"
+    return texto
+
+
+def _parse_vacation_days(raw) -> list:
+    """Los días que llegan del calendario: «2026-08-03,2026-08-04,…». Sin repetidos y ordenados."""
+    out, vistos = [], set()
+    for trozo in (raw or "").replace(";", ",").split(","):
+        trozo = trozo.strip()
+        if not trozo or trozo in vistos:
+            continue
+        vistos.add(trozo)
+        try:
+            out.append(date.fromisoformat(trozo))
+        except Exception:
+            continue
+    return sorted(out)
+
+
+def _vacation_taken_days(session_db, user_id, days: list, exclude_request_id=None) -> set:
+    """Días que esa persona YA tiene pedidos o aprobados (para no pisarlos)."""
+    uid = _safe_uuid(user_id)
+    if not uid or not days:
+        return set()
+    try:
+        q = (session_db.query(VacationDay.day)
+             .join(VacationRequest, VacationDay.request_id == VacationRequest.id)
+             .filter(VacationDay.user_id == uid)
+             .filter(VacationRequest.status.in_(VACATION_LIVE_STATUSES))
+             .filter(VacationDay.day.in_(days)))
+        if exclude_request_id:
+            q = q.filter(VacationRequest.id != _safe_uuid(exclude_request_id))
+        return {r[0] for r in q.all()}
+    except Exception:
+        return set()
+
+
+def _vacation_overlaps(session_db, user_id, days: list) -> list[dict]:
+    """Quién MÁS tiene esos días (aviso, no bloqueo: lo decide quien aprueba)."""
+    if not days:
+        return []
+    uid = _safe_uuid(user_id)
+    try:
+        filas = (session_db.query(VacationDay.user_id, VacationDay.day)
+                 .join(VacationRequest, VacationDay.request_id == VacationRequest.id)
+                 .filter(VacationRequest.status.in_(VACATION_LIVE_STATUSES))
+                 .filter(VacationDay.day.in_(days))
+                 .filter(VacationDay.counts.is_(True)).all())
+    except Exception:
+        return []
+    por_persona: dict = {}
+    for otro_uid, day in filas:
+        if uid and str(otro_uid) == str(uid):
+            continue
+        por_persona.setdefault(str(otro_uid), []).append(day)
+    if not por_persona:
+        return []
+    perfiles = {}
+    try:
+        for prof in session_db.query(UserProfile).filter(UserProfile.user_id.in_(list(por_persona.keys()))).all():
+            perfiles[str(prof.user_id)] = prof
+    except Exception:
+        pass
+    out = []
+    for otro_uid, dias in por_persona.items():
+        prof = perfiles.get(otro_uid)
+        out.append({
+            "user_id": otro_uid,
+            "nick": (getattr(prof, "nick", None) or "").strip() or "—",
+            "photo_url": (getattr(prof, "photo_url", None) or "").strip(),
+            "days": sorted(dias),
+            "count": len(dias),
+        })
+    out.sort(key=lambda r: -r["count"])
+    return out
+
+
+def _vacation_rules_text() -> str:
+    return (_get_app_setting(VACATION_RULES_SETTING) or VACATION_RULES_DEFAULT).strip()
+
+
+def _can_manage_vacations() -> bool:
+    """Quién gestiona las vacaciones: DIRECCIÓN y quien tenga la responsabilidad «VACACIONES»
+    del reparto de administración (se la asigna dirección en la ficha de cada persona)."""
+    try:
+        if is_master():
+            return True
+        return VACATION_RESPONSIBILITY in _current_user_admin_responsibilities()
+    except Exception:
+        return False
+
+
+def _can_view_person_contract() -> bool:
+    """El contrato de una persona SOLO lo ven administración y dirección."""
+    try:
+        if is_master():
+            return True
+        prof = (_current_user_state() or {}).get("profile")
+        return "Administración" in (getattr(prof, "departments", None) or [])
+    except Exception:
+        return False
+
+
+def _vacation_manager_user_ids(session_db) -> list[str]:
+    """A quién hay que avisar de una petición: dirección + los responsables de «VACACIONES».
+    Si no hay nadie con la responsabilidad, a todo Administración (nada se queda sin dueño)."""
+    ids = set()
+    try:
+        for user in session_db.query(User).filter(User.role == 10).all():
+            ids.add(str(user.id))
+    except Exception:
+        pass
+    responsables = _admin_responsible_user_ids(session_db, VACATION_RESPONSIBILITY)
+    if responsables:
+        ids |= set(responsables)
+    else:
+        ids |= set(_department_user_ids(session_db, "Administración"))
+    fuera = {str(x) for x in _inactive_user_ids(session_db)}
+    return [i for i in ids if i not in fuera]
+
+
+def _sync_vacation_access_grant(session_db, user_id, tiene_responsabilidad: bool) -> None:
+    """Quien gestiona las vacaciones necesita ENTRAR en la sección. El permiso se concede (y se
+    retira) solo, al asignar la responsabilidad: así no hay que acordarse de darlo aparte y sigue
+    viéndose en la pantalla de Accesos, que es la fuente de verdad."""
+    uid = _safe_uuid(user_id)
+    if not uid:
+        return
+    try:
+        grant = (session_db.query(UserAccessGrant)
+                 .filter(UserAccessGrant.user_id == uid)
+                 .filter(UserAccessGrant.resource_key == VACATION_ACCESS_KEY).first())
+        if not grant:
+            if not tiene_responsabilidad:
+                return
+            grant = UserAccessGrant(user_id=uid, resource_key=VACATION_ACCESS_KEY)
+            session_db.add(grant)
+        grant.can_view_basic = bool(tiene_responsabilidad)
+        grant.can_edit = bool(tiene_responsabilidad)
+        grant.can_view_econ = False
+    except Exception:
+        pass
+
+
+def _vacation_month_matrix(year: int, month: int) -> list[list]:
+    """Las semanas del mes (lunes a domingo), con None en los huecos."""
+    cal = _cal.Calendar(firstweekday=0)
+    return [list(week) for week in cal.monthdatescalendar(year, month)]
+
+
+VACATION_MONTH_NAMES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+                        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+
+
+def _vacation_calendar_payload(session_db, year: int, user_ids: list[str] | None = None,
+                               include_pending: bool = True) -> dict:
+    """Lo que necesita el calendario en el navegador: festivos y días de cada persona.
+    Un solo formato para las dos pantallas (la mía y la de toda la oficina)."""
+    holidays = _vacation_holidays(session_db, year)
+    estados = list(VACATION_LIVE_STATUSES) if include_pending else ["APPROVED"]
+    q = (session_db.query(VacationDay.user_id, VacationDay.day, VacationDay.counts,
+                          VacationRequest.status, VacationRequest.id)
+         .join(VacationRequest, VacationDay.request_id == VacationRequest.id)
+         .filter(VacationRequest.status.in_(estados))
+         .filter(VacationDay.day >= date(int(year), 1, 1))
+         .filter(VacationDay.day <= date(int(year), 12, 31)))
+    if user_ids:
+        q = q.filter(VacationDay.user_id.in_([_safe_uuid(u) for u in user_ids if _safe_uuid(u)]))
+    dias = []
+    try:
+        for uid, day, counts, estado, rid in q.all():
+            dias.append({"user_id": str(uid), "day": day.isoformat(),
+                         "counts": bool(counts), "status": (estado or "").upper(),
+                         "request_id": str(rid)})
+    except Exception:
+        pass
+    return {
+        "year": int(year),
+        "holidays": [{"day": d.isoformat(), "name": meta["name"],
+                      "scope": meta["scope"], "scope_label": VACATION_HOLIDAY_SCOPES.get(meta["scope"], "")}
+                     for d, meta in sorted(holidays.items())],
+        "days": dias,
+        "month_names": VACATION_MONTH_NAMES,
+    }
+
+
+def _vacation_apply_days(session_db, req, days: list, holidays: dict) -> int:
+    """Escribe los días de una petición y devuelve cuántos CONSUMEN saldo.
+    Punto único: lo usan pedir, editar y el alta a mano de administración."""
+    try:
+        session_db.query(VacationDay).filter(VacationDay.request_id == req.id).delete(synchronize_session=False)
+    except Exception:
+        pass
+    cuentan = 0
+    for day in sorted(set(days or [])):
+        counts = _vacation_day_counts(day, holidays)
+        session_db.add(VacationDay(request_id=req.id, user_id=req.user_id, day=day, counts=counts))
+        if counts:
+            cuentan += 1
+    req.days_count = cuentan
+    return cuentan
+
+
+def _vacation_check_request(session_db, user_id, days: list, *, exclude_request_id=None,
+                            ignore_balance: bool = False) -> tuple:
+    """Comprueba una petición contra las NORMAS que se aplican solas.
+    Devuelve (error, info): `error` = no se puede seguir; `info` = avisos (solapes)."""
+    if not days:
+        return "No has marcado ningún día.", None
+    year = days[0].year
+    if any(d.year != year for d in days):
+        return "Los días tienen que ser del mismo año: pide un tramo por año.", None
+
+    holidays = _vacation_holidays(session_db, year)
+    cuentan = [d for d in days if _vacation_day_counts(d, holidays)]
+    if not cuentan:
+        return "Los días marcados son todos fines de semana o festivos: no hay nada que pedir.", None
+
+    pisados = _vacation_taken_days(session_db, user_id, days, exclude_request_id=exclude_request_id)
+    pisados_utiles = sorted([d for d in pisados if _vacation_day_counts(d, holidays)])
+    if pisados_utiles:
+        muestra = ", ".join(d.strftime("%d/%m") for d in pisados_utiles[:5])
+        resto = f" y {len(pisados_utiles) - 5} más" if len(pisados_utiles) > 5 else ""
+        return f"Ya tienes pedidos o aprobados estos días: {muestra}{resto}.", None
+
+    if not ignore_balance:
+        saldo = _vacation_balance(session_db, user_id, year)
+        if not saldo["has_contract"]:
+            return ("Todavía no consta tu fecha de comienzo: administración tiene que subir tu "
+                    "contrato para poder calcular los días que te corresponden."), None
+        disponibles = saldo["remaining"]
+        if exclude_request_id:
+            # Al EDITAR, los días de la propia petición vuelven al saldo.
+            try:
+                previa = session_db.get(VacationRequest, _safe_uuid(exclude_request_id))
+                if previa and (previa.status or "").upper() in VACATION_LIVE_STATUSES and previa.year == year:
+                    disponibles += int(previa.days_count or 0)
+            except Exception:
+                pass
+        if len(cuentan) > disponibles:
+            return (f"Has marcado {len(cuentan)} día{'' if len(cuentan) == 1 else 's'} y solo te "
+                    f"queda{'' if disponibles == 1 else 'n'} {disponibles}."), None
+
+    return None, {"solapes": _vacation_overlaps(session_db, user_id, cuentan), "cuentan": len(cuentan)}
+
+
+def _vacation_notify_managers(session_db, req, rows_ctx=None) -> None:
+    """Aviso a dirección y a quien gestione las vacaciones de que hay una petición nueva."""
+    try:
+        prof = session_db.get(UserProfile, req.user_id)
+        quien = (getattr(prof, "nick", None) or "Alguien").strip()
+        dias = [d.day for d in (req.days or []) if d.day] or []
+        _notify_users(session_db, _vacation_manager_user_ids(session_db), "VACACIONES",
+                      f"{quien} pide vacaciones",
+                      f"{req.days_count} día{'' if req.days_count == 1 else 's'} · {_vacation_range_label(dias)}",
+                      url_for("vacaciones_view", tab="peticiones"),
+                      ref_type="vacation_request", ref_id=str(req.id))
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# MIS VACACIONES · lo ve cualquiera con sesión (son SUS días)
+# ---------------------------------------------------------------------------
+
+@app.get("/mis-vacaciones", endpoint="mis_vacaciones_view")
+@admin_required
+def mis_vacaciones_view():
+    estado = _current_user_state() or {}
+    uid = estado.get("user_id")
+    if not uid:
+        return redirect(url_for("admin_login"))
+    try:
+        year = int(request.args.get("anio") or today_local().year)
+    except Exception:
+        year = today_local().year
+
+    session_db = db()
+    try:
+        profile = session_db.get(UserProfile, _safe_uuid(uid))
+        contratos = _user_contract_rows(session_db, uid)
+        saldo = _vacation_balance(session_db, uid, year, profile=profile, contracts=contratos)
+        peticiones = _vacation_request_rows(session_db, user_id=uid)
+        payload = _vacation_calendar_payload(session_db, year, user_ids=[str(uid)])
+        años = sorted({p["year"] for p in peticiones} | {year, today_local().year}, reverse=True)
+        return render_template(
+            "mis_vacaciones.html",
+            year=year, years=años, balance=saldo, requests=peticiones,
+            calendar_payload=payload, rules_text=_vacation_rules_text(),
+            month_names=VACATION_MONTH_NAMES,
+            can_manage=_can_manage_vacations(),
+            status_meta=VACATION_STATUS_META,
+        )
+    finally:
+        session_db.close()
+
+
+@app.post("/mis-vacaciones/solicitar", endpoint="mis_vacaciones_request")
+@admin_required
+def mis_vacaciones_request():
+    estado = _current_user_state() or {}
+    uid = estado.get("user_id")
+    if not uid:
+        return redirect(url_for("admin_login"))
+    dias = _parse_vacation_days(request.form.get("days"))
+    nota = (request.form.get("note") or "").strip() or None
+    destino = url_for("mis_vacaciones_view", anio=(dias[0].year if dias else today_local().year))
+
+    session_db = db()
+    try:
+        error, _info = _vacation_check_request(session_db, uid, dias)
+        if error:
+            flash(error, "warning")
+            return redirect(destino)
+        holidays = _vacation_holidays(session_db, dias[0].year)
+        req = VacationRequest(user_id=_safe_uuid(uid), status="PENDING", year=dias[0].year,
+                              note=nota, created_by_user_id=_safe_uuid(uid))
+        session_db.add(req)
+        session_db.flush()
+        n = _vacation_apply_days(session_db, req, dias, holidays)
+        session_db.commit()
+        _vacation_notify_managers(session_db, req)
+        session_db.commit()
+        flash(f"Pedidos {n} día{'' if n == 1 else 's'}. Queda a la espera del visto bueno.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"No se pudieron pedir las vacaciones: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(destino)
+
+
+@app.post("/mis-vacaciones/<request_id>/anular", endpoint="mis_vacaciones_cancel")
+@admin_required
+def mis_vacaciones_cancel(request_id):
+    estado = _current_user_state() or {}
+    uid = estado.get("user_id")
+    session_db = db()
+    try:
+        req = session_db.get(VacationRequest, to_uuid(request_id))
+        if not req or str(req.user_id) != str(uid):
+            flash("Petición no encontrada.", "warning")
+            return redirect(url_for("mis_vacaciones_view"))
+        if (req.status or "").upper() == "APPROVED":
+            flash("Ya está aprobada: pídele a administración que la quite.", "warning")
+            return redirect(url_for("mis_vacaciones_view", anio=req.year))
+        req.status = "CANCELLED"
+        req.updated_at = datetime.now(TZ_MADRID)
+        session_db.commit()
+        flash("Petición anulada.", "info")
+        return redirect(url_for("mis_vacaciones_view", anio=req.year))
+    except Exception as e:
+        session_db.rollback()
+        flash(f"No se pudo anular: {e}", "danger")
+        return redirect(url_for("mis_vacaciones_view"))
+    finally:
+        session_db.close()
+
+
+@app.post("/mis-vacaciones/comprobar", endpoint="mis_vacaciones_check")
+@admin_required
+def mis_vacaciones_check():
+    """Comprobación EN VIVO mientras se marcan días en el calendario (contador y solapes)."""
+    estado = _current_user_state() or {}
+    uid = estado.get("user_id")
+    dias = _parse_vacation_days((request.get_json(silent=True) or {}).get("days") or request.form.get("days"))
+    session_db = db()
+    try:
+        error, info = _vacation_check_request(session_db, uid, dias)
+        saldo = _vacation_balance(session_db, uid, dias[0].year if dias else today_local().year)
+        return jsonify({
+            "ok": not error, "error": error,
+            "counting": (info or {}).get("cuentan", 0),
+            "remaining": saldo["remaining"],
+            "overlaps": [{"nick": o["nick"], "photo_url": o["photo_url"], "count": o["count"]}
+                         for o in ((info or {}).get("solapes") or [])],
+        })
+    finally:
+        session_db.close()
+
+
+# ---------------------------------------------------------------------------
+# VACACIONES · la sección de gestión (dirección + quien la lleve)
+# ---------------------------------------------------------------------------
+
+@app.get("/vacaciones", endpoint="vacaciones_view")
+@admin_required
+def vacaciones_view():
+    if not _can_manage_vacations():
+        return forbid("No tienes acceso a la gestión de vacaciones.")
+    hoy = today_local()
+    try:
+        year = int(request.args.get("anio") or hoy.year)
+    except Exception:
+        year = hoy.year
+    try:
+        month = max(1, min(12, int(request.args.get("mes") or hoy.month)))
+    except Exception:
+        month = hoy.month
+    tab = (request.args.get("tab") or "calendario").strip().lower()
+    if tab not in {"calendario", "peticiones", "festivos"}:
+        tab = "calendario"
+    filtro_uid = (request.args.get("persona") or "").strip()
+
+    session_db = db()
+    try:
+        uids = _vacation_office_user_ids(session_db)
+        perfiles = {}
+        if uids:
+            for prof in (session_db.query(UserProfile)
+                         .filter(UserProfile.user_id.in_([to_uuid(u) for u in uids]))
+                         .order_by(UserProfile.nick.asc()).all()):
+                perfiles[str(prof.user_id)] = prof
+        contratos_por_uid = {}
+        try:
+            for c in session_db.query(UserContract).all():
+                contratos_por_uid.setdefault(str(c.user_id), []).append(c)
+        except Exception:
+            pass
+
+        personas = []
+        for i, uid in enumerate(uids):
+            prof = perfiles.get(uid)
+            if not prof:
+                continue
+            fila = _vacation_person_row(session_db, prof, year, contracts=contratos_por_uid.get(uid, []))
+            fila["color"] = _vacation_color_for(i)
+            personas.append(fila)
+        personas.sort(key=lambda p: (p["nick"] or "").casefold())
+
+        pendientes = _vacation_request_rows(session_db, statuses=["PENDING"])
+        historico = _vacation_request_rows(session_db, statuses=["APPROVED", "REJECTED", "CANCELLED"],
+                                           year=year, limit=200)
+        seleccion = [filtro_uid] if (filtro_uid and filtro_uid in {p["user_id"] for p in personas}) else None
+        payload = _vacation_calendar_payload(session_db, year, user_ids=seleccion)
+        payload["people"] = [{"user_id": p["user_id"], "nick": p["nick"], "photo_url": p["photo_url"],
+                              "color": p["color"]} for p in personas]
+
+        festivos = []
+        for d, meta in sorted(_vacation_holidays(session_db, year).items()):
+            festivos.append({"day": d, "name": meta["name"], "scope": meta["scope"],
+                             "scope_label": VACATION_HOLIDAY_SCOPES.get(meta["scope"], "")})
+        festivo_ids = {}
+        try:
+            for row in (session_db.query(Holiday)
+                        .filter(Holiday.region == VACATION_REGION)
+                        .filter(Holiday.day >= date(year, 1, 1))
+                        .filter(Holiday.day <= date(year, 12, 31)).all()):
+                festivo_ids[row.day] = str(row.id)
+        except Exception:
+            pass
+        for f in festivos:
+            f["id"] = festivo_ids.get(f["day"], "")
+
+        años = sorted({year, hoy.year, hoy.year + 1, hoy.year - 1}, reverse=True)
+        return render_template(
+            "vacaciones.html",
+            tab=tab, year=year, month=month, years=años, people=personas,
+            pending=pendientes, history=historico, calendar_payload=payload,
+            holidays=festivos, holiday_scopes=VACATION_HOLIDAY_SCOPES,
+            rules_text=_vacation_rules_text(), month_names=VACATION_MONTH_NAMES,
+            filter_user_id=filtro_uid, status_meta=VACATION_STATUS_META,
+            days_per_year_default=VACATION_DAYS_PER_YEAR,
+        )
+    finally:
+        session_db.close()
+
+
+@app.post("/vacaciones/peticion/<request_id>/decidir", endpoint="vacation_request_decide")
+@admin_required
+def vacation_request_decide(request_id):
+    if not _can_manage_vacations():
+        return forbid("No puedes aprobar ni rechazar vacaciones.")
+    decision = (request.form.get("decision") or "").strip().upper()
+    if decision not in {"APPROVED", "REJECTED"}:
+        flash("Decisión no válida.", "warning")
+        return redirect(url_for("vacaciones_view", tab="peticiones"))
+    nota = (request.form.get("decision_note") or "").strip() or None
+
+    session_db = db()
+    try:
+        req = session_db.get(VacationRequest, to_uuid(request_id))
+        if not req:
+            flash("Petición no encontrada.", "warning")
+            return redirect(url_for("vacaciones_view", tab="peticiones"))
+        # Al APROBAR se vuelve a mirar el saldo: entre que se pidió y ahora puede haber cambiado.
+        if decision == "APPROVED":
+            saldo = _vacation_balance(session_db, req.user_id, req.year)
+            # Los días de ESTA petición ya están contados como «pendientes»: no se descuentan dos veces.
+            libres = saldo["remaining"] + int(req.days_count or 0)
+            if int(req.days_count or 0) > libres:
+                flash(f"No se puede aprobar: pide {req.days_count} días y solo le quedan {libres}.", "warning")
+                return redirect(url_for("vacaciones_view", tab="peticiones"))
+        req.status = decision
+        req.decision_note = nota
+        req.decided_by_user_id = _safe_uuid((_current_user_state() or {}).get("user_id"))
+        req.decided_at = datetime.now(TZ_MADRID)
+        req.updated_at = req.decided_at
+        session_db.commit()
+
+        dias = [d.day for d in (req.days or []) if d.day]
+        if decision == "APPROVED":
+            titulo, cuerpo = "Vacaciones aprobadas", f"{_vacation_range_label(dias)} · {req.days_count} día{'' if req.days_count == 1 else 's'}"
+        else:
+            titulo = "Vacaciones rechazadas"
+            cuerpo = _vacation_range_label(dias) + (f" · {nota}" if nota else "")
+        _notify_user(session_db, req.user_id, "VACACIONES", titulo, cuerpo,
+                     url_for("mis_vacaciones_view", anio=req.year),
+                     ref_type="vacation_request", ref_id=str(req.id))
+        session_db.commit()
+        flash("Vacaciones aprobadas." if decision == "APPROVED" else "Vacaciones rechazadas.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"No se pudo guardar la decisión: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("vacaciones_view", tab="peticiones"))
+
+
+@app.post("/vacaciones/persona/<user_id>/configurar", endpoint="vacation_person_config")
+@admin_required
+def vacation_person_config(user_id):
+    if not _can_manage_vacations():
+        return forbid("No puedes configurar las vacaciones de nadie.")
+    try:
+        year = int(request.form.get("anio") or today_local().year)
+    except Exception:
+        year = today_local().year
+    session_db = db()
+    try:
+        prof = session_db.get(UserProfile, to_uuid(user_id))
+        if not prof:
+            flash("Persona no encontrada.", "warning")
+            return redirect(url_for("vacaciones_view", anio=year))
+        crudo = (request.form.get("days_per_year") or "").strip()
+        if crudo == "":
+            prof.vacation_days_per_year = None      # vuelve a los días de la casa
+        else:
+            try:
+                prof.vacation_days_per_year = max(0, min(365, int(crudo)))
+            except Exception:
+                flash("Los días al año tienen que ser un número.", "warning")
+                return redirect(url_for("vacaciones_view", anio=year))
+        ajuste_crudo = (request.form.get("adjustment") or "").strip()
+        ajustes = dict(getattr(prof, "vacation_adjustments", None) or {})
+        if ajuste_crudo in ("", "0"):
+            ajustes.pop(str(year), None)
+        else:
+            try:
+                ajustes[str(year)] = int(ajuste_crudo)
+            except Exception:
+                flash("El ajuste tiene que ser un número (puede ser negativo).", "warning")
+                return redirect(url_for("vacaciones_view", anio=year))
+        prof.vacation_adjustments = ajustes
+        session_db.commit()
+        flash("Vacaciones actualizadas.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"No se pudo guardar: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("vacaciones_view", anio=year))
+
+
+@app.post("/vacaciones/persona/<user_id>/dias", endpoint="vacation_person_days")
+@admin_required
+def vacation_person_days(user_id):
+    """Administración/dirección apunta días directamente (ya aprobados): correcciones, días
+    acordados de palabra, arrastres… No pasa por el visto bueno porque LO ESTÁ DANDO quien lo mete."""
+    if not _can_manage_vacations():
+        return forbid("No puedes apuntar vacaciones de nadie.")
+    dias = _parse_vacation_days(request.form.get("days"))
+    nota = (request.form.get("note") or "").strip() or None
+    year = dias[0].year if dias else today_local().year
+    session_db = db()
+    try:
+        error, _info = _vacation_check_request(session_db, user_id, dias,
+                                               ignore_balance=bool(request.form.get("force")))
+        if error:
+            flash(error, "warning")
+            return redirect(url_for("vacaciones_view", anio=year))
+        holidays = _vacation_holidays(session_db, year)
+        ahora = datetime.now(TZ_MADRID)
+        actor = _safe_uuid((_current_user_state() or {}).get("user_id"))
+        req = VacationRequest(user_id=to_uuid(user_id), status="APPROVED", year=year, note=nota,
+                              created_by_user_id=actor, decided_by_user_id=actor, decided_at=ahora)
+        session_db.add(req)
+        session_db.flush()
+        n = _vacation_apply_days(session_db, req, dias, holidays)
+        session_db.commit()
+        _notify_user(session_db, req.user_id, "VACACIONES", "Vacaciones apuntadas",
+                     f"{_vacation_range_label(dias)} · {n} día{'' if n == 1 else 's'}",
+                     url_for("mis_vacaciones_view", anio=year),
+                     ref_type="vacation_request", ref_id=str(req.id))
+        session_db.commit()
+        flash(f"Apuntados {n} día{'' if n == 1 else 's'}.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"No se pudo apuntar: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("vacaciones_view", anio=year))
+
+
+@app.post("/vacaciones/peticion/<request_id>/eliminar", endpoint="vacation_request_delete")
+@admin_required
+def vacation_request_delete(request_id):
+    if not _can_manage_vacations():
+        return forbid("No puedes eliminar vacaciones.")
+    session_db = db()
+    year = today_local().year
+    try:
+        req = session_db.get(VacationRequest, to_uuid(request_id))
+        if not req:
+            flash("Petición no encontrada.", "warning")
+            return redirect(url_for("vacaciones_view"))
+        year = req.year
+        uid, dias = req.user_id, [d.day for d in (req.days or []) if d.day]
+        session_db.delete(req)
+        session_db.commit()
+        _notify_user(session_db, uid, "VACACIONES", "Vacaciones eliminadas",
+                     _vacation_range_label(dias), url_for("mis_vacaciones_view", anio=year),
+                     ref_type="vacation_request", ref_id=str(request_id))
+        session_db.commit()
+        flash("Días eliminados.", "info")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"No se pudo eliminar: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("vacaciones_view", anio=year))
+
+
+@app.post("/vacaciones/normas", endpoint="vacation_rules_save")
+@admin_required
+def vacation_rules_save():
+    if not _can_manage_vacations():
+        return forbid("No puedes cambiar las normas de vacaciones.")
+    texto = (request.form.get("rules_text") or "").strip()
+    _set_app_setting(VACATION_RULES_SETTING, texto)
+    flash("Normas guardadas.", "success")
+    return redirect(url_for("vacaciones_view", tab="festivos"))
+
+
+@app.post("/vacaciones/festivos", endpoint="vacation_holiday_save")
+@admin_required
+def vacation_holiday_save():
+    if not _can_manage_vacations():
+        return forbid("No puedes tocar el calendario de festivos.")
+    day = parse_optional_date(request.form.get("day"))
+    nombre = (request.form.get("name") or "").strip()
+    scope = (request.form.get("scope") or "NACIONAL").strip().upper()
+    if scope not in VACATION_HOLIDAY_SCOPES:
+        scope = "NACIONAL"
+    year = day.year if day else today_local().year
+    if not day or not nombre:
+        flash("Hacen falta la fecha y el nombre del festivo.", "warning")
+        return redirect(url_for("vacaciones_view", tab="festivos", anio=year))
+    session_db = db()
+    try:
+        fila = (session_db.query(Holiday)
+                .filter(Holiday.day == day)
+                .filter(Holiday.region == VACATION_REGION).first())
+        if fila:
+            fila.name, fila.scope = nombre, scope
+        else:
+            session_db.add(Holiday(day=day, name=nombre, scope=scope, region=VACATION_REGION))
+        session_db.commit()
+        flash("Festivo guardado.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"No se pudo guardar el festivo: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("vacaciones_view", tab="festivos", anio=year))
+
+
+@app.post("/vacaciones/festivos/<holiday_id>/eliminar", endpoint="vacation_holiday_delete")
+@admin_required
+def vacation_holiday_delete(holiday_id):
+    if not _can_manage_vacations():
+        return forbid("No puedes tocar el calendario de festivos.")
+    session_db = db()
+    year = today_local().year
+    try:
+        fila = session_db.get(Holiday, to_uuid(holiday_id))
+        if fila:
+            year = fila.day.year
+            session_db.delete(fila)
+            session_db.commit()
+            flash("Festivo eliminado.", "info")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"No se pudo eliminar: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("vacaciones_view", tab="festivos", anio=year))
+
+
+# ---------------------------------------------------------------------------
+# CONTRATO de una persona · pestaña de su ficha (solo administración y dirección)
+# ---------------------------------------------------------------------------
+
+@app.post("/personal/<user_id>/contrato", endpoint="personnel_contract_save")
+@admin_required
+def personnel_contract_save(user_id):
+    if not _can_view_person_contract():
+        return forbid("El contrato solo lo pueden ver administración y dirección.")
+    session_db = db()
+    try:
+        user = session_db.get(User, to_uuid(user_id))
+        if not user:
+            flash("Usuario no encontrado.", "warning")
+            return redirect(url_for("personnel_view"))
+        inicio = parse_optional_date(request.form.get("start_date"))
+        if not inicio:
+            flash("La fecha de comienzo es obligatoria: es la que decide las vacaciones que le tocan.", "warning")
+            return redirect(url_for("personnel_detail_view", user_id=user_id, tab="contrato"))
+        contract_id = (request.form.get("contract_id") or "").strip()
+        fila = session_db.get(UserContract, to_uuid(contract_id)) if contract_id else None
+        if fila is None or str(fila.user_id) != str(user.id):
+            fila = UserContract(user_id=user.id,
+                                created_by_user_id=_safe_uuid((_current_user_state() or {}).get("user_id")))
+            session_db.add(fila)
+        fila.start_date = inicio
+        fila.end_date = parse_optional_date(request.form.get("end_date"))
+        fila.contract_type = (request.form.get("contract_type") or "").strip() or None
+        fila.notes = (request.form.get("notes") or "").strip() or None
+        doc = request.files.get("file")
+        if doc and getattr(doc, "filename", ""):
+            fila.file_url = upload_file(doc, "contracts")
+            fila.file_name = Path((doc.filename or "").replace("\\", "/")).name
+        session_db.commit()
+        flash("Contrato guardado.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"No se pudo guardar el contrato: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("personnel_detail_view", user_id=user_id, tab="contrato"))
+
+
+@app.post("/personal/<user_id>/contrato/<contract_id>/eliminar", endpoint="personnel_contract_delete")
+@admin_required
+def personnel_contract_delete(user_id, contract_id):
+    if not _can_view_person_contract():
+        return forbid("El contrato solo lo pueden ver administración y dirección.")
+    session_db = db()
+    try:
+        fila = session_db.get(UserContract, to_uuid(contract_id))
+        if fila and str(fila.user_id) == str(to_uuid(user_id)):
+            session_db.delete(fila)
+            session_db.commit()
+            flash("Contrato eliminado.", "info")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"No se pudo eliminar: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("personnel_detail_view", user_id=user_id, tab="contrato"))
+
+
+# ---------------------------------------------------------------------------
+# Módulos de Inicio
+# ---------------------------------------------------------------------------
+
+def _home_vacation_pending(limit: int = 10) -> list[dict]:
+    """«Vacaciones pendientes de aprobar», para dirección y quien gestione las vacaciones."""
+    if not _can_manage_vacations():
+        return []
+    session_db = db()
+    try:
+        return _vacation_request_rows(session_db, statuses=["PENDING"], limit=limit)
+    except Exception:
+        return []
+    finally:
+        session_db.close()
+
+
+def _home_my_vacations() -> dict:
+    """Resumen propio: los días que le quedan y sus peticiones a la espera."""
+    estado = _current_user_state() or {}
+    uid = estado.get("user_id")
+    if not uid:
+        return {}
+    session_db = db()
+    try:
+        year = today_local().year
+        saldo = _vacation_balance(session_db, uid, year)
+        pendientes = _vacation_request_rows(session_db, user_id=uid, statuses=["PENDING"])
+        proximas = [r for r in _vacation_request_rows(session_db, user_id=uid, statuses=["APPROVED"])
+                    if r["last_day"] and r["last_day"] >= today_local()]
+        proximas.sort(key=lambda r: r["first_day"] or today_local())
+        return {"balance": saldo, "pending": pendientes, "next": proximas[:2],
+                "url": url_for("mis_vacaciones_view")}
+    except Exception:
+        return {}
+    finally:
+        session_db.close()
 
 
 def _register_merge_routes():

@@ -44,6 +44,14 @@ curl -sL -o /tmp/cpython.tar.gz "https://github.com/astral-sh/python-build-stand
 #       demonio que arranca al importar `app` YA tiene el cerrojo y la llamada sale sin hacer nada.
 #       Hay que ESPERAR al hilo:  import app; [t.join() for t in threading.enumerate() if t is not main]
 #       (tarda >10 min; con ~158 tablas creadas ya se puede trabajar aunque se corte al final).
+#    ⚠️⚠️ Y BORRAR EL CERROJO **ANTES** DE IMPORTAR: cualquier `import app` anterior (p. ej. el del
+#       recuento de rutas con BD falsa) deja `app33_schema_bootstrap.lock` en el tempdir, y con él
+#       puesto el hilo SALE SIN HACER NADA y no se crea ni una tabla — sin dar ningún error, así que
+#       parece que "va lento". Borrar también `app33_personnel_bootstrap.lock`.
+#    ⚠️ El CATÁLOGO de permisos (CURATED → user_access_resources) NO lo siembra ese hilo: va en
+#       `_bootstrap_personnel_bg` (2º plano, tras la primera petición) y un `test_client()` que
+#       termina rápido se muere antes. Para tenerlo en la BD de prueba, llamar en primer plano a
+#       `_bootstrap_access_and_personnel()` dentro de `app.app_context()`.
 # 4) Sembrar usuario role 10 + artista/recinto/concierto vía modelos (User exige password_hash);
 #    lo más cómodo es `app.test_client()` + `session_transaction()` en vez de login por curl.
 #    Para conceder permisos hace falta sembrar antes UserAccessResource desde CURATED_ACCESS_RESOURCES.
@@ -1518,6 +1526,115 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (`_PERSON_DOC_TRUST`)— diciendo **de dónde sale** (`(del DNI)`), que no es lo mismo que estar
   escrito. El nº de un documento solo vale como DNI/NIF si el documento ES un DNI. Cada ficha le pasa
   al helper sus campos con etiqueta y valor; el resto lo hace él.
+
+- **COMPARTIR MATERIALES de una canción o de un álbum · un solo enlace** (ago 2026). Lo que se manda
+  por correo/WhatsApp/SMS **NUNCA es el fichero ni la URL de Storage**: es siempre
+  `public_material_view` (`/material/<token>`), una página nuestra con el juego de **og:** completo,
+  así que la previsualización es **idéntica en los tres canales**: la **PORTADA** de imagen,
+  «**<Artista> · <Canción o Álbum>**» de título y «**Descarga · <tipo de material>**» de subtítulo
+  («Descarga · Instrumental»). Dentro, el botón de descargar.
+  · Motor: `MATERIAL_SHARE_KINDS` (MATERIAL · STEMS_BUNDLE · SONG_COVER · ALBUM_MATERIAL) ·
+  **`_material_share_url`** (lo que se pone en cualquier `share_url`) · **`_material_share_context`**
+  (lo que necesitan la página, su og:image y el botón) · `_album_material_label` ·
+  `_album_material_rows_payload` (los materiales del álbum con su enlace).
+  · El **token es el mismo** para la página y para la descarga: `/material/<token>` pinta y
+  `public_song_material_download` / `public_song_material_bundle_download` /
+  **`public_album_material_download`** (nuevo) sirven el fichero con ESE token.
+  · La miniatura la sirve **`public_material_og_image`** (`_og_image_jpeg_bytes`, 1200×630 desde
+  nuestro dominio): portada → foto del artista → logo.
+  ⚠️ Antes cada sitio compartía una cosa distinta y por eso «no se veía nada»: en **canción**,
+  `share_url` apuntaba **al endpoint de descarga** (un fichero: nada que previsualizar) y en **álbum**
+  no había compartir siquiera —la pestaña enseñaba el `file_url` crudo de **Supabase**, que además es
+  un dominio ajeno—. El dominio sale bien porque todo se construye con `_external_url_for`.
+  ⚠️ La portada que solo vive en `Song.cover_url` (sin fila de `SongMaterial`) se comparte con el kind
+  **`SONG_COVER`**, que sirve `public_song_material_download` desde nuestro dominio: si no, ese único
+  hueco seguiría repartiendo la URL de Storage.
+
+- **VACACIONES Y DÍAS LIBRES** (ago 2026). Modelos `Holiday` · `VacationRequest` · `VacationDay`
+  (**una fila por día**, con `user_id` denormalizado para que el calendario de toda la oficina sea una
+  consulta) · `UserContract`, y en `UserProfile` los campos `vacation_days_per_year` y
+  `vacation_adjustments` (`ensure_vacations_schema`).
+  · **30 días por año trabajado** (`VACATION_DAYS_PER_YEAR`), configurables por persona desde el panel
+  de vacaciones. Se cuentan **LABORABLES**: sábado, domingo o festivo de Madrid **no consumen saldo**
+  (`_vacation_day_counts`). El día se guarda igual con `counts=False`, para que el calendario enseñe
+  el tramo entero de principio a fin.
+  · **La fecha de comienzo manda**: en el año de alta (o de baja) los días se **PRORRATEAN**
+  (`_vacation_entitlement`). Sin contrato **no se pueden pedir vacaciones**, y se dice por qué.
+  · **Festivos de Madrid** (`_madrid_holidays`): nacionales + Comunidad de Madrid (2 de mayo, Jueves
+  Santo) + Madrid capital (San Isidro, Almudena), con Semana Santa calculada (`_easter_sunday`,
+  verificado 2024-2027). Se **siembran una vez por año** (marca `holidays_seeded_madrid_<año>` en
+  `AppSetting`) y **se pueden corregir a mano**: el calendario laboral lo publica el BOE cada año y hay
+  traslados, así que lo que se toque no se vuelve a pisar.
+  · **Punto único de saldo `_vacation_balance`** (le corresponden · aprobados · disfrutados ·
+  pendientes de aprobar · le quedan), usado por su pantalla, el panel de gestión, la ficha de personal
+  y el control de que una petición no se pase.
+  · **Normas** (`_vacation_rules_text`, editable en Vacaciones → Festivos y normas): texto que se ve al
+  pedir. Y las que se aplican SOLAS al contar (`_vacation_check_request`): findes y festivos no restan ·
+  no se puede pasar del saldo · no se pueden pisar días que ya tienes pedidos o aprobados · y **aviso**
+  (no bloqueo) de con quién te solapas (`_vacation_overlaps`, en vivo por `mis_vacaciones_check`).
+  · **Pantallas**: **«Mis vacaciones»** (`/mis-vacaciones`, en el menú de la propia persona) con el
+  saldo, el calendario del año y el asistente para pedir (marcar **pinchando o arrastrando**, contador
+  en vivo); y la sección **«Vacaciones y días libres»** (`/vacaciones`, pestañas Calendario ·
+  Peticiones · Festivos y normas) con el calendario mensual de toda la oficina **con las fotos**,
+  filtro por persona, flechas de mes, el listado de personal con su resumen y los tres puntitos
+  (configurar sus días · apuntarle días · ver su contrato).
+  · **Calendario compartido**: `static/js/vacaciones.js` (`VacCalendar.create`, modos `year` y `month`)
+  + estilos `.vac-*`. ⚠️ Nada de `toISOString()` para la fecha del día: pasa por UTC y en España se
+  lleva el día por delante. ⚠️ El arrastre recorre **el rango entero** desde donde empezó el gesto
+  (mismo patrón que el asignador de invitaciones y el mapa de butacas).
+  · **Quién gestiona**: dirección y quien tenga la responsabilidad **`VACACIONES`** del reparto de
+  administración (`_can_manage_vacations`). ⚠️ El permiso de la sección **se concede y se retira solo**
+  al asignar esa responsabilidad (`_sync_vacation_access_grant`, enganchado donde se guardan las
+  responsabilidades en la ficha de personal): así no hay que acordarse de darlo aparte en Accesos.
+  · **Avisos**: al pedir, a dirección y a quien gestione (`_vacation_manager_user_ids`; sin nadie con la
+  responsabilidad, a todo Administración); al aprobar o rechazar, a quien lo pidió. Kind `VACACIONES`.
+  Módulos de Inicio `HOME_VACATION_PENDING` y `HOME_MY_VACATIONS`.
+  ⚠️ Los endpoints `mis_vacaciones_*` van en **`PERSONAL_ENDPOINTS`** (son días propios); los de
+  gestión (`vacaciones_view`, `vacation_*`) se mapean a la sección `vacaciones`.
+  ⚠️ `vacation_days_per_year`/`vacation_adjustments` hay que añadirlos a **`_snapshot_user_profile`**:
+  lo que no esté ahí es invisible desde `_current_user_state()` y desde las plantillas.
+
+- **MI CONTRATO · pestaña de la ficha de personal** (ago 2026): `UserContract` (fecha de comienzo,
+  fecha de fin, tipo, PDF y notas; se guarda el **histórico** y la antigüedad es la fecha más antigua).
+  **Solo lo ven administración y dirección** (`_can_view_person_contract`): ni la pestaña se pinta.
+  Al lado del contrato se enseña el resumen de vacaciones que sale de esa fecha, que es para lo que
+  sirve. Endpoints `personnel_contract_save` / `_delete` (heredan el permiso de la ficha de personal).
+
+- **SIN FOTO NI LOGO → MUÑEQUITO GRIS** (ago 2026, `static/img/avatar_placeholder.png` + `.svg`,
+  global **`DEFAULT_AVATAR_URL`**). Se aplica al **personal de la oficina** y a los **terceros**: donde
+  antes salía el logo de la casa (o nada) ahora sale el avatar gris, y vale para los que ya estaban
+  creados porque el respaldo es **al pintar**, no un dato guardado.
+  ⚠️ **NO se puede usar `placeholder_photo`** para esto: hay una política global en `styles.css`
+  (`img[src*="/img/placeholder_photo"]{ display:none }`) que dice «sin imagen → el hueco se OMITE», y
+  aquí se quiere justo lo contrario. Por eso es un archivo nuevo, que no casa con esa regla; el resto
+  (ticketeras, eventos, vinculaciones…) mantiene la política de omitir.
+  · El sistema global de respaldo de imágenes (`initImageFallbacks` en `scripts.js`) también lo
+  entiende: una imagen marcada con **`data-avatar="1"`** (o `.user-nav-avatar`) que falle cae al
+  muñequito en vez de al hueco omitido (`data-default-avatar-url` en el `<body>`).
+
+- **CHARTMETRIC · vinculada pero sin enlaces ni reproducciones** (corregido ago 2026). Había canciones
+  con `cm_track` puesto —y por tanto en verde como «Vinculada»— y con **todos los botones vacíos y cero
+  reproducciones**. Dos causas independientes:
+  ⚠️ **La ruta de las reproducciones nunca se confirmó.** `get_track_stat` pedía
+  `/api/track/{id}/{source}/stats` —lo decía su propio comentario, «CONFIRMAR nombres reales al
+  integrar»—, la API devolvía 404, `_get` levantaba `RuntimeError` y el `except` se lo tragaba: ni
+  datos ni aviso. Ahora hay **`TRACK_STAT_PATHS`** (la de la referencia,
+  `/api/track/chartmetric/{id}/stats/{source}`, primero) y se **prueba y se recuerda la que responde**
+  (`_TRACK_STAT_PATH_OK`, mismo patrón que la URL base de Cabify y la ruta de adjuntar de Holded). Un
+  «sin créditos» o un 429 **cortan** la prueba: son definitivos y no se gastan llamadas de más.
+  ⚠️ **Los enlaces dependían del nombre EXACTO del campo.** Se enumeraban a mano
+  (`spotify_track_id`/`spotify_id`/`spotify_track_ids`) y bastaba que la respuesta trajera otra forma
+  para no sacar ninguno. Ahora **`_cm_scan_id`** recorre las claves y acepta la que contenga todas las
+  palabras pedidas (con `exclude` para no confundir el id de álbum con el de track), y
+  `_cm_explicit_url` coge la URL si viene hecha. **Apple** se construye desde el id de iTunes
+  (`music.apple.com/es/song/<id>`) y **Amazon** desde el suyo: antes se exigía una URL explícita que
+  Chartmetric casi nunca manda, así que esos dos botones estaban **siempre** vacíos.
+  · **Ya no falla en silencio**: `_cm_refresh_song_streams` devuelve `{points, error}` y
+  `cm_song_reresolve` dice cuántos enlaces y cuántos puntos ha traído, o por qué no ha podido. Y
+  re-resolver a mano **pisa** los enlaces (`force=True`): es para arreglar lo que está mal.
+  ⚠️ **Pendiente de la primera prueba real**: en local no hay `CHARTMETRIC_REFRESH_TOKEN`, así que las
+  rutas candidatas no se han podido probar contra la API. Si la buena no fuera ninguna de las tres, el
+  aviso de la pantalla lo dirá con el error exacto de Chartmetric.
 
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).

@@ -1,0 +1,275 @@
+/* Calendario de VACACIONES Y DÍAS LIBRES.
+ *
+ * Un solo componente para las dos pantallas: «Mis vacaciones» (año entero, y el mismo calendario
+ * en modo selección para pedir) y la sección de gestión (un mes, con las fotos de quien está de
+ * vacaciones y flechas para moverse). Así una mejora vale para las dos.
+ *
+ * Reglas que se ven aquí: sábados y domingos en otro color, festivos de Madrid marcados, y al
+ * SELECCIONAR solo cuentan los días laborables (el contador lo dice en vivo). Quién puede pedir
+ * cuántos días lo decide el servidor: esto es la ayuda visual, no el control.
+ */
+(function () {
+  'use strict';
+
+  var MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+               'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  var DOW = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+
+  function iso(d) {
+    // ⚠️ NADA de toISOString(): pasa por UTC y en España se lleva el día por delante.
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var day = String(d.getDate()).padStart(2, '0');
+    return d.getFullYear() + '-' + m + '-' + day;
+  }
+
+  function fromIso(s) {
+    var p = String(s || '').split('-');
+    return new Date(+p[0], (+p[1] || 1) - 1, +p[2] || 1);
+  }
+
+  function dowIndex(d) { return (d.getDay() + 6) % 7; }   // 0 = lunes … 6 = domingo
+  function isWeekend(d) { return dowIndex(d) >= 5; }
+
+  /* ------------------------------------------------------------------ */
+
+  function Calendar(root, opts) {
+    this.root = root;
+    this.opts = opts || {};
+    this.holidays = {};
+    (this.opts.holidays || []).forEach(function (h) { this.holidays[h.day] = h; }, this);
+    this.byDay = {};                       // iso -> [{user_id,status,counts}]
+    (this.opts.days || []).forEach(function (d) {
+      (this.byDay[d.day] = this.byDay[d.day] || []).push(d);
+    }, this);
+    this.people = {};
+    (this.opts.people || []).forEach(function (p) { this.people[p.user_id] = p; }, this);
+    this.selected = {};                    // iso -> true
+    (this.opts.selected || []).forEach(function (s) { this.selected[s] = true; }, this);
+    this.month = this.opts.month || (new Date()).getMonth() + 1;
+    this.year = this.opts.year || (new Date()).getFullYear();
+    this.drag = null;
+    this.render();
+  }
+
+  Calendar.prototype.selectedList = function () {
+    return Object.keys(this.selected).filter(function (k) { return this.selected[k]; }, this).sort();
+  };
+
+  /* Los que CONSUMEN saldo: ni fin de semana ni festivo. Es la misma regla del servidor
+     (_vacation_day_counts): si se toca una, se toca la otra. */
+  Calendar.prototype.countingList = function () {
+    return this.selectedList().filter(function (s) {
+      return !isWeekend(fromIso(s)) && !this.holidays[s];
+    }, this);
+  };
+
+  Calendar.prototype.notifyChange = function () {
+    if (typeof this.opts.onChange === 'function') {
+      this.opts.onChange(this.selectedList(), this.countingList());
+    }
+  };
+
+  Calendar.prototype.setMonth = function (year, month) {
+    if (month < 1) { month = 12; year -= 1; }
+    if (month > 12) { month = 1; year += 1; }
+    this.year = year; this.month = month;
+    this.render();
+    if (typeof this.opts.onMonthChange === 'function') this.opts.onMonthChange(year, month);
+  };
+
+  Calendar.prototype.render = function () {
+    var mode = this.opts.mode || 'year';
+    this.root.innerHTML = '';
+    this.root.classList.add('vac-cal');
+    this.root.classList.toggle('vac-cal--select', !!this.opts.selectable);
+
+    if (mode === 'month') {
+      var head = document.createElement('div');
+      head.className = 'vac-cal__nav';
+      head.innerHTML =
+        '<button type="button" class="btn btn-outline-secondary btn-sm" data-vac-prev aria-label="Mes anterior"><i class="fa fa-chevron-left"></i></button>' +
+        '<div class="vac-cal__navtitle">' + MESES[this.month - 1] + ' ' + this.year + '</div>' +
+        '<button type="button" class="btn btn-outline-secondary btn-sm" data-vac-next aria-label="Mes siguiente"><i class="fa fa-chevron-right"></i></button>';
+      this.root.appendChild(head);
+      var self = this;
+      head.querySelector('[data-vac-prev]').addEventListener('click', function () { self.setMonth(self.year, self.month - 1); });
+      head.querySelector('[data-vac-next]').addEventListener('click', function () { self.setMonth(self.year, self.month + 1); });
+      this.root.appendChild(this.buildMonth(this.year, this.month, true));
+    } else {
+      var grid = document.createElement('div');
+      grid.className = 'vac-cal__year';
+      for (var m = 1; m <= 12; m++) grid.appendChild(this.buildMonth(this.year, m, false));
+      this.root.appendChild(grid);
+    }
+    this.bindSelection();
+  };
+
+  Calendar.prototype.buildMonth = function (year, month, big) {
+    var box = document.createElement('div');
+    box.className = 'vac-month' + (big ? ' vac-month--big' : '');
+
+    var title = document.createElement('div');
+    title.className = 'vac-month__title';
+    title.textContent = MESES[month - 1] + (big ? '' : ' ' + year);
+    if (!big) box.appendChild(title);
+
+    var grid = document.createElement('div');
+    grid.className = 'vac-month__grid';
+    DOW.forEach(function (d, i) {
+      var c = document.createElement('div');
+      c.className = 'vac-dow' + (i >= 5 ? ' is-weekend' : '');
+      c.textContent = d;
+      grid.appendChild(c);
+    });
+
+    var first = new Date(year, month - 1, 1);
+    for (var i = 0; i < dowIndex(first); i++) {
+      var hueco = document.createElement('div');
+      hueco.className = 'vac-day is-empty';
+      grid.appendChild(hueco);
+    }
+    var last = new Date(year, month, 0).getDate();
+    for (var day = 1; day <= last; day++) {
+      grid.appendChild(this.buildDay(new Date(year, month - 1, day), big));
+    }
+    box.appendChild(grid);
+    return box;
+  };
+
+  Calendar.prototype.buildDay = function (d, big) {
+    var key = iso(d);
+    var cel = document.createElement('div');
+    cel.className = 'vac-day';
+    cel.dataset.day = key;
+
+    var fest = this.holidays[key];
+    if (isWeekend(d)) cel.classList.add('is-weekend');
+    if (fest) {
+      cel.classList.add('is-holiday');
+      cel.title = fest.name + (fest.scope_label ? ' · ' + fest.scope_label : '');
+    }
+    if (key === iso(new Date())) cel.classList.add('is-today');
+    if (this.selected[key]) cel.classList.add('is-selected');
+
+    var num = document.createElement('span');
+    num.className = 'vac-day__n';
+    num.textContent = d.getDate();
+    cel.appendChild(num);
+
+    var ocupados = this.byDay[key] || [];
+    if (ocupados.length) {
+      var pendiente = ocupados.some(function (o) { return o.status === 'PENDING'; });
+      var aprobado = ocupados.some(function (o) { return o.status === 'APPROVED'; });
+      cel.classList.add(aprobado ? 'is-approved' : (pendiente ? 'is-pending' : ''));
+      if (big && this.opts.people && this.opts.people.length) {
+        var chips = document.createElement('div');
+        chips.className = 'vac-day__people';
+        var vistos = {};
+        ocupados.forEach(function (o) {
+          if (vistos[o.user_id]) return;
+          vistos[o.user_id] = true;
+          var p = this.people[o.user_id];
+          if (!p) return;
+          var chip = document.createElement('span');
+          chip.className = 'vac-chip' + (o.status === 'PENDING' ? ' is-pending' : '');
+          chip.title = p.nick + (o.status === 'PENDING' ? ' · pendiente de aprobar' : '');
+          if (p.photo_url) {
+            var img = document.createElement('img');
+            img.src = p.photo_url; img.alt = p.nick;
+            chip.appendChild(img);
+          } else {
+            chip.textContent = (p.nick || '?').slice(0, 2).toUpperCase();
+            chip.style.background = p.color || '#888';
+            chip.classList.add('vac-chip--txt');
+          }
+          chips.appendChild(chip);
+        }, this);
+        if (chips.childNodes.length) cel.appendChild(chips);
+      } else if (!big) {
+        var punto = document.createElement('span');
+        punto.className = 'vac-day__dot' + (aprobado ? '' : ' is-pending');
+        cel.appendChild(punto);
+      }
+    }
+    return cel;
+  };
+
+  /* Selección por clic y ARRASTRE. Se recorre el rango entre el día donde empezó el gesto y el
+     de debajo del puntero: así un barrido rápido no se salta días (mismo problema que en el
+     asignador de invitaciones y en el mapa de butacas). */
+  Calendar.prototype.bindSelection = function () {
+    if (!this.opts.selectable) return;
+    var self = this;
+
+    function dayAt(ev) {
+      var t = document.elementFromPoint(
+        (ev.touches ? ev.touches[0].clientX : ev.clientX),
+        (ev.touches ? ev.touches[0].clientY : ev.clientY));
+      var cel = t && t.closest ? t.closest('.vac-day') : null;
+      return (cel && cel.dataset.day && !cel.classList.contains('is-empty')) ? cel.dataset.day : null;
+    }
+
+    function paintRange(desde, hasta) {
+      var a = fromIso(desde), b = fromIso(hasta);
+      if (a > b) { var tmp = a; a = b; b = tmp; }
+      var cur = new Date(a.getTime());
+      while (cur <= b) {
+        var k = iso(cur);
+        if (self.drag.mode === 'add') self.selected[k] = true; else delete self.selected[k];
+        cur.setDate(cur.getDate() + 1);
+      }
+      self.repaint();
+    }
+
+    this.root.addEventListener('pointerdown', function (ev) {
+      var key = dayAt(ev);
+      if (!key) return;
+      ev.preventDefault();
+      self.drag = { from: key, mode: self.selected[key] ? 'remove' : 'add' };
+      paintRange(key, key);
+    });
+
+    this.root.addEventListener('pointermove', function (ev) {
+      if (!self.drag) return;
+      var key = dayAt(ev);
+      if (!key || key === self.drag.last) return;
+      self.drag.last = key;
+      // Se repinta desde el origen: al retroceder, lo que sobra se deselecciona.
+      self.selected = Object.assign({}, self.drag.base || (self.drag.base = Object.assign({}, self.selected)));
+      paintRange(self.drag.from, key);
+    });
+
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (evt) {
+      self.root.addEventListener(evt, function () {
+        if (!self.drag) return;
+        self.drag = null;
+        self.notifyChange();
+      });
+    });
+  };
+
+  Calendar.prototype.repaint = function () {
+    var self = this;
+    this.root.querySelectorAll('.vac-day').forEach(function (cel) {
+      cel.classList.toggle('is-selected', !!self.selected[cel.dataset.day]);
+    });
+  };
+
+  Calendar.prototype.clear = function () {
+    this.selected = {};
+    this.repaint();
+    this.notifyChange();
+  };
+
+  /* ------------------------------------------------------------------ */
+
+  window.VacCalendar = {
+    create: function (root, opts) {
+      if (typeof root === 'string') root = document.querySelector(root);
+      if (!root) return null;
+      return new Calendar(root, opts);
+    },
+    iso: iso,
+    isWeekend: function (s) { return isWeekend(fromIso(s)); }
+  };
+})();

@@ -145,7 +145,7 @@
           {% for a in artistas %}
             <button type="button" class="dir-artist{% if not a.mine %} dir-artist--more d-none{% endif %}"
                     data-artist-id="{{ a.id }}" data-artist-name="{{ a.name }}" data-search="{{ a.name|lower }}">
-              <img src="{{ a.photo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">
+              <img src="{{ a.photo_url or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
               <span class="text-truncate">{{ a.name }}</span>
             </button>
           {% endfor %}

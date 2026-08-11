@@ -124,7 +124,7 @@
          data-promoter-tags="{{ tags_attr }}">
         <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
           <div class="d-flex align-items-center gap-3">
-            <img src="{{ p.logo_url or DEFAULT_PHOTO_URL }}" alt="" style="width:56px;height:56px;border-radius:14px;object-fit:contain;border:1px solid #eee;background:#fff;">
+            <img src="{{ p.logo_url or DEFAULT_AVATAR_URL }}" data-avatar="1" alt="" style="width:56px;height:56px;border-radius:14px;object-fit:contain;border:1px solid #eee;background:#fff;">
             <div>
               <div class="fw-semibold">{{ p.nick }}</div>
               {% set _legal = ((p.first_name or '') ~ ' ' ~ (p.last_name or ''))|trim %}

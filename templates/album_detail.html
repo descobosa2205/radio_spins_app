@@ -955,6 +955,22 @@
                         <a href="{{ item.file_url }}" target="_blank" class="btn btn-outline-secondary btn-sm">
                           <i class="fa fa-eye"></i> Ver
                         </a>
+                        {# Compartir: SIEMPRE el enlace de previsualización de la casa (portada +
+                           «Artista · Álbum» + «Descarga · tipo»), nunca la URL de Storage. #}
+                        <div class="dropdown">
+                          <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown" title="Compartir o descargar">
+                            <i class="fa fa-ellipsis-vertical"></i>
+                          </button>
+                          <ul class="dropdown-menu dropdown-menu-end">
+                            <li><h6 class="dropdown-header">Compartir</h6></li>
+                            <li><button class="dropdown-item" type="button" onclick="shareByMail({{ (item.label ~ ' · ' ~ album.title)|tojson|forceescape }}, {{ item.share_url|tojson|forceescape }})"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por mail</button></li>
+                            <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp({{ (item.label ~ ' · ' ~ album.title)|tojson|forceescape }}, {{ item.share_url|tojson|forceescape }})"><i class="fab fa-whatsapp fa-fw me-1"></i>WhatsApp</button></li>
+                            <li><button class="dropdown-item" type="button" onclick="shareBySms({{ (item.label ~ ' · ' ~ album.title)|tojson|forceescape }}, {{ item.share_url|tojson|forceescape }})"><i class="fa fa-comment fa-fw me-1"></i>SMS</button></li>
+                            <li><button class="dropdown-item" type="button" onclick="copyShareLink({{ item.share_url|tojson|forceescape }})"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{{ item.share_url }}" target="_blank" rel="noopener"><i class="fa fa-download fa-fw me-1"></i>Descargar</a></li>
+                          </ul>
+                        </div>
                         {% if CAN_EDIT_DISCOGRAFICA %}
                           <form method="post" action="{{ url_for('discografica_album_material_delete', album_id=album.id, material_id=item.id) }}" class="m-0" onsubmit="return confirm('¿Eliminar este material?');">
                             <button class="btn btn-outline-danger btn-sm"><i class="fa fa-trash"></i></button>
@@ -1046,7 +1062,7 @@
                 {% for b in royalty_other_beneficiaries %}
                   <div class="list-group-item d-flex align-items-center justify-content-between flex-wrap gap-3">
                     <div class="d-flex align-items-center gap-2">
-                      <img src="{{ (b.promoter.logo_url if b.promoter else None) or DEFAULT_PHOTO_URL }}" style="width:44px;height:44px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff" alt="">
+                      <img src="{{ (b.promoter.logo_url if b.promoter else None) or DEFAULT_AVATAR_URL }}" data-avatar="1" style="width:44px;height:44px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff" alt="">
                       <div>
                         <div class="fw-semibold">{{ b.promoter.nick if b.promoter else '—' }}</div>
                         {% if b.promoter %}{{ linked_mini('promoter', b.promoter.id) }}{% endif %}

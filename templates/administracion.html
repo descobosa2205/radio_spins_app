@@ -1024,7 +1024,7 @@
                       <div class="border rounded bg-white p-2 h-100">
                         <div class="small text-muted mb-1">Tercero sugerido</div>
                         <div class="d-flex gap-2 align-items-center">
-                          <img src="{{ order.suggested_promoter.logo_url or DEFAULT_PHOTO_URL }}" alt="" style="width:42px;height:42px;object-fit:cover;border-radius:50%;">
+                          <img src="{{ order.suggested_promoter.logo_url or DEFAULT_AVATAR_URL }}" data-avatar="1" alt="" style="width:42px;height:42px;object-fit:cover;border-radius:50%;">
                           <div><div class="fw-semibold">{{ order.suggested_promoter.nick }}</div><div class="small text-muted">{{ order.suggested_promoter.contact_email or 'Sin email' }} · {{ order.suggested_promoter.tax_id or 'Sin NIF/CIF' }}</div>{{ linked_mini('promoter', order.suggested_promoter.id) }}</div>
                         </div>
                         <div class="d-flex gap-2 mt-2 flex-wrap">

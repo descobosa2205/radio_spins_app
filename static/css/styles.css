@@ -3803,3 +3803,76 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 /* La barra de botones de la ficha que se llena de DERECHA a IZQUIERDA (canción y álbum):
    el primero del HTML es el de más a la derecha y los siguientes salen a su izquierda. */
 .ficha-quick--end { flex-direction: row-reverse; }
+
+/* ==========================================================================
+   VACACIONES Y DÍAS LIBRES
+   ========================================================================== */
+/* Calendario compartido por «Mis vacaciones» (año) y la sección de gestión (mes). */
+.vac-cal__year{ display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:14px; }
+.vac-cal__nav{ display:flex; align-items:center; justify-content:center; gap:14px; margin-bottom:12px; }
+.vac-cal__navtitle{ font-weight:700; font-size:1.15rem; min-width:190px; text-align:center; }
+
+.vac-month{ border:1px solid var(--bs-border-color,#dee2e6); border-radius:12px; padding:10px; background:#fff; }
+.vac-month--big{ padding:14px; }
+.vac-month__title{ font-weight:700; font-size:.95rem; margin-bottom:6px; }
+.vac-month__grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:3px; }
+.vac-month--big .vac-month__grid{ gap:6px; }
+
+.vac-dow{ text-align:center; font-size:.7rem; font-weight:700; color:#6c757d; padding-bottom:4px; }
+.vac-dow.is-weekend{ color:var(--brand-accent,#007CA2); }
+
+.vac-day{ position:relative; aspect-ratio:1/1; display:flex; align-items:center; justify-content:center;
+          border-radius:7px; font-size:.78rem; background:#f8f9fa; user-select:none; }
+.vac-month--big .vac-day{ aspect-ratio:auto; min-height:74px; align-items:flex-start; justify-content:flex-start;
+                          flex-direction:column; padding:5px 6px; font-size:.85rem; }
+.vac-day.is-empty{ background:transparent; }
+/* Sábados y domingos, en otro color (no consumen días). */
+.vac-day.is-weekend{ background:#e8eef3; color:#4b6b7d; }
+/* Festivos de Madrid. */
+.vac-day.is-holiday{ background:#fdeaec; color:#a01f29; font-weight:700; }
+.vac-day.is-today{ outline:2px solid var(--brand-accent,#007CA2); outline-offset:-2px; }
+.vac-day.is-approved{ background:#d6f0dc; color:#1b5e20; font-weight:600; }
+.vac-day.is-pending{ background:#fff3cd; color:#7a5b00; font-weight:600; }
+.vac-day__n{ line-height:1; }
+.vac-month--big .vac-day__n{ font-weight:700; }
+.vac-day__dot{ position:absolute; bottom:3px; left:50%; transform:translateX(-50%);
+               width:5px; height:5px; border-radius:50%; background:#2e7d32; }
+.vac-day__dot.is-pending{ background:#c99a00; }
+
+.vac-day__people{ display:flex; flex-wrap:wrap; gap:2px; margin-top:4px; }
+.vac-chip{ width:22px; height:22px; border-radius:50%; overflow:hidden; display:inline-flex;
+           align-items:center; justify-content:center; border:2px solid #2e7d32; background:#fff; }
+.vac-chip.is-pending{ border-color:#c99a00; border-style:dashed; }
+.vac-chip img{ width:100%; height:100%; object-fit:cover; }
+.vac-chip--txt{ color:#fff; font-size:.6rem; font-weight:700; }
+
+/* Modo SELECCIÓN (pedir vacaciones): se puede pinchar y arrastrar. */
+.vac-cal--select .vac-day:not(.is-empty){ cursor:pointer; touch-action:none; }
+.vac-cal--select .vac-day:not(.is-empty):hover{ box-shadow:inset 0 0 0 2px rgba(227,61,72,.35); }
+.vac-day.is-selected{ background:var(--brand-primary,#E33D48) !important; color:#fff !important; font-weight:700; }
+.vac-day.is-selected .vac-day__dot{ background:#fff; }
+
+/* Contador de días que quedan al pedir. */
+.vac-counter{ display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+              border:1px solid var(--bs-border-color,#dee2e6); border-radius:12px; padding:12px 16px; background:#fff; }
+.vac-counter__n{ font-size:1.8rem; font-weight:800; line-height:1; }
+.vac-counter__n.is-over{ color:var(--brand-primary,#E33D48); }
+.vac-counter__lbl{ font-size:.78rem; color:#6c757d; text-transform:uppercase; letter-spacing:.03em; }
+
+/* Tarjetas de saldo. */
+.vac-stat{ border:1px solid var(--bs-border-color,#dee2e6); border-radius:14px; padding:14px 16px; background:#fff; height:100%; }
+.vac-stat__n{ font-size:2rem; font-weight:800; line-height:1; }
+.vac-stat__lbl{ font-size:.8rem; color:#6c757d; }
+.vac-stat--main{ border-color:var(--brand-primary,#E33D48); }
+.vac-stat--main .vac-stat__n{ color:var(--brand-primary,#E33D48); }
+
+/* Leyenda del calendario. */
+.vac-legend{ display:flex; flex-wrap:wrap; gap:14px; font-size:.8rem; color:#6c757d; }
+.vac-legend span{ display:inline-flex; align-items:center; gap:6px; }
+.vac-legend i{ width:14px; height:14px; border-radius:4px; display:inline-block; }
+
+/* Listado de personal con su resumen. */
+.vac-person{ display:flex; align-items:center; gap:12px; }
+.vac-person__photo{ width:40px; height:40px; border-radius:50%; object-fit:cover; flex-shrink:0; border:2px solid #fff; box-shadow:0 0 0 1px #dee2e6; }
+.vac-person__bar{ height:6px; border-radius:99px; background:#e9ecef; overflow:hidden; min-width:90px; }
+.vac-person__bar > span{ display:block; height:100%; background:var(--brand-primary,#E33D48); }

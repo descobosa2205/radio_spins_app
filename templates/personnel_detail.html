@@ -31,7 +31,7 @@
 
 <div class="artist-hero mb-3">
   <div class="d-flex flex-wrap gap-3 align-items-center">
-    <img src="{{ profile.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-hero-photo" alt="Foto usuario">
+    <img src="{{ profile.photo_url or DEFAULT_AVATAR_URL }}" class="artist-hero-photo" alt="Foto usuario">
     <div class="flex-grow-1">
       <h3 class="m-0">{{ profile.nick }}</h3>
       <div class="small text-muted">{{ user.email }}</div>
@@ -50,6 +50,10 @@
   <li class="nav-item"><a class="nav-link {% if tab=='datos' %}active{% endif %}" href="{{ url_for('personnel_detail_view', user_id=user.id, tab='datos') }}">Datos</a></li>
   <li class="nav-item"><a class="nav-link {% if tab=='documentos' %}active{% endif %}" href="{{ url_for('personnel_detail_view', user_id=user.id, tab='documentos') }}"><i class="fa fa-id-card me-1"></i>Documentos</a></li>
   <li class="nav-item"><a class="nav-link {% if tab=='prl' %}active{% endif %}" href="{{ url_for('personnel_detail_view', user_id=user.id, tab='prl') }}"><i class="fa fa-helmet-safety me-1"></i>PRL</a></li>
+  {# El CONTRATO solo lo ven administración y dirección. #}
+  {% if can_view_contract %}
+    <li class="nav-item"><a class="nav-link {% if tab=='contrato' %}active{% endif %}" href="{{ url_for('personnel_detail_view', user_id=user.id, tab='contrato') }}"><i class="fa fa-file-contract me-1"></i>Contrato</a></li>
+  {% endif %}
 </ul>
 
 {% if tab == 'prl' %}
@@ -187,6 +191,132 @@
     <h4 class="mb-1">Usuario de dirección</h4>
     <p class="text-muted mb-0">Los usuarios de dirección tienen <b>acceso total</b> a toda la plataforma de forma automática.<br>No es necesario (ni posible) configurar sus accesos.</p>
   </div></div>
+
+{% elif tab == 'contrato' %}
+  {# CONTRATO · la fecha de comienzo es la que decide las vacaciones que le corresponden. #}
+  <div class="row g-3">
+    <div class="col-12 col-lg-7">
+      <div class="ficha-section">
+        <div class="ficha-section__head">
+          <h6 class="ficha-section__title"><i class="fa fa-file-contract"></i>Contratos</h6>
+          <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#contractModal"
+                  onclick="prepararContrato('')"><i class="fa fa-plus me-1"></i>Añadir contrato</button>
+        </div>
+        <div class="ficha-section__body">
+          {% if not contracts %}
+            <div class="alert alert-warning mb-0">
+              <i class="fa fa-triangle-exclamation me-1"></i>
+              Sin contrato no se sabe desde cuándo trabaja aquí, y <strong>no se le pueden calcular las
+              vacaciones</strong>: no podrá pedirlas hasta que se suba con su fecha de comienzo.
+            </div>
+          {% else %}
+            <div class="list-group list-group-flush">
+              {% for c in contracts %}
+                <div class="list-group-item d-flex justify-content-between align-items-center gap-3 flex-wrap px-0">
+                  <div style="min-width:0;">
+                    <div class="fw-semibold">
+                      Desde el {{ c.start_date.strftime('%d/%m/%Y') }}
+                      {% if c.end_date %}<span class="text-muted"> hasta el {{ c.end_date.strftime('%d/%m/%Y') }}</span>
+                      {% else %}<span class="badge text-bg-success ms-1">En vigor</span>{% endif %}
+                    </div>
+                    <div class="small text-muted">
+                      {{ c.contract_type or 'Sin tipo' }}{% if c.notes %} · {{ c.notes }}{% endif %}
+                    </div>
+                  </div>
+                  <div class="d-flex gap-2">
+                    {% if c.file_url %}
+                      <a href="{{ c.file_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary" title="{{ c.file_name or 'Ver contrato' }}"><i class="fa fa-file-pdf"></i></a>
+                    {% endif %}
+                    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#contractModal"
+                            onclick="prepararContrato({{ c.id|string|tojson|forceescape }}, {{ (c.start_date.isoformat())|tojson|forceescape }}, {{ ((c.end_date.isoformat()) if c.end_date else '')|tojson|forceescape }}, {{ (c.contract_type or '')|tojson|forceescape }}, {{ (c.notes or '')|tojson|forceescape }})"><i class="fa fa-pen"></i></button>
+                    <form method="post" action="{{ url_for('personnel_contract_delete', user_id=user.id, contract_id=c.id) }}" class="m-0" data-confirm="¿Eliminar este contrato?">
+                      <button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash"></i></button>
+                    </form>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-lg-5">
+      <div class="ficha-section">
+        <div class="ficha-section__head">
+          <h6 class="ficha-section__title"><i class="fa fa-umbrella-beach"></i>Vacaciones {{ vacation_balance.year if vacation_balance }}</h6>
+        </div>
+        <div class="ficha-section__body">
+          {% if not contract_start %}
+            <div class="text-muted">Se calculan solas en cuanto haya un contrato con su fecha de comienzo.</div>
+          {% elif vacation_balance %}
+            <table class="table table-sm mb-2">
+              <tbody>
+                <tr><td class="text-muted">Antigüedad</td><td class="text-end fw-semibold">{{ contract_start.strftime('%d/%m/%Y') }}</td></tr>
+                <tr><td class="text-muted">Días al año</td><td class="text-end fw-semibold">{{ vacation_balance.base }}{% if vacation_balance.base != vacation_days_default %} <span class="small text-muted">(propios)</span>{% endif %}</td></tr>
+                <tr><td class="text-muted">Le corresponden</td><td class="text-end fw-semibold">{{ vacation_balance.entitled }}{% if vacation_balance.prorated %} <span class="badge text-bg-light border">prorrateados</span>{% endif %}</td></tr>
+                {% if vacation_balance.adjustment %}<tr><td class="text-muted">Ajuste</td><td class="text-end fw-semibold">{{ '%+d'|format(vacation_balance.adjustment) }}</td></tr>{% endif %}
+                <tr><td class="text-muted">Aprobados</td><td class="text-end fw-semibold">{{ vacation_balance.used }}</td></tr>
+                <tr><td class="text-muted">Pendientes de aprobar</td><td class="text-end fw-semibold">{{ vacation_balance.pending }}</td></tr>
+                <tr class="table-light"><td class="fw-semibold">Le quedan</td><td class="text-end fw-bold fs-5">{{ vacation_balance.remaining }}</td></tr>
+              </tbody>
+            </table>
+            <div class="small text-muted">Se cuentan días laborables: sábados, domingos y festivos de Madrid no restan.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="contractModal" tabindex="-1">
+    <div class="modal-dialog">
+      <form method="post" action="{{ url_for('personnel_contract_save', user_id=user.id) }}" enctype="multipart/form-data" class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">Contrato</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <input type="hidden" name="contract_id" id="contractId">
+          <div class="row g-3">
+            <div class="col-12 col-md-6">
+              <label class="form-label">Fecha de comienzo <span class="text-danger">*</span></label>
+              <input type="date" name="start_date" id="contractStart" class="form-control" required>
+              <div class="form-text">Es la que decide los días de vacaciones que le corresponden.</div>
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label">Fecha de fin</label>
+              <input type="date" name="end_date" id="contractEnd" class="form-control">
+              <div class="form-text">En blanco si sigue en vigor.</div>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Tipo de contrato</label>
+              <input name="contract_type" id="contractType" class="form-control" placeholder="Indefinido, temporal, prácticas…">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Contrato (PDF)</label>
+              <input type="file" name="file" class="form-control" accept=".pdf,image/*">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Notas</label>
+              <textarea name="notes" id="contractNotes" class="form-control" rows="2"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    function prepararContrato(id, inicio, fin, tipo, notas){
+      document.getElementById('contractId').value = id || '';
+      document.getElementById('contractStart').value = inicio || '';
+      document.getElementById('contractEnd').value = fin || '';
+      document.getElementById('contractType').value = tipo || '';
+      document.getElementById('contractNotes').value = notas || '';
+    }
+  </script>
 
 {% elif not IS_MASTER %}
   <div class="card"><div class="card-body text-center py-5">

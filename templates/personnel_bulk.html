@@ -22,7 +22,7 @@
             {% set nick = (p.nick if p else None) or u.email.split('@')[0] %}
             <label class="d-flex align-items-center gap-2 border rounded p-2" style="cursor:pointer">
               <input type="checkbox" class="form-check-input m-0 bulk-user" name="user_ids" value="{{ u.id }}">
-              <img src="{{ (p.photo_url if p else None) or url_for('static', filename='img/logo.png') }}" style="width:34px;height:34px;border-radius:50%;object-fit:cover">
+              <img src="{{ (p.photo_url if p else None) or DEFAULT_AVATAR_URL }}" style="width:34px;height:34px;border-radius:50%;object-fit:cover">
               <span class="flex-grow-1">
                 <span class="fw-semibold d-block" style="line-height:1.1">{{ nick }}</span>
                 <span class="small text-muted">{{ u.email }}</span>

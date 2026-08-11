@@ -1,0 +1,225 @@
+{% extends "layout.html" %}
+{% block content %}
+{# MIS VACACIONES · lo que ve cada persona de sus propios días. #}
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <div>
+    <h4 class="m-0"><i class="fa fa-umbrella-beach text-danger me-2"></i>Mis vacaciones y días libres</h4>
+    <div class="text-muted small">Se cuentan días laborables: sábados, domingos y festivos de Madrid no restan.</div>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <form method="get" class="d-flex align-items-center gap-2 m-0">
+      <label class="form-label m-0 small text-muted">Año</label>
+      <select name="anio" class="form-select form-select-sm" style="width:auto;" onchange="this.form.submit()">
+        {% for y in years %}<option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>{% endfor %}
+      </select>
+    </form>
+    {% if balance.has_contract %}
+      <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#pedirVacacionesModal">
+        <i class="fa fa-plus me-1"></i>Solicitar vacaciones
+      </button>
+    {% endif %}
+  </div>
+</div>
+
+{% if not balance.has_contract %}
+  <div class="alert alert-warning">
+    <i class="fa fa-triangle-exclamation me-1"></i>
+    Todavía no consta tu <strong>fecha de comienzo</strong>, así que no se pueden calcular tus días.
+    Administración tiene que subir tu contrato en tu ficha para que puedas pedir vacaciones.
+  </div>
+{% endif %}
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-lg-3">
+    <div class="vac-stat vac-stat--main">
+      <div class="vac-stat__n">{{ balance.remaining }}</div>
+      <div class="vac-stat__lbl">Días disponibles</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="vac-stat">
+      <div class="vac-stat__n">{{ balance.total }}</div>
+      <div class="vac-stat__lbl">
+        Te corresponden en {{ year }}
+        {% if balance.prorated %}<span class="badge text-bg-light border ms-1" title="Se prorratean desde tu fecha de comienzo">prorrateados</span>{% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="vac-stat">
+      <div class="vac-stat__n">{{ balance.enjoyed }}</div>
+      <div class="vac-stat__lbl">Disfrutados</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="vac-stat">
+      <div class="vac-stat__n">{{ balance.pending }}</div>
+      <div class="vac-stat__lbl">Pendientes de aprobar</div>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <h6 class="m-0">Calendario {{ year }}</h6>
+      <div class="vac-legend">
+        <span><i style="background:#e8eef3;"></i>Fin de semana</span>
+        <span><i style="background:#fdeaec;"></i>Festivo en Madrid</span>
+        <span><i style="background:#d6f0dc;"></i>Aprobadas</span>
+        <span><i style="background:#fff3cd;"></i>Pendientes</span>
+      </div>
+    </div>
+    <div id="miCalendario"></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <h6 class="mb-3">Mis peticiones</h6>
+    {% if not requests %}
+      <div class="text-muted">Todavía no has pedido ningún día.</div>
+    {% else %}
+      <div class="list-group list-group-flush">
+        {% for r in requests %}
+          <div class="list-group-item d-flex justify-content-between align-items-center gap-3 flex-wrap px-0">
+            <div style="min-width:0;">
+              <div class="fw-semibold">{{ r.range_label }}</div>
+              <div class="small text-muted">
+                {{ r.days_count }} día{{ '' if r.days_count == 1 else 's' }} · {{ r.year }}
+                {% if r.note %} · {{ r.note }}{% endif %}
+                {% if r.decision_note %}<span class="text-danger"> · {{ r.decision_note }}</span>{% endif %}
+              </div>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+              <span class="badge {{ r.status_meta.class }}"><i class="fa {{ r.status_meta.icon }} me-1"></i>{{ r.status_meta.short }}</span>
+              {% if r.status == 'PENDING' %}
+                <form method="post" action="{{ url_for('mis_vacaciones_cancel', request_id=r.id) }}" class="m-0" data-confirm="¿Anular esta petición?">
+                  <button class="btn btn-sm btn-outline-danger" title="Anular la petición"><i class="fa fa-xmark"></i></button>
+                </form>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if balance.has_contract %}
+<div class="modal fade" id="pedirVacacionesModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <form method="post" action="{{ url_for('mis_vacaciones_request') }}" class="modal-content" id="pedirVacacionesForm">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-umbrella-beach me-2"></i>Solicitar vacaciones</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-light border">
+          <div class="fw-semibold mb-2"><i class="fa fa-circle-info me-1"></i>Normas de elección</div>
+          <div style="white-space:pre-line;">{{ rules_text }}</div>
+        </div>
+
+        <div class="vac-counter mb-3">
+          <div>
+            <div class="vac-counter__n" id="vacSeleccionados">0</div>
+            <div class="vac-counter__lbl">Días marcados</div>
+          </div>
+          <div>
+            <div class="vac-counter__n" id="vacRestantes">{{ balance.remaining }}</div>
+            <div class="vac-counter__lbl">Te quedarían</div>
+          </div>
+          <div class="flex-grow-1 small text-muted" id="vacAviso">
+            Marca los días pinchando o arrastrando. Los fines de semana y festivos no te restan.
+          </div>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="vacLimpiar">Limpiar</button>
+        </div>
+
+        <div id="vacSolapes" class="alert alert-warning d-none py-2 small"></div>
+
+        <div class="mb-3">
+          <label class="form-label">Nota (opcional)</label>
+          <input name="note" class="form-control" placeholder="Por ejemplo: viaje familiar">
+        </div>
+
+        <input type="hidden" name="days" id="vacDays">
+        <div id="vacCalendario"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary" id="vacEnviar" disabled><i class="fa fa-paper-plane me-1"></i>Enviar a aprobación</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<script src="{{ url_for('static', filename='js/vacaciones.js') }}"></script>
+<script id="vacData" type="application/json">{{ calendar_payload|tojson }}</script>
+<script>
+(function(){
+  var datos = JSON.parse(document.getElementById('vacData').textContent || '{}');
+  var disponibles = {{ balance.remaining|int }};
+
+  // Calendario de solo lectura del año.
+  VacCalendar.create('#miCalendario', {
+    mode: 'year', year: datos.year, holidays: datos.holidays, days: datos.days
+  });
+
+  var modal = document.getElementById('pedirVacacionesModal');
+  if (!modal) return;
+  var cal = null;
+
+  function pinta(sel, cuentan){
+    document.getElementById('vacSeleccionados').textContent = cuentan.length;
+    var quedan = disponibles - cuentan.length;
+    var elQuedan = document.getElementById('vacRestantes');
+    elQuedan.textContent = quedan;
+    elQuedan.classList.toggle('is-over', quedan < 0);
+    document.getElementById('vacDays').value = sel.join(',');
+    var aviso = document.getElementById('vacAviso');
+    var pasado = cuentan.length > disponibles;
+    aviso.className = 'flex-grow-1 small ' + (pasado ? 'text-danger fw-semibold' : 'text-muted');
+    aviso.textContent = pasado
+      ? 'Te has pasado: solo te quedan ' + disponibles + ' día' + (disponibles === 1 ? '' : 's') + '.'
+      : (sel.length > cuentan.length
+          ? (sel.length - cuentan.length) + ' de los días marcados son fin de semana o festivo y no te restan.'
+          : 'Marca los días pinchando o arrastrando. Los fines de semana y festivos no te restan.');
+    document.getElementById('vacEnviar').disabled = (cuentan.length === 0 || pasado);
+    comprobar(sel);
+  }
+
+  // Aviso de con QUIÉN te solapas: lo dice el servidor (no bloquea, lo decide quien aprueba).
+  var timer = null;
+  function comprobar(sel){
+    clearTimeout(timer);
+    var caja = document.getElementById('vacSolapes');
+    if (!sel.length){ caja.classList.add('d-none'); return; }
+    timer = setTimeout(function(){
+      {# ⚠️ Aquí `|tojson` a secas: dentro de un <script> el navegador NO deshace las entidades
+         HTML, así que `|forceescape` dejaría un `&#34;` literal y el JS no compilaría. El
+         `forceescape` solo hace falta dentro de un atributo (onclick="…"). #}
+      fetch({{ url_for('mis_vacaciones_check')|tojson }}, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({days: sel.join(',')})
+      }).then(function(r){ return r.json(); }).then(function(d){
+        if (!d || !d.overlaps || !d.overlaps.length){ caja.classList.add('d-none'); return; }
+        caja.classList.remove('d-none');
+        caja.innerHTML = '<i class="fa fa-users me-1"></i>Esos días también los tienen: ' +
+          d.overlaps.map(function(o){ return '<strong>' + o.nick + '</strong> (' + o.count + ')'; }).join(', ') + '.';
+      }).catch(function(){ caja.classList.add('d-none'); });
+    }, 400);
+  }
+
+  modal.addEventListener('shown.bs.modal', function(){
+    if (cal) return;
+    cal = VacCalendar.create('#vacCalendario', {
+      mode: 'year', year: datos.year, holidays: datos.holidays, days: datos.days,
+      selectable: true, onChange: pinta
+    });
+  });
+  document.getElementById('vacLimpiar').addEventListener('click', function(){ if (cal) cal.clear(); });
+})();
+</script>
+{% endblock %}

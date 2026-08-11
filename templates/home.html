@@ -134,6 +134,58 @@ document.addEventListener('click', function (ev) {
 </div>
 {% endif %}
 
+{# VACACIONES pendientes de aprobar (dirección y quien las gestione). #}
+{% if HOME_VACATION_PENDING %}
+<div class="card mb-4 border-warning">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <div>
+        <h5 class="mb-0"><i class="fa fa-umbrella-beach text-warning me-2"></i>Vacaciones pendientes de aprobar</h5>
+        <div class="small text-muted">Hasta que las apruebes o las rechaces, la persona no las tiene confirmadas.</div>
+      </div>
+      <a href="{{ url_for('vacaciones_view', tab='peticiones') }}" class="badge text-bg-warning text-dark text-decoration-none">{{ HOME_VACATION_PENDING|length }}</a>
+    </div>
+    <div class="list-group list-group-flush">
+      {% for r in HOME_VACATION_PENDING %}
+        <a href="{{ url_for('vacaciones_view', tab='peticiones') }}" class="list-group-item list-group-item-action d-flex align-items-center gap-3 px-0">
+          <img src="{{ r.photo_url or DEFAULT_AVATAR_URL }}" data-avatar="1" alt="" style="width:38px;height:38px;border-radius:50%;object-fit:cover;flex:0 0 auto;">
+          <div style="min-width:0;">
+            <div class="fw-semibold">{{ r.nick }}</div>
+            <div class="small text-muted">{{ r.range_label }} · {{ r.days_count }} día{{ '' if r.days_count == 1 else 's' }}</div>
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# MIS VACACIONES: solo cuando hay algo que decir (días pedidos o vacaciones a la vuelta de la esquina). #}
+{% if HOME_MY_VACATIONS and HOME_MY_VACATIONS.balance and (HOME_MY_VACATIONS.pending or HOME_MY_VACATIONS.next) %}
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <h5 class="mb-0"><i class="fa fa-umbrella-beach text-danger me-2"></i>Mis vacaciones</h5>
+      <a href="{{ HOME_MY_VACATIONS.url }}" class="btn btn-sm btn-outline-secondary">Ver mis días</a>
+    </div>
+    <div class="d-flex flex-wrap gap-4 align-items-center">
+      <div>
+        <div class="fs-3 fw-bold lh-1">{{ HOME_MY_VACATIONS.balance.remaining }}</div>
+        <div class="small text-muted">Días disponibles</div>
+      </div>
+      {% for r in HOME_MY_VACATIONS.pending %}
+        <div><span class="badge text-bg-warning text-dark"><i class="fa fa-hourglass-half me-1"></i>Pendiente de aprobar</span>
+          <div class="small text-muted mt-1">{{ r.range_label }}</div></div>
+      {% endfor %}
+      {% for r in HOME_MY_VACATIONS.next %}
+        <div><span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Aprobadas</span>
+          <div class="small text-muted mt-1">{{ r.range_label }}</div></div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {# DIRECCIÓN: remesas de pago montadas que esperan su visto bueno. Se repasan factura a factura. #}
 {% if HOME_BATCH_APPROVALS %}
 <div class="card mb-4 border-danger">

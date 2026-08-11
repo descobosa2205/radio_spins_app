@@ -43,7 +43,7 @@
     })();
   </script>
 </head>
-<body data-default-photo-url="{{ DEFAULT_PHOTO_URL }}" data-default-cover-url="{{ DEFAULT_COVER_URL }}">
+<body data-default-photo-url="{{ DEFAULT_PHOTO_URL }}" data-default-cover-url="{{ DEFAULT_COVER_URL }}" data-default-avatar-url="{{ DEFAULT_AVATAR_URL }}">
 {# Loader global: iconos musicales animados (colores corporativos) + barra de carga. La barra va
    en modo «barrido» continuo mientras se piensa y pasa a PORCENTAJE REAL en las subidas de
    archivos (formularios multipart nativos, interceptados más abajo con XHR + progreso). #}
@@ -149,6 +149,8 @@
               {# «Mis gastos» es personal y lo tiene cualquiera: también aquí, para que se vea siempre
                  (en el menú de secciones puede quedar escondido en «más» si tienes muchas). #}
               <li><a class="dropdown-item" href="{{ url_for('my_expenses_view') }}"><i class="fa fa-receipt me-2"></i> Mis gastos</a></li>
+              {# MIS VACACIONES: son días propios, lo tiene cualquiera con sesión. #}
+              <li><a class="dropdown-item" href="{{ url_for('mis_vacaciones_view') }}"><i class="fa fa-umbrella-beach me-2"></i> Mis vacaciones</a></li>
               {# ORDENAR MI MENÚ: cada uno se coloca sus secciones arrastrándolas. #}
               <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#navOrderModal">
                 <i class="fa fa-arrows-up-down-left-right me-2"></i> Ordenar mi menú</a></li>

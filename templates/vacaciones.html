@@ -1,0 +1,420 @@
+{% extends "layout.html" %}
+{% block content %}
+{# VACACIONES Y DÍAS LIBRES · la sección de gestión (dirección y quien las lleve). #}
+
+{% set tabs = [
+  ('calendario', 'Calendario', 'fa-calendar-days', 0),
+  ('peticiones', 'Peticiones', 'fa-inbox', pending|length),
+  ('festivos', 'Festivos y normas', 'fa-flag', 0)
+] %}
+<ul class="nav nav-tabs contract-tabs mb-3">
+  {% for key, label, icon, n in tabs %}
+    <li class="nav-item">
+      <a class="nav-link {% if tab == key %}active{% endif %}"
+         href="{{ url_for('vacaciones_view', tab=key, anio=year, mes=month, persona=filter_user_id) }}">
+        <i class="fa {{ icon }} me-1"></i>{{ label }}
+        {% if n %}<span class="contract-tabs__n">{{ n }}</span>{% endif %}
+      </a>
+    </li>
+  {% endfor %}
+</ul>
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <div>
+    <h4 class="m-0"><i class="fa fa-umbrella-beach text-danger me-2"></i>Vacaciones y días libres</h4>
+    <div class="text-muted small">Días laborables: sábados, domingos y festivos de Madrid no consumen saldo.</div>
+  </div>
+  <form method="get" class="d-flex align-items-center gap-2 m-0">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <input type="hidden" name="mes" value="{{ month }}">
+    <label class="form-label m-0 small text-muted">Año</label>
+    <select name="anio" class="form-select form-select-sm" style="width:auto;" onchange="this.form.submit()">
+      {% for y in years %}<option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>{% endfor %}
+    </select>
+    {% if tab == 'calendario' %}
+      <label class="form-label m-0 small text-muted ms-2">Persona</label>
+      <select name="persona" class="form-select form-select-sm" style="width:auto;" onchange="this.form.submit()">
+        <option value="">Toda la oficina</option>
+        {% for p in people %}<option value="{{ p.user_id }}" {% if p.user_id == filter_user_id %}selected{% endif %}>{{ p.nick }}</option>{% endfor %}
+      </select>
+    {% endif %}
+  </form>
+</div>
+
+{% if tab == 'peticiones' %}
+
+  <div class="card mb-4">
+    <div class="card-body">
+      <h6 class="mb-3">Peticiones pendientes de aprobar</h6>
+      {% if not pending %}
+        <div class="text-muted">No hay ninguna petición pendiente.</div>
+      {% else %}
+        <div class="list-group list-group-flush">
+          {% for r in pending %}
+            <div class="list-group-item px-0">
+              <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                <div class="vac-person" style="min-width:0;">
+                  <img src="{{ r.photo_url or DEFAULT_AVATAR_URL }}" class="vac-person__photo" alt="">
+                  <div style="min-width:0;">
+                    <div class="fw-semibold">{{ r.nick }}</div>
+                    <div class="small text-muted">
+                      {{ r.range_label }} · {{ r.days_count }} día{{ '' if r.days_count == 1 else 's' }}
+                      {% if r.note %} · {{ r.note }}{% endif %}
+                    </div>
+                    <div class="small text-muted">Pedidas el {{ r.created_at.strftime('%d/%m/%Y') if r.created_at else '—' }}</div>
+                  </div>
+                </div>
+                <div class="d-flex gap-2 align-items-start">
+                  <form method="post" action="{{ url_for('vacation_request_decide', request_id=r.id) }}" class="m-0">
+                    <input type="hidden" name="decision" value="APPROVED">
+                    <button class="btn btn-success btn-sm"><i class="fa fa-check me-1"></i>Aprobar</button>
+                  </form>
+                  <button class="btn btn-outline-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#rechazarModal"
+                          onclick="prepararRechazo({{ url_for('vacation_request_decide', request_id=r.id)|tojson|forceescape }}, {{ r.nick|tojson|forceescape }})">
+                    <i class="fa fa-xmark me-1"></i>Rechazar
+                  </button>
+                </div>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <h6 class="mb-3">Resueltas en {{ year }}</h6>
+      {% if not history %}
+        <div class="text-muted">Nada resuelto todavía este año.</div>
+      {% else %}
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead><tr>
+              <th>Persona</th><th>Días</th><th>Fechas</th><th>Estado</th><th>Resuelta por</th><th></th>
+            </tr></thead>
+            <tbody>
+              {% for r in history %}
+                <tr>
+                  <td class="fw-semibold">{{ r.nick }}</td>
+                  <td>{{ r.days_count }}</td>
+                  <td>{{ r.range_label }}</td>
+                  <td><span class="badge {{ r.status_meta.class }}">{{ r.status_meta.short }}</span></td>
+                  <td class="small text-muted">{{ r.decided_by or '—' }}{% if r.decided_at %} · {{ r.decided_at.strftime('%d/%m/%Y') }}{% endif %}</td>
+                  <td class="text-end">
+                    <form method="post" action="{{ url_for('vacation_request_delete', request_id=r.id) }}" class="m-0" data-confirm="¿Eliminar estos días? Le vuelven al saldo.">
+                      <button class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="fa fa-trash"></i></button>
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="modal fade" id="rechazarModal" tabindex="-1">
+    <div class="modal-dialog">
+      <form method="post" id="rechazarForm" class="modal-content">
+        <input type="hidden" name="decision" value="REJECTED">
+        <div class="modal-header"><h5 class="modal-title">Rechazar vacaciones</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <p class="text-muted">Se le avisa a <strong id="rechazarNick"></strong> con el motivo.</p>
+          <label class="form-label">Motivo</label>
+          <textarea name="decision_note" class="form-control" rows="3" placeholder="Por ejemplo: esos días hay dos personas fuera del departamento."></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-danger">Rechazar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <script>
+    function prepararRechazo(url, nick){
+      document.getElementById('rechazarForm').action = url;
+      document.getElementById('rechazarNick').textContent = nick || '';
+    }
+  </script>
+
+{% elif tab == 'festivos' %}
+
+  <div class="row g-3">
+    <div class="col-12 col-lg-7">
+      <div class="card">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+            <h6 class="m-0">Festivos de Madrid · {{ year }}</h6>
+            <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#festivoModal"
+                    onclick="prepararFestivo('','','NACIONAL')"><i class="fa fa-plus me-1"></i>Añadir festivo</button>
+          </div>
+          <div class="alert alert-light border small">
+            <i class="fa fa-circle-info me-1"></i>
+            La lista se genera sola cada año (nacionales, Comunidad de Madrid y Madrid capital), pero el
+            calendario laboral lo publica el BOE y hay traslados: <strong>revísalo y corrígelo aquí</strong>.
+            Lo que se cambie a mano no se vuelve a pisar.
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle">
+              <thead><tr><th>Fecha</th><th>Festivo</th><th>Ámbito</th><th></th></tr></thead>
+              <tbody>
+                {% for h in holidays %}
+                  <tr>
+                    <td class="fw-semibold">{{ h.day.strftime('%d/%m/%Y') }}</td>
+                    <td>{{ h.name }}</td>
+                    <td><span class="badge text-bg-light border">{{ h.scope_label }}</span></td>
+                    <td class="text-end">
+                      <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#festivoModal"
+                              onclick="prepararFestivo({{ h.day.isoformat()|tojson|forceescape }}, {{ h.name|tojson|forceescape }}, {{ h.scope|tojson|forceescape }})"><i class="fa fa-pen"></i></button>
+                      {% if h.id %}
+                        <form method="post" action="{{ url_for('vacation_holiday_delete', holiday_id=h.id) }}" class="d-inline m-0" data-confirm="¿Quitar este festivo del calendario?">
+                          <button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash"></i></button>
+                        </form>
+                      {% endif %}
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-lg-5">
+      <div class="card">
+        <div class="card-body">
+          <h6 class="mb-3">Normas de elección de vacaciones</h6>
+          <p class="small text-muted">Es lo que se le muestra a cada persona al pedir sus días.</p>
+          <form method="post" action="{{ url_for('vacation_rules_save') }}">
+            <textarea name="rules_text" class="form-control" rows="12">{{ rules_text }}</textarea>
+            <button class="btn btn-primary mt-3"><i class="fa fa-floppy-disk me-1"></i>Guardar normas</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="festivoModal" tabindex="-1">
+    <div class="modal-dialog">
+      <form method="post" action="{{ url_for('vacation_holiday_save') }}" class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">Festivo</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Fecha</label>
+            <input type="date" name="day" id="festivoDay" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Nombre</label>
+            <input name="name" id="festivoName" class="form-control" required>
+          </div>
+          <div>
+            <label class="form-label">Ámbito</label>
+            <select name="scope" id="festivoScope" class="form-select">
+              {% for k, v in holiday_scopes.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <script>
+    function prepararFestivo(day, name, scope){
+      document.getElementById('festivoDay').value = day || '';
+      document.getElementById('festivoName').value = name || '';
+      document.getElementById('festivoScope').value = scope || 'NACIONAL';
+    }
+  </script>
+
+{% else %}
+
+  <div class="card mb-4">
+    <div class="card-body">
+      <div class="d-flex justify-content-end mb-2">
+        <div class="vac-legend">
+          <span><i style="background:#e8eef3;"></i>Fin de semana</span>
+          <span><i style="background:#fdeaec;"></i>Festivo</span>
+          <span><i style="border:2px solid #2e7d32;background:#fff;"></i>Aprobadas</span>
+          <span><i style="border:2px dashed #c99a00;background:#fff;"></i>Pendientes</span>
+        </div>
+      </div>
+      <div id="calOficina"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <h6 class="m-0">Personal de la oficina · {{ year }}</h6>
+        <span class="text-muted small">{{ people|length }} persona{{ '' if people|length == 1 else 's' }}</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead><tr>
+            <th>Persona</th><th class="text-center">Le corresponden</th><th class="text-center">Disfrutados</th>
+            <th class="text-center">Aprobados</th><th class="text-center">Pendientes</th><th class="text-center">Le quedan</th><th></th>
+          </tr></thead>
+          <tbody>
+            {% for p in people %}
+              <tr>
+                <td>
+                  <div class="vac-person">
+                    <img src="{{ p.photo_url or DEFAULT_AVATAR_URL }}" class="vac-person__photo" alt="">
+                    <div>
+                      <div class="fw-semibold">{{ p.nick }}</div>
+                      <div class="small text-muted">
+                        {% if p.balance.has_contract %}Desde el {{ p.balance.start_date.strftime('%d/%m/%Y') }}
+                        {% else %}<span class="text-danger"><i class="fa fa-triangle-exclamation me-1"></i>Sin contrato</span>{% endif %}
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                <td class="text-center">
+                  {{ p.balance.total }}
+                  {% if p.balance.prorated %}<div class="small text-muted">prorrateados</div>{% endif %}
+                </td>
+                <td class="text-center">{{ p.balance.enjoyed }}</td>
+                <td class="text-center">{{ p.balance.used }}</td>
+                <td class="text-center">{% if p.balance.pending %}<span class="badge text-bg-warning text-dark">{{ p.balance.pending }}</span>{% else %}0{% endif %}</td>
+                <td class="text-center fw-bold">{{ p.balance.remaining }}</td>
+                <td class="text-end">
+                  <div class="dropdown">
+                    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-vertical"></i></button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                      <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#editarPersonaModal"
+                          onclick="prepararPersona({{ p.user_id|tojson|forceescape }}, {{ p.nick|tojson|forceescape }}, {{ (p.balance.base if p.balance.base != days_per_year_default else '')|tojson|forceescape }}, {{ p.balance.adjustment|tojson|forceescape }})">
+                          <i class="fa fa-sliders fa-fw me-1"></i>Configurar sus días</button></li>
+                      <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#apuntarDiasModal"
+                          onclick="prepararApunte({{ p.user_id|tojson|forceescape }}, {{ p.nick|tojson|forceescape }})">
+                          <i class="fa fa-calendar-plus fa-fw me-1"></i>Apuntarle días</button></li>
+                      <li><a class="dropdown-item" href="{{ url_for('personnel_detail_view', user_id=p.user_id, tab='contrato') }}">
+                          <i class="fa fa-file-contract fa-fw me-1"></i>Ver su contrato</a></li>
+                      <li><a class="dropdown-item" href="{{ url_for('vacaciones_view', tab='calendario', anio=year, mes=month, persona=p.user_id) }}">
+                          <i class="fa fa-calendar-days fa-fw me-1"></i>Ver solo sus días</a></li>
+                    </ul>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="editarPersonaModal" tabindex="-1">
+    <div class="modal-dialog">
+      <form method="post" id="editarPersonaForm" class="modal-content">
+        <input type="hidden" name="anio" value="{{ year }}">
+        <div class="modal-header"><h5 class="modal-title">Vacaciones de <span id="editarPersonaNick"></span></h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Días al año</label>
+            <input type="number" name="days_per_year" id="editarDias" class="form-control" min="0" max="365"
+                   placeholder="{{ days_per_year_default }} (los de la casa)">
+            <div class="form-text">En blanco = los {{ days_per_year_default }} de la casa. En el año de alta se prorratean desde su fecha de comienzo.</div>
+          </div>
+          <div>
+            <label class="form-label">Ajuste para {{ year }}</label>
+            <input type="number" name="adjustment" id="editarAjuste" class="form-control" placeholder="0">
+            <div class="form-text">Días que se le suman o se le restan solo este año (arrastres del año anterior, correcciones…). Puede ser negativo.</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal fade" id="apuntarDiasModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <form method="post" id="apuntarDiasForm" class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">Apuntar días a <span id="apuntarNick"></span></h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="alert alert-light border small">
+            Los días que apuntes aquí quedan <strong>aprobados directamente</strong> (el visto bueno lo estás dando tú)
+            y se le avisa a la persona.
+          </div>
+          <div class="vac-counter mb-3">
+            <div>
+              <div class="vac-counter__n" id="apuntarN">0</div>
+              <div class="vac-counter__lbl">Días que cuentan</div>
+            </div>
+            <div class="flex-grow-1 small text-muted">Pincha o arrastra. Fines de semana y festivos no restan.</div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="force" value="1" id="apuntarForce">
+              <label class="form-check-label small" for="apuntarForce">Aunque se pase de su saldo</label>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Nota (opcional)</label>
+            <input name="note" class="form-control" placeholder="Por ejemplo: días acordados de 2025">
+          </div>
+          <input type="hidden" name="days" id="apuntarDays">
+          <div id="apuntarCalendario"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary" id="apuntarEnviar" disabled>Apuntar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/vacaciones.js') }}"></script>
+  <script id="vacOficinaData" type="application/json">{{ calendar_payload|tojson }}</script>
+  <script>
+  (function(){
+    var datos = JSON.parse(document.getElementById('vacOficinaData').textContent || '{}');
+    VacCalendar.create('#calOficina', {
+      mode: 'month', year: datos.year, month: {{ month }},
+      holidays: datos.holidays, days: datos.days, people: datos.people || []
+    });
+
+    window.prepararPersona = function(uid, nick, dias, ajuste){
+      document.getElementById('editarPersonaForm').action = '/vacaciones/persona/' + uid + '/configurar';
+      document.getElementById('editarPersonaNick').textContent = nick || '';
+      document.getElementById('editarDias').value = dias || '';
+      document.getElementById('editarAjuste').value = (ajuste && ajuste !== 0) ? ajuste : '';
+    };
+
+    var calApunte = null;
+    window.prepararApunte = function(uid, nick){
+      document.getElementById('apuntarDiasForm').action = '/vacaciones/persona/' + uid + '/dias';
+      document.getElementById('apuntarNick').textContent = nick || '';
+      document.getElementById('apuntarDays').value = '';
+      document.getElementById('apuntarN').textContent = '0';
+      document.getElementById('apuntarEnviar').disabled = true;
+      if (calApunte) calApunte.clear();
+    };
+
+    var modalApunte = document.getElementById('apuntarDiasModal');
+    modalApunte.addEventListener('shown.bs.modal', function(){
+      if (calApunte) return;
+      calApunte = VacCalendar.create('#apuntarCalendario', {
+        mode: 'year', year: datos.year, holidays: datos.holidays, days: [],
+        selectable: true,
+        onChange: function(sel, cuentan){
+          document.getElementById('apuntarDays').value = sel.join(',');
+          document.getElementById('apuntarN').textContent = cuentan.length;
+          document.getElementById('apuntarEnviar').disabled = (cuentan.length === 0);
+        }
+      });
+    });
+  })();
+  </script>
+
+{% endif %}
+{% endblock %}

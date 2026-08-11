@@ -11,7 +11,12 @@
 </div>
 
 <div class="ficha-hero">
-  <img class="ficha-hero__media" src="{{ company.logo_url or url_for('static', filename='img/logo_33_producciones.png') }}" alt="" style="object-fit:contain;background:#fff;">
+  {# Sin logo subido, un icono de empresa: nunca el logo de OTRA del grupo. #}
+  {% if company.logo_url %}
+    <img class="ficha-hero__media" src="{{ company.logo_url }}" alt="{{ company.name }}" style="object-fit:contain;background:#fff;">
+  {% else %}
+    <span class="ficha-hero__media co-logo--empty" style="font-size:2rem;"><i class="fa fa-building"></i></span>
+  {% endif %}
   <div class="ficha-hero__body">
     <div class="ficha-hero__eyebrow">Empresa del grupo</div>
     <h1 class="ficha-hero__title">{{ company.name }}</h1>

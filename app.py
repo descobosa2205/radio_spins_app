@@ -1295,9 +1295,40 @@ def inject_globals():
             link, _artist_photo_src(photo_url), name,
         )
 
+    def _company_bits(company=None, name=None, logo_url=None):
+        nombre = (name if name is not None else getattr(company, "name", "")) or ""
+        logo = (logo_url if logo_url is not None else getattr(company, "logo_url", "")) or ""
+        return str(nombre).strip(), str(logo).strip().rstrip("?")
+
+    def company_logo(company=None, name=None, logo_url=None, size=40, cls="co-logo"):
+        """El LOGO de una empresa del grupo y, si todavía no tiene, un ICONO de empresa.
+
+        ⚠️ Antes se caía al logo de Treinta y Tres / PIES, que es peor que no enseñar nada: una
+        empresa nueva aparecía con el logo de OTRA. El hueco se conserva (no se omite) para que la
+        fila no se descoloque, con el icono dentro."""
+        nombre, logo = _company_bits(company, name, logo_url)
+        px = int(size or 40)
+        if logo:
+            return Markup('<img class="%s" src="%s" alt="%s" title="%s" loading="lazy" '
+                          'style="width:%dpx;height:%dpx;object-fit:contain;background:#fff;">') % (
+                cls, logo, nombre, nombre, px, px)
+        return Markup('<span class="%s co-logo--empty" title="%s" '
+                      'style="width:%dpx;height:%dpx;font-size:%dpx;">'
+                      '<i class="fa fa-building"></i></span>') % (cls, nombre, px, px, max(12, px // 2))
+
+    def company_chip(company=None, name=None, logo_url=None, size=28):
+        """Logo (o icono) + NOMBRE de la empresa del grupo, en una cápsula."""
+        nombre, logo = _company_bits(company, name, logo_url)
+        if not nombre:
+            return Markup("")
+        return Markup('<span class="co-chip">%s<span class="co-chip__name">%s</span></span>') % (
+            company_logo(name=nombre, logo_url=logo, size=size, cls="co-chip__logo"), nombre)
+
     return dict(
         BRAND_PRIMARY=settings.BRAND_PRIMARY,
         BRAND_ACCENT=settings.BRAND_ACCENT,
+        company_logo=company_logo,
+        company_chip=company_chip,
         IS_ADMIN=bool(session.get("user_id")),
         has_endpoint=has_endpoint,
         # Versión de ESTÁTICOS (cambia en cada arranque/deploy): rompe la caché del navegador de

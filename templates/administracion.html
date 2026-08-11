@@ -508,7 +508,7 @@
           {% for r in afavor_invoice_rows %}
             <a class="p-3 border-bottom d-flex justify-content-between gap-3 flex-wrap text-decoration-none text-reset" href="{{ r.url }}">
               <div class="d-flex align-items-center gap-2">
-                <img src="{{ (r.company.logo_url if r.company else None) or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1" style="width:34px;height:34px;object-fit:contain;border-radius:8px;border:1px solid #e5e9f0;background:#fff">
+                {{ company_logo(r.company, size=34) }}
                 <div>
                   <div class="fw-semibold">{{ r.name }}</div>
                   <div class="small text-muted">{{ r.period_label }}{% if r.rec.invoice_requested_at %} · pedida el {{ r.rec.invoice_requested_at.strftime('%d/%m/%Y') }}{% endif %}</div>

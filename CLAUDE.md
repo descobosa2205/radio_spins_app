@@ -1705,6 +1705,17 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   Al lado del contrato se enseña el resumen de vacaciones que sale de esa fecha, que es para lo que
   sirve. Endpoints `personnel_contract_save` / `_delete` (heredan el permiso de la ficha de personal).
 
+- **EMPRESA DEL GRUPO SIN LOGO → ICONO DE EMPRESA + NOMBRE** (ago 2026). Globales
+  **`company_logo(empresa, size=, cls=)`** y **`company_chip(...)`** (en `inject_globals`): pintan el
+  logo y, si la empresa todavía no tiene, un **icono de edificio** (`.co-logo--empty`) conservando el
+  hueco, con el nombre al lado en el chip.
+  ⚠️ Antes se caía al logo de **Treinta y Tres / PIES**, que es PEOR que no enseñar nada: una empresa
+  recién creada aparecía con el logo de OTRA del grupo. Aplicado en `/empresas`, la ficha de la
+  empresa, administración (a favor y remesas), la vista de conciertos y ventas por empresa; en los
+  selectores con miniatura el `data-logo` se queda vacío en vez de apuntar al logo de la casa.
+  ⚠️ En las páginas PÚBLICAS (ficha de contratación, cartelería, correos) el respaldo al logo de la
+  casa SÍ se mantiene a propósito: ahí hay que enseñar una marca.
+
 - **SIN FOTO NI LOGO → MUÑEQUITO GRIS** (ago 2026, `static/img/avatar_placeholder.png` + `.svg`,
   global **`DEFAULT_AVATAR_URL`**). Se aplica al **personal de la oficina** y a los **terceros**: donde
   antes salía el logo de la casa (o nada) ahora sale el avatar gris, y vale para los que ya estaban

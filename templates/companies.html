@@ -61,7 +61,7 @@
          href="{{ url_for('company_detail', cid=c.id) }}"
          data-search="{{ ((c.name or '') ~ ' ' ~ (c.tax_info or ''))|lower }}">
         <div class="d-flex align-items-center gap-3">
-          <img class="co-row__logo" src="{{ c.logo_url or url_for('static', filename='img/logo_33_producciones.png') }}" alt="">
+          {{ company_logo(c, size=46, cls='co-row__logo') }}
           <div class="flex-grow-1 min-w-0">
             <div class="fw-semibold text-truncate">{{ c.name }}</div>
             {% if c.tax_info %}

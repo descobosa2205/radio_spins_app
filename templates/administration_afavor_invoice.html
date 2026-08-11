@@ -21,7 +21,7 @@
       <div class="card-header bg-white"><strong><i class="fa fa-percent me-1 text-danger"></i>Liquidación</strong></div>
       <div class="card-body">
         <div class="afavor-company__head mb-3 rounded-3">
-          <img src="{{ (company.logo_url if company else None) or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1" style="width:38px;height:38px;object-fit:contain;border-radius:8px;border:1px solid #e5e9f0;background:#fff">
+          {{ company_logo(company, size=38) }}
           <div class="flex-grow-1 min-w-0">
             <div class="fw-semibold text-truncate">{{ company.nick if company else 'Compañía' }}</div>
             <div class="small text-muted">Periodo de liquidación: {{ period_label }}</div>
@@ -60,7 +60,7 @@
       <div class="card-body">
         <div class="small text-muted mb-1">Factura la empresa del grupo</div>
         <div class="d-flex align-items-center gap-2 mb-3">
-          <img src="{{ (billing_company.logo_url if billing_company else None) or url_for('static', filename='img/logo.png') }}" alt="" style="width:46px;height:46px;object-fit:contain;border-radius:10px;border:1px solid #e5e9f0;background:#fff">
+          {{ company_logo(billing_company, size=46) }}
           <div class="fw-semibold">{{ billing_company.name if billing_company else '—' }}</div>
         </div>
         {% if billing_company and billing_company.tax_info %}

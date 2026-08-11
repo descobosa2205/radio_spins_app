@@ -3,7 +3,7 @@
 <div class="d-flex align-items-center justify-content-between mb-3">
   <div class="d-flex align-items-center gap-2">
     {% if company %}
-      <img src="{{ company.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+      {{ company_logo(company, size=30, cls='station-logo') }}
       <h6 class="m-0">Conciertos por empresa — {{ company.name }}</h6>
     {% else %}
       <h6 class="m-0">Conciertos por empresa</h6>

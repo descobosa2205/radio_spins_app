@@ -319,7 +319,7 @@
                           {% if s.company %}
                             <div class="d-flex align-items-center gap-2">
                               <div class="logo-chip position-relative" title="{{ s.company.name }}">
-                                <img src="{{ s.company.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo" alt="">
+                                {{ company_logo(s.company, size=30, cls='station-logo') }}
                                 {% if s.pct %}
                                   <span class="badge bg-primary position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
                                 {% elif s.amount %}
@@ -430,8 +430,7 @@
                   {% if c.billing_company %}
                     <div class="mt-2 d-flex flex-column align-items-end">
                       <div class="small text-muted" style="line-height:1.1;">Empresa que factura</div>
-                      <img src="{{ c.billing_company.logo_url or url_for('static', filename='img/logo.png') }}"
-                           alt="" style="width:34px;height:34px;object-fit:contain;">
+                      {{ company_logo(c.billing_company, size=34) }}
                     </div>
                   {% endif %}
                 </div>

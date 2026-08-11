@@ -5476,6 +5476,12 @@ def _song_material_slot_label(category: str | None, slot_key: str | None, displa
         return (display_name or "").strip() or "Subproducto"
     if cat == "STEMS":
         return (display_name or "").strip() or "Stems"
+    if cat == "VIDEOCLIP":
+        if slot == "DEFAULT":
+            return "Videoclip"
+        return (display_name or "").strip() or "Subproducto"
+    if cat == "VIDEO_THUMB":
+        return (display_name or "").strip() or "Miniatura"
     return (display_name or "").strip() or "Archivo"
 
 
@@ -5549,6 +5555,83 @@ def _convert_audio_content_to_mp3(data: bytes, source_ext: str | None = None) ->
     out = BytesIO()
     seg.export(out, format="mp3", bitrate="320k")
     return out.getvalue(), "audio/mpeg", ".mp3"
+
+
+def _convert_video_content(data: bytes, target_format: str, source_ext: str | None = None) -> tuple:
+    """Pasa un vídeo a MOV o a MP4. Devuelve (bytes, mimetype, extensión).
+
+    MOV y MP4 son el MISMO códec en otro contenedor, así que se REMUXA (`-c copy`): es casi
+    instantáneo y no toca la calidad. Solo si el remux falla se recodifica, que sí es caro.
+    ⚠️ ffmpeg no está en el PATH del servidor: se usa el binario de imageio-ffmpeg (`_ffmpeg_exe`),
+    el mismo del póster de los vídeos."""
+    fmt = (target_format or "").strip().lower()
+    if fmt not in {"mov", "mp4"}:
+        raise ValueError("Formato de vídeo no válido.")
+    mimetype = "video/quicktime" if fmt == "mov" else "video/mp4"
+    src_ext = (source_ext or "").lower()
+    if src_ext.lstrip(".") == fmt:
+        return data, mimetype, f".{fmt}"
+    exe = _ffmpeg_exe()
+    if not exe:
+        raise RuntimeError("ffmpeg no está disponible para convertir el vídeo.")
+    with tempfile.TemporaryDirectory() as tmp:
+        entrada = os.path.join(tmp, f"in{src_ext or '.bin'}")
+        salida = os.path.join(tmp, f"out.{fmt}")
+        with open(entrada, "wb") as fh:
+            fh.write(data)
+        base = [exe, "-hide_banner", "-loglevel", "error", "-y", "-i", entrada]
+        extra = ["-movflags", "+faststart"] if fmt == "mp4" else []
+        for args in ([*base, "-c", "copy", *extra, salida],
+                     [*base, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+                      "-c:a", "aac", "-b:a", "192k", *extra, salida]):
+            try:
+                r = subprocess.run(args, capture_output=True, timeout=900)
+            except Exception:
+                continue
+            if r.returncode == 0 and os.path.exists(salida) and os.path.getsize(salida) > 0:
+                with open(salida, "rb") as fh:
+                    return fh.read(), mimetype, f".{fmt}"
+            try:
+                os.remove(salida)
+            except Exception:
+                pass
+    raise RuntimeError("No se pudo convertir el vídeo.")
+
+
+def _song_video_poster_schedule(material_id, url) -> None:
+    """Saca la miniatura de un videoclip en 2º plano y la guarda en `SongMaterial.poster_url`.
+
+    Mismo motor que el póster de las fotos (`_video_generate_poster_bytes`, que lee por RANGO y no
+    se descarga el vídeo entero). Best-effort: si no sale, el hueco se queda con el icono."""
+    if not material_id or not url or not _ffmpeg_exe():
+        return
+
+    def _trabajo():
+        try:
+            data = _video_generate_poster_bytes(url)
+            if not data:
+                return
+            poster = _upload_bytes(data, "song_materials/posters/%s.jpg" % str(material_id),
+                                   "image/jpeg", upsert=True)
+            if not poster:
+                return
+            s2 = db()
+            try:
+                row = s2.get(SongMaterial, to_uuid(material_id))
+                if row and not (getattr(row, "poster_url", None) or "").strip():
+                    row.poster_url = poster
+                    s2.commit()
+            except Exception:
+                s2.rollback()
+            finally:
+                s2.close()
+        except Exception:
+            pass
+
+    try:
+        threading.Thread(target=_trabajo, daemon=True).start()
+    except Exception:
+        pass
 
 
 def _song_material_completion_meta(song: Song, material_rows: list[SongMaterial]) -> dict:
@@ -5839,7 +5922,11 @@ def _build_song_material_context(session_db, song: Song, material_rows: list[Son
             "download_png_url": url_for("discografica_song_material_download", song_id=song.id, material_id=row.id, format="png") if category == "COVER" else "",
             "download_wav_url": url_for("discografica_song_material_download", song_id=song.id, material_id=row.id, format="wav") if category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"} else "",
             "download_mp3_url": url_for("discografica_song_material_download", song_id=song.id, material_id=row.id, format="mp3") if category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"} else "",
+            "download_mov_url": url_for("discografica_song_material_download", song_id=song.id, material_id=row.id, format="mov") if category in SONG_VIDEO_CATEGORIES else "",
+            "download_mp4_url": url_for("discografica_song_material_download", song_id=song.id, material_id=row.id, format="mp4") if category in SONG_VIDEO_CATEGORIES else "",
             "is_audio": category in {"MASTER", "INSTRUMENTAL", "TV_TRACK", "STEMS"},
+            "is_video": category in SONG_VIDEO_CATEGORIES,
+            "poster_url": (getattr(row, "poster_url", None) or "").strip(),
             "is_pending": (getattr(row, "validation_status", None) or "VALIDATED").strip().upper() == "PENDING",
         }
         return payload
@@ -5852,6 +5939,9 @@ def _build_song_material_context(session_db, song: Song, material_rows: list[Son
     instrumental_subproducts = []
     tv_track_default = None
     tv_track_subproducts = []
+    videoclip_default = None
+    videoclip_subproducts = []
+    video_thumbs: dict[str, list] = {}      # id del videoclip -> miniaturas subidas a mano
     stems_map: dict[str, dict] = {}
 
     for row in material_rows or []:
@@ -5882,6 +5972,16 @@ def _build_song_material_context(session_db, song: Song, material_rows: list[Son
                 tv_track_default = payload
             else:
                 tv_track_subproducts.append(payload)
+            continue
+        if category == "VIDEOCLIP":
+            if slot_key == "DEFAULT" and videoclip_default is None:
+                videoclip_default = payload
+            else:
+                videoclip_subproducts.append(payload)
+            continue
+        if category == "VIDEO_THUMB":
+            # La miniatura sabe de qué vídeo es por su bundle_key (el id del videoclip).
+            video_thumbs.setdefault(payload["bundle_key"] or "", []).append(payload)
             continue
         if category == "STEMS":
             bundle_key = payload["bundle_key"] or payload["id"]
@@ -5931,6 +6031,15 @@ def _build_song_material_context(session_db, song: Song, material_rows: list[Son
         stem_groups.append(group)
     stem_groups.sort(key=lambda item: item.get("created_at") or datetime.min.replace(tzinfo=TZ_MADRID), reverse=True)
 
+    # Cada videoclip se lleva sus miniaturas y la que se enseña (la subida a mano manda sobre la
+    # que saca ffmpeg; si no hay ninguna, el hueco enseña el icono).
+    for item in [videoclip_default] + videoclip_subproducts:
+        if not item:
+            continue
+        propias = video_thumbs.get(item["id"], [])
+        item["thumbs"] = propias
+        item["preview_url"] = (propias[0]["file_url"] if propias else item.get("poster_url") or "")
+
     completion = _song_material_completion_meta(song, material_rows or [])
     return {
         "cover_item": cover_principal,
@@ -5942,6 +6051,8 @@ def _build_song_material_context(session_db, song: Song, material_rows: list[Son
         "instrumental_subproducts": instrumental_subproducts,
         "tv_track_default": tv_track_default,
         "tv_track_subproducts": tv_track_subproducts,
+        "videoclip_default": videoclip_default,
+        "videoclip_subproducts": videoclip_subproducts,
         "stem_groups": stem_groups,
         "completion": completion,
     }
@@ -5959,6 +6070,13 @@ def _build_song_material_context(session_db, song: Song, material_rows: list[Son
 # (un fichero: sin nada que previsualizar); álbum, el `file_url` crudo de Supabase
 # (dominio ajeno)—, que es justo lo que había que unificar.
 MATERIAL_SHARE_KINDS = {"MATERIAL", "STEMS_BUNDLE", "SONG_COVER", "ALBUM_MATERIAL"}
+
+# Materiales de VÍDEO de una canción: el videoclip (y sus subproductos) y las miniaturas que se
+# suben a mano para él. El audio sigue siendo .wav; el vídeo admite los contenedores de siempre.
+SONG_VIDEO_CATEGORIES = {"VIDEOCLIP"}
+SONG_VIDEO_EXTENSIONS = {".mov", ".mp4", ".m4v", ".mkv", ".webm", ".avi"}
+# En qué formatos se ofrece la descarga de un videoclip.
+SONG_VIDEO_DOWNLOAD_FORMATS = (("mov", "MOV"), ("mp4", "MP4"))
 
 ALBUM_MATERIAL_LABELS = {
     "COVER": "Portada",
@@ -6131,6 +6249,8 @@ def _song_material_download_payload(session_db, row, fmt: str = "original") -> t
         elif category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"} and fmt == "wav":
             mimetype = mimetype or "audio/wav"
             ext = original_suffix or ".wav"
+        elif category in SONG_VIDEO_CATEGORIES and fmt in {"mov", "mp4"}:
+            data, mimetype, ext = _convert_video_content(data, fmt, original_suffix)
     except Exception:
         pass
     return data, mimetype, _material_download_name(label, titulo, artista, ext)
@@ -18164,7 +18284,7 @@ def discografica_song_material_upload(song_id):
         deduped_files.append(storage)
     files = deduped_files
 
-    if category not in {"COVER", "MASTER", "INSTRUMENTAL", "TV_TRACK", "STEMS"}:
+    if category not in {"COVER", "MASTER", "INSTRUMENTAL", "TV_TRACK", "STEMS", "VIDEOCLIP", "VIDEO_THUMB"}:
         flash("Tipo de material no válido.", "warning")
         return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
 
@@ -18177,8 +18297,12 @@ def discografica_song_material_upload(song_id):
         slot_key = "DEFAULT"
     elif category == "STEMS":
         slot_key = "BUNDLE"
+    elif category == "VIDEOCLIP" and slot_key not in {"DEFAULT", "SUBPRODUCT"}:
+        slot_key = "DEFAULT"
+    elif category == "VIDEO_THUMB":
+        slot_key = "THUMB"
 
-    if category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"} and slot_key == "SUBPRODUCT" and not display_name:
+    if category in {"MASTER", "INSTRUMENTAL", "TV_TRACK", "VIDEOCLIP"} and slot_key == "SUBPRODUCT" and not display_name:
         flash("Debes indicar un nombre para el subproducto.", "warning")
         return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
 
@@ -18191,6 +18315,18 @@ def discografica_song_material_upload(song_id):
         if non_wav:
             flash("Los masters, la instrumental y el TV track deben subirse en formato .wav.", "warning")
             return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+
+    if category == "VIDEOCLIP":
+        malos = [f for f in files
+                 if Path((f.filename or "").replace("\\", "/")).suffix.lower() not in SONG_VIDEO_EXTENSIONS]
+        if malos:
+            flash("El videoclip tiene que ser un vídeo (%s)."
+                  % ", ".join(sorted(e.lstrip(".").upper() for e in SONG_VIDEO_EXTENSIONS)), "warning")
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+
+    if category == "VIDEO_THUMB" and not (request.form.get("bundle_key") or "").strip():
+        flash("La miniatura tiene que ir vinculada a un videoclip.", "warning")
+        return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
 
     session_db = db()
     try:
@@ -18211,7 +18347,7 @@ def discografica_song_material_upload(song_id):
             session_db.delete(old_row)
             session_db.flush()
 
-        if replace_bundle_key:
+        if replace_bundle_key and category == "STEMS":
             old_rows = (
                 session_db.query(SongMaterial)
                 .filter(SongMaterial.song_id == song.id)
@@ -18249,6 +18385,47 @@ def discografica_song_material_upload(song_id):
             )
             session_db.flush()
             _resolve_song_cover_url(session_db, song)
+
+        elif category == "VIDEOCLIP":
+            # El videoclip principal es único: subir otro sustituye al que hubiera.
+            if slot_key != "SUBPRODUCT":
+                for row in (
+                    session_db.query(SongMaterial)
+                    .filter(SongMaterial.song_id == song.id)
+                    .filter(func.upper(SongMaterial.category) == "VIDEOCLIP")
+                    .filter(func.upper(SongMaterial.slot_key) == "DEFAULT")
+                    .all()
+                ):
+                    session_db.delete(row)
+            fs = files[0]
+            file_url = upload_file(fs, "song_materials", allowed_extensions=SONG_VIDEO_EXTENSIONS)
+            fila = SongMaterial(
+                song_id=song.id,
+                category="VIDEOCLIP",
+                slot_key=slot_key,
+                display_name=display_name,
+                file_name=Path((fs.filename or "videoclip.mp4").replace("\\", "/")).name,
+                file_url=file_url,
+                mime_type=(getattr(fs, "mimetype", "") or "").strip() or None,
+            )
+            session_db.add(fila)
+            session_db.flush()
+            # La miniatura se saca en 2º plano (ffmpeg leyendo por rango, sin bajarse el vídeo).
+            _song_video_poster_schedule(fila.id, file_url)
+
+        elif category == "VIDEO_THUMB":
+            vinculo = (request.form.get("bundle_key") or "").strip()
+            for fs in files:
+                session_db.add(SongMaterial(
+                    song_id=song.id,
+                    category="VIDEO_THUMB",
+                    slot_key="THUMB",
+                    bundle_key=vinculo,
+                    display_name=display_name or "Miniatura",
+                    file_name=Path((fs.filename or "miniatura.jpg").replace("\\", "/")).name,
+                    file_url=upload_image(fs, "song_materials"),
+                    mime_type=(getattr(fs, "mimetype", "") or "").strip() or None,
+                ))
 
         elif category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"}:
             if slot_key != "SUBPRODUCT":

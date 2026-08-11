@@ -3890,3 +3890,31 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 .vac-actions .btn{ display:inline-flex; align-items:center; gap:8px; border-radius:999px; padding:9px 18px; font-weight:600; }
 .vac-stat--free{ border-color:#6A1B9A; }
 .vac-stat--free .vac-stat__n{ color:#6A1B9A; }
+
+/* ETIQUETA de archivo de audio de los materiales: icono del tipo + play + duración.
+   Sin nombre de archivo: el módulo en el que está ya dice qué es. */
+.mat-chip{ display:inline-flex; align-items:center; gap:.5rem; border:1px solid #dfe3e8;
+           background:#f8f9fa; border-radius:999px; padding:.3rem .8rem .3rem .55rem;
+           font-size:.82rem; color:#3a424d; cursor:pointer; transition:background .15s, border-color .15s; }
+.mat-chip:hover{ background:#eef2f6; border-color:#c8d0d9; }
+.mat-chip.is-playing{ background:rgba(227,61,72,.10); border-color:var(--brand-primary,#E33D48); color:var(--brand-primary,#E33D48); }
+.mat-chip__kind{ display:inline-flex; align-items:center; gap:.35rem; font-weight:600; }
+.mat-chip__btn{ width:24px; height:24px; border-radius:50%; background:var(--brand-primary,#E33D48);
+                color:#fff; display:inline-flex; align-items:center; justify-content:center; font-size:.6rem; flex:0 0 auto; }
+.mat-chip.is-playing .mat-chip__btn{ background:#111827; }
+.mat-chip__dur{ font-variant-numeric:tabular-nums; color:#6b7280; min-width:2.2em; }
+.mat-chip.is-playing .mat-chip__dur{ color:inherit; }
+.mat-chip audio{ display:none; }
+
+/* VIDEOCLIP: mismo hueco que la portada, con la miniatura del vídeo. */
+.mat-video{ position:relative; border:1px solid #e9ecef; border-radius:.7rem; padding:.75rem;
+            display:flex; align-items:center; gap:.75rem; min-height:96px; background:#fff; }
+.mat-video__thumb{ width:150px; height:84px; object-fit:cover; border-radius:.6rem; border:1px solid #eee; background:#000; }
+.mat-video__placeholder{ width:150px; height:84px; border-radius:.6rem; border:1px dashed #d4d9e0;
+                         display:flex; align-items:center; justify-content:center; color:#c2c8d2; font-size:1.5rem; }
+.mat-video__play{ position:absolute; left:calc(.75rem + 59px); top:50%; transform:translate(-50%,-50%);
+                  width:34px; height:34px; border-radius:50%; background:rgba(0,0,0,.55); color:#fff;
+                  display:flex; align-items:center; justify-content:center; pointer-events:none; }
+.mat-video__body{ flex:1; min-width:0; }
+.mat-video__thumbs{ display:flex; gap:.3rem; flex-wrap:wrap; margin-top:.4rem; }
+.mat-video__thumbs img{ width:44px; height:26px; object-fit:cover; border-radius:.25rem; border:1px solid #eee; }

@@ -288,6 +288,32 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   provisional). Audio **solo `.wav`**; barra de estado de 5 básicos, verde solo con portada **principal**.
   Reproductor inline `<audio>` + menú de 3 puntos (compartir/descargar/reemplazar/eliminar) vía macros
   locales de la plantilla.
+- **MATERIALES DE CANCIÓN · etiqueta de audio y VIDEOCLIP** (ago 2026):
+  · **El audio se ve como una ETIQUETA** (`.mat-chip`): icono del tipo + **play** + **duración**, y
+  **sin nombre de archivo** —el módulo ya dice qué es («Master 48 bits», «Instrumental»…)—. Al
+  pinchar suena, y **solo suena uno a la vez**. Motor `static/js/media_chip.js` (GLOBAL en
+  `layout.html`), que engancha cualquier `[data-chip-src]`. La **duración la lee el navegador**
+  (`preload="metadata"`: una lectura por rango del principio del archivo), no el servidor: así no
+  cuesta una llamada a ffmpeg por archivo en cada carga y vale también para lo ya subido. Si no se
+  puede leer, la etiqueta no la enseña. En los **stems** se conserva el nombre (ahí es lo único que
+  los distingue).
+  · **Maqueta**: Portada · **Videoclip** (mismo hueco que la portada, justo debajo) · Masters ·
+  Instrumental · TV Track · **Stems**, que ocupa media columna para caer debajo de Instrumental y al
+  lado de TV Track.
+  · **VIDEOCLIP** (`SongMaterial.category='VIDEOCLIP'`, slots DEFAULT/SUBPRODUCT): se ve con su
+  **miniatura**, y en los tres puntitos se descarga **en MOV o en MP4**
+  (`_convert_video_content`: MOV y MP4 son el mismo códec en otro contenedor, así que se **remuxa**
+  con `-c copy` —casi instantáneo y sin tocar la calidad— y solo si eso falla se recodifica).
+  ⚠️ ffmpeg no está en el PATH del servidor: se usa el binario de imageio-ffmpeg (`_ffmpeg_exe`),
+  el mismo del póster de los vídeos.
+  · **Miniaturas**: la automática la saca ffmpeg en 2º plano (`_song_video_poster_schedule` →
+  `SongMaterial.poster_url`, leyendo por RANGO sin bajarse el vídeo). Además se pueden **subir
+  miniaturas a mano** (`category='VIDEO_THUMB'`), que **mandan** sobre la automática y se vinculan
+  al vídeo por **`bundle_key` = id del videoclip**.
+  ⚠️ `bundle_key` significa DOS cosas: el paquete de STEMS (que se **reemplaza** al subir) y el
+  videoclip de una miniatura (que se **añade**). Por eso el reemplazo por `bundle_key` está
+  limitado a STEMS: sin ese filtro, subir una miniatura borraba las anteriores.
+
 - **BARRA DE BOTONES de la ficha de CANCIÓN y de ÁLBUM** (ago 2026): las dos tienen ya la
   **`.ficha-quick`** bajo la cabecera (la misma de la ficha de actividad) y en ellas se llena de
   **DERECHA A IZQUIERDA** (`.ficha-quick--end` = `flex-direction: row-reverse`): el primer botón del

@@ -615,13 +615,19 @@ class SongMaterial(Base):
         nullable=False,
     )
 
-    category = Column(Text, nullable=False)  # COVER | MASTER | INSTRUMENTAL | TV_TRACK | STEMS
+    # COVER | MASTER | INSTRUMENTAL | TV_TRACK | STEMS | VIDEOCLIP | VIDEO_THUMB
+    category = Column(Text, nullable=False)
     slot_key = Column(Text, nullable=False, server_default=text("'DEFAULT'"))
+    # STEMS: agrupa los archivos de un mismo paquete. VIDEO_THUMB: el id del VIDEOCLIP al que
+    # pertenece la miniatura (así una miniatura siempre sabe de qué vídeo es).
     bundle_key = Column(Text)
     display_name = Column(Text)
     file_name = Column(Text, nullable=False)
     file_url = Column(Text, nullable=False)
     mime_type = Column(Text)
+    # Fotograma del VÍDEO generado con ffmpeg (miniatura automática). Las miniaturas que se suben a
+    # mano son filas VIDEO_THUMB y mandan sobre esta.
+    poster_url = Column(Text)
     # Validación de entrega pública: VALIDATED (lo sube el equipo) | PENDING (recibido por enlace, a revisar)
     validation_status = Column(Text, nullable=False, server_default=text("'VALIDATED'"))
     delivery_link_id = Column(PGUUID(as_uuid=True))
@@ -6107,6 +6113,8 @@ def ensure_song_delivery_schema():
         "CREATE INDEX IF NOT EXISTS idx_song_master_delivery_song ON song_master_delivery_links(song_id, status);",
         "ALTER TABLE song_materials ADD COLUMN IF NOT EXISTS validation_status text NOT NULL DEFAULT 'VALIDATED';",
         "ALTER TABLE song_materials ADD COLUMN IF NOT EXISTS delivery_link_id uuid;",
+        # Miniatura automática del VIDEOCLIP (fotograma sacado con ffmpeg).
+        "ALTER TABLE song_materials ADD COLUMN IF NOT EXISTS poster_url text;",
     ]
     for _s in stmts:
         try:
@@ -6347,6 +6355,8 @@ def ensure_isrc_and_song_detail_schema():
         """,
         "ALTER TABLE song_materials ADD COLUMN IF NOT EXISTS validation_status text NOT NULL DEFAULT 'VALIDATED';",
         "ALTER TABLE song_materials ADD COLUMN IF NOT EXISTS delivery_link_id uuid;",
+        # Miniatura automática del VIDEOCLIP (fotograma sacado con ffmpeg).
+        "ALTER TABLE song_materials ADD COLUMN IF NOT EXISTS poster_url text;",
         "ALTER TABLE IF EXISTS song_master_delivery_links ADD COLUMN IF NOT EXISTS materials_json jsonb NOT NULL DEFAULT '[]'::jsonb;",
         'CREATE INDEX IF NOT EXISTS idx_song_materials_song_id ON song_materials(song_id);',
         'CREATE INDEX IF NOT EXISTS idx_song_materials_song_category ON song_materials(song_id, category, slot_key);',

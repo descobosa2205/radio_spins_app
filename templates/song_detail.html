@@ -1360,18 +1360,23 @@
       {% endif %}
     {% endmacro %}
 
-    {# Fila de archivo de audio: reproductor inline + menú de 3 puntos.
-       En los huecos FIJOS (masters, instrumental, TV track) NO se pone el nombre del archivo: el
-       módulo ya se llama «Master 48 bits», así que solo va el icono y, seguido, la pre-escucha.
-       En los SUBPRODUCTOS y los stems sí, que ahí el nombre es lo único que los distingue. #}
+    {# ETIQUETA de audio: icono del tipo + play + duración. Sin nombre de archivo — el módulo en el
+       que está ya dice qué es («Master 48 bits», «Instrumental»…) y el nombre lo pone quien lo sube.
+       Al pinchar suena; la duración la lee el navegador (ver media_chip.js). #}
+    {% macro audio_chip(item) %}
+      <span class="mat-chip" data-chip-src="{{ item.file_url }}" title="Reproducir">
+        <span class="mat-chip__btn"><i class="fa fa-play" data-chip-icon></i></span>
+        <span class="mat-chip__kind"><i class="fa fa-file-audio"></i>Audio</span>
+        <span class="mat-chip__dur" data-chip-dur></span>
+      </span>
+    {% endmacro %}
+
+    {# Fila de archivo de audio: la etiqueta + el menú de 3 puntos. #}
     {% macro audio_row(concept, item, fixed_slot=True) %}
       <div class="mat-file">
         <div class="mat-file__main">
-          <div class="mat-file__name">
-            <i class="fa fa-file-audio text-muted{% if not fixed_slot %} me-2{% endif %}"></i>{% if not fixed_slot %}{{ item.base_name }}{% endif %}
-            {% if item.is_pending %} <span class="badge text-bg-warning text-dark ms-1">Pendiente de validar</span>{% endif %}
-          </div>
-          <audio class="mat-file__audio" controls preload="none" src="{{ item.file_url }}"></audio>
+          {{ audio_chip(item) }}
+          {% if item.is_pending %}<span class="badge text-bg-warning text-dark">Pendiente de validar</span>{% endif %}
         </div>
         {% if item.is_pending and CAN_EDIT_DISCOGRAFICA %}
           <form method="post" action="{{ url_for('discografica_song_material_validate', song_id=song.id, material_id=item.id) }}" class="d-inline me-1"><button class="btn btn-sm btn-success" title="Validar"><i class="fa fa-check"></i></button></form>
@@ -1485,6 +1490,72 @@
       </div>
     </div>
 
+    {# ---------- VIDEOCLIP: mismo hueco que la portada, justo debajo ---------- #}
+    {% macro video_box(item, role_label) %}
+      <div class="mat-video">
+        <span class="mat-cover__badge {{ 'mat-cover__badge--main' if role_label == 'Videoclip' else '' }}">{{ role_label }}</span>
+        {% if item %}
+          {% if item.preview_url %}
+            <img class="mat-video__thumb" src="{{ item.preview_url }}" alt="Miniatura del videoclip">
+          {% else %}
+            <div class="mat-video__placeholder"><i class="fa fa-film"></i></div>
+          {% endif %}
+          <a class="mat-video__play" href="{{ item.file_url }}" target="_blank" rel="noopener" style="pointer-events:auto;" title="Ver el vídeo"><i class="fa fa-play"></i></a>
+          <div class="mat-video__body">
+            <div class="small text-muted text-truncate">{{ item.file_name }}</div>
+            {% if item.is_pending %}<span class="badge text-bg-warning text-dark mt-1">Pendiente de validar</span>{% endif %}
+            {% if item.thumbs %}
+              <div class="mat-video__thumbs">
+                {% for t in item.thumbs %}<img src="{{ t.file_url }}" alt="{{ t.file_name }}" title="{{ t.file_name }}">{% endfor %}
+              </div>
+            {% endif %}
+          </div>
+          <div class="dropdown">
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-h"></i></button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><h6 class="dropdown-header">Compartir</h6></li>
+              <li><button class="dropdown-item" type="button" onclick="shareByMail({{ (role_label ~ ' · ' ~ song.title)|tojson|forceescape }}, {{ item.share_url|tojson|forceescape }})"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por mail</button></li>
+              <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp({{ (role_label ~ ' · ' ~ song.title)|tojson|forceescape }}, {{ item.share_url|tojson|forceescape }})"><i class="fab fa-whatsapp fa-fw me-1"></i>WhatsApp</button></li>
+              <li><button class="dropdown-item" type="button" onclick="shareBySms({{ (role_label ~ ' · ' ~ song.title)|tojson|forceescape }}, {{ item.share_url|tojson|forceescape }})"><i class="fa fa-comment fa-fw me-1"></i>SMS</button></li>
+              <li><button class="dropdown-item" type="button" onclick="copyShareLink({{ item.share_url|tojson|forceescape }})"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><h6 class="dropdown-header">Descargar</h6></li>
+              <li><a class="dropdown-item" href="{{ item.download_mov_url }}"><i class="fa fa-film fa-fw me-1"></i>En MOV</a></li>
+              <li><a class="dropdown-item" href="{{ item.download_mp4_url }}"><i class="fa fa-film fa-fw me-1"></i>En MP4</a></li>
+              {% if CAN_EDIT_DISCOGRAFICA %}
+                <li><hr class="dropdown-divider"></li>
+                <li><button class="dropdown-item" type="button" onclick="openSongMaterialModal({title:'Subir miniatura', category:'VIDEO_THUMB', slotKey:'THUMB', bundleKey:{{ item.id|tojson|forceescape }}, showDisplayName:false, multiple:true, stemMode:false})"><i class="fa fa-image fa-fw me-1"></i>Añadir miniatura</button></li>
+                <li><button class="dropdown-item" type="button" onclick="openSongMaterialModal({title:'Sustituir videoclip', category:'VIDEOCLIP', slotKey:{{ item.slot_key|tojson|forceescape }}, materialId:{{ item.id|tojson|forceescape }}, showDisplayName:{{ 'true' if item.slot_key == 'SUBPRODUCT' else 'false' }}, multiple:false, stemMode:false, displayName:{{ (item.display_name or '')|tojson|forceescape }}})"><i class="fa fa-rotate fa-fw me-1"></i>Reemplazar</button></li>
+                <li><form method="post" action="{{ url_for('discografica_song_material_delete', song_id=song.id, material_id=item.id) }}" onsubmit="return confirm('¿Eliminar este videoclip?');"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></form></li>
+              {% endif %}
+            </ul>
+          </div>
+        {% else %}
+          <div class="mat-video__placeholder"><i class="fa fa-film"></i></div>
+          <div class="mat-video__body"><div class="small text-muted">Sin videoclip.</div></div>
+          {% if CAN_EDIT_DISCOGRAFICA %}
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSongMaterialModal({title:'Subir videoclip', category:'VIDEOCLIP', slotKey:'DEFAULT', showDisplayName:false, multiple:false, stemMode:false})"><i class="fa fa-upload me-1"></i>Subir</button>
+          {% endif %}
+        {% endif %}
+      </div>
+    {% endmacro %}
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-3">
+          <div class="d-flex align-items-center gap-2"><i class="fa fa-film text-muted"></i><h6 class="m-0">Videoclip</h6></div>
+          {% if CAN_EDIT_DISCOGRAFICA %}
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSongMaterialModal({title:'Añadir subproducto de videoclip', category:'VIDEOCLIP', slotKey:'SUBPRODUCT', showDisplayName:true, multiple:false, stemMode:false, displayName:''})"><i class="fa fa-plus"></i> Subproducto</button>
+          {% endif %}
+        </div>
+        <div class="row g-3">
+          <div class="{{ 'col-12 col-md-6' if song_materials.videoclip_subproducts else 'col-12' }}">{{ video_box(song_materials.videoclip_default, 'Videoclip') }}</div>
+          {% for item in song_materials.videoclip_subproducts %}
+            <div class="col-12 col-md-6">{{ video_box(item, item.label) }}</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
     <div class="row g-3">
 
       <div class="col-12 col-xl-6">
@@ -1569,8 +1640,9 @@
         </div>
       {% endfor %}
 
-      <div class="col-12">
-        <div class="card">
+      {# Stems ocupa media columna: cae debajo de Instrumental y al lado de TV Track. #}
+      <div class="col-12 col-xl-6">
+        <div class="card h-100">
           <div class="card-body">
             <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-3">
               <div class="d-flex align-items-center gap-2"><i class="fa fa-layer-group text-muted"></i><h6 class="m-0">Stems</h6></div>
@@ -1610,8 +1682,8 @@
                     <div class="d-flex flex-column gap-1">
                       {% for f in group.rows %}
                         <div class="mat-stemfile">
-                          <span class="mat-stemfile__name"><i class="fa fa-file-audio text-muted me-2"></i>{{ f.base_name }}</span>
-                          {% if f.is_audio %}<audio class="mat-file__audio" controls preload="none" src="{{ f.file_url }}"></audio>{% endif %}
+                          <span class="mat-stemfile__name">{{ f.base_name }}</span>
+                          {% if f.is_audio %}{{ audio_chip(f) }}{% endif %}
                         </div>
                       {% endfor %}
                     </div>
@@ -1687,9 +1759,18 @@
           filesInput.value = '';
           folderInput.value = '';
           filesInput.multiple = !!cfg.multiple;
-          filesInput.accept = cfg.category === 'COVER' ? 'image/*' : (cfg.stemMode ? '.zip,.wav,.wave,audio/*' : '.wav,.wave');
-          filesLabel.textContent = cfg.stemMode ? 'Archivos / ZIP' : 'Archivo';
-          help.textContent = cfg.stemMode ? 'Puedes seleccionar varios archivos (.wav), un ZIP o una carpeta completa.' : (cfg.category === 'COVER' ? 'Se admite cualquier formato de imagen.' : 'Solo se admite formato .wav.');
+          // Qué se admite en cada tipo de material.
+          const esImagen = (cfg.category === 'COVER' || cfg.category === 'VIDEO_THUMB');
+          const esVideo = (cfg.category === 'VIDEOCLIP');
+          filesInput.accept = esImagen ? 'image/*'
+                            : (esVideo ? '.mov,.mp4,.m4v,.mkv,.webm,.avi,video/*'
+                            : (cfg.stemMode ? '.zip,.wav,.wave,audio/*' : '.wav,.wave'));
+          filesLabel.textContent = cfg.stemMode ? 'Archivos / ZIP' : (cfg.multiple ? 'Archivos' : 'Archivo');
+          help.textContent = cfg.stemMode
+            ? 'Puedes seleccionar varios archivos (.wav), un ZIP o una carpeta completa.'
+            : (cfg.category === 'VIDEO_THUMB' ? 'Miniaturas del videoclip: cualquier formato de imagen.'
+            : (esVideo ? 'Formatos de vídeo: MOV, MP4, M4V, MKV, WEBM o AVI.'
+            : (cfg.category === 'COVER' ? 'Se admite cualquier formato de imagen.' : 'Solo se admite formato .wav.')));
           folderWrap.style.display = cfg.stemMode ? '' : 'none';
           folderInput.disabled = !cfg.stemMode;
           _songMaterialUploadModal = new bootstrap.Modal(document.getElementById('songMaterialUploadModal'));

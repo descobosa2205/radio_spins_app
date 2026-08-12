@@ -424,6 +424,7 @@ _CSRF_EXEMPT_ENDPOINTS = {
     "public_invitation_request_resend",
     "public_invitation_request_recategorize",
     "public_song_master_delivery",
+    "public_song_delivery_sign",
     "public_song_delivery_create_author",
     "public_song_delivery_create_publisher",
     "public_photo_approval",
@@ -786,7 +787,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
+    allowed = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
     if request.endpoint in allowed:
         return
 
@@ -19522,6 +19523,37 @@ def public_song_delivery_create_author(token):
         session_db.close()
 
 
+SONG_DELIVERY_DIRECT_EXTS = {".wav", ".wave", ".zip"}
+
+
+@app.post("/entrega-masters/<token>/api/subida-directa", endpoint="public_song_delivery_sign")
+def public_song_delivery_sign(token):
+    """Prepara la subida DIRECTA de un archivo del navegador a Storage.
+
+    ⚠️ Los masters son archivos GRANDES: mandarlos al servidor dentro del formulario se comía el
+    tiempo (y la memoria) de la petición y la entrega moría con un **502** sin guardar nada — el
+    mismo caso que ya se resolvió con los vídeos. Con esto el archivo va del navegador a Storage y al
+    servidor solo le llega su dirección."""
+    session_db = db()
+    try:
+        if not _song_delivery_active_link(session_db, token):
+            return jsonify({"ok": False, "error": "El enlace ya no está activo."}), 400
+    finally:
+        session_db.close()
+    datos = request.get_json(silent=True) or {}
+    nombre = (datos.get("filename") or "").strip()
+    ext = os.path.splitext(nombre.lower())[1]
+    if ext not in SONG_DELIVERY_DIRECT_EXTS:
+        return jsonify({"ok": False, "error": "Solo .wav (o .zip para los stems)."}), 400
+    try:
+        info = create_signed_upload_url_for("song_materials", ext)
+    except Exception as e:
+        return jsonify({"ok": False, "error": "No se pudo preparar la subida: " + str(e)[:200]}), 502
+    if not info.get("signed_url"):
+        return jsonify({"ok": False, "error": "No se pudo preparar la subida."}), 502
+    return jsonify({"ok": True, "key": info["key"], "upload_url": info["signed_url"]})
+
+
 @app.route("/entrega-masters/<token>", methods=["GET", "POST"], endpoint="public_song_master_delivery")
 def public_song_master_delivery(token):
     session_db = db()
@@ -19629,9 +19661,21 @@ def public_song_master_delivery(token):
                     errors.append("La letra es obligatoria.")
                 data["lyrics"] = lyrics
             uploads = []
+            # Lo que el navegador ya ha subido DIRECTAMENTE a Storage llega como
+            # {campo: [{key, name}]} — el fichero no pasa por aquí (ver public_song_delivery_sign).
+            subidos = _json_dict(request.form.get("uploaded_json"))
+            def _ya_subido(campo):
+                filas = subidos.get(campo)
+                if isinstance(filas, dict):
+                    filas = [filas]
+                return [f for f in (filas or []) if isinstance(f, dict) and (f.get("key") or "").strip()]
             if "MASTERS" in sections:
                 for field, cat, slot in SONG_DELIVERY_MATERIAL_SPECS:
                     if field not in req_materials:
+                        continue
+                    directos = _ya_subido(field)
+                    if directos:
+                        uploads.append((directos[0], cat, slot))
                         continue
                     fs = request.files.get(field)
                     if not fs or not getattr(fs, "filename", ""):
@@ -19642,7 +19686,8 @@ def public_song_master_delivery(token):
                         errors.append("Materiales: «%s» debe ser .wav." % _song_material_slot_label(cat, slot))
                         continue
                     uploads.append((fs, cat, slot))
-                stems = [fs for fs in request.files.getlist("stems") if fs and getattr(fs, "filename", "")] if "stems" in req_materials else []
+                stems = ([fs for fs in request.files.getlist("stems") if fs and getattr(fs, "filename", "")]
+                         + _ya_subido("stems")) if "stems" in req_materials else []
             else:
                 stems = []
 
@@ -19650,15 +19695,42 @@ def public_song_master_delivery(token):
                 return render_template("public_song_master_delivery.html", state="form", errors=errors, form=request.form, **base_ctx)
 
             stems_bundle = uuid.uuid4().hex
+            def _url_de_subido(fs):
+                try:
+                    return public_url_for_key((fs.get("key") or "").strip())
+                except Exception:
+                    app.logger.exception("[entrega-masters] no se pudo resolver la URL del archivo subido")
+                    return ""
+
             for fs, cat, slot in uploads:
-                file_url = upload_file(fs, "song_materials", allowed_extensions={".wav", ".wave"})
+                if isinstance(fs, dict):          # ya está en Storage: solo se apunta dónde
+                    file_url = _url_de_subido(fs)
+                    if not file_url:
+                        errors.append("No se pudo registrar «%s». Vuelve a intentarlo." % (fs.get("name") or "el archivo"))
+                        continue
+                    nombre = (fs.get("name") or "audio.wav").replace("\\", "/")
+                    tipo = None
+                else:
+                    file_url = upload_file(fs, "song_materials", allowed_extensions={".wav", ".wave"})
+                    nombre = (fs.filename or "audio.wav").replace("\\", "/")
+                    tipo = (getattr(fs, "mimetype", "") or "").strip() or None
                 session_db.add(SongMaterial(
                     song_id=song.id, category=cat, slot_key=slot,
-                    file_name=(fs.filename or "audio.wav").replace("\\", "/"), file_url=file_url,
-                    mime_type=(getattr(fs, "mimetype", "") or "").strip() or None,
+                    file_name=nombre, file_url=file_url, mime_type=tipo,
                     validation_status="PENDING", delivery_link_id=link.id,
                 ))
             for fs in stems:
+                if isinstance(fs, dict):
+                    # Stem ya subido directamente a Storage: se apunta tal cual (un ZIP subido así no
+                    # se descomprime aquí; entra como un archivo más del paquete).
+                    session_db.add(SongMaterial(
+                        song_id=song.id, category="STEMS", slot_key="BUNDLE", bundle_key=stems_bundle,
+                        display_name="Stems (entrega)",
+                        file_name=(fs.get("name") or "stem").replace("\\", "/"),
+                        file_url=_url_de_subido(fs),
+                        validation_status="PENDING", delivery_link_id=link.id,
+                    ))
+                    continue
                 _sfn = (fs.filename or "stem").replace("\\", "/")
                 if Path(_sfn).suffix.lower() == ".zip":
                     # Carpeta comprimida: se descomprime y cada archivo interno entra como un stem del bundle.
@@ -19693,6 +19765,12 @@ def public_song_master_delivery(token):
                         mime_type=(getattr(fs, "mimetype", "") or "").strip() or None,
                         validation_status="PENDING", delivery_link_id=link.id,
                     ))
+            if errors:
+                # Algo no se pudo registrar (p. ej. un archivo subido cuya dirección no se resuelve):
+                # se deshace todo y se dice, en vez de dar la entrega por buena a medias.
+                session_db.rollback()
+                return render_template("public_song_master_delivery.html", state="form",
+                                       errors=errors, form=request.form, **base_ctx)
             link.data = data
             link.status = "SUBMITTED"
             link.submitted_at = datetime.now(TZ_MADRID)
@@ -47926,7 +48004,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_song_delivery_og_image", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:

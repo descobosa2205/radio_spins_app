@@ -451,6 +451,17 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   enlace que se comparte. Cambiar de dominio = cambiar UNA variable. Y los logos de los correos ya no
   usan `url_for(..., _external=True)` (que toma el host de la petición): **no queda ninguno**.
 
+- ⚠️⚠️ **ENTREGA DE MASTERS · el 502 al enviar el formulario** (bug real, ago 2026). Los masters son
+  archivos GRANDES: si viajan dentro del formulario, la petición se pasa del tiempo (y de la memoria)
+  que el servidor le da y **muere con un 502 sin guardar nada** — el mismo caso que ya se resolvió con
+  los vídeos. Ahora el navegador los sube **DIRECTAMENTE a Storage** con una URL firmada
+  (`public_song_delivery_sign`, exento de CSRF y en las tres listas públicas) y al servidor solo le
+  llega su dirección en `uploaded_json` (`{campo: [{key, name}]}`); el formulario enseña una barra con
+  el archivo que va subiendo. ⚠️ Si la subida directa falla, se manda **todo** por el servidor como
+  antes (respaldo) y se **descarta lo ya subido**, para que ningún archivo entre dos veces.
+  ⚠️ Si al registrar un archivo ya subido no se puede resolver su dirección, **se deshace la entrega
+  entera y se avisa**: una entrega a medias no se da por buena.
+
 - **ENTREGA DE MASTERS · qué se pide y qué es obligatorio, campo a campo** (ago 2026):
   · Catálogo ÚNICO **`_song_delivery_askable()`** (campos de producción + autoral + letra + cada
   material) y **`_song_delivery_config(link)`**, que dice para ESE enlace si cada cosa se pide y si

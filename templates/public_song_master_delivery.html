@@ -149,8 +149,111 @@
           </div></div>
         {% endif %}
 
-        <div class="d-grid mb-5"><button class="btn btn-danger btn-lg" type="submit"><i class="fa fa-paper-plane me-2"></i>Enviar entrega</button></div>
+        <input type="hidden" name="uploaded_json" id="uploadedJson" value="">
+        <div class="progress mb-2 d-none" id="dlProgress" style="height:22px">
+          <div class="progress-bar bg-danger" id="dlProgressBar" style="width:0%">0%</div>
+        </div>
+        <div class="small text-muted mb-2 d-none" id="dlProgressLabel"></div>
+        <div class="d-grid mb-5"><button class="btn btn-danger btn-lg" type="submit" id="dlSubmit"><i class="fa fa-paper-plane me-2"></i>Enviar entrega</button></div>
       </form>
+
+      {% if 'MASTERS' in sections %}
+      <script>
+        // ⚠️ Los masters son archivos GRANDES: si viajan dentro del formulario, la petición se pasa
+        // del tiempo del servidor y la entrega muere con un 502 sin guardar nada. Aquí se suben
+        // ANTES, del navegador a Storage (URL firmada), y el formulario solo manda su dirección.
+        // Si la subida directa no estuviera disponible, se envía como siempre (respaldo).
+        document.addEventListener('DOMContentLoaded', function () {
+          var FIRMAR = {{ url_for('public_song_delivery_sign', token=link.token)|tojson }};
+          var form = document.getElementById('deliveryForm');
+          var oculto = document.getElementById('uploadedJson');
+          var barra = document.getElementById('dlProgressBar');
+          var zona = document.getElementById('dlProgress');
+          var texto = document.getElementById('dlProgressLabel');
+          var boton = document.getElementById('dlSubmit');
+          if (!form || !oculto) return;
+          var enviando = false;
+
+          function campos() {
+            return Array.prototype.slice.call(form.querySelectorAll('input[type="file"]'))
+              .filter(function (i) { return i.files && i.files.length; });
+          }
+          function progreso(pct, msg) {
+            zona.classList.remove('d-none'); texto.classList.remove('d-none');
+            barra.style.width = Math.max(2, Math.min(100, pct)) + '%';
+            barra.textContent = Math.round(pct) + '%';
+            texto.textContent = msg || '';
+          }
+          function subirUno(file) {
+            return fetch(FIRMAR, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ filename: file.name })
+            }).then(function (r) { return r.json().catch(function () { return {}; }); }).then(function (sig) {
+              if (!sig || !sig.ok || !sig.upload_url || !sig.key) return Promise.reject(new Error('sin firma'));
+              return new Promise(function (resolve, reject) {
+                var fd = new FormData();
+                fd.append('cacheControl', '31536000');
+                fd.append('', file);                 // campo vacío = el fichero (mecánica de Supabase)
+                var xhr = new XMLHttpRequest();
+                xhr.open('PUT', sig.upload_url);     // la URL ya lleva el token
+                xhr.upload.onprogress = function (e) {
+                  if (e.lengthComputable) subirUno.onchunk && subirUno.onchunk(e.loaded / e.total);
+                };
+                xhr.onload = function () {
+                  (xhr.status >= 200 && xhr.status < 300)
+                    ? resolve({ key: sig.key, name: file.name })
+                    : reject(new Error('HTTP ' + xhr.status));
+                };
+                xhr.onerror = function () { reject(new Error('red')); };
+                xhr.send(fd);
+              });
+            });
+          }
+
+          form.addEventListener('submit', function (ev) {
+            if (enviando) return;                     // segunda vuelta: ya está todo subido
+            var inputs = campos();
+            if (!inputs.length) return;               // nada que subir: envío normal
+            ev.preventDefault();
+            boton.disabled = true;
+            var tareas = [];
+            inputs.forEach(function (inp) {
+              Array.prototype.slice.call(inp.files).forEach(function (f) { tareas.push({ campo: inp.name, file: f }); });
+            });
+            var hechos = {}, i = 0;
+            function siguiente() {
+              if (i >= tareas.length) {
+                oculto.value = JSON.stringify(hechos);
+                // Los ficheros ya están arriba: se quitan del formulario para no mandarlos otra vez.
+                inputs.forEach(function (inp) { inp.disabled = true; });
+                enviando = true;
+                progreso(100, 'Enviando la entrega…');
+                form.submit();
+                return;
+              }
+              var t = tareas[i];
+              progreso((i / tareas.length) * 100, 'Subiendo ' + t.file.name + ' (' + (i + 1) + ' de ' + tareas.length + ')…');
+              subirUno.onchunk = function (frac) {
+                progreso(((i + frac) / tareas.length) * 100, 'Subiendo ' + t.file.name + ' (' + (i + 1) + ' de ' + tareas.length + ')…');
+              };
+              subirUno(t.file).then(function (info) {
+                (hechos[t.campo] = hechos[t.campo] || []).push(info);
+                i++; siguiente();
+              }).catch(function () {
+                // Sin subida directa: se manda TODO como siempre (más lento, pero funciona). Se
+                // descarta lo ya subido para que ningún archivo entre dos veces.
+                oculto.value = '';
+                inputs.forEach(function (inp) { inp.disabled = false; });
+                enviando = true;
+                progreso(100, 'Enviando la entrega…');
+                form.submit();
+              });
+            }
+            siguiente();
+          });
+        });
+      </script>
+      {% endif %}
 
       {% if 'PRODUCTION' in sections and conf.get('prod.producer', {}).get('ask') %}
       <script>

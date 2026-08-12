@@ -754,7 +754,11 @@
                       </tr>
                     </thead>
                     <tbody>
-                      {% for c in isrc_codes %}
+                      {# AUDIO y VÍDEO por separado: son cosas distintas y el de vídeo se registra
+                         aparte (en AGEDI, como subproducto del single). #}
+                      {% for grupo, etiqueta in [(isrc_audio, 'Audio'), (isrc_video, 'Vídeo')] %}
+                      {% if grupo %}<tr class="table-light"><td colspan="4" class="small fw-semibold">{{ etiqueta }}</td></tr>{% endif %}
+                      {% for c in grupo %}
                         <tr>
                           <td class="text-nowrap">{{ c.kind }}</td>
                           <td class="text-nowrap">{{ c.display_code or c.code|isrc }}</td>
@@ -776,6 +780,7 @@
                             {% endif %}
                           </td>
                         </tr>
+                      {% endfor %}
                       {% endfor %}
                     </tbody>
                   </table>
@@ -1539,22 +1544,143 @@
         {% endif %}
       </div>
     {% endmacro %}
+    {# SIN VIDEOCLIP: la canción no va a tener vídeo. Desaparece el módulo entero y queda solo la
+       etiqueta; al pincharla se deshace y vuelve a poder subirse. #}
+    {% if song.no_videoclip %}
+      <div class="card mb-3">
+        <div class="card-body d-flex align-items-center justify-content-between gap-2 flex-wrap py-2">
+          <div class="d-flex align-items-center gap-2"><i class="fa fa-film text-muted"></i><h6 class="m-0">Videoclip</h6></div>
+          {% if CAN_EDIT_DISCOGRAFICA %}
+            <form method="post" action="{{ url_for('discografica_song_videoclip_data', song_id=song.id) }}" class="m-0">
+              <input type="hidden" name="modo" value="sin_videoclip">
+              <input type="hidden" name="valor" value="0">
+              <button class="badge text-bg-secondary border-0" type="submit" title="Pincha para deshacerlo y poder subir el videoclip">
+                <i class="fa fa-ban me-1"></i>Sin videoclip
+              </button>
+            </form>
+          {% else %}
+            <span class="badge text-bg-secondary"><i class="fa fa-ban me-1"></i>Sin videoclip</span>
+          {% endif %}
+        </div>
+      </div>
+    {% else %}
     <div class="card mb-3">
       <div class="card-body">
         <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-3">
           <div class="d-flex align-items-center gap-2"><i class="fa fa-film text-muted"></i><h6 class="m-0">Videoclip</h6></div>
           {% if CAN_EDIT_DISCOGRAFICA %}
-            <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSongMaterialModal({title:'Añadir subproducto de videoclip', category:'VIDEOCLIP', slotKey:'SUBPRODUCT', showDisplayName:true, multiple:false, stemMode:false, displayName:''})"><i class="fa fa-plus"></i> Subproducto</button>
+            <div class="d-flex gap-2">
+              <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSongMaterialModal({title:'Añadir subproducto de videoclip', category:'VIDEOCLIP', slotKey:'SUBPRODUCT', showDisplayName:true, multiple:false, stemMode:false, displayName:''})"><i class="fa fa-plus"></i> Subproducto</button>
+              <form method="post" action="{{ url_for('discografica_song_videoclip_data', song_id=song.id) }}" class="m-0"
+                    data-confirm="¿Marcar esta canción como SIN videoclip? El módulo desaparece (se puede deshacer).">
+                <input type="hidden" name="modo" value="sin_videoclip">
+                <input type="hidden" name="valor" value="1">
+                <button class="btn btn-sm btn-outline-secondary" type="submit"><i class="fa fa-ban me-1"></i>Sin videoclip</button>
+              </form>
+            </div>
           {% endif %}
         </div>
+
         <div class="row g-3">
-          <div class="{{ 'col-12 col-md-6' if song_materials.videoclip_subproducts else 'col-12' }}">{{ video_box(song_materials.videoclip_default, 'Videoclip') }}</div>
-          {% for item in song_materials.videoclip_subproducts %}
-            <div class="col-12 col-md-6">{{ video_box(item, item.label) }}</div>
-          {% endfor %}
+          {# IZQUIERDA: el vídeo y sus archivos. #}
+          <div class="col-12 col-lg-6">
+            <div class="d-flex flex-column gap-3">
+              {{ video_box(song_materials.videoclip_default, 'Videoclip') }}
+              {% for item in song_materials.videoclip_subproducts %}
+                {{ video_box(item, item.label) }}
+              {% endfor %}
+            </div>
+          </div>
+
+          {# DERECHA: los datos del vídeo. #}
+          <div class="col-12 col-lg-6">
+            <form method="post" action="{{ url_for('discografica_song_videoclip_data', song_id=song.id) }}" class="row g-3">
+              <div class="col-12 col-sm-6">
+                <label class="form-label">Fecha de grabación</label>
+                <input type="date" name="recorded_on" class="form-control" value="{{ song.videoclip_recorded_on.isoformat() if song.videoclip_recorded_on else '' }}" {{ '' if CAN_EDIT_DISCOGRAFICA else 'disabled' }}>
+              </div>
+              <div class="col-12 col-sm-6">
+                <label class="form-label">Fecha de publicación</label>
+                <input type="date" name="release_date" id="vcReleaseDate" class="form-control"
+                       value="{{ (song.videoclip_release_date or (song.release_date if song.videoclip_same_release else None)).isoformat() if (song.videoclip_release_date or (song.release_date if song.videoclip_same_release else None)) else '' }}"
+                       {{ 'disabled' if not CAN_EDIT_DISCOGRAFICA else '' }}>
+                <div class="form-check mt-1">
+                  <input class="form-check-input" type="checkbox" name="same_release" value="1" id="vcSameRelease"
+                         {% if song.videoclip_same_release %}checked{% endif %} {{ '' if CAN_EDIT_DISCOGRAFICA else 'disabled' }}>
+                  <label class="form-check-label small" for="vcSameRelease">
+                    La misma que el single{% if song.release_date %} ({{ song.release_date.strftime('%d/%m/%Y') }}){% endif %}
+                  </label>
+                </div>
+              </div>
+
+              <div class="col-12">
+                <label class="form-label">Director</label>
+                {# Tercero, con buscador y foto; y se puede crear al momento con el +. #}
+                <div class="d-flex gap-2 align-items-start">
+                  <select name="director_promoter_id" id="vcDirector" class="form-select select-providers" data-placeholder="Busca al director…" {{ '' if CAN_EDIT_DISCOGRAFICA else 'disabled' }}>
+                    <option value=""></option>
+                    {% if videoclip_director %}
+                      <option value="{{ videoclip_director.id }}" data-photo="{{ videoclip_director.logo_url or '' }}" selected>{{ videoclip_director.nick }}</option>
+                    {% endif %}
+                  </select>
+                  {% if CAN_EDIT_DISCOGRAFICA %}
+                    <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter" data-target="vcDirector" title="Crear un tercero nuevo"><i class="fa fa-plus"></i></button>
+                  {% endif %}
+                </div>
+              </div>
+
+              {% if CAN_EDIT_DISCOGRAFICA %}
+                <div class="col-12"><button class="btn btn-primary btn-sm"><i class="fa fa-floppy-disk me-1"></i>Guardar datos del vídeo</button></div>
+              {% endif %}
+            </form>
+
+            {# ISRC de VÍDEO: los mismos que en Información, mirados desde aquí. #}
+            <div class="mt-3">
+              <div class="mat-subhead">ISRC de vídeo</div>
+              {% if isrc_video %}
+                <div class="d-flex flex-wrap gap-1">
+                  {% for c in isrc_video %}
+                    <span class="badge {{ 'text-bg-success' if (c.display_code or c.code) in agedi_registered_isrcs else 'text-bg-warning text-dark' }}"
+                          title="{{ 'Registrado en AGEDI' if (c.display_code or c.code) in agedi_registered_isrcs else 'Pendiente de registro' }}">
+                      {{ c.display_code or c.code|isrc }}{% if not c.is_primary and c.subproduct_name %} · {{ c.subproduct_name }}{% endif %}
+                    </span>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="mat-empty">Sin ISRC de vídeo. Se añaden en <a href="{{ url_for('discografica_song_detail', song_id=song.id, tab='informacion') }}">Información</a>.</div>
+              {% endif %}
+            </div>
+
+            {# CESIONES de derechos de imagen: se suben o se arrastran. #}
+            <div class="mt-3">
+              <div class="d-flex justify-content-between align-items-center">
+                <div class="mat-subhead mb-0">Cesiones de derechos de imagen</div>
+                {% if CAN_EDIT_DISCOGRAFICA %}
+                  <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSongMaterialModal({title:'Subir cesiones de derechos de imagen', category:'VIDEO_RIGHTS', slotKey:'DOC', showDisplayName:false, multiple:true, stemMode:false})"><i class="fa fa-upload me-1"></i>Subir</button>
+                {% endif %}
+              </div>
+              {% if song_materials.video_rights %}
+                <div class="list-group list-group-flush mt-1">
+                  {% for d in song_materials.video_rights %}
+                    <div class="list-group-item d-flex justify-content-between align-items-center gap-2 px-0 py-1">
+                      <a href="{{ d.file_url }}" target="_blank" rel="noopener" class="small text-truncate"><i class="fa fa-file-signature text-muted me-1"></i>{{ d.file_name }}</a>
+                      {% if CAN_EDIT_DISCOGRAFICA %}
+                        <form method="post" action="{{ url_for('discografica_song_material_delete', song_id=song.id, material_id=d.id) }}" class="m-0" data-confirm="¿Eliminar esta cesión?">
+                          <button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash"></i></button>
+                        </form>
+                      {% endif %}
+                    </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="mat-empty mt-1">Sin cesiones subidas. Puedes arrastrarlas aquí.</div>
+              {% endif %}
+            </div>
+          </div>
         </div>
       </div>
     </div>
+    {% endif %}
 
     <div class="row g-3">
 

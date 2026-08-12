@@ -482,6 +482,15 @@ class Song(Base):
     # playlists…). Es un campo más de la ficha, y se puede descargar en PDF o mandar.
     pitch_text = Column(Text)
     pitch_updated_at = Column(DateTime(timezone=True))
+    # VIDEOCLIP de la canción. `no_videoclip` = esta canción NO va a tener videoclip: el módulo
+    # entero desaparece de Materiales y solo queda la etiqueta (se deshace pinchándola).
+    no_videoclip = Column(Boolean, nullable=False, server_default=text("false"))
+    videoclip_recorded_on = Column(Date)          # fecha de grabación
+    videoclip_release_date = Column(Date)         # fecha de publicación del vídeo
+    # «La misma que el single»: la de publicación se toma de `release_date` y se mantiene atada.
+    videoclip_same_release = Column(Boolean, nullable=False, server_default=text("false"))
+    videoclip_director_promoter_id = Column(PGUUID(as_uuid=True),
+                                            ForeignKey("promoters.id", ondelete="SET NULL"))
     # Contenido explícito (se marca al subir la letra); muestra etiqueta "Explícita".
     is_explicit = Column(Boolean, nullable=False, server_default=text("false"))
 
@@ -6115,6 +6124,12 @@ def ensure_song_delivery_schema():
         "ALTER TABLE song_materials ADD COLUMN IF NOT EXISTS delivery_link_id uuid;",
         # Miniatura automática del VIDEOCLIP (fotograma sacado con ffmpeg).
         "ALTER TABLE song_materials ADD COLUMN IF NOT EXISTS poster_url text;",
+        # Datos del VIDEOCLIP (viven en la canción: el vídeo es uno).
+        "ALTER TABLE songs ADD COLUMN IF NOT EXISTS no_videoclip boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE songs ADD COLUMN IF NOT EXISTS videoclip_recorded_on date;",
+        "ALTER TABLE songs ADD COLUMN IF NOT EXISTS videoclip_release_date date;",
+        "ALTER TABLE songs ADD COLUMN IF NOT EXISTS videoclip_same_release boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE songs ADD COLUMN IF NOT EXISTS videoclip_director_promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL;",
     ]
     for _s in stmts:
         try:
@@ -6357,6 +6372,12 @@ def ensure_isrc_and_song_detail_schema():
         "ALTER TABLE song_materials ADD COLUMN IF NOT EXISTS delivery_link_id uuid;",
         # Miniatura automática del VIDEOCLIP (fotograma sacado con ffmpeg).
         "ALTER TABLE song_materials ADD COLUMN IF NOT EXISTS poster_url text;",
+        # Datos del VIDEOCLIP (viven en la canción: el vídeo es uno).
+        "ALTER TABLE songs ADD COLUMN IF NOT EXISTS no_videoclip boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE songs ADD COLUMN IF NOT EXISTS videoclip_recorded_on date;",
+        "ALTER TABLE songs ADD COLUMN IF NOT EXISTS videoclip_release_date date;",
+        "ALTER TABLE songs ADD COLUMN IF NOT EXISTS videoclip_same_release boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE songs ADD COLUMN IF NOT EXISTS videoclip_director_promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL;",
         "ALTER TABLE IF EXISTS song_master_delivery_links ADD COLUMN IF NOT EXISTS materials_json jsonb NOT NULL DEFAULT '[]'::jsonb;",
         'CREATE INDEX IF NOT EXISTS idx_song_materials_song_id ON song_materials(song_id);',
         'CREATE INDEX IF NOT EXISTS idx_song_materials_song_category ON song_materials(song_id, category, slot_key);',

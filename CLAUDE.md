@@ -314,6 +314,31 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   videoclip de una miniatura (que se **añade**). Por eso el reemplazo por `bundle_key` está
   limitado a STEMS: sin ese filtro, subir una miniatura borraba las anteriores.
 
+- **VIDEOCLIP · «Sin videoclip» y datos del vídeo** (ago 2026):
+  · **`Song.no_videoclip`**: la canción no va a tener vídeo. El módulo entero desaparece de
+  Materiales y queda solo la etiqueta «Sin videoclip», que **es un botón**: al pincharla se deshace
+  y vuelve a poder subirse (`discografica_song_videoclip_data`, `modo=sin_videoclip`).
+  · **Maqueta del módulo**: a la IZQUIERDA el vídeo y sus subproductos (con miniatura), a la
+  DERECHA los datos — **fecha de grabación**, **fecha de publicación** (con «la misma que el
+  single», que la ata a `Song.release_date`), **director** (un TERCERO, con buscador Select2 con
+  foto y `data-quick-create="promoter"` para crearlo al vuelo), los **ISRC de vídeo** y las
+  **cesiones de derechos de imagen**.
+  · Campos en `Song`: `videoclip_recorded_on` · `videoclip_release_date` · `videoclip_same_release`
+  · `videoclip_director_promoter_id`. Las cesiones son materiales
+  (`SongMaterial.category='VIDEO_RIGHTS'`), y se **acumulan** (una por persona que sale).
+  · **ISRC separados**: `SongISRCCode.kind` ya distinguía AUDIO y VIDEO; ahora la ficha los reparte
+  (`isrc_audio`/`isrc_video`) y se ven **por separado** en el módulo de ISRC de Información y
+  **también** en el del videoclip — son los mismos datos mirados desde los dos sitios.
+
+- **AVISOS · franjas bajo el menú y campana al principio** (ago 2026, rediseño): la FRANJA
+  (`.notif-strip`, en `#notifBar` justo debajo del menú) **no se va sola**: o se pincha —lleva a su
+  gestión y el aviso queda leído— o se cierra con la ✕ (y sigue pendiente en la campana). La
+  **campana** es lo PRIMERO del menú, **solo se ve si hay pendientes** (el JS le quita el `d-none`)
+  y al pincharla salen todos en un **pop-up** para resolverlos uno a uno.
+  ⚠️ La campana se excluye de `topItems()` en `initUsageOrderedOverflowNav`: si no, el menú de
+  desbordamiento la trata como una sección y `clearOverflow` le quitaría el `d-none` con el que se
+  esconde. Y **fuera el flash de bienvenida** al entrar (`ROLE_WELCOME`).
+
 - **BARRA DE BOTONES de la ficha de CANCIÓN y de ÁLBUM** (ago 2026): las dos tienen ya la
   **`.ficha-quick`** bajo la cabecera (la misma de la ficha de actividad) y en ellas se llena de
   **DERECHA A IZQUIERDA** (`.ficha-quick--end` = `flex-direction: row-reverse`): el primer botón del

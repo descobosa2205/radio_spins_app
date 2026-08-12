@@ -5511,6 +5511,8 @@ def _song_material_slot_label(category: str | None, slot_key: str | None, displa
         return (display_name or "").strip() or "Subproducto"
     if cat == "VIDEO_THUMB":
         return (display_name or "").strip() or "Miniatura"
+    if cat == "VIDEO_RIGHTS":
+        return (display_name or "").strip() or "Cesión de derechos de imagen"
     return (display_name or "").strip() or "Archivo"
 
 
@@ -5971,6 +5973,7 @@ def _build_song_material_context(session_db, song: Song, material_rows: list[Son
     videoclip_default = None
     videoclip_subproducts = []
     video_thumbs: dict[str, list] = {}      # id del videoclip -> miniaturas subidas a mano
+    video_rights: list = []                 # cesiones de derechos de imagen del videoclip
     stems_map: dict[str, dict] = {}
 
     for row in material_rows or []:
@@ -6011,6 +6014,9 @@ def _build_song_material_context(session_db, song: Song, material_rows: list[Son
         if category == "VIDEO_THUMB":
             # La miniatura sabe de qué vídeo es por su bundle_key (el id del videoclip).
             video_thumbs.setdefault(payload["bundle_key"] or "", []).append(payload)
+            continue
+        if category == "VIDEO_RIGHTS":
+            video_rights.append(payload)
             continue
         if category == "STEMS":
             bundle_key = payload["bundle_key"] or payload["id"]
@@ -6082,6 +6088,7 @@ def _build_song_material_context(session_db, song: Song, material_rows: list[Son
         "tv_track_subproducts": tv_track_subproducts,
         "videoclip_default": videoclip_default,
         "videoclip_subproducts": videoclip_subproducts,
+        "video_rights": video_rights,
         "stem_groups": stem_groups,
         "completion": completion,
     }
@@ -6103,6 +6110,8 @@ MATERIAL_SHARE_KINDS = {"MATERIAL", "STEMS_BUNDLE", "SONG_COVER", "ALBUM_MATERIA
 # Materiales de VÍDEO de una canción: el videoclip (y sus subproductos) y las miniaturas que se
 # suben a mano para él. El audio sigue siendo .wav; el vídeo admite los contenedores de siempre.
 SONG_VIDEO_CATEGORIES = {"VIDEOCLIP"}
+# Cesiones de derechos de imagen del videoclip (documentos: PDF o foto).
+SONG_VIDEO_RIGHTS_CATEGORY = "VIDEO_RIGHTS"
 SONG_VIDEO_EXTENSIONS = {".mov", ".mp4", ".m4v", ".mkv", ".webm", ".avi"}
 # En qué formatos se ofrece la descarga de un videoclip.
 SONG_VIDEO_DOWNLOAD_FORMATS = (("mov", "MOV"), ("mp4", "MP4"))
@@ -16804,12 +16813,19 @@ def discografica_song_detail(song_id):
     for code in isrc_codes:
         setattr(code, "display_code", _norm_isrc(getattr(code, "code", None)))
 
+    # Los ISRC de VÍDEO van por separado de los de audio: se ven en el módulo de ISRC de
+    # Información y también en el del videoclip (los mismos datos, mirados desde los dos sitios).
+    isrc_audio = [c for c in isrc_codes if (getattr(c, "kind", "") or "").upper() != "VIDEO"]
+    isrc_video = [c for c in isrc_codes if (getattr(c, "kind", "") or "").upper() == "VIDEO"]
+
     current_isrcs = _current_song_isrcs(session_db, s.id, include_song_field=True)
     agedi_registered_isrcs = _norm_isrc_list(getattr(st, "agedi_registered_isrcs", []) or [])
     agedi_pending_isrcs = [code for code in current_isrcs if code not in set(agedi_registered_isrcs)]
 
     song_materials = _build_song_material_context(session_db, s, material_rows=material_rows)
     materials_status = song_materials.get("completion") or materials_status
+    videoclip_director = (session_db.get(Promoter, s.videoclip_director_promoter_id)
+                          if getattr(s, "videoclip_director_promoter_id", None) else None)
 
     _delivery_active = (
         session_db.query(SongMasterDeliveryLink)
@@ -17217,6 +17233,9 @@ def discografica_song_detail(song_id):
         song_income_total_net=song_income_total_net,
         song_income_entries=song_income_entries,
         song_materials=song_materials,
+        isrc_audio=isrc_audio,
+        isrc_video=isrc_video,
+        videoclip_director=videoclip_director,
         materials_status=materials_status,
         master_delivery=master_delivery,
         song_delivery_sections=SONG_DELIVERY_SECTIONS,
@@ -18286,6 +18305,46 @@ def discografica_song_set_link(song_id):
     return redirect(request.form.get("next") or url_for("discografica_song_detail", song_id=song_id))
 
 
+@app.post("/discografica/canciones/<song_id>/videoclip/datos", endpoint="discografica_song_videoclip_data")
+@admin_required
+def discografica_song_videoclip_data(song_id):
+    """Los DATOS del videoclip: fecha de grabación, director, fecha de publicación y la marca
+    «Sin videoclip» (que esconde el módulo entero hasta que se deshaga)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar los materiales.")
+    volver = url_for("discografica_song_detail", song_id=song_id, tab="materiales")
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        if not song:
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+
+        modo = (request.form.get("modo") or "datos").strip().lower()
+        if modo == "sin_videoclip":
+            # Interruptor: se pone o se quita pinchando la etiqueta.
+            song.no_videoclip = _truthy(request.form.get("valor"))
+            session_db.commit()
+            flash("Marcada como «sin videoclip»." if song.no_videoclip
+                  else "Ya se puede subir el videoclip.", "info")
+            return redirect(volver)
+
+        song.videoclip_recorded_on = parse_optional_date(request.form.get("recorded_on"))
+        song.videoclip_director_promoter_id = _safe_uuid(request.form.get("director_promoter_id"))
+        # «La misma que el single»: se ata a la del single y se mantiene al día sola.
+        song.videoclip_same_release = _truthy(request.form.get("same_release"))
+        song.videoclip_release_date = (song.release_date if song.videoclip_same_release
+                                       else parse_optional_date(request.form.get("release_date")))
+        session_db.commit()
+        flash("Datos del videoclip guardados.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"No se pudieron guardar los datos del videoclip: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(volver)
+
+
 @app.post("/discografica/canciones/<song_id>/materials/upload")
 @admin_required
 def discografica_song_material_upload(song_id):
@@ -18313,7 +18372,8 @@ def discografica_song_material_upload(song_id):
         deduped_files.append(storage)
     files = deduped_files
 
-    if category not in {"COVER", "MASTER", "INSTRUMENTAL", "TV_TRACK", "STEMS", "VIDEOCLIP", "VIDEO_THUMB"}:
+    if category not in {"COVER", "MASTER", "INSTRUMENTAL", "TV_TRACK", "STEMS", "VIDEOCLIP",
+                        "VIDEO_THUMB", "VIDEO_RIGHTS"}:
         flash("Tipo de material no válido.", "warning")
         return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
 
@@ -18330,6 +18390,8 @@ def discografica_song_material_upload(song_id):
         slot_key = "DEFAULT"
     elif category == "VIDEO_THUMB":
         slot_key = "THUMB"
+    elif category == "VIDEO_RIGHTS":
+        slot_key = "DOC"
 
     if category in {"MASTER", "INSTRUMENTAL", "TV_TRACK", "VIDEOCLIP"} and slot_key == "SUBPRODUCT" and not display_name:
         flash("Debes indicar un nombre para el subproducto.", "warning")
@@ -18441,6 +18503,22 @@ def discografica_song_material_upload(song_id):
             session_db.flush()
             # La miniatura se saca en 2º plano (ffmpeg leyendo por rango, sin bajarse el vídeo).
             _song_video_poster_schedule(fila.id, file_url)
+
+        elif category == "VIDEO_RIGHTS":
+            # Cesiones de derechos de imagen: se ACUMULAN (una por persona que sale en el vídeo).
+            for fs in files:
+                nombre = Path((fs.filename or "cesion").replace("\\", "/")).name
+                es_imagen = Path(nombre).suffix.lower() in {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
+                session_db.add(SongMaterial(
+                    song_id=song.id,
+                    category="VIDEO_RIGHTS",
+                    slot_key="DOC",
+                    display_name=display_name or None,
+                    file_name=nombre,
+                    file_url=(upload_image(fs, "song_materials") if es_imagen
+                              else upload_file(fs, "song_materials")),
+                    mime_type=(getattr(fs, "mimetype", "") or "").strip() or None,
+                ))
 
         elif category == "VIDEO_THUMB":
             vinculo = (request.form.get("bundle_key") or "").strip()

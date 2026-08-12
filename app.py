@@ -1048,14 +1048,16 @@ def load_users_from_txt():
                     continue
                 email = first.lower()
                 pwd = (row[1] or '').strip()
-                role = 10
+                # ⚠️ Sin rol escrito se entra con el acceso MÁS BAJO, no con el de dirección: nadie
+                # debe acabar con acceso total porque a su fila del fichero le falte una columna.
+                role = 1
                 if len(row) >= 3:
                     raw_role = (row[2] or '').strip()
                     if raw_role:
                         try:
                             role = int(raw_role)
                         except Exception:
-                            role = 10
+                            role = 1
                 users[email] = {'password': pwd, 'role': role}
     except Exception:
         # Si hay cualquier problema leyendo el fichero, fallamos "cerrado" (sin permitir login por TXT).
@@ -48112,7 +48114,7 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return "integraciones"
     if endpoint == "personnel_view":
         return "personal.usuarios"
-    if endpoint in {"personnel_detail_view", "personnel_bulk_access",
+    if endpoint in {"personnel_detail_view", "personnel_bulk_access", "personnel_role_set",
                     "personnel_expense_deadline_toggle", "personnel_expense_deadline_toggle_all"}:
         return "personal.usuarios.accesos"
     if endpoint in {"personnel_document_save", "personnel_document_delete"}:
@@ -48425,15 +48427,15 @@ def _do_bootstrap_access_and_personnel():
                 user = User(
                     email=email,
                     password_hash=generate_password_hash((rec.get("password") or _generate_temporary_password())),
-                    role=int(rec.get("role") or 10),
+                    role=int(rec.get("role") or 1),
                 )
                 session_db.add(user)
                 session_db.flush()
-            else:
-                try:
-                    user.role = int(rec.get("role") or getattr(user, "role", 10) or 10)
-                except Exception:
-                    pass
+            # ⚠️ NO se toca el rol de quien YA existe: esta siembra corre en CADA arranque y
+            # devolvía el rol de `users.txt`, así que alguien a quien dirección hubiera quitado el
+            # acceso total volvía a salir como DIRECCIÓN al siguiente deploy (y no había forma de
+            # arreglarlo desde la app). Es el mismo caso que el nick, justo aquí abajo. Quién es
+            # dirección se decide en su ficha (pestaña Accesos).
             # NO pasar nick aquí: la siembra corre en CADA arranque/deploy y, con el perfil ya
             # existente, `nick=` SOBRESCRIBÍA el nick personalizado con el derivado del email (el
             # usuario cambiaba el nick y «al poco tiempo» —tras un deploy— volvía el anterior). Al
@@ -48803,6 +48805,8 @@ def _resolve_request_resource_key() -> str | None:
             "contabilidad_view": "contabilidad",
             "personnel_view": "personal.usuarios",
             "personnel_bulk_access": "personal.usuarios.accesos",
+            # Marcar (o quitar) DIRECCIÓN: además exige dirección dentro del endpoint.
+            "personnel_role_set": "personal.usuarios.accesos",
             # Cada pestaña de la ficha tiene su permiso (ver PERSONNEL_TAB_RESOURCES).
             "personnel_document_save": "personal.usuarios.documentos",
             "personnel_document_delete": "personal.usuarios.documentos",
@@ -50345,6 +50349,27 @@ def _personnel_tab_resource_key():
     return PERSONNEL_TAB_RESOURCES.get(tab) or "personal.usuarios"
 
 
+def _personnel_responsibility_tab_request() -> bool:
+    """¿Es alguien que SÍ gestiona vacaciones o contratos abriendo (o guardando) esa pestaña?
+
+    ⚠️ Quien lleva las vacaciones o los contratos lo es por su RESPONSABILIDAD (el reparto de
+    administración) o por su departamento, no por el permiso de la sección de Personal. Al separar
+    la ficha en una pestaña por permiso, el gate empezó a exigir además el grant de esa pestaña y
+    se comían un 403 al abrir la de cualquier persona (bug real: «no me deja gestionar las
+    vacaciones ni el contrato»). La pestaña en sí la sigue decidiendo la vista
+    (`_can_manage_vacations` / `_can_view_person_contract`), que es quien manda."""
+    try:
+        pestana = ((request.args.get("tab") if request.method == "GET" else request.form.get("mode"))
+                   or "").strip().lower()
+        if pestana == "vacaciones":
+            return _can_manage_vacations()
+        if pestana == "contrato":
+            return _can_view_person_contract()
+        return False
+    except Exception:
+        return False
+
+
 def _personnel_own_vacations_request() -> bool:
     """¿Es alguien abriendo la pestaña «Vacaciones» de SU PROPIA ficha? (solo GET)."""
     try:
@@ -50374,6 +50399,12 @@ def _support_endpoint_decision(endpoint: str):
     # ficha aunque no tenga el permiso de la sección de Personal (son sus días). Solo lectura y
     # solo esa pestaña: el resto de la ficha sigue exigiendo el permiso de siempre.
     if endpoint == "personnel_detail_view" and _personnel_own_vacations_request():
+        return (True, None)
+    # Quien GESTIONA vacaciones o contratos entra en esas pestañas de cualquier persona sin
+    # necesitar además el permiso de la ficha de personal (su llave es la responsabilidad).
+    if endpoint == "personnel_detail_view" and _personnel_responsibility_tab_request():
+        return (True, None)
+    if endpoint in ("personnel_contract_save", "personnel_contract_delete") and _can_view_person_contract():
         return (True, None)
     if endpoint in SUPPORT_READ_ENDPOINTS:
         return (True, None)  # lookups de solo lectura: cualquier sesión válida
@@ -50517,14 +50548,15 @@ def _admin_login_extended():
                 return redirect(nxt)
             rec = txt_users.get(email)
             if rec and rec.get("password") == password:
-                role = int(rec.get("role") or 10)
+                role = int(rec.get("role") or 1)
                 if not user:
                     user = User(email=email, password_hash=generate_password_hash(password), role=role)
                     session_db.add(user)
                     session_db.flush()
                 else:
                     user.password_hash = generate_password_hash(password)
-                    user.role = role
+                    # El rol vigente es el de la BD (lo que diga su ficha), no el del fichero.
+                    role = int(getattr(user, "role", role) or role)
                 profile = _ensure_user_profile(session_db, user, legacy_full_seed=True)
                 security = _ensure_user_security(session_db, user)
                 security.last_login_at = _now_madrid()
@@ -61403,6 +61435,45 @@ BULK_ACCESS_OPERATIONS = {
     "full": (True, True, True),
     "remove": (False, False, False),
 }
+
+
+@app.post("/personal/<user_id>/direccion", endpoint="personnel_role_set")
+@admin_required
+def personnel_role_set(user_id):
+    """Dice si una persona es de DIRECCIÓN (acceso total) o no.
+
+    ⚠️ Hasta ahora esto solo se podía cambiar en `users.txt`, y la siembra del arranque volvía a
+    aplicarlo en cada deploy: había gente saliendo como dirección sin serlo y no había forma de
+    quitarlo desde la app (y con ello veían TODO, también lo económico). Ahora manda la ficha.
+    Solo dirección lo toca, y nadie se lo cambia a sí mismo (o se quedaría sin poder devolvérselo)."""
+    if not is_master():
+        return forbid("Solo dirección puede decidir quién es de dirección.")
+    quiero = (request.form.get("es_direccion") or "").strip().lower() in {"1", "true", "on", "si", "sí"}
+    session_db = db()
+    try:
+        user = session_db.get(User, to_uuid(user_id))
+        if not user:
+            abort(404)
+        if str(user.id) == str((_current_user_state() or {}).get("user_id") or ""):
+            flash("No puedes cambiarte a ti mismo el acceso de dirección.", "warning")
+            return redirect(url_for("personnel_detail_view", user_id=user_id, tab="accesos"))
+        profile = session_db.get(UserProfile, user.id)
+        nombre = (getattr(profile, "nick", None) or _profile_full_name(profile) or user.email or "Esta persona")
+        if quiero:
+            user.role = 10
+            flash("%s pasa a ser de DIRECCIÓN: tiene acceso total." % nombre, "success")
+        else:
+            # Vuelve al acceso más bajo; lo que pueda ver se decide ya con sus permisos.
+            user.role = 1
+            flash("%s deja de ser de dirección. Ahora ve solo lo que le concedan sus permisos." % nombre, "success")
+        session_db.commit()
+        return redirect(url_for("personnel_detail_view", user_id=user_id, tab="accesos"))
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo cambiar: %s" % exc, "danger")
+        return redirect(url_for("personnel_detail_view", user_id=user_id, tab="accesos"))
+    finally:
+        session_db.close()
 
 
 @app.route("/personal/accesos-bloque", methods=["GET", "POST"], endpoint="personnel_bulk_access")

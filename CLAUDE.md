@@ -1844,6 +1844,29 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   hacía que `elementFromPoint` no devolviera nada y el clic se perdía. Al ARRASTRAR es al revés
   (con captura de puntero `ev.target` se queda en la celda de origen).
 
+- **QUIÉN ES DIRECCIÓN se decide en su ficha** (ago 2026). `User.role == 10` = dirección (acceso
+  total). Hasta ahora eso solo se podía cambiar en **`users.txt`** y —peor— la siembra del arranque
+  **volvía a aplicar el rol del fichero en CADA deploy**, así que había gente saliendo como dirección
+  sin serlo (viendo TODO, también lo económico) y no había forma de quitárselo desde la app.
+  · La siembra ya **no toca el rol de quien existe** (solo lo pone al CREARLO), y el login de
+  respaldo por `users.txt` tampoco lo pisa: manda lo que diga la BD. Es el mismo caso que el nick.
+  · Sin rol escrito en el fichero se entra con el acceso **más bajo** (antes: dirección).
+  · Interruptor en la ficha → pestaña **Accesos** (`personnel_role_set`, `POST
+  /personal/<id>/direccion`, **solo dirección**): «Marcarla como dirección» / «No es de dirección».
+  ⚠️ **Nadie se lo cambia a sí mismo** (se quedaría sin poder devolvérselo). ⚠️ Su formulario va
+  FUERA del de accesos (un `<form>` dentro de otro no es HTML válido) y lo envía un enlace.
+  ⚠️ Al dejar de ser dirección, esa persona ve **solo lo que le concedan sus permisos**: lo normal es
+  configurárselos ahí mismo, en la pantalla en la que ya se está.
+
+- ⚠️ **GESTIONAR VACACIONES O CONTRATOS no es lo mismo que tener la ficha de personal** (bug real,
+  ago 2026). Al separar la ficha en un permiso por pestaña, el gate empezó a exigir además el grant
+  de esa pestaña, y quien lleva las vacaciones (por su **responsabilidad**) o los contratos (por ser
+  de **Administración**) se comía un **403** al abrir la pestaña de cualquier persona. Ahora
+  `_personnel_responsibility_tab_request()` deja pasar las pestañas **vacaciones** y **contrato**
+  (GET y POST) a quien las gestiona —y `personnel_contract_save/_delete` a quien puede ver contratos—;
+  el resto de pestañas sigue exigiendo su permiso. La decisión fina la sigue tomando la vista
+  (`_can_manage_vacations` / `_can_view_person_contract`), que es quien manda.
+
 - **PERSONAL · un permiso POR PESTAÑA de la ficha** (ago 2026). Antes **toda** la ficha
   (`personnel_detail_view`) colgaba de `personal.usuarios.accesos`, que es la pestaña de PERMISOS:
   para dejar a alguien ver los Datos o los Documentos de una persona había que darle la de Accesos,

@@ -194,7 +194,15 @@
   <div class="card"><div class="card-body text-center py-5">
     <div class="display-6 mb-2"><i class="fa fa-shield-halved text-danger"></i></div>
     <h4 class="mb-1">Usuario de dirección</h4>
-    <p class="text-muted mb-0">Los usuarios de dirección tienen <b>acceso total</b> a toda la plataforma de forma automática.<br>No es necesario (ni posible) configurar sus accesos.</p>
+    <p class="text-muted mb-2">Los usuarios de dirección tienen <b>acceso total</b> a toda la plataforma de forma automática.<br>No es necesario (ni posible) configurar sus accesos.</p>
+    {# Si no es de dirección de verdad, aquí se le quita: pasa a ver solo lo que le concedan. #}
+    {% if IS_MASTER and user.id|string != (CURRENT_USER.id if CURRENT_USER else '')|string %}
+      <form method="post" action="{{ url_for('personnel_role_set', user_id=user.id) }}" class="mt-3"
+            data-confirm="¿Quitarle el acceso de dirección? Pasará a ver solo lo que le concedan sus permisos.">
+        <input type="hidden" name="es_direccion" value="0">
+        <button class="btn btn-outline-danger btn-sm"><i class="fa fa-user-shield me-1"></i>No es de dirección</button>
+      </form>
+    {% endif %}
   </div></div>
 
 {% elif tab == 'vacaciones' %}
@@ -547,6 +555,13 @@
   </div></div>
 
 {% else %}
+  {% if IS_MASTER and user.id|string != (CURRENT_USER.id if CURRENT_USER else '')|string %}
+    <form method="post" id="formMarcarDireccion" class="d-none"
+          action="{{ url_for('personnel_role_set', user_id=user.id) }}"
+          data-confirm="¿Marcarla como DIRECCIÓN? Tendrá acceso total a toda la plataforma, también a lo económico.">
+      <input type="hidden" name="es_direccion" value="1">
+    </form>
+  {% endif %}
   <form method="post" id="accessForm">
     <input type="hidden" name="mode" value="accesos">
     <div class="acc-toolbar">
@@ -556,6 +571,25 @@
       <button type="button" class="btn btn-outline-danger btn-sm" id="accClearAll">Quitar todo</button>
       <button class="btn btn-primary ms-auto"><i class="fa fa-floppy-disk me-1"></i>Guardar accesos</button>
     </div>
+    {% if IS_MASTER and user.id|string != (CURRENT_USER.id if CURRENT_USER else '')|string %}
+      <div class="small text-muted mb-3">¿Es de <strong>dirección</strong>? Entonces no hacen falta permisos: lo ve todo.
+        <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-marcar-direccion>Marcarla como dirección</button>
+        <script>
+          // El formulario de «marcar como dirección» vive FUERA del de accesos (un form dentro de
+          // otro no es HTML válido): el enlace lo envía desde aquí.
+          document.addEventListener('click', function (ev) {
+            var b = ev.target.closest('[data-marcar-direccion]');
+            if (!b) return;
+            ev.preventDefault();
+            var f = document.getElementById('formMarcarDireccion');
+            if (!f) return;
+            if (!confirm(f.getAttribute('data-confirm') || '¿Seguro?')) return;
+            f.removeAttribute('data-confirm');   // ya se ha preguntado aquí
+            f.submit();
+          });
+        </script>
+      </div>
+    {% endif %}
     <div class="acc-legend">
       <span><i class="dot" style="background:var(--brand-accent)"></i>Ver</span>
       <span><i class="dot" style="background:var(--amber,#E0922F)"></i>Ver datos económicos</span>

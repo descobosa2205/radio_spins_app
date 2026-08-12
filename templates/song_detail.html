@@ -108,7 +108,11 @@
             <input type="text" class="form-control" readonly value="{{ master_delivery.public_url }}" id="masterDeliveryUrl">
             <button class="btn btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('masterDeliveryUrl').value); this.textContent='Copiado';"><i class="fa fa-copy me-1"></i>Copiar</button>
           </div>
-          <div class="small text-muted mb-3">Solicita: {% for s in master_delivery.sections %}{{ sec_labels.get(s, s) }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+          <div class="small text-muted mb-3">
+            Solicita: {% for s in master_delivery.sections %}{{ sec_labels.get(s, s) }}{% if not loop.last %}, {% endif %}{% endfor %}
+            {% if master_delivery.required_labels %}<br><span class="text-danger">Obligatorio:</span> {{ master_delivery.required_labels|join(', ') }}{% endif %}
+            {% if master_delivery.reminders_enabled %}<br><i class="fa fa-bell me-1"></i>Se le recuerda cada día hasta que lo rellene{% if master_delivery.reminder_count %} ({{ master_delivery.reminder_count }} recordatorio{{ '' if master_delivery.reminder_count == 1 else 's' }} enviado{{ '' if master_delivery.reminder_count == 1 else 's' }}){% endif %}.{% endif %}
+          </div>
           <hr>
           <label class="form-label small text-muted">Enviar por correo</label>
           <form method="post" action="{{ url_for('discografica_song_delivery_send_email', song_id=song.id, link_id=master_delivery.id) }}">
@@ -116,7 +120,7 @@
             <div id="deliveryEmailList" class="mb-2"></div>
             <input type="email" class="form-control form-control-sm mb-2" name="extra_email" id="deliveryExtraEmail" placeholder="…o escribe un correo directo">
             <textarea class="form-control form-control-sm mb-2" name="note" rows="2" placeholder="Nota para el destinatario (opcional)"></textarea>
-            <div class="text-end"><button class="btn btn-sm btn-primary" type="submit"><i class="fa fa-paper-plane me-1"></i>Enviar solicitud</button></div>
+            <div class="text-end"><button class="btn btn-sm btn-danger" type="submit"><i class="fa fa-paper-plane me-1"></i>Enviar solicitud</button></div>
           </form>
           <hr>
           <form method="post" action="{{ url_for('discografica_song_delivery_cancel', song_id=song.id, link_id=master_delivery.id) }}" class="text-end">
@@ -152,27 +156,44 @@
             });
           </script>
         {% else %}
+          {# QUÉ se pide y QUÉ es obligatorio, campo a campo: una fila por dato con sus dos casillas.
+             El catálogo lo da `_song_delivery_askable()`, el mismo que usa el formulario público. #}
           <form method="post" action="{{ url_for('discografica_song_delivery_create', song_id=song.id) }}">
-            <p class="small text-muted">Genera un enlace público para que un tercero rellene la información y suba los materiales de esta canción. Elige qué solicitar:</p>
-            {% for key, label in song_delivery_sections %}
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="sections" value="{{ key }}" id="deliverySec{{ key }}" checked{% if key == 'MASTERS' %} onchange="document.getElementById('deliveryMaterials').classList.toggle('d-none', !this.checked)"{% endif %}>
-                <label class="form-check-label" for="deliverySec{{ key }}">{{ label }}</label>
-              </div>
-              {% if key == 'MASTERS' %}
-                <div id="deliveryMaterials" class="ms-4 mb-2 ps-3 border-start">
-                  <div class="small text-muted mb-1">Materiales a pedir (desmarca los que no necesites):</div>
-                  {% for mkey, mlabel in song_delivery_material_modules %}
-                    <div class="form-check">
-                      <input class="form-check-input" type="checkbox" name="materials" value="{{ mkey }}" id="deliveryMat{{ mkey }}" checked>
-                      <label class="form-check-label small" for="deliveryMat{{ mkey }}">{{ mlabel }}</label>
+            <p class="small text-muted mb-2">Genera un enlace público para que un tercero rellene la información y suba los materiales. Marca <strong>qué se le pide</strong> y <strong>qué es obligatorio</strong>:</p>
+            <div class="d-flex justify-content-end gap-3 small text-muted pe-1 mb-1">
+              <span style="width:64px;text-align:center">Se pide</span><span style="width:78px;text-align:center">Obligatorio</span>
+            </div>
+            {% set sec_names = dict(song_delivery_sections) %}
+            {% for sec, slabel in song_delivery_sections %}
+              {% set filas = song_delivery_askable|selectattr('section','equalto',sec)|list %}
+              {% if filas %}
+                <div class="fw-semibold small mt-2 mb-1">{{ slabel }}</div>
+                {% for f in filas %}
+                  <div class="d-flex align-items-center gap-3 border-bottom py-1">
+                    <div class="flex-grow-1 small">{{ f.label }}</div>
+                    <div style="width:64px;text-align:center">
+                      <input class="form-check-input" type="checkbox" name="ask_{{ f.key }}" value="1" data-del-ask="{{ f.key }}"{% if f.ask %} checked{% endif %}>
                     </div>
-                  {% endfor %}
-                </div>
+                    <div style="width:78px;text-align:center">
+                      <input class="form-check-input" type="checkbox" name="req_{{ f.key }}" value="1" data-del-req="{{ f.key }}"{% if f.required %} checked{% endif %}{% if not f.ask %} disabled{% endif %}>
+                    </div>
+                  </div>
+                {% endfor %}
               {% endif %}
             {% endfor %}
             <div class="text-end mt-3"><button class="btn btn-primary"><i class="fa fa-link me-1"></i>Generar enlace</button></div>
           </form>
+          <script>
+            // Lo que no se pide no puede ser obligatorio.
+            document.addEventListener('change', function (ev) {
+              var c = ev.target.closest('[data-del-ask]');
+              if (!c) return;
+              var req = document.querySelector('[data-del-req="' + c.getAttribute('data-del-ask') + '"]');
+              if (!req) return;
+              req.disabled = !c.checked;
+              if (!c.checked) req.checked = false;
+            });
+          </script>
         {% endif %}
       </div>
     </div>

@@ -515,6 +515,13 @@ class SongMasterDeliveryLink(Base):
     token = Column(Text, nullable=False, unique=True)
     sections_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     materials_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))  # módulos de material solicitados
+    # QUÉ se pide y QUÉ es obligatorio, campo a campo: {clave: {"ask": bool, "required": bool}}.
+    # Los enlaces antiguos no lo traen y se comportan como siempre (ver _song_delivery_config).
+    fields_json = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    # Recordatorios: si se mandó por correo, se insiste UNA VEZ AL DÍA hasta que lo rellenen.
+    reminders_enabled = Column(Boolean, nullable=False, server_default=text("false"))
+    reminder_last_at = Column(DateTime(timezone=True))
+    reminder_count = Column(Integer, nullable=False, server_default=text("0"))
     status = Column(Text, nullable=False, server_default=text("'ACTIVE'"))
     data = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     requested_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
@@ -6119,6 +6126,10 @@ def ensure_song_delivery_schema():
         );
         """,
         "ALTER TABLE song_master_delivery_links ADD COLUMN IF NOT EXISTS materials_json jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        "ALTER TABLE song_master_delivery_links ADD COLUMN IF NOT EXISTS fields_json jsonb NOT NULL DEFAULT '{}'::jsonb;",
+        "ALTER TABLE song_master_delivery_links ADD COLUMN IF NOT EXISTS reminders_enabled boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE song_master_delivery_links ADD COLUMN IF NOT EXISTS reminder_last_at timestamptz;",
+        "ALTER TABLE song_master_delivery_links ADD COLUMN IF NOT EXISTS reminder_count integer NOT NULL DEFAULT 0;",
         "CREATE INDEX IF NOT EXISTS idx_song_master_delivery_song ON song_master_delivery_links(song_id, status);",
         "ALTER TABLE song_materials ADD COLUMN IF NOT EXISTS validation_status text NOT NULL DEFAULT 'VALIDATED';",
         "ALTER TABLE song_materials ADD COLUMN IF NOT EXISTS delivery_link_id uuid;",
@@ -6379,6 +6390,10 @@ def ensure_isrc_and_song_detail_schema():
         "ALTER TABLE songs ADD COLUMN IF NOT EXISTS videoclip_same_release boolean NOT NULL DEFAULT false;",
         "ALTER TABLE songs ADD COLUMN IF NOT EXISTS videoclip_director_promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL;",
         "ALTER TABLE IF EXISTS song_master_delivery_links ADD COLUMN IF NOT EXISTS materials_json jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        "ALTER TABLE IF EXISTS song_master_delivery_links ADD COLUMN IF NOT EXISTS fields_json jsonb NOT NULL DEFAULT '{}'::jsonb;",
+        "ALTER TABLE IF EXISTS song_master_delivery_links ADD COLUMN IF NOT EXISTS reminders_enabled boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE IF EXISTS song_master_delivery_links ADD COLUMN IF NOT EXISTS reminder_last_at timestamptz;",
+        "ALTER TABLE IF EXISTS song_master_delivery_links ADD COLUMN IF NOT EXISTS reminder_count integer NOT NULL DEFAULT 0;",
         'CREATE INDEX IF NOT EXISTS idx_song_materials_song_id ON song_materials(song_id);',
         'CREATE INDEX IF NOT EXISTS idx_song_materials_song_category ON song_materials(song_id, category, slot_key);',
 

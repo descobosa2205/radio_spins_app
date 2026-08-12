@@ -786,7 +786,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
+    allowed = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
     if request.endpoint in allowed:
         return
 
@@ -2921,18 +2921,32 @@ def _send_optional_email(
 
 def _public_base_url() -> str:
     """Base ABSOLUTA (https://dominio) para TODO enlace que se comparte o sale por correo.
-    Prioridad: EXTERNAL_BASE_URL (env) > host canónico (CANONICAL_HOST = app.33producciones.es) >
-    host de la petición. Así los enlaces salen SIEMPRE con el dominio nuevo aunque la petición llegue
-    por onrender.com o por el host interno del proxy (que es lo que provocaba dominios equivocados)."""
-    base = (os.getenv("EXTERNAL_BASE_URL") or "").strip()
-    if not base and _CANONICAL_HOST:
-        base = "https://" + _CANONICAL_HOST
-    if not base:
-        try:
-            base = request.url_root
-        except Exception:
-            base = ""
-    return (base or "").rstrip("/")
+
+    Manda el **dominio canónico** (`CANONICAL_HOST`, hoy `app.33producciones.es`) — el mismo al que
+    redirige la app — y solo si no lo hubiera se usa `EXTERNAL_BASE_URL` y, en último caso, el host de
+    la petición.
+    ⚠️ Antes ganaba `EXTERNAL_BASE_URL`, así que una variable de entorno olvidada en el servidor con
+    el dominio ANTIGUO hacía salir TODOS los enlaces compartidos con ese dominio (bug real). Con este
+    orden, cambiar de dominio es cambiar UNA variable (`CANONICAL_HOST`), la misma que decide la
+    redirección, y no pueden quedar desparejadas.
+    ⚠️ La URL vieja de Render (`*.onrender.com`) nunca vale para un enlace que se comparte."""
+    def _limpia(valor: str) -> str:
+        valor = (valor or "").strip().rstrip("/")
+        if not valor:
+            return ""
+        return "" if ".onrender.com" in valor.lower() else valor
+
+    if _CANONICAL_HOST:
+        base = _limpia("https://" + _CANONICAL_HOST)
+        if base:
+            return base
+    base = _limpia(os.getenv("EXTERNAL_BASE_URL") or "")
+    if base:
+        return base
+    try:
+        return _limpia(request.url_root) or (request.url_root or "").strip().rstrip("/")
+    except Exception:
+        return ""
 
 
 def _external_url_for(endpoint: str, **values) -> str:
@@ -5024,7 +5038,7 @@ def _group_company_brand_assets(session_db=None, *, matcher=None, fallback_name:
     logo_url = ((group_company or {}).get('logo_url') or '').strip().rstrip('?')
     if not logo_url and fallback_static_filename:
         try:
-            logo_url = url_for('static', filename=fallback_static_filename, _external=True)
+            logo_url = _external_url_for('static', filename=fallback_static_filename)
         except Exception:
             try:
                 logo_url = _external_url_for('static', filename=fallback_static_filename)
@@ -5193,7 +5207,7 @@ def _build_certification_notification_email(session_db, media_kind: str, item, c
     cover_url = (getattr(item, 'cover_url', None) or '').strip()
     if not cover_url:
         try:
-            cover_url = url_for('static', filename='img/logo.png', _external=True)
+            cover_url = _external_url_for('static', filename='img/logo.png')
         except Exception:
             cover_url = ''
 
@@ -7114,7 +7128,7 @@ def _platform_links_for_item(item) -> list[dict]:
         if not url.startswith(('http://', 'https://')):
             url = 'https://' + url
         try:
-            asset_url = url_for('static', filename=asset, _external=True)
+            asset_url = _external_url_for('static', filename=asset)
             asset_path = str(Path(app.root_path) / 'static' / asset.replace('img/', 'img/'))
         except Exception:
             asset_url = ''
@@ -8105,7 +8119,7 @@ def _platforma_musical_brand_assets(session_db) -> dict:
     logo_url = (getattr(group_company, 'logo_url', None) or getattr(publishing_company, 'logo_url', None) or '').strip()
     if not logo_url:
         try:
-            logo_url = url_for('static', filename='img/logo.png', _external=True)
+            logo_url = _external_url_for('static', filename='img/logo.png')
         except Exception:
             logo_url = ''
     company_name = (getattr(group_company, 'name', None) or getattr(publishing_company, 'name', None) or 'Plataforma Musical').strip()
@@ -8280,7 +8294,7 @@ def _build_song_sgae_notification_email(session_db, song: Song, registration_dt=
     cover_url = (getattr(song, 'cover_url', None) or '').strip()
     if not cover_url:
         try:
-            cover_url = url_for('static', filename='img/logo.png', _external=True)
+            cover_url = _external_url_for('static', filename='img/logo.png')
         except Exception:
             cover_url = ''
 
@@ -16921,6 +16935,11 @@ def discografica_song_detail(song_id):
             "id": str(_delivery_active.id),
             "sections": list(_delivery_active.sections_json or []),
             "public_url": _song_delivery_public_url(_delivery_active),
+            # Lo que se le exige y si se le está recordando cada día (para verlo de un vistazo).
+            "required_labels": [c["label"] for c in _song_delivery_config(_delivery_active).values()
+                                if c.get("required")],
+            "reminders_enabled": bool(getattr(_delivery_active, "reminders_enabled", False)),
+            "reminder_count": _safe_int(getattr(_delivery_active, "reminder_count", 0)),
         }
 
     # Datos recibidos por entrega (producción/autoral/letra) pendientes de consolidar en la ficha.
@@ -17323,6 +17342,9 @@ def discografica_song_detail(song_id):
         master_delivery=master_delivery,
         song_delivery_sections=SONG_DELIVERY_SECTIONS,
         song_delivery_material_modules=SONG_DELIVERY_MATERIAL_MODULES,
+        # Catálogo de TODO lo que se puede pedir, para marcar campo a campo qué se pide y qué es
+        # obligatorio al generar el enlace.
+        song_delivery_askable=_song_delivery_askable(),
         pending_delivery=pending_delivery,
         delivery_production_fields=SONG_DELIVERY_PRODUCTION_FIELDS,
         delivery_author_roles=dict(SONG_DELIVERY_AUTHOR_ROLES),
@@ -18842,6 +18864,74 @@ SONG_DELIVERY_MATERIAL_MODULES = [
 SONG_DELIVERY_MATERIAL_MODULE_KEYS = {k for k, _ in SONG_DELIVERY_MATERIAL_MODULES}
 
 
+# ---------------------------------------------------------------------------
+# ENTREGA DE MASTERS · QUÉ se pide y QUÉ es obligatorio (campo a campo)
+# ---------------------------------------------------------------------------
+# Catálogo ÚNICO de lo que se puede pedir en el enlace. Lo usan la pantalla de configuración (una
+# fila por campo con «se pide» y «obligatorio»), el formulario público y su validación: añadir un
+# campo aquí lo añade en los tres sitios.
+def _song_delivery_askable() -> list[dict]:
+    filas = []
+    for key, label, req in SONG_DELIVERY_PRODUCTION_FIELDS:
+        filas.append({"key": "prod." + key, "section": "PRODUCTION", "label": label,
+                      "ask": True, "required": bool(req)})
+    filas.append({"key": "authoral", "section": "AUTHORAL", "label": "Autores, roles y porcentajes",
+                  "ask": True, "required": True})
+    filas.append({"key": "lyrics", "section": "LYRICS", "label": "Letra de la canción",
+                  "ask": True, "required": True})
+    for key, label in SONG_DELIVERY_MATERIAL_MODULES:
+        filas.append({"key": "mat." + key, "section": "MASTERS", "label": label,
+                      "ask": True, "required": (key != "stems")})
+    return filas
+
+
+def _song_delivery_config(link) -> dict:
+    """Qué se pide y qué es obligatorio en ESTE enlace: {clave: {"ask", "required", ...}}.
+
+    Los enlaces ANTIGUOS no traen `fields_json`: se reconstruye de sus secciones y materiales, con lo
+    que se comportan exactamente como antes."""
+    guardado = _json_dict(getattr(link, "fields_json", None)) if link is not None else {}
+    secciones = set(getattr(link, "sections_json", None) or []) if link is not None else set()
+    materiales = list(getattr(link, "materials_json", None) or []) if link is not None else []
+    if "MASTERS" in secciones and not materiales:
+        materiales = [k for k, _ in SONG_DELIVERY_MATERIAL_MODULES]   # compat enlaces antiguos
+    out = {}
+    for fila in _song_delivery_askable():
+        conf = dict(fila)
+        crudo = guardado.get(fila["key"]) if isinstance(guardado, dict) else None
+        if isinstance(crudo, dict):
+            conf["ask"] = bool(crudo.get("ask"))
+            conf["required"] = bool(crudo.get("required")) and conf["ask"]
+        else:
+            # Sin configuración por campo: manda lo que se pidió por secciones/materiales.
+            if fila["section"] not in secciones:
+                conf["ask"] = False
+            elif fila["key"].startswith("mat."):
+                conf["ask"] = fila["key"][4:] in materiales
+            conf["required"] = bool(conf["required"]) and conf["ask"]
+        out[fila["key"]] = conf
+    return out
+
+
+def _song_delivery_config_from_form(form) -> tuple[dict, list, list]:
+    """Lee la configuración del formulario de creación y devuelve
+    (fields_json, secciones, módulos de material) — las tres cosas coherentes entre sí."""
+    conf, secciones, materiales = {}, [], []
+    for fila in _song_delivery_askable():
+        pide = bool(form.get("ask_" + fila["key"]))
+        obliga = pide and bool(form.get("req_" + fila["key"]))
+        conf[fila["key"]] = {"ask": pide, "required": obliga}
+        if not pide:
+            continue
+        if fila["section"] not in secciones:
+            secciones.append(fila["section"])
+        if fila["key"].startswith("mat."):
+            materiales.append(fila["key"][4:])
+    # Se respeta el orden del catálogo de secciones (la pantalla pública lo usa).
+    secciones = [k for k, _ in SONG_DELIVERY_SECTIONS if k in secciones]
+    return conf, secciones, materiales
+
+
 def _song_delivery_public_url(link) -> str:
     return _external_url_for("public_song_master_delivery", token=link.token)
 
@@ -18856,9 +18946,11 @@ def _song_artist_names_str(song) -> str:
 def discografica_song_delivery_create(song_id):
     if not can_edit_discografica():
         return forbid("No tienes permisos para generar enlaces de entrega.")
-    sections = [s for s in request.form.getlist("sections") if s in SONG_DELIVERY_SECTION_KEYS]
+    # QUÉ se pide y QUÉ es obligatorio, campo a campo (la pantalla enseña una fila por campo con sus
+    # dos casillas). De ahí salen también las secciones y los materiales, para que todo cuadre.
+    conf_campos, sections, materials = _song_delivery_config_from_form(request.form)
     if not sections:
-        flash("Selecciona al menos una sección a solicitar.", "warning")
+        flash("Marca al menos un dato o material que quieras pedir.", "warning")
         return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
     session_db = db()
     try:
@@ -18873,17 +18965,13 @@ def discografica_song_delivery_create(song_id):
             old.status = "CANCELLED"
             old.cancelled_at = datetime.now(TZ_MADRID)
             session_db.add(old)
-        materials = []
-        if "MASTERS" in sections:
-            materials = [m for m in request.form.getlist("materials") if m in SONG_DELIVERY_MATERIAL_MODULE_KEYS]
-            if not materials:
-                materials = [k for k, _ in SONG_DELIVERY_MATERIAL_MODULES]
         uid = session.get("user_id")
         link = SongMasterDeliveryLink(
             song_id=song.id,
             token=uuid.uuid4().hex,
-            sections_json=[k for k, _ in SONG_DELIVERY_SECTIONS if k in sections],
+            sections_json=sections,
             materials_json=materials,
+            fields_json=conf_campos,
             status="ACTIVE",
             data={},
             requested_by_user_id=to_uuid(uid) if uid else None,
@@ -19168,22 +19256,26 @@ def api_promoter_contact_create():
         session_db.close()
 
 
-def _song_delivery_email_html(song, title_artist, url_pub, cover_url, note=None) -> str:
+def _song_delivery_email_html(song, title_artist, url_pub, cover_url, note=None, recordatorio=False) -> str:
     logo = _external_url_for("static", filename="img/logo.png")
     cover_img = ('<img src="%s" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid #eee;margin-right:12px;">' % escape(cover_url)) if cover_url else ""
     note_html = ('<div style="border-left:3px solid #E33D48;padding:8px 12px;margin:16px 0;color:#444;white-space:pre-wrap;">%s</div>' % escape(note)) if (note or "").strip() else ""
     return (
         '<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#1e2530;">'
         '<div style="text-align:right;margin-bottom:12px;"><img src="%s" alt="PIES Records" style="height:38px;"></div>'
-        '<h2 style="margin:0 0 4px;">Solicitud de entrega de masters</h2>'
-        '<p style="color:#555;">Se solicita la entrega de información y materiales de la siguiente canción:</p>'
+        '<h2 style="margin:0 0 4px;text-align:center;">Solicitud de entrega de masters</h2>'
+        '<p style="color:#555;text-align:center;">%s</p>'
         '<div style="border:1px solid #eee;border-radius:8px;padding:12px;display:flex;align-items:center;">'
         '%s<div><div style="font-weight:600;">%s</div><div style="color:#666;font-size:14px;">%s</div></div></div>'
         '%s'
         '<div style="text-align:center;margin:24px 0;"><a href="%s" style="background:#E33D48;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:600;display:inline-block;">Subir masters e información</a></div>'
         '<p style="color:#888;font-size:12px;">Si el botón no funciona, copia este enlace:<br>%s</p>'
         '</div>'
-    ) % (escape(logo), cover_img, escape(song.title or ""), escape(title_artist), note_html, escape(url_pub), escape(url_pub))
+    ) % (escape(logo),
+         ("Aún no hemos recibido esta entrega. Te la recordamos:"
+          if recordatorio else
+          "Se solicita la entrega de información y materiales de la siguiente canción:"),
+         cover_img, escape(song.title or ""), escape(title_artist), note_html, escape(url_pub), escape(url_pub))
 
 
 @app.post("/discografica/canciones/<song_id>/entrega/<link_id>/enviar-correo")
@@ -19215,10 +19307,15 @@ def discografica_song_delivery_send_email(song_id, link_id):
         html = _song_delivery_email_html(song, title_artist, url_pub, (song.cover_url or "").strip(), note=note)
         ok, err = _send_optional_email(recipients, subject, html, text_body="Solicitud de entrega de masters. Enlace: " + url_pub, reply_to=_current_user_email())
         if ok:
-            link.target_email = recipients[0]
+            link.target_email = ", ".join(recipients)
+            # Mandado por correo → se insiste UNA VEZ AL DÍA hasta que se cumplimente (o se anule).
+            link.reminders_enabled = True
+            link.reminder_last_at = _now_madrid()
+            link.reminder_count = 0
             session_db.add(link)
             session_db.commit()
-            flash("Correo de solicitud enviado a %s." % ", ".join(recipients), "success")
+            flash("Correo de solicitud enviado a %s. Se recordará cada día hasta que lo rellenen."
+                  % ", ".join(recipients), "success")
         else:
             flash("No se pudo enviar el correo: %s" % (err or "revisa la configuración SMTP"), "danger")
     except Exception as e:
@@ -19269,6 +19366,7 @@ def public_song_delivery_authors(token):
                 "id": str(p.id),
                 "name": _delivery_promoter_label(p),
                 "logo_url": (getattr(p, "logo_url", None) or ""),
+                "email": (getattr(p, "contact_email", None) or ""),
                 "publishing_company_id": str(p.publishing_company_id) if getattr(p, "publishing_company_id", None) else "",
                 "publishing_company_name": (pc.name if pc else ""),
             })
@@ -19332,11 +19430,13 @@ def public_song_delivery_create_author(token):
             pc = session_db.get(PublishingCompany, to_uuid(pc_id))
         if not pc and pc_name:
             pc = _delivery_get_or_create_publishing(session_db, pc_name)
-        pr = Promoter(nick=nick, first_name=first or None, last_name=last or None, publishing_company_id=(pc.id if pc else None))
+        correo = (request.form.get("email") or "").strip()
+        pr = Promoter(nick=_intake_unique_nick(session_db, nick), first_name=first or None, last_name=last or None,
+                      contact_email=correo or None, publishing_company_id=(pc.id if pc else None))
         session_db.add(pr)
         session_db.flush()
         result = {
-            "id": str(pr.id), "name": nick, "logo_url": "",
+            "id": str(pr.id), "name": nick, "logo_url": "", "email": correo,
             "publishing_company_id": str(pc.id) if pc else "",
             "publishing_company_name": (pc.name if pc else ""),
         }
@@ -19363,13 +19463,22 @@ def public_song_master_delivery(token):
         req_materials = list(link.materials_json or [])
         if "MASTERS" in sections and not req_materials:
             req_materials = [k for k, _ in SONG_DELIVERY_MATERIAL_MODULES]  # compat enlaces antiguos
+        # Qué se pide y qué es obligatorio en ESTE enlace (campo a campo).
+        conf = _song_delivery_config(link)
+        pedido = {k: v for k, v in conf.items() if v.get("ask")}
+        sections = [k for k, _ in SONG_DELIVERY_SECTIONS if any(v["section"] == k for v in pedido.values())]
+        req_materials = [k[4:] for k in pedido if k.startswith("mat.")]
         base_ctx = dict(
-            link=link, song=song, sections=sections,
+            link=link, song=song, sections=sections, conf=conf,
             section_labels=dict(SONG_DELIVERY_SECTIONS),
-            production_fields=SONG_DELIVERY_PRODUCTION_FIELDS,
+            # Solo los campos de producción que se piden, con su obligatoriedad de este enlace.
+            production_fields=[(k[5:], v["label"], v["required"]) for k, v in conf.items()
+                               if k.startswith("prod.") and v.get("ask")],
             author_roles=SONG_DELIVERY_AUTHOR_ROLES,
-            material_specs=[(f, _song_material_slot_label(c, s)) for f, c, s in SONG_DELIVERY_MATERIAL_SPECS if f in req_materials],
+            material_specs=[(f, _song_material_slot_label(c, s), conf.get("mat." + f, {}).get("required", True))
+                            for f, c, s in SONG_DELIVERY_MATERIAL_SPECS if f in req_materials],
             show_stems=("stems" in req_materials),
+            stems_required=conf.get("mat.stems", {}).get("required", False),
             artist_names=_song_artist_names_str(song),
         )
         if link.status != "ACTIVE":
@@ -19378,10 +19487,32 @@ def public_song_master_delivery(token):
         if request.method == "POST":
             data, errors = {}, []
             if "PRODUCTION" in sections:
-                prod = {key: (request.form.get("prod_" + key) or "").strip() for key, _lbl, _req in SONG_DELIVERY_PRODUCTION_FIELDS}
-                for key, lbl, req in SONG_DELIVERY_PRODUCTION_FIELDS:
+                prod = {}
+                for key, lbl, req in base_ctx["production_fields"]:
+                    prod[key] = (request.form.get("prod_" + key) or "").strip()
                     if req and not prod.get(key):
                         errors.append("Producción: falta «%s»." % lbl)
+                # EL PRODUCTOR es un tercero de la base de datos: se guarda a quién se ha elegido y,
+                # si su ficha no tenía correo y lo han escrito aquí, se le apunta en la ficha.
+                _prod_pid = _safe_uuid(request.form.get("prod_producer_promoter_id"))
+                _prod_mail = (request.form.get("prod_producer_email") or "").strip()
+                if _prod_pid:
+                    _pr = session_db.get(Promoter, _prod_pid)
+                    if _pr is not None:
+                        prod["producer"] = _delivery_promoter_label(_pr)
+                        prod["producer_promoter_id"] = str(_pr.id)
+                        if _prod_mail and not (getattr(_pr, "contact_email", None) or "").strip():
+                            _pr.contact_email = _prod_mail
+                            session_db.add(_pr)
+                        prod["producer_email"] = (getattr(_pr, "contact_email", None) or _prod_mail or "")
+                elif _prod_mail:
+                    prod["producer_email"] = _prod_mail
+                _pconf = conf.get("prod.producer") or {}
+                if _pconf.get("ask"):
+                    if _pconf.get("required") and not (prod.get("producer") or "").strip():
+                        errors.append("Producción: elige el productor en la base de datos.")
+                    elif (prod.get("producer") or "").strip() and not (prod.get("producer_email") or "").strip():
+                        errors.append("Producción: falta el correo de contacto del productor.")
                 data["production"] = prod
             if "AUTHORAL" in sections:
                 names = request.form.getlist("author_name")
@@ -19408,7 +19539,7 @@ def public_song_master_delivery(token):
                         "publishing_company_id": (publishing_ids[i] if i < len(publishing_ids) else "").strip(),
                     })
                     total += pct
-                if not authors:
+                if not authors and conf.get("authoral", {}).get("required"):
                     errors.append("Autoral: añade al menos un autor.")
                 elif any(a["role"] not in {"AUTHOR", "COMPOSER", "AUTHOR_COMPOSER"} for a in authors):
                     errors.append("Autoral: indica el rol de cada autor.")
@@ -19417,18 +19548,18 @@ def public_song_master_delivery(token):
                 data["authoral"] = authors
             if "LYRICS" in sections:
                 lyrics = (request.form.get("lyrics") or "").strip()
-                if not lyrics:
+                if not lyrics and conf.get("lyrics", {}).get("required"):
                     errors.append("La letra es obligatoria.")
                 data["lyrics"] = lyrics
             uploads = []
             if "MASTERS" in sections:
-                req_materials = list(link.materials_json or []) or [k for k, _ in SONG_DELIVERY_MATERIAL_MODULES]
                 for field, cat, slot in SONG_DELIVERY_MATERIAL_SPECS:
                     if field not in req_materials:
                         continue
                     fs = request.files.get(field)
                     if not fs or not getattr(fs, "filename", ""):
-                        errors.append("Materiales: falta «%s» (.wav)." % _song_material_slot_label(cat, slot))
+                        if conf.get("mat." + field, {}).get("required"):
+                            errors.append("Materiales: falta «%s» (.wav)." % _song_material_slot_label(cat, slot))
                         continue
                     if Path((fs.filename or "").replace("\\", "/")).suffix.lower() not in {".wav", ".wave"}:
                         errors.append("Materiales: «%s» debe ser .wav." % _song_material_slot_label(cat, slot))
@@ -47718,7 +47849,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -72467,6 +72598,78 @@ def _person_docs_expired_sweep(limit: int = 200) -> dict:
     return {"enviados": enviados, "saltados": saltados, "errores": errores[:10]}
 
 
+def _song_delivery_reminders_sweep(limit: int = 100) -> dict:
+    """Recuerda UNA VEZ AL DÍA las entregas de masters pedidas por correo que siguen sin llegar.
+
+    Solo insiste con los enlaces ACTIVOS que se mandaron por correo (`reminders_enabled`), y como
+    mucho un correo al día por enlace: en cuanto lo cumplimentan (SUBMITTED) o se anula, deja de
+    insistir solo, sin que nadie lo pare a mano."""
+    salida = {"recordadas": 0, "sin_correo": 0, "errores": 0}
+    session_db = db()
+    try:
+        ahora = _now_madrid()
+        filas = (session_db.query(SongMasterDeliveryLink)
+                 .filter(SongMasterDeliveryLink.status == "ACTIVE",
+                         SongMasterDeliveryLink.reminders_enabled == True)     # noqa: E712
+                 .order_by(SongMasterDeliveryLink.reminder_last_at.asc().nullsfirst())
+                 .limit(limit).all())
+        for link in filas:
+            ultimo = getattr(link, "reminder_last_at", None)
+            if ultimo is not None:
+                try:
+                    if ultimo.tzinfo is None:
+                        ultimo = ultimo.replace(tzinfo=TZ_MADRID)
+                    if (ahora - ultimo.astimezone(TZ_MADRID)).total_seconds() < 20 * 3600:
+                        continue                     # ya se le recordó hoy
+                except Exception:
+                    pass
+            destinos = _dedupe_valid_email_addresses(
+                [x.strip() for x in (link.target_email or "").split(",") if x.strip()])
+            if not destinos:
+                salida["sin_correo"] += 1
+                link.reminders_enabled = False       # sin a quién escribir, no se insiste en balde
+                continue
+            song = session_db.get(Song, link.song_id)
+            if song is None:
+                link.reminders_enabled = False
+                continue
+            artista = _song_artist_names_str(song)
+            colab = (getattr(song, "collaborator", None) or "").strip()
+            titulo_artista = artista + (" (con %s)" % colab if colab else "")
+            asunto = "Recordatorio · entrega de masters · %s · %s" % (titulo_artista, song.title or "")
+            url_pub = _song_delivery_public_url(link)
+            html = _song_delivery_email_html(song, titulo_artista, url_pub, (song.cover_url or "").strip(),
+                                             recordatorio=True)
+            ok, _err = _send_optional_email(destinos, asunto, html,
+                                            text_body="Recordatorio de entrega de masters. Enlace: " + url_pub)
+            link.reminder_last_at = ahora
+            if ok:
+                link.reminder_count = _safe_int(getattr(link, "reminder_count", 0)) + 1
+                salida["recordadas"] += 1
+            else:
+                salida["errores"] += 1
+            session_db.add(link)
+            session_db.commit()
+        session_db.commit()
+    except Exception:
+        session_db.rollback()
+        app.logger.exception("[entrega-masters] recordatorios")
+    finally:
+        session_db.close()
+    return salida
+
+
+@app.get("/cron/entrega-masters", endpoint="cron_song_delivery_reminders")
+def cron_song_delivery_reminders():
+    """Cron diario: recuerda las entregas de masters que se pidieron por correo y no han llegado."""
+    clave = (request.args.get("key") or "").strip()
+    esperada = (os.getenv("DOCS_CRON_KEY") or os.getenv("EXPENSE_CRON_KEY")
+                or os.getenv("CHARTMETRIC_CRON_KEY") or "").strip()
+    if not esperada or clave != esperada:
+        abort(404)
+    return jsonify({"ok": True, **_song_delivery_reminders_sweep()})
+
+
 @app.get("/cron/documentos-caducados", endpoint="cron_expired_documents")
 def cron_expired_documents():
     """Cron diario: avisa por correo a quien tenga el DNI, el carnet o el pasaporte caducado."""
@@ -72475,7 +72678,10 @@ def cron_expired_documents():
                 or os.getenv("CHARTMETRIC_CRON_KEY") or "").strip()
     if not esperada or clave != esperada:
         abort(404)
-    return jsonify({"ok": True, **_person_docs_expired_sweep()})
+    # Se aprovecha el mismo paso diario para recordar las entregas de masters pendientes: así no
+    # hace falta configurar otro cron en el servidor (el suyo propio existe igualmente).
+    return jsonify({"ok": True, **_person_docs_expired_sweep(),
+                    "entregas_masters": _song_delivery_reminders_sweep()})
 
 
 @app.post("/documentos/pedir", endpoint="person_doc_request_send")
@@ -75965,7 +76171,7 @@ def _photo_approval_email_html(session_db, request_row, approver, photos, owner_
     botón «Supervisar contenidos» al PRINCIPIO y al FINAL, y el listado de contenidos con
     miniatura — cada contenido enlaza a su punto exacto dentro de la página de supervisión."""
     company = session_db.get(GroupCompany, request_row.brand_company_id) if request_row.brand_company_id else None
-    logo = (company.logo_url if company and company.logo_url else url_for("static", filename="img/logo.png", _external=True))
+    logo = (company.logo_url if company and company.logo_url else _external_url_for("static", filename="img/logo.png"))
     url_pub = _external_url_for("public_photo_approval", token=approver.token)
     who = (request_row.requested_by_nick or "El equipo").strip()
     count = _photo_count_label(photos)
@@ -76410,7 +76616,7 @@ def _photo_share_email_html(session_db, share, photos, owner_title, note):
     invitaciones): logo de la empresa a la derecha, «Hola,» + nota, cabecera del evento en
     galleta, botón principal para VER Y DESCARGAR, listado con miniaturas y botón ZIP."""
     company = session_db.get(GroupCompany, share.brand_company_id) if share.brand_company_id else None
-    logo = (company.logo_url if company and company.logo_url else url_for("static", filename="img/logo.png", _external=True))
+    logo = (company.logo_url if company and company.logo_url else _external_url_for("static", filename="img/logo.png"))
     urls = _photo_share_urls(share.token)
     owner, _aid, _tt = _photo_resolve_owner(session_db, share.owner_type, share.owner_id)
     card = _public_share_card(session_db, share.owner_type, owner, artist_id=_aid)

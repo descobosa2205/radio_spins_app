@@ -443,6 +443,35 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · `initTypeahead` (`static/js/typeahead.js`) **sale si el campo no está en la pantalla**: se llama
   desde scripts que corren en TODAS las pestañas de una ficha y petaba con «Cannot read properties of
   null», llevándose por delante el resto del arranque de esa página.
+- ⚠️ **EL DOMINIO DE LOS ENLACES lo decide `CANONICAL_HOST`** (ago 2026). `_public_base_url()` ya no
+  antepone `EXTERNAL_BASE_URL`: manda el **host canónico** (`app.33producciones.es`), el mismo al que
+  redirige la app, y solo si no lo hubiera se mira esa variable y, en último caso, el host de la
+  petición. Una variable olvidada en el servidor con el dominio ANTIGUO hacía salir con él TODOS los
+  enlaces compartidos (bug real). La URL vieja de Render (`*.onrender.com`) **nunca** vale para un
+  enlace que se comparte. Cambiar de dominio = cambiar UNA variable. Y los logos de los correos ya no
+  usan `url_for(..., _external=True)` (que toma el host de la petición): **no queda ninguno**.
+
+- **ENTREGA DE MASTERS · qué se pide y qué es obligatorio, campo a campo** (ago 2026):
+  · Catálogo ÚNICO **`_song_delivery_askable()`** (campos de producción + autoral + letra + cada
+  material) y **`_song_delivery_config(link)`**, que dice para ESE enlace si cada cosa se pide y si
+  obliga. Se guarda en `SongMasterDeliveryLink.fields_json`; los enlaces ANTIGUOS no lo traen y se
+  reconstruye de sus secciones/materiales, así que se comportan igual que siempre.
+  · Al generar el enlace se ve **una fila por campo con dos casillas** («Se pide» · «Obligatorio»;
+  lo que no se pide no puede obligar). De ahí salen también `sections_json` y `materials_json`, para
+  que todo cuadre. El formulario público pinta solo lo pedido y **valida exactamente eso**.
+  · **EL PRODUCTOR es un TERCERO de la base de datos**: buscador con foto (reutiliza
+  `public_song_delivery_authors`, que ahora devuelve también el **correo**), alta al vuelo
+  (`public_song_delivery_create_author` acepta `email`) y, **solo si su ficha no tiene correo**, se
+  pide ahí y **se guarda en su ficha** al enviar la entrega. Queda apuntado en
+  `data['production']['producer_promoter_id']`.
+  · **RECORDATORIOS**: mandar el enlace por correo activa `reminders_enabled`; el barrido
+  `_song_delivery_reminders_sweep` (cron `/cron/entrega-masters`, y también dentro del cron diario de
+  documentos para no depender de otra tarea en Render) insiste **una vez al día** hasta que se
+  cumplimente o se anule — se para solo. ⚠️ Se llama desde una petición: usa `url_for`.
+  · La página pública carga **`styles.css`** (es standalone: sin ella `btn-primary` salía AZUL) y su
+  botón es `btn-danger`, como el resto de páginas públicas. El correo de solicitud lleva el título
+  **centrado** bajo el logo, y el recordatorio reutiliza el mismo diseño.
+
 - **Entrega de masters (enlace público)**: `SongMasterDeliveryLink` (token, `sections_json`, `status`
   ACTIVE/SUBMITTED/CANCELLED, `data` JSONB). Botón en la ficha (modal: secciones producción/autoral/letra/
   masters) → endpoints `discografica_song_delivery_create`/`_cancel`; formulario público

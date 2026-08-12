@@ -1178,6 +1178,20 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `contratacion.conciertos` por la ruta `/conciertos`. Estilos `.mn-*` (pestaña), `.ma-*` (hoja
   pública y tarjeta) y `.mv-*` (control de acceso) en `styles.css`.
 
+- **INVITACIONES · qué se refresca en sitio al subir** (corregido ago 2026). `applyDoc` (el refresco
+  sin recargar de `invitaciones.html`) cambiaba los planos y el contador de «disponibles», pero NO
+  los de **«Subidas»**: la cabecera del evento y la línea `Configuradas · Subidas · Disponibles` de
+  cada categoría se quedaban con el número viejo hasta recargar la página. Ahora llevan sus anclas
+  (**`data-inv-header-counts`** y **`data-cat-head="<id>"`**) y se reemplazan también.
+  ⚠️ Y si la categoría **cambia de estructura** —la PRIMERA subida en una categoría vacía crea el
+  grid donde antes ponía «No hay invitaciones subidas»— no vale reemplazar pieza a pieza, porque esas
+  piezas todavía no existen en la página: se cambia el **panel entero** (`data-cat-panel`) y esa
+  categoría se salta en los reemplazos finos. ⚠️ Los planos de los paneles ya cambiados se excluyen
+  de las DOS listas (la del documento nuevo y la del vivo): `replaceWith` MUEVE el nodo, así que
+  filtrando solo una los números dejaban de casar y no se refrescaba ninguna otra categoría.
+  ⚠️ El botón «Seleccionar varias» vive en esa cabecera, así que su listener pasa a ir por
+  **delegación**: pegado al botón se quedaba muerto en cuanto la cabecera se reemplazaba.
+
 - **Cartelería · petición, subida a mano y aprobación de diseño** (aprobar es SOLO de diseño y
   dirección: `_can_validate_artwork` = `is_master() or has_access_key('diseno')`; lo que sube diseño
   entra ya APROBADO y lo que sube cualquier otro queda PENDIENTE —al resto se le enseñan atenuados con

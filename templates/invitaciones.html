@@ -353,7 +353,7 @@
         </div>
         {# Mismos contadores (y estética) que «Invitaciones disponibles» de la ficha de la
            actividad: Por contrato · Subidas · Solicitadas · Totales (subidas − solicitadas). #}
-        <div class="invitation-counts invitation-counts--large">
+        <div class="invitation-counts invitation-counts--large" data-inv-header-counts>
           <div><span>{{ header_counts.contract if header_counts else event.counts.configured }}</span><small><i class="fa fa-file-signature me-1"></i>Por contrato</small></div>
           <div><span>{{ header_counts.uploaded if header_counts else 0 }}</span><small><i class="fa fa-upload me-1"></i>Subidas</small></div>
           <div><span>{{ header_counts.requested if header_counts else event.counts.requested }}</span><small><i class="fa fa-envelope-open-text me-1"></i>Solicitadas</small></div>
@@ -864,7 +864,7 @@
             <div class="card invitation-ticket-module{% if cat.ticket_kind != 'GUEST_LIST' %} position-relative{% endif %}"{% if cat.ticket_kind != 'GUEST_LIST' %} data-cat-upload-drop data-file-drop="off" data-category-id="{{ cat.id }}" data-category-name="{{ cat.name }}" data-ticket-kind="{{ cat.ticket_kind }}" data-guest-list-mode="{{ cat.guest_list_mode }}" data-is-pmr="{{ '1' if cat.is_pmr else '' }}"{% endif %}>
               <div class="card-body">
                 {% if cat.ticket_kind != 'GUEST_LIST' %}<div class="inv-catdrop-hint"><i class="fa fa-file-arrow-up me-1"></i>Suelta los PDFs para subirlos a «{{ cat.name }}»</div>{% endif %}
-                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3" data-cat-head="{{ cat.id }}">
                   <div>
                     <h5 class="mb-0">{{ cat.name }}</h5>
                     <div class="small text-muted">Configuradas: {{ cat.configured }} · Subidas: {{ cat.uploaded }} · Disponibles: {{ cat.available_configured }}{% if cat.pending_requests %} · <span class="text-danger fw-semibold"><i class="fa fa-hourglass-half me-1"></i>{{ cat.pending_requests }} {{ 'petición' if cat.pending_requests == 1 else 'peticiones' }} · {{ cat.pending_qty }} {{ 'entrada' if cat.pending_qty == 1 else 'entradas' }} pendientes de asignar</span>{% endif %}</div>
@@ -2636,7 +2636,10 @@
     const bar = tab.querySelector('[data-bulk-bar]');
     const pop = document.getElementById('invSelectionPop');
     const countEls = [tab.querySelector('[data-bulk-count]'), pop ? pop.querySelector('[data-sel-count]') : null].filter(Boolean);
-    const toggleBtns = tab.querySelectorAll('[data-select-toggle]');  // uno por bloque de categoría
+    // ⚠️ En VIVO, no una lista capturada: el botón vive en la cabecera de cada categoría y esa
+    // cabecera se reemplaza al refrescar en sitio (applyDoc). Con la lista de siempre, tras subir
+    // invitaciones el botón nuevo se quedaba sin listener.
+    const toggleBtns = () => tab.querySelectorAll('[data-select-toggle]');
     const selected = new Set();
     const seatById = (id) => tab.querySelector('[data-ticket-id="' + id + '"]');
     const isSelecting = () => tab.classList.contains('is-selecting');
@@ -2656,7 +2659,7 @@
     const setMode = (on) => {
       tab.classList.toggle('is-selecting', on);
       if(bar) bar.classList.add('d-none');  // el popup flotante sustituye a la barra superior
-      toggleBtns.forEach(b => b.classList.toggle('active', on));
+      toggleBtns().forEach(b => b.classList.toggle('active', on));
       // En modo selección desactivamos la apertura del modal (vista previa) de cada entrada, para
       // que al pinchar se SELECCIONE en vez de abrirse el PDF. Se restaura al salir del modo.
       tab.querySelectorAll('[data-ticket-id]').forEach(b => {
@@ -2667,7 +2670,9 @@
       if(!on){ selected.clear(); tab.querySelectorAll('[data-ticket-id].is-checked').forEach(b => b.classList.remove('is-checked')); if(pop) pop.classList.remove('show'); }
       update();
     };
-    toggleBtns.forEach(b => b.addEventListener('click', () => setMode(!isSelecting())));
+    tab.addEventListener('click', function(ev){
+      if (ev.target.closest('[data-select-toggle]')) setMode(!isSelecting());
+    });
     const cancelBtn = tab.querySelector('[data-select-cancel]');
     if(cancelBtn) cancelBtn.addEventListener('click', () => setMode(false));
     pop?.querySelector('[data-sel-close]')?.addEventListener('click', () => setMode(false));
@@ -3373,21 +3378,59 @@
         var fresh = doc.getElementById(id), cur = document.getElementById(id);
         if (fresh && cur){ fresh.className = cur.className; cur.replaceWith(fresh); }
       });
+      // CATEGORÍAS cuya ESTRUCTURA cambia: la primera subida en una categoría vacía crea el grid
+      // (o el plano) donde antes solo ponía «No hay invitaciones subidas». Ahí no vale reemplazar
+      // pieza a pieza —esas piezas todavía no existen en la página—, hay que cambiar el panel
+      // entero. Se hace primero y esas categorías se saltan en los reemplazos finos de abajo.
+      var panelesHechos = {};
+      var piezas = function(nodo){
+        return nodo ? nodo.querySelectorAll('[data-sector-plan], [id^="unnum-"]').length : -1;
+      };
+      doc.querySelectorAll('#inv-tab-tickets [data-cat-panel]').forEach(function(fp2){
+        var id = fp2.getAttribute('data-cat-panel');
+        var cp2 = document.querySelector('#inv-tab-tickets [data-cat-panel="' + id + '"]');
+        if (cp2 && piezas(fp2) !== piezas(cp2)){
+          cp2.replaceWith(fp2);
+          panelesHechos[id] = true;
+        }
+      });
+      var yaHecho = function(el){
+        var p = el.closest ? el.closest('[data-cat-panel]') : null;
+        return !!(p && panelesHechos[p.getAttribute('data-cat-panel')]);
+      };
       // Planos de butacas numeradas (pestaña Invitaciones): mismo nº de sectores → uno a uno.
-      var fp = doc.querySelectorAll('#inv-tab-tickets [data-sector-plan]');
-      var cp = document.querySelectorAll('#inv-tab-tickets [data-sector-plan]');
+      // ⚠️ Los planos de un panel ya cambiado entero se excluyen de LAS DOS listas: `replaceWith`
+      // mueve el nodo del documento nuevo al vivo, así que si solo se filtrara una, los números
+      // dejarían de casar y no se refrescaría ninguna de las demás categorías.
+      var fp = [].filter.call(doc.querySelectorAll('#inv-tab-tickets [data-sector-plan]'), function(el){ return !yaHecho(el); });
+      var cp = [].filter.call(document.querySelectorAll('#inv-tab-tickets [data-sector-plan]'), function(el){ return !yaHecho(el); });
       if (fp.length && fp.length === cp.length){ cp.forEach(function(el, i){ el.replaceWith(fp[i]); }); }
       // Grids y contadores de las categorías SIN numerar (tienen id/atributo estable; el clic del
       // contador va delegado). Se conserva el desplegado actual de cada grid.
       doc.querySelectorAll('#inv-tab-tickets [id^="unnum-"]').forEach(function(fg){
+        if (yaHecho(fg)) return;
         var cg = document.getElementById(fg.id);
         if (!cg) return;
         fg.classList.toggle('d-none', cg.classList.contains('d-none'));
         cg.replaceWith(fg);
       });
       doc.querySelectorAll('#inv-tab-tickets [data-unnum-toggle]').forEach(function(fb){
+        if (yaHecho(fb)) return;
         var cb = document.querySelector('#inv-tab-tickets [data-unnum-toggle="' + fb.getAttribute('data-unnum-toggle') + '"]');
         if (cb) cb.innerHTML = fb.innerHTML;
+      });
+      // CONTADORES DE ARRIBA (Por contrato · Subidas · Solicitadas · Totales) y CABECERA DE CADA
+      // CATEGORÍA (Configuradas · Subidas · Disponibles, y los botones que solo salen cuando ya hay
+      // invitaciones subidas). ⚠️ Sin esto, al subir se refrescaban los planos y el «disponibles»
+      // pero «Subidas» se quedaba con el número viejo hasta recargar la página.
+      var fhc = doc.querySelector('[data-inv-header-counts]');
+      var chc = document.querySelector('[data-inv-header-counts]');
+      if (fhc && chc) chc.replaceWith(fhc);
+      doc.querySelectorAll('[data-cat-head]').forEach(function(fh){
+        var cid = fh.getAttribute('data-cat-head');
+        if (panelesHechos[cid]) return;      // ese panel ya se ha cambiado entero
+        var ch = document.querySelector('[data-cat-head="' + cid + '"]');
+        if (ch) ch.replaceWith(fh);
       });
       // (Los modales de entrada ya NO se renderizan en la página: se piden bajo demanda al abrir,
       // así que llegan siempre frescos y no hay nada que reemplazar aquí.)

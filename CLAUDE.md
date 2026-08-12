@@ -314,6 +314,40 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   videoclip de una miniatura (que se **añade**). Por eso el reemplazo por `bundle_key` está
   limitado a STEMS: sin ese filtro, subir una miniatura borraba las anteriores.
 
+- ⚠️⚠️ **INVITACIONES · solo se marca ENVIADO lo que se ha enviado de verdad** (bug real y grave,
+  ago 2026). «Enviar todas las asignadas» marcaba invitaciones como ENVIADAS **sin haber mandado
+  nada y sin haber ninguna asignada**. Dos causas, las dos corregidas:
+  ⚠️ **`can_send` no exigía que hubiera entradas asignadas**: era
+  `uses_guest_list or (assigned_or_sent and fully_assigned)`, y `fully_assigned` sale **True cuando
+  el cupo es 0** (`qty_total <= 0`). Una solicitud en ASIGNADAS sin ninguna entrada pasaba el filtro.
+  Ahora se exige además `assigned_total > 0` (un LISTADO sí puede enviarse sin entradas: ahí no hay
+  PDF que asignar). Como `can_send` es el punto único, el arreglo vale para TODOS los caminos de
+  envío: el individual, el de una categoría y el del evento entero.
+  ⚠️ El marcado va ANTES de componer el correo (para que salgan las etiquetas «Nueva»), y se
+  confiaba en un `session_db.rollback()` si el envío fallaba. Ahora va en un **SAVEPOINT**
+  (`begin_nested`): si el correo no sale, se deshace SOLO eso — un rollback de toda la sesión se
+  llevaba por delante lo pendiente de otras filas y podía dejar cosas marcadas a medias.
+
+- **AGEDI · el VIDEOCLIP se registra como subproducto del single** (ago 2026):
+  `_song_isrcs_by_kind` (ISRC de AUDIO o de VIDEO por separado) y **`_song_videoclip_registration`**
+  (cuáles faltan, si el single ya está). En Registros → Pendientes:
+  · si falta todo, la canción sale como **«Canción»** con la etiqueta **«+ videoclip (subproducto)»**;
+  · si el single YA está registrado y solo queda el vídeo, sale como **«Videoclip»** y su descarga es
+  el pack **`AGEDI_VIDEO`**: el **Label Copy con los datos del vídeo**
+  (`_build_song_label_copy_pdf_bytes(..., video=True)`: mismo título e intérpretes del single, pero
+  con los ISRC de vídeo, sus fechas y el director) **+ el videoclip en MP4**.
+  · Lo que no se pueda incluir NO se calla: `_registros_pack_finish` mete el `LEEME - falta
+  material.txt` (mismo criterio que el pack de AGEDI/SGAE del single).
+  · En la ficha, los datos del videoclip llevan su etiqueta **«Pendiente de registro»** / «Registrado
+  en AGEDI», igual que el módulo de ISRC de Información.
+
+- **AVISOS · un aviso de algo YA resuelto se cierra solo** (`_notify_resolve`, ago 2026): un aviso es
+  «esto te está esperando»; cuando deja de estarlo tiene que desaparecer sin que nadie lo pinche.
+  Enganchado a las REMESAS (al aprobarlas del todo, al anularlas y al subir el justificante) y, como
+  red de seguridad para los que ya quedaron colgados, al abrir la pantalla de una remesa ya aprobada
+  o pagada — que es justo cuando uno descubre que ya estaba todo hecho (bug real: «remesa pendiente
+  de aprobación» de una remesa aprobada y pagada).
+
 - **VIDEOCLIP · «Sin videoclip» y datos del vídeo** (ago 2026):
   · **`Song.no_videoclip`**: la canción no va a tener vídeo. El módulo entero desaparece de
   Materiales y queda solo la etiqueta «Sin videoclip», que **es un botón**: al pincharla se deshace

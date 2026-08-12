@@ -7578,12 +7578,17 @@ def _pitch_email_html(ctx: dict, *, note: str = '') -> str:
     '''
 
 
-def _build_song_label_copy_pdf_bytes(session_db, song_id, editorial: bool = False) -> tuple[bytes, str]:
+def _build_song_label_copy_pdf_bytes(session_db, song_id, editorial: bool = False,
+                                     video: bool = False) -> tuple[bytes, str]:
     """El Label Copy de una canción.
 
     ⚠️ Con `editorial=True` se añade al final el **REPARTO EDITORIAL**: cuánto de la parte de cada
     autor nuestro es del autor y cuánto de Plataforma Musical. Ese detalle es interno de editorial:
-    el LC que se comparte normalmente NO lo lleva."""
+    el LC que se comparte normalmente NO lo lleva.
+
+    ⚠️ Con `video=True` es el LC del **VIDEOCLIP**: el mismo documento y los mismos datos del single
+    (título, intérpretes, autores…), pero con los **ISRC de VÍDEO**, las fechas del vídeo y su
+    director. Es el que pide AGEDI para registrar el videoclip."""
     if not REPORTLAB_AVAILABLE:
         raise RuntimeError('ReportLab no está disponible.')
     song = session_db.get(Song, to_uuid(song_id))
@@ -7609,7 +7614,7 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id, editorial: bool = Fals
         header.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('ALIGN', (1,0), (1,0), 'RIGHT'),
                                     ('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),0)]))
         story.append(header)
-    story.append(Paragraph('Label Copy', title_style))
+    story.append(Paragraph('Label Copy · Videoclip' if video else 'Label Copy', title_style))
     story.append(Spacer(1, 0.25*cm))
 
     cover = _rl_image_flowable_from_url((getattr(song, 'cover_url', None) or '').strip() or url_for('static', filename='img/placeholder_photo.png'), 3.2, 3.2)
@@ -7639,7 +7644,22 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id, editorial: bool = Fals
     add_row('Título', song.title)
     add_row('Intérpretes', interpreters_label)
     add_row('Versión', song.version)
-    add_row('Fecha de publicación', song.release_date.strftime('%d/%m/%Y') if song.release_date else '')
+    if video:
+        # LC DEL VIDEOCLIP: se mantienen el nombre del single y sus intérpretes, pero las fechas y
+        # los códigos son los del vídeo.
+        _vc_rel = getattr(song, 'videoclip_release_date', None) or (
+            song.release_date if getattr(song, 'videoclip_same_release', False) else None)
+        add_row('Fecha de publicación del videoclip', _vc_rel.strftime('%d/%m/%Y') if _vc_rel else '')
+        add_row('Fecha de publicación del single', song.release_date.strftime('%d/%m/%Y') if song.release_date else '')
+        _vc_codes = _song_isrcs_by_kind(session_db, song.id, 'VIDEO')
+        add_row('Códigos ISRC de vídeo', '\n'.join(_norm_isrc(c) for c in _vc_codes))
+        _dir = (session_db.get(Promoter, song.videoclip_director_promoter_id)
+                if getattr(song, 'videoclip_director_promoter_id', None) else None)
+        add_row('Director del videoclip', (getattr(_dir, 'nick', None) or '').strip())
+        add_row('Fecha de grabación del videoclip',
+                song.videoclip_recorded_on.strftime('%d/%m/%Y') if getattr(song, 'videoclip_recorded_on', None) else '')
+    else:
+        add_row('Fecha de publicación', song.release_date.strftime('%d/%m/%Y') if song.release_date else '')
     add_row('Códigos ISRC', '\n'.join(isrc_lines))
     add_row('Duración (Timing)', _seconds_to_timecode(getattr(song, 'duration_seconds', None)))
     add_row('Inicio en Tik Tok', _seconds_to_timecode(getattr(song, 'tiktok_start_seconds', None)))
@@ -11143,6 +11163,53 @@ def _current_song_isrcs(session_db, song_id, include_song_field: bool = True) ->
         if song and getattr(song, "isrc", None):
             codes.append(song.isrc)
     return _norm_isrc_list(codes)
+
+
+def _song_isrcs_by_kind(session_db, song_id, kind: str) -> list[str]:
+    """Los ISRC de una canción de un tipo concreto (AUDIO o VIDEO), normalizados.
+
+    El ISRC del VIDEOCLIP se registra en AGEDI como **subproducto del single**; si el del single ya
+    está registrado, lo único que queda pendiente es el vídeo. Por eso hace falta mirarlos aparte."""
+    sid = to_uuid(str(song_id or ""))
+    if not sid:
+        return []
+    kind = (kind or "AUDIO").strip().upper()
+    filas = (session_db.query(SongISRCCode.code)
+             .filter(SongISRCCode.song_id == sid)
+             .filter(func.upper(SongISRCCode.kind) == kind).all())
+    codigos = [c for (c,) in filas if c]
+    # El campo suelto `Song.isrc` es SIEMPRE de audio.
+    if kind == "AUDIO":
+        song = session_db.get(Song, sid)
+        if song and getattr(song, "isrc", None):
+            codigos.append(song.isrc)
+    return _norm_isrc_list(codigos)
+
+
+def _song_videoclip_registration(session_db, song, status_obj: SongStatus | None = None) -> dict:
+    """Estado de registro del VIDEOCLIP en AGEDI: sus ISRC, cuáles faltan y si el single ya está.
+
+    Es lo que decide cómo sale en Registros: con el single (subproducto) o él solo."""
+    st = status_obj or _ensure_song_status_row(session_db, song.id)
+    registrados = set(_norm_isrc_list(getattr(st, "agedi_registered_isrcs", []) or []))
+    video = _song_isrcs_by_kind(session_db, song.id, "VIDEO")
+    audio = _song_isrcs_by_kind(session_db, song.id, "AUDIO")
+    video_pend = [c for c in video if c not in registrados]
+    audio_pend = [c for c in audio if c not in registrados]
+    return {
+        "video_codes": video,
+        "audio_codes": audio,
+        "video_pending": video_pend,
+        "audio_pending": audio_pend,
+        "video_done": bool(video) and not video_pend,
+        "audio_done": bool(audio) and not audio_pend,
+        # Solo el vídeo pendiente: el single ya está registrado y el videoclip no.
+        "only_video_pending": bool(video_pend) and not audio_pend and bool(audio),
+        "has_videoclip": bool(video) or bool(
+            session_db.query(SongMaterial.id)
+            .filter(SongMaterial.song_id == song.id)
+            .filter(func.upper(SongMaterial.category) == "VIDEOCLIP").first()),
+    }
 
 
 def _sync_song_agedi_state(session_db, song_id, status_obj: SongStatus | None = None) -> SongStatus:
@@ -16826,6 +16893,8 @@ def discografica_song_detail(song_id):
     materials_status = song_materials.get("completion") or materials_status
     videoclip_director = (session_db.get(Promoter, s.videoclip_director_promoter_id)
                           if getattr(s, "videoclip_director_promoter_id", None) else None)
+    # Estado de registro del videoclip (para la etiqueta «Pendiente de registro» de sus datos).
+    videoclip_registration = _song_videoclip_registration(session_db, s, st)
 
     _delivery_active = (
         session_db.query(SongMasterDeliveryLink)
@@ -17236,6 +17305,7 @@ def discografica_song_detail(song_id):
         isrc_audio=isrc_audio,
         isrc_video=isrc_video,
         videoclip_director=videoclip_director,
+        videoclip_registration=videoclip_registration,
         materials_status=materials_status,
         master_delivery=master_delivery,
         song_delivery_sections=SONG_DELIVERY_SECTIONS,
@@ -41810,8 +41880,25 @@ def _build_registros_agedi_pending(session_db) -> list[dict]:
             st = status_map.get(song.id) or _ensure_song_status_row(session_db, song)
             _sync_song_agedi_state(session_db, song.id, st)
             if codes and not bool(getattr(st, 'agedi_done', False)):
+                reg = _song_videoclip_registration(session_db, song, st)
                 card = _registros_song_card(session_db, song, st, None)
-                card.update({'kind_label': 'Canción', 'codes': codes})
+                if reg['only_video_pending']:
+                    # El single ya está registrado: lo único que queda es el VIDEOCLIP.
+                    card.update({
+                        'kind_label': 'Videoclip',
+                        'is_videoclip': True,
+                        'codes': reg['video_pending'],
+                        'pack_kind': 'AGEDI_VIDEO',
+                    })
+                else:
+                    card.update({
+                        'kind_label': 'Canción',
+                        'codes': codes,
+                        'pack_kind': 'AGEDI',
+                        # El videoclip se registra como SUBPRODUCTO del single: se dice aquí para
+                        # que quien lo tramita sepa que va dentro.
+                        'video_subproduct': reg['video_pending'],
+                    })
                 rows.append(card)
     albums = (
         session_db.query(Album)
@@ -41842,6 +41929,23 @@ def _build_registros_agedi_pending(session_db) -> list[dict]:
             })
     rows.sort(key=lambda x: (x.get('release_date') or date.min), reverse=True)
     return rows
+
+
+def _registros_pack_finish(carpeta: str, piezas: list, faltan: list) -> tuple[bytes, str]:
+    """Empaqueta el ZIP del material de registro. Lo que no se haya podido incluir NO se calla:
+    va un `LEEME - falta material.txt` diciendo qué falta."""
+    if not piezas and faltan:
+        raise LookupError('No se pudo preparar nada: ' + ' '.join(faltan))
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+        for nombre, datos in piezas:
+            zf.writestr(f"{carpeta}/{nombre}", datos)
+        if faltan:
+            aviso = ('No se ha podido incluir todo el material:\n\n'
+                     + '\n'.join('· ' + x for x in faltan)
+                     + '\n\nSúbelo en la ficha de la canción (pestaña Materiales) y vuelve a descargar.')
+            zf.writestr(f"{carpeta}/LEEME - falta material.txt", aviso.encode('utf-8'))
+    return buf.getvalue(), f"{carpeta}.zip"
 
 
 RECORD_DEAL_CONCEPTS = ["discográfico", "discografico", "discográfica", "discografica"]
@@ -42080,7 +42184,9 @@ def registros_promo_declare(activity_id):
 #    editorial (sin logo).
 # Lo que no se pueda incluir (no hay master, no hay letra…) NO se calla: va un LEEME dentro diciendo
 # qué falta, que es mejor que entregar una carpeta incompleta sin saberlo.
-REGISTROS_PACK_KINDS = ("AGEDI", "SGAE")
+# AGEDI_VIDEO: el material para registrar el VIDEOCLIP (el LC con los datos del vídeo y el vídeo
+# en MP4). Se ofrece cuando el single ya está registrado y lo único pendiente es el videoclip.
+REGISTROS_PACK_KINDS = ("AGEDI", "SGAE", "AGEDI_VIDEO")
 
 
 def _registros_pack_cover_jpeg(data: bytes) -> bytes:
@@ -42137,6 +42243,33 @@ def _registros_song_pack_zip(session_db, song: Song, kind: str) -> tuple[bytes, 
     carpeta = f"{kind}_{artist_name}_{song_title}"
     faltan = []
     piezas: list[tuple[str, bytes]] = []
+
+    # ---- VIDEOCLIP: el LC con los datos del vídeo + el vídeo en MP4 --------------------------
+    # Se mantienen el nombre del single y sus intérpretes (lo pide AGEDI así); lo que cambia son
+    # los ISRC, las fechas y el director, que son los del videoclip.
+    if kind == 'AGEDI_VIDEO':
+        carpeta = f"AGEDI_VIDEOCLIP_{artist_name}_{song_title}"
+        try:
+            pdf, _n = _build_song_label_copy_pdf_bytes(session_db, song.id, video=True)
+            piezas.append(('Label Copy - videoclip.pdf', pdf))
+        except Exception as exc:
+            faltan.append(f'El PDF del Label Copy del videoclip ({exc}).')
+        clip = (session_db.query(SongMaterial)
+                .filter(SongMaterial.song_id == song.id)
+                .filter(func.upper(SongMaterial.category) == 'VIDEOCLIP')
+                .order_by(SongMaterial.slot_key.asc(), SongMaterial.created_at.desc())
+                .first())
+        if clip is None or not (getattr(clip, 'file_url', None) or '').strip():
+            faltan.append('El videoclip (no hay ningún vídeo subido en Materiales).')
+        else:
+            try:
+                data, _ctype = _download_remote_content(clip.file_url)
+                suffix = Path((clip.file_name or '').replace('\\', '/')).suffix.lower()
+                mp4, _mime, _ext = _convert_video_content(data, 'mp4', suffix)
+                piezas.append((f"{artist_name} - {song_title}.mp4", mp4))
+            except Exception as exc:
+                faltan.append(f'El videoclip en MP4 (no se pudo convertir: {exc}).')
+        return _registros_pack_finish(carpeta, piezas, faltan)
 
     # 1) Master en MP3.
     master = _registros_song_master_material(session_db, song)
@@ -56081,6 +56214,12 @@ def payment_batch_approve_view(batch_id):
         if batch is None:
             flash("Remesa no encontrada.", "warning")
             return redirect(url_for("administracion_view", tab="pendiente", subtab="pago"))
+        # Red de seguridad para los avisos VIEJOS: si la remesa ya está aprobada (o pagada), el que
+        # decía «pendiente de aprobación» sobra. Se cierra al abrirla, que es justo cuando uno
+        # descubre que ya estaba todo hecho.
+        if batch.approved_at or (batch.status or "").upper() in {"PAGADA", "EXPORTADA"}:
+            if _notify_resolve(session_db, "payment_batch", batch.id):
+                session_db.commit()
         ctx = _payment_batch_context(session_db, batch, with_documents=True)
         return render_template("remesa_aprobar.html", batch=batch,
                                iban_masked=_iban_masked, today=today_local(), **ctx)
@@ -56141,6 +56280,8 @@ def payment_batch_item_approve(batch_id, item_id):
             batch.approved_at = _now_madrid()
             batch.approved_by_user_id = to_uuid(estado.get("user_id")) if estado.get("user_id") else None
             batch.approved_by_nick = quien or None
+            # Ya no hay nada que aprobar: el aviso se cierra solo.
+            _notify_resolve(session_db, "payment_batch", batch.id)
         elif not completa and batch.approved_at:
             # Se ha quitado un OK: la remesa vuelve a estar pendiente de aprobación.
             batch.approved_at = None
@@ -56200,6 +56341,8 @@ def payment_batch_cancel(batch_id):
         batch.status = "ANULADA"
         batch.total_amount = Decimal("0")
         batch.updated_at = _now_madrid()
+        # Lo que anunciaba el aviso ya no está pendiente: se cierra.
+        _notify_resolve(session_db, "payment_batch", batch.id)
         session_db.commit()
         flash("Remesa %s anulada: %d pago%s vuelve%s a estar pendiente."
               % (batch.reference, sueltos, "" if sueltos == 1 else "s", "" if sueltos == 1 else "n"),
@@ -56273,6 +56416,8 @@ def payment_batch_receipt(batch_id):
             bag = session_db.get(WorkflowBag, bag_id)
             if _bag_close_if_fully_paid(session_db, bag):
                 archivadas += 1
+        # Lo que anunciaba el aviso ya no está pendiente: se cierra.
+        _notify_resolve(session_db, "payment_batch", batch.id)
         session_db.commit()
         aviso = f"Remesa pagada: {n} gasto(s) marcados como pagados."
         if liq_n:
@@ -74438,6 +74583,27 @@ def _notify_user(session_db, user_id, kind, title, body="", url=None, *,
     return True
 
 
+def _notify_resolve(session_db, ref_type: str, ref_id) -> int:
+    """Da por LEÍDOS los avisos de algo que YA está resuelto.
+
+    Un aviso es «esto está esperándote»: cuando deja de estarlo tiene que desaparecer solo, sin que
+    nadie lo pinche. Si no, se queda en la campanita para siempre y al entrar te encuentras que ya
+    estaba todo hecho (pasó con «remesa pendiente de aprobación» de una remesa ya aprobada y pagada).
+    Devuelve cuántos ha cerrado."""
+    if not ref_type or not ref_id:
+        return 0
+    try:
+        filas = (session_db.query(AppNotification)
+                 .filter(AppNotification.ref_type == ref_type)
+                 .filter(AppNotification.ref_id == str(ref_id))
+                 .filter(AppNotification.read_at.is_(None)).all())
+        for n in filas:
+            n.read_at = _now_madrid()
+        return len(filas)
+    except Exception:
+        return 0
+
+
 def _notify_users(session_db, user_ids, kind, title, body="", url=None, **kw) -> int:
     """Avisa a VARIAS personas (sin repetir y sin avisarse a uno mismo)."""
     n, vistos = 0, set()
@@ -78834,16 +79000,23 @@ def _invitation_request_kind_flags(session_db, row: InvitationRequest, categorie
     # lo nuevo en el asignador; al reenviar se manda todo, con «Añadida» en las nuevas).
     fully_assigned = True
     pending_qty = 0
+    assigned_total = 0
     if assigned_or_sent and not uses_guest_list:
         qty_total = sum(_safe_int(v) for k, v in quantities.items() if str(k) != "TOTAL")
         assigned_total = _invitation_request_assigned_total(session_db, row)
         pending_qty = max(qty_total - assigned_total, 0)
         fully_assigned = qty_total <= 0 or assigned_total >= qty_total
+    # ⚠️ HACE FALTA QUE HAYA ENTRADAS ASIGNADAS DE VERDAD. Antes bastaba con `fully_assigned`, que
+    # con el cupo a 0 (`qty_total <= 0`) sale True: una solicitud SIN ninguna entrada asignada daba
+    # el envío por bueno y sus invitaciones se marcaban como ENVIADAS sin haberse mandado nada
+    # (bug real). Un LISTADO sí puede enviarse sin entradas: ahí no hay PDF que asignar.
+    tiene_asignadas = uses_guest_list or assigned_total > 0
     return {
         "uses_guest_list": uses_guest_list,
         "requires_numbered_assignment": requires_numbered_assignment,
         "fully_assigned": fully_assigned,
-        "can_send": uses_guest_list or (assigned_or_sent and fully_assigned),
+        "assigned_total": assigned_total,
+        "can_send": uses_guest_list or (assigned_or_sent and fully_assigned and tiene_asignadas),
         "can_download_pdf": assigned_or_sent and not uses_guest_list,
         # «Asignar» disponible también para las AMPLIADAS (enviadas/asignadas con pendientes) y
         # para las NUMERADAS (el auto-asignado coge butacas contiguas; afinar luego es opcional).
@@ -83299,12 +83472,15 @@ def invitation_category_send_all(concert_id, category_id):
                 no_email += 1
                 continue
             row.delivery_token = row.delivery_token or _invitation_token()
-            # Etiquetas «Nueva» + SENT ANTES de componer (el correo ya sale con las etiquetas);
-            # si el SMTP falla, el rollback lo deshace todo.
-            _invitation_mark_sent_tickets(session_db, row, 'all', now)
-            subject, html_body, text_body = _invitation_email_body(session_db, row, None)
-            reply_to = _invitation_request_reply_to(session_db, row) or _current_user_email()
+            # Etiquetas «Nueva» + SENT ANTES de componer (el correo ya sale con las etiquetas).
+            # ⚠️ En un SAVEPOINT: si el correo no sale, se deshace SOLO esto. Con un rollback de
+            # toda la sesión, cualquier cambio pendiente de otra fila se iba por delante y —lo
+            # grave— un fallo a medias podía dejar entradas marcadas como enviadas sin enviarse.
+            punto = session_db.begin_nested()
             try:
+                _invitation_mark_sent_tickets(session_db, row, 'all', now)
+                subject, html_body, text_body = _invitation_email_body(session_db, row, None)
+                reply_to = _invitation_request_reply_to(session_db, row) or _current_user_email()
                 ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=reply_to)
             except Exception:
                 ok = False
@@ -83313,10 +83489,11 @@ def invitation_category_send_all(concert_id, category_id):
                 row.sent_at = now
                 row.sent_via = 'Email'
                 row.sent_to = ', '.join(recipients or [])
+                punto.commit()
                 session_db.commit()
                 sent_n += 1
             else:
-                session_db.rollback()
+                punto.rollback()
                 failed += 1
         # --- COMPROMISOS con entradas ASIGNADAS (sin enviar) en esta categoría, categoría COMPLETA ---
         _cmt_rows = session_db.query(InvitationCommitment).join(
@@ -83339,24 +83516,26 @@ def invitation_category_send_all(concert_id, category_id):
                 continue
             row.delivery_token = row.delivery_token or _invitation_token()
             # Etiquetas «Nueva» (ampliación reenviada: el correo lista viejas+nuevas de la categoría)
-            # + SENT ANTES de componer; si el SMTP falla, el rollback lo deshace todo. Antes este
-            # camino NO etiquetaba nunca: correo y enlace salían sin la marca.
-            _invitation_tag_new_tickets(_tks, _tks)
-            for t in _unsent:
-                t.status = 'SENT'
-                t.sent_at = now
-                t.updated_at = now
-            subject, html_body, text_body = _invitation_commitment_email_body(session_db, row, category_id=cat.id)
-            reply_to = _invitation_commitment_reply_to(session_db, row) or _current_user_email()
+            # + SENT ANTES de componer, todo en un SAVEPOINT: si el correo no sale, se deshace solo
+            # esto y NADA queda marcado como enviado.
+            punto = session_db.begin_nested()
             try:
+                _invitation_tag_new_tickets(_tks, _tks)
+                for t in _unsent:
+                    t.status = 'SENT'
+                    t.sent_at = now
+                    t.updated_at = now
+                subject, html_body, text_body = _invitation_commitment_email_body(session_db, row, category_id=cat.id)
+                reply_to = _invitation_commitment_reply_to(session_db, row) or _current_user_email()
                 ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=reply_to)
             except Exception:
                 ok = False
             if ok:
+                punto.commit()
                 session_db.commit()
                 sent_n += 1
             else:
-                session_db.rollback()
+                punto.rollback()
                 failed += 1
         parts = [f'{sent_n} envío(s) realizados de «{cat.name}»']
         if skipped_box:
@@ -83410,13 +83589,14 @@ def invitation_event_send_all(concert_id):
                 no_email += 1
                 continue
             row.delivery_token = row.delivery_token or _invitation_token()
-            # Etiquetas «Nueva» + SENT ANTES de componer (el correo sale con las etiquetas);
-            # si el SMTP falla, el rollback lo deshace todo.
+            # Etiquetas «Nueva» + SENT ANTES de componer (el correo sale con las etiquetas), todo
+            # en un SAVEPOINT: si el correo no sale, se deshace solo esto y nada queda marcado.
             _sent_at_r = _now_madrid()
-            _invitation_mark_sent_tickets(session_db, row, 'all', _sent_at_r)
-            subject, html_body, text_body = _invitation_email_body(session_db, row, None)
-            reply_to = _invitation_request_reply_to(session_db, row) or _current_user_email()
+            punto = session_db.begin_nested()
             try:
+                _invitation_mark_sent_tickets(session_db, row, 'all', _sent_at_r)
+                subject, html_body, text_body = _invitation_email_body(session_db, row, None)
+                reply_to = _invitation_request_reply_to(session_db, row) or _current_user_email()
                 ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=reply_to)
             except Exception:
                 ok = False
@@ -83427,13 +83607,14 @@ def invitation_event_send_all(concert_id):
                 row.sent_to = ', '.join(recipients or [])
                 # Commit por fila: un fallo posterior no revierte las que ya se enviaron de verdad.
                 try:
+                    punto.commit()
                     session_db.commit()
                     sent += 1
                 except Exception:
                     session_db.rollback()
                     failed += 1
             else:
-                session_db.rollback()
+                punto.rollback()
                 failed += 1
         session_db.commit()
         parts = []

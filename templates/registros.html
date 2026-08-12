@@ -34,7 +34,18 @@
         <div class="d-flex flex-wrap gap-1 mt-2">
           <span class="badge text-bg-light border text-dark">{{ item.release_date.strftime('%d/%m/%Y') if item.release_date else 'Sin fecha' }}</span>
           <span class="badge {{ item.date_badge['class'] }}">{{ item.date_badge.label }}</span>
-          {% if item.kind_label %}<span class="badge text-bg-light border text-dark">{{ item.kind_label }}</span>{% endif %}
+          {% if item.kind_label %}
+            <span class="badge {{ 'text-bg-dark' if item.is_videoclip else 'text-bg-light border text-dark' }}">
+              {% if item.is_videoclip %}<i class="fa fa-film me-1"></i>{% endif %}{{ item.kind_label }}
+            </span>
+          {% endif %}
+          {# El VIDEOCLIP se registra como SUBPRODUCTO del single: se dice aquí para que quien lo
+             tramita sepa que va dentro del mismo registro. #}
+          {% if item.video_subproduct %}
+            <span class="badge text-bg-secondary" title="El videoclip se registra como subproducto de este single">
+              <i class="fa fa-film me-1"></i>+ videoclip (subproducto)
+            </span>
+          {% endif %}
         </div>
         {% if item.platform_authors %}
           <div class="d-flex flex-wrap gap-1 mt-2">
@@ -72,11 +83,19 @@
               <button class="btn btn-sm btn-success"><i class="fa fa-check me-1"></i>Marcar AGEDI</button>
             </form>
           {% else %}
-            {# Master en MP3 + portada en JPG + PDF del LC, en una carpeta AGEDI_Artista_Canción. #}
-            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('registros_song_pack', song_id=item.item_id, kind='AGEDI') }}"
-               title="Descargar el material para AGEDI (master en MP3, portada en JPG y PDF del Label Copy)">
-              <i class="fa fa-download"></i>
-            </a>
+            {# Material para AGEDI. En el VIDEOCLIP (cuando el single ya está registrado y solo
+               queda el vídeo) lo que se baja es el LC con los datos del vídeo y el clip en MP4. #}
+            {% if item.is_videoclip %}
+              <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('registros_song_pack', song_id=item.item_id, kind='AGEDI_VIDEO') }}"
+                 title="Descargar el material del videoclip para AGEDI (Label Copy con los datos del vídeo y el videoclip en MP4)">
+                <i class="fa fa-download"></i>
+              </a>
+            {% else %}
+              <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('registros_song_pack', song_id=item.item_id, kind='AGEDI') }}"
+                 title="Descargar el material para AGEDI (master en MP3, portada en JPG y PDF del Label Copy)">
+                <i class="fa fa-download"></i>
+              </a>
+            {% endif %}
             <form method="post" action="{{ item.agedi_register_url }}">
               <input type="hidden" name="next" value="{{ url_for('registros_view', tab='pendiente') }}">
               <button class="btn btn-sm btn-success"><i class="fa fa-check me-1"></i>Marcar AGEDI</button>

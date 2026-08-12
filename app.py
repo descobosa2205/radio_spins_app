@@ -16540,9 +16540,18 @@ def royalty_liquidations_send_all():
     subject = _royalty_liquidation_subject(sem_year, sem_half)
     now_dt = datetime.now(TZ_MADRID)
     sent, errors = 0, []
+    # ⚠️ Cada liquidación GENERA su PDF, lo sube y manda el correo: con muchas, el servidor corta la
+    # petición antes de acabar. Se manda durante un rato (cada envío queda guardado al momento) y se
+    # dice cuántas faltan; al volver a pulsar salen solo esas, porque las enviadas ya no están
+    # «pendientes de enviar».
+    _t0, _presupuesto, _quedan = time.monotonic(), 45.0, 0
     with get_db() as session_db:
-        for bucket in _royalty_pending_buckets(session_db, sem_start, sem_end,
-                                               statuses=tuple(ROYALTY_NOT_SENT_STATUSES)):
+        _buckets = list(_royalty_pending_buckets(session_db, sem_start, sem_end,
+                                                 statuses=tuple(ROYALTY_NOT_SENT_STATUSES)))
+        for _i, bucket in enumerate(_buckets):
+            if time.monotonic() - _t0 > _presupuesto:
+                _quedan = len(_buckets) - _i
+                break
             kind = (bucket.get("kind") or "").upper()
             bid = bucket.get("id")
             name = bucket.get("name") or "Beneficiario"
@@ -16585,6 +16594,8 @@ def royalty_liquidations_send_all():
             except Exception as exc:
                 session_db.rollback()
                 errors.append(f"{name}: {exc}")
+    if _quedan:
+        errors.append(f"quedan {_quedan} sin intentar (se paró por tiempo: vuelve a pulsar para seguir)")
     if sent:
         flash(f"Enviadas {sent} liquidacion{'es' if sent != 1 else ''}."
               + (f" Incidencias: {'; '.join(errors[:5])}" if errors else ""),
@@ -20118,6 +20129,9 @@ def _pitch_save(kind, obj_id):
         obj.pitch_text = text or None
         obj.pitch_updated_at = datetime.now(TZ_MADRID) if text else None
         session_db.add(obj)
+        # Escrito el pitch, el aviso de «falta el pitch» ya no espera a nadie: se cierra solo.
+        if text:
+            _notify_resolve(session_db, "ALBUM" if kind == "ALBUM" else "SONG", obj_id)
         session_db.commit()
         flash("Pitch guardado." if text else "Pitch eliminado.", "success")
         target = (url_for("discografica_album_detail", album_id=obj_id, tab="informacion")
@@ -33316,6 +33330,9 @@ def concert_delete_handler(cid):
                 % url_for("concert_artist_notice_view", cid=cid, kind="CANCELACION")), "warning")
             return redirect(url_for("concert_detail_view", cid=cid, tab="general"))
 
+        # Los avisos de esta actividad («producción asignada», «cartelería»…) dejan de tener sentido:
+        # si no, se quedan en la campanita llevando a una ficha que ya no existe.
+        _notify_resolve(session, "CONCERT", concert_uuid)
         # limpia hijos (por si los FKs no tienen ON DELETE CASCADE)
         session.query(TicketSale).filter_by(concert_id=concert_uuid).delete(synchronize_session=False)
         # Ventas V2
@@ -55207,6 +55224,7 @@ def _bag_close_if_fully_paid(session_db, bag) -> bool:
     bag.is_archived = True
     bag.archived_at = _now_madrid()
     bag.updated_at = _now_madrid()
+    _notify_resolve(session_db, "BAG", bag.id)
     return True
 
 
@@ -56384,6 +56402,7 @@ def payment_batch_receipt(batch_id):
             if expense is None:
                 continue
             expense.payment_status = "PAGADO"
+            _notify_resolve(session_db, "EXPENSE", expense.id)
             # Si el gasto ya llevaba un pago parcial, la remesa paga la DIFERENCIA: se suma a lo que
             # ya había (topando en lo que hay que pagarle, o sea el bruto menos la retención), no se
             # sustituye.
@@ -59237,6 +59256,8 @@ def administration_expense_mark_paid(expense_id):
             expense.payment_receipt_url = receipt_url
             expense.payment_receipt_name = receipt_name
         expense.immediate_payment_requested = False if expense.payment_status == "PAGADO" else expense.immediate_payment_requested
+        if expense.payment_status == "PAGADO":
+            _notify_resolve(session_db, "EXPENSE", expense.id)
         expense.updated_at = _now_madrid()
         audit = _bag_current_user_audit() if "_bag_current_user_audit" in globals() else {"user_id": None, "nick": "Administración"}
         queda = gross - total_pagado
@@ -59819,8 +59840,18 @@ def _accounting_expenses_from_request(session_db, form) -> list:
 
 def _accounting_upload_many(session_db, expenses, *, nick: str) -> dict:
     """Sube varios gastos a Holded. Cada uno en su savepoint: si uno falla, los demás siguen."""
-    salida = {"ok": 0, "fail": 0, "warnings": 0, "skipped": 0, "errors": []}
-    for expense in expenses:
+    salida = {"ok": 0, "fail": 0, "warnings": 0, "skipped": 0, "pending": 0, "errors": []}
+    # ⚠️ Cada gasto son VARIAS llamadas a Holded (contacto, documento, adjunto, relectura). «Subir
+    # todo» con cientos de gastos se pasa del tiempo que el servidor da a una petición y se corta a
+    # medias. Se sube durante un rato y se dice cuántos quedan: al volver a pulsar siguen los que
+    # faltan (lo ya subido se salta solo por `holded_doc_id`).
+    _t0, _presupuesto = time.monotonic(), 45.0
+    for _i, expense in enumerate(expenses):
+        if time.monotonic() - _t0 > _presupuesto:
+            salida["pending"] = len(expenses) - _i
+            break
+        if _i and _i % 5 == 0:
+            session_db.commit()
         if (expense.accounting_status or "PENDIENTE").upper() in ACCOUNTING_DONE_STATUSES:
             salida["skipped"] += 1
             continue
@@ -59866,6 +59897,9 @@ def _accounting_flash_result(res: dict, *, total: int) -> None:
         flash("No había nada que subir.", "info")
     if saltados and (res["ok"] or res["fail"]):
         flash("%d gasto(s) ya estaban en Holded y no se han vuelto a subir." % saltados, "info")
+    if int(res.get("pending") or 0):
+        flash("Quedan %d por subir: se ha parado para no agotar el tiempo del servidor. Vuelve a "
+              "pulsar «Subir todo a Holded» para seguir con esos." % int(res["pending"]), "info")
     for detalle in res["errors"][:8]:
         flash(detalle, "warning")
     if len(res["errors"]) > 8:
@@ -63811,14 +63845,25 @@ def supplier_invoices_read_meta():
             uno = (request.form.get("invoice_id") or "").strip()
             if uno:
                 ids = [uno]
+        # ⚠️ Cada factura se BAJA del almacenamiento: leer «todas» son cientos de descargas seguidas y
+        # el servidor corta la petición por tiempo mucho antes de acabar — y al cortarla no se
+        # guardaba NADA (el commit iba al final), así que el botón parecía colgarse sin resultado.
+        # Ahora se trabaja con un TOPE DE TIEMPO, se va guardando por el camino y, si quedan, se dice
+        # cuántas para volver a pulsar y seguir.
         leidas, sin_datos = 0, 0
-        for inv_id in ids[:200]:
+        _t0, _presupuesto, _pendientes = time.monotonic(), 40.0, 0
+        for _i, inv_id in enumerate(ids[:200]):
+            if time.monotonic() - _t0 > _presupuesto:
+                _pendientes = len(ids[:200]) - _i
+                break
+            if _i and _i % 10 == 0:
+                session_db.commit()      # lo leído hasta aquí queda guardado pase lo que pase
             inv = session_db.get(SupplierInvoice, to_uuid(inv_id) or uuid.uuid4())
             if inv is None or not (inv.file_url or "").strip():
                 continue
             try:
                 req = Request(inv.file_url, headers={"User-Agent": "Mozilla/5.0"})
-                with urlopen(req, timeout=25) as resp:
+                with urlopen(req, timeout=12) as resp:
                     data = resp.read()
             except Exception:
                 continue
@@ -63849,8 +63894,11 @@ def supplier_invoices_read_meta():
             flash("Leído de %d factura%s." % (leidas, "" if leidas == 1 else "s"), "success")
         if sin_datos:
             flash("De %d no se pudo leer nada: habrá que completarlas a mano." % sin_datos, "warning")
-        if not leidas and not sin_datos:
+        if not leidas and not sin_datos and not _pendientes:
             flash("No había ninguna factura que leer.", "warning")
+        if _pendientes:
+            flash("Quedan %d por leer (se ha parado para no agotar el tiempo del servidor). "
+                  "Vuelve a pulsar «Leer los datos que faltan» para seguir." % _pendientes, "info")
         return redirect(request.form.get("next") or url_for("invoices_view", tab="UPLOADED"))
     except Exception as exc:
         session_db.rollback()
@@ -74594,7 +74642,7 @@ def _notify_resolve(session_db, ref_type: str, ref_id) -> int:
         return 0
     try:
         filas = (session_db.query(AppNotification)
-                 .filter(AppNotification.ref_type == ref_type)
+                 .filter(func.upper(AppNotification.ref_type) == str(ref_type).upper())
                  .filter(AppNotification.ref_id == str(ref_id))
                  .filter(AppNotification.read_at.is_(None)).all())
         for n in filas:
@@ -76504,11 +76552,13 @@ def administration_bag_close_liquidation(bag_id):
             bag.liquidation_status = 'ARCHIVADA'
             bag.is_archived = True
             bag.archived_at = _now_madrid()
+            _notify_resolve(session_db, "BAG", bag.id)
             flash('Liquidación archivada.', 'success')
         else:
             bag.liquidation_status = 'CERRADA'
             bag.is_archived = True
             bag.archived_at = _now_madrid()
+            _notify_resolve(session_db, "BAG", bag.id)
             flash('Liquidación cerrada.', 'success')
         adjustments = list(getattr(bag, 'liquidation_adjustments', None) or [])
         if note:
@@ -83537,11 +83587,18 @@ def invitation_category_send_all(concert_id, category_id):
         no_email = 0
         failed = 0
         not_complete = 0
+        # Mismo tope de tiempo que en el envío de todo el evento: componer y mandar cada correo es
+        # lento, y una petición cortada a la mitad deja al usuario sin saber qué salió.
+        _t0, _presupuesto, _quedan = time.monotonic(), 45.0, 0
         # --- SOLICITUDES con entradas ASIGNADAS (sin enviar) en esta categoría ---
         _req_ids = {t.assigned_request_id for t in session_db.query(InvitationTicket).filter(
             InvitationTicket.category_id == cat.id, InvitationTicket.status == 'ASSIGNED',
             InvitationTicket.assigned_request_id.isnot(None)).all()}
-        for row in (session_db.query(InvitationRequest).filter(InvitationRequest.id.in_(list(_req_ids))).all() if _req_ids else []):
+        _reqs = (session_db.query(InvitationRequest).filter(InvitationRequest.id.in_(list(_req_ids))).all() if _req_ids else [])
+        for _i, row in enumerate(_reqs):
+            if time.monotonic() - _t0 > _presupuesto:
+                _quedan += len(_reqs) - _i
+                break
             if (row.status or '') != 'ASIGNADAS':
                 continue
             if (row.receiver_mode or '').strip().upper() == 'BOX_OFFICE':
@@ -83583,7 +83640,10 @@ def invitation_category_send_all(concert_id, category_id):
         _cmt_rows = session_db.query(InvitationCommitment).join(
             InvitationTicket, InvitationTicket.assigned_commitment_id == InvitationCommitment.id).filter(
             InvitationTicket.category_id == cat.id, InvitationTicket.status == 'ASSIGNED').distinct().all()
-        for row in _cmt_rows:
+        for _j, row in enumerate(_cmt_rows):
+            if time.monotonic() - _t0 > _presupuesto:
+                _quedan += len(_cmt_rows) - _j
+                break
             _q = _safe_int(_json_dict(row.quantities_json).get(str(cat.id)))
             _tks = session_db.query(InvitationTicket).filter(
                 InvitationTicket.assigned_commitment_id == row.id,
@@ -83630,6 +83690,8 @@ def invitation_category_send_all(concert_id, category_id):
             parts.append(f'{no_email} sin email')
         if failed:
             parts.append(f'{failed} fallidos')
+        if _quedan:
+            parts.append(f'{_quedan} sin intentar (se paró por tiempo: vuelve a pulsar para seguir)')
         flash(' · '.join(parts) + '.', 'success' if sent_n and not failed else 'warning')
         return redirect(url_for('invitation_event_detail', concert_id=_cid))
     except Exception as exc:
@@ -83661,7 +83723,15 @@ def invitation_event_send_all(concert_id):
         skipped_box = 0
         no_email = 0
         failed = 0
-        for row in rows:
+        # ⚠️ Cada envío compone su PDF y sale por SMTP: en un evento con muchas peticiones esto se
+        # come el tiempo que el servidor da a una petición y la corta a medias. Se trabaja con TOPE
+        # DE TIEMPO (lo enviado ya está commiteado fila a fila) y, si quedan, se dice cuántas para
+        # volver a pulsar: al segundo pase solo salen las que faltan.
+        _t0, _presupuesto, _quedan = time.monotonic(), 45.0, 0
+        for _i, row in enumerate(rows):
+            if time.monotonic() - _t0 > _presupuesto:
+                _quedan = len(rows) - _i
+                break
             if (row.receiver_mode or '').strip().upper() == 'BOX_OFFICE':
                 skipped_box += 1
                 continue
@@ -83710,6 +83780,9 @@ def invitation_event_send_all(concert_id):
             parts.append(f'{no_email} sin email')
         if failed:
             parts.append(f'{failed} con error de envío')
+        if _quedan:
+            parts.append(f'{_quedan} sin llegar a intentarse (se paró para no agotar el tiempo del '
+                         f'servidor: vuelve a pulsar «Enviar todas las asignadas» para seguir)')
         if sent:
             flash('Envío masivo: ' + ', '.join(parts) + '.', 'success')
         elif parts:
@@ -92957,6 +93030,9 @@ def vacation_request_decide(request_id):
         req.decided_by_user_id = _safe_uuid((_current_user_state() or {}).get("user_id"))
         req.decided_at = datetime.now(TZ_MADRID)
         req.updated_at = req.decided_at
+        # Decidida: el aviso de «tienes una petición por aprobar» deja de esperar a nadie (también
+        # a los DEMÁS que gestionan vacaciones, que si no seguirían viéndolo pendiente).
+        _notify_resolve(session_db, "vacation_request", req.id)
         session_db.commit()
 
         # Aviso a quien lo pidió, por los DOS canales y con el mismo diseño (ver

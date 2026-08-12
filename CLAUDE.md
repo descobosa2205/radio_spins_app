@@ -1362,6 +1362,28 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `estado["role"]`**, no con `is_master()`: ese lee el rol de la SESIÓN y sin él cae a 10, con lo que
   producción vería todo.
 
+- **UN AVISO SE CIERRA SOLO CUANDO LO SUYO YA ESTÁ HECHO** (ago 2026). Un aviso dice «esto te está
+  esperando»: si lo que esperaba ya está resuelto tiene que desaparecer sin que nadie lo pinche (pasó
+  con «remesa pendiente de aprobación» de una remesa **ya aprobada y pagada**). Punto único
+  **`_notify_resolve(session_db, ref_type, ref_id)`**, ya enganchado en: remesa (aprobar/anular/
+  justificante), **gasto pagado del todo** (a mano y por remesa), **bolsa cerrada o archivada**,
+  **pitch escrito**, **vacaciones decididas** (también para los demás que gestionan) y **actividad
+  borrada** (su aviso llevaría a una ficha que ya no existe).
+  ⚠️ El `ref_type` se compara **sin distinguir mayúsculas**: los avisos se crean con «CONCERT»,
+  «concert» y «payment_batch» según el sitio, así que una resolución con otra caja no cerraba nada
+  **y no daba ningún error** — parecía que el aviso «no se iba».
+
+- ⚠️ **ACCIONES «PARA TODOS» · TOPE DE TIEMPO en vez de quedarse colgadas** (ago 2026). Varias
+  acciones en bloque recorren decenas o cientos de elementos haciendo algo LENTO en cada uno (bajar
+  un PDF, componer un correo, llamar a una API). El servidor corta la petición por tiempo mucho antes
+  de acabar y —lo peor— si el guardado iba al final, **no quedaba nada hecho**: el botón parecía
+  colgarse y no había forma de saber qué había pasado. Todas trabajan ahora con un **presupuesto de
+  ~45 s**, guardando por el camino, y al acabar dicen **cuántas quedan** para volver a pulsar y
+  seguir (la segunda pasada solo coge las que faltan, porque lo hecho ya no está pendiente):
+  «Enviar todas las asignadas» de un evento y de una categoría · «Leer los datos que faltan» de las
+  facturas (además el tiempo por archivo baja de 25 s a 12 s) · «Subir todo a Holded» · «Enviar todas
+  las liquidaciones» de royalties.
+
 - **AVISOS cuando te asignan algo** (`AppNotification` + `ensure_notifications_schema`, ago 2026):
   campanita en el navbar con lo no leído + **aviso emergente** abajo a la derecha que salta **una
   vez** por aviso (`shown_at`), y —si el servidor tiene claves VAPID— el MISMO aviso sale como

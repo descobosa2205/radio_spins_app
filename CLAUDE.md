@@ -356,6 +356,14 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   el error de Python. ⚠️ Si un reintento choca con «duplicate», la subida anterior SÍ había entrado:
   se da por buena en vez de reventar. Lo NO transitorio (archivo inválido, tamaño) no se reintenta.
 
+  ⚠️ La misma regla vale para **«Marcar como enviadas» a mano** (que no manda ningún correo): una
+  petición o un compromiso **sin invitaciones asignadas ya no se pueden marcar** —ni desde el menú
+  (la opción no se ofrece) ni desde el endpoint (lo comprueba también el servidor)—, porque una fila
+  que dice «Enviadas» sin tener ni una invitación es justo lo que confundía.
+  **Excepción: la LISTA DE INVITADOS** (`uses_guest_list`), que por definición no lleva entradas y se
+  entrega en la puerta: esa sí se marca. ⚠️ Para saberlo hay que pasarle las CATEGORÍAS a
+  `_invitation_request_kind_flags` (sin ellas el mapa sale vacío y bloquearía justo ese caso).
+
 - ⚠️⚠️ **INVITACIONES · solo se marca ENVIADO lo que se ha enviado de verdad** (bug real y grave,
   ago 2026). «Enviar todas las asignadas» marcaba invitaciones como ENVIADAS **sin haber mandado
   nada y sin haber ninguna asignada**. Dos causas, las dos corregidas:

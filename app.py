@@ -82494,6 +82494,14 @@ def invitation_commitment_mark_sent(commitment_id):
         if _cat_id:
             _tq = _tq.filter(InvitationTicket.category_id == _cat_id)
         tickets = _tq.all()
+        # ⚠️ Solo se marca como enviado lo que EXISTE: sin entradas asignadas, «enviadas» sería
+        # mentira (misma regla que en las peticiones; era el fallo que confundía en la gestión).
+        if not tickets:
+            _msg = ('No hay invitaciones asignadas en esa categoría: asígnalas antes de marcarlas como enviadas.'
+                    if _cat_id else
+                    'Este compromiso no tiene invitaciones asignadas: asígnalas antes de marcarlas como enviadas.')
+            flash(_msg, 'warning')
+            return redirect(request.referrer or url_for('invitation_event_detail', concert_id=cid))
         now = _now_madrid()
         _invitation_tag_new_tickets(tickets, tickets)   # «Nueva» en las añadidas (mezcla)
         for t in tickets:
@@ -83474,6 +83482,17 @@ def invitation_request_mark_sent(request_id):
         _ensure_can_manage_invitations(session_db, row.concert)
         if (row.status or '').upper() in {'RECHAZADAS', 'ANULADAS'}:
             raise ValueError('No se puede marcar como enviada una solicitud rechazada o anulada.')
+        # ⚠️ Sin entradas asignadas no hay nada que se haya podido entregar: marcarla como enviada
+        # es justo lo que confundía (una petición «Enviada» que no tenía ni una invitación).
+        # La LISTA DE INVITADOS es la excepción: no lleva entradas, se entrega en la puerta.
+        # ⚠️ Hay que pasarle las CATEGORÍAS: sin ellas no puede saber que es una lista de invitados
+        # (el mapa sale vacío) y bloquearía justo el caso que se quiere permitir.
+        _cats = _invitation_get_categories(session_db, row.concert, ensure_defaults=False) if row.concert else []
+        _flags = _invitation_request_kind_flags(session_db, row, _cats)
+        _asignadas = _safe_int(_flags.get('assigned_total'))
+        if not _asignadas and not _flags.get('uses_guest_list'):
+            raise ValueError('Esta petición no tiene invitaciones asignadas: asígnalas antes de '
+                             'marcarlas como enviadas.')
         now = _now_madrid()
         row.status = 'ENVIADAS'
         row.sent_at = now

@@ -456,9 +456,17 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   material) y **`_song_delivery_config(link)`**, que dice para ESE enlace si cada cosa se pide y si
   obliga. Se guarda en `SongMasterDeliveryLink.fields_json`; los enlaces ANTIGUOS no lo traen y se
   reconstruye de sus secciones/materiales, así que se comportan igual que siempre.
-  · Al generar el enlace se ve **una fila por campo con dos casillas** («Se pide» · «Obligatorio»;
-  lo que no se pide no puede obligar). De ahí salen también `sections_json` y `materials_json`, para
-  que todo cuadre. El formulario público pinta solo lo pedido y **valida exactamente eso**.
+  · Al generar el enlace, cada campo lleva un **interruptor de TRES posiciones** con el mismo
+  lenguaje que los de permisos (`.sw3` en `styles.css`, leyenda arriba): **apagado** = no se pide ·
+  **ámbar en medio** = se pide · **verde a la derecha** = obligatorio. Se pincha en la posición que se
+  quiere (o con las flechas) y el valor viaja en un `mode_<clave>` (0/1/2) — el servidor sigue
+  aceptando las dos casillas antiguas por si queda una pantalla vieja abierta. De ahí salen también
+  `sections_json` y `materials_json`, para que todo cuadre. El formulario público pinta solo lo
+  pedido y **valida exactamente eso**.
+  · **PREVISUALIZACIÓN del enlace** (`_song_delivery_share_context` + `public_song_delivery_og_image`):
+  la **portada**, «Entrega de masters · <canción>» y, debajo, el **artista** con los **intérpretes**
+  que haya además de él. La miniatura va a 1200×630 **desde nuestro dominio** (como el resto), con la
+  foto del artista y el logo como respaldo.
   · **EL PRODUCTOR es un TERCERO de la base de datos**: buscador con foto (reutiliza
   `public_song_delivery_authors`, que ahora devuelve también el **correo**), alta al vuelo
   (`public_song_delivery_create_author` acepta `email`) y, **solo si su ficha no tiene correo**, se

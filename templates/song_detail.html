@@ -160,23 +160,25 @@
              El catálogo lo da `_song_delivery_askable()`, el mismo que usa el formulario público. #}
           <form method="post" action="{{ url_for('discografica_song_delivery_create', song_id=song.id) }}">
             <p class="small text-muted mb-2">Genera un enlace público para que un tercero rellene la información y suba los materiales. Marca <strong>qué se le pide</strong> y <strong>qué es obligatorio</strong>:</p>
-            <div class="d-flex justify-content-end gap-3 small text-muted pe-1 mb-1">
-              <span style="width:64px;text-align:center">Se pide</span><span style="width:78px;text-align:center">Obligatorio</span>
+            {# Un interruptor de TRES posiciones por campo, como los de permisos: apagado (no se
+               pide) · ámbar en medio (se pide) · verde a la derecha (obligatorio). #}
+            <div class="sw3-legend">
+              <span><i class="dot" style="background:#cfd6e0"></i>No se pide</span>
+              <span><i class="dot" style="background:var(--amber,#E0922F)"></i>Se pide</span>
+              <span><i class="dot" style="background:var(--ok,#1e9e5a)"></i>Obligatorio</span>
             </div>
-            {% set sec_names = dict(song_delivery_sections) %}
             {% for sec, slabel in song_delivery_sections %}
               {% set filas = song_delivery_askable|selectattr('section','equalto',sec)|list %}
               {% if filas %}
                 <div class="fw-semibold small mt-2 mb-1">{{ slabel }}</div>
                 {% for f in filas %}
+                  {% set estado = 2 if f.required else (1 if f.ask else 0) %}
                   <div class="d-flex align-items-center gap-3 border-bottom py-1">
                     <div class="flex-grow-1 small">{{ f.label }}</div>
-                    <div style="width:64px;text-align:center">
-                      <input class="form-check-input" type="checkbox" name="ask_{{ f.key }}" value="1" data-del-ask="{{ f.key }}"{% if f.ask %} checked{% endif %}>
-                    </div>
-                    <div style="width:78px;text-align:center">
-                      <input class="form-check-input" type="checkbox" name="req_{{ f.key }}" value="1" data-del-req="{{ f.key }}"{% if f.required %} checked{% endif %}{% if not f.ask %} disabled{% endif %}>
-                    </div>
+                    <span class="sw3" data-sw3 data-state="{{ estado }}" role="button" tabindex="0"
+                          aria-label="{{ f.label }}"
+                          title="Pincha para cambiar: no se pide · se pide · obligatorio"></span>
+                    <input type="hidden" name="mode_{{ f.key }}" value="{{ estado }}">
                   </div>
                 {% endfor %}
               {% endif %}
@@ -184,15 +186,33 @@
             <div class="text-end mt-3"><button class="btn btn-primary"><i class="fa fa-link me-1"></i>Generar enlace</button></div>
           </form>
           <script>
-            // Lo que no se pide no puede ser obligatorio.
-            document.addEventListener('change', function (ev) {
-              var c = ev.target.closest('[data-del-ask]');
-              if (!c) return;
-              var req = document.querySelector('[data-del-req="' + c.getAttribute('data-del-ask') + '"]');
-              if (!req) return;
-              req.disabled = !c.checked;
-              if (!c.checked) req.checked = false;
-            });
+            // Interruptor de 3 posiciones: se pincha en la posición que se quiere (y con las flechas
+            // del teclado). El valor viaja en el input oculto que va justo detrás.
+            (function () {
+              function poner(sw, estado) {
+                estado = Math.max(0, Math.min(2, estado));
+                sw.setAttribute('data-state', String(estado));
+                var oculto = sw.nextElementSibling;
+                if (oculto && oculto.type === 'hidden') oculto.value = String(estado);
+              }
+              document.addEventListener('click', function (ev) {
+                var sw = ev.target.closest('[data-sw3]');
+                if (!sw) return;
+                var caja = sw.getBoundingClientRect();
+                var tercio = Math.floor(((ev.clientX - caja.left) / caja.width) * 3);
+                // Fuera de sitio (teclado, clic raro): avanza a la siguiente posición.
+                if (!isFinite(tercio) || tercio < 0 || tercio > 2) tercio = (parseInt(sw.getAttribute('data-state'), 10) + 1) % 3;
+                poner(sw, tercio);
+              });
+              document.addEventListener('keydown', function (ev) {
+                var sw = ev.target.closest && ev.target.closest('[data-sw3]');
+                if (!sw) return;
+                var actual = parseInt(sw.getAttribute('data-state'), 10) || 0;
+                if (ev.key === 'ArrowRight') { poner(sw, actual + 1); ev.preventDefault(); }
+                else if (ev.key === 'ArrowLeft') { poner(sw, actual - 1); ev.preventDefault(); }
+                else if (ev.key === ' ' || ev.key === 'Enter') { poner(sw, (actual + 1) % 3); ev.preventDefault(); }
+              });
+            })();
           </script>
         {% endif %}
       </div>

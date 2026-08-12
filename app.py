@@ -22523,7 +22523,13 @@ def songs_view():
 
     if request.method == "POST":
         title = request.form.get("title", "").strip()
-        release_date = parse_date(request.form.get("release_date"))
+        # ⚠️ `parse_date` revienta con None: enviar el formulario sin fecha sacaba la página de
+        # mantenimiento (un 500) en vez de decir qué falta.
+        release_date = parse_optional_date(request.form.get("release_date"))
+        if not title or not release_date:
+            session_db.close()
+            flash("Para dar de alta una canción hacen falta el título y la fecha de publicación.", "warning")
+            return redirect(url_for("songs_view"))
         cover = request.files.get("cover")
         artist_ids = [to_uuid(aid) for aid in request.form.getlist("artist_ids[]") if to_uuid(aid)]
         interpreter_names = [re.sub(r"\s+", " ", (name or "").strip()) for name in request.form.getlist("interpreter_name[]") if re.sub(r"\s+", " ", (name or "").strip())]
@@ -23029,9 +23035,14 @@ def plays_import_apply():
     if not can_edit_radio():
         return jsonify({"ok": False, "error": "Sin permisos para actualizar tocadas."}), 403
     payload = request.get_json(silent=True) or {}
+    _semana = parse_optional_date(payload.get("week_start"))
+    if not _semana:
+        # Es un endpoint AJAX: sin semana se contesta en JSON, que es lo que el front sabe leer
+        # (antes petaba con un 500 y el navegador se quedaba sin respuesta que entender).
+        return jsonify({"ok": False, "error": "Falta la semana que se está importando."}), 400
     session_db = db()
     try:
-        week = monday_of(parse_date(payload.get("week_start")))
+        week = monday_of(_semana)
         ensure_week(session_db, week)
 
         # Mapa automático de ISRC (para decidir si un enlace de canción es manual y hay que recordarlo).

@@ -1856,17 +1856,50 @@
                         </ul>
                       </div>
                     </div>
-                    <div class="d-flex flex-column gap-1">
+                    {# El paquete se enseña PLEGADO: arriba se comparte o se descarga entero, y al
+                       pinchar se despliegan sus archivos, cada uno con lo suyo. #}
+                    <button type="button" class="mat-stems-toggle" data-stems-toggle aria-expanded="false">
+                      <i class="fa fa-caret-right"></i>
+                      <span>Ver los {{ group.file_count }} archivo{% if group.file_count != 1 %}s{% endif %}</span>
+                    </button>
+                    <div class="d-flex flex-column gap-1 d-none" data-stems-list>
                       {% for f in group.rows %}
                         <div class="mat-stemfile">
                           <span class="mat-stemfile__name">{{ f.base_name }}</span>
                           {% if f.is_audio %}{{ audio_chip(f) }}{% endif %}
+                          <div class="dropdown ms-auto">
+                            <button class="btn btn-sm btn-link text-muted p-0 px-1" type="button" data-bs-toggle="dropdown" title="Descargar o compartir este archivo"><i class="fa fa-ellipsis-h"></i></button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                              <li><h6 class="dropdown-header">{{ f.base_name }}</h6></li>
+                              {% if f.download_wav_url %}<li><a class="dropdown-item" href="{{ f.download_wav_url }}"><i class="fa fa-download fa-fw me-1"></i>Descargar WAV</a></li>{% endif %}
+                              {% if f.download_mp3_url %}<li><a class="dropdown-item" href="{{ f.download_mp3_url }}"><i class="fa fa-download fa-fw me-1"></i>Descargar MP3</a></li>{% endif %}
+                              {% if f.download_original_url %}<li><a class="dropdown-item" href="{{ f.download_original_url }}"><i class="fa fa-download fa-fw me-1"></i>Descargar original</a></li>{% endif %}
+                              <li><hr class="dropdown-divider"></li>
+                              <li><button class="dropdown-item" type="button" onclick="shareByMail({{ (f.base_name ~ ' · ' ~ song.title)|tojson|forceescape }}, {{ f.share_url|tojson|forceescape }})"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por mail</button></li>
+                              <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp({{ (f.base_name ~ ' · ' ~ song.title)|tojson|forceescape }}, {{ f.share_url|tojson|forceescape }})"><i class="fab fa-whatsapp fa-fw me-1"></i>WhatsApp</button></li>
+                              <li><button class="dropdown-item" type="button" onclick="shareBySms({{ (f.base_name ~ ' · ' ~ song.title)|tojson|forceescape }}, {{ f.share_url|tojson|forceescape }})"><i class="fa fa-comment fa-fw me-1"></i>SMS</button></li>
+                              <li><button class="dropdown-item" type="button" onclick="copyShareLink({{ f.share_url|tojson|forceescape }})"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+                            </ul>
+                          </div>
                         </div>
                       {% endfor %}
                     </div>
                   </div>
                 {% endfor %}
               </div>
+              <script>
+                document.addEventListener('click', function (ev) {
+                  var b = ev.target.closest('[data-stems-toggle]');
+                  if (!b) return;
+                  var lista = b.parentElement.querySelector('[data-stems-list]');
+                  if (!lista) return;
+                  var abierto = !lista.classList.toggle('d-none');
+                  b.setAttribute('aria-expanded', abierto ? 'true' : 'false');
+                  b.classList.toggle('is-open', abierto);
+                  var txt = b.querySelector('span');
+                  if (txt) txt.textContent = (abierto ? 'Ocultar los ' : 'Ver los ') + txt.textContent.replace(/^\D+/, '');
+                });
+              </script>
             {% else %}
               <div class="mat-empty">Todavía no hay stems subidos.</div>
             {% endif %}

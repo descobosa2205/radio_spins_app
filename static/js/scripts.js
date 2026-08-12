@@ -2322,3 +2322,42 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
       });
   });
 })();
+
+/* MÓVIL · una tabla que no cabe SE DESPLAZA, no se estruja.
+   Sin esto, el navegador estrecha las columnas hasta partir las palabras letra a letra y no hay
+   quien lo lea. Las plantillas que ya traen `.table-responsive` no se tocan; a las demás se les
+   pone aquí el envoltorio (también a las que llegan por AJAX, con un observador). */
+(function () {
+  function envolver(tabla) {
+    if (!tabla || tabla.dataset.tableScrolled) return;
+    var padre = tabla.parentElement;
+    if (!padre) return;
+    tabla.dataset.tableScrolled = '1';
+    if (padre.classList.contains('table-responsive') || padre.hasAttribute('data-table-scroll')) return;
+    // Tablas de maquetación (sin th ni .table): se dejan como están.
+    if (!tabla.classList.contains('table') && !tabla.querySelector('th')) return;
+    var caja = document.createElement('div');
+    caja.setAttribute('data-table-scroll', '');
+    padre.insertBefore(caja, tabla);
+    caja.appendChild(tabla);
+  }
+  function repasar(raiz) {
+    (raiz || document).querySelectorAll('table:not([data-table-scrolled])').forEach(envolver);
+  }
+  document.addEventListener('DOMContentLoaded', function () {
+    repasar(document);
+    // Lo que se pinta después (pestañas por AJAX, zonas `data-inline`, modales) también.
+    try {
+      new MutationObserver(function (cambios) {
+        for (var i = 0; i < cambios.length; i++) {
+          var nodos = cambios[i].addedNodes || [];
+          for (var j = 0; j < nodos.length; j++) {
+            var n = nodos[j];
+            if (n.nodeType !== 1) continue;
+            if (n.tagName === 'TABLE') envolver(n); else repasar(n);
+          }
+        }
+      }).observe(document.body, { childList: true, subtree: true });
+    } catch (e) {}
+  });
+})();

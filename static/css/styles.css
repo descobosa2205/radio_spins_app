@@ -981,7 +981,14 @@ img.img-error-pending{ visibility: hidden; }
 .mat-file__audio{ height:34px; max-width:240px; }
 .mat-stemfile{ display:flex; align-items:center; justify-content:space-between; gap:.6rem; flex-wrap:wrap; padding:.25rem 0; border-top:1px dashed #eef0f3; }
 .mat-stemfile:first-child{ border-top:0; }
-.mat-stemfile__name{ font-size:.82rem; color:#3a424d; word-break:break-word; }
+.mat-stemfile__name{ font-size:.82rem; color:#3a424d; word-break:break-word; min-width:0; flex:1 1 auto; }
+/* El paquete de stems se enseña plegado: se comparte o se descarga entero, y al pinchar se
+   despliegan sus archivos (cada uno con su descarga y su compartir). */
+.mat-stems-toggle{ background:none; border:0; padding:.15rem 0; color:var(--brand-accent,#007CA2);
+                   font-size:.82rem; font-weight:600; display:inline-flex; align-items:center; gap:.4rem; }
+.mat-stems-toggle .fa{ transition:transform .15s; }
+.mat-stems-toggle.is-open .fa{ transform:rotate(90deg); }
+.mat-stems-toggle:hover{ text-decoration:underline; }
 .mat-empty{ font-size:.82rem; color:#8a94a6; }
 .mat-subhead{ font-size:.72rem; letter-spacing:.04em; text-transform:uppercase; color:#8a94a6; margin-bottom:.4rem; }
 .mat-cover{ position:relative; border:1px solid #e9ecef; border-radius:.7rem; padding:.75rem; display:flex; align-items:center; gap:.75rem; min-height:96px; background:#fff; }
@@ -3994,3 +4001,43 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
    ve algo más apagada y no se arrastra (recategorizar se hace desde la principal). */
 .inv-cat-row--secondary{ background:#fcfcfd; }
 .inv-cat-row--secondary .inv-name-line{ opacity:.92; }
+
+
+/* =========================================================================
+   MÓVIL: que todo se LEA (nada de una letra por línea)
+   =========================================================================
+   Cuando una tabla o una fila no cabe, el navegador estrecha las columnas hasta
+   partir las palabras letra a letra y no se entiende nada. La regla es simple:
+   lo que no cabe SE DESPLAZA, no se estruja.
+   · las tablas se desplazan en horizontal (el envoltorio lo pone `scripts.js`
+     a las que no lo traen de la plantilla);
+   · las celdas no bajan de un ancho mínimo legible;
+   · las palabras se parten solo cuando de verdad no caben (URLs, correos);
+   · los hijos de un flex pueden encogerse (min-width:0) en vez de desbordar. */
+@media (max-width: 767.98px) {
+  .table-responsive, [data-table-scroll] { -webkit-overflow-scrolling: touch; }
+  .table-responsive table, [data-table-scroll] table { min-width: 34rem; }
+  .table-responsive table.table-sm, [data-table-scroll] table.table-sm { min-width: 30rem; }
+  table th, table td { word-break: normal; overflow-wrap: anywhere; hyphens: none; }
+  /* Una columna nunca por debajo de lo legible (las de solo iconos se marcan con .col-icon). */
+  table th:not(.col-icon), table td:not(.col-icon) { min-width: 4.5rem; }
+  /* Las PESTAÑAS de sección (Pendiente · Pagos · Cobros…) se desplazan en horizontal: apretadas
+     partían el nombre letra a letra. Vale para nav-tabs, nav-pills y las barras propias. */
+  .nav:not(.flex-column):not(.navbar-nav) { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; }
+  .nav:not(.flex-column):not(.navbar-nav) > .nav-item,
+  .nav:not(.flex-column):not(.navbar-nav) > .nav-link { flex: 0 0 auto; }
+  .nav-link, .nav-item > a, .nav-item > button { white-space: nowrap; }
+  .nav::-webkit-scrollbar { height: 3px; }
+  /* Fichas de material (vídeo + sus datos): en móvil el texto baja debajo de la miniatura en vez
+     de quedarse en una columna de 6 px partiendo las palabras. */
+  .mat-video, .mat-module__head, .mat-stemfile, .psum-row, .co-doc, .docs-drop { flex-wrap: wrap; }
+  .mat-video__body, .mat-module__head > *, .mat-stemfile__name { min-width: 12rem; }
+  .d-flex > * { min-width: 0; }
+  .badge, .btn { white-space: nowrap; }
+  h1, h2, h3, h4, h5, h6, p, span, div, td, th, label, a { overflow-wrap: anywhere; }
+  /* Los grupos de botones y las barras de pestañas se desplazan en vez de apilarse ilegibles. */
+  .nav-tabs, .contract-tabs { flex-wrap: nowrap; overflow-x: auto; }
+  .nav-tabs::-webkit-scrollbar, .contract-tabs::-webkit-scrollbar { height: 3px; }
+}
+/* El envoltorio que añade el JS a las tablas sueltas. */
+[data-table-scroll] { display: block; width: 100%; overflow-x: auto; }

@@ -1373,6 +1373,28 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   «concert» y «payment_batch» según el sitio, así que una resolución con otra caja no cerraba nada
   **y no daba ningún error** — parecía que el aviso «no se iba».
 
+- **AUDITORÍA ago 2026 · lo que se encontró roto y se ha corregido**:
+  · **`/canciones` daba un 500** en cuanto el artista tenía una canción: precargaba `s.interpreters`
+  y **`Song` no tiene esa relación** (los intérpretes se leen con `_song_interpreter_rows_map`).
+  ⚠️ Esa pantalla no la enlaza ningún menú (el repertorio vive en Discográfica) y su bloque
+  `{% if active_tab == 'alta' %}` es **inalcanzable** (`concerts_view` reescribe `alta` → `vista`).
+  · **La factura de royalties rechazada dejaba el proceso muerto**: `administration_royalty_invoice_validate`
+  volvía la liquidación a «enviada» pero **no soltaba `invoice_id`**, así que para el resto de la app
+  seguía facturada (el mismo fallo que ya se corrigió en la base de facturas, en el otro camino). Y el
+  correo al proveedor era un «vuelve a subirla» **sin decir dónde**: ahora lo compone
+  `_supplier_invoice_reject_notify`, el mismo de la base de facturas, que lleva el **enlace** para
+  subir la corregida.
+  · **Mensajes que mentían**: se decía «aviso enviado al proveedor» sin mirar si el correo había
+  salido (`_send_optional_email` devuelve `(ok, error)`). Corregido ahí y en el rechazo de una
+  petición de marketing y de una de invitaciones: si no sale, se dice.
+  · **Siete `except: pass` que se tragaban un aviso** pasan a `app.logger.exception(...)`: el flujo
+  principal sigue igual, pero deja rastro en el log en vez de desaparecer sin más.
+  · Comprobado además, sin encontrar nada: todas las llamadas HTTP y a `subprocess` llevan
+  **timeout**; ningún `url_for` de las plantillas apunta a un endpoint inexistente; ningún
+  `data-inline-target` apunta a una zona que no existe; ninguna función de `onclick` está sin
+  definir; **118 pantallas sin parámetros, 53 con id real, 83 pestañas y 112 rutas con un id
+  inexistente** responden sin error de servidor.
+
 - ⚠️ **ACCIONES «PARA TODOS» · TOPE DE TIEMPO en vez de quedarse colgadas** (ago 2026). Varias
   acciones en bloque recorren decenas o cientos de elementos haciendo algo LENTO en cada uno (bajar
   un PDF, componer un correo, llamar a una API). El servidor corta la petición por tiempo mucho antes

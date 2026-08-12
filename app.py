@@ -3090,7 +3090,7 @@ def _send_artwork_request_email(concert: Concert, row: ConcertArtworkRequest, is
         finally:
             aviso_db.close()
     except Exception:
-        pass
+        app.logger.exception("[avisos] no se pudo avisar a Diseño de la solicitud de cartelería")
     return _send_optional_email('grafico@33producciones.es', subject, html_body, text_body=text_body)
 
 
@@ -22586,8 +22586,10 @@ def songs_view():
                  .order_by(Song.release_date.desc())
                  .all())
         for s in songs:
+            # ⚠️ `Song` NO tiene relación `interpreters` (los intérpretes se leen con
+            # `_song_interpreter_rows_map`): tocarla aquí reventaba la pantalla con un 500 en cuanto
+            # el artista tenía una sola canción.
             _ = s.artists
-            _ = s.interpreters
         all_block_songs.extend(songs)
         artist_blocks.append((a, songs))
 
@@ -40055,7 +40057,7 @@ def concert_wizard_create():
                                  url_for("concert_detail_view", cid=concert.id, tab="produccion"),
                                  ref_type="CONCERT", ref_id=str(concert.id))
                 except Exception:
-                    pass
+                    app.logger.exception("[avisos] no se pudo avisar de la producción asignada")
 
         # Tipos de entrada del asistente → tipos reales (nombre, precio, cupo) del concierto.
         if ticket_type_rows:
@@ -45754,19 +45756,25 @@ def administration_royalty_invoice_validate(invoice_id):
             inv.validated_at = _now_madrid()
             inv.validated_by_nick = nick
             if rec is not None:
+                # ⚠️ Además de volver a «enviada», hay que SOLTAR la factura: si la liquidación
+                # sigue apuntando a una factura rechazada, para el resto de la app sigue facturada
+                # (mismo fallo que ya se corrigió en la base de facturas).
+                if str(getattr(rec, "invoice_id", "") or "") == str(inv.id):
+                    rec.invoice_id = None
                 rec.status = "SENT"          # vuelve a «enviada» = pendiente de facturar
                 rec.updated_at = _now_madrid()
                 _royalty_history_add(rec, "INVOICE_REJECTED", note=reason, file_url=(inv.file_url or ""))
-            promoter = session_db.get(Promoter, inv.promoter_id)
-            email_to = (getattr(promoter, "contact_email", None) or "").strip() if promoter else ""
-            if email_to:
-                body = ("<p style='margin:0 0 10px;'>Tu factura de la liquidación de royalties "
-                        "<strong>ha sido rechazada</strong>, por favor vuelve a subirla.</p>")
-                if reason:
-                    body += f"<p style='margin:0 0 12px;'><strong>Motivo:</strong> {escape(reason)}</p>"
-                _send_optional_email(email_to, "Factura rechazada · liquidación de royalties", body)
+            # ⚠️ El aviso lo compone `_supplier_invoice_reject_notify`, el MISMO de la base de
+            # facturas: lleva el motivo y —lo que faltaba aquí— el ENLACE para subir la corregida.
+            # Antes se mandaba un «vuelve a subirla» a secas, sin decir dónde, y además se decía
+            # «aviso enviado» sin comprobar que hubiera salido.
+            _mail_ok, _mail_info = _supplier_invoice_reject_notify(session_db, inv, reason)
             session_db.commit()
-            flash("Factura rechazada y aviso enviado al proveedor.", "warning")
+            if _mail_ok:
+                flash("Factura rechazada y aviso enviado a %s." % _mail_info, "warning")
+            else:
+                flash("Factura rechazada, pero NO se ha podido avisar al proveedor: %s"
+                      % (_mail_info or "correo no enviado"), "danger")
         else:
             inv.status = "VALIDADA"
             inv.validated_at = _now_madrid()
@@ -51597,9 +51605,13 @@ def promotion_request_reject(request_id):
         recipients = _promotion_request_recipients(row)
         if recipients:
             subject, html_body, text_body = _build_promotion_rejection_email(row, reviewer_label, reason)
-            _send_optional_email(recipients, subject, html_body, text_body=text_body)
+            _aviso_ok, _aviso_err = _send_optional_email(recipients, subject, html_body, text_body=text_body)
         session_db.commit()
-        flash('Solicitud rechazada y archivada.', 'success')
+        if recipients and not _aviso_ok:
+            flash('Solicitud rechazada y archivada, pero NO se ha podido avisar a quien la pidió (%s).'
+                  % (_aviso_err or 'correo no enviado'), 'warning')
+        else:
+            flash('Solicitud rechazada y archivada.', 'success')
     except Exception as exc:
         session_db.rollback()
         flash(f'Error rechazando la solicitud: {exc}', 'danger')
@@ -56169,7 +56181,7 @@ def _payment_batch_notify_approval(session_db, batch, n_pagos: int) -> None:
             url_for("payment_batch_approve_view", batch_id=batch.id),
             ref_type="payment_batch", ref_id=str(batch.id))
     except Exception:
-        pass
+        app.logger.exception("[avisos] no se pudo avisar a dirección de la remesa")
 
 
 def _payment_batches_pending_approval(session_db, limit: int = 30) -> list:
@@ -62723,7 +62735,7 @@ def bag_expense_request_payment(bag_id, expense_id):
                           url_for("administracion_view", tab="pendiente", subtab="solicitudes"),
                           ref_type="EXPENSE", ref_id=str(expense.id))
         except Exception:
-            pass
+            app.logger.exception("[avisos] no se pudo avisar de la petición de pago")
         audit = _bag_current_user_audit()
         session_db.add(BagPaymentInteraction(
             expense_id=expense.id,
@@ -63093,7 +63105,7 @@ def bag_close(bag_id):
                           url_for("bag_detail_view", bag_id=bag.id),
                           ref_type="BAG", ref_id=str(bag.id))
         except Exception:
-            pass
+            app.logger.exception("[avisos] no se pudo avisar de la bolsa cerrada")
         session_db.commit()
         if responsabilidad == "LIQUIDACIONES_PROMO":
             flash("Bolsa cerrada. Como no queda nada por pagar, va a quien liquida los gastos de promoción.", "success")
@@ -82751,9 +82763,14 @@ def invitation_request_status(request_id):
                 t.updated_at = _now_madrid()
             subject, html_body, text_body = _invitation_rejection_email_body(session_db, row, reason)
             recipients = _dedupe_valid_email_addresses([row.requester_email, row.guest_email])
+            _aviso_ok, _aviso_err = (True, None)
             if recipients:
-                _send_optional_email(recipients, subject, html_body, text_body=text_body)
-            flash('Solicitud rechazada.', 'warning')
+                _aviso_ok, _aviso_err = _send_optional_email(recipients, subject, html_body, text_body=text_body)
+            if recipients and not _aviso_ok:
+                flash('Solicitud rechazada, pero NO se ha podido avisar por correo (%s).'
+                      % (_aviso_err or 'correo no enviado'), 'warning')
+            else:
+                flash('Solicitud rechazada.', 'warning')
         elif action == 'CANCEL':
             row.status = 'ANULADAS'
             row.cancelled_at = _now_madrid()
@@ -92692,7 +92709,7 @@ def _vacation_notice_send(session_db, notice_type: str, user_id, days: list, not
         if correo:
             _send_optional_email(correo, titulo, _vacation_notice_html(ctx))
     except Exception:
-        pass
+        app.logger.exception("[vacaciones] no se pudo mandar el correo del aviso")
 
 
 def _vacation_apply_days(session_db, req, days: list, holidays: dict) -> int:
@@ -92777,7 +92794,7 @@ def _vacation_notify_managers(session_db, req) -> None:
                       url_for("vacaciones_view", tab="peticiones"),
                       ref_type="vacation_request", ref_id=str(req.id))
     except Exception:
-        pass
+        app.logger.exception("[vacaciones] no se pudo avisar de la petición a quien la aprueba")
 
 
 # ---------------------------------------------------------------------------

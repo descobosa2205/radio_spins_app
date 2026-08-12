@@ -78456,7 +78456,31 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
                     _s2.close()
     else:  # OTHER
         _recipient_email = (_rp.get("email") or row.guest_email or "")
+    # Foto/logo de QUIEN LO RECIBE, para enseñarla delante de su nombre igual que la del invitado.
+    # Se resuelve EN VIVO (el payload de las peticiones antiguas no la trae) y se dice si es una
+    # persona (foto redonda) o una empresa (logo).
+    _rcv_photo = (_rp.get("photo_url") or "").strip()
+    _rcv_is_photo = _rmode in ("ME", "EMPLOYEE")
+    if _rmode == "GUEST":
+        _rcv_photo = _rcv_photo or guest_photo
+        _rcv_is_photo = not getattr(row, "guest_promoter_id", None)
+    elif _rmode == "ME":
+        _rcv_photo = _rcv_photo or _req_photo or ""
+    elif _rmode in ("EMPLOYEE", "OTHER") and not _rcv_photo and _sess is not None:
+        try:
+            if _rmode == "EMPLOYEE":
+                _pid = _safe_uuid(_rp.get("user_id"))
+                _prf = _sess.get(UserProfile, _pid) if _pid else None
+                _rcv_photo = (getattr(_prf, "photo_url", "") or "") if _prf else ""
+            else:
+                _pid = _safe_uuid(_rp.get("promoter_id"))
+                _pr = _sess.get(Promoter, _pid) if _pid else None
+                _rcv_photo = (getattr(_pr, "logo_url", "") or "") if _pr else ""
+        except Exception:
+            _rcv_photo = ""
     return {
+        "receiver_photo": _rcv_photo or "",
+        "receiver_photo_is_person": bool(_rcv_is_photo),
         "id": str(row.id),
         "guest_name": guest_name,
         "guest_promoter_id": str(row.guest_promoter_id) if getattr(row, "guest_promoter_id", None) else "",
@@ -79813,9 +79837,12 @@ def _invitation_grouped(requests: list[dict], categories, allowed_ids=None, lock
         if not destinos:
             destinos = [principal]
         for cid_dest in destinos:
+            # Las entradas de ESTA categoría. Si la petición no las tiene desglosadas (solo un total),
+            # es que todas son de aquí: se enseña el total.
+            _qcat = _safe_int((r.get('quantities') or {}).get(cid_dest)) or _safe_int(r.get('qty_total'))
             fila = {**r,
                     'is_secondary': cid_dest != principal,
-                    'cat_qty': _safe_int((r.get('quantities') or {}).get(cid_dest)),
+                    'cat_qty': _qcat,
                     # Las OTRAS categorías de la misma petición, para decirlo en la fila.
                     'other_cats': [colors_name.get(k) for k in destinos if k != cid_dest]}
             by_key.setdefault(cid_dest, []).append(fila)
@@ -79832,7 +79859,7 @@ def _invitation_grouped(requests: list[dict], categories, allowed_ids=None, lock
             "color": colors.get(cid, '#9ca3af'),
             # El número de la categoría cuenta SUS entradas, no el total de la petición (que puede
             # repartirse entre varias).
-            "total": sum(_safe_int(r.get('cat_qty') or r.get('qty_total')) for r in rows),
+            "total": sum(_safe_int(r.get('cat_qty')) for r in rows),
             "rows": rows,
             "zone": zone,
             "zone_label": INVITATION_ZONE_LABELS.get(zone, "Pista"),
@@ -81723,6 +81750,68 @@ def _invitation_safe_next(value: str | None) -> str | None:
     return None
 
 
+def _invitation_receiver_from_form(session_db, form, requester_info, guest_name="", guest_email="", guest_phone=""):
+    """A QUIÉN se le mandan las invitaciones, leído del formulario. Punto ÚNICO: lo usan CREAR una
+    petición, ENVIAR una selección del plano y EDITAR una petición ya existente (así cambiar de
+    receptor al editar guarda exactamente lo mismo que al crearla).
+    Devuelve (receiver_mode, receiver_payload, no_guest_contact)."""
+    receiver_mode = (form.get('receiver_mode') or 'GUEST').strip().upper()
+    receiver_payload = {
+        'name': (form.get('receiver_name') or '').strip(),
+        'email': (form.get('receiver_email') or '').strip(),
+        'phone': (form.get('receiver_phone') or '').strip(),
+    }
+    no_guest_contact = False
+    if receiver_mode == 'GUEST':
+        receiver_payload['name'] = receiver_payload.get('name') or guest_name
+        receiver_payload['email'] = receiver_payload.get('email') or guest_email
+        receiver_payload['phone'] = receiver_payload.get('phone') or guest_phone
+        if not receiver_payload.get('email') and not receiver_payload.get('phone'):
+            no_guest_contact = True
+            receiver_mode = 'ME'
+            receiver_payload = {
+                'name': requester_info.get('nick') or requester_info.get('email') or 'Solicitante',
+                'email': requester_info.get('email') or '',
+                'phone': requester_info.get('phone') or '',
+                'fallback_from_guest': True,
+            }
+    elif receiver_mode == 'EMPLOYEE':
+        ruid = _safe_uuid(form.get('receiver_user_id'))
+        ruser = session_db.get(User, ruid) if ruid else None
+        rprof = session_db.get(UserProfile, ruid) if ruid else None
+        if not ruser:
+            raise ValueError('Selecciona a la persona de la empresa que recibirá las invitaciones.')
+        receiver_payload = {
+            'user_id': str(ruid),
+            'name': (_profile_full_name(rprof) if rprof else None) or getattr(rprof, 'nick', None) or ruser.email,
+            'email': ruser.email or '',
+            'photo_url': (getattr(rprof, 'photo_url', None) if rprof else None) or '',
+        }
+    elif receiver_mode == 'ME':
+        receiver_payload = {
+            'name': requester_info.get('nick') or requester_info.get('email') or 'Solicitante',
+            'email': requester_info.get('email') or '',
+            'phone': requester_info.get('phone') or '',
+        }
+    elif receiver_mode == 'OTHER':
+        receiver_promoter_id = _safe_uuid(form.get('receiver_promoter_id'))
+        if receiver_promoter_id:
+            receiver_promoter = session_db.get(Promoter, receiver_promoter_id)
+            if receiver_promoter:
+                receiver_payload['promoter_id'] = str(receiver_promoter.id)
+                receiver_payload['name'] = receiver_payload.get('name') or _promoter_display_name(receiver_promoter) or receiver_promoter.nick
+                receiver_payload['email'] = receiver_payload.get('email') or receiver_promoter.contact_email or ''
+                receiver_payload['phone'] = receiver_payload.get('phone') or receiver_promoter.contact_phone or ''
+                receiver_payload['photo_url'] = receiver_payload.get('photo_url') or getattr(receiver_promoter, 'logo_url', None) or ''
+        if not receiver_payload.get('name'):
+            receiver_payload['name'] = 'Otro receptor'
+        if not receiver_payload.get('email') and not receiver_payload.get('phone'):
+            raise ValueError('Para enviar a otro receptor selecciona un tercero con email/teléfono o indica al menos email o teléfono.')
+    elif receiver_mode == 'BOX_OFFICE':
+        receiver_payload = {}
+    return receiver_mode, receiver_payload, no_guest_contact
+
+
 def _invitation_parse_guest_receiver(session_db, form, state, requester_info):
     """Interpreta «para quién son» (guest_*) y «a quién se le mandan» (receiver_*) de una petición.
     ÚNICA fuente de verdad, compartida por CREAR peticiones y por ENVIAR una selección de entradas del
@@ -81772,59 +81861,8 @@ def _invitation_parse_guest_receiver(session_db, form, state, requester_info):
         guest_name = 'Invitado'
     if not guest_email:
         guest_email = (form.get('guest_fallback_email') or '').strip()
-    receiver_mode = (form.get('receiver_mode') or 'GUEST').strip().upper()
-    receiver_payload = {
-        'name': (form.get('receiver_name') or '').strip(),
-        'email': (form.get('receiver_email') or '').strip(),
-        'phone': (form.get('receiver_phone') or '').strip(),
-    }
-    no_guest_contact = False
-    if receiver_mode == 'GUEST':
-        receiver_payload['name'] = receiver_payload.get('name') or guest_name
-        receiver_payload['email'] = receiver_payload.get('email') or guest_email
-        receiver_payload['phone'] = receiver_payload.get('phone') or guest_phone
-        if not receiver_payload.get('email') and not receiver_payload.get('phone'):
-            no_guest_contact = True
-            receiver_mode = 'ME'
-            receiver_payload = {
-                'name': requester_info.get('nick') or requester_info.get('email') or 'Solicitante',
-                'email': requester_info.get('email') or '',
-                'phone': requester_info.get('phone') or '',
-                'fallback_from_guest': True,
-            }
-    elif receiver_mode == 'EMPLOYEE':
-        ruid = _safe_uuid(form.get('receiver_user_id'))
-        ruser = session_db.get(User, ruid) if ruid else None
-        rprof = session_db.get(UserProfile, ruid) if ruid else None
-        if not ruser:
-            raise ValueError('Selecciona a la persona de la empresa que recibirá las invitaciones.')
-        receiver_payload = {
-            'user_id': str(ruid),
-            'name': (_profile_full_name(rprof) if rprof else None) or getattr(rprof, 'nick', None) or ruser.email,
-            'email': ruser.email or '',
-            'photo_url': (getattr(rprof, 'photo_url', None) if rprof else None) or '',
-        }
-    elif receiver_mode == 'ME':
-        receiver_payload = {
-            'name': requester_info.get('nick') or requester_info.get('email') or 'Solicitante',
-            'email': requester_info.get('email') or '',
-            'phone': requester_info.get('phone') or '',
-        }
-    elif receiver_mode == 'OTHER':
-        receiver_promoter_id = _safe_uuid(form.get('receiver_promoter_id'))
-        if receiver_promoter_id:
-            receiver_promoter = session_db.get(Promoter, receiver_promoter_id)
-            if receiver_promoter:
-                receiver_payload['promoter_id'] = str(receiver_promoter.id)
-                receiver_payload['name'] = receiver_payload.get('name') or _promoter_display_name(receiver_promoter) or receiver_promoter.nick
-                receiver_payload['email'] = receiver_payload.get('email') or receiver_promoter.contact_email or ''
-                receiver_payload['phone'] = receiver_payload.get('phone') or receiver_promoter.contact_phone or ''
-        if not receiver_payload.get('name'):
-            receiver_payload['name'] = 'Otro receptor'
-        if not receiver_payload.get('email') and not receiver_payload.get('phone'):
-            raise ValueError('Para enviar a otro receptor selecciona un tercero con email/teléfono o indica al menos email o teléfono.')
-    elif receiver_mode == 'BOX_OFFICE':
-        receiver_payload = {}
+    receiver_mode, receiver_payload, no_guest_contact = _invitation_receiver_from_form(
+        session_db, form, requester_info, guest_name=guest_name, guest_email=guest_email, guest_phone=guest_phone)
     fields = {
         'guest_type': guest_type, 'guest_promoter_id': guest_promoter_id, 'guest_artist_id': guest_artist_id,
         'guest_user_id': guest_user_id, 'guest_name': guest_name, 'guest_company': guest_company,
@@ -82785,9 +82823,14 @@ def invitation_request_edit_form(request_id):
                 # Disponible REAL: con entradas subidas manda eso; sin subidas, lo configurado.
                 'available_real': int(available) if uploaded_by_cat.get(cid, 0) > 0 else (_safe_int(getattr(cat, 'qty_contract', 0)) + _safe_int(getattr(cat, 'qty_extra', 0))),
             })
+        # Para poder CAMBIAR de receptor sin salir del formulario: la lista de personal (con foto) y
+        # el tercero que ya estuviera puesto, para que la barra de búsqueda nazca con él elegido.
+        _rp = _json_dict(row.receiver_payload)
         return render_template(
             '_invitation_edit_form.html',
             row=_invitation_request_payload(row, categories),
+            personnel=_invitation_personnel_options(session_db),
+            receiver_payload=_rp,
             cat_rows=cat_rows,
             total_qty=_safe_int(quantities.get('TOTAL')),
             can_manage=can_manage,
@@ -82846,9 +82889,27 @@ def invitation_request_update(request_id):
         row.guest_title = guest_title or None
         row.guest_company = guest_title or None
         row.note = (request.form.get('note') or '').strip()
+        # A QUIÉN se le mandan: mismo motor que al crearla, así cambiar de receptor al editar guarda
+        # también SUS datos (la persona de la empresa o el tercero elegido), no solo el modo. «A mí»
+        # es quien PIDIÓ la petición, no quien la está editando.
         rmode = (request.form.get('receiver_mode') or '').strip().upper()
-        if rmode in {'GUEST', 'ME', 'BOX_OFFICE', 'OTHER'}:
-            row.receiver_mode = rmode
+        if rmode in {'GUEST', 'ME', 'BOX_OFFICE', 'EMPLOYEE', 'OTHER'}:
+            _req_info = {
+                'user_id': str(row.requester_user_id or ''),
+                'nick': row.requester_nick or '',
+                'email': row.requester_email or '',
+                'photo_url': row.requester_photo_url or '',
+                'phone': '',
+            }
+            try:
+                row.receiver_mode, row.receiver_payload, _ = _invitation_receiver_from_form(
+                    session_db, request.form, _req_info,
+                    guest_name=row.guest_name or '', guest_email=row.guest_email or '',
+                    guest_phone=row.guest_phone or '')
+            except ValueError as exc:
+                session_db.rollback()
+                flash(str(exc), 'warning')
+                return redirect(_fb or url_for('invitations_view', tab='pedir'))
 
         has_cat_fields = any(k.startswith('cat_') or k == 'keep_ticket' for k in request.form.keys())
         if has_cat_fields:

@@ -252,6 +252,7 @@
         if (cache[url]) {                        // ya precargado -> instantáneo
           body.innerHTML = cache[url];
           delete cache[url];                     // consumir: la próxima vez se recarga fresco
+          syncReceiver();
           inst.show();
           return;
         }
@@ -259,8 +260,117 @@
         inst.show();
         fetch(url, { headers:{'X-Requested-With':'XMLHttpRequest'} })
           .then(function(r){ return r.text(); })
-          .then(function(html){ body.innerHTML = html; })
+          .then(function(html){ body.innerHTML = html; syncReceiver(); })
           .catch(function(){ body.innerHTML = '<div class="alert alert-danger mb-0">No se pudo cargar el formulario.</div>'; });
+      });
+
+      /* ---- A quién se le mandan: elegir receptor SIN salir del formulario -------------------
+         El formulario llega por AJAX (innerHTML no ejecuta sus <script>), así que todo va por
+         DELEGACIÓN desde aquí. Al elegir «A alguien de la empresa» o «A otro» sale el mismo
+         proceso que al crear la petición: personal con foto, o buscador de terceros con
+         foto/logo y alta al vuelo. El panel que no toca queda DESHABILITADO para que sus campos
+         no viajen (un `receiver_user_id` de un modo que ya no está elegido despista al servidor). */
+      function panels(){ return body.querySelectorAll('[data-inv-receiver-panel]'); }
+
+      function syncReceiver(){
+        var sel = body.querySelector('[data-inv-receiver-mode]');
+        if (!sel) return;
+        panels().forEach(function(p){
+          var on = p.getAttribute('data-inv-receiver-panel') === sel.value;
+          p.classList.toggle('d-none', !on);
+          p.querySelectorAll('input, select, button, textarea').forEach(function(el){ el.disabled = !on; });
+        });
+      }
+
+      function pickPromoter(item){
+        var panel = body.querySelector('[data-inv-receiver-panel="OTHER"]');
+        if (!panel || !item) return;
+        var set = function(name, val){ var el = panel.querySelector('[name="' + name + '"]'); if (el) el.value = val || ''; };
+        set('receiver_promoter_id', item.id);
+        set('receiver_name', item.label || '');
+        set('receiver_email', item.contact_email || '');
+        set('receiver_phone', item.contact_phone || '');
+        var chip = panel.querySelector('[data-inv-receiver-selected]');
+        if (chip) {
+          var foto = item.logo_url || '';
+          chip.innerHTML = (foto ? '<img src="' + foto + '" alt="">' : '')
+            + '<span><strong>' + (item.label || 'Sin nombre') + '</strong><small>'
+            + (item.contact_email || '') + ' ' + (item.contact_phone || '') + '</small></span>';
+          chip.classList.remove('d-none');
+        }
+        var input = panel.querySelector('[data-inv-receiver-search]');
+        if (input) input.value = item.label || '';
+        var res = panel.querySelector('.invitation-search-results');
+        if (res) res.innerHTML = '';
+        // Sin correo ni teléfono en su ficha no hay forma de mandárselas: se piden aquí mismo.
+        var cont = panel.querySelector('[data-inv-receiver-contact]');
+        if (cont) cont.classList.toggle('d-none', !!(item.contact_email || item.contact_phone));
+      }
+
+      var timer = null;
+      document.addEventListener('input', function(ev){
+        var input = ev.target.closest && ev.target.closest('[data-inv-receiver-search]');
+        if (!input || !body.contains(input)) return;
+        var panel = input.closest('[data-inv-receiver-panel]');
+        var res = panel ? panel.querySelector('.invitation-search-results') : null;
+        clearTimeout(timer);
+        timer = setTimeout(function(){
+          var q = input.value.trim();
+          if (!res) return;
+          if (!q) { res.innerHTML = ''; return; }
+          fetch('{{ url_for("api_search_promoters") }}?q=' + encodeURIComponent(q))
+            .then(function(r){ return r.json(); })
+            .then(function(data){
+              res.innerHTML = (data || []).map(function(item){
+                var foto = item.logo_url || '';
+                return '<button type="button" class="invitation-search-result" data-inv-receiver-hit=\''
+                  + JSON.stringify(item).replace(/'/g, '&#39;') + '\'>'
+                  + (foto ? '<img src="' + foto + '" alt="">' : '')
+                  + '<span><strong>' + (item.label || 'Sin nombre') + '</strong><small>'
+                  + (item.contact_email || '') + ' ' + (item.contact_phone || '') + '</small></span></button>';
+              }).join('') || '<div class="text-muted small p-2">Sin coincidencias.</div>';
+            }).catch(function(){});
+        }, 200);
+      });
+
+      document.addEventListener('change', function(ev){
+        var t = ev.target;
+        if (!t || !body.contains(t)) return;
+        if (t.matches('[data-inv-receiver-mode]')) { syncReceiver(); return; }
+        // Tercero recién creado con el alta rápida global: queda elegido aquí mismo. Sus datos de
+        // contacto no vienen en el <option>, así que se piden al buscador por su id.
+        if (t.id === 'invEditReceiverQC' && t.value) {
+          var id = t.value, opt = t.options[t.selectedIndex];
+          var label = opt ? opt.textContent : '';
+          pickPromoter({id: id, label: label, logo_url: (opt && opt.getAttribute('data-photo')) || ''});
+          fetch('{{ url_for("api_search_promoters") }}?q=' + encodeURIComponent(label))
+            .then(function(r){ return r.json(); })
+            .then(function(data){
+              (data || []).forEach(function(item){ if (String(item.id) === String(id)) pickPromoter(item); });
+            }).catch(function(){});
+        }
+      });
+
+      document.addEventListener('click', function(ev){
+        var t = ev.target;
+        if (!t || !t.closest || !body.contains(t)) return;
+        var hit = t.closest('[data-inv-receiver-hit]');
+        if (hit) {
+          ev.preventDefault();
+          var item = {};
+          try { item = JSON.parse((hit.getAttribute('data-inv-receiver-hit') || '{}').replace(/&#39;/g, "'")); } catch(e){}
+          pickPromoter(item);
+          return;
+        }
+        var per = t.closest('[data-receiver-user-id]');
+        if (per) {
+          ev.preventDefault();
+          var panel = per.closest('[data-inv-receiver-panel]');
+          var h = panel ? panel.querySelector('[name="receiver_user_id"]') : null;
+          if (h) h.value = per.getAttribute('data-receiver-user-id');
+          if (panel) panel.querySelectorAll('[data-receiver-user-id]').forEach(function(b){ b.classList.remove('is-selected'); });
+          per.classList.add('is-selected');
+        }
       });
     })();
   </script>

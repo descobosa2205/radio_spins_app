@@ -17,12 +17,54 @@
     <div class="col-md-6"><label class="form-label">Teléfono</label><input class="form-control" name="guest_phone" value="{{ row.guest_phone }}" {% if guest_is_linked %}readonly{% endif %}></div>
     <div class="col-md-6"><label class="form-label">Cargo / empresa</label><input class="form-control" name="guest_title" value="{{ row.guest_title }}"></div>
     <div class="col-md-6"><label class="form-label">Entrega</label>
-      <select class="form-select" name="receiver_mode">
+      <select class="form-select" name="receiver_mode" data-inv-receiver-mode>
         <option value="GUEST" {% if row.receiver_mode == 'GUEST' %}selected{% endif %}>Al invitado</option>
         <option value="ME" {% if row.receiver_mode == 'ME' %}selected{% endif %}>A mí</option>
         <option value="BOX_OFFICE" {% if row.receiver_mode == 'BOX_OFFICE' %}selected{% endif %}>En taquilla</option>
-        <option value="OTHER" {% if row.receiver_mode == 'OTHER' %}selected{% endif %}>Otro</option>
+        <option value="EMPLOYEE" {% if row.receiver_mode == 'EMPLOYEE' %}selected{% endif %}>A alguien de la empresa</option>
+        <option value="OTHER" {% if row.receiver_mode == 'OTHER' %}selected{% endif %}>A otro</option>
       </select>
+    </div>
+
+    {# Cambiar de receptor = elegir a QUIÉN, igual que al crear la petición: la persona de la empresa
+       con su foto, o un tercero con barra de búsqueda (foto/logo) y alta al vuelo. Los paneles los
+       muestra/oculta el JS del modal (_my_invitation_menu.html), que además deshabilita el que no
+       toca para que sus campos no viajen. #}
+    <div class="col-12 d-none" data-inv-receiver-panel="EMPLOYEE">
+      <label class="form-label">Selecciona a la persona de la empresa</label>
+      <input type="hidden" name="receiver_user_id" value="{{ receiver_payload.user_id or '' }}">
+      <div class="invitation-option-grid">
+        {% for person in personnel %}
+          <button type="button" class="invitation-option{% if receiver_payload.user_id == person.id %} is-selected{% endif %}" data-receiver-user-id="{{ person.id }}"><img src="{{ person.photo_url }}" alt=""><span>{{ person.name }}</span></button>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="col-12 d-none" data-inv-receiver-panel="OTHER">
+      <label class="form-label">Tercero que recibe las invitaciones</label>
+      <input type="hidden" name="receiver_promoter_id" value="{{ receiver_payload.promoter_id or '' }}">
+      <input type="hidden" name="receiver_name" value="{{ receiver_payload.name or '' }}">
+      <div class="invitation-search-picker" data-inv-receiver-picker>
+        <input class="form-control" type="search" autocomplete="off" placeholder="Buscar tercero por cualquier dato" data-inv-receiver-search value="">
+        <div class="invitation-search-results"></div>
+        <div class="invitation-picker-selected mt-2{% if not receiver_payload.name %} d-none{% endif %}" data-inv-receiver-selected>
+          {% if receiver_payload.name %}
+            <img src="{{ receiver_payload.photo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">
+            <span><strong>{{ receiver_payload.name }}</strong><small>{{ receiver_payload.email or '' }} {{ receiver_payload.phone or '' }}</small></span>
+          {% endif %}
+        </div>
+        {# Alta al vuelo con el sistema global (quick_create.js): crea el tercero en un modal
+           superpuesto y lo deja elegido aquí sin salir del formulario. #}
+        <select id="invEditReceiverQC" class="d-none" tabindex="-1" aria-hidden="true"></select>
+        <button class="btn btn-sm btn-outline-danger mt-2" type="button" data-quick-create="promoter" data-target="invEditReceiverQC"><i class="fa fa-plus me-1"></i>Añadir tercero nuevo</button>
+        {# Los datos de contacto salen de su ficha. Solo se piden a mano si el elegido no tiene
+           ninguno: sin correo ni teléfono no hay forma de mandarle las invitaciones. #}
+        <div class="row g-2 mt-1{% if receiver_payload.email or receiver_payload.phone or not receiver_payload.name %} d-none{% endif %}" data-inv-receiver-contact>
+          <div class="col-12"><div class="small text-muted">Este tercero no tiene correo ni teléfono en su ficha: indica al menos uno.</div></div>
+          <div class="col-md-6"><input class="form-control form-control-sm" type="email" name="receiver_email" placeholder="Correo" value="{{ receiver_payload.email or '' }}"></div>
+          <div class="col-md-6"><input class="form-control form-control-sm" name="receiver_phone" placeholder="Teléfono" value="{{ receiver_payload.phone or '' }}"></div>
+        </div>
+      </div>
     </div>
   </div>
 

@@ -405,6 +405,7 @@
                       <div class="invitation-people" title="Compromiso: {{ row.name }}{% if row.reason %} · {{ row.reason }}{% endif %} · Estado: {{ row.status_label }} · Cantidad: {{ row.quantities_label }}{% if row.recipient_name %} · Enviar a {{ row.recipient_name }}{% endif %}{% if row.note %} · Nota: {{ row.note }}{% endif %}">
                         {# Línea 1: nombre del compromiso (destacado) · motivo | Añadido por (foto+nombre). #}
                         <div class="d-flex align-items-center gap-2 flex-wrap">
+                          {% if row.recipient_photo %}<img loading="lazy" decoding="async" class="inv-person-ava {{ 'is-photo' if row.guest_type in ['ARTIST','EMPLOYEE'] else 'is-logo' }}" src="{{ row.recipient_photo }}" alt="">{% endif %}
                           <strong>{{ row.name }}</strong>
                           {% if row.reason %}<span class="text-muted small">· {{ row.reason }}</span>{% endif %}
                           {% if row.created_by_nick %}<span class="inv-person-sep">|</span><span class="inv-person text-muted small">Añadido por: <img loading="lazy" decoding="async" class="inv-person-ava is-photo" src="{{ row.created_by_photo or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">{{ row.created_by_nick }}</span>{% endif %}
@@ -536,7 +537,7 @@
                 <div class="list-group inv-cat-dropzone">
                 {% for row in g.rows %}
                 {% set movable = row.status not in ['ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA','RECHAZADAS','ANULADAS'] %}
-                <div class="list-group-item inv-cat-row{% if row.is_secondary %} inv-cat-row--secondary{% endif %}"{% if not row.is_secondary %} id="req-{{ row.id }}"{% endif %} data-inline-zone data-inv-search-item data-needs-assign="{{ 1 if row.needs_assign else 0 }}" data-needs-send="{{ 1 if row.needs_send else 0 }}" data-needs-download="{{ 1 if row.needs_download else 0 }}" data-search="{{ row.guest_name }} {{ row.guest_title }} {{ row.link_summary_text }} {{ row.requester_nick }} {{ row.categories_label }} {{ row.guest_email }} {{ g.name }}" data-req="{{ row.id }}" data-cat="{{ g.cat_id }}" data-qty="{{ row.qty_total }}" data-can-move="{{ 1 if movable else 0 }}" data-assigned="{{ 1 if row.status == 'ASIGNADAS' else 0 }}"{% if movable and not row.is_secondary %} draggable="true"{% endif %} style="border-left:5px solid {{ g.color }};{% if movable and not row.is_secondary %}cursor:grab;{% endif %}">
+                <div class="list-group-item inv-cat-row{% if row.is_secondary %} inv-cat-row--secondary{% endif %}"{% if not row.is_secondary %} id="req-{{ row.id }}"{% endif %} data-inline-zone data-inv-search-item data-needs-assign="{{ 1 if row.needs_assign else 0 }}" data-needs-send="{{ 1 if row.needs_send else 0 }}" data-needs-download="{{ 1 if row.needs_download else 0 }}" data-search="{{ row.guest_name }} {{ row.guest_title }} {{ row.link_summary_text }} {{ row.requester_nick }} {{ row.categories_label }} {{ row.guest_email }} {{ g.name }}" data-req="{{ row.id }}" data-cat="{{ g.cat_id }}" data-qty="{{ row.cat_qty or row.qty_total }}" data-can-move="{{ 1 if movable else 0 }}" data-assigned="{{ 1 if row.status == 'ASIGNADAS' else 0 }}"{% if movable and not row.is_secondary %} draggable="true"{% endif %} style="border-left:5px solid {{ g.color }};{% if movable and not row.is_secondary %}cursor:grab;{% endif %}">
                   <div class="d-flex justify-content-between gap-3 flex-wrap">
                     <div class="flex-grow-1">
                       <div class="invitation-people" title="Estado: {{ row.status_label }} · Cantidad: {{ row.quantities_label }} · Pedido por {{ row.requester_nick }} el {{ row.created_at_label }}{% if row.registered_by_other %} · registrada por {{ row.created_by_nick }}{% endif %}{% if row.note %} · Nota: {{ row.note }}{% endif %}">
@@ -545,8 +546,7 @@
                            dice cuántas entradas son de ESTA y en qué otras está. #}
                         {% if row.other_cats %}
                           <div class="small text-muted mb-1">
-                            <i class="fa fa-layer-group me-1"></i>{{ row.cat_qty }} de esta categoría ·
-                            también en {{ row.other_cats|join(', ') }}
+                            <i class="fa fa-layer-group me-1"></i>Esta petición está también en {{ row.other_cats|join(', ') }}
                             {% if row.is_secondary %}<span class="badge text-bg-light border ms-1" title="Para moverla de categoría, hazlo desde {{ row.group_name }}">Principal: {{ row.group_name }}</span>{% endif %}
                           </div>
                         {% endif %}
@@ -557,14 +557,14 @@
                           </span>
                           {% if row.guest_title %}<span class="text-muted small">· {{ row.guest_title }}</span>{% endif %}
                           {% if row.link_summary_text %}<span class="invitation-linked-mini">{% if row.link_summary.logo_url %}<img class="{{ 'is-photo' if row.link_summary.type in ['artist','venue'] else 'is-logo' }}" src="{{ row.link_summary.logo_url }}" alt="">{% endif %}<span>{{ row.link_summary_text }}</span></span>{% endif %}
-                          <span class="badge inv-qty-badge" title="Entradas solicitadas"><i class="fa fa-ticket me-1"></i>{{ row.qty_total }} entrada{{ '' if row.qty_total == 1 else 's' }}</span>
-                          {% if row.categories_label %}<span class="badge text-bg-light border" title="Ubicación / categorías"><i class="fa fa-location-dot me-1"></i>{{ row.categories_label }}</span>{% endif %}
+                          {% set _rq = row.cat_qty or row.qty_total %}<span class="badge inv-qty-badge" title="Entradas de esta categoría{% if row.other_cats %} (esta petición tiene {{ row.qty_total }} en total, repartidas con {{ row.other_cats|join(', ') }}){% endif %}"><i class="fa fa-ticket me-1"></i>{{ _rq }} entrada{{ '' if _rq == 1 else 's' }}</span>
+                          {% if row.categories_label and not row.other_cats %}<span class="badge text-bg-light border" title="Ubicación / categorías"><i class="fa fa-location-dot me-1"></i>{{ row.categories_label }}</span>{% endif %}
                           {% if row.reforwarded %}<i class="fa fa-share-from-square {{ 'inv-dl-partial' if row.reforwarded_partial else 'inv-reforwarded' }}" title="{% if row.reforwarded_partial %}Reenvío PARCIAL: hay invitaciones nuevas desde que el invitado reenvió{% if row.reforwarded_at_label %} ({{ row.reforwarded_at_label }}){% endif %}{% else %}El invitado reenvió sus invitaciones{% if row.reforwarded_at_label %} · {{ row.reforwarded_at_label }}{% endif %}{% endif %}"></i>{% endif %}
                           {% if row.downloaded_at_label %}<i class="fa fa-circle-down {{ 'inv-dl-partial' if row.downloaded_partial else 'inv-dl-done' }}" title="{% if row.downloaded_partial %}Descarga PARCIAL: hay invitaciones nuevas desde la última descarga ({{ row.downloaded_at_label }}){% else %}Descargada · {{ row.downloaded_at_label }}{% endif %}"></i>{% endif %}
                         </div>
                         {# Línea 2 (pequeña): a quién se envía | pedidas por (foto+nombre). #}
                         <div class="d-flex align-items-center gap-2 flex-wrap small text-muted mt-1">
-                          <span class="inv-person"><i class="fa fa-paper-plane"></i>{% if row.receiver_mode == 'BOX_OFFICE' %}Taquilla{% elif row.receiver_mode == 'ME' %}<img loading="lazy" decoding="async" class="inv-person-ava is-photo" src="{{ row.requester_photo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">{{ row.requester_nick }}{% elif row.receiver_mode == 'EMPLOYEE' %}{{ (row.receiver_payload.name if row.receiver_payload else '') or 'Empresa' }}{% elif row.receiver_mode == 'OTHER' %}{{ (row.receiver_payload.name if row.receiver_payload else '') or '—' }}{% else %}Invitado{% endif %}</span>
+                          <span class="inv-person"><i class="fa fa-paper-plane"></i>{% if row.receiver_mode == 'BOX_OFFICE' %}Taquilla{% else %}{% if row.receiver_photo %}<img loading="lazy" decoding="async" class="inv-person-ava {{ 'is-photo' if row.receiver_photo_is_person else 'is-logo' }}" src="{{ row.receiver_photo }}" alt="">{% elif row.receiver_mode == 'ME' %}<img loading="lazy" decoding="async" class="inv-person-ava is-photo" src="{{ row.requester_photo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">{% endif %}{% if row.receiver_mode == 'ME' %}{{ row.requester_nick }}{% elif row.receiver_mode == 'EMPLOYEE' %}{{ (row.receiver_payload.name if row.receiver_payload else '') or 'Empresa' }}{% elif row.receiver_mode == 'OTHER' %}{{ (row.receiver_payload.name if row.receiver_payload else '') or '—' }}{% else %}Invitado{% endif %}{% endif %}</span>
                           <span class="inv-person-sep">|</span>
                           <span class="inv-person">Pedidas por: <img loading="lazy" decoding="async" class="inv-person-ava is-photo" src="{{ row.requester_photo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">{{ row.requester_nick }}</span>
                         </div>
@@ -1017,7 +1017,7 @@
                 <tbody>
                   {% for row in list_rows %}
                     <tr>
-                      <td><strong>{{ row.guest_name }}</strong></td>
+                      <td><span class="inv-person">{% if row.guest_photo %}<img loading="lazy" decoding="async" class="inv-person-ava {{ 'is-logo' if row.guest_promoter_id else 'is-photo' }}" src="{{ row.guest_photo }}" alt="">{% endif %}<strong>{{ row.guest_name }}</strong></span></td>
                       <td>{% if row.link_summary_text %}<span class="invitation-linked-mini"><img class="{{ 'is-photo' if row.link_summary.type in ['artist','venue'] else 'is-logo' }}" src="{{ row.link_summary.logo_url }}" alt=""><span>{{ row.link_summary_text }}</span></span>{% endif %}</td>
                       <td>{{ row.guest_title }}</td>
                       <td>{{ row.quantities_label }}</td>

@@ -314,11 +314,35 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   videoclip de una miniatura (que se **añade**). Por eso el reemplazo por `bundle_key` está
   limitado a STEMS: sin ese filtro, subir una miniatura borraba las anteriores.
 
+- **INVITACIONES · CAMBIAR EL RECEPTOR al editar una petición** (ago 2026): el formulario de edición
+  solo tenía un desplegable con cuatro opciones y **no había forma de decir A QUIÉN**; elegir «Otro»
+  guardaba el modo y dejaba los datos del receptor anterior. Ahora sale el MISMO proceso que al
+  crearla: «A alguien de la empresa» → el personal con su foto; «A otro» → barra de búsqueda de
+  terceros con foto/logo y **alta al vuelo** (`data-quick-create="promoter"` sobre un `<select>`
+  oculto, el sistema global). Si el elegido no tiene ni correo ni teléfono, se piden ahí mismo.
+  · Punto ÚNICO **`_invitation_receiver_from_form`** (extraído de `_invitation_parse_guest_receiver`):
+  lo usan crear, enviar una selección del plano y **editar**, así que el receptor se guarda igual en
+  los tres. ⚠️ En una edición, «A mí» es **quien PIDIÓ** la petición, no quien la está editando.
+  ⚠️ El formulario llega por AJAX y **`innerHTML` no ejecuta sus `<script>`**: todo el JS del
+  receptor va por DELEGACIÓN en el `full_edit_modal()` de `_my_invitation_menu.html`. El panel que
+  no toca se **deshabilita** (oculto no basta: sus campos se envían igual).
+
+- **INVITACIONES · la foto o el logo, delante del nombre** (ago 2026): en las peticiones se enseñaba
+  la del invitado pero no la de **quien la recibe** (una persona de la casa o un tercero salían solo
+  con su nombre) ni la del **compromiso**. Punto único: `_invitation_request_payload` devuelve
+  `receiver_photo` + `receiver_photo_is_person`, resueltos **EN VIVO** (el `receiver_payload` de las
+  peticiones antiguas no guardaba la foto) — persona → redonda (`is-photo`), empresa → `is-logo`.
+  Aplicado en la gestión del evento, en el panel de la ficha de la actividad, en la cabecera de cada
+  compromiso, en la lista de invitados y en el módulo de Inicio.
+
 - **INVITACIONES · una petición de VARIAS categorías se ve en TODAS** (corregido ago 2026).
   `_invitation_grouped` metía cada petición en un único grupo —su categoría «principal», la de más
   entradas—, así que al mirar una categoría faltaban peticiones que sí tenían entradas ahí. Ahora se
   pinta en **cada** categoría con cantidad > 0, con **su** número (`cat_qty`) y diciendo en qué otras
   está (`other_cats`); el contador del grupo cuenta SUS entradas, no el total de la petición.
+  ⚠️ En la fila **solo se enseña el número de ESA categoría** (y la etiqueta de ubicación con todas
+  desaparece cuando está repartida): ver «4 entradas» en la fila de una categoría que tiene 3 es
+  justo lo que confundía. El total de la petición se dice al pasar el ratón.
   ⚠️ La copia de una categoría que NO es la principal va marcada (`is_secondary`): **no lleva el
   `id="req-…"`** (si no, habría ids duplicados en el DOM y `getElementById` cogería cualquiera) y
   **no se arrastra** — recategorizar se hace desde la principal, o el arrastre sería ambiguo.

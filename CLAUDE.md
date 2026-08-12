@@ -314,6 +314,24 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   videoclip de una miniatura (que se **añade**). Por eso el reemplazo por `bundle_key` está
   limitado a STEMS: sin ese filtro, subir una miniatura borraba las anteriores.
 
+- **INVITACIONES · una petición de VARIAS categorías se ve en TODAS** (corregido ago 2026).
+  `_invitation_grouped` metía cada petición en un único grupo —su categoría «principal», la de más
+  entradas—, así que al mirar una categoría faltaban peticiones que sí tenían entradas ahí. Ahora se
+  pinta en **cada** categoría con cantidad > 0, con **su** número (`cat_qty`) y diciendo en qué otras
+  está (`other_cats`); el contador del grupo cuenta SUS entradas, no el total de la petición.
+  ⚠️ La copia de una categoría que NO es la principal va marcada (`is_secondary`): **no lleva el
+  `id="req-…"`** (si no, habría ids duplicados en el DOM y `getElementById` cogería cualquiera) y
+  **no se arrastra** — recategorizar se hace desde la principal, o el arrastre sería ambiguo.
+
+- ⚠️ **SUBIDA A STORAGE · `cannot access local variable 'response'`** (bug real, ago 2026). Subiendo
+  invitaciones, algunas fallaban con ese mensaje y entraban al reintentar a mano. Es un
+  **UnboundLocalError DE storage3**: cuando la petición no llega a responder (corte de red, timeout)
+  su variable `response` se queda sin asignar y revienta ahí — o sea, un fallo TRANSITORIO de red
+  disfrazado de error de programación. Ahora `_storage_upload_retry` (en `supabase_utils.py`)
+  reintenta 3 veces con respiro, y si aun así falla el mensaje explica lo que pasa en vez de soltar
+  el error de Python. ⚠️ Si un reintento choca con «duplicate», la subida anterior SÍ había entrado:
+  se da por buena en vez de reventar. Lo NO transitorio (archivo inválido, tamaño) no se reintenta.
+
 - ⚠️⚠️ **INVITACIONES · solo se marca ENVIADO lo que se ha enviado de verdad** (bug real y grave,
   ago 2026). «Enviar todas las asignadas» marcaba invitaciones como ENVIADAS **sin haber mandado
   nada y sin haber ninguna asignada**. Dos causas, las dos corregidas:

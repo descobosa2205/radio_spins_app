@@ -79795,9 +79795,30 @@ def _invitation_grouped(requests: list[dict], categories, allowed_ids=None, lock
     allowed = set(str(x) for x in allowed_ids) if allowed_ids is not None else None
     locked = {str(k): v for k, v in (locked_labels or {}).items()}
     colors = {str(c.id): INVITATION_ASSIGNEE_COLORS[i % len(INVITATION_ASSIGNEE_COLORS)] for i, c in enumerate(categories)}
+    colors_name = {str(c.id): c.name for c in categories}
+    # ⚠️ Una petición con entradas de VARIAS categorías se pinta EN CADA UNA de ellas: antes solo
+    # salía en su categoría «principal» (la de más entradas) y en las demás no aparecía, así que al
+    # mirar una categoría faltaban peticiones que sí tenían entradas ahí (confusión real).
+    # La copia de una categoría que NO es la principal va marcada (`is_secondary`): no se arrastra
+    # —recategorizar se hace desde la principal— y no repite el `id` del DOM.
     by_key = {}
     for r in requests:
-        by_key.setdefault(str(r.get('group_key') or ''), []).append(r)
+        principal = str(r.get('group_key') or '')
+        destinos = []
+        for k, v in (r.get('quantities') or {}).items():
+            if str(k).upper() == 'TOTAL':
+                continue
+            if _safe_int(v) > 0 and str(k) in colors:
+                destinos.append(str(k))
+        if not destinos:
+            destinos = [principal]
+        for cid_dest in destinos:
+            fila = {**r,
+                    'is_secondary': cid_dest != principal,
+                    'cat_qty': _safe_int((r.get('quantities') or {}).get(cid_dest)),
+                    # Las OTRAS categorías de la misma petición, para decirlo en la fila.
+                    'other_cats': [colors_name.get(k) for k in destinos if k != cid_dest]}
+            by_key.setdefault(cid_dest, []).append(fila)
     groups = []
     for c in categories:
         cid = str(c.id)
@@ -79809,7 +79830,9 @@ def _invitation_grouped(requests: list[dict], categories, allowed_ids=None, lock
             "cat_id": cid,
             "name": c.name,
             "color": colors.get(cid, '#9ca3af'),
-            "total": sum(_safe_int(r.get('qty_total')) for r in rows),
+            # El número de la categoría cuenta SUS entradas, no el total de la petición (que puede
+            # repartirse entre varias).
+            "total": sum(_safe_int(r.get('cat_qty') or r.get('qty_total')) for r in rows),
             "rows": rows,
             "zone": zone,
             "zone_label": INVITATION_ZONE_LABELS.get(zone, "Pista"),

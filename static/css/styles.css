@@ -3974,3 +3974,8 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 .notif-bell{ position:relative; border:0; background:transparent; padding:.5rem .75rem; }
 .notif-bell .fa-bell{ color:var(--brand-primary,#E33D48); }
 .notif-item__go{ margin-left:auto; align-self:center; color:#c6ccd4; font-size:.75rem; }
+
+/* Petición repartida entre varias categorías: la copia de una categoría que no es la principal se
+   ve algo más apagada y no se arrastra (recategorizar se hace desde la principal). */
+.inv-cat-row--secondary{ background:#fcfcfd; }
+.inv-cat-row--secondary .inv-name-line{ opacity:.92; }

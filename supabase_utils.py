@@ -2,6 +2,7 @@
 import os
 import shutil
 import tempfile
+import time
 from pathlib import Path
 import mimetypes
 from uuid import uuid4
@@ -160,8 +161,71 @@ def _raise_storage_error(exc, size_bytes: int | None = None):
     """Convierte una excepción de Supabase Storage en un error claro y la relanza."""
     if _is_too_large_error(exc):
         raise _too_large_error(size_bytes) from exc
+    if _is_transient_upload_error(exc):
+        # ⚠️ `cannot access local variable 'response'` es un UnboundLocalError DE storage3: cuando la
+        # petición no llega a responder (corte de red, timeout), su variable `response` se queda sin
+        # asignar y revienta ahí. Enseñárselo tal cual al usuario no dice nada: se traduce.
+        raise RuntimeError(
+            "No se pudo subir el archivo: falló la conexión con el almacenamiento. "
+            "Se ha reintentado sin éxito; vuelve a intentarlo (lo que ya subió no se duplica)."
+        ) from exc
     msg = str(getattr(exc, "message", "") or "") or str(exc) or "Error subiendo el archivo al almacenamiento."
     raise RuntimeError(msg) from exc
+
+
+# La subida a Storage falla a veces por RED (sobre todo subiendo muchos archivos de golpe: cada
+# invitación de un PDF de 30 páginas es una subida). Se reintenta con un respiro entre intentos.
+_UPLOAD_ATTEMPTS = 3
+_UPLOAD_BACKOFF = (0.8, 2.5)
+
+
+def _is_transient_upload_error(exc) -> bool:
+    """¿Es un fallo de red/servidor que merece reintentarse (y no un archivo inválido)?"""
+    if isinstance(exc, UnboundLocalError):
+        return True                      # storage3 sin `response`: la petición no llegó a responder
+    texto = " ".join([str(exc), str(getattr(exc, "message", "") or "")]).lower()
+    return any(m in texto for m in (
+        "response", "timeout", "timed out", "connection", "conexión", "reset by peer",
+        "temporarily", "bad gateway", "service unavailable", "gateway timeout",
+        "502", "503", "504", "remote end closed", "eof occurred",
+    ))
+
+
+def _is_duplicate_error(exc) -> bool:
+    texto = " ".join([str(exc), str(getattr(exc, "message", "") or "")]).lower()
+    return "duplicate" in texto or "already exists" in texto or "resource already exists" in texto
+
+
+def _storage_upload_retry(client, key: str, file_arg, content_type: str, upsert: bool,
+                          size_bytes: int | None):
+    """Sube a Storage reintentando los fallos transitorios.
+
+    ⚠️ Si un reintento choca con «duplicate», es que la subida anterior SÍ había entrado aunque
+    diera error: se da por buena en vez de reventar (era el caso de «vuelvo a subirlas y solo entran
+    las que fallaron»)."""
+    ultimo = None
+    for intento in range(_UPLOAD_ATTEMPTS):
+        try:
+            return client.storage.from_(settings.SUPABASE_BUCKET).upload(
+                path=key,
+                file=file_arg,
+                file_options={
+                    "content-type": content_type,
+                    # Claves UUID inmutables: caché larga (ver _upload_bytes).
+                    "cache-control": "31536000",
+                    "upsert": ("true" if upsert else "false"),
+                },
+            )
+        except StorageObjectTooLargeError:
+            raise
+        except Exception as e:
+            if intento and _is_duplicate_error(e):
+                return {}                # ya estaba subido por el intento anterior
+            ultimo = e
+            if intento >= _UPLOAD_ATTEMPTS - 1 or not _is_transient_upload_error(e):
+                _raise_storage_error(e, size_bytes=size_bytes)
+            time.sleep(_UPLOAD_BACKOFF[min(intento, len(_UPLOAD_BACKOFF) - 1)])
+    _raise_storage_error(ultimo, size_bytes=size_bytes)
 
 
 def _check_dict_response(resp, size_bytes: int | None) -> None:
@@ -181,23 +245,10 @@ def _upload_bytes(data: bytes, key: str, content_type: str, upsert: bool = False
     client = supabase_client()
     size_bytes = len(data) if data is not None else None
 
-    try:
-        resp = client.storage.from_(settings.SUPABASE_BUCKET).upload(
-            path=key,
-            file=data,
-            file_options={
-                "content-type": content_type,
-                # Las claves son UUID únicos (el contenido de una URL no cambia jamás): caché larga
-                # de 1 año. Con la caché corta de antes (1 h) las miniaturas caducaban y se
-                # re-descargaban todas en ráfaga, provocando fallos intermitentes de carga.
-                "cache-control": "31536000",
-                "upsert": ("true" if upsert else "false"),
-            },
-        )
-    except StorageObjectTooLargeError:
-        raise
-    except Exception as e:
-        _raise_storage_error(e, size_bytes=size_bytes)
+    # Las claves son UUID únicos (el contenido de una URL no cambia jamás): caché larga de 1 año.
+    # Con la caché corta de antes (1 h) las miniaturas caducaban y se re-descargaban todas en
+    # ráfaga, provocando fallos intermitentes de carga.
+    resp = _storage_upload_retry(client, key, data, content_type, upsert, size_bytes)
 
     # Algunas versiones devuelven dict con 'error'
     _check_dict_response(resp, size_bytes)
@@ -231,20 +282,7 @@ def _upload_fileobj(file_obj, key: str, content_type: str) -> str:
         with tempfile.NamedTemporaryFile(delete=False, suffix=Path(key).suffix) as tmp:
             tmp_path = tmp.name
             shutil.copyfileobj(file_obj, tmp, length=1024 * 1024)
-        try:
-            resp = client.storage.from_(settings.SUPABASE_BUCKET).upload(
-                path=key,
-                file=tmp_path,
-                file_options={
-                    "content-type": content_type,
-                    "cache-control": "31536000",   # claves UUID inmutables: caché larga (ver _upload_bytes)
-                    "upsert": "false",
-                },
-            )
-        except StorageObjectTooLargeError:
-            raise
-        except Exception as e:
-            _raise_storage_error(e, size_bytes=size_bytes)
+        resp = _storage_upload_retry(client, key, tmp_path, content_type, False, size_bytes)
         _check_dict_response(resp, size_bytes)
         return _public_url(client, key)
     finally:

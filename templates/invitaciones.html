@@ -536,11 +536,20 @@
                 <div class="list-group inv-cat-dropzone">
                 {% for row in g.rows %}
                 {% set movable = row.status not in ['ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA','RECHAZADAS','ANULADAS'] %}
-                <div class="list-group-item inv-cat-row" id="req-{{ row.id }}" data-inline-zone data-inv-search-item data-needs-assign="{{ 1 if row.needs_assign else 0 }}" data-needs-send="{{ 1 if row.needs_send else 0 }}" data-needs-download="{{ 1 if row.needs_download else 0 }}" data-search="{{ row.guest_name }} {{ row.guest_title }} {{ row.link_summary_text }} {{ row.requester_nick }} {{ row.categories_label }} {{ row.guest_email }} {{ g.name }}" data-req="{{ row.id }}" data-cat="{{ g.cat_id }}" data-qty="{{ row.qty_total }}" data-can-move="{{ 1 if movable else 0 }}" data-assigned="{{ 1 if row.status == 'ASIGNADAS' else 0 }}"{% if movable %} draggable="true"{% endif %} style="border-left:5px solid {{ g.color }};{% if movable %}cursor:grab;{% endif %}">
+                <div class="list-group-item inv-cat-row{% if row.is_secondary %} inv-cat-row--secondary{% endif %}"{% if not row.is_secondary %} id="req-{{ row.id }}"{% endif %} data-inline-zone data-inv-search-item data-needs-assign="{{ 1 if row.needs_assign else 0 }}" data-needs-send="{{ 1 if row.needs_send else 0 }}" data-needs-download="{{ 1 if row.needs_download else 0 }}" data-search="{{ row.guest_name }} {{ row.guest_title }} {{ row.link_summary_text }} {{ row.requester_nick }} {{ row.categories_label }} {{ row.guest_email }} {{ g.name }}" data-req="{{ row.id }}" data-cat="{{ g.cat_id }}" data-qty="{{ row.qty_total }}" data-can-move="{{ 1 if movable else 0 }}" data-assigned="{{ 1 if row.status == 'ASIGNADAS' else 0 }}"{% if movable and not row.is_secondary %} draggable="true"{% endif %} style="border-left:5px solid {{ g.color }};{% if movable and not row.is_secondary %}cursor:grab;{% endif %}">
                   <div class="d-flex justify-content-between gap-3 flex-wrap">
                     <div class="flex-grow-1">
                       <div class="invitation-people" title="Estado: {{ row.status_label }} · Cantidad: {{ row.quantities_label }} · Pedido por {{ row.requester_nick }} el {{ row.created_at_label }}{% if row.registered_by_other %} · registrada por {{ row.created_by_nick }}{% endif %}{% if row.note %} · Nota: {{ row.note }}{% endif %}">
                         {# Línea 1: invitado (foto + nombre) · vínculo (logo) · nº entradas (gris) · ubicación · descargada. #}
+                        {# Una petición repartida entre varias categorías se ve en TODAS: aquí se
+                           dice cuántas entradas son de ESTA y en qué otras está. #}
+                        {% if row.other_cats %}
+                          <div class="small text-muted mb-1">
+                            <i class="fa fa-layer-group me-1"></i>{{ row.cat_qty }} de esta categoría ·
+                            también en {{ row.other_cats|join(', ') }}
+                            {% if row.is_secondary %}<span class="badge text-bg-light border ms-1" title="Para moverla de categoría, hazlo desde {{ row.group_name }}">Principal: {{ row.group_name }}</span>{% endif %}
+                          </div>
+                        {% endif %}
                         <div class="d-flex align-items-center gap-2 flex-wrap inv-name-line">
                           <span class="inv-person">
                             {% if row.guest_photo %}<img loading="lazy" decoding="async" class="inv-person-ava {{ 'is-logo' if row.guest_promoter_id else 'is-photo' }}" src="{{ row.guest_photo }}" alt="">{% endif %}

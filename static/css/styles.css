@@ -3946,3 +3946,31 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 .co-chip{ display:inline-flex; align-items:center; gap:.45rem; min-width:0; }
 .co-chip__logo{ border-radius:.4rem; flex:0 0 auto; }
 .co-chip__name{ font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* AVISOS · franjas bajo el menú + campana al principio del menú.
+   La franja NO se va sola: o se pincha (lleva a su gestión) o se cierra con la ✕. */
+.notif-bar{ position:sticky; top:0; z-index:1035; display:flex; flex-direction:column; }
+.notif-bar:empty{ display:none; }
+.notif-strip{ display:flex; align-items:stretch; gap:0; background:#fff8e1;
+              border-bottom:1px solid #f0e2b6; border-left:4px solid var(--brand-primary,#E33D48);
+              opacity:0; transform:translateY(-8px); transition:opacity .22s ease, transform .22s ease; }
+.notif-strip.is-in{ opacity:1; transform:none; }
+.notif-strip__link{ flex:1; display:flex; align-items:center; gap:.7rem; padding:.55rem 1rem;
+                    text-decoration:none; color:inherit; min-width:0; }
+.notif-strip__link:hover{ background:rgba(227,61,72,.06); }
+.notif-strip__ico{ flex:0 0 30px; width:30px; height:30px; border-radius:50%; background:#fff;
+                   display:flex; align-items:center; justify-content:center; color:var(--brand-primary,#E33D48); }
+.notif-strip__txt{ min-width:0; display:flex; flex-direction:column; line-height:1.25; }
+.notif-strip__txt strong{ font-size:.9rem; }
+.notif-strip__txt span{ font-size:.8rem; color:#6c757d; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.notif-strip__go{ margin-left:auto; flex:0 0 auto; font-size:.8rem; font-weight:600;
+                  color:var(--brand-primary,#E33D48); white-space:nowrap; }
+.notif-strip__x{ border:0; background:transparent; color:#9aa2ad; font-size:1.4rem; line-height:1;
+                 padding:0 .8rem; cursor:pointer; }
+.notif-strip__x:hover{ color:#495057; }
+@media (max-width: 575.98px){ .notif-strip__go{ display:none; } }
+
+/* La campana: solo se ve cuando hay pendientes (el JS le quita el d-none). */
+.notif-bell{ position:relative; border:0; background:transparent; padding:.5rem .75rem; }
+.notif-bell .fa-bell{ color:var(--brand-primary,#E33D48); }
+.notif-item__go{ margin-left:auto; align-self:center; color:#c6ccd4; font-size:.75rem; }

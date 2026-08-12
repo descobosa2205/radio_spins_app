@@ -1381,8 +1381,12 @@ function initUsageOrderedOverflowNav(){
     });
   });
 
+  // ⚠️ La CAMPANA de avisos queda fuera del desbordamiento: no es una sección (va antes de
+  // «Inicio») y, además, `clearOverflow` le quitaría el `d-none` con el que se esconde cuando no
+  // hay avisos pendientes.
+  const bellItem = document.getElementById('navBellItem');
   function topItems(){
-    return Array.from(nav.children).filter((li) => li !== overflow && li !== userItem);
+    return Array.from(nav.children).filter((li) => li !== overflow && li !== userItem && li !== bellItem);
   }
 
   function clearOverflow(){

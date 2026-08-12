@@ -1435,7 +1435,6 @@ def admin_login():
                     return render_template("login.html", next_url=request.form.get("next") or "", maintenance=True)
                 session["user_id"] = str(user.id)
                 session["role"] = _login_role
-                flash(ROLE_WELCOME.get(session["role"], "Bienvenido."), "success")
                 return redirect(nxt)
 
             # 2) Fallback users.txt (si existe y password coincide)
@@ -1464,7 +1463,6 @@ def admin_login():
 
                 session["user_id"] = str(user.id)
                 session["role"] = role
-                flash(ROLE_WELCOME.get(role, "Bienvenido."), "success")
                 return redirect(nxt)
 
             flash("Usuario o contraseña incorrectos.", "danger")

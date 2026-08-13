@@ -22,64 +22,83 @@
   </div>
 </div>
 
-<div class="ficha-hero artist-hero mb-4">
-  <div class="d-flex gap-3 align-items-center flex-wrap">
-    {% if promotion_display.cover_url %}
-      <img src="{{ promotion_display.cover_url }}" class="promo-hero-cover" alt="{{ promotion_display.title }}">
-    {% endif %}
-    <div class="flex-grow-1">
-      <div class="d-flex gap-2 flex-wrap mb-2">
+{# CABECERA con el MISMO patrón que la ficha de una actividad (concierto): foto redonda del
+   artista, «eyebrow» con lo que es, título + etiqueta de estado clicable, los datos con sus iconos
+   y, arriba a la derecha, la empresa del grupo que factura. #}
+<div class="ficha-hero">
+  <img class="ficha-hero__media ficha-hero__media--round"
+       src="{{ promotion_display.cover_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1"
+       {% if promo_artist_id %}data-artist-link="{{ promo_artist_id }}"{% endif %}>
+  <div class="ficha-hero__body">
+    <div class="ficha-hero__eyebrow">
+      Promoción · {{ promotion_display.kind_label }}
+      {% if promotion_display.subject_kind_label %} · {{ promotion_display.subject_kind_label }}{% endif %}
+    </div>
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <h1 class="ficha-hero__title"{% if promo_artist_id %} data-artist-link="{{ promo_artist_id }}"{% endif %}>{{ promotion_display.artist_label or promotion_display.title }}</h1>
+      {# El estado se cambia PINCHÁNDOLO, igual que en una actividad; al confirmar la promoción se
+         confirman sus entrevistas, y cancelar avisa a quien la produce (por eso va en su opción). #}
+      {% if can_edit_promo %}
+        <div class="dropdown">
+          <button class="badge {{ promotion_display.status_badge }} border-0" type="button" data-bs-toggle="dropdown"
+                  title="Cambiar el estado">{{ promotion_display.status_label }} <i class="fa fa-caret-down ms-1"></i></button>
+          <ul class="dropdown-menu dropdown-menu-app33">
+            {% for code in promo_status_order %}
+              <li>
+                <form method="post" action="{{ url_for('promo_status_set', promotion_id=promotion.id) }}">
+                  <input type="hidden" name="next" value="{{ request.url }}">
+                  <input type="hidden" name="status" value="{{ code }}">
+                  <button class="dropdown-item{% if promotion_display.status == code %} active{% endif %}">{{ promo_status_meta[code][0] }}</button>
+                </form>
+              </li>
+            {% endfor %}
+            {% if promotion_display.status != 'CANCELADO' %}
+              <li><hr class="dropdown-divider"></li>
+              <li>
+                <form method="post" action="{{ url_for('promo_cancel', promotion_id=promotion.id) }}" class="px-3 py-1"
+                      onsubmit="return confirm('¿Cancelar la promoción? Se avisará a quien la esté produciendo.');">
+                  <input type="hidden" name="next" value="{{ request.url }}">
+                  <input class="form-control form-control-sm mb-1" name="reason" placeholder="Motivo (opcional)">
+                  <button class="btn btn-sm btn-outline-danger w-100"><i class="fa fa-ban me-1"></i>Cancelar promoción</button>
+                </form>
+              </li>
+            {% endif %}
+          </ul>
+        </div>
+      {% else %}
         <span class="badge {{ promotion_display.status_badge }}">{{ promotion_display.status_label }}</span>
-        <span class="badge text-bg-light border"><i class="fa {{ promotion_display.kind_icon }} me-1"></i>{{ promotion_display.kind_label }}</span>
-        {% if promotion_display.company_label %}<span class="badge text-bg-light border"><i class="fa fa-building me-1"></i>{{ promotion_display.company_label }}</span>{% endif %}
-        <span class="badge text-bg-light border"><i class="fa fa-calendar-days me-1"></i>{{ promotion_display.period_label }}</span>
-      </div>
-      <h3 class="m-0">{{ promotion_display.title }}</h3>
-      <div class="text-muted mt-1">
-        {% if promotion_display.subject_kind_label %}{{ promotion_display.subject_kind_label }}: {% endif %}
-        {{ promotion_display.subject_title or '—' }}
-        {% if promotion_display.artist_label %} · {{ promotion_display.artist_label }}{% endif %}
-      </div>
-      <div class="d-flex gap-2 flex-wrap mt-2">
-        <span class="badge text-bg-light border"><i class="fa {{ escort.icon }} me-1"></i>{{ escort.name }}</span>
-        {% if promotion.production_needed %}
-          <span class="badge text-bg-light border"><i class="fa fa-truck-ramp-box me-1"></i>
-            {% if promotion.production_owner_user_id %}
-              Producción: {% for p in production_people %}{% if p.id == promotion.production_owner_user_id|string %}{{ p.name }}{% endif %}{% endfor %}
-            {% else %}Necesita producción{% endif %}
-          </span>
+      {% endif %}
+    </div>
+    {% if promo_artist_id %}{{ linked_mini('artist', promo_artist_id) }}{% endif %}
+    <div class="ficha-hero__facts">
+      <span title="{{ promotion_display.kind_label }}"><i class="fa {{ promotion_display.kind_icon }}"></i>{{ promotion_display.title }}</span>
+      {% set _fechas = promo_dates_label or (promotion_display.period_label if promotion_display.period_label != 'Sin fechas' else '') %}
+      {% if _fechas %}<span title="Fechas"><i class="fa fa-calendar-day"></i>{{ _fechas }}</span>{% endif %}
+      {% if promotion_display.subject_title %}<span title="Qué se promociona"><i class="fa fa-bullseye"></i>{{ promotion_display.subject_title }}</span>{% endif %}
+      {% if promo_media_label %}<span title="Medio"><i class="fa fa-tower-broadcast"></i>{{ promo_media_label }}</span>{% endif %}
+      {% if promotion_display.activity_count %}<span title="Promociones"><i class="fa fa-microphone-lines"></i>{{ promotion_display.activity_count }}</span>{% endif %}
+      <span title="Quién viaja con el artista"><i class="fa {{ escort.icon }}"></i>{{ escort.name }}</span>
+      {% if promotion.production_needed %}
+        <span title="Producción"><i class="fa fa-user-gear"></i>{% if promo_production_owner_name %}{{ promo_production_owner_name }}{% else %}Necesita producción{% endif %}</span>
+      {% endif %}
+    </div>
+  </div>
+  {# La empresa del grupo que factura, arriba a la derecha (como en la actividad). #}
+  {% if promotion.company %}
+    <div class="ficha-hero__actions align-items-start">
+      <div class="hero-company" title="Empresa del grupo que factura">
+        {% if promotion.company.logo_url %}
+          <img src="{{ promotion.company.logo_url }}" alt="{{ promotion.company.name }}">
+        {% else %}
+          <span class="hero-company__ph"><i class="fa fa-building"></i></span>
         {% endif %}
+        <span class="hero-company__t">
+          <span class="hero-company__lab">Factura</span>
+          <span class="hero-company__name">{{ promotion.company.name }}</span>
+        </span>
       </div>
     </div>
-    {% if can_edit_promo %}
-      {# El estado lo cambia PROMOCIÓN: al confirmar, se confirman también sus entrevistas. #}
-      <div class="promo-status-box">
-        <div class="small text-muted mb-1">Estado</div>
-        <div class="d-flex flex-wrap gap-1">
-          {% for code in promo_status_order %}
-            <form method="post" action="{{ url_for('promo_status_set', promotion_id=promotion.id) }}">
-              <input type="hidden" name="next" value="{{ request.url }}">
-              <input type="hidden" name="status" value="{{ code }}">
-              <button class="btn btn-sm {{ 'btn-primary' if promotion_display.status == code else 'btn-outline-secondary' }}">
-                {{ promo_status_meta[code][0] }}
-              </button>
-            </form>
-          {% endfor %}
-        </div>
-        {% if promotion_display.status != 'CANCELADO' %}
-          {# Cancelar avisa a quien la esté produciendo, por eso va aparte de los demás estados. #}
-          <form method="post" action="{{ url_for('promo_cancel', promotion_id=promotion.id) }}" class="mt-2"
-                onsubmit="return confirm('¿Cancelar la promoción? Se avisará a quien la esté produciendo.');">
-            <input type="hidden" name="next" value="{{ request.url }}">
-            <div class="input-group input-group-sm">
-              <input class="form-control" name="reason" placeholder="Motivo (opcional)">
-              <button class="btn btn-outline-danger"><i class="fa fa-ban me-1"></i>Cancelar</button>
-            </div>
-          </form>
-        {% endif %}
-      </div>
-    {% endif %}
-  </div>
+  {% endif %}
 </div>
 
 <ul class="nav nav-tabs ficha-tabs mb-4">
@@ -105,18 +124,22 @@
             <button class="btn btn-sm btn-outline-secondary" type="button" data-edit-toggle="#promoDatosForm" data-view="[data-promo-datos-view]"><i class="fa fa-pen me-1"></i>Editar</button>
           {% endif %}
         </div>
-        <dl class="row mb-0" data-promo-datos-view>
-          <dt class="col-sm-4">Tipo</dt><dd class="col-sm-8">{{ promotion_display.kind_label }}</dd>
-          <dt class="col-sm-4">Se promociona</dt><dd class="col-sm-8">{{ promotion_display.subject_title or '—' }}</dd>
-          <dt class="col-sm-4">Artistas</dt><dd class="col-sm-8">{{ promotion_display.artist_label or '—' }}</dd>
-          <dt class="col-sm-4">Fechas</dt><dd class="col-sm-8">{{ promotion_display.period_label }}</dd>
-          <dt class="col-sm-4">Empresa que factura</dt><dd class="col-sm-8">{{ promotion_display.company_label or 'Sin empresa específica' }}</dd>
-          <dt class="col-sm-4">Acompaña al artista</dt>
-          <dd class="col-sm-8">
+        {# La MISMA tabla compacta de la ficha de actividad (`psum-list` a dos columnas: etiqueta y
+           valor pegados), para que las dos fichas se lean igual. #}
+        <dl class="psum-list psum-list--2col mb-0" data-promo-datos-view>
+          <div><dt class="psum-k">Tipo</dt><dd class="psum-v"><i class="fa {{ promotion_display.kind_icon }} me-1 text-muted"></i>{{ promotion_display.kind_label }}</dd></div>
+          <div><dt class="psum-k">Estado</dt><dd class="psum-v"><span class="badge {{ promotion_display.status_badge }}">{{ promotion_display.status_label }}</span></dd></div>
+          <div><dt class="psum-k">Se promociona</dt><dd class="psum-v"><i class="fa fa-bullseye me-1 text-muted"></i>{{ promotion_display.subject_title or '—' }}</dd></div>
+          <div><dt class="psum-k">Artistas</dt><dd class="psum-v">{{ promotion_display.artist_label or '—' }}</dd></div>
+          <div><dt class="psum-k">Fechas</dt><dd class="psum-v"><i class="fa fa-calendar-day me-1 text-muted"></i>{{ _fechas or promotion_display.period_label }}</dd></div>
+          {% if promo_media_label %}<div><dt class="psum-k">Medio</dt><dd class="psum-v"><i class="fa fa-tower-broadcast me-1 text-muted"></i>{{ promo_media_label }}</dd></div>{% endif %}
+          <div><dt class="psum-k">Empresa que factura</dt><dd class="psum-v"><i class="fa fa-building me-1 text-muted"></i>{{ promotion_display.company_label or 'Sin empresa específica' }}</dd></div>
+          <div><dt class="psum-k">Acompaña al artista</dt><dd class="psum-v">
             {% if escort.photo_url %}<img src="{{ escort.photo_url }}" class="artist-avatar-inline me-1" alt="">{% endif %}
             {{ escort.name }}{% if escort.note %} · {{ escort.note }}{% endif %}
-          </dd>
-          {% if promotion.objectives_notes %}<dt class="col-sm-4">Objetivos</dt><dd class="col-sm-8">{{ promotion.objectives_notes }}</dd>{% endif %}
+          </dd></div>
+          {% if promotion.production_needed %}<div><dt class="psum-k">Producción</dt><dd class="psum-v"><i class="fa fa-user-gear me-1 text-muted"></i>{{ promo_production_owner_name or 'Necesita producción' }}</dd></div>{% endif %}
+          {% if promotion.objectives_notes %}<div><dt class="psum-k">Objetivos</dt><dd class="psum-v">{{ promotion.objectives_notes }}</dd></div>{% endif %}
         </dl>
         {% if can_edit_promo %}
           <form method="post" action="{{ url_for('promo_update', promotion_id=promotion.id) }}" id="promoDatosForm" class="d-none mt-3" data-promo-form>
@@ -130,10 +153,11 @@
               <div class="col-md-6"><label class="form-label">Hasta</label><input type="date" class="form-control" name="ends_on" value="{{ promotion.ends_on.isoformat() if promotion.ends_on else '' }}"></div>
               <div class="col-12">
                 <label class="form-label">Empresa del grupo que factura los gastos</label>
-                <select class="form-select" name="company_id">
+                {# Con LOGO, como el resto de selectores de la casa. #}
+                <select class="form-select select-with-thumbs" name="company_id">
                   <option value="">Sin empresa específica</option>
                   {% for c in companies %}
-                    <option value="{{ c.id }}" {% if promotion.company_id and c.id|string == promotion.company_id|string %}selected{% endif %}>{{ c.name }}</option>
+                    <option value="{{ c.id }}" data-logo="{{ c.logo_url or '' }}" {% if promotion.company_id and c.id|string == promotion.company_id|string %}selected{% endif %}>{{ c.name }}</option>
                   {% endfor %}
                 </select>
               </div>

@@ -130,9 +130,10 @@
           <div class="row g-3">
             <div class="col-md-6">
               <label class="form-label">Empresa del grupo que factura los gastos</label>
-              <select class="form-select" name="company_id">
+              {# Con LOGO: el selector de siempre de la casa (initSelect2 pinta el data-logo). #}
+              <select class="form-select select-with-thumbs" name="company_id">
                 <option value="">Sin empresa específica</option>
-                {% for company in creator.companies or [] %}<option value="{{ company.id }}">{{ company.name }}</option>{% endfor %}
+                {% for company in creator.companies or [] %}<option value="{{ company.id }}" data-logo="{{ company.logo_url or '' }}">{{ company.name }}</option>{% endfor %}
               </select>
             </div>
             <div class="col-12">
@@ -262,11 +263,21 @@
     if (window.initVisualChoiceCards) window.initVisualChoiceCards();
   }
 
+  // Si lo que se promociona es EL ARTISTA, el paso «¿Cuál?» no tiene sentido: es el que ya se ha
+  // elegido arriba. Se salta y se apunta solo (el primero de los marcados).
+  const pasoCual = modal.querySelector('.sw-step[data-step="3"]');
+  function ajustarPasoCual(){
+    const esArtista = subjectType.value === 'ARTIST';
+    if (pasoCual) pasoCual.setAttribute('data-sw-skip', esArtista ? '1' : '0');
+    if (esArtista) subjectId.value = (selectedArtists()[0] || '');
+    if (form.swRefresh) form.swRefresh();
+  }
   modal.querySelectorAll('input[name="subject_type_pick"]').forEach(r => r.addEventListener('change', function(){
-    if (r.checked) { subjectType.value = r.value; renderSubjects(); }
+    if (r.checked) { subjectType.value = r.value; renderSubjects(); ajustarPasoCual(); }
   }));
   modal.querySelectorAll('.js-promo-artist-check').forEach(el => el.addEventListener('change', function(){
     renderSubjects();
+    ajustarPasoCual();
   }));
   if (artistSearch) artistSearch.addEventListener('input', () => {
     const q = normalize(artistSearch.value);
@@ -299,6 +310,7 @@
   modal.addEventListener('change', renderSummary);
 
   renderSubjects();
+  ajustarPasoCual();
   renderSummary();
 })();
 </script>

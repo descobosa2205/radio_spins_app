@@ -928,6 +928,31 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   dice con qué base está calculado. ⚠️ El **aviso amarillo salta SOLO si el de contratación NO cuadra**
   con el calculado (`mismatch`): si coinciden, o si nadie lo ha puesto a mano, no se avisa de nada. Sin
   ticketing ni previsión de ingresos no se muestra nada.
+- **PROMOCIÓN · la ficha se lee como la de una ACTIVIDAD** (ago 2026): misma cabecera
+  (`ficha-hero` con foto redonda del artista —clicable con `data-artist-link`—, «eyebrow» de lo que
+  es, título + **etiqueta de estado que se pincha** para cambiarlo, `ficha-hero__facts` con iconos y
+  la **empresa que factura** arriba a la derecha con su logo) y misma tabla compacta en Información
+  (`psum-list psum-list--2col`). Cancelar sigue aparte, dentro del propio desplegable del estado,
+  porque avisa a quien la produce.
+  · **La FECHA sale de las entrevistas** cuando la promoción no lleva fechas propias
+  (`_promo_dates_label`): antes ponía «Sin fechas» teniendo día. Mismo punto único que usa la
+  previsualización del enlace.
+  · **El MEDIO se enseña solo si es UNO** (`_promo_single_media_label`): con varios ya no identifica
+  nada. Lo usan la cabecera y la previsualización.
+  · **Previsualización al compartir la hoja de ruta** (`public_roadmap_view`): «**Hoja de ruta
+  Promoción · \<artista\>**» y debajo el nombre de la promoción, la fecha y —si es un solo medio— el
+  medio. Sin nombre, solo la fecha. ⚠️ `Promotion` **no tiene relación `activities`**: sus
+  entrevistas se consultan (`PromotionActivity.promotion_id`).
+  · **Si lo que se promociona es EL ARTISTA no se vuelve a preguntar cuál**: ese paso del asistente
+  se salta con **`data-sw-skip="1"`** (dimensión nueva de `step_wizard.js`, independiente de
+  `data-sw-mode`) y el sujeto se apunta solo con el artista ya elegido.
+  · **La empresa del grupo se elige con su LOGO** (`select-with-thumbs` + `data-logo`), en el
+  asistente de promoción, en el de marketing y en la ficha.
+  ⚠️ **El asistente de promoción se incluye en TODAS las bandejas** (pedir promoción lo puede hacer
+  cualquiera): sus datos NO pueden depender de estar en la de Promoción o, al marcar «requiere
+  logística», la lista de producción sale VACÍA (bug real). Y si NADIE tiene el departamento
+  «Producción», `_production_people` ofrece a todo el personal: mejor eso que un panel sin nadie.
+
 - **MARKETING ≠ PROMOCIÓN** (ago 2026). Eran la misma pantalla y se confundían:
   · **Marketing** = campañas **de pago** (radio, TV, digital, exterior, influencers…). Sección
   `promocion` → `/marketing`, asistente `_promotion_wizard_modal.html` («Nuevo marketing», botón

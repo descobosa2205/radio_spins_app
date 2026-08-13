@@ -29,6 +29,10 @@
     var idx = 0;
 
     function applicable(i) {
+      // Un paso marcado con data-sw-skip no cuenta AHORA (lo pone el JS de la pantalla cuando la
+      // pregunta ya está contestada: p. ej. si lo que se promociona es el propio artista, no hay que
+      // volver a preguntar cuál). Es una dimensión aparte de data-sw-mode.
+      if ((steps[i].getAttribute('data-sw-skip') || '').trim() === '1') return false;
       var when = (steps[i].getAttribute('data-sw-when') || '').trim();
       if (!when) return true;
       var mode = (root.getAttribute('data-sw-mode') || '').trim().toUpperCase();

@@ -3,9 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ roadmap_kind_label }} · {{ title }}</title>
+  <title>{{ og_title or (roadmap_kind_label ~ ' · ' ~ title) }}</title>
   <meta property="og:type" content="website">
-  <meta property="og:title" content="{{ roadmap_kind_label }} · {{ title }}">
+  {# En una PROMOCIÓN el título de la previa lo compone la vista («Hoja de ruta Promoción · Artista»). #}
+  <meta property="og:title" content="{{ og_title or (roadmap_kind_label ~ ' · ' ~ title) }}">
+  <meta name="twitter:title" content="{{ og_title or (roadmap_kind_label ~ ' · ' ~ title) }}">
   {% if og and og.description %}<meta property="og:description" content="{{ og.description }}"><meta name="twitter:description" content="{{ og.description }}">{% endif %}
   {% set _og_img = (og.image if og else '') or artist_photo %}
   {% if _og_img %}<meta property="og:image" content="{{ _og_img }}"><meta name="twitter:image" content="{{ _og_img }}">{% endif %}

@@ -26756,8 +26756,11 @@ def _render_department_inbox(dept_key: str, title: str, icon: str, subtitle: str
             promo_modalities=PROMO_MODALITIES,
             promo_formations=PROMO_FORMATIONS,
             promoter_cost_items=PROMOTER_COST_ITEMS,
-            production_people=(_production_people(s) if dept_key == "PROMO" else []),
-            office_people=(_promo_office_people(s) if dept_key == "PROMO" else []),
+            # ⚠️ El asistente de promoción se incluye en TODAS las bandejas (pedir promoción lo
+            # puede hacer cualquiera): si estos datos solo se pasaran en la de Promoción, al marcar
+            # «requiere logística» la lista de producción saldría VACÍA (bug real).
+            production_people=_production_people(s),
+            office_people=_promo_office_people(s),
             can_edit_promo=(can_edit_promo() if dept_key == "PROMO" else False),
         )
     finally:
@@ -47863,11 +47866,27 @@ def public_roadmap_view(token):
             venue_name = (getattr(getattr(row, "venue", None), "name", None) or "").strip()
             location = venue_name or municipio
         og_desc = " · ".join([x for x in [card.get("activity_label"), card.get("date_label"), location] if x])
+        og_title = ""
+        if entity_type == "promotion":
+            # PROMOCIÓN: «Hoja de ruta Promoción» + el ARTISTA, y debajo el nombre de la promoción y
+            # la fecha (sin nombre, solo la fecha). Si es UNA sola entrevista o un solo medio, se dice
+            # de qué medio; con varios no, porque ya no identifica nada.
+            _artista = (ctx.get("artist_label") or "").strip()
+            og_title = " · ".join([x for x in ["Hoja de ruta Promoción", _artista] if x])
+            _nombre = (getattr(row, "name", None) or "").strip()
+            # ⚠️ `Promotion` NO tiene relación `activities`: sus entrevistas se consultan.
+            _acts = (session_db.query(PromotionActivity)
+                     .filter(PromotionActivity.promotion_id == row.id)
+                     .order_by(PromotionActivity.activity_date.asc().nullslast()).all())
+            _fecha = _promo_dates_label(_acts)
+            _medio = _promo_single_media_label(session_db, _acts)
+            og_desc = " · ".join([x for x in [_nombre, _fecha, _medio] if x])
         return render_template(
             'public_roadmap_view.html',
             rm=ctx,
             roadmap_kind=roadmap_kind,
             roadmap_kind_label=ROADMAP_KIND_LABELS.get(roadmap_kind, "Hoja de ruta"),
+            og_title=og_title,
             title=title,
             artist_label=ctx.get("artist_label") or "",
             artist_photo=(getattr(artists[0], "photo_url", "") if artists else ""),
@@ -51914,7 +51933,9 @@ def _promotion_creator_datasets(session_db):
         "any_artist": True,
     } for cf in session_db.query(CycleFestival).order_by(CycleFestival.start_date.desc().nullslast(), CycleFestival.created_at.desc()).all()]
 
-    company_items = [{"id": str(c.id), "name": c.name} for c in session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()]
+    # Con su LOGO: los selectores de empresa del grupo se pintan con miniatura (select-with-thumbs).
+    company_items = [{"id": str(c.id), "name": c.name, "logo_url": (c.logo_url or "").strip()}
+                     for c in session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()]
 
     return {
         "artists": artist_items,
@@ -53024,6 +53045,27 @@ def _promo_media_locations_payload(session_db, media_ids=None) -> list[dict]:
     } for row in rows]
 
 
+def _promo_dates_label(activities) -> str:
+    """La fecha (o el rango) que sale de las ENTREVISTAS. Una promoción puede no llevar fechas
+    propias y aun así tener día: el de sus promociones."""
+    dias = sorted({a.activity_date for a in (activities or []) if getattr(a, "activity_date", None)})
+    if not dias:
+        return ""
+    if len(dias) == 1:
+        return dias[0].strftime("%d/%m/%Y")
+    return "%s – %s" % (dias[0].strftime("%d/%m/%Y"), dias[-1].strftime("%d/%m/%Y"))
+
+
+def _promo_single_media_label(session_db, activities) -> str:
+    """El nombre del MEDIO cuando la promoción es de uno solo (una entrevista puntual o varias con el
+    mismo medio). Con más de uno no se dice ninguno: ya no identifica nada."""
+    ids = {str(getattr(a, "media_id", "") or "") for a in (activities or []) if getattr(a, "media_id", None)}
+    if len(ids) != 1:
+        return ""
+    medio = session_db.get(MediaOutlet, to_uuid(next(iter(ids))))
+    return (getattr(medio, "name", None) or "").strip()
+
+
 def _promo_escort_label(session_db, promotion) -> dict:
     """Quién acompaña al artista: nadie, alguien de la oficina o un tercero."""
     kind = (getattr(promotion, "escort_kind", None) or "NONE").strip().upper()
@@ -53718,6 +53760,14 @@ def promo_detail_view(promotion_id):
             "promo_detail.html",
             promotion=promotion,
             promotion_display=display,
+            # Datos de la CABECERA (mismo patrón que la ficha de una actividad): el artista al que
+            # enlaza la foto y el título, el medio cuando es uno solo y quién la produce.
+            promo_artist_id=(str((promotion.artist_ids or [None])[0]) if (promotion.artist_ids or []) else ""),
+            promo_media_label=_promo_single_media_label(session_db, activities),
+            promo_dates_label=_promo_dates_label(activities),
+            promo_production_owner_name=next(
+                (p["name"] for p in _production_people(session_db)
+                 if p["id"] == str(promotion.production_owner_user_id or "")), ""),
             tab=tab,
             activities=activities,
             activity_rows=activity_rows,
@@ -65492,15 +65542,20 @@ def _production_people(session_db) -> list:
     filas = (session_db.query(User, UserProfile)
              .join(UserProfile, UserProfile.user_id == User.id)
              .order_by(func.lower(func.coalesce(UserProfile.nick, User.email)).asc()).all())
-    salida = []
+    salida, todos = [], []
     for u, prof in filas:
         if u.id in fuera:
             continue
         deps = [str(d).strip().lower() for d in (getattr(prof, "departments", None) or [])]
-        if "producción" in deps or "produccion" in deps:
-            salida.append({"id": str(u.id), "name": (prof.nick or u.email or "").strip(),
-                           "photo_url": (getattr(prof, "photo_url", "") or "")})
-    return salida
+        ficha = {"id": str(u.id), "name": (prof.nick or u.email or "").strip(),
+                 "photo_url": (getattr(prof, "photo_url", "") or ""),
+                 "in_production": ("producción" in deps or "produccion" in deps)}
+        if ficha["in_production"]:
+            salida.append(ficha)
+        todos.append(ficha)
+    # ⚠️ Si NADIE tiene el departamento «Producción», se ofrece todo el personal: es mejor que un
+    # panel donde no se puede elegir a nadie (y así no hay que tocar departamentos para asignar).
+    return salida or todos
 
 
 def _concert_production_pending(concert) -> bool:

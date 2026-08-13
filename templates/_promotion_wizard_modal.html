@@ -134,9 +134,9 @@
             <div class="col-md-4"><label class="form-label">Notas de presupuesto</label><input type="text" name="budget_notes" class="form-control"></div>
             <div class="col-md-6">
               <label class="form-label">Empresa</label>
-              <select class="form-select" name="company_id">
+              <select class="form-select select-with-thumbs" name="company_id">
                 <option value="">Sin empresa específica</option>
-                {% for company in creator.companies or [] %}<option value="{{ company.id }}">{{ company.name }}</option>{% endfor %}
+                {% for company in creator.companies or [] %}<option value="{{ company.id }}" data-logo="{{ company.logo_url or '' }}">{{ company.name }}</option>{% endfor %}
               </select>
             </div>
           </div>

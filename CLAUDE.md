@@ -451,6 +451,18 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   enlace que se comparte. Cambiar de dominio = cambiar UNA variable. Y los logos de los correos ya no
   usan `url_for(..., _external=True)` (que toma el host de la petición): **no queda ninguno**.
 
+- **MÓVIL · lo que no cabe SE DESPLAZA, no se estruja** (ago 2026). El navegador estrechaba las
+  columnas hasta partir las palabras letra a letra. Red de seguridad al final de `styles.css`
+  (`@media (max-width: 767.98px)`): las **pestañas** (`.nav` que no sea vertical ni la del navbar) se
+  deslizan en horizontal con `nowrap` · las **tablas** llevan scroll —las que no traen
+  `.table-responsive` de la plantilla las envuelve `scripts.js` en un `[data-table-scroll]`, también
+  las que llegan por AJAX (MutationObserver)— con `min-width` de 34rem y celdas de 4,5rem mínimo ·
+  las **fichas de material** y las **celdas con foto + nombre** envuelven (`flex-wrap: wrap`) en vez
+  de dejar el texto en una columna de 6 px · los **códigos** (ISRC…) no se parten (`.text-nowrap`).
+  ⚠️ Comprobado con un detector propio a 375 px sobre ~90 pantallas (listados, fichas, pestañas y
+  páginas públicas): **cero casos**. Si se toca el layout, ese detector es la forma de comprobarlo:
+  busca elementos de menos de 60 px con 3+ líneas y ≤4 caracteres por línea.
+
 - **DISCOGRÁFICA · DEMOS** (ago 2026): las maquetas que se están valorando, en su propia sección
   (`/discografica?section=demos`). Modelo **`SongDemo`** (`ensure_song_demos_schema`).
   · Una demo viene **de un artista NUESTRO** (`origin='ARTIST'` + `artist_id`) o **DE FUERA**

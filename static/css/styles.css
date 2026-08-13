@@ -4032,6 +4032,13 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
      de quedarse en una columna de 6 px partiendo las palabras. */
   .mat-video, .mat-module__head, .mat-stemfile, .psum-row, .co-doc, .docs-drop { flex-wrap: wrap; }
   .mat-video__body, .mat-module__head > *, .mat-stemfile__name { min-width: 12rem; }
+  /* Los CÓDIGOS (ISRC, UPC, IBAN, referencias) no se parten: la tabla ya se desplaza, así que la
+     columna se ensancha en vez de dejar «ES-A2A-26-00001» en cuatro líneas. */
+  td.text-nowrap, .text-nowrap, td code, code { white-space: nowrap; }
+  /* Celda con foto + nombre (artista, tercero…): el nombre baja debajo de la foto en vez de
+     quedarse en una columna de 39 px. La tabla ya se desplaza, así que hay sitio. */
+  td .d-flex, th .d-flex { flex-wrap: wrap; }
+  td img + span, td img + div, th img + span { min-width: 5rem; }
   .d-flex > * { min-width: 0; }
   .badge, .btn { white-space: nowrap; }
   h1, h2, h3, h4, h5, h6, p, span, div, td, th, label, a { overflow-wrap: anywhere; }

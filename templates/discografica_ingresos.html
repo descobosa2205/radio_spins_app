@@ -64,7 +64,7 @@
                 <tr>
                   <td class="fw-semibold"><a class="text-decoration-none" href="{{ url_for('discografica_song_detail', song_id=item.song_id, tab='ingresos') }}">{{ item.song_title or '—' }}</a></td>
                   <td>{{ item.artists_label or '—' }}</td>
-                  <td class="text-muted">{{ (item.display_isrc or '—')|isrc }}</td>
+                  <td class="text-muted text-nowrap">{{ (item.display_isrc or '—')|isrc }}</td>
                   <td class="text-end">{{ item.amount|eur }}</td>
                   <td>
                     {% if item.action == 'created' %}
@@ -147,7 +147,7 @@
                   <tr>
                     <td>{{ row.file_name or '—' }}</td>
                     <td>{{ row.row_number }}</td>
-                    <td class="text-muted">{{ (row.isrc or '—')|isrc }}</td>
+                    <td class="text-muted text-nowrap">{{ (row.isrc or '—')|isrc }}</td>
                     <td>{{ row.track or '—' }}</td>
                     <td>{{ row.primary_artist or '—' }}</td>
                     <td>{{ row.reason }}</td>
@@ -332,7 +332,7 @@
                     <span class="text-muted">{{ r.interpreters or '—' }}</span>
                   </td>
                   <td>
-                    <span class="text-muted">{{ (r.isrc or '—')|isrc }}</span>
+                    <span class="text-muted text-nowrap">{{ (r.isrc or '—')|isrc }}</span>
                   </td>
                   <td>
                     <span class="badge {{ r.status.class }}">{{ r.status.label }}</span>

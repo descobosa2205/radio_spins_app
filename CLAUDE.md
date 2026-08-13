@@ -451,6 +451,25 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   enlace que se comparte. Cambiar de dominio = cambiar UNA variable. Y los logos de los correos ya no
   usan `url_for(..., _external=True)` (que toma el host de la petición): **no queda ninguno**.
 
+- **DISCOGRÁFICA · DEMOS** (ago 2026): las maquetas que se están valorando, en su propia sección
+  (`/discografica?section=demos`). Modelo **`SongDemo`** (`ensure_song_demos_schema`).
+  · Una demo viene **de un artista NUESTRO** (`origin='ARTIST'` + `artist_id`) o **DE FUERA**
+  (`origin='EXTERNAL'` + quién la manda, su correo y su teléfono, y el tercero si está en la base);
+  el ORIGEN se guarda en la propia demo y el flujo es el MISMO: entra **VALORANDO** y acaba
+  **APROBADA** o **DESCARTADA**, con el motivo (`decision_note`), quién decidió y cuándo.
+  · **Pasar al repertorio** (`discografica_demo_to_song`): una demo APROBADA de un artista nuestro
+  crea la canción con su título y su artista y queda **enlazada** (`song_id`), para no perder de
+  dónde salió. ⚠️ `Song.release_date` es NOT NULL: la canción nace con la fecha de hoy y ya se
+  corregirá en su ficha. Una demo de fuera no se pasa (no hay artista) y se dice por qué.
+  · **El audio se sube DIRECTAMENTE a Storage** (`discografica_demo_sign`, mismo patrón que la
+  entrega de masters): una maqueta puede pesar como un master y no puede tumbar la petición. Si la
+  subida directa falla, va por el servidor como respaldo.
+  · Se escucha con la etiqueta de audio del sistema (`media_chip.js`) y se filtra por estado, origen,
+  artista y texto libre. **Acceso: el mismo que el repertorio** (no hay permiso nuevo que conceder;
+  los endpoints heredan `discografica` por la ruta y escribir exige `can_edit_discografica()`).
+  ⚠️ Una sección nueva hay que añadirla a la **lista blanca de `section`** de `discografica_view`: si
+  no, cae en `canciones` y la pestaña sale marcada pero se pinta otra cosa (bug real de esta épica).
+
 - ⚠️⚠️ **ENTREGA DE MASTERS · el 502 al enviar el formulario** (bug real, ago 2026). Los masters son
   archivos GRANDES: si viajan dentro del formulario, la petición se pasa del tiempo (y de la memoria)
   que el servidor le da y **muere con un 502 sin guardar nada** — el mismo caso que ya se resolvió con

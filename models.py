@@ -500,6 +500,50 @@ class Song(Base):
     plays = relationship("Play", back_populates="song", cascade="all, delete-orphan")
 
 
+class SongDemo(Base):
+    """Una MAQUETA que se está valorando en el sello.
+
+    Puede venir de un artista NUESTRO (`origin='ARTIST'`, con su artist_id) o de FUERA
+    (`origin='EXTERNAL'`, con quién la manda y cómo localizarle). El flujo es el mismo: entra en
+    VALORANDO y acaba APROBADA o DESCARTADA. Al aprobar una de un artista nuestro se puede dar de
+    alta como canción del repertorio (queda enlazada en `song_id`, para no perder de dónde salió).
+    """
+
+    __tablename__ = "song_demos"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    title = Column(Text, nullable=False)
+    origin = Column(Text, nullable=False, server_default=text("'ARTIST'"))     # ARTIST | EXTERNAL
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="SET NULL"))
+    # De fuera: quién la manda (si está en la base de terceros, se apunta cuál).
+    sender_name = Column(Text)
+    sender_email = Column(Text)
+    sender_phone = Column(Text)
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    audio_url = Column(Text)
+    audio_name = Column(Text)
+    mime_type = Column(Text)
+    notes = Column(Text)
+    status = Column(Text, nullable=False, server_default=text("'VALORANDO'"))  # VALORANDO|APROBADA|DESCARTADA
+    decision_note = Column(Text)
+    decided_at = Column(DateTime(timezone=True))
+    decided_by_nick = Column(Text)
+    song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="SET NULL"))
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    artist = relationship("Artist")
+    promoter = relationship("Promoter")
+    song = relationship("Song")
+
+    __table_args__ = (
+        Index("idx_song_demos_status", "status", "created_at"),
+        Index("idx_song_demos_artist", "artist_id"),
+    )
+
+
 class SongMasterDeliveryLink(Base):
     """Enlace público de un solo uso para que un tercero entregue info y materiales de una canción.
 
@@ -10144,6 +10188,40 @@ class UserContract(Base):
         Index("idx_user_contracts_user", "user_id"),
         Index("idx_user_contracts_start", "user_id", "start_date"),
     )
+
+
+def ensure_song_demos_schema():
+    """Maquetas del sello (sección Demos de Discográfica). Idempotente, sin Alembic."""
+    _create_all_once()
+    _exec_ddl_statements([
+        """
+        CREATE TABLE IF NOT EXISTS song_demos (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            title text NOT NULL,
+            origin text NOT NULL DEFAULT 'ARTIST',
+            artist_id uuid REFERENCES artists(id) ON DELETE SET NULL,
+            sender_name text,
+            sender_email text,
+            sender_phone text,
+            promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL,
+            audio_url text,
+            audio_name text,
+            mime_type text,
+            notes text,
+            status text NOT NULL DEFAULT 'VALORANDO',
+            decision_note text,
+            decided_at timestamptz,
+            decided_by_nick text,
+            song_id uuid REFERENCES songs(id) ON DELETE SET NULL,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_song_demos_status ON song_demos(status, created_at);",
+        "CREATE INDEX IF NOT EXISTS idx_song_demos_artist ON song_demos(artist_id);",
+    ], label="ensure_song_demos_schema")
 
 
 def ensure_vacations_schema():

@@ -47,6 +47,12 @@
       </a>
     </li>
   {% endif %}
+  <li class="nav-item">
+    <a class="nav-link {% if section=='demos' %}active{% endif %}"
+       href="{{ url_for('discografica_view', section='demos') }}">
+      Demos
+    </a>
+  </li>
   {% if has_access_key('discografica.isrc', include_descendants=True) %}
     <li class="nav-item">
       <a class="nav-link {% if section=='isrc' %}active{% endif %}"
@@ -1025,6 +1031,280 @@
 {% elif section == 'ingresos' %}
 
   {% include 'discografica_ingresos.html' %}
+
+{% elif section == 'demos' %}
+  {# DEMOS · maquetas que se están valorando. Pueden venir de un artista nuestro o de fuera; el
+     origen se guarda en la propia demo y el flujo (valorando → aprobada / descartada) es el mismo. #}
+  {% set d = demos_ctx or {'rows': [], 'counts': {}, 'total': 0} %}
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <h5 class="m-0">Demos</h5>
+      <span class="badge text-bg-light border">{{ d.total }}</span>
+      {% for key, label, badge in demo_statuses %}
+        <a class="badge text-bg-{{ badge }} text-decoration-none{% if d.filter_status == key %} border border-dark{% endif %}"
+           href="{{ url_for('discografica_view', section='demos', demo_status=('' if d.filter_status == key else key)) }}">
+          {{ label }} · {{ d.counts.get(key, 0) }}
+        </a>
+      {% endfor %}
+    </div>
+    {% if CAN_EDIT_DISCOGRAFICA %}
+      <button class="btn btn-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#demoModal" data-demo-new>
+        <i class="fa fa-plus me-1"></i>Añadir demo
+      </button>
+    {% endif %}
+  </div>
+
+  <form class="row g-2 mb-3" method="get">
+    <input type="hidden" name="section" value="demos">
+    <div class="col-6 col-md-3">
+      <select class="form-select form-select-sm" name="demo_origin" onchange="this.form.submit()">
+        <option value="">Todos los orígenes</option>
+        {% for key, label in demo_origins %}<option value="{{ key }}" {% if d.filter_origin == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-6 col-md-3">
+      <select class="form-select form-select-sm" name="demo_artist" onchange="this.form.submit()">
+        <option value="">Todos los artistas</option>
+        {% for a in artists %}<option value="{{ a.id }}" {% if d.filter_artist == a.id|string %}selected{% endif %}>{{ a.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-12 col-md-6">
+      <div class="input-group input-group-sm">
+        <input class="form-control" name="demo_q" value="{{ d.filter_q }}" placeholder="Buscar por título, quién la manda o notas…">
+        <button class="btn btn-outline-secondary"><i class="fa fa-magnifying-glass"></i></button>
+      </div>
+    </div>
+  </form>
+
+  {% if d.rows %}
+    <div class="list-group">
+      {% for row in d.rows %}
+        <div class="list-group-item">
+          <div class="d-flex justify-content-between gap-3 flex-wrap">
+            <div class="flex-grow-1" style="min-width:12rem">
+              <div class="d-flex align-items-center gap-2 flex-wrap">
+                {% if row.who_photo %}<img loading="lazy" class="inv-person-ava {{ 'is-photo' if row.who_is_person else 'is-logo' }}" src="{{ row.who_photo }}" alt="">{% endif %}
+                <strong>{{ row.title }}</strong>
+                <span class="badge text-bg-{{ row.status_badge }}">{{ row.status_label }}</span>
+                <span class="badge text-bg-light border">{{ row.origin_label }}</span>
+                {% if row.song_id %}<a class="badge text-bg-info text-decoration-none" href="{{ url_for('discografica_song_detail', song_id=row.song_id, tab='informacion') }}"><i class="fa fa-music me-1"></i>En el repertorio</a>{% endif %}
+              </div>
+              <div class="small text-muted mt-1">
+                {% if row.artist_id %}
+                  <a class="text-reset" href="{{ url_for('artist_detail_view', artist_id=row.artist_id) }}">{{ row.who }}</a>
+                {% else %}{{ row.who }}{% endif %}
+                {% if row.sender_email %} · <a href="mailto:{{ row.sender_email }}">{{ row.sender_email }}</a>{% endif %}
+                {% if row.sender_phone %} · {{ row.sender_phone }}{% endif %}
+                {% if row.created_at_label %} · añadida el {{ row.created_at_label }}{% if row.created_by_nick %} por {{ row.created_by_nick }}{% endif %}{% endif %}
+              </div>
+              {% if row.notes %}<div class="small mt-1"><i class="fa fa-note-sticky me-1 text-muted"></i>{{ row.notes }}</div>{% endif %}
+              {% if row.decision_note %}<div class="small mt-1 text-muted"><i class="fa fa-gavel me-1"></i>{{ row.decision_note }}{% if row.decided_by_nick %} · {{ row.decided_by_nick }}{% endif %}{% if row.decided_at_label %} · {{ row.decided_at_label }}{% endif %}</div>{% endif %}
+              {# La etiqueta de audio del sistema (media_chip.js, global): suena al pinchar y solo
+                 uno a la vez; la duración la lee el navegador. #}
+              {% if row.is_audio %}
+                <div class="mt-2">
+                  <span class="mat-chip" data-chip-src="{{ row.audio_url }}" title="Reproducir">
+                    <span class="mat-chip__btn"><i class="fa fa-play" data-chip-icon></i></span>
+                    <span class="mat-chip__kind"><i class="fa fa-file-audio"></i>Audio</span>
+                    <span class="mat-chip__dur" data-chip-dur></span>
+                  </span>
+                </div>
+              {% endif %}
+            </div>
+            <div class="d-flex align-items-start gap-2">
+              {% if CAN_EDIT_DISCOGRAFICA %}
+                <div class="dropdown">
+                  <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
+                  <ul class="dropdown-menu dropdown-menu-end">
+                    {% for key, label, _b in demo_statuses %}
+                      {% if key != row.status %}
+                        <li>
+                          <form method="post" action="{{ url_for('discografica_demo_status', demo_id=row.id) }}">
+                            <input type="hidden" name="status" value="{{ key }}">
+                            <button class="dropdown-item"><i class="fa fa-flag fa-fw me-1"></i>Marcar como {{ label|lower }}</button>
+                          </form>
+                        </li>
+                      {% endif %}
+                    {% endfor %}
+                    {% if row.can_make_song %}
+                      <li><hr class="dropdown-divider"></li>
+                      <li>
+                        <form method="post" action="{{ url_for('discografica_demo_to_song', demo_id=row.id) }}">
+                          <button class="dropdown-item text-success"><i class="fa fa-music fa-fw me-1"></i>Pasar al repertorio</button>
+                        </form>
+                      </li>
+                    {% endif %}
+                    <li><hr class="dropdown-divider"></li>
+                    <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#demoModal"
+                                data-demo-edit="{{ row.id }}" data-demo='{{ row|tojson|forceescape }}'><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
+                    {% if row.audio_url %}<li><a class="dropdown-item" href="{{ row.audio_url }}" download><i class="fa fa-download fa-fw me-1"></i>Descargar audio</a></li>{% endif %}
+                    <li>
+                      <form method="post" action="{{ url_for('discografica_demo_delete', demo_id=row.id) }}" onsubmit="return confirm('¿Eliminar esta demo?');">
+                        <button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button>
+                      </form>
+                    </li>
+                  </ul>
+                </div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="alert alert-light border">Todavía no hay demos{% if d.filter_status or d.filter_origin or d.filter_artist or d.filter_q %} con ese filtro{% endif %}.</div>
+  {% endif %}
+
+  {% if CAN_EDIT_DISCOGRAFICA %}
+  <div class="modal fade" id="demoModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <form class="modal-content" method="post" id="demoForm" enctype="multipart/form-data"
+            action="{{ url_for('discografica_demo_create') }}">
+        <div class="modal-header"><h5 class="modal-title" id="demoModalTitle"><i class="fa fa-music me-2"></i>Nueva demo</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="mb-2">
+            <label class="form-label">Título</label>
+            <input class="form-control" name="title" id="demoTitle" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">¿De dónde viene?</label>
+            <select class="form-select" name="origin" id="demoOrigin">
+              {% for key, label in demo_origins %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="mb-2" data-demo-panel="ARTIST">
+            <label class="form-label">Artista</label>
+            <select class="form-select select-artists" name="artist_id" id="demoArtist">
+              <option value=""></option>
+              {% for a in artists %}<option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}">{{ a.name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="d-none" data-demo-panel="EXTERNAL">
+            <div class="mb-2">
+              <label class="form-label">Quién la manda</label>
+              <input class="form-control" name="sender_name" id="demoSender" placeholder="Nombre y apellidos o grupo">
+            </div>
+            <div class="row g-2 mb-2">
+              <div class="col-md-7"><input class="form-control" type="email" name="sender_email" id="demoEmail" placeholder="Correo"></div>
+              <div class="col-md-5"><input class="form-control" name="sender_phone" id="demoPhone" placeholder="Teléfono"></div>
+            </div>
+            <div class="mb-2">
+              <label class="form-label small text-muted">Si ya está en la base de terceros</label>
+              <div class="d-flex gap-2">
+                <select class="form-select select-providers" name="promoter_id" id="demoPromoter"><option value=""></option></select>
+                <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter" data-target="demoPromoter"><i class="fa fa-plus"></i></button>
+              </div>
+            </div>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Audio de la maqueta</label>
+            <input class="form-control" type="file" name="audio" id="demoAudio" accept=".wav,.wave,.mp3,.m4a,.aac,.flac,.ogg">
+            <div class="form-text" id="demoAudioHint">Se sube directamente al almacenamiento, así que da igual lo que pese.</div>
+            <div class="progress mt-2 d-none" id="demoProgress" style="height:18px"><div class="progress-bar bg-danger" id="demoProgressBar" style="width:0%">0%</div></div>
+            <input type="hidden" name="uploaded_json" id="demoUploaded" value="">
+          </div>
+          <div class="mb-1">
+            <label class="form-label">Notas</label>
+            <textarea class="form-control" name="notes" id="demoNotes" rows="2" placeholder="Qué nos parece, con quién hay que hablar…"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-danger" type="submit" id="demoSubmit"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <script>
+    (function () {
+      var modal = document.getElementById('demoModal');
+      if (!modal) return;
+      var form = document.getElementById('demoForm');
+      var FIRMAR = {{ url_for('discografica_demo_sign')|tojson }};
+      var CREAR = {{ url_for('discografica_demo_create')|tojson }};
+      var EDITAR = {{ url_for('discografica_demo_update', demo_id='DID')|tojson }};
+
+      function panel() {
+        var v = document.getElementById('demoOrigin').value;
+        modal.querySelectorAll('[data-demo-panel]').forEach(function (p) {
+          var on = p.getAttribute('data-demo-panel') === v;
+          p.classList.toggle('d-none', !on);
+          // Lo que no se ve no se envía (si no, un `required` oculto bloquea el formulario).
+          p.querySelectorAll('input, select').forEach(function (i) { i.disabled = !on; });
+        });
+      }
+      document.addEventListener('change', function (ev) { if (ev.target.id === 'demoOrigin') panel(); });
+
+      document.addEventListener('click', function (ev) {
+        var nuevo = ev.target.closest('[data-demo-new]');
+        var editar = ev.target.closest('[data-demo-edit]');
+        if (!nuevo && !editar) return;
+        document.getElementById('demoUploaded').value = '';
+        document.getElementById('demoProgress').classList.add('d-none');
+        if (nuevo) {
+          form.action = CREAR;
+          form.reset();
+          document.getElementById('demoModalTitle').innerHTML = '<i class="fa fa-music me-2"></i>Nueva demo';
+        } else {
+          var d = {};
+          try { d = JSON.parse(editar.getAttribute('data-demo') || '{}'); } catch (e) {}
+          form.action = EDITAR.replace('DID', editar.getAttribute('data-demo-edit'));
+          document.getElementById('demoModalTitle').innerHTML = '<i class="fa fa-pen me-2"></i>Editar demo';
+          document.getElementById('demoTitle').value = d.title || '';
+          document.getElementById('demoOrigin').value = d.origin || 'ARTIST';
+          document.getElementById('demoArtist').value = d.artist_id || '';
+          document.getElementById('demoSender').value = d.who || '';
+          document.getElementById('demoEmail').value = d.sender_email || '';
+          document.getElementById('demoPhone').value = d.sender_phone || '';
+          document.getElementById('demoNotes').value = d.notes || '';
+          try { if (window.jQuery) jQuery('#demoArtist').trigger('change.select2'); } catch (e) {}
+        }
+        panel();
+      });
+
+      // El audio se sube ANTES, directo al almacenamiento: una maqueta puede pesar como un master.
+      form.addEventListener('submit', function (ev) {
+        var inp = document.getElementById('demoAudio');
+        if (form.dataset.listo === '1' || !inp || !inp.files || !inp.files.length) return;
+        ev.preventDefault();
+        var file = inp.files[0];
+        var zona = document.getElementById('demoProgress'), barra = document.getElementById('demoProgressBar');
+        var boton = document.getElementById('demoSubmit');
+        boton.disabled = true; zona.classList.remove('d-none');
+        function seguir(sinDirecta) {
+          form.dataset.listo = '1';
+          if (sinDirecta) { document.getElementById('demoUploaded').value = ''; inp.disabled = false; }
+          form.submit();
+        }
+        fetch(FIRMAR, {method: 'POST', headers: {'Content-Type': 'application/json'},
+                       body: JSON.stringify({filename: file.name})})
+          .then(function (r) { return r.json().catch(function () { return {}; }); })
+          .then(function (sig) {
+            if (!sig || !sig.ok || !sig.upload_url) return seguir(true);
+            var fd = new FormData();
+            fd.append('cacheControl', '31536000');
+            fd.append('', file);
+            var xhr = new XMLHttpRequest();
+            xhr.open('PUT', sig.upload_url);
+            xhr.upload.onprogress = function (e) {
+              if (!e.lengthComputable) return;
+              var p = Math.round(e.loaded * 100 / e.total);
+              barra.style.width = p + '%'; barra.textContent = p + '%';
+            };
+            xhr.onload = function () {
+              if (xhr.status >= 200 && xhr.status < 300) {
+                document.getElementById('demoUploaded').value = JSON.stringify({audio: {key: sig.key, name: file.name}});
+                inp.disabled = true;                 // ya está arriba: no se manda otra vez
+                seguir(false);
+              } else { seguir(true); }
+            };
+            xhr.onerror = function () { seguir(true); };
+            xhr.send(fd);
+          }).catch(function () { seguir(true); });
+      });
+    })();
+  </script>
+  {% endif %}
 
 {% elif section == 'isrc' %}
 

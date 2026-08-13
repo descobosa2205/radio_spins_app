@@ -159,6 +159,7 @@ from models import (
     SongISRCCode,
     SongMaterial,
     SongMasterDeliveryLink,
+    SongDemo,
     SongCertification,
     SongProductionContract,
     SongStatus,
@@ -289,6 +290,7 @@ from models import (
     VacationDay,
     UserContract,
     ensure_vacations_schema,
+    ensure_song_demos_schema,
     PersonDocRequest,
     ThirdPartyIntakeLink,
     ensure_third_party_intake_schema,
@@ -11875,7 +11877,8 @@ def discografica_view():
     income_upload_report = None
     income_import_review = None
 
-    if section not in ("lanzamientos", "canciones", "royalties", "editorial", "registros", "ingresos", "isrc", "adelantos"):
+    if section not in ("lanzamientos", "canciones", "royalties", "editorial", "registros", "ingresos",
+                       "isrc", "adelantos", "demos"):
         section = "canciones"
     if section == "registros":
         legacy_tab = (request.args.get("registros_tab") or request.args.get("tab") or "pendiente").strip().lower()
@@ -11901,6 +11904,9 @@ def discografica_view():
 
     session_db = db()
     artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
+
+    # DEMOS: el listado solo se calcula cuando se está mirando esa sección.
+    demos_ctx = _demos_context(session_db) if section == "demos" else None
 
     # Solo artistas con contrato Discográfico / Catálogo / Distribución (para alta de canciones)
     contract_artist_ids = _artist_ids_with_discography_contracts(session_db)
@@ -13147,6 +13153,10 @@ def discografica_view():
     response = render_template(
         "discografica.html",
         section=section,
+        # DEMOS: solo se calcula cuando se está mirando esa sección.
+        demos_ctx=demos_ctx,
+        demo_origins=DEMO_ORIGINS,
+        demo_statuses=DEMO_STATUSES,
         distributors=distributors_all,
         distributor_by_id=distributor_by_id,
         adelantos_ctx=adelantos_ctx,
@@ -18825,6 +18835,325 @@ def discografica_song_cover_role(song_id, material_id):
 
 
 # ---------- ENTREGA DE MASTERS (enlace público) ----------
+# ---------------------------------------------------------------------------
+# DEMOS · maquetas que se están valorando en el sello
+# ---------------------------------------------------------------------------
+# Una demo puede venir de un artista NUESTRO o de FUERA; el flujo es el mismo (valorando → aprobada
+# o descartada) y el ORIGEN se guarda en la propia demo.
+DEMO_ORIGINS = [("ARTIST", "De un artista nuestro"), ("EXTERNAL", "De fuera")]
+DEMO_ORIGIN_LABELS = dict(DEMO_ORIGINS)
+DEMO_STATUSES = [("VALORANDO", "Valorando", "warning text-dark"),
+                 ("APROBADA", "Aprobada", "success"),
+                 ("DESCARTADA", "Descartada", "secondary")]
+DEMO_STATUS_LABELS = {k: v for k, v, _ in DEMO_STATUSES}
+DEMO_STATUS_BADGES = {k: b for k, _, b in DEMO_STATUSES}
+DEMO_AUDIO_EXTS = {".wav", ".wave", ".mp3", ".m4a", ".aac", ".flac", ".ogg"}
+
+
+def _demo_dt_label(valor) -> str:
+    try:
+        return valor.strftime("%d/%m/%Y %H:%M") if valor else ""
+    except Exception:
+        return ""
+
+
+def _demo_row_payload(session_db, row) -> dict:
+    """Lo que necesita la pantalla de una demo (quién la manda, su audio y en qué punto está)."""
+    origen = (getattr(row, "origin", None) or "ARTIST").strip().upper()
+    artista = getattr(row, "artist", None)
+    tercero = getattr(row, "promoter", None)
+    if origen == "ARTIST":
+        de_quien = getattr(artista, "name", None) or "—"
+        foto = (getattr(artista, "photo_url", None) or "")
+        es_persona = True
+    else:
+        de_quien = (row.sender_name or "").strip() or (_promoter_display_name(tercero) if tercero else "") or "—"
+        foto = (getattr(tercero, "logo_url", None) or "")
+        es_persona = not tercero
+    estado = (getattr(row, "status", None) or "VALORANDO").strip().upper()
+    return {
+        "id": str(row.id),
+        "title": row.title or "Sin título",
+        "origin": origen,
+        "origin_label": DEMO_ORIGIN_LABELS.get(origen, origen),
+        "artist_id": str(row.artist_id) if row.artist_id else "",
+        "who": de_quien,
+        "who_photo": foto,
+        "who_is_person": bool(es_persona),
+        "sender_email": (row.sender_email or "").strip(),
+        "sender_phone": (row.sender_phone or "").strip(),
+        "audio_url": (row.audio_url or "").strip(),
+        "audio_name": (row.audio_name or "").strip(),
+        "file_url": (row.audio_url or "").strip(),      # para el reproductor (media_chip.js)
+        "base_name": (row.audio_name or "").strip() or "demo",
+        "is_audio": bool((row.audio_url or "").strip()),
+        "notes": (row.notes or "").strip(),
+        "status": estado,
+        "status_label": DEMO_STATUS_LABELS.get(estado, estado),
+        "status_badge": DEMO_STATUS_BADGES.get(estado, "secondary"),
+        "decision_note": (row.decision_note or "").strip(),
+        "decided_at_label": _demo_dt_label(getattr(row, "decided_at", None)),
+        "decided_by_nick": (row.decided_by_nick or "").strip(),
+        "song_id": str(row.song_id) if row.song_id else "",
+        "song_title": (getattr(getattr(row, "song", None), "title", None) or ""),
+        "created_at_label": _demo_dt_label(getattr(row, "created_at", None)),
+        "created_by_nick": (row.created_by_nick or "").strip(),
+        # Solo tiene sentido crear la canción de una demo APROBADA de un artista nuestro.
+        "can_make_song": estado == "APROBADA" and bool(row.artist_id) and not row.song_id,
+    }
+
+
+def _demos_context(session_db) -> dict:
+    """Listado de demos con sus filtros (estado, origen, artista y búsqueda libre)."""
+    f_estado = (request.args.get("demo_status") or "").strip().upper()
+    f_origen = (request.args.get("demo_origin") or "").strip().upper()
+    f_artista = _safe_uuid(request.args.get("demo_artist"))
+    q = (request.args.get("demo_q") or "").strip()
+    consulta = (session_db.query(SongDemo)
+                .options(joinedload(SongDemo.artist), joinedload(SongDemo.promoter),
+                         joinedload(SongDemo.song)))
+    if f_estado in DEMO_STATUS_LABELS:
+        consulta = consulta.filter(SongDemo.status == f_estado)
+    if f_origen in DEMO_ORIGIN_LABELS:
+        consulta = consulta.filter(SongDemo.origin == f_origen)
+    if f_artista:
+        consulta = consulta.filter(SongDemo.artist_id == f_artista)
+    if q:
+        consulta = consulta.filter(or_(_sa_contains_text(SongDemo.title, q),
+                                       _sa_contains_text(SongDemo.sender_name, q),
+                                       _sa_contains_text(SongDemo.notes, q)))
+    filas = [_demo_row_payload(session_db, r) for r in
+             consulta.order_by(SongDemo.created_at.desc()).limit(400).all()]
+    cuenta = dict(session_db.query(SongDemo.status, func.count(SongDemo.id))
+                  .group_by(SongDemo.status).all())
+    return {
+        "rows": filas,
+        "counts": {k: _safe_int(cuenta.get(k)) for k, _, _ in DEMO_STATUSES},
+        "total": sum(_safe_int(v) for v in cuenta.values()),
+        "filter_status": f_estado, "filter_origin": f_origen,
+        "filter_artist": str(f_artista) if f_artista else "", "filter_q": q,
+    }
+
+
+@app.post("/discografica/demos/firmar", endpoint="discografica_demo_sign")
+@admin_required
+def discografica_demo_sign():
+    """URL firmada para subir el audio de una demo DIRECTAMENTE a Storage.
+
+    Una maqueta puede pesar lo mismo que un master: si viaja dentro del formulario, la petición se
+    pasa del tiempo del servidor (el 502 de la entrega de masters). Aquí el archivo va del navegador
+    a Storage y al servidor solo le llega su dirección."""
+    if not can_edit_discografica():
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    datos = request.get_json(silent=True) or {}
+    ext = os.path.splitext((datos.get("filename") or "").strip().lower())[1]
+    if ext not in DEMO_AUDIO_EXTS:
+        return jsonify({"ok": False, "error": "Formato de audio no admitido."}), 400
+    try:
+        info = create_signed_upload_url_for("song_demos", ext)
+    except Exception as e:
+        return jsonify({"ok": False, "error": "No se pudo preparar la subida: " + str(e)[:200]}), 502
+    if not info.get("signed_url"):
+        return jsonify({"ok": False, "error": "No se pudo preparar la subida."}), 502
+    return jsonify({"ok": True, "key": info["key"], "upload_url": info["signed_url"]})
+
+
+def _demo_apply_form(session_db, row, form, files) -> list:
+    """Vuelca el formulario en la demo. Devuelve los avisos (lo que falta)."""
+    fallos = []
+    row.title = (form.get("title") or "").strip()
+    if not row.title:
+        fallos.append("Ponle un título a la demo.")
+    origen = (form.get("origin") or "ARTIST").strip().upper()
+    row.origin = origen if origen in DEMO_ORIGIN_LABELS else "ARTIST"
+    if row.origin == "ARTIST":
+        row.artist_id = _safe_uuid(form.get("artist_id"))
+        if not row.artist_id:
+            fallos.append("Dinos de qué artista es la demo.")
+        row.sender_name = None
+        row.sender_email = None
+        row.sender_phone = None
+        row.promoter_id = None
+    else:
+        row.artist_id = None
+        row.promoter_id = _safe_uuid(form.get("promoter_id"))
+        _tercero = session_db.get(Promoter, row.promoter_id) if row.promoter_id else None
+        row.sender_name = ((form.get("sender_name") or "").strip()
+                           or (_promoter_display_name(_tercero) if _tercero else ""))
+        row.sender_email = (form.get("sender_email") or "").strip() or None
+        row.sender_phone = (form.get("sender_phone") or "").strip() or None
+        if not row.sender_name:
+            fallos.append("Dinos quién manda la demo.")
+    row.notes = (form.get("notes") or "").strip() or None
+    # El audio: subido directamente (llega su dirección) o por el servidor.
+    subido = _json_dict(form.get("uploaded_json"))
+    clave = ((subido.get("audio") or {}).get("key") if isinstance(subido.get("audio"), dict) else "") or ""
+    if clave:
+        try:
+            row.audio_url = public_url_for_key(clave)
+            row.audio_name = ((subido.get("audio") or {}).get("name") or "demo").replace("\\", "/")
+            row.mime_type = None
+        except Exception:
+            app.logger.exception("[demos] no se pudo resolver la URL del audio subido")
+            fallos.append("No se pudo registrar el audio. Vuelve a intentarlo.")
+    else:
+        fs = files.get("audio") if files else None
+        if fs and getattr(fs, "filename", ""):
+            if Path((fs.filename or "").replace("\\", "/")).suffix.lower() not in DEMO_AUDIO_EXTS:
+                fallos.append("El audio debe ser un archivo de sonido (wav, mp3, m4a…).")
+            else:
+                row.audio_url = upload_file(fs, "song_demos", allowed_extensions=DEMO_AUDIO_EXTS)
+                row.audio_name = (fs.filename or "demo").replace("\\", "/")
+                row.mime_type = (getattr(fs, "mimetype", "") or "").strip() or None
+    row.updated_at = _now_madrid()
+    return fallos
+
+
+@app.post("/discografica/demos/crear", endpoint="discografica_demo_create")
+@admin_required
+def discografica_demo_create():
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para añadir demos.")
+    session_db = db()
+    try:
+        estado = _current_user_state() or {}
+        row = SongDemo(status="VALORANDO",
+                       created_by_user_id=_safe_uuid(estado.get("user_id")),
+                       created_by_nick=(estado.get("nick") or ""))
+        fallos = _demo_apply_form(session_db, row, request.form, request.files)
+        if fallos:
+            flash(" ".join(fallos), "warning")
+            return redirect(url_for("discografica_view", section="demos"))
+        session_db.add(row)
+        session_db.commit()
+        flash("Demo añadida.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash("No se pudo guardar la demo: %s" % e, "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_view", section="demos"))
+
+
+@app.post("/discografica/demos/<demo_id>/editar", endpoint="discografica_demo_update")
+@admin_required
+def discografica_demo_update(demo_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar demos.")
+    session_db = db()
+    try:
+        row = session_db.get(SongDemo, to_uuid(demo_id))
+        if not row:
+            abort(404)
+        fallos = _demo_apply_form(session_db, row, request.form, request.files)
+        if fallos:
+            session_db.rollback()
+            flash(" ".join(fallos), "warning")
+            return redirect(url_for("discografica_view", section="demos"))
+        session_db.add(row)
+        session_db.commit()
+        flash("Demo actualizada.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash("No se pudo guardar: %s" % e, "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_view", section="demos"))
+
+
+@app.post("/discografica/demos/<demo_id>/estado", endpoint="discografica_demo_status")
+@admin_required
+def discografica_demo_status(demo_id):
+    """Aprueba o descarta una demo (con el motivo, que es lo que se consulta luego)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para decidir sobre las demos.")
+    nuevo = (request.form.get("status") or "").strip().upper()
+    if nuevo not in DEMO_STATUS_LABELS:
+        flash("Estado no válido.", "warning")
+        return redirect(url_for("discografica_view", section="demos"))
+    session_db = db()
+    try:
+        row = session_db.get(SongDemo, to_uuid(demo_id))
+        if not row:
+            abort(404)
+        row.status = nuevo
+        row.decision_note = (request.form.get("decision_note") or "").strip() or None
+        if nuevo == "VALORANDO":
+            row.decided_at = None
+            row.decided_by_nick = None
+        else:
+            row.decided_at = _now_madrid()
+            row.decided_by_nick = ((_current_user_state() or {}).get("nick") or "")
+        row.updated_at = _now_madrid()
+        session_db.add(row)
+        session_db.commit()
+        flash("Demo %s." % DEMO_STATUS_LABELS.get(nuevo, nuevo).lower(), "success")
+    except Exception as e:
+        session_db.rollback()
+        flash("No se pudo cambiar el estado: %s" % e, "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_view", section="demos"))
+
+
+@app.post("/discografica/demos/<demo_id>/a-cancion", endpoint="discografica_demo_to_song")
+@admin_required
+def discografica_demo_to_song(demo_id):
+    """Una demo APROBADA de un artista nuestro pasa al repertorio: se crea la canción con su título
+    y su artista, y la demo queda enlazada (así no se pierde de dónde salió)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para crear canciones.")
+    session_db = db()
+    try:
+        row = session_db.get(SongDemo, to_uuid(demo_id))
+        if not row:
+            abort(404)
+        if (row.status or "").upper() != "APROBADA" or not row.artist_id:
+            flash("Solo se pasa al repertorio una demo aprobada de un artista nuestro.", "warning")
+            return redirect(url_for("discografica_view", section="demos"))
+        if row.song_id:
+            flash("Esta demo ya está en el repertorio.", "info")
+            return redirect(url_for("discografica_song_detail", song_id=row.song_id))
+        # ⚠️ `Song.release_date` es NOT NULL: una canción que nace de una demo todavía no tiene
+        # fecha de publicación, así que se apunta la de hoy y ya se corregirá en su ficha.
+        cancion = Song(title=row.title or "Sin título", release_date=today_local())
+        session_db.add(cancion)
+        session_db.flush()
+        session_db.add(SongArtist(song_id=cancion.id, artist_id=row.artist_id))
+        row.song_id = cancion.id
+        row.updated_at = _now_madrid()
+        session_db.add(row)
+        session_db.commit()
+        flash("Canción creada desde la demo.", "success")
+        return redirect(url_for("discografica_song_detail", song_id=cancion.id))
+    except Exception as e:
+        session_db.rollback()
+        flash("No se pudo crear la canción: %s" % e, "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_view", section="demos"))
+
+
+@app.post("/discografica/demos/<demo_id>/eliminar", endpoint="discografica_demo_delete")
+@admin_required
+def discografica_demo_delete(demo_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para eliminar demos.")
+    session_db = db()
+    try:
+        row = session_db.get(SongDemo, to_uuid(demo_id))
+        if row:
+            session_db.delete(row)
+            session_db.commit()
+            flash("Demo eliminada.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash("No se pudo eliminar: %s" % e, "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_view", section="demos"))
+
+
 SONG_DELIVERY_SECTIONS = [
     ("PRODUCTION", "Información de producción"),
     ("AUTHORAL", "Información autoral"),
@@ -42920,6 +43249,7 @@ def _bootstrap_schema_bg():
         (ensure_geo_schema, "ensure_geo_schema"),
         (ensure_invoice_attempts_schema, "ensure_invoice_attempts_schema"),
         (ensure_vacations_schema, "ensure_vacations_schema"),
+        (ensure_song_demos_schema, "ensure_song_demos_schema"),
         (ensure_third_party_intake_schema, "ensure_third_party_intake_schema"),
         (ensure_artist_templates_schema, "ensure_artist_templates_schema"),
         (ensure_push_schema, "ensure_push_schema"),

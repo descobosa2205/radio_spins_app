@@ -26703,7 +26703,9 @@ def peticion_wizard_create():
 # Secciones nuevas del menú (aparte de "Marketing"). Cada una es la bandeja de peticiones que le
 # corresponden a ese departamento. ⚠️ El reparto vive en payload['departments'] (LISTA: una petición
 # puede tocar a varios) y se lee SIEMPRE con `_booking_in_department`; no hay ningún campo singular.
-def _render_department_inbox(dept_key: str, title: str, icon: str, subtitle: str, promo_tab: str = "peticiones"):
+def _render_department_inbox(dept_key: str, title: str, icon: str, subtitle: str,
+                             promo_tab: str = "activas", promo_vista: str = "lista",
+                             promo_sujeto: str = ""):
     s = db()
     try:
         try:
@@ -26729,13 +26731,46 @@ def _render_department_inbox(dept_key: str, title: str, icon: str, subtitle: str
                           .order_by(Promotion.starts_on.desc().nullslast(), Promotion.created_at.desc())
                           .limit(400).all())
             counts = _promo_activity_counts(s, [r.id for r in promo_rows])
+            # Fechas y sujeto de cada promoción: la lista va de la MÁS PRÓXIMA en adelante y se puede
+            # ver agrupada por artista / gira / evento / festival.
+            fechas = _promo_dates_map(s, [r.id for r in promo_rows])
             for row in promo_rows:
                 info = counts.get(str(row.id)) or {}
                 item = _promo_display(row, activity_count=info.get("total", 0), pending_count=info.get("pending", 0))
+                item.update(_promo_sort_and_subject(row, fechas.get(str(row.id)) or []))
                 (promo_archived if item["archived"] else promo_active).append(item)
+            promo_active.sort(key=lambda x: (x["sort_key"], (x.get("title") or "").casefold()))
+            promo_archived.sort(key=lambda x: (x["sort_key"], (x.get("title") or "").casefold()))
+        # Rejilla por SUJETO (artista, gira, evento, festival…) con promociones activas, y el
+        # filtrado cuando se ha entrado en uno.
+        promo_subjects, promo_subject_label, promo_subject_photo = [], "", ""
+        if dept_key == "PROMO":
+            vistos = {}
+            for item in promo_active:
+                clave = item.get("group_id") or ""
+                if not clave:
+                    continue
+                ficha = vistos.setdefault(clave, {"id": clave, "kind": item.get("group_kind") or "",
+                                                  "label": item.get("group_label") or "—",
+                                                  "photo": item.get("group_photo") or "", "count": 0})
+                ficha["count"] += 1
+                if not ficha["photo"] and item.get("group_photo"):
+                    ficha["photo"] = item["group_photo"]
+            promo_subjects = sorted(vistos.values(), key=lambda x: (x["label"] or "").casefold())
+            if promo_sujeto:
+                promo_active = [x for x in promo_active if (x.get("group_id") or "") == promo_sujeto]
+                promo_archived = [x for x in promo_archived if (x.get("group_id") or "") == promo_sujeto]
+                _ficha = vistos.get(promo_sujeto) or {}
+                promo_subject_label = _ficha.get("label") or ""
+                promo_subject_photo = _ficha.get("photo") or ""
         return render_template(
             "department_inbox.html",
             dept_key=dept_key,
+            promo_vista=promo_vista,
+            promo_sujeto=promo_sujeto,
+            promo_subjects=promo_subjects,
+            promo_subject_label=promo_subject_label,
+            promo_subject_photo=promo_subject_photo,
             title=title,
             icon=icon,
             subtitle=subtitle,
@@ -26770,13 +26805,20 @@ def _render_department_inbox(dept_key: str, title: str, icon: str, subtitle: str
 @app.get("/promocion-peticiones", endpoint="promo_view")
 @admin_required
 def promo_view():
-    tab = (request.args.get("tab") or "peticiones").strip().lower()
-    if tab not in {"peticiones", "activas", "archivadas"}:
-        tab = "peticiones"
+    # Una sola pantalla: las PETICIONES son un módulo arriba (solo si las hay) y debajo las
+    # promociones activas, de la más próxima en adelante. `?archivadas=1` enseña las archivadas y
+    # `?vista=sujetos` la rejilla por artista / gira / evento / festival.
+    tab = (request.args.get("tab") or "activas").strip().lower()
+    if _truthy(request.args.get("archivadas")):
+        tab = "archivadas"
+    if tab not in {"activas", "archivadas"}:
+        tab = "activas"
     return _render_department_inbox(
         "PROMO", "Promoción", "fa-microphone-lines",
         "Entrevistas, junts de prensa y phoners: las promociones y las peticiones que llegan.",
         promo_tab=tab,
+        promo_vista=("sujetos" if (request.args.get("vista") or "").strip().lower() == "sujetos" else "lista"),
+        promo_sujeto=(request.args.get("sujeto") or "").strip(),
     )
 
 
@@ -53043,6 +53085,67 @@ def _promo_media_locations_payload(session_db, media_ids=None) -> list[dict]:
         "label": " · ".join([x for x in [(row.name or "").strip(), (row.address or "").strip(),
                                          (row.municipality or "").strip()] if x]),
     } for row in rows]
+
+
+def _promo_dates_map(session_db, promotion_ids) -> dict:
+    """Las fechas de las entrevistas de VARIAS promociones de una vez (para no consultar una por
+    fila al pintar el listado)."""
+    ids = [to_uuid(x) for x in (promotion_ids or []) if to_uuid(x)]
+    if not ids:
+        return {}
+    salida = {}
+    for pid, dia in (session_db.query(PromotionActivity.promotion_id, PromotionActivity.activity_date)
+                     .filter(PromotionActivity.promotion_id.in_(ids)).all()):
+        if dia:
+            salida.setdefault(str(pid), []).append(dia)
+    return salida
+
+
+def _promo_sort_and_subject(row, dias) -> dict:
+    """De una promoción: por dónde ordena (la MÁS PRÓXIMA primero, y las pasadas detrás) y de quién
+    es (artista, gira, evento, festival…), que es como se agrupa el listado."""
+    hoy = today_local()
+    dias = sorted(d for d in (dias or []) if d)
+    propias = [d for d in [getattr(row, "starts_on", None), getattr(row, "target_date", None)] if d]
+    todas = sorted(set(dias + propias))
+    proximas = [d for d in todas if d >= hoy]
+    if proximas:
+        # Lo que viene: primero lo más cercano.
+        clave = (0, proximas[0])
+    elif todas:
+        # Lo pasado, detrás y de lo más reciente hacia atrás.
+        clave = (1, -todas[-1].toordinal())
+    else:
+        clave = (2, 0)
+    snap = _json_dict(getattr(row, "snapshot", None))
+    tipo = (getattr(row, "subject_type", None) or "").strip().upper() or "ARTIST"
+    sid = str(getattr(row, "subject_id", "") or "")
+    # Una promoción de una canción o un disco se agrupa por SU ARTISTA (es de quien se promociona).
+    artistas = [str(x) for x in (getattr(row, "artist_ids", None) or []) if x]
+    if tipo in {"SONG", "ALBUM", "ARTIST"} and artistas:
+        grupo_id, grupo_tipo = artistas[0], "ARTIST"
+        grupo_nombre = (snap.get("artist_label") or "").strip() or "Artista"
+    else:
+        grupo_id, grupo_tipo = (sid or tipo), tipo
+        grupo_nombre = (snap.get("title") or snap.get("artist_label") or "").strip() or "Sin sujeto"
+    return {
+        "sort_key": clave,
+        "next_date": (proximas[0] if proximas else (todas[-1] if todas else None)),
+        "dates_label": _promo_dates_label_from_days(todas),
+        "group_id": grupo_id,
+        "group_kind": grupo_tipo,
+        "group_label": grupo_nombre,
+        "group_photo": (snap.get("cover_url") or "").strip(),
+    }
+
+
+def _promo_dates_label_from_days(dias) -> str:
+    dias = sorted(d for d in (dias or []) if d)
+    if not dias:
+        return ""
+    if len(dias) == 1:
+        return dias[0].strftime("%d/%m/%Y")
+    return "%s – %s" % (dias[0].strftime("%d/%m/%Y"), dias[-1].strftime("%d/%m/%Y"))
 
 
 def _promo_dates_label(activities) -> str:

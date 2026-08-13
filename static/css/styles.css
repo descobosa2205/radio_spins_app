@@ -4048,3 +4048,7 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 }
 /* El envoltorio que añade el JS a las tablas sueltas. */
 [data-table-scroll] { display: block; width: 100%; overflow-x: auto; }
+
+/* Rejilla de sujetos con promociones activas (artista, gira, evento, festival…). */
+.promo-subject-card { transition:box-shadow .15s, transform .15s; }
+.promo-subject-card:hover { box-shadow:0 6px 18px rgba(0,0,0,.10); transform:translateY(-1px); }

@@ -928,6 +928,17 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   dice con qué base está calculado. ⚠️ El **aviso amarillo salta SOLO si el de contratación NO cuadra**
   con el calculado (`mismatch`): si coinciden, o si nadie lo ha puesto a mano, no se avisa de nada. Sin
   ticketing ni previsión de ingresos no se muestra nada.
+- **PROMOCIÓN · UNA sola pantalla** (ago 2026): la pestaña «Peticiones» desapareció como pestaña y es
+  un **módulo arriba** que **solo se ve si hay peticiones pendientes**. Debajo, las promociones
+  **activas de la más próxima en adelante** (`_promo_sort_and_subject`: primero lo que viene, y lo
+  pasado detrás, de lo más reciente hacia atrás; la fecha sale de sus ENTREVISTAS con
+  `_promo_dates_map`, en UNA consulta para todo el listado).
+  · Botón de **solo icono** «Ver por artistas» (`?vista=sujetos`): rejilla de artistas, giras,
+  eventos y festivales **con promociones activas**, con su foto y su número; al pinchar uno se ven
+  solo las suyas (`?sujeto=<id>`). Las de una canción o un disco se agrupan por SU ARTISTA.
+  · Las **archivadas** con `?archivadas=1` (el botón conserva la vista y el sujeto en los que estés).
+  ⚠️ `promo_view` sigue admitiendo `?tab=activas|archivadas` por los enlaces antiguos.
+
 - **PROMOCIÓN · la ficha se lee como la de una ACTIVIDAD** (ago 2026): misma cabecera
   (`ficha-hero` con foto redonda del artista —clicable con `data-artist-link`—, «eyebrow» de lo que
   es, título + **etiqueta de estado que se pincha** para cambiarlo, `ficha-hero__facts` con iconos y

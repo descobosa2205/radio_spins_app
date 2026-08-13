@@ -35,18 +35,8 @@
     <script src="{{ url_for('static', filename='js/promo.js', v=ASSET_V) }}"></script>
   {% endif %}
   {% if can_edit_promocion %}{% include '_promotion_wizard_modal.html' %}{% endif %}
-  <ul class="nav nav-tabs contract-tabs mb-4">
-    {% for key, label, icon, count in [('peticiones','Peticiones','fa-inbox', pending_rows|length),
-                                       ('activas','Promociones','fa-microphone-lines', promo_active|length),
-                                       ('archivadas','Archivadas','fa-box-archive', promo_archived|length)] %}
-      <li class="nav-item">
-        <a class="nav-link {% if promo_tab == key %}active{% endif %}" href="{{ url_for('promo_view', tab=key) }}">
-          <i class="fa {{ icon }} me-1"></i>{{ label }}
-          {% if count %}<span class="badge {{ 'text-bg-warning' if key == 'peticiones' else 'text-bg-light border' }} ms-1">{{ count }}</span>{% endif %}
-        </a>
-      </li>
-    {% endfor %}
-  </ul>
+  {# Promoción es UNA pantalla: las peticiones son un módulo de arriba (solo si las hay) y debajo
+     las promociones activas, de la más próxima en adelante. #}
 {% endif %}
 
 {# --- Listado de promociones (pestañas «Promociones» y «Archivadas» de Promoción) --- #}
@@ -66,7 +56,7 @@
               </div>
               <div class="d-flex flex-wrap gap-1 mt-1">
                 <span class="badge text-bg-light border"><i class="fa {{ row.kind_icon }} me-1"></i>{{ row.kind_label }}</span>
-                <span class="badge text-bg-light border"><i class="fa fa-calendar-days me-1"></i>{{ row.period_label }}</span>
+                <span class="badge text-bg-light border"><i class="fa fa-calendar-days me-1"></i>{{ row.dates_label or row.period_label }}</span>
                 {% if row.activity_count %}<span class="badge text-bg-light border"><i class="fa fa-microphone-lines me-1"></i>{{ row.activity_count }}</span>{% endif %}
                 {% if row.pending_count %}<span class="badge text-bg-warning text-dark">{{ row.pending_count }} sin confirmar</span>{% endif %}
                 {% if row.company_label %}<span class="badge text-bg-light border"><i class="fa fa-building me-1"></i>{{ row.company_label }}</span>{% endif %}
@@ -128,11 +118,74 @@
   {% endif %}
 {% endmacro %}
 
-{# En PROMOCIÓN cada pestaña enseña lo suyo; en el resto de bandejas (Diseño) van las dos tarjetas. #}
-{% if dept_key == 'PROMO' and promo_tab == 'activas' %}
-  {{ promo_rows(promo_active, 'Todavía no hay promociones. Créalas con «+ Promoción».') }}
-{% elif dept_key == 'PROMO' and promo_tab == 'archivadas' %}
-  {{ promo_rows(promo_archived, 'Sin promociones archivadas.') }}
+{# PROMOCIÓN: una sola pantalla. Arriba, las PETICIONES (solo si hay alguna); debajo, las
+   promociones activas de la más próxima en adelante, con el botón de verlas por artista / gira /
+   evento / festival y el acceso a las archivadas. En el resto de bandejas (Diseño), las dos
+   tarjetas de siempre. #}
+{% if dept_key == 'PROMO' %}
+  {% if pending_rows %}
+    <div class="card mb-4 border-warning-subtle">
+      <div class="card-header d-flex align-items-center gap-2">
+        <span class="fw-semibold"><i class="fa fa-inbox text-danger me-2"></i>Peticiones pendientes</span>
+        <span class="badge text-bg-danger ms-1">{{ pending_rows|length }}</span>
+      </div>
+      <div class="card-body">{{ peticion_rows(pending_rows, '') }}</div>
+    </div>
+  {% endif %}
+
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      {% if promo_sujeto %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('promo_view', vista='sujetos') }}" title="Volver"><i class="fa fa-arrow-left"></i></a>
+        {% if promo_subject_photo %}<img src="{{ promo_subject_photo }}" class="promo-row__cover" alt="">{% endif %}
+        <h5 class="m-0">{{ promo_subject_label or 'Promociones' }}</h5>
+      {% else %}
+        <h5 class="m-0">{{ 'Promociones archivadas' if promo_tab == 'archivadas' else 'Promociones activas' }}</h5>
+      {% endif %}
+      <span class="badge text-bg-light border">{{ (promo_archived if promo_tab == 'archivadas' else promo_active)|length }}</span>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      {# Ver por artista / gira / evento / festival: SOLO el icono. #}
+      <a class="btn btn-sm {{ 'btn-danger' if promo_vista == 'sujetos' else 'btn-outline-secondary' }}"
+         href="{{ url_for('promo_view', vista=('lista' if promo_vista == 'sujetos' else 'sujetos'), archivadas=(1 if promo_tab == 'archivadas' else None)) }}"
+         title="{{ 'Ver la lista completa' if promo_vista == 'sujetos' else 'Ver por artistas' }}"
+         aria-label="{{ 'Ver la lista completa' if promo_vista == 'sujetos' else 'Ver por artistas' }}">
+        <i class="fa {{ 'fa-list' if promo_vista == 'sujetos' else 'fa-users' }}"></i>
+      </a>
+      <a class="btn btn-sm btn-outline-secondary"
+         href="{{ url_for('promo_view', vista=promo_vista, sujeto=(promo_sujeto or None), archivadas=(None if promo_tab == 'archivadas' else 1)) }}">
+        <i class="fa fa-box-archive me-1"></i>{{ 'Ver activas' if promo_tab == 'archivadas' else 'Ver archivadas' }}
+      </a>
+    </div>
+  </div>
+
+  {% if promo_vista == 'sujetos' and not promo_sujeto %}
+    {% if promo_subjects %}
+      <div class="row g-3">
+        {% for sub in promo_subjects %}
+          <div class="col-6 col-md-4 col-xl-3">
+            <a class="card h-100 text-decoration-none text-reset promo-subject-card"
+               href="{{ url_for('promo_view', vista='sujetos', sujeto=sub.id) }}">
+              <div class="card-body d-flex align-items-center gap-3">
+                {% if sub.photo %}<img src="{{ sub.photo }}" class="promo-row__cover" alt="">
+                {% else %}<span class="promo-row__cover promo-row__cover--ph"><i class="fa fa-microphone-lines"></i></span>{% endif %}
+                <div style="min-width:0">
+                  <div class="fw-semibold text-truncate">{{ sub.label }}</div>
+                  <div class="small text-muted">{{ sub.count }} promoción{{ '' if sub.count == 1 else 'es' }}</div>
+                </div>
+              </div>
+            </a>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="alert alert-light border mb-0">Todavía no hay promociones activas.</div>
+    {% endif %}
+  {% elif promo_tab == 'archivadas' %}
+    {{ promo_rows(promo_archived, 'Sin promociones archivadas.') }}
+  {% else %}
+    {{ promo_rows(promo_active, 'Todavía no hay promociones. Créalas con «+ Promoción».') }}
+  {% endif %}
 {% else %}
   <div class="card mb-3">
     <div class="card-header d-flex align-items-center gap-2">

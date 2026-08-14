@@ -190,7 +190,10 @@
     </form>
   </div></div>
 
-{% elif target_is_master %}
+{# ⚠️ ESTE CARTEL ES SOLO DE LA PESTAÑA «ACCESOS». Estaba en la cadena SIN mirar la pestaña, así
+   que en la ficha de alguien de dirección se comía TODAS las demás: quien lleva los contratos o las
+   vacaciones abría su pestaña y se encontraba «no es posible configurar sus accesos» (bug real). #}
+{% elif tab == 'accesos' and target_is_master %}
   <div class="card"><div class="card-body text-center py-5">
     <div class="display-6 mb-2"><i class="fa fa-shield-halved text-danger"></i></div>
     <h4 class="mb-1">Usuario de dirección</h4>

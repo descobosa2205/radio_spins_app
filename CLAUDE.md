@@ -1985,6 +1985,21 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (GET y POST) a quien las gestiona —y `personnel_contract_save/_delete` a quien puede ver contratos—;
   el resto de pestañas sigue exigiendo su permiso. La decisión fina la sigue tomando la vista
   (`_can_manage_vacations` / `_can_view_person_contract`), que es quien manda.
+  · ⚠️⚠️ **Y el cartel «Usuario de dirección» era SOLO de la pestaña Accesos** (bug real, ago 2026):
+  estaba en la cadena de pestañas de `personnel_detail.html` **sin mirar el `tab`**, así que en la
+  ficha de cualquiera marcado como dirección se comía TODAS las demás — quien lleva los contratos o
+  las vacaciones abría su pestaña y lo único que veía era «No es necesario (ni posible) configurar
+  sus accesos». Ahora es `{% elif tab == 'accesos' and target_is_master %}`.
+  · ⚠️ **`_can_manage_vacations()` acepta también el departamento ADMINISTRACIÓN** (como
+  `_can_view_person_contract`): antes solo valía la responsabilidad «VACACIONES», que es un ajuste
+  fino que hay que acordarse de dar (y que solo concedía el permiso de sección al guardarse desde la
+  ficha, vía `_sync_vacation_access_grant`), así que administración se comía un **403** al apuntar
+  días. Además, `_support_endpoint_decision` deja pasar `vacaciones_view` y `vacation_*` a quien
+  gestiona: **la llave es gestionar vacaciones, no un grant que puede no estar sincronizado**.
+  La responsabilidad **sigue filtrando** dónde tiene que estar: en el módulo de Inicio
+  (`_home_vacation_pending` usa `_admin_task_is_mine`), no en el acceso.
+  · En el listado `/personal` se marca con una **pastilla «Dirección» clicable** (lleva a su pestaña
+  Accesos) a quien lo sea: así se ve de un vistazo a quién hay que corregir, sin abrir ficha a ficha.
 
 - **PERSONAL · un permiso POR PESTAÑA de la ficha** (ago 2026). Antes **toda** la ficha
   (`personnel_detail_view`) colgaba de `personal.usuarios.accesos`, que es la pestaña de PERMISOS:

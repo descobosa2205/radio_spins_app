@@ -105,8 +105,14 @@
               </ul>
             </div>
           </div>
-          {% if departments %}
+          {# Quién es DIRECCIÓN se ve aquí: si alguien lo es sin serlo, se detecta de un vistazo y se
+             corrige en su pestaña «Accesos» (antes había que abrir ficha por ficha). #}
+          {% if departments or user.role == 10 %}
             <div class="d-flex flex-wrap gap-1">
+              {% if user.role == 10 %}
+                <a class="badge text-bg-danger text-decoration-none" title="Tiene acceso total. Si no es de dirección, quítaselo aquí."
+                   href="{{ url_for('personnel_detail_view', user_id=user.id, tab='accesos') }}"><i class="fa fa-shield-halved me-1"></i>Dirección</a>
+              {% endif %}
               {% for dept in departments %}
                 <span class="badge text-bg-light border">{{ dept }}</span>
               {% endfor %}

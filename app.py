@@ -51094,6 +51094,10 @@ def _support_endpoint_decision(endpoint: str):
         return (True, None)
     if endpoint in ("personnel_contract_save", "personnel_contract_delete") and _can_view_person_contract():
         return (True, None)
+    # GESTIONAR VACACIONES: su llave es la responsabilidad (o ser de administración), no un permiso
+    # de sección que hay que acordarse de conceder. La decisión fina la sigue tomando la vista.
+    if (endpoint == "vacaciones_view" or endpoint.startswith("vacation_")) and _can_manage_vacations():
+        return (True, None)
     if endpoint in SUPPORT_READ_ENDPOINTS:
         return (True, None)  # lookups de solo lectura: cualquier sesión válida
     if endpoint in SUPPORT_ECON_READ_ENDPOINTS:
@@ -93272,12 +93276,20 @@ def _vacation_rules_text() -> str:
 
 
 def _can_manage_vacations() -> bool:
-    """Quién gestiona las vacaciones: DIRECCIÓN y quien tenga la responsabilidad «VACACIONES»
-    del reparto de administración (se la asigna dirección en la ficha de cada persona)."""
+    """Quién gestiona las vacaciones: DIRECCIÓN, quien tenga la responsabilidad «VACACIONES» y
+    **ADMINISTRACIÓN**.
+
+    ⚠️ Antes solo valía la responsabilidad, que es un ajuste fino que hay que acordarse de dar: la
+    gente de administración se comía un 403 al apuntar días o configurar a alguien (bug real). La
+    responsabilidad sigue sirviendo para FILTRAR de quién es la tarea en su Inicio, que es para lo
+    que está: no para conceder el acceso."""
     try:
         if is_master():
             return True
-        return VACATION_RESPONSIBILITY in _current_user_admin_responsibilities()
+        if VACATION_RESPONSIBILITY in _current_user_admin_responsibilities():
+            return True
+        prof = (_current_user_state() or {}).get("profile")
+        return "Administración" in (getattr(prof, "departments", None) or [])
     except Exception:
         return False
 
@@ -94426,11 +94438,17 @@ def personnel_contract_delete(user_id, contract_id):
 # ---------------------------------------------------------------------------
 
 def _home_vacation_pending(limit: int = 10) -> list[dict]:
-    """«Vacaciones pendientes de aprobar», para dirección y quien gestione las vacaciones."""
+    """«Vacaciones pendientes de aprobar», para dirección y quien gestione las vacaciones.
+
+    ⚠️ Aquí la RESPONSABILIDAD sí filtra (`_admin_task_is_mine`): gestionar vacaciones lo puede
+    hacer cualquiera de administración, pero el módulo de Inicio es el reparto del trabajo — quien
+    tiene un reparto propio que no incluye «VACACIONES» no tiene por qué verlo."""
     if not _can_manage_vacations():
         return []
     session_db = db()
     try:
+        if not _admin_task_is_mine(session_db, VACATION_RESPONSIBILITY):
+            return []
         return _vacation_request_rows(session_db, statuses=["PENDING"], limit=limit)
     except Exception:
         return []

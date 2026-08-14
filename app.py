@@ -79512,10 +79512,14 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
         "status_badge": _invitation_status_badge(_display_status),
         "status_split": _status_split,
         "downloaded_partial": _downloaded_partial,
+        # Estado de la descarga POR CATEGORÍA: el símbolo se enseña solo en la que se ha descargado.
+        "download_cats": (_invitation_download_cats(_sess, row) if _sess is not None else {}),
         "reforwarded_partial": _reforwarded_partial,
         "needs_assign": _needs_assign,
         "needs_send": _needs_send,
         "needs_download": _needs_download,
+        # ¿Tiene ya alguna entrada ENVIADA? (para saber, por categoría, si falta descargarla).
+        "has_sent": bool(_sess is not None and _invitation_request_sent_total(_sess, row) > 0),
         "requester_status_label": _invitation_requester_status(_display_status)[0],
         "requester_status_badge": _invitation_requester_status(_display_status)[1],
         "link_summary": link_summary,
@@ -79638,7 +79642,7 @@ def _invitation_ficha_guests(session_db, concert):
     for row in _cmt_rows_all:
         q = _json_dict(row.quantities_json)
         _tk_by_cat = _tk_by_cmt.get(str(row.id)) or {}
-        _dl_cats = _json_dict(getattr(row, "downloaded_categories_json", None))
+        _dl_cats = _invitation_download_cats(session_db, row)
         cat_status = []
         for _cid, _qv in q.items():
             if str(_cid) == 'TOTAL':
@@ -79657,7 +79661,10 @@ def _invitation_ficha_guests(session_db, concert):
             cat_status.append({
                 "id": str(_cid), "name": name_map.get(str(_cid), "Categoría"), "qty": _qn,
                 "assigned": _asg, "done": _asg >= _qn, "status_label": _lbl, "status_badge": _bdg,
-                "downloaded": str(_cid) in _dl_cats, "color": _meta.get("color", "#9ca3af"),
+                "downloaded": str(_cid) in _dl_cats,
+                "downloaded_partial": bool((_dl_cats.get(str(_cid)) or {}).get("partial")),
+                "downloaded_at_label": (_dl_cats.get(str(_cid)) or {}).get("label", ""),
+                "color": _meta.get("color", "#9ca3af"),
                 "zone": _meta.get("zone", "PISTA"), "configured": _safe_int(_meta.get("configured", 0)),
             })
         _idn = _invitation_guest_identity(session_db, row)
@@ -79987,6 +79994,72 @@ def _invitation_request_last_added_at(session_db, row):
     return m.get(str(row.id))
 
 
+def _invitation_last_added_by_cat(session_db, row) -> dict:
+    """Última entrada ASIGNADA a esta solicitud/compromiso **por categoría** (max assigned_at), con
+    caché por concierto en `g` (una consulta agrupada, no una por fila).
+
+    Es lo que permite saber que una descarga se quedó a medias EN ESA categoría: alguien se bajó sus
+    invitaciones y DESPUÉS se le añadieron nuevas ahí."""
+    es_cmt = isinstance(row, InvitationCommitment)
+    campo = InvitationTicket.assigned_commitment_id if es_cmt else InvitationTicket.assigned_request_id
+    slot = "_inv_cmt_last_added_cat" if es_cmt else "_inv_req_last_added_cat"
+    cid = str(getattr(row, "concert_id", "") or "")
+    cache = getattr(g, slot, None)
+    if cache is None:
+        cache = {}
+        try:
+            setattr(g, slot, cache)
+        except Exception:
+            pass
+    m = cache.get(cid)
+    if m is None:
+        m = {}
+        try:
+            for _ow, _cat, _mx in (session_db.query(campo, InvitationTicket.category_id,
+                                                    func.max(InvitationTicket.assigned_at))
+                                   .filter(InvitationTicket.concert_id == row.concert_id,
+                                           campo.isnot(None))
+                                   .group_by(campo, InvitationTicket.category_id).all()):
+                m.setdefault(str(_ow), {})[str(_cat)] = _mx
+        except Exception:
+            m = {}
+        cache[cid] = m
+    return m.get(str(row.id)) or {}
+
+
+def _invitation_download_cats(session_db, row) -> dict:
+    """Estado de la descarga **POR CATEGORÍA** de una solicitud o un compromiso:
+    `{category_id: {"label": "12/08/2026 18:04", "partial": bool}}`.
+
+    · Solo lleva las categorías que SE HAN DESCARGADO: en las demás no se enseña nada, aunque sea la
+      misma persona y ya se haya bajado las de otra categoría.
+    · **Parcial** cuando en esa categoría hay entradas asignadas DESPUÉS de la descarga (ampliación):
+      el símbolo se queda a medias hasta que se vuelva a descargar.
+    · Las descargas ANTERIORES a que esto existiera solo dejaron `downloaded_at` (una fecha para toda
+      la fila): se respeta como si se hubiera descargado todo ese día, para no borrar marcas buenas."""
+    dl = _json_dict(getattr(row, "downloaded_categories_json", None))
+    cuando_global = getattr(row, "downloaded_at", None)
+    if not dl and cuando_global:
+        dl = {str(k): cuando_global for k, v in (_json_dict(getattr(row, "quantities_json", None)) or {}).items()
+              if str(k).upper() != "TOTAL" and _safe_int(v) > 0}
+    if not dl:
+        return {}
+    ultimas = _invitation_last_added_by_cat(session_db, row)
+    salida = {}
+    for cat_id, cuando in dl.items():
+        dt = cuando if isinstance(cuando, datetime) else _pleo_dt(cuando)
+        if dt is None:
+            dt = cuando_global
+        nueva = ultimas.get(str(cat_id))
+        parcial = False
+        try:
+            parcial = bool(dt and nueva and nueva > dt)
+        except TypeError:      # una con zona horaria y la otra sin ella: no se puede comparar
+            parcial = False
+        salida[str(cat_id)] = {"label": _invitation_display_datetime(dt), "partial": parcial, "at": dt}
+    return salida
+
+
 def _invitation_request_sent_total(session_db, row) -> int:
     """Nº de entradas de la solicitud YA enviadas (status SENT/…), con caché por concierto en g.
     Sirve para detectar «ampliación tras envío»: hay enviadas y también nuevas sin enviar."""
@@ -80073,30 +80146,71 @@ def _invitation_parse_ticket_kind_and_guest_mode(raw_kind: str | None, fallback_
 
 
 def _invitation_ficha_header_counts(session_db, concert: Concert) -> dict:
-    """Contadores de la pestaña Invitaciones de la ficha: Por contrato (lo pactado en la ficha
-    de contratación) · Subidas (entradas subidas al back office) · Solicitadas (comprometidas +
-    solicitadas activas) · Total (subidas − solicitadas)."""
+    """Contadores de la cabecera de invitaciones (ficha de la actividad y gestión del evento).
+
+    Lo que dice cada galleta, para que se lea de un vistazo y sin cuentas mentales:
+      · **Por contrato** — lo pactado en la ficha de contratación.
+      · **Subidas** — entradas subidas al back office.
+      · **Bloqueadas** — subidas pero apartadas (no se reparten). Solo se enseña si hay alguna.
+      · **Solicitadas** — lo pedido que TODAVÍA no tiene entrada asignada (lo que queda por asignar),
+        no el total pedido: lo ya asignado ha dejado de ser trabajo pendiente.
+      · **Disponibles** — lo que queda para repartir: subidas − asignadas − bloqueadas.
+
+    ⚠️ Antes «Totales» era subidas − solicitadas, que no es lo que queda libre: contaba las
+    bloqueadas como disponibles y volvía a restar lo ya asignado (se restaba dos veces)."""
     categories = _invitation_get_categories(session_db, concert, ensure_defaults=False)
     if categories:
         contract = sum(_safe_int(c.qty_contract) for c in categories)
     else:
         contract = sum(_safe_int(row.get("qty_contract")) for row in _invitation_category_legacy_rows(concert))
-    uploaded = int(
-        session_db.query(func.count(InvitationTicket.id))
-        .filter(InvitationTicket.concert_id == concert.id)
-        .scalar() or 0
-    )
-    commitments = session_db.query(InvitationCommitment).filter(InvitationCommitment.concert_id == concert.id).filter(InvitationCommitment.status != "ANULADAS").all()
-    requests_rows = session_db.query(InvitationRequest).filter(InvitationRequest.concert_id == concert.id).all()
-    solicitadas = (
-        sum(_invitation_total_qty(_json_dict(x.quantities_json)) for x in commitments)
-        + sum(_invitation_total_qty(_json_dict(x.quantities_json)) for x in requests_rows if (x.status or "") in INVITATION_PENDING_COUNT_STATUSES)
+    # Entradas por estado, en UNA consulta: subidas, bloqueadas y realmente libres.
+    uploaded = blocked = available = 0
+    for _st, _n in (session_db.query(InvitationTicket.status, func.count(InvitationTicket.id))
+                    .filter(InvitationTicket.concert_id == concert.id)
+                    .group_by(InvitationTicket.status).all()):
+        n = int(_n or 0)
+        uploaded += n
+        key = (_st or "AVAILABLE").upper()
+        if key == "BLOCKED":
+            blocked += n
+        elif key == "AVAILABLE":
+            available += n
+    assigned = max(uploaded - blocked - available, 0)
+    # SOLICITADAS = lo pedido que sigue esperando entrada. Compromisos vivos y peticiones activas,
+    # descontando en cada uno lo que ya se le ha asignado.
+    commitments = (session_db.query(InvitationCommitment)
+                   .filter(InvitationCommitment.concert_id == concert.id,
+                           InvitationCommitment.status != "ANULADAS").all())
+    requests_rows = (session_db.query(InvitationRequest)
+                     .filter(InvitationRequest.concert_id == concert.id).all())
+    asig_cmt: dict = {}
+    for _cm, _n in (session_db.query(InvitationTicket.assigned_commitment_id, func.count(InvitationTicket.id))
+                    .filter(InvitationTicket.concert_id == concert.id,
+                            InvitationTicket.assigned_commitment_id.isnot(None))
+                    .group_by(InvitationTicket.assigned_commitment_id).all()):
+        asig_cmt[str(_cm)] = int(_n or 0)
+    asig_req: dict = {}
+    for _rq, _n in (session_db.query(InvitationTicket.assigned_request_id, func.count(InvitationTicket.id))
+                    .filter(InvitationTicket.concert_id == concert.id,
+                            InvitationTicket.assigned_request_id.isnot(None))
+                    .group_by(InvitationTicket.assigned_request_id).all()):
+        asig_req[str(_rq)] = int(_n or 0)
+    solicitadas = sum(
+        max(_invitation_total_qty(_json_dict(x.quantities_json)) - asig_cmt.get(str(x.id), 0), 0)
+        for x in commitments
+    ) + sum(
+        max(_invitation_total_qty(_json_dict(x.quantities_json)) - asig_req.get(str(x.id), 0), 0)
+        for x in requests_rows if (x.status or "") in INVITATION_ACTIVE_REQUEST_STATUSES
     )
     return {
         "contract": contract,
         "uploaded": uploaded,
+        "blocked": blocked,
+        "assigned": assigned,
         "requested": solicitadas,
-        "total": uploaded - solicitadas,
+        "available": available,
+        # Compatibilidad con lo que ya leía `total` (ahora es lo DISPONIBLE, que es lo que se pide).
+        "total": available,
     }
 
 
@@ -80853,6 +80967,20 @@ def _invitation_grouped(requests: list[dict], categories, allowed_ids=None, lock
                     'cat_qty': _qcat,
                     # Las OTRAS categorías de la misma petición, para decirlo en la fila.
                     'other_cats': [colors_name.get(k) for k in destinos if k != cid_dest]}
+            # ⚠️ El símbolo de DESCARGADA es de ESTA categoría, no de la petición entera: quien tiene
+            # entradas de Pista y de Grada y solo se ha bajado las de Pista lo ve en Pista y no en
+            # Grada. Y si después se le añaden nuevas AQUÍ, se queda a medias (parcial).
+            _dlc = (r.get('download_cats') or {}).get(cid_dest)
+            fila['downloaded_at_label'] = (_dlc or {}).get('label') or ''
+            fila['downloaded_partial'] = bool((_dlc or {}).get('partial'))
+            if not _dlc:
+                fila['downloaded'] = False
+                # Sin descargar: si en esta categoría ya hay entradas enviadas, sigue siendo trabajo
+                # pendiente para el filtro «Sin descargar».
+                fila['needs_download'] = bool(r.get('has_sent'))
+            else:
+                fila['downloaded'] = True
+                fila['needs_download'] = bool(_dlc.get('partial'))
             by_key.setdefault(cid_dest, []).append(fila)
     groups = []
     for c in categories:
@@ -82269,7 +82397,7 @@ def invitation_event_detail(concert_id):
             q = _json_dict(row.quantities_json)
             # Entradas de este compromiso por categoría: nº asignadas + ESTADO (asignadas/enviadas/...).
             _tk_by_cat = _tk_by_cmt.get(str(row.id)) or {}
-            _dl_cats = _json_dict(getattr(row, "downloaded_categories_json", None))
+            _dl_cats = _invitation_download_cats(session_db, row)
             cat_status = []
             for _cid, _qv in q.items():
                 if str(_cid) == 'TOTAL':
@@ -82312,6 +82440,8 @@ def invitation_event_detail(concert_id):
                     "status_badge": _bdg,
                     "split": _split,
                     "downloaded": str(_cid) in _dl_cats,
+                    "downloaded_partial": bool((_dl_cats.get(str(_cid)) or {}).get("partial")),
+                    "downloaded_at_label": (_dl_cats.get(str(_cid)) or {}).get("label", ""),
                     "color": _meta.get("color", "#9ca3af"),
                     "zone": _meta.get("zone", "PISTA"),
                     "configured": _safe_int(_meta.get("configured", 0)),
@@ -82339,7 +82469,10 @@ def invitation_event_detail(concert_id):
             _c_needs_assign = any(cs["assigned"] < cs["qty"] for cs in cat_status)
             _c_needs_send = any(cs["assigned"] > 0 and cs["status_label"] not in ("Enviadas", "Recogidas en taquilla", "Disponibles en taquilla", "Entregadas en mano") for cs in cat_status)
             # «Sin descargar»: alguna categoría ya ENVIADA cuyo PDF nadie ha descargado aún.
-            _c_needs_download = any(cs["status_label"] == "Enviadas" and not cs.get("downloaded") for cs in cat_status)
+            # Sin descargar: una categoría ya ENVIADA cuyo PDF nadie ha descargado, o descargada a
+            # medias (se le añadieron entradas después).
+            _c_needs_download = any(cs["status_label"] == "Enviadas" and (not cs.get("downloaded") or cs.get("downloaded_partial"))
+                                    for cs in cat_status)
             commitments.append({
                 "id": str(row.id),
                 "name": row.name,
@@ -84801,6 +84934,7 @@ def invitation_request_download(token):
             return _invitation_download_unavailable("retry")
         row.downloaded_at = row.downloaded_at or _now_madrid()
         row.downloaded_count = _safe_int(row.downloaded_count) + 1
+        _invitation_mark_downloaded(row, cat_id, tickets)
         session_db.commit()
         return send_file(BytesIO(data), mimetype='application/pdf', as_attachment=True, download_name=f'invitaciones_{row.guest_name or "invitado"}.pdf')
     finally:
@@ -84828,16 +84962,20 @@ def invitation_commitment_download(token):
             return _invitation_download_unavailable("retry")
         row.downloaded_at = row.downloaded_at or _now_madrid()
         row.downloaded_count = _safe_int(row.downloaded_count) + 1
-        _invitation_commitment_mark_downloaded(row, cat_id, tickets)
+        _invitation_mark_downloaded(row, cat_id, tickets)
         session_db.commit()
         return send_file(BytesIO(data), mimetype='application/pdf', as_attachment=True, download_name=f'invitaciones_{row.name or "compromiso"}.pdf')
     finally:
         session_db.close()
 
 
-def _invitation_commitment_mark_downloaded(row, cat_id, tickets) -> None:
-    """Marca en el compromiso qué categorías se han descargado (para el listado): la categoría pedida
-    con ?category, o TODAS las presentes en la descarga (PDF/ZIP completo). Guarda {category_id: iso}."""
+def _invitation_mark_downloaded(row, cat_id, tickets) -> None:
+    """Marca en la SOLICITUD o el COMPROMISO qué categorías se han descargado: la categoría pedida con
+    ?category, o TODAS las presentes en la descarga (PDF/ZIP completo). Guarda {category_id: iso}.
+
+    ⚠️ El símbolo de «descargada» es POR CATEGORÍA: quien tiene entradas de Pista y de Grada y solo se
+    baja las de Pista tiene que verlo en Pista y NO en Grada. Sin este marcado, la descarga solo se
+    apuntaba en `downloaded_at` (una fecha para toda la petición) y el símbolo salía en todas."""
     dc = _json_dict(getattr(row, "downloaded_categories_json", None))
     now_iso = _now_madrid().isoformat()
     if cat_id:
@@ -84946,6 +85084,7 @@ def invitation_request_download_zip(token):
             return _invitation_download_unavailable("retry")
         row.downloaded_at = row.downloaded_at or _now_madrid()
         row.downloaded_count = _safe_int(row.downloaded_count) + 1
+        _invitation_mark_downloaded(row, cat_id, tickets)
         session_db.commit()
         return send_file(BytesIO(payload), mimetype='application/zip', as_attachment=True, download_name=filename)
     finally:
@@ -84972,7 +85111,7 @@ def invitation_commitment_download_zip(token):
             return _invitation_download_unavailable("retry")
         row.downloaded_at = row.downloaded_at or _now_madrid()
         row.downloaded_count = _safe_int(row.downloaded_count) + 1
-        _invitation_commitment_mark_downloaded(row, cat_id, tickets)
+        _invitation_mark_downloaded(row, cat_id, tickets)
         session_db.commit()
         return send_file(BytesIO(payload), mimetype='application/zip', as_attachment=True, download_name=filename)
     finally:

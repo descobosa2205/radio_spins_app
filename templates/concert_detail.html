@@ -2415,12 +2415,14 @@
         {% if not invitation_open_for_requests %}
           <div class="alert alert-warning small">Este concierto o evento ya no admite nuevas solicitudes ni gestión de invitaciones porque han pasado más de 5 horas desde el día del evento.</div>
         {% endif %}
-        {# Contadores nuevos: Por contrato · Subidas · Solicitadas · Total (subidas − solicitadas). #}
+        {# Por contrato · Subidas · Bloqueadas (solo si hay) · Solicitadas (lo que falta por asignar)
+           · Disponibles (subidas − asignadas − bloqueadas). Los mismos que en la gestión del evento. #}
         <div class="invitation-counts invitation-counts--large mb-3">
-          <div><span>{{ invitation_header_counts.contract if invitation_header_counts else invitation_totals.total }}</span><small><i class="fa fa-file-signature me-1"></i>Por contrato</small></div>
-          <div><span>{{ invitation_header_counts.uploaded if invitation_header_counts else 0 }}</span><small><i class="fa fa-upload me-1"></i>Subidas</small></div>
-          <div><span>{{ invitation_header_counts.requested if invitation_header_counts else 0 }}</span><small><i class="fa fa-envelope-open-text me-1"></i>Solicitadas</small></div>
-          <div class="{% if invitation_header_counts and invitation_header_counts.total < 0 %}text-danger{% else %}text-success{% endif %}"><span>{{ invitation_header_counts.total if invitation_header_counts else invitation_totals.total }}</span><small><i class="fa fa-ticket me-1"></i>Totales</small></div>
+          <div title="Lo pactado en la ficha de contratación"><span>{{ invitation_header_counts.contract if invitation_header_counts else invitation_totals.total }}</span><small><i class="fa fa-file-signature me-1"></i>Por contrato</small></div>
+          <div title="Entradas subidas al sistema"><span>{{ invitation_header_counts.uploaded if invitation_header_counts else 0 }}</span><small><i class="fa fa-upload me-1"></i>Subidas</small></div>
+          {% if invitation_header_counts and invitation_header_counts.blocked %}<div class="text-secondary" title="Subidas pero apartadas: no se reparten"><span>{{ invitation_header_counts.blocked }}</span><small><i class="fa fa-lock me-1"></i>Bloqueadas</small></div>{% endif %}
+          <div title="Entradas pedidas que todavía no tienen invitación asignada"><span>{{ invitation_header_counts.requested if invitation_header_counts else 0 }}</span><small><i class="fa fa-envelope-open-text me-1"></i>Solicitadas</small></div>
+          <div class="{% if invitation_header_counts and invitation_header_counts.available <= 0 %}text-danger{% else %}text-success{% endif %}" title="Lo que queda para repartir: subidas{% if invitation_header_counts %} ({{ invitation_header_counts.uploaded }}) − asignadas ({{ invitation_header_counts.assigned }}){% if invitation_header_counts.blocked %} − bloqueadas ({{ invitation_header_counts.blocked }}){% endif %}{% endif %}"><span>{{ invitation_header_counts.available if invitation_header_counts else invitation_totals.total }}</span><small><i class="fa fa-ticket me-1"></i>Disponibles</small></div>
         </div>
         {% if invitation_categories_summary %}
           <div class="row g-3">

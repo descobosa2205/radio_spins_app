@@ -347,6 +347,37 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `id="req-…"`** (si no, habría ids duplicados en el DOM y `getElementById` cogería cualquiera) y
   **no se arrastra** — recategorizar se hace desde la principal, o el arrastre sería ambiguo.
 
+- **INVITACIONES · las GALLETAS de la cabecera dicen lo que hay** (ago 2026). Eran «Por contrato ·
+  Subidas · Solicitadas · Totales», y «Totales» era `subidas − solicitadas`: contaba las
+  **bloqueadas** como disponibles y volvía a restar lo ya asignado (se restaba dos veces). Ahora
+  (`_invitation_ficha_header_counts`, el mismo en la ficha de la actividad y en la gestión del
+  evento): **Por contrato · Subidas · Bloqueadas** (galleta nueva, **solo si hay alguna**) **·
+  Solicitadas** (lo pedido que TODAVÍA no tiene entrada asignada, no el total pedido: lo ya asignado
+  ha dejado de ser trabajo) **· Disponibles** (subidas − asignadas − bloqueadas, que es
+  literalmente `count(status='AVAILABLE')`). Todo sale de **una** consulta agrupada por estado más
+  dos de asignadas por petición/compromiso. Se conserva la clave `total` como alias de `available`
+  por lo que ya la leía.
+  ⚠️ `.invitation-counts` pasa a **flex**: con `grid-template-columns: repeat(4,…)` la quinta
+  galleta caía sola a otra fila en cuanto había bloqueadas.
+
+- **INVITACIONES · el símbolo de DESCARGADA es POR CATEGORÍA** (ago 2026). Quien tiene entradas de
+  Pista y de Grada y solo se ha bajado las de Pista tiene que verlo **en Pista y no en Grada**, sea
+  la descarga parcial o completa. Antes la descarga solo se apuntaba en `downloaded_at` (una fecha
+  para toda la petición) y el símbolo salía en TODAS sus categorías.
+  · `InvitationRequest.downloaded_categories_json` (lo que ya tenía `InvitationCommitment`), que
+  rellena el punto único **`_invitation_mark_downloaded`** (antes `_invitation_commitment_mark_…`),
+  llamado ahora desde los **cuatro** caminos de descarga: PDF y ZIP de una petición y de un
+  compromiso.
+  · **`_invitation_download_cats(session_db, row)`** resuelve el estado por categoría
+  (`{cat_id: {label, partial}}`) para peticiones y compromisos: **parcial** cuando en esa categoría
+  hay entradas asignadas DESPUÉS de la descarga (ampliación), vía
+  **`_invitation_last_added_by_cat`** (una consulta agrupada, cacheada en `g`).
+  · `_invitation_grouped` **pisa** en la copia de cada categoría `downloaded_at_label`,
+  `downloaded_partial` y `needs_download` (para que el filtro «Sin descargar» diga lo mismo que el
+  símbolo); en los compromisos, cada `category_status` lleva ya `downloaded_partial`.
+  ⚠️ Las descargas ANTERIORES a esto solo dejaron `downloaded_at`: se respetan como si se hubiera
+  descargado todo ese día (si no, se borrarían marcas buenas de golpe).
+
 - ⚠️ **SUBIDA A STORAGE · `cannot access local variable 'response'`** (bug real, ago 2026). Subiendo
   invitaciones, algunas fallaban con ese mensaje y entraban al reintentar a mano. Es un
   **UnboundLocalError DE storage3**: cuando la petición no llega a responder (corte de red, timeout)

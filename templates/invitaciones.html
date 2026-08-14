@@ -351,13 +351,15 @@
             {% for artist in event.artists %}<span class="artist-chip"{% if artist.id %} data-artist-link="{{ artist.id }}"{% endif %}><img src="{{ artist.photo_url }}" alt="">{{ artist.name }}</span>{% endfor %}
           </div>
         </div>
-        {# Mismos contadores (y estética) que «Invitaciones disponibles» de la ficha de la
-           actividad: Por contrato · Subidas · Solicitadas · Totales (subidas − solicitadas). #}
+        {# Mismos contadores (y estética) que «Invitaciones disponibles» de la ficha de la actividad:
+           Por contrato · Subidas · Bloqueadas (solo si hay) · Solicitadas (lo que falta por asignar)
+           · Disponibles (subidas − asignadas − bloqueadas). #}
         <div class="invitation-counts invitation-counts--large" data-inv-header-counts>
-          <div><span>{{ header_counts.contract if header_counts else event.counts.configured }}</span><small><i class="fa fa-file-signature me-1"></i>Por contrato</small></div>
-          <div><span>{{ header_counts.uploaded if header_counts else 0 }}</span><small><i class="fa fa-upload me-1"></i>Subidas</small></div>
-          <div><span>{{ header_counts.requested if header_counts else event.counts.requested }}</span><small><i class="fa fa-envelope-open-text me-1"></i>Solicitadas</small></div>
-          <div class="{% if header_counts and header_counts.total < 0 %}text-danger{% else %}text-success{% endif %}"><span>{{ header_counts.total if header_counts else event.counts.result }}</span><small><i class="fa fa-ticket me-1"></i>Totales</small></div>
+          <div title="Lo pactado en la ficha de contratación"><span>{{ header_counts.contract if header_counts else event.counts.configured }}</span><small><i class="fa fa-file-signature me-1"></i>Por contrato</small></div>
+          <div title="Entradas subidas al sistema"><span>{{ header_counts.uploaded if header_counts else 0 }}</span><small><i class="fa fa-upload me-1"></i>Subidas</small></div>
+          {% if header_counts and header_counts.blocked %}<div class="text-secondary" title="Subidas pero apartadas: no se reparten"><span>{{ header_counts.blocked }}</span><small><i class="fa fa-lock me-1"></i>Bloqueadas</small></div>{% endif %}
+          <div title="Entradas pedidas que todavía no tienen invitación asignada"><span>{{ header_counts.requested if header_counts else event.counts.requested }}</span><small><i class="fa fa-envelope-open-text me-1"></i>Solicitadas</small></div>
+          <div class="{% if header_counts and header_counts.available <= 0 %}text-danger{% else %}text-success{% endif %}" title="Lo que queda para repartir: subidas{% if header_counts %} ({{ header_counts.uploaded }}) − asignadas ({{ header_counts.assigned }}){% if header_counts.blocked %} − bloqueadas ({{ header_counts.blocked }}){% endif %}{% endif %}"><span>{{ header_counts.available if header_counts else event.counts.result }}</span><small><i class="fa fa-ticket me-1"></i>Disponibles</small></div>
         </div>
       </div>
     </div>
@@ -459,7 +461,7 @@
                               <div class="d-flex align-items-center gap-2 flex-wrap inv-name-line">
                                 <span class="badge inv-qty-badge" title="Entradas asignadas / totales"><i class="fa fa-ticket me-1"></i>{{ cs.assigned }}/{{ cs.qty }} entrada{{ '' if cs.qty == 1 else 's' }}</span>
                                 <span class="badge text-bg-light border" title="Ubicación / categoría"><i class="fa fa-location-dot me-1"></i>{{ cs.name }}</span>
-                                {% if cs.downloaded %}<i class="fa fa-circle-down inv-dl-done" title="Descargada"></i>{% endif %}
+                                {% if cs.downloaded %}<i class="fa fa-circle-down {{ 'inv-dl-partial' if cs.downloaded_partial else 'inv-dl-done' }}" title="{% if cs.downloaded_partial %}Descarga PARCIAL de «{{ cs.name }}»: hay invitaciones nuevas desde la última descarga{% if cs.downloaded_at_label %} ({{ cs.downloaded_at_label }}){% endif %}{% else %}Descargada · «{{ cs.name }}»{% if cs.downloaded_at_label %} · {{ cs.downloaded_at_label }}{% endif %}{% endif %}"></i>{% endif %}
                               </div>
                               <div class="d-flex align-items-center gap-2">
                                 {% if cs.split %}
@@ -562,7 +564,7 @@
                           {% set _rq = row.cat_qty or row.qty_total %}<span class="badge inv-qty-badge" title="Entradas de esta categoría{% if row.other_cats %} (esta petición tiene {{ row.qty_total }} en total, repartidas con {{ row.other_cats|join(', ') }}){% endif %}"><i class="fa fa-ticket me-1"></i>{{ _rq }} entrada{{ '' if _rq == 1 else 's' }}</span>
                           {% if row.categories_label and not row.other_cats %}<span class="badge text-bg-light border" title="Ubicación / categorías"><i class="fa fa-location-dot me-1"></i>{{ row.categories_label }}</span>{% endif %}
                           {% if row.reforwarded %}<i class="fa fa-share-from-square {{ 'inv-dl-partial' if row.reforwarded_partial else 'inv-reforwarded' }}" title="{% if row.reforwarded_partial %}Reenvío PARCIAL: hay invitaciones nuevas desde que el invitado reenvió{% if row.reforwarded_at_label %} ({{ row.reforwarded_at_label }}){% endif %}{% else %}El invitado reenvió sus invitaciones{% if row.reforwarded_at_label %} · {{ row.reforwarded_at_label }}{% endif %}{% endif %}"></i>{% endif %}
-                          {% if row.downloaded_at_label %}<i class="fa fa-circle-down {{ 'inv-dl-partial' if row.downloaded_partial else 'inv-dl-done' }}" title="{% if row.downloaded_partial %}Descarga PARCIAL: hay invitaciones nuevas desde la última descarga ({{ row.downloaded_at_label }}){% else %}Descargada · {{ row.downloaded_at_label }}{% endif %}"></i>{% endif %}
+                          {% if row.downloaded_at_label %}<i class="fa fa-circle-down {{ 'inv-dl-partial' if row.downloaded_partial else 'inv-dl-done' }}" title="{% if row.downloaded_partial %}Descarga PARCIAL de «{{ g.name }}»: hay invitaciones nuevas desde la última descarga ({{ row.downloaded_at_label }}){% else %}Descargada · «{{ g.name }}» · {{ row.downloaded_at_label }}{% endif %}"></i>{% endif %}
                         </div>
                         {# Línea 2 (pequeña): a quién se envía | pedidas por (foto+nombre). #}
                         <div class="d-flex align-items-center gap-2 flex-wrap small text-muted mt-1">

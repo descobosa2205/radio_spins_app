@@ -480,6 +480,8 @@ class Song(Base):
     lyrics_updated_at = Column(DateTime(timezone=True))
     # PITCH DE LANZAMIENTO: el texto con el que se presenta el lanzamiento (a plataformas, medios,
     # playlists…). Es un campo más de la ficha, y se puede descargar en PDF o mandar.
+    # El PITCH lleva su titular destacado (sale en grande antes del texto en el PDF y el correo).
+    pitch_title = Column(Text)
     pitch_text = Column(Text)
     pitch_updated_at = Column(DateTime(timezone=True))
     # VIDEOCLIP de la canción. `no_videoclip` = esta canción NO va a tener videoclip: el módulo
@@ -1338,6 +1340,8 @@ class Album(Base):
     distributed_by = Column(Text)
     producers = Column(JSONB)
     # PITCH DE LANZAMIENTO (igual que en la canción): con qué texto se presenta el disco.
+    # El PITCH lleva su titular destacado (sale en grande antes del texto en el PDF y el correo).
+    pitch_title = Column(Text)
     pitch_text = Column(Text)
     pitch_updated_at = Column(DateTime(timezone=True))
 
@@ -6400,6 +6404,7 @@ def ensure_isrc_and_song_detail_schema():
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS is_explicit boolean NOT NULL DEFAULT false;",
         # PITCH DE LANZAMIENTO: el texto con el que se presenta el lanzamiento.
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS pitch_text text, ADD COLUMN IF NOT EXISTS pitch_updated_at timestamptz;",
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS pitch_title text;",
         # Colaboración externa (canción de otra compañía en la que participamos).
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS is_external_collab boolean NOT NULL DEFAULT false;",
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS external_company_id uuid REFERENCES promoters(id) ON DELETE SET NULL;",
@@ -6918,6 +6923,7 @@ def ensure_album_schema():
         """,
         # PITCH DE LANZAMIENTO del disco.
         "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS pitch_text text, ADD COLUMN IF NOT EXISTS pitch_updated_at timestamptz;",
+        "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS pitch_title text;",
         'CREATE INDEX IF NOT EXISTS idx_albums_artist_release ON albums(artist_id, release_date);',
         """
         CREATE TABLE IF NOT EXISTS album_product_codes (

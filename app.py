@@ -7432,6 +7432,8 @@ def _pitch_context(session_db, kind, obj) -> dict:
         'preview_url': cover_url or artist_photo,
         'release_date': getattr(obj, 'release_date', None),
         'release_label': (obj.release_date.strftime('%d/%m/%Y') if getattr(obj, 'release_date', None) else '—'),
+        # El TITULAR destacado del pitch (sale en grande antes del texto).
+        'pitch_title': (getattr(obj, 'pitch_title', None) or '').strip(),
         'pitch_text': (getattr(obj, 'pitch_text', None) or '').strip(),
         'pitch_updated_at': getattr(obj, 'pitch_updated_at', None),
         'brand': _pies_brand_assets(session_db),
@@ -7515,6 +7517,11 @@ def _build_pitch_pdf_bytes(session_db, kind, obj_id) -> tuple[bytes, str]:
     story.append(galleta)
     story.append(Spacer(1, 0.55*cm))
 
+    if (ctx.get('pitch_title') or '').strip():
+        # El TITULAR: en grande y en el rojo de la casa, justo antes del texto.
+        story.append(Paragraph(html.escape(ctx['pitch_title'].strip()), ParagraphStyle(
+            'PitchHeadline', parent=body_style, fontName='Helvetica-Bold', fontSize=16, leading=20,
+            alignment=0, textColor=colors.HexColor('#E33D48'), spaceAfter=10)))
     for chunk in _pitch_paragraphs(ctx['pitch_text']):
         story.append(Paragraph(html.escape(chunk).replace('\n', '<br/>'), body_style))
 
@@ -7551,6 +7558,9 @@ def _pitch_email_html(ctx: dict, *, note: str = '') -> str:
         )
 
     body_html = ''
+    if (ctx.get('pitch_title') or '').strip():
+        body_html += ('<h2 style="margin:0 0 14px;font-size:22px;line-height:1.3;color:#E33D48;'
+                      f'font-weight:800;">{html.escape(ctx["pitch_title"].strip())}</h2>')
     for chunk in _pitch_paragraphs(ctx.get('pitch_text') or ''):
         body_html += ('<p style="margin:0 0 14px;font-size:15px;line-height:1.75;color:#111827;'
                       f'text-align:justify;">{html.escape(chunk).replace(chr(10), "<br/>")}</p>')
@@ -20743,6 +20753,7 @@ def _pitch_save(kind, obj_id):
             flash("Lanzamiento no encontrado.", "warning")
             return redirect(url_for("discografica_view", section="canciones"))
         text = (request.form.get("pitch_text") or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+        obj.pitch_title = (request.form.get("pitch_title") or "").strip() or None
         obj.pitch_text = text or None
         obj.pitch_updated_at = datetime.now(TZ_MADRID) if text else None
         session_db.add(obj)

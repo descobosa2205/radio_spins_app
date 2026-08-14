@@ -3754,6 +3754,8 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 /* ── PITCH DE LANZAMIENTO ─────────────────────────────────────────────────────
    El texto se lee tal cual se escribió (saltos de línea) y JUSTIFICADO, igual que
    en el PDF y en el correo: un solo diseño en tres sitios. */
+/* El TITULAR destacado del pitch: sale antes del texto en la ficha, el PDF, el correo y el enlace. */
+.pitch-headline { margin:0 0 .6rem; font-size:1.15rem; font-weight:800; line-height:1.3; color:var(--brand-primary); }
 .pitch-text {
   white-space: pre-line;
   text-align: justify;

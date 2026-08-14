@@ -46,6 +46,10 @@
       {% if CAN_EDIT_DISCOGRAFICA %}
         <form id="pitchForm" class="d-none mt-3" method="post" action="{{ pitch.save_url }}"
               data-inline data-inline-target="#pitch-zone" data-view="[data-pitch-view]">
+          {# TITULAR destacado: sale en grande antes del texto en el PDF, el correo y el enlace. #}
+          <label class="form-label">Titular del pitch</label>
+          <input class="form-control mb-3" name="pitch_title" value="{{ pitch.pitch_title or '' }}"
+                 placeholder="El titular con el que se presenta (opcional)">
           <label class="form-label">Pitch de lanzamiento</label>
           <textarea class="form-control" name="pitch_text" rows="10"
                     placeholder="Cómo se presenta este lanzamiento: la historia, el sonido, lo que lo hace especial…">{{ pitch.pitch_text }}</textarea>
@@ -59,6 +63,7 @@
 
       <div data-pitch-view data-section-view class="mt-3">
         {% if pitch.pitch_text %}
+          {% if pitch.pitch_title %}<h5 class="pitch-headline">{{ pitch.pitch_title }}</h5>{% endif %}
           <div class="pitch-text">{{ pitch.pitch_text }}</div>
         {% else %}
           <div class="alert alert-warning m-0 py-2 px-3 small">

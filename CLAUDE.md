@@ -603,6 +603,10 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   «Label Copy» **centrado** (estilo de casa).
 
 - **PITCH DE LANZAMIENTO** (ago 2026): el texto con el que se presenta un single o un disco.
+  · **TITULAR destacado** (`Song.pitch_title` / `Album.pitch_title`): el titular con el que se
+  presenta. Se escribe encima del texto en la ficha y sale **en grande y en el rojo de la casa antes
+  del texto** en el PDF, en el correo y en la página pública (el texto sigue **justificado**). Es
+  opcional: sin él, todo se ve como antes.
   · **Un campo más de la ficha de Información** (`Song.pitch_text`/`Album.pitch_text` +
   `pitch_updated_at`), panel único **`templates/_pitch_panel.html`** (incluido en `song_detail.html`
   y `album_detail.html` con `pitch=_pitch_context(...)`), con sus **tres puntitos**: editar ·

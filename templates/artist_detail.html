@@ -249,12 +249,12 @@
                 <option value="0" {% if not artist.is_group %}selected{% endif %}>Artista individual</option>
                 <option value="1" {% if artist.is_group %}selected{% endif %}>Grupo</option>
               </select>
-              <div class="form-text">En grupo, el cumpleaños sale de cada miembro (abajo); en individual, del propio artista.</div>
+              <div class="form-text">Los cumpleaños salen de cada integrante (abajo) y, si la tienes puesta, también la del propio artista.</div>
             </div>
             <div class="col-12 col-md-6">
               <label class="form-label">Fecha de nacimiento (artista individual)</label>
               <input type="date" name="birth_date" class="form-control" value="{{ artist.birth_date.isoformat() if artist.birth_date else '' }}">
-              <div class="form-text">Se mostrará como cumpleaños en la agenda.</div>
+              <div class="form-text">Se mostrará como cumpleaños en la agenda, diciendo cuántos cumple.</div>
             </div>
             <div class="col-12">
               <label class="form-label">Email principal</label>

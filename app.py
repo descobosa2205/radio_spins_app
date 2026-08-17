@@ -88304,6 +88304,19 @@ def _office_calendar_logos() -> list[str]:
         return []
 
 
+def _birthday_age_label(bdate, day) -> str:
+    """«Cumple 34 años» — los que cumple ESE día. Punto único: lo usan los cumpleaños del personal y
+    los de los integrantes de un artista, así que el texto (y el tooltip) es el mismo en todos los
+    calendarios. Sin fecha de nacimiento creíble no se inventa nada."""
+    try:
+        edad = int(day.year) - int(bdate.year)
+    except Exception:
+        return ""
+    if edad <= 0 or edad > 120:
+        return ""
+    return f"Cumple {edad} año" + ("" if edad == 1 else "s")
+
+
 def _agenda_office_items(session_db, start_date, end_date) -> list:
     """Lo que lleva el CALENDARIO GENERAL DE OFICINA en esa ventana.
 
@@ -88375,7 +88388,9 @@ def _agenda_office_items(session_db, start_date, end_date) -> list:
                     continue
                 salida.append(([OFFICE_CALENDAR_ID], {
                     "kind": "cumple", "date": dia.isoformat(), "end_date": dia.isoformat(),
-                    "title": f"Cumple de {quien}", "subtitle": "",
+                    "title": f"Cumple de {quien}",
+                    # Cuántos cumple: sale en el tooltip al pasar el ratón por encima.
+                    "subtitle": _birthday_age_label(nace, dia),
                     "artist_id": OFFICE_CALENDAR_ID,
                     "icon_override": "fa-cake-candles",
                     # La foto es la de quien cumple, no la del calendario.
@@ -88791,9 +88806,12 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
         for pname, bdate, sub in people:
             for d in _birthday_occurrences(bdate):
                 seen_artist_ids.add(aid)
+                # Cuántos cumple (y de quién es, si es el integrante de un grupo).
+                _edad = _birthday_age_label(bdate, d)
                 raw.append(([aid], {
                     "kind": "cumple", "date": d.isoformat(),
-                    "title": (("Cumple de " + pname) if pname else "Cumpleaños"), "subtitle": sub,
+                    "title": (("Cumple de " + pname) if pname else "Cumpleaños"),
+                    "subtitle": " · ".join([x for x in [_edad, sub] if x]),
                     "artist_id": aid,
                     "icon_override": "fa-cake-candles",
                     "status_label": "", "status_class": "",

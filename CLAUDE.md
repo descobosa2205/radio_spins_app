@@ -281,6 +281,11 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Se piden con **`include_holidays=True`**, que solo activan la agenda de Inicio, sus ventanas por
   AJAX y la ficha del artista: en el calendario PÚBLICO, el iCal y CalDAV no van. Y los **EMPRESA**
   (no laborables, que son por persona) solo con `include_personal`.
+- **CUMPLEAÑOS · cuántos cumple** (ago 2026): al pasar el ratón por un cumpleaños, el tooltip dice
+  **«Cumple N años»** (los que cumple ESE día). Va en el `subtitle` del ítem, así que se ve igual en el
+  tooltip y en el listado lateral de la agenda, en Inicio y en la ficha del artista. Punto único
+  **`_birthday_age_label(bdate, day)`**, que **no inventa nada** si la fecha no es creíble (edad ≤ 0 o
+  > 120: no pone edad).
 - **CUMPLEAÑOS de los INTEGRANTES de un artista** (corregido ago 2026): salen SIEMPRE (uno o varios,
   `ArtistPerson.birth_date`) más la fecha del propio artista si la tiene, sin repetir. Antes los
   integrantes solo contaban si el artista estaba marcado como **grupo**, así que en uno sin esa marca

@@ -87938,24 +87938,31 @@ def _agenda_personal_days(session_db, start_date, end_date) -> list:
                  .filter(VacationDay.user_id == uid)
                  .filter(VacationRequest.status.in_(VACATION_LIVE_STATUSES))
                  .filter(VacationDay.day >= start_date, VacationDay.day <= end_date).all())
+        # Una FRANJA por petición (de su primer día a su último), no un chip por día: se ve el tramo.
+        por_peticion: dict = {}
         for day, estado, tipo, rid in filas:
-            meta = VACATION_KINDS[_vacation_kind(tipo)]
-            pendiente = (estado or "").upper() == "PENDING"
-            salida.append(([], {
-                "id": f"vac-{rid}-{day.isoformat()}",
+            ficha = por_peticion.setdefault(str(rid), {"kind": _vacation_kind(tipo),
+                                                       "pending": (estado or "").upper() == "PENDING",
+                                                       "days": []})
+            ficha["days"].append(day)
+        for rid, ficha in por_peticion.items():
+            dias = sorted(ficha["days"])
+            meta = VACATION_KINDS[ficha["kind"]]
+            salida.append(([MY_CALENDAR_ID], {
+                "id": f"vac-{rid}",
                 "kind": "vacaciones",
-                "date": day.isoformat(),
-                "end_date": day.isoformat(),
-                "title": meta["label"] + (" (sin aprobar)" if pendiente else ""),
+                "date": dias[0].isoformat(),
+                "end_date": dias[-1].isoformat(),
+                "title": meta["label"] + (" (sin aprobar)" if ficha["pending"] else ""),
                 "subtitle": "",
-                "artist_id": "",
+                "artist_id": MY_CALENDAR_ID,
                 "icon_override": meta["icon"],
-                "url": url_for("mis_vacaciones_view", anio=day.year),
-                "status_label": "Pendiente" if pendiente else "",
-                "status_class": "hablado" if pendiente else "",
+                "url": url_for("mis_vacaciones_view", anio=dias[0].year),
+                "status_label": "Pendiente" if ficha["pending"] else "",
+                "status_class": "hablado" if ficha["pending"] else "",
             }))
     except Exception:
-        pass
+        app.logger.exception("[agenda] no se pudieron cargar mis vacaciones")
     try:
         # Con `user_id`: un día NO LABORABLE que solo es de unas personas no le sale a las demas.
         for day, meta in (_vacation_holidays(session_db, start_date.year, end_date.year,
@@ -88021,6 +88028,34 @@ def _user_sees_unconfirmed_activities() -> bool:
 # ni actividades ni bloqueos (una nota es lo único que se le puede añadir).
 OFFICE_CALENDAR_ID = "oficina"
 OFFICE_CALENDAR_NAME = "Calendario general"
+# Su IMAGEN: el logo «33 y 3» de la casa. ⚠️ Si el fichero no está subido todavía se cae a los dos
+# logos del grupo (así no queda un hueco roto): en cuanto se guarda en esa ruta, se usa él.
+OFFICE_CALENDAR_IMAGE = "img/calendario_oficina.png"
+
+# MI CALENDARIO: lo de cada uno. Las actividades a las que se le asigna de ACOMPAÑAMIENTO (el personal
+# de la hoja de ruta y las promociones en las que acompaña al artista), sus vacaciones y sus días
+# libres. Es otro centinela, como el de oficina: no es un artista de la BD.
+MY_CALENDAR_ID = "mio"
+MY_CALENDAR_NAME = "Mi calendario"
+
+
+def _office_calendar_image() -> str:
+    """La imagen del calendario general si está subida (`static/img/calendario_oficina.png`)."""
+    try:
+        ruta = os.path.join(app.static_folder or "static", *OFFICE_CALENDAR_IMAGE.split("/"))
+        if os.path.exists(ruta):
+            return url_for("static", filename=OFFICE_CALENDAR_IMAGE)
+    except Exception:
+        pass
+    return ""
+
+
+def _default_avatar_url() -> str:
+    """El muñequito gris (personal/terceros sin foto). Mismo que el global `DEFAULT_AVATAR_URL`."""
+    try:
+        return url_for("static", filename="img/avatar_placeholder.png")
+    except Exception:
+        return ""
 
 
 def _office_calendar_logos() -> list[str]:
@@ -88054,17 +88089,19 @@ def _agenda_office_items(session_db, start_date, end_date) -> list:
             ficha = por_peticion.setdefault(clave, {"uid": str(uid), "kind": _vacation_kind(tipo),
                                                     "note": (nota or "").strip(), "days": []})
             ficha["days"].append(day)
-        nicks = {}
+        nicks, fotos = {}, {}
         if por_peticion:
             uids = [_safe_uuid(f["uid"]) for f in por_peticion.values()]
             for prof in session_db.query(UserProfile).filter(UserProfile.user_id.in_([u for u in uids if u])).all():
                 nicks[str(prof.user_id)] = (getattr(prof, "nick", None) or "").strip()
+                fotos[str(prof.user_id)] = (getattr(prof, "photo_url", None) or "").strip()
         for clave, ficha in por_peticion.items():
             dias = sorted(ficha["days"])
             if not dias:
                 continue
             meta = VACATION_KINDS[ficha["kind"]]
             quien = nicks.get(ficha["uid"], "") or "Alguien"
+            _foto = fotos.get(ficha["uid"], "") or _default_avatar_url()
             salida.append(([OFFICE_CALENDAR_ID], {
                 "kind": "vacaciones",
                 "date": dias[0].isoformat(), "end_date": dias[-1].isoformat(),
@@ -88072,6 +88109,11 @@ def _agenda_office_items(session_db, start_date, end_date) -> list:
                 "subtitle": ficha["note"],
                 "artist_id": OFFICE_CALENDAR_ID,
                 "icon_override": meta["icon"],
+                # ⚠️ La foto es la de QUIEN está de vacaciones, no la del calendario: es lo que
+                # identifica la franja de un vistazo.
+                "artist_photo": _foto,
+                "artist_photos": [{"id": ficha["uid"], "name": quien, "photo_url": _foto,
+                                   "color": ""}],
                 "status_label": "", "status_class": "",
                 "cover_url": "", "url": url_for("vacaciones_view", tab="cuadrante", persona=ficha["uid"]),
             }))
@@ -88098,6 +88140,81 @@ def _agenda_office_items(session_db, start_date, end_date) -> list:
             }))
     except Exception:
         app.logger.exception("[agenda] no se pudieron cargar las notas del calendario de oficina")
+    return salida
+
+
+def _my_calendar_photo() -> str:
+    """La «foto» de MI CALENDARIO: la de quien mira (y el muñequito gris si no tiene)."""
+    prof = (_current_user_state() or {}).get("profile")
+    return (getattr(prof, "photo_url", None) or "").strip() or _default_avatar_url()
+
+
+def _agenda_my_items(session_db, concerts, start_date, end_date) -> list:
+    """Lo que va en MI CALENDARIO además de mis vacaciones: las actividades a las que me han asignado
+    de ACOMPAÑAMIENTO.
+
+    · Actividades en cuya HOJA DE RUTA estoy en el personal (`roadmap_payload['personnel']`, kind
+      USER): los viajes en los que voy con el artista. Se leen de los conciertos que YA están
+      cargados para esta ventana, así que no cuesta ninguna consulta más.
+    · Promociones en las que soy el ACOMPAÑANTE (`Promotion.escort_user_id`), con sus entrevistas.
+    ⚠️ Igual que el resto de lo personal, solo se engancha con `include_personal`."""
+    uid = str(_safe_uuid((_current_user_state() or {}).get("user_id")) or "")
+    if not uid:
+        return []
+    salida = []
+
+    # ---- Acompañando en una actividad (personal de su hoja de ruta) ----
+    try:
+        for c in (concerts or []):
+            payload = getattr(c, "roadmap_payload", None) or {}
+            personas = payload.get("personnel") if isinstance(payload, dict) else None
+            if not personas:
+                continue
+            mio = any((str(p.get("kind") or "").upper() == "USER" and str(p.get("ref_id") or "") == uid)
+                      for p in personas if isinstance(p, dict))
+            if not mio:
+                continue
+            at = (c.activity_type or "CONCIERTO").upper()
+            kind = "concierto" if at in ("CONCIERTO", "") else ("festival" if at == "FESTIVAL" else "evento")
+            quien = (getattr(getattr(c, "artist", None), "name", "") or "").strip()
+            sitio = _concert_venue_name(c) or _concert_location_summary(c) or ""
+            salida.append(([MY_CALENDAR_ID], {
+                "kind": kind, "date": c.date.isoformat() if c.date else "",
+                "end_date": (c.end_date.isoformat() if getattr(c, "end_date", None) else
+                             (c.date.isoformat() if c.date else "")),
+                "title": " · ".join([x for x in ["Acompañas", quien] if x]),
+                "subtitle": sitio,
+                "artist_id": MY_CALENDAR_ID,
+                "icon_override": "fa-people-carry-box",
+                "status_label": "", "status_class": "",
+                "cover_url": "",
+                "url": url_for("concert_detail_view", cid=c.id, tab="produccion"),
+            }))
+    except Exception:
+        app.logger.exception("[agenda] no se pudo leer el personal de las hojas de ruta")
+
+    # ---- Acompañando en una promoción ----
+    try:
+        filas = (session_db.query(PromotionActivity, Promotion)
+                 .join(Promotion, PromotionActivity.promotion_id == Promotion.id)
+                 .filter(Promotion.escort_kind == "USER")
+                 .filter(Promotion.escort_user_id == _safe_uuid(uid))
+                 .filter(PromotionActivity.activity_date >= start_date)
+                 .filter(PromotionActivity.activity_date <= end_date).all())
+        for act, promo in filas:
+            salida.append(([MY_CALENDAR_ID], {
+                "kind": "promocion",
+                "date": act.activity_date.isoformat(), "end_date": act.activity_date.isoformat(),
+                "title": "Acompañas · " + ((promo.name or "").strip() or "Promoción"),
+                "subtitle": (getattr(act, "task_description", None) or "").strip(),
+                "artist_id": MY_CALENDAR_ID,
+                "icon_override": "fa-people-carry-box",
+                "status_label": "", "status_class": "",
+                "cover_url": "",
+                "url": url_for("promo_detail_view", promotion_id=promo.id),
+            }))
+    except Exception:
+        app.logger.exception("[agenda] no se pudieron cargar las promociones que acompaño")
     return salida
 
 
@@ -88402,26 +88519,42 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
                     "cover_url": "", "url": url_art,
                 }))
 
-    # ---- CALENDARIO GENERAL DE OFICINA: las cosas de la casa, como si fuera otro artista ----
+    # ---- LO PERSONAL: MI CALENDARIO y el CALENDARIO GENERAL DE OFICINA ----
+    # ⚠️ Va ANTES del mapa de artistas: ahí es donde estos dos calendarios cogen su nombre, su foto y
+    # su color, y el mapa se construye con los ids ya vistos.
     # Solo en la agenda de dentro (`include_personal`), nunca en calendarios públicos / iCal / CalDAV.
     if include_personal:
+        # Mis días (vacaciones y días libres, que ya vienen con el id de MI CALENDARIO) + los festivos
+        # y no laborables que me afectan (esos van sin calendario, como siempre).
+        raw.extend(_agenda_personal_days(session_db, start_date, end_date))
         _oficina = _agenda_office_items(session_db, start_date, end_date)
         if _oficina:
             raw.extend(_oficina)
             seen_artist_ids.add(OFFICE_CALENDAR_ID)
+        # ---- MI CALENDARIO: lo que acompaño y mis días (las vacaciones las trae
+        # `_agenda_personal_days`, que ya viene con este mismo id) ----
+        _mios = _agenda_my_items(session_db, concerts, start_date, end_date)
+        if _mios:
+            raw.extend(_mios)
+        if _mios or any(MY_CALENDAR_ID in (ids or []) for ids, _it in raw):
+            seen_artist_ids.add(MY_CALENDAR_ID)
 
     # ---- Mapa de artistas (nombre + foto) para colorear/etiquetar ----
     artist_map = {}
-    # ⚠️ El id del calendario de oficina es un CENTINELA, no un UUID: no se le pregunta a la BD.
-    _reales = [x for x in seen_artist_ids if x and x != OFFICE_CALENDAR_ID]
+    # ⚠️ Los ids de MI CALENDARIO y del de OFICINA son CENTINELAS, no UUIDs: no se les pregunta a la BD.
+    _reales = [x for x in seen_artist_ids if x and x not in (OFFICE_CALENDAR_ID, MY_CALENDAR_ID)]
     if _reales:
         for a in session_db.query(Artist).filter(Artist.id.in_([to_uuid(x) for x in _reales])).all():
             artist_map[str(a.id)] = {"id": str(a.id), "name": a.name or "—", "photo_url": a.photo_url or ""}
     if OFFICE_CALENDAR_ID in seen_artist_ids:
         _logos = _office_calendar_logos()
+        _img = _office_calendar_image()
         artist_map[OFFICE_CALENDAR_ID] = {"id": OFFICE_CALENDAR_ID, "name": OFFICE_CALENDAR_NAME,
-                                          "photo_url": (_logos[0] if _logos else ""),
-                                          "logos": _logos, "office": True}
+                                          "photo_url": (_img or (_logos[0] if _logos else "")),
+                                          "logos": ([_img] if _img else _logos), "office": True}
+    if MY_CALENDAR_ID in seen_artist_ids:
+        artist_map[MY_CALENDAR_ID] = {"id": MY_CALENDAR_ID, "name": MY_CALENDAR_NAME,
+                                      "photo_url": _my_calendar_photo(), "mine": True}
 
     # Artistas presentes, ordenados por nombre, con color de paleta
     present = [artist_map[a] for a in seen_artist_ids if a in artist_map]
@@ -88432,11 +88565,6 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
         color = AGENDA_PALETTE[i % len(AGENDA_PALETTE)]
         artist_color[a["id"]] = color
         artists_out.append({**a, "color": color})
-
-    # Los días propios de quien mira (vacaciones, días libres, no laborables y festivos). Van
-    # SIN artista y solo cuando se piden: en un calendario público no pintan nada.
-    if include_personal:
-        raw.extend(_agenda_personal_days(session_db, start_date, end_date))
 
     # Tipos presentes (en orden canónico)
     present_kinds = {it["kind"] for _ids, it in raw}
@@ -88461,13 +88589,18 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
             }
             for i in ids if i in artist_map
         ]
+        # ⚠️ Si el ítem TRAE sus fotos, mandan las suyas: en el calendario general de oficina cada
+        # franja enseña la foto de LA PERSONA que está de vacaciones, no la del calendario.
+        fotos_propias = it.pop("artist_photos", None)
+        foto_propia = it.pop("artist_photo", None)
         activities.append({
             **it,
             "artist_ids": ids,
             "icon": it.pop("icon_override", "") or meta.get("icon", "fa-circle"),
             "artist_name": ", ".join(names) if names else (it.get("title") or ""),
-            "artist_photo": artist_map.get(pid, {}).get("photo_url", ""),
-            "artist_photos": artist_photos,
+            "artist_photo": (foto_propia if foto_propia is not None
+                             else artist_map.get(pid, {}).get("photo_url", "")),
+            "artist_photos": (fotos_propias if fotos_propias else artist_photos),
             "artist_color": artist_color.get(pid, "#6c757d"),
             "kind_color": meta.get("color", "#6c757d"),
             "kind_label": meta.get("label", ""),
@@ -88587,9 +88720,11 @@ def _agenda_artist_options() -> list[dict]:
         active_ids = _agenda_active_artist_ids(session_db)
         # PRIMERO el CALENDARIO GENERAL DE OFICINA (las cosas de la casa), con los dos logos del
         # grupo. No es un artista: a él solo se le pueden añadir notas («otros»).
-        out = [{"id": OFFICE_CALENDAR_ID, "name": "Calendario general de oficina", "photo_url": "",
-                "active": True, "is_event": False, "event_id": "",
-                "office": True, "logos": _office_calendar_logos()}]
+        # Su imagen propia si está subida; si no, los dos logos del grupo.
+        _img_of = _office_calendar_image()
+        out = [{"id": OFFICE_CALENDAR_ID, "name": "Calendario general de oficina",
+                "photo_url": _img_of, "active": True, "is_event": False, "event_id": "",
+                "office": True, "logos": ([_img_of] if _img_of else _office_calendar_logos())}]
         for a in q.all():
             activo = str(a.id) in active_ids
             # Los EVENTOS salen en la agenda igual que un artista (su espejo lleva el nombre y el logo

@@ -240,6 +240,22 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ningún artista (`soloOtros()` en `_agenda_add_modal.html`; el aviso de solapes también se salta).
   · Sus notas viven en `ArtistAgendaItem` con **`is_office = true` y `artist_id` NULL** (por eso esa
   columna dejó de ser obligatoria). `agenda_block_create` lo rechaza diciendo por qué.
+  · **La FOTO de cada franja es la de LA PERSONA que está de vacaciones**, no la del calendario: los
+  ítems pueden traer su propia `artist_photo`/`artist_photos` y el finalizador de `_agenda_build` las
+  respeta (`it.pop(...) or` lo calculado). Sin eso todas las franjas salían con el logo.
+  · **Su imagen** es `static/img/calendario_oficina.png` (`_office_calendar_image()`): si el fichero no
+  está subido se cae a los dos logos del grupo, así que nunca queda un hueco roto.
+- **MI CALENDARIO** (ago 2026, `MY_CALENDAR_ID = "mio"`): el calendario de cada uno, también como si
+  fuera otro artista y con **su propia foto**. Lleva:
+  · las actividades en las que **acompaña** al artista —está en el personal de su HOJA DE RUTA
+    (`roadmap_payload['personnel']`, kind USER): se lee de los conciertos que `_agenda_build` YA tiene
+    cargados para la ventana, así que no cuesta ninguna consulta más—,
+  · las **promociones** en las que es el acompañante (`Promotion.escort_user_id`), con sus entrevistas,
+  · y **sus vacaciones y días libres** (una franja por petición), que las trae `_agenda_personal_days`
+    ya con este id.
+  ⚠️ Lo personal (mis días, MI CALENDARIO y el de OFICINA) se añade **ANTES del mapa de artistas**: es
+  ahí donde estos dos calendarios cogen nombre, foto y color, y el mapa se construye con los ids ya
+  vistos. Los festivos y no laborables siguen yendo **sin calendario**, como siempre.
 - **Alta rápida de entidades (modal superpuesto)**: `templates/_quick_create_modals.html` +
   `static/js/quick_create.js`. Junto a un `<select id="X">` añadir
   `<button type="button" data-quick-create="TIPO" data-target="X"><i class="fa fa-plus"></i></button>`

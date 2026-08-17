@@ -14,7 +14,7 @@
 
 {# ---------- Una fila de gasto (se usa en las tres subpestañas y en cada bolsa) ---------- #}
 {% macro acc_row(r, show_bag=True) %}
-  <tr class="acc-row{% if r.holded_error %} acc-row--error{% endif %}">
+  <tr class="acct-row{% if r.holded_error %} acct-row--error{% endif %}">
     <td class="acc-check">
       {% if CAN_EDIT %}<input class="form-check-input" type="checkbox" name="expense_ids" value="{{ r.id }}" data-acc-check>{% endif %}
     </td>
@@ -128,7 +128,7 @@
    mismas columnas) y no en un módulo aparte. No lleva casilla: no es un gasto de bolsa, así que las
    acciones en bloque y la subida a Holded no le aplican; su acción es «Contabilizada». #}
 {% macro roy_row(r) %}
-  <tr class="acc-row">
+  <tr class="acct-row">
     <td class="acc-check"></td>
     <td>
       <div class="fw-semibold">{{ r.name }}</div>

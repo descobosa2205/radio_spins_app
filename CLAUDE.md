@@ -1826,6 +1826,13 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   siguen teniendo su módulo en la pestaña «Contabilizado». `_royalty_accounting_pending_rows`
   **exige que su factura esté VALIDADA** — sin ese cruce se colaban
   las que alguien había marcado pagadas a mano sin factura (las pruebas antiguas, ninguna con número).
+  · ⚠️⚠️ **CHOQUE DE CLASES: la tabla se veía APILADA** (bug real, ago 2026). Las filas de la tabla de
+  contabilidad llevaban `class="acc-row"`… que YA EXISTÍA para las filas de **PERMISOS**
+  (`div.acc-row { display:grid; grid-template-columns:1fr auto }`), así que cada `<tr>` se pintaba
+  como una rejilla de DOS columnas y las celdas salían una debajo de otra en las cuatro subpestañas.
+  Ahora la de contabilidad es **`acct-row`** y la de permisos está acotada a `div.acc-row`, para que
+  no vuelva a pasar. Las cuatro subpestañas usan las MISMAS macros (`acc_head`/`acc_row`), así que se
+  ven y se operan igual: 14 columnas (13 dentro de una bolsa, que no repite la columna «Bolsa»).
   · ⚠️ **Todo va en UN SOLO formulario** y las acciones de cada fila usan **`formaction`** en su botón
   (un formulario dentro de otro no es HTML válido). Para que eso funcione con `data-inline`,
   `ajax_inline.js` ahora respeta el **botón que envía**: su `formaction`/`formmethod` y su

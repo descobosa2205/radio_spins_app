@@ -1704,10 +1704,12 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 .acc-sec__masters{ margin-left:auto; display:flex; gap:14px; align-items:center; }
 .acc-sec__body{ display:none; border-top:1px solid var(--line-2); padding:4px 16px 12px; }
 .acc-sec.open .acc-sec__body{ display:block; }
-.acc-row{ display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center; padding:9px 4px; border-bottom:1px dashed var(--line-2); }
-.acc-row:last-child{ border-bottom:0; }
-.acc-row.sub .acc-rl{ padding-left:18px; }
-.acc-row.head .acc-rl{ font-size:11px; text-transform:uppercase; letter-spacing:.3px; color:var(--muted-2); }
+/* ⚠️ Filas de PERMISOS (son DIVS). Se acotan a `div` a propósito: la tabla de contabilidad usaba el
+   mismo nombre de clase en sus <tr> y esta rejilla de 2 columnas se los apilaba (bug real). */
+div.acc-row{ display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center; padding:9px 4px; border-bottom:1px dashed var(--line-2); }
+div.acc-row:last-child{ border-bottom:0; }
+div.acc-row.sub .acc-rl{ padding-left:18px; }
+div.acc-row.head .acc-rl{ font-size:11px; text-transform:uppercase; letter-spacing:.3px; color:var(--muted-2); }
 .acc-rl{ font-size:14px; font-weight:600; }
 .acc-rl .tagn{ font-size:10px; font-weight:700; color:var(--amber,#E0922F); background:rgba(224,146,47,.13); padding:1px 7px; border-radius:999px; margin-left:8px; text-transform:uppercase; }
 .acc-grouphdr{ font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.3px; color:var(--muted-2); padding:10px 4px 4px; }
@@ -3746,7 +3748,7 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 .acc-table th { white-space: nowrap; font-size: .8rem; text-transform: uppercase; letter-spacing: .02em; }
 .acc-table td { vertical-align: middle; }
 .acc-check { width: 34px; }
-.acc-row--error { background: rgba(227, 61, 72, .05); }
+.acct-row--error { background: rgba(227, 61, 72, .05); }
 .acc-badge { cursor: pointer; padding: .35em .6em; font-size: .75rem; line-height: 1.1; }
 .acc-badge:hover { filter: brightness(.94); }
 /* Etiqueta «Contabilizado» de un gasto donde salga (bolsa, pendiente de pago…). */

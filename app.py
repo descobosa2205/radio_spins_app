@@ -55768,6 +55768,9 @@ def _royalty_accounting_pending_rows(session_db, limit: int = 300) -> list[dict]
             "amount": _royalty_invoice_totals(congelada)["gross"],
             "net": _money_or_zero(congelada.get("total_amount")),
             "paid_label": (rec.paid_at.strftime("%d/%m/%Y") if rec.paid_at else ""),
+            # La fecha de EMISIÓN de su factura (la columna «Emisión» de la tabla de contabilidad).
+            "issue_label": (getattr(inv, "issue_date", None).strftime("%d/%m/%Y")
+                            if getattr(inv, "issue_date", None) else ""),
             "method": (getattr(rec, "payment_method", None) or ""),
             "invoice_url": (getattr(inv, "file_url", None) or ""),
             "invoice_number": (getattr(inv, "invoice_number", None) or ""),
@@ -60529,6 +60532,12 @@ def _accounting_counts(session_db) -> dict:
         por_tipo = {str(k or "FACTURA"): int(n or 0) for k, n in filas}
         for clave, tipo in ACCOUNTING_SUBTAB_DOC.items():
             salida[clave] = por_tipo.get(tipo, 0)
+        # Las liquidaciones de ROYALTIES pendientes son facturas: cuentan en «Facturas» (y por tanto
+        # en el total de pendiente), que es donde se listan.
+        try:
+            salida["facturas"] += len(_royalty_accounting_pending_rows(session_db))
+        except Exception:
+            app.logger.exception("[contabilidad] no se pudieron contar las liquidaciones pendientes")
         salida["pendiente"] = sum(salida[c] for c in ACCOUNTING_SUBTAB_DOC)
         # Bolsas: cuántas tienen algo pendiente (una bolsa con tres gastos cuenta UNA).
         salida["bolsas"] = (session_db.query(func.count(func.distinct(BagExpense.bag_id)))
@@ -61275,8 +61284,11 @@ def contabilidad_view():
                 InvoiceRecord.invoice_kind == "ISSUED").count()
             received_count = session_db.query(InvoiceRecord).filter(
                 InvoiceRecord.invoice_kind == "RECEIVED").count()
-        # Liquidaciones de royalties pagadas y validadas: también son pendiente de contabilizar.
-        royalty_pending = _royalty_accounting_pending_rows(session_db) if tab == "pendiente" else []
+        # Liquidaciones de royalties pagadas y validadas: son pendiente de contabilizar y una
+        # liquidación ES una factura, así que van EN la subpestaña de FACTURAS (ya no tienen módulo
+        # aparte al final de la pantalla).
+        royalty_pending = (_royalty_accounting_pending_rows(session_db)
+                           if (tab == "pendiente" and subtab == "facturas") else [])
         return render_template(
             "contabilidad.html",
             title="Contabilidad",

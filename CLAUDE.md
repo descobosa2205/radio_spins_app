@@ -1773,6 +1773,8 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   «Contabilizado» —con **la fecha al pasar el ratón**— se ve también en la **bolsa** (`_bag_panel.html`)
   y en pendiente de pago. **Omitir** = no se contabiliza y ahí acaba su proceso (se puede devolver a
   pendiente). La etiqueta se cambia **pinchándola** (avanza en su ciclo).
+  · ⚠️ **El BOTÓN de contabilizar va en VERDE SIN RELLENAR** (`btn-outline-success`): el verde relleno
+  es la **etiqueta** de «ya contabilizado», y con el botón del mismo color se confundían.
   · Arriba, **«Subir todo a Holded»** y «Comprobar en Holded»; **casilla por gasto** con barra de
   acciones en bloque (subir / marcar contabilizado); **filtros por estado** con su icono; tres
   puntitos por fila (subir, descargar, compartir por correo/WhatsApp/SMS, editar, omitir) y el icono
@@ -1797,8 +1799,13 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `only_done` ya no se aplica: lo que se marcó se ve siempre); y las **liquidaciones de royalties**
   contabilizadas no se listaban en ningún sitio → módulo nuevo `_royalty_accounting_done_rows` en esa
   pestaña, con su botón para devolverlas a pendiente.
-  · **Royalties**: las liquidaciones pagadas siguen saliendo en su módulo, pero ahora
-  `_royalty_accounting_pending_rows` **exige que su factura esté VALIDADA** — sin ese cruce se colaban
+  · **Royalties**: ⚠️ ya **no hay módulo aparte** (ago 2026): una liquidación **ES una factura**, así
+  que las pendientes se listan **en la subpestaña FACTURAS**, como una fila más de la misma tabla
+  (macro `roy_row`, sin casilla —no es un gasto de bolsa— y con su acción «Contabilizada»), y cuentan
+  en el número de «Facturas». Todo lo pendiente está en su módulo: una factura suelta en Facturas y
+  las bolsas en Bolsas, que se despliegan con su contenido. Las liquidaciones ya contabilizadas
+  siguen teniendo su módulo en la pestaña «Contabilizado». `_royalty_accounting_pending_rows`
+  **exige que su factura esté VALIDADA** — sin ese cruce se colaban
   las que alguien había marcado pagadas a mano sin factura (las pruebas antiguas, ninguna con número).
   · ⚠️ **Todo va en UN SOLO formulario** y las acciones de cada fila usan **`formaction`** en su botón
   (un formulario dentro de otro no es HTML válido). Para que eso funcione con `data-inline`,

@@ -94711,16 +94711,25 @@ def mis_vacaciones_request():
 @app.post("/mis-vacaciones/<request_id>/anular", endpoint="mis_vacaciones_cancel")
 @admin_required
 def mis_vacaciones_cancel(request_id):
+    """Anular una petición de días.
+
+    ⚠️ **NADIE toca sus propios días**: ni los anula ni los edita ni los borra. Eso solo lo hace quien
+    GESTIONA las vacaciones (la responsabilidad «VACACIONES», administración) y DIRECCIÓN
+    —`_can_manage_vacations`—, que además pueden editarlas y eliminarlas desde el cuadrante. Aquí se
+    comprueba en el SERVIDOR, no solo escondiendo el botón."""
     estado = _current_user_state() or {}
     uid = estado.get("user_id")
+    if not _can_manage_vacations():
+        flash("Tus días no los puedes anular tú: pídeselo a quien lleva las vacaciones.", "warning")
+        return redirect(url_for("mis_vacaciones_view"))
     session_db = db()
     try:
         req = session_db.get(VacationRequest, to_uuid(request_id))
-        if not req or str(req.user_id) != str(uid):
+        if not req:
             flash("Petición no encontrada.", "warning")
             return redirect(url_for("mis_vacaciones_view"))
         if (req.status or "").upper() == "APPROVED":
-            flash("Ya está aprobada: pídele a administración que la quite.", "warning")
+            flash("Ya está aprobada: quítala desde el cuadrante de Vacaciones.", "warning")
             return redirect(url_for("mis_vacaciones_view", anio=req.year))
         req.status = "CANCELLED"
         req.updated_at = datetime.now(TZ_MADRID)

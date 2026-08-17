@@ -4130,3 +4130,10 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 .agenda-artist-card--office { border-color:var(--brand-primary); }
 .agenda-office-logos { display:flex; align-items:center; justify-content:center; gap:.25rem; height:52px; }
 .agenda-office-logos img { height:24px; max-width:44px; width:auto; border-radius:0; object-fit:contain; background:transparent; }
+
+/* DESTACAR EL TRAMO al pasar el ratón (o al pinchar) sobre unas vacaciones o un día libre: se marcan
+   todos los días de ese tramo, así se ve de un golpe cuánto dura. Los demás se atenúan. */
+.vac-cal--hl .vac-day:not(.is-empty) { opacity:.55; transition:opacity .1s ease; }
+.vac-cal--hl .vac-day.is-hl { opacity:1; box-shadow:inset 0 0 0 2px var(--brand-primary,#E33D48); z-index:1; }
+.vac-cal--hl .vac-day.is-hl .vac-day__n { font-weight:800; }
+.vac-bar.is-hl { outline:2px solid var(--brand-primary,#E33D48); outline-offset:1px; opacity:1; }

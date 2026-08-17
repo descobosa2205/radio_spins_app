@@ -2062,6 +2062,16 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   que pide salen **marcados** y alrededor **todas las vacaciones y días libres de esa persona**, que es
   el contexto para decidir. El calendario se monta en el clic y se rehace en cada apertura (cada
   petición es de otra persona y de otros días).
+  · **AL PASAR EL RATÓN SE DESTACA EL TRAMO ENTERO** (`highlight`/`bindHighlight` en `vacaciones.js`,
+  clases `.vac-cal--hl` + `.vac-day.is-hl` + `.vac-bar.is-hl`): sobre cualquier día de unas vacaciones
+  o de un día libre se marcan TODOS los días de ESA petición (índice `byRequest`) y se atenúan los
+  demás, así se ve de un golpe cuánto dura. Al **pinchar** se queda fijo (otro clic o Escape lo suelta)
+  — salvo en los calendarios donde se marcan días, que ahí el clic es para eso. En el cuadrante general
+  se destaca la **rayita** de esa persona (cada `.vac-bar` sabe de qué petición es).
+  · ⚠️ **NADIE TOCA SUS PROPIOS DÍAS** (ago 2026): en «Mis vacaciones» no se puede editar, borrar ni
+  anular nada —solo PEDIR—. Eliminar y editar es de quien GESTIONA las vacaciones y de DIRECCIÓN
+  (`_can_manage_vacations`), desde el cuadrante. `mis_vacaciones_cancel` lo comprueba en el SERVIDOR
+  (no basta con esconder el botón) y la pantalla lo dice.
   · ⚠️ **AL MARCAR DÍAS SE VEN LOS QUE YA TIENE** (ago 2026): el calendario con el que se pide o se
   apunta enseña los días de ESA persona ya **pedidos (pendientes)** y **aprobados**, de vacaciones y de
   días libres, con su leyenda de colores — antes los dos modales de «apuntar días» (la sección y la

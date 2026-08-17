@@ -38,8 +38,12 @@
     this.holidays = {};
     (this.opts.holidays || []).forEach(function (h) { this.holidays[h.day] = h; }, this);
     this.byDay = {};                       // iso -> [{user_id,status,counts}]
+    // Y el índice al revés: cada PETICIÓN con todos sus días, para poder destacar el tramo entero al
+    // pasar el ratón por encima de cualquiera de ellos.
+    this.byRequest = {};                   // request_id -> [iso, iso, …]
     (this.opts.days || []).forEach(function (d) {
       (this.byDay[d.day] = this.byDay[d.day] || []).push(d);
+      if (d.request_id) (this.byRequest[d.request_id] = this.byRequest[d.request_id] || []).push(d.day);
     }, this);
     this.people = {};
     (this.opts.people || []).forEach(function (p) { this.people[p.user_id] = p; }, this);
@@ -102,6 +106,10 @@
       this.root.appendChild(grid);
     }
     this.bindSelection();
+    // ⚠️ Se engancha UNA vez por calendario: `render()` rehace las casillas pero el listener vive en
+    // la raíz (delegación), así que no hay que volver a atarlo en cada repintado.
+    if (!this._hlBound) { this._hlBound = true; this.bindHighlight(); }
+    if (this.pinned) this.highlight(this.pinned, true);
   };
 
   Calendar.prototype.buildMonth = function (year, month, big) {
@@ -199,6 +207,9 @@
 
     var ocupados = this.byDay[key] || [];
     if (ocupados.length) {
+      // Qué peticiones tocan este día: es lo que se destaca al pasar el ratón por encima.
+      cel.dataset.reqs = ocupados.map(function (o) { return o.request_id || ''; })
+                                 .filter(function (x) { return x; }).join(' ');
       var pendiente = ocupados.some(function (o) { return o.status === 'PENDING'; });
       var aprobado = ocupados.some(function (o) { return o.status === 'APPROVED'; });
       // VACACIONES y DÍA LIBRE se ven distintos: son dos cuentas separadas.
@@ -220,6 +231,7 @@
           if (!p) return;
           var bar = document.createElement('span');
           bar.className = 'vac-bar' + (o.status === 'PENDING' ? ' is-pending' : '');
+          bar.dataset.req = o.request_id || '';
           bar.style.background = p.color || '#888';
           var tipo = (this.opts.kinds && this.opts.kinds[o.kind] && this.opts.kinds[o.kind].label) ||
                      (o.kind === 'DIA_LIBRE' ? 'Día libre' : 'Vacaciones');
@@ -336,6 +348,55 @@
     });
   };
 
+  /* DESTACAR EL TRAMO ENTERO. Al pasar el ratón por encima de unas vacaciones o de un día libre se
+     marcan TODOS sus días (y en el cuadrante general, su rayita), así se ve de un golpe cuánto dura.
+     Al PINCHAR se queda fijo (y se suelta al volver a pinchar o al pulsar Escape); en los calendarios
+     donde se marcan días el clic es para eso, así que ahí solo se destaca al pasar por encima. */
+  Calendar.prototype.highlight = function (reqs, pinned) {
+    var lista = (reqs || []).filter(function (x) { return x; });
+    this.pinned = pinned ? lista.slice() : null;
+    var dias = {};
+    lista.forEach(function (rid) {
+      (this.byRequest[rid] || []).forEach(function (d) { dias[d] = true; });
+    }, this);
+    var alguno = Object.keys(dias).length > 0;
+    this.root.classList.toggle('vac-cal--hl', alguno);
+    this.root.querySelectorAll('.vac-day').forEach(function (cel) {
+      cel.classList.toggle('is-hl', !!dias[cel.dataset.day]);
+    });
+    this.root.querySelectorAll('.vac-bar').forEach(function (bar) {
+      bar.classList.toggle('is-hl', lista.indexOf(bar.dataset.req) > -1);
+    });
+  };
+
+  Calendar.prototype.bindHighlight = function () {
+    var self = this;
+    function reqsDe(ev) {
+      var bar = ev.target.closest ? ev.target.closest('.vac-bar') : null;
+      if (bar && bar.dataset.req) return [bar.dataset.req];      // la rayita de esa persona
+      var cel = ev.target.closest ? ev.target.closest('.vac-day') : null;
+      if (!cel || !cel.dataset.reqs) return [];
+      return cel.dataset.reqs.split(' ');
+    }
+    this.root.addEventListener('mouseover', function (ev) {
+      if (self.pinned || self.drag) return;
+      var reqs = reqsDe(ev);
+      if (reqs.length) self.highlight(reqs, false);
+    });
+    this.root.addEventListener('mouseleave', function () {
+      if (!self.pinned) self.highlight([], false);
+    });
+    this.root.addEventListener('click', function (ev) {
+      if (self.opts.selectable) return;      // ahí el clic es para marcar días
+      var reqs = reqsDe(ev);
+      var yaFijo = self.pinned && reqs.length && self.pinned.join(' ') === reqs.join(' ');
+      self.highlight(yaFijo ? [] : reqs, !yaFijo && reqs.length > 0);
+    });
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape' && self.pinned) self.highlight([], false);
+    });
+  };
+
   Calendar.prototype.repaint = function () {
     var self = this;
     this.root.querySelectorAll('.vac-day').forEach(function (cel) {
@@ -353,8 +414,10 @@
      modal se reutiliza para personas distintas, así que sin esto se quedaban los de la anterior. */
   Calendar.prototype.setDays = function (days) {
     this.byDay = {};
+    this.byRequest = {};
     (days || []).forEach(function (d) {
       (this.byDay[d.day] = this.byDay[d.day] || []).push(d);
+      if (d.request_id) (this.byRequest[d.request_id] = this.byRequest[d.request_id] || []).push(d.day);
     }, this);
     this.render();
   };

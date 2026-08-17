@@ -117,6 +117,12 @@
 <div class="card">
   <div class="card-body">
     <h6 class="mb-3">Mis peticiones</h6>
+    {% if not can_manage %}
+      <div class="small text-muted mb-2">
+        <i class="fa fa-lock me-1"></i>Los días ya pedidos no se cambian ni se quitan desde aquí:
+        habla con quien lleva las vacaciones.
+      </div>
+    {% endif %}
     {% if not requests %}
       <div class="text-muted">Todavía no has pedido ningún día.</div>
     {% else %}
@@ -135,7 +141,9 @@
             </div>
             <div class="d-flex align-items-center gap-2">
               <span class="badge {{ r.status_meta.class }}"><i class="fa {{ r.status_meta.icon }} me-1"></i>{{ r.status_meta.short }}</span>
-              {% if r.status == 'PENDING' %}
+              {# ⚠️ Tus días NO los tocas tú: ni se editan ni se borran ni se anulan desde aquí. Eso lo
+                 hace quien lleva las vacaciones (o dirección), y el servidor lo comprueba igual. #}
+              {% if r.status == 'PENDING' and can_manage %}
                 <form method="post" action="{{ url_for('mis_vacaciones_cancel', request_id=r.id) }}" class="m-0" data-confirm="¿Anular esta petición?">
                   <button class="btn btn-sm btn-outline-danger" title="Anular la petición"><i class="fa fa-xmark"></i></button>
                 </form>

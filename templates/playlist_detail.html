@@ -6,8 +6,10 @@
    de las demos), TÍTULOS y DIVISIONES, se cambia el nombre, la portada y la nota.
    La pestaña «Descargas» decide si la playlist se puede descargar (apagado al nacer). #}
 
-{% set tab = request.args.get('tab') or 'playlist' %}
 {% set can_edit = CAN_EDIT_DISCOGRAFICA %}
+{# Los BOTONES (editar · compartir · copiar enlace · descarga · eliminar) van dentro de la cabecera de
+   la playlist, a su derecha: `_playlist_actions.html`, que incluyen tanto la vista como la edición. #}
+{% set playlist_actions = True %}
 
 <div class="mb-2">
   <a class="btn btn-outline-secondary btn-sm btn-volver"
@@ -15,81 +17,11 @@
      title="Volver a las playlists" aria-label="Volver a las playlists"><i class="fa fa-arrow-left"></i></a>
 </div>
 
-{# ---------- BOTONOTES: las mismas opciones que los 3 puntitos del listado ---------- #}
-<div class="ficha-quick mb-3">
-  {% if can_edit %}
-    {% if edit_mode %}
-      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('playlist_detail_view', playlist_id=pl.id) }}">
-        <i class="fa fa-eye me-1"></i>Ver la playlist
-      </a>
-    {% else %}
-      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('playlist_detail_view', playlist_id=pl.id, edit=1) }}">
-        <i class="fa fa-pen me-1"></i>Editar
-      </a>
-    {% endif %}
-  {% endif %}
-  <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#playlistMailModal">
-    <i class="fa fa-envelope me-1"></i>Compartir por Email
-  </button>
-  <button class="btn btn-sm btn-outline-secondary" type="button"
-          onclick="shareByWhatsapp('{{ share_subject|e }}', '{{ public_url }}')">
-    <i class="fa-brands fa-whatsapp me-1"></i>WhatsApp
-  </button>
-  <button class="btn btn-sm btn-outline-secondary" type="button"
-          onclick="shareBySms('{{ share_subject|e }}', '{{ public_url }}')">
-    <i class="fa fa-comment-sms me-1"></i>SMS
-  </button>
-  <button class="btn btn-sm btn-outline-secondary" type="button" onclick="copyShareLink('{{ public_url }}')">
-    <i class="fa fa-link me-1"></i>Copiar enlace
-  </button>
-  {% if can_edit %}
-    <form method="post" action="{{ url_for('playlist_delete', playlist_id=pl.id) }}" class="d-inline"
-          data-confirm="¿Eliminar la playlist «{{ pl.name|e }}»? No se borra ninguna canción, solo la lista.">
-      <button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash me-1"></i>Eliminar</button>
-    </form>
-  {% endif %}
-</div>
-
-<ul class="nav nav-tabs ficha-tabs mb-0">
-  <li class="nav-item">
-    <a class="nav-link {% if tab == 'playlist' %}active{% endif %}"
-       href="{{ url_for('playlist_detail_view', playlist_id=pl.id, edit=(1 if edit_mode else None)) }}">
-      <i class="fa fa-list-ol me-1"></i>Playlist
-    </a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link {% if tab == 'descargas' %}active{% endif %}"
-       href="{{ url_for('playlist_detail_view', playlist_id=pl.id, tab='descargas', edit=(1 if edit_mode else None)) }}">
-      <i class="fa fa-download me-1"></i>Descargas
-    </a>
-  </li>
-</ul>
-
-<div class="ficha-tabpane">
-
-{% if tab == 'descargas' %}
-  {# ---------- ¿SE PUEDE DESCARGAR? ---------- #}
-  <div class="card">
-    <div class="card-body">
-      <h6 class="mb-1"><i class="fa fa-download me-1 text-muted"></i>Descarga de los temas</h6>
-      <div class="text-muted small mb-3">
-        Por defecto una playlist <strong>se escucha, no se descarga</strong>. Si la habilitas, al final de
-        cada tema sale el icono de descargar con las dos opciones: WAV y MP3.
-      </div>
-      <div class="form-check form-switch">
-        <input class="form-check-input" type="checkbox" role="switch" id="plAllowDownload"
-               data-pl-allow-download="{{ url_for('playlist_save', playlist_id=pl.id) }}"
-               {% if pl.allow_download %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
-        <label class="form-check-label" for="plAllowDownload">
-          {% if pl.allow_download %}Se puede descargar{% else %}No se puede descargar{% endif %}
-        </label>
-      </div>
-    </div>
-  </div>
-
-{% elif edit_mode %}
-  {# ============ MODO EDICIÓN ============ #}
-  <div class="pl-edit" data-playlist-edit
+{% if edit_mode %}
+  {# ============ MODO EDICIÓN ============
+     Va dentro de la MISMA hoja (`pl-sheet`) que la vista, para que se edite con el aspecto con el que
+     se va a ver. #}
+  <div class="pl-sheet pl-edit" data-playlist-edit
        data-save-url="{{ url_for('playlist_save', playlist_id=pl.id) }}"
        data-picker-url="{{ url_for('playlist_picker_data', playlist_id=pl.id) }}"
        data-view-url="{{ url_for('playlist_detail_view', playlist_id=pl.id) }}">
@@ -114,6 +46,8 @@
           <span><i class="fa fa-music"></i><span data-pl-count>{{ pl.songs_count }}</span> tema(s)</span>
         </div>
       </div>
+      {# Los MISMOS botones que en la vista, a la derecha de la cabecera. #}
+      {% include '_playlist_actions.html' %}
     </div>
 
     {# La NOTA: se ofrece siempre al editar y se ve solo si tiene texto. #}
@@ -160,8 +94,6 @@
   {% set duration_save_base = url_for('playlist_item_duration', playlist_id=pl.id, item_id='__ID__') %}
   {% include '_playlist_view.html' with context %}
 {% endif %}
-
-</div>
 
 {# ---------- Compartir por correo ---------- #}
 <div class="modal fade" id="playlistMailModal" tabindex="-1" aria-hidden="true">

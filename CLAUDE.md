@@ -636,12 +636,27 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   portada**; al pinchar en cualquier sitio suena y aparece a la derecha la **barra** (pausar,
   arrastrar para moverte y el segundo por el que vas). **Al terminar una canción arranca la
   siguiente** y solo suena una a la vez (`static/js/playlist.js`, un único `<audio>`).
+  · **LOS BOTONES van en la CABECERA**, a la derecha y a la altura de «Playlist» (parcial único
+  `templates/_playlist_actions.html`, que incluyen la vista y la edición; en el enlace público NO se
+  pinta porque `playlist_actions` no está puesto): **Editar** · **Compartir** (un solo botón que
+  despliega Email · WhatsApp · SMS · Copiar enlace) · **Copiar enlace** también suelto ·
+  **interruptor de DESCARGA** (el `.sw` de los accesos, se marca ahí mismo) · **Eliminar**.
+  ⚠️ La descarga **ya no es una pestaña**: la ficha no tiene pestañas. El interruptor guarda al
+  momento y **solo recarga en la VISTA** (para que aparezca o desaparezca el icono de descargar de
+  cada tema); editando no recarga, que se perdería lo que no esté guardado.
   · **EDICIÓN** (`?edit=1`): las líneas se **arrastran** para ordenarlas, arriba están «Añadir
   canción» (pop-up: **Demos** → artistas con maquetas + «Sin artista» · **Repertorio** → artistas,
   primero los que tienen contrato y el resto tras «ver más» → sus temas con portada), «Añadir un
   título», «Añadir una división» y «Añadir una nota»; el **nombre se pincha** y delante sale el
-  **cuadradito de la portada** (se arrastra o se elige). Se guarda todo de una (`playlist_save`
+  **cuadradito de la portada** (se arrastra o se elige). El título y la división **no llevan
+  etiqueta** («TÍTULO»/«DIVISIÓN»): se ven por lo que son. Se guarda todo de una (`playlist_save`
   reutiliza las líneas por su id, así un segundo guardado no duplica nada).
+  ⚠️⚠️ **EL ARRASTRE MUEVE LA LÍNEA DE VERDAD** mientras se arrastra (en `dragover` se hace
+  `insertBefore` según la mitad de la fila por la que se pasa), así se ve dónde va a quedar antes de
+  soltarla; y al soltar, el array se reconstruye **leyendo el orden de la lista**. Hacerlo con
+  índices (un `splice` para quitar y otro para meter) dejaba la línea **una posición desviada al
+  bajarla**, porque al quitarla los índices de abajo ya se habían movido (bug real). Escribir en el
+  título de una línea no la arrastra (`mousedown` sobre un input le quita el `draggable`).
   · ⚠️ **LAS CANCIONES NO SE DESCARGAN** salvo que la playlist lo permita: `allow_download` nace en
   **false** y se cambia en la **pestaña «Descargas»** de la playlist (interruptor); en el listado se
   ve con su icono (candado / descarga). El audio se sirve SIEMPRE por un endpoint nuestro que hace de

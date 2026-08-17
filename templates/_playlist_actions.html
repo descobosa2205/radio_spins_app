@@ -1,0 +1,61 @@
+{# ================= BOTONES DE UNA PLAYLIST =================
+   Van en la MISMA línea que la cabecera («Playlist»), a la derecha, tanto en la vista como al editar
+   (los dos sitios incluyen este parcial, así que son los mismos botones y no hay dos copias).
+
+   · **Compartir** es UN solo botón que despliega Email · WhatsApp · SMS · Copiar enlace.
+   · **Copiar enlace** está además fuera, suelto (es lo que más se usa).
+   · **Descarga** NO es una pestaña: es el interruptor de los accesos (`.sw`), que se marca aquí mismo.
+
+   ⚠️ Este parcial solo se pinta cuando `playlist_actions` está puesto: en el enlace PÚBLICO no debe
+   salir ninguno de estos botones. #}
+<div class="pl-actions">
+  {% if can_edit %}
+    {% if edit_mode %}
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('playlist_detail_view', playlist_id=pl.id) }}">
+        <i class="fa fa-eye me-1"></i>Ver la playlist
+      </a>
+    {% else %}
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('playlist_detail_view', playlist_id=pl.id, edit=1) }}">
+        <i class="fa fa-pen me-1"></i>Editar
+      </a>
+    {% endif %}
+  {% endif %}
+
+  <div class="dropdown">
+    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+      <i class="fa fa-share-alt me-1"></i>Compartir
+    </button>
+    <ul class="dropdown-menu dropdown-menu-end">
+      <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#playlistMailModal"><i class="fa fa-envelope fa-fw me-1"></i>Email</button></li>
+      <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('{{ share_subject|e }}', '{{ public_url }}')"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>WhatsApp</button></li>
+      <li><button class="dropdown-item" type="button" onclick="shareBySms('{{ share_subject|e }}', '{{ public_url }}')"><i class="fa fa-comment-sms fa-fw me-1"></i>SMS</button></li>
+      <li><hr class="dropdown-divider"></li>
+      <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ public_url }}')"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+    </ul>
+  </div>
+
+  <button class="btn btn-sm btn-outline-secondary" type="button" onclick="copyShareLink('{{ public_url }}')">
+    <i class="fa fa-link me-1"></i>Copiar enlace
+  </button>
+
+  {# DESCARGA: el mismo interruptor que en los accesos, y se marca aquí directamente. Por defecto NO
+     se puede descargar. #}
+  <span class="pl-dl" title="Si se marca, al final de cada tema sale el icono de descargar (WAV o MP3)">
+    <label class="sw dl m-0">
+      <input type="checkbox" role="switch"
+             data-pl-allow-download="{{ url_for('playlist_save', playlist_id=pl.id) }}"
+             {% if pl.allow_download %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
+      <span class="tr"></span>
+    </label>
+    <span class="pl-dl__lab" data-pl-dl-label>
+      <i class="fa {{ 'fa-download' if pl.allow_download else 'fa-lock' }} me-1"></i>{{ 'Se descarga' if pl.allow_download else 'Sin descarga' }}
+    </span>
+  </span>
+
+  {% if can_edit %}
+    <form method="post" action="{{ url_for('playlist_delete', playlist_id=pl.id) }}" class="d-inline"
+          data-confirm="¿Eliminar la playlist «{{ pl.name|e }}»? No se borra ninguna canción, solo la lista.">
+      <button class="btn btn-sm btn-outline-danger" title="Eliminar la playlist"><i class="fa fa-trash"></i></button>
+    </form>
+  {% endif %}
+</div>

@@ -253,15 +253,15 @@
     function rowHtml(r, i) {
       var asa = '<span class="pl-erow__handle" title="Arrastra para colocarla"><i class="fa fa-grip-vertical"></i></span>';
       var quitar = '<button class="pl-erow__del" type="button" data-pl-del title="Quitar de la playlist" aria-label="Quitar"><i class="fa fa-xmark"></i></button>';
+      // El TÍTULO y la DIVISIÓN no llevan etiqueta: se ven por lo que son.
       if (r.kind === 'TITLE') {
         return '<li class="pl-erow pl-erow--title" draggable="true" data-idx="' + i + '">' + asa +
-          '<span class="pl-erow__tag">TÍTULO</span>' +
           '<input class="form-control form-control-sm" data-pl-field="title" value="' + esc(r.title) + '" placeholder="Escribe el título">' +
           quitar + '</li>';
       }
       if (r.kind === 'DIVIDER') {
         return '<li class="pl-erow pl-erow--divider" draggable="true" data-idx="' + i + '">' + asa +
-          '<span class="pl-erow__tag">DIVISIÓN</span><span class="pl-erow__line"></span>' + quitar + '</li>';
+          '<span class="pl-erow__line"></span>' + quitar + '</li>';
       }
       return '<li class="pl-erow" draggable="true" data-idx="' + i + '">' + asa +
         '<img class="pl-erow__cover" src="' + esc(r.cover_url || COVER) + '" alt="" data-cover>' +
@@ -301,28 +301,78 @@
       render(); tocado();
     });
 
-    // --- Arrastrar para colocar (vale igual para canciones, títulos y divisiones) ---
-    var dragIdx = null;
+    /* --- Arrastrar para colocar (canciones, títulos y divisiones) ---
+       ⚠️ La línea se MUEVE DE VERDAD mientras se arrastra (se cambia de sitio en la propia lista según
+       pasa por encima de las demás), así se ve dónde va a quedar antes de soltarla. Y al soltar, el
+       array se reconstruye LEYENDO EL ORDEN DE LA LISTA: hacerlo con índices (splice de quitar y
+       splice de meter) dejaba la línea una posición desviada al bajarla, porque al quitarla los
+       índices de abajo ya se habían movido (bug real). */
+    var nodo = null;                       // la línea que se está arrastrando
+
+    function limpiaArrastre() {
+      nodo = null;
+      Array.prototype.forEach.call(rowsEl.querySelectorAll('.dragging'), function (n) { n.classList.remove('dragging'); });
+      rowsEl.classList.remove('is-dragging');
+    }
+
+    function reconstruyeDesdeLista() {
+      var nuevas = [];
+      Array.prototype.forEach.call(rowsEl.children, function (li) {
+        var r = rows[+li.getAttribute('data-idx')];
+        if (r) nuevas.push(r);
+      });
+      if (nuevas.length !== rows.length) return false;      // por si acaso: no se toca nada
+      var cambio = nuevas.some(function (r, i) { return r !== rows[i]; });
+      rows = nuevas;
+      render();                                            // renumera los data-idx
+      return cambio;
+    }
+
+    // Escribir en el título de una línea no debe arrastrarla (si no, no se puede ni seleccionar texto).
+    rowsEl.addEventListener('mousedown', function (ev) {
+      var li = ev.target.closest('[data-idx]'); if (!li) return;
+      li.draggable = !ev.target.closest('input, textarea, select, button');
+    });
+    document.addEventListener('mouseup', function () {
+      Array.prototype.forEach.call(rowsEl.querySelectorAll('[data-idx]'), function (li) { li.draggable = true; });
+    });
+
     rowsEl.addEventListener('dragstart', function (ev) {
       var li = ev.target.closest('[data-idx]'); if (!li) return;
-      dragIdx = +li.getAttribute('data-idx');
-      li.classList.add('dragging');
-      try { ev.dataTransfer.setData('text/plain', String(dragIdx)); ev.dataTransfer.effectAllowed = 'move'; } catch (e) {}
+      nodo = li;
+      rowsEl.classList.add('is-dragging');
+      // El estilo de «me estoy moviendo» se pone en el siguiente ciclo: si se pone ya, algunos
+      // navegadores hacen la foto del arrastre con la fila translúcida.
+      setTimeout(function () { if (nodo) nodo.classList.add('dragging'); }, 0);
+      try { ev.dataTransfer.setData('text/plain', li.getAttribute('data-idx')); ev.dataTransfer.effectAllowed = 'move'; } catch (e) {}
     });
-    rowsEl.addEventListener('dragend', function () {
-      dragIdx = null;
-      Array.prototype.forEach.call(rowsEl.querySelectorAll('.dragging'), function (n) { n.classList.remove('dragging'); });
+
+    rowsEl.addEventListener('dragover', function (ev) {
+      if (!nodo) return;
+      ev.preventDefault();
+      try { ev.dataTransfer.dropEffect = 'move'; } catch (e) {}
+      var sobre = ev.target.closest('[data-idx]');
+      if (!sobre) {                                        // por debajo de la última: al final
+        if (ev.clientY > rowsEl.getBoundingClientRect().bottom - 4) rowsEl.appendChild(nodo);
+        return;
+      }
+      if (sobre === nodo) return;
+      var caja = sobre.getBoundingClientRect();
+      var porDebajo = (ev.clientY - caja.top) > caja.height / 2;
+      rowsEl.insertBefore(nodo, porDebajo ? sobre.nextSibling : sobre);
     });
-    rowsEl.addEventListener('dragover', function (ev) { ev.preventDefault(); });
+
     rowsEl.addEventListener('drop', function (ev) {
       ev.preventDefault();
-      if (dragIdx === null) return;
-      var li = ev.target.closest('[data-idx]');
-      var to = li ? +li.getAttribute('data-idx') : rows.length - 1;
-      if (to === dragIdx) return;
-      rows.splice(to, 0, rows.splice(dragIdx, 1)[0]);
-      dragIdx = null;
-      render(); tocado();
+      if (!nodo) return;
+      limpiaArrastre();
+      if (reconstruyeDesdeLista()) tocado();
+    });
+
+    rowsEl.addEventListener('dragend', function () {
+      if (!nodo) return;                                   // ya lo resolvió el `drop`
+      limpiaArrastre();
+      if (reconstruyeDesdeLista()) tocado();
     });
 
     // --- Añadir título / división ---
@@ -567,23 +617,35 @@
     render();          // ⚠️ el pintado INICIAL: sin esto la playlist sale vacía al entrar a editar
   }
 
-  /* ===================== 3) ¿Se puede descargar? ===================== */
+  /* ===================== 3) ¿Se puede descargar? =====================
+     El interruptor de los accesos, en la barra de botones: se marca ahí mismo y se guarda al momento. */
   function initAllowDownload() {
     var sw = document.querySelector('[data-pl-allow-download]');
     if (!sw || sw.dataset.plReady === '1') return;
     sw.dataset.plReady = '1';
+    var etiqueta = document.querySelector('[data-pl-dl-label]');
+
+    function pintaEtiqueta() {
+      if (!etiqueta) return;
+      etiqueta.innerHTML = '<i class="fa ' + (sw.checked ? 'fa-download' : 'fa-lock') + ' me-1"></i>'
+        + (sw.checked ? 'Se descarga' : 'Sin descarga');
+    }
+
     sw.addEventListener('change', function () {
       sw.disabled = true;
+      pintaEtiqueta();
       post(sw.getAttribute('data-pl-allow-download'), { allow_download: sw.checked ? '1' : '0' })
         .then(function (js) {
-          if (js && js.ok) {
-            // Recargamos: el icono de descargar de cada tema aparece o desaparece con esto.
-            window.location.reload();
-          } else {
-            sw.disabled = false;
+          sw.disabled = false;
+          if (!js || !js.ok) {
             sw.checked = !sw.checked;
+            pintaEtiqueta();
             alert('No se pudo guardar el ajuste.');
+            return;
           }
+          // ⚠️ Solo se recarga en la VISTA (para que aparezca o desaparezca el icono de descargar de
+          // cada tema). Editando NO se recarga: se perdería lo que no esté guardado.
+          if (!document.querySelector('[data-playlist-edit]')) window.location.reload();
         });
     });
   }

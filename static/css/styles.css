@@ -4133,6 +4133,16 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 .pl-head__input:hover{ border-color:#e5e8ee; }
 .pl-head__input:focus{ border-color:var(--brand-primary); outline:none; }
 
+/* Los BOTONES de la playlist: en la misma línea que la cabecera, a la derecha. */
+.pl-actions{
+  display:flex; align-items:center; gap:.4rem; flex-wrap:wrap;
+  margin-left:auto; align-self:flex-start;
+}
+.pl-dl{ display:inline-flex; align-items:center; gap:.4rem; padding:.1rem .35rem; }
+.pl-dl__lab{ font-size:.8rem; color:#6b7280; white-space:nowrap; }
+/* El interruptor de los accesos (`.sw`) en su variante de descarga: verde cuando se permite. */
+.sw.dl input:checked + .tr{ background:var(--ok,#1e9e5a); }
+
 .pl-note{
   display:flex; gap:.5rem; align-items:flex-start; margin-top:.9rem;
   background:#f8fafc; border:1px solid #e6e8eb; border-radius:14px; padding:.6rem .8rem;
@@ -4218,8 +4228,12 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
   display:flex; align-items:center; gap:.7rem; padding:.45rem .6rem; margin-bottom:.35rem;
   background:#fff; border:1px solid #e5e8ee; border-radius:12px;
 }
-.pl-erow.dragging{ opacity:.5; }
+/* Mientras se arrastra, la línea se va COLOCANDO de verdad en su sitio (la que se mueve queda
+   marcada y con el hueco a la vista, así se sabe dónde va a quedar antes de soltarla). */
+.pl-erow.dragging{ opacity:.45; border-style:dashed; border-color:var(--brand-primary); }
+.pl-list--edit.is-dragging .pl-erow:not(.dragging){ transition:transform .12s ease; }
 .pl-erow__handle{ color:#b6bcc7; cursor:grab; flex:0 0 auto; }
+.pl-erow.dragging .pl-erow__handle{ cursor:grabbing; }
 .pl-erow__cover{ width:44px; height:44px; object-fit:cover; border-radius:8px; border:1px solid #e5e8ee; flex:0 0 auto; }
 .pl-erow__main{ flex:1 1 10rem; min-width:0; display:block; }
 .pl-erow__title{ font-weight:700; display:block; }

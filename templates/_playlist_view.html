@@ -25,7 +25,9 @@
     </div>
   {% endif %}
 
-  {# ---------- CABECERA (viñeta) ---------- #}
+  {# ---------- CABECERA (viñeta) ----------
+     Los BOTONES van en esta misma línea, a la derecha (solo dentro del back office: en el enlace
+     público `playlist_actions` no está puesto y no se pinta ninguno). #}
   <div class="pl-head">
     {% if pl.cover_url %}
       <img class="pl-head__cover" src="{{ pl.cover_url }}" alt="{{ pl.name }}" data-cover>
@@ -40,11 +42,12 @@
         {% if pl.duration_label %}
           <span><i class="fa fa-clock"></i>{{ '+' if pl.duration_partial }}{{ pl.duration_label }}</span>
         {% endif %}
-        {% if pl.allow_download %}
+        {% if pl.allow_download and not playlist_actions %}
           <span title="Esta playlist se puede descargar"><i class="fa fa-download"></i>Descarga permitida</span>
         {% endif %}
       </div>
     </div>
+    {% if playlist_actions %}{% include '_playlist_actions.html' %}{% endif %}
   </div>
 
   {# La NOTA solo se ve si existe. #}

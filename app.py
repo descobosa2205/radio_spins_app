@@ -1,6 +1,7 @@
 from datetime import date, timedelta, datetime
 import os
 import math
+import colorsys
 import io
 import time
 import threading
@@ -16963,7 +16964,7 @@ def discografica_song_detail(song_id):
             "reminder_count": _safe_int(getattr(_delivery_active, "reminder_count", 0)),
         }
 
-    # Datos recibidos por entrega (producción/autoral/letra) pendientes de consolidar en la ficha.
+    # Datos recibidos por entrega (producción/autoral/letra/pitch) pendientes de consolidar en la ficha.
     pending_delivery = None
     for _pl in (
         session_db.query(SongMasterDeliveryLink)
@@ -16972,12 +16973,14 @@ def discografica_song_detail(song_id):
         .all()
     ):
         _d = _pl.data or {}
-        if _d.get("production") or _d.get("authoral") or (_d.get("lyrics") or "").strip():
+        if (_d.get("production") or _d.get("authoral") or (_d.get("lyrics") or "").strip()
+                or (_d.get("pitch") or "").strip()):
             pending_delivery = {
                 "link_id": str(_pl.id),
                 "production": _d.get("production"),
                 "authoral": _d.get("authoral"),
                 "lyrics": _d.get("lyrics"),
+                "pitch": _d.get("pitch"),
             }
             break
 
@@ -19168,6 +19171,8 @@ SONG_DELIVERY_SECTIONS = [
     ("PRODUCTION", "Información de producción"),
     ("AUTHORAL", "Información autoral"),
     ("LYRICS", "Letra"),
+    # El TEXTO PARA EL PITCH: se puede pedir en el enlace, pero nace DESACTIVADO (no es lo normal).
+    ("PITCH", "Texto para el pitch"),
     ("MASTERS", "Masters / materiales"),
 ]
 SONG_DELIVERY_SECTION_KEYS = {k for k, _ in SONG_DELIVERY_SECTIONS}
@@ -19193,7 +19198,11 @@ SONG_DELIVERY_MATERIAL_SPECS = [
     ("tv_track", "TV_TRACK", "DEFAULT"),
 ]
 # Módulos de material solicitables (claves en materials_json); incluye stems aparte de los slots fijos.
+# ⚠️ La PORTADA es una IMAGEN, no un .wav: va aquí para poder pedirla, pero se sube y se valida por su
+# propio camino (no entra en `SONG_DELIVERY_MATERIAL_SPECS`, que es la lista de audios) y nace
+# DESACTIVADA.
 SONG_DELIVERY_MATERIAL_MODULES = [
+    ("cover", "Portada"),
     ("master_48", "Master 48 bits"),
     ("master_24", "Master 24 bits"),
     ("master_16", "Master 16 bits"),
@@ -19202,6 +19211,13 @@ SONG_DELIVERY_MATERIAL_MODULES = [
     ("stems", "Stems"),
 ]
 SONG_DELIVERY_MATERIAL_MODULE_KEYS = {k for k, _ in SONG_DELIVERY_MATERIAL_MODULES}
+# Módulos que se pedían ANTES de que existieran los nuevos: es lo que se le supone a un enlace
+# antiguo (sin `materials_json`), para que se comporte exactamente como se generó.
+SONG_DELIVERY_LEGACY_MATERIALS = ["master_48", "master_24", "master_16", "instrumental", "tv_track", "stems"]
+# Los que NACEN DESACTIVADOS al generar un enlace (se piden solo si se marcan a mano).
+SONG_DELIVERY_OFF_BY_DEFAULT = {"mat.cover", "pitch"}
+# Imágenes válidas para la portada.
+SONG_DELIVERY_COVER_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
 # ---------------------------------------------------------------------------
@@ -19219,9 +19235,14 @@ def _song_delivery_askable() -> list[dict]:
                   "ask": True, "required": True})
     filas.append({"key": "lyrics", "section": "LYRICS", "label": "Letra de la canción",
                   "ask": True, "required": True})
+    # TEXTO PARA EL PITCH: desactivado por defecto.
+    filas.append({"key": "pitch", "section": "PITCH", "label": "Texto para el pitch",
+                  "ask": False, "required": False})
     for key, label in SONG_DELIVERY_MATERIAL_MODULES:
+        apagado = ("mat." + key) in SONG_DELIVERY_OFF_BY_DEFAULT
         filas.append({"key": "mat." + key, "section": "MASTERS", "label": label,
-                      "ask": True, "required": (key != "stems")})
+                      "ask": not apagado,
+                      "required": (key != "stems") and not apagado})
     return filas
 
 
@@ -19234,7 +19255,8 @@ def _song_delivery_config(link) -> dict:
     secciones = set(getattr(link, "sections_json", None) or []) if link is not None else set()
     materiales = list(getattr(link, "materials_json", None) or []) if link is not None else []
     if "MASTERS" in secciones and not materiales:
-        materiales = [k for k, _ in SONG_DELIVERY_MATERIAL_MODULES]   # compat enlaces antiguos
+        # Compat enlaces antiguos: pedían los materiales que existían entonces (la portada NO).
+        materiales = list(SONG_DELIVERY_LEGACY_MATERIALS)
     out = {}
     for fila in _song_delivery_askable():
         conf = dict(fila)
@@ -19906,7 +19928,7 @@ def public_song_master_delivery(token):
         sections = [k for k, _ in SONG_DELIVERY_SECTIONS if k in (link.sections_json or [])]
         req_materials = list(link.materials_json or [])
         if "MASTERS" in sections and not req_materials:
-            req_materials = [k for k, _ in SONG_DELIVERY_MATERIAL_MODULES]  # compat enlaces antiguos
+            req_materials = list(SONG_DELIVERY_LEGACY_MATERIALS)   # compat enlaces antiguos
         # Qué se pide y qué es obligatorio en ESTE enlace (campo a campo).
         conf = _song_delivery_config(link)
         pedido = {k: v for k, v in conf.items() if v.get("ask")}
@@ -19923,6 +19945,10 @@ def public_song_master_delivery(token):
                             for f, c, s in SONG_DELIVERY_MATERIAL_SPECS if f in req_materials],
             show_stems=("stems" in req_materials),
             stems_required=conf.get("mat.stems", {}).get("required", False),
+            # PORTADA (imagen) y TEXTO PARA EL PITCH: solo si se han pedido en este enlace.
+            show_cover=("cover" in req_materials),
+            cover_required=conf.get("mat.cover", {}).get("required", False),
+            pitch_required=conf.get("pitch", {}).get("required", False),
             artist_names=_song_artist_names_str(song),
             # Para las etiquetas og: (portada, «Entrega de masters · canción» y, debajo, artista e
             # intérpretes) — así la previsualización es igual en WhatsApp, correo y redes.
@@ -19999,6 +20025,11 @@ def public_song_master_delivery(token):
                 if not lyrics and conf.get("lyrics", {}).get("required"):
                     errors.append("La letra es obligatoria.")
                 data["lyrics"] = lyrics
+            if "PITCH" in sections:
+                pitch = (request.form.get("pitch") or "").strip()
+                if not pitch and conf.get("pitch", {}).get("required"):
+                    errors.append("El texto para el pitch es obligatorio.")
+                data["pitch"] = pitch
             uploads = []
             # Lo que el navegador ya ha subido DIRECTAMENTE a Storage llega como
             # {campo: [{key, name}]} — el fichero no pasa por aquí (ver public_song_delivery_sign).
@@ -20027,6 +20058,17 @@ def public_song_master_delivery(token):
                     uploads.append((fs, cat, slot))
                 stems = ([fs for fs in request.files.getlist("stems") if fs and getattr(fs, "filename", "")]
                          + _ya_subido("stems")) if "stems" in req_materials else []
+                # PORTADA: es una imagen y pesa poco, así que va por el servidor (la subida directa a
+                # Storage solo admite .wav / .zip).
+                if "cover" in req_materials:
+                    _cf = request.files.get("cover")
+                    if not _cf or not getattr(_cf, "filename", ""):
+                        if conf.get("mat.cover", {}).get("required"):
+                            errors.append("Materiales: falta la portada.")
+                    elif Path((_cf.filename or "").replace("\\", "/")).suffix.lower() not in SONG_DELIVERY_COVER_EXTS:
+                        errors.append("Materiales: la portada debe ser una imagen (jpg, png o webp).")
+                    else:
+                        uploads.append((_cf, "COVER", "COVER"))
             else:
                 stems = []
 
@@ -20050,8 +20092,12 @@ def public_song_master_delivery(token):
                     nombre = (fs.get("name") or "audio.wav").replace("\\", "/")
                     tipo = None
                 else:
-                    file_url = upload_file(fs, "song_materials", allowed_extensions={".wav", ".wave"})
-                    nombre = (fs.filename or "audio.wav").replace("\\", "/")
+                    # La portada es una IMAGEN; el resto, audio.
+                    _es_portada = (cat or "").upper() == "COVER"
+                    file_url = upload_file(
+                        fs, "song_materials",
+                        allowed_extensions=(SONG_DELIVERY_COVER_EXTS if _es_portada else {".wav", ".wave"}))
+                    nombre = (fs.filename or ("portada.jpg" if _es_portada else "audio.wav")).replace("\\", "/")
                     tipo = (getattr(fs, "mimetype", "") or "").strip() or None
                 session_db.add(SongMaterial(
                     song_id=song.id, category=cat, slot_key=slot,
@@ -20282,6 +20328,11 @@ def discografica_song_delivery_consolidate(song_id, link_id):
             song.lyrics_text = (data.get("lyrics") or "").strip()
             song.lyrics_updated_at = datetime.now(TZ_MADRID)
             flash("Letra consolidada.", "success")
+        elif section == "pitch" and "pitch" in data:
+            # El texto para el pitch va al mismo sitio que si se escribiera a mano en la ficha.
+            song.pitch_text = (data.get("pitch") or "").strip()
+            song.pitch_updated_at = datetime.now(TZ_MADRID)
+            flash("Texto del pitch consolidado.", "success")
         elif section == "authoral" and data.get("authoral"):
             for a in data["authoral"]:
                 promoter = None
@@ -55635,6 +55686,38 @@ def _royalty_accounting_pending_rows(session_db, limit: int = 300) -> list[dict]
     return filas
 
 
+def _royalty_accounting_done_rows(session_db, limit: int = 300) -> list[dict]:
+    """Liquidaciones de royalties YA contabilizadas (las que salen en la pestaña «Contabilizado»).
+
+    ⚠️ Sin esto, marcar una como contabilizada la hacía DESAPARECER: se iba de pendiente y no se
+    listaba en ninguna otra parte. Aquí manda `accounted_at`, y ya está: lo que se marcó, se ve."""
+    try:
+        recs = (session_db.query(RoyaltyLiquidation)
+                .filter(RoyaltyLiquidation.accounted_at.isnot(None))
+                .order_by(RoyaltyLiquidation.accounted_at.desc()).limit(limit).all())
+    except Exception:
+        return []
+    filas = []
+    for rec in recs:
+        congelada = _royalty_frozen_beneficiary(rec) or {}
+        inv = session_db.get(SupplierInvoice, rec.invoice_id) if getattr(rec, "invoice_id", None) else None
+        filas.append({
+            "id": str(rec.id),
+            "name": (congelada.get("name") or "Beneficiario"),
+            "period_label": _royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end),
+            "amount": _royalty_invoice_totals(congelada)["gross"],
+            "net": _money_or_zero(congelada.get("total_amount")),
+            "paid_label": (rec.paid_at.strftime("%d/%m/%Y") if rec.paid_at else ""),
+            "accounted_label": (rec.accounted_at.strftime("%d/%m/%Y") if rec.accounted_at else ""),
+            "accounted_by": (getattr(rec, "accounted_by_nick", None) or ""),
+            "method": (getattr(rec, "payment_method", None) or ""),
+            "invoice_url": (getattr(inv, "file_url", None) or ""),
+            "invoice_number": (getattr(inv, "invoice_number", None) or ""),
+            "pdf_url": (rec.last_sent_pdf_url or rec.snapshot_pdf_url or ""),
+        })
+    return filas
+
+
 def _royalty_payment_pending_rows(session_db) -> list[dict]:
     """Liquidaciones de royalties con la factura VALIDADA y sin pagar: pendientes de pago.
 
@@ -60327,8 +60410,13 @@ def _accounting_base_query(session_db, *, doc_types=None, include_done: bool = F
          .options(joinedload(BagExpense.bag).joinedload(WorkflowBag.artist),
                   joinedload(BagExpense.provider),
                   joinedload(BagExpense.provider_company))
-         .filter(BagExpense.status != "ELIMINADO",
-                 BagExpense.consolidation_status.in_(list(BAG_CONSOLIDATED_STATUSES))))
+         .filter(BagExpense.status != "ELIMINADO"))
+    # ⚠️ El cruce con «validado por administración» (`consolidation_status`) es para decidir qué está
+    # PENDIENTE de contabilizar. En la pestaña de CONTABILIZADO no se aplica: lo que ya se marcó tiene
+    # que aparecer ahí SIEMPRE, aunque su gasto haya cambiado de estado después — si no, desaparecía de
+    # las dos pestañas y no había forma de encontrarlo (bug real).
+    if not only_done:
+        q = q.filter(BagExpense.consolidation_status.in_(list(BAG_CONSOLIDATED_STATUSES)))
     if doc_types:
         q = q.filter(func.upper(func.coalesce(BagExpense.document_type, "FACTURA")).in_(list(doc_types)))
     estado = func.upper(func.coalesce(BagExpense.accounting_status, "PENDIENTE"))
@@ -61058,7 +61146,7 @@ def contabilidad_view():
         if tab == "pendiente" and _holded_autodetect_due(session_db):
             threading.Thread(target=_holded_autodetect_bg, daemon=True).start()
         counts = _accounting_counts(session_db)
-        rows, bag_groups, done_rows = [], [], []
+        rows, bag_groups, done_rows, royalty_done = [], [], [], []
         retenciones, retention_year = None, None
         recent_invoices = issued_count = received_count = None
         if tab == "pendiente":
@@ -61087,6 +61175,8 @@ def contabilidad_view():
             done_rows = _accounting_expense_rows(
                 session_db, _accounting_base_query(session_db, only_done=True)
                 .order_by(BagExpense.accounting_at.desc().nullslast()).limit(400).all())
+            # Las liquidaciones de royalties contabilizadas van en su módulo, igual que en pendiente.
+            royalty_done = _royalty_accounting_done_rows(session_db)
         else:
             recent_invoices = (session_db.query(InvoiceRecord)
                                .order_by(InvoiceRecord.issue_date.desc(),
@@ -61109,6 +61199,7 @@ def contabilidad_view():
             rows=rows, bag_groups=bag_groups, done_rows=done_rows,
             retenciones=retenciones, retention_year=retention_year,
             royalty_pending=royalty_pending,
+            royalty_done=royalty_done,
             recent_invoices=recent_invoices,
             issued_count=issued_count, received_count=received_count,
             holded_ready=_holded_configured_any(session_db),
@@ -87897,10 +87988,34 @@ def public_invitation_request_resend(token, request_id):
 # resto aparecen como «Reserva — consultar con Contratación». En Inicio el color va por ARTISTA;
 # en la ficha del artista, por TIPO de actividad.
 
+# COLORES de los calendarios (uno por artista) — ninguno se repite, ni ahora ni cuando se creen más.
+# ⚠️ El ROJO CORPORATIVO es del CALENDARIO GENERAL de oficina y el AZUL de MI CALENDARIO: los dos son
+# fijos (se reconocen de un vistazo) y por eso NO están en la paleta que rota entre los artistas.
+AGENDA_OFFICE_COLOR = "#E33D48"        # rojo de la casa
+AGENDA_MINE_COLOR = "#007CA2"          # azul de la casa
 AGENDA_PALETTE = [
-    "#E33D48", "#007CA2", "#198754", "#6f42c1", "#fd7e14", "#d63384",
-    "#20c997", "#0d6efd", "#b5179e", "#e07a5f", "#457b9d", "#9c6644",
+    "#198754", "#6f42c1", "#fd7e14", "#d63384", "#20c997", "#0d6efd",
+    "#b5179e", "#e07a5f", "#457b9d", "#9c6644", "#2a9d8f", "#7048e8",
+    "#c1121f", "#3a86ff", "#8ac926", "#ff6b6b", "#118ab2", "#f4a261",
 ]
+
+
+def _agenda_color_for(i: int) -> str:
+    """El color del calendario que hace el número `i` (0, 1, 2…).
+
+    Con la paleta se van dando colores distintos y, **cuando se acaba**, se siguen generando nuevos
+    girando el tono con el ÁNGULO DORADO (137,5°): así dos calendarios nunca se quedan con el mismo
+    color por muchos que se creen (antes se hacía `paleta[i % len(paleta)]` y a partir del 13 se
+    repetían). Se salta la franja del rojo y del azul de la casa, que están reservados."""
+    if i < len(AGENDA_PALETTE):
+        return AGENDA_PALETTE[i]
+    tono = (i * 137.508) % 360.0
+    # Fuera de los tonos reservados (rojo ~355° y azul ~193°): se empuja el tono unos grados.
+    for reservado in (355.0, 193.0):
+        if abs(((tono - reservado + 180) % 360) - 180) < 8:
+            tono = (tono + 18) % 360
+    r, g, b = colorsys.hls_to_rgb(tono / 360.0, 0.42, 0.62)
+    return "#%02x%02x%02x" % (int(r * 255), int(g * 255), int(b * 255))
 
 AGENDA_KIND_ORDER = ["concierto", "festival", "evento", "lanzamiento", "accion", "promocion", "medios", "cumple", "vacaciones", "otro", "bloqueo"]
 AGENDA_KIND_META = {
@@ -88558,13 +88673,23 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
 
     # Artistas presentes, ordenados por nombre, con color de paleta
     present = [artist_map[a] for a in seen_artist_ids if a in artist_map]
-    present.sort(key=lambda x: (x["name"] or "").lower())
+    # MI CALENDARIO y el CALENDARIO GENERAL van los PRIMEROS (en ese orden); detrás, los artistas y
+    # eventos por nombre. El cliente pinta una barra vertical entre los dos grupos.
+    _orden_fijo = {MY_CALENDAR_ID: 0, OFFICE_CALENDAR_ID: 1}
+    present.sort(key=lambda x: (_orden_fijo.get(x["id"], 9), (x["name"] or "").lower()))
     artist_color = {}
     artists_out = []
-    for i, a in enumerate(present):
-        color = AGENDA_PALETTE[i % len(AGENDA_PALETTE)]
+    # ⚠️ El calendario general y el mío tienen color FIJO (rojo y azul de la casa) y no gastan turno
+    # de la paleta: así los artistas nunca cogen esos dos colores y no se repite ninguno.
+    fijos = {OFFICE_CALENDAR_ID: AGENDA_OFFICE_COLOR, MY_CALENDAR_ID: AGENDA_MINE_COLOR}
+    i = 0
+    for a in present:
+        color = fijos.get(a["id"])
+        if not color:
+            color = _agenda_color_for(i)
+            i += 1
         artist_color[a["id"]] = color
-        artists_out.append({**a, "color": color})
+        artists_out.append({**a, "color": color, "special": a["id"] in fijos})
 
     # Tipos presentes (en orden canónico)
     present_kinds = {it["kind"] for _ids, it in raw}

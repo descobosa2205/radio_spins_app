@@ -127,11 +127,31 @@
           </div></div>
         {% endif %}
 
+        {% if 'PITCH' in sections %}
+          <div class="card shadow-sm border-0 mb-3"><div class="card-body">
+            <h6 class="mb-1"><i class="fa fa-bullhorn me-2 text-muted"></i>{{ section_labels['PITCH'] }}</h6>
+            <div class="small text-muted mb-3">Un texto de presentación del lanzamiento: de qué va la
+              canción, qué se quiere contar de ella.</div>
+            <textarea class="form-control" name="pitch" rows="6"
+                      placeholder="Escribe aquí el texto con el que presentar el lanzamiento"{% if pitch_required %} required{% endif %}>{{ form.get('pitch', '') }}</textarea>
+          </div></div>
+        {% endif %}
+
         {% if 'MASTERS' in sections %}
           <div class="card shadow-sm border-0 mb-3"><div class="card-body">
             <h6 class="mb-3"><i class="fa fa-file-audio me-2 text-muted"></i>{{ section_labels['MASTERS'] }}</h6>
-            <div class="small text-muted mb-3">Sube cada archivo en formato <strong>.wav</strong>.</div>
+            <div class="small text-muted mb-3">Sube cada archivo de audio en formato <strong>.wav</strong>.</div>
             <div class="row g-3">
+              {# LA PORTADA es una imagen: va por el servidor (la subida directa es solo para audio),
+                 así que se marca para que el JS de subida directa la deje en paz. #}
+              {% if show_cover %}
+                <div class="col-12">
+                  <label class="form-label">Portada{% if not cover_required %} <span class="text-muted small">(opcional)</span>{% endif %}</label>
+                  <input type="file" class="form-control" name="cover" data-no-direct
+                         accept=".jpg,.jpeg,.png,.webp"{% if cover_required %} required{% endif %}>
+                  <div class="form-text">Imagen cuadrada, jpg o png (lo ideal, 3000×3000).</div>
+                </div>
+              {% endif %}
               {# Cada material lleva SU obligatoriedad, la que se marcó al generar el enlace. #}
               {% for field, label, req in material_specs %}
                 <div class="col-12">
@@ -175,7 +195,9 @@
           var enviando = false;
 
           function campos() {
-            return Array.prototype.slice.call(form.querySelectorAll('input[type="file"]'))
+            // ⚠️ `data-no-direct` = ese archivo va por el servidor (la firma de subida directa solo
+            // admite .wav/.zip, así que la PORTADA no puede ir por aquí).
+            return Array.prototype.slice.call(form.querySelectorAll('input[type="file"]:not([data-no-direct])'))
               .filter(function (i) { return i.files && i.files.length; });
           }
           function progreso(pct, msg) {

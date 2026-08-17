@@ -473,13 +473,57 @@
             <tbody>
               {% for r in done_rows %}{{ acc_row(r) }}{% endfor %}
               {% if not done_rows %}
-                <tr><td colspan="14" class="text-center text-muted py-4">Todavía no hay nada contabilizado.</td></tr>
+                <tr><td colspan="14" class="text-center text-muted py-4">Todavía no hay ningún gasto contabilizado.</td></tr>
               {% endif %}
             </tbody>
           </table>
         </div>
       </div>
     </form>
+
+    {# ---------- Liquidaciones de royalties YA contabilizadas ----------
+       ⚠️ Antes se marcaban como contabilizadas y desaparecían: se iban de pendiente y no salían en
+       ninguna parte. Aquí están, y se pueden devolver a pendiente. #}
+    {% if royalty_done %}
+      <div class="card mt-4">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <strong><i class="fa fa-percent me-1 text-success"></i>Liquidaciones de royalties contabilizadas</strong>
+          <span class="badge text-bg-light border">{{ royalty_done|length }}</span>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead class="table-light"><tr>
+              <th>Beneficiario</th><th>Periodo</th><th>Nº factura</th><th>Pagada</th>
+              <th>Contabilizada</th><th class="text-end">Importe</th><th class="text-end">Documentos</th><th></th>
+            </tr></thead>
+            <tbody>
+              {% for r in royalty_done %}
+                <tr>
+                  <td class="fw-semibold">{{ r.name }}</td>
+                  <td class="small">{{ r.period_label }}</td>
+                  <td class="small">{{ r.invoice_number or '—' }}</td>
+                  <td class="small">{{ r.paid_label or '—' }}</td>
+                  <td class="small">{{ r.accounted_label or '—' }}{% if r.accounted_by %} · {{ r.accounted_by }}{% endif %}</td>
+                  <td class="text-end fw-semibold">{{ r.amount|eur }}</td>
+                  <td class="text-end">
+                    {% if r.pdf_url %}<a class="btn btn-sm btn-outline-dark" href="{{ r.pdf_url }}" target="_blank" rel="noopener" title="Liquidación"><i class="fa fa-file-pdf"></i></a>{% endif %}
+                    {% if r.invoice_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ r.invoice_url }}" target="_blank" rel="noopener" title="Factura"><i class="fa fa-file-invoice"></i></a>{% endif %}
+                  </td>
+                  <td class="text-end">
+                    <form method="post" action="{{ url_for('royalty_liquidation_accounted', liq_id=r.id) }}"
+                          data-confirm="¿Devolverla a pendiente de contabilizar?">
+                      <input type="hidden" name="next" value="{{ request.full_path }}">
+                      <input type="hidden" name="undo" value="1">
+                      <button class="btn btn-sm btn-outline-secondary" type="submit" title="Volver a pendiente"><i class="fa fa-rotate-left"></i></button>
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% endif %}
   </div>
 
 {% else %}

@@ -64,13 +64,25 @@
     // Colores ESTABLES por artista al navegar en Inicio: el servidor colorea cada ventana por
     // separado (y el mismo artista podría cambiar de color entre ventanas), así que el cliente
     // fija el color la primera vez que ve a cada artista. Misma paleta que AGENDA_PALETTE (app.py).
-    var PALETTE = ['#E33D48', '#007CA2', '#198754', '#6f42c1', '#fd7e14', '#d63384',
-                   '#20c997', '#0d6efd', '#b5179e', '#e07a5f', '#457b9d', '#9c6644'];
+    // ⚠️ Espejo de AGENDA_PALETTE (app.py): SIN el rojo ni el azul de la casa, que son de «Calendario
+    // general» y «Mi calendario». Al acabarse se generan colores nuevos girando el tono con el ángulo
+    // dorado, así dos calendarios nunca se quedan con el mismo (antes se repetían a partir del 13).
+    var PALETTE = ['#198754', '#6f42c1', '#fd7e14', '#d63384', '#20c997', '#0d6efd',
+                   '#b5179e', '#e07a5f', '#457b9d', '#9c6644', '#2a9d8f', '#7048e8',
+                   '#c1121f', '#3a86ff', '#8ac926', '#ff6b6b', '#118ab2', '#f4a261'];
     var KIND_ORDER = ['concierto', 'festival', 'evento', 'lanzamiento', 'accion', 'medios', 'cumple', 'otro', 'bloqueo'];
     var artistColors = {};
     artists.forEach(function (a) { artistColors[a.id] = a.color; });
+    function nuevoColor(n) {
+      if (n < PALETTE.length) return PALETTE[n];
+      var tono = (n * 137.508) % 360;                 // ángulo dorado: tonos bien repartidos
+      [355, 193].forEach(function (res) {             // fuera de los tonos reservados de la casa
+        if (Math.abs(((tono - res + 180) % 360) - 180) < 8) tono = (tono + 18) % 360;
+      });
+      return 'hsl(' + Math.round(tono) + ' 48% 42%)';
+    }
     function colorFor(id) {
-      if (!artistColors[id]) artistColors[id] = PALETTE[Object.keys(artistColors).length % PALETTE.length];
+      if (!artistColors[id]) artistColors[id] = nuevoColor(Object.keys(artistColors).length);
       return artistColors[id];
     }
 
@@ -102,7 +114,14 @@
       top.innerHTML = '';
       if (mode === 'home') {
         if (!artists.length) top.appendChild(el('span', 'text-muted small', 'Sin artistas con actividades próximas.'));
+        var separadorPuesto = false;
         artists.forEach(function (a) {
+          // Los calendarios propios («Mi calendario» y «Calendario general») van primero y separados
+          // del resto por una barra vertical.
+          if (!a.special && !separadorPuesto && artists.some(function (x) { return x.special; })) {
+            separadorPuesto = true;
+            top.appendChild(el('span', 'agenda-chip-sep'));
+          }
           var chip = el('button', 'agenda-chip' + (activeArtists[a.id] ? ' is-on' : ''));
           chip.type = 'button';
           chip.style.setProperty('--c', colorFor(a.id));
@@ -182,7 +201,14 @@
         }
         colorFor(a.id);
       });
-      artists.sort(function (x, y) { return (x.name || '').toLowerCase().localeCompare((y.name || '').toLowerCase()); });
+      // ⚠️ Los propios («Mi calendario» y «Calendario general») se quedan SIEMPRE delante: si se
+      // ordenara solo por nombre, al cargar otra ventana perderían su sitio.
+      artists.sort(function (x, y) {
+        var px = (x.id === 'mio' ? 0 : (x.id === 'oficina' ? 1 : 9));
+        var py = (y.id === 'mio' ? 0 : (y.id === 'oficina' ? 1 : 9));
+        if (px !== py) return px - py;
+        return (x.name || '').toLowerCase().localeCompare((y.name || '').toLowerCase());
+      });
       (d.kinds || []).forEach(function (k) {
         if (!kinds.some(function (x) { return x.key === k.key; })) {
           kinds.push(k);

@@ -1939,6 +1939,10 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 .agenda-chip__dot{ width:10px;height:10px;border-radius:50%;background:var(--c);flex:0 0 auto; }
 .agenda-chip.is-on{ box-shadow:0 0 0 1.5px var(--c) inset; }
 .agenda-chip:not(.is-on){ opacity:.5; filter:grayscale(.55); }
+/* Barra vertical que separa los calendarios PROPIOS («Mi calendario» y «Calendario general») de los
+   de los artistas y eventos. */
+.agenda-chip-sep{ display:inline-block; width:1px; align-self:stretch; min-height:1.6rem; margin:0 .35rem;
+  background:var(--line-2,#e3e6eb); flex:0 0 auto; }
 
 .agenda-body{ display:flex; gap:1rem; align-items:flex-start; }
 .agenda-side{ flex:0 0 230px; max-width:230px; display:flex; flex-direction:column; gap:.35rem; }

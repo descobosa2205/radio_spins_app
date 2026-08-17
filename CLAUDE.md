@@ -253,6 +253,16 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · las **promociones** en las que es el acompañante (`Promotion.escort_user_id`), con sus entrevistas,
   · y **sus vacaciones y días libres** (una franja por petición), que las trae `_agenda_personal_days`
     ya con este id.
+  · **COLORES**: el **rojo de la casa** es del Calendario general y el **azul** de Mi calendario
+  (`AGENDA_OFFICE_COLOR` / `AGENDA_MINE_COLOR`, fijos y fuera de la paleta que rota). El resto los da
+  **`_agenda_color_for(i)`**: la paleta y, cuando se acaba, colores nuevos girando el tono con el
+  ÁNGULO DORADO (137,5°) y saltándose las franjas del rojo y el azul — así **no se repite ninguno**
+  por muchos calendarios que se creen (antes era `paleta[i % len(paleta)]` y del 13 en adelante se
+  repetían). ⚠️ `agenda_calendar.js` tiene el MISMO mecanismo (estabiliza los colores en el cliente):
+  si se toca uno, se toca el otro.
+  · **ORDEN**: Mi calendario y el Calendario general van los **PRIMEROS** y una **barra vertical**
+  (`.agenda-chip-sep`) los separa de los artistas y eventos. El orden se respeta también al cargar más
+  ventanas con las flechas (el `sort` del cliente los deja delante).
   ⚠️ Lo personal (mis días, MI CALENDARIO y el de OFICINA) se añade **ANTES del mapa de artistas**: es
   ahí donde estos dos calendarios cogen nombre, foto y color, y el mapa se construye con los ids ya
   vistos. Los festivos y no laborables siguen yendo **sin calendario**, como siempre.
@@ -559,6 +569,15 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   material) y **`_song_delivery_config(link)`**, que dice para ESE enlace si cada cosa se pide y si
   obliga. Se guarda en `SongMasterDeliveryLink.fields_json`; los enlaces ANTIGUOS no lo traen y se
   reconstruye de sus secciones/materiales, así que se comportan igual que siempre.
+  · **PORTADA y TEXTO PARA EL PITCH** (ago 2026): se pueden pedir en el enlace y nacen **DESACTIVADOS**
+  (`SONG_DELIVERY_OFF_BY_DEFAULT`), o sea que solo se piden si se marcan a mano. La portada es un
+  módulo de material más (`mat.cover`) pero **es una IMAGEN**: no entra en
+  `SONG_DELIVERY_MATERIAL_SPECS` (la lista de audios), va por el SERVIDOR con `data-no-direct` —la
+  firma de subida directa solo admite .wav/.zip— y se guarda como `SongMaterial` COVER/COVER
+  pendiente de validar. El pitch es su propia sección (`PITCH`) y al consolidarlo entra en
+  `Song.pitch_text`, igual que si se escribiera a mano.
+  ⚠️ Los enlaces ANTIGUOS sin `materials_json` se rellenan con **`SONG_DELIVERY_LEGACY_MATERIALS`**
+  (los seis de audio), no con el catálogo entero: si no, empezarían a pedir la portada retroactivamente.
   · Al generar el enlace, cada campo lleva un **interruptor de TRES posiciones** con el mismo
   lenguaje que los de permisos (`.sw3` en `styles.css`, leyenda arriba): **apagado** = no se pide ·
   **ámbar en medio** = se pide · **verde a la derecha** = obligatorio. Se pincha en la posición que se
@@ -1749,6 +1768,13 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   serían decenas de llamadas y la pantalla se quedaría colgada) y hay cron
   `/cron/holded/refresh?key=HOLDED_CRON_KEY`. Lo que Holded no diga **no se toca**: mejor no saberlo
   que inventarlo.
+  · ⚠️ **LO CONTABILIZADO SE VE EN «CONTABILIZADO»** (corregido ago 2026): lo que se marcaba
+  desaparecía —se iba de pendiente y no salía en ninguna otra pestaña—. Dos causas, las dos
+  arregladas: la consulta de esa pestaña exigía además que el gasto siguiera **validado por
+  administración** (`consolidation_status`), que es un filtro de lo PENDIENTE y no de lo hecho (con
+  `only_done` ya no se aplica: lo que se marcó se ve siempre); y las **liquidaciones de royalties**
+  contabilizadas no se listaban en ningún sitio → módulo nuevo `_royalty_accounting_done_rows` en esa
+  pestaña, con su botón para devolverlas a pendiente.
   · **Royalties**: las liquidaciones pagadas siguen saliendo en su módulo, pero ahora
   `_royalty_accounting_pending_rows` **exige que su factura esté VALIDADA** — sin ese cruce se colaban
   las que alguien había marcado pagadas a mano sin factura (las pruebas antiguas, ninguna con número).

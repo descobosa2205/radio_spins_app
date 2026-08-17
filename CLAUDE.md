@@ -678,7 +678,9 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   con sus **tres puntitos** (editar · compartir por Email/WhatsApp/SMS · copiar enlace · eliminar);
   dentro, esas mismas opciones son **botonotes** (`.ficha-quick`).
   · **La playlist se ve IGUAL en todos los sitios**: punto único `templates/_playlist_view.html`
-  (la pantalla de dentro y el enlace público) — logo de la empresa del grupo arriba a la derecha,
+  (la pantalla de dentro y el enlace público) — logo de la empresa del grupo arriba a la derecha
+  **solo cuando SALE DE CASA** (`is_public`: el enlace público y el correo; dentro no se pinta, que es
+  nuestra pantalla y encima estorbaba a los botones) —,
   cabecera con su portada, la **nota solo si existe** y los temas con portada, título en negrita,
   artista con su foto y la duración. Al pasar el ratón la línea se subraya y sale el **play sobre la
   portada**; al pinchar en cualquier sitio suena y aparece a la derecha la **barra** (pausar,

@@ -20,7 +20,9 @@
 <div class="pl-sheet" data-playlist-player
      {% if duration_save_base %}data-duration-base="{{ duration_save_base }}"{% endif %}>
 
-  {% if brand and brand.logo_url %}
+  {# ⚠️ El LOGO de la empresa del grupo solo cuando la playlist SALE DE CASA: en el enlace público y en
+     el correo. Dentro no se pinta (es nuestra pantalla, y encima estorbaba a los botones). #}
+  {% if is_public and brand and brand.logo_url %}
     <div class="pl-sheet__brand">
       <img src="{{ brand.logo_url }}" alt="{{ brand.company_name }}">
     </div>

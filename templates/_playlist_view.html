@@ -1,0 +1,117 @@
+{# ================= LA PLAYLIST, TAL COMO SE VE =================
+   PUNTO ÚNICO de la playlist: lo usan la pantalla de dentro y el enlace público, así que se ve IGUAL
+   en los dos sitios (y el correo lleva el mismo diseño en HTML de correo: `_playlist_email_html`).
+
+   Arriba a la derecha el logo de la empresa del grupo, debajo la cabecera con su portada (si no
+   tiene, solo el título) y debajo los temas: portada, título en negrita, el artista con su foto y la
+   duración. Al pasar el ratón la línea se subraya y sale el PLAY sobre la portada; al pinchar en
+   cualquier sitio de la línea, suena.
+
+   ⚠️ El audio NUNCA se sirve desde Storage: `stream_url` es un endpoint nuestro que hace de puente,
+   así que la dirección del archivo no sale a la página. El icono de DESCARGAR solo existe si la
+   playlist lo permite (`pl.allow_download`).
+
+   Espera: `pl`, `items`, `brand` y (opcional) `duration_save_base` (donde apuntar la duración que
+   lee el navegador; solo dentro del back office). #}
+
+{% macro dur(seconds) %}{% if seconds %}{{ '%d:%02d'|format(seconds // 60, seconds % 60) }}{% endif %}{% endmacro %}
+
+<div class="pl-sheet" data-playlist-player
+     {% if duration_save_base %}data-duration-base="{{ duration_save_base }}"{% endif %}>
+
+  {% if brand and brand.logo_url %}
+    <div class="pl-sheet__brand">
+      <img src="{{ brand.logo_url }}" alt="{{ brand.company_name }}">
+    </div>
+  {% endif %}
+
+  {# ---------- CABECERA (viñeta) ---------- #}
+  <div class="pl-head">
+    {% if pl.cover_url %}
+      <img class="pl-head__cover" src="{{ pl.cover_url }}" alt="{{ pl.name }}" data-cover>
+    {% endif %}
+    <div class="pl-head__main">
+      <div class="pl-head__eyebrow">Playlist</div>
+      <h1 class="pl-head__title">{{ pl.name }}</h1>
+      <div class="pl-head__facts">
+        {% if pl.songs_count %}
+          <span><i class="fa fa-music"></i>{{ pl.songs_count }} tema{{ '' if pl.songs_count == 1 else 's' }}</span>
+        {% endif %}
+        {% if pl.duration_label %}
+          <span><i class="fa fa-clock"></i>{{ '+' if pl.duration_partial }}{{ pl.duration_label }}</span>
+        {% endif %}
+        {% if pl.allow_download %}
+          <span title="Esta playlist se puede descargar"><i class="fa fa-download"></i>Descarga permitida</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {# La NOTA solo se ve si existe. #}
+  {% if pl.note %}
+    <div class="pl-note"><i class="fa fa-note-sticky"></i><span>{{ pl.note }}</span></div>
+  {% endif %}
+
+  {# ---------- LOS TEMAS ---------- #}
+  {% if items %}
+    <ol class="pl-list">
+      {% for it in items %}
+        {% if it.kind == 'TITLE' %}
+          <li class="pl-item pl-item--title">{{ it.title or '' }}</li>
+        {% elif it.kind == 'DIVIDER' %}
+          <li class="pl-item pl-item--divider"><span></span></li>
+        {% else %}
+          <li class="pl-item pl-row{{ ' is-mute' if not it.stream_url }}" data-pl-row
+              data-pl-item="{{ it.id }}"
+              {% if it.stream_url %}data-pl-src="{{ it.stream_url }}"{% endif %}
+              data-pl-dur="{{ it.duration_seconds or '' }}">
+            <div class="pl-row__cover">
+              <img src="{{ it.cover_url or DEFAULT_COVER_URL }}" alt="" data-cover>
+              {% if it.stream_url %}
+                <span class="pl-row__play" aria-hidden="true"><i class="fa fa-play" data-pl-icon></i></span>
+              {% endif %}
+            </div>
+            <div class="pl-row__main">
+              <div class="pl-row__title">{{ it.title }}</div>
+              <div class="pl-row__artist">
+                {% if it.artist_name %}
+                  <img src="{{ it.artist_photo or DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
+                  <span>{{ it.artist_name }}</span>
+                {% endif %}
+                {% if it.subtitle %}<span class="pl-row__tag">{{ it.subtitle }}</span>{% endif %}
+              </div>
+            </div>
+
+            {# BARRA DE REPRODUCCIÓN: sale a la derecha de la línea cuando está sonando (pausar y
+               arrastrar para moverte, con el segundo por el que vas). #}
+            <div class="pl-row__player" data-pl-player-zone>
+              <button class="pl-row__pause" type="button" data-pl-toggle aria-label="Pausar">
+                <i class="fa fa-pause"></i>
+              </button>
+              <div class="pl-track" data-pl-track role="slider" tabindex="0" aria-label="Posición">
+                <div class="pl-track__fill" data-pl-fill></div>
+                <span class="pl-track__knob" data-pl-knob></span>
+              </div>
+              <span class="pl-row__time" data-pl-time>0:00</span>
+            </div>
+
+            <div class="pl-row__dur" data-pl-durlabel>{{ dur(it.duration_seconds) }}</div>
+
+            {% if pl.allow_download and it.download_wav_url %}
+              <div class="dropdown pl-row__dl">
+                <button class="pl-row__dlbtn" type="button" data-bs-toggle="dropdown"
+                        title="Descargar" aria-label="Descargar"><i class="fa fa-download"></i></button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                  <li><a class="dropdown-item" href="{{ it.download_wav_url }}"><i class="fa fa-file-audio fa-fw me-1"></i>WAV</a></li>
+                  <li><a class="dropdown-item" href="{{ it.download_mp3_url }}"><i class="fa fa-file-audio fa-fw me-1"></i>MP3</a></li>
+                </ul>
+              </div>
+            {% endif %}
+          </li>
+        {% endif %}
+      {% endfor %}
+    </ol>
+  {% else %}
+    <div class="pl-empty">Esta playlist todavía no tiene temas.</div>
+  {% endif %}
+</div>

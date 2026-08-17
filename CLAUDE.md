@@ -608,6 +608,59 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ El resumen del listado sale de **UNA** consulta para todas las demos (con 400 filas, una por demo
   sería inaceptable) y `public_demo_rating` está en las **tres** listas de endpoints públicos.
 
+- **DEMOS · cómo se lee una maqueta en el listado** (ago 2026, rediseño): la **PORTADA a la izquierda
+  del todo** (`SongDemo.cover_url`; sin portada, la imagen de «sin portada» del repertorio) y a su
+  derecha **DOS líneas cuadradas con el alto de la portada** (`.demo-row`, `.demo-row__body` con
+  `height` fijo: así todas las filas quedan alineadas): arriba el **título** con el **play a su
+  derecha** (la etiqueta de audio de siempre, `media_chip.js`, en su versión sin cápsula
+  `.mat-chip--bare`) y debajo, como subtítulo, la **foto y el nombre del artista**. La **nota**, si la
+  hay, debajo de todo. **Cuándo se subió y quién NO se enseñan**: van en el tooltip de una **«i»**
+  (`.demo-row__info`), junto al origen y los datos de quien la manda.
+  · Al subir (o editar) una demo se puede **añadir la portada arrastrándola o eligiéndola**
+  (`data-file-drop-for`, el mecanismo global) con vista previa; `cover_remove` la quita. Esa portada
+  se usa también en las **playlists** (una demo puesta en una playlist se ve con su portada).
+  ⚠️ A las personas se les marca la foto con `data-avatar="1"`: si su foto falla sale el muñequito
+  gris en vez de desaparecer el hueco (y las dos líneas siguen cuadradas).
+
+- **PLAY LIST** (ago 2026): listas de temas para **MANDARLAS**, en su pestaña de Discográfica
+  (`/discografica?section=playlists`). Modelos **`Playlist`** + **`PlaylistItem`**
+  (`ensure_playlists_schema`). Una línea es una **CANCIÓN** del repertorio, una **DEMO**, un **TÍTULO**
+  o una **DIVISIÓN** (`kind`, y el orden lo da `position`; mismo patrón que el set list de una
+  actividad). Se crean con **«+ Play List»** (solo el nombre) y se listan una debajo de otra, cada una
+  con sus **tres puntitos** (editar · compartir por Email/WhatsApp/SMS · copiar enlace · eliminar);
+  dentro, esas mismas opciones son **botonotes** (`.ficha-quick`).
+  · **La playlist se ve IGUAL en todos los sitios**: punto único `templates/_playlist_view.html`
+  (la pantalla de dentro y el enlace público) — logo de la empresa del grupo arriba a la derecha,
+  cabecera con su portada, la **nota solo si existe** y los temas con portada, título en negrita,
+  artista con su foto y la duración. Al pasar el ratón la línea se subraya y sale el **play sobre la
+  portada**; al pinchar en cualquier sitio suena y aparece a la derecha la **barra** (pausar,
+  arrastrar para moverte y el segundo por el que vas). **Al terminar una canción arranca la
+  siguiente** y solo suena una a la vez (`static/js/playlist.js`, un único `<audio>`).
+  · **EDICIÓN** (`?edit=1`): las líneas se **arrastran** para ordenarlas, arriba están «Añadir
+  canción» (pop-up: **Demos** → artistas con maquetas + «Sin artista» · **Repertorio** → artistas,
+  primero los que tienen contrato y el resto tras «ver más» → sus temas con portada), «Añadir un
+  título», «Añadir una división» y «Añadir una nota»; el **nombre se pincha** y delante sale el
+  **cuadradito de la portada** (se arrastra o se elige). Se guarda todo de una (`playlist_save`
+  reutiliza las líneas por su id, así un segundo guardado no duplica nada).
+  · ⚠️ **LAS CANCIONES NO SE DESCARGAN** salvo que la playlist lo permita: `allow_download` nace en
+  **false** y se cambia en la **pestaña «Descargas»** de la playlist (interruptor); en el listado se
+  ve con su icono (candado / descarga). El audio se sirve SIEMPRE por un endpoint nuestro que hace de
+  **puente** (`_playlist_audio_response`), así la dirección del archivo en Storage **no sale nunca a
+  la página** y el reproductor no lleva los controles nativos (que traen su propia descarga).
+  ⚠️ Ese puente **pasa el `Range`** que pide el navegador (y devuelve su 206 con `Content-Range`):
+  sin eso no se puede arrastrar la barra y Safari directamente no reproduce.
+  · **La duración la lee el navegador** (una lectura del principio de cada archivo, de una en una) y
+  se **apunta** en `PlaylistItem.duration_seconds` (`playlist_item_duration`) para no volver a
+  pedirla en cada carga; aquí no hay ffmpeg.
+  · **Compartir**: enlace público `public_playlist_view` (`/playlist/<token>`, token **opaco**) con el
+  juego de **og:** completo (`public_playlist_og_image`: la portada de la playlist y, si no tiene, la
+  del primer tema). El **correo** (`_playlist_email_html`) es «**Playlist \<nombre\>**» con la
+  cabecera de la playlist y el botón **Escuchar**, que lleva a ese enlace.
+  ⚠️ Los cuatro endpoints públicos están en las **tres** listas; los de dentro cuelgan de
+  `/discografica/playlists/...`, así que heredan el permiso de la sección por la ruta.
+  ⚠️ La sección `playlists` hay que tenerla en la **lista blanca de `section`** de `discografica_view`
+  (si no, cae en `canciones` y la pestaña sale marcada pero se pinta otra cosa).
+
 - ⚠️⚠️ **ENTREGA DE MASTERS · el 502 al enviar el formulario** (bug real, ago 2026). Los masters son
   archivos GRANDES: si viajan dentro del formulario, la petición se pasa del tiempo (y de la memoria)
   que el servidor le da y **muere con un 502 sin guardar nada** — el mismo caso que ya se resolvió con
@@ -791,6 +844,27 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   registrado en AGEDI y en AMARILLO si sigue pendiente** (macro `isrc_badge`, y lo mismo para los
   subproductos), con su leyenda arriba. Lo registrado sale de `SongStatus.agedi_registered_isrcs`
   —el mismo dato que manda en «Pendientes AGEDI»—, leído de una vez para todas las canciones.
+  · **Las COLUMNAS son las MISMAS en todos los artistas** (`.isrc-table` con `table-layout:fixed` +
+  `<colgroup>`): cada tabla se ajustaba a su contenido y de un bloque a otro no cuadraban. Se retiró
+  la indicación «De la publicación más próxima a la más antigua» (el orden sigue siendo ese).
+  · **DESCARGAR LISTADO** (ago 2026): botón con dos opciones, **Excel**
+  (`registros_isrc_export_xlsx`) y **PDF** (`registros_isrc_export_pdf`), que exportan **SOLO LO QUE
+  SE ESTÁ VIENDO**. Los filtros del formulario (artista y año) van en la URL como siempre, y los del
+  **navegador** —el chip de artista y el buscador— viajan también (`filtro_artista` y `q`) y se
+  vuelven a aplicar en el servidor con el MISMO criterio que el JS del panel (punto único
+  `_isrc_export_blocks`; el texto se compara con `_norm_text_key`, hermano de `normalizeSearchText`).
+  · **El PDF**: logo de PIES arriba a la **derecha** (en todas las páginas), «**Listado Códigos
+  ISRC**» centrado y debajo cada artista con su foto y sus canciones tal como se ven (los códigos, en
+  verde o ámbar según estén registrados en AGEDI). **Nada más**. Va en **horizontal** para que no se
+  corte nada y las páginas llevan **x/x** abajo a la derecha en pequeño (canvas propio: hay que saber
+  el total, así que se pinta en una segunda pasada).
+  ⚠️ `RLImage` **NO admite un `ImageReader`**: para una imagen dentro de una tabla hay que darle una
+  ruta o un fichero en memoria (`_flowable`); el `ImageReader` es solo para pintar en el lienzo. Si el
+  logo de la empresa no se puede leer, se cae al de la casa: es un documento que se manda fuera.
+  · **El nombre del archivo** es «Listado Códigos ISRC_\<artista\>» y, con varios, todos los nombres
+  que se están viendo separados por comas (`_isrc_export_filename`).
+  ⚠️ Los dos endpoints van en los **dos** mapeos de `registros_*` y sus enlaces llevan **`tab=isrc`**,
+  para que el permiso se resuelva contra la pestaña en la que se está.
 
 - **REGISTROS · qué conciertos se declaran y cada cuánto** (ago 2026):
   · **Solo de artistas con CONTRATO DISCOGRÁFICO**: `_artist_has_record_deal` (compromiso de

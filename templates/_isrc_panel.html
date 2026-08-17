@@ -76,7 +76,19 @@
     <div class="d-flex align-items-center gap-3 flex-wrap small text-muted mb-2">
       <span><span class="badge text-bg-success">ES-XXX-00-00000</span> registrado en AGEDI</span>
       <span><span class="badge text-bg-warning text-dark">ES-XXX-00-00000</span> pendiente de registrar</span>
-      <span class="ms-auto"><i class="fa fa-arrow-down-long me-1"></i>De la publicación más próxima a la más antigua</span>
+      {# DESCARGAR EL LISTADO: se exporta SOLO lo que se está viendo (los filtros del formulario van en
+         la URL y los del navegador —chip de artista y buscador— los añade el JS de abajo). #}
+      <span class="ms-auto">
+        <span class="dropdown">
+          <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown">
+            <i class="fa fa-download me-1"></i>Descargar listado
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><button class="dropdown-item" type="button" data-isrc-export="xlsx"><i class="fa fa-file-excel fa-fw me-1"></i>En Excel</button></li>
+            <li><button class="dropdown-item" type="button" data-isrc-export="pdf"><i class="fa fa-file-pdf fa-fw me-1"></i>En PDF</button></li>
+          </ul>
+        </span>
+      </span>
     </div>
     {% if not isrc_artist_blocks or (isrc_artist_blocks|length) == 0 %}
       <div class="text-muted">No hay canciones para los filtros seleccionados.</div>
@@ -93,7 +105,19 @@
             <div class="text-muted small">Este artista no tiene canciones en ese año.</div>
           {% else %}
             <div class="table-responsive bg-white border rounded">
-              <table class="table table-hover align-middle mb-0">
+              {# ⚠️ Las columnas son las MISMAS en todos los artistas (`isrc-table` + este colgroup):
+                 cada tabla se autoajustaba a su contenido y de un bloque a otro no cuadraban. #}
+              <table class="table table-hover align-middle mb-0 isrc-table">
+                <colgroup>
+                  <col style="width:64px">
+                  <col style="width:20%">
+                  <col style="width:14%">
+                  <col style="width:14%">
+                  <col style="width:7%">
+                  <col style="width:9%">
+                  <col style="width:17%">
+                  <col style="width:16%">
+                </colgroup>
                 <thead class="table-light">
                   <tr>
                     <th style="width:64px;"></th>
@@ -499,6 +523,29 @@
     aplica();
   });
   if (buscador) buscador.addEventListener('input', aplica);
+
+  // DESCARGAR EL LISTADO: se manda lo que hay puesto AHORA (el chip de artista y el buscador van en
+  // la URL, porque son filtros del navegador y el servidor no los conoce de otra manera).
+  var EXPORTA = {
+    xlsx: {{ url_for('registros_isrc_export_xlsx', tab='isrc')|tojson }},
+    pdf: {{ url_for('registros_isrc_export_pdf', tab='isrc')|tojson }}
+  };
+  raiz.addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-isrc-export]');
+    if (!b) return;
+    ev.preventDefault();
+    var base = EXPORTA[b.getAttribute('data-isrc-export')] || '';
+    if (!base) return;
+    var p = new URLSearchParams();
+    // Los filtros del formulario (artista y año) tal como están en la barra de direcciones.
+    var actuales = new URLSearchParams(window.location.search);
+    ['artist_id', 'year'].forEach(function (k) { if (actuales.get(k)) p.set(k, actuales.get(k)); });
+    if (elegido && elegido !== 'all') p.set('filtro_artista', elegido);
+    if (buscador && buscador.value.trim()) p.set('q', buscador.value.trim());
+    var q = p.toString();
+    window.location.href = base + (q ? (base.indexOf('?') >= 0 ? '&' : '?') + q : '');
+  });
+
   pintaBotones();
   aplica();
 })();

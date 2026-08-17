@@ -528,6 +528,9 @@ class SongDemo(Base):
     audio_url = Column(Text)
     audio_name = Column(Text)
     mime_type = Column(Text)
+    # PORTADA de la maqueta (se puede arrastrar o elegir al subirla). Las que no tengan enseñan la
+    # imagen de «sin portada», como el resto del repertorio.
+    cover_url = Column(Text)
     notes = Column(Text)
     # ⚠️ `status` es HISTÓRICO: una demo ya NO se aprueba ni se descarta (ago 2026). Se manda a
     # VALORAR al personal del sello y lo que cuenta son las valoraciones (`SongDemoRating`). La
@@ -585,6 +588,64 @@ class SongDemoRating(Base):
 
     __table_args__ = (
         Index("idx_song_demo_ratings_demo", "demo_id"),
+    )
+
+
+class Playlist(Base):
+    """Una PLAY LIST del sello: temas del repertorio y maquetas puestos en orden para MANDARLOS.
+
+    Se comparte por su enlace público (`public_token`, opaco: un enlace de hace dos años sigue
+    valiendo). ⚠️ `allow_download` nace en FALSE: por defecto una playlist se escucha, no se descarga.
+    """
+
+    __tablename__ = "playlists"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    name = Column(Text, nullable=False)
+    cover_url = Column(Text)
+    note = Column(Text)
+    allow_download = Column(Boolean, nullable=False, server_default=text("false"))
+    # Empresa del grupo cuyo logo va arriba a la derecha. Si está vacía, PIES (el sello).
+    company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
+    public_token = Column(Text, unique=True, index=True)
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    company = relationship("GroupCompany")
+    items = relationship("PlaylistItem", back_populates="playlist",
+                         cascade="all, delete-orphan", order_by="PlaylistItem.position")
+
+
+class PlaylistItem(Base):
+    """Una línea de la playlist: una CANCIÓN del repertorio, una DEMO, un TÍTULO o una DIVISIÓN.
+
+    El título y la división son adornos que se arrastran como cualquier otra línea (mismo patrón que
+    el set list de una actividad: `kind` decide qué es y el orden lo da `position`).
+    `duration_seconds` lo apunta el NAVEGADOR la primera vez que lee el audio (aquí no hay ffmpeg),
+    para no volver a pedir la cabecera del archivo en cada carga.
+    """
+
+    __tablename__ = "playlist_items"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    playlist_id = Column(PGUUID(as_uuid=True), ForeignKey("playlists.id", ondelete="CASCADE"),
+                         nullable=False, index=True)
+    position = Column(Integer, nullable=False, server_default=text("0"))
+    kind = Column(Text, nullable=False, server_default=text("'SONG'"))   # SONG|DEMO|TITLE|DIVIDER
+    song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="CASCADE"))
+    demo_id = Column(PGUUID(as_uuid=True), ForeignKey("song_demos.id", ondelete="CASCADE"))
+    title = Column(Text)
+    duration_seconds = Column(Integer)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    playlist = relationship("Playlist", back_populates="items")
+    song = relationship("Song")
+    demo = relationship("SongDemo")
+
+    __table_args__ = (
+        Index("idx_playlist_items_playlist", "playlist_id", "position"),
     )
 
 
@@ -10296,6 +10357,8 @@ def ensure_song_demos_schema():
         # apunta cuándo y quién lo pidió (a quién, en `song_demo_ratings`).
         "ALTER TABLE IF EXISTS song_demos ADD COLUMN IF NOT EXISTS rating_requested_at timestamptz;",
         "ALTER TABLE IF EXISTS song_demos ADD COLUMN IF NOT EXISTS rating_requested_by_nick text;",
+        # La portada de la maqueta (las que no tengan enseñan la imagen de «sin portada»).
+        "ALTER TABLE IF EXISTS song_demos ADD COLUMN IF NOT EXISTS cover_url text;",
         """
         CREATE TABLE IF NOT EXISTS song_demo_ratings (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -10315,6 +10378,43 @@ def ensure_song_demos_schema():
         """,
         "CREATE INDEX IF NOT EXISTS idx_song_demo_ratings_demo ON song_demo_ratings(demo_id);",
     ], label="ensure_song_demos_schema")
+
+
+def ensure_playlists_schema():
+    """PLAY LISTS del sello (pestaña Play List de Discográfica). Idempotente, sin Alembic."""
+    _create_all_once()
+    _exec_ddl_statements([
+        """
+        CREATE TABLE IF NOT EXISTS playlists (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            name text NOT NULL,
+            cover_url text,
+            note text,
+            allow_download boolean NOT NULL DEFAULT false,
+            company_id uuid REFERENCES group_companies(id) ON DELETE SET NULL,
+            public_token text UNIQUE,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_playlists_token ON playlists(public_token);",
+        """
+        CREATE TABLE IF NOT EXISTS playlist_items (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            playlist_id uuid NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+            position integer NOT NULL DEFAULT 0,
+            kind text NOT NULL DEFAULT 'SONG',
+            song_id uuid REFERENCES songs(id) ON DELETE CASCADE,
+            demo_id uuid REFERENCES song_demos(id) ON DELETE CASCADE,
+            title text,
+            duration_seconds integer,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_playlist_items_playlist ON playlist_items(playlist_id, position);",
+    ], label="ensure_playlists_schema")
 
 
 def ensure_vacations_schema():

@@ -53,6 +53,12 @@
       Demos
     </a>
   </li>
+  <li class="nav-item">
+    <a class="nav-link {% if section=='playlists' %}active{% endif %}"
+       href="{{ url_for('discografica_view', section='playlists') }}">
+      Play List
+    </a>
+  </li>
 </ul>
 
 {% if section == 'lanzamientos' %}
@@ -1073,11 +1079,21 @@
     <div class="list-group">
       {% for row in d.rows %}
         <div class="list-group-item">
-          <div class="d-flex justify-content-between gap-3 flex-wrap">
-            <div class="flex-grow-1" style="min-width:12rem">
-              <div class="d-flex align-items-center gap-2 flex-wrap">
-                {% if row.who_photo %}<img loading="lazy" class="inv-person-ava {{ 'is-photo' if row.who_is_person else 'is-logo' }}" src="{{ row.who_photo }}" alt="">{% endif %}
-                <strong>{{ row.title }}</strong>
+          {# MAQUETA · la PORTADA a la izquierda del todo (si no tiene, la imagen de «sin portada») y a
+             su derecha DOS líneas cuadradas con su alto: el título con el play al lado, y debajo la
+             foto y el nombre del artista. Cuándo se subió y quién no se enseñan: van en la «i». #}
+          <div class="demo-row">
+            <img class="demo-row__cover" loading="lazy" src="{{ row.cover_url or DEFAULT_COVER_URL }}" alt="" data-cover>
+            <div class="demo-row__body">
+              <div class="demo-row__line demo-row__line--title">
+                <strong class="demo-row__title">{{ row.title }}</strong>
+                {# El PLAY, a la derecha del título (media_chip.js: suena al pinchar y solo uno a la vez). #}
+                {% if row.is_audio %}
+                  <span class="mat-chip mat-chip--bare" data-chip-src="{{ row.audio_url }}" title="Reproducir">
+                    <span class="mat-chip__btn"><i class="fa fa-play" data-chip-icon></i></span>
+                    <span class="mat-chip__dur" data-chip-dur></span>
+                  </span>
+                {% endif %}
                 {# ICONO DE VALORACIÓN: verde cuando han valorado todos, amarillo si falta gente. Al
                    pincharlo salen los resultados (quién ha dicho qué, la media y qué ha ganado). #}
                 {% if row.rating.asked %}
@@ -1089,30 +1105,26 @@
                     {% if row.rating.avg is not none %} · {{ row.rating.avg }}{% endif %}
                   </button>
                 {% endif %}
-                <span class="badge text-bg-light border">{{ row.origin_label }}</span>
                 {% if row.song_id %}<a class="badge text-bg-info text-decoration-none" href="{{ url_for('discografica_song_detail', song_id=row.song_id, tab='informacion') }}"><i class="fa fa-music me-1"></i>En el repertorio</a>{% endif %}
+                {# La «i»: al pasar el ratón dice cuándo se subió, quién y desde dónde. #}
+                <span class="demo-row__info" tabindex="0" role="button"
+                      title="{{ row.origin_label }}{% if row.created_at_label %} · añadida el {{ row.created_at_label }}{% if row.created_by_nick %} por {{ row.created_by_nick }}{% endif %}{% endif %}{% if row.sender_email %} · {{ row.sender_email }}{% endif %}{% if row.sender_phone %} · {{ row.sender_phone }}{% endif %}{% if row.rating_requested_at_label %} · enviada a valorar el {{ row.rating_requested_at_label }}{% if row.rating_requested_by_nick %} por {{ row.rating_requested_by_nick }}{% endif %}{% endif %}">
+                  <i class="fa fa-info"></i>
+                </span>
               </div>
-              <div class="small text-muted mt-1">
+              <div class="demo-row__line demo-row__line--artist">
+                {% if row.who_photo %}
+                  {# `data-avatar` en las personas: si su foto falla, sale el muñequito gris en vez de
+                     desaparecer el hueco (y las dos líneas siguen alineadas). #}
+                  <img loading="lazy" class="inv-person-ava {{ 'is-photo' if row.who_is_person else 'is-logo' }}"
+                       src="{{ row.who_photo }}" alt="" {% if row.who_is_person %}data-avatar="1"{% endif %}>
+                {% else %}
+                  <img loading="lazy" class="inv-person-ava is-photo" src="{{ DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
+                {% endif %}
                 {% if row.artist_id %}
-                  <a class="text-reset" href="{{ url_for('artist_detail_view', artist_id=row.artist_id) }}">{{ row.who }}</a>
-                {% else %}{{ row.who }}{% endif %}
-                {% if row.sender_email %} · <a href="mailto:{{ row.sender_email }}">{{ row.sender_email }}</a>{% endif %}
-                {% if row.sender_phone %} · {{ row.sender_phone }}{% endif %}
-                {% if row.created_at_label %} · añadida el {{ row.created_at_label }}{% if row.created_by_nick %} por {{ row.created_by_nick }}{% endif %}{% endif %}
+                  <a class="text-reset text-decoration-none" href="{{ url_for('artist_detail_view', artist_id=row.artist_id) }}">{{ row.who }}</a>
+                {% else %}<span>{{ row.who }}</span>{% endif %}
               </div>
-              {% if row.notes %}<div class="small mt-1"><i class="fa fa-note-sticky me-1 text-muted"></i>{{ row.notes }}</div>{% endif %}
-              {% if row.rating_requested_at_label %}<div class="small mt-1 text-muted"><i class="fa fa-paper-plane me-1"></i>Enviada a valorar el {{ row.rating_requested_at_label }}{% if row.rating_requested_by_nick %} por {{ row.rating_requested_by_nick }}{% endif %}</div>{% endif %}
-              {# La etiqueta de audio del sistema (media_chip.js, global): suena al pinchar y solo
-                 uno a la vez; la duración la lee el navegador. #}
-              {% if row.is_audio %}
-                <div class="mt-2">
-                  <span class="mat-chip" data-chip-src="{{ row.audio_url }}" title="Reproducir">
-                    <span class="mat-chip__btn"><i class="fa fa-play" data-chip-icon></i></span>
-                    <span class="mat-chip__kind"><i class="fa fa-file-audio"></i>Audio</span>
-                    <span class="mat-chip__dur" data-chip-dur></span>
-                  </span>
-                </div>
-              {% endif %}
             </div>
             <div class="d-flex align-items-start gap-2">
               {% if CAN_EDIT_DISCOGRAFICA %}
@@ -1150,6 +1162,10 @@
               {% endif %}
             </div>
           </div>
+          {# La NOTA, debajo, y solo si la hay. #}
+          {% if row.notes %}
+            <div class="demo-row__note"><i class="fa fa-note-sticky me-1 text-muted"></i>{{ row.notes }}</div>
+          {% endif %}
         </div>
       {% endfor %}
     </div>
@@ -1400,6 +1416,29 @@
             <div class="progress mt-2 d-none" id="demoProgress" style="height:18px"><div class="progress-bar bg-danger" id="demoProgressBar" style="width:0%">0%</div></div>
             <input type="hidden" name="uploaded_json" id="demoUploaded" value="">
           </div>
+          {# PORTADA de la maqueta: se puede ARRASTRAR o elegir (el arrastre lo resuelve el
+             `file_drop.js` global con `data-file-drop-for`). Sin portada se enseña la imagen de
+             «sin portada», como en el repertorio. #}
+          <div class="mb-2">
+            <label class="form-label">Portada <span class="text-muted">(opcional)</span></label>
+            <div class="d-flex gap-2 align-items-start">
+              <img class="demo-cover-preview" id="demoCoverPreview" src="{{ DEFAULT_COVER_URL }}" alt="" data-cover>
+              <div class="flex-grow-1">
+                <div class="decl-drop" id="demoCoverZone" role="button" tabindex="0" data-file-drop-for="#demoCover">
+                  <i class="fa fa-image decl-drop__icon"></i>
+                  <div class="fw-semibold">Arrastra aquí la portada</div>
+                  <div class="small text-muted">o pincha para seleccionarla</div>
+                  <div class="small mt-1 fw-semibold text-success" id="demoCoverName"></div>
+                </div>
+                <input class="form-control mt-2" type="file" name="cover" id="demoCover"
+                       accept="image/png,image/jpeg,image/webp,image/gif">
+                <div class="form-check mt-2 d-none" id="demoCoverRemoveBox">
+                  <input class="form-check-input" type="checkbox" name="cover_remove" value="1" id="demoCoverRemove">
+                  <label class="form-check-label small" for="demoCoverRemove">Quitar la portada que tiene</label>
+                </div>
+              </div>
+            </div>
+          </div>
           <div class="mb-1">
             <label class="form-label">Notas</label>
             <textarea class="form-control" name="notes" id="demoNotes" rows="2" placeholder="Qué nos parece, con quién hay que hablar…"></textarea>
@@ -1420,6 +1459,7 @@
       var FIRMAR = {{ url_for('discografica_demo_sign')|tojson }};
       var CREAR = {{ url_for('discografica_demo_create')|tojson }};
       var EDITAR = {{ url_for('discografica_demo_update', demo_id='DID')|tojson }};
+      var SIN_PORTADA = {{ DEFAULT_COVER_URL|tojson }};
 
       function panel() {
         var v = document.getElementById('demoOrigin').value;
@@ -1438,9 +1478,18 @@
         if (!nuevo && !editar) return;
         document.getElementById('demoUploaded').value = '';
         document.getElementById('demoProgress').classList.add('d-none');
+        // La PORTADA se deja como estaba al abrir (sin archivo elegido y sin marcar quitarla).
+        var vista = document.getElementById('demoCoverPreview');
+        var nombreP = document.getElementById('demoCoverName');
+        var cajaQuitar = document.getElementById('demoCoverRemoveBox');
+        document.getElementById('demoCover').value = '';
+        document.getElementById('demoCoverRemove').checked = false;
+        if (nombreP) nombreP.textContent = '';
         if (nuevo) {
           form.action = CREAR;
           form.reset();
+          if (vista) vista.src = SIN_PORTADA;
+          if (cajaQuitar) cajaQuitar.classList.add('d-none');
           document.getElementById('demoModalTitle').innerHTML = '<i class="fa fa-music me-2"></i>Nueva demo';
         } else {
           var d = {};
@@ -1454,9 +1503,21 @@
           document.getElementById('demoEmail').value = d.sender_email || '';
           document.getElementById('demoPhone').value = d.sender_phone || '';
           document.getElementById('demoNotes').value = d.notes || '';
+          if (vista) vista.src = d.cover_url || SIN_PORTADA;
+          if (cajaQuitar) cajaQuitar.classList.toggle('d-none', !d.cover_url);
           try { if (window.jQuery) jQuery('#demoArtist').trigger('change.select2'); } catch (e) {}
         }
         panel();
+      });
+
+      // Al elegir (o soltar) la portada se enseña cómo va a quedar.
+      document.addEventListener('change', function (ev) {
+        if (ev.target.id !== 'demoCover') return;
+        var f = ev.target.files && ev.target.files[0];
+        var vista = document.getElementById('demoCoverPreview');
+        document.getElementById('demoCoverName').textContent = f ? f.name : '';
+        if (f && vista) { try { vista.src = URL.createObjectURL(f); } catch (e) {} }
+        if (f) document.getElementById('demoCoverRemove').checked = false;
       });
 
       // El audio se sube ANTES, directo al almacenamiento: una maqueta puede pesar como un master.
@@ -1501,6 +1562,93 @@
       });
     })();
   </script>
+  {% endif %}
+
+{% elif section == 'playlists' %}
+  {# PLAY LIST · las listas de temas que se mandan. Una debajo de otra, cada una con sus 3 puntitos
+     (editar, compartir por Email/WhatsApp/SMS, copiar enlace y eliminar) y, al pinchar, su ficha. #}
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <h5 class="m-0">Play List</h5>
+      <span class="badge text-bg-light border">{{ (playlist_rows or [])|length }}</span>
+    </div>
+    {% if CAN_EDIT_DISCOGRAFICA %}
+      <button class="btn btn-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#playlistNewModal">
+        <i class="fa fa-plus me-1"></i>Play List
+      </button>
+    {% endif %}
+  </div>
+
+  {% if playlist_rows %}
+    <div class="list-group pl-index">
+      {% for row in playlist_rows %}
+        <div class="list-group-item d-flex align-items-center gap-3">
+          <a class="pl-index__link d-flex align-items-center gap-3 flex-grow-1 text-reset text-decoration-none"
+             href="{{ row.url }}">
+            <img class="pl-index__cover" src="{{ row.cover_url or DEFAULT_COVER_URL }}" alt="" data-cover>
+            <span class="flex-grow-1" style="min-width:8rem">
+              <span class="d-block fw-bold">{{ row.name }}</span>
+              <span class="d-block small text-muted">
+                {{ row.songs_count }} tema{{ '' if row.songs_count == 1 else 's' }}
+                {%- if row.created_at_label %} · creada el {{ row.created_at_label }}{% if row.created_by_nick %} por {{ row.created_by_nick }}{% endif %}{% endif %}
+              </span>
+            </span>
+            {# El icono dice si esa playlist se puede descargar o no. #}
+            {% if row.allow_download %}
+              <span class="badge text-bg-success" title="Se puede descargar"><i class="fa fa-download"></i></span>
+            {% else %}
+              <span class="badge text-bg-light border text-muted" title="No se puede descargar"><i class="fa fa-lock"></i></span>
+            {% endif %}
+          </a>
+          <div class="dropdown">
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              {% if CAN_EDIT_DISCOGRAFICA %}
+                <li><a class="dropdown-item" href="{{ url_for('playlist_detail_view', playlist_id=row.id, edit=1) }}"><i class="fa fa-pen fa-fw me-1"></i>Editar</a></li>
+              {% endif %}
+              <li><button class="dropdown-item" type="button" onclick="shareByMail('{{ row.share_subject|e }}', '{{ row.public_url }}')"><i class="fa fa-envelope fa-fw me-1"></i>Compartir por Email</button></li>
+              <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('{{ row.share_subject|e }}', '{{ row.public_url }}')"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>WhatsApp</button></li>
+              <li><button class="dropdown-item" type="button" onclick="shareBySms('{{ row.share_subject|e }}', '{{ row.public_url }}')"><i class="fa fa-comment-sms fa-fw me-1"></i>SMS</button></li>
+              <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ row.public_url }}')"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+              {% if CAN_EDIT_DISCOGRAFICA %}
+                <li><hr class="dropdown-divider"></li>
+                <li>
+                  <form method="post" action="{{ url_for('playlist_delete', playlist_id=row.id) }}"
+                        data-confirm="¿Eliminar la playlist «{{ row.name|e }}»? No se borra ninguna canción, solo la lista.">
+                    <button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button>
+                  </form>
+                </li>
+              {% endif %}
+            </ul>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="alert alert-light border">Todavía no hay ninguna playlist. Créala con el botón «+ Play List».</div>
+  {% endif %}
+
+  {% if CAN_EDIT_DISCOGRAFICA %}
+    <div class="modal fade" id="playlistNewModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <form class="modal-content" method="post" action="{{ url_for('playlist_create') }}">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="fa fa-list-ol me-2 text-muted"></i>Nueva Play List</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <label class="form-label">Nombre</label>
+            <input class="form-control" name="name" required autocomplete="off"
+                   placeholder="Cómo se llama la playlist">
+            <div class="form-text">Luego le pones la portada y le vas añadiendo los temas.</div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button class="btn btn-danger">Crear</button>
+          </div>
+        </form>
+      </div>
+    </div>
   {% endif %}
 
 {% else %}

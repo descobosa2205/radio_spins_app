@@ -49,6 +49,7 @@ from markupsafe import Markup, escape
 import calendar as _cal
 from urllib.parse import quote, quote_plus, urlsplit, urlunsplit, parse_qsl, parse_qs, urlencode, unquote
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 from decimal import Decimal, InvalidOperation
 from email.message import EmailMessage
 from email.utils import formataddr
@@ -162,6 +163,8 @@ from models import (
     SongMasterDeliveryLink,
     SongDemo,
     SongDemoRating,
+    Playlist,
+    PlaylistItem,
     SongCertification,
     SongProductionContract,
     SongStatus,
@@ -293,6 +296,7 @@ from models import (
     UserContract,
     ensure_vacations_schema,
     ensure_song_demos_schema,
+    ensure_playlists_schema,
     PersonDocRequest,
     ThirdPartyIntakeLink,
     ensure_third_party_intake_schema,
@@ -428,7 +432,7 @@ _CSRF_EXEMPT_ENDPOINTS = {
     "public_invitation_request_resend",
     "public_invitation_request_recategorize",
     "public_song_master_delivery",
-    "public_demo_rating",
+    "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating",
     "public_song_delivery_sign",
     "public_song_delivery_create_author",
     "public_song_delivery_create_publisher",
@@ -792,7 +796,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
+    allowed = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
     if request.endpoint in allowed:
         return
 
@@ -12210,8 +12214,10 @@ def discografica_view():
     income_upload_report = None
     income_import_review = None
 
+    # ⚠️ Una sección NUEVA hay que añadirla a esta lista blanca: si no, cae en «canciones» y la
+    #    pestaña sale marcada pero se pinta otra cosa (bug real de la épica de demos).
     if section not in ("lanzamientos", "canciones", "royalties", "editorial", "registros", "ingresos",
-                       "isrc", "adelantos", "demos"):
+                       "isrc", "adelantos", "demos", "playlists"):
         section = "canciones"
     if section == "registros":
         legacy_tab = (request.args.get("registros_tab") or request.args.get("tab") or "pendiente").strip().lower()
@@ -12236,6 +12242,9 @@ def discografica_view():
 
     # DEMOS: el listado solo se calcula cuando se está mirando esa sección.
     demos_ctx = _demos_context(session_db) if section == "demos" else None
+
+    # PLAY LIST: igual, solo cuando se está mirando esa sección.
+    playlist_rows = _playlist_rows(session_db) if section == "playlists" else None
 
     # Solo artistas con contrato Discográfico / Catálogo / Distribución (para alta de canciones)
     contract_artist_ids = _artist_ids_with_discography_contracts(session_db)
@@ -13255,6 +13264,8 @@ def discografica_view():
         section=section,
         # DEMOS: solo se calcula cuando se está mirando esa sección.
         demos_ctx=demos_ctx,
+        # PLAY LIST: el listado (una debajo de otra), solo en su pestaña.
+        playlist_rows=playlist_rows,
         demo_origins=DEMO_ORIGINS,
         demo_statuses=DEMO_STATUSES,
         demo_rating_filters=DEMO_RATING_FILTERS,
@@ -18976,6 +18987,7 @@ def _demo_row_payload(session_db, row) -> dict:
         "who_is_person": bool(es_persona),
         "sender_email": (row.sender_email or "").strip(),
         "sender_phone": (row.sender_phone or "").strip(),
+        "cover_url": (getattr(row, "cover_url", None) or "").strip(),
         "audio_url": (row.audio_url or "").strip(),
         "audio_name": (row.audio_name or "").strip(),
         "file_url": (row.audio_url or "").strip(),      # para el reproductor (media_chip.js)
@@ -19320,6 +19332,23 @@ def _demo_apply_form(session_db, row, form, files) -> list:
         if not row.sender_name:
             fallos.append("Dinos quién manda la demo.")
     row.notes = (form.get("notes") or "").strip() or None
+    # LA PORTADA: se puede arrastrar o elegir (es una imagen, así que va por el servidor). Quitarla es
+    # deliberado (`cover_remove`); no mandar nada deja la que hubiera.
+    if _truthy(form.get("cover_remove")):
+        row.cover_url = None
+    else:
+        portada = files.get("cover") if files else None
+        if portada and getattr(portada, "filename", ""):
+            try:
+                url = upload_image(portada, "song_demos")
+            except Exception as e:
+                app.logger.exception("[demos] no se pudo subir la portada")
+                fallos.append("No se pudo subir la portada: %s" % e)
+                url = None
+            if url:
+                row.cover_url = url
+            elif not fallos:
+                fallos.append("La portada tiene que ser una imagen (png, jpg, webp…).")
     # El audio: subido directamente (llega su dirección) o por el servidor.
     subido = _json_dict(form.get("uploaded_json"))
     clave = ((subido.get("audio") or {}).get("key") if isinstance(subido.get("audio"), dict) else "") or ""
@@ -19649,6 +19678,824 @@ def discografica_demo_delete(demo_id):
     finally:
         session_db.close()
     return redirect(url_for("discografica_view", section="demos"))
+
+
+# =========================================================
+# PLAY LIST (Discográfica) · listas de temas para MANDARLAS
+# =========================================================
+# Una playlist lleva canciones del repertorio, maquetas (demos), TÍTULOS y DIVISIONES, y se ve IGUAL
+# en los tres sitios (la pantalla de dentro, el enlace público y el correo): logo de la empresa del
+# grupo arriba a la derecha, la cabecera con su portada y debajo los temas.
+#
+# ⚠️ LAS CANCIONES NO SE DESCARGAN salvo que la playlist lo permita (`allow_download`, apagado al
+# nacer): el audio se sirve SIEMPRE por un endpoint nuestro que hace de puente
+# (`_playlist_audio_response`, con soporte de `Range` para poder arrastrar la barra), así que la
+# dirección del archivo en Storage no sale nunca a la página, y el reproductor no lleva los controles
+# nativos del navegador (que traen su propio menú de descarga).
+
+PLAYLIST_ITEM_KINDS = {"SONG", "DEMO", "TITLE", "DIVIDER"}
+# Lo que se puede bajar cuando la playlist lo permite.
+PLAYLIST_DOWNLOAD_FORMATS = ("wav", "mp3")
+
+
+def _playlist_or_404(session_db, playlist_id):
+    row = session_db.get(Playlist, to_uuid(playlist_id)) if playlist_id else None
+    if not row:
+        abort(404)
+    return row
+
+
+def _ensure_playlist_token(session_db, pl) -> str:
+    """El token del enlace público. OPACO a propósito (no firmado): un enlace compartido hace dos
+    años tiene que seguir valiendo (los firmados a un año ya dieron un bug real)."""
+    token = (getattr(pl, "public_token", None) or "").strip()
+    if not token:
+        token = _uuid_token()
+        pl.public_token = token
+        session_db.flush()
+    return token
+
+
+def _playlist_share_url(session_db, pl) -> str:
+    return _external_url_for("public_playlist_view", token=_ensure_playlist_token(session_db, pl))
+
+
+def _playlist_brand(session_db, pl) -> dict:
+    """La empresa del grupo cuyo logo va arriba a la derecha: la de la playlist y, si no tiene, PIES
+    (que es la del sello, dueño de todo lo discográfico)."""
+    empresa = None
+    if getattr(pl, "company_id", None):
+        empresa = session_db.get(GroupCompany, pl.company_id)
+    if empresa is None:
+        empresa = _pies_group_company(session_db)
+    logo = (getattr(empresa, "logo_url", None) or "").strip()
+    if not logo:
+        try:
+            logo = url_for("static", filename="img/logo.png")      # PIES
+        except Exception:
+            logo = ""
+    return {
+        "company_name": (getattr(empresa, "name", None) or "PIES Records"),
+        "logo_url": _absolute_media_url(logo) if logo else "",
+    }
+
+
+def _song_master_material(session_db, song_id):
+    """El MASTER de una canción (el que se escucha y el que se baja). Mismo criterio que el
+    repertorio público: el slot de más calidad disponible y, a igualdad, el último subido."""
+    if not song_id:
+        return None
+    return (
+        session_db.query(SongMaterial)
+        .filter(SongMaterial.song_id == song_id)
+        .filter(func.upper(SongMaterial.category) == "MASTER")
+        .order_by(SongMaterial.slot_key.desc(), SongMaterial.created_at.desc())
+        .first()
+    )
+
+
+def _playlist_item_audio_source(session_db, item) -> tuple:
+    """(url del archivo, nombre) del audio de una línea. Vacío si esa línea no suena."""
+    kind = (getattr(item, "kind", None) or "SONG").strip().upper()
+    if kind == "SONG":
+        row = _song_master_material(session_db, getattr(item, "song_id", None))
+        if row:
+            return (getattr(row, "file_url", None) or "").strip(), (getattr(row, "file_name", None) or "").strip()
+        return "", ""
+    if kind == "DEMO":
+        demo = getattr(item, "demo", None) or (session_db.get(SongDemo, item.demo_id) if item.demo_id else None)
+        if demo:
+            return (getattr(demo, "audio_url", None) or "").strip(), (getattr(demo, "audio_name", None) or "").strip()
+    return "", ""
+
+
+def _playlist_item_payload(session_db, pl, item, *, token: str | None = None) -> dict:
+    """Una línea de la playlist tal como se ve (dentro, en el enlace público y en el correo).
+
+    `token` != None significa PÚBLICO: los enlaces de audio y de descarga se construyen contra la
+    página pública en vez de contra los endpoints de dentro."""
+    kind = (getattr(item, "kind", None) or "SONG").strip().upper()
+    if kind not in PLAYLIST_ITEM_KINDS:
+        kind = "SONG"
+    fila = {
+        "id": str(item.id),
+        "kind": kind,
+        "title": (getattr(item, "title", None) or "").strip(),
+        "subtitle": "",
+        "artist_id": "",
+        "artist_name": "",
+        "artist_photo": "",
+        "cover_url": "",
+        "song_id": str(item.song_id) if getattr(item, "song_id", None) else "",
+        "demo_id": str(item.demo_id) if getattr(item, "demo_id", None) else "",
+        "duration_seconds": int(getattr(item, "duration_seconds", None) or 0) or 0,
+        "stream_url": "",
+        "download_wav_url": "",
+        "download_mp3_url": "",
+        "detail_url": "",
+    }
+    if kind in ("TITLE", "DIVIDER"):
+        return fila
+
+    if kind == "SONG":
+        song = getattr(item, "song", None) or (session_db.get(Song, item.song_id) if item.song_id else None)
+        if song is None:
+            # La canción ya no existe (la línea se queda como título, para no perder el orden).
+            fila["kind"] = "TITLE"
+            fila["title"] = fila["title"] or "—"
+            return fila
+        artista = _song_primary_artist(session_db, song)
+        fila["title"] = fila["title"] or (getattr(song, "title", None) or "").strip() or "Sin título"
+        fila["cover_url"] = (getattr(song, "cover_url", None) or "").strip()
+        fila["artist_id"] = str(getattr(artista, "id", "")) if artista else ""
+        fila["artist_name"] = (getattr(artista, "name", None) or "").strip()
+        fila["artist_photo"] = (getattr(artista, "photo_url", None) or "").strip()
+        try:
+            fila["detail_url"] = url_for("discografica_song_detail", song_id=song.id, tab="informacion")
+        except Exception:
+            fila["detail_url"] = ""
+    else:   # DEMO
+        demo = getattr(item, "demo", None) or (session_db.get(SongDemo, item.demo_id) if item.demo_id else None)
+        if demo is None:
+            fila["kind"] = "TITLE"
+            fila["title"] = fila["title"] or "—"
+            return fila
+        d = _demo_row_payload(session_db, demo)
+        fila["title"] = fila["title"] or d["title"]
+        fila["cover_url"] = d["cover_url"]
+        fila["artist_name"] = d["who"]
+        fila["artist_photo"] = d["who_photo"]
+        fila["artist_id"] = d["artist_id"]
+        fila["subtitle"] = "Maqueta"
+
+    url_audio, _nombre = _playlist_item_audio_source(session_db, item)
+    if url_audio:
+        if token:
+            fila["stream_url"] = url_for("public_playlist_audio", token=token, item_id=item.id)
+        else:
+            fila["stream_url"] = url_for("playlist_item_audio", playlist_id=pl.id, item_id=item.id)
+        if bool(getattr(pl, "allow_download", False)):
+            for fmt in PLAYLIST_DOWNLOAD_FORMATS:
+                if token:
+                    destino = url_for("public_playlist_download", token=token, item_id=item.id, fmt=fmt)
+                else:
+                    destino = url_for("playlist_item_download", playlist_id=pl.id, item_id=item.id, fmt=fmt)
+                fila["download_%s_url" % fmt] = destino
+    return fila
+
+
+def _playlist_items_ordered(session_db, pl) -> list:
+    return (session_db.query(PlaylistItem)
+            .filter(PlaylistItem.playlist_id == pl.id)
+            .order_by(PlaylistItem.position.asc(), PlaylistItem.created_at.asc())
+            .all())
+
+
+def _playlist_context(session_db, pl, *, token: str | None = None) -> dict:
+    """Todo lo que necesita la playlist para verse (la misma en los tres sitios)."""
+    items = _playlist_items_ordered(session_db, pl)
+    filas = [_playlist_item_payload(session_db, pl, it, token=token) for it in items]
+    suenan = [f for f in filas if f["kind"] in ("SONG", "DEMO")]
+    conocidas = [f["duration_seconds"] for f in suenan if f["duration_seconds"]]
+    brand = _playlist_brand(session_db, pl)
+    return {
+        "playlist": pl,
+        "pl": {
+            "id": str(pl.id),
+            "name": (pl.name or "").strip() or "Playlist",
+            "cover_url": (pl.cover_url or "").strip(),
+            "note": (pl.note or "").strip(),
+            "allow_download": bool(pl.allow_download),
+            "songs_count": len(suenan),
+            "duration_label": _playlist_duration_label(sum(conocidas)) if conocidas else "",
+            "duration_partial": bool(conocidas) and len(conocidas) < len(suenan),
+        },
+        "items": filas,
+        "brand": brand,
+        "public_url": _playlist_share_url(session_db, pl),
+        "share_subject": "Playlist %s" % ((pl.name or "").strip() or ""),
+        "is_public": bool(token),
+    }
+
+
+def _playlist_duration_label(total_seconds: int) -> str:
+    s = int(total_seconds or 0)
+    if s <= 0:
+        return ""
+    if s < 60:
+        return "%d s" % s          # con menos de un minuto, «0 min» no dice nada
+    h, m = divmod(s // 60, 60)
+    return ("%dh %02dmin" % (h, m)) if h else ("%d min" % m)
+
+
+def _playlist_rows(session_db) -> list:
+    """El listado de playlists (una debajo de otra) con lo que se ve de cada una."""
+    filas = []
+    playlists = (session_db.query(Playlist)
+                 .order_by(Playlist.created_at.desc())
+                 .limit(400).all())
+    if not playlists:
+        return filas
+    ids = [p.id for p in playlists]
+    cuenta = {}
+    for pid, n in (session_db.query(PlaylistItem.playlist_id, func.count(PlaylistItem.id))
+                   .filter(PlaylistItem.playlist_id.in_(ids))
+                   .filter(PlaylistItem.kind.in_(["SONG", "DEMO"]))
+                   .group_by(PlaylistItem.playlist_id).all()):
+        cuenta[str(pid)] = int(n or 0)
+    faltaban_tokens = any(not (getattr(p, "public_token", None) or "").strip() for p in playlists)
+    for p in playlists:
+        filas.append({
+            "id": str(p.id),
+            "name": (p.name or "").strip() or "Playlist",
+            "cover_url": (p.cover_url or "").strip(),
+            "allow_download": bool(p.allow_download),
+            "songs_count": cuenta.get(str(p.id), 0),
+            "created_at_label": _demo_dt_label(getattr(p, "created_at", None)),
+            "created_by_nick": (p.created_by_nick or "").strip(),
+            "url": url_for("playlist_detail_view", playlist_id=p.id),
+            "public_url": _playlist_share_url(session_db, p),
+            "share_subject": "Playlist %s" % ((p.name or "").strip() or ""),
+        })
+    # Los enlaces se construyen con el token, así que si alguna playlist no lo tenía se acaba de
+    # crear: hay que dejarlo guardado o el enlace compartido dejaría de valer al recargar.
+    if faltaban_tokens:
+        try:
+            session_db.commit()
+        except Exception:
+            session_db.rollback()
+            app.logger.exception("[playlist] no se pudo guardar el token público")
+    return filas
+
+
+def _playlist_email_html(ctx: dict, *, note: str = "") -> str:
+    """El correo de una playlist: logo de la empresa arriba a la DERECHA, «Playlist» centrado, la
+    CABECERA de la playlist y el botón de ESCUCHAR, que lleva al enlace público.
+
+    ⚠️ Estilos EN LÍNEA (los clientes de correo se comen las hojas de estilo)."""
+    def esc(v) -> str:
+        return str(escape("" if v is None else v))
+
+    brand = ctx.get("brand") or {}
+    pl = ctx.get("pl") or {}
+    partes = ['<div style="font-family:Arial,Helvetica,sans-serif;color:#212529;max-width:660px;margin:0 auto;">']
+    if brand.get("logo_url"):
+        partes.append('<div style="text-align:right;margin-bottom:6px;">'
+                      f'<img src="{esc(brand.get("logo_url"))}" alt="{esc(brand.get("company_name"))}" '
+                      'style="max-height:54px;max-width:190px;"></div>')
+    partes.append('<h2 style="text-align:center;font-size:22px;margin:0 0 14px;">Playlist</h2>')
+    if (note or "").strip():
+        partes.append('<div style="margin:0 0 14px;padding:12px 14px;border-radius:12px;background:#f8fafc;'
+                      'border:1px solid #e6e8eb;font-size:14px;line-height:1.7;color:#374151;'
+                      f'white-space:pre-line;">{esc(note.strip())}</div>')
+
+    portada = _absolute_media_url(pl.get("cover_url") or "") if (pl.get("cover_url") or "") else ""
+    celda_portada = ""
+    if portada:
+        celda_portada = ('<td width="112" valign="top">'
+                         f'<img src="{esc(portada)}" alt="{esc(pl.get("name"))}" '
+                         'style="display:block;width:96px;height:96px;object-fit:cover;border-radius:14px;'
+                         'border:1px solid #e5e7eb;background:#fff;"></td>')
+    detalle = []
+    if pl.get("songs_count"):
+        detalle.append("%d tema%s" % (pl["songs_count"], "" if pl["songs_count"] == 1 else "s"))
+    if pl.get("duration_label"):
+        detalle.append(("+" if pl.get("duration_partial") else "") + pl["duration_label"])
+    partes.append(
+        '<div style="border:1px solid #e5e7eb;border-radius:18px;padding:16px;background:#fcfcfd;">'
+        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;"><tr>'
+        + celda_portada +
+        f'<td valign="top" style="{"padding-left:14px;" if celda_portada else ""}">'
+        '<div style="text-transform:uppercase;font-size:11px;letter-spacing:.6px;color:#6b7280;font-weight:bold;">Playlist</div>'
+        f'<div style="font-size:21px;line-height:1.2;font-weight:bold;color:#111827;">{esc(pl.get("name"))}</div>'
+        + (f'<div style="margin-top:6px;font-size:13px;color:#6b7280;">{esc(" · ".join(detalle))}</div>' if detalle else "")
+        + '<div style="margin-top:14px;">'
+        f'<a href="{esc(ctx.get("public_url"))}" '
+        'style="display:inline-block;background:#E33D48;color:#fff;text-decoration:none;font-weight:bold;'
+        'padding:11px 20px;border-radius:999px;font-size:15px;">Escuchar</a></div>'
+        '</td></tr></table></div>'
+    )
+    partes.append('</div>')
+    return "".join(partes)
+
+
+def _playlist_audio_response(url: str, download_name: str = ""):
+    """Sirve el audio HACIENDO DE PUENTE con Storage, respetando el `Range` que pida el navegador.
+
+    Así la dirección real del archivo no sale nunca a la página (que es lo que permite decir que la
+    playlist no se descarga) y aun así se puede ARRASTRAR la barra de reproducción: sin `Range` el
+    navegador no puede saltar a un segundo concreto (Safari directamente no reproduce)."""
+    destino = (url or "").strip()
+    if not destino:
+        abort(404)
+    cabeceras = {"User-Agent": "Mozilla/5.0"}
+    rango = (request.headers.get("Range") or "").strip()
+    if rango:
+        cabeceras["Range"] = rango
+    try:
+        upstream = urlopen(Request(destino, headers=cabeceras), timeout=30)
+    except HTTPError as err:
+        # Storage contesta un error suyo (no está, o el rango no vale): se pasa TAL CUAL en vez de
+        # convertirlo en un 502, que le diría al navegador algo que no es.
+        if getattr(err, "code", 0) in (404, 410, 416):
+            abort(err.code)
+        app.logger.exception("[playlist] Storage rechazó el audio")
+        abort(502)
+    except Exception:
+        app.logger.exception("[playlist] no se pudo leer el audio de Storage")
+        abort(502)
+
+    codigo = getattr(upstream, "status", None) or upstream.getcode() or 200
+    entrantes = getattr(upstream, "headers", None)
+    tipo = (entrantes.get_content_type() if entrantes else None) or "audio/mpeg"
+
+    def trozos():
+        try:
+            while True:
+                bloque = upstream.read(64 * 1024)
+                if not bloque:
+                    break
+                yield bloque
+        finally:
+            try:
+                upstream.close()
+            except Exception:
+                pass
+
+    resp = Response(trozos(), status=codigo, mimetype=tipo)
+    resp.headers["Accept-Ranges"] = "bytes"
+    for clave in ("Content-Length", "Content-Range"):
+        valor = entrantes.get(clave) if entrantes else None
+        if valor:
+            resp.headers[clave] = valor
+    # `inline` a propósito: esto es para escuchar, no para guardar.
+    resp.headers["Content-Disposition"] = "inline"
+    resp.headers["Cache-Control"] = "private, max-age=0, no-store"
+    return resp
+
+
+def _playlist_item_or_404(session_db, pl, item_id):
+    item = session_db.get(PlaylistItem, to_uuid(item_id)) if item_id else None
+    if not item or str(item.playlist_id) != str(pl.id):
+        abort(404)
+    return item
+
+
+def _playlist_download_response(session_db, pl, item, fmt: str):
+    """La descarga de una línea, SOLO si la playlist lo permite."""
+    if not bool(getattr(pl, "allow_download", False)):
+        abort(403)
+    fmt = (fmt or "wav").strip().lower()
+    if fmt not in PLAYLIST_DOWNLOAD_FORMATS:
+        fmt = "wav"
+    kind = (getattr(item, "kind", None) or "").strip().upper()
+    if kind == "SONG":
+        row = _song_master_material(session_db, item.song_id)
+        if not row:
+            abort(404)
+        data, mimetype, nombre = _song_material_download_payload(session_db, row, fmt)
+        return send_file(BytesIO(data), mimetype=mimetype, as_attachment=True, download_name=nombre)
+    if kind == "DEMO":
+        demo = session_db.get(SongDemo, item.demo_id) if item.demo_id else None
+        url = (getattr(demo, "audio_url", None) or "").strip() if demo else ""
+        if not url:
+            abort(404)
+        data, guessed = _download_remote_content(url)
+        sufijo = Path((getattr(demo, "audio_name", None) or url.split("?", 1)[0]).replace("\\", "/")).suffix.lower()
+        mimetype = (getattr(demo, "mime_type", None) or guessed or "audio/wav")
+        ext = sufijo or ".wav"
+        if fmt == "mp3":
+            try:
+                data, mimetype, ext = _convert_audio_content_to_mp3(data, sufijo)
+            except Exception:
+                app.logger.exception("[playlist] no se pudo convertir la maqueta a MP3")
+        nombre = _material_download_name("Maqueta", (getattr(demo, "title", None) or "").strip(), "", ext)
+        return send_file(BytesIO(data), mimetype=mimetype, as_attachment=True, download_name=nombre)
+    abort(404)
+
+
+# ---------- Buscador del pop-up de «Añadir canción» ----------
+
+def _playlist_picker_demo_groups(session_db) -> list:
+    """Los artistas de los que tenemos maquetas + «Sin artista» (las que vienen de fuera)."""
+    grupos = []
+    filas = (session_db.query(Artist.id, Artist.name, Artist.photo_url, func.count(SongDemo.id))
+             .join(SongDemo, SongDemo.artist_id == Artist.id)
+             .group_by(Artist.id, Artist.name, Artist.photo_url)
+             .order_by(Artist.name.asc()).all())
+    for aid, nombre, foto, n in filas:
+        grupos.append({"id": str(aid), "name": nombre or "—", "photo": (foto or "").strip(),
+                       "count": int(n or 0), "is_person": True})
+    sueltas = (session_db.query(func.count(SongDemo.id))
+               .filter(SongDemo.artist_id.is_(None)).scalar() or 0)
+    if sueltas:
+        grupos.append({"id": "none", "name": "Sin artista", "photo": "", "count": int(sueltas),
+                       "is_person": False, "icon": "fa-user-slash"})
+    return grupos
+
+
+def _playlist_picker_demos(session_db, artist_key: str) -> list:
+    consulta = (session_db.query(SongDemo)
+                .options(joinedload(SongDemo.artist), joinedload(SongDemo.promoter)))
+    if (artist_key or "").strip().lower() == "none":
+        consulta = consulta.filter(SongDemo.artist_id.is_(None))
+    else:
+        aid = _safe_uuid(artist_key)
+        if not aid:
+            return []
+        consulta = consulta.filter(SongDemo.artist_id == aid)
+    salida = []
+    for demo in consulta.order_by(SongDemo.created_at.desc()).limit(300).all():
+        d = _demo_row_payload(session_db, demo)
+        salida.append({"kind": "DEMO", "id": d["id"], "title": d["title"], "cover_url": d["cover_url"],
+                       "artist_name": d["who"], "artist_photo": d["who_photo"],
+                       "subtitle": "Maqueta", "playable": d["is_audio"]})
+    return salida
+
+
+def _playlist_picker_song_groups(session_db) -> dict:
+    """Los artistas con repertorio: primero los ACTIVOS (con contrato discográfico) y detrás el resto,
+    que la pantalla deja tras un «ver más»."""
+    filas = (session_db.query(Artist.id, Artist.name, Artist.photo_url, func.count(SongArtist.song_id))
+             .join(SongArtist, SongArtist.artist_id == Artist.id)
+             .filter(Artist.event_id.is_(None))       # los espejos de EVENTO no son artistas
+             .group_by(Artist.id, Artist.name, Artist.photo_url)
+             .order_by(Artist.name.asc()).all())
+    activos_ids = _artist_ids_with_discography_contracts(session_db)
+    activos, resto = [], []
+    for aid, nombre, foto, n in filas:
+        ficha = {"id": str(aid), "name": nombre or "—", "photo": (foto or "").strip(),
+                 "count": int(n or 0), "is_person": True}
+        (activos if aid in activos_ids else resto).append(ficha)
+    return {"active": activos, "others": resto}
+
+
+def _playlist_picker_songs(session_db, artist_key: str) -> list:
+    aid = _safe_uuid(artist_key)
+    if not aid:
+        return []
+    canciones = (session_db.query(Song)
+                 .join(SongArtist, SongArtist.song_id == Song.id)
+                 .filter(SongArtist.artist_id == aid)
+                 .options(selectinload(Song.artists))
+                 .order_by(Song.release_date.desc(), Song.title.asc())
+                 .limit(400).all())
+    artista = session_db.get(Artist, aid)
+    con_master = set()
+    ids = [s.id for s in canciones]
+    if ids:
+        for (sid,) in (session_db.query(SongMaterial.song_id)
+                       .filter(SongMaterial.song_id.in_(ids))
+                       .filter(func.upper(SongMaterial.category) == "MASTER")
+                       .distinct().all()):
+            con_master.add(str(sid))
+    salida = []
+    for s in canciones:
+        salida.append({
+            "kind": "SONG", "id": str(s.id), "title": (s.title or "").strip() or "Sin título",
+            "cover_url": (getattr(s, "cover_url", None) or "").strip(),
+            "artist_name": (getattr(artista, "name", None) or "").strip(),
+            "artist_photo": (getattr(artista, "photo_url", None) or "").strip(),
+            "subtitle": (s.release_date.strftime("%d/%m/%Y") if getattr(s, "release_date", None) else ""),
+            "playable": str(s.id) in con_master,
+        })
+    return salida
+
+
+# ---------- Pantallas y acciones ----------
+
+@app.get("/discografica/playlists/<playlist_id>", endpoint="playlist_detail_view")
+@admin_required
+def playlist_detail_view(playlist_id):
+    """La playlist: se ve como se va a ver fuera y, con `?edit=1`, se edita."""
+    session_db = db()
+    try:
+        pl = _playlist_or_404(session_db, playlist_id)
+        editando = _truthy(request.args.get("edit")) and can_edit_discografica()
+        ctx = _playlist_context(session_db, pl)
+        session_db.commit()        # puede haberse creado el token público
+        return render_template("playlist_detail.html", edit_mode=editando,
+                               picker=(_playlist_picker_song_groups(session_db) if editando else None),
+                               demo_groups=(_playlist_picker_demo_groups(session_db) if editando else None),
+                               **ctx)
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/playlists/nueva", endpoint="playlist_create")
+@admin_required
+def playlist_create():
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para crear playlists.")
+    nombre = (request.form.get("name") or "").strip()
+    if not nombre:
+        flash("Ponle un nombre a la playlist.", "warning")
+        return redirect(url_for("discografica_view", section="playlists"))
+    session_db = db()
+    try:
+        estado = _current_user_state()
+        pl = Playlist(name=nombre,
+                      created_by_user_id=to_uuid(estado.get("user_id")) if estado.get("user_id") else None,
+                      created_by_nick=(estado.get("nick") or "").strip() or None)
+        session_db.add(pl)
+        session_db.flush()
+        _ensure_playlist_token(session_db, pl)
+        session_db.commit()
+        return redirect(url_for("playlist_detail_view", playlist_id=pl.id, edit=1))
+    except Exception as e:
+        session_db.rollback()
+        flash("No se pudo crear la playlist: %s" % e, "danger")
+        return redirect(url_for("discografica_view", section="playlists"))
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/playlists/<playlist_id>/guardar", endpoint="playlist_save")
+@admin_required
+def playlist_save(playlist_id):
+    """Guarda la playlist entera (nombre, nota, descarga y las líneas en su orden) por AJAX."""
+    if not can_edit_discografica():
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    session_db = db()
+    try:
+        pl = _playlist_or_404(session_db, playlist_id)
+        nombre = (request.form.get("name") or "").strip()
+        if nombre:
+            pl.name = nombre
+        if request.form.get("note") is not None:
+            pl.note = (request.form.get("note") or "").strip() or None
+        if request.form.get("allow_download") is not None:
+            pl.allow_download = _truthy(request.form.get("allow_download"))
+        if request.form.get("items") is not None:
+            try:
+                lineas = json.loads(request.form.get("items") or "[]")
+            except Exception:
+                return jsonify({"ok": False, "error": "No se pudo leer la playlist."}), 400
+            _playlist_replace_items(session_db, pl, lineas if isinstance(lineas, list) else [])
+        pl.updated_at = _now_madrid()
+        session_db.commit()
+        ctx = _playlist_context(session_db, pl)
+        return jsonify({"ok": True, "items": ctx["items"], "pl": ctx["pl"]})
+    except Exception as e:
+        session_db.rollback()
+        app.logger.exception("[playlist] no se pudo guardar")
+        return jsonify({"ok": False, "error": str(e)[:200]}), 500
+    finally:
+        session_db.close()
+
+
+def _playlist_replace_items(session_db, pl, lineas: list) -> None:
+    """Reemplaza las líneas de la playlist por las que manda la pantalla, en ese orden.
+
+    Se REUTILIZAN las filas que ya existían (por su id) para no perder la duración ya leída."""
+    existentes = {str(it.id): it for it in _playlist_items_ordered(session_db, pl)}
+    vistas = set()
+    for pos, cruda in enumerate(lineas or []):
+        if not isinstance(cruda, dict):
+            continue
+        kind = (cruda.get("kind") or "SONG").strip().upper()
+        if kind not in PLAYLIST_ITEM_KINDS:
+            continue
+        song_id = _safe_uuid(cruda.get("song_id")) if kind == "SONG" else None
+        demo_id = _safe_uuid(cruda.get("demo_id")) if kind == "DEMO" else None
+        if kind == "SONG" and not song_id:
+            continue
+        if kind == "DEMO" and not demo_id:
+            continue
+        titulo = (cruda.get("title") or "").strip() or None
+        fila = existentes.get(str(cruda.get("id") or ""))
+        if fila is None:
+            fila = PlaylistItem(playlist_id=pl.id)
+            session_db.add(fila)
+        else:
+            vistas.add(str(fila.id))
+        fila.position = pos
+        fila.kind = kind
+        fila.song_id = song_id
+        fila.demo_id = demo_id
+        # En una canción o una maqueta el título lo pone su ficha: aquí solo se guarda el del TÍTULO.
+        fila.title = titulo if kind in ("TITLE", "DIVIDER") else None
+    for clave, fila in existentes.items():
+        if clave not in vistas:
+            session_db.delete(fila)
+    session_db.flush()
+
+
+@app.post("/discografica/playlists/<playlist_id>/portada", endpoint="playlist_cover_save")
+@admin_required
+def playlist_cover_save(playlist_id):
+    """La portada de la playlist (se puede arrastrar o elegir: lo resuelve el `file_drop.js` global)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar la playlist.")
+    session_db = db()
+    try:
+        pl = _playlist_or_404(session_db, playlist_id)
+        archivo = request.files.get("cover")
+        if _truthy(request.form.get("remove")):
+            pl.cover_url = None
+        elif archivo and getattr(archivo, "filename", ""):
+            try:
+                url = upload_image(archivo, "playlists")
+            except Exception as e:
+                flash("No se pudo subir la portada: %s" % e, "danger")
+                return redirect(url_for("playlist_detail_view", playlist_id=pl.id, edit=1))
+            if not url:
+                flash("Formato de imagen no admitido.", "warning")
+                return redirect(url_for("playlist_detail_view", playlist_id=pl.id, edit=1))
+            pl.cover_url = url
+        else:
+            flash("Elige una imagen para la portada.", "warning")
+            return redirect(url_for("playlist_detail_view", playlist_id=pl.id, edit=1))
+        pl.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Portada actualizada.", "success")
+        return redirect(url_for("playlist_detail_view", playlist_id=pl.id, edit=1))
+    except Exception as e:
+        session_db.rollback()
+        flash("No se pudo guardar la portada: %s" % e, "danger")
+        return redirect(url_for("playlist_detail_view", playlist_id=playlist_id, edit=1))
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/playlists/<playlist_id>/eliminar", endpoint="playlist_delete")
+@admin_required
+def playlist_delete(playlist_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para eliminar playlists.")
+    session_db = db()
+    try:
+        pl = session_db.get(Playlist, to_uuid(playlist_id))
+        if pl:
+            session_db.delete(pl)
+            session_db.commit()
+            flash("Playlist eliminada.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash("No se pudo eliminar: %s" % e, "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_view", section="playlists"))
+
+
+@app.get("/discografica/playlists/<playlist_id>/buscador", endpoint="playlist_picker_data")
+@admin_required
+def playlist_picker_data(playlist_id):
+    """Lo que necesita el pop-up de «Añadir canción»: los artistas y, al elegir uno, sus temas."""
+    session_db = db()
+    try:
+        _playlist_or_404(session_db, playlist_id)
+        fuente = (request.args.get("source") or "").strip().lower()
+        artista = (request.args.get("artist") or "").strip()
+        if fuente == "demos":
+            if artista:
+                return jsonify({"ok": True, "rows": _playlist_picker_demos(session_db, artista)})
+            return jsonify({"ok": True, "groups": _playlist_picker_demo_groups(session_db)})
+        if fuente == "repertorio":
+            if artista:
+                return jsonify({"ok": True, "rows": _playlist_picker_songs(session_db, artista)})
+            return jsonify({"ok": True, **_playlist_picker_song_groups(session_db)})
+        return jsonify({"ok": False, "error": "Dinos de dónde: demos o repertorio."}), 400
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/playlists/<playlist_id>/duracion/<item_id>", endpoint="playlist_item_duration")
+@admin_required
+def playlist_item_duration(playlist_id, item_id):
+    """La duración que ha leído el navegador, para no volver a pedirla en cada carga."""
+    session_db = db()
+    try:
+        pl = _playlist_or_404(session_db, playlist_id)
+        item = _playlist_item_or_404(session_db, pl, item_id)
+        try:
+            segundos = int(float(request.form.get("seconds") or 0))
+        except Exception:
+            segundos = 0
+        if 0 < segundos < 60 * 60 * 6:
+            item.duration_seconds = segundos
+            session_db.commit()
+            return jsonify({"ok": True})
+        session_db.rollback()
+        return jsonify({"ok": False}), 400
+    except Exception:
+        session_db.rollback()
+        return jsonify({"ok": False}), 500
+    finally:
+        session_db.close()
+
+
+@app.get("/discografica/playlists/<playlist_id>/audio/<item_id>", endpoint="playlist_item_audio")
+@admin_required
+def playlist_item_audio(playlist_id, item_id):
+    session_db = db()
+    try:
+        pl = _playlist_or_404(session_db, playlist_id)
+        item = _playlist_item_or_404(session_db, pl, item_id)
+        url, _nombre = _playlist_item_audio_source(session_db, item)
+    finally:
+        session_db.close()
+    return _playlist_audio_response(url)
+
+
+@app.get("/discografica/playlists/<playlist_id>/descargar/<item_id>", endpoint="playlist_item_download")
+@admin_required
+def playlist_item_download(playlist_id, item_id):
+    session_db = db()
+    try:
+        pl = _playlist_or_404(session_db, playlist_id)
+        item = _playlist_item_or_404(session_db, pl, item_id)
+        return _playlist_download_response(session_db, pl, item, request.args.get("fmt"))
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/playlists/<playlist_id>/enviar", endpoint="playlist_send_email")
+@admin_required
+def playlist_send_email(playlist_id):
+    """Manda la playlist por correo: asunto «Playlist <nombre>» y, dentro, su cabecera y ESCUCHAR."""
+    session_db = db()
+    try:
+        pl = _playlist_or_404(session_db, playlist_id)
+        destino = url_for("playlist_detail_view", playlist_id=pl.id)
+        correos = (request.form.get("emails") or "").strip()
+        if not correos:
+            flash("Indica a quién se la mandamos.", "warning")
+            return redirect(destino)
+        ctx = _playlist_context(session_db, pl)
+        session_db.commit()
+        ok, error = _send_optional_email(correos, ctx["share_subject"],
+                                         _playlist_email_html(ctx, note=(request.form.get("note") or "")))
+        flash("Playlist enviada." if ok else "No se pudo enviar: %s" % (error or "error desconocido"),
+              "success" if ok else "danger")
+        return redirect(destino)
+    except Exception as e:
+        session_db.rollback()
+        flash("No se pudo enviar la playlist: %s" % e, "danger")
+        return redirect(url_for("discografica_view", section="playlists"))
+    finally:
+        session_db.close()
+
+
+# ---------- Enlace público ----------
+
+def _playlist_by_token(session_db, token):
+    token = (token or "").strip()
+    if not token:
+        abort(404)
+    pl = session_db.query(Playlist).filter(Playlist.public_token == token).first()
+    if not pl:
+        abort(404)
+    return pl
+
+
+@app.get("/playlist/<token>", endpoint="public_playlist_view")
+def public_playlist_view(token):
+    """La playlist por su enlace público (lo que se manda por correo, WhatsApp o SMS)."""
+    with get_db() as session_db:
+        pl = _playlist_by_token(session_db, token)
+        ctx = _playlist_context(session_db, pl, token=token)
+        ctx["og_image_url"] = _external_url_for("public_playlist_og_image", token=token)
+        return render_template("public_playlist.html", **ctx)
+
+
+@app.get("/playlist/<token>/audio/<item_id>", endpoint="public_playlist_audio")
+def public_playlist_audio(token, item_id):
+    with get_db() as session_db:
+        pl = _playlist_by_token(session_db, token)
+        item = _playlist_item_or_404(session_db, pl, item_id)
+        url, _nombre = _playlist_item_audio_source(session_db, item)
+    return _playlist_audio_response(url)
+
+
+@app.get("/playlist/<token>/descargar/<item_id>", endpoint="public_playlist_download")
+def public_playlist_download(token, item_id):
+    with get_db() as session_db:
+        pl = _playlist_by_token(session_db, token)
+        item = _playlist_item_or_404(session_db, pl, item_id)
+        return _playlist_download_response(session_db, pl, item, request.args.get("fmt"))
+
+
+@app.get("/playlist/<token>/og.jpg", endpoint="public_playlist_og_image")
+def public_playlist_og_image(token):
+    """La miniatura del enlace: la PORTADA de la playlist y, si no tiene, la de su primer tema."""
+    with get_db() as session_db:
+        pl = _playlist_by_token(session_db, token)
+        fuente = (pl.cover_url or "").strip()
+        if not fuente:
+            for item in _playlist_items_ordered(session_db, pl):
+                if (item.kind or "").strip().upper() == "SONG" and item.song_id:
+                    song = session_db.get(Song, item.song_id)
+                    fuente = (getattr(song, "cover_url", None) or "").strip()
+                    if fuente:
+                        break
+        if not fuente:
+            brand = _playlist_brand(session_db, pl)
+            fuente = brand.get("logo_url") or ""
+    data = _og_image_jpeg_bytes(fuente) if fuente else None
+    if not data:
+        abort(404)
+    return Response(data, mimetype="image/jpeg", headers={"Cache-Control": "public, max-age=86400"})
 
 
 SONG_DELIVERY_SECTIONS = [
@@ -43644,6 +44491,362 @@ def _registros_song_pack_zip(session_db, song: Song, kind: str) -> tuple[bytes, 
     return buf.getvalue(), _safe_download_filename(f"{carpeta}.zip", f"{kind}.zip")
 
 
+# =========================================================
+# LISTADO DE CÓDIGOS ISRC · descarga en Excel y en PDF
+# =========================================================
+# Se exporta EXACTAMENTE lo que se está viendo: los filtros del formulario (artista y año) llegan en
+# la URL como siempre, y los del navegador —el chip de artista y el buscador— viajan también
+# (`filtro_artista` y `q`) y se vuelven a aplicar aquí con el MISMO criterio que el JS del panel.
+
+ISRC_EXPORT_TITLE = "Listado Códigos ISRC"
+
+
+def _isrc_export_blocks(session_db) -> list:
+    """Los bloques (artista, temas) que se están viendo, ya con los filtros del navegador aplicados."""
+    ctx = _isrc_panel_context(session_db, isrc_tab="repertorio")
+    bloques = ctx.get("isrc_artist_blocks") or []
+
+    elegido = (request.args.get("filtro_artista") or "all").strip()
+    q = _norm_text_key(request.args.get("q") or "")
+
+    salida = []
+    for artista, filas in bloques:
+        vivas = []
+        for item in filas or []:
+            song = item.get("song")
+            if song is None:
+                continue
+            # Mismo criterio que `data-isrc-artists` del panel: los artistas de la canción o, si no
+            # los tuviera, el artista del bloque.
+            ids = [str(a.id) for a in (getattr(song, "artists", None) or [])] or [str(artista.id)]
+            if elegido and elegido != "all" and elegido not in ids:
+                continue
+            if q:
+                # Mismo pajar que `data-isrc-search`.
+                pajar = _norm_text_key(" ".join([
+                    (getattr(song, "title", None) or ""),
+                    (getattr(artista, "name", None) or ""),
+                    (getattr(song, "display_collaborator", None) or getattr(song, "collaborator", None) or ""),
+                    (item.get("audio_primary") or ""),
+                    (item.get("video_primary") or ""),
+                    (item.get("max_code") or ""),
+                ]))
+                if q not in pajar:
+                    continue
+            vivas.append(item)
+        if vivas:
+            salida.append((artista, vivas))
+    return salida
+
+
+def _isrc_export_filename(bloques: list, ext: str) -> str:
+    """«Listado Códigos ISRC_<artista>» y, con varios, todos sus nombres separados por comas."""
+    nombres = [(getattr(a, "name", None) or "").strip() for a, _ in bloques]
+    nombres = [n for n in nombres if n]
+    base = ISRC_EXPORT_TITLE + ("_" + ", ".join(nombres) if nombres else "")
+    base = re.sub(r"[\\/:*?\"<>|]+", "-", base).strip() or ISRC_EXPORT_TITLE
+    return "%s.%s" % (base, ext)
+
+
+def _isrc_export_song_cells(artista, item) -> list:
+    """Una fila del listado, con lo MISMO que se ve en la pantalla."""
+    song = item.get("song")
+    dur = getattr(song, "duration_seconds", None)
+    tipo = ("Distribución" if getattr(song, "is_distribution", False)
+            else ("Catálogo" if getattr(song, "is_catalog", False) else "Discográfica"))
+    return [
+        (getattr(song, "title", None) or "").strip() or "—",
+        tipo,
+        (getattr(artista, "name", None) or "").strip() or "—",
+        (getattr(song, "display_collaborator", None) or getattr(song, "collaborator", None) or "—"),
+        ("%d:%02d" % (dur // 60, dur % 60)) if dur else "—",
+        (song.release_date.strftime("%d/%m/%Y") if getattr(song, "release_date", None) else "—"),
+    ]
+
+
+def _isrc_export_codes_text(item, kind: str) -> tuple:
+    """(principal, subproductos) de un tipo de código, para las celdas de la exportación."""
+    principal = item.get("%s_primary" % kind) or ""
+    subs = []
+    for c in (item.get("%s_sub_rows" % kind) or []):
+        etiqueta = (c.get("name") or "").strip()
+        subs.append(("%s (%s)" % (c.get("code") or "", etiqueta)) if etiqueta else (c.get("code") or ""))
+    return principal, subs
+
+
+@app.get('/registros/isrc/listado.xlsx', endpoint='registros_isrc_export_xlsx')
+@admin_required
+def registros_isrc_export_xlsx():
+    """El listado de códigos ISRC en Excel (solo lo que se está viendo)."""
+    session_db = db()
+    try:
+        bloques = _isrc_export_blocks(session_db)
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Font, PatternFill
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "ISRC"
+        ws.append([ISRC_EXPORT_TITLE])
+        ws["A1"].font = Font(bold=True, size=14)
+        ws.append([])
+        cabecera = ["Artista", "Canción", "Tipo", "Intérprete", "Colaboradores", "Duración",
+                    "Publicación", "ISRC audio", "Subproductos audio", "ISRC vídeo",
+                    "Subproductos vídeo", "Registrado en AGEDI"]
+        ws.append(cabecera)
+        for celda in ws[3]:
+            celda.font = Font(bold=True)
+            celda.fill = PatternFill("solid", fgColor="F1F3F5")
+        for artista, filas in bloques:
+            for item in filas:
+                base = _isrc_export_song_cells(artista, item)
+                audio, audio_subs = _isrc_export_codes_text(item, "audio")
+                video, video_subs = _isrc_export_codes_text(item, "video")
+                registrado = []
+                if audio:
+                    registrado.append("audio: " + ("sí" if item.get("audio_primary_registered") else "no"))
+                if video:
+                    registrado.append("vídeo: " + ("sí" if item.get("video_primary_registered") else "no"))
+                ws.append([(getattr(artista, "name", None) or "—")] + base[:1] + base[1:] +
+                          [audio or "—", " · ".join(audio_subs) or "", video or "—",
+                           " · ".join(video_subs) or "", " · ".join(registrado)])
+        anchos = [22, 30, 14, 20, 22, 10, 13, 20, 26, 20, 26, 24]
+        for i, ancho in enumerate(anchos, start=1):
+            ws.column_dimensions[ws.cell(row=3, column=i).column_letter].width = ancho
+        for fila in ws.iter_rows(min_row=4):
+            for celda in fila:
+                celda.alignment = Alignment(vertical="top", wrap_text=True)
+        buf = BytesIO()
+        wb.save(buf)
+        return send_file(BytesIO(buf.getvalue()),
+                         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                         as_attachment=True, download_name=_isrc_export_filename(bloques, "xlsx"))
+    finally:
+        session_db.close()
+
+
+@app.get('/registros/isrc/listado.pdf', endpoint='registros_isrc_export_pdf')
+@admin_required
+def registros_isrc_export_pdf():
+    """El listado de códigos ISRC en PDF: logo de PIES arriba a la derecha, «Listado Códigos ISRC»
+    centrado y, debajo, cada artista con su foto y sus canciones tal como se ven. Nada más; las
+    páginas van numeradas x/x abajo a la derecha."""
+    if not REPORTLAB_AVAILABLE:
+        abort(503, "Generación de PDF no disponible en el servidor.")
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib import colors
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+                                    Image as RLImage, KeepTogether)
+
+    session_db = db()
+    try:
+        bloques = _isrc_export_blocks(session_db)
+        empresa = _pies_group_company(session_db)
+        logo_url = (getattr(empresa, "logo_url", None) or "").strip() or url_for(
+            "static", filename="img/logo.png")
+        filas_datos = []
+        for artista, filas in bloques:
+            filas_datos.append({
+                "name": (getattr(artista, "name", None) or "—"),
+                "photo": (getattr(artista, "photo_url", None) or "").strip(),
+                "songs": [{
+                    "cells": _isrc_export_song_cells(artista, item),
+                    "cover": (item.get("cover_url") or "").strip(),
+                    "audio": _isrc_export_codes_text(item, "audio"),
+                    "video": _isrc_export_codes_text(item, "video"),
+                    "audio_ok": bool(item.get("audio_primary_registered")),
+                    "video_ok": bool(item.get("video_primary_registered")),
+                    "audio_subs_ok": [bool(c.get("registered")) for c in (item.get("audio_sub_rows") or [])],
+                    "video_subs_ok": [bool(c.get("registered")) for c in (item.get("video_sub_rows") or [])],
+                } for item in filas],
+            })
+        nombre = _isrc_export_filename(bloques, "pdf")
+    finally:
+        session_db.close()
+
+    page_w, page_h = landscape(A4)          # horizontal: así el listado entra sin cortarse
+    margin = 12 * mm
+    usable_w = page_w - 2 * margin
+    VERDE = colors.HexColor("#198754")
+    AMBAR = colors.HexColor("#ffc107")
+    GRIS_T = colors.HexColor("#6b7683")
+
+    _cache_img: dict = {}
+
+    def _bytes_de(url):
+        """Los BYTES de una imagen (remota o del propio servidor), cacheados. None si no se puede."""
+        clave = str(url or "")
+        if clave in _cache_img:
+            return _cache_img[clave]
+        datos = None
+        try:
+            if clave.lower().startswith("http"):
+                datos = urlopen(Request(clave, headers={"User-Agent": "Mozilla/5.0"}), timeout=6).read()
+            elif clave.startswith("/static/"):
+                with open(os.path.join(app.static_folder, clave[len("/static/"):]), "rb") as fh:
+                    datos = fh.read()
+        except Exception:
+            datos = None
+        _cache_img[clave] = datos
+        return datos
+
+    def _flowable(url, lado_mm):
+        """La imagen como elemento del documento (para las tablas). Si falla, no se pinta nada.
+        ⚠️ `RLImage` NO admite un `ImageReader`: hay que darle una ruta o un fichero en memoria."""
+        datos = _bytes_de(url)
+        if not datos:
+            return None
+        try:
+            return RLImage(BytesIO(datos), width=lado_mm * mm, height=lado_mm * mm)
+        except Exception:
+            return None
+
+    def _reader(url):
+        """La imagen para pintarla directamente en el lienzo (el logo)."""
+        datos = _bytes_de(url)
+        if not datos:
+            return None
+        try:
+            return ImageReader(BytesIO(datos))
+        except Exception:
+            return None
+
+    est_titulo = ParagraphStyle("t", fontName="Helvetica-Bold", fontSize=17, leading=21,
+                                alignment=1, textColor=colors.HexColor("#111827"))
+    est_artista = ParagraphStyle("a", fontName="Helvetica-Bold", fontSize=12.5, leading=15)
+    est_th = ParagraphStyle("th", fontName="Helvetica-Bold", fontSize=7.6, leading=9.5,
+                            textColor=GRIS_T)
+    est_td = ParagraphStyle("td", fontName="Helvetica", fontSize=8, leading=10)
+    est_td_b = ParagraphStyle("tdb", fontName="Helvetica-Bold", fontSize=8.4, leading=10.5)
+    est_sub = ParagraphStyle("sub", fontName="Helvetica", fontSize=6.8, leading=8.4, textColor=GRIS_T)
+    est_code = ParagraphStyle("code", fontName="Helvetica-Bold", fontSize=8, leading=10)
+
+    # Los MISMOS anchos para todos los artistas: así todas las columnas quedan alineadas.
+    pesos = [0.055, 0.20, 0.135, 0.135, 0.055, 0.085, 0.1725, 0.1625]
+    cols = [usable_w * p for p in pesos]
+
+    def celda_codigo(codigo, ok, subs, subs_ok):
+        if not codigo and not subs:
+            return Paragraph('<font color="#9aa2ad">—</font>', est_td)
+        trozos = []
+        if codigo:
+            color = "#198754" if ok else "#8a6d00"
+            trozos.append('<font color="%s">%s</font>' % (color, html.escape(codigo)))
+        partes = [Paragraph("".join(trozos), est_code)] if trozos else []
+        for i, s in enumerate(subs or []):
+            color = "#198754" if (subs_ok[i] if i < len(subs_ok) else False) else "#8a6d00"
+            partes.append(Paragraph('<font color="%s">%s</font>' % (color, html.escape(s)), est_sub))
+        return partes if len(partes) > 1 else partes[0]
+
+    story = [Spacer(1, 2 * mm), Paragraph(ISRC_EXPORT_TITLE, est_titulo), Spacer(1, 6 * mm)]
+    if not filas_datos:
+        story.append(Paragraph("No hay canciones para los filtros seleccionados.", est_td))
+
+    for bloque in filas_datos:
+        # Cabecera del artista: su foto y su nombre.
+        foto = _flowable(bloque["photo"], 11) if bloque["photo"] else None
+        cabecera_cells = [foto if foto is not None else ""]
+        cabecera_cells.append(Paragraph(html.escape(bloque["name"]), est_artista))
+        cab = Table([cabecera_cells], colWidths=[13 * mm, usable_w - 13 * mm])
+        cab.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]))
+
+        datos = [[Paragraph(t, est_th) for t in
+                  ["", "Nombre", "Intérprete", "Colaboradores", "Duración", "Publicación",
+                   "ISRC audio", "ISRC vídeo"]]]
+        for s in bloque["songs"]:
+            titulo, tipo, interprete, colabora, duracion, publicacion = s["cells"]
+            portada = _flowable(s["cover"], 10) if s["cover"] else None
+            datos.append([
+                (portada if portada is not None else ""),
+                [Paragraph(html.escape(titulo), est_td_b), Paragraph(html.escape(tipo), est_sub)],
+                Paragraph(html.escape(interprete), est_td),
+                Paragraph(html.escape(colabora), est_td),
+                Paragraph(html.escape(duracion), est_td),
+                Paragraph(html.escape(publicacion), est_td),
+                celda_codigo(s["audio"][0], s["audio_ok"], s["audio"][1], s["audio_subs_ok"]),
+                celda_codigo(s["video"][0], s["video_ok"], s["video"][1], s["video_subs_ok"]),
+            ])
+        tabla = Table(datos, colWidths=cols, repeatRows=1)
+        tabla.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f3f5")),
+            ("LINEBELOW", (0, 0), (-1, 0), 0.5, colors.HexColor("#dfe3e8")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#fbfcfd")]),
+            ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#e9ecef")),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        # El artista y su primera fila no se separan del salto de página.
+        story.append(KeepTogether([cab, tabla]) if len(datos) <= 6 else cab)
+        if len(datos) > 6:
+            story.append(tabla)
+        story.append(Spacer(1, 6 * mm))
+
+    class _Numerada(rl_canvas.Canvas):
+        """Numera las páginas x/x abajo a la derecha (hay que saber el total: dos pasadas)."""
+
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self._paginas = []
+
+        def showPage(self):
+            self._paginas.append(dict(self.__dict__))
+            self._startPage()
+
+        def save(self):
+            total = len(self._paginas)
+            for estado in self._paginas:
+                self.__dict__.update(estado)
+                self._pinta(total)
+                super().showPage()
+            super().save()
+
+        def _pinta(self, total):
+            self.setFont("Helvetica", 7)
+            self.setFillColor(GRIS_T)
+            self.drawRightString(page_w - margin, 8 * mm, "%d/%d" % (self._pageNumber, total))
+
+    def _logo(canv, doc):
+        """El logo de PIES, arriba a la DERECHA (en todas las páginas)."""
+        img = _reader(logo_url)
+        if img is None:
+            # Si el logo de la empresa no se puede leer, el de la casa: aquí SIEMPRE tiene que salir
+            # una marca (es un documento que se manda fuera).
+            img = _reader(url_for("static", filename="img/logo.png"))
+        if img is None:
+            return
+        try:
+            iw, ih = img.getSize()
+            alto = 13 * mm
+            ancho = alto * (iw / float(ih or 1))
+            tope = 45 * mm
+            if ancho > tope:
+                ancho = tope
+                alto = ancho * (ih / float(iw or 1))
+            canv.drawImage(img, page_w - margin - ancho, page_h - margin - alto,
+                           width=ancho, height=alto, mask="auto")
+        except Exception:
+            pass
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=landscape(A4),
+                            leftMargin=margin, rightMargin=margin,
+                            topMargin=margin + 15 * mm, bottomMargin=margin + 4 * mm,
+                            title=ISRC_EXPORT_TITLE)
+    doc.build(story, onFirstPage=_logo, onLaterPages=_logo, canvasmaker=_Numerada)
+    return send_file(BytesIO(buf.getvalue()), mimetype="application/pdf",
+                     as_attachment=True, download_name=nombre)
+
+
 @app.get('/registros/canciones/<song_id>/material', endpoint='registros_song_pack')
 @admin_required
 def registros_song_pack(song_id):
@@ -43910,6 +45113,7 @@ def _bootstrap_schema_bg():
         (ensure_invoice_attempts_schema, "ensure_invoice_attempts_schema"),
         (ensure_vacations_schema, "ensure_vacations_schema"),
         (ensure_song_demos_schema, "ensure_song_demos_schema"),
+        (ensure_playlists_schema, "ensure_playlists_schema"),
         (ensure_third_party_intake_schema, "ensure_third_party_intake_schema"),
         (ensure_artist_templates_schema, "ensure_artist_templates_schema"),
         (ensure_push_schema, "ensure_push_schema"),
@@ -49010,7 +50214,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -49412,7 +50616,8 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
     if endpoint.startswith("group_artwork"):
         return "contratacion.conciertos"
     if endpoint in {"registros_view", "registros_concert_declare", "registros_promo_declare",
-                    "registros_repertoire_link", "registros_song_pack", "registros_song_declaration_signed"}:
+                    "registros_repertoire_link", "registros_song_pack", "registros_song_declaration_signed",
+                    "registros_isrc_export_xlsx", "registros_isrc_export_pdf"}:
         return "registros.pendiente"
     if endpoint in {"media_gallery_view", "media_artist_view", "media_panel_view", "api_media_artist_activities"}:
         return "fotos"
@@ -50018,7 +51223,8 @@ def _resolve_request_resource_key() -> str | None:
         }
         return mapping.get(tab, "discografica.canciones")
     if endpoint in {"registros_view", "registros_concert_declare", "registros_promo_declare",
-                    "registros_repertoire_link", "registros_song_pack", "registros_song_declaration_signed"}:
+                    "registros_repertoire_link", "registros_song_pack", "registros_song_declaration_signed",
+                    "registros_isrc_export_xlsx", "registros_isrc_export_pdf"}:
         tab = (request.args.get("tab") or "pendiente").strip().lower()
         # La pestaña ISRC se movió aquí desde Discográfica (ago 2026) y **conserva su permiso**
         # (`discografica.isrc`): quien lo tenía sigue entrando aunque no tenga Registros, y quien

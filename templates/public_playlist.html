@@ -1,0 +1,41 @@
+{# PLAY LIST por enlace público (lo que se manda por correo, WhatsApp o SMS).
+   ⚠️ STANDALONE a propósito (no hereda de layout.html): la abre gente de fuera, sin sesión, y no tiene
+   que ver el back office. La playlist se pinta con el MISMO parcial que dentro (`_playlist_view.html`),
+   así que se ve igual en los dos sitios.
+   ⚠️ El audio va por nuestro endpoint puente: aquí no aparece nunca la dirección del archivo, y el
+   reproductor es el nuestro (sin los controles nativos del navegador, que traen su propia descarga). #}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Playlist · {{ pl.name }}</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <meta property="og:type" content="music.playlist">
+  <meta property="og:title" content="{{ pl.name }}">
+  <meta property="og:description" content="Playlist{% if pl.songs_count %} · {{ pl.songs_count }} tema{{ '' if pl.songs_count == 1 else 's' }}{% endif %}">
+  <meta property="og:url" content="{{ public_url }}">
+  {% if og_image_url %}
+    <meta property="og:image" content="{{ og_image_url }}">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="{{ og_image_url }}">
+  {% endif %}
+  <meta name="twitter:title" content="{{ pl.name }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}">
+  {# La hoja de la casa: sin ella los botones y los colores salen con los de Bootstrap. #}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=ASSET_V) }}">
+</head>
+<body class="bg-body-tertiary"
+      data-default-photo-url="{{ DEFAULT_PHOTO_URL }}"
+      data-default-cover-url="{{ DEFAULT_COVER_URL }}"
+      data-default-avatar-url="{{ DEFAULT_AVATAR_URL }}">
+<div class="container py-4" style="max-width:900px;">
+  {% include '_playlist_view.html' with context %}
+</div>
+<script src="{{ url_for('static', filename='vendor/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/playlist.js', v=ASSET_V) }}"></script>
+</body>
+</html>

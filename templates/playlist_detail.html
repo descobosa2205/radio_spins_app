@@ -1,0 +1,253 @@
+{% extends "layout.html" %}
+{% block content %}
+{# ================= FICHA DE UNA PLAY LIST =================
+   Se ve como se va a ver fuera (el parcial `_playlist_view.html`, el mismo del enlace público) y con
+   `?edit=1` se edita: se arrastran los temas para ordenarlos, se añaden canciones (del repertorio o
+   de las demos), TÍTULOS y DIVISIONES, se cambia el nombre, la portada y la nota.
+   La pestaña «Descargas» decide si la playlist se puede descargar (apagado al nacer). #}
+
+{% set tab = request.args.get('tab') or 'playlist' %}
+{% set can_edit = CAN_EDIT_DISCOGRAFICA %}
+
+<div class="mb-2">
+  <a class="btn btn-outline-secondary btn-sm btn-volver"
+     href="{{ url_for('discografica_view', section='playlists') }}"
+     title="Volver a las playlists" aria-label="Volver a las playlists"><i class="fa fa-arrow-left"></i></a>
+</div>
+
+{# ---------- BOTONOTES: las mismas opciones que los 3 puntitos del listado ---------- #}
+<div class="ficha-quick mb-3">
+  {% if can_edit %}
+    {% if edit_mode %}
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('playlist_detail_view', playlist_id=pl.id) }}">
+        <i class="fa fa-eye me-1"></i>Ver la playlist
+      </a>
+    {% else %}
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('playlist_detail_view', playlist_id=pl.id, edit=1) }}">
+        <i class="fa fa-pen me-1"></i>Editar
+      </a>
+    {% endif %}
+  {% endif %}
+  <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#playlistMailModal">
+    <i class="fa fa-envelope me-1"></i>Compartir por Email
+  </button>
+  <button class="btn btn-sm btn-outline-secondary" type="button"
+          onclick="shareByWhatsapp('{{ share_subject|e }}', '{{ public_url }}')">
+    <i class="fa-brands fa-whatsapp me-1"></i>WhatsApp
+  </button>
+  <button class="btn btn-sm btn-outline-secondary" type="button"
+          onclick="shareBySms('{{ share_subject|e }}', '{{ public_url }}')">
+    <i class="fa fa-comment-sms me-1"></i>SMS
+  </button>
+  <button class="btn btn-sm btn-outline-secondary" type="button" onclick="copyShareLink('{{ public_url }}')">
+    <i class="fa fa-link me-1"></i>Copiar enlace
+  </button>
+  {% if can_edit %}
+    <form method="post" action="{{ url_for('playlist_delete', playlist_id=pl.id) }}" class="d-inline"
+          data-confirm="¿Eliminar la playlist «{{ pl.name|e }}»? No se borra ninguna canción, solo la lista.">
+      <button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash me-1"></i>Eliminar</button>
+    </form>
+  {% endif %}
+</div>
+
+<ul class="nav nav-tabs ficha-tabs mb-0">
+  <li class="nav-item">
+    <a class="nav-link {% if tab == 'playlist' %}active{% endif %}"
+       href="{{ url_for('playlist_detail_view', playlist_id=pl.id, edit=(1 if edit_mode else None)) }}">
+      <i class="fa fa-list-ol me-1"></i>Playlist
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if tab == 'descargas' %}active{% endif %}"
+       href="{{ url_for('playlist_detail_view', playlist_id=pl.id, tab='descargas', edit=(1 if edit_mode else None)) }}">
+      <i class="fa fa-download me-1"></i>Descargas
+    </a>
+  </li>
+</ul>
+
+<div class="ficha-tabpane">
+
+{% if tab == 'descargas' %}
+  {# ---------- ¿SE PUEDE DESCARGAR? ---------- #}
+  <div class="card">
+    <div class="card-body">
+      <h6 class="mb-1"><i class="fa fa-download me-1 text-muted"></i>Descarga de los temas</h6>
+      <div class="text-muted small mb-3">
+        Por defecto una playlist <strong>se escucha, no se descarga</strong>. Si la habilitas, al final de
+        cada tema sale el icono de descargar con las dos opciones: WAV y MP3.
+      </div>
+      <div class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" role="switch" id="plAllowDownload"
+               data-pl-allow-download="{{ url_for('playlist_save', playlist_id=pl.id) }}"
+               {% if pl.allow_download %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
+        <label class="form-check-label" for="plAllowDownload">
+          {% if pl.allow_download %}Se puede descargar{% else %}No se puede descargar{% endif %}
+        </label>
+      </div>
+    </div>
+  </div>
+
+{% elif edit_mode %}
+  {# ============ MODO EDICIÓN ============ #}
+  <div class="pl-edit" data-playlist-edit
+       data-save-url="{{ url_for('playlist_save', playlist_id=pl.id) }}"
+       data-picker-url="{{ url_for('playlist_picker_data', playlist_id=pl.id) }}"
+       data-view-url="{{ url_for('playlist_detail_view', playlist_id=pl.id) }}">
+
+    <script type="application/json" data-pl-items>{{ items|tojson }}</script>
+
+    {# Cabecera editable: el cuadradito de la portada delante del título, y el título se pincha. #}
+    <div class="pl-head pl-head--edit">
+      <button class="pl-head__coverbtn" type="button" data-bs-toggle="modal" data-bs-target="#playlistCoverModal"
+              title="Añadir o cambiar la portada">
+        {% if pl.cover_url %}
+          <img src="{{ pl.cover_url }}" alt="" data-cover>
+        {% else %}
+          <span class="pl-head__coverempty"><i class="fa fa-image"></i><span>Portada</span></span>
+        {% endif %}
+      </button>
+      <div class="pl-head__main">
+        <div class="pl-head__eyebrow">Playlist</div>
+        <input class="pl-head__input" data-pl-name value="{{ pl.name }}" placeholder="Nombre de la playlist"
+               aria-label="Nombre de la playlist">
+        <div class="pl-head__facts">
+          <span><i class="fa fa-music"></i><span data-pl-count>{{ pl.songs_count }}</span> tema(s)</span>
+        </div>
+      </div>
+    </div>
+
+    {# La NOTA: se ofrece siempre al editar y se ve solo si tiene texto. #}
+    <div class="pl-note pl-note--edit{{ ' d-none' if not pl.note }}" data-pl-note-box>
+      <i class="fa fa-note-sticky"></i>
+      <textarea class="form-control form-control-sm" rows="2" data-pl-note
+                placeholder="Lo que quieras contar de esta playlist.">{{ pl.note }}</textarea>
+      <button class="btn btn-sm btn-link text-danger p-0 ms-1" type="button" data-pl-note-del
+              title="Quitar la nota"><i class="fa fa-xmark"></i></button>
+    </div>
+    <div class="mb-3">
+      <button class="btn btn-sm btn-outline-secondary{{ ' d-none' if pl.note }}" type="button" data-pl-note-add>
+        <i class="fa fa-note-sticky me-1"></i>Añadir una nota
+      </button>
+    </div>
+
+    {# Añadir, arriba de la playlist. #}
+    <div class="pl-addbar">
+      <button class="btn btn-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#playlistPickModal">
+        <i class="fa fa-plus me-1"></i>Añadir canción
+      </button>
+      <button class="btn btn-outline-secondary btn-sm" type="button" data-pl-add-title>
+        <i class="fa fa-heading me-1"></i>Añadir un título
+      </button>
+      <button class="btn btn-outline-secondary btn-sm" type="button" data-pl-add-divider>
+        <i class="fa fa-grip-lines me-1"></i>Añadir una división
+      </button>
+      <div class="ms-auto d-flex align-items-center gap-2">
+        <span class="small text-muted" data-pl-saved></span>
+        <button class="btn btn-success btn-sm" type="button" data-pl-save>
+          <i class="fa fa-floppy-disk me-1"></i>Guardar
+        </button>
+      </div>
+    </div>
+
+    <ol class="pl-list pl-list--edit" data-pl-rows></ol>
+    <div class="pl-empty" data-pl-empty>Añade el primer tema con «Añadir canción».</div>
+  </div>
+
+{% else %}
+  {# ============ VISTA (la misma que ve quien la recibe) ============ #}
+  {# La duración la lee el navegador la primera vez y se apunta aquí, para no volver a pedir la
+     cabecera de cada archivo en cada carga (`__ID__` lo sustituye playlist.js). #}
+  {% set duration_save_base = url_for('playlist_item_duration', playlist_id=pl.id, item_id='__ID__') %}
+  {% include '_playlist_view.html' with context %}
+{% endif %}
+
+</div>
+
+{# ---------- Compartir por correo ---------- #}
+<div class="modal fade" id="playlistMailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" action="{{ url_for('playlist_send_email', playlist_id=pl.id) }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-envelope me-2 text-muted"></i>Compartir por Email</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="small text-muted mb-2">
+          Asunto: <strong>{{ share_subject }}</strong>. En el correo va la cabecera de la playlist con el
+          botón <strong>Escuchar</strong>, que lleva a esta misma playlist.
+        </div>
+        <label class="form-label">¿A quién?</label>
+        <input class="form-control" name="emails" required
+               placeholder="correo@ejemplo.com, otro@ejemplo.com">
+        <label class="form-label mt-3">Nota <span class="text-muted">(opcional, sale en el correo)</span></label>
+        <textarea class="form-control" name="note" rows="3"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-paper-plane me-1"></i>Enviar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if can_edit and edit_mode %}
+{# ---------- Portada: se puede ARRASTRAR o elegir (el arrastre lo resuelve file_drop.js) ---------- #}
+<div class="modal fade" id="playlistCoverModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" enctype="multipart/form-data"
+          action="{{ url_for('playlist_cover_save', playlist_id=pl.id) }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-image me-2 text-muted"></i>Portada de la playlist</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="decl-drop" id="plCoverZone" role="button" tabindex="0" data-file-drop-for="#plCoverFile">
+          <i class="fa fa-file-arrow-up decl-drop__icon"></i>
+          <div class="fw-semibold">Arrastra aquí la imagen</div>
+          <div class="small text-muted">o pincha para seleccionarla</div>
+          <div class="small mt-1 fw-semibold text-success" data-pl-cover-name></div>
+        </div>
+        <input class="form-control mt-2" type="file" name="cover" id="plCoverFile"
+               accept="image/png,image/jpeg,image/webp,image/gif">
+      </div>
+      <div class="modal-footer justify-content-between">
+        {% if pl.cover_url %}
+          <button class="btn btn-outline-danger btn-sm" name="remove" value="1"
+                  data-confirm="¿Quitar la portada?">Quitar la portada</button>
+        {% else %}<span></span>{% endif %}
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-danger">Guardar</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ---------- Añadir canción: demos o repertorio ---------- #}
+<div class="modal fade" id="playlistPickModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-plus me-2 text-muted"></i>Añadir canción</h5>
+          <div class="small text-muted" data-pick-sub>¿De dónde la cogemos?</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" data-pick-body>
+        {# El contenido lo pinta playlist.js: fuente (demos/repertorio) → artistas → temas. #}
+      </div>
+      <div class="modal-footer justify-content-between">
+        <button class="btn btn-outline-secondary btn-sm d-none" type="button" data-pick-back>
+          <i class="fa fa-arrow-left me-1"></i>Atrás
+        </button>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<script src="{{ url_for('static', filename='js/playlist.js', v=ASSET_V) }}"></script>
+{% endblock %}

@@ -3967,6 +3967,52 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 .mat-chip__dur{ font-variant-numeric:tabular-nums; color:#6b7280; min-width:2.2em; }
 .mat-chip.is-playing .mat-chip__dur{ color:inherit; }
 .mat-chip audio{ display:none; }
+/* La etiqueta de audio SIN cápsula: solo el play y la duración (se usa al lado del título de una
+   maqueta, donde el módulo ya dice qué es). */
+.mat-chip--bare{ border:0; background:transparent; padding:.1rem .2rem; }
+.mat-chip--bare:hover{ background:transparent; }
+.mat-chip--bare.is-playing{ background:transparent; }
+
+/* ISRC · las columnas del repertorio son las MISMAS en todos los artistas (si cada tabla se ajusta a
+   su contenido, de un bloque a otro no cuadran). El ancho lo fija el <colgroup> de la plantilla. */
+.isrc-table{ table-layout: fixed; }
+.isrc-table td, .isrc-table th{ overflow-wrap:anywhere; }
+
+/* ===== DEMOS · una maqueta en el listado =====
+   La PORTADA a la izquierda del todo y, a su derecha, DOS líneas cuadradas con su alto: el título
+   (con el play al lado) y debajo la foto y el nombre del artista. Cuándo se subió y quién no se
+   enseñan: van en la «i». La nota, debajo de todo. */
+.demo-row{ display:flex; align-items:stretch; gap:.85rem; }
+.demo-row__cover{
+  width:72px; height:72px; flex:0 0 auto; object-fit:cover;
+  border-radius:.7rem; border:1px solid #e5e8ee; background:#fff;
+}
+.demo-row__body{
+  flex:1 1 12rem; min-width:0; height:72px;                 /* el alto de la portada: todo alineado */
+  display:flex; flex-direction:column; justify-content:center; gap:.25rem;
+}
+.demo-row__line{ display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; min-width:0; }
+.demo-row__title{ font-size:1rem; }
+.demo-row__line--artist{ color:#6b7280; font-size:.85rem; }
+.demo-row__line--artist .inv-person-ava{ width:22px; height:22px; }
+.demo-row__info{
+  width:22px; height:22px; border-radius:50%; border:1px solid #dfe3e8; background:#fff;
+  display:inline-flex; align-items:center; justify-content:center;
+  font-size:.62rem; color:#6b7280; cursor:help; flex:0 0 auto;
+}
+.demo-row__info:hover{ border-color:var(--brand-primary); color:var(--brand-primary); }
+.demo-row__note{
+  margin-top:.55rem; padding-left:calc(72px + .85rem);      /* alineada con el texto, no con la portada */
+  font-size:.85rem; color:#374151;
+}
+.demo-cover-preview{
+  width:72px; height:72px; flex:0 0 auto; object-fit:cover;
+  border-radius:.7rem; border:1px solid #e5e8ee; background:#fff;
+}
+@media (max-width: 575.98px){
+  .demo-row__body{ height:auto; }
+  .demo-row__note{ padding-left:0; }
+}
 
 /* VIDEOCLIP: mismo hueco que la portada, con la miniatura del vídeo. */
 .mat-video{ position:relative; border:1px solid #e9ecef; border-radius:.7rem; padding:.75rem;
@@ -4041,6 +4087,186 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
    ve algo más apagada y no se arrastra (recategorizar se hace desde la principal). */
 .inv-cat-row--secondary{ background:#fcfcfd; }
 .inv-cat-row--secondary .inv-name-line{ opacity:.92; }
+
+
+/* =========================================================================
+   PLAY LIST (Discográfica) · `.pl-*`
+   =========================================================================
+   La playlist se ve IGUAL dentro y en el enlace público (mismo parcial
+   `_playlist_view.html`): logo de la empresa arriba a la derecha, la cabecera
+   con su portada y debajo los temas. Al pasar el ratón la línea se subraya y
+   sale el play sobre la portada; cuando suena, a la derecha aparece la barra. */
+.pl-sheet{
+  background:#fff; border:1px solid #e5e8ee; border-radius:20px;
+  box-shadow:0 1px 3px rgba(15,23,42,.05); padding:1.1rem 1.2rem 1.3rem;
+}
+.pl-sheet__brand{ text-align:right; margin-bottom:.35rem; }
+.pl-sheet__brand img{ max-height:54px; max-width:190px; object-fit:contain; }
+
+.pl-head{ display:flex; gap:1rem; align-items:center; flex-wrap:wrap; }
+.pl-head__cover, .pl-head__coverbtn img{
+  width:104px; height:104px; object-fit:cover; border-radius:16px;
+  border:1px solid #e5e8ee; background:#fff; flex:0 0 auto;
+}
+.pl-head__main{ flex:1 1 14rem; min-width:0; }
+.pl-head__eyebrow{
+  font-size:.68rem; text-transform:uppercase; letter-spacing:.06em; color:#8a909a; font-weight:700;
+}
+.pl-head__title{ font-size:1.6rem; font-weight:800; margin:.1rem 0 0; line-height:1.15; }
+.pl-head__facts{ display:flex; gap:.9rem; flex-wrap:wrap; color:#6b7280; font-size:.86rem; margin-top:.4rem; }
+.pl-head__facts i{ color:var(--brand-primary); margin-right:.3rem; }
+/* Edición: el cuadradito de la portada delante del título y el nombre se pincha. */
+.pl-head__coverbtn{
+  border:1px dashed #cfd4dd; background:#fff; border-radius:16px; padding:0; overflow:hidden;
+  width:104px; height:104px; flex:0 0 auto; cursor:pointer;
+}
+.pl-head__coverbtn:hover{ border-color:var(--brand-primary); }
+.pl-head__coverempty{
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.25rem;
+  width:100%; height:100%; color:#8a909a; font-size:.74rem;
+}
+.pl-head__coverempty i{ font-size:1.4rem; }
+.pl-head__input{
+  border:1px solid transparent; border-radius:10px; font-size:1.5rem; font-weight:800;
+  width:100%; padding:.1rem .35rem; margin:.1rem 0 0; background:#fff;
+}
+.pl-head__input:hover{ border-color:#e5e8ee; }
+.pl-head__input:focus{ border-color:var(--brand-primary); outline:none; }
+
+.pl-note{
+  display:flex; gap:.5rem; align-items:flex-start; margin-top:.9rem;
+  background:#f8fafc; border:1px solid #e6e8eb; border-radius:14px; padding:.6rem .8rem;
+  font-size:.9rem; color:#374151; white-space:pre-line;
+}
+.pl-note i{ color:#8a909a; margin-top:.15rem; }
+.pl-note--edit{ align-items:center; }
+.pl-note--edit textarea{ flex:1 1 auto; }
+
+.pl-list{ list-style:none; margin:1rem 0 0; padding:0; }
+.pl-item{ padding:0; }
+.pl-item--title{
+  font-weight:800; font-size:1.02rem; margin:1.1rem 0 .35rem; color:#111827;
+}
+.pl-item--divider{ margin:.8rem 0; }
+.pl-item--divider span{ display:block; height:1px; background:#e5e8ee; }
+.pl-empty{ color:#6b7280; padding:1rem .2rem; }
+
+.pl-row{
+  display:flex; align-items:center; gap:.8rem; padding:.5rem .6rem; border-radius:14px;
+  cursor:pointer; border:1px solid transparent;
+}
+.pl-row.is-mute{ cursor:default; }
+.pl-row:hover, .pl-row.is-playing{ background:#f6f8fc; border-color:#e5e8ee; }
+.pl-row__cover{ position:relative; width:56px; height:56px; flex:0 0 auto; }
+.pl-row__cover img{
+  width:56px; height:56px; object-fit:cover; border-radius:10px; border:1px solid #e5e8ee; background:#fff;
+}
+/* El PLAY sale sobre la portada al pasar el ratón (o mientras suena). */
+.pl-row__play{
+  position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+  background:rgba(17,24,39,.5); color:#fff; border-radius:10px; font-size:1rem;
+}
+.pl-row:hover .pl-row__play, .pl-row.is-playing .pl-row__play{ display:flex; }
+.pl-row__main{ flex:1 1 10rem; min-width:0; }
+.pl-row__title{ font-weight:700; }
+.pl-row:hover .pl-row__title, .pl-row.is-playing .pl-row__title{ text-decoration:underline; }
+.pl-row.is-playing .pl-row__title{ color:var(--brand-primary); }
+.pl-row__artist{
+  display:flex; align-items:center; gap:.4rem; flex-wrap:wrap;
+  color:#6b7280; font-size:.85rem; margin-top:.15rem;
+}
+.pl-row__artist img{ width:22px; height:22px; border-radius:50%; object-fit:cover; border:1px solid #e5e8ee; }
+.pl-row__tag{
+  font-size:.68rem; text-transform:uppercase; letter-spacing:.04em;
+  background:#eef1f6; color:#6b7280; border-radius:999px; padding:.05rem .45rem;
+}
+.pl-row__dur{ color:#6b7280; font-size:.85rem; font-variant-numeric:tabular-nums; flex:0 0 auto; }
+
+/* La barra de reproducción: solo cuando esa línea está sonando. */
+.pl-row__player{ display:none; align-items:center; gap:.5rem; flex:0 1 15rem; min-width:8rem; }
+.pl-row.is-playing .pl-row__player{ display:flex; }
+.pl-row__pause{
+  border:1px solid #e5e8ee; background:#fff; color:#111827; border-radius:50%;
+  width:28px; height:28px; flex:0 0 auto; line-height:1; font-size:.72rem;
+}
+.pl-row__pause:hover{ border-color:var(--brand-primary); color:var(--brand-primary); }
+.pl-track{
+  position:relative; flex:1 1 auto; height:6px; background:#e5e8ee; border-radius:999px; cursor:pointer;
+}
+.pl-track__fill{ position:absolute; left:0; top:0; bottom:0; width:0; background:var(--brand-primary); border-radius:999px; }
+.pl-track__knob{
+  position:absolute; top:50%; left:0; width:12px; height:12px; margin:-6px 0 0 -6px;
+  background:#fff; border:2px solid var(--brand-primary); border-radius:50%;
+}
+.pl-row__time{ color:#6b7280; font-size:.78rem; font-variant-numeric:tabular-nums; flex:0 0 auto; }
+.pl-row__dlbtn{
+  border:1px solid #e5e8ee; background:#fff; color:#111827; border-radius:50%;
+  width:30px; height:30px; line-height:1;
+}
+.pl-row__dlbtn:hover{ border-color:var(--brand-primary); color:var(--brand-primary); }
+
+/* ---- Listado de playlists (una debajo de otra) ---- */
+.pl-index__cover{ width:52px; height:52px; object-fit:cover; border-radius:10px; border:1px solid #e5e8ee; }
+
+/* ---- Edición ---- */
+.pl-addbar{
+  display:flex; gap:.5rem; flex-wrap:wrap; align-items:center;
+  background:#fff; border:1px solid #e5e8ee; border-radius:14px; padding:.6rem .7rem; margin-bottom:.8rem;
+}
+.pl-list--edit{ margin-top:0; }
+.pl-erow{
+  display:flex; align-items:center; gap:.7rem; padding:.45rem .6rem; margin-bottom:.35rem;
+  background:#fff; border:1px solid #e5e8ee; border-radius:12px;
+}
+.pl-erow.dragging{ opacity:.5; }
+.pl-erow__handle{ color:#b6bcc7; cursor:grab; flex:0 0 auto; }
+.pl-erow__cover{ width:44px; height:44px; object-fit:cover; border-radius:8px; border:1px solid #e5e8ee; flex:0 0 auto; }
+.pl-erow__main{ flex:1 1 10rem; min-width:0; display:block; }
+.pl-erow__title{ font-weight:700; display:block; }
+.pl-erow__artist{ display:flex; align-items:center; gap:.35rem; color:#6b7280; font-size:.82rem; flex-wrap:wrap; }
+.pl-erow__artist img{ width:20px; height:20px; border-radius:50%; object-fit:cover; }
+.pl-erow__dur{ color:#6b7280; font-size:.82rem; font-variant-numeric:tabular-nums; }
+.pl-erow__del{ border:0; background:transparent; color:#b6bcc7; flex:0 0 auto; }
+.pl-erow__del:hover{ color:var(--brand-primary); }
+.pl-erow__tag{
+  font-size:.62rem; font-weight:700; letter-spacing:.06em; color:#8a909a;
+  background:#eef1f6; border-radius:999px; padding:.1rem .45rem; flex:0 0 auto;
+}
+.pl-erow--title input{ flex:1 1 auto; font-weight:700; }
+.pl-erow--divider .pl-erow__line{ flex:1 1 auto; height:2px; background:#dfe3ea; border-radius:2px; }
+
+/* ---- Pop-up de añadir canción ---- */
+.pl-pick-sources{ display:flex; gap:.8rem; flex-wrap:wrap; }
+.pl-pick-source{
+  flex:1 1 12rem; display:flex; flex-direction:column; align-items:center; gap:.3rem;
+  background:#fff; border:1px solid #e5e8ee; border-radius:16px; padding:1.2rem .8rem; text-align:center;
+}
+.pl-pick-source:hover{ border-color:var(--brand-primary); box-shadow:0 2px 10px rgba(227,61,72,.12); }
+.pl-pick-source i{ font-size:1.8rem; color:var(--brand-primary); }
+.pl-pick-source span:nth-of-type(1){ font-weight:700; }
+.pl-pick-artists{ display:flex; flex-direction:column; gap:.35rem; }
+.pl-pick-artist{
+  display:flex; align-items:center; gap:.6rem; text-align:left;
+  background:#fff; border:1px solid #e5e8ee; border-radius:12px; padding:.4rem .6rem;
+}
+.pl-pick-artist:hover{ border-color:var(--brand-primary); }
+.pl-pick-artist img{ width:34px; height:34px; border-radius:50%; object-fit:cover; border:1px solid #e5e8ee; }
+.pl-pick-artist__icon{
+  width:34px; height:34px; border-radius:50%; background:#eef1f6; color:#8a909a;
+  display:inline-flex; align-items:center; justify-content:center;
+}
+.pl-pick-artist__name{ flex:1 1 auto; font-weight:600; min-width:0; }
+.pl-pick-songs{ display:flex; flex-direction:column; gap:.35rem; }
+.pl-pick-song{
+  display:flex; align-items:center; gap:.6rem; text-align:left;
+  background:#fff; border:1px solid #e5e8ee; border-radius:12px; padding:.4rem .6rem;
+}
+.pl-pick-song:hover{ border-color:var(--brand-primary); }
+.pl-pick-song.is-added{ background:#f2fbf5; border-color:#bfe6cd; }
+.pl-pick-song img{ width:40px; height:40px; border-radius:8px; object-fit:cover; border:1px solid #e5e8ee; }
+.pl-pick-song__main{ flex:1 1 auto; min-width:0; }
+.pl-pick-song__title{ display:block; font-weight:700; }
+.pl-pick-song__sub{ display:block; color:#6b7280; font-size:.82rem; }
 
 
 /* =========================================================================

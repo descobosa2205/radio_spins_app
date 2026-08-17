@@ -2326,8 +2326,13 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (configurar sus días · apuntarle días · ver su contrato).
   · **Calendario compartido**: `static/js/vacaciones.js` (`VacCalendar.create`, modos `year` y `month`)
   + estilos `.vac-*`. ⚠️ Nada de `toISOString()` para la fecha del día: pasa por UTC y en España se
-  lleva el día por delante. ⚠️ El arrastre recorre **el rango entero** desde donde empezó el gesto
-  (mismo patrón que el asignador de invitaciones y el mapa de butacas).
+  lleva el día por delante. ⚠️⚠️ El arrastre marca **los días POR LOS QUE SE PASA,
+  uno a uno** — no el bloque entre el primero y el de debajo del puntero (antes se pintaba el rango
+  entero, así que al cruzar de fila se marcaban días por los que no habías pasado). Para que un
+  barrido rápido no se salte ninguno se recorre el **CAMINO del puntero** (eventos coalescidos +
+  interpolación cada ~8 px), el mismo truco del mapa de butacas.
+  ⚠️ `getCoalescedEvents()` puede devolver una lista **VACÍA**, y una lista vacía es «verdadera»: con
+  un `||` no se caía al propio evento y **no se marcaba nada** (bug real).
   · **EXTRAS de vacaciones** (ago 2026): días ADICIONALES de UNA persona, con su motivo y su número,
   y **cada uno es su propia bolsa** (no salen de sus vacaciones ni las tocan). Se configuran en los
   tres puntitos de la persona → «Configurar sus días»: el preconfigurado es **Luna de miel** (basta
@@ -2413,6 +2418,19 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   la MISMA tabla `Holiday` con el ámbito **EMPRESA** y hereda gratis el calendario, el cómputo y
   `_vacation_day_counts`. Se marcan uno o varios sobre el calendario desde Festivos. Si el día ya
   era festivo, no se pisa.
+  · **DÍA NO LABORABLE · a quién y CÓMO SE COMUNICA** (ago 2026): al marcarlo se elige **a toda la
+  oficina** o **solo a algunas personas** (rejilla con sus fotos y sus nombres).
+  ⚠️ Al guardar **ya NO se avisa a nadie**: se ofrece **COMUNICARLO** (`?comunicar=<días>` abre solo el
+  pop-up `#nlComunicarModal`), con **los afectados ya marcados** —se puede añadir o quitar a quien
+  sea— y el **texto estándar**, que se puede cambiar: si no se toca, va ese
+  (`_vacation_nonworking_text`): «Como cortesía, la empresa ha decidido que el próximo **martes 30 de
+  junio de 2026**, no se trabaje. Gracias por el buen trabajo y a disfrutar.». Lo manda
+  `vacation_nonworking_notify` (correo + campanita).
+  · **El CORREO** de un día no laborable es solo eso: logo de la empresa del grupo arriba a la
+  **derecha**, el título **«Día no laborable»** y debajo el mensaje. **Sin calendario y sin totales**
+  (los otros avisos —vacaciones y días libres— sí los llevan).
+  ⚠️ El pop-up se abre con **`window.app33AutoOpenModal`**, no con `new bootstrap.Modal(...)`: el JS
+  de la plantilla corre ANTES de que Bootstrap esté cargado.
   · **CONCEDER día libre** (`vacation_grant_free_day`): la empresa se lo regala a **varias personas
   a la vez** (se eligen con casillas) y **sí se les avisa**. ⚠️ No confundir con «apuntar días»
   (`vacation_person_days`), que es meter en el sistema lo YA disfrutado: eso **no** avisa.

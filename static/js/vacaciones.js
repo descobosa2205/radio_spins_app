@@ -309,34 +309,69 @@
       return prefiereTarget ? (celdaDe(ev.target) || porPunto()) : (porPunto() || celdaDe(ev.target));
     }
 
-    function paintRange(desde, hasta) {
-      var a = fromIso(desde), b = fromIso(hasta);
-      if (a > b) { var tmp = a; a = b; b = tmp; }
-      var cur = new Date(a.getTime());
-      while (cur <= b) {
-        var k = iso(cur);
-        if (self.drag.mode === 'add') self.selected[k] = true; else delete self.selected[k];
-        cur.setDate(cur.getDate() + 1);
+    /* Marca UN día (el modo lo decide el primero del gesto: si estaba suelto se marca, si estaba
+       marcado se desmarca). */
+    function marcaDia(key) {
+      if (!key) return false;
+      if (self.drag.mode === 'add') {
+        if (self.selected[key]) return false;
+        self.selected[key] = true;
+      } else {
+        if (!self.selected[key]) return false;
+        delete self.selected[key];
       }
-      self.repaint();
+      return true;
+    }
+
+    /* ⚠️ El arrastre marca los días POR LOS QUE SE PASA, uno a uno — NO el bloque entre el primero y
+       el de debajo del puntero (antes se pintaba el rango entero, así que al cruzar de fila se
+       marcaban días por los que no habías pasado).
+       Para que un barrido rápido no se salte ninguno se recorre el CAMINO del puntero (los eventos
+       coalescidos e interpolando entre puntos), el mismo truco del mapa de butacas. */
+    function caminoDe(ev) {
+      var puntos = [];
+      // ⚠️ `getCoalescedEvents()` puede devolver una lista VACÍA (y una lista vacía es «verdadera»,
+      // así que con un `||` no se caía al propio evento y no se marcaba nada).
+      var brutos = [];
+      try { brutos = (ev.getCoalescedEvents && ev.getCoalescedEvents()) || []; } catch (e) { brutos = []; }
+      if (!brutos.length) brutos = [ev];
+      brutos.forEach(function (e) {
+        var x = (e.touches ? e.touches[0].clientX : e.clientX);
+        var y = (e.touches ? e.touches[0].clientY : e.clientY);
+        if (x == null || y == null) return;
+        var ult = self.drag.lastPt;
+        if (ult) {
+          // Se interpola cada ~8 px: así no se cuela ninguna casilla entre dos posiciones.
+          var dx = x - ult.x, dy = y - ult.y;
+          var pasos = Math.min(60, Math.max(1, Math.round(Math.hypot(dx, dy) / 8)));
+          for (var i = 1; i < pasos; i++) {
+            puntos.push({ x: ult.x + (dx * i) / pasos, y: ult.y + (dy * i) / pasos });
+          }
+        }
+        puntos.push({ x: x, y: y });
+        self.drag.lastPt = { x: x, y: y };
+      });
+      return puntos;
     }
 
     this.root.addEventListener('pointerdown', function (ev) {
       var key = dayAt(ev, true);
       if (!key) return;
       ev.preventDefault();
-      self.drag = { from: key, mode: self.selected[key] ? 'remove' : 'add' };
-      paintRange(key, key);
+      self.drag = { mode: self.selected[key] ? 'remove' : 'add',
+                    lastPt: { x: ev.clientX, y: ev.clientY } };
+      marcaDia(key);
+      self.repaint();
     });
 
     this.root.addEventListener('pointermove', function (ev) {
       if (!self.drag) return;
-      var key = dayAt(ev, false);
-      if (!key || key === self.drag.last) return;
-      self.drag.last = key;
-      // Se repinta desde el origen: al retroceder, lo que sobra se deselecciona.
-      self.selected = Object.assign({}, self.drag.base || (self.drag.base = Object.assign({}, self.selected)));
-      paintRange(self.drag.from, key);
+      var cambio = false;
+      caminoDe(ev).forEach(function (p) {
+        var cel = document.elementFromPoint(p.x, p.y);
+        if (marcaDia(celdaDe(cel))) cambio = true;
+      });
+      if (cambio) self.repaint();
     });
 
     ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (evt) {

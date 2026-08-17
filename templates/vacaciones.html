@@ -379,6 +379,56 @@
     </div>
   </div>
 
+  {# ---------- COMUNICAR EL DÍA NO LABORABLE ----------
+     Sale solo al volver de marcarlo (`?comunicar=`): los afectados vienen ya marcados y se puede
+     añadir o quitar a quien sea. El texto se puede cambiar; si no se toca, va el estándar. #}
+  {% if comunicar %}
+  <div class="modal fade" id="nlComunicarModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <form method="post" action="{{ url_for('vacation_nonworking_notify') }}" class="modal-content">
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title"><i class="fa fa-paper-plane me-2"></i>Comunicar el día no laborable</h5>
+            <div class="small text-muted">{{ comunicar.days_label }}</div>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" name="days" value="{{ comunicar.days }}">
+          <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-1">
+            <label class="form-label m-0">¿A quién se lo comunicamos?
+              <span class="text-muted small">(<span data-com-count>0</span> elegidas)</span></label>
+            <div class="d-flex gap-2">
+              <button class="btn btn-outline-secondary btn-sm" type="button" data-com-all>Todas</button>
+              <button class="btn btn-outline-secondary btn-sm" type="button" data-com-none>Ninguna</button>
+            </div>
+          </div>
+          <div class="agenda-artist-picker mb-3">
+            {% for p in people %}
+              <label class="agenda-artist-card" data-com-person>
+                <input class="d-none" type="checkbox" name="user_ids" value="{{ p.user_id }}"
+                       {% if p.user_id in comunicar.user_ids %}checked{% endif %}>
+                <img src="{{ p.photo_url or DEFAULT_AVATAR_URL }}" alt="" loading="lazy" data-avatar="1">
+                <span>{{ p.nick }}</span>
+              </label>
+            {% endfor %}
+          </div>
+          <label class="form-label">El mensaje</label>
+          <textarea class="form-control" name="message" rows="4">{{ comunicar.text }}</textarea>
+          <div class="form-text">
+            Si lo dejas como está, va este texto. En el correo sale con el logo de la empresa arriba a
+            la derecha y el título <strong>Día no laborable</strong>.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Ahora no</button>
+          <button class="btn btn-primary"><i class="fa fa-paper-plane me-1"></i>Comunicar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
   <script src="{{ url_for('static', filename='js/vacaciones.js') }}"></script>
   <script id="vacFestData" type="application/json">{{ calendar_payload|tojson }}</script>
   <script>
@@ -438,6 +488,28 @@
     modalNL.querySelector('[data-nl-none]').addEventListener('click', function(){
       fichas.forEach(function(f){ f.querySelector('input').checked = false; }); contarGente();
     });
+
+    /* ---- COMUNICARLO: sale solo al volver de marcar los días, con los afectados ya puestos. ---- */
+    var modalCom = document.getElementById('nlComunicarModal');
+    if (modalCom) {
+      var fichasCom = Array.prototype.slice.call(modalCom.querySelectorAll('[data-com-person]'));
+      function contarCom(){
+        var n = fichasCom.filter(function(f){ return f.querySelector('input').checked; }).length;
+        modalCom.querySelector('[data-com-count]').textContent = n;
+        fichasCom.forEach(function(f){ f.classList.toggle('is-on', f.querySelector('input').checked); });
+      }
+      fichasCom.forEach(function(f){ f.querySelector('input').addEventListener('change', contarCom); });
+      modalCom.querySelector('[data-com-all]').addEventListener('click', function(){
+        fichasCom.forEach(function(f){ f.querySelector('input').checked = true; }); contarCom();
+      });
+      modalCom.querySelector('[data-com-none]').addEventListener('click', function(){
+        fichasCom.forEach(function(f){ f.querySelector('input').checked = false; }); contarCom();
+      });
+      contarCom();
+      // ⚠️ Se abre con el ayudante de la casa, no con `new bootstrap.Modal(...)`: este script corre
+      // ANTES de que Bootstrap esté cargado (el ayudante reintenta hasta que existe).
+      if (window.app33AutoOpenModal) window.app33AutoOpenModal('nlComunicarModal');
+    }
   })();
   </script>
 

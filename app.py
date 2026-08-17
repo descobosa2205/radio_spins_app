@@ -97212,6 +97212,27 @@ def _vacation_notice_calendar_html(days: list, holidays: dict, color: str) -> st
             + "".join(filas_meses) + "</table>")
 
 
+def _vacation_nonworking_text(days: list, *, html: bool = False) -> str:
+    """El texto ESTÁNDAR con el que se comunica un día no laborable.
+
+    «Como cortesía, la empresa ha decidido que el próximo martes 27 de junio de 2026, no se trabaje.
+      Gracias por el buen trabajo y a disfrutar.»
+    Se puede cambiar al comunicarlo; si no se escribe nada, va este."""
+    dias = sorted({d for d in (days or []) if d})
+    if not dias:
+        return ""
+    if len(dias) == 1:
+        cuando = "el próximo <b>%s</b>" % _vacation_long_date(dias[0])
+    else:
+        etiquetas = [_vacation_long_date(d) for d in dias]
+        cuando = ("los próximos <b>" + ", ".join(etiquetas[:-1]) + "</b> y <b>" + etiquetas[-1] + "</b>")
+    texto = ("Como cortesía, la empresa ha decidido que %s, no se trabaje.\n\n"
+             "Gracias por el buen trabajo y a disfrutar." % cuando)
+    if html:
+        return texto.replace("\n\n", "<br/><br/>").replace("\n", "<br/>")
+    return texto.replace("<b>", "").replace("</b>", "")
+
+
 def _vacation_notice_context(session_db, notice_type: str, user_id, days: list,
                              note: str = "", year: int | None = None) -> dict:
     """Todo lo que necesita el aviso (correo, página y título de la notificación)."""
@@ -97224,12 +97245,10 @@ def _vacation_notice_context(session_db, notice_type: str, user_id, days: list,
     prof = session_db.get(UserProfile, _safe_uuid(user_id))
 
     if tipo == "NO_LABORABLE":
-        if len(dias) == 1:
-            lead = (f"¡Enhorabuena! La empresa ha decidido que el <strong>{_vacation_long_date(dias[0])}</strong> "
-                    "no se trabaje.")
-        else:
-            lead = ("¡Enhorabuena! La empresa ha decidido que estos días no se trabaje: <strong>"
-                    + ", ".join(_vacation_long_date(d) for d in dias) + "</strong>.")
+        # El texto se puede cambiar al comunicarlo; si no se escribe nada, va el ESTÁNDAR.
+        escrito = (note or "").strip()
+        lead = (escape(escrito).replace("\n", "<br/>") if escrito
+                else _vacation_nonworking_text(dias, html=True))
         color = "#6A1B9A"
     else:
         lead = meta["lead"]
@@ -97301,11 +97320,15 @@ def _vacation_notice_html(ctx: dict) -> str:
                    f'align="center" style="margin:26px auto 0;"><tr>{celdas}</tr></table>')
 
     nota = ""
-    if ctx.get("note"):
+    # ⚠️ En un DÍA NO LABORABLE la nota ES el mensaje (ya va arriba, en `lead`): no se repite abajo.
+    if ctx.get("note") and ctx.get("type") != "NO_LABORABLE":
         nota = ('<p style="margin:14px 0 0;font-size:14px;color:#4b5563;text-align:center;'
                 f'font-family:Arial,Helvetica,sans-serif;">{esc(ctx["note"])}</p>')
 
-    calendario = _vacation_notice_calendar_html(ctx.get("days"), ctx.get("holidays"), color)
+    # El correo de un día no laborable es lo que se pidió y nada más: el logo arriba a la derecha y
+    # debajo el mensaje (ni calendario ni totales; para eso está el calendario de la app).
+    calendario = ("" if ctx.get("type") == "NO_LABORABLE"
+                  else _vacation_notice_calendar_html(ctx.get("days"), ctx.get("holidays"), color))
 
     animacion = ("""<style>
   @keyframes vnPop { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-8px) scale(1.12); } }
@@ -97718,10 +97741,37 @@ def vacaciones_view():
                 statuses=list(VACATION_LIVE_STATUSES), year=year)
             cuadrante.sort(key=lambda r: (r["first_day"] or date(year, 12, 31)))
 
+        # COMUNICAR un día no laborable recién marcado: se ofrece al volver del alta (`?comunicar=`),
+        # con los afectados ya puestos y el texto estándar (que se puede cambiar).
+        comunicar = None
+        crudo = (request.args.get("comunicar") or "").strip()
+        if crudo:
+            dias_com = _parse_vacation_days(crudo)
+            if dias_com:
+                afectados = set()
+                todos = False
+                for fila in (session_db.query(Holiday)
+                             .filter(Holiday.region == VACATION_REGION)
+                             .filter(Holiday.day.in_(dias_com)).all()):
+                    suyos = [str(x) for x in (getattr(fila, "user_ids", None) or []) if str(x or "").strip()]
+                    if suyos:
+                        afectados.update(suyos)
+                    else:
+                        todos = True          # sin lista = a toda la oficina
+                if todos:
+                    afectados = {str(u) for u in _vacation_office_user_ids(session_db)}
+                comunicar = {
+                    "days": ",".join(d.isoformat() for d in dias_com),
+                    "days_label": _vacation_range_label(dias_com),
+                    "user_ids": sorted(afectados),
+                    "text": _vacation_nonworking_text(dias_com),
+                }
+
         años = sorted({year, hoy.year, hoy.year + 1, hoy.year - 1}, reverse=True)
         return render_template(
             "vacaciones.html",
             tab=tab, year=year, month=month, years=años, people=personas,
+            comunicar=comunicar,
             quadrant=cuadrante,
             quadrant_person=next((p for p in personas if seleccion and p["user_id"] == seleccion[0]), None),
             pending=pendientes, history=historico, calendar_payload=payload,
@@ -98204,27 +98254,61 @@ def vacation_nonworking_save():
                                    user_ids=elegidos))
             nuevos += 1
         session_db.commit()
+        marcados = [d for d in dias if d]
         if nuevos:
-            # Se avisa SOLO a quien le afecta (a toda la oficina si no se ha elegido a nadie).
-            marcados = [d for d in dias if d]
-            destinatarios = elegidos or _vacation_office_user_ids(session_db)
-            for uid in destinatarios:
-                _vacation_notice_send(session_db, "NO_LABORABLE", uid, marcados,
-                                      note=nombre if nombre != "No laborable" else "",
-                                      year=year, ref_id=marcados[0].isoformat() if marcados else "")
-            session_db.commit()
             flash(f"Marcado{'' if nuevos == 1 else 's'} {nuevos} día{'' if nuevos == 1 else 's'} "
-                  "como no laborable" + ("" if nuevos == 1 else "s") +
-                  (". Avisada la oficina." if not elegidos
-                   else f". Avisadas las {len(elegidos)} personas a las que se les aplica."), "success")
+                  "como no laborable" + ("" if nuevos == 1 else "s") + ".", "success")
         if pisados:
             flash(f"{pisados} de los días marcados ya eran festivos y se han dejado como estaban.", "info")
     except Exception as e:
         session_db.rollback()
         flash(f"No se pudieron marcar: {e}", "danger")
+        return redirect(url_for("vacaciones_view", tab="festivos", anio=year))
     finally:
         session_db.close()
+    # ⚠️ Al guardar YA NO se avisa a nadie: se ofrece COMUNICARLO (el pop-up sale solo con este
+    # parámetro), con los afectados ya puestos y el texto estándar, que se puede cambiar.
+    if nuevos:
+        return redirect(url_for("vacaciones_view", tab="festivos", anio=year,
+                                comunicar=",".join(d.isoformat() for d in marcados)))
     return redirect(url_for("vacaciones_view", tab="festivos", anio=year))
+
+
+@app.post("/vacaciones/no-laborables/comunicar", endpoint="vacation_nonworking_notify")
+@admin_required
+def vacation_nonworking_notify():
+    """COMUNICA un día no laborable: manda el correo (y el aviso de la app) a quien se diga.
+
+    Los destinatarios vienen marcados —los que tienen ese día— y se puede añadir o quitar a quien
+    sea. El texto se puede cambiar; si no se escribe nada, va el estándar."""
+    if not _can_manage_vacations():
+        return forbid("No puedes comunicar días no laborables.")
+    dias = _parse_vacation_days(request.form.get("days"))
+    year = dias[0].year if dias else today_local().year
+    destino = url_for("vacaciones_view", tab="festivos", anio=year)
+    if not dias:
+        flash("No hay ningún día que comunicar.", "warning")
+        return redirect(destino)
+    texto = (request.form.get("message") or "").strip()
+    session_db = db()
+    try:
+        validos = {str(v) for v in _vacation_office_user_ids(session_db)}
+        elegidos = [str(_safe_uuid(u)) for u in request.form.getlist("user_ids")
+                    if _safe_uuid(u) and str(_safe_uuid(u)) in validos]
+        if not elegidos:
+            flash("No has dejado a nadie a quien comunicárselo.", "warning")
+            return redirect(destino)
+        for uid in elegidos:
+            _vacation_notice_send(session_db, "NO_LABORABLE", uid, dias, note=texto,
+                                  year=year, ref_id=dias[0].isoformat())
+        session_db.commit()
+        flash("Comunicado a %d persona%s." % (len(elegidos), "" if len(elegidos) == 1 else "s"), "success")
+    except Exception as e:
+        session_db.rollback()
+        flash("No se pudo comunicar: %s" % e, "danger")
+    finally:
+        session_db.close()
+    return redirect(destino)
 
 
 @app.post("/vacaciones/festivos/<holiday_id>/eliminar", endpoint="vacation_holiday_delete")

@@ -1,4 +1,4 @@
-/* PLAY LIST (Discográfica) · reproductor + edición.
+/* PLAYLIST (Discográfica) · reproductor + edición.
  *
  * Dos piezas independientes, las dos no-op si su marca no está en la pantalla:
  *

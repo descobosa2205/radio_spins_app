@@ -83,9 +83,15 @@
           <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown">
             <i class="fa fa-download me-1"></i>Descargar listado
           </button>
+          {# ⚠️ ENLACES de verdad (no botones con JS): así el interceptor global de descargas
+             (`doc_download.js`) los reconoce y enseña la barra de «Generando documento…» mientras el
+             servidor lo prepara. Con `location.href` la descarga salía en SILENCIO y parecía que el
+             botón no hacía nada (bug real). El href lo mantiene al día `pintaDescargas()`. #}
           <ul class="dropdown-menu dropdown-menu-end">
-            <li><button class="dropdown-item" type="button" data-isrc-export="xlsx"><i class="fa fa-file-excel fa-fw me-1"></i>En Excel</button></li>
-            <li><button class="dropdown-item" type="button" data-isrc-export="pdf"><i class="fa fa-file-pdf fa-fw me-1"></i>En PDF</button></li>
+            <li><a class="dropdown-item" data-isrc-export="xlsx"
+                   href="{{ url_for('registros_isrc_export_xlsx', tab='isrc') }}"><i class="fa fa-file-excel fa-fw me-1"></i>En Excel</a></li>
+            <li><a class="dropdown-item" data-isrc-export="pdf"
+                   href="{{ url_for('registros_isrc_export_pdf', tab='isrc') }}"><i class="fa fa-file-pdf fa-fw me-1"></i>En PDF</a></li>
           </ul>
         </span>
       </span>
@@ -487,6 +493,27 @@
   var buscador = document.getElementById('isrcSearchInput');
   var elegido = 'all';
 
+  // DESCARGAR EL LISTADO: los enlaces llevan SIEMPRE lo que hay puesto ahora (el chip de artista y el
+  // buscador son filtros del navegador, así que viajan en la URL; el servidor los vuelve a aplicar).
+  // Se recalculan en cada cambio de filtro, no al pinchar: así el enlace es un enlace de verdad y la
+  // descarga la sigue el interceptor global (que es quien enseña la barra de «Generando documento»).
+  function pintaDescargas() {
+    raiz.querySelectorAll('[data-isrc-export]').forEach(function (a) {
+      var base = (a.getAttribute('data-isrc-base') || a.getAttribute('href') || '').split('#')[0];
+      if (!a.getAttribute('data-isrc-base')) a.setAttribute('data-isrc-base', base);
+      var p = new URLSearchParams(base.split('?')[1] || '');
+      // Los filtros del formulario (artista y año) tal como están en la barra de direcciones.
+      var actuales = new URLSearchParams(window.location.search);
+      ['artist_id', 'year'].forEach(function (k) {
+        if (actuales.get(k)) p.set(k, actuales.get(k)); else p.delete(k);
+      });
+      if (elegido && elegido !== 'all') p.set('filtro_artista', elegido); else p.delete('filtro_artista');
+      var texto = (buscador && buscador.value.trim()) || '';
+      if (texto) p.set('q', texto); else p.delete('q');
+      a.setAttribute('href', base.split('?')[0] + '?' + p.toString());
+    });
+  }
+
   function aplica() {
     var q = normaliza(buscador && buscador.value);
     raiz.querySelectorAll('.isrc-search-row').forEach(function (fila) {
@@ -502,6 +529,7 @@
         .filter(function (f) { return f.style.display !== 'none'; });
       bloque.style.display = visibles.length ? '' : 'none';
     });
+    pintaDescargas();     // lo que se descarga es lo que se está viendo
   }
 
   function pintaBotones() {
@@ -523,28 +551,6 @@
     aplica();
   });
   if (buscador) buscador.addEventListener('input', aplica);
-
-  // DESCARGAR EL LISTADO: se manda lo que hay puesto AHORA (el chip de artista y el buscador van en
-  // la URL, porque son filtros del navegador y el servidor no los conoce de otra manera).
-  var EXPORTA = {
-    xlsx: {{ url_for('registros_isrc_export_xlsx', tab='isrc')|tojson }},
-    pdf: {{ url_for('registros_isrc_export_pdf', tab='isrc')|tojson }}
-  };
-  raiz.addEventListener('click', function (ev) {
-    var b = ev.target.closest('[data-isrc-export]');
-    if (!b) return;
-    ev.preventDefault();
-    var base = EXPORTA[b.getAttribute('data-isrc-export')] || '';
-    if (!base) return;
-    var p = new URLSearchParams();
-    // Los filtros del formulario (artista y año) tal como están en la barra de direcciones.
-    var actuales = new URLSearchParams(window.location.search);
-    ['artist_id', 'year'].forEach(function (k) { if (actuales.get(k)) p.set(k, actuales.get(k)); });
-    if (elegido && elegido !== 'all') p.set('filtro_artista', elegido);
-    if (buscador && buscador.value.trim()) p.set('q', buscador.value.trim());
-    var q = p.toString();
-    window.location.href = base + (q ? (base.indexOf('?') >= 0 ? '&' : '?') + q : '');
-  });
 
   pintaBotones();
   aplica();

@@ -592,7 +592,7 @@ class SongDemoRating(Base):
 
 
 class Playlist(Base):
-    """Una PLAY LIST del sello: temas del repertorio y maquetas puestos en orden para MANDARLOS.
+    """Una PLAYLIST del sello: temas del repertorio y maquetas puestos en orden para MANDARLOS.
 
     Se comparte por su enlace público (`public_token`, opaco: un enlace de hace dos años sigue
     valiendo). ⚠️ `allow_download` nace en FALSE: por defecto una playlist se escucha, no se descarga.
@@ -10381,7 +10381,7 @@ def ensure_song_demos_schema():
 
 
 def ensure_playlists_schema():
-    """PLAY LISTS del sello (pestaña Play List de Discográfica). Idempotente, sin Alembic."""
+    """PLAYLISTS del sello (pestaña Playlist de Discográfica). Idempotente, sin Alembic."""
     _create_all_once()
     _exec_ddl_statements([
         """

@@ -622,11 +622,11 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ A las personas se les marca la foto con `data-avatar="1"`: si su foto falla sale el muñequito
   gris en vez de desaparecer el hueco (y las dos líneas siguen cuadradas).
 
-- **PLAY LIST** (ago 2026): listas de temas para **MANDARLAS**, en su pestaña de Discográfica
+- **PLAYLIST** (ago 2026): listas de temas para **MANDARLAS**, en su pestaña de Discográfica
   (`/discografica?section=playlists`). Modelos **`Playlist`** + **`PlaylistItem`**
   (`ensure_playlists_schema`). Una línea es una **CANCIÓN** del repertorio, una **DEMO**, un **TÍTULO**
   o una **DIVISIÓN** (`kind`, y el orden lo da `position`; mismo patrón que el set list de una
-  actividad). Se crean con **«+ Play List»** (solo el nombre) y se listan una debajo de otra, cada una
+  actividad). Se crean con **«+ Playlist»** (solo el nombre) y se listan una debajo de otra, cada una
   con sus **tres puntitos** (editar · compartir por Email/WhatsApp/SMS · copiar enlace · eliminar);
   dentro, esas mismas opciones son **botonotes** (`.ficha-quick`).
   · **La playlist se ve IGUAL en todos los sitios**: punto único `templates/_playlist_view.html`
@@ -849,7 +849,12 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   la indicación «De la publicación más próxima a la más antigua» (el orden sigue siendo ese).
   · **DESCARGAR LISTADO** (ago 2026): botón con dos opciones, **Excel**
   (`registros_isrc_export_xlsx`) y **PDF** (`registros_isrc_export_pdf`), que exportan **SOLO LO QUE
-  SE ESTÁ VIENDO**. Los filtros del formulario (artista y año) van en la URL como siempre, y los del
+  SE ESTÁ VIENDO**.
+  ⚠️⚠️ Las dos opciones son **ENLACES de verdad** (`<a href>`), no botones que navegan con
+  `location.href`: el interceptor global de descargas (`static/js/doc_download.js`) solo reconoce
+  enlaces, y con `location.href` el fichero se bajaba **en silencio** —sin la barra de «Generando
+  documento…»— así que parecía que el botón **no hacía nada** (bug real). El href lo mantiene al día
+  `pintaDescargas()` en cada cambio de filtro; nada de construirlo al pinchar. Los filtros del formulario (artista y año) van en la URL como siempre, y los del
   **navegador** —el chip de artista y el buscador— viajan también (`filtro_artista` y `q`) y se
   vuelven a aplicar en el servidor con el MISMO criterio que el JS del panel (punto único
   `_isrc_export_blocks`; el texto se compara con `_norm_text_key`, hermano de `normalizeSearchText`).

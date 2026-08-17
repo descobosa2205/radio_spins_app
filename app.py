@@ -12243,7 +12243,7 @@ def discografica_view():
     # DEMOS: el listado solo se calcula cuando se está mirando esa sección.
     demos_ctx = _demos_context(session_db) if section == "demos" else None
 
-    # PLAY LIST: igual, solo cuando se está mirando esa sección.
+    # PLAYLIST: igual, solo cuando se está mirando esa sección.
     playlist_rows = _playlist_rows(session_db) if section == "playlists" else None
 
     # Solo artistas con contrato Discográfico / Catálogo / Distribución (para alta de canciones)
@@ -13264,7 +13264,7 @@ def discografica_view():
         section=section,
         # DEMOS: solo se calcula cuando se está mirando esa sección.
         demos_ctx=demos_ctx,
-        # PLAY LIST: el listado (una debajo de otra), solo en su pestaña.
+        # PLAYLIST: el listado (una debajo de otra), solo en su pestaña.
         playlist_rows=playlist_rows,
         demo_origins=DEMO_ORIGINS,
         demo_statuses=DEMO_STATUSES,
@@ -19681,7 +19681,7 @@ def discografica_demo_delete(demo_id):
 
 
 # =========================================================
-# PLAY LIST (Discográfica) · listas de temas para MANDARLAS
+# PLAYLIST (Discográfica) · listas de temas para MANDARLAS
 # =========================================================
 # Una playlist lleva canciones del repertorio, maquetas (demos), TÍTULOS y DIVISIONES, y se ve IGUAL
 # en los tres sitios (la pantalla de dentro, el enlace público y el correo): logo de la empresa del

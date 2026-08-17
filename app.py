@@ -11883,11 +11883,12 @@ def _isrc_panel_context(session_db, *, isrc_tab: str = "repertorio", artist_id=N
         # Repertorio ISRC agrupado por artista.
         # - Solo canciones con ISRC
         # - Solo si master_ownership_pct > 1% o es distribución
-        # - Ordenado por código ISRC (más actual -> más antiguo)
+        # - ⚠️ Ordenado por FECHA DE PUBLICACIÓN: la más próxima arriba y de ahí hacia abajo (antes se
+        #   ordenaba por el código ISRC, que no es lo que se busca al mirar el repertorio).
 
         artists_iter = [a for a in isrc_filter_artists if (not f_artist_id) or a.id == f_artist_id]
 
-        # subquery: máximo código por canción (para ordenar por ISRC)
+        # subquery: máximo código por canción (se enseña y sirve para buscar)
         max_code_sq = (
             session_db.query(
                 SongISRCCode.song_id.label("song_id"),
@@ -11910,9 +11911,21 @@ def _isrc_panel_context(session_db, *, isrc_tab: str = "repertorio", artist_id=N
             if f_year:
                 q = q.filter(func.extract("year", Song.release_date) == f_year)
 
-            songs = q.order_by(max_code_sq.c.max_code.desc()).all()
+            songs = q.order_by(Song.release_date.desc().nullslast(),
+                               max_code_sq.c.max_code.desc()).all()
             songs_by_artist[a.id] = songs
             all_song_ids.extend([s.id for s in songs])
+
+        # QUÉ CÓDIGOS ESTÁN YA REGISTRADOS en AGEDI (verde) y cuáles siguen pendientes (amarillo).
+        registrados_por_song: dict = {}
+        if all_song_ids:
+            try:
+                for st in (session_db.query(SongStatus)
+                           .filter(SongStatus.song_id.in_(all_song_ids)).all()):
+                    registrados_por_song[st.song_id] = set(
+                        _norm_isrc_list(getattr(st, "agedi_registered_isrcs", []) or []))
+            except Exception:
+                app.logger.exception("[isrc] no se pudo leer el estado de registro en AGEDI")
 
         # Prefetch TODOS los ISRCs (incl. subproductos), ordenados por código desc
         codes_by_song = {}
@@ -11950,18 +11963,41 @@ def _isrc_panel_context(session_db, *, isrc_tab: str = "repertorio", artist_id=N
 
                 # key de orden (max code ya viene por query, pero lo guardamos)
                 max_code = codes[0].code if codes else None
+                _reg = registrados_por_song.get(s.id) or set()
+
+                def _pinta(code, nombre=None):
+                    """Cada código con su estado: registrado en AGEDI (verde) o pendiente (amarillo)."""
+                    codigo = _norm_isrc(code)
+                    return {"code": codigo, "name": (nombre or ""), "registered": codigo in _reg}
+
                 enriched.append(
                     {
                         "song": s,
+                        # La PORTADA de cada tema (la que resuelve `Song.cover_url`).
+                        "cover_url": (getattr(s, "cover_url", None) or ""),
                         "audio_primary": _norm_isrc(audio_p.code) if audio_p else None,
                         "video_primary": _norm_isrc(video_p.code) if video_p else None,
+                        "audio_primary_registered": bool(audio_p and _norm_isrc(audio_p.code) in _reg),
+                        "video_primary_registered": bool(video_p and _norm_isrc(video_p.code) in _reg),
                         "audio_subs": [(_norm_isrc(c.code), c.subproduct_name) for c in audio_subs],
                         "video_subs": [(_norm_isrc(c.code), c.subproduct_name) for c in video_subs],
+                        # Los subproductos, con su estado (mismo criterio que los principales).
+                        "audio_sub_rows": [_pinta(c.code, c.subproduct_name) for c in audio_subs],
+                        "video_sub_rows": [_pinta(c.code, c.subproduct_name) for c in video_subs],
                         "max_code": _norm_isrc(max_code),
                     }
                 )
 
             isrc_artist_blocks.append((a, enriched))
+
+        # Los BLOQUES también van de la publicación más próxima hacia abajo: así lo primero que se ve
+        # en la pantalla es el lanzamiento más cercano, sea de quien sea.
+        def _mas_proxima(par):
+            fechas = [getattr(it["song"], "release_date", None) for it in (par[1] or [])]
+            fechas = [f for f in fechas if f]
+            return (0 if fechas else 1, -(max(fechas).toordinal() if fechas else 0),
+                    (par[0].name or "").lower())
+        isrc_artist_blocks.sort(key=_mas_proxima)
 
         isrc_current_filter_artists = [artist for artist, rows in isrc_artist_blocks if rows]
 

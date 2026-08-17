@@ -3,6 +3,15 @@
    ago 2026 porque es donde se trabaja con AGEDI y SGAE. Su contexto lo da `_isrc_panel_context`
    (app.py) y su PERMISO sigue siendo `discografica.isrc` (no se renombra: renombrarlo podaría en
    cascada los permisos ya concedidos). #}
+
+{# CADA CÓDIGO CON SU COLOR: verde si ya está registrado en AGEDI, amarillo si sigue pendiente.
+   Vale igual para el código principal y para los subproductos. #}
+{% macro isrc_badge(code, registrado, nombre='') %}
+  <span class="badge {{ 'text-bg-success' if registrado else 'text-bg-warning text-dark' }} text-nowrap"
+        title="{{ 'Registrado en AGEDI' if registrado else 'Pendiente de registrar en AGEDI' }}">{{ code|isrc }}</span>
+  {%- if nombre %} <span class="text-muted small">({{ nombre }})</span>{% endif %}
+{% endmacro %}
+
   <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
     <ul class="nav nav-pills">
       <li class="nav-item">
@@ -61,6 +70,13 @@
   {% endif %}
 
   {% if isrc_tab == 'repertorio' %}
+    {# Qué dice cada color: el código está registrado en AGEDI (verde) o sigue pendiente (amarillo).
+       Las canciones van de la publicación MÁS PRÓXIMA hacia abajo. #}
+    <div class="d-flex align-items-center gap-3 flex-wrap small text-muted mb-2">
+      <span><span class="badge text-bg-success">ES-XXX-00-00000</span> registrado en AGEDI</span>
+      <span><span class="badge text-bg-warning text-dark">ES-XXX-00-00000</span> pendiente de registrar</span>
+      <span class="ms-auto"><i class="fa fa-arrow-down-long me-1"></i>De la publicación más próxima a la más antigua</span>
+    </div>
     {% if not isrc_artist_blocks or (isrc_artist_blocks|length) == 0 %}
       <div class="text-muted">No hay canciones para los filtros seleccionados.</div>
     {% else %}
@@ -79,6 +95,7 @@
               <table class="table table-hover align-middle mb-0">
                 <thead class="table-light">
                   <tr>
+                    <th style="width:64px;"></th>
                     <th>Nombre</th>
                     <th>Artista</th>
                     <th>Colaboradores</th>
@@ -103,6 +120,11 @@
                         data-href="{{ url_for('discografica_song_detail', song_id=s.id, tab='informacion') }}"
                         onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label')) return; window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='informacion') }}';"
                         onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='informacion') }}'; }">
+                      <td>
+                        {# LA PORTADA del tema (si no tiene, la foto del artista). #}
+                        <img src="{{ item.cover_url or artist.photo_url or DEFAULT_COVER_URL }}" alt=""
+                             class="cover-square" style="width:48px;height:48px;object-fit:cover;border-radius:10px;">
+                      </td>
                       <td>
                         <div class="fw-semibold">{{ s.title }}</div>
                         {% if s.is_distribution %}
@@ -135,29 +157,31 @@
                         {% endif %}
                       </td>
                       <td>
-                        <span class="text-muted">{{ audio or '—' }}</span>
-                        {% if audio_subs and (audio_subs|length) > 0 %}
+                        {% if audio %}
+                          {{ isrc_badge(audio, item.audio_primary_registered) }}
+                        {% else %}
+                          <span class="text-muted">—</span>
+                        {% endif %}
+                        {% if item.audio_sub_rows %}
                           <div class="mt-1">
                             <div class="small text-uppercase text-muted">Subproductos</div>
-                            {% for code, name in audio_subs %}
-                              <div class="small">
-                                {{ code|isrc }}
-                                {% if name %}<span class="text-muted">({{ name }})</span>{% endif %}
-                              </div>
+                            {% for c in item.audio_sub_rows %}
+                              <div class="small mt-1">{{ isrc_badge(c.code, c.registered, c.name) }}</div>
                             {% endfor %}
                           </div>
                         {% endif %}
                       </td>
                       <td>
-                        <span class="text-muted">{{ video or '—' }}</span>
-                        {% if video_subs and (video_subs|length) > 0 %}
+                        {% if video %}
+                          {{ isrc_badge(video, item.video_primary_registered) }}
+                        {% else %}
+                          <span class="text-muted">—</span>
+                        {% endif %}
+                        {% if item.video_sub_rows %}
                           <div class="mt-1">
                             <div class="small text-uppercase text-muted">Subproductos</div>
-                            {% for code, name in video_subs %}
-                              <div class="small">
-                                {{ code|isrc }}
-                                {% if name %}<span class="text-muted">({{ name }})</span>{% endif %}
-                              </div>
+                            {% for c in item.video_sub_rows %}
+                              <div class="small mt-1">{{ isrc_badge(c.code, c.registered, c.name) }}</div>
                             {% endfor %}
                           </div>
                         {% endif %}

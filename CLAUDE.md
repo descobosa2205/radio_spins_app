@@ -727,6 +727,12 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ `/discografica?section=isrc` **redirige** a la pestaña nueva (los enlaces guardados siguen
   valiendo) y los endpoints siguen llamándose `discografica_isrc_*` / `discografica_product_code_*`:
   renombrarlos no aporta nada y heredan su permiso por el prefijo.
+  · **El REPERTORIO se lee de arriba abajo por FECHA DE PUBLICACIÓN**: la más próxima primero, tanto
+  dentro de cada artista como entre bloques (antes se ordenaba por el código ISRC, que no dice nada al
+  mirar el repertorio). Cada tema lleva su **PORTADA** y cada código va **en VERDE si ya está
+  registrado en AGEDI y en AMARILLO si sigue pendiente** (macro `isrc_badge`, y lo mismo para los
+  subproductos), con su leyenda arriba. Lo registrado sale de `SongStatus.agedi_registered_isrcs`
+  —el mismo dato que manda en «Pendientes AGEDI»—, leído de una vez para todas las canciones.
 
 - **REGISTROS · qué conciertos se declaran y cada cuánto** (ago 2026):
   · **Solo de artistas con CONTRATO DISCOGRÁFICO**: `_artist_has_record_deal` (compromiso de

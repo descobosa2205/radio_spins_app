@@ -162,6 +162,7 @@ from models import (
     SongMaterial,
     SongMasterDeliveryLink,
     SongDemo,
+    SongDemoAuthor,
     SongDemoRating,
     Playlist,
     PlaylistItem,
@@ -432,7 +433,7 @@ _CSRF_EXEMPT_ENDPOINTS = {
     "public_invitation_request_resend",
     "public_invitation_request_recategorize",
     "public_song_master_delivery",
-    "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating",
+    "public_demo_submit", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating",
     "public_song_delivery_sign",
     "public_song_delivery_create_author",
     "public_song_delivery_create_publisher",
@@ -796,7 +797,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
+    allowed = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
     if request.endpoint in allowed:
         return
 
@@ -13269,6 +13270,7 @@ def discografica_view():
         demo_origins=DEMO_ORIGINS,
         demo_statuses=DEMO_STATUSES,
         demo_rating_filters=DEMO_RATING_FILTERS,
+        demo_author_roles=DEMO_AUTHOR_ROLES,
         distributors=distributors_all,
         distributor_by_id=distributor_by_id,
         adelantos_ctx=adelantos_ctx,
@@ -18962,6 +18964,92 @@ def _demo_dt_label(valor) -> str:
         return ""
 
 
+# Roles de un autor (los mismos que en la entrega de masters, para que se hable igual en toda la app).
+DEMO_AUTHOR_ROLES = [("AUTHOR", "Autor"), ("COMPOSER", "Compositor"),
+                     ("AUTHOR_COMPOSER", "Autor y compositor")]
+DEMO_AUTHOR_ROLE_LABELS = dict(DEMO_AUTHOR_ROLES)
+
+
+def _demo_author_rows(demo) -> list[dict]:
+    """Los AUTORES de una maqueta: nombre y, si lo han puesto, su porcentaje y su editorial (que es lo
+    que se enseña al pasar el ratón por el icono de autores)."""
+    salida = []
+    for a in (getattr(demo, "authors", None) or []):
+        editorial = getattr(a, "publishing_company", None)
+        nombre = (getattr(a, "name", None) or "").strip()
+        if not nombre:
+            tercero = getattr(a, "promoter", None)
+            nombre = _promoter_display_name(tercero) if tercero else ""
+        pct = None
+        try:
+            if getattr(a, "pct", None) is not None:
+                pct = float(a.pct)
+        except (TypeError, ValueError):
+            pct = None
+        salida.append({
+            "id": str(a.id),
+            "promoter_id": str(a.promoter_id) if getattr(a, "promoter_id", None) else "",
+            "name": nombre or "—",
+            "role": (getattr(a, "role", None) or "").strip().upper(),
+            "role_label": DEMO_AUTHOR_ROLE_LABELS.get((getattr(a, "role", None) or "").strip().upper(), ""),
+            "pct": pct,
+            "pct_label": (("%g%%" % pct) if pct is not None else ""),
+            "publisher": ((getattr(editorial, "name", None) or "").strip()
+                          or (getattr(a, "publisher_name", None) or "").strip()),
+        })
+    return salida
+
+
+def _demo_authors_tooltip(autores: list[dict]) -> str:
+    """El texto que sale al pasar el ratón por el icono de autores: cada uno con su % y su editorial."""
+    partes = []
+    for a in autores or []:
+        trozo = a["name"]
+        detalle = [x for x in [a.get("role_label"), a.get("pct_label"), a.get("publisher")] if x]
+        if detalle:
+            trozo += " (" + " · ".join(detalle) + ")"
+        partes.append(trozo)
+    return " · ".join(partes)
+
+
+def _demo_submitted_by(demo) -> dict:
+    """Quién ENVIÓ la maqueta por el enlace público (foto, nombre y fecha). Vacío si la subimos aquí."""
+    tercero = getattr(demo, "submitted_by", None)
+    cuando = getattr(demo, "submitted_at", None)
+    if tercero is None and not cuando:
+        return {}
+    nombre = _promoter_display_name(tercero) if tercero is not None else ""
+    return {
+        "name": nombre or "—",
+        "photo_url": (getattr(tercero, "logo_url", None) or "").strip(),
+        "promoter_id": str(getattr(tercero, "id", "") or ""),
+        "at_label": _demo_dt_label(cuando),
+        "label": (nombre or "—") + ((" (" + _demo_dt_label(cuando) + ")") if cuando else ""),
+    }
+
+
+def _demos_artist_groups(session_db) -> list[dict]:
+    """Los ARTISTAS con maquetas y, como PRIMERA opción, «Sin artista» —que solo sale si de verdad hay
+    maquetas sin artista— (el mismo criterio que el pop-up de añadir a una playlist)."""
+    grupos = []
+    sueltas = (session_db.query(func.count(SongDemo.id))
+               .filter(SongDemo.artist_id.is_(None))
+               .filter(SongDemo.submitted_at.isnot(None) | SongDemo.submitted_by_promoter_id.is_(None))
+               .scalar() or 0)
+    if sueltas:
+        grupos.append({"id": "none", "name": "Sin artista", "photo": "", "icon": "fa-user-slash",
+                       "count": int(sueltas)})
+    filas = (session_db.query(Artist.id, Artist.name, Artist.photo_url, func.count(SongDemo.id))
+             .join(SongDemo, SongDemo.artist_id == Artist.id)
+             .filter(SongDemo.submitted_at.isnot(None) | SongDemo.submitted_by_promoter_id.is_(None))
+             .group_by(Artist.id, Artist.name, Artist.photo_url)
+             .order_by(Artist.name.asc()).all())
+    for aid, nombre, foto, n in filas:
+        grupos.append({"id": str(aid), "name": nombre or "—", "photo": (foto or "").strip(),
+                       "icon": "", "count": int(n or 0)})
+    return grupos
+
+
 def _demo_row_payload(session_db, row) -> dict:
     """Lo que necesita la pantalla de una demo (quién la manda, su audio y en qué punto está)."""
     origen = (getattr(row, "origin", None) or "ARTIST").strip().upper()
@@ -18988,6 +19076,14 @@ def _demo_row_payload(session_db, row) -> dict:
         "sender_email": (row.sender_email or "").strip(),
         "sender_phone": (row.sender_phone or "").strip(),
         "cover_url": (getattr(row, "cover_url", None) or "").strip(),
+        # LETRA y AUTORES: todo opcional. La fila lo dice con sus iconos (y los autores enseñan sus
+        # porcentajes y su editorial al pasar el ratón).
+        "lyrics": (getattr(row, "lyrics", None) or "").strip(),
+        "has_lyrics": bool((getattr(row, "lyrics", None) or "").strip()),
+        "authors": _demo_author_rows(row),
+        "authors_tooltip": _demo_authors_tooltip(_demo_author_rows(row)),
+        # QUIÉN LA ENVIÓ (enlace público de envío de demos): foto, nombre y fecha.
+        "sender": _demo_submitted_by(row),
         "audio_url": (row.audio_url or "").strip(),
         "audio_name": (row.audio_name or "").strip(),
         "file_url": (row.audio_url or "").strip(),      # para el reproductor (media_chip.js)
@@ -19012,16 +19108,27 @@ def _demos_context(session_db) -> dict:
     """Listado de demos con sus filtros (estado, origen, artista y búsqueda libre)."""
     f_estado = (request.args.get("demo_status") or "").strip().upper()
     f_origen = (request.args.get("demo_origin") or "").strip().upper()
-    f_artista = _safe_uuid(request.args.get("demo_artist"))
+    # El artista puede ser uno concreto o «none» (las que no están vinculadas a ninguno).
+    artista_crudo = (request.args.get("demo_artist") or "").strip()
+    sin_artista = artista_crudo.lower() == "none"
+    f_artista = None if sin_artista else _safe_uuid(artista_crudo)
     q = (request.args.get("demo_q") or "").strip()
     consulta = (session_db.query(SongDemo)
                 .options(joinedload(SongDemo.artist), joinedload(SongDemo.promoter),
-                         joinedload(SongDemo.song)))
+                         joinedload(SongDemo.submitted_by), joinedload(SongDemo.song),
+                         selectinload(SongDemo.authors).joinedload(SongDemoAuthor.promoter),
+                         selectinload(SongDemo.authors).joinedload(SongDemoAuthor.publishing_company)))
+    # ⚠️ Las maquetas que alguien está subiendo por el enlace público y AÚN NO HA ENVIADO no se ven
+    # aquí: hasta que le da a «Enviar demos» no existen para nosotros.
+    consulta = consulta.filter(or_(SongDemo.submitted_by_promoter_id.is_(None),
+                                   SongDemo.submitted_at.isnot(None)))
     if f_estado in DEMO_STATUS_LABELS:
         consulta = consulta.filter(SongDemo.status == f_estado)
     if f_origen in DEMO_ORIGIN_LABELS:
         consulta = consulta.filter(SongDemo.origin == f_origen)
-    if f_artista:
+    if sin_artista:
+        consulta = consulta.filter(SongDemo.artist_id.is_(None))
+    elif f_artista:
         consulta = consulta.filter(SongDemo.artist_id == f_artista)
     if q:
         consulta = consulta.filter(or_(_sa_contains_text(SongDemo.title, q),
@@ -19071,6 +19178,22 @@ def _demos_context(session_db) -> dict:
             return bool(r["asked"]) and r["complete"]
         filas = [f for f in filas if _pasa(f)]
 
+    # Los ARTISTAS con maquetas (con «Sin artista» primero): mientras no se elija uno, es lo que se ve.
+    grupos = _demos_artist_groups(session_db)
+    elegido = None
+    if sin_artista:
+        elegido = {"id": "none", "name": "Sin artista", "photo": "", "icon": "fa-user-slash",
+                   "count": len(filas)}
+    elif f_artista:
+        for g in grupos:
+            if g["id"] == str(f_artista):
+                elegido = dict(g, count=len(filas))
+                break
+        if elegido is None:
+            _a = session_db.get(Artist, f_artista)
+            elegido = {"id": str(f_artista), "name": (getattr(_a, "name", None) or "—"),
+                       "photo": (getattr(_a, "photo_url", None) or ""), "icon": "", "count": len(filas)}
+
     return {
         "rows": filas,
         "counts": {
@@ -19079,8 +19202,13 @@ def _demos_context(session_db) -> dict:
             "OK": len([f for f in filas if f["rating"]["asked"] and f["rating"]["complete"]]),
         },
         "total": len(filas),
+        "groups": grupos,
+        "subject": elegido,            # el artista (o «Sin artista») en el que se ha entrado
         "filter_status": f_estado, "filter_origin": f_origen, "filter_rating": f_val,
-        "filter_artist": str(f_artista) if f_artista else "", "filter_q": q,
+        "filter_artist": ("none" if sin_artista else (str(f_artista) if f_artista else "")),
+        "filter_q": q,
+        # El enlace para que otros nos manden maquetas (se comparte por correo, WhatsApp o SMS).
+        "upload_url": _demo_upload_public_url(session_db),
     }
 
 
@@ -19305,33 +19433,70 @@ def discografica_demo_sign():
     return jsonify({"ok": True, "key": info["key"], "upload_url": info["signed_url"]})
 
 
+def _demo_audio_duplicate(session_db, sha: str, *, exclude_id=None):
+    """La maqueta que YA tiene ese MISMO archivo de audio (misma huella sha256). None si no hay."""
+    sha = (sha or "").strip().lower()
+    if len(sha) != 64:
+        return None
+    q = (session_db.query(SongDemo)
+         .options(joinedload(SongDemo.artist))
+         .filter(SongDemo.audio_sha256 == sha))
+    if exclude_id:
+        q = q.filter(SongDemo.id != exclude_id)
+    return q.order_by(SongDemo.created_at.asc()).first()
+
+
+def _demo_duplicate_check(session_db, row, form) -> list:
+    """Avisos por subir DOS VECES el mismo archivo.
+
+    · Si ese audio ya está subido y no se ha dicho «súbela igualmente» (`duplicate_ok`), se para y se
+      dice con qué nombre está.
+    · Si se sube igualmente pero con el MISMO nombre, se pide otro para poder distinguirlas.
+    ⚠️ Se comprueba también aquí (no solo en el navegador): la huella la manda el cliente, pero la
+    decisión es del servidor."""
+    sha = (form.get("audio_sha256") or "").strip().lower()
+    if len(sha) != 64:
+        return []
+    gemela = _demo_audio_duplicate(session_db, sha, exclude_id=getattr(row, "id", None))
+    if gemela is None:
+        return []
+    nombre = (getattr(gemela, "title", None) or "").strip() or "sin título"
+    if not _truthy(form.get("duplicate_ok")):
+        return ["Ese mismo audio ya está subido con el nombre de «%s». Si quieres subirlo igualmente, "
+                "confírmalo." % nombre]
+    if _norm_text_key(getattr(row, "title", "") or "") == _norm_text_key(nombre):
+        return ["Ese audio ya está subido con el nombre de «%s»: ponle otro nombre para "
+                "diferenciarlas." % nombre]
+    return []
+
+
 def _demo_apply_form(session_db, row, form, files) -> list:
-    """Vuelca el formulario en la demo. Devuelve los avisos (lo que falta)."""
+    """Vuelca el formulario en la demo. Devuelve los avisos (lo que falta).
+
+    ⚠️ De una maqueta lo ÚNICO que se pide es el título: el artista («Ningún artista» es la primera
+    opción), la portada, el audio, los autores y la letra son todos OPCIONALES."""
     fallos = []
     row.title = (form.get("title") or "").strip()
     if not row.title:
         fallos.append("Ponle un título a la demo.")
-    origen = (form.get("origin") or "ARTIST").strip().upper()
-    row.origin = origen if origen in DEMO_ORIGIN_LABELS else "ARTIST"
-    if row.origin == "ARTIST":
-        row.artist_id = _safe_uuid(form.get("artist_id"))
-        if not row.artist_id:
-            fallos.append("Dinos de qué artista es la demo.")
+    # El artista: si no se elige ninguno, la maqueta no está vinculada a nadie («Ningún artista»).
+    artista = _safe_uuid(form.get("artist_id"))
+    row.artist_id = artista
+    row.origin = "ARTIST" if artista else "EXTERNAL"
+    if artista:
         row.sender_name = None
         row.sender_email = None
         row.sender_phone = None
         row.promoter_id = None
     else:
-        row.artist_id = None
         row.promoter_id = _safe_uuid(form.get("promoter_id"))
         _tercero = session_db.get(Promoter, row.promoter_id) if row.promoter_id else None
         row.sender_name = ((form.get("sender_name") or "").strip()
-                           or (_promoter_display_name(_tercero) if _tercero else ""))
+                           or (_promoter_display_name(_tercero) if _tercero else "")) or None
         row.sender_email = (form.get("sender_email") or "").strip() or None
         row.sender_phone = (form.get("sender_phone") or "").strip() or None
-        if not row.sender_name:
-            fallos.append("Dinos quién manda la demo.")
     row.notes = (form.get("notes") or "").strip() or None
+    row.lyrics = (form.get("lyrics") or "").strip() or None
     # LA PORTADA: se puede arrastrar o elegir (es una imagen, así que va por el servidor). Quitarla es
     # deliberado (`cover_remove`); no mandar nada deja la que hubiera.
     if _truthy(form.get("cover_remove")):
@@ -19349,6 +19514,13 @@ def _demo_apply_form(session_db, row, form, files) -> list:
                 row.cover_url = url
             elif not fallos:
                 fallos.append("La portada tiene que ser una imagen (png, jpg, webp…).")
+    # ¿Ese MISMO audio está ya subido? Se avisa antes de tocar nada más.
+    fallos += _demo_duplicate_check(session_db, row, form)
+    if fallos:
+        return fallos
+    huella = (form.get("audio_sha256") or "").strip().lower()
+    if len(huella) == 64:
+        row.audio_sha256 = huella
     # El audio: subido directamente (llega su dirección) o por el servidor.
     subido = _json_dict(form.get("uploaded_json"))
     clave = ((subido.get("audio") or {}).get("key") if isinstance(subido.get("audio"), dict) else "") or ""
@@ -19366,11 +19538,79 @@ def _demo_apply_form(session_db, row, form, files) -> list:
             if Path((fs.filename or "").replace("\\", "/")).suffix.lower() not in DEMO_AUDIO_EXTS:
                 fallos.append("El audio debe ser un archivo de sonido (wav, mp3, m4a…).")
             else:
+                # Si el navegador no mandó la huella, se calcula aquí (el archivo pasa por el servidor).
+                if not row.audio_sha256:
+                    try:
+                        fs.stream.seek(0)
+                        hasher = hashlib.sha256()
+                        for trozo in iter(lambda: fs.stream.read(1024 * 1024), b""):
+                            hasher.update(trozo)
+                        row.audio_sha256 = hasher.hexdigest()
+                        fs.stream.seek(0)
+                        gemela = _demo_audio_duplicate(session_db, row.audio_sha256,
+                                                       exclude_id=getattr(row, "id", None))
+                        if gemela is not None:
+                            nombre = (gemela.title or "").strip() or "sin título"
+                            if not _truthy(form.get("duplicate_ok")):
+                                return ["Ese mismo audio ya está subido con el nombre de «%s». Si quieres "
+                                        "subirlo igualmente, confírmalo." % nombre]
+                            if _norm_text_key(row.title or "") == _norm_text_key(nombre):
+                                return ["Ese audio ya está subido con el nombre de «%s»: ponle otro "
+                                        "nombre para diferenciarlas." % nombre]
+                    except Exception:
+                        app.logger.exception("[demos] no se pudo calcular la huella del audio")
                 row.audio_url = upload_file(fs, "song_demos", allowed_extensions=DEMO_AUDIO_EXTS)
                 row.audio_name = (fs.filename or "demo").replace("\\", "/")
                 row.mime_type = (getattr(fs, "mimetype", "") or "").strip() or None
+    _demo_apply_authors(session_db, row, form)
     row.updated_at = _now_madrid()
     return fallos
+
+
+def _demo_apply_authors(session_db, row, form) -> None:
+    """Los AUTORES que llegan del formulario (mismo patrón que la entrega de masters: el autor es un
+    TERCERO, y su porcentaje y su editorial son opcionales).
+
+    Se REEMPLAZAN por lo que venga; si el formulario no trae el centinela, no se toca nada (así un
+    formulario antiguo o parcial no se lleva por delante los autores ya guardados)."""
+    if not _truthy(form.get("authors_present")):
+        return
+    nombres = form.getlist("author_name[]") if hasattr(form, "getlist") else []
+    ids = form.getlist("author_promoter_id[]") if hasattr(form, "getlist") else []
+    roles = form.getlist("author_role[]") if hasattr(form, "getlist") else []
+    pcts = form.getlist("author_pct[]") if hasattr(form, "getlist") else []
+    editoriales = form.getlist("author_publisher_id[]") if hasattr(form, "getlist") else []
+    edit_texto = form.getlist("author_publisher_name[]") if hasattr(form, "getlist") else []
+
+    def _en(lista, i):
+        return (lista[i] if i < len(lista) else "") or ""
+
+    nuevas = []
+    for i in range(max(len(nombres), len(ids))):
+        pid = _safe_uuid(_en(ids, i))
+        nombre = _en(nombres, i).strip()
+        if not pid and not nombre:
+            continue
+        pct = _parse_money_decimal(_en(pcts, i)) if _en(pcts, i).strip() else None
+        rol = _en(roles, i).strip().upper()
+        # La editorial: si lo escrito coincide con una de la base, se guarda la ficha; si no, el texto.
+        editorial_id = _safe_uuid(_en(editoriales, i))
+        editorial_txt = _en(edit_texto, i).strip()
+        if not editorial_id and editorial_txt:
+            fila_ed = (session_db.query(PublishingCompany)
+                       .filter(func.lower(PublishingCompany.name) == editorial_txt.lower()).first())
+            if fila_ed is not None:
+                editorial_id = fila_ed.id
+        nuevas.append(SongDemoAuthor(
+            promoter_id=pid,
+            name=nombre or None,
+            role=(rol if rol in DEMO_AUTHOR_ROLE_LABELS else None),
+            pct=pct,
+            publishing_company_id=editorial_id,
+            publisher_name=(editorial_txt or None),
+            position=len(nuevas),
+        ))
+    row.authors = nuevas
 
 
 @app.post("/discografica/demos/crear", endpoint="discografica_demo_create")
@@ -19680,6 +19920,408 @@ def discografica_demo_delete(demo_id):
     return redirect(url_for("discografica_view", section="demos"))
 
 
+def _demo_audio_download(session_db, demo, fmt: str):
+    """El audio de una maqueta, DESCARGADO (no abierto en una pestaña) en WAV o en MP3.
+
+    Punto único: lo usan el menú de la demo y la descarga de una playlist que lo permita."""
+    url = (getattr(demo, "audio_url", None) or "").strip()
+    if not url:
+        abort(404)
+    fmt = (fmt or "wav").strip().lower()
+    if fmt not in PLAYLIST_DOWNLOAD_FORMATS:
+        fmt = "wav"
+    data, guessed = _download_remote_content(url)
+    sufijo = Path((getattr(demo, "audio_name", None) or url.split("?", 1)[0]).replace("\\", "/")).suffix.lower()
+    mimetype = (getattr(demo, "mime_type", None) or guessed or "audio/wav")
+    ext = sufijo or ".wav"
+    if fmt == "mp3" and ext != ".mp3":
+        try:
+            data, mimetype, ext = _convert_audio_content_to_mp3(data, sufijo)
+        except Exception:
+            app.logger.exception("[demos] no se pudo convertir la maqueta a MP3")
+    artista = (getattr(getattr(demo, "artist", None), "name", None) or "").strip()
+    nombre = _material_download_name("Maqueta", (getattr(demo, "title", None) or "").strip(), artista, ext)
+    return send_file(BytesIO(data), mimetype=mimetype, as_attachment=True, download_name=nombre)
+
+
+@app.get("/discografica/demos/<demo_id>/audio", endpoint="discografica_demo_audio_download")
+@admin_required
+def discografica_demo_audio_download(demo_id):
+    """Descarga el audio de la maqueta en el formato que se elija (WAV o MP3)."""
+    session_db = db()
+    try:
+        demo = session_db.get(SongDemo, to_uuid(demo_id))
+        if demo is None:
+            abort(404)
+        return _demo_audio_download(session_db, demo, request.args.get("fmt"))
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/demos/comprobar-audio", endpoint="discografica_demo_audio_check")
+@admin_required
+def discografica_demo_audio_check():
+    """¿Ese MISMO archivo de audio está ya subido? La huella la calcula el navegador antes de subir."""
+    datos = request.get_json(silent=True) or {}
+    session_db = db()
+    try:
+        gemela = _demo_audio_duplicate(session_db, datos.get("sha256") or "",
+                                       exclude_id=_safe_uuid(datos.get("demo_id")))
+        if gemela is None:
+            return jsonify({"ok": True, "duplicate": False})
+        return jsonify({"ok": True, "duplicate": True, "title": (gemela.title or "").strip(),
+                        "artist": (getattr(getattr(gemela, "artist", None), "name", None) or ""),
+                        "at_label": _demo_dt_label(getattr(gemela, "created_at", None))})
+    finally:
+        session_db.close()
+
+
+# =========================================================
+# ENVÍO DE DEMOS DESDE FUERA · enlace público
+# =========================================================
+# Un enlace que se comparte (correo, WhatsApp, SMS o copiándolo) para que cualquiera nos mande
+# maquetas. Primero se IDENTIFICA con su DNI o CIF —si ya está en la base de terceros, de artistas o
+# del personal, se pasa directo— y después va añadiendo demos con el MISMO formulario que usamos
+# nosotros, viéndolas y escuchándolas igual. Al darle a «Enviar demos» le llega el aviso a la gente
+# del sello y las maquetas aparecen en la sección con su «Enviada por».
+#
+# ⚠️ Mientras no las envíe, sus maquetas NO se ven en nuestra sección (`submitted_at` a NULL).
+
+DEMO_UPLOAD_TOKEN_SETTING = "demo_upload_link_token"
+
+
+def _demo_upload_token(session_db) -> str:
+    """El token del enlace de envío de demos. Es UNO para toda la casa (se comparte con quien sea) y
+    se crea la primera vez que hace falta."""
+    token = (_get_app_setting(DEMO_UPLOAD_TOKEN_SETTING) or "").strip()
+    if not token:
+        token = _uuid_token()
+        _set_app_setting(DEMO_UPLOAD_TOKEN_SETTING, token)
+    return token
+
+
+def _demo_upload_public_url(session_db) -> str:
+    return _external_url_for("public_demo_submit", token=_demo_upload_token(session_db))
+
+
+def _demo_submit_promoter(session_db):
+    """El tercero que está usando el enlace (se guarda en su sesión al identificarse)."""
+    pid = _safe_uuid(session.get("demo_submit_promoter"))
+    return session_db.get(Promoter, pid) if pid else None
+
+
+def _demo_submit_drafts(session_db, promoter) -> list:
+    """Las maquetas que ese tercero ha añadido y todavía NO ha enviado."""
+    if promoter is None:
+        return []
+    return (session_db.query(SongDemo)
+            .options(joinedload(SongDemo.artist), joinedload(SongDemo.submitted_by),
+                     selectinload(SongDemo.authors).joinedload(SongDemoAuthor.promoter),
+                     selectinload(SongDemo.authors).joinedload(SongDemoAuthor.publishing_company))
+            .filter(SongDemo.submitted_by_promoter_id == promoter.id)
+            .filter(SongDemo.submitted_at.is_(None))
+            .order_by(SongDemo.created_at.asc()).all())
+
+
+def _demo_submit_artist_options(session_db) -> list[dict]:
+    """Los artistas que se le OFRECEN a quien manda maquetas de fuera: SOLO los que tienen contrato
+    discográfico, de catálogo o de distribución con nosotros. El resto no se le muestran."""
+    con_contrato = _artist_ids_with_discography_contracts(session_db)
+    if not con_contrato:
+        return []
+    filas = (session_db.query(Artist)
+             .filter(Artist.id.in_(list(con_contrato)))
+             .filter(Artist.event_id.is_(None))          # los espejos de EVENTO no son artistas
+             .order_by(Artist.name.asc()).all())
+    return [{"id": str(a.id), "name": a.name, "photo_url": (a.photo_url or "")} for a in filas]
+
+
+def _demo_submit_context(session_db, token: str, promoter) -> dict:
+    """Lo que necesita la página de envío: la marca de PIES, la cabecera del tercero y sus maquetas."""
+    empresa = _pies_group_company(session_db)
+    logo = (getattr(empresa, "logo_url", None) or "").strip()
+    if not logo:
+        try:
+            logo = url_for("static", filename="img/logo.png")     # PIES
+        except Exception:
+            logo = ""
+    borradores = _demo_submit_drafts(session_db, promoter)
+    return {
+        "token": token,
+        "brand": {"company_name": (getattr(empresa, "name", None) or "PIES Records"),
+                  "logo_url": _absolute_media_url(logo) if logo else ""},
+        "sender": ({"id": str(promoter.id),
+                    "name": _promoter_display_name(promoter) or (promoter.nick or "—"),
+                    "photo_url": (getattr(promoter, "logo_url", None) or "").strip(),
+                    "tax_id": (getattr(promoter, "tax_id", None) or "").strip(),
+                    "email": (getattr(promoter, "email", None) or "").strip(),
+                    "phone": (getattr(promoter, "phone", None) or "").strip()}
+                   if promoter is not None else None),
+        "rows": [_demo_row_payload(session_db, d) for d in borradores],
+        # ⚠️ De fuera solo se puede vincular la maqueta a los artistas con los que tenemos contrato
+        # DISCOGRÁFICO, de catálogo o de distribución: el resto no son cosa suya.
+        "artists": _demo_submit_artist_options(session_db),
+        "roles": DEMO_AUTHOR_ROLES,
+    }
+
+
+@app.route("/enviar-demos/<token>", methods=["GET"], endpoint="public_demo_submit")
+def public_demo_submit(token):
+    """La página pública de envío de demos (identificarse → añadir demos → enviarlas)."""
+    session_db = db()
+    try:
+        if (token or "").strip() != _demo_upload_token(session_db):
+            abort(404)
+        promoter = _demo_submit_promoter(session_db)
+        ctx = _demo_submit_context(session_db, token, promoter)
+        return render_template("public_demo_submit.html", **ctx)
+    finally:
+        session_db.close()
+
+
+@app.post("/enviar-demos/<token>/identificarse", endpoint="public_demo_submit_identify")
+def public_demo_submit_identify(token):
+    """Identifica a quien manda las maquetas por su DNI o CIF (terceros, artistas o personal).
+
+    Si no está en la base, se crea su ficha de tercero con lo que nos diga (mismo criterio que el
+    enlace de alta de terceros: mejor tenerle que perder la maqueta)."""
+    session_db = db()
+    try:
+        if (token or "").strip() != _demo_upload_token(session_db):
+            return jsonify({"ok": False, "error": "El enlace no vale."}), 404
+        datos = request.get_json(silent=True) or {}
+        numero = (datos.get("tax_id") or "").strip()
+        if not numero:
+            return jsonify({"ok": False, "error": "Escribe tu DNI, NIE o CIF."}), 400
+
+        # ¿Está ya? Se mira en terceros, en sus sociedades, en los documentos escaneados y en el personal.
+        encontrados = _find_people_by_doc_number(session_db, numero)
+        elegido = _safe_uuid(datos.get("promoter_id"))
+        if elegido:
+            tercero = session_db.get(Promoter, elegido)
+            if tercero is not None:
+                session["demo_submit_promoter"] = str(tercero.id)
+                return jsonify({"ok": True, "ready": True})
+
+        terceros = [f for f in encontrados if f.get("kind") == "promoter"]
+        if len(terceros) == 1:
+            session["demo_submit_promoter"] = terceros[0]["id"]
+            session_db.commit()
+            return jsonify({"ok": True, "ready": True})
+        if len(terceros) > 1:
+            return jsonify({"ok": True, "ready": False, "choices": [
+                {"id": f["id"], "name": f.get("name") or "—", "photo_url": f.get("photo_url") or ""}
+                for f in terceros]})
+
+        # Quien está como PERSONAL (o como persona de un artista) sin ficha de tercero: se le pide el
+        # nombre y se le crea la ficha, para poder decir de quién es cada maqueta.
+        nombre = (datos.get("name") or "").strip()
+        if not nombre:
+            sugerido = ""
+            for f in encontrados:
+                sugerido = (f.get("name") or "").strip()
+                if sugerido:
+                    break
+            return jsonify({"ok": True, "ready": False, "needs_data": True, "suggested_name": sugerido})
+        tercero = Promoter(
+            nick=_intake_unique_nick(session_db, nombre),
+            first_name=nombre.split(" ")[0] if " " in nombre else nombre,
+            last_name=" ".join(nombre.split(" ")[1:]) if " " in nombre else None,
+            tax_id=numero,
+            email=(datos.get("email") or "").strip() or None,
+            phone=(datos.get("phone") or "").strip() or None,
+        )
+        session_db.add(tercero)
+        session_db.commit()
+        session["demo_submit_promoter"] = str(tercero.id)
+        return jsonify({"ok": True, "ready": True})
+    except Exception as e:
+        session_db.rollback()
+        app.logger.exception("[demos] no se pudo identificar a quien manda las maquetas")
+        return jsonify({"ok": False, "error": str(e)[:200]}), 500
+    finally:
+        session_db.close()
+
+
+@app.post("/enviar-demos/<token>/firmar", endpoint="public_demo_submit_sign")
+def public_demo_submit_sign(token):
+    """URL firmada para que el audio vaya del navegador a Storage (una maqueta puede pesar mucho)."""
+    session_db = db()
+    try:
+        if (token or "").strip() != _demo_upload_token(session_db):
+            return jsonify({"ok": False, "error": "El enlace no vale."}), 404
+        if _demo_submit_promoter(session_db) is None:
+            return jsonify({"ok": False, "error": "Identifícate primero."}), 403
+    finally:
+        session_db.close()
+    datos = request.get_json(silent=True) or {}
+    ext = os.path.splitext((datos.get("filename") or "").strip().lower())[1]
+    if ext not in DEMO_AUDIO_EXTS:
+        return jsonify({"ok": False, "error": "Formato de audio no admitido."}), 400
+    try:
+        info = create_signed_upload_url_for("song_demos", ext)
+    except Exception as e:
+        return jsonify({"ok": False, "error": "No se pudo preparar la subida: " + str(e)[:200]}), 502
+    if not info.get("signed_url"):
+        return jsonify({"ok": False, "error": "No se pudo preparar la subida."}), 502
+    return jsonify({"ok": True, "key": info["key"], "upload_url": info["signed_url"]})
+
+
+@app.post("/enviar-demos/<token>/comprobar-audio", endpoint="public_demo_submit_check")
+def public_demo_submit_check(token):
+    """Lo mismo que dentro: avisa si ese MISMO audio ya está subido."""
+    session_db = db()
+    try:
+        if (token or "").strip() != _demo_upload_token(session_db):
+            return jsonify({"ok": False}), 404
+        datos = request.get_json(silent=True) or {}
+        gemela = _demo_audio_duplicate(session_db, datos.get("sha256") or "")
+        if gemela is None:
+            return jsonify({"ok": True, "duplicate": False})
+        return jsonify({"ok": True, "duplicate": True, "title": (gemela.title or "").strip()})
+    finally:
+        session_db.close()
+
+
+@app.post("/enviar-demos/<token>/anadir", endpoint="public_demo_submit_add")
+def public_demo_submit_add(token):
+    """Añade una maqueta a lo que va a enviar (todavía no nos llega: queda pendiente de enviar)."""
+    session_db = db()
+    try:
+        if (token or "").strip() != _demo_upload_token(session_db):
+            return jsonify({"ok": False, "error": "El enlace no vale."}), 404
+        promoter = _demo_submit_promoter(session_db)
+        if promoter is None:
+            return jsonify({"ok": False, "error": "Identifícate primero."}), 403
+        row = SongDemo(status="VALORANDO",
+                       submitted_by_promoter_id=promoter.id,
+                       created_by_nick=(_promoter_display_name(promoter) or "")[:120] or None)
+        fallos = _demo_apply_form(session_db, row, request.form, request.files)
+        if fallos:
+            session_db.rollback()
+            return jsonify({"ok": False, "error": " ".join(fallos)}), 400
+        # Quien la manda queda apuntado también como remitente de la maqueta.
+        row.sender_name = row.sender_name or (_promoter_display_name(promoter) or None)
+        row.sender_email = row.sender_email or (getattr(promoter, "email", None) or None)
+        row.sender_phone = row.sender_phone or (getattr(promoter, "phone", None) or None)
+        if not row.artist_id:
+            row.promoter_id = row.promoter_id or promoter.id
+        session_db.add(row)
+        session_db.commit()
+        ctx = _demo_submit_context(session_db, token, promoter)
+        return jsonify({"ok": True, "rows": ctx["rows"]})
+    except Exception as e:
+        session_db.rollback()
+        app.logger.exception("[demos] no se pudo añadir la maqueta")
+        return jsonify({"ok": False, "error": str(e)[:200]}), 500
+    finally:
+        session_db.close()
+
+
+@app.post("/enviar-demos/<token>/quitar/<demo_id>", endpoint="public_demo_submit_remove")
+def public_demo_submit_remove(token, demo_id):
+    """Quita una maqueta de las que iba a enviar (solo las suyas y solo antes de enviarlas)."""
+    session_db = db()
+    try:
+        if (token or "").strip() != _demo_upload_token(session_db):
+            return jsonify({"ok": False}), 404
+        promoter = _demo_submit_promoter(session_db)
+        if promoter is None:
+            return jsonify({"ok": False, "error": "Identifícate primero."}), 403
+        row = session_db.get(SongDemo, to_uuid(demo_id))
+        if (row is None or str(row.submitted_by_promoter_id or "") != str(promoter.id)
+                or row.submitted_at is not None):
+            return jsonify({"ok": False, "error": "Esa maqueta no se puede quitar."}), 404
+        session_db.delete(row)
+        session_db.commit()
+        ctx = _demo_submit_context(session_db, token, promoter)
+        return jsonify({"ok": True, "rows": ctx["rows"]})
+    except Exception:
+        session_db.rollback()
+        return jsonify({"ok": False}), 500
+    finally:
+        session_db.close()
+
+
+@app.post("/enviar-demos/<token>/enviar", endpoint="public_demo_submit_send")
+def public_demo_submit_send(token):
+    """ENVÍA las maquetas: pasan a estar en la sección y le llega el aviso a la gente del sello."""
+    session_db = db()
+    try:
+        if (token or "").strip() != _demo_upload_token(session_db):
+            return jsonify({"ok": False, "error": "El enlace no vale."}), 404
+        promoter = _demo_submit_promoter(session_db)
+        if promoter is None:
+            return jsonify({"ok": False, "error": "Identifícate primero."}), 403
+        borradores = _demo_submit_drafts(session_db, promoter)
+        if not borradores:
+            return jsonify({"ok": False, "error": "Añade alguna maqueta antes de enviarla."}), 400
+        ahora = _now_madrid()
+        for d in borradores:
+            d.submitted_at = ahora
+        session_db.flush()
+        _demo_submission_notify(session_db, promoter, borradores)
+        session_db.commit()
+        return jsonify({"ok": True, "sent": len(borradores)})
+    except Exception as e:
+        session_db.rollback()
+        app.logger.exception("[demos] no se pudieron enviar las maquetas")
+        return jsonify({"ok": False, "error": str(e)[:200]}), 500
+    finally:
+        session_db.close()
+
+
+def _demo_submission_recipients(session_db, demos) -> list[str]:
+    """A quién le llega el aviso de que alguien nos ha mandado maquetas.
+
+    · Si vienen VINCULADAS a artistas: a quien del SELLO lleva esos artistas
+      (`assigned_artist_ids_sello`), a la DIRECCIÓN del sello y a quien del sello lleva REGISTROS.
+    · Si no van con artista, a todo el sello (si no, no se enteraría nadie)."""
+    artistas = {str(d.artist_id) for d in (demos or []) if getattr(d, "artist_id", None)}
+    fuera = set(str(x) for x in _inactive_user_ids(session_db))
+    filas = (session_db.query(User, UserProfile)
+             .outerjoin(UserProfile, UserProfile.user_id == User.id).all())
+    sello, asignados, direccion, registros = [], [], [], []
+    for u, prof in filas:
+        uid = str(u.id)
+        if uid in fuera:
+            continue
+        if not _profile_in_department(prof, "Sello"):
+            continue
+        sello.append(uid)
+        if int(getattr(u, "role", 10) or 10) == 10:
+            direccion.append(uid)
+        if _profile_in_department(prof, "Registros"):
+            registros.append(uid)
+        if artistas:
+            suyos = {str(x) for x in (getattr(prof, "assigned_artist_ids_sello", None) or [])}
+            if suyos & artistas:
+                asignados.append(uid)
+    if artistas:
+        elegidos = asignados + direccion + registros
+        return elegidos or sello          # si no hay nadie de esos, que se enteren en el sello
+    return sello
+
+
+def _demo_submission_notify(session_db, promoter, demos) -> int:
+    """«<nombre> ha enviado N demos», con enlace a verlas."""
+    quien = _promoter_display_name(promoter) or (getattr(promoter, "nick", None) or "Alguien")
+    n = len(demos or [])
+    destino = url_for("discografica_view", section="demos")
+    artistas = [d for d in (demos or []) if getattr(d, "artist_id", None)]
+    if artistas:
+        destino = url_for("discografica_view", section="demos", demo_artist=str(artistas[0].artist_id))
+    else:
+        destino = url_for("discografica_view", section="demos", demo_artist="none")
+    titulos = ", ".join([(d.title or "").strip() for d in (demos or [])][:4])
+    return _notify_users(
+        session_db, _demo_submission_recipients(session_db, demos), "DEMO",
+        "%s ha enviado %d demo%s" % (quien, n, "" if n == 1 else "s"),
+        titulos, destino, ref_type="demo_submission",
+        ref_id=str(getattr(demos[0], "id", "")) if demos else None,
+    )
+
+
 # =========================================================
 # PLAYLIST (Discográfica) · listas de temas para MANDARLAS
 # =========================================================
@@ -19793,6 +20435,11 @@ def _playlist_item_payload(session_db, pl, item, *, token: str | None = None) ->
         "download_wav_url": "",
         "download_mp3_url": "",
         "detail_url": "",
+        # Lo que se enseña SOLO si la playlist lo tiene activado Y el tema lo tiene.
+        "lyrics": "",
+        "authors": [],
+        "authors_tooltip": "",
+        "sender": {},
     }
     if kind in ("TITLE", "DIVIDER"):
         return fila
@@ -19841,7 +20488,57 @@ def _playlist_item_payload(session_db, pl, item, *, token: str | None = None) ->
                 else:
                     destino = url_for("playlist_item_download", playlist_id=pl.id, item_id=item.id, fmt=fmt)
                 fila["download_%s_url" % fmt] = destino
+    _playlist_item_extras(session_db, pl, item, fila)
     return fila
+
+
+def _playlist_item_extras(session_db, pl, item, fila) -> None:
+    """LETRA, AUTORES y QUIÉN LA ENVIÓ de un tema: solo si la playlist lo tiene activado (los tres
+    nacen apagados) y solo si ese tema lo tiene."""
+    quiere_letra = bool(getattr(pl, "show_lyrics", False))
+    quiere_autores = bool(getattr(pl, "show_authors", False))
+    quiere_quien = bool(getattr(pl, "show_sender", False))
+    if not (quiere_letra or quiere_autores or quiere_quien):
+        return
+    kind = fila.get("kind")
+    if kind == "SONG":
+        song = getattr(item, "song", None) or (session_db.get(Song, item.song_id) if item.song_id else None)
+        if song is None:
+            return
+        if quiere_letra:
+            fila["lyrics"] = (getattr(song, "lyrics_text", None) or "").strip()
+        if quiere_autores:
+            autores = []
+            filas = (session_db.query(SongEditorialShare)
+                     .options(joinedload(SongEditorialShare.promoter),
+                              joinedload(SongEditorialShare.publishing_company))
+                     .filter(SongEditorialShare.song_id == song.id).all())
+            for sh in filas:
+                editorial = _share_publisher(sh)
+                try:
+                    pct = float(sh.pct) if sh.pct is not None else None
+                except (TypeError, ValueError):
+                    pct = None
+                autores.append({
+                    "name": _promoter_display_name(getattr(sh, "promoter", None)) or "—",
+                    "role_label": DEMO_AUTHOR_ROLE_LABELS.get((sh.role or "").strip().upper(), ""),
+                    "pct_label": (("%g%%" % pct) if pct is not None else ""),
+                    "publisher": (getattr(editorial, "name", None) or "").strip(),
+                })
+            fila["authors"] = autores
+    elif kind == "DEMO":
+        demo = getattr(item, "demo", None) or (session_db.get(SongDemo, item.demo_id) if item.demo_id else None)
+        if demo is None:
+            return
+        if quiere_letra:
+            fila["lyrics"] = (getattr(demo, "lyrics", None) or "").strip()
+        if quiere_autores:
+            fila["authors"] = _demo_author_rows(demo)
+        if quiere_quien:
+            # Solo cuando la mandó alguien de FUERA (lo que subimos nosotros no lleva remitente).
+            fila["sender"] = _demo_submitted_by(demo)
+    if fila.get("authors"):
+        fila["authors_tooltip"] = _demo_authors_tooltip(fila["authors"])
 
 
 def _playlist_items_ordered(session_db, pl) -> list:
@@ -19866,6 +20563,9 @@ def _playlist_context(session_db, pl, *, token: str | None = None) -> dict:
             "cover_url": (pl.cover_url or "").strip(),
             "note": (pl.note or "").strip(),
             "allow_download": bool(pl.allow_download),
+            "show_lyrics": bool(getattr(pl, "show_lyrics", False)),
+            "show_authors": bool(getattr(pl, "show_authors", False)),
+            "show_sender": bool(getattr(pl, "show_sender", False)),
             "songs_count": len(suenan),
             "duration_label": _playlist_duration_label(sum(conocidas)) if conocidas else "",
             "duration_partial": bool(conocidas) and len(conocidas) < len(suenan),
@@ -20057,20 +20757,9 @@ def _playlist_download_response(session_db, pl, item, fmt: str):
         return send_file(BytesIO(data), mimetype=mimetype, as_attachment=True, download_name=nombre)
     if kind == "DEMO":
         demo = session_db.get(SongDemo, item.demo_id) if item.demo_id else None
-        url = (getattr(demo, "audio_url", None) or "").strip() if demo else ""
-        if not url:
+        if demo is None:
             abort(404)
-        data, guessed = _download_remote_content(url)
-        sufijo = Path((getattr(demo, "audio_name", None) or url.split("?", 1)[0]).replace("\\", "/")).suffix.lower()
-        mimetype = (getattr(demo, "mime_type", None) or guessed or "audio/wav")
-        ext = sufijo or ".wav"
-        if fmt == "mp3":
-            try:
-                data, mimetype, ext = _convert_audio_content_to_mp3(data, sufijo)
-            except Exception:
-                app.logger.exception("[playlist] no se pudo convertir la maqueta a MP3")
-        nombre = _material_download_name("Maqueta", (getattr(demo, "title", None) or "").strip(), "", ext)
-        return send_file(BytesIO(data), mimetype=mimetype, as_attachment=True, download_name=nombre)
+        return _demo_audio_download(session_db, demo, fmt)     # mismo punto único que la sección Demos
     abort(404)
 
 
@@ -20224,8 +20913,10 @@ def playlist_save(playlist_id):
             pl.name = nombre
         if request.form.get("note") is not None:
             pl.note = (request.form.get("note") or "").strip() or None
-        if request.form.get("allow_download") is not None:
-            pl.allow_download = _truthy(request.form.get("allow_download"))
+        # Los interruptores: descarga, letra, autores y quién la envió (todos nacen apagados).
+        for campo in ("allow_download", "show_lyrics", "show_authors", "show_sender"):
+            if request.form.get(campo) is not None:
+                setattr(pl, campo, _truthy(request.form.get(campo)))
         if request.form.get("items") is not None:
             try:
                 lineas = json.loads(request.form.get("items") or "[]")
@@ -20490,8 +21181,10 @@ def public_playlist_og_image(token):
                     if fuente:
                         break
         if not fuente:
-            brand = _playlist_brand(session_db, pl)
-            fuente = brand.get("logo_url") or ""
+            # ⚠️ Sin portada se enseña la MISMA imagen de «sin portada» que en las canciones (no el
+            # logo): en WhatsApp, en SMS y en el enlace se ve lo que se vería en la app.
+            # Es un PNG a propósito: la miniatura og: es un JPEG y Pillow no lee el SVG.
+            fuente = url_for("static", filename="img/cover_placeholder.png")
     data = _og_image_jpeg_bytes(fuente) if fuente else None
     if not data:
         abort(404)
@@ -50214,7 +50907,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -77730,6 +78423,7 @@ NOTIFICATION_KIND_META = {
     "REMESA": ("Remesa pendiente de aprobación", "fa-file-invoice-dollar"),
     "PITCH": ("Falta el pitch de un lanzamiento", "fa-bullhorn"),
     "VACACIONES": ("Vacaciones", "fa-umbrella-beach"),
+    "DEMO": ("Nos han enviado demos", "fa-compact-disc"),
 }
 
 

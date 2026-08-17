@@ -38,18 +38,32 @@
     <i class="fa fa-link me-1"></i>Copiar enlace
   </button>
 
-  {# DESCARGA: el mismo interruptor que en los accesos, y se marca aquí directamente. Por defecto NO
-     se puede descargar. #}
-  <span class="pl-dl" title="Si se marca, al final de cada tema sale el icono de descargar (WAV o MP3)">
-    <label class="sw dl m-0">
-      <input type="checkbox" role="switch"
-             data-pl-allow-download="{{ url_for('playlist_save', playlist_id=pl.id) }}"
-             {% if pl.allow_download %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
-      <span class="tr"></span>
-    </label>
-    <span class="pl-dl__lab" data-pl-dl-label>
-      <i class="fa {{ 'fa-download' if pl.allow_download else 'fa-lock' }} me-1"></i>{{ 'Se descarga' if pl.allow_download else 'Sin descarga' }}
-    </span>
+  {# INTERRUPTORES (los de los accesos): el icono arriba y debajo el interruptor, verde encendido y
+     gris apagado. TODOS nacen APAGADOS y se marcan aquí directamente.
+     · Descarga · Mostrar la letra · Mostrar los autores · Mostrar quién la ha enviado #}
+  {% set pl_switches = [
+    ('allow_download', 'fa-download', 'Descarga', pl.allow_download,
+     'Si se marca, al final de cada tema sale el icono de descargar (WAV o MP3)'),
+    ('show_lyrics', 'fa-align-left', 'Letra', pl.show_lyrics,
+     'Enseña la letra de los temas que la tengan'),
+    ('show_authors', 'fa-feather-pointed', 'Autores', pl.show_authors,
+     'Enseña los autores de los temas que los tengan (con su % y su editorial al pasar el ratón)'),
+    ('show_sender', 'fa-paper-plane', 'Quién la envió', pl.show_sender,
+     'Enseña quién nos la mandó, cuando la ha mandado alguien de fuera'),
+  ] %}
+  <span class="pl-switches">
+    {% for campo, icono, etiqueta, activo, ayuda in pl_switches %}
+      <span class="pl-switch{{ ' is-on' if activo }}" title="{{ ayuda }}">
+        <span class="pl-switch__ico"><i class="fa {{ icono }}"></i></span>
+        <label class="sw dl m-0">
+          <input type="checkbox" role="switch" data-pl-switch="{{ campo }}"
+                 data-pl-save-url="{{ url_for('playlist_save', playlist_id=pl.id) }}"
+                 {% if activo %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
+          <span class="tr"></span>
+        </label>
+        <span class="pl-switch__lab">{{ etiqueta }}</span>
+      </span>
+    {% endfor %}
   </span>
 
   {% if can_edit %}

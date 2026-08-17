@@ -617,44 +617,56 @@
     render();          // ⚠️ el pintado INICIAL: sin esto la playlist sale vacía al entrar a editar
   }
 
-  /* ===================== 3) ¿Se puede descargar? =====================
-     El interruptor de los accesos, en la barra de botones: se marca ahí mismo y se guarda al momento. */
-  function initAllowDownload() {
-    var sw = document.querySelector('[data-pl-allow-download]');
-    if (!sw || sw.dataset.plReady === '1') return;
-    sw.dataset.plReady = '1';
-    var etiqueta = document.querySelector('[data-pl-dl-label]');
-
-    function pintaEtiqueta() {
-      if (!etiqueta) return;
-      etiqueta.innerHTML = '<i class="fa ' + (sw.checked ? 'fa-download' : 'fa-lock') + ' me-1"></i>'
-        + (sw.checked ? 'Se descarga' : 'Sin descarga');
-    }
-
-    sw.addEventListener('change', function () {
-      sw.disabled = true;
-      pintaEtiqueta();
-      post(sw.getAttribute('data-pl-allow-download'), { allow_download: sw.checked ? '1' : '0' })
-        .then(function (js) {
+  /* ===================== 3) LOS INTERRUPTORES =====================
+     Descarga · Letra · Autores · Quién la envió. Son los de los accesos, están en la barra de botones
+     y se guardan al momento (todos nacen apagados). */
+  function initSwitches() {
+    document.querySelectorAll('[data-pl-switch]').forEach(function (sw) {
+      if (sw.dataset.plReady === '1') return;
+      sw.dataset.plReady = '1';
+      var caja = sw.closest('.pl-switch');
+      sw.addEventListener('change', function () {
+        var campo = sw.getAttribute('data-pl-switch');
+        sw.disabled = true;
+        if (caja) caja.classList.toggle('is-on', sw.checked);
+        var datos = {};
+        datos[campo] = sw.checked ? '1' : '0';
+        post(sw.getAttribute('data-pl-save-url'), datos).then(function (js) {
           sw.disabled = false;
           if (!js || !js.ok) {
             sw.checked = !sw.checked;
-            pintaEtiqueta();
+            if (caja) caja.classList.toggle('is-on', sw.checked);
             alert('No se pudo guardar el ajuste.');
             return;
           }
-          // ⚠️ Solo se recarga en la VISTA (para que aparezca o desaparezca el icono de descargar de
-          // cada tema). Editando NO se recarga: se perdería lo que no esté guardado.
+          // ⚠️ Solo se recarga en la VISTA (lo que se enseña de cada tema cambia con esto). Editando
+          // NO se recarga: se perdería lo que no esté guardado.
           if (!document.querySelector('[data-playlist-edit]')) window.location.reload();
         });
+      });
     });
+  }
+
+  /* ---------- La LETRA: se abre y se cierra al pinchar su icono ---------- */
+  function initLyrics() {
+    if (document.body.dataset.plLyricsReady === '1') return;
+    document.body.dataset.plLyricsReady = '1';
+    document.addEventListener('click', function (ev) {
+      var b = ev.target.closest('[data-pl-lyrics]');
+      if (!b) return;
+      ev.preventDefault();
+      ev.stopPropagation();                       // que no arranque la canción
+      var caja = document.querySelector('[data-pl-lyrics-box="' + b.getAttribute('data-pl-lyrics') + '"]');
+      if (caja) caja.classList.toggle('d-none');
+    }, true);
   }
 
   function init(root) {
     var ambito = root || document;
     (ambito.querySelectorAll ? ambito.querySelectorAll('[data-playlist-player]') : []).forEach(initPlayer);
     (ambito.querySelectorAll ? ambito.querySelectorAll('[data-playlist-edit]') : []).forEach(initEdit);
-    initAllowDownload();
+    initSwitches();
+    initLyrics();
   }
 
   if (document.readyState === 'loading') {

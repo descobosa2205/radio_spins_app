@@ -528,10 +528,18 @@ class SongDemo(Base):
     audio_url = Column(Text)
     audio_name = Column(Text)
     mime_type = Column(Text)
+    # HUELLA del audio (sha256 del archivo). Sirve para avisar de que ESE MISMO archivo ya está subido
+    # —el mismo, no parecido— y obligar a ponerle otro nombre si se sube igualmente.
+    audio_sha256 = Column(Text, index=True)
     # PORTADA de la maqueta (se puede arrastrar o elegir al subirla). Las que no tengan enseñan la
     # imagen de «sin portada», como el resto del repertorio.
     cover_url = Column(Text)
+    # LETRA (opcional, como todo lo de una maqueta). Si la hay, la fila lo dice con su icono.
+    lyrics = Column(Text)
     notes = Column(Text)
+    # QUIÉN LA ENVIÓ por el enlace público de envío de demos (con su foto y la fecha en la ficha).
+    submitted_by_promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    submitted_at = Column(DateTime(timezone=True))
     # ⚠️ `status` es HISTÓRICO: una demo ya NO se aprueba ni se descarta (ago 2026). Se manda a
     # VALORAR al personal del sello y lo que cuenta son las valoraciones (`SongDemoRating`). La
     # columna se conserva para no perder lo que se decidió antes.
@@ -549,12 +557,45 @@ class SongDemo(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
     artist = relationship("Artist")
-    promoter = relationship("Promoter")
+    promoter = relationship("Promoter", foreign_keys=[promoter_id])
+    submitted_by = relationship("Promoter", foreign_keys=[submitted_by_promoter_id])
     song = relationship("Song")
+    authors = relationship("SongDemoAuthor", back_populates="demo",
+                           cascade="all, delete-orphan", order_by="SongDemoAuthor.position")
 
     __table_args__ = (
         Index("idx_song_demos_status", "status", "created_at"),
         Index("idx_song_demos_artist", "artist_id"),
+    )
+
+
+class SongDemoAuthor(Base):
+    """Autores de una maqueta (igual que en la entrega de masters: el autor es un TERCERO).
+
+    Todo es opcional: se puede poner solo el nombre, o además su porcentaje y su editorial —que es lo
+    que se enseña al pasar el ratón por el icono de autores en la fila de la demo—."""
+
+    __tablename__ = "song_demo_authors"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    demo_id = Column(PGUUID(as_uuid=True), ForeignKey("song_demos.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    name = Column(Text)                 # como se escribió (por si no es un tercero de la base)
+    role = Column(Text)                 # AUTHOR | COMPOSER | AUTHOR_COMPOSER
+    pct = Column(Numeric)
+    publishing_company_id = Column(PGUUID(as_uuid=True),
+                                   ForeignKey("publishing_companies.id", ondelete="SET NULL"))
+    publisher_name = Column(Text)       # editorial escrita a mano (si no está en la base)
+    position = Column(Integer, nullable=False, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    demo = relationship("SongDemo", back_populates="authors")
+    promoter = relationship("Promoter")
+    publishing_company = relationship("PublishingCompany")
+
+    __table_args__ = (
+        Index("idx_song_demo_authors_demo", "demo_id", "position"),
     )
 
 
@@ -605,6 +646,10 @@ class Playlist(Base):
     cover_url = Column(Text)
     note = Column(Text)
     allow_download = Column(Boolean, nullable=False, server_default=text("false"))
+    # Qué MÁS se enseña de cada tema (todos apagados al nacer; solo salen si el tema lo tiene).
+    show_lyrics = Column(Boolean, nullable=False, server_default=text("false"))
+    show_authors = Column(Boolean, nullable=False, server_default=text("false"))
+    show_sender = Column(Boolean, nullable=False, server_default=text("false"))
     # Empresa del grupo cuyo logo va arriba a la derecha. Si está vacía, PIES (el sello).
     company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
     public_token = Column(Text, unique=True, index=True)
@@ -10359,6 +10404,28 @@ def ensure_song_demos_schema():
         "ALTER TABLE IF EXISTS song_demos ADD COLUMN IF NOT EXISTS rating_requested_by_nick text;",
         # La portada de la maqueta (las que no tengan enseñan la imagen de «sin portada»).
         "ALTER TABLE IF EXISTS song_demos ADD COLUMN IF NOT EXISTS cover_url text;",
+        # LETRA y QUIÉN LA ENVIÓ por el enlace público de envío de demos.
+        "ALTER TABLE IF EXISTS song_demos ADD COLUMN IF NOT EXISTS lyrics text;",
+        "ALTER TABLE IF EXISTS song_demos ADD COLUMN IF NOT EXISTS submitted_by_promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL;",
+        "ALTER TABLE IF EXISTS song_demos ADD COLUMN IF NOT EXISTS submitted_at timestamptz;",
+        # Huella del audio, para avisar de que ese MISMO archivo ya está subido.
+        "ALTER TABLE IF EXISTS song_demos ADD COLUMN IF NOT EXISTS audio_sha256 text;",
+        "CREATE INDEX IF NOT EXISTS idx_song_demos_sha ON song_demos(audio_sha256);",
+        """
+        CREATE TABLE IF NOT EXISTS song_demo_authors (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            demo_id uuid NOT NULL REFERENCES song_demos(id) ON DELETE CASCADE,
+            promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL,
+            name text,
+            role text,
+            pct numeric,
+            publishing_company_id uuid REFERENCES publishing_companies(id) ON DELETE SET NULL,
+            publisher_name text,
+            position integer NOT NULL DEFAULT 0,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_song_demo_authors_demo ON song_demo_authors(demo_id, position);",
         """
         CREATE TABLE IF NOT EXISTS song_demo_ratings (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -10400,6 +10467,10 @@ def ensure_playlists_schema():
         );
         """,
         "CREATE INDEX IF NOT EXISTS idx_playlists_token ON playlists(public_token);",
+        # Qué más se enseña de cada tema (letra, autores y quién lo envió): apagado al nacer.
+        "ALTER TABLE IF EXISTS playlists ADD COLUMN IF NOT EXISTS show_lyrics boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE IF EXISTS playlists ADD COLUMN IF NOT EXISTS show_authors boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE IF EXISTS playlists ADD COLUMN IF NOT EXISTS show_sender boolean NOT NULL DEFAULT false;",
         """
         CREATE TABLE IF NOT EXISTS playlist_items (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

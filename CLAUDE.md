@@ -622,6 +622,54 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ A las personas se les marca la foto con `data-avatar="1"`: si su foto falla sale el muñequito
   gris en vez de desaparecer el hueco (y las dos líneas siguen cuadradas).
 
+- **DEMOS · se ven y funcionan como las canciones de una PLAYLIST** (ago 2026, rediseño). La fila es
+  el **mismo parcial** (`templates/_playlist_row.html`, macro `pl_row`) que usa la playlist: portada,
+  título, artista con su foto, **play sobre la portada**, barra de reproducción que se arrastra y paso
+  automático al siguiente. Lo propio de la demo (valoración, «En el repertorio», la «i» y los tres
+  puntitos) se le pasa a la macro como `badges`/`menu`/`note`.
+  ⚠️ El motor es **`playlist.js`**, así que la pantalla de demos TIENE que cargarlo: sin ese `<script>`
+  las maquetas se ven bien pero **no suenan** (bug real de esta épica).
+  ⚠️ La macro habla de `artist_name`/`artist_photo`/`stream_url`; a la demo se le pasa lo suyo con esos
+  nombres (`who`, `who_photo`, `audio_url`) con `dict(row, ...)`.
+  · **Primero los ARTISTAS con maquetas** (`_demos_artist_groups`), con **«Sin artista» como PRIMERA
+  opción y con ICONO en vez de foto** —y solo si de verdad hay maquetas sin artista—; al entrar en uno
+  se ven las suyas (`?demo_artist=<id>` o `none`). Fuera el contador y los filtros de valoración.
+  · **AUTORES y LETRA** (opcionales, como todo menos el título): `SongDemoAuthor` (tercero + rol + % +
+  editorial) y `SongDemo.lyrics`. En la fila, el icono de **letra** (se abre al pincharlo) y el de
+  **autores** con sus nombres; al pasar el ratón, sus **porcentajes y su editorial**
+  (`_demo_authors_tooltip`). La editorial escrita a mano se casa con la de la base si coincide.
+  · **El FORMULARIO es uno solo** (`templates/_demo_form_fields.html` + `static/js/demo_form.js`),
+  compartido con el enlace público, y va por **BOCADILLOS** (`.demo-card`): de quién es · el audio ·
+  la portada · los autores · la letra · las notas. El audio y la portada se **arrastran o se eligen**.
+  · **EL MISMO AUDIO no se sube dos veces sin avisar**: el navegador calcula la **huella sha256** del
+  archivo y pregunta (`discografica_demo_audio_check`); si ese mismo audio ya está, dice **con qué
+  nombre** y deja subirlo igualmente o no, y si se sube con el MISMO nombre **pide otro** para
+  distinguirlas. ⚠️ Lo comprueba también el SERVIDOR (`_demo_duplicate_check` + el cálculo de la
+  huella cuando el archivo pasa por él): saltarse el JS no cuela una repetida.
+  · **Descargar el audio** (`discografica_demo_audio_download`) da a elegir **WAV o MP3** y lo
+  **descarga** (antes abría la URL de Storage en una pestaña). Punto único `_demo_audio_download`, que
+  usa también la descarga de una playlist.
+
+- **DEMOS · ENLACE PÚBLICO para que nos manden maquetas** (ago 2026): botón **«Link para subir
+  demos»** al lado de «Añadir demo» (se comparte por correo, WhatsApp, SMS o copiándolo). El token es
+  **uno para toda la casa** (`AppSetting` `demo_upload_link_token`).
+  · **`/enviar-demos/<token>`**: primero se **identifica con su DNI o CIF** (`_find_people_by_doc_number`,
+  igual que en las facturas: terceros, sus sociedades, documentos escaneados y personal); si no está,
+  se le piden nombre y contacto y **se le crea la ficha de tercero**. Después ve la página como una
+  playlist —logo de **PIES** arriba a la derecha, **«Envío de Demos»** centrado, su cabecera y el botón
+  **+ Añadir demo**— y va añadiendo maquetas con el MISMO formulario, viéndolas y **escuchándolas**
+  como las vemos aquí. Al final, **«Enviar demos»**.
+  ⚠️ **Mientras no las envía NO existen para nosotros**: quedan con `submitted_at` a NULL y
+  `_demos_context` las deja fuera. Al enviarlas se sella `submitted_at` y aparecen con su **«Enviada
+  por»** (foto, nombre y fecha, `_demo_submitted_by`).
+  ⚠️ De fuera solo se le ofrecen los artistas con **contrato discográfico, de catálogo o de
+  distribución** (`_demo_submit_artist_options`): el resto no se le muestran.
+  · **Avisos** (`_demo_submission_recipients`): «X ha enviado N demos» con enlace a verlas. Si vienen
+  vinculadas a artistas, a quien del **sello** lleva esos artistas (`assigned_artist_ids_sello`), a la
+  **dirección** del sello y a quien del sello lleva **Registros**; si no van con artista, a todo el
+  sello (si no, no se enteraría nadie).
+  ⚠️ Sus siete endpoints públicos están en las **tres** listas.
+
 - **PLAYLIST** (ago 2026): listas de temas para **MANDARLAS**, en su pestaña de Discográfica
   (`/discografica?section=playlists`). Modelos **`Playlist`** + **`PlaylistItem`**
   (`ensure_playlists_schema`). Una línea es una **CANCIÓN** del repertorio, una **DEMO**, un **TÍTULO**
@@ -639,11 +687,17 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · **LOS BOTONES van en la CABECERA**, a la derecha y a la altura de «Playlist» (parcial único
   `templates/_playlist_actions.html`, que incluyen la vista y la edición; en el enlace público NO se
   pinta porque `playlist_actions` no está puesto): **Editar** · **Compartir** (un solo botón que
-  despliega Email · WhatsApp · SMS · Copiar enlace) · **Copiar enlace** también suelto ·
-  **interruptor de DESCARGA** (el `.sw` de los accesos, se marca ahí mismo) · **Eliminar**.
-  ⚠️ La descarga **ya no es una pestaña**: la ficha no tiene pestañas. El interruptor guarda al
-  momento y **solo recarga en la VISTA** (para que aparezca o desaparezca el icono de descargar de
-  cada tema); editando no recarga, que se perdería lo que no esté guardado.
+  despliega Email · WhatsApp · SMS · Copiar enlace) · **Copiar enlace** también suelto · los
+  **INTERRUPTORES** · **Eliminar**.
+  · **CUATRO INTERRUPTORES** (los `.sw` de los accesos, con el **icono arriba y el interruptor
+  debajo**, verde encendido y gris apagado; **todos nacen APAGADOS**): **Descarga** ·
+  **Letra** (`show_lyrics`) · **Autores** (`show_authors`) · **Quién la envió** (`show_sender`). Cada
+  uno se marca ahí mismo y se guarda al momento; lo que enseñan de cada tema lo monta
+  `_playlist_item_extras` **solo si está activado Y el tema lo tiene** (una canción saca su letra de
+  `Song.lyrics_text` y sus autores de `SongEditorialShare`; una maqueta, los suyos y quién la mandó).
+  ⚠️ La descarga **ya no es una pestaña**: la ficha no tiene pestañas. Los interruptores **solo
+  recargan en la VISTA** (para que aparezca o desaparezca lo que enseñan); editando no recargan, que
+  se perdería lo que no esté guardado.
   · **EDICIÓN** (`?edit=1`): las líneas se **arrastran** para ordenarlas, arriba están «Añadir
   canción» (pop-up: **Demos** → artistas con maquetas + «Sin artista» · **Repertorio** → artistas,
   primero los que tienen contrato y el resto tras «ver más» → sus temas con portada), «Añadir un
@@ -669,7 +723,11 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   pedirla en cada carga; aquí no hay ffmpeg.
   · **Compartir**: enlace público `public_playlist_view` (`/playlist/<token>`, token **opaco**) con el
   juego de **og:** completo (`public_playlist_og_image`: la portada de la playlist y, si no tiene, la
-  del primer tema). El **correo** (`_playlist_email_html`) es «**Playlist \<nombre\>**» con la
+  del primer tema).
+  ⚠️ **Sin ninguna portada la previsualización es la imagen de «SIN PORTADA»**, la misma que en las
+  canciones —no el logo—: en WhatsApp, en SMS y en el enlace se ve lo que se vería en la app. Va con
+  **`static/img/cover_placeholder.png`** (un PNG a propósito: la miniatura og: es un JPEG y Pillow no
+  lee el SVG `cover_placeholder.svg`). El **correo** (`_playlist_email_html`) es «**Playlist \<nombre\>**» con la
   cabecera de la playlist y el botón **Escuchar**, que lleva a ese enlace.
   ⚠️ Los cuatro endpoints públicos están en las **tres** listas; los de dentro cuelgan de
   `/discografica/playlists/...`, así que heredan el permiso de la sección por la ruta.

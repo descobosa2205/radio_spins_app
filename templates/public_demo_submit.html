@@ -1,0 +1,146 @@
+{# ENVÍO DE DEMOS · enlace público (lo comparte el sello con quien sea).
+   Primero se IDENTIFICA con su DNI o CIF y después va añadiendo maquetas con el MISMO formulario que
+   usamos nosotros, viéndolas y escuchándolas como las vemos aquí (`_playlist_row.html`).
+   ⚠️ STANDALONE a propósito: la abre gente de fuera, sin sesión, y no tiene que ver el back office. #}
+{% from '_playlist_row.html' import pl_row %}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Envío de Demos</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}">
+  {# La hoja de la casa: sin ella los botones salen con los colores de Bootstrap. #}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=ASSET_V) }}">
+</head>
+<body class="bg-body-tertiary"
+      data-default-photo-url="{{ DEFAULT_PHOTO_URL }}"
+      data-default-cover-url="{{ DEFAULT_COVER_URL }}"
+      data-default-avatar-url="{{ DEFAULT_AVATAR_URL }}">
+<div class="container py-4" style="max-width:900px;">
+  <div class="pl-sheet" data-demo-submit
+       data-identify-url="{{ url_for('public_demo_submit_identify', token=token) }}"
+       data-add-url="{{ url_for('public_demo_submit_add', token=token) }}"
+       data-send-url="{{ url_for('public_demo_submit_send', token=token) }}"
+       data-remove-base="{{ url_for('public_demo_submit_remove', token=token, demo_id='__ID__') }}">
+
+    {# El logo de PIES arriba a la derecha y el título centrado (como en el resto de páginas de casa). #}
+    {% if brand.logo_url %}
+      <div class="pl-sheet__brand"><img src="{{ brand.logo_url }}" alt="{{ brand.company_name }}"></div>
+    {% endif %}
+    <h1 class="pl-title-center">Envío de Demos</h1>
+
+    {% if not sender %}
+      {# ---------- 1) Identificarse ---------- #}
+      <div class="demo-card mt-3">
+        <div class="demo-card__head"><i class="fa fa-id-card"></i>¿Quién eres?</div>
+        <div class="demo-card__body">
+          <div class="small text-muted mb-2">
+            Escribe tu <strong>DNI, NIE o CIF</strong>. Si ya estás en nuestra base de datos, pasas
+            directamente a subir las maquetas.
+          </div>
+          <div class="row g-2">
+            <div class="col-sm-7">
+              <input class="form-control" data-demo-tax placeholder="DNI, NIE o CIF" autocomplete="off">
+            </div>
+            <div class="col-sm-5">
+              <button class="btn btn-danger w-100" type="button" data-demo-identify>
+                <i class="fa fa-arrow-right me-1"></i>Continuar
+              </button>
+            </div>
+          </div>
+          <div class="alert alert-danger mt-2 d-none" data-demo-id-error></div>
+          {# Si no está en la base, se le piden los datos mínimos (nada más). #}
+          <div class="row g-2 mt-2 d-none" data-demo-id-extra>
+            <div class="col-12"><div class="small text-muted">No te encontramos, así que dinos cómo te llamas:</div></div>
+            <div class="col-md-6"><input class="form-control" data-demo-name placeholder="Nombre y apellidos"></div>
+            <div class="col-md-3"><input class="form-control" type="email" data-demo-email placeholder="Correo"></div>
+            <div class="col-md-3"><input class="form-control" data-demo-phone placeholder="Teléfono"></div>
+          </div>
+          <div class="mt-2 d-none" data-demo-id-choices></div>
+        </div>
+      </div>
+
+    {% else %}
+      {# ---------- 2) Sus datos y sus maquetas ---------- #}
+      <div class="pl-head">
+        {% if sender.photo_url %}
+          <img class="pl-head__cover" src="{{ sender.photo_url }}" alt="" data-avatar="1">
+        {% endif %}
+        <div class="pl-head__main">
+          <div class="pl-head__eyebrow">Nos las manda</div>
+          <h2 class="pl-head__title">{{ sender.name }}</h2>
+          <div class="pl-head__facts">
+            {% if sender.tax_id %}<span><i class="fa fa-id-card"></i>{{ sender.tax_id }}</span>{% endif %}
+            {% if sender.email %}<span><i class="fa fa-envelope"></i>{{ sender.email }}</span>{% endif %}
+            {% if sender.phone %}<span><i class="fa fa-phone"></i>{{ sender.phone }}</span>{% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="d-flex justify-content-end mt-3">
+        <button class="btn btn-danger" type="button" data-bs-toggle="modal" data-bs-target="#demoAddModal">
+          <i class="fa fa-plus me-1"></i>Añadir demo
+        </button>
+      </div>
+
+      <ol class="pl-list" data-playlist-player data-demo-rows>
+        {% for it in rows %}
+          {% set quitar %}
+            <button class="btn btn-sm btn-link text-danger" type="button" data-demo-remove="{{ it.id }}"
+                    title="Quitar"><i class="fa fa-xmark"></i></button>
+          {% endset %}
+          {{ pl_row(dict(it, stream_url=it.audio_url, subtitle='',
+                         artist_name=it.who, artist_photo=it.who_photo), dl=false, menu=quitar) }}
+        {% endfor %}
+      </ol>
+      <div class="pl-empty{{ ' d-none' if rows }}" data-demo-empty>
+        Todavía no has añadido ninguna maqueta. Empieza con «Añadir demo».
+      </div>
+
+      <div class="d-flex justify-content-end mt-3">
+        <button class="btn btn-success" type="button" data-demo-send {{ 'disabled' if not rows }}>
+          <i class="fa fa-paper-plane me-1"></i>Enviar demos
+        </button>
+      </div>
+      <div class="alert alert-success mt-3 d-none" data-demo-sent></div>
+    {% endif %}
+  </div>
+</div>
+
+{% if sender %}
+{# El MISMO formulario que usamos dentro (parcial compartido), en un pop-up. #}
+<div class="modal fade" id="demoAddModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" id="demoAddForm" data-demo-form data-ajax="1"
+          data-sign-url="{{ url_for('public_demo_submit_sign', token=token) }}"
+          data-check-url="{{ url_for('public_demo_submit_check', token=token) }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-music me-2"></i>Añadir demo</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        {% with demo_artists = artists, demo_roles = roles, demo_author_search_url = '',
+                demo_sender_fields = False %}
+          {% include '_demo_form_fields.html' %}
+        {% endwith %}
+        <div class="alert alert-danger d-none" data-demo-add-error></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger" type="submit"><i class="fa fa-plus me-1"></i>Añadir</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<script src="{{ url_for('static', filename='vendor/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/file_drop.js', v=ASSET_V) }}"></script>
+<script src="{{ url_for('static', filename='js/demo_form.js', v=ASSET_V) }}"></script>
+<script src="{{ url_for('static', filename='js/playlist.js', v=ASSET_V) }}"></script>
+<script src="{{ url_for('static', filename='js/demo_submit.js', v=ASSET_V) }}"></script>
+</body>
+</html>

@@ -1031,146 +1031,145 @@
   {% include 'discografica_ingresos.html' %}
 
 {% elif section == 'demos' %}
-  {# DEMOS · maquetas que se están valorando. Pueden venir de un artista nuestro o de fuera; el
-     origen se guarda en la propia demo y el flujo (valorando → aprobada / descartada) es el mismo. #}
-  {% set d = demos_ctx or {'rows': [], 'counts': {}, 'total': 0} %}
+  {# DEMOS · las maquetas del sello. Se ven y FUNCIONAN como las canciones de una playlist (el mismo
+     parcial `_playlist_row.html`: portada, título, artista con su foto, play sobre la portada, barra
+     de reproducción y paso automático a la siguiente).
+
+     Primero se eligen los ARTISTAS con maquetas —con «Sin artista» como primera opción, y solo si de
+     verdad hay maquetas sin artista— y al entrar en uno se ven las suyas. #}
+  {% from '_playlist_row.html' import pl_row %}
+  {% set d = demos_ctx or {'rows': [], 'groups': [], 'subject': None} %}
+
   <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
     <div class="d-flex align-items-center gap-2 flex-wrap">
-      <h5 class="m-0">Demos</h5>
-      <span class="badge text-bg-light border">{{ d.total }}</span>
-      {# El filtro es por VALORACIÓN: una demo ya no se aprueba ni se descarta, se manda a valorar. #}
-      {% for key, label, icon, badge in demo_rating_filters %}
-        <a class="badge text-bg-{{ badge }} text-decoration-none{% if d.filter_rating == key %} border border-dark{% endif %}"
-           href="{{ url_for('discografica_view', section='demos', demo_rating=('' if d.filter_rating == key else key)) }}">
-          <i class="fa {{ icon }} me-1"></i>{{ label }} · {{ d.counts.get(key, 0) }}
-        </a>
-      {% endfor %}
+      {% if d.subject %}
+        <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('discografica_view', section='demos') }}"
+           title="Volver a los artistas" aria-label="Volver a los artistas"><i class="fa fa-arrow-left"></i></a>
+        {% if d.subject.photo %}
+          <img class="demo-group__ava" src="{{ d.subject.photo }}" alt="" data-avatar="1">
+        {% else %}
+          <span class="demo-group__ava demo-group__ava--icon"><i class="fa {{ d.subject.icon or 'fa-user' }}"></i></span>
+        {% endif %}
+        <h5 class="m-0">{{ d.subject.name }}</h5>
+      {% else %}
+        <h5 class="m-0">Demos</h5>
+      {% endif %}
     </div>
     {% if CAN_EDIT_DISCOGRAFICA %}
-      <button class="btn btn-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#demoModal" data-demo-new>
-        <i class="fa fa-plus me-1"></i>Añadir demo
-      </button>
+      <div class="d-flex gap-2">
+        {# El ENLACE para que otros nos manden maquetas (correo, WhatsApp, SMS o copiarlo). #}
+        <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#demoLinkModal">
+          <i class="fa fa-link me-1"></i>Link para subir demos
+        </button>
+        <button class="btn btn-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#demoModal" data-demo-new>
+          <i class="fa fa-plus me-1"></i>Añadir demo
+        </button>
+      </div>
     {% endif %}
   </div>
 
-  <form class="row g-2 mb-3" method="get">
-    <input type="hidden" name="section" value="demos">
-    <div class="col-6 col-md-3">
-      <select class="form-select form-select-sm" name="demo_origin" onchange="this.form.submit()">
-        <option value="">Todos los orígenes</option>
-        {% for key, label in demo_origins %}<option value="{{ key }}" {% if d.filter_origin == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
-      </select>
-    </div>
-    <div class="col-6 col-md-3">
-      <select class="form-select form-select-sm" name="demo_artist" onchange="this.form.submit()">
-        <option value="">Todos los artistas</option>
-        {% for a in artists %}<option value="{{ a.id }}" {% if d.filter_artist == a.id|string %}selected{% endif %}>{{ a.name }}</option>{% endfor %}
-      </select>
-    </div>
-    <div class="col-12 col-md-6">
-      <div class="input-group input-group-sm">
-        <input class="form-control" name="demo_q" value="{{ d.filter_q }}" placeholder="Buscar por título, quién la manda o notas…">
-        <button class="btn btn-outline-secondary"><i class="fa fa-magnifying-glass"></i></button>
+  {% if not d.subject %}
+    {# ---------- Los artistas con maquetas («Sin artista» primero) ---------- #}
+    {% if d.groups %}
+      <div class="demo-groups">
+        {% for g in d.groups %}
+          <a class="demo-group" href="{{ url_for('discografica_view', section='demos', demo_artist=g.id) }}">
+            {% if g.photo %}
+              <img src="{{ g.photo }}" alt="" data-avatar="1">
+            {% else %}
+              <span class="demo-group__ava demo-group__ava--icon"><i class="fa {{ g.icon or 'fa-user' }}"></i></span>
+            {% endif %}
+            <span class="demo-group__name">{{ g.name }}</span>
+            <span class="badge text-bg-light border">{{ g.count }}</span>
+          </a>
+        {% endfor %}
       </div>
-    </div>
-  </form>
+    {% else %}
+      <div class="alert alert-light border">Todavía no hay demos.</div>
+    {% endif %}
 
-  {% if d.rows %}
-    <div class="list-group">
-      {% for row in d.rows %}
-        <div class="list-group-item">
-          {# MAQUETA · la PORTADA a la izquierda del todo (si no tiene, la imagen de «sin portada») y a
-             su derecha DOS líneas cuadradas con su alto: el título con el play al lado, y debajo la
-             foto y el nombre del artista. Cuándo se subió y quién no se enseñan: van en la «i». #}
-          <div class="demo-row">
-            <img class="demo-row__cover" loading="lazy" src="{{ row.cover_url or DEFAULT_COVER_URL }}" alt="" data-cover>
-            <div class="demo-row__body">
-              <div class="demo-row__line demo-row__line--title">
-                <strong class="demo-row__title">{{ row.title }}</strong>
-                {# El PLAY, a la derecha del título (media_chip.js: suena al pinchar y solo uno a la vez). #}
-                {% if row.is_audio %}
-                  <span class="mat-chip mat-chip--bare" data-chip-src="{{ row.audio_url }}" title="Reproducir">
-                    <span class="mat-chip__btn"><i class="fa fa-play" data-chip-icon></i></span>
-                    <span class="mat-chip__dur" data-chip-dur></span>
-                  </span>
-                {% endif %}
-                {# ICONO DE VALORACIÓN: verde cuando han valorado todos, amarillo si falta gente. Al
-                   pincharlo salen los resultados (quién ha dicho qué, la media y qué ha ganado). #}
-                {% if row.rating.asked %}
-                  <button class="badge border-0 text-bg-{{ 'success' if row.rating.complete else 'warning text-dark' }}"
-                          type="button" data-demo-results="{{ row.id }}" data-title="{{ row.title }}"
-                          title="{{ 'Valorada por todos' if row.rating.complete else 'Falta gente por valorar' }}">
-                    <i class="fa {{ 'fa-star' if row.rating.complete else 'fa-star-half-stroke' }} me-1"></i>
-                    {{ row.rating.done }}/{{ row.rating.asked }}
-                    {% if row.rating.avg is not none %} · {{ row.rating.avg }}{% endif %}
-                  </button>
-                {% endif %}
-                {% if row.song_id %}<a class="badge text-bg-info text-decoration-none" href="{{ url_for('discografica_song_detail', song_id=row.song_id, tab='informacion') }}"><i class="fa fa-music me-1"></i>En el repertorio</a>{% endif %}
-                {# La «i»: al pasar el ratón dice cuándo se subió, quién y desde dónde. #}
-                <span class="demo-row__info" tabindex="0" role="button"
-                      title="{{ row.origin_label }}{% if row.created_at_label %} · añadida el {{ row.created_at_label }}{% if row.created_by_nick %} por {{ row.created_by_nick }}{% endif %}{% endif %}{% if row.sender_email %} · {{ row.sender_email }}{% endif %}{% if row.sender_phone %} · {{ row.sender_phone }}{% endif %}{% if row.rating_requested_at_label %} · enviada a valorar el {{ row.rating_requested_at_label }}{% if row.rating_requested_by_nick %} por {{ row.rating_requested_by_nick }}{% endif %}{% endif %}">
-                  <i class="fa fa-info"></i>
-                </span>
-              </div>
-              <div class="demo-row__line demo-row__line--artist">
-                {% if row.who_photo %}
-                  {# `data-avatar` en las personas: si su foto falla, sale el muñequito gris en vez de
-                     desaparecer el hueco (y las dos líneas siguen alineadas). #}
-                  <img loading="lazy" class="inv-person-ava {{ 'is-photo' if row.who_is_person else 'is-logo' }}"
-                       src="{{ row.who_photo }}" alt="" {% if row.who_is_person %}data-avatar="1"{% endif %}>
-                {% else %}
-                  <img loading="lazy" class="inv-person-ava is-photo" src="{{ DEFAULT_AVATAR_URL }}" alt="" data-avatar="1">
-                {% endif %}
-                {% if row.artist_id %}
-                  <a class="text-reset text-decoration-none" href="{{ url_for('artist_detail_view', artist_id=row.artist_id) }}">{{ row.who }}</a>
-                {% else %}<span>{{ row.who }}</span>{% endif %}
-              </div>
-            </div>
-            <div class="d-flex align-items-start gap-2">
+  {% else %}
+    {# ---------- Las maquetas de ese artista (o las que no tienen artista) ---------- #}
+    <form class="row g-2 mb-3" method="get">
+      <input type="hidden" name="section" value="demos">
+      <input type="hidden" name="demo_artist" value="{{ d.filter_artist }}">
+      <div class="col-12 col-md-6">
+        <div class="input-group input-group-sm">
+          <input class="form-control" name="demo_q" value="{{ d.filter_q }}" placeholder="Buscar por título, quién la manda o notas…">
+          <button class="btn btn-outline-secondary"><i class="fa fa-magnifying-glass"></i></button>
+        </div>
+      </div>
+    </form>
+
+    {% if d.rows %}
+      <div class="pl-sheet">
+        <ol class="pl-list" data-playlist-player>
+          {% for row in d.rows %}
+            {# Las etiquetas de la demo (valoración, repertorio y la «i» con quién y cuándo) y sus tres
+               puntitos se montan aquí y se le pasan a la fila compartida. #}
+            {% set badges %}
+              {% if row.rating.asked %}
+                <button class="badge border-0 text-bg-{{ 'success' if row.rating.complete else 'warning text-dark' }}"
+                        type="button" data-demo-results="{{ row.id }}" data-title="{{ row.title|e }}"
+                        title="{{ 'Valorada por todos' if row.rating.complete else 'Falta gente por valorar' }}">
+                  <i class="fa {{ 'fa-star' if row.rating.complete else 'fa-star-half-stroke' }} me-1"></i>
+                  {{ row.rating.done }}/{{ row.rating.asked }}{% if row.rating.avg is not none %} · {{ row.rating.avg }}{% endif %}
+                </button>
+              {% endif %}
+              {% if row.song_id %}
+                <a class="badge text-bg-info text-decoration-none" href="{{ url_for('discografica_song_detail', song_id=row.song_id, tab='informacion') }}"><i class="fa fa-music me-1"></i>En el repertorio</a>
+              {% endif %}
+              <span class="demo-row__info" tabindex="0" role="button"
+                    title="{{ row.origin_label }}{% if row.created_at_label %} · añadida el {{ row.created_at_label }}{% if row.created_by_nick %} por {{ row.created_by_nick }}{% endif %}{% endif %}{% if row.sender_email %} · {{ row.sender_email }}{% endif %}{% if row.sender_phone %} · {{ row.sender_phone }}{% endif %}{% if row.rating_requested_at_label %} · enviada a valorar el {{ row.rating_requested_at_label }}{% if row.rating_requested_by_nick %} por {{ row.rating_requested_by_nick }}{% endif %}{% endif %}"><i class="fa fa-info"></i></span>
+            {% endset %}
+            {% set menu %}
               {% if CAN_EDIT_DISCOGRAFICA %}
-                <div class="dropdown">
+                <div class="dropdown pl-row__menu">
                   <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
                   <ul class="dropdown-menu dropdown-menu-end">
-                    {# VALORAR: se manda a la gente del sello por correo, cada uno con su enlace. #}
-                    <li><button class="dropdown-item" type="button" data-demo-rate="{{ row.id }}"
-                                data-title="{{ row.title }}">
+                    <li><button class="dropdown-item" type="button" data-demo-rate="{{ row.id }}" data-title="{{ row.title|e }}">
                       <i class="fa fa-star fa-fw me-1"></i>{{ 'Volver a pedir valoración' if row.rating.asked else 'Enviar a valoración' }}</button></li>
                     {% if row.rating.asked %}
-                      <li><button class="dropdown-item" type="button" data-demo-results="{{ row.id }}"
-                                  data-title="{{ row.title }}">
+                      <li><button class="dropdown-item" type="button" data-demo-results="{{ row.id }}" data-title="{{ row.title|e }}">
                         <i class="fa fa-list-check fa-fw me-1"></i>Ver valoraciones</button></li>
                     {% endif %}
                     {% if row.can_make_song %}
                       <li><hr class="dropdown-divider"></li>
-                      <li>
-                        <form method="post" action="{{ url_for('discografica_demo_to_song', demo_id=row.id) }}">
-                          <button class="dropdown-item text-success"><i class="fa fa-music fa-fw me-1"></i>Pasar al repertorio</button>
-                        </form>
-                      </li>
+                      <li><form method="post" action="{{ url_for('discografica_demo_to_song', demo_id=row.id) }}">
+                        <button class="dropdown-item text-success"><i class="fa fa-music fa-fw me-1"></i>Pasar al repertorio</button></form></li>
                     {% endif %}
                     <li><hr class="dropdown-divider"></li>
                     <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#demoModal"
                                 data-demo-edit="{{ row.id }}" data-demo='{{ row|tojson|forceescape }}'><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
-                    {% if row.audio_url %}<li><a class="dropdown-item" href="{{ row.audio_url }}" download><i class="fa fa-download fa-fw me-1"></i>Descargar audio</a></li>{% endif %}
-                    <li>
-                      <form method="post" action="{{ url_for('discografica_demo_delete', demo_id=row.id) }}" onsubmit="return confirm('¿Eliminar esta demo?');">
-                        <button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button>
-                      </form>
-                    </li>
+                    {% if row.audio_url %}
+                      {# La descarga BAJA el archivo (no lo abre en una pestaña) y deja elegir el formato. #}
+                      <li><h6 class="dropdown-header">Descargar audio</h6></li>
+                      <li><a class="dropdown-item" href="{{ url_for('discografica_demo_audio_download', demo_id=row.id, fmt='wav') }}"><i class="fa fa-file-audio fa-fw me-1"></i>WAV</a></li>
+                      <li><a class="dropdown-item" href="{{ url_for('discografica_demo_audio_download', demo_id=row.id, fmt='mp3') }}"><i class="fa fa-file-audio fa-fw me-1"></i>MP3</a></li>
+                    {% endif %}
+                    <li><hr class="dropdown-divider"></li>
+                    <li><form method="post" action="{{ url_for('discografica_demo_delete', demo_id=row.id) }}"
+                              data-confirm="¿Eliminar esta demo?">
+                      <button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></form></li>
                   </ul>
                 </div>
               {% endif %}
-            </div>
-          </div>
-          {# La NOTA, debajo, y solo si la hay. #}
-          {% if row.notes %}
-            <div class="demo-row__note"><i class="fa fa-note-sticky me-1 text-muted"></i>{{ row.notes }}</div>
-          {% endif %}
-        </div>
-      {% endfor %}
-    </div>
-  {% else %}
-    <div class="alert alert-light border">Todavía no hay demos{% if d.filter_status or d.filter_origin or d.filter_artist or d.filter_q %} con ese filtro{% endif %}.</div>
+            {% endset %}
+            {% set nota %}{% if row.notes %}<i class="fa fa-note-sticky me-1 text-muted"></i>{{ row.notes }}{% endif %}{% endset %}
+            {# La fila compartida habla de `artist_name`/`artist_photo`/`stream_url`: se le pasa lo de la
+               demo con esos nombres. #}
+            {{ pl_row(dict(row, stream_url=row.audio_url, subtitle='',
+                           artist_name=row.who, artist_photo=row.who_photo), dl=false,
+                      badges=badges, menu=menu, note=(nota if row.notes else '')) }}
+          {% endfor %}
+        </ol>
+      </div>
+    {% else %}
+      <div class="alert alert-light border">No hay demos{% if d.filter_q %} con esa búsqueda{% endif %}.</div>
+    {% endif %}
+    {# ⚠️ El reproductor y el icono de la letra los lleva `playlist.js`: si no se carga aquí, las
+       maquetas se ven bien pero no suenan (mismo motor que las playlists). #}
+    <script src="{{ url_for('static', filename='js/playlist.js', v=ASSET_V) }}"></script>
   {% endif %}
 
   {% if CAN_EDIT_DISCOGRAFICA %}
@@ -1369,80 +1368,25 @@
   })();
   </script>
 
+  {# ---------- AÑADIR / EDITAR UNA MAQUETA ----------
+     El formulario es un parcial COMPARTIDO con el enlace público (`_demo_form_fields.html`), así que
+     de fuera se rellena exactamente lo mismo. Cada parte va en su bocadillo. #}
   <div class="modal fade" id="demoModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
       <form class="modal-content" method="post" id="demoForm" enctype="multipart/form-data"
-            action="{{ url_for('discografica_demo_create') }}">
-        <div class="modal-header"><h5 class="modal-title" id="demoModalTitle"><i class="fa fa-music me-2"></i>Nueva demo</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            action="{{ url_for('discografica_demo_create') }}"
+            data-demo-form
+            data-sign-url="{{ url_for('discografica_demo_sign') }}"
+            data-check-url="{{ url_for('discografica_demo_audio_check') }}">
+        <div class="modal-header">
+          <h5 class="modal-title" id="demoModalTitle"><i class="fa fa-music me-2"></i>Nueva demo</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
         <div class="modal-body">
-          <div class="mb-2">
-            <label class="form-label">Título</label>
-            <input class="form-control" name="title" id="demoTitle" required>
-          </div>
-          <div class="mb-2">
-            <label class="form-label">¿De dónde viene?</label>
-            <select class="form-select" name="origin" id="demoOrigin">
-              {% for key, label in demo_origins %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
-            </select>
-          </div>
-          <div class="mb-2" data-demo-panel="ARTIST">
-            <label class="form-label">Artista</label>
-            <select class="form-select select-artists" name="artist_id" id="demoArtist">
-              <option value=""></option>
-              {% for a in artists %}<option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}">{{ a.name }}</option>{% endfor %}
-            </select>
-          </div>
-          <div class="d-none" data-demo-panel="EXTERNAL">
-            <div class="mb-2">
-              <label class="form-label">Quién la manda</label>
-              <input class="form-control" name="sender_name" id="demoSender" placeholder="Nombre y apellidos o grupo">
-            </div>
-            <div class="row g-2 mb-2">
-              <div class="col-md-7"><input class="form-control" type="email" name="sender_email" id="demoEmail" placeholder="Correo"></div>
-              <div class="col-md-5"><input class="form-control" name="sender_phone" id="demoPhone" placeholder="Teléfono"></div>
-            </div>
-            <div class="mb-2">
-              <label class="form-label small text-muted">Si ya está en la base de terceros</label>
-              <div class="d-flex gap-2">
-                <select class="form-select select-providers" name="promoter_id" id="demoPromoter"><option value=""></option></select>
-                <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter" data-target="demoPromoter"><i class="fa fa-plus"></i></button>
-              </div>
-            </div>
-          </div>
-          <div class="mb-2">
-            <label class="form-label">Audio de la maqueta</label>
-            <input class="form-control" type="file" name="audio" id="demoAudio" accept=".wav,.wave,.mp3,.m4a,.aac,.flac,.ogg">
-            <div class="form-text" id="demoAudioHint">Se sube directamente al almacenamiento, así que da igual lo que pese.</div>
-            <div class="progress mt-2 d-none" id="demoProgress" style="height:18px"><div class="progress-bar bg-danger" id="demoProgressBar" style="width:0%">0%</div></div>
-            <input type="hidden" name="uploaded_json" id="demoUploaded" value="">
-          </div>
-          {# PORTADA de la maqueta: se puede ARRASTRAR o elegir (el arrastre lo resuelve el
-             `file_drop.js` global con `data-file-drop-for`). Sin portada se enseña la imagen de
-             «sin portada», como en el repertorio. #}
-          <div class="mb-2">
-            <label class="form-label">Portada <span class="text-muted">(opcional)</span></label>
-            <div class="d-flex gap-2 align-items-start">
-              <img class="demo-cover-preview" id="demoCoverPreview" src="{{ DEFAULT_COVER_URL }}" alt="" data-cover>
-              <div class="flex-grow-1">
-                <div class="decl-drop" id="demoCoverZone" role="button" tabindex="0" data-file-drop-for="#demoCover">
-                  <i class="fa fa-image decl-drop__icon"></i>
-                  <div class="fw-semibold">Arrastra aquí la portada</div>
-                  <div class="small text-muted">o pincha para seleccionarla</div>
-                  <div class="small mt-1 fw-semibold text-success" id="demoCoverName"></div>
-                </div>
-                <input class="form-control mt-2" type="file" name="cover" id="demoCover"
-                       accept="image/png,image/jpeg,image/webp,image/gif">
-                <div class="form-check mt-2 d-none" id="demoCoverRemoveBox">
-                  <input class="form-check-input" type="checkbox" name="cover_remove" value="1" id="demoCoverRemove">
-                  <label class="form-check-label small" for="demoCoverRemove">Quitar la portada que tiene</label>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="mb-1">
-            <label class="form-label">Notas</label>
-            <textarea class="form-control" name="notes" id="demoNotes" rows="2" placeholder="Qué nos parece, con quién hay que hablar…"></textarea>
-          </div>
+          {% with demo_artists = artists, demo_roles = demo_author_roles,
+                  demo_author_search_url = url_for('api_search_promoters'), demo_sender_fields = True %}
+            {% include '_demo_form_fields.html' %}
+          {% endwith %}
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -1451,114 +1395,117 @@
       </form>
     </div>
   </div>
+
+  {# ---------- EL ENLACE para que otros nos manden maquetas ---------- #}
+  <div class="modal fade" id="demoLinkModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa fa-link me-2 text-muted"></i>Link para subir demos</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="small text-muted mb-2">
+            Con este enlace cualquiera puede mandarnos maquetas: primero se identifica con su DNI o CIF
+            y después las va añadiendo. Cuando le dé a <strong>Enviar demos</strong> aparecen aquí y le
+            llega el aviso a la gente del sello.
+          </div>
+          <div class="input-group input-group-sm mb-3">
+            <input class="form-control" id="demoLinkInput" value="{{ d.upload_url }}" readonly>
+            <button class="btn btn-outline-secondary" type="button"
+                    onclick="copyShareLink('{{ d.upload_url }}')"><i class="fa fa-copy"></i></button>
+          </div>
+          <div class="d-flex gap-2 flex-wrap">
+            <button class="btn btn-outline-secondary btn-sm" type="button"
+                    onclick="shareByMail('Envío de demos', '{{ d.upload_url }}')"><i class="fa fa-envelope me-1"></i>Email</button>
+            <button class="btn btn-outline-secondary btn-sm" type="button"
+                    onclick="shareByWhatsapp('Envío de demos', '{{ d.upload_url }}')"><i class="fa-brands fa-whatsapp me-1"></i>WhatsApp</button>
+            <button class="btn btn-outline-secondary btn-sm" type="button"
+                    onclick="shareBySms('Envío de demos', '{{ d.upload_url }}')"><i class="fa fa-comment-sms me-1"></i>SMS</button>
+            <a class="btn btn-outline-secondary btn-sm" href="{{ d.upload_url }}" target="_blank" rel="noopener">
+              <i class="fa fa-up-right-from-square me-1"></i>Abrirlo
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="{{ url_for('static', filename='js/demo_form.js', v=ASSET_V) }}"></script>
   <script>
     (function () {
       var modal = document.getElementById('demoModal');
       if (!modal) return;
       var form = document.getElementById('demoForm');
-      var FIRMAR = {{ url_for('discografica_demo_sign')|tojson }};
       var CREAR = {{ url_for('discografica_demo_create')|tojson }};
       var EDITAR = {{ url_for('discografica_demo_update', demo_id='DID')|tojson }};
       var SIN_PORTADA = {{ DEFAULT_COVER_URL|tojson }};
 
-      function panel() {
-        var v = document.getElementById('demoOrigin').value;
-        modal.querySelectorAll('[data-demo-panel]').forEach(function (p) {
-          var on = p.getAttribute('data-demo-panel') === v;
-          p.classList.toggle('d-none', !on);
-          // Lo que no se ve no se envía (si no, un `required` oculto bloquea el formulario).
-          p.querySelectorAll('input, select').forEach(function (i) { i.disabled = !on; });
+      function limpia() {
+        form.reset();
+        form.dataset.listo = '';
+        var au = form.querySelector('[data-demo-audio]'); if (au) au.disabled = false;
+        var up = form.querySelector('[data-demo-uploaded]'); if (up) up.value = '';
+        var sha = form.querySelector('[data-demo-sha]'); if (sha) sha.value = '';
+        var dup = form.querySelector('[data-demo-dup-ok]'); if (dup) dup.value = '';
+        var caja = form.querySelector('[data-demo-dup-box]');
+        if (caja) { caja.classList.add('d-none'); caja.innerHTML = ''; }
+        var prog = form.querySelector('[data-demo-progress]'); if (prog) prog.classList.add('d-none');
+        ['[data-demo-audio-name]', '[data-demo-cover-name]'].forEach(function (sel) {
+          var n = form.querySelector(sel); if (n) n.textContent = '';
+        });
+        var vista = form.querySelector('[data-demo-cover-preview]'); if (vista) vista.src = SIN_PORTADA;
+        var quitarBox = form.querySelector('[data-demo-cover-remove-box]');
+        if (quitarBox) quitarBox.classList.add('d-none');
+        var filas = form.querySelector('[data-demo-author-rows]'); if (filas) filas.innerHTML = '';
+      }
+
+      function pintaAutores(lista) {
+        var zona = form.querySelector('[data-demo-authors]');
+        var filas = form.querySelector('[data-demo-author-rows]');
+        var tpl = form.querySelector('[data-demo-author-tpl]');
+        if (!zona || !filas || !tpl) return;
+        filas.innerHTML = '';
+        (lista || []).forEach(function (a) {
+          var nodo = tpl.content.firstElementChild.cloneNode(true);
+          nodo.querySelector('[data-demo-author-name]').value = a.name || '';
+          nodo.querySelector('[data-demo-author-hidden]').value = a.name || '';
+          nodo.querySelector('[data-demo-author-id]').value = a.promoter_id || '';
+          var rol = nodo.querySelector('select[name="author_role[]"]'); if (rol) rol.value = a.role || '';
+          var pct = nodo.querySelector('input[name="author_pct[]"]');
+          if (pct) pct.value = (a.pct != null ? String(a.pct).replace('.', ',') : '');
+          var pub = nodo.querySelector('input[name="author_publisher_name[]"]');
+          if (pub) pub.value = a.publisher || '';
+          filas.appendChild(nodo);
         });
       }
-      document.addEventListener('change', function (ev) { if (ev.target.id === 'demoOrigin') panel(); });
 
       document.addEventListener('click', function (ev) {
         var nuevo = ev.target.closest('[data-demo-new]');
         var editar = ev.target.closest('[data-demo-edit]');
         if (!nuevo && !editar) return;
-        document.getElementById('demoUploaded').value = '';
-        document.getElementById('demoProgress').classList.add('d-none');
-        // La PORTADA se deja como estaba al abrir (sin archivo elegido y sin marcar quitarla).
-        var vista = document.getElementById('demoCoverPreview');
-        var nombreP = document.getElementById('demoCoverName');
-        var cajaQuitar = document.getElementById('demoCoverRemoveBox');
-        document.getElementById('demoCover').value = '';
-        document.getElementById('demoCoverRemove').checked = false;
-        if (nombreP) nombreP.textContent = '';
+        limpia();
         if (nuevo) {
           form.action = CREAR;
-          form.reset();
-          if (vista) vista.src = SIN_PORTADA;
-          if (cajaQuitar) cajaQuitar.classList.add('d-none');
           document.getElementById('demoModalTitle').innerHTML = '<i class="fa fa-music me-2"></i>Nueva demo';
-        } else {
-          var d = {};
-          try { d = JSON.parse(editar.getAttribute('data-demo') || '{}'); } catch (e) {}
-          form.action = EDITAR.replace('DID', editar.getAttribute('data-demo-edit'));
-          document.getElementById('demoModalTitle').innerHTML = '<i class="fa fa-pen me-2"></i>Editar demo';
-          document.getElementById('demoTitle').value = d.title || '';
-          document.getElementById('demoOrigin').value = d.origin || 'ARTIST';
-          document.getElementById('demoArtist').value = d.artist_id || '';
-          document.getElementById('demoSender').value = d.who || '';
-          document.getElementById('demoEmail').value = d.sender_email || '';
-          document.getElementById('demoPhone').value = d.sender_phone || '';
-          document.getElementById('demoNotes').value = d.notes || '';
-          if (vista) vista.src = d.cover_url || SIN_PORTADA;
-          if (cajaQuitar) cajaQuitar.classList.toggle('d-none', !d.cover_url);
-          try { if (window.jQuery) jQuery('#demoArtist').trigger('change.select2'); } catch (e) {}
+          return;
         }
-        panel();
-      });
-
-      // Al elegir (o soltar) la portada se enseña cómo va a quedar.
-      document.addEventListener('change', function (ev) {
-        if (ev.target.id !== 'demoCover') return;
-        var f = ev.target.files && ev.target.files[0];
-        var vista = document.getElementById('demoCoverPreview');
-        document.getElementById('demoCoverName').textContent = f ? f.name : '';
-        if (f && vista) { try { vista.src = URL.createObjectURL(f); } catch (e) {} }
-        if (f) document.getElementById('demoCoverRemove').checked = false;
-      });
-
-      // El audio se sube ANTES, directo al almacenamiento: una maqueta puede pesar como un master.
-      form.addEventListener('submit', function (ev) {
-        var inp = document.getElementById('demoAudio');
-        if (form.dataset.listo === '1' || !inp || !inp.files || !inp.files.length) return;
-        ev.preventDefault();
-        var file = inp.files[0];
-        var zona = document.getElementById('demoProgress'), barra = document.getElementById('demoProgressBar');
-        var boton = document.getElementById('demoSubmit');
-        boton.disabled = true; zona.classList.remove('d-none');
-        function seguir(sinDirecta) {
-          form.dataset.listo = '1';
-          if (sinDirecta) { document.getElementById('demoUploaded').value = ''; inp.disabled = false; }
-          form.submit();
-        }
-        fetch(FIRMAR, {method: 'POST', headers: {'Content-Type': 'application/json'},
-                       body: JSON.stringify({filename: file.name})})
-          .then(function (r) { return r.json().catch(function () { return {}; }); })
-          .then(function (sig) {
-            if (!sig || !sig.ok || !sig.upload_url) return seguir(true);
-            var fd = new FormData();
-            fd.append('cacheControl', '31536000');
-            fd.append('', file);
-            var xhr = new XMLHttpRequest();
-            xhr.open('PUT', sig.upload_url);
-            xhr.upload.onprogress = function (e) {
-              if (!e.lengthComputable) return;
-              var p = Math.round(e.loaded * 100 / e.total);
-              barra.style.width = p + '%'; barra.textContent = p + '%';
-            };
-            xhr.onload = function () {
-              if (xhr.status >= 200 && xhr.status < 300) {
-                document.getElementById('demoUploaded').value = JSON.stringify({audio: {key: sig.key, name: file.name}});
-                inp.disabled = true;                 // ya está arriba: no se manda otra vez
-                seguir(false);
-              } else { seguir(true); }
-            };
-            xhr.onerror = function () { seguir(true); };
-            xhr.send(fd);
-          }).catch(function () { seguir(true); });
+        var d = {};
+        try { d = JSON.parse(editar.getAttribute('data-demo') || '{}'); } catch (e) {}
+        form.action = EDITAR.replace('DID', editar.getAttribute('data-demo-edit'));
+        document.getElementById('demoModalTitle').innerHTML = '<i class="fa fa-pen me-2"></i>Editar demo';
+        var t = form.querySelector('[data-demo-title]'); if (t) t.value = d.title || '';
+        var radio = form.querySelector('input[name="artist_id"][value="' + (d.artist_id || '') + '"]');
+        if (radio) radio.checked = true;
+        var ly = form.querySelector('[data-demo-lyrics]'); if (ly) ly.value = d.lyrics || '';
+        var no = form.querySelector('[data-demo-notes]'); if (no) no.value = d.notes || '';
+        var sn = form.querySelector('input[name="sender_name"]'); if (sn) sn.value = (d.artist_id ? '' : (d.who || ''));
+        var se = form.querySelector('input[name="sender_email"]'); if (se) se.value = d.sender_email || '';
+        var sp = form.querySelector('input[name="sender_phone"]'); if (sp) sp.value = d.sender_phone || '';
+        var vista = form.querySelector('[data-demo-cover-preview]');
+        if (vista) vista.src = d.cover_url || SIN_PORTADA;
+        var quitarBox = form.querySelector('[data-demo-cover-remove-box]');
+        if (quitarBox) quitarBox.classList.toggle('d-none', !d.cover_url);
+        pintaAutores(d.authors || []);
       });
     })();
   </script>

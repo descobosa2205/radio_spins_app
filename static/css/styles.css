@@ -4009,6 +4009,63 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
   width:72px; height:72px; flex:0 0 auto; object-fit:cover;
   border-radius:.7rem; border:1px solid #e5e8ee; background:#fff;
 }
+
+/* ===== DEMOS · los artistas con maquetas («Sin artista» primero) ===== */
+.demo-groups{ display:flex; flex-direction:column; gap:.4rem; }
+.demo-group{
+  display:flex; align-items:center; gap:.7rem; text-decoration:none; color:inherit;
+  background:#fff; border:1px solid #e5e8ee; border-radius:14px; padding:.5rem .7rem;
+}
+.demo-group:hover{ border-color:var(--brand-primary); }
+.demo-group img, .demo-group__ava{
+  width:38px; height:38px; border-radius:50%; object-fit:cover; border:1px solid #e5e8ee; flex:0 0 auto;
+}
+.demo-group__ava--icon{
+  display:inline-flex; align-items:center; justify-content:center; background:#eef1f6; color:#8a909a;
+}
+.demo-group__name{ flex:1 1 auto; font-weight:600; min-width:0; }
+
+/* ===== DEMOS · el formulario por BOCADILLOS ===== */
+.demo-cards{ display:flex; flex-direction:column; gap:.7rem; }
+.demo-card{ border:1px solid #e5e8ee; border-radius:14px; background:#fff; overflow:hidden; }
+.demo-card__head{
+  display:flex; align-items:center; gap:.45rem; padding:.5rem .8rem; font-weight:700; font-size:.85rem;
+  background:#f6f8fc; border-bottom:1px solid #e9edf3; color:#374151;
+}
+.demo-card__head i{ color:var(--brand-primary); }
+.demo-card__body{ padding:.75rem .8rem; }
+/* De quién es: «Ningún artista» primero, con icono en vez de foto. */
+.demo-artists{ display:flex; flex-wrap:wrap; gap:.4rem; max-height:15rem; overflow:auto; }
+.demo-artist{
+  display:inline-flex; align-items:center; gap:.4rem; cursor:pointer;
+  border:1px solid #e5e8ee; border-radius:999px; padding:.2rem .6rem .2rem .25rem; margin:0;
+  background:#fff; font-size:.85rem;
+}
+.demo-artist input{ position:absolute; opacity:0; width:0; height:0; }
+.demo-artist__ava{ width:28px; height:28px; border-radius:50%; object-fit:cover; border:1px solid #e5e8ee; flex:0 0 auto; }
+.demo-artist .demo-artist__ava:not(img), .demo-artist__ava--icon{
+  display:inline-flex; align-items:center; justify-content:center; background:#eef1f6; color:#8a909a;
+}
+.demo-artist:hover{ border-color:#cfd4dd; }
+.demo-artist:has(input:checked){
+  border-color:var(--brand-primary); background:rgba(227,61,72,.06); font-weight:600;
+}
+.demo-artist.is-none:has(input:checked) .demo-artist__ava{ background:rgba(227,61,72,.12); color:var(--brand-primary); }
+/* Los autores: una fila por autor (nombre con buscador, rol, % y editorial). */
+.demo-author{ display:flex; gap:.35rem; align-items:flex-start; margin-bottom:.35rem; flex-wrap:wrap; }
+.demo-author__search{ position:relative; flex:1 1 12rem; min-width:9rem; }
+.demo-author__list{
+  position:absolute; z-index:20; left:0; right:0; top:100%; background:#fff;
+  border:1px solid #e5e8ee; border-radius:10px; box-shadow:0 8px 22px rgba(15,23,42,.12);
+  max-height:14rem; overflow:auto; padding:.2rem;
+}
+.demo-author__opt{
+  display:flex; align-items:center; gap:.45rem; width:100%; text-align:left; border:0;
+  background:transparent; padding:.3rem .4rem; border-radius:8px; font-size:.85rem;
+}
+.demo-author__opt:hover{ background:#f3f5f9; }
+.demo-author__opt img{ width:24px; height:24px; border-radius:50%; object-fit:cover; }
+.demo-author__pct{ max-width:5.5rem; }
 @media (max-width: 575.98px){
   .demo-row__body{ height:auto; }
   .demo-row__note{ padding-left:0; }
@@ -4138,10 +4195,22 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
   display:flex; align-items:center; gap:.4rem; flex-wrap:wrap;
   margin-left:auto; align-self:flex-start;
 }
-.pl-dl{ display:inline-flex; align-items:center; gap:.4rem; padding:.1rem .35rem; }
-.pl-dl__lab{ font-size:.8rem; color:#6b7280; white-space:nowrap; }
-/* El interruptor de los accesos (`.sw`) en su variante de descarga: verde cuando se permite. */
+/* Los INTERRUPTORES (descarga · letra · autores · quién la envió): el icono arriba y debajo el
+   interruptor de los accesos, verde encendido y gris apagado. */
+.pl-switches{ display:inline-flex; align-items:flex-start; gap:.55rem; flex-wrap:wrap; }
+.pl-switch{
+  display:inline-flex; flex-direction:column; align-items:center; gap:.15rem;
+  padding:.2rem .35rem; border-radius:10px; min-width:3.4rem; cursor:default;
+}
+.pl-switch__ico{ color:#9aa2ad; font-size:.9rem; line-height:1; }
+.pl-switch.is-on .pl-switch__ico{ color:var(--ok,#1e9e5a); }
+.pl-switch__lab{ font-size:.62rem; color:#6b7280; text-align:center; line-height:1.1; }
+.pl-switch.is-on .pl-switch__lab{ color:#374151; }
+/* El interruptor de los accesos (`.sw`) en su variante de playlist: verde cuando está encendido. */
+.sw.dl{ width:34px; height:19px; }
+.sw.dl .tr::before{ width:13px; height:13px; }
 .sw.dl input:checked + .tr{ background:var(--ok,#1e9e5a); }
+.sw.dl input:checked + .tr::before{ transform:translateX(15px); }
 
 .pl-note{
   display:flex; gap:.5rem; align-items:flex-start; margin-top:.9rem;
@@ -4214,6 +4283,27 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
   width:30px; height:30px; line-height:1;
 }
 .pl-row__dlbtn:hover{ border-color:var(--brand-primary); color:var(--brand-primary); }
+
+/* Letra, autores y quién la envió (solo si la playlist lo tiene activado y el tema lo tiene). */
+.pl-tag{
+  border:1px solid #e5e8ee; background:#fff; color:#6b7280; border-radius:999px;
+  padding:.05rem .4rem; font-size:.7rem; line-height:1.4; flex:0 0 auto;
+}
+.pl-tag:hover{ border-color:var(--brand-primary); color:var(--brand-primary); }
+.pl-authors, .pl-sender{
+  display:inline-flex; align-items:center; gap:.3rem; font-size:.78rem; color:#6b7280;
+  background:#f6f8fc; border:1px solid #e9edf3; border-radius:999px; padding:.05rem .45rem;
+  max-width:22rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:help;
+}
+.pl-authors i, .pl-sender i{ color:#9aa2ad; }
+.pl-sender img{ width:16px; height:16px; border-radius:50%; object-fit:cover; }
+.pl-row__lyrics{
+  white-space:pre-line; font-size:.84rem; color:#374151; background:#f8fafc;
+  border:1px solid #e6e8eb; border-radius:12px; padding:.55rem .7rem; margin-top:.4rem;
+}
+.pl-row__note{ font-size:.82rem; color:#374151; margin-top:.25rem; }
+.pl-row__menu{ flex:0 0 auto; }
+.pl-title-center{ text-align:center; font-size:1.45rem; font-weight:800; margin:.2rem 0 0; }
 
 /* ---- Listado de playlists (una debajo de otra) ---- */
 .pl-index__cover{ width:52px; height:52px; object-fit:cover; border-radius:10px; border:1px solid #e5e8ee; }

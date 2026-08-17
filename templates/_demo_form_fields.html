@@ -1,0 +1,154 @@
+{# ================= FORMULARIO DE UNA MAQUETA (bocadillos) =================
+   El MISMO formulario dentro y en el enlace público de envío de demos, así que quien nos manda una
+   maqueta rellena exactamente lo que rellenamos nosotros.
+
+   Cada parte va en su propio BOCADILLO (`.demo-card`) para que se distingan de un vistazo:
+   1) de quién es (con «Ningún artista» como PRIMERA opción, con icono en vez de foto)
+   2) el audio (arrastrando o eligiéndolo)
+   3) la portada (arrastrando o eligiéndola)
+   4) los autores (como en la entrega de masters: el autor es un tercero, con su % y su editorial)
+   5) la letra
+   6) las notas
+
+   ⚠️ TODO es opcional menos el título. Espera: `demo_artists` (lista de {id,name,photo_url}),
+   `demo_roles` y `demo_author_search_url`. #}
+<div class="demo-cards">
+
+  {# ---------- 1) De quién es ---------- #}
+  <div class="demo-card">
+    <div class="demo-card__head"><i class="fa fa-user-music"></i>¿De quién es?</div>
+    <div class="demo-card__body">
+      <div class="demo-artists" data-demo-artists>
+        {# «Ningún artista» va SIEMPRE primero y lleva icono, no foto. #}
+        <label class="demo-artist is-none">
+          <input type="radio" name="artist_id" value="" checked>
+          <span class="demo-artist__ava"><i class="fa fa-user-slash"></i></span>
+          <span class="demo-artist__name">Ningún artista</span>
+        </label>
+        {% for a in demo_artists %}
+          <label class="demo-artist">
+            <input type="radio" name="artist_id" value="{{ a.id }}">
+            {% if a.photo_url %}
+              <img class="demo-artist__ava" src="{{ a.photo_url }}" alt="" data-avatar="1">
+            {% else %}
+              <span class="demo-artist__ava demo-artist__ava--icon"><i class="fa fa-user"></i></span>
+            {% endif %}
+            <span class="demo-artist__name">{{ a.name }}</span>
+          </label>
+        {% endfor %}
+      </div>
+      <label class="form-label mt-3">Título de la maqueta</label>
+      <input class="form-control" name="title" data-demo-title required autocomplete="off"
+             placeholder="Cómo se llama el tema">
+      {% if demo_sender_fields %}
+        <div class="row g-2 mt-2" data-demo-sender>
+          <div class="col-12"><input class="form-control form-control-sm" name="sender_name"
+                                     placeholder="Quién la manda (opcional)"></div>
+          <div class="col-md-7"><input class="form-control form-control-sm" type="email" name="sender_email"
+                                       placeholder="Correo (opcional)"></div>
+          <div class="col-md-5"><input class="form-control form-control-sm" name="sender_phone"
+                                       placeholder="Teléfono (opcional)"></div>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ---------- 2) El audio ---------- #}
+  <div class="demo-card">
+    <div class="demo-card__head"><i class="fa fa-file-audio"></i>El audio</div>
+    <div class="demo-card__body">
+      <div class="decl-drop" role="button" tabindex="0" data-file-drop-for="[data-demo-audio]">
+        <i class="fa fa-music decl-drop__icon"></i>
+        <div class="fw-semibold">Arrastra aquí el audio</div>
+        <div class="small text-muted">o pincha para seleccionarlo (wav, mp3, m4a…)</div>
+        <div class="small mt-1 fw-semibold text-success" data-demo-audio-name></div>
+      </div>
+      <input class="form-control mt-2" type="file" name="audio" data-demo-audio
+             accept=".wav,.wave,.mp3,.m4a,.aac,.flac,.ogg">
+      <div class="form-text">Se sube directamente al almacenamiento, así que da igual lo que pese.</div>
+      <div class="progress mt-2 d-none" data-demo-progress style="height:18px">
+        <div class="progress-bar bg-danger" data-demo-progress-bar style="width:0%">0%</div>
+      </div>
+      <input type="hidden" name="uploaded_json" data-demo-uploaded value="">
+      <input type="hidden" name="audio_sha256" data-demo-sha value="">
+      <input type="hidden" name="duplicate_ok" data-demo-dup-ok value="">
+      <div class="alert alert-warning mt-2 d-none" data-demo-dup-box></div>
+    </div>
+  </div>
+
+  {# ---------- 3) La portada ---------- #}
+  <div class="demo-card">
+    <div class="demo-card__head"><i class="fa fa-image"></i>La portada</div>
+    <div class="demo-card__body">
+      <div class="d-flex gap-2 align-items-start">
+        <img class="demo-cover-preview" src="{{ DEFAULT_COVER_URL }}" alt="" data-cover data-demo-cover-preview>
+        <div class="flex-grow-1">
+          <div class="decl-drop" role="button" tabindex="0" data-file-drop-for="[data-demo-cover]">
+            <i class="fa fa-image decl-drop__icon"></i>
+            <div class="fw-semibold">Arrastra aquí la portada</div>
+            <div class="small text-muted">o pincha para seleccionarla</div>
+            <div class="small mt-1 fw-semibold text-success" data-demo-cover-name></div>
+          </div>
+          <input class="form-control mt-2" type="file" name="cover" data-demo-cover
+                 accept="image/png,image/jpeg,image/webp,image/gif">
+          <div class="form-check mt-2 d-none" data-demo-cover-remove-box>
+            <input class="form-check-input" type="checkbox" name="cover_remove" value="1" data-demo-cover-remove>
+            <label class="form-check-label small">Quitar la portada que tiene</label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ---------- 4) Los autores ---------- #}
+  <div class="demo-card">
+    <div class="demo-card__head"><i class="fa fa-feather-pointed"></i>Los autores</div>
+    <div class="demo-card__body" data-demo-authors data-search-url="{{ demo_author_search_url }}">
+      <input type="hidden" name="authors_present" value="1">
+      <div data-demo-author-rows></div>
+      <button class="btn btn-sm btn-outline-secondary mt-2" type="button" data-demo-author-add>
+        <i class="fa fa-plus me-1"></i>Añadir autor
+      </button>
+      <div class="form-text">El nombre basta; el porcentaje y la editorial, si los sabes.</div>
+      <template data-demo-author-tpl>
+        <div class="demo-author" data-demo-author>
+          <div class="demo-author__search">
+            <input class="form-control form-control-sm" data-demo-author-name placeholder="Nombre del autor"
+                   autocomplete="off">
+            <input type="hidden" name="author_promoter_id[]" data-demo-author-id value="">
+            <input type="hidden" name="author_name[]" data-demo-author-hidden value="">
+            <div class="demo-author__list d-none" data-demo-author-list></div>
+          </div>
+          <select class="form-select form-select-sm" name="author_role[]">
+            <option value="">Rol (opcional)</option>
+            {% for key, label in demo_roles %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+          </select>
+          <input class="form-control form-control-sm demo-author__pct" name="author_pct[]" placeholder="%"
+                 inputmode="decimal">
+          <input class="form-control form-control-sm" name="author_publisher_name[]" placeholder="Editorial (opcional)">
+          <input type="hidden" name="author_publisher_id[]" value="">
+          <button class="btn btn-sm btn-link text-danger" type="button" data-demo-author-del
+                  title="Quitar"><i class="fa fa-xmark"></i></button>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  {# ---------- 5) La letra ---------- #}
+  <div class="demo-card">
+    <div class="demo-card__head"><i class="fa fa-align-left"></i>La letra</div>
+    <div class="demo-card__body">
+      <textarea class="form-control" name="lyrics" data-demo-lyrics rows="4"
+                placeholder="Pega aquí la letra (opcional)"></textarea>
+    </div>
+  </div>
+
+  {# ---------- 6) Notas ---------- #}
+  <div class="demo-card">
+    <div class="demo-card__head"><i class="fa fa-note-sticky"></i>Notas</div>
+    <div class="demo-card__body">
+      <textarea class="form-control" name="notes" data-demo-notes rows="2"
+                placeholder="Lo que quieras contarnos del tema (opcional)"></textarea>
+    </div>
+  </div>
+</div>

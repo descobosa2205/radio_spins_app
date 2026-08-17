@@ -433,7 +433,7 @@ _CSRF_EXEMPT_ENDPOINTS = {
     "public_invitation_request_resend",
     "public_invitation_request_recategorize",
     "public_song_master_delivery",
-    "public_demo_submit", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating",
+    "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating",
     "public_song_delivery_sign",
     "public_song_delivery_create_author",
     "public_song_delivery_create_publisher",
@@ -797,7 +797,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
+    allowed = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
     if request.endpoint in allowed:
         return
 
@@ -19075,6 +19075,8 @@ def _demo_row_payload(session_db, row) -> dict:
         "who_is_person": bool(es_persona),
         "sender_email": (row.sender_email or "").strip(),
         "sender_phone": (row.sender_phone or "").strip(),
+        # El tercero que la manda (para rellenar el buscador de «quién la manda» al editar).
+        "promoter_id": str(row.promoter_id) if getattr(row, "promoter_id", None) else "",
         "cover_url": (getattr(row, "cover_url", None) or "").strip(),
         # LETRA y AUTORES: todo opcional. La fila lo dice con sus iconos (y los autores enseñan sus
         # porcentajes y su editorial al pasar el ratón).
@@ -19493,8 +19495,12 @@ def _demo_apply_form(session_db, row, form, files) -> list:
         _tercero = session_db.get(Promoter, row.promoter_id) if row.promoter_id else None
         row.sender_name = ((form.get("sender_name") or "").strip()
                            or (_promoter_display_name(_tercero) if _tercero else "")) or None
-        row.sender_email = (form.get("sender_email") or "").strip() or None
-        row.sender_phone = (form.get("sender_phone") or "").strip() or None
+        # ⚠️ El correo y el teléfono ya NO se piden en el formulario: solo se tocan si de verdad
+        # llegan (si no, editar una maqueta borraría lo que tuviera guardado).
+        if form.get("sender_email") is not None:
+            row.sender_email = (form.get("sender_email") or "").strip() or None
+        if form.get("sender_phone") is not None:
+            row.sender_phone = (form.get("sender_phone") or "").strip() or None
     row.notes = (form.get("notes") or "").strip() or None
     row.lyrics = (form.get("lyrics") or "").strip() or None
     # LA PORTADA: se puede arrastrar o elegir (es una imagen, así que va por el servidor). Quitarla es
@@ -19958,6 +19964,53 @@ def discografica_demo_audio_download(demo_id):
         session_db.close()
 
 
+@app.get("/api/demos/quien-manda", endpoint="api_demo_sender_search")
+@admin_required
+def api_demo_sender_search():
+    """QUIÉN MANDA una maqueta: busca en TODA la base —terceros, personal de la casa y artistas— con
+    una sola barra. Es una LECTURA (va en `SUPPORT_READ_ENDPOINTS`): la usa cualquiera con sesión."""
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify({"ok": True, "rows": []})
+    session_db = db()
+    try:
+        salida = []
+        # TERCEROS (con el mismo criterio de búsqueda que el resto de la app).
+        consulta = session_db.query(Promoter)
+        clausula = _promoter_search_clause(session_db, q)
+        if clausula is not None:
+            consulta = consulta.filter(clausula)
+        for p in consulta.order_by(Promoter.nick.asc()).limit(10).all():
+            salida.append({"kind": "promoter", "kind_label": "Tercero", "id": str(p.id),
+                           "name": _promoter_display_name(p) or (p.nick or "—"),
+                           "photo_url": (p.logo_url or "")})
+        # PERSONAL de la casa (sin bloqueados ni eliminados).
+        fuera = _inactive_user_ids(session_db)
+        for u, prof in (session_db.query(User, UserProfile)
+                        .outerjoin(UserProfile, UserProfile.user_id == User.id)
+                        .filter(or_(_sa_contains_text(UserProfile.nick, q),
+                                    _sa_contains_text(UserProfile.first_name, q),
+                                    _sa_contains_text(UserProfile.last_name, q),
+                                    _sa_contains_text(User.email, q)))
+                        .order_by(func.lower(func.coalesce(UserProfile.nick, User.email)).asc())
+                        .limit(10).all()):
+            if u.id in fuera:
+                continue
+            salida.append({"kind": "user", "kind_label": "Personal", "id": str(u.id),
+                           "name": ((getattr(prof, "nick", None) or u.email or "—").strip()),
+                           "photo_url": (getattr(prof, "photo_url", "") or "")})
+        # ARTISTAS (los espejos de EVENTO no son artistas).
+        for a in (session_db.query(Artist)
+                  .filter(Artist.event_id.is_(None))
+                  .filter(_sa_contains_text(Artist.name, q))
+                  .order_by(Artist.name.asc()).limit(10).all()):
+            salida.append({"kind": "artist", "kind_label": "Artista", "id": str(a.id),
+                           "name": a.name, "photo_url": (a.photo_url or "")})
+        return jsonify({"ok": True, "rows": salida})
+    finally:
+        session_db.close()
+
+
 @app.post("/discografica/demos/comprobar-audio", endpoint="discografica_demo_audio_check")
 @admin_required
 def discografica_demo_audio_check():
@@ -20048,6 +20101,9 @@ def _demo_submit_context(session_db, token: str, promoter) -> dict:
     borradores = _demo_submit_drafts(session_db, promoter)
     return {
         "token": token,
+        # Lo que se comparte va con el host canónico (nunca con el de la petición).
+        "share_url": _external_url_for("public_demo_submit", token=token),
+        "og_image_url": _external_url_for("public_demo_submit_og_image", token=token),
         "brand": {"company_name": (getattr(empresa, "name", None) or "PIES Records"),
                   "logo_url": _absolute_media_url(logo) if logo else ""},
         "sender": ({"id": str(promoter.id),
@@ -20077,6 +20133,24 @@ def public_demo_submit(token):
         return render_template("public_demo_submit.html", **ctx)
     finally:
         session_db.close()
+
+
+@app.get("/enviar-demos/<token>/og.jpg", endpoint="public_demo_submit_og_image")
+def public_demo_submit_og_image(token):
+    """La miniatura del enlace de envío de demos: el **logo de la empresa del grupo CENTRADO y entero**
+    (nada cortado) y el resto en BLANCO, para que se vea bien en WhatsApp y compañía.
+    Lo hace `_og_image_jpeg_bytes` (1200×630, `contain` sobre lienzo blanco)."""
+    with get_db() as session_db:
+        if (token or "").strip() != _demo_upload_token(session_db):
+            abort(404)
+        empresa = _pies_group_company(session_db)
+        fuente = (getattr(empresa, "logo_url", None) or "").strip()
+    if not fuente:
+        fuente = url_for("static", filename="img/logo.png")       # PIES
+    data = _og_image_jpeg_bytes(fuente)
+    if not data:
+        abort(404)
+    return Response(data, mimetype="image/jpeg", headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.post("/enviar-demos/<token>/identificarse", endpoint="public_demo_submit_identify")
@@ -20411,11 +20485,15 @@ def _playlist_item_audio_source(session_db, item) -> tuple:
     return "", ""
 
 
-def _playlist_item_payload(session_db, pl, item, *, token: str | None = None) -> dict:
+def _playlist_item_payload(session_db, pl, item, *, token: str | None = None,
+                           all_extras: bool = False) -> dict:
     """Una línea de la playlist tal como se ve (dentro, en el enlace público y en el correo).
 
     `token` != None significa PÚBLICO: los enlaces de audio y de descarga se construyen contra la
-    página pública en vez de contra los endpoints de dentro."""
+    página pública en vez de contra los endpoints de dentro.
+    `all_extras` es para el modo EDICIÓN: se manda la letra, los autores, las notas, quién la envió y
+    los enlaces de descarga AUNQUE el interruptor esté apagado, para que al encenderlo se vea al
+    momento cómo va a quedar (sin recargar y sin perder lo que no esté guardado)."""
     kind = (getattr(item, "kind", None) or "SONG").strip().upper()
     if kind not in PLAYLIST_ITEM_KINDS:
         kind = "SONG"
@@ -20440,6 +20518,7 @@ def _playlist_item_payload(session_db, pl, item, *, token: str | None = None) ->
         "authors": [],
         "authors_tooltip": "",
         "sender": {},
+        "notes": "",
     }
     if kind in ("TITLE", "DIVIDER"):
         return fila
@@ -20481,24 +20560,25 @@ def _playlist_item_payload(session_db, pl, item, *, token: str | None = None) ->
             fila["stream_url"] = url_for("public_playlist_audio", token=token, item_id=item.id)
         else:
             fila["stream_url"] = url_for("playlist_item_audio", playlist_id=pl.id, item_id=item.id)
-        if bool(getattr(pl, "allow_download", False)):
+        if bool(getattr(pl, "allow_download", False)) or all_extras:
             for fmt in PLAYLIST_DOWNLOAD_FORMATS:
                 if token:
                     destino = url_for("public_playlist_download", token=token, item_id=item.id, fmt=fmt)
                 else:
                     destino = url_for("playlist_item_download", playlist_id=pl.id, item_id=item.id, fmt=fmt)
                 fila["download_%s_url" % fmt] = destino
-    _playlist_item_extras(session_db, pl, item, fila)
+    _playlist_item_extras(session_db, pl, item, fila, all_extras=all_extras)
     return fila
 
 
-def _playlist_item_extras(session_db, pl, item, fila) -> None:
-    """LETRA, AUTORES y QUIÉN LA ENVIÓ de un tema: solo si la playlist lo tiene activado (los tres
-    nacen apagados) y solo si ese tema lo tiene."""
-    quiere_letra = bool(getattr(pl, "show_lyrics", False))
-    quiere_autores = bool(getattr(pl, "show_authors", False))
-    quiere_quien = bool(getattr(pl, "show_sender", False))
-    if not (quiere_letra or quiere_autores or quiere_quien):
+def _playlist_item_extras(session_db, pl, item, fila, *, all_extras: bool = False) -> None:
+    """LETRA, AUTORES, NOTAS y QUIÉN LA ENVIÓ de un tema: solo si la playlist lo tiene activado (todos
+    nacen apagados) y solo si ese tema lo tiene. Con `all_extras` se mandan todos (modo edición)."""
+    quiere_letra = all_extras or bool(getattr(pl, "show_lyrics", False))
+    quiere_autores = all_extras or bool(getattr(pl, "show_authors", False))
+    quiere_quien = all_extras or bool(getattr(pl, "show_sender", False))
+    quiere_notas = all_extras or bool(getattr(pl, "show_notes", False))
+    if not (quiere_letra or quiere_autores or quiere_quien or quiere_notas):
         return
     kind = fila.get("kind")
     if kind == "SONG":
@@ -20537,6 +20617,11 @@ def _playlist_item_extras(session_db, pl, item, fila) -> None:
         if quiere_quien:
             # Solo cuando la mandó alguien de FUERA (lo que subimos nosotros no lleva remitente).
             fila["sender"] = _demo_submitted_by(demo)
+        if quiere_notas:
+            # ⚠️ Las NOTAS hoy solo las tiene una maqueta (`SongDemo.notes`): una canción del
+            # repertorio no tiene ese campo, así que ahí no se enseña nada (como el resto: solo si
+            # el tema lo tiene).
+            fila["notes"] = (getattr(demo, "notes", None) or "").strip()
     if fila.get("authors"):
         fila["authors_tooltip"] = _demo_authors_tooltip(fila["authors"])
 
@@ -20548,10 +20633,11 @@ def _playlist_items_ordered(session_db, pl) -> list:
             .all())
 
 
-def _playlist_context(session_db, pl, *, token: str | None = None) -> dict:
+def _playlist_context(session_db, pl, *, token: str | None = None, all_extras: bool = False) -> dict:
     """Todo lo que necesita la playlist para verse (la misma en los tres sitios)."""
     items = _playlist_items_ordered(session_db, pl)
-    filas = [_playlist_item_payload(session_db, pl, it, token=token) for it in items]
+    filas = [_playlist_item_payload(session_db, pl, it, token=token, all_extras=all_extras)
+             for it in items]
     suenan = [f for f in filas if f["kind"] in ("SONG", "DEMO")]
     conocidas = [f["duration_seconds"] for f in suenan if f["duration_seconds"]]
     brand = _playlist_brand(session_db, pl)
@@ -20566,6 +20652,7 @@ def _playlist_context(session_db, pl, *, token: str | None = None) -> dict:
             "show_lyrics": bool(getattr(pl, "show_lyrics", False)),
             "show_authors": bool(getattr(pl, "show_authors", False)),
             "show_sender": bool(getattr(pl, "show_sender", False)),
+            "show_notes": bool(getattr(pl, "show_notes", False)),
             "songs_count": len(suenan),
             "duration_label": _playlist_duration_label(sum(conocidas)) if conocidas else "",
             "duration_partial": bool(conocidas) and len(conocidas) < len(suenan),
@@ -20861,7 +20948,9 @@ def playlist_detail_view(playlist_id):
     try:
         pl = _playlist_or_404(session_db, playlist_id)
         editando = _truthy(request.args.get("edit")) and can_edit_discografica()
-        ctx = _playlist_context(session_db, pl)
+        # Editando se mandan TODOS los extras: al encender un interruptor se ve al momento cómo va a
+        # quedar, sin recargar (y sin perder lo que no esté guardado).
+        ctx = _playlist_context(session_db, pl, all_extras=editando)
         session_db.commit()        # puede haberse creado el token público
         return render_template("playlist_detail.html", edit_mode=editando,
                                picker=(_playlist_picker_song_groups(session_db) if editando else None),
@@ -20914,7 +21003,7 @@ def playlist_save(playlist_id):
         if request.form.get("note") is not None:
             pl.note = (request.form.get("note") or "").strip() or None
         # Los interruptores: descarga, letra, autores y quién la envió (todos nacen apagados).
-        for campo in ("allow_download", "show_lyrics", "show_authors", "show_sender"):
+        for campo in ("allow_download", "show_lyrics", "show_authors", "show_sender", "show_notes"):
             if request.form.get(campo) is not None:
                 setattr(pl, campo, _truthy(request.form.get(campo)))
         if request.form.get("items") is not None:
@@ -20925,7 +21014,7 @@ def playlist_save(playlist_id):
             _playlist_replace_items(session_db, pl, lineas if isinstance(lineas, list) else [])
         pl.updated_at = _now_madrid()
         session_db.commit()
-        ctx = _playlist_context(session_db, pl)
+        ctx = _playlist_context(session_db, pl, all_extras=True)     # lo consume el editor
         return jsonify({"ok": True, "items": ctx["items"], "pl": ctx["pl"]})
     except Exception as e:
         session_db.rollback()
@@ -32836,7 +32925,13 @@ def _og_image_jpeg_bytes(source_url: str) -> bytes | None:
         else:
             data, _ctype = _download_remote_content(rel, timeout=10)
         img = ImageOps.exif_transpose(PILImage.open(BytesIO(data)))
-        if img.mode not in ("RGB", "L"):
+        # ⚠️ Lo TRANSPARENTE se pone sobre BLANCO, no se convierte a pelo: un logo PNG con fondo
+        # transparente se volvía NEGRO al pasarlo a RGB (y la previsualización salía en negro).
+        if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+            img = img.convert("RGBA")
+            fondo = PILImage.new("RGBA", img.size, (255, 255, 255, 255))
+            img = PILImage.alpha_composite(fondo, img).convert("RGB")
+        elif img.mode not in ("RGB", "L"):
             img = img.convert("RGB")
         img = ImageOps.contain(img, (1200, 630))
         canvas = PILImage.new("RGB", (1200, 630), (255, 255, 255))
@@ -50907,7 +51002,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -53465,6 +53560,8 @@ SUPPORT_READ_ENDPOINTS = {
     "api_media_artist_activities",
     "api_search_promoters", "api_search_publishing_companies", "api_search_ticketers",
     "api_search_venues", "api_search_events", "api_entity_link_search", "api_search_commission_entities",
+    # Quién manda una maqueta: busca en terceros, personal y artistas de una sola vez.
+    "api_demo_sender_search",
     # Asistente de actividad: repertorio + # del artista (para eventos promocionales y sugerencias).
     "api_artist_wizard_meta",
     # Hoja de ruta: exportaciones de rooming y listado de personal (PDF/Excel).

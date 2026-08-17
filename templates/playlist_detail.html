@@ -95,15 +95,31 @@
   {% include '_playlist_view.html' with context %}
 {% endif %}
 
-{# ---------- Compartir por correo ---------- #}
-<div class="modal fade" id="playlistMailModal" tabindex="-1" aria-hidden="true">
+{# ---------- COMPARTIR ----------
+   Un solo pop-up con las opciones: WhatsApp, SMS y copiar el enlace arriba, y debajo el correo con sus
+   destinatarios y su nota. #}
+<div class="modal fade" id="playlistShareModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <form class="modal-content" method="post" action="{{ url_for('playlist_send_email', playlist_id=pl.id) }}">
       <div class="modal-header">
-        <h5 class="modal-title"><i class="fa fa-envelope me-2 text-muted"></i>Compartir por Email</h5>
+        <h5 class="modal-title"><i class="fa fa-share-alt me-2 text-muted"></i>Compartir la playlist</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
+        <div class="d-flex gap-2 flex-wrap mb-3">
+          <button class="btn btn-outline-secondary btn-sm" type="button"
+                  onclick="shareByWhatsapp('{{ share_subject|e }}', '{{ public_url }}')">
+            <i class="fa-brands fa-whatsapp me-1"></i>WhatsApp
+          </button>
+          <button class="btn btn-outline-secondary btn-sm" type="button"
+                  onclick="shareBySms('{{ share_subject|e }}', '{{ public_url }}')">
+            <i class="fa fa-comment-sms me-1"></i>SMS
+          </button>
+          <button class="btn btn-outline-secondary btn-sm" type="button" onclick="copyShareLink('{{ public_url }}')">
+            <i class="fa fa-link me-1"></i>Copiar enlace
+          </button>
+        </div>
+        <h6 class="mb-2"><i class="fa fa-envelope me-1 text-muted"></i>Compartir por Email</h6>
         <div class="small text-muted mb-2">
           Asunto: <strong>{{ share_subject }}</strong>. En el correo va la cabecera de la playlist con el
           botón <strong>Escuchar</strong>, que lleva a esta misma playlist.

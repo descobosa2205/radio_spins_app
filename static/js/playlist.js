@@ -237,15 +237,21 @@
 
     var rows = [];
     try { rows = JSON.parse(root.querySelector('[data-pl-items]').textContent || '[]') || []; } catch (e) { rows = []; }
-    rows = rows.map(function (r) {
+    function normaliza(r) {
       return {
         id: r.id || '', kind: (r.kind || 'SONG').toUpperCase(), title: r.title || '',
         song_id: r.song_id || '', demo_id: r.demo_id || '',
         cover_url: r.cover_url || '', artist_name: r.artist_name || '',
         artist_photo: r.artist_photo || '', subtitle: r.subtitle || '',
-        duration_seconds: r.duration_seconds || 0
+        duration_seconds: r.duration_seconds || 0,
+        // Los EXTRAS vienen siempre al editar: se enseñan u ocultan según los interruptores, así se
+        // ve al momento cómo va a quedar la playlist.
+        lyrics: r.lyrics || '', authors: r.authors || [], authors_tooltip: r.authors_tooltip || '',
+        sender: r.sender || null, notes: r.notes || '',
+        download_wav_url: r.download_wav_url || '', download_mp3_url: r.download_mp3_url || ''
       };
-    });
+    }
+    rows = rows.map(normaliza);
 
     var COVER = (document.body && document.body.getAttribute('data-default-cover-url')) || '';
     var AVATAR = (document.body && document.body.getAttribute('data-default-avatar-url')) || '';
@@ -263,17 +269,44 @@
         return '<li class="pl-erow pl-erow--divider" draggable="true" data-idx="' + i + '">' + asa +
           '<span class="pl-erow__line"></span>' + quitar + '</li>';
       }
+      /* Los EXTRAS, tal como se van a ver en la playlist. Se pintan SIEMPRE y se enseñan u ocultan
+         con las clases del contenedor (`is-show-*`), así al encender un interruptor se ve al momento
+         cómo va a quedar sin recargar ni perder lo que no esté guardado. */
+      var letra = r.lyrics
+        ? '<span class="pl-x pl-x--lyrics pl-tag" title="Tiene letra"><i class="fa fa-align-left"></i></span>'
+        : '';
+      var autores = (r.authors && r.authors.length)
+        ? '<span class="pl-x pl-x--authors pl-authors" title="' + esc(r.authors_tooltip) + '">'
+          + '<i class="fa fa-feather-pointed"></i>'
+          + esc(r.authors.map(function (a) { return a.name; }).join(', ')) + '</span>'
+        : '';
+      var quien = (r.sender && r.sender.name)
+        ? '<span class="pl-x pl-x--sender pl-sender" title="Enviada por ' + esc(r.sender.label || r.sender.name) + '">'
+          + (r.sender.photo_url ? '<img src="' + esc(r.sender.photo_url) + '" alt="" data-avatar="1">'
+                                : '<i class="fa fa-paper-plane"></i>')
+          + 'Enviada por ' + esc(r.sender.name) + '</span>'
+        : '';
+      var nota = r.notes
+        ? '<span class="pl-x pl-x--notes pl-erow__notes"><i class="fa fa-note-sticky me-1"></i>'
+          + esc(r.notes) + '</span>'
+        : '';
+      var descarga = r.download_wav_url
+        ? '<span class="pl-x pl-x--download pl-erow__dl" title="Se puede descargar">'
+          + '<i class="fa fa-download"></i></span>'
+        : '';
       return '<li class="pl-erow" draggable="true" data-idx="' + i + '">' + asa +
         '<img class="pl-erow__cover" src="' + esc(r.cover_url || COVER) + '" alt="" data-cover>' +
         '<span class="pl-erow__main">' +
-          '<span class="pl-erow__title">' + esc(r.title) + '</span>' +
+          '<span class="pl-erow__title">' + esc(r.title) + letra + '</span>' +
           '<span class="pl-erow__artist">' +
             (r.artist_name ? '<img src="' + esc(r.artist_photo || AVATAR) + '" alt="" data-avatar="1">' + esc(r.artist_name) : '') +
             (r.subtitle ? '<span class="pl-row__tag">' + esc(r.subtitle) + '</span>' : '') +
+            autores + quien +
           '</span>' +
+          nota +
         '</span>' +
         '<span class="pl-erow__dur">' + (r.duration_seconds ? fmt(r.duration_seconds) : '') + '</span>' +
-        quitar + '</li>';
+        descarga + quitar + '</li>';
     }
 
     function render() {
@@ -285,6 +318,20 @@
     }
 
     function tocado() { if (savedEl) savedEl.textContent = 'Sin guardar'; }
+
+    /* Los interruptores mandan lo que se VE de cada tema mientras se edita: en cuanto se encienden,
+       la línea enseña la letra, los autores, la nota, quién la envió o la descarga. */
+    function pintaInterruptores() {
+      document.querySelectorAll('[data-pl-switch]').forEach(function (sw) {
+        var clave = sw.getAttribute('data-pl-switch');
+        var clase = { allow_download: 'is-show-download', show_lyrics: 'is-show-lyrics',
+                      show_authors: 'is-show-authors', show_sender: 'is-show-sender',
+                      show_notes: 'is-show-notes' }[clave];
+        if (clase) root.classList.toggle(clase, !!sw.checked);
+      });
+    }
+    root.plRefreshSwitches = pintaInterruptores;      // lo llama el manejador de los interruptores
+    pintaInterruptores();
 
     // --- Edición en vivo del título de una línea ---
     rowsEl.addEventListener('input', function (ev) {
@@ -627,8 +674,11 @@
       var caja = sw.closest('.pl-switch');
       sw.addEventListener('change', function () {
         var campo = sw.getAttribute('data-pl-switch');
+        var editor = document.querySelector('[data-playlist-edit]');
         sw.disabled = true;
         if (caja) caja.classList.toggle('is-on', sw.checked);
+        // Editando se ve AL MOMENTO lo que se acaba de encender (sin esperar al guardado).
+        if (editor && typeof editor.plRefreshSwitches === 'function') editor.plRefreshSwitches();
         var datos = {};
         datos[campo] = sw.checked ? '1' : '0';
         post(sw.getAttribute('data-pl-save-url'), datos).then(function (js) {
@@ -636,12 +686,13 @@
           if (!js || !js.ok) {
             sw.checked = !sw.checked;
             if (caja) caja.classList.toggle('is-on', sw.checked);
+            if (editor && typeof editor.plRefreshSwitches === 'function') editor.plRefreshSwitches();
             alert('No se pudo guardar el ajuste.');
             return;
           }
           // ⚠️ Solo se recarga en la VISTA (lo que se enseña de cada tema cambia con esto). Editando
-          // NO se recarga: se perdería lo que no esté guardado.
-          if (!document.querySelector('[data-playlist-edit]')) window.location.reload();
+          // NO se recarga —se perdería lo que no esté guardado—: ahí lo enseñan las clases de arriba.
+          if (!editor) window.location.reload();
         });
       });
     });

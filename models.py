@@ -650,6 +650,7 @@ class Playlist(Base):
     show_lyrics = Column(Boolean, nullable=False, server_default=text("false"))
     show_authors = Column(Boolean, nullable=False, server_default=text("false"))
     show_sender = Column(Boolean, nullable=False, server_default=text("false"))
+    show_notes = Column(Boolean, nullable=False, server_default=text("false"))
     # Empresa del grupo cuyo logo va arriba a la derecha. Si está vacía, PIES (el sello).
     company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
     public_token = Column(Text, unique=True, index=True)
@@ -10471,6 +10472,7 @@ def ensure_playlists_schema():
         "ALTER TABLE IF EXISTS playlists ADD COLUMN IF NOT EXISTS show_lyrics boolean NOT NULL DEFAULT false;",
         "ALTER TABLE IF EXISTS playlists ADD COLUMN IF NOT EXISTS show_authors boolean NOT NULL DEFAULT false;",
         "ALTER TABLE IF EXISTS playlists ADD COLUMN IF NOT EXISTS show_sender boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE IF EXISTS playlists ADD COLUMN IF NOT EXISTS show_notes boolean NOT NULL DEFAULT false;",
         """
         CREATE TABLE IF NOT EXISTS playlist_items (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

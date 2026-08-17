@@ -639,8 +639,14 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   **autores** con sus nombres; al pasar el ratón, sus **porcentajes y su editorial**
   (`_demo_authors_tooltip`). La editorial escrita a mano se casa con la de la base si coincide.
   · **El FORMULARIO es uno solo** (`templates/_demo_form_fields.html` + `static/js/demo_form.js`),
-  compartido con el enlace público, y va por **BOCADILLOS** (`.demo-card`): de quién es · el audio ·
-  la portada · los autores · la letra · las notas. El audio y la portada se **arrastran o se eligen**.
+  compartido con el enlace público, y va por **BOCADILLOS** (`.demo-card`), cada cosa en el suyo: de
+  quién es · **el título** · **¿quién la manda?** · el audio · la portada · los autores · la letra ·
+  las notas. El audio y la portada se **arrastran o se eligen**.
+  · **¿QUIÉN LA MANDA?** (solo cuando la subimos nosotros): **una sola barra** que busca en TODA la
+  base —terceros, personal de la casa y artistas— (`api_demo_sender_search`, en
+  `SUPPORT_READ_ENDPOINTS`), y si no está se **crea el tercero sobre la marcha** con lo escrito
+  (`api_create_promoter`). **No se piden correo ni teléfono**; lo que hubiera guardado no se pierde
+  (solo se tocan esos campos si de verdad llegan en el formulario).
   · **EL MISMO AUDIO no se sube dos veces sin avisar**: el navegador calcula la **huella sha256** del
   archivo y pregunta (`discografica_demo_audio_check`); si ese mismo audio ya está, dice **con qué
   nombre** y deja subirlo igualmente o no, y si se sube con el MISMO nombre **pide otro** para
@@ -668,7 +674,13 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   vinculadas a artistas, a quien del **sello** lleva esos artistas (`assigned_artist_ids_sello`), a la
   **dirección** del sello y a quien del sello lleva **Registros**; si no van con artista, a todo el
   sello (si no, no se enteraría nadie).
-  ⚠️ Sus siete endpoints públicos están en las **tres** listas.
+  · **PREVISUALIZACIÓN del enlace** (`public_demo_submit_og_image`): el **logo de la empresa del grupo
+  CENTRADO y entero** sobre **fondo blanco** (1200×630 con `_og_image_jpeg_bytes`, que hace `contain`
+  sobre lienzo blanco), para que en WhatsApp y en SMS se vea bien y no se corte.
+  ⚠️⚠️ Ahí salió un bug de TODAS las miniaturas: `_og_image_jpeg_bytes` pasaba la imagen a RGB **a
+  pelo**, y un logo PNG con fondo TRANSPARENTE se volvía **NEGRO**. Ahora lo transparente se compone
+  sobre blanco (`alpha_composite`), lo que arregla también las og: de pitch, materiales y playlists.
+  ⚠️ Sus ocho endpoints públicos están en las **tres** listas.
 
 - **PLAYLIST** (ago 2026): listas de temas para **MANDARLAS**, en su pestaña de Discográfica
   (`/discografica?section=playlists`). Modelos **`Playlist`** + **`PlaylistItem`**
@@ -691,15 +703,25 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   pinta porque `playlist_actions` no está puesto): **Editar** · **Compartir** (un solo botón que
   despliega Email · WhatsApp · SMS · Copiar enlace) · **Copiar enlace** también suelto · los
   **INTERRUPTORES** · **Eliminar**.
-  · **CUATRO INTERRUPTORES** (los `.sw` de los accesos, con el **icono arriba y el interruptor
+  · **CINCO INTERRUPTORES** (los `.sw` de los accesos, con el **icono arriba y el interruptor
   debajo**, verde encendido y gris apagado; **todos nacen APAGADOS**): **Descarga** ·
-  **Letra** (`show_lyrics`) · **Autores** (`show_authors`) · **Quién la envió** (`show_sender`). Cada
-  uno se marca ahí mismo y se guarda al momento; lo que enseñan de cada tema lo monta
-  `_playlist_item_extras` **solo si está activado Y el tema lo tiene** (una canción saca su letra de
-  `Song.lyrics_text` y sus autores de `SongEditorialShare`; una maqueta, los suyos y quién la mandó).
+  **Letra** (`show_lyrics`) · **Autores** (`show_authors`) · **Quién la envió** (`show_sender`) ·
+  **Notas** (`show_notes`). Cada uno se marca ahí mismo y se guarda al momento; lo que enseñan de cada
+  tema lo monta `_playlist_item_extras` **solo si está activado Y el tema lo tiene** (una canción saca
+  su letra de `Song.lyrics_text` y sus autores de `SongEditorialShare`; una maqueta, los suyos, su nota
+  y quién la mandó — ⚠️ las NOTAS hoy solo las tiene una maqueta: `Song` no tiene ese campo).
   ⚠️ La descarga **ya no es una pestaña**: la ficha no tiene pestañas. Los interruptores **solo
-  recargan en la VISTA** (para que aparezca o desaparezca lo que enseñan); editando no recargan, que
-  se perdería lo que no esté guardado.
+  recargan en la VISTA** (para que aparezca o desaparezca lo que enseñan); **editando NO recargan** —se
+  perdería lo que no esté guardado—: ahí las líneas traen TODOS los extras (`_playlist_context(...,
+  all_extras=True)`, que también los devuelve `playlist_save`) y se ven u ocultan con las clases
+  `is-show-*` del editor, así **al encender un interruptor se ve al momento cómo va a quedar**.
+  · **LOS TRES PUNTITOS**: editar (o ver) · **Compartir** (abre su pop-up con WhatsApp, SMS, copiar el
+  enlace y el correo) · Copiar enlace y, debajo, **Eliminar**.
+  ⚠️⚠️ **Un desplegable DENTRO de un menú ⋯ no se puede usar**: el ayudante global de desplegables
+  (`scripts.js`) crea TODOS los dropdowns con `autoClose: true` y les teleporta el menú al `<body>`,
+  así que cualquier clic dentro los cierra —y `data-bs-auto-close="outside"` no manda, porque la opción
+  de JS pisa al atributo—. Por eso «Compartir» abre un **pop-up** (que además es el patrón del resto de
+  la app) en vez de desplegarse en el sitio.
   · **EDICIÓN** (`?edit=1`): las líneas se **arrastran** para ordenarlas, arriba están «Añadir
   canción» (pop-up: **Demos** → artistas con maquetas + «Sin artista» · **Repertorio** → artistas,
   primero los que tienen contrato y el resto tras «ver más» → sus temas con portada), «Añadir un

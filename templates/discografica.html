@@ -1498,9 +1498,12 @@
         if (radio) radio.checked = true;
         var ly = form.querySelector('[data-demo-lyrics]'); if (ly) ly.value = d.lyrics || '';
         var no = form.querySelector('[data-demo-notes]'); if (no) no.value = d.notes || '';
-        var sn = form.querySelector('input[name="sender_name"]'); if (sn) sn.value = (d.artist_id ? '' : (d.who || ''));
-        var se = form.querySelector('input[name="sender_email"]'); if (se) se.value = d.sender_email || '';
-        var sp = form.querySelector('input[name="sender_phone"]'); if (sp) sp.value = d.sender_phone || '';
+        // Quién la manda: el buscador se rellena con lo que ya tenía (y su tercero, si lo hay).
+        var quien = (d.artist_id ? '' : (d.who || ''));
+        var qCampo = form.querySelector('[data-demo-sender-input]'); if (qCampo) qCampo.value = quien;
+        var qNombre = form.querySelector('[data-demo-sender-name]'); if (qNombre) qNombre.value = quien;
+        var qTercero = form.querySelector('[data-demo-sender-promoter]');
+        if (qTercero) qTercero.value = d.promoter_id || '';
         var vista = form.querySelector('[data-demo-cover-preview]');
         if (vista) vista.src = d.cover_url || SIN_PORTADA;
         var quitarBox = form.querySelector('[data-demo-cover-remove-box]');

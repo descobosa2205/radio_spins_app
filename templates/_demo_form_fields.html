@@ -37,21 +37,38 @@
           </label>
         {% endfor %}
       </div>
-      <label class="form-label mt-3">Título de la maqueta</label>
-      <input class="form-control" name="title" data-demo-title required autocomplete="off"
-             placeholder="Cómo se llama el tema">
-      {% if demo_sender_fields %}
-        <div class="row g-2 mt-2" data-demo-sender>
-          <div class="col-12"><input class="form-control form-control-sm" name="sender_name"
-                                     placeholder="Quién la manda (opcional)"></div>
-          <div class="col-md-7"><input class="form-control form-control-sm" type="email" name="sender_email"
-                                       placeholder="Correo (opcional)"></div>
-          <div class="col-md-5"><input class="form-control form-control-sm" name="sender_phone"
-                                       placeholder="Teléfono (opcional)"></div>
-        </div>
-      {% endif %}
     </div>
   </div>
+
+  {# ---------- El TÍTULO (su propio módulo) ---------- #}
+  <div class="demo-card">
+    <div class="demo-card__head"><i class="fa fa-music"></i>El título</div>
+    <div class="demo-card__body">
+      <input class="form-control" name="title" data-demo-title required autocomplete="off"
+             placeholder="Cómo se llama el tema">
+    </div>
+  </div>
+
+  {% if demo_sender_fields %}
+    {# ---------- QUIÉN LA MANDA (su propio módulo, solo cuando la subimos nosotros) ----------
+       Una sola barra que busca en TODA la base: terceros, personal de la casa y artistas. Si no está,
+       se crea el tercero sobre la marcha con lo escrito. Nada de correo ni de teléfono. #}
+    <div class="demo-card">
+      <div class="demo-card__head"><i class="fa fa-paper-plane"></i>¿Quién la manda?</div>
+      <div class="demo-card__body" data-demo-sender
+           data-search-url="{{ url_for('api_demo_sender_search') }}"
+           data-create-url="{{ url_for('api_create_promoter') }}">
+        <div class="demo-author__search">
+          <input class="form-control" data-demo-sender-input autocomplete="off"
+                 placeholder="Busca por nombre en terceros, personal o artistas (opcional)">
+          <input type="hidden" name="sender_name" data-demo-sender-name value="">
+          <input type="hidden" name="promoter_id" data-demo-sender-promoter value="">
+          <div class="demo-author__list d-none" data-demo-sender-list></div>
+        </div>
+        <div class="small text-muted mt-1" data-demo-sender-picked></div>
+      </div>
+    </div>
+  {% endif %}
 
   {# ---------- 2) El audio ---------- #}
   <div class="demo-card">

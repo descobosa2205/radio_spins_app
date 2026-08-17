@@ -4338,6 +4338,16 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 }
 .pl-erow--title input{ flex:1 1 auto; font-weight:700; }
 .pl-erow--divider .pl-erow__line{ flex:1 1 auto; height:2px; background:#dfe3ea; border-radius:2px; }
+/* Los EXTRAS de cada línea (letra · autores · notas · quién la envió · descarga) están pintados
+   siempre y se ven según los interruptores: al encender uno se ve al momento cómo va a quedar. */
+.pl-edit .pl-x{ display:none; }
+.pl-edit.is-show-lyrics .pl-x--lyrics,
+.pl-edit.is-show-authors .pl-x--authors,
+.pl-edit.is-show-sender .pl-x--sender,
+.pl-edit.is-show-download .pl-x--download{ display:inline-flex; }
+.pl-edit.is-show-notes .pl-x--notes{ display:block; }
+.pl-erow__notes{ font-size:.8rem; color:#374151; margin-top:.15rem; }
+.pl-erow__dl{ color:var(--ok,#1e9e5a); flex:0 0 auto; }
 
 /* ---- Pop-up de añadir canción ---- */
 .pl-pick-sources{ display:flex; gap:.8rem; flex-wrap:wrap; }

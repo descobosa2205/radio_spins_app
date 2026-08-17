@@ -125,6 +125,97 @@
       }
     });
 
+    /* ---------- QUIÉN LA MANDA ----------
+       Una sola barra que busca en terceros, personal y artistas; si no está, se crea el tercero con lo
+       escrito. Lo elegido se guarda como nombre (y, si es un tercero, también su ficha). */
+    var zonaQuien = form.querySelector('[data-demo-sender]');
+    if (zonaQuien) {
+      var campoQuien = zonaQuien.querySelector('[data-demo-sender-input]');
+      var nombreQuien = zonaQuien.querySelector('[data-demo-sender-name]');
+      var terceroQuien = zonaQuien.querySelector('[data-demo-sender-promoter]');
+      var listaQuien = zonaQuien.querySelector('[data-demo-sender-list]');
+      var elegidoQuien = zonaQuien.querySelector('[data-demo-sender-picked]');
+      var urlBuscaQuien = zonaQuien.getAttribute('data-search-url') || '';
+      var urlCrearQuien = zonaQuien.getAttribute('data-create-url') || '';
+      var esperaQuien = null;
+
+      function pintaElegido(texto) {
+        if (elegidoQuien) elegidoQuien.textContent = texto || '';
+      }
+
+      campoQuien.addEventListener('input', function () {
+        // Lo escrito vale como nombre aunque no sea nadie de la base.
+        nombreQuien.value = campoQuien.value;
+        terceroQuien.value = '';
+        pintaElegido('');
+        var q = campoQuien.value.trim();
+        if (!urlBuscaQuien || q.length < 2) { listaQuien.classList.add('d-none'); return; }
+        clearTimeout(esperaQuien);
+        esperaQuien = setTimeout(function () {
+          fetch(urlBuscaQuien + '?q=' + encodeURIComponent(q),
+                { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(function (r) { return r.json(); })
+            .then(function (js) {
+              var filas = (js && js.rows) || [];
+              var html = filas.map(function (o) {
+                return '<button class="demo-author__opt" type="button" data-demo-sender-pick'
+                  + ' data-kind="' + esc(o.kind) + '" data-id="' + esc(o.id) + '"'
+                  + ' data-name="' + esc(o.name) + '">'
+                  + (o.photo_url ? '<img src="' + esc(o.photo_url) + '" alt="" data-avatar="1">'
+                                 : '<i class="fa fa-user"></i>')
+                  + '<span>' + esc(o.name) + '</span>'
+                  + '<span class="badge text-bg-light border ms-auto">' + esc(o.kind_label) + '</span>'
+                  + '</button>';
+              }).join('');
+              // Si no está en la base, se puede crear el tercero con lo escrito.
+              if (urlCrearQuien) {
+                html += '<button class="demo-author__opt" type="button" data-demo-sender-create>'
+                  + '<i class="fa fa-plus text-success"></i><span>Crear «' + esc(q) + '» como tercero</span></button>';
+              }
+              listaQuien.innerHTML = html;
+              listaQuien.classList.remove('d-none');
+            }).catch(function () { listaQuien.classList.add('d-none'); });
+        }, 220);
+      });
+
+      zonaQuien.addEventListener('click', function (ev) {
+        var op = ev.target.closest('[data-demo-sender-pick]');
+        if (op) {
+          campoQuien.value = op.getAttribute('data-name') || '';
+          nombreQuien.value = campoQuien.value;
+          terceroQuien.value = (op.getAttribute('data-kind') === 'promoter')
+            ? (op.getAttribute('data-id') || '') : '';
+          pintaElegido('Elegido: ' + campoQuien.value);
+          listaQuien.classList.add('d-none');
+          return;
+        }
+        var crear = ev.target.closest('[data-demo-sender-create]');
+        if (crear) {
+          var nombre = campoQuien.value.trim();
+          if (!nombre) return;
+          crear.disabled = true;
+          var cuerpo = new URLSearchParams();
+          cuerpo.append('nick', nombre);
+          cuerpo.append('force_new', '1');
+          var cab = { 'X-Requested-With': 'XMLHttpRequest' };
+          if (csrf()) cab['X-CSRFToken'] = csrf();
+          fetch(urlCrearQuien, { method: 'POST', headers: cab, body: cuerpo })
+            .then(function (r) { return r.json().catch(function () { return {}; }); })
+            .then(function (js) {
+              crear.disabled = false;
+              if (js && js.id) {
+                terceroQuien.value = js.id;
+                nombreQuien.value = nombre;
+                pintaElegido('Creado y elegido: ' + nombre);
+                listaQuien.classList.add('d-none');
+              } else {
+                alert((js && js.error) || 'No se pudo crear el tercero.');
+              }
+            });
+        }
+      });
+    }
+
     /* ---------- AUTORES ---------- */
     var zonaAut = form.querySelector('[data-demo-authors]');
     if (zonaAut) {

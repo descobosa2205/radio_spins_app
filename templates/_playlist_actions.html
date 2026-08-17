@@ -9,34 +9,6 @@
    ⚠️ Este parcial solo se pinta cuando `playlist_actions` está puesto: en el enlace PÚBLICO no debe
    salir ninguno de estos botones. #}
 <div class="pl-actions">
-  {% if can_edit %}
-    {% if edit_mode %}
-      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('playlist_detail_view', playlist_id=pl.id) }}">
-        <i class="fa fa-eye me-1"></i>Ver la playlist
-      </a>
-    {% else %}
-      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('playlist_detail_view', playlist_id=pl.id, edit=1) }}">
-        <i class="fa fa-pen me-1"></i>Editar
-      </a>
-    {% endif %}
-  {% endif %}
-
-  <div class="dropdown">
-    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
-      <i class="fa fa-share-alt me-1"></i>Compartir
-    </button>
-    <ul class="dropdown-menu dropdown-menu-end">
-      <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#playlistMailModal"><i class="fa fa-envelope fa-fw me-1"></i>Email</button></li>
-      <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('{{ share_subject|e }}', '{{ public_url }}')"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>WhatsApp</button></li>
-      <li><button class="dropdown-item" type="button" onclick="shareBySms('{{ share_subject|e }}', '{{ public_url }}')"><i class="fa fa-comment-sms fa-fw me-1"></i>SMS</button></li>
-      <li><hr class="dropdown-divider"></li>
-      <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ public_url }}')"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
-    </ul>
-  </div>
-
-  <button class="btn btn-sm btn-outline-secondary" type="button" onclick="copyShareLink('{{ public_url }}')">
-    <i class="fa fa-link me-1"></i>Copiar enlace
-  </button>
 
   {# INTERRUPTORES (los de los accesos): el icono arriba y debajo el interruptor, verde encendido y
      gris apagado. TODOS nacen APAGADOS y se marcan aquí directamente.
@@ -50,6 +22,8 @@
      'Enseña los autores de los temas que los tengan (con su % y su editorial al pasar el ratón)'),
     ('show_sender', 'fa-paper-plane', 'Quién la envió', pl.show_sender,
      'Enseña quién nos la mandó, cuando la ha mandado alguien de fuera'),
+    ('show_notes', 'fa-note-sticky', 'Notas', pl.show_notes,
+     'Enseña las notas de los temas que las tengan'),
   ] %}
   <span class="pl-switches">
     {% for campo, icono, etiqueta, activo, ayuda in pl_switches %}
@@ -66,10 +40,39 @@
     {% endfor %}
   </span>
 
-  {% if can_edit %}
-    <form method="post" action="{{ url_for('playlist_delete', playlist_id=pl.id) }}" class="d-inline"
-          data-confirm="¿Eliminar la playlist «{{ pl.name|e }}»? No se borra ninguna canción, solo la lista.">
-      <button class="btn btn-sm btn-outline-danger" title="Eliminar la playlist"><i class="fa fa-trash"></i></button>
-    </form>
-  {% endif %}
+  {# ---------- LOS TRES PUNTITOS ----------
+     Editar (o ver) · Compartir —al pincharlo salen las opciones, en su pop-up— · Copiar enlace y,
+     debajo, Eliminar.
+     ⚠️ Las opciones de compartir NO pueden ir desplegándose DENTRO del menú: el ayudante global de
+     desplegables (`scripts.js`) crea todos los dropdowns con `autoClose: true`, así que cualquier
+     clic dentro los cierra (y `data-bs-auto-close="outside"` no manda, porque la opción de JS pisa al
+     atributo). Por eso Compartir abre un pop-up, que además es el patrón del resto de la app. #}
+  <div class="dropdown">
+    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"
+            aria-label="Opciones"><i class="fa fa-ellipsis"></i></button>
+    <ul class="dropdown-menu dropdown-menu-end">
+      {% if can_edit %}
+        {% if edit_mode %}
+          <li><a class="dropdown-item" href="{{ url_for('playlist_detail_view', playlist_id=pl.id) }}">
+            <i class="fa fa-eye fa-fw me-1"></i>Ver la playlist</a></li>
+        {% else %}
+          <li><a class="dropdown-item" href="{{ url_for('playlist_detail_view', playlist_id=pl.id, edit=1) }}">
+            <i class="fa fa-pen fa-fw me-1"></i>Editar</a></li>
+        {% endif %}
+      {% endif %}
+      <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#playlistShareModal">
+        <i class="fa fa-share-alt fa-fw me-1"></i>Compartir</button></li>
+      <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ public_url }}')">
+        <i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
+      {% if can_edit %}
+        <li><hr class="dropdown-divider"></li>
+        <li>
+          <form method="post" action="{{ url_for('playlist_delete', playlist_id=pl.id) }}"
+                data-confirm="¿Eliminar la playlist «{{ pl.name|e }}»? No se borra ninguna canción, solo la lista.">
+            <button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button>
+          </form>
+        </li>
+      {% endif %}
+    </ul>
+  </div>
 </div>

@@ -9,6 +9,9 @@
  *   se puede guardar como «dato extra» con el nombre de la columna.
  * - «Conservar los dos» pide NOMBRE a los dos valores (el ejemplo de Dani: «casa de Madrid» y
  *   «casa de Cádiz») y deja elegir cuál se queda en la ficha.
+ * - Las COINCIDENCIAS se revisan UNA A UNA y no se puede terminar dejándolas a medias: cada una se
+ *   resuelve guardando lo que se elige, dejando lo que ya teníamos o diciendo que **es otro
+ *   diferente** (y entonces se crea como tercero nuevo, sin tocar el que ya estaba).
  */
 (function () {
   'use strict';
@@ -25,7 +28,9 @@
   var IGNORE = root.getAttribute('data-target-ignore') || '__ignore__';
   var ALT = root.getAttribute('data-target-alt') || '__alt__';
 
-  var state = { columns: [], rows: [], newRows: [], existing: [], idx: 0 };
+  // `reviewed` = coincidencias ya resueltas (por índice de fila del fichero): guardadas, dejadas como
+  // estaban o creadas como otro distinto. Mientras quede alguna sin resolver no se puede terminar.
+  var state = { columns: [], rows: [], newRows: [], existing: [], idx: 0, reviewed: {}, total: 0 };
 
   var el = {
     file: document.getElementById('promoterImportFile'),
@@ -45,8 +50,19 @@
     mergeReason: root.querySelector('[data-pi-merge-reason]'),
     mergeLogo: root.querySelector('[data-pi-merge-logo]'),
     mergePos: root.querySelector('[data-pi-merge-pos]'),
-    mergeAlt: root.querySelector('[data-pi-merge-alt]')
+    mergeAlt: root.querySelector('[data-pi-merge-alt]'),
+    total: root.querySelector('[data-pi-total]'),
+    pending: root.querySelector('[data-pi-pending]'),
+    otherName: root.querySelector('[data-pi-other-name]')
   };
+
+  /* Cuántas coincidencias quedan sin resolver (y qué fila es la siguiente). */
+  function pendientes() {
+    return state.existing.filter(function (r) { return !state.reviewed[r.row]; });
+  }
+  function marcarRevisada(item) {
+    if (item) state.reviewed[item.row] = true;
+  }
 
   function esc(v) {
     return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
@@ -138,6 +154,9 @@
           state.newRows = res.new || [];
           state.existing = res.existing || [];
           state.idx = 0;
+          state.reviewed = {};
+          state.total = ((res.counts || {}).new || 0) + ((res.counts || {}).existing || 0) +
+            ((res.counts || {}).skipped || 0);
           renderSummary(res);
           step('summary');
         });
@@ -161,6 +180,9 @@
         if (el.countNew) el.countNew.textContent = '0';
         if (el.listNew) el.listNew.innerHTML = '<div class="text-muted small">Ya están dados de alta.</div>';
         create.classList.add('d-none');
+        // Lo que queda es lo importante: las coincidencias. Se entra directo a revisarlas.
+        if (pendientes().length) abrirRevision();
+        else pintarPendientes();
       });
       return;
     }
@@ -168,19 +190,31 @@
     var review = ev.target.closest('[data-pi-review]');
     if (review) {
       if (!state.existing.length) return showError('No hay ninguno que ya existiera.');
-      state.idx = 0;
-      renderMerge();
-      step('merge');
+      abrirRevision();
       return;
     }
 
-    if (ev.target.closest('[data-pi-finish]')) { location.reload(); return; }
+    if (ev.target.closest('[data-pi-finish]')) {
+      var faltan = pendientes().length;
+      if (faltan) {
+        showError('Te quedan ' + faltan + ' coincidencia(s) sin revisar: resuélvelas para terminar.');
+        abrirRevision();
+        return;
+      }
+      location.reload();
+      return;
+    }
 
     if (ev.target.closest('[data-pi-merge-prev]')) {
       if (state.idx > 0) { state.idx--; renderMerge(); }
       return;
     }
-    if (ev.target.closest('[data-pi-merge-skip]')) { nextMerge(); return; }
+    // «Dejar lo que tenemos»: también es una decisión, así que la coincidencia queda revisada.
+    if (ev.target.closest('[data-pi-merge-skip]')) {
+      marcarRevisada(state.existing[state.idx]);
+      nextMerge();
+      return;
+    }
 
     var save = ev.target.closest('[data-pi-merge-save]');
     if (save) {
@@ -192,6 +226,27 @@
         .then(function (res) {
           busy(save, false);
           if (!res.ok) return showError(res.error || 'No se pudo actualizar.');
+          marcarRevisada(item);
+          nextMerge();
+        });
+      return;
+    }
+
+    // ES OTRO DIFERENTE: no se fusiona nada, se da de alta como tercero NUEVO (mismo endpoint que
+    // los nuevos, con esta única fila).
+    var otro = ev.target.closest('[data-pi-merge-other]');
+    if (otro) {
+      var fila = state.existing[state.idx];
+      if (!fila) return;
+      if (!confirm('¿Es una persona distinta de «' + (fila.promoter.nick || '') + '»?\n\n' +
+                   'Se dará de alta como un tercero NUEVO y no se tocará el que ya estaba.')) return;
+      busy(otro, true, 'Creando…');
+      post(root.getAttribute('data-url-create'), { rows: [{ values: fila.values, alt: fila.alt || [] }] }, true)
+        .then(function (res) {
+          busy(otro, false);
+          if (!res.ok) return showError(res.error || 'No se pudo crear el tercero.');
+          if ((res.errors || []).length) return showError((res.errors || []).join(' · '));
+          marcarRevisada(fila);
           nextMerge();
         });
       return;
@@ -240,6 +295,14 @@
 
   /* ---------------- paso 3: el resumen ---------------- */
   function renderSummary(res) {
+    if (el.total) {
+      var n = (res.counts || {}).new || 0;
+      var y = (res.counts || {}).existing || 0;
+      el.total.innerHTML = '<i class="fa fa-file-import me-1 text-muted"></i>' +
+        'El fichero trae <strong>' + state.total + '</strong> tercero(s): <strong>' + n + '</strong> nuevo(s) y ' +
+        '<strong>' + y + '</strong> coincidencia(s) con terceros que ya tenemos' +
+        (y ? ', que hay que revisar una a una.' : '.');
+    }
     if (el.countNew) el.countNew.textContent = (res.counts || {}).new || 0;
     if (el.countExisting) el.countExisting.textContent = (res.counts || {}).existing || 0;
     if (el.created) el.created.innerHTML = '';
@@ -271,6 +334,39 @@
       el.skipped.classList.toggle('d-none', !n);
       el.skipped.textContent = n ? n + ' fila(s) sin nombre ni DNI/NIF: no se pueden dar de alta.' : '';
     }
+    pintarPendientes();
+  }
+
+  /* Mientras queden coincidencias sin resolver, «Terminar» no vale: hay que mirarlas. */
+  function pintarPendientes() {
+    var faltan = pendientes().length;
+    var fin = root.querySelector('[data-pi-finish]');
+    if (fin) {
+      fin.disabled = !!faltan;
+      fin.textContent = faltan ? 'Faltan ' + faltan + ' por revisar' : 'Terminar';
+    }
+    if (el.pending) {
+      el.pending.classList.toggle('d-none', !faltan);
+      el.pending.innerHTML = faltan
+        ? '<i class="fa fa-triangle-exclamation me-1"></i>Quedan <strong>' + faltan + '</strong> ' +
+          'coincidencia(s) sin revisar. En cada una hay que decir con qué datos nos quedamos (o que es otro diferente).'
+        : '';
+    }
+    var revisar = root.querySelector('[data-pi-review]');
+    if (revisar && state.existing.length) {
+      revisar.classList.toggle('d-none', !faltan);
+      revisar.innerHTML = '<i class="fa fa-code-compare me-1"></i>Revisar ' +
+        (faltan === state.existing.length ? 'los que ya existían' : 'las ' + faltan + ' que faltan');
+    }
+  }
+
+  /* Entra a revisar por la PRIMERA que quede sin resolver (no por la primera de la lista). */
+  function abrirRevision() {
+    var faltan = pendientes();
+    var siguiente = faltan.length ? faltan[0] : state.existing[0];
+    state.idx = Math.max(0, state.existing.indexOf(siguiente));
+    renderMerge();
+    step('merge');
   }
 
   /* ---------------- paso 4: pantalla partida ---------------- */
@@ -320,7 +416,15 @@
     if (el.mergeLogo) {
       el.mergeLogo.src = item.promoter.logo_url || '/static/img/placeholder_photo.png';
     }
-    if (el.mergePos) el.mergePos.textContent = (state.idx + 1) + ' de ' + state.existing.length;
+    if (el.mergePos) {
+      el.mergePos.textContent = (state.idx + 1) + ' de ' + state.existing.length +
+        (state.reviewed[item.row] ? ' · revisada' : '');
+    }
+    if (el.otherName) {
+      el.otherName.textContent = 'Se creará un tercero nuevo con lo que trae el fichero (' +
+        (_promoterImportRowName(item) || 'sin nombre') + ') y «' + (item.promoter.nick || '') +
+        '» se queda como está.';
+    }
     if (el.mergeFields) {
       var conCambio = (item.fields || []).filter(function (f) { return !f.same; });
       var iguales = (item.fields || []).filter(function (f) { return f.same; });
@@ -341,19 +445,28 @@
     if (prev) prev.disabled = state.idx === 0;
   }
 
+  /* El nombre que trae el FICHERO en esa fila (para el cartel de «es otro diferente»). */
+  function _promoterImportRowName(item) {
+    var v = (item && item.values) || {};
+    return [v.nick, [v.first_name, v.last_name].filter(Boolean).join(' '), v.tax_id]
+      .filter(function (x) { return (x || '').trim(); })[0] || '';
+  }
+
   function nextMerge() {
-    if (state.idx + 1 < state.existing.length) {
-      state.idx++;
+    // Siguiente SIN REVISAR (así, al volver atrás y arreglar una, no se repiten las ya resueltas).
+    var faltan = pendientes();
+    if (faltan.length) {
+      var siguiente = faltan.filter(function (r) { return state.existing.indexOf(r) > state.idx; })[0] || faltan[0];
+      state.idx = state.existing.indexOf(siguiente);
       renderMerge();
-    } else {
-      step('summary');
-      if (el.listExisting) {
-        el.listExisting.innerHTML = '<div class="text-success small fw-semibold">Revisados los ' +
-          state.existing.length + '.</div>';
-      }
-      var revisar = root.querySelector('[data-pi-review]');
-      if (revisar) revisar.classList.add('d-none');
+      return;
     }
+    step('summary');
+    if (el.listExisting) {
+      el.listExisting.innerHTML = '<div class="text-success small fw-semibold">Revisadas las ' +
+        state.existing.length + '.</div>';
+    }
+    pintarPendientes();
   }
 
   // «Conservar los dos» despliega los nombres.
@@ -368,6 +481,17 @@
       var input = opt.querySelector('input');
       opt.classList.toggle('is-on', !!(input && input.checked));
     });
+  });
+
+  /* Cerrar el modal dejando coincidencias sin revisar: se avisa de que esos terceros se quedan como
+     están (no se pierde nada, pero hay que saberlo). */
+  var caja = document.getElementById('promoterImportModal');
+  if (caja) caja.addEventListener('hide.bs.modal', function (ev) {
+    var faltan = pendientes().length;
+    if (!faltan) return;
+    if (!confirm('Quedan ' + faltan + ' coincidencia(s) sin revisar: esos terceros se quedan tal como están. ¿Salir de todas formas?')) {
+      ev.preventDefault();
+    }
   });
 
   function collectDecisions() {

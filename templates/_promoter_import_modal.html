@@ -66,6 +66,9 @@
 
         {# ── Paso 3: el resumen ─────────────────────────────────────────────────────── #}
         <div class="d-none" data-pi-step="summary">
+          {# Cuántos terceros trae el fichero y cuántas COINCIDENCIAS se han encontrado: es lo
+             primero que hay que ver antes de decidir nada. #}
+          <div class="pi-total mb-3" data-pi-total></div>
           <div class="row g-3">
             <div class="col-12 col-md-6">
               <div class="card h-100 border-success">
@@ -90,7 +93,8 @@
                     <h6 class="m-0"><i class="fa fa-user-check text-warning me-1"></i>Ya existían</h6>
                     <span class="badge text-bg-warning text-dark" data-pi-count-existing>0</span>
                   </div>
-                  <div class="small text-muted mt-1">Se revisan uno a uno: tú decides qué se queda.</div>
+                  <div class="small text-muted mt-1">Hay que revisarlos <strong>uno a uno</strong>: tú decides
+                    con qué datos te quedas, o dices que es otro diferente.</div>
                   <div class="pi-list mt-2" data-pi-list-existing></div>
                   <button class="btn btn-warning w-100 mt-2" type="button" data-pi-review>
                     <i class="fa fa-code-compare me-1"></i>Revisar los que ya existían
@@ -100,6 +104,9 @@
             </div>
           </div>
           <div class="small text-muted mt-3 d-none" data-pi-skipped></div>
+          {# Mientras queden coincidencias sin revisar no se puede terminar: es justo lo que hay que
+             mirar (con qué datos nos quedamos en cada una). #}
+          <div class="alert alert-warning py-2 px-3 small mt-3 d-none" data-pi-pending></div>
           <div class="d-flex justify-content-between mt-3">
             <button class="btn btn-outline-secondary" type="button" data-pi-back="columns">Atrás</button>
             <button class="btn btn-outline-primary" type="button" data-pi-finish>Terminar</button>
@@ -118,6 +125,17 @@
             </div>
             <span class="badge text-bg-secondary" data-pi-merge-pos></span>
           </div>
+          {# «ES OTRO DIFERENTE»: puede que el del fichero no sea esta persona (mismo nombre, o un DNI
+             mal escrito). Entonces no se fusiona nada: se da de alta como tercero nuevo. #}
+          <div class="pi-other" data-pi-other>
+            <div>
+              <div class="fw-semibold small">¿No es esta persona?</div>
+              <div class="small text-muted" data-pi-other-name></div>
+            </div>
+            <button class="btn btn-outline-primary btn-sm" type="button" data-pi-merge-other>
+              <i class="fa fa-user-plus me-1"></i>Es otro diferente: crearlo
+            </button>
+          </div>
           <div class="pi-split-head">
             <div>Lo que tenemos</div>
             <div>Lo que trae el fichero</div>
@@ -129,7 +147,7 @@
               <i class="fa fa-arrow-left me-1"></i>Anterior
             </button>
             <div class="d-flex gap-2">
-              <button class="btn btn-outline-secondary" type="button" data-pi-merge-skip>No tocar este</button>
+              <button class="btn btn-outline-secondary" type="button" data-pi-merge-skip>Dejar lo que tenemos</button>
               <button class="btn btn-primary" type="button" data-pi-merge-save>
                 <i class="fa fa-save me-1"></i>Guardar y siguiente
               </button>

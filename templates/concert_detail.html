@@ -43,8 +43,40 @@
      quién es la actividad a efectos de dinero, y antes había que buscarlo en una tarjeta.
      Si no se ha dicho quién factura, se enseña la empresa del grupo que la promueve. #}
   {% set _hero_co = concert.billing_company or concert.group_company %}
-  {% if _hero_co %}
+  {% if _hero_co or CAN_EDIT_CONCERTS %}
     <div class="ficha-hero__actions align-items-start">
+      {# LA RUEDA: lo que se hace de tarde en tarde y no es del día a día (y lo que no se puede
+         deshacer). Arriba a la derecha, encima de la empresa. #}
+      {% if CAN_EDIT_CONCERTS %}
+        <div class="dropdown ficha-hero__gear">
+          <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown"
+                  data-bs-display="static" title="Configuración de la actividad" aria-label="Configuración">
+            <i class="fa fa-gear"></i>
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><h6 class="dropdown-header">Configuración de la actividad</h6></li>
+            <li>
+              <button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#prodOwnerModal">
+                <i class="fa fa-user-gear me-2 text-muted"></i>
+                {{ 'Cambiar quién lleva la producción' if concert.production_owner_user_id else 'Asignar quién lleva la producción' }}
+              </button>
+            </li>
+            <li>
+              <a class="dropdown-item" href="{{ url_for('concert_artist_notice_view', cid=concert.id) }}">
+                <i class="fa fa-bell me-2 text-muted"></i>Avisar al artista
+              </a>
+            </li>
+            <li><hr class="dropdown-divider"></li>
+            <li>
+              <button class="dropdown-item text-danger" type="button"
+                      data-bs-toggle="modal" data-bs-target="#concertDeleteModal">
+                <i class="fa fa-trash me-2"></i>Eliminar actividad
+              </button>
+            </li>
+          </ul>
+        </div>
+      {% endif %}
+      {% if _hero_co %}
       <div class="hero-company" title="{{ 'Empresa del grupo que factura' if concert.billing_company else 'Empresa del grupo' }}">
         {% if _hero_co.logo_url %}
           <img src="{{ _hero_co.logo_url }}" alt="{{ _hero_co.name }}">
@@ -56,6 +88,7 @@
           <span class="hero-company__name">{{ _hero_co.name }}</span>
         </span>
       </div>
+      {% endif %}
     </div>
   {% endif %}
 </div>
@@ -87,8 +120,8 @@
   {% if concert.artist_id and CAN_EDIT_CONCERTS %}
     {% if artist_notice and artist_notice.notified %}
       <span class="badge text-bg-success align-self-center" data-bs-toggle="tooltip"
-            title="Avisado el {{ artist_notice.at_label }}{% if artist_notice.to_label %} a {{ artist_notice.to_label }}{% endif %}{% if artist_notice.by %} · lo mandó {{ artist_notice.by }}{% endif %}">
-        <i class="fa fa-circle-check me-1"></i>Notificado
+            title="{% if artist_notice.manual %}Ya estaba informado (marcado a mano) el {{ artist_notice.at_label }}{% if artist_notice.by %} por {{ artist_notice.by }}{% endif %}{% else %}Avisado el {{ artist_notice.at_label }}{% if artist_notice.to_label %} a {{ artist_notice.to_label }}{% endif %}{% if artist_notice.by %} · lo mandó {{ artist_notice.by }}{% endif %}{% endif %}">
+        <i class="fa fa-circle-check me-1"></i>Notificado{% if artist_notice.manual %} <span class="small">(a mano)</span>{% endif %}
       </span>
       <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('concert_artist_notice_view', cid=concert.id) }}"
          title="Volver a avisar al artista"><i class="fa fa-rotate"></i></a>
@@ -2739,7 +2772,9 @@ document.addEventListener('DOMContentLoaded', function(){
    En un EVENTO (que no es de ningún artista) o en una fecha de gira comprada que promueve una
    empresa nuestra no hay artista del que colgar el trabajo: al CONFIRMAR se pregunta a quién de
    producción le toca, para que le aparezca como suyo. #}
-{% if needs_production_owner and CAN_EDIT_CONCERTS %}
+{# ⚠️ Se pinta SIEMPRE que se pueda editar (no solo cuando falta responsable): la rueda de la
+   cabecera lo usa también para CAMBIARLO, y si el modal no existía el botón no hacía nada. #}
+{% if CAN_EDIT_CONCERTS %}
 <div class="modal fade" id="prodOwnerModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
@@ -2748,12 +2783,15 @@ document.addEventListener('DOMContentLoaded', function(){
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <p class="small text-muted">Esta actividad no es de ningún artista de la casa, así que hay que
-          decir a quién de <strong>producción</strong> le toca: le aparecerá como suya.</p>
+        <p class="small text-muted">
+          Elige a quién de <strong>producción</strong> le toca: le aparecerá como suya y se le avisa.
+          {% if production_owner_name %}<br>Ahora la lleva <strong>{{ production_owner_name }}</strong>.{% endif %}
+        </p>
         <div class="agenda-artist-picker">
           {% for p in production_people %}
-            <button type="button" class="agenda-artist-card" data-prod-owner="{{ p.id }}" data-name="{{ p.name }}">
-              <img src="{{ p.photo_url or DEFAULT_AVATAR_URL }}" alt="" loading="lazy">
+            <button type="button" class="agenda-artist-card{% if concert.production_owner_user_id and p.id == concert.production_owner_user_id|string %} is-on{% endif %}"
+                    data-prod-owner="{{ p.id }}" data-name="{{ p.name }}">
+              <img src="{{ p.photo_url or DEFAULT_AVATAR_URL }}" alt="" loading="lazy" data-avatar="1">
               <span>{{ p.name }}</span>
             </button>
           {% else %}
@@ -2793,6 +2831,110 @@ document.addEventListener('DOMContentLoaded', function(){
   // Y justo al confirmarla desde la etiqueta de estado.
   document.addEventListener('concert:status-changed', function (ev) {
     if (ev.detail && ev.detail.needs_production_owner) abrir();
+  });
+})();
+</script>
+{% endif %}
+
+{# ---- ELIMINAR LA ACTIVIDAD (rueda de la cabecera) ----
+   No se puede deshacer, así que hay que escribir ELIMINAR. Y si ya se le había comunicado a alguien
+   de fuera, se dice A QUIÉN (con su foto) y se ofrece avisar de la cancelación con una nota: al
+   enviar se manda el aviso y se borra. «Eliminar sin avisar» borra y no manda nada. #}
+{% if CAN_EDIT_CONCERTS %}
+<div class="modal fade" id="concertDeleteModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <form class="modal-content" method="post" action="{{ url_for('concert_delete', cid=concert.id) }}" data-cdel>
+      <div class="modal-header">
+        <h5 class="modal-title text-danger"><i class="fa fa-triangle-exclamation me-2"></i>Eliminar la actividad</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="cdel-what">
+          {% if concert.artist and not concert.event_id %}{{ artist_chip(concert.artist.name, concert.artist.photo_url) }}{% endif %}
+          <div class="small text-muted mt-1">
+            {{ activity_type_label }}{% if concert.date %} · {{ concert.date.strftime('%d/%m/%Y') }}{% endif %}{% if location_summary %} · {{ location_summary }}{% endif %}
+          </div>
+        </div>
+        <div class="alert alert-danger py-2 px-3 small mt-3 mb-3">
+          Se borra la actividad <strong>y todo lo que conlleve</strong>: invitaciones, entradas,
+          cachés, contratos, presupuesto, cartelería, hoja de ruta, fotos y vídeos. No se puede deshacer.
+        </div>
+
+        {% if notified_parties %}
+          <div class="cdel-notified">
+            <div class="fw-semibold mb-1"><i class="fa fa-bell me-1 text-warning"></i>Esta actividad ya se le había notificado a:</div>
+            <div class="cdel-people">
+              {% for p in notified_parties %}
+                <div class="cdel-person">
+                  <img class="{{ 'is-photo' if p.is_person else 'is-logo' }}"
+                       src="{{ p.photo or DEFAULT_AVATAR_URL }}" alt="" loading="lazy" data-avatar="1">
+                  <div class="cdel-person__t">
+                    <span class="cdel-person__n">{{ p.name }}</span>
+                    {% if p.detail %}<span class="cdel-person__d">{{ p.detail }}</span>{% endif %}
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+            {% if notified_can_email %}
+              <label class="form-label small mt-3 mb-1">Nota o motivo <span class="text-muted">(sale en el aviso de cancelación)</span></label>
+              <textarea class="form-control form-control-sm" name="note" rows="3"
+                        placeholder="Por qué se cae la actividad."></textarea>
+            {% else %}
+              <div class="small text-muted mt-2">No consta ningún correo de quien lo sabía, así que
+                desde aquí no se le puede mandar el aviso de cancelación: habrá que decírselo aparte.</div>
+            {% endif %}
+          </div>
+        {% else %}
+          <div class="small text-muted mb-3">No se le ha comunicado a nadie de fuera: no hay a quién avisar.</div>
+        {% endif %}
+
+        <label class="form-label small mt-3 mb-1">Escribe <strong>{{ concert_delete_word }}</strong> para poder borrarla</label>
+        <input class="form-control" name="confirm_word" autocomplete="off" spellcheck="false"
+               placeholder="{{ concert_delete_word }}" data-cdel-word>
+        <input type="hidden" name="notify" value="" data-cdel-notify>
+      </div>
+      <div class="modal-footer flex-wrap gap-2">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        {% if notified_parties and notified_can_email %}
+          <button class="btn btn-outline-danger" type="submit" value="" data-cdel-submit="" disabled>
+            <i class="fa fa-trash me-1"></i>No notificar y eliminar
+          </button>
+          <button class="btn btn-danger" type="submit" value="1" data-cdel-submit="1" disabled>
+            <i class="fa fa-paper-plane me-1"></i>Notificar la cancelación y eliminar
+          </button>
+        {% else %}
+          <button class="btn btn-danger" type="submit" data-cdel-submit="" disabled>
+            <i class="fa fa-trash me-1"></i>Eliminar la actividad
+          </button>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+(function () {
+  var form = document.querySelector('[data-cdel]');
+  if (!form) return;
+  var PALABRA = {{ concert_delete_word|tojson }};
+  var campo = form.querySelector('[data-cdel-word]');
+  var oculto = form.querySelector('[data-cdel-notify]');
+  var botones = Array.prototype.slice.call(form.querySelectorAll('[data-cdel-submit]'));
+  function repasar() {
+    var ok = (campo.value || '').trim().toUpperCase() === PALABRA;
+    botones.forEach(function (b) { b.disabled = !ok; });
+    campo.classList.toggle('is-invalid', !!(campo.value || '').trim() && !ok);
+  }
+  campo.addEventListener('input', repasar);
+  repasar();
+  // ⚠️ Cada botón manda una cosa distinta (avisar o no) y no se puede usar `name="notify"` en ellos:
+  // el valor del botón que envía llega solo en algunos navegadores. Se copia al campo oculto.
+  botones.forEach(function (b) {
+    b.addEventListener('click', function () { oculto.value = b.getAttribute('data-cdel-submit') || ''; });
+  });
+  form.addEventListener('submit', function (ev) {
+    if ((campo.value || '').trim().toUpperCase() !== PALABRA) { ev.preventDefault(); repasar(); return; }
+    if (!confirm('Se va a eliminar la actividad y todo lo que conlleve. ¿Seguro?')) { ev.preventDefault(); return; }
+    botones.forEach(function (b) { b.disabled = true; });
   });
 })();
 </script>

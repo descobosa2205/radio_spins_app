@@ -333,10 +333,10 @@
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
           <div class="modal-body">
             <div class="mb-3">
-              <label class="form-label">Días al año</label>
+              <label class="form-label">Días hábiles al año</label>
               <input type="number" name="days_per_year" class="form-control" min="0" max="365"
                      value="{{ profile.vacation_days_per_year or '' }}" placeholder="{{ vacation_days_default }} (los de la casa)">
-              <div class="form-text">En blanco = los {{ vacation_days_default }} de la casa.</div>
+              <div class="form-text">En blanco = los {{ vacation_days_default }} días hábiles de la casa.</div>
             </div>
             <div>
               <label class="form-label">Ajuste para {{ vacation_year }}</label>
@@ -381,6 +381,15 @@
               <input name="note" class="form-control" placeholder="Por ejemplo: días de 2025">
             </div>
             <input type="hidden" name="days" id="apuntarFichaDays">
+            {# Se ven SUS días ya pedidos y aprobados, así que hace falta decir qué es cada color. #}
+            <div class="vac-legend mb-2">
+              <span><i style="background:#e8eef3;"></i>Fin de semana</span>
+              <span><i style="background:#fdeaec;"></i>Festivo</span>
+              <span><i style="background:#ede7f6;"></i>No laborable</span>
+              <span><i style="background:#d6f0dc;"></i>Vacaciones</span>
+              <span><i style="background:#e6dcf3;"></i>Día libre</span>
+              <span><i style="background:#fff3cd;"></i>Sin aprobar</span>
+            </div>
             <div id="apuntarFichaCalendario"></div>
           </div>
           <div class="modal-footer">
@@ -417,7 +426,10 @@
         document.getElementById('apuntarFichaEnviar').disabled = true;
         if (!cal) {
           cal = VacCalendar.create('#apuntarFichaCalendario', {
-            mode: 'year', year: datos.year, holidays: datos.holidays, days: [], selectable: true,
+            // ⚠️ CON SUS DÍAS: los que ya tiene pedidos (pendientes) o aprobados —de vacaciones y de
+            // días libres— se ven aquí, que es donde se marcan los nuevos. Sin esto se apuntaban
+            // días encima de otros sin darse cuenta.
+            mode: 'year', year: datos.year, holidays: datos.holidays, days: datos.days, selectable: true,
             onChange: function(sel, cuentan){
               document.getElementById('apuntarFichaDays').value = sel.join(',');
               document.getElementById('apuntarFichaN').textContent = cuentan.length;

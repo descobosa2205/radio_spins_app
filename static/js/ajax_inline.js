@@ -33,6 +33,20 @@
     });
   }
 
+  /* `data-confirm` TAMBIÉN en los formularios normales (los que navegan).
+     ⚠️ Antes solo lo miraba el motor inline, así que un `data-confirm` en un formulario corriente
+     —p. ej. el botón de eliminar de una fila— no preguntaba NADA y borraba al primer clic. El
+     submitter manda si trae el suyo (varias acciones en el mismo formulario). */
+  document.addEventListener('submit', function (e) {
+    // Sin `:has()` a propósito: un selector que el navegador no entienda hace que `closest` LANCE y
+    // se llevaría por delante todo el handler.
+    var form = e.target.closest('form');
+    if (!form || form.hasAttribute('data-inline') || e.defaultPrevented) return;
+    var submitter = e.submitter || null;
+    var msg = (submitter && submitter.getAttribute('data-confirm')) || form.getAttribute('data-confirm');
+    if (msg && !window.confirm(msg)) e.preventDefault();
+  }, true);
+
   document.addEventListener('submit', function (e) {
     var form = e.target.closest('form[data-inline]');
     if (!form) return;

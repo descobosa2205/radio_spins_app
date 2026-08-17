@@ -10096,7 +10096,8 @@ def ensure_invoice_attempts_schema():
 
 class Holiday(Base):
     """Día festivo. `scope` NACIONAL | AUTONOMICO | LOCAL (solo informativo: a efectos
-    de contar, cualquier festivo de la lista no consume vacaciones)."""
+    de contar, cualquier festivo de la lista no consume vacaciones) | EMPRESA (día no
+    laborable que decide la oficina)."""
 
     __tablename__ = "holidays"
 
@@ -10105,6 +10106,10 @@ class Holiday(Base):
     name = Column(Text, nullable=False)
     scope = Column(Text, nullable=False, server_default=text("'NACIONAL'"))
     region = Column(Text, nullable=False, server_default=text("'Madrid'"))
+    # A QUIÉN se le aplica un día NO LABORABLE de la oficina (scope EMPRESA): lista de user_id.
+    # ⚠️ VACÍA = a toda la oficina (que es como se comportaban todos hasta ahora). Los festivos
+    # oficiales no la usan: esos son de todo el mundo.
+    user_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
@@ -10251,6 +10256,8 @@ def ensure_vacations_schema():
         """,
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_holidays_day_region ON holidays(day, region);",
         "CREATE INDEX IF NOT EXISTS idx_holidays_day ON holidays(day);",
+        # A quién se le aplica un NO LABORABLE de la oficina (vacía = a todos).
+        "ALTER TABLE holidays ADD COLUMN IF NOT EXISTS user_ids jsonb NOT NULL DEFAULT '[]'::jsonb;",
         """
         CREATE TABLE IF NOT EXISTS vacation_requests (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

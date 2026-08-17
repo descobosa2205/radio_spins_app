@@ -102,6 +102,17 @@
         <i class="fa fa-paper-plane me-1"></i>Enviar el aviso
         {% if confirm_after %}<span class="badge text-bg-light text-dark ms-1">y confirmar</span>{% endif %}
       </button>
+      {# LA ACTIVIDAD YA HA PASADO: mandar ahora un aviso de algo que ya ocurrió no tiene sentido, así
+         que se puede dejar apuntado que el artista ya estaba informado y seguir con el estado.
+         Solo sale en actividades pasadas (el servidor lo vuelve a comprobar). #}
+      {% if can_ack %}
+        <button class="btn btn-outline-success" type="button" data-an-ack data-url="{{ ack_url }}">
+          <i class="fa fa-user-check me-1"></i>El artista ya fue informado
+          {% if confirm_after %}<span class="badge text-bg-light text-dark ms-1">y confirmar</span>{% endif %}
+        </button>
+        <div class="small text-muted">La actividad ya ha pasado: si se le comunicó en su día, queda
+          apuntado (con tu nombre y la fecha) y no se manda nada.</div>
+      {% endif %}
       <a class="btn btn-outline-secondary" href="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}">Cancelar</a>
     </div>
 
@@ -199,6 +210,34 @@
     }
   });
   if (note) note.addEventListener('input', repaintSoon);
+
+  // «El artista ya fue informado»: no manda nada, solo lo apunta (y confirma si se venía de ahí).
+  var ack = root.querySelector('[data-an-ack]');
+  if (ack) ack.addEventListener('click', function () {
+    if (!confirm('¿Confirmas que el artista ya estaba informado de esta actividad?\n\nQueda apuntado con tu nombre y la fecha, y no se le manda nada.')) return;
+    var btn = ack;
+    var previo = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Apuntando…';
+    fetch(btn.getAttribute('data-url'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify({
+        note: (note ? note.value : ''),
+        status: root.getAttribute('data-confirm-after') ? 'CONFIRMADO' : ''
+      })
+    }).then(function (r) { return r.json().catch(function () { return null; }); }).then(function (d) {
+      if (!d || !d.ok) {
+        btn.disabled = false; btn.innerHTML = previo;
+        alert((d && d.error) || 'No se pudo apuntar.');
+        return;
+      }
+      window.location.href = {{ url_for('concert_detail_view', cid=concert.id, tab='general')|tojson }};
+    }).catch(function () {
+      btn.disabled = false; btn.innerHTML = previo;
+      alert('No se pudo apuntar.');
+    });
+  });
 
   root.querySelector('[data-an-send]').addEventListener('click', function () {
     var btn = this;

@@ -2274,6 +2274,40 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
    Solo se pinta para quien puede editar (gate en la plantilla).
    ========================================================================== */
 (function () {
+  /* Falta avisar al artista. Si la actividad YA HA PASADO el servidor manda además `ack_url`, así
+     que aquí hay que ofrecer DOS caminos («avisarle ahora» o «ya fue informado») y con un confirm()
+     no caben: se pinta un pop-up propio. Sin Bootstrap (o sin la opción de dar por informado) se cae
+     al confirm de siempre, que sigue funcionando. */
+  function pedirDecisionAviso(d, onAvisar, onYaInformado) {
+    var puedeAck = !!(d.can_ack && d.ack_url);
+    if (!puedeAck || !window.bootstrap) {
+      if (confirm((d.error || 'Falta avisar al artista.') + '\n\n¿Quieres avisarle ahora?')) onAvisar();
+      return;
+    }
+    var caja = document.createElement('div');
+    caja.className = 'modal fade';
+    caja.innerHTML =
+      '<div class="modal-dialog modal-dialog-centered"><div class="modal-content">' +
+        '<div class="modal-header"><h5 class="modal-title"><i class="fa fa-bell me-2"></i>Falta avisar al artista</h5>' +
+        '<button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>' +
+        '<div class="modal-body"><p class="mb-2"></p>' +
+        '<p class="small text-muted m-0">Esta actividad ya ha pasado: si se le comunicó en su día, ' +
+        'déjalo apuntado y sigue con el cambio de estado.</p></div>' +
+        '<div class="modal-footer flex-wrap gap-2">' +
+          '<button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Dejarlo como está</button>' +
+          '<button type="button" class="btn btn-outline-success" data-sg-ack><i class="fa fa-user-check me-1"></i>El artista ya fue informado</button>' +
+          '<button type="button" class="btn btn-primary" data-sg-notify><i class="fa fa-paper-plane me-1"></i>Avisarle ahora</button>' +
+        '</div>' +
+      '</div></div>';
+    caja.querySelector('.modal-body p').textContent = d.error || 'Falta avisar al artista.';
+    document.body.appendChild(caja);
+    var modal = bootstrap.Modal.getOrCreateInstance(caja);
+    caja.addEventListener('hidden.bs.modal', function () { caja.remove(); });
+    caja.querySelector('[data-sg-notify]').addEventListener('click', function () { modal.hide(); onAvisar(); });
+    caja.querySelector('[data-sg-ack]').addEventListener('click', function () { modal.hide(); onYaInformado(); });
+    modal.show();
+  }
+
   document.addEventListener('click', function (e) {
     var opt = e.target.closest('[data-status-option]');
     if (!opt) return;
@@ -2304,11 +2338,23 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
         var d = res.d || {};
         if (!res.r.ok) {
           opt.classList.remove('disabled');
-          // El artista no está avisado: se ofrece avisarle ahora (y al enviar se confirma solo).
+          // El artista no está avisado: se ofrece avisarle ahora (y al enviar se confirma solo) y,
+          // si la actividad ya ha pasado, marcar que ya fue informado y seguir con el estado.
           if (d.needs_artist_notice && d.notify_url) {
-            if (confirm((d.error || 'Falta avisar al artista.') + '\n\n¿Quieres avisarle ahora?')) {
+            pedirDecisionAviso(d, function () {
               window.location.href = d.notify_url;
-            }
+            }, function () {
+              fetch(d.ack_url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify({ status: d.status || 'CONFIRMADO' })
+              }).then(function (r) { return r.json().catch(function () { return null; }); })
+                .then(function (j) {
+                  if (j && j.ok) { window.location.reload(); return; }
+                  alert((j && j.error) || 'No se pudo apuntar que el artista ya fue informado.');
+                })
+                .catch(function () { alert('No se pudo apuntar que el artista ya fue informado.'); });
+            });
             return;
           }
           alert(d.error || 'No se pudo cambiar el estado.');

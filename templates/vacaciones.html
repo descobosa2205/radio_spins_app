@@ -4,6 +4,7 @@
 
 {% set tabs = [
   ('calendario', 'Calendario', 'fa-calendar-days', 0),
+  ('cuadrante', 'Cuadrante', 'fa-table-list', 0),
   ('peticiones', 'Peticiones', 'fa-inbox', pending|length),
   ('festivos', 'Festivos y no laborables', 'fa-flag', 0)
 ] %}
@@ -178,7 +179,13 @@
                 {% for h in holidays %}
                   <tr>
                     <td class="fw-semibold">{{ h.day.strftime('%d/%m/%Y') }}</td>
-                    <td>{{ h.name }}</td>
+                    <td>
+                      {{ h.name }}
+                      {# Un NO LABORABLE puede ser solo de unas personas: se dice de quiénes. #}
+                      {% if h.people_count %}
+                        <div class="small text-muted"><i class="fa fa-user-check me-1"></i>Solo para {{ h.people_label }}</div>
+                      {% endif %}
+                    </td>
                     <td>
                       <span class="badge {{ 'text-bg-secondary' if h.scope == 'EMPRESA' else 'text-bg-light border' }}">{{ h.scope_label }}</span>
                     </td>
@@ -251,8 +258,8 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
           <div class="alert alert-light border small">
-            Días en los que <strong>la oficina no trabaja</strong>. No consumen vacaciones a nadie y
-            se ven en el calendario de todos.
+            Días en los que <strong>no se trabaja</strong>. No consumen vacaciones y se ven en el
+            calendario de las personas a las que se les aplica.
           </div>
           <div class="vac-counter mb-3">
             <div>
@@ -264,6 +271,40 @@
           <div class="mb-3">
             <label class="form-label">Motivo</label>
             <input name="name" class="form-control" placeholder="Por ejemplo: puente de diciembre" value="No laborable">
+          </div>
+
+          {# A QUIÉN SE LE APLICA: a toda la oficina o solo a quien se elija. Con una selección, el
+             día solo les afecta y solo les sale a ellas; al resto, nada. #}
+          <div class="mb-3">
+            <label class="form-label">¿A quién se le aplica?</label>
+            <div class="d-flex gap-3 flex-wrap">
+              <label class="vac-who">
+                <input type="radio" name="who" value="ALL" checked data-nl-who>
+                <span><i class="fa fa-building-user me-1"></i>A toda la oficina</span>
+              </label>
+              <label class="vac-who">
+                <input type="radio" name="who" value="SOME" data-nl-who>
+                <span><i class="fa fa-user-check me-1"></i>Solo a algunas personas</span>
+              </label>
+            </div>
+            <div class="mt-2 d-none" data-nl-people>
+              <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-1">
+                <div class="small text-muted">Pincha a quien se le aplica (<span data-nl-count>0</span> elegidas).</div>
+                <div class="d-flex gap-2">
+                  <button class="btn btn-outline-secondary btn-sm" type="button" data-nl-all>Todas</button>
+                  <button class="btn btn-outline-secondary btn-sm" type="button" data-nl-none>Ninguna</button>
+                </div>
+              </div>
+              <div class="agenda-artist-picker">
+                {% for p in people %}
+                  <label class="agenda-artist-card" data-nl-person>
+                    <input class="d-none" type="checkbox" name="user_ids" value="{{ p.user_id }}">
+                    <img src="{{ p.photo_url or DEFAULT_AVATAR_URL }}" alt="" loading="lazy" data-avatar="1">
+                    <span>{{ p.nick }}</span>
+                  </label>
+                {% endfor %}
+              </div>
+            </div>
           </div>
           <input type="hidden" name="days" id="nlDays">
           <div id="nlCalendario"></div>
@@ -308,6 +349,217 @@
         });
       } else { calNL.clear(); }
       new bootstrap.Modal(document.getElementById('noLaborableModal')).show();
+    });
+
+    /* ---- ¿A quién se le aplica? La rejilla de personas solo sale con «solo a algunas». ---- */
+    var modalNL = document.getElementById('noLaborableModal');
+    var cajaGente = modalNL.querySelector('[data-nl-people]');
+    var fichas = Array.prototype.slice.call(modalNL.querySelectorAll('[data-nl-person]'));
+    function contarGente(){
+      var n = fichas.filter(function(f){ return f.querySelector('input').checked; }).length;
+      modalNL.querySelector('[data-nl-count]').textContent = n;
+      fichas.forEach(function(f){ f.classList.toggle('is-on', f.querySelector('input').checked); });
+    }
+    modalNL.querySelectorAll('[data-nl-who]').forEach(function(r){
+      r.addEventListener('change', function(){
+        var algunas = (modalNL.querySelector('[data-nl-who]:checked') || {}).value === 'SOME';
+        cajaGente.classList.toggle('d-none', !algunas);
+        // ⚠️ Oculto no basta: un checkbox marcado se envía igual. Si es para toda la oficina, se
+        // desmarcan (el servidor guardaría una selección que nadie ha querido).
+        if (!algunas) { fichas.forEach(function(f){ f.querySelector('input').checked = false; }); contarGente(); }
+      });
+    });
+    fichas.forEach(function(f){ f.querySelector('input').addEventListener('change', contarGente); });
+    modalNL.querySelector('[data-nl-all]').addEventListener('click', function(){
+      fichas.forEach(function(f){ f.querySelector('input').checked = true; }); contarGente();
+    });
+    modalNL.querySelector('[data-nl-none]').addEventListener('click', function(){
+      fichas.forEach(function(f){ f.querySelector('input').checked = false; }); contarGente();
+    });
+  })();
+  </script>
+
+{% elif tab == 'cuadrante' %}
+
+  {# CUADRANTE · el listado de todas las vacaciones y días libres a la IZQUIERDA y el calendario a la
+     DERECHA. En cada fila, los tres puntitos: editar los días (se reabre el calendario), pasarlos a
+     día libre no laborable o eliminarlos. #}
+  <div class="row g-3">
+    <div class="col-12 col-lg-5">
+      <div class="card h-100">
+        <div class="card-body">
+          <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+            <h6 class="m-0">
+              {% if quadrant_person %}
+                Vacaciones y días libres de {{ quadrant_person.nick }}
+              {% else %}
+                Vacaciones y días libres · toda la oficina
+              {% endif %}
+            </h6>
+            <span class="badge text-bg-light border">{{ quadrant|length }}</span>
+          </div>
+          {% if quadrant_person %}
+            <div class="vac-person mb-3">
+              <img src="{{ quadrant_person.photo_url or DEFAULT_AVATAR_URL }}" class="vac-person__photo" data-avatar="1" alt="">
+              <div class="small text-muted">
+                Le quedan <strong>{{ quadrant_person.balance.remaining }}</strong> de
+                {{ quadrant_person.balance.total }} · días libres: {{ quadrant_person.balance.free_used }}
+              </div>
+            </div>
+          {% endif %}
+
+          {% if not quadrant %}
+            <div class="text-muted">No hay vacaciones ni días libres apuntados en {{ year }}.</div>
+          {% else %}
+            <div class="list-group list-group-flush vac-quad">
+              {% for r in quadrant %}
+                <div class="list-group-item px-0">
+                  <div class="d-flex justify-content-between align-items-start gap-2">
+                    <div style="min-width:0;">
+                      <div class="d-flex align-items-center gap-2 flex-wrap">
+                        {% if not quadrant_person %}
+                          <img src="{{ r.photo_url or DEFAULT_AVATAR_URL }}" class="vac-person__photo" data-avatar="1" alt="">
+                          <span class="fw-semibold">{{ r.nick }}</span>
+                        {% endif %}
+                        <span class="badge {{ 'text-bg-secondary' if r.kind == 'DIA_LIBRE' else 'text-bg-light border' }}">
+                          <i class="fa {{ r.kind_meta.icon }} me-1"></i>{{ r.kind_meta.label }}
+                        </span>
+                        <span class="badge {{ r.status_meta.class }}">{{ r.status_meta.short }}</span>
+                      </div>
+                      <div class="fw-semibold mt-1">{{ r.range_label }}</div>
+                      <div class="small text-muted">
+                        {{ r.days_count }} {{ r.kind_meta.singular if r.days_count == 1 else r.kind_meta.plural }}
+                        {% if r.note %} · {{ r.note }}{% endif %}
+                      </div>
+                    </div>
+                    <div class="dropdown">
+                      <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" data-bs-display="static">
+                        <i class="fa fa-ellipsis-vertical"></i>
+                      </button>
+                      <ul class="dropdown-menu dropdown-menu-end">
+                        <li><button class="dropdown-item" type="button" data-quad-edit
+                              data-id="{{ r.id }}" data-days="{{ r.days_iso|join(',') }}"
+                              data-nick="{{ r.nick }}" data-kind="{{ r.kind_meta.label }}">
+                            <i class="fa fa-calendar-day fa-fw me-1"></i>Editar los días</button></li>
+                        <li>
+                          <form method="post" action="{{ url_for('vacation_request_to_nonworking', request_id=r.id) }}"
+                                class="m-0" data-confirm="Esos días pasan a ser NO LABORABLES solo para {{ r.nick }} y le vuelven al saldo. ¿Seguimos?">
+                            <input type="hidden" name="next" value="{{ request.full_path }}">
+                            <button class="dropdown-item" type="submit">
+                              <i class="fa fa-calendar-xmark fa-fw me-1"></i>Pasarlos a día libre no laborable</button>
+                          </form>
+                        </li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li>
+                          <form method="post" action="{{ url_for('vacation_request_delete', request_id=r.id) }}"
+                                class="m-0" data-confirm="¿Eliminar estos días? Le vuelven al saldo.">
+                            <input type="hidden" name="next" value="{{ request.full_path }}">
+                            <button class="dropdown-item text-danger" type="submit">
+                              <i class="fa fa-trash fa-fw me-1"></i>Eliminar</button>
+                          </form>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-lg-7">
+      <div class="card h-100">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+            <h6 class="m-0">Calendario {{ year }}</h6>
+            <div class="vac-legend">
+              <span><i style="background:#e8eef3;"></i>Fin de semana</span>
+              <span><i style="background:#fdeaec;"></i>Festivo</span>
+              <span><i style="background:#ede7f6;"></i>No laborable</span>
+              <span><i style="background:#d6f0dc;"></i>Vacaciones</span>
+              <span><i style="background:#e6dcf3;"></i>Día libre</span>
+              <span><i style="background:#fff3cd;"></i>Sin aprobar</span>
+            </div>
+          </div>
+          <div id="cuadranteCalendario"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# Editar los días de una petición: el MISMO calendario, con sus días ya marcados. #}
+  <div class="modal fade" id="quadEditModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <form method="post" id="quadEditForm" class="modal-content">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa fa-calendar-day me-2"></i>Editar los días de <span id="quadEditNick"></span></h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="vac-counter mb-3">
+            <div>
+              <div class="vac-counter__n" id="quadEditN">0</div>
+              <div class="vac-counter__lbl">Días que cuentan</div>
+            </div>
+            <div class="flex-grow-1 small text-muted">
+              Pincha o arrastra para volver a elegir los días de <strong id="quadEditKind"></strong>.
+              Los días que ya estaban salen marcados; findes, festivos y no laborables no consumen saldo.
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="force" value="1" id="quadEditForce">
+              <label class="form-check-label small" for="quadEditForce">Aunque se pase de su saldo</label>
+            </div>
+          </div>
+          <input type="hidden" name="days" id="quadEditDays">
+          <div id="quadEditCalendario"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary" id="quadEditEnviar"><i class="fa fa-save me-1"></i>Guardar los días</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/vacaciones.js') }}"></script>
+  <script id="vacQuadData" type="application/json">{{ calendar_payload|tojson }}</script>
+  <script>
+  (function(){
+    var datos = JSON.parse(document.getElementById('vacQuadData').textContent || '{}');
+    VacCalendar.create('#cuadranteCalendario', {
+      mode: 'year', year: datos.year, holidays: datos.holidays, days: datos.days,
+      people: datos.people || []
+    });
+
+    /* ⚠️ El calendario del modal se monta EN EL CLIC (con modal_stack.js por medio `shown.bs.modal`
+       no llega y el modal saldría vacío). Y se REHACE en cada apertura, porque cada petición trae
+       sus propios días ya marcados. */
+    var URL_EDIT = {{ url_for('vacation_request_days_edit', request_id='__ID__')|tojson }};
+    var calEdit = null;
+    document.querySelectorAll('[data-quad-edit]').forEach(function(b){
+      b.addEventListener('click', function(){
+        var dias = (b.dataset.days || '').split(',').filter(function(x){ return x; });
+        document.getElementById('quadEditForm').action = URL_EDIT.replace('__ID__', b.dataset.id);
+        document.getElementById('quadEditNick').textContent = b.dataset.nick || '';
+        document.getElementById('quadEditKind').textContent = (b.dataset.kind || '').toLowerCase();
+        document.getElementById('quadEditDays').value = dias.join(',');
+        document.getElementById('quadEditCalendario').innerHTML = '';
+        calEdit = VacCalendar.create('#quadEditCalendario', {
+          mode: 'year', year: datos.year, holidays: datos.holidays, days: datos.days,
+          selected: dias, selectable: true,
+          onChange: function(sel, cuentan){
+            document.getElementById('quadEditDays').value = sel.join(',');
+            document.getElementById('quadEditN').textContent = cuentan.length;
+            document.getElementById('quadEditEnviar').disabled = (sel.length === 0);
+          }
+        });
+        document.getElementById('quadEditN').textContent = calEdit ? calEdit.countingList().length : 0;
+        document.getElementById('quadEditEnviar').disabled = (dias.length === 0);
+        new bootstrap.Modal(document.getElementById('quadEditModal')).show();
+      });
     });
   })();
   </script>
@@ -394,6 +646,10 @@
                           <i class="fa fa-file-contract fa-fw me-1"></i>Ver su contrato</a></li>
                       <li><a class="dropdown-item" href="{{ url_for('vacaciones_view', tab='calendario', anio=year, mes=month, persona=p.user_id) }}">
                           <i class="fa fa-calendar-days fa-fw me-1"></i>Ver solo sus días</a></li>
+                      {# El CUADRANTE: el listado de todas sus vacaciones y días libres, con el
+                         calendario al lado, para eliminarlos, editarlos o pasarlos a no laborable. #}
+                      <li><a class="dropdown-item" href="{{ url_for('vacaciones_view', tab='cuadrante', anio=year, persona=p.user_id) }}">
+                          <i class="fa fa-table-list fa-fw me-1"></i>Cuadrante de vacaciones y días libres</a></li>
                     </ul>
                   </div>
                 </td>
@@ -416,7 +672,7 @@
             <label class="form-label">Días al año</label>
             <input type="number" name="days_per_year" id="editarDias" class="form-control" min="0" max="365"
                    placeholder="{{ days_per_year_default }} (los de la casa)">
-            <div class="form-text">En blanco = los {{ days_per_year_default }} de la casa. En el año de alta se prorratean desde su fecha de comienzo.</div>
+            <div class="form-text">En blanco = los {{ days_per_year_default }} días hábiles de la casa. En el año de alta se prorratean desde su fecha de comienzo.</div>
           </div>
           <div>
             <label class="form-label">Ajuste para {{ year }}</label>
@@ -512,6 +768,15 @@
             <input name="note" id="apuntarNota" class="form-control" placeholder="Por ejemplo: días acordados de 2025">
           </div>
           <input type="hidden" name="days" id="apuntarDays">
+          {# Se ven SUS días ya pedidos y aprobados, así que hace falta decir qué es cada color. #}
+          <div class="vac-legend mb-2">
+            <span><i style="background:#e8eef3;"></i>Fin de semana</span>
+            <span><i style="background:#fdeaec;"></i>Festivo</span>
+            <span><i style="background:#ede7f6;"></i>No laborable</span>
+            <span><i style="background:#d6f0dc;"></i>Vacaciones</span>
+            <span><i style="background:#e6dcf3;"></i>Día libre</span>
+            <span><i style="background:#fff3cd;"></i>Sin aprobar</span>
+          </div>
           <div id="apuntarCalendario"></div>
         </div>
         <div class="modal-footer">
@@ -569,16 +834,21 @@
         document.getElementById('apuntarN').textContent = '0';
         document.getElementById('apuntarEnviar').disabled = true;
 
+        /* ⚠️ CON LOS DÍAS DE ESA PERSONA: los que ya tiene pedidos (pendientes de aprobar) y los
+           aprobados, de vacaciones Y de días libres. `datos.days` trae los de TODA la oficina, así
+           que se filtran por la persona que se está configurando; si no, se apuntaban días encima
+           de otros sin verlo. */
+        var susDias = (datos.days || []).filter(function(d){ return String(d.user_id) === String(b.dataset.uid); });
         if (!calApunte) {
           calApunte = VacCalendar.create('#apuntarCalendario', {
-            mode: 'year', year: datos.year, holidays: datos.holidays, days: [], selectable: true,
+            mode: 'year', year: datos.year, holidays: datos.holidays, days: susDias, selectable: true,
             onChange: function(sel, cuentan){
               document.getElementById('apuntarDays').value = sel.join(',');
               document.getElementById('apuntarN').textContent = cuentan.length;
               document.getElementById('apuntarEnviar').disabled = (cuentan.length === 0);
             }
           });
-        } else { calApunte.clear(); }
+        } else { calApunte.clear(); calApunte.setDays(susDias); }
         new bootstrap.Modal(document.getElementById('apuntarDiasModal')).show();
       });
     });

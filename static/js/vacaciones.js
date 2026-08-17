@@ -133,7 +133,34 @@
       grid.appendChild(this.buildDay(new Date(year, month - 1, day), big));
     }
     box.appendChild(grid);
+
+    /* QUÉ FESTIVIDAD ES cada festivo: en la vista de año la casilla es un cuadradito donde no cabe
+       el nombre, así que los festivos del mes se listan debajo (día + nombre). En la vista de mes el
+       nombre va dentro de la propia casilla (`buildDay`). */
+    var fiestas = this.holidaysOfMonth(year, month);
+    if (fiestas.length && !big) {
+      var pie = document.createElement('div');
+      pie.className = 'vac-month__fests';
+      pie.innerHTML = fiestas.map(function (f) {
+        var clase = 'vac-fest' + (f.scope === 'EMPRESA' ? ' is-nonworking' : '');
+        return '<span class="' + clase + '"><b>' + fromIso(f.day).getDate() + '</b> ' +
+          String(f.name || '').replace(/[&<>]/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c];
+          }) + '</span>';
+      }).join('');
+      box.appendChild(pie);
+    }
     return box;
+  };
+
+  /* Los festivos de un mes, en orden. */
+  Calendar.prototype.holidaysOfMonth = function (year, month) {
+    var pre = year + '-' + String(month).padStart(2, '0') + '-';
+    var self = this;
+    return Object.keys(this.holidays)
+      .filter(function (k) { return k.indexOf(pre) === 0; })
+      .sort()
+      .map(function (k) { return self.holidays[k]; });
   };
 
   Calendar.prototype.buildDay = function (d, big) {
@@ -147,7 +174,11 @@
     if (fest) {
       // Un NO LABORABLE de la oficina se distingue del festivo oficial (los dos dejan de contar).
       cel.classList.add(fest.scope === 'EMPRESA' ? 'is-nonworking' : 'is-holiday');
-      cel.title = fest.name + (fest.scope_label ? ' · ' + fest.scope_label : '');
+      // Un no laborable que solo es de algunas personas se dice (en el calendario de toda la oficina
+      // no se puede dar por hecho que es de todo el mundo).
+      if (fest.partial) cel.classList.add('is-partial');
+      cel.title = fest.name + (fest.scope_label ? ' · ' + fest.scope_label : '') +
+        (fest.partial ? ' · solo para algunas personas' : '');
     }
     if (key === iso(new Date())) cel.classList.add('is-today');
     if (this.selected[key]) cel.classList.add('is-selected');
@@ -156,6 +187,15 @@
     num.className = 'vac-day__n';
     num.textContent = d.getDate();
     cel.appendChild(num);
+
+    // En la vista de MES cabe el nombre de la festividad dentro de la casilla: se pone, que es lo
+    // que hace falta para saber de qué festivo se trata sin pasar el ratón por encima.
+    if (fest && big) {
+      var nombre = document.createElement('span');
+      nombre.className = 'vac-day__fest';
+      nombre.textContent = fest.name;
+      cel.appendChild(nombre);
+    }
 
     var ocupados = this.byDay[key] || [];
     if (ocupados.length) {
@@ -278,6 +318,16 @@
     this.selected = {};
     this.repaint();
     this.notifyChange();
+  };
+
+  /* Cambiar los días OCUPADOS que se pintan (pedidos pendientes y aprobados). El calendario de un
+     modal se reutiliza para personas distintas, así que sin esto se quedaban los de la anterior. */
+  Calendar.prototype.setDays = function (days) {
+    this.byDay = {};
+    (days || []).forEach(function (d) {
+      (this.byDay[d.day] = this.byDay[d.day] || []).push(d);
+    }, this);
+    this.render();
   };
 
   /* ------------------------------------------------------------------ */

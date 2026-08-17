@@ -32170,6 +32170,9 @@ def concert_detail_view(cid):
                 edit_companies = _bag_companies_catalog
         session.commit()
 
+        # A quién se le ha comunicado ya la actividad (para el pop-up de «Eliminar actividad»).
+        _notified = _concert_notified_parties(session, c)
+
         return render_template(
             "concert_detail.html",
             concert=c,
@@ -32243,7 +32246,16 @@ def concert_detail_view(cid):
             # AVISO AL ARTISTA: si está avisado (y sigue valiendo), la barra enseña la etiqueta
             # «Notificado» con a quién y cuándo; si no, el botón para avisarle.
             artist_notice=_concert_notice_state(session, c),
-            production_people=(_production_people(session) if needs_prod_owner else []),
+            # ELIMINAR LA ACTIVIDAD (rueda de la cabecera): a quién se le había comunicado ya, para
+            # poder avisar de la cancelación antes de borrarla.
+            notified_parties=_notified,
+            # ¿Se le puede mandar el aviso de cancelación? Si a quien lo sabe no le consta un correo
+            # (p. ej. solo estaba «marcado a mano»), no se ofrece un botón que no podría enviar nada.
+            notified_can_email=any("@" in (p.get("email") or "") for p in _notified),
+            concert_delete_word=CONCERT_DELETE_WORD,
+            # ⚠️ SIEMPRE, no solo cuando falta responsable: el selector también sirve para CAMBIARLO
+            # (rueda de la cabecera), y si la lista llegaba vacía no salía nadie que elegir.
+            production_people=_production_people(session),
             production_owner_name=_concert_production_owner_name(session, c),
             **grupo_art,
             result_calc=(result_ctx["calc"] if result_ctx else None),
@@ -33785,8 +33797,10 @@ def concert_section_update_handler(cid, section):
             _puerta = _concert_notice_gate(session, c, _nuevo_estado)
             if _puerta:
                 flash(Markup(
-                    '%s <a class="alert-link" href="%s">Avisar al artista ahora</a>.'
-                    % (escape(_puerta["reason"]), _puerta["notify_url"])), "warning")
+                    '%s <a class="alert-link" href="%s">%s</a>.'
+                    % (escape(_puerta["reason"]), _puerta["notify_url"],
+                       ('Avisar al artista o marcar que ya fue informado'
+                        if _puerta.get("can_ack") else 'Avisar al artista ahora'))), "warning")
             else:
                 c.status = _nuevo_estado
             c.promoter_id = to_uuid(request.form.get("promoter_id") or None) if sale_type in ("VENDIDO", "GRATUITO", "GIRAS_COMPRADAS") else None
@@ -33995,26 +34009,58 @@ def concert_section_update_handler(cid, section):
 
 
 # ---------- BORRAR ----------
+# La palabra que hay que escribir para borrar una actividad: es la única red de seguridad de una
+# acción que no se puede deshacer.
+CONCERT_DELETE_WORD = "ELIMINAR"
+
+
 @app.post("/conciertos/<cid>/delete", endpoint="concert_delete")
 @admin_required
 def concert_delete_handler(cid):
+    """Elimina la actividad y TODO lo que cuelga de ella.
+
+    Se pide a mano (rueda de la cabecera de la ficha → «Eliminar actividad») y hace falta escribir
+    ELIMINAR. Si la actividad ya se había comunicado fuera (al artista, al promotor, a diseño), el
+    pop-up lo dice con las fotos y los nombres y deja elegir:
+    · `notify=1` → se manda el aviso de CANCELACIÓN (con la nota que se escriba) y se borra. Si el
+      correo NO sale, NO se borra: así se puede volver a intentar.
+    · sin `notify` → se borra sin avisar a nadie."""
     session = db()
     try:
         concert_uuid = to_uuid(cid)
         if not concert_uuid:
             raise ValueError("ID de concierto inválido")
 
-        # CANCELAR también obliga a avisar: si el artista ya sabía de esta actividad, no se puede
-        # borrar sin decirle que se cae. Si nunca se le avisó (un borrador), no hay nada que contar.
+        if not can_edit_concerts():
+            return forbid("No tienes permisos para eliminar una actividad.")
+
         _c_prev = session.get(Concert, concert_uuid)
-        if _c_prev is not None and getattr(_c_prev, "artist_notified_at", None) \
-                and (getattr(_c_prev, "artist_notified_kind", None) or "").upper() != "CANCELACION":
-            flash(Markup(
-                'El artista está avisado de esta actividad: antes de darla de baja hay que '
-                'comunicarle la cancelación. '
-                '<a class="alert-link" href="%s">Avisar de la cancelación</a>.'
-                % url_for("concert_artist_notice_view", cid=cid, kind="CANCELACION")), "warning")
+        if _c_prev is None:
+            flash("Esa actividad ya no existe.", "warning")
+            return redirect(url_for("concerts_view", tab="vista"))
+
+        # LA PALABRA. Sin ella no se borra nada (ni desde la ficha ni con un POST a mano).
+        palabra = (request.form.get("confirm_word") or "").strip().upper()
+        if palabra != CONCERT_DELETE_WORD:
+            flash(f"Para eliminar la actividad hay que escribir «{CONCERT_DELETE_WORD}».", "warning")
             return redirect(url_for("concert_detail_view", cid=cid, tab="general"))
+
+        # ¿A quién se le había comunicado ya? Si hay alguien y se ha pedido avisar, se manda el aviso
+        # de cancelación ANTES de borrar (después ya no se podría componer: no habría actividad).
+        avisados = _concert_notified_parties(session, _c_prev)
+        if avisados and _truthy(request.form.get("notify")):
+            nota = (request.form.get("note") or "").strip()
+            ok, error = _activity_cancellation_notify(
+                session, _c_prev, nota, [p.get("email") for p in avisados])
+            if not ok:
+                # ⚠️ Si no ha salido el correo NO se borra: si no, se perdería la actividad sin que
+                # nadie se hubiera enterado de la cancelación.
+                session.rollback()
+                flash("No se ha podido avisar de la cancelación (%s): la actividad NO se ha eliminado."
+                      % (error or "error desconocido"), "danger")
+                return redirect(url_for("concert_detail_view", cid=cid, tab="general"))
+            flash("Aviso de cancelación enviado a %d destinatario(s)." % len(
+                {(p.get("email") or "").lower() for p in avisados if "@" in (p.get("email") or "")}), "success")
 
         # Los avisos de esta actividad («producción asignada», «cartelería»…) dejan de tener sentido:
         # si no, se quedan en la campanita llevando a una ficha que ya no existe.
@@ -34035,6 +34081,11 @@ def concert_delete_handler(cid):
         session.query(ConcertEquipmentDocument).filter_by(concert_id=concert_uuid).delete(synchronize_session=False)
         session.query(ConcertEquipmentNote).filter_by(concert_id=concert_uuid).delete(synchronize_session=False)
         session.query(ConcertEquipment).filter_by(concert_id=concert_uuid).delete(synchronize_session=False)
+        # ⚠️ Las FOTOS y los VÍDEOS son polimórficos (`owner_type`/`owner_id`, SIN clave ajena), así
+        # que el borrado en cascada no las toca y se quedaban colgadas de una actividad que ya no
+        # existe. Sus notas, álbumes y aprobaciones sí cascadean desde la foto.
+        session.query(Photo).filter(Photo.owner_type == "CONCERT",
+                                    Photo.owner_id == concert_uuid).delete(synchronize_session=False)
         session.flush()
 
         c = session.get(Concert, concert_uuid)
@@ -34042,11 +34093,11 @@ def concert_delete_handler(cid):
             session.delete(c)
 
         session.commit()
-        flash("Concierto borrado.", "success")
+        flash("Actividad eliminada.", "success")
 
     except Exception as e:
         session.rollback()
-        flash(f"Error borrando concierto: {e}", "danger")
+        flash(f"Error borrando la actividad: {e}", "danger")
 
     finally:
         session.close()
@@ -34419,8 +34470,13 @@ def concert_quick_status(cid):
         # COMPUERTA: no se confirma una actividad sin habérsela comunicado al artista.
         puerta = _concert_notice_gate(session, c, _norm_status(new_status))
         if puerta:
+            # `can_ack`/`ack_url` solo vienen si la actividad YA HA PASADO: entonces el cliente ofrece
+            # además «el artista ya fue informado», que apunta el aviso y sigue con el estado.
             return jsonify({"ok": False, "error": puerta["reason"],
                             "needs_artist_notice": True,
+                            "can_ack": bool(puerta.get("can_ack")),
+                            "ack_url": puerta.get("ack_url") or "",
+                            "status": _norm_status(new_status),
                             "notify_url": puerta["notify_url"]}), 409
 
         c.status = _norm_status(new_status)
@@ -48454,7 +48510,7 @@ def _normalize_departments(values) -> list[str]:
     allowed = {d.casefold(): d for d in PERSONNEL_DEPARTMENTS}
     out = []
     seen = set()
-    for raw in values or []:
+    for raw in _departments_iter(values):
         key = (raw or "").strip().casefold()
         val = aliases.get(key) or allowed.get(key)
         if not val:
@@ -48464,6 +48520,48 @@ def _normalize_departments(values) -> list[str]:
         seen.add(val)
         out.append(val)
     return out
+
+
+def _departments_iter(values) -> list[str]:
+    """Los departamentos de un perfil, VENGAN COMO VENGAN.
+
+    ⚠️ `UserProfile.departments` es una LISTA en JSONB, pero hay filas antiguas (y cualquier arreglo
+    a mano en la BD) donde quedó guardado como TEXTO. Recorrer un texto con un `for` devuelve LETRAS,
+    así que esa persona no casaba con ningún departamento y desaparecía de los selectores **sin dar
+    ningún error** (bug real: al asignar producción no salían todas). Punto único para leerlos."""
+    if values is None:
+        return []
+    if isinstance(values, (list, tuple, set)):
+        return [str(v).strip() for v in values if str(v or "").strip()]
+    if isinstance(values, str):
+        texto = values.strip()
+        if not texto:
+            return []
+        if texto[:1] in "[{":
+            try:
+                return _departments_iter(json.loads(texto))
+            except Exception:
+                pass
+        return [x.strip() for x in re.split(r"[;,|/]+", texto) if x.strip()]
+    if isinstance(values, dict):
+        return [str(k).strip() for k, v in values.items() if v and str(k or "").strip()]
+    return []
+
+
+def _profile_departments(profile) -> list[str]:
+    """Los departamentos de un perfil, ya normalizados al catálogo (`PERSONNEL_DEPARTMENTS`)."""
+    return _normalize_departments(_departments_iter(getattr(profile, "departments", None)))
+
+
+def _profile_in_department(profile, *names) -> bool:
+    """¿Está esta persona en alguno de esos departamentos?
+
+    Compara contra el catálogo (así da igual la caja, los acentos y los alias «produccion»/
+    «Producción»), en vez de buscar una cadena exacta dentro de la lista."""
+    buscados = set(_normalize_departments(names))
+    if not buscados:
+        return False
+    return bool(buscados & set(_profile_departments(profile)))
 
 
 def _normalize_admin_responsibilities(values) -> list[str]:
@@ -65655,19 +65753,24 @@ def _concert_needs_production_owner(session_db, concert) -> bool:
 
 def _production_people(session_db) -> list:
     """Personas de PRODUCCIÓN (para elegir el responsable de una actividad). Sin bloqueados ni
-    eliminados: solo personal actual."""
+    eliminados: solo personal actual.
+
+    ⚠️ Tienen que salir TODAS las del departamento. Dos cosas se las comían y están arregladas:
+    · el departamento se lee con `_profile_in_department` (catálogo, acentos y alias incluidos, y
+      aguanta que `departments` esté guardado como texto en vez de como lista);
+    · el JOIN con el perfil es EXTERNO, así que quien todavía no tiene ficha de perfil no desaparece
+      de la lista de respaldo."""
     fuera = _inactive_user_ids(session_db)
     filas = (session_db.query(User, UserProfile)
-             .join(UserProfile, UserProfile.user_id == User.id)
+             .outerjoin(UserProfile, UserProfile.user_id == User.id)
              .order_by(func.lower(func.coalesce(UserProfile.nick, User.email)).asc()).all())
     salida, todos = [], []
     for u, prof in filas:
         if u.id in fuera:
             continue
-        deps = [str(d).strip().lower() for d in (getattr(prof, "departments", None) or [])]
-        ficha = {"id": str(u.id), "name": (prof.nick or u.email or "").strip(),
+        ficha = {"id": str(u.id), "name": ((getattr(prof, "nick", None) or u.email or "").strip()),
                  "photo_url": (getattr(prof, "photo_url", "") or ""),
-                 "in_production": ("producción" in deps or "produccion" in deps)}
+                 "in_production": _profile_in_department(prof, "Producción")}
         if ficha["in_production"]:
             salida.append(ficha)
         todos.append(ficha)
@@ -66628,16 +66731,22 @@ def _concert_notice_state(session_db, concert) -> dict:
       to / at / by – a quién, cuándo y quién lo mandó (para el tooltip)
     """
     if concert is None:
-        return {"notified": False, "stale": False, "needs_kind": "CONFIRMACION", "to": [], "at": None, "by": ""}
+        return {"notified": False, "stale": False, "manual": False, "needs_kind": "CONFIRMACION",
+                "to": [], "at": None, "by": ""}
     at = getattr(concert, "artist_notified_at", None)
     destinos = [d for d in (getattr(concert, "artist_notified_to", None) or []) if isinstance(d, dict)]
     firma_ahora = _concert_notice_signature(session_db, concert)
     firma_aviso = (getattr(concert, "artist_notified_signature", None) or "").strip()
     kind_aviso = (getattr(concert, "artist_notified_kind", None) or "").strip().upper()
     stale = bool(at) and bool(firma_aviso) and firma_aviso != firma_ahora
+    # «El artista ya fue informado» (marcado a mano en una actividad ya pasada) queda apuntado en el
+    # propio destinatario, sin nombre ni correo: así no ensucia el tooltip y se sabe que no se mandó
+    # nada desde la app.
+    manual = any(bool(d.get("manual")) for d in destinos)
     return {
         "notified": bool(at) and not stale,
         "stale": stale,
+        "manual": manual,
         "kind": kind_aviso or ("CONFIRMACION" if at else ""),
         "needs_kind": "CAMBIOS" if stale else "CONFIRMACION",
         "to": destinos,
@@ -66652,6 +66761,27 @@ def _concert_notice_state(session_db, concert) -> dict:
 
 # Estados que EXIGEN que el artista esté avisado antes.
 ACTIVITY_NOTICE_REQUIRED_STATUSES = {"CONFIRMADO"}
+
+
+def _concert_last_day(concert):
+    """El ÚLTIMO día de la actividad (en las de varios días, el de cierre)."""
+    return getattr(concert, "end_date", None) or getattr(concert, "date", None)
+
+
+def _concert_notice_can_ack(concert) -> bool:
+    """¿Se puede dar el aviso por hecho SIN mandar nada («el artista ya fue informado»)?
+
+    Solo en las actividades que YA HAN PASADO: si su último día es anterior a hoy, mandarle ahora
+    un aviso de algo que ya ocurrió no tiene sentido —lo normal es que se le dijera en su día por
+    teléfono— y lo único que falta es dejarlo apuntado para poder cerrar el estado. En una actividad
+    que está por venir NO se ofrece: ahí el aviso hay que mandarlo."""
+    ultimo = _concert_last_day(concert)
+    if not ultimo:
+        return False
+    try:
+        return ultimo < _now_madrid().date()
+    except Exception:
+        return False
 
 
 def _concert_notice_gate(session_db, concert, new_status: str) -> dict | None:
@@ -66683,11 +66813,145 @@ def _concert_notice_gate(session_db, concert, new_status: str) -> dict | None:
         return None
     motivo = ("Han cambiado datos de la actividad desde el último aviso: hay que volver a avisar al artista."
               if estado["stale"] else "Todavía no se le ha comunicado la actividad al artista.")
+    # La actividad YA HA PASADO: en vez de mandar un aviso de algo que ya ocurrió, se puede marcar
+    # que el artista ya fue informado y seguir con el cambio de estado.
+    puede_ack = _concert_notice_can_ack(concert)
+    if puede_ack:
+        motivo += (" La actividad ya ha pasado: si se le comunicó en su día, marca que el artista ya "
+                   "fue informado.")
     return {
         "reason": motivo,
         "needs_kind": estado["needs_kind"],
+        "can_ack": puede_ack,
+        "ack_url": (url_for("concert_artist_notice_ack", cid=concert.id) if puede_ack else ""),
         "notify_url": url_for("concert_artist_notice_view", cid=concert.id, confirmar=1),
     }
+
+
+def _concert_notified_parties(session_db, concert) -> list[dict]:
+    """A QUIÉN se le ha comunicado YA esta actividad, con su foto y su nombre.
+
+    Es lo que enseña el pop-up de «Eliminar actividad»: borrar algo que ya se ha comunicado fuera no
+    se puede hacer en silencio. Se mira en los tres sitios desde los que sale la actividad de casa:
+    · los avisos al ARTISTA (`ConcertArtistNotification`),
+    · el PROMOTOR al que se le pidió la ficha de contratación,
+    · a quien se le pidió la CARTELERÍA (el promotor, o diseño si la hacemos nosotros).
+    ⚠️ La foto se resuelve EN VIVO (los avisos guardados no la llevan) casando el correo o el teléfono
+    con los contactos de comunicaciones del artista, que es de donde salieron."""
+    if concert is None:
+        return []
+    partes, vistos = [], set()
+
+    def anota(nombre, *, email="", phone="", photo="", is_person=True, detail=""):
+        clave = (email or "").strip().lower() or (phone or "").strip() or _norm_text_key(nombre or "")
+        if not clave or clave in vistos:
+            return
+        vistos.add(clave)
+        partes.append({
+            "name": (nombre or "").strip() or (email or phone or "Sin nombre"),
+            "email": (email or "").strip(),
+            "phone": (phone or "").strip(),
+            "photo": (photo or "").strip(),
+            "is_person": bool(is_person),
+            "detail": (detail or "").strip(),
+        })
+
+    artist = getattr(concert, "artist", None)
+    foto_artista = (getattr(artist, "photo_url", None) or "").strip()
+
+    # Índice de fotos y nombres de los contactos del artista (de donde salieron los avisos).
+    por_correo, por_tel = {}, {}
+    try:
+        for c in _artist_notification_contacts(session_db, getattr(concert, "artist_id", None)):
+            ficha = {"name": _contact_name(c),
+                     "photo": (getattr(getattr(c, "promoter", None), "logo_url", None) or "").strip()}
+            if _contact_email(c):
+                por_correo[_contact_email(c).lower()] = ficha
+            if _contact_phone(c):
+                por_tel[_contact_phone(c)] = ficha
+    except Exception:
+        app.logger.exception("No se pudieron cargar los contactos del artista de %s", getattr(concert, "id", ""))
+
+    try:
+        avisos = (session_db.query(ConcertArtistNotification)
+                  .filter(ConcertArtistNotification.concert_id == concert.id)
+                  .order_by(ConcertArtistNotification.sent_at.desc()).all())
+    except Exception:
+        avisos = []
+    for aviso in avisos:
+        cuando = (aviso.sent_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y") if getattr(aviso, "sent_at", None) else "")
+        etiqueta = ACTIVITY_NOTICE_KINDS.get((aviso.kind or "").upper(), "Aviso")
+        destinos = [d for d in (aviso.recipients or []) if isinstance(d, dict)]
+        if not destinos:
+            # «El artista ya fue informado» (marcado a mano): no hay destinatario, pero el artista
+            # SABE de la actividad, que es lo que importa aquí.
+            anota((getattr(artist, "name", None) or "El artista"), photo=foto_artista,
+                  detail=f"{etiqueta} · marcado a mano{(' · ' + cuando) if cuando else ''}",
+                  email=f"manual:{aviso.id}")
+            continue
+        for d in destinos:
+            correo = (d.get("email") or "").strip()
+            tel = (d.get("phone") or "").strip()
+            ref = por_correo.get(correo.lower()) or por_tel.get(tel) or {}
+            anota((d.get("name") or ref.get("name") or ""), email=correo, phone=tel,
+                  photo=(ref.get("photo") or foto_artista),
+                  detail=f"{etiqueta} por {(aviso.channel or '').title()}{(' · ' + cuando) if cuando else ''}")
+
+    # El PROMOTOR al que se le pidió la ficha de contratación.
+    try:
+        hoja = getattr(concert, "contract_sheet", None)
+        if hoja is not None and (getattr(hoja, "promoter_email", None) or "").strip() \
+                and (getattr(hoja, "requested_at", None) or (hoja.status or "").upper() != "DRAFT"):
+            prom = getattr(concert, "promoter", None)
+            cuando = (hoja.requested_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y")
+                      if getattr(hoja, "requested_at", None) else "")
+            anota((_promoter_display_name(prom) if prom is not None else "") or hoja.promoter_email,
+                  email=hoja.promoter_email,
+                  photo=(getattr(prom, "logo_url", None) or "").strip(),
+                  is_person=False,
+                  detail=f"Ficha de contratación{(' · ' + cuando) if cuando else ''}")
+    except Exception:
+        app.logger.exception("No se pudo leer la ficha de contratación de %s", getattr(concert, "id", ""))
+
+    # La CARTELERÍA: al promotor (con sus correos) o a diseño, si la hacemos nosotros.
+    try:
+        art = getattr(concert, "artwork_request", None)
+        estado_art = (getattr(art, "status", None) or "").upper()
+        if art is not None and estado_art in {"PROMOTER", "REQUESTED", "CORRECTIONS", "REVIEW", "UPLOADED"}:
+            correos = [str(x).strip() for x in (getattr(art, "recipients_json", None) or []) if str(x or "").strip()]
+            if correos:
+                prom = getattr(concert, "promoter", None)
+                for correo in correos:
+                    anota((_promoter_display_name(prom) if prom is not None else "") or correo,
+                          email=correo, photo=(getattr(prom, "logo_url", None) or "").strip(),
+                          is_person=False, detail="Solicitud de cartelería")
+            elif (getattr(art, "handled_by", None) or "").upper() == "OURS":
+                anota("Diseño", email="carteleria:diseno", is_person=False,
+                      detail="Solicitud de cartelería a diseño")
+    except Exception:
+        app.logger.exception("No se pudo leer la cartelería de %s", getattr(concert, "id", ""))
+    return partes
+
+
+def _activity_cancellation_notify(session_db, concert, note: str, emails) -> tuple[bool, str]:
+    """Manda el aviso de CANCELACIÓN (el mismo HTML que el resto de avisos) a quien ya lo sabía.
+
+    Se usa al ELIMINAR una actividad: si el correo no sale, la actividad NO se borra (así se puede
+    volver a intentar) — de eso se encarga quien llama."""
+    destinos = []
+    for correo in (emails or []):
+        correo = str(correo or "").strip()
+        # Los «correos» internos que sirven de clave (marcado a mano, diseño) no son direcciones.
+        if not correo or "@" not in correo:
+            continue
+        if correo.lower() not in {d.lower() for d in destinos}:
+            destinos.append(correo)
+    if not destinos:
+        return False, "No hay ningún correo al que avisar de la cancelación."
+    ctx = _activity_notice_context(session_db, concert, kind="CANCELACION")
+    cuerpo = _activity_notice_html(ctx, note=note or "")
+    asunto = f"{ctx['title']} · {ctx['subject_name']}"
+    return _send_optional_email(destinos, asunto, cuerpo)
 
 
 def _activity_notice_description(session_db, concert) -> dict | None:
@@ -66841,9 +67105,11 @@ def _activity_notice_context(session_db, concert, *, kind: str = "CONFIRMACION")
         eyebrow = ""
 
     # Botón «Ver hoja de ruta»: solo si esa hoja está activada (si no, el enlace daría 404).
+    # ⚠️ En una CANCELACIÓN no se pone: la actividad se cae (y si se ha borrado, el enlace no llevaría
+    # a ninguna parte).
     roadmap_url = ""
     try:
-        if _roadmap_kinds(concert).get("GENERAL", True):
+        if kind != "CANCELACION" and _roadmap_kinds(concert).get("GENERAL", True):
             token = _ensure_roadmap_token(session_db, concert, "GENERAL")
             roadmap_url = _external_url_for("public_roadmap_view", token=token)
     except Exception:
@@ -67095,6 +67361,9 @@ def concert_artist_notice_view(cid):
             preview_html=_activity_notice_html(ctx, preview=True),
             history=historial,
             confirm_after=bool((request.args.get("confirmar") or "").strip()),
+            # La actividad YA HA PASADO: se puede dar por informado sin mandar nada (botón propio).
+            can_ack=_concert_notice_can_ack(concert),
+            ack_url=url_for("concert_artist_notice_ack", cid=concert.id),
             artist_config_url=(url_for("artist_detail_view", artist_id=concert.artist_id, tab="datos")
                                if getattr(concert, "artist_id", None) else ""),
         )
@@ -67118,6 +67387,97 @@ def concert_artist_notice_preview(cid):
         html_preview = _activity_notice_html(ctx, note=(payload.get("note") or ""),
                                              hidden=(payload.get("hidden") or []), preview=True)
         return jsonify({"ok": True, "html": html_preview})
+    finally:
+        session_db.close()
+
+
+@app.post("/conciertos/<cid>/avisar-artista/ya-informado", endpoint="concert_artist_notice_ack")
+@admin_required
+def concert_artist_notice_ack(cid):
+    """«El artista ya fue informado»: da el aviso por hecho SIN mandar nada.
+
+    ⚠️ Solo vale para actividades cuyo último día YA HA PASADO (`_concert_notice_can_ack`): mandar
+    ahora un aviso de algo que ya ocurrió no tiene sentido, y lo único que falta es dejarlo apuntado
+    para poder cerrar el estado. En una actividad que está por venir el aviso hay que mandarlo, y el
+    servidor lo comprueba aquí (no vale solo el gate del navegador).
+
+    Queda apuntado igual que un envío —en `ConcertArtistNotification` con canal MANUAL, y en la
+    actividad con la misma FIRMA— así que un cambio gordo posterior (fecha, hora, recinto o caché)
+    vuelve a pedir aviso, como con cualquier otro."""
+    if not can_edit_concerts():
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    es_json = _wants_json_response() or _is_xhr_request()
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(cid))
+        if not concert:
+            return (jsonify({"ok": False, "error": "Actividad no encontrada."}), 404) if es_json else abort(404)
+        if not _concert_notice_can_ack(concert):
+            msg = ("Esta actividad todavía no ha pasado: hay que avisar al artista de verdad, no se "
+                   "puede dar por informado.")
+            return (jsonify({"ok": False, "error": msg}), 400) if es_json else (
+                flash(msg, "warning") or redirect(url_for("concert_artist_notice_view", cid=cid)))
+
+        datos = request.get_json(silent=True) if request.is_json else None
+        datos = datos if isinstance(datos, dict) else request.form
+        nota = (datos.get("note") or "").strip()
+        estado_previo = _concert_notice_state(session_db, concert)
+        kind = estado_previo["needs_kind"] if estado_previo["needs_kind"] in ACTIVITY_NOTICE_KINDS else "CONFIRMACION"
+        firma = _concert_notice_signature(session_db, concert)
+        ahora = _now_madrid()
+        yo = _current_user_state() or {}
+
+        session_db.add(ConcertArtistNotification(
+            concert_id=concert.id,
+            channel="MANUAL",
+            kind=kind,
+            recipients=[],
+            note=nota or "Marcado a mano: el artista ya estaba informado (actividad ya pasada).",
+            hidden_modules=[],
+            snapshot={"manual": True},
+            signature=firma,
+            sent_by_user_id=to_uuid(yo.get("user_id") or "") or None,
+            sent_by_nick=(yo.get("nick") or None),
+        ))
+        concert.artist_notified_at = ahora
+        concert.artist_notified_by_user_id = to_uuid(yo.get("user_id") or "") or None
+        concert.artist_notified_by_nick = (yo.get("nick") or None)
+        # Sin nombre ni correo (no se ha mandado nada a nadie) y con la marca `manual`, que es lo que
+        # lee `_concert_notice_state` para decirlo en la etiqueta.
+        concert.artist_notified_to = [{"manual": True}]
+        concert.artist_notified_signature = firma
+        concert.artist_notified_kind = kind
+        concert.updated_at = ahora
+
+        # Y se sigue con el cambio de estado que había quedado a medias (es para lo que se pulsa).
+        nuevo = _norm_status(datos.get("status") or "CONFIRMADO")
+        confirmada = False
+        pedir_responsable = False
+        if nuevo in ACTIVITY_NOTICE_REQUIRED_STATUSES and (concert.status or "").upper() != nuevo:
+            concert.status = nuevo
+            confirmada = True
+            try:
+                _ensure_production_request_for_concert(session_db, concert)
+            except Exception:
+                app.logger.exception("No se pudo crear la petición de producción al confirmar %s", cid)
+        if (concert.status or "").upper() == "CONFIRMADO" and not getattr(concert, "production_owner_user_id", None):
+            try:
+                pedir_responsable = _concert_needs_production_owner(session_db, concert)
+            except Exception:
+                pedir_responsable = False
+        session_db.commit()
+        if es_json:
+            return jsonify({"ok": True, "status": concert.status, "confirmed": confirmada,
+                            "needs_production_owner": pedir_responsable})
+        flash("Apuntado: el artista ya estaba informado." +
+              (" La actividad ha pasado a CONFIRMADA." if confirmada else ""), "success")
+        return redirect(url_for("concert_detail_view", cid=cid, tab="general"))
+    except Exception as e:
+        session_db.rollback()
+        if es_json:
+            return jsonify({"ok": False, "error": str(e)}), 400
+        flash(f"No se pudo apuntar: {e}", "danger")
+        return redirect(url_for("concert_detail_view", cid=cid, tab="general"))
     finally:
         session_db.close()
 
@@ -87595,7 +87955,9 @@ def _agenda_personal_days(session_db, start_date, end_date) -> list:
     except Exception:
         pass
     try:
-        for day, meta in (_vacation_holidays(session_db, start_date.year, end_date.year) or {}).items():
+        # Con `user_id`: un día NO LABORABLE que solo es de unas personas no le sale a las demas.
+        for day, meta in (_vacation_holidays(session_db, start_date.year, end_date.year,
+                                             user_id=uid) or {}).items():
             if not (start_date <= day <= end_date):
                 continue
             empresa = (meta.get("scope") or "") == "EMPRESA"
@@ -92918,15 +93280,20 @@ def _merge_execute_view(kind):
 # VACACIONES Y DÍAS LIBRES · del personal de la oficina
 # =============================================================================
 # Reglas de la casa (ago 2026):
-#   · A cada persona le corresponden VACATION_DAYS_PER_YEAR (30) días POR AÑO
-#     TRABAJADO. En el año de alta se PRORRATEAN desde la fecha de comienzo del
-#     contrato (`UserContract.start_date`, pestaña «Contrato» de su ficha).
+#   · A cada persona le corresponden VACATION_DAYS_PER_YEAR (23) días HÁBILES
+#     POR AÑO TRABAJADO. En el año de alta se PRORRATEAN desde la fecha de
+#     comienzo del contrato (`UserContract.start_date`, pestaña «Contrato»).
+#     ⚠️ El MÍNIMO LEGAL (art. 38 del Estatuto de los Trabajadores) son «treinta
+#     días naturales», que en días de trabajo son unos 22 (30 naturales ≈ 21,7
+#     laborables). La ley permite mejorarlo, y la casa da 23 HÁBILES: es lo que
+#     hay que contar aquí, no 30. Si algún día cambia, se cambia este número (y
+#     cada persona puede tener los suyos en su ficha).
 #   · Se cuentan LABORABLES: un sábado, un domingo o un festivo de Madrid no
 #     consume saldo. El día se guarda igual (así el calendario enseña el tramo
 #     entero de principio a fin) pero con `counts=False`.
 #   · Quien gestiona: DIRECCIÓN y quien tenga la responsabilidad de
 #     administración «VACACIONES» (se reparte en la ficha de cada persona).
-VACATION_DAYS_PER_YEAR = 30
+VACATION_DAYS_PER_YEAR = 23
 VACATION_REGION = "Madrid"
 VACATION_ACCESS_KEY = "vacaciones"
 VACATION_RESPONSIBILITY = "VACACIONES"
@@ -92995,29 +93362,80 @@ def _easter_sunday(year: int) -> date:
     return date(year, month, day + 1)
 
 
-def _madrid_holidays(year: int) -> list[tuple]:
-    """Festivos de Madrid de un año: nacionales + Comunidad de Madrid + Madrid capital.
+# El calendario laboral de Madrid: los 14 festivos son 9 nacionales de fecha fija + Viernes Santo +
+# 2 de la Comunidad (Jueves Santo y el 2 de mayo) + 2 de Madrid capital (San Isidro y la Almudena).
+# `moves` = si cae en DOMINGO su descanso se traslada al LUNES siguiente (art. 37.2 del Estatuto de
+# los Trabajadores para los nacionales; la Comunidad y el Ayuntamiento hacen lo mismo con los suyos:
+# 2 de mayo de 2021 → lunes 3, 15 de agosto de 2021 → lunes 16, San Isidro de 2022 → lunes 16).
+# Jueves y Viernes Santo nunca caen en domingo, así que no se trasladan nunca.
+MADRID_HOLIDAY_RULES = [
+    ("fixed", (1, 1),   "Año Nuevo", "NACIONAL", True),
+    ("fixed", (1, 6),   "Epifanía del Señor (Reyes)", "NACIONAL", True),
+    ("easter", -3,      "Jueves Santo", "AUTONOMICO", False),
+    ("easter", -2,      "Viernes Santo", "NACIONAL", False),
+    ("fixed", (5, 1),   "Fiesta del Trabajo", "NACIONAL", True),
+    ("fixed", (5, 2),   "Fiesta de la Comunidad de Madrid", "AUTONOMICO", True),
+    ("fixed", (5, 15),  "San Isidro", "LOCAL", True),
+    ("fixed", (8, 15),  "Asunción de la Virgen", "NACIONAL", True),
+    ("fixed", (10, 12), "Fiesta Nacional de España", "NACIONAL", True),
+    ("fixed", (11, 1),  "Todos los Santos", "NACIONAL", True),
+    ("fixed", (11, 9),  "Nuestra Señora de la Almudena", "LOCAL", True),
+    ("fixed", (12, 6),  "Día de la Constitución Española", "NACIONAL", True),
+    ("fixed", (12, 8),  "Inmaculada Concepción", "NACIONAL", True),
+    ("fixed", (12, 25), "Natividad del Señor", "NACIONAL", True),
+]
 
-    ⚠️ Es una SIEMBRA, no la verdad absoluta: el calendario laboral se publica cada año en el BOE
-    y hay traslados (un festivo en domingo se puede mover). Por eso se guarda en BD y se puede
-    corregir a mano, y la siembra de un año solo se hace UNA vez (marca en AppSetting)."""
+# ⚠️ El calendario de cada año lo publican el BOE (nacionales), el BOCM (Comunidad) y el
+# Ayuntamiento (los dos de Madrid capital), y algún año pueden resolver un traslado de otra manera
+# (sustituir un festivo que cae en SÁBADO, o llevarse un local a otro día). Cuando pase, se apunta
+# aquí el año y sus festivos añadidos/quitados, y manda esto sobre la regla general. Los festivos
+# también se pueden corregir a mano en Vacaciones → «Festivos y normas».
+#   {año: {"add": [((mes, día), "Nombre", "ÁMBITO")], "remove": [(mes, día)]}}
+MADRID_HOLIDAY_OVERRIDES: dict[int, dict] = {}
+
+
+def _madrid_holidays_full(year: int) -> list[dict]:
+    """Los festivos de Madrid de un año, con el TRASLADO al lunes ya resuelto.
+
+    Devuelve dicts {day, name, scope, moved}. El festivo que cae en domingo se conserva (ese día ES
+    la festividad, y así se ve en el calendario) y ADEMÁS se añade el lunes al que se traslada el
+    descanso, con el nombre diciéndolo. `moved` marca cuál de los dos es el traslado."""
     easter = _easter_sunday(year)
-    return [
-        (date(year, 1, 1),   "Año Nuevo", "NACIONAL"),
-        (date(year, 1, 6),   "Epifanía del Señor (Reyes)", "NACIONAL"),
-        (easter - timedelta(days=3), "Jueves Santo", "AUTONOMICO"),
-        (easter - timedelta(days=2), "Viernes Santo", "NACIONAL"),
-        (date(year, 5, 1),   "Fiesta del Trabajo", "NACIONAL"),
-        (date(year, 5, 2),   "Fiesta de la Comunidad de Madrid", "AUTONOMICO"),
-        (date(year, 5, 15),  "San Isidro", "LOCAL"),
-        (date(year, 8, 15),  "Asunción de la Virgen", "NACIONAL"),
-        (date(year, 10, 12), "Fiesta Nacional de España", "NACIONAL"),
-        (date(year, 11, 1),  "Todos los Santos", "NACIONAL"),
-        (date(year, 11, 9),  "Nuestra Señora de la Almudena", "LOCAL"),
-        (date(year, 12, 6),  "Día de la Constitución Española", "NACIONAL"),
-        (date(year, 12, 8),  "Inmaculada Concepción", "NACIONAL"),
-        (date(year, 12, 25), "Natividad del Señor", "NACIONAL"),
-    ]
+    filas: list[dict] = []
+
+    def anota(day, name, scope, moved=False):
+        for f in filas:
+            if f["day"] == day:
+                # Dos festividades el mismo día (un traslado que cae encima de otro festivo): se
+                # dicen las dos, en vez de perder una.
+                if name not in f["name"]:
+                    f["name"] = f"{f['name']} · {name}"
+                return
+        filas.append({"day": day, "name": name, "scope": scope, "moved": bool(moved)})
+
+    for tipo, ref, nombre, ambito, mueve in MADRID_HOLIDAY_RULES:
+        if tipo == "easter":
+            dia = easter + timedelta(days=int(ref))
+        else:
+            dia = date(year, ref[0], ref[1])
+        anota(dia, nombre, ambito)
+        if mueve and dia.weekday() == 6:      # 6 = domingo
+            anota(dia + timedelta(days=1),
+                  f"{nombre} (trasladado del domingo {dia.day} de {VACATION_MONTH_LOWER[dia.month - 1]})",
+                  ambito, moved=True)
+
+    ajustes = MADRID_HOLIDAY_OVERRIDES.get(int(year)) or {}
+    quitar = {date(year, m, d) for m, d in (ajustes.get("remove") or [])}
+    if quitar:
+        filas = [f for f in filas if f["day"] not in quitar]
+    for (m, d), nombre, ambito in (ajustes.get("add") or []):
+        anota(date(year, m, d), nombre, ambito)
+    return sorted(filas, key=lambda f: f["day"])
+
+
+def _madrid_holidays(year: int) -> list[tuple]:
+    """Los festivos de Madrid de un año como (día, nombre, ámbito) — lo que siembra la BD."""
+    return [(f["day"], f["name"], f["scope"]) for f in _madrid_holidays_full(year)]
 
 
 def _ensure_holidays_for_year(session_db, year: int) -> None:
@@ -93032,8 +93450,14 @@ def _ensure_holidays_for_year(session_db, year: int) -> None:
     if year < 2000 or year > 2100:
         return
     marca = f"holidays_seeded_{VACATION_REGION.lower()}_{year}"
+    # Los años que se sembraron ANTES de que existieran los traslados al lunes se quedaron sin ellos
+    # (y la marca de arriba impide volver a sembrarlos). Este arreglo puntual añade SOLO los
+    # traslados que falten: nada de lo que se haya corregido o borrado a mano se resucita.
+    marca_traslados = f"holidays_transfers_{VACATION_REGION.lower()}_{year}"
     try:
-        if _get_app_setting(marca):
+        sembrado = bool(_get_app_setting(marca))
+        traslados_ok = bool(_get_app_setting(marca_traslados))
+        if sembrado and traslados_ok:
             return
         existentes = {
             row.day for row in session_db.query(Holiday.day)
@@ -93042,15 +93466,20 @@ def _ensure_holidays_for_year(session_db, year: int) -> None:
             .filter(Holiday.day <= date(year, 12, 31)).all()
         }
         nuevos = 0
-        for day, name, scope in _madrid_holidays(year):
-            if day in existentes:
+        for fila in _madrid_holidays_full(year):
+            # Ya sembrado: solo se completan los traslados que faltan.
+            if sembrado and not fila["moved"]:
                 continue
-            session_db.add(Holiday(day=day, name=name, scope=scope, region=VACATION_REGION))
+            if fila["day"] in existentes:
+                continue
+            session_db.add(Holiday(day=fila["day"], name=fila["name"], scope=fila["scope"],
+                                   region=VACATION_REGION))
             nuevos += 1
         if nuevos:
             session_db.flush()
         session_db.commit()
         _set_app_setting(marca, "1")
+        _set_app_setting(marca_traslados, "1")
     except Exception:
         try:
             session_db.rollback()
@@ -93058,8 +93487,25 @@ def _ensure_holidays_for_year(session_db, year: int) -> None:
             pass
 
 
-def _vacation_holidays(session_db, year_from: int, year_to: int | None = None) -> dict:
-    """{fecha: nombre} de los festivos del rango de años (sembrando los que falten)."""
+def _holiday_applies_to(row, user_id=None) -> bool:
+    """¿Este festivo cuenta PARA ESA PERSONA?
+
+    Los festivos oficiales son de todo el mundo. Un día NO LABORABLE de la oficina (scope EMPRESA)
+    puede ser de toda la oficina (`user_ids` vacío, que es como eran todos hasta ago 2026) o solo de
+    unas personas: al resto no le afecta ni le sale en su calendario."""
+    if user_id is None:
+        return True
+    asignados = [str(x) for x in (getattr(row, "user_ids", None) or []) if str(x or "").strip()]
+    if not asignados:
+        return True
+    return str(user_id) in asignados
+
+
+def _vacation_holidays(session_db, year_from: int, year_to: int | None = None, *, user_id=None) -> dict:
+    """{fecha: {name, scope, ...}} de los festivos del rango de años (sembrando los que falten).
+
+    Con `user_id` se dejan fuera los días no laborables que NO son de esa persona: es lo que hay que
+    pasar siempre que se esté calculando el saldo, pintando su calendario o guardándole días."""
     year_to = year_to or year_from
     for y in range(int(year_from), int(year_to) + 1):
         _ensure_holidays_for_year(session_db, y)
@@ -93071,7 +93517,10 @@ def _vacation_holidays(session_db, year_from: int, year_to: int | None = None) -
                 .order_by(Holiday.day.asc()).all())
     except Exception:
         return {}
-    return {r.day: {"name": r.name, "scope": (r.scope or "NACIONAL").upper()} for r in rows}
+    uid = str(_safe_uuid(user_id) or "") or None
+    return {r.day: {"name": r.name, "scope": (r.scope or "NACIONAL").upper(),
+                    "user_ids": [str(x) for x in (getattr(r, "user_ids", None) or [])]}
+            for r in rows if _holiday_applies_to(r, uid)}
 
 
 def _vacation_day_counts(day: date, holidays: dict) -> bool:
@@ -93122,7 +93571,7 @@ def _vacation_adjustment(profile, year: int) -> int:
 
 def _vacation_entitlement(base_days: int, year: int, start: date | None, end: date | None = None) -> dict:
     """Los días que le corresponden ESE año. En el año de alta (o de baja) se prorratean por los
-    días de contrato: 30 días por año trabajado, no 30 por asomarse en diciembre."""
+    días de contrato: los días hábiles de un año trabajado, no los de asomarse en diciembre."""
     ini_year, fin_year = date(year, 1, 1), date(year, 12, 31)
     total_dias = (fin_year - ini_year).days + 1
     desde = max(start, ini_year) if start else ini_year
@@ -93499,7 +93948,9 @@ def _vacation_calendar_payload(session_db, year: int, user_ids: list[str] | None
                                include_pending: bool = True) -> dict:
     """Lo que necesita el calendario en el navegador: festivos y días de cada persona.
     Un solo formato para las dos pantallas (la mía y la de toda la oficina)."""
-    holidays = _vacation_holidays(session_db, year)
+    # De UNA persona: se dejan fuera los no laborables que no son suyos. De toda la oficina: todos.
+    _solo = user_ids[0] if (user_ids and len(user_ids) == 1) else None
+    holidays = _vacation_holidays(session_db, year, user_id=_solo)
     estados = list(VACATION_LIVE_STATUSES) if include_pending else ["APPROVED"]
     q = (session_db.query(VacationDay.user_id, VacationDay.day, VacationDay.counts,
                           VacationRequest.status, VacationRequest.id, VacationRequest.kind)
@@ -93519,8 +93970,11 @@ def _vacation_calendar_payload(session_db, year: int, user_ids: list[str] | None
         pass
     return {
         "year": int(year),
+        # `partial` = día no laborable que solo es de unas personas (en el calendario de toda la
+        # oficina hay que decirlo: no es de todo el mundo).
         "holidays": [{"day": d.isoformat(), "name": meta["name"],
-                      "scope": meta["scope"], "scope_label": VACATION_HOLIDAY_SCOPES.get(meta["scope"], "")}
+                      "scope": meta["scope"], "scope_label": VACATION_HOLIDAY_SCOPES.get(meta["scope"], ""),
+                      "partial": bool(meta.get("user_ids"))}
                      for d, meta in sorted(holidays.items())],
         "days": dias,
         "month_names": VACATION_MONTH_NAMES,
@@ -93715,7 +94169,7 @@ def _vacation_notice_context(session_db, notice_type: str, user_id, days: list,
         "nick": (getattr(prof, "nick", None) or "").strip(),
         "balance": saldo,
         "brand": _vacation_notice_brand(session_db, user_id, contracts=contratos),
-        "holidays": _vacation_holidays(session_db, year),
+        "holidays": _vacation_holidays(session_db, year, user_id=user_id),
         # En un «no laborable» no se enseñan los saldos: no es de nadie en particular.
         "show_totals": tipo != "NO_LABORABLE",
     }
@@ -93855,7 +94309,7 @@ def _vacation_check_request(session_db, user_id, days: list, *, exclude_request_
     if any(d.year != year for d in days):
         return "Los días tienen que ser del mismo año: pide un tramo por año.", None
 
-    holidays = _vacation_holidays(session_db, year)
+    holidays = _vacation_holidays(session_db, year, user_id=user_id)
     cuentan = [d for d in days if _vacation_day_counts(d, holidays)]
     if not cuentan:
         return "Los días marcados son todos fines de semana o festivos: no hay nada que pedir.", None
@@ -93970,7 +94424,7 @@ def mis_vacaciones_request():
         if error:
             flash(error, "warning")
             return redirect(destino)
-        holidays = _vacation_holidays(session_db, dias[0].year)
+        holidays = _vacation_holidays(session_db, dias[0].year, user_id=uid)
         req = VacationRequest(user_id=_safe_uuid(uid), status="PENDING", year=dias[0].year,
                               kind=kind, note=nota, created_by_user_id=_safe_uuid(uid))
         session_db.add(req)
@@ -94059,7 +94513,9 @@ def vacaciones_view():
     except Exception:
         month = hoy.month
     tab = (request.args.get("tab") or "calendario").strip().lower()
-    if tab not in {"calendario", "peticiones", "festivos"}:
+    # ⚠️ Una pestaña nueva hay que añadirla a esta lista blanca: si no, cae en «calendario» y sale
+    # marcada pero se pinta otra cosa (el mismo tropiezo que en Discográfica).
+    if tab not in {"calendario", "peticiones", "festivos", "cuadrante"}:
         tab = "calendario"
     filtro_uid = (request.args.get("persona") or "").strip()
 
@@ -94098,9 +94554,15 @@ def vacaciones_view():
                               "color": p["color"]} for p in personas]
 
         festivos = []
+        _nick_por_uid = {p["user_id"]: p["nick"] for p in personas}
         for d, meta in sorted(_vacation_holidays(session_db, year).items()):
+            # A quién se le aplica: solo los NO LABORABLES pueden ser de unas personas concretas.
+            _suyos = [str(x) for x in (meta.get("user_ids") or []) if str(x or "").strip()]
             festivos.append({"day": d, "name": meta["name"], "scope": meta["scope"],
-                             "scope_label": VACATION_HOLIDAY_SCOPES.get(meta["scope"], "")})
+                             "scope_label": VACATION_HOLIDAY_SCOPES.get(meta["scope"], ""),
+                             "people_label": (", ".join([_nick_por_uid.get(u, "?") for u in _suyos])
+                                              if _suyos else ""),
+                             "people_count": len(_suyos)})
         festivo_ids = {}
         try:
             for row in (session_db.query(Holiday)
@@ -94113,10 +94575,21 @@ def vacaciones_view():
         for f in festivos:
             f["id"] = festivo_ids.get(f["day"], "")
 
+        # CUADRANTE: el listado de TODAS las vacaciones y días libres que ocupan días (a la izquierda)
+        # y el calendario (a la derecha). Con `?persona=`, solo los de esa persona.
+        cuadrante = []
+        if tab == "cuadrante":
+            cuadrante = _vacation_request_rows(
+                session_db, user_id=(seleccion[0] if seleccion else None),
+                statuses=list(VACATION_LIVE_STATUSES), year=year)
+            cuadrante.sort(key=lambda r: (r["first_day"] or date(year, 12, 31)))
+
         años = sorted({year, hoy.year, hoy.year + 1, hoy.year - 1}, reverse=True)
         return render_template(
             "vacaciones.html",
             tab=tab, year=year, month=month, years=años, people=personas,
+            quadrant=cuadrante,
+            quadrant_person=next((p for p in personas if seleccion and p["user_id"] == seleccion[0]), None),
             pending=pendientes, history=historico, calendar_payload=payload,
             holidays=festivos, holiday_scopes=VACATION_HOLIDAY_SCOPES,
             rules_text=_vacation_rules_text(), month_names=VACATION_MONTH_NAMES,
@@ -94248,7 +94721,7 @@ def vacation_person_days(user_id):
         if error:
             flash(error, "warning")
             return redirect(url_for("vacaciones_view", anio=year))
-        holidays = _vacation_holidays(session_db, year)
+        holidays = _vacation_holidays(session_db, year, user_id=user_id)
         ahora = datetime.now(TZ_MADRID)
         actor = _safe_uuid((_current_user_state() or {}).get("user_id"))
         req = VacationRequest(user_id=to_uuid(user_id), status="APPROVED", year=year, kind=kind,
@@ -94296,7 +94769,107 @@ def vacation_request_delete(request_id):
         flash(f"No se pudo eliminar: {e}", "danger")
     finally:
         session_db.close()
-    return redirect(url_for("vacaciones_view", anio=year))
+    return redirect(request.form.get("next") or url_for("vacaciones_view", anio=year))
+
+
+@app.post("/vacaciones/peticion/<request_id>/dias", endpoint="vacation_request_days_edit")
+@admin_required
+def vacation_request_days_edit(request_id):
+    """EDITAR los días de unas vacaciones o de un día libre ya apuntados (desde el cuadrante).
+
+    Se vuelven a elegir sobre el calendario y se reemplazan: `_vacation_apply_days` borra los de antes
+    y recalcula cuáles CUENTAN (findes y festivos de esa persona no restan). Las normas se comprueban
+    igual que al pedirlos, pero **sin contarse a sí misma** (`exclude_request_id`): si no, cualquier
+    edición chocaría con sus propios días."""
+    if not _can_manage_vacations():
+        return forbid("No puedes editar vacaciones.")
+    dias = _parse_vacation_days(request.form.get("days"))
+    destino = request.form.get("next") or url_for("vacaciones_view", tab="cuadrante")
+    session_db = db()
+    try:
+        req = session_db.get(VacationRequest, to_uuid(request_id))
+        if not req:
+            flash("Petición no encontrada.", "warning")
+            return redirect(destino)
+        if not dias:
+            flash("No has marcado ningún día: si lo que quieres es quitarlos, usa «Eliminar».", "warning")
+            return redirect(destino)
+        error, _info = _vacation_check_request(session_db, req.user_id, dias, kind=req.kind,
+                                              exclude_request_id=req.id,
+                                              ignore_balance=bool(request.form.get("force")))
+        if error:
+            flash(error, "warning")
+            return redirect(destino)
+        holidays = _vacation_holidays(session_db, dias[0].year, user_id=req.user_id)
+        req.year = dias[0].year
+        n = _vacation_apply_days(session_db, req, dias, holidays)
+        uid = req.user_id
+        session_db.commit()
+        _notify_user(session_db, uid, "VACACIONES", "Días cambiados",
+                     _vacation_range_label(dias), url_for("mis_vacaciones_view", anio=req.year),
+                     ref_type="vacation_request", ref_id=str(request_id))
+        session_db.commit()
+        flash(f"Días actualizados: {n} {'día' if n == 1 else 'días'} que cuentan.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"No se pudieron cambiar los días: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(destino)
+
+
+@app.post("/vacaciones/peticion/<request_id>/a-no-laborable", endpoint="vacation_request_to_nonworking")
+@admin_required
+def vacation_request_to_nonworking(request_id):
+    """Pasar unos días apuntados a **día libre NO LABORABLE** de esa persona.
+
+    Deja de ser un día suyo (le vuelve al saldo: se borra la petición) y pasa a ser un día en el que
+    no se trabaja, apuntado en `Holiday` con ámbito EMPRESA y **solo para ella** (`user_ids`), que es
+    exactamente lo que hace «marcar días no laborables» pero para una persona.
+    ⚠️ Los días que YA eran festivos no se tocan (no vamos a renombrar el 25 de diciembre)."""
+    if not _can_manage_vacations():
+        return forbid("No puedes marcar días no laborables.")
+    destino = request.form.get("next") or url_for("vacaciones_view", tab="cuadrante")
+    nombre = (request.form.get("name") or "").strip() or "No laborable"
+    session_db = db()
+    try:
+        req = session_db.get(VacationRequest, to_uuid(request_id))
+        if not req:
+            flash("Petición no encontrada.", "warning")
+            return redirect(destino)
+        uid = req.user_id
+        year = req.year
+        dias = sorted({d.day for d in (req.days or []) if d.day})
+        if not dias:
+            flash("Esa petición no tiene días.", "warning")
+            return redirect(destino)
+        nuevos = pisados = 0
+        for day in dias:
+            fila = (session_db.query(Holiday)
+                    .filter(Holiday.day == day)
+                    .filter(Holiday.region == VACATION_REGION).first())
+            if fila:
+                pisados += 1
+                continue
+            session_db.add(Holiday(day=day, name=nombre, scope="EMPRESA", region=VACATION_REGION,
+                                   user_ids=[str(uid)]))
+            nuevos += 1
+        # La petición desaparece: esos días ya no salen de su saldo.
+        session_db.delete(req)
+        session_db.commit()
+        _vacation_notice_send(session_db, "NO_LABORABLE", str(uid), dias,
+                              note=nombre if nombre != "No laborable" else "",
+                              year=year, ref_id=dias[0].isoformat())
+        session_db.commit()
+        flash(f"{nuevos} día{'' if nuevos == 1 else 's'} pasado{'' if nuevos == 1 else 's'} a no "
+              "laborable" + ("" if nuevos == 1 else "s") + " y avisada la persona." +
+              (f" {pisados} ya eran festivos." if pisados else ""), "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"No se pudo pasar a no laborable: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(destino)
 
 
 @app.post("/vacaciones/normas", endpoint="vacation_rules_save")
@@ -94398,11 +94971,13 @@ def vacation_grant_free_day():
 
     session_db = db()
     try:
-        holidays = _vacation_holidays(session_db, year)
         ahora = datetime.now(TZ_MADRID)
         actor = _safe_uuid((_current_user_state() or {}).get("user_id"))
         concedidos, saltados = 0, []
         for uid in uids:
+            # Los festivos son POR PERSONA (un no laborable puede ser solo de unas cuantas), así que
+            # lo que «cuenta» se decide con los suyos.
+            holidays = _vacation_holidays(session_db, year, user_id=uid)
             # Si ya tiene esos días pedidos o aprobados, se le salta (no se duplican).
             pisados = _vacation_taken_days(session_db, uid, dias)
             libres = [d for d in dias if d not in pisados]
@@ -94453,6 +95028,19 @@ def vacation_nonworking_save():
 
     session_db = db()
     try:
+        # A QUIÉN SE LE APLICA: a toda la oficina o solo a las personas elegidas. Con una selección,
+        # el día solo les afecta y solo les sale a ellas (`Holiday.user_ids`); vacío = a todos.
+        solo_algunos = (request.form.get("who") or "ALL").strip().upper() == "SOME"
+        elegidos = []
+        if solo_algunos:
+            # Se guardan en su forma canónica (la misma con la que se comparan después) y solo si
+            # son personal vivo de la oficina.
+            validos = {str(v) for v in _vacation_office_user_ids(session_db)}
+            elegidos = [str(_safe_uuid(u)) for u in request.form.getlist("user_ids")
+                        if _safe_uuid(u) and str(_safe_uuid(u)) in validos]
+            if not elegidos:
+                flash("Has dicho que es solo para algunas personas pero no has elegido a nadie.", "warning")
+                return redirect(url_for("vacaciones_view", tab="festivos", anio=year))
         nuevos = pisados = 0
         for day in dias:
             fila = (session_db.query(Holiday)
@@ -94462,19 +95050,23 @@ def vacation_nonworking_save():
                 # Ya era festivo: no se toca (no vamos a renombrar el 25 de diciembre).
                 pisados += 1
                 continue
-            session_db.add(Holiday(day=day, name=nombre, scope="EMPRESA", region=VACATION_REGION))
+            session_db.add(Holiday(day=day, name=nombre, scope="EMPRESA", region=VACATION_REGION,
+                                   user_ids=elegidos))
             nuevos += 1
         session_db.commit()
         if nuevos:
-            # Un día no laborable es de TODA la oficina: se avisa a todo el personal vivo.
+            # Se avisa SOLO a quien le afecta (a toda la oficina si no se ha elegido a nadie).
             marcados = [d for d in dias if d]
-            for uid in _vacation_office_user_ids(session_db):
+            destinatarios = elegidos or _vacation_office_user_ids(session_db)
+            for uid in destinatarios:
                 _vacation_notice_send(session_db, "NO_LABORABLE", uid, marcados,
                                       note=nombre if nombre != "No laborable" else "",
                                       year=year, ref_id=marcados[0].isoformat() if marcados else "")
             session_db.commit()
             flash(f"Marcado{'' if nuevos == 1 else 's'} {nuevos} día{'' if nuevos == 1 else 's'} "
-                  "como no laborable" + ("" if nuevos == 1 else "s") + ". Avisado el personal.", "success")
+                  "como no laborable" + ("" if nuevos == 1 else "s") +
+                  (". Avisada la oficina." if not elegidos
+                   else f". Avisadas las {len(elegidos)} personas a las que se les aplica."), "success")
         if pisados:
             flash(f"{pisados} de los días marcados ya eran festivos y se han dejado como estaban.", "info")
     except Exception as e:

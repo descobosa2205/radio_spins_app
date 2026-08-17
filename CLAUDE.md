@@ -1305,6 +1305,39 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · **Etiquetas nuevas en Python**: `CACHE_VARIABLE_OPTION_LABELS` (las 6 condiciones de un caché
   variable, que solo vivían en `concert_form.js` — si se toca una, se toca la otra) y
   `_concert_equipment_label` (la cadena del equipamiento, que estaba copiada a mano en tres sitios).
+  · **«EL ARTISTA YA FUE INFORMADO»** (ago 2026): en una actividad **que YA HA PASADO** no tiene
+  sentido mandar un aviso de algo que ya ocurrió, así que la compuerta ofrece **dejarlo apuntado y
+  seguir con el estado**. `_concert_notice_can_ack` (el último día —`end_date` o `date`— anterior a
+  hoy; en una futura NO se ofrece y el servidor lo vuelve a comprobar) alimenta `can_ack`/`ack_url`
+  del gate; el endpoint es **`concert_artist_notice_ack`** (`POST
+  /conciertos/<cid>/avisar-artista/ya-informado`), que apunta el aviso con canal **MANUAL**, la misma
+  FIRMA (así un cambio gordo posterior vuelve a pedirlo) y pasa la actividad a CONFIRMADA. Sale como
+  botón en la pantalla del aviso y, al pinchar la etiqueta de estado, en un **pop-up de tres opciones**
+  (`pedirDecisionAviso` en `scripts.js`: con un `confirm()` no caben; sin Bootstrap se cae al de
+  siempre). Queda marcado en `artist_notified_to = [{"manual": true}]` → `_concert_notice_state`
+  devuelve `manual` y la etiqueta dice «Notificado (a mano)».
+
+- **ELIMINAR UNA ACTIVIDAD · la RUEDA de la cabecera** (ago 2026). La ficha tiene arriba a la derecha
+  un botón de **rueda** (`.ficha-hero__gear`) con lo que se hace de tarde en tarde: asignar/cambiar
+  quién lleva la producción, avisar al artista y **Eliminar actividad**.
+  · Borrar exige **escribir ELIMINAR** (`CONCERT_DELETE_WORD`, comprobado también en el servidor: un
+  POST sin la palabra no borra nada) y se dice que se lleva por delante invitaciones, entradas,
+  cachés, contratos, presupuesto, cartelería, hoja de ruta y fotos.
+  · **A quién se le había comunicado ya** lo resuelve **`_concert_notified_parties`** —con FOTO y
+  nombre— mirando los tres sitios desde los que sale la actividad de casa: los avisos al artista
+  (`ConcertArtistNotification`, con la foto resuelta EN VIVO contra los contactos del artista, porque
+  el aviso guardado no la lleva), el promotor al que se le pidió la **ficha de contratación** y a
+  quien se le pidió la **cartelería**. El pop-up ofrece **notificar la cancelación con una nota**
+  (`_activity_cancellation_notify`, el mismo motor de avisos con `kind='CANCELACION'`) y borrar, o
+  **eliminar sin notificar**.
+  ⚠️ Si el correo de cancelación NO sale, **la actividad NO se borra** (si no, se perdería sin que
+  nadie se hubiera enterado). Y si a quien lo sabía no le consta correo, el botón de notificar no se
+  ofrece (`notified_can_email`) en vez de dejar un botón que no puede enviar nada.
+  ⚠️ En una CANCELACIÓN el aviso **no lleva el botón «Ver hoja de ruta»**: la actividad se cae.
+  ⚠️ Las **FOTOS y vídeos** son polimórficos (`owner_type`/`owner_id`, **sin clave ajena**): no
+  cascadean, así que el borrado las limpia a mano. El resto de hijos sí tienen ON DELETE CASCADE.
+  ⚠️ El borrado del listado antiguo (`concerts.html`) es **código muerto** (esa pantalla solo se usa
+  para Facturación); el único camino vivo es el de la ficha.
 
 - **FICHA DE ACTIVIDAD · la cabecera lo dice todo** (rediseño ago 2026, `concert_detail.html`):
   · Arriba a la **derecha**, la **empresa del grupo que factura** (`.hero-company`; si no se ha dicho
@@ -1506,6 +1539,16 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   no tienen creador apuntado). En la ficha hay botón **«Activar producción»** en la cabecera siempre
   que haga falta (`_concert_production_pending`); el modal se abre SOLO en los casos de antes
   (`ask_production_owner`).
+  · ⚠️ **TIENEN QUE SALIR TODAS LAS PERSONAS DE PRODUCCIÓN** (corregido ago 2026): había casos en los
+  que faltaba gente en el selector. Tres causas, las tres arregladas en `_production_people`:
+  (a) el departamento se comparaba buscando la cadena exacta «producción» dentro de la lista, y ahora
+  se usa **`_profile_in_department`** (normaliza contra `PERSONNEL_DEPARTMENTS`: caja, acentos y
+  alias); (b) **`departments` puede estar guardado como TEXTO** en filas antiguas y recorrer un texto
+  con un `for` devuelve LETRAS —esa persona no casaba con nada y desaparecía **sin dar ningún error**—,
+  así que se lee siempre con **`_departments_iter`**; y (c) el JOIN con el perfil era INTERNO (quien no
+  tiene perfil desaparecía incluso de la lista de respaldo) y ahora es **externo**. Además, la ficha de
+  la actividad calcula la lista **SIEMPRE** (antes solo cuando faltaba responsable, así que al cambiarlo
+  desde la rueda no salía nadie) y el modal `#prodOwnerModal` se pinta con solo poder editar.
 
 - **Producción → ACTIVAS por sujeto** (ago 2026, `_production_active_rows` + `_production_active_context`):
   igual que la sección Actividades — rejilla de **artistas y eventos** con su nº y, al entrar, sus
@@ -1716,6 +1759,14 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ El que NO se queda en la ficha se guarda **siempre**, con un nombre por defecto si no se le pone
   ninguno: la idea es no perder nada. Los **correos** van a `PromoterEmail` (con `concept` = el
   nombre), que es donde los busca el resto de la app — no se duplica una tabla que ya existía.
+  · **LAS COINCIDENCIAS SE REVISAN UNA A UNA** (ago 2026): el resumen dice cuántos terceros trae el
+  fichero y cuántas coincidencias hay, y **no se puede «Terminar» dejándolas a medias** (el botón se
+  queda en «Faltan N por revisar» y cerrar el modal avisa). Se llevan en `state.reviewed` (por fila);
+  cuenta como revisada tanto guardar como **«Dejar lo que tenemos»**, y al crear los nuevos se entra
+  directo a la revisión, empezando por la primera SIN resolver.
+  · **«ES OTRO DIFERENTE»** (mismo nombre, o un DNI mal escrito): en la pantalla partida hay siempre
+  esa salida, que **no fusiona nada** y da de alta un tercero NUEVO con lo que trae el fichero
+  (reutiliza `promoters_import_create` con esa única fila); el que ya estaba se queda como está.
 - **DIRECCIÓN FISCAL EN PIEZAS** (ago 2026): calle · **código postal** · **municipio** · **provincia**
   · país, en `Promoter` y `PromoterCompany` (`fiscal_postal_code`/`fiscal_city`/`fiscal_province`/
   `fiscal_country`). ⚠️ **Holded exige el CP, el municipio y la provincia separados** para dar de alta
@@ -1897,17 +1948,46 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (**una fila por día**, con `user_id` denormalizado para que el calendario de toda la oficina sea una
   consulta) · `UserContract`, y en `UserProfile` los campos `vacation_days_per_year` y
   `vacation_adjustments` (`ensure_vacations_schema`).
-  · **30 días por año trabajado** (`VACATION_DAYS_PER_YEAR`), configurables por persona desde el panel
-  de vacaciones. Se cuentan **LABORABLES**: sábado, domingo o festivo de Madrid **no consumen saldo**
-  (`_vacation_day_counts`). El día se guarda igual con `counts=False`, para que el calendario enseñe
-  el tramo entero de principio a fin.
+  · **23 días HÁBILES por año trabajado** (`VACATION_DAYS_PER_YEAR`, ago 2026; antes decía 30),
+  configurables por persona desde el panel de vacaciones. ⚠️ El **mínimo legal** (art. 38 del Estatuto
+  de los Trabajadores) son «treinta días **naturales**», que en días de trabajo son unos 22 (30
+  naturales ≈ 21,7 laborables): 23 hábiles **mejora** el mínimo, y aquí se cuenta en hábiles, así que
+  el número que va en la constante es 23, no 30. Se cuentan **LABORABLES**: sábado, domingo o festivo
+  de Madrid **no consumen saldo** (`_vacation_day_counts`). El día se guarda igual con `counts=False`,
+  para que el calendario enseñe el tramo entero de principio a fin.
   · **La fecha de comienzo manda**: en el año de alta (o de baja) los días se **PRORRATEAN**
   (`_vacation_entitlement`). Sin contrato **no se pueden pedir vacaciones**, y se dice por qué.
-  · **Festivos de Madrid** (`_madrid_holidays`): nacionales + Comunidad de Madrid (2 de mayo, Jueves
-  Santo) + Madrid capital (San Isidro, Almudena), con Semana Santa calculada (`_easter_sunday`,
-  verificado 2024-2027). Se **siembran una vez por año** (marca `holidays_seeded_madrid_<año>` en
-  `AppSetting`) y **se pueden corregir a mano**: el calendario laboral lo publica el BOE cada año y hay
-  traslados, así que lo que se toque no se vuelve a pisar.
+  · **Festivos de Madrid** (`MADRID_HOLIDAY_RULES` + `_madrid_holidays_full` → `_madrid_holidays`):
+  9 nacionales fijos + Viernes Santo + 2 de la Comunidad (Jueves Santo y 2 de mayo) + 2 de Madrid
+  capital (San Isidro y la Almudena), con Semana Santa calculada (`_easter_sunday`, verificado
+  2024-2027).
+  ⚠️ **EL FESTIVO QUE CAE EN DOMINGO SE TRASLADA AL LUNES** (art. 37.2 del ET para los nacionales; la
+  Comunidad y el Ayuntamiento hacen lo mismo con los suyos): comprobado contra la realidad — 2 de mayo
+  de 2021 → lunes 3, 15 de agosto de 2021 → lunes 16, San Isidro de 2022 → lunes 16, 25 de diciembre
+  de 2022 → lunes 26, 12 de octubre de 2025 → lunes 13, y 2026 → 2 de noviembre y 7 de diciembre. El
+  domingo **se conserva** (ese día ES la festividad y así se ve) y se AÑADE el lunes con el nombre
+  diciéndolo («… (trasladado del domingo 1 de noviembre)»); si el traslado cae encima de otro festivo
+  se dicen los dos en el mismo día (2 de mayo de 2022) en vez de perder uno. Jueves y Viernes Santo
+  nunca caen en domingo.
+  ⚠️ **Cada año lo publican el BOE, el BOCM y el Ayuntamiento** y puede haber excepciones (sustituir un
+  festivo que cae en sábado, llevarse un local a otro día): para eso está **`MADRID_HOLIDAY_OVERRIDES`**
+  (`{año: {"add": [...], "remove": [...]}}`, manda sobre la regla) y la corrección a mano en
+  Vacaciones → «Festivos y normas». Se **siembran una vez por año** (marca
+  `holidays_seeded_madrid_<año>`) y hay un arreglo puntual para los años ya sembrados que solo añade
+  **los traslados que faltaban** (marca `holidays_transfers_madrid_<año>`): así no se resucita nada
+  que se hubiera borrado o corregido a mano.
+  · **EN EL CALENDARIO SE VE QUÉ FESTIVIDAD ES** (ago 2026): en la vista de MES el nombre va dentro de
+  la casilla (`.vac-day__fest`) y en la de AÑO —donde la casilla es un cuadradito— los festivos del mes
+  se listan **debajo de cada mes** (`.vac-month__fests` / `holidaysOfMonth`). Antes solo estaba en el
+  `title` y no se veía.
+  · **DÍA NO LABORABLE · a quién se le aplica** (ago 2026): al marcarlo se pregunta **toda la oficina**
+  o **solo algunas personas** (rejilla con sus fotos). Se guarda en **`Holiday.user_ids`** (JSONB;
+  **vacío = a todos**, que es como se comportaban todos los anteriores) y **solo les afecta y les sale
+  a ellas**: punto único **`_holiday_applies_to`** + el parámetro **`user_id=` de
+  `_vacation_holidays`**, que hay que pasar SIEMPRE que se calcule para una persona (saldo, su
+  calendario, apuntarle días, conceder un día libre, el aviso y la agenda de Inicio). El aviso va solo
+  a quien le afecta. En el calendario de toda la oficina se distingue con rayado (`is-partial`) y en
+  «Festivos y normas» se dice «Solo para X».
   · **Punto único de saldo `_vacation_balance`** (le corresponden · aprobados · disfrutados ·
   pendientes de aprobar · le quedan), usado por su pantalla, el panel de gestión, la ficha de personal
   y el control de que una petición no se pase.
@@ -1925,6 +2005,27 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   + estilos `.vac-*`. ⚠️ Nada de `toISOString()` para la fecha del día: pasa por UTC y en España se
   lleva el día por delante. ⚠️ El arrastre recorre **el rango entero** desde donde empezó el gesto
   (mismo patrón que el asignador de invitaciones y el mapa de butacas).
+  · **CUADRANTE de vacaciones y días libres** (pestaña `?tab=cuadrante`, ago 2026; se llega también
+  desde los tres puntitos de cada persona): a la **izquierda** el listado de todo lo que ocupa días
+  (`VACATION_LIVE_STATUSES`, vacaciones y días libres, con `?persona=` solo los suyos) y a la
+  **derecha** el calendario. En los tres puntitos de cada fila: **editar los días**
+  (`vacation_request_days_edit`, que reabre el calendario con sus días ya marcados y los REEMPLAZA;
+  las normas se comprueban con `exclude_request_id` para que no choque consigo misma) · **pasarlos a
+  día libre no laborable** (`vacation_request_to_nonworking`: crea el `Holiday` EMPRESA **solo para esa
+  persona** y BORRA la petición, así que los días le vuelven al saldo) · **eliminar**.
+  ⚠️ El calendario del modal se REHACE en cada apertura (cada fila trae sus días) y se monta en el
+  CLIC, no en `shown.bs.modal`.
+  ⚠️ **`data-confirm` en un formulario NORMAL no preguntaba nada** (bug real): el motor solo lo miraba
+  en los `form[data-inline]`, así que un «Eliminar» de una fila borraba al primer clic. `ajax_inline.js`
+  tiene ahora un handler propio para los formularios que navegan (y respeta el `data-confirm` del
+  BOTÓN que envía).
+  · ⚠️ **AL MARCAR DÍAS SE VEN LOS QUE YA TIENE** (ago 2026): el calendario con el que se pide o se
+  apunta enseña los días de ESA persona ya **pedidos (pendientes)** y **aprobados**, de vacaciones y de
+  días libres, con su leyenda de colores — antes los dos modales de «apuntar días» (la sección y la
+  ficha de personal) se creaban con `days: []` y se apuntaba encima de otros sin verlo. En la sección
+  se filtran de `datos.days` (que trae los de toda la oficina) por la persona, y el calendario del
+  modal se reutiliza para varias personas, así que hay **`setDays()`** (si no, se quedaban los de la
+  anterior).
   · **Quién gestiona**: dirección y quien tenga la responsabilidad **`VACACIONES`** del reparto de
   administración (`_can_manage_vacations`). ⚠️ El permiso de la sección **se concede y se retira solo**
   al asignar esa responsabilidad (`_sync_vacation_access_grant`, enganchado donde se guardan las

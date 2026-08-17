@@ -273,6 +273,12 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ahí donde estos dos calendarios cogen nombre, foto y color, y el mapa se construye con los ids ya
   vistos.
 
+- **Los TIPOS que se ofrecen son los que HAY a la vista** (ago 2026, `kindsVisibles()` en
+  `agenda_calendar.js`): la lista de tipos —el lateral «Tipos» en Inicio y los chips de arriba en la
+  ficha del artista— solo enseña los que tienen algo en **la ventana que se está mirando** y en **los
+  calendarios encendidos**. ⚠️ Se ignora el propio filtro de tipos (si no, al apagar uno desaparecería
+  su botón y no se podría volver a encender) y NO se usa la lista `kinds` a secas: esa **acumula** los
+  tipos de todas las ventanas cargadas con las flechas, que era justo lo que sobraba.
 - **FESTIVOS en los calendarios de agenda** (ago 2026): en **Inicio** y en la **pestaña Agenda de cada
   artista** el día del festivo se marca **EN ROJO con el nombre de la festividad** dentro de la casilla
   (los **no laborables** de la oficina, en morado), igual que en el calendario de vacaciones. Van en

@@ -99,6 +99,25 @@
       if (mode === 'home') return a.artist_id ? colorFor(a.artist_id) : (a.artist_color || '#6c757d');
       return a.kind_color;
     }
+    /* LOS TIPOS QUE SE OFRECEN son solo los que TIENEN algo en lo que se está viendo: la ventana
+       actual y los calendarios encendidos.
+       ⚠️ Se ignora el propio filtro de tipos (si no, al apagar uno desaparecería su botón y no habría
+       forma de volver a encenderlo) y NO se usa `kinds` a secas: esa lista ACUMULA los tipos de todas
+       las ventanas que se han ido cargando con las flechas, así que enseñaría tipos que aquí no hay. */
+    function kindsVisibles() {
+      var win = curWin(), ws = iso(win[0]), we = iso(win[1]);
+      var hay = {};
+      acts.forEach(function (a) {
+        if ((a.end_date || a.date) < ws || a.date > we) return;   // fuera de la ventana
+        if (mode === 'home' && artists.length) {
+          var ids = (a.artist_ids && a.artist_ids.length) ? a.artist_ids : [a.artist_id];
+          if (!ids.some(function (id) { return activeArtists[id]; })) return;   // calendario apagado
+        }
+        hay[a.kind] = true;
+      });
+      return kinds.filter(function (k) { return hay[k.key]; });
+    }
+
     function passes(a) {
       if (!activeKinds[a.kind]) return false;
       if (mode === 'home' && artists.length) {
@@ -142,7 +161,9 @@
           top.appendChild(chip);
         });
       } else {
-        kinds.forEach(function (k) {
+        var visibles = kindsVisibles();
+        if (!visibles.length) top.appendChild(el('span', 'text-muted small', 'Sin actividades en este periodo.'));
+        visibles.forEach(function (k) {
           var chip = el('button', 'agenda-chip agenda-chip--kind' + (activeKinds[k.key] ? ' is-on' : ''));
           chip.type = 'button';
           chip.style.setProperty('--c', k.color);
@@ -476,8 +497,9 @@
       if (mode === 'home') {
         // Filtros por TIPO de actividad
         side.appendChild(el('div', 'agenda-side__title', 'Tipos'));
-        if (!kinds.length) side.appendChild(el('div', 'text-muted small', 'Sin actividades.'));
-        kinds.forEach(function (k) {
+        var tipos = kindsVisibles();
+        if (!tipos.length) side.appendChild(el('div', 'text-muted small', 'Sin actividades.'));
+        tipos.forEach(function (k) {
           // En Inicio el color codifica el ARTISTA, así que los filtros de tipo van neutros.
           var b = el('button', 'agenda-type agenda-type--plain is-on');
           b.type = 'button';

@@ -71,6 +71,15 @@
                   </div>
                 </div>
                 <div class="d-flex gap-2 align-items-start">
+                  {# CONTEXTO para decidir: los días que pide, marcados sobre el calendario, y junto a
+                     ellos TODAS sus vacaciones y días libres del año. #}
+                  <button class="btn btn-outline-secondary btn-sm" type="button" data-pet-cal
+                          data-uid="{{ r.user_id }}" data-nick="{{ r.nick }}"
+                          data-days="{{ r.days_iso|join(',') }}" data-year="{{ r.year }}"
+                          data-kind="{{ r.kind_meta.label }}" data-count="{{ r.days_count }}"
+                          data-note="{{ r.note }}" title="Ver esos días en el calendario, con el resto de sus días">
+                    <i class="fa fa-calendar-days me-1"></i>Ver en el calendario
+                  </button>
                   <form method="post" action="{{ url_for('vacation_request_decide', request_id=r.id) }}" class="m-0">
                     <input type="hidden" name="decision" value="APPROVED">
                     <button class="btn btn-success btn-sm"><i class="fa fa-check me-1"></i>Aprobar</button>
@@ -141,6 +150,35 @@
       </form>
     </div>
   </div>
+  {# EL CONTEXTO de una petición: lo que pide marcado en rojo sobre el calendario y, alrededor, todo
+     lo que ya tiene esa persona (vacaciones y días libres, aprobados y pendientes). #}
+  <div class="modal fade" id="petCalModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title"><i class="fa fa-calendar-days me-2"></i>Días que pide <span data-petcal-nick></span></h5>
+            <div class="small text-muted" data-petcal-sub></div>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="vac-legend mb-2">
+            <span><i style="background:var(--brand-primary,#E33D48);"></i>Lo que pide</span>
+            <span><i style="background:#d6f0dc;"></i>Sus vacaciones</span>
+            <span><i style="background:#e6dcf3;"></i>Sus días libres</span>
+            <span><i style="background:#fff3cd;"></i>Sin aprobar</span>
+            <span><i style="background:#fdeaec;"></i>Festivo</span>
+            <span><i style="background:#ede7f6;"></i>No laborable</span>
+          </div>
+          <div id="petCalCalendario"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/vacaciones.js') }}"></script>
+  <script id="vacPetData" type="application/json">{{ calendar_payload|tojson }}</script>
   <script>
     document.querySelectorAll('[data-rechazar]').forEach(function(b){
       b.addEventListener('click', function(){
@@ -149,6 +187,30 @@
         new bootstrap.Modal(document.getElementById('rechazarModal')).show();
       });
     });
+
+    /* Ver una petición EN EL CALENDARIO, con el resto de sus días alrededor. ⚠️ El calendario se monta
+       en el CLIC (con modal_stack.js por medio `shown.bs.modal` no llega) y se REHACE en cada
+       apertura, porque cada petición es de otra persona y de otros días. */
+    (function(){
+      var datos = JSON.parse(document.getElementById('vacPetData').textContent || '{}');
+      document.querySelectorAll('[data-pet-cal]').forEach(function(b){
+        b.addEventListener('click', function(){
+          var dias = (b.dataset.days || '').split(',').filter(function(x){ return x; });
+          var susDias = (datos.days || []).filter(function(d){ return String(d.user_id) === String(b.dataset.uid); });
+          document.querySelector('[data-petcal-nick]').textContent = b.dataset.nick || '';
+          document.querySelector('[data-petcal-sub]').textContent =
+            (b.dataset.kind || '') + ' · ' + (b.dataset.count || '0') + ' día(s)' +
+            (b.dataset.note ? ' · ' + b.dataset.note : '');
+          var caja = document.getElementById('petCalCalendario');
+          caja.innerHTML = '';
+          VacCalendar.create(caja, {
+            mode: 'year', year: parseInt(b.dataset.year || datos.year, 10) || datos.year,
+            holidays: datos.holidays, days: susDias, selected: dias, kinds: datos.kinds || {}
+          });
+          new bootstrap.Modal(document.getElementById('petCalModal')).show();
+        });
+      });
+    })();
   </script>
 
 {% elif tab == 'festivos' %}
@@ -384,6 +446,32 @@
   {# CUADRANTE · el listado de todas las vacaciones y días libres a la IZQUIERDA y el calendario a la
      DERECHA. En cada fila, los tres puntitos: editar los días (se reabre el calendario), pasarlos a
      día libre no laborable o eliminarlos. #}
+
+  {# TODO EL PERSONAL con su foto: se pincha a una persona y se ve SU cuadrante. Cada una lleva su
+     color, el mismo con el que sale en las rayitas del calendario general. #}
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="small text-muted mb-2">Pincha a una persona para ver su cuadrante.</div>
+      <div class="vac-quad-people">
+        <a class="vac-quad-person{% if not quadrant_person %} is-on{% endif %}"
+           href="{{ url_for('vacaciones_view', tab='cuadrante', anio=year) }}">
+          <img src="{{ url_for('static', filename='img/logo_33_producciones.png') }}" alt="">
+          <span class="vac-quad-person__n">Toda la oficina</span>
+          <span class="vac-quad-person__c" style="background:#dfe3e8;"></span>
+        </a>
+        {% for p in people %}
+          <a class="vac-quad-person{% if quadrant_person and p.user_id == quadrant_person.user_id %} is-on{% endif %}"
+             href="{{ url_for('vacaciones_view', tab='cuadrante', anio=year, persona=p.user_id) }}"
+             title="{{ p.nick }} · le quedan {{ p.balance.remaining }} de {{ p.balance.total }}">
+            <img src="{{ p.photo_url or DEFAULT_AVATAR_URL }}" alt="" loading="lazy" data-avatar="1">
+            <span class="vac-quad-person__n">{{ p.nick }}</span>
+            <span class="vac-quad-person__c" style="background:{{ p.color }};"></span>
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
   <div class="row g-3">
     <div class="col-12 col-lg-5">
       <div class="card h-100">
@@ -529,9 +617,13 @@
   <script>
   (function(){
     var datos = JSON.parse(document.getElementById('vacQuadData').textContent || '{}');
+    /* En el cuadrante GENERAL cada persona sale con su color en RAYITAS (con su foto), y el tooltip
+       dice qué es, el motivo y de quién. Viendo el de UNA persona no hacen falta: se pinta como
+       siempre (verde/morado/amarillo según tipo y estado). */
+    var SOLO_UNA = {{ (quadrant_person is not none)|tojson }};
     VacCalendar.create('#cuadranteCalendario', {
       mode: 'year', year: datos.year, holidays: datos.holidays, days: datos.days,
-      people: datos.people || []
+      people: datos.people || [], kinds: datos.kinds || {}, stripes: !SOLO_UNA
     });
 
     /* ⚠️ El calendario del modal se monta EN EL CLIC (con modal_stack.js por medio `shown.bs.modal`
@@ -626,6 +718,11 @@
                 <td class="text-center" data-label="Días libres">
                   <span class="badge text-bg-light border" style="color:#6A1B9A;">{{ p.balance.free_used }}</span>
                   {% if p.balance.free_pending %}<span class="badge text-bg-warning text-dark ms-1">+{{ p.balance.free_pending }}</span>{% endif %}
+                  {# EXTRAS de esa persona (luna de miel…): su propia bolsa. #}
+                  {% for e in (p.balance.extras or []) %}
+                    <div class="mt-1"><span class="vac-extra-pill" title="{{ e.label }}: le quedan {{ e.remaining }} de {{ e.days }}{{ ' (naturales)' if e.natural else '' }}">
+                      <i class="fa fa-gift"></i>{{ e.remaining }}/{{ e.days }}</span></div>
+                  {% endfor %}
                 </td>
                 <td class="text-end vac-people__acciones">
                   <div class="dropdown">
@@ -634,10 +731,12 @@
                       <li><button class="dropdown-item" type="button" data-config-persona
                             data-uid="{{ p.user_id }}" data-nick="{{ p.nick }}"
                             data-dias="{{ p.balance.base if p.balance.base != days_per_year_default else '' }}"
-                            data-ajuste="{{ p.balance.adjustment or '' }}">
+                            data-ajuste="{{ p.balance.adjustment or '' }}"
+                            data-extras="{{ p.balance.extras|tojson|forceescape }}">
                           <i class="fa fa-sliders fa-fw me-1"></i>Configurar sus días</button></li>
                       <li><button class="dropdown-item" type="button" data-apuntar
-                            data-uid="{{ p.user_id }}" data-nick="{{ p.nick }}" data-kind="VACACIONES">
+                            data-uid="{{ p.user_id }}" data-nick="{{ p.nick }}" data-kind="VACACIONES"
+                            data-extras="{{ p.balance.extras|tojson|forceescape }}">
                           <i class="fa fa-umbrella-beach fa-fw me-1"></i>Apuntarle vacaciones</button></li>
                       <li><button class="dropdown-item" type="button" data-apuntar
                             data-uid="{{ p.user_id }}" data-nick="{{ p.nick }}" data-kind="DIA_LIBRE">
@@ -679,6 +778,39 @@
             <input type="number" name="adjustment" id="editarAjuste" class="form-control" placeholder="0">
             <div class="form-text">Días que se le suman o se le restan solo este año (arrastres del año anterior, correcciones…). Puede ser negativo.</div>
           </div>
+
+          {# EXTRAS: días adicionales de ESTA persona, cada uno con su bolsa (no salen de sus
+             vacaciones). El preconfigurado es la luna de miel; se pueden añadir más. #}
+          <hr class="my-3">
+          <input type="hidden" name="extras_present" value="1">
+          <div class="d-flex align-items-center justify-content-between mb-1">
+            <label class="form-label m-0">Extras de vacaciones</label>
+            <button class="btn btn-outline-secondary btn-sm" type="button" data-extra-add>
+              <i class="fa fa-plus me-1"></i>Añadir otro
+            </button>
+          </div>
+          <div class="alert alert-warning py-2 px-3 small mb-2">
+            <span class="badge text-bg-danger me-1">Importante</span>
+            Si la normativa dice que son <strong>días naturales</strong> (la luna de miel suelen ser 15),
+            marca la casilla: dentro de ese permiso <strong>cuentan también los fines de semana y los
+            festivos</strong>. Sin marcarla se cuentan solo días hábiles. Esto solo afecta a esta persona.
+          </div>
+          <div data-extra-rows></div>
+          <template data-extra-tpl>
+            <div class="vac-extra" data-extra-row>
+              <input type="hidden" name="extra_id[]" value="">
+              <input class="form-control form-control-sm" name="extra_label[]" placeholder="Motivo (p. ej. mudanza)">
+              <input class="form-control form-control-sm vac-extra__n" type="number" min="0" max="365"
+                     name="extra_days[]" placeholder="Días">
+              <label class="vac-extra__nat" title="Cuentan también findes y festivos">
+                <input type="checkbox" name="extra_natural[]" value=""> naturales
+              </label>
+              <button class="btn btn-outline-danger btn-sm" type="button" data-extra-del title="Quitar">
+                <i class="fa fa-trash"></i>
+              </button>
+            </div>
+          </template>
+          <div class="form-text">Para quitar un extra, déjalo en 0 días (o pincha la papelera).</div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -767,6 +899,13 @@
             <label class="form-label" id="apuntarNotaLabel">Nota (opcional)</label>
             <input name="note" id="apuntarNota" class="form-control" placeholder="Por ejemplo: días acordados de 2025">
           </div>
+          {# ¿De qué bolsa salen? Las vacaciones de siempre o uno de sus EXTRAS (luna de miel…). Solo
+             sale si esa persona tiene extras configurados. #}
+          <div class="mb-3 d-none" data-apuntar-extra-box>
+            <label class="form-label">¿De dónde salen?</label>
+            <select class="form-select" name="extra_id" data-apuntar-extra></select>
+            <div class="form-text" data-apuntar-extra-hint></div>
+          </div>
           <input type="hidden" name="days" id="apuntarDays">
           {# Se ven SUS días ya pedidos y aprobados, así que hace falta decir qué es cada color. #}
           <div class="vac-legend mb-2">
@@ -790,6 +929,7 @@
   <script src="{{ url_for('static', filename='js/vacaciones.js') }}"></script>
   <script id="vacOficinaData" type="application/json">{{ calendar_payload|tojson }}</script>
   <script id="vacKindsData" type="application/json">{{ vacation_kinds|tojson }}</script>
+  <script id="vacExtraPresets" type="application/json">{{ vacation_extra_presets|tojson }}</script>
   <script>
   (function(){
     var datos = JSON.parse(document.getElementById('vacOficinaData').textContent || '{}');
@@ -800,6 +940,55 @@
       holidays: datos.holidays, days: datos.days, people: datos.people || []
     });
 
+    /* ---- EXTRAS de vacaciones (luna de miel y los que se añadan) ----
+       Se pintan al abrir el modal con los de ESA persona; el preconfigurado sale siempre (con los
+       días en blanco si no lo tiene). ⚠️ La casilla «naturales» viaja con el ÍNDICE de su fila: un
+       checkbox sin marcar no se envía, así que sin el índice no se sabría a qué extra corresponde. */
+    var PRESETS = JSON.parse(document.getElementById('vacExtraPresets').textContent || '[]');
+    var extraRows = document.querySelector('[data-extra-rows]');
+    var extraTpl = document.querySelector('[data-extra-tpl]');
+    function renumerarExtras(){
+      [].slice.call(extraRows.querySelectorAll('[data-extra-row]')).forEach(function(row, i){
+        var chk = row.querySelector('input[name="extra_natural[]"]');
+        if (chk) chk.value = String(i);
+      });
+    }
+    function pintaExtra(datos){
+      var nodo = extraTpl.content.firstElementChild.cloneNode(true);
+      nodo.querySelector('input[name="extra_id[]"]').value = datos.id || '';
+      var lab = nodo.querySelector('input[name="extra_label[]"]');
+      lab.value = datos.label || '';
+      if (datos.preset) { lab.readOnly = true; lab.classList.add('bg-light'); }
+      nodo.querySelector('input[name="extra_days[]"]').value = (datos.days ? datos.days : '');
+      nodo.querySelector('input[name="extra_natural[]"]').checked = !!datos.natural;
+      if (datos.hint) {
+        var h = document.createElement('div');
+        h.className = 'form-text w-100 mt-0';
+        h.textContent = datos.hint;
+        nodo.appendChild(h);
+      }
+      extraRows.appendChild(nodo);
+      renumerarExtras();
+    }
+    extraRows.addEventListener('click', function(ev){
+      var del = ev.target.closest('[data-extra-del]');
+      if (!del) return;
+      var row = del.closest('[data-extra-row]');
+      // El preconfigurado no se borra: se deja a 0 días (así se puede volver a poner).
+      if (row.querySelector('input[name="extra_label[]"]').readOnly) {
+        row.querySelector('input[name="extra_days[]"]').value = '';
+        row.querySelector('input[name="extra_natural[]"]').checked = false;
+      } else {
+        row.remove();
+      }
+      renumerarExtras();
+    });
+    document.querySelector('[data-extra-add]').addEventListener('click', function(){
+      pintaExtra({ id: '', label: '', days: '', natural: false });
+      var ultimo = extraRows.querySelector('[data-extra-row]:last-child input[name="extra_label[]"]');
+      if (ultimo) ultimo.focus();
+    });
+
     // ---- Configurar los días de una persona ----
     document.querySelectorAll('[data-config-persona]').forEach(function(b){
       b.addEventListener('click', function(){
@@ -808,6 +997,17 @@
         document.getElementById('editarPersonaNick').textContent = b.dataset.nick || '';
         document.getElementById('editarDias').value = b.dataset.dias || '';
         document.getElementById('editarAjuste').value = b.dataset.ajuste || '';
+        // Sus extras: primero los preconfigurados (con lo que ya tenga), luego los suyos propios.
+        var suyos = [];
+        try { suyos = JSON.parse(b.dataset.extras || '[]'); } catch (e) { suyos = []; }
+        extraRows.innerHTML = '';
+        PRESETS.forEach(function(pre){
+          var ya = suyos.filter(function(x){ return x.id === pre.id; })[0];
+          pintaExtra({ id: pre.id, label: pre.label, days: (ya ? ya.days : ''),
+                       natural: (ya ? ya.natural : pre.natural), preset: true, hint: pre.hint || '' });
+        });
+        suyos.filter(function(x){ return !PRESETS.some(function(pre){ return pre.id === x.id; }); })
+             .forEach(function(x){ pintaExtra(x); });
         new bootstrap.Modal(document.getElementById('editarPersonaModal')).show();
       });
     });
@@ -838,6 +1038,23 @@
            aprobados, de vacaciones Y de días libres. `datos.days` trae los de TODA la oficina, así
            que se filtran por la persona que se está configurando; si no, se apuntaban días encima
            de otros sin verlo. */
+        // Bolsas de esa persona (vacaciones + sus extras). En un día libre no aplica.
+        var cajaExtra = document.querySelector('[data-apuntar-extra-box]');
+        var selExtra = document.querySelector('[data-apuntar-extra]');
+        var pistaExtra = document.querySelector('[data-apuntar-extra-hint]');
+        var extras = [];
+        try { extras = JSON.parse(b.dataset.extras || '[]'); } catch (e) { extras = []; }
+        selExtra.innerHTML = '<option value="">Sus vacaciones</option>' + extras.map(function(e){
+          return '<option value="' + e.id + '" data-nat="' + (e.natural ? '1' : '') + '">' +
+            e.label + ' (le quedan ' + e.remaining + ' de ' + e.days + ')</option>';
+        }).join('');
+        cajaExtra.classList.toggle('d-none', esLibre || !extras.length);
+        pistaExtra.textContent = '';
+        selExtra.onchange = function(){
+          var op = selExtra.options[selExtra.selectedIndex];
+          pistaExtra.textContent = (op && op.dataset.nat)
+            ? 'Son días NATURALES: cuentan también los fines de semana y los festivos.' : '';
+        };
         var susDias = (datos.days || []).filter(function(d){ return String(d.user_id) === String(b.dataset.uid); });
         if (!calApunte) {
           calApunte = VacCalendar.create('#apuntarCalendario', {

@@ -255,6 +255,19 @@
     </div>
   </div>
 
+  {# EXTRAS de esta persona (luna de miel…): cada uno con su propia bolsa, aparte de sus vacaciones.
+     Se configuran en Vacaciones → los tres puntitos de la persona → «Configurar sus días». #}
+  {% if vacation_balance and vacation_balance.extras %}
+    <div class="d-flex flex-wrap gap-2 mb-3">
+      {% for e in vacation_balance.extras %}
+        <span class="vac-extra-pill" title="{{ 'Días NATURALES: cuentan también fines de semana y festivos' if e.natural else 'Días hábiles' }}">
+          <i class="fa fa-gift"></i>{{ e.label }}: {{ e.remaining }} de {{ e.days }}
+          {% if e.natural %}<span class="badge text-bg-light border">naturales</span>{% endif %}
+        </span>
+      {% endfor %}
+    </div>
+  {% endif %}
+
   {% if can_manage_vacations %}
     <div class="vac-actions mb-3">
       <button class="btn btn-primary" type="button" data-apuntar-ficha data-kind="VACACIONES">

@@ -140,7 +140,10 @@ class ArtistAgendaItem(Base):
     __tablename__ = "artist_agenda_items"
 
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
-    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="CASCADE"), nullable=False)
+    # ⚠️ NULL solo cuando la entrada es del CALENDARIO GENERAL DE OFICINA (`is_office`): eso no es de
+    # ningún artista. Todo lo demás lleva su artista.
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="CASCADE"))
+    is_office = Column(Boolean, nullable=False, server_default=text("false"))
     kind = Column(Text, nullable=False, server_default=text("'NOTE'"))  # BLOCK | NOTE
     title = Column(Text, nullable=False, server_default=text("''"))
     note = Column(Text)
@@ -2883,6 +2886,12 @@ class UserProfile(Base):
     # Ajustes manuales del saldo por año {"2026": 3}: días arrastrados del año anterior,
     # correcciones… Suman (o restan) sobre lo que le corresponde por contrato.
     vacation_adjustments = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    # EXTRAS de vacaciones de ESA persona (luna de miel, mudanza…): lista de
+    # {id, label, days, natural}. `natural` = los días se cuentan naturales, así que dentro de ese
+    # permiso los fines de semana y los festivos TAMBIÉN consumen (una luna de miel de 15 días
+    # naturales son 15 días seguidos, no 15 laborables). Cada extra es su propia bolsa: no toca los
+    # días de vacaciones normales.
+    vacation_extras = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -6078,6 +6087,10 @@ def ensure_artist_feature_schema():
         );
         """,
         'CREATE INDEX IF NOT EXISTS idx_artist_agenda_items_artist_dates ON artist_agenda_items(artist_id, start_date, end_date);',
+        # CALENDARIO GENERAL DE OFICINA: sus entradas no son de ningún artista, así que `artist_id`
+        # deja de ser obligatorio y se marcan con `is_office`.
+        "ALTER TABLE IF EXISTS artist_agenda_items ADD COLUMN IF NOT EXISTS is_office boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE IF EXISTS artist_agenda_items ALTER COLUMN artist_id DROP NOT NULL;",
         """
         CREATE TABLE IF NOT EXISTS artist_emails (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -10131,6 +10144,9 @@ class VacationRequest(Base):
     user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     # VACACIONES | DIA_LIBRE
     kind = Column(Text, nullable=False, server_default=text("'VACACIONES'"))
+    # De qué BOLSA salen los días: NULL = las vacaciones de siempre; si no, el id de un extra de
+    # `UserProfile.vacation_extras` (luna de miel…), que lleva su propia cuenta.
+    extra_id = Column(Text)
     # PENDING | APPROVED | REJECTED | CANCELLED
     status = Column(Text, nullable=False, server_default=text("'PENDING'"))
     # Año natural al que se imputan los días (el de la primera fecha pedida).
@@ -10280,6 +10296,8 @@ def ensure_vacations_schema():
         # VACACIONES | DIA_LIBRE. Lo que ya existía son vacaciones (de ahí el DEFAULT).
         "ALTER TABLE vacation_requests ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'VACACIONES';",
         "CREATE INDEX IF NOT EXISTS idx_vacation_requests_kind ON vacation_requests(user_id, year, kind);",
+        # De qué extra salen los días (NULL = vacaciones normales).
+        "ALTER TABLE vacation_requests ADD COLUMN IF NOT EXISTS extra_id text;",
         """
         CREATE TABLE IF NOT EXISTS vacation_days (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -10313,4 +10331,6 @@ def ensure_vacations_schema():
         "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS vacation_days_per_year integer;",
         # Ajuste manual del saldo de un año {\"2026\": 3} (días arrastrados, correcciones…).
         "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS vacation_adjustments jsonb NOT NULL DEFAULT '{}'::jsonb;",
+        # Extras de vacaciones por persona (luna de miel y los que se añadan).
+        "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS vacation_extras jsonb NOT NULL DEFAULT '[]'::jsonb;",
     ], "vacations_schema")

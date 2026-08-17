@@ -226,6 +226,20 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `_concert_wizard_modal.html`). Endpoints `agenda_block_create`/`agenda_note_create`/`agenda_item_delete`
   (en `SUPPORT_ACTION_ENDPOINTS`). Al crear artista se pregunta «¿es un grupo?»; la pestaña Datos edita
   `is_group`, fecha del artista y fecha por miembro.
+- **CALENDARIO GENERAL DE OFICINA** (ago 2026): en el calendario de Inicio sale **como si fuera otro
+  artista** («Calendario general», `OFFICE_CALENDAR_ID = "oficina"` — un CENTINELA, no un artista de la
+  BD), y lo que lleva son las cosas de la casa: **todas las vacaciones y días libres APROBADOS de todo
+  el personal** (una franja por petición, con el nick y el motivo, enlazando a su cuadrante) y las
+  **notas** que se le añadan. Motor `_agenda_office_items`, enganchado en `_agenda_build` **solo con
+  `include_personal`** (o sea: solo la agenda de dentro; en un calendario público, en el iCal o en
+  CalDAV serían datos personales de la oficina).
+  ⚠️ Su id NO es un UUID: se excluye de la consulta de artistas y su ficha del mapa se pone a mano
+  (nombre, los DOS logos del grupo y su color de paleta como cualquier otro).
+  · En el **botón +** es la **PRIMERA** opción, con los logos de Treinta y Tres y de PIES, y al
+  elegirla **solo se puede añadir «Otro»** (una nota): ni actividades ni bloqueos, porque no es de
+  ningún artista (`soloOtros()` en `_agenda_add_modal.html`; el aviso de solapes también se salta).
+  · Sus notas viven en `ArtistAgendaItem` con **`is_office = true` y `artist_id` NULL** (por eso esa
+  columna dejó de ser obligatoria). `agenda_block_create` lo rechaza diciendo por qué.
 - **Alta rápida de entidades (modal superpuesto)**: `templates/_quick_create_modals.html` +
   `static/js/quick_create.js`. Junto a un `<select id="X">` añadir
   `<button type="button" data-quick-create="TIPO" data-target="X"><i class="fa fa-plus"></i></button>`
@@ -2005,6 +2019,23 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   + estilos `.vac-*`. ⚠️ Nada de `toISOString()` para la fecha del día: pasa por UTC y en España se
   lleva el día por delante. ⚠️ El arrastre recorre **el rango entero** desde donde empezó el gesto
   (mismo patrón que el asignador de invitaciones y el mapa de butacas).
+  · **EXTRAS de vacaciones** (ago 2026): días ADICIONALES de UNA persona, con su motivo y su número,
+  y **cada uno es su propia bolsa** (no salen de sus vacaciones ni las tocan). Se configuran en los
+  tres puntitos de la persona → «Configurar sus días»: el preconfigurado es **Luna de miel** (basta
+  ponerle el número) y se pueden añadir más. Modelo: `UserProfile.vacation_extras` (lista de
+  `{id, label, days, natural}`) + **`VacationRequest.extra_id`** (de qué bolsa salen los días).
+  Catálogo `VACATION_EXTRA_PRESETS`; lectura `_vacation_extras` / `_vacation_extra`; formulario
+  `_parse_vacation_extras_form`; saldo por bolsa en `_vacation_balance()["extras"]`.
+  ⚠️ **`natural=True` = se cuentan días NATURALES**, así que dentro de ese permiso los fines de semana
+  y los festivos **TAMBIÉN consumen** (una luna de miel de 15 días naturales son 15 días seguidos, no
+  15 laborables). Es lo único que cambia, y lo aplican `_vacation_apply_days(..., natural=True)`
+  (pone `counts=True` en todos los días) y `_vacation_check_request(..., extra_id=...)`. En la pantalla
+  se avisa con la etiqueta **Importante** al configurarlo y con el texto del contador al pedirlo.
+  ⚠️ Los días de un extra **se excluyen del saldo normal** en `_vacation_balance` y de la comprobación
+  al APROBAR (`vacation_request_decide`): si no, se contarían dos veces y no se podría aprobar.
+  ⚠️ Se pide con su propio botón («Solicitar luna de miel») en «Mis vacaciones» y con el selector
+  «¿De dónde salen?» al apuntarle días. `vacation_extras` está en `_snapshot_user_profile` (si no, es
+  invisible desde el estado y las plantillas).
   · **CUADRANTE de vacaciones y días libres** (pestaña `?tab=cuadrante`, ago 2026; se llega también
   desde los tres puntitos de cada persona): a la **izquierda** el listado de todo lo que ocupa días
   (`VACATION_LIVE_STATUSES`, vacaciones y días libres, con `?persona=` solo los suyos) y a la
@@ -2019,6 +2050,18 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   en los `form[data-inline]`, así que un «Eliminar» de una fila borraba al primer clic. `ajax_inline.js`
   tiene ahora un handler propio para los formularios que navegan (y respeta el `data-confirm` del
   BOTÓN que envía).
+  · **TODO EL PERSONAL con su foto** arriba del cuadrante (`.vac-quad-people`): se pincha a una persona
+  y se ve SU cuadrante; la primera tarjeta es «Toda la oficina». Cada una lleva **su color**, el mismo
+  con el que sale en el calendario.
+  · **RAYITAS por persona** en el cuadrante general (`stripes: true` de `VacCalendar`): una barra con
+  **su color y su foto** por cada cosa de ese día, y al pasar el ratón se dice **qué es, el motivo y de
+  quién** (`.vac-day__bars` / `.vac-bar`). Viendo el de UNA persona no se usan: ahí basta el color por
+  tipo y estado. Para el tooltip, `_vacation_calendar_payload` manda también el **motivo** (`note`) y
+  el `extra_id` de cada día.
+  · **UNA PETICIÓN SE VE EN EL CALENDARIO** (pestaña Peticiones, botón «Ver en el calendario»): los días
+  que pide salen **marcados** y alrededor **todas las vacaciones y días libres de esa persona**, que es
+  el contexto para decidir. El calendario se monta en el clic y se rehace en cada apertura (cada
+  petición es de otra persona y de otros días).
   · ⚠️ **AL MARCAR DÍAS SE VEN LOS QUE YA TIENE** (ago 2026): el calendario con el que se pide o se
   apunta enseña los días de ESA persona ya **pedidos (pendientes)** y **aprobados**, de vacaciones y de
   días libres, con su leyenda de colores — antes los dos modales de «apuntar días» (la sección y la

@@ -205,7 +205,36 @@
       var esLibre = ocupados.every(function (o) { return o.kind === 'DIA_LIBRE'; });
       if (esLibre) cel.classList.add('is-free');
       cel.classList.add(aprobado ? 'is-approved' : (pendiente ? 'is-pending' : ''));
-      if (big && this.opts.people && this.opts.people.length) {
+      /* RAYITAS por persona (cuadrante general): una barra por persona con SU color y su foto, y al
+         pasar el ratón se dice qué es, el motivo y de quién. Vale también en la vista de año, donde
+         la casilla es pequeña y no caben las etiquetas grandes. */
+      if (this.opts.stripes && this.opts.people && this.opts.people.length) {
+        var barras = document.createElement('div');
+        barras.className = 'vac-day__bars';
+        var puestos = {};
+        ocupados.forEach(function (o) {
+          var clave = o.user_id + '|' + (o.request_id || '');
+          if (puestos[clave]) return;
+          puestos[clave] = true;
+          var p = this.people[o.user_id];
+          if (!p) return;
+          var bar = document.createElement('span');
+          bar.className = 'vac-bar' + (o.status === 'PENDING' ? ' is-pending' : '');
+          bar.style.background = p.color || '#888';
+          var tipo = (this.opts.kinds && this.opts.kinds[o.kind] && this.opts.kinds[o.kind].label) ||
+                     (o.kind === 'DIA_LIBRE' ? 'Día libre' : 'Vacaciones');
+          bar.title = p.nick + ' · ' + tipo +
+                      (o.status === 'PENDING' ? ' (sin aprobar)' : ' (aprobado)') +
+                      (o.note ? ' · ' + o.note : '');
+          if (p.photo_url) {
+            var foto = document.createElement('img');
+            foto.src = p.photo_url; foto.alt = p.nick;
+            bar.appendChild(foto);
+          }
+          barras.appendChild(bar);
+        }, this);
+        if (barras.childNodes.length) cel.appendChild(barras);
+      } else if (big && this.opts.people && this.opts.people.length) {
         var chips = document.createElement('div');
         chips.className = 'vac-day__people';
         var vistos = {};

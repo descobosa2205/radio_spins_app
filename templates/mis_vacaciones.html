@@ -36,6 +36,16 @@
   <button class="btn btn-outline-primary" type="button" data-vac-open="DIA_LIBRE">
     <i class="fa fa-mug-hot"></i>Solicitar día libre
   </button>
+  {# Un botón por EXTRA con días disponibles (luna de miel…): sale de su propia bolsa. #}
+  {% for e in (balance.extras or []) %}
+    {% if e.remaining %}
+      <button class="btn btn-outline-secondary" type="button" data-vac-open="VACACIONES"
+              data-vac-extra="{{ e.id }}" data-vac-extra-label="{{ e.label }}"
+              data-vac-extra-days="{{ e.remaining }}" data-vac-extra-natural="{{ '1' if e.natural else '' }}">
+        <i class="fa fa-gift"></i>Solicitar {{ e.label|lower }}
+      </button>
+    {% endif %}
+  {% endfor %}
 </div>
 
 <div class="row g-3 mb-4">
@@ -73,6 +83,19 @@
     </div>
   </div>
 </div>
+
+{# EXTRAS: días adicionales que te han configurado (luna de miel…), cada uno con su propia bolsa. #}
+{% if balance.extras %}
+  <div class="d-flex flex-wrap gap-2 mb-4">
+    {% for e in balance.extras %}
+      <span class="vac-extra-pill" title="{{ 'Se cuentan días NATURALES: cuentan también fines de semana y festivos' if e.natural else 'Se cuentan días hábiles' }}">
+        <i class="fa fa-gift"></i>{{ e.label }}: {{ e.remaining }} de {{ e.days }}
+        {% if e.natural %}<span class="badge text-bg-light border">naturales</span>{% endif %}
+        {% if e.pending %}<span class="badge text-bg-warning text-dark">+{{ e.pending }} sin aprobar</span>{% endif %}
+      </span>
+    {% endfor %}
+  </div>
+{% endif %}
 
 <div class="card mb-4">
   <div class="card-body">
@@ -130,6 +153,8 @@
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <form method="post" action="{{ url_for('mis_vacaciones_request') }}" class="modal-content" id="pedirForm">
       <input type="hidden" name="kind" id="pedirKind" value="VACACIONES">
+      {# De qué bolsa salen: vacío = vacaciones normales; si no, el extra elegido. #}
+      <input type="hidden" name="extra_id" id="pedirExtra" value="">
       <div class="modal-header">
         <h5 class="modal-title"><i class="fa fa-umbrella-beach me-2" id="pedirIcono"></i><span id="pedirTitulo">Solicitar vacaciones</span></h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -189,7 +214,8 @@
 (function(){
   var datos = JSON.parse(document.getElementById('vacData').textContent || '{}');
   var TIPOS = JSON.parse(document.getElementById('vacKinds').textContent || '{}');
-  var disponibles = {{ balance.remaining|int }};
+  var DISPONIBLES_VAC = {{ balance.remaining|int }};
+  var disponibles = DISPONIBLES_VAC;
   var tipoActual = 'VACACIONES';
 
   // Calendario de solo lectura del año.
@@ -213,27 +239,46 @@
   }
   modal.addEventListener('show.bs.modal', asegurarCal);
 
-  function abrir(kind){
+  // El EXTRA con el que se ha abierto el modal (luna de miel…), si es que se ha abierto con uno.
+  var extraActual = null;
+  function abrir(kind, extra){
     tipoActual = TIPOS[kind] ? kind : 'VACACIONES';
+    extraActual = extra || null;
     var meta = TIPOS[tipoActual] || {};
     document.getElementById('pedirKind').value = tipoActual;
-    document.getElementById('pedirTitulo').textContent = 'Solicitar ' + (meta.label || '').toLowerCase();
-    document.getElementById('pedirIcono').className = 'fa ' + (meta.icon || 'fa-umbrella-beach') + ' me-2';
+    document.getElementById('pedirExtra').value = extraActual ? extraActual.id : '';
+    document.getElementById('pedirTitulo').textContent = extraActual
+      ? ('Solicitar ' + (extraActual.label || '').toLowerCase())
+      : ('Solicitar ' + (meta.label || '').toLowerCase());
+    document.getElementById('pedirIcono').className = 'fa ' +
+      (extraActual ? 'fa-gift' : (meta.icon || 'fa-umbrella-beach')) + ' me-2';
     var esLibre = (tipoActual === 'DIA_LIBRE');
     // Un día libre se pide diciendo POR QUÉ, y no toca el saldo de vacaciones.
     document.getElementById('pedirNotaLabel').textContent = esLibre ? 'Motivo' : 'Nota (opcional)';
     document.getElementById('pedirNota').required = esLibre;
     document.getElementById('pedirNota').placeholder = esLibre ? 'Por ejemplo: mudanza' : 'Por ejemplo: viaje familiar';
     document.getElementById('vacRestantesCaja').classList.toggle('d-none', esLibre);
+    // Los días disponibles son los de la bolsa que toca: las vacaciones o el extra.
+    disponibles = extraActual ? extraActual.days : DISPONIBLES_VAC;
     asegurarCal();
     if (cal) cal.clear();
     new bootstrap.Modal(modal).show();
   }
   document.querySelectorAll('[data-vac-open]').forEach(function(b){
-    b.addEventListener('click', function(){ abrir(b.dataset.vacOpen); });
+    b.addEventListener('click', function(){
+      var extra = b.dataset.vacExtra ? {
+        id: b.dataset.vacExtra, label: b.dataset.vacExtraLabel || '',
+        days: parseInt(b.dataset.vacExtraDays || '0', 10) || 0,
+        natural: !!b.dataset.vacExtraNatural
+      } : null;
+      abrir(b.dataset.vacOpen, extra);
+    });
   });
 
   function pinta(sel, cuentan){
+    // ⚠️ En un extra de días NATURALES cuentan TODOS los días marcados (findes y festivos incluidos):
+    // es la regla del propio permiso, la misma que aplica el servidor.
+    if (extraActual && extraActual.natural) cuentan = sel;
     document.getElementById('vacSeleccionados').textContent = cuentan.length;
     var esLibre = (tipoActual === 'DIA_LIBRE');
     var quedan = disponibles - cuentan.length;
@@ -246,9 +291,11 @@
     aviso.className = 'flex-grow-1 small ' + (pasado ? 'text-danger fw-semibold' : 'text-muted');
     aviso.textContent = pasado
       ? 'Te has pasado: solo te quedan ' + disponibles + ' día' + (disponibles === 1 ? '' : 's') + '.'
-      : (sel.length > cuentan.length
-          ? (sel.length - cuentan.length) + ' de los días marcados son fin de semana, festivo o no laborable y no cuentan.'
-          : 'Marca los días pinchando o arrastrando. Los fines de semana y festivos no cuentan.');
+      : ((extraActual && extraActual.natural)
+          ? 'Son días NATURALES: cuentan también los fines de semana y los festivos.'
+          : (sel.length > cuentan.length
+              ? (sel.length - cuentan.length) + ' de los días marcados son fin de semana, festivo o no laborable y no cuentan.'
+              : 'Marca los días pinchando o arrastrando. Los fines de semana y festivos no cuentan.'));
     document.getElementById('vacEnviar').disabled = (cuentan.length === 0 || pasado);
     comprobar(sel);
   }

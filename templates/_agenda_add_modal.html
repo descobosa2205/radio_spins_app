@@ -24,12 +24,25 @@
           <input type="search" class="form-control form-control-sm mb-2 d-none" data-agenda-artist-search placeholder="Buscar artista…" autocomplete="off">
           <div class="agenda-artist-picker">
             {% for a in (agenda_add_artists or []) %}
+              {% if a.office %}
+                {# EL CALENDARIO GENERAL DE OFICINA va PRIMERO y con los dos logos del grupo. A él solo
+                   se le pueden añadir notas: ni actividades ni bloqueos (no es de ningún artista). #}
+                <button type="button" class="agenda-artist-card agenda-artist-card--office"
+                        data-agenda-pick="{{ a.id }}" data-name="{{ a.name }}" data-search="{{ a.name|lower }}"
+                        data-office="1">
+                  <span class="agenda-office-logos">
+                    {% for l in (a.logos or []) %}<img src="{{ l }}" alt="" loading="lazy">{% endfor %}
+                  </span>
+                  <span>{{ a.name }}</span>
+                </button>
+              {% else %}
               <button type="button" class="agenda-artist-card{% if not a.active %} agenda-artist-card--extra d-none{% endif %}"
                       data-agenda-pick="{{ a.id }}" data-name="{{ a.name }}" data-search="{{ a.name|lower }}"
                       data-event="{{ a.event_id or '' }}"{% if not a.active %} data-agenda-extra="1"{% endif %}>
                 <img src="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" alt="" loading="lazy">
                 <span>{{ a.name }}</span>
               </button>
+              {% endif %}
             {% else %}
               <div class="text-muted small">No hay artistas disponibles.</div>
             {% endfor %}
@@ -104,7 +117,8 @@
     var box = form.querySelector('[data-agenda-conflict]'); if (!box) return;
     var s = (form.querySelector('[data-agenda-start]') || {}).value || '';
     var e = (form.querySelector('[data-agenda-end]') || {}).value || s;
-    if (!artistId || !s) { box.classList.add('d-none'); box.innerHTML = ''; return; }
+    // El calendario general de oficina no es un artista: no hay solapes que comprobar.
+    if (!artistId || artistId === 'oficina' || !s) { box.classList.add('d-none'); box.innerHTML = ''; return; }
     fetch('/api/concerts/check-artist-conflict?artist_id=' + encodeURIComponent(artistId) + '&start=' + encodeURIComponent(s) + '&end=' + encodeURIComponent(e || s), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
       .then(function (r) { return r.json(); })
       .then(function (rows) {
@@ -120,6 +134,7 @@
     var pname = body.getAttribute('data-preset-artist-name') || '';
     // Fechas por defecto = hoy
     modalEl.querySelectorAll('[data-agenda-start],[data-agenda-end]').forEach(function (i) { if (!i.value) i.value = today(); });
+    soloOtros(false);
     if (pid) { setArtist(pid, pname); show('type'); }
     else { setArtist('', ''); show('artist'); }
   });
@@ -128,9 +143,18 @@
   // jQuery). Al pinchar una se avanza directo al paso de tipo. Se muestran primero los ACTIVOS; el
   // resto (data-agenda-extra) tras «Ver más artistas»; el buscador filtra sobre TODOS.
   var pickerCards = [].slice.call(modalEl.querySelectorAll('[data-agenda-pick]'));
+  /* El CALENDARIO GENERAL DE OFICINA no puede tener actividades ni bloqueos, así que al elegirlo se
+     dejan fuera esas dos opciones y solo queda «Otro» (nota libre). */
+  function soloOtros(on) {
+    ['actividad', 'bloqueo'].forEach(function (k) {
+      var b = modalEl.querySelector('[data-agenda-choice="' + k + '"]');
+      if (b) b.classList.toggle('d-none', !!on);
+    });
+  }
   pickerCards.forEach(function (card) {
     card.addEventListener('click', function () {
       setArtist(card.getAttribute('data-agenda-pick'), card.getAttribute('data-name') || '');
+      soloOtros(card.hasAttribute('data-office'));
       show('type');
     });
   });

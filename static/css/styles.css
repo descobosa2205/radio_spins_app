@@ -2022,6 +2022,16 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 .agenda-cal__day.is-out{ background:#f6f7f9; opacity:.55; }
 .agenda-cal__day.is-today{ border-color:var(--brand-primary); box-shadow:0 0 0 2px rgba(227,61,72,.18); }
 .agenda-cal__day.is-blocked{ background:repeating-linear-gradient(45deg,#f1f2f4,#f1f2f4 7px,#e7e9ec 7px,#e7e9ec 14px); }
+/* FESTIVOS en el calendario de agenda (Inicio y ficha del artista): el día EN ROJO con el nombre de
+   la festividad, igual que en el calendario de vacaciones. Los «no laborables» de la oficina, en
+   morado, para distinguirlos de los oficiales. */
+.agenda-cal__day.is-holiday{ background:#fdeaec; border-color:#f3c2c7; }
+.agenda-cal__day.is-nonworking{ background:#ede7f6; border-color:#d6ccea; }
+.agenda-cal__fest{ font-size:.66rem; font-weight:700; line-height:1.15; color:#a01f29;
+  overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+.agenda-cal__day.is-nonworking .agenda-cal__fest{ color:#4527a0; }
+.agenda-cal__day.is-holiday .agenda-cal__num{ color:#a01f29; }
+.agenda-cal__day.is-nonworking .agenda-cal__num{ color:#4527a0; }
 .agenda-cal__num{ height:16px; line-height:16px; font-size:.74rem; font-weight:700; color:#6b7280; }
 .agenda-cal__day.is-today .agenda-cal__num{ color:var(--brand-primary); }
 .agenda-cal__spanspace{ flex:0 0 auto; }

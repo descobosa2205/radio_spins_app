@@ -58,6 +58,11 @@
     var artists = data.artists || [];
     var kinds = data.kinds || [];
 
+    // FESTIVOS: {iso: {name, office}}. El día se marca en ROJO con el nombre de la festividad (igual
+    // que en el calendario de vacaciones); los «no laborables» de la oficina, en morado.
+    var holidays = {};
+    (data.holidays || []).forEach(function (h) { if (h && h.day) holidays[h.day] = h; });
+
     var activeArtists = {}; artists.forEach(function (a) { activeArtists[a.id] = true; });
     var activeKinds = {}; kinds.forEach(function (k) { activeKinds[k.key] = true; });
 
@@ -209,6 +214,7 @@
         if (px !== py) return px - py;
         return (x.name || '').toLowerCase().localeCompare((y.name || '').toLowerCase());
       });
+      (d.holidays || []).forEach(function (h) { if (h && h.day) holidays[h.day] = h; });
       (d.kinds || []).forEach(function (k) {
         if (!kinds.some(function (x) { return x.key === k.key; })) {
           kinds.push(k);
@@ -427,7 +433,14 @@
           if (isArtist && (cur < dataStart || cur > dataEnd)) cell.classList.add('is-out');
           if (key === data.today) cell.classList.add('is-today');
           if (isBlockedDay(key)) cell.classList.add('is-blocked');
+          var fest = holidays[key];
+          if (fest) {
+            cell.classList.add(fest.office ? 'is-nonworking' : 'is-holiday');
+            cell.title = fest.name + (fest.scope_label ? ' · ' + fest.scope_label : '');
+          }
           cell.appendChild(el('div', 'agenda-cal__num', cur.getDate() + ' ' + MONTHS[cur.getMonth()]));
+          // El NOMBRE de la festividad, dentro del día: es lo que dice de qué festivo se trata.
+          if (fest) cell.appendChild(el('div', 'agenda-cal__fest', fest.name));
           if (laneCount) { var sp = el('div', 'agenda-cal__spanspace'); sp.style.height = (laneCount * BAR_H) + 'px'; cell.appendChild(sp); }
           var list = el('div', 'agenda-cal__events');
           (byDate[key] || []).forEach(function (a) { list.appendChild(makeChip(a)); });

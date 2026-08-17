@@ -243,8 +243,10 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · **La FOTO de cada franja es la de LA PERSONA que está de vacaciones**, no la del calendario: los
   ítems pueden traer su propia `artist_photo`/`artist_photos` y el finalizador de `_agenda_build` las
   respeta (`it.pop(...) or` lo calculado). Sin eso todas las franjas salían con el logo.
-  · **Su imagen** es `static/img/calendario_oficina.png` (`_office_calendar_image()`): si el fichero no
-  está subido se cae a los dos logos del grupo, así que nunca queda un hueco roto.
+  · **Su imagen** es el **FAVICON de la app** (`static/android-chrome-192x192.png`, el «33» de la
+  casa), vía `_office_calendar_image()`; si el fichero no estuviera, se cae a los dos logos del grupo.
+  · **CUMPLEAÑOS de todo el personal** de la oficina (`UserProfile.birth_date`), con su tarta y **la
+  foto de quien cumple**. Los bloqueados y eliminados no salen.
 - **MI CALENDARIO** (ago 2026, `MY_CALENDAR_ID = "mio"`): el calendario de cada uno, también como si
   fuera otro artista y con **su propia foto**. Lleva:
   · las actividades en las que **acompaña** al artista —está en el personal de su HOJA DE RUTA
@@ -265,7 +267,20 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ventanas con las flechas (el `sort` del cliente los deja delante).
   ⚠️ Lo personal (mis días, MI CALENDARIO y el de OFICINA) se añade **ANTES del mapa de artistas**: es
   ahí donde estos dos calendarios cogen nombre, foto y color, y el mapa se construye con los ids ya
-  vistos. Los festivos y no laborables siguen yendo **sin calendario**, como siempre.
+  vistos.
+
+- **FESTIVOS en los calendarios de agenda** (ago 2026): en **Inicio** y en la **pestaña Agenda de cada
+  artista** el día del festivo se marca **EN ROJO con el nombre de la festividad** dentro de la casilla
+  (los **no laborables** de la oficina, en morado), igual que en el calendario de vacaciones. Van en
+  `holidays` del payload (`_agenda_holidays`), **no como un chip más** — antes eran un evento de tipo
+  «vacaciones» y se perdían entre las actividades.
+  ⚠️ Se piden con **`include_holidays=True`**, que solo activan la agenda de Inicio, sus ventanas por
+  AJAX y la ficha del artista: en el calendario PÚBLICO, el iCal y CalDAV no van. Y los **EMPRESA**
+  (no laborables, que son por persona) solo con `include_personal`.
+- **CUMPLEAÑOS de los INTEGRANTES de un artista** (corregido ago 2026): salen SIEMPRE (uno o varios,
+  `ArtistPerson.birth_date`) más la fecha del propio artista si la tiene, sin repetir. Antes los
+  integrantes solo contaban si el artista estaba marcado como **grupo**, así que en uno sin esa marca
+  no aparecía ningún cumpleaños aunque estuvieran puestos.
 - **Alta rápida de entidades (modal superpuesto)**: `templates/_quick_create_modals.html` +
   `static/js/quick_create.js`. Junto a un `<select id="X">` añadir
   `<button type="button" data-quick-create="TIPO" data-target="X"><i class="fa fa-plus"></i></button>`

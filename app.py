@@ -1831,7 +1831,10 @@ def artist_detail_view(artist_id):
         if tab == "agenda":
             _ag_today = today_local()
             agenda_data = _agenda_build(session_db, [str(artist.id)], _ag_today - timedelta(weeks=26), _ag_today + timedelta(weeks=26), _ag_today,
-                                        full_details=_user_sees_unconfirmed_activities())
+                                        full_details=_user_sees_unconfirmed_activities(),
+                                        # Los festivos también en la agenda del artista (marcados en
+                                        # el día, en rojo, con el nombre de la festividad).
+                                        include_holidays=True)
             # Con el artist_id el JS puede pedir más ventanas (home_agenda_data) y navegar SIN límite.
             agenda_data["artist_id"] = str(artist.id)
             calendar_links = [
@@ -88139,9 +88142,11 @@ AGENDA_KIND_META = {
 
 def _agenda_personal_days(session_db, start_date, end_date) -> list:
     """Los días propios de quien mira, para el calendario de INICIO: sus vacaciones y días libres
-    (aprobados o pendientes), los días no laborables de la oficina y los festivos.
+    (aprobados o pendientes), como una franja por petición y bajo MI CALENDARIO.
 
-    ⚠️ Devuelve items SIN artista y solo se enganchan cuando se pide expresamente
+    ⚠️ Los festivos y los días no laborables NO salen de aquí: el calendario marca el DÍA en rojo con
+    el nombre de la festividad (`_agenda_holidays`), que se ve mucho mejor que un chip más.
+    ⚠️ Solo se engancha cuando se pide expresamente
     (`include_personal`): en un calendario público / iCal de un artista no pintan nada que hacer, y
     además serían datos personales de la oficina en un enlace que se comparte fuera."""
     uid = _safe_uuid((_current_user_state() or {}).get("user_id"))
@@ -88180,27 +88185,38 @@ def _agenda_personal_days(session_db, start_date, end_date) -> list:
             }))
     except Exception:
         app.logger.exception("[agenda] no se pudieron cargar mis vacaciones")
+    # ⚠️ Los FESTIVOS y los días NO LABORABLES ya NO se pintan como un chip más: el calendario marca
+    # el DÍA en rojo con el nombre de la festividad, igual que el de vacaciones. Lo hace con
+    # `holidays` del payload, que monta `_agenda_holidays`.
+    return salida
+
+
+def _agenda_holidays(session_db, start_date, end_date, *, include_office=False) -> list[dict]:
+    """Los FESTIVOS de la ventana para marcar el día en el calendario (en rojo, con su nombre).
+
+    `include_office` añade los días NO LABORABLES de la oficina (ámbito EMPRESA), que son cosa de
+    dentro y **por persona**: solo se piden en la agenda de la casa, nunca en un calendario público
+    ni en el iCal/CalDAV de un artista."""
+    uid = _safe_uuid((_current_user_state() or {}).get("user_id")) if include_office else None
+    salida = []
     try:
-        # Con `user_id`: un día NO LABORABLE que solo es de unas personas no le sale a las demas.
         for day, meta in (_vacation_holidays(session_db, start_date.year, end_date.year,
                                              user_id=uid) or {}).items():
             if not (start_date <= day <= end_date):
                 continue
             empresa = (meta.get("scope") or "") == "EMPRESA"
-            salida.append(([], {
-                "id": f"fest-{day.isoformat()}",
-                "kind": "vacaciones",
-                "date": day.isoformat(),
-                "end_date": day.isoformat(),
-                "title": meta.get("name") or ("No laborable" if empresa else "Festivo"),
-                "subtitle": VACATION_HOLIDAY_SCOPES.get(meta.get("scope"), ""),
-                "artist_id": "",
-                "icon_override": "fa-calendar-xmark" if empresa else "fa-flag",
-                "url": "",
-            }))
+            if empresa and not include_office:
+                continue
+            salida.append({
+                "day": day.isoformat(),
+                "name": meta.get("name") or ("No laborable" if empresa else "Festivo"),
+                "scope": meta.get("scope") or "NACIONAL",
+                "scope_label": VACATION_HOLIDAY_SCOPES.get(meta.get("scope"), ""),
+                "office": bool(empresa),
+            })
     except Exception:
-        pass
-    return salida
+        app.logger.exception("[agenda] no se pudieron cargar los festivos")
+    return sorted(salida, key=lambda h: h["day"])
 
 
 def _agenda_status_meta(code: str | None) -> tuple[str, str]:
@@ -88245,9 +88261,9 @@ def _user_sees_unconfirmed_activities() -> bool:
 # ni actividades ni bloqueos (una nota es lo único que se le puede añadir).
 OFFICE_CALENDAR_ID = "oficina"
 OFFICE_CALENDAR_NAME = "Calendario general"
-# Su IMAGEN: el logo «33 y 3» de la casa. ⚠️ Si el fichero no está subido todavía se cae a los dos
-# logos del grupo (así no queda un hueco roto): en cuanto se guarda en esa ruta, se usa él.
-OFFICE_CALENDAR_IMAGE = "img/calendario_oficina.png"
+# Su IMAGEN: el FAVICON de la app (el «33» de la casa), que es un cuadrado y ya está en el
+# repositorio. ⚠️ Si algún día se quiere otra, basta con guardarla en esa ruta.
+OFFICE_CALENDAR_IMAGE = "android-chrome-192x192.png"
 
 # MI CALENDARIO: lo de cada uno. Las actividades a las que se le asigna de ACOMPAÑAMIENTO (el personal
 # de la hoja de ruta y las promociones en las que acompaña al artista), sus vacaciones y sus días
@@ -88336,6 +88352,37 @@ def _agenda_office_items(session_db, start_date, end_date) -> list:
             }))
     except Exception:
         app.logger.exception("[agenda] no se pudieron cargar las vacaciones de la oficina")
+
+    # ---- CUMPLEAÑOS de todo el personal de la oficina ----
+    try:
+        fuera = _inactive_user_ids(session_db)
+        for prof in session_db.query(UserProfile).all():
+            nace = getattr(prof, "birth_date", None)
+            uid = getattr(prof, "user_id", None)
+            if not nace or not uid or uid in fuera:
+                continue
+            quien = (getattr(prof, "nick", None) or "").strip() or "Alguien"
+            for anyo in range(start_date.year, end_date.year + 1):
+                try:
+                    dia = date(anyo, nace.month, nace.day)
+                except ValueError:
+                    dia = date(anyo, 2, 28)          # 29-feb en años no bisiestos
+                if not (start_date <= dia <= end_date):
+                    continue
+                salida.append(([OFFICE_CALENDAR_ID], {
+                    "kind": "cumple", "date": dia.isoformat(), "end_date": dia.isoformat(),
+                    "title": f"Cumple de {quien}", "subtitle": "",
+                    "artist_id": OFFICE_CALENDAR_ID,
+                    "icon_override": "fa-cake-candles",
+                    # La foto es la de quien cumple, no la del calendario.
+                    "artist_photo": (getattr(prof, "photo_url", None) or "") or _default_avatar_url(),
+                    "artist_photos": [{"id": str(uid), "name": quien,
+                                       "photo_url": (getattr(prof, "photo_url", None) or "") or _default_avatar_url(),
+                                       "color": ""}],
+                    "status_label": "", "status_class": "", "cover_url": "", "url": "",
+                }))
+    except Exception:
+        app.logger.exception("[agenda] no se pudieron cargar los cumpleaños de la oficina")
 
     # ---- Notas del propio calendario de oficina ----
     try:
@@ -88436,7 +88483,7 @@ def _agenda_my_items(session_db, concerts, start_date, end_date) -> list:
 
 
 def _agenda_build(session_db, target_ids, start_date, end_date, today_value, full_details=False,
-                  include_personal=False) -> dict:
+                  include_personal=False, include_holidays=False) -> dict:
     """Construye los datos del calendario de agenda.
 
     target_ids: iterable de UUIDs de artista a incluir, o None/vacío = TODOS los artistas.
@@ -88718,20 +88765,33 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
     for art in bday_q.all():
         aid = str(art.id)
         url_art = url_for("artist_detail_view", artist_id=art.id, tab="agenda")
+        # ⚠️ SIEMPRE los INTEGRANTES (uno o varios) y, además, la fecha del propio artista si la
+        # tiene: antes los integrantes solo contaban cuando el artista estaba marcado como GRUPO, así
+        # que en un artista sin esa marca no salía ningún cumpleaños aunque los tuviera puestos.
         people = []
-        if getattr(art, "is_group", False):
-            for p in (art.people or []):
-                if p.birth_date:
-                    people.append((f"{p.first_name} {p.last_name}".strip(), p.birth_date, art.name))
-        elif getattr(art, "birth_date", None):
-            people.append((art.name, art.birth_date, ""))
+        vistos_cumple = set()
+        for p in (art.people or []):
+            if not getattr(p, "birth_date", None):
+                continue
+            nombre = f"{p.first_name or ''} {p.last_name or ''}".strip()
+            clave = (_norm_text_key(nombre), p.birth_date)
+            if clave in vistos_cumple:
+                continue
+            vistos_cumple.add(clave)
+            people.append((nombre, p.birth_date, art.name))
+        if getattr(art, "birth_date", None):
+            clave = (_norm_text_key(art.name or ""), art.birth_date)
+            if clave not in vistos_cumple:
+                vistos_cumple.add(clave)
+                people.append((art.name, art.birth_date, ""))
         for pname, bdate, sub in people:
             for d in _birthday_occurrences(bdate):
                 seen_artist_ids.add(aid)
                 raw.append(([aid], {
                     "kind": "cumple", "date": d.isoformat(),
-                    "title": pname or "Cumpleaños", "subtitle": sub,
+                    "title": (("Cumple de " + pname) if pname else "Cumpleaños"), "subtitle": sub,
                     "artist_id": aid,
+                    "icon_override": "fa-cake-candles",
                     "status_label": "", "status_class": "",
                     "cover_url": "", "url": url_art,
                 }))
@@ -88838,6 +88898,11 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
         "activities": activities,
         "artists": artists_out,
         "kinds": kinds_out,
+        # FESTIVOS de la ventana: el calendario marca el día en rojo con el nombre de la festividad.
+        # Los NO LABORABLES de la oficina solo van en la agenda de dentro (`include_personal`).
+        "holidays": (_agenda_holidays(session_db, start_date, end_date,
+                                      include_office=include_personal)
+                     if include_holidays else []),
         "today": today_value.isoformat(),
         "start": start_date.isoformat(),
         "end": end_date.isoformat(),
@@ -88870,7 +88935,7 @@ def _home_agenda() -> dict | None:
         today, start, end = _agenda_window()
         return _agenda_build(session_db, _home_agenda_target_ids(), start, end, today,
                              full_details=_user_sees_unconfirmed_activities(),
-                             include_personal=True)
+                             include_personal=True, include_holidays=True)
     except Exception:
         return None
     finally:
@@ -88902,8 +88967,10 @@ def home_agenda_data():
             target_ids = [str(artist.id)]
         return jsonify(_agenda_build(session_db, target_ids, start, end, today_local(),
                                      full_details=_user_sees_unconfirmed_activities(),
-                                     # En la agenda de UN artista no pintan los días propios.
-                                     include_personal=not artist_raw))
+                                     # En la agenda de UN artista no pintan los días propios…
+                                     include_personal=not artist_raw,
+                                     # …pero los FESTIVOS sí: son de todos y ayudan a colocar fechas.
+                                     include_holidays=True))
     finally:
         session_db.close()
 

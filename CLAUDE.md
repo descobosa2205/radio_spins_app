@@ -715,6 +715,19 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (en la raíz del estado solo está la unión `assigned_artist_ids`).
   · Los endpoints `discografica_*_pitch_*` heredan la sección por la ruta `/discografica`; los tres
   públicos están en `PUBLIC_ENDPOINTS_EXTRA` **y** en las dos listas `allowed`.
+- **ISRC · vive en REGISTROS** (movido ago 2026): el repertorio de códigos y su configurador estaban
+  en Discográfica y ahora son la pestaña **`/registros?tab=isrc`**, que es donde se trabaja con AGEDI y
+  SGAE. Motor `_isrc_panel_context(session_db, isrc_tab=…, artist_id=…, year=…, config_subtab=…)` +
+  parcial `templates/_isrc_panel.html`; en `registros.html` la pestaña se pinta con `isrc_only`, que
+  deja fuera TODO el resto de la pantalla (su contexto no se calcula en esa pestaña).
+  ⚠️ El **PERMISO sigue siendo `discografica.isrc`**: no se renombra a propósito (`_sync_access_resources`
+  poda los huérfanos **en cascada** y se llevaría por delante los permisos ya concedidos). El
+  enforcement de `registros_view?tab=isrc` acepta **la primera** clave que tenga el usuario
+  (`discografica.isrc` o `registros`), así que quien tenía ISRC entra aunque no tenga Registros.
+  ⚠️ `/discografica?section=isrc` **redirige** a la pestaña nueva (los enlaces guardados siguen
+  valiendo) y los endpoints siguen llamándose `discografica_isrc_*` / `discografica_product_code_*`:
+  renombrarlos no aporta nada y heredan su permiso por el prefijo.
+
 - **REGISTROS · qué conciertos se declaran y cada cuánto** (ago 2026):
   · **Solo de artistas con CONTRATO DISCOGRÁFICO**: `_artist_has_record_deal` (compromiso de
   `ArtistContractCommitment` con concepto discográfico, vía `_pick_artist_commitment`, cacheado en

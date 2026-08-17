@@ -11801,6 +11801,282 @@ def _apply_income_import_items(session_db, items: list[dict], period_type: str, 
 
     return result
 
+
+# ---------------------------------------------------------------------------
+# ISRC · el repertorio de códigos y su configurador
+# ---------------------------------------------------------------------------
+# ⚠️ Esta pantalla VIVE EN REGISTROS (`/registros?tab=isrc`), que es donde se trabaja con AGEDI y
+# SGAE; antes era una pestaña de Discográfica y se movió en ago 2026 (el enlace antiguo
+# `/discografica?section=isrc` redirige aquí). El PERMISO sigue siendo `discografica.isrc`: no se
+# renombra a propósito, porque `_sync_access_resources` poda los huérfanos en cascada y se llevaría
+# por delante los permisos ya concedidos.
+def _isrc_panel_context(session_db, *, isrc_tab: str = "repertorio", artist_id=None, year=None,
+                        config_subtab: str = "isrc") -> dict:
+    """Todo lo que necesita la pantalla de ISRC (repertorio, pendientes de AGEDI y configurador)."""
+    # ⚠️ Solo estas dos, como antes: la rama «pendientes» del cuerpo es código muerto que ya lo era
+    # en Discográfica (el `isrc_tab` se normalizaba igual), y se conserva tal cual para no cambiar
+    # nada al mover la pantalla.
+    if isrc_tab not in ("repertorio", "configurador"):
+        isrc_tab = "repertorio"
+    artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
+    contract_artist_ids = _artist_ids_with_discography_contracts(session_db)
+    contract_artists = [a for a in artists if a.id in contract_artist_ids]
+
+    isrc_artist_blocks: list = []
+    isrc_years: list = []
+    isrc_config = None
+    isrc_artist_settings: dict = {}
+    isrc_contract_artists: list = []
+    isrc_filter_artists: list = []
+    isrc_current_filter_artists: list = []
+    isrc_pending_songs: list = []
+    isrc_pending_filter_artists: list = []
+    product_code_config = None
+    current_product_code_series = None
+    product_code_series_rows: list = []
+    f_artist_id = _safe_uuid(artist_id) if artist_id else None
+    try:
+        f_year = int(year) if year else None
+    except Exception:
+        f_year = None
+
+    # filtros
+    f_artist_id = to_uuid((request.args.get("artist_id") or "").strip())
+    f_year = None
+    try:
+        f_year = int((request.args.get("year") or "").strip())
+    except Exception:
+        f_year = None
+
+    # Solo mostramos repertorio ISRC de canciones que tengan ISRC
+    # y cumplan: master_ownership_pct > 1% o es distribución.
+    ownership_cond = (
+        (func.coalesce(Song.master_ownership_pct, 0) > 1)
+        | (func.coalesce(Song.is_distribution, False) == True)  # noqa: E712
+    )
+
+    # años disponibles (release_date) SOLO de canciones con ISRC y filtro de propiedad
+    years_rows = (
+        session_db.query(func.extract("year", Song.release_date).label("y"))
+        .join(SongISRCCode, SongISRCCode.song_id == Song.id)
+        .filter(ownership_cond)
+        .distinct()
+        .order_by(func.extract("year", Song.release_date).desc())
+        .all()
+    )
+    isrc_years = [int(r.y) for r in years_rows if r and r.y]
+
+    # Artistas con canciones con ISRC (y filtro de propiedad)
+    arows = (
+        session_db.query(SongArtist.artist_id)
+        .join(Song, Song.id == SongArtist.song_id)
+        .join(SongISRCCode, SongISRCCode.song_id == Song.id)
+        .filter(ownership_cond)
+        .distinct()
+        .all()
+    )
+    a_set = {r.artist_id for r in arows if r and r.artist_id}
+    isrc_filter_artists = [a for a in artists if a.id in a_set]
+    isrc_current_filter_artists = list(isrc_filter_artists)
+
+    if isrc_tab == "repertorio":
+        # Repertorio ISRC agrupado por artista.
+        # - Solo canciones con ISRC
+        # - Solo si master_ownership_pct > 1% o es distribución
+        # - Ordenado por código ISRC (más actual -> más antiguo)
+
+        artists_iter = [a for a in isrc_filter_artists if (not f_artist_id) or a.id == f_artist_id]
+
+        # subquery: máximo código por canción (para ordenar por ISRC)
+        max_code_sq = (
+            session_db.query(
+                SongISRCCode.song_id.label("song_id"),
+                func.max(SongISRCCode.code).label("max_code"),
+            )
+            .group_by(SongISRCCode.song_id)
+            .subquery()
+        )
+
+        songs_by_artist: dict = {}
+        all_song_ids: list = []
+        for a in artists_iter:
+            q = (
+                session_db.query(Song)
+                .join(SongArtist, Song.id == SongArtist.song_id)
+                .join(max_code_sq, max_code_sq.c.song_id == Song.id)
+                .filter(SongArtist.artist_id == a.id)
+                .filter(ownership_cond)
+            )
+            if f_year:
+                q = q.filter(func.extract("year", Song.release_date) == f_year)
+
+            songs = q.order_by(max_code_sq.c.max_code.desc()).all()
+            songs_by_artist[a.id] = songs
+            all_song_ids.extend([s.id for s in songs])
+
+        # Prefetch TODOS los ISRCs (incl. subproductos), ordenados por código desc
+        codes_by_song = {}
+        if all_song_ids:
+            rows = (
+                session_db.query(SongISRCCode)
+                .filter(SongISRCCode.song_id.in_(all_song_ids))
+                .order_by(SongISRCCode.code.desc())
+                .all()
+            )
+            for r in rows:
+                codes_by_song.setdefault(r.song_id, []).append(r)
+
+        for a in artists_iter:
+            songs = songs_by_artist.get(a.id) or []
+            enriched = []
+            for s in songs:
+                codes = codes_by_song.get(s.id) or []
+
+                def _split(kind: str):
+                    kind = (kind or "").upper()
+                    prim = None
+                    subs = []
+                    for c in codes:
+                        if (c.kind or "").upper() != kind:
+                            continue
+                        if c.is_primary and prim is None:
+                            prim = c
+                        elif not c.is_primary:
+                            subs.append(c)
+                    return prim, subs
+
+                audio_p, audio_subs = _split("AUDIO")
+                video_p, video_subs = _split("VIDEO")
+
+                # key de orden (max code ya viene por query, pero lo guardamos)
+                max_code = codes[0].code if codes else None
+                enriched.append(
+                    {
+                        "song": s,
+                        "audio_primary": _norm_isrc(audio_p.code) if audio_p else None,
+                        "video_primary": _norm_isrc(video_p.code) if video_p else None,
+                        "audio_subs": [(_norm_isrc(c.code), c.subproduct_name) for c in audio_subs],
+                        "video_subs": [(_norm_isrc(c.code), c.subproduct_name) for c in video_subs],
+                        "max_code": _norm_isrc(max_code),
+                    }
+                )
+
+            isrc_artist_blocks.append((a, enriched))
+
+        isrc_current_filter_artists = [artist for artist, rows in isrc_artist_blocks if rows]
+
+    elif isrc_tab == "pendientes":
+        song_rows = (
+            session_db.query(Song)
+            .join(SongArtist, Song.id == SongArtist.song_id)
+            .join(SongISRCCode, SongISRCCode.song_id == Song.id)
+            .filter(ownership_cond)
+            .distinct()
+            .options(selectinload(Song.artists))
+            .order_by(Song.release_date.desc(), Song.title.asc())
+            .all()
+        )
+        if f_artist_id:
+            song_rows = [s for s in song_rows if any(getattr(a, 'id', None) == f_artist_id for a in (s.artists or []))]
+        if f_year:
+            song_rows = [s for s in song_rows if getattr(s, 'release_date', None) and s.release_date.year == f_year]
+
+        song_ids = [s.id for s in song_rows]
+        status_map = {}
+        if song_ids:
+            status_map = {
+                row.song_id: row
+                for row in session_db.query(SongStatus).filter(SongStatus.song_id.in_(song_ids)).all()
+                if row and row.song_id
+            }
+
+        codes_by_song = defaultdict(list)
+        if song_ids:
+            rows = (
+                session_db.query(SongISRCCode)
+                .filter(SongISRCCode.song_id.in_(song_ids))
+                .order_by(SongISRCCode.is_primary.desc(), SongISRCCode.code.asc())
+                .all()
+            )
+            for row in rows:
+                codes_by_song[row.song_id].append(row)
+
+        pending_artist_ids = set()
+        for song in song_rows:
+            st = status_map.get(song.id) or _ensure_song_status_row(session_db, song)
+            _sync_song_agedi_state(session_db, song.id, st)
+            current_codes = _current_song_isrcs(session_db, song.id, include_song_field=True)
+            if not current_codes:
+                continue
+            registered_codes = set(_norm_isrc_list(getattr(st, 'agedi_registered_isrcs', []) or []))
+            pending_codes = [code for code in current_codes if code not in registered_codes]
+            if not pending_codes and bool(getattr(st, 'agedi_done', False)):
+                continue
+            for art in (song.artists or []):
+                if art and getattr(art, 'id', None):
+                    pending_artist_ids.add(art.id)
+            isrc_pending_songs.append({
+                'song': song,
+                'artists_label': ", ".join([a.name for a in (song.artists or []) if getattr(a, 'name', None)]) or '—',
+                'registered_codes': [code for code in current_codes if code in registered_codes],
+                'pending_codes': pending_codes if pending_codes else current_codes,
+                'all_codes': [
+                    {
+                        'code': code,
+                        'registered': code in registered_codes,
+                        'pending': code not in registered_codes,
+                    }
+                    for code in current_codes
+                ],
+                'status': st,
+            })
+        isrc_pending_filter_artists = [a for a in artists if a.id in pending_artist_ids]
+        isrc_current_filter_artists = list(isrc_pending_filter_artists)
+        session_db.commit()
+
+    else:
+        # Configurador
+        isrc_config = session_db.get(ISRCConfig, 1)
+        if not isrc_config:
+            isrc_config = ISRCConfig(id=1)
+            session_db.add(isrc_config)
+            session_db.commit()
+
+        # Ajustes por artista
+        settings_rows = session_db.query(ArtistISRCSetting).all()
+        isrc_artist_settings = {r.artist_id: r for r in settings_rows}
+        product_code_config = session_db.get(ProductCodeConfig, 1)
+        if not product_code_config:
+            product_code_config = ProductCodeConfig(id=1)
+            session_db.add(product_code_config)
+            session_db.commit()
+        current_product_code_series = _active_product_code_series(session_db, create_if_missing=True)
+        product_code_series_rows = _product_code_series_rows(session_db)
+        # Artistas con contrato discográfico / catálogo / distribución.
+        # Reutilizamos el cálculo robusto (sin acentos) para evitar listas vacías por variantes.
+        isrc_contract_artists = contract_artists
+
+    return {
+        "isrc_tab": isrc_tab,
+        "isrc_config_subtab": config_subtab,
+        "isrc_years": isrc_years,
+        "isrc_artist_blocks": isrc_artist_blocks,
+        "isrc_filter_artists": isrc_filter_artists,
+        "isrc_current_filter_artists": isrc_current_filter_artists,
+        "isrc_pending_songs": isrc_pending_songs,
+        "isrc_pending_filter_artists": isrc_pending_filter_artists,
+        "isrc_config": isrc_config,
+        "isrc_artist_settings": isrc_artist_settings,
+        "isrc_contract_artists": isrc_contract_artists,
+        "product_code_config": product_code_config,
+        "current_product_code_series": current_product_code_series,
+        "product_code_series_rows": product_code_series_rows,
+        "artists": artists,
+        "selected_artist_id": (str(f_artist_id) if f_artist_id else ""),
+        "selected_year": (str(f_year) if f_year else ""),
+    }
+
+
 @app.get("/discografica")
 @admin_required
 def discografica_view():
@@ -11816,6 +12092,13 @@ def discografica_view():
     section = (request.args.get("section") or "lanzamientos").lower().strip()
     if section == "repertorio":
         section = "canciones"
+    # La pantalla de ISRC se MOVIÓ a Registros (ago 2026): los enlaces antiguos siguen valiendo.
+    if section == "isrc":
+        return redirect(url_for("registros_view", tab="isrc",
+                                isrc_tab=(request.args.get("isrc_tab") or "repertorio"),
+                                config_tab=(request.args.get("config_tab") or None),
+                                artist_id=(request.args.get("artist_id") or None),
+                                year=(request.args.get("year") or None)))
 
     # Context (solo se usa cuando section == 'ingresos')
     income_view = request.args.get("view") or "month"  # 'month' | 'semester'
@@ -11840,8 +12123,6 @@ def discografica_view():
     editorial_pending_songs: list[Song] = []
     editorial_registered_songs: list[Song] = []
     editorial_filter_artists: list[Artist] = []
-    isrc_pending_songs: list[dict] = []
-    isrc_pending_filter_artists: list[Artist] = []
     isrc_config_subtab = (request.args.get("config_tab") or "isrc").lower().strip()
     if isrc_config_subtab not in ("isrc", "album_refs"):
         isrc_config_subtab = "isrc"
@@ -11902,12 +12183,8 @@ def discografica_view():
     if editorial_tab != "repertorio":
         editorial_tab = "repertorio"
 
-    # subpestañas ISRC
-    isrc_tab = (request.args.get("isrc_tab") or "repertorio").lower().strip()
-    if isrc_tab == "pendientes":
-        return redirect(url_for("discografica_view", section="registros", registros_tab="agedi"))
-    if isrc_tab not in ("repertorio", "configurador"):
-        isrc_tab = "repertorio"
+    # (Las subpestañas de ISRC viven en Registros desde ago 2026: ver `_isrc_panel_context`. El
+    #  `?section=isrc` de arriba redirige allí, así que aquí ya no hay nada que normalizar.)
 
     if section == "ingresos":
         income_upload_report = _load_income_import_payload(request.args.get("upload_report"))
@@ -11925,17 +12202,9 @@ def discografica_view():
 
     artist_blocks = []
     song_audio_isrc_map = {}
-    isrc_artist_blocks = []
-    isrc_years = []
-    isrc_config = None
-    isrc_artist_settings = {}
-    isrc_contract_artists = []
-    isrc_filter_artists = []
-    isrc_current_filter_artists = []
     album_blocks = []
     product_code_config = None
     current_product_code_series = None
-    product_code_series_rows = []
 
     if section == "canciones":
         if repertorio_tab == "canciones":
@@ -12577,223 +12846,6 @@ def discografica_view():
 
             income_artist_blocks.append((a, rows))
 
-    if section == "isrc":
-        # filtros
-        f_artist_id = to_uuid((request.args.get("artist_id") or "").strip())
-        f_year = None
-        try:
-            f_year = int((request.args.get("year") or "").strip())
-        except Exception:
-            f_year = None
-
-        # Solo mostramos repertorio ISRC de canciones que tengan ISRC
-        # y cumplan: master_ownership_pct > 1% o es distribución.
-        ownership_cond = (
-            (func.coalesce(Song.master_ownership_pct, 0) > 1)
-            | (func.coalesce(Song.is_distribution, False) == True)  # noqa: E712
-        )
-
-        # años disponibles (release_date) SOLO de canciones con ISRC y filtro de propiedad
-        years_rows = (
-            session_db.query(func.extract("year", Song.release_date).label("y"))
-            .join(SongISRCCode, SongISRCCode.song_id == Song.id)
-            .filter(ownership_cond)
-            .distinct()
-            .order_by(func.extract("year", Song.release_date).desc())
-            .all()
-        )
-        isrc_years = [int(r.y) for r in years_rows if r and r.y]
-
-        # Artistas con canciones con ISRC (y filtro de propiedad)
-        arows = (
-            session_db.query(SongArtist.artist_id)
-            .join(Song, Song.id == SongArtist.song_id)
-            .join(SongISRCCode, SongISRCCode.song_id == Song.id)
-            .filter(ownership_cond)
-            .distinct()
-            .all()
-        )
-        a_set = {r.artist_id for r in arows if r and r.artist_id}
-        isrc_filter_artists = [a for a in artists if a.id in a_set]
-        isrc_current_filter_artists = list(isrc_filter_artists)
-
-        if isrc_tab == "repertorio":
-            # Repertorio ISRC agrupado por artista.
-            # - Solo canciones con ISRC
-            # - Solo si master_ownership_pct > 1% o es distribución
-            # - Ordenado por código ISRC (más actual -> más antiguo)
-
-            artists_iter = [a for a in isrc_filter_artists if (not f_artist_id) or a.id == f_artist_id]
-
-            # subquery: máximo código por canción (para ordenar por ISRC)
-            max_code_sq = (
-                session_db.query(
-                    SongISRCCode.song_id.label("song_id"),
-                    func.max(SongISRCCode.code).label("max_code"),
-                )
-                .group_by(SongISRCCode.song_id)
-                .subquery()
-            )
-
-            songs_by_artist: dict = {}
-            all_song_ids: list = []
-            for a in artists_iter:
-                q = (
-                    session_db.query(Song)
-                    .join(SongArtist, Song.id == SongArtist.song_id)
-                    .join(max_code_sq, max_code_sq.c.song_id == Song.id)
-                    .filter(SongArtist.artist_id == a.id)
-                    .filter(ownership_cond)
-                )
-                if f_year:
-                    q = q.filter(func.extract("year", Song.release_date) == f_year)
-
-                songs = q.order_by(max_code_sq.c.max_code.desc()).all()
-                songs_by_artist[a.id] = songs
-                all_song_ids.extend([s.id for s in songs])
-
-            # Prefetch TODOS los ISRCs (incl. subproductos), ordenados por código desc
-            codes_by_song = {}
-            if all_song_ids:
-                rows = (
-                    session_db.query(SongISRCCode)
-                    .filter(SongISRCCode.song_id.in_(all_song_ids))
-                    .order_by(SongISRCCode.code.desc())
-                    .all()
-                )
-                for r in rows:
-                    codes_by_song.setdefault(r.song_id, []).append(r)
-
-            for a in artists_iter:
-                songs = songs_by_artist.get(a.id) or []
-                enriched = []
-                for s in songs:
-                    codes = codes_by_song.get(s.id) or []
-
-                    def _split(kind: str):
-                        kind = (kind or "").upper()
-                        prim = None
-                        subs = []
-                        for c in codes:
-                            if (c.kind or "").upper() != kind:
-                                continue
-                            if c.is_primary and prim is None:
-                                prim = c
-                            elif not c.is_primary:
-                                subs.append(c)
-                        return prim, subs
-
-                    audio_p, audio_subs = _split("AUDIO")
-                    video_p, video_subs = _split("VIDEO")
-
-                    # key de orden (max code ya viene por query, pero lo guardamos)
-                    max_code = codes[0].code if codes else None
-                    enriched.append(
-                        {
-                            "song": s,
-                            "audio_primary": _norm_isrc(audio_p.code) if audio_p else None,
-                            "video_primary": _norm_isrc(video_p.code) if video_p else None,
-                            "audio_subs": [(_norm_isrc(c.code), c.subproduct_name) for c in audio_subs],
-                            "video_subs": [(_norm_isrc(c.code), c.subproduct_name) for c in video_subs],
-                            "max_code": _norm_isrc(max_code),
-                        }
-                    )
-
-                isrc_artist_blocks.append((a, enriched))
-
-            isrc_current_filter_artists = [artist for artist, rows in isrc_artist_blocks if rows]
-
-        elif isrc_tab == "pendientes":
-            song_rows = (
-                session_db.query(Song)
-                .join(SongArtist, Song.id == SongArtist.song_id)
-                .join(SongISRCCode, SongISRCCode.song_id == Song.id)
-                .filter(ownership_cond)
-                .distinct()
-                .options(selectinload(Song.artists))
-                .order_by(Song.release_date.desc(), Song.title.asc())
-                .all()
-            )
-            if f_artist_id:
-                song_rows = [s for s in song_rows if any(getattr(a, 'id', None) == f_artist_id for a in (s.artists or []))]
-            if f_year:
-                song_rows = [s for s in song_rows if getattr(s, 'release_date', None) and s.release_date.year == f_year]
-
-            song_ids = [s.id for s in song_rows]
-            status_map = {}
-            if song_ids:
-                status_map = {
-                    row.song_id: row
-                    for row in session_db.query(SongStatus).filter(SongStatus.song_id.in_(song_ids)).all()
-                    if row and row.song_id
-                }
-
-            codes_by_song = defaultdict(list)
-            if song_ids:
-                rows = (
-                    session_db.query(SongISRCCode)
-                    .filter(SongISRCCode.song_id.in_(song_ids))
-                    .order_by(SongISRCCode.is_primary.desc(), SongISRCCode.code.asc())
-                    .all()
-                )
-                for row in rows:
-                    codes_by_song[row.song_id].append(row)
-
-            pending_artist_ids = set()
-            for song in song_rows:
-                st = status_map.get(song.id) or _ensure_song_status_row(session_db, song)
-                _sync_song_agedi_state(session_db, song.id, st)
-                current_codes = _current_song_isrcs(session_db, song.id, include_song_field=True)
-                if not current_codes:
-                    continue
-                registered_codes = set(_norm_isrc_list(getattr(st, 'agedi_registered_isrcs', []) or []))
-                pending_codes = [code for code in current_codes if code not in registered_codes]
-                if not pending_codes and bool(getattr(st, 'agedi_done', False)):
-                    continue
-                for art in (song.artists or []):
-                    if art and getattr(art, 'id', None):
-                        pending_artist_ids.add(art.id)
-                isrc_pending_songs.append({
-                    'song': song,
-                    'artists_label': ", ".join([a.name for a in (song.artists or []) if getattr(a, 'name', None)]) or '—',
-                    'registered_codes': [code for code in current_codes if code in registered_codes],
-                    'pending_codes': pending_codes if pending_codes else current_codes,
-                    'all_codes': [
-                        {
-                            'code': code,
-                            'registered': code in registered_codes,
-                            'pending': code not in registered_codes,
-                        }
-                        for code in current_codes
-                    ],
-                    'status': st,
-                })
-            isrc_pending_filter_artists = [a for a in artists if a.id in pending_artist_ids]
-            isrc_current_filter_artists = list(isrc_pending_filter_artists)
-            session_db.commit()
-
-        else:
-            # Configurador
-            isrc_config = session_db.get(ISRCConfig, 1)
-            if not isrc_config:
-                isrc_config = ISRCConfig(id=1)
-                session_db.add(isrc_config)
-                session_db.commit()
-
-            # Ajustes por artista
-            settings_rows = session_db.query(ArtistISRCSetting).all()
-            isrc_artist_settings = {r.artist_id: r for r in settings_rows}
-            product_code_config = session_db.get(ProductCodeConfig, 1)
-            if not product_code_config:
-                product_code_config = ProductCodeConfig(id=1)
-                session_db.add(product_code_config)
-                session_db.commit()
-            current_product_code_series = _active_product_code_series(session_db, create_if_missing=True)
-            product_code_series_rows = _product_code_series_rows(session_db)
-            # Artistas con contrato discográfico / catálogo / distribución.
-            # Reutilizamos el cálculo robusto (sin acentos) para evitar listas vacías por variantes.
-            isrc_contract_artists = contract_artists
-
     if section == "registros":
         f_artist_id = to_uuid((request.args.get("artist_id") or "").strip())
         f_year = None
@@ -13112,9 +13164,6 @@ def discografica_view():
         _collect_display_song(song_row)
     for song_row in (editorial_registered_songs or []):
         _collect_display_song(song_row)
-    for row in (isrc_pending_songs or []):
-        if row.get('song') is not None:
-            _collect_display_song(row.get('song'))
     for row in (registros_agedi_items or []):
         if row.get('song') is not None:
             _collect_display_song(row.get('song'))
@@ -13150,7 +13199,6 @@ def discografica_view():
             if sid and sid in song_display_map:
                 row['collaborator'] = song_display_map[sid].get('collaborator') or ''
 
-    _apply_display_collaborator(isrc_pending_songs)
     _apply_display_collaborator(registros_upcoming_releases)
     _apply_display_collaborator(registros_agedi_items)
     _apply_display_collaborator(registros_ritmonet_songs)
@@ -13184,22 +13232,7 @@ def discografica_view():
         editorial_registered_songs=editorial_registered_songs,
         editorial_filter_artists=editorial_filter_artists,
         # ISRC
-        isrc_tab=isrc_tab,
-        isrc_artist_blocks=isrc_artist_blocks,
-        isrc_pending_songs=isrc_pending_songs,
-        isrc_filter_artists=isrc_filter_artists,
-        isrc_current_filter_artists=isrc_current_filter_artists,
-        isrc_pending_filter_artists=isrc_pending_filter_artists,
-        isrc_years=isrc_years,
-        isrc_config=isrc_config,
-        isrc_config_subtab=isrc_config_subtab,
-        isrc_artist_settings=isrc_artist_settings,
-        product_code_config=product_code_config,
-        current_product_code_series=current_product_code_series,
-        product_code_series_rows=product_code_series_rows,
-        isrc_contract_artists=isrc_contract_artists,
-        selected_artist_id=str(f_artist_id) if section == "isrc" and 'f_artist_id' in locals() and f_artist_id else "",
-        selected_year=str(f_year) if section == "isrc" and 'f_year' in locals() and f_year else "",
+        # (La pantalla de ISRC se movió a Registros: su contexto lo monta `_isrc_panel_context`.)
         # Ingresos
         income_view=income_view,
         income_period_label=income_period_label,
@@ -13288,7 +13321,7 @@ def discografica_isrc_config_update():
     finally:
         session_db.close()
 
-    return redirect(url_for("discografica_view", section="isrc", isrc_tab="configurador"))
+    return redirect(url_for("registros_view", tab="isrc", isrc_tab="configurador"))
 
 
 @app.post("/discografica/isrc/artist/<artist_id>/set")
@@ -13308,7 +13341,7 @@ def discografica_isrc_artist_set(artist_id):
         artist = session_db.get(Artist, aid)
         if not artist:
             flash("Artista no encontrado.", "warning")
-            return redirect(url_for("discografica_view", section="isrc", isrc_tab="configurador"))
+            return redirect(url_for("registros_view", tab="isrc", isrc_tab="configurador"))
 
         rec = session_db.get(ArtistISRCSetting, aid)
         if not rec:
@@ -13324,7 +13357,7 @@ def discografica_isrc_artist_set(artist_id):
     finally:
         session_db.close()
 
-    return redirect(url_for("discografica_view", section="isrc", isrc_tab="configurador"))
+    return redirect(url_for("registros_view", tab="isrc", isrc_tab="configurador"))
 
 
 @app.post("/discografica/canciones/bulk-update", endpoint="discografica_songs_bulk_update")
@@ -22048,7 +22081,7 @@ def discografica_product_code_config_update():
     finally:
         session_db.close()
 
-    return redirect(url_for("discografica_view", section="isrc", isrc_tab="configurador", config_tab="album_refs"))
+    return redirect(url_for("registros_view", tab="isrc", isrc_tab="configurador", config_tab="album_refs"))
 
 
 @app.post("/discografica/product-codes/series/new")
@@ -22091,7 +22124,7 @@ def discografica_product_code_series_create():
     finally:
         session_db.close()
 
-    return redirect(url_for("discografica_view", section="isrc", isrc_tab="configurador", config_tab="album_refs"))
+    return redirect(url_for("registros_view", tab="isrc", isrc_tab="configurador", config_tab="album_refs"))
 
 
 @app.post("/discografica/albumes/create")
@@ -42924,10 +42957,23 @@ def _build_registros_context(session_db) -> dict:
 @admin_required
 def registros_view():
     tab = (request.args.get('tab') or 'pendiente').strip().lower()
-    if tab not in {'pendiente', 'sgae'}:
+    # ⚠️ Una pestaña nueva hay que añadirla a esta lista blanca: si no, cae en «pendiente» y sale
+    # marcada pero se pinta otra cosa.
+    if tab not in {'pendiente', 'sgae', 'isrc'}:
         tab = 'pendiente'
     session_db = db()
     try:
+        # La pantalla de ISRC (repertorio de códigos y configurador) vive aquí desde ago 2026; su
+        # contexto es caro, así que solo se calcula cuando se está mirando esa pestaña.
+        if tab == 'isrc':
+            _sub = (request.args.get('config_tab') or 'isrc').strip().lower()
+            ctx = _isrc_panel_context(
+                session_db,
+                isrc_tab=(request.args.get('isrc_tab') or 'repertorio').strip().lower(),
+                artist_id=(request.args.get('artist_id') or ''),
+                year=(request.args.get('year') or ''),
+                config_subtab=(_sub if _sub in ('isrc', 'album_refs') else 'isrc'))
+            return render_template('registros.html', tab=tab, isrc_only=True, **ctx)
         ctx = _build_registros_context(session_db)
         return render_template('registros.html', tab=tab, **ctx)
     finally:
@@ -49523,6 +49569,14 @@ def _resolve_request_resource_key() -> str | None:
     if endpoint in {"registros_view", "registros_concert_declare", "registros_promo_declare",
                     "registros_repertoire_link", "registros_song_pack", "registros_song_declaration_signed"}:
         tab = (request.args.get("tab") or "pendiente").strip().lower()
+        # La pestaña ISRC se movió aquí desde Discográfica (ago 2026) y **conserva su permiso**
+        # (`discografica.isrc`): quien lo tenía sigue entrando aunque no tenga Registros, y quien
+        # tiene Registros entra igual (el enforcement acepta la primera clave que tenga).
+        if tab == "isrc":
+            for clave in ("discografica.isrc", "registros"):
+                if has_access_key(clave, include_descendants=True):
+                    return clave
+            return "discografica.isrc"
         return "registros.sgae" if tab == "sgae" else "registros.pendiente"
     if endpoint == "discografica_album_detail":
         tab = (request.args.get("tab") or "informacion").strip().lower()
@@ -49962,7 +50016,7 @@ def _resource_default_url(key: str) -> str:
         "discografica.registros": url_for("discografica_view", section="registros"),
         "discografica.ingresos": url_for("discografica_view", section="ingresos"),
         "discografica.adelantos": url_for("discografica_view", section="adelantos"),
-        "discografica.isrc": url_for("discografica_view", section="isrc", isrc_tab="repertorio"),
+        "discografica.isrc": url_for("registros_view", tab="isrc", isrc_tab="repertorio"),
         "vacaciones": url_for("vacaciones_view"),
         "registros": url_for("registros_view", tab="pendiente"),
         "registros.pendiente": url_for("registros_view", tab="pendiente"),

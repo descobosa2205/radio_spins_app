@@ -1440,31 +1440,8 @@
   if (editorialSearchInput) editorialSearchInput.addEventListener('input', applyEditorialFilters);
   applyEditorialFilters();
 
-  let selectedIsrcArtist = 'all';
-  const isrcSearchInput = document.getElementById('isrcSearchInput');
-  function applyIsrcFilters(){
-    const q = normalize(isrcSearchInput && isrcSearchInput.value);
-    document.querySelectorAll('.isrc-search-row').forEach(row => {
-      const artistIds = (row.getAttribute('data-isrc-artists') || '').split(',').filter(Boolean);
-      const haystack = normalize(row.getAttribute('data-isrc-search'));
-      const okArtist = selectedIsrcArtist === 'all' || artistIds.includes(selectedIsrcArtist);
-      const okSearch = !q || haystack.includes(q);
-      row.style.display = okArtist && okSearch ? '' : 'none';
-    });
-    document.querySelectorAll('.isrc-artist-block').forEach(block => {
-      const visibleRows = Array.from(block.querySelectorAll('.isrc-search-row')).filter(r => r.style.display !== 'none');
-      block.style.display = visibleRows.length ? '' : 'none';
-    });
-  }
-  document.querySelectorAll('[data-isrc-artist-filter]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      selectedIsrcArtist = btn.getAttribute('data-isrc-artist-filter') || 'all';
-      refreshGroupButtons('#isrcArtistFilters', 'data-isrc-artist-filter', selectedIsrcArtist);
-      applyIsrcFilters();
-    });
-  });
-  if (isrcSearchInput) isrcSearchInput.addEventListener('input', applyIsrcFilters);
-  applyIsrcFilters();
+  // (El filtro de artistas y el buscador del REPERTORIO ISRC viajan con su pantalla: viven en
+  //  `templates/_isrc_panel.html`, que ahora se pinta en Registros.)
 
   const royaltySearchInput = document.getElementById('royaltySearchInput');
   function applyRoyaltyFilters(){

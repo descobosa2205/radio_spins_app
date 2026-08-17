@@ -12,6 +12,7 @@
   {%- if nombre %} <span class="text-muted small">({{ nombre }})</span>{% endif %}
 {% endmacro %}
 
+<div id="isrcPanel">
   <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
     <ul class="nav nav-pills">
       <li class="nav-item">
@@ -444,3 +445,61 @@
       </div>
     {% endif %}
   {% endif %}
+
+</div>{# /#isrcPanel #}
+{# ⚠️ El filtro por artista y el buscador van AQUÍ, con la pantalla: vivían en el bloque de JS de
+   `discografica.html` y al mover el panel a Registros se quedaron atrás, así que no filtraban nada
+   (bug real). Es JS suelto, sin dependencias del resto de la página. #}
+<script>
+(function () {
+  var raiz = document.getElementById('isrcPanel');
+  if (!raiz || raiz.dataset.bound) return;
+  raiz.dataset.bound = '1';
+
+  function normaliza(v) {
+    if (window.normalizeSearchText) return window.normalizeSearchText(v);
+    return (v || '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  }
+  var buscador = document.getElementById('isrcSearchInput');
+  var elegido = 'all';
+
+  function aplica() {
+    var q = normaliza(buscador && buscador.value);
+    raiz.querySelectorAll('.isrc-search-row').forEach(function (fila) {
+      var ids = (fila.getAttribute('data-isrc-artists') || '').split(',').filter(Boolean);
+      var texto = normaliza(fila.getAttribute('data-isrc-search'));
+      var okArtista = (elegido === 'all') || ids.indexOf(elegido) > -1;
+      var okBusqueda = !q || texto.indexOf(q) > -1;
+      fila.style.display = (okArtista && okBusqueda) ? '' : 'none';
+    });
+    // Un artista sin ninguna fila visible desaparece (si no, quedan cabeceras huérfanas).
+    raiz.querySelectorAll('.isrc-artist-block').forEach(function (bloque) {
+      var visibles = Array.prototype.slice.call(bloque.querySelectorAll('.isrc-search-row'))
+        .filter(function (f) { return f.style.display !== 'none'; });
+      bloque.style.display = visibles.length ? '' : 'none';
+    });
+  }
+
+  function pintaBotones() {
+    raiz.querySelectorAll('[data-isrc-artist-filter]').forEach(function (b) {
+      var valor = b.getAttribute('data-isrc-artist-filter') || 'all';
+      var activo = valor === elegido;
+      b.classList.toggle('active', activo);
+      b.classList.toggle('btn-dark', activo);
+      b.classList.toggle('btn-outline-secondary', !activo);
+    });
+  }
+
+  // Por DELEGACIÓN: da igual cuándo se pinten los botones.
+  raiz.addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-isrc-artist-filter]');
+    if (!b) return;
+    elegido = b.getAttribute('data-isrc-artist-filter') || 'all';
+    pintaBotones();
+    aplica();
+  });
+  if (buscador) buscador.addEventListener('input', aplica);
+  pintaBotones();
+  aplica();
+})();
+</script>

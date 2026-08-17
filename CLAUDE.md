@@ -727,6 +727,9 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ `/discografica?section=isrc` **redirige** a la pestaña nueva (los enlaces guardados siguen
   valiendo) y los endpoints siguen llamándose `discografica_isrc_*` / `discografica_product_code_*`:
   renombrarlos no aporta nada y heredan su permiso por el prefijo.
+  ⚠️ **El filtro por artista y el buscador van DENTRO del parcial** (`#isrcPanel`, por delegación):
+  vivían en el bloque de JS de `discografica.html` y al mover la pantalla se quedaron atrás, así que
+  **no filtraban nada** (bug real). Al mover un panel, el JS se mueve con él.
   · **El REPERTORIO se lee de arriba abajo por FECHA DE PUBLICACIÓN**: la más próxima primero, tanto
   dentro de cada artista como entre bloques (antes se ordenaba por el código ISRC, que no dice nada al
   mirar el repertorio). Cada tema lleva su **PORTADA** y cada código va **en VERDE si ya está

@@ -74,7 +74,7 @@
     // dorado, así dos calendarios nunca se quedan con el mismo (antes se repetían a partir del 13).
     var PALETTE = ['#198754', '#6f42c1', '#fd7e14', '#d63384', '#20c997', '#0d6efd',
                    '#b5179e', '#e07a5f', '#457b9d', '#9c6644', '#2a9d8f', '#7048e8',
-                   '#c1121f', '#3a86ff', '#8ac926', '#ff6b6b', '#118ab2', '#f4a261'];
+                   '#3a86ff', '#8ac926', '#118ab2', '#f4a261', '#5f6caf', '#00897b'];
     var KIND_ORDER = ['concierto', 'festival', 'evento', 'lanzamiento', 'accion', 'medios', 'cumple', 'otro', 'bloqueo'];
     var artistColors = {};
     artists.forEach(function (a) { artistColors[a.id] = a.color; });
@@ -92,8 +92,9 @@
     }
 
     function colorOf(a) {
-      // Bloqueos y cumpleaños llevan su color de tipo siempre (gris / rosa); el resto por artista
-      // en Inicio y por tipo en la ficha del artista.
+      // Bloqueos y CUMPLEAÑOS llevan su color de tipo SIEMPRE (gris el bloqueo, y el cumpleaños el
+      // rojo de la casa, el mismo del «Calendario general»); el resto, por artista en Inicio y por
+      // tipo en la ficha del artista.
       if (a.kind === 'bloqueo' || a.kind === 'cumple') return a.kind_color;
       if (mode === 'home') return a.artist_id ? colorFor(a.artist_id) : (a.artist_color || '#6c757d');
       return a.kind_color;

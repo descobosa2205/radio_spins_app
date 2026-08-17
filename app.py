@@ -88098,10 +88098,12 @@ def public_invitation_request_resend(token, request_id):
 # fijos (se reconocen de un vistazo) y por eso NO están en la paleta que rota entre los artistas.
 AGENDA_OFFICE_COLOR = "#E33D48"        # rojo de la casa
 AGENDA_MINE_COLOR = "#007CA2"          # azul de la casa
+# ⚠️ Sin rojos: el rojo de la casa es del «Calendario general» (y de los cumpleaños), así que ningún
+# artista puede llevar uno parecido o se confundirían.
 AGENDA_PALETTE = [
     "#198754", "#6f42c1", "#fd7e14", "#d63384", "#20c997", "#0d6efd",
     "#b5179e", "#e07a5f", "#457b9d", "#9c6644", "#2a9d8f", "#7048e8",
-    "#c1121f", "#3a86ff", "#8ac926", "#ff6b6b", "#118ab2", "#f4a261",
+    "#3a86ff", "#8ac926", "#118ab2", "#f4a261", "#5f6caf", "#00897b",
 ]
 
 
@@ -88131,7 +88133,9 @@ AGENDA_KIND_META = {
     "accion":      {"label": "Acciones",        "icon": "fa-clapperboard",    "color": "#007CA2"},
     "promocion":   {"label": "Promoción",       "icon": "fa-microphone-lines","color": "#8e44ad"},
     "medios":      {"label": "Medios",          "icon": "fa-broadcast-tower", "color": "#20c997"},
-    "cumple":      {"label": "Cumpleaños",      "icon": "fa-cake-candles",    "color": "#e83e8c"},
+    # ⚠️ Los CUMPLEAÑOS van en el ROJO DE LA CASA (el mismo del «Calendario general»), no en rosa:
+    # son cosas de la casa y así se ven igual en todas partes.
+    "cumple":      {"label": "Cumpleaños",      "icon": "fa-cake-candles",    "color": AGENDA_OFFICE_COLOR},
     "otro":        {"label": "Otros",           "icon": "fa-thumbtack",       "color": "#0d6efd"},
     "bloqueo":     {"label": "Bloqueos",        "icon": "fa-ban",             "color": "#6c757d"},
     # Los días propios de cada uno (vacaciones, días libres, no laborables y festivos). No son de

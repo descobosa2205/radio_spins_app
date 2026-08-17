@@ -255,6 +255,10 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · las **promociones** en las que es el acompañante (`Promotion.escort_user_id`), con sus entrevistas,
   · y **sus vacaciones y días libres** (una franja por petición), que las trae `_agenda_personal_days`
     ya con este id.
+  · **Los CUMPLEAÑOS van en el ROJO DE LA CASA** (ago 2026), el mismo del Calendario general: es su
+  color de TIPO (`AGENDA_KIND_META['cumple']`), así que se ven igual en Inicio y en la ficha del
+  artista. Y de la paleta de artistas se ha quitado el rojo oscuro que había (`#c1121f`): con el rojo
+  reservado, ningún artista puede llevar uno parecido.
   · **COLORES**: el **rojo de la casa** es del Calendario general y el **azul** de Mi calendario
   (`AGENDA_OFFICE_COLOR` / `AGENDA_MINE_COLOR`, fijos y fuera de la paleta que rota). El resto los da
   **`_agenda_color_for(i)`**: la paleta y, cuando se acaba, colores nuevos girando el tono con el

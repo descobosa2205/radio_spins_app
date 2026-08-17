@@ -1,0 +1,144 @@
+{# VALORAR UNA DEMO · página del enlace del correo (uno por persona).
+   Enseña LO MISMO que el correo (logo de PIES a la derecha, «Valoración» centrado, quién lo pide y la
+   cabecera de la maqueta), debajo el audio para escucharla, la nota de 1 a 10 (roja→verde) y las dos
+   preguntas. ⚠️ Es STANDALONE a propósito (no hereda de layout.html): la abre gente desde su correo,
+   sin sesión, y no tiene que ver el back office. #}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Valoración · {{ demo.title }}</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}">
+  {# ⚠️ La hoja de la casa también: sin ella los botones `btn-primary`/`btn-danger` salen con el azul
+     de Bootstrap en vez de los colores de la casa (mismo tropiezo que en la entrega de masters). #}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=ASSET_V) }}">
+</head>
+<body class="bg-body-tertiary">
+<div class="container py-4" style="max-width:760px;">
+
+  {# La MISMA cabecera del correo (el HTML lo genera el mismo motor). #}
+  <div class="card border-0 shadow-sm mb-3"><div class="card-body">
+    <div class="text-end mb-1">
+      {% if logo_url %}<img src="{{ logo_url }}" alt="{{ company_name }}" style="max-height:54px;max-width:190px;">{% endif %}
+    </div>
+    <h2 class="text-center" style="font-size:22px;margin:0 0 14px;">Valoración</h2>
+    {% if demo_requester %}
+      <div style="font-size:15px;line-height:1.7;margin:0 0 14px;">{{ demo_requester }} quiere que valores este tema.</div>
+    {% endif %}
+    <div class="border rounded-4 p-3">
+      <div class="d-flex align-items-start gap-3 flex-wrap">
+        {% if demo.who_photo %}
+          <img src="{{ demo.who_photo }}" alt="" style="width:64px;height:64px;border-radius:50%;object-fit:cover;">
+        {% endif %}
+        <div class="flex-grow-1" style="min-width:12rem">
+          <div class="text-uppercase small fw-bold text-muted" style="letter-spacing:.4px;">Maqueta</div>
+          <div class="fs-5 fw-bold">{{ demo.title }}</div>
+          <div class="small text-muted">
+            {{ demo.who }}{% if demo.origin_label %} · {{ demo.origin_label }}{% endif %}
+            {% if demo.created_at_label %} · recibida el {{ demo.created_at_label }}{% endif %}
+          </div>
+          {% if demo.notes %}<div class="small mt-1"><i class="fa fa-note-sticky me-1 text-muted"></i>{{ demo.notes }}</div>{% endif %}
+        </div>
+      </div>
+      {# EL AUDIO, con la misma etiqueta que en la sección de demos (media_chip.js). #}
+      {% if demo.is_audio %}
+        <div class="mt-3">
+          <span class="mat-chip" data-chip-src="{{ demo.audio_url }}" title="Escuchar la maqueta">
+            <span class="mat-chip__btn"><i class="fa fa-play" data-chip-icon></i></span>
+            <span class="mat-chip__kind"><i class="fa fa-file-audio"></i>Escuchar</span>
+            <span class="mat-chip__dur" data-chip-dur></span>
+          </span>
+        </div>
+      {% endif %}
+    </div>
+  </div></div>
+
+  {% if state == 'done' %}
+    <div class="card border-0 shadow-sm"><div class="card-body text-center py-5">
+      <div class="fs-1 text-success mb-2"><i class="fa fa-circle-check"></i></div>
+      <h5 class="mb-1">¡Gracias!</h5>
+      <div class="text-muted">Tu valoración ha quedado registrada
+        {% if rating.score %}(nota {{ rating.score }}){% endif %}.</div>
+      <div class="small text-muted mt-2">Si cambias de opinión, vuelve a entrar por este mismo enlace y
+        mándala otra vez: se queda la última.</div>
+    </div></div>
+  {% else %}
+    <form method="post" class="card border-0 shadow-sm"><div class="card-body">
+      {% if errors %}
+        <div class="alert alert-danger">
+          {% for e in errors %}<div>{{ e }}</div>{% endfor %}
+        </div>
+      {% endif %}
+      {% if rating.rated_at %}
+        <div class="alert alert-light border small">
+          Ya la valoraste{% if rating.score %} con un <strong>{{ rating.score }}</strong>{% endif %}. Puedes cambiarla.
+        </div>
+      {% endif %}
+
+      {# NOTA de 1 a 10: barra de arrastrar del rojo al verde, con el número grande al lado. #}
+      <label class="form-label fw-semibold">¿Qué nota le das?</label>
+      <div class="demo-score">
+        <input type="range" class="form-range demo-score__range" name="score" min="1" max="10" step="1"
+               value="{{ form.get('score') or rating.score or 5 }}" data-demo-score>
+        <output class="demo-score__out" data-demo-score-out>{{ form.get('score') or rating.score or 5 }}</output>
+      </div>
+      <div class="d-flex justify-content-between small text-muted mb-4">
+        <span>1 · no la veo</span><span>10 · es un hit</span>
+      </div>
+
+      {% for key, label in questions %}
+        {% set previo = rating|attr(key) %}
+        {% set actual = form.get(key) or ('SI' if previo is sameas true else ('NO' if previo is sameas false else '')) %}
+        <label class="form-label fw-semibold">{{ label }}</label>
+        <div class="d-flex gap-2 mb-4">
+          <label class="demo-yn">
+            <input type="radio" name="{{ key }}" value="SI" {% if actual == 'SI' %}checked{% endif %}>
+            <span><i class="fa fa-thumbs-up me-1"></i>Sí</span>
+          </label>
+          <label class="demo-yn">
+            <input type="radio" name="{{ key }}" value="NO" {% if actual == 'NO' %}checked{% endif %}>
+            <span><i class="fa fa-thumbs-down me-1"></i>No</span>
+          </label>
+        </div>
+      {% endfor %}
+
+      <label class="form-label">Comentario <span class="text-muted small">(opcional)</span></label>
+      <textarea class="form-control" name="comment" rows="3"
+                placeholder="Lo que quieras añadir.">{{ form.get('comment') or rating.comment or '' }}</textarea>
+
+      <div class="d-grid mt-4">
+        <button class="btn btn-danger btn-lg" type="submit"><i class="fa fa-paper-plane me-2"></i>Enviar valoración</button>
+      </div>
+    </div></form>
+  {% endif %}
+
+  <div class="text-center text-muted small mt-3">{{ company_name }}</div>
+</div>
+
+<script src="{{ url_for('static', filename='vendor/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/media_chip.js', v=ASSET_V) }}"></script>
+<script>
+// La barra de la nota: el número y el color van con el valor (1 rojo → 10 verde, progresivo).
+(function () {
+  var r = document.querySelector('[data-demo-score]');
+  var out = document.querySelector('[data-demo-score-out]');
+  if (!r || !out) return;
+  function color(n) {
+    var tono = (Math.max(1, Math.min(10, +n)) - 1) / 9 * 120;   // 0 rojo → 120 verde
+    return 'hsl(' + Math.round(tono) + ' 68% 42%)';
+  }
+  function pinta() {
+    out.textContent = r.value;
+    var c = color(r.value);
+    out.style.background = c;
+    r.style.setProperty('--c', c);
+  }
+  r.addEventListener('input', pinta);
+  pinta();
+})();
+</script>
+</body>
+</html>

@@ -161,6 +161,7 @@ from models import (
     SongMaterial,
     SongMasterDeliveryLink,
     SongDemo,
+    SongDemoRating,
     SongCertification,
     SongProductionContract,
     SongStatus,
@@ -427,6 +428,7 @@ _CSRF_EXEMPT_ENDPOINTS = {
     "public_invitation_request_resend",
     "public_invitation_request_recategorize",
     "public_song_master_delivery",
+    "public_demo_rating",
     "public_song_delivery_sign",
     "public_song_delivery_create_author",
     "public_song_delivery_create_publisher",
@@ -790,7 +792,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
+    allowed = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
     if request.endpoint in allowed:
         return
 
@@ -13255,6 +13257,7 @@ def discografica_view():
         demos_ctx=demos_ctx,
         demo_origins=DEMO_ORIGINS,
         demo_statuses=DEMO_STATUSES,
+        demo_rating_filters=DEMO_RATING_FILTERS,
         distributors=distributors_all,
         distributor_by_id=distributor_by_id,
         adelantos_ctx=adelantos_ctx,
@@ -18927,11 +18930,17 @@ def discografica_song_cover_role(song_id, material_id):
 # o descartada) y el ORIGEN se guarda en la propia demo.
 DEMO_ORIGINS = [("ARTIST", "De un artista nuestro"), ("EXTERNAL", "De fuera")]
 DEMO_ORIGIN_LABELS = dict(DEMO_ORIGINS)
+# ⚠️ HISTÓRICO: una demo ya no se aprueba ni se descarta (ago 2026). Se conserva el catálogo porque
+# hay demos con la decisión de antes guardada en `status`, pero la pantalla no lo ofrece.
 DEMO_STATUSES = [("VALORANDO", "Valorando", "warning text-dark"),
                  ("APROBADA", "Aprobada", "success"),
                  ("DESCARTADA", "Descartada", "secondary")]
 DEMO_STATUS_LABELS = {k: v for k, v, _ in DEMO_STATUSES}
 DEMO_STATUS_BADGES = {k: b for k, _, b in DEMO_STATUSES}
+# El filtro de la pantalla es por VALORACIÓN: sin pedir · falta gente · completa.
+DEMO_RATING_FILTERS = [("SIN", "Sin pedir valoración", "fa-hourglass-start", "light border text-dark"),
+                       ("PEND", "Falta gente", "fa-star-half-stroke", "warning text-dark"),
+                       ("OK", "Valorada", "fa-star", "success")]
 DEMO_AUDIO_EXTS = {".wav", ".wave", ".mp3", ".m4a", ".aac", ".flac", ".ogg"}
 
 
@@ -18973,18 +18982,17 @@ def _demo_row_payload(session_db, row) -> dict:
         "base_name": (row.audio_name or "").strip() or "demo",
         "is_audio": bool((row.audio_url or "").strip()),
         "notes": (row.notes or "").strip(),
+        # ⚠️ `status` es HISTÓRICO: una demo ya no se aprueba ni se descarta (se manda a valorar). Se
+        # conserva por si alguna trae la decisión de antes, pero la pantalla no lo usa para decidir.
         "status": estado,
-        "status_label": DEMO_STATUS_LABELS.get(estado, estado),
-        "status_badge": DEMO_STATUS_BADGES.get(estado, "secondary"),
-        "decision_note": (row.decision_note or "").strip(),
-        "decided_at_label": _demo_dt_label(getattr(row, "decided_at", None)),
-        "decided_by_nick": (row.decided_by_nick or "").strip(),
         "song_id": str(row.song_id) if row.song_id else "",
         "song_title": (getattr(getattr(row, "song", None), "title", None) or ""),
         "created_at_label": _demo_dt_label(getattr(row, "created_at", None)),
         "created_by_nick": (row.created_by_nick or "").strip(),
-        # Solo tiene sentido crear la canción de una demo APROBADA de un artista nuestro.
-        "can_make_song": estado == "APROBADA" and bool(row.artist_id) and not row.song_id,
+        "rating_requested_at_label": _demo_dt_label(getattr(row, "rating_requested_at", None)),
+        "rating_requested_by_nick": (getattr(row, "rating_requested_by_nick", None) or "").strip(),
+        # Al repertorio pasa cualquier demo de un artista NUESTRO que no esté ya creada.
+        "can_make_song": bool(row.artist_id) and not row.song_id,
     }
 
 
@@ -19007,17 +19015,259 @@ def _demos_context(session_db) -> dict:
         consulta = consulta.filter(or_(_sa_contains_text(SongDemo.title, q),
                                        _sa_contains_text(SongDemo.sender_name, q),
                                        _sa_contains_text(SongDemo.notes, q)))
-    filas = [_demo_row_payload(session_db, r) for r in
-             consulta.order_by(SongDemo.created_at.desc()).limit(400).all()]
-    cuenta = dict(session_db.query(SongDemo.status, func.count(SongDemo.id))
-                  .group_by(SongDemo.status).all())
+    demos = consulta.order_by(SongDemo.created_at.desc()).limit(400).all()
+    filas = [_demo_row_payload(session_db, r) for r in demos]
+
+    # VALORACIONES de todas las demos del listado, en UNA consulta (con 400 demos, una por fila sería
+    # inaceptable). De aquí sale el icono: verde si han valorado todos, amarillo si falta gente.
+    resumen = {}
+    ids = [r.id for r in demos]
+    if ids:
+        try:
+            crudo = {}
+            for rat in (session_db.query(SongDemoRating)
+                        .filter(SongDemoRating.demo_id.in_(ids)).all()):
+                d = crudo.setdefault(str(rat.demo_id), {"asked": 0, "done": 0, "notas": []})
+                d["asked"] += 1
+                if rat.rated_at:
+                    d["done"] += 1
+                    if rat.score is not None:
+                        d["notas"].append(int(rat.score))
+            for clave, d in crudo.items():
+                media = (sum(d["notas"]) / len(d["notas"])) if d["notas"] else None
+                resumen[clave] = {
+                    "asked": d["asked"], "done": d["done"], "pending": d["asked"] - d["done"],
+                    "complete": d["done"] == d["asked"],
+                    "avg": (round(media, 1) if media is not None else None),
+                    "avg_color": (_demo_rating_color(round(media)) if media is not None else ""),
+                }
+        except Exception:
+            app.logger.exception("[demos] no se pudo resumir las valoraciones")
+    for fila in filas:
+        fila["rating"] = resumen.get(fila["id"]) or {"asked": 0, "done": 0, "pending": 0,
+                                                     "complete": False, "avg": None, "avg_color": ""}
+
+    # Filtro por VALORACIÓN: sin pedir · falta gente · completa.
+    f_val = (request.args.get("demo_rating") or "").strip().upper()
+    if f_val in {k for k, _l, _i, _b in DEMO_RATING_FILTERS}:
+        def _pasa(fila):
+            r = fila["rating"]
+            if f_val == "SIN":
+                return not r["asked"]
+            if f_val == "PEND":
+                return bool(r["asked"]) and not r["complete"]
+            return bool(r["asked"]) and r["complete"]
+        filas = [f for f in filas if _pasa(f)]
+
     return {
         "rows": filas,
-        "counts": {k: _safe_int(cuenta.get(k)) for k, _, _ in DEMO_STATUSES},
-        "total": sum(_safe_int(v) for v in cuenta.values()),
-        "filter_status": f_estado, "filter_origin": f_origen,
+        "counts": {
+            "SIN": len([f for f in filas if not f["rating"]["asked"]]),
+            "PEND": len([f for f in filas if f["rating"]["asked"] and not f["rating"]["complete"]]),
+            "OK": len([f for f in filas if f["rating"]["asked"] and f["rating"]["complete"]]),
+        },
+        "total": len(filas),
+        "filter_status": f_estado, "filter_origin": f_origen, "filter_rating": f_val,
         "filter_artist": str(f_artista) if f_artista else "", "filter_q": q,
     }
+
+
+
+# ---------------------------------------------------------------------------
+# DEMOS · VALORACIÓN del personal del sello
+# ---------------------------------------------------------------------------
+# Una demo ya NO se aprueba ni se descarta: se manda a VALORAR. La petición va por correo a la gente
+# del SELLO (se puede quitar y añadir a quien haga falta) con un enlace propio para cada uno, y cada
+# persona pone una nota de 1 a 10 y contesta dos preguntas. Cuando han valorado todos, la demo sale
+# con el icono en VERDE; mientras falte alguien, en AMARILLO.
+DEMO_RATING_QUESTIONS = [
+    ("radio", "¿La ves para radio?"),
+    ("focus", "¿La ves como focus single?"),
+]
+
+
+def _demo_rating_color(score) -> str:
+    """El color de una nota: 1 rojo → 10 verde, pasando por el ámbar (progresivo, sin saltos)."""
+    try:
+        n = max(1, min(10, int(score)))
+    except Exception:
+        return "#adb5bd"
+    tono = (n - 1) / 9.0 * 120.0          # 0 = rojo, 120 = verde
+    r, g, b = colorsys.hls_to_rgb(tono / 360.0, 0.42, 0.68)
+    return "#%02x%02x%02x" % (int(r * 255), int(g * 255), int(b * 255))
+
+
+def _demo_sello_people(session_db) -> list[dict]:
+    """El personal de la oficina que forma parte del SELLO (a quien se le pide valorar).
+
+    ⚠️ Si NADIE tiene ese departamento se ofrece a todo el personal: mejor eso que un pop-up sin nadie
+    a quien mandárselo (mismo criterio que `_production_people`)."""
+    fuera = _inactive_user_ids(session_db)
+    filas = (session_db.query(User, UserProfile)
+             .outerjoin(UserProfile, UserProfile.user_id == User.id)
+             .order_by(func.lower(func.coalesce(UserProfile.nick, User.email)).asc()).all())
+    sello, todos = [], []
+    for u, prof in filas:
+        if u.id in fuera:
+            continue
+        correo = (getattr(u, "email", None) or "").strip()
+        if not correo:
+            continue          # sin correo no se le puede pedir nada
+        ficha = {"id": str(u.id), "name": ((getattr(prof, "nick", None) or correo).strip()),
+                 "email": correo, "photo_url": (getattr(prof, "photo_url", "") or ""),
+                 "in_sello": _profile_in_department(prof, "Sello")}
+        (sello if ficha["in_sello"] else todos).append(ficha)
+    return sello or todos
+
+
+def _demo_rating_rows(session_db, demo_id) -> list[dict]:
+    """A quién se le pidió valorar esta demo y qué ha dicho cada uno (con su foto)."""
+    did = _safe_uuid(demo_id)
+    if not did:
+        return []
+    try:
+        filas = (session_db.query(SongDemoRating)
+                 .filter(SongDemoRating.demo_id == did)
+                 .order_by(SongDemoRating.rated_at.asc().nullslast(),
+                           SongDemoRating.requested_at.asc()).all())
+    except Exception:
+        return []
+    perfiles = {}
+    uids = [r.user_id for r in filas if r.user_id]
+    if uids:
+        try:
+            for prof in session_db.query(UserProfile).filter(UserProfile.user_id.in_(uids)).all():
+                perfiles[str(prof.user_id)] = prof
+        except Exception:
+            perfiles = {}
+    salida = []
+    for r in filas:
+        prof = perfiles.get(str(r.user_id)) if r.user_id else None
+        salida.append({
+            "id": str(r.id),
+            "user_id": (str(r.user_id) if r.user_id else ""),
+            "name": ((getattr(prof, "nick", None) or "").strip() or (r.name or "").strip()
+                     or (r.email or "").strip() or "—"),
+            "email": (r.email or "").strip(),
+            "photo_url": ((getattr(prof, "photo_url", None) or "").strip() or _default_avatar_url()),
+            "score": (int(r.score) if r.score is not None else None),
+            "score_color": _demo_rating_color(r.score) if r.score is not None else "",
+            "radio": (None if r.radio is None else bool(r.radio)),
+            "focus": (None if r.focus is None else bool(r.focus)),
+            "comment": (r.comment or "").strip(),
+            "rated": bool(r.rated_at),
+            "rated_at_label": _demo_dt_label(getattr(r, "rated_at", None)),
+        })
+    return salida
+
+
+def _demo_rating_summary(rows: list[dict]) -> dict:
+    """El resumen de las valoraciones: cuántas faltan, la MEDIA y qué ha ganado en cada pregunta."""
+    hechas = [r for r in rows if r["rated"]]
+    notas = [r["score"] for r in hechas if r["score"] is not None]
+    media = (sum(notas) / len(notas)) if notas else None
+    preguntas = []
+    for clave, etiqueta in DEMO_RATING_QUESTIONS:
+        si = len([r for r in hechas if r.get(clave) is True])
+        no = len([r for r in hechas if r.get(clave) is False])
+        if si > no:
+            gana, clase = "Sí", "text-bg-success"
+        elif no > si:
+            gana, clase = "No", "text-bg-secondary"
+        else:
+            gana, clase = ("Empate" if (si or no) else "—"), "text-bg-light border text-dark"
+        preguntas.append({"key": clave, "label": etiqueta, "yes": si, "no": no,
+                          "winner": gana, "winner_class": clase})
+    return {
+        "asked": len(rows),
+        "done": len(hechas),
+        "pending": len(rows) - len(hechas),
+        "complete": bool(rows) and len(hechas) == len(rows),
+        "avg": (round(media, 1) if media is not None else None),
+        "avg_color": (_demo_rating_color(round(media)) if media is not None else ""),
+        "questions": preguntas,
+        "missing": [r["name"] for r in rows if not r["rated"]],
+    }
+
+
+def _demo_rating_context(session_db, demo) -> dict:
+    """La CABECERA de la demo (lo mismo en el correo, en la página de valorar y en los resultados)."""
+    fila = _demo_row_payload(session_db, demo)
+    empresa = _pies_group_company(session_db)
+    logo = (getattr(empresa, "logo_url", None) or "").strip()
+    if not logo:
+        try:
+            logo = url_for("static", filename="img/logo.png")     # PIES
+        except Exception:
+            logo = ""
+    return {
+        "demo": fila,
+        "logo_url": _absolute_media_url(logo) if logo else "",
+        "company_name": (getattr(empresa, "name", None) or "PIES Records"),
+        # Quién pidió la valoración (el mismo texto que el correo: «X quiere que valores este tema»).
+        "demo_requester": (getattr(demo, "rating_requested_by_nick", None) or "").strip(),
+    }
+
+
+def _demo_rating_email_html(ctx: dict, valorar_url: str, *, quien: str = "", note: str = "") -> str:
+    """El correo de «Valoración»: logo de PIES arriba a la DERECHA, el título centrado, quién lo pide,
+    la cabecera de la canción con su foto y el botón de VALORAR a la derecha.
+
+    ⚠️ Estilos EN LÍNEA: los clientes de correo se comen las hojas de estilo. Es el MISMO HTML que se
+    enseña en la previsualización del pop-up."""
+    def esc(v) -> str:
+        return str(escape("" if v is None else v))
+
+    d = ctx.get("demo") or {}
+    foto = _absolute_media_url(d.get("who_photo") or "") if (d.get("who_photo") or "") else ""
+    partes = ['<div style="font-family:Arial,Helvetica,sans-serif;color:#212529;max-width:660px;margin:0 auto;">']
+    partes.append('<div style="text-align:right;margin-bottom:6px;">'
+                  + (f'<img src="{esc(ctx.get("logo_url"))}" alt="{esc(ctx.get("company_name"))}" '
+                     'style="max-height:54px;max-width:190px;">' if ctx.get("logo_url") else "")
+                  + '</div>')
+    partes.append('<h2 style="text-align:center;font-size:22px;margin:0 0 14px;">Valoración</h2>')
+    if quien:
+        partes.append('<div style="font-size:15px;line-height:1.7;margin:0 0 14px;">'
+                      + esc(quien) + ' quiere que valores este tema.</div>')
+    if (note or "").strip():
+        partes.append('<div style="margin:0 0 14px;padding:12px 14px;border-radius:12px;background:#f8fafc;'
+                      'border:1px solid #e6e8eb;font-size:14px;line-height:1.7;color:#374151;'
+                      'white-space:pre-line;">' + esc(note.strip()) + '</div>')
+
+    # Cabecera de la canción + botón de valorar a la derecha.
+    filas = []
+    if d.get("who"):
+        filas.append(("De", d.get("who")))
+    if d.get("origin_label"):
+        filas.append(("Origen", d.get("origin_label")))
+    if d.get("created_at_label"):
+        filas.append(("Recibida", d.get("created_at_label")
+                      + ((" · " + d.get("created_by_nick")) if d.get("created_by_nick") else "")))
+    if d.get("notes"):
+        filas.append(("Notas", d.get("notes")))
+    datos = "".join(
+        '<tr>'
+        f'<td style="padding:2px 10px 2px 0;color:#6b7683;font-size:12px;white-space:nowrap;">{esc(k)}</td>'
+        f'<td style="padding:2px 0;color:#212529;font-size:13px;font-weight:700;">{esc(v)}</td>'
+        '</tr>' for k, v in filas)
+    partes.append(
+        '<div style="border:1px solid #e6e8eb;border-radius:14px;padding:14px;background:#fff;">'
+        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;"><tr>'
+        + (f'<td style="width:76px;vertical-align:top;"><img src="{esc(foto)}" alt="" '
+           'style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:1px solid #e6e8eb;"></td>'
+           if foto else "")
+        + '<td style="vertical-align:top;">'
+        + '<div style="font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#8b95a1;">Maqueta</div>'
+        + f'<div style="font-size:19px;font-weight:800;margin:1px 0 6px;">{esc(d.get("title"))}</div>'
+        + f'<table role="presentation" style="border-collapse:collapse;">{datos}</table>'
+        + '</td>'
+        + '<td align="right" style="vertical-align:middle;white-space:nowrap;padding-left:12px;">'
+        + (f'<a href="{esc(valorar_url)}" style="display:inline-block;padding:11px 18px;background:#E33D48;'
+           'color:#fff;text-decoration:none;border-radius:9px;font-weight:700;font-size:14px;">Valorar</a>'
+           if valorar_url else "")
+        + '</td></tr></table></div>')
+    partes.append('</div>')
+    return "".join(partes)
 
 
 @app.post("/discografica/demos/firmar", endpoint="discografica_demo_sign")
@@ -19146,46 +19396,14 @@ def discografica_demo_update(demo_id):
     return redirect(url_for("discografica_view", section="demos"))
 
 
-@app.post("/discografica/demos/<demo_id>/estado", endpoint="discografica_demo_status")
-@admin_required
-def discografica_demo_status(demo_id):
-    """Aprueba o descarta una demo (con el motivo, que es lo que se consulta luego)."""
-    if not can_edit_discografica():
-        return forbid("No tienes permisos para decidir sobre las demos.")
-    nuevo = (request.form.get("status") or "").strip().upper()
-    if nuevo not in DEMO_STATUS_LABELS:
-        flash("Estado no válido.", "warning")
-        return redirect(url_for("discografica_view", section="demos"))
-    session_db = db()
-    try:
-        row = session_db.get(SongDemo, to_uuid(demo_id))
-        if not row:
-            abort(404)
-        row.status = nuevo
-        row.decision_note = (request.form.get("decision_note") or "").strip() or None
-        if nuevo == "VALORANDO":
-            row.decided_at = None
-            row.decided_by_nick = None
-        else:
-            row.decided_at = _now_madrid()
-            row.decided_by_nick = ((_current_user_state() or {}).get("nick") or "")
-        row.updated_at = _now_madrid()
-        session_db.add(row)
-        session_db.commit()
-        flash("Demo %s." % DEMO_STATUS_LABELS.get(nuevo, nuevo).lower(), "success")
-    except Exception as e:
-        session_db.rollback()
-        flash("No se pudo cambiar el estado: %s" % e, "danger")
-    finally:
-        session_db.close()
-    return redirect(url_for("discografica_view", section="demos"))
-
+# ⚠️ El endpoint de APROBAR/DESCARTAR una demo se retiró (ago 2026): una demo no se aprueba ni se
+# descarta, se manda a VALORAR al personal del sello (`discografica_demo_rating_request`).
 
 @app.post("/discografica/demos/<demo_id>/a-cancion", endpoint="discografica_demo_to_song")
 @admin_required
 def discografica_demo_to_song(demo_id):
-    """Una demo APROBADA de un artista nuestro pasa al repertorio: se crea la canción con su título
-    y su artista, y la demo queda enlazada (así no se pierde de dónde salió)."""
+    """Una demo de un artista nuestro pasa al repertorio: se crea la canción con su título y su
+    artista, y la demo queda enlazada (así no se pierde de dónde salió)."""
     if not can_edit_discografica():
         return forbid("No tienes permisos para crear canciones.")
     session_db = db()
@@ -19193,8 +19411,10 @@ def discografica_demo_to_song(demo_id):
         row = session_db.get(SongDemo, to_uuid(demo_id))
         if not row:
             abort(404)
-        if (row.status or "").upper() != "APROBADA" or not row.artist_id:
-            flash("Solo se pasa al repertorio una demo aprobada de un artista nuestro.", "warning")
+        # ⚠️ Ya no se exige que esté «aprobada» (eso no existe): basta con que sea de un artista
+        # nuestro, porque es de quien se puede crear la canción.
+        if not row.artist_id:
+            flash("Al repertorio solo pasa una demo de un artista nuestro.", "warning")
             return redirect(url_for("discografica_view", section="demos"))
         if row.song_id:
             flash("Esta demo ya está en el repertorio.", "info")
@@ -19217,6 +19437,198 @@ def discografica_demo_to_song(demo_id):
     finally:
         session_db.close()
     return redirect(url_for("discografica_view", section="demos"))
+
+
+
+@app.get("/discografica/demos/<demo_id>/valoracion/preview", endpoint="discografica_demo_rating_preview")
+@admin_required
+def discografica_demo_rating_preview(demo_id):
+    """A quién se le puede pedir la valoración y CÓMO va a quedar el correo (para el pop-up)."""
+    if not can_edit_discografica():
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    session_db = db()
+    try:
+        row = session_db.get(SongDemo, to_uuid(demo_id))
+        if not row:
+            return jsonify({"ok": False, "error": "Demo no encontrada."}), 404
+        ctx = _demo_rating_context(session_db, row)
+        quien = ((_current_user_state() or {}).get("nick") or "").strip()
+        gente = _demo_sello_people(session_db)
+        # Quien ya valoró (o ya tiene el enlace) sale marcado, para no dejarlo fuera sin querer.
+        ya = {r["user_id"]: r for r in _demo_rating_rows(session_db, row.id) if r["user_id"]}
+        for p in gente:
+            p["asked"] = bool(ya.get(p["id"]))
+            p["rated"] = bool((ya.get(p["id"]) or {}).get("rated"))
+        return jsonify({
+            "ok": True,
+            "people": gente,
+            "html": _demo_rating_email_html(ctx, "#", quien=quien),
+            "subject": "Valoración · %s" % (ctx["demo"].get("title") or "Maqueta"),
+        })
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/demos/<demo_id>/valoracion", endpoint="discografica_demo_rating_request")
+@admin_required
+def discografica_demo_rating_request(demo_id):
+    """Manda la demo A VALORAR: un correo a cada persona elegida con SU enlace.
+
+    ⚠️ Cada destinatario tiene su propia fila (con su token): así se sabe quién ha valorado y quién
+    falta, y si se vuelve a pedir NO se pierde lo que ya dijo (se reutiliza su fila)."""
+    if not can_edit_discografica():
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    es_json = _wants_json_response() or _is_xhr_request()
+    session_db = db()
+    try:
+        row = session_db.get(SongDemo, to_uuid(demo_id))
+        if not row:
+            return (jsonify({"ok": False, "error": "Demo no encontrada."}), 404) if es_json else abort(404)
+        datos = request.get_json(silent=True) if request.is_json else None
+        datos = datos if isinstance(datos, dict) else request.form
+        nota = (datos.get("note") or "").strip()
+        ids = ([str(x) for x in (datos.get("user_ids") or [])] if isinstance(datos, dict)
+               else datos.getlist("user_ids"))
+        extra = [x.strip() for x in re.split(r"[;,\s]+", str(datos.get("emails") or "")) if x.strip()]
+
+        gente = {p["id"]: p for p in _demo_sello_people(session_db)}
+        destinos = []
+        for uid in ids:
+            p = gente.get(str(uid))
+            if p:
+                destinos.append({"user_id": p["id"], "name": p["name"], "email": p["email"]})
+        for correo in _dedupe_valid_email_addresses(extra):
+            if correo.lower() not in {d["email"].lower() for d in destinos if d["email"]}:
+                destinos.append({"user_id": None, "name": "", "email": correo})
+        if not destinos:
+            msg = "Elige al menos a una persona a la que pedirle la valoración."
+            return (jsonify({"ok": False, "error": msg}), 400) if es_json else (
+                flash(msg, "warning") or redirect(url_for("discografica_view", section="demos")))
+
+        ctx = _demo_rating_context(session_db, row)
+        quien = ((_current_user_state() or {}).get("nick") or "").strip()
+        asunto = "Valoración · %s" % (ctx["demo"].get("title") or "Maqueta")
+        enviados, fallos = 0, []
+        for d in destinos:
+            # Su fila: si ya la tenía (otra petición anterior), se reutiliza con su token y su nota.
+            fila = None
+            if d["user_id"]:
+                fila = (session_db.query(SongDemoRating)
+                        .filter(SongDemoRating.demo_id == row.id,
+                                SongDemoRating.user_id == _safe_uuid(d["user_id"])).first())
+            if fila is None and d["email"]:
+                fila = (session_db.query(SongDemoRating)
+                        .filter(SongDemoRating.demo_id == row.id,
+                                func.lower(SongDemoRating.email) == d["email"].lower()).first())
+            if fila is None:
+                fila = SongDemoRating(demo_id=row.id, user_id=_safe_uuid(d["user_id"]) if d["user_id"] else None,
+                                      name=(d["name"] or None), email=(d["email"] or None),
+                                      token=_uuid_token())
+                session_db.add(fila)
+                session_db.flush()
+            else:
+                fila.name = fila.name or (d["name"] or None)
+                fila.email = fila.email or (d["email"] or None)
+                fila.token = fila.token or _uuid_token()
+                fila.requested_at = _now_madrid()
+            enlace = _external_url_for("public_demo_rating", token=fila.token)
+            cuerpo = _demo_rating_email_html(ctx, enlace, quien=quien, note=nota)
+            ok, error = _send_optional_email(d["email"], asunto, cuerpo)
+            if ok:
+                enviados += 1
+            else:
+                fallos.append("%s (%s)" % (d["email"], error or "error"))
+        row.rating_requested_at = _now_madrid()
+        row.rating_requested_by_nick = quien or row.rating_requested_by_nick
+        row.updated_at = _now_madrid()
+        session_db.add(row)
+        session_db.commit()
+        aviso = "Petición de valoración enviada a %d persona(s)." % enviados
+        if fallos:
+            aviso += " No se pudo enviar a: " + ", ".join(fallos)
+        if es_json:
+            return jsonify({"ok": bool(enviados), "sent": enviados, "errors": fallos, "message": aviso})
+        flash(aviso, "success" if enviados else "danger")
+        return redirect(url_for("discografica_view", section="demos"))
+    except Exception as e:
+        session_db.rollback()
+        if es_json:
+            return jsonify({"ok": False, "error": str(e)}), 400
+        flash("No se pudo pedir la valoración: %s" % e, "danger")
+        return redirect(url_for("discografica_view", section="demos"))
+    finally:
+        session_db.close()
+
+
+@app.get("/discografica/demos/<demo_id>/valoracion/resultados", endpoint="discografica_demo_rating_results")
+@admin_required
+def discografica_demo_rating_results(demo_id):
+    """Lo que ha dicho cada uno (con su foto), la MEDIA y qué ha ganado en cada pregunta."""
+    if not has_access_key("discografica", include_descendants=True):
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    session_db = db()
+    try:
+        row = session_db.get(SongDemo, to_uuid(demo_id))
+        if not row:
+            return jsonify({"ok": False, "error": "Demo no encontrada."}), 404
+        filas = _demo_rating_rows(session_db, row.id)
+        return jsonify({"ok": True, "title": row.title or "Maqueta",
+                        "rows": filas, "summary": _demo_rating_summary(filas),
+                        "questions": [{"key": k, "label": l} for k, l in DEMO_RATING_QUESTIONS]})
+    finally:
+        session_db.close()
+
+
+@app.route("/valoracion-demo/<token>", methods=["GET", "POST"], endpoint="public_demo_rating")
+def public_demo_rating(token):
+    """La página de VALORAR una demo (el enlace del correo, uno por persona).
+
+    Enseña lo mismo que el correo, el audio para escucharla, la nota de 1 a 10 (roja→verde) y las dos
+    preguntas. Se puede volver a entrar y cambiar la valoración: manda la última."""
+    token = (token or "").strip()
+    if not token:
+        abort(404)
+    session_db = db()
+    try:
+        fila = (session_db.query(SongDemoRating)
+                .filter(SongDemoRating.token == token).first())
+        if not fila:
+            abort(404)
+        demo = session_db.get(SongDemo, fila.demo_id)
+        if not demo:
+            abort(404)
+        ctx = _demo_rating_context(session_db, demo)
+        if request.method == "POST":
+            try:
+                nota = max(1, min(10, int(request.form.get("score") or 0)))
+            except Exception:
+                nota = 0
+            radio = (request.form.get("radio") or "").strip().upper()
+            focus = (request.form.get("focus") or "").strip().upper()
+            errores = []
+            if not nota:
+                errores.append("Pon una nota del 1 al 10.")
+            if radio not in ("SI", "NO"):
+                errores.append("Dinos si la ves para radio.")
+            if focus not in ("SI", "NO"):
+                errores.append("Dinos si la ves como focus single.")
+            if errores:
+                return render_template("public_demo_rating.html", state="form", rating=fila,
+                                       errors=errores, form=request.form,
+                                       questions=DEMO_RATING_QUESTIONS, **ctx)
+            fila.score = nota
+            fila.radio = (radio == "SI")
+            fila.focus = (focus == "SI")
+            fila.comment = (request.form.get("comment") or "").strip() or None
+            fila.rated_at = _now_madrid()
+            session_db.add(fila)
+            session_db.commit()
+            return render_template("public_demo_rating.html", state="done", rating=fila,
+                                   questions=DEMO_RATING_QUESTIONS, **ctx)
+        return render_template("public_demo_rating.html", state="form", rating=fila,
+                               errors=[], form={}, questions=DEMO_RATING_QUESTIONS, **ctx)
+    finally:
+        session_db.close()
 
 
 @app.post("/discografica/demos/<demo_id>/eliminar", endpoint="discografica_demo_delete")
@@ -48598,7 +49010,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:

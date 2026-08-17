@@ -529,7 +529,13 @@ class SongDemo(Base):
     audio_name = Column(Text)
     mime_type = Column(Text)
     notes = Column(Text)
-    status = Column(Text, nullable=False, server_default=text("'VALORANDO'"))  # VALORANDO|APROBADA|DESCARTADA
+    # ⚠️ `status` es HISTÓRICO: una demo ya NO se aprueba ni se descarta (ago 2026). Se manda a
+    # VALORAR al personal del sello y lo que cuenta son las valoraciones (`SongDemoRating`). La
+    # columna se conserva para no perder lo que se decidió antes.
+    status = Column(Text, nullable=False, server_default=text("'VALORANDO'"))
+    # Petición de valoración: cuándo se pidió y quién la pidió (a quién, en `song_demo_ratings`).
+    rating_requested_at = Column(DateTime(timezone=True))
+    rating_requested_by_nick = Column(Text)
     decision_note = Column(Text)
     decided_at = Column(DateTime(timezone=True))
     decided_by_nick = Column(Text)
@@ -546,6 +552,39 @@ class SongDemo(Base):
     __table_args__ = (
         Index("idx_song_demos_status", "status", "created_at"),
         Index("idx_song_demos_artist", "artist_id"),
+    )
+
+
+class SongDemoRating(Base):
+    """La VALORACIÓN de una persona sobre una demo.
+
+    Se crea VACÍA (con su token) al mandar la petición de valoración, y se rellena cuando esa persona
+    valora desde el enlace del correo. Así se sabe a quién se le pidió —lo que permite decir si la
+    valoración está completa o falta gente— y no se pierde nada si alguien no contesta.
+    ⚠️ `user_id` puede ser NULL: al mandar la petición se pueden añadir correos de fuera del listado.
+    """
+
+    __tablename__ = "song_demo_ratings"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    demo_id = Column(PGUUID(as_uuid=True), ForeignKey("song_demos.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+    user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    name = Column(Text)                 # a quién se le pidió (para poder enseñarlo aunque no valore)
+    email = Column(Text)
+    token = Column(Text, nullable=False, unique=True)
+    score = Column(Integer)             # 1..10
+    radio = Column(Boolean)             # ¿la ves para radio?
+    focus = Column(Boolean)             # ¿la ves como focus single?
+    comment = Column(Text)
+    requested_at = Column(DateTime(timezone=True), server_default=func.now())
+    rated_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    demo = relationship("SongDemo")
+
+    __table_args__ = (
+        Index("idx_song_demo_ratings_demo", "demo_id"),
     )
 
 
@@ -10253,6 +10292,28 @@ def ensure_song_demos_schema():
         """,
         "CREATE INDEX IF NOT EXISTS idx_song_demos_status ON song_demos(status, created_at);",
         "CREATE INDEX IF NOT EXISTS idx_song_demos_artist ON song_demos(artist_id);",
+        # Una demo ya no se aprueba ni se descarta: se manda a VALORAR al personal del sello. Aquí se
+        # apunta cuándo y quién lo pidió (a quién, en `song_demo_ratings`).
+        "ALTER TABLE IF EXISTS song_demos ADD COLUMN IF NOT EXISTS rating_requested_at timestamptz;",
+        "ALTER TABLE IF EXISTS song_demos ADD COLUMN IF NOT EXISTS rating_requested_by_nick text;",
+        """
+        CREATE TABLE IF NOT EXISTS song_demo_ratings (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            demo_id uuid NOT NULL REFERENCES song_demos(id) ON DELETE CASCADE,
+            user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            name text,
+            email text,
+            token text NOT NULL UNIQUE,
+            score integer,
+            radio boolean,
+            focus boolean,
+            comment text,
+            requested_at timestamptz DEFAULT now(),
+            rated_at timestamptz,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_song_demo_ratings_demo ON song_demo_ratings(demo_id);",
     ], label="ensure_song_demos_schema")
 
 

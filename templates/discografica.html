@@ -1032,10 +1032,11 @@
     <div class="d-flex align-items-center gap-2 flex-wrap">
       <h5 class="m-0">Demos</h5>
       <span class="badge text-bg-light border">{{ d.total }}</span>
-      {% for key, label, badge in demo_statuses %}
-        <a class="badge text-bg-{{ badge }} text-decoration-none{% if d.filter_status == key %} border border-dark{% endif %}"
-           href="{{ url_for('discografica_view', section='demos', demo_status=('' if d.filter_status == key else key)) }}">
-          {{ label }} · {{ d.counts.get(key, 0) }}
+      {# El filtro es por VALORACIÓN: una demo ya no se aprueba ni se descarta, se manda a valorar. #}
+      {% for key, label, icon, badge in demo_rating_filters %}
+        <a class="badge text-bg-{{ badge }} text-decoration-none{% if d.filter_rating == key %} border border-dark{% endif %}"
+           href="{{ url_for('discografica_view', section='demos', demo_rating=('' if d.filter_rating == key else key)) }}">
+          <i class="fa {{ icon }} me-1"></i>{{ label }} · {{ d.counts.get(key, 0) }}
         </a>
       {% endfor %}
     </div>
@@ -1077,7 +1078,17 @@
               <div class="d-flex align-items-center gap-2 flex-wrap">
                 {% if row.who_photo %}<img loading="lazy" class="inv-person-ava {{ 'is-photo' if row.who_is_person else 'is-logo' }}" src="{{ row.who_photo }}" alt="">{% endif %}
                 <strong>{{ row.title }}</strong>
-                <span class="badge text-bg-{{ row.status_badge }}">{{ row.status_label }}</span>
+                {# ICONO DE VALORACIÓN: verde cuando han valorado todos, amarillo si falta gente. Al
+                   pincharlo salen los resultados (quién ha dicho qué, la media y qué ha ganado). #}
+                {% if row.rating.asked %}
+                  <button class="badge border-0 text-bg-{{ 'success' if row.rating.complete else 'warning text-dark' }}"
+                          type="button" data-demo-results="{{ row.id }}" data-title="{{ row.title }}"
+                          title="{{ 'Valorada por todos' if row.rating.complete else 'Falta gente por valorar' }}">
+                    <i class="fa {{ 'fa-star' if row.rating.complete else 'fa-star-half-stroke' }} me-1"></i>
+                    {{ row.rating.done }}/{{ row.rating.asked }}
+                    {% if row.rating.avg is not none %} · {{ row.rating.avg }}{% endif %}
+                  </button>
+                {% endif %}
                 <span class="badge text-bg-light border">{{ row.origin_label }}</span>
                 {% if row.song_id %}<a class="badge text-bg-info text-decoration-none" href="{{ url_for('discografica_song_detail', song_id=row.song_id, tab='informacion') }}"><i class="fa fa-music me-1"></i>En el repertorio</a>{% endif %}
               </div>
@@ -1090,7 +1101,7 @@
                 {% if row.created_at_label %} · añadida el {{ row.created_at_label }}{% if row.created_by_nick %} por {{ row.created_by_nick }}{% endif %}{% endif %}
               </div>
               {% if row.notes %}<div class="small mt-1"><i class="fa fa-note-sticky me-1 text-muted"></i>{{ row.notes }}</div>{% endif %}
-              {% if row.decision_note %}<div class="small mt-1 text-muted"><i class="fa fa-gavel me-1"></i>{{ row.decision_note }}{% if row.decided_by_nick %} · {{ row.decided_by_nick }}{% endif %}{% if row.decided_at_label %} · {{ row.decided_at_label }}{% endif %}</div>{% endif %}
+              {% if row.rating_requested_at_label %}<div class="small mt-1 text-muted"><i class="fa fa-paper-plane me-1"></i>Enviada a valorar el {{ row.rating_requested_at_label }}{% if row.rating_requested_by_nick %} por {{ row.rating_requested_by_nick }}{% endif %}</div>{% endif %}
               {# La etiqueta de audio del sistema (media_chip.js, global): suena al pinchar y solo
                  uno a la vez; la duración la lee el navegador. #}
               {% if row.is_audio %}
@@ -1108,16 +1119,15 @@
                 <div class="dropdown">
                   <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
                   <ul class="dropdown-menu dropdown-menu-end">
-                    {% for key, label, _b in demo_statuses %}
-                      {% if key != row.status %}
-                        <li>
-                          <form method="post" action="{{ url_for('discografica_demo_status', demo_id=row.id) }}">
-                            <input type="hidden" name="status" value="{{ key }}">
-                            <button class="dropdown-item"><i class="fa fa-flag fa-fw me-1"></i>Marcar como {{ label|lower }}</button>
-                          </form>
-                        </li>
-                      {% endif %}
-                    {% endfor %}
+                    {# VALORAR: se manda a la gente del sello por correo, cada uno con su enlace. #}
+                    <li><button class="dropdown-item" type="button" data-demo-rate="{{ row.id }}"
+                                data-title="{{ row.title }}">
+                      <i class="fa fa-star fa-fw me-1"></i>{{ 'Volver a pedir valoración' if row.rating.asked else 'Enviar a valoración' }}</button></li>
+                    {% if row.rating.asked %}
+                      <li><button class="dropdown-item" type="button" data-demo-results="{{ row.id }}"
+                                  data-title="{{ row.title }}">
+                        <i class="fa fa-list-check fa-fw me-1"></i>Ver valoraciones</button></li>
+                    {% endif %}
                     {% if row.can_make_song %}
                       <li><hr class="dropdown-divider"></li>
                       <li>
@@ -1148,6 +1158,201 @@
   {% endif %}
 
   {% if CAN_EDIT_DISCOGRAFICA %}
+
+  {# ---------- ENVIAR A VALORACIÓN ----------
+     El personal del SELLO viene ya marcado (se puede quitar y añadir a quien haga falta) y debajo se
+     ve el CORREO tal como va a salir. Cada persona recibe SU enlace. #}
+  <div class="modal fade" id="demoRateModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title"><i class="fa fa-star me-2 text-warning"></i>Enviar a valoración</h5>
+            <div class="small text-muted" data-rate-sub></div>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-danger d-none" data-rate-error></div>
+          <div class="row g-3">
+            <div class="col-12 col-lg-5">
+              <div class="d-flex align-items-center justify-content-between mb-1">
+                <label class="form-label m-0">¿A quién?</label>
+                <div class="d-flex gap-2">
+                  <button class="btn btn-outline-secondary btn-sm" type="button" data-rate-all>Todos</button>
+                  <button class="btn btn-outline-secondary btn-sm" type="button" data-rate-none>Ninguno</button>
+                </div>
+              </div>
+              <div class="demo-rate-people" data-rate-people></div>
+              <label class="form-label small mt-3 mb-1">Otros correos <span class="text-muted">(opcional)</span></label>
+              <input class="form-control form-control-sm" data-rate-emails placeholder="correo@ejemplo.com, otro@ejemplo.com">
+              <label class="form-label small mt-3 mb-1">Nota <span class="text-muted">(sale en el correo)</span></label>
+              <textarea class="form-control form-control-sm" rows="3" data-rate-note placeholder="Lo que quieras añadirles."></textarea>
+              <div class="d-grid gap-2 mt-3">
+                <button class="btn btn-danger" type="button" data-rate-send><i class="fa fa-paper-plane me-1"></i>Enviar</button>
+                <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancelar</button>
+              </div>
+            </div>
+            <div class="col-12 col-lg-7">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="m-0"><i class="fa fa-envelope-open-text me-1 text-muted"></i>Vista previa</h6>
+                <span class="text-muted small">Es el correo que va a recibir cada uno</span>
+              </div>
+              <div class="an-preview" data-rate-preview></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ---------- RESULTADOS de la valoración ---------- #}
+  <div class="modal fade" id="demoResultsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title"><i class="fa fa-list-check me-2"></i>Valoraciones</h5>
+            <div class="small text-muted" data-res-sub></div>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body" data-res-body>
+          <div class="text-muted small">Cargando…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    var URL_PREVIEW = {{ url_for('discografica_demo_rating_preview', demo_id='DID')|tojson }};
+    var URL_SEND = {{ url_for('discografica_demo_rating_request', demo_id='DID')|tojson }};
+    var URL_RESULTS = {{ url_for('discografica_demo_rating_results', demo_id='DID')|tojson }};
+    var mRate = document.getElementById('demoRateModal');
+    var mRes = document.getElementById('demoResultsModal');
+    if (!mRate || !mRes) return;
+    var demoId = '';
+
+    function esc(v) {
+      return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+    function err(caja, msg) {
+      var e = mRate.querySelector('[data-rate-error]');
+      e.textContent = msg || '';
+      e.classList.toggle('d-none', !msg);
+    }
+
+    /* ⚠️ Todo se monta EN EL CLIC (con modal_stack.js por medio `shown.bs.modal` no llega) y se
+       rehace en cada apertura: cada demo tiene su gente y su correo. */
+    document.addEventListener('click', function (ev) {
+      var b = ev.target.closest('[data-demo-rate]');
+      if (b) {
+        demoId = b.getAttribute('data-demo-rate');
+        mRate.querySelector('[data-rate-sub]').textContent = b.getAttribute('data-title') || '';
+        mRate.querySelector('[data-rate-people]').innerHTML = '<div class="text-muted small">Cargando…</div>';
+        mRate.querySelector('[data-rate-preview]').innerHTML = '';
+        mRate.querySelector('[data-rate-emails]').value = '';
+        mRate.querySelector('[data-rate-note]').value = '';
+        err(null, '');
+        fetch(URL_PREVIEW.replace('DID', demoId), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (!d || !d.ok) { err(null, (d && d.error) || 'No se pudo preparar el envío.'); return; }
+            mRate.querySelector('[data-rate-preview]').innerHTML = d.html || '';
+            mRate.querySelector('[data-rate-people]').innerHTML = (d.people || []).map(function (p) {
+              return '<label class="demo-rate-person' + (p.rated ? ' is-rated' : '') + '">' +
+                '<input type="checkbox" value="' + esc(p.id) + '" checked>' +
+                '<img src="' + esc(p.photo_url || {{ url_for('static', filename='img/avatar_placeholder.png')|tojson }}) + '" alt="" data-avatar="1">' +
+                '<span class="demo-rate-person__n">' + esc(p.name) + '</span>' +
+                (p.rated ? '<span class="badge text-bg-success">ya valoró</span>'
+                         : (p.asked ? '<span class="badge text-bg-warning text-dark">pendiente</span>' : '')) +
+                '</label>';
+            }).join('') || '<div class="text-muted small">No hay nadie a quien pedírselo.</div>';
+          })
+          .catch(function () { err(null, 'No se pudo preparar el envío.'); });
+        if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(mRate).show();
+        return;
+      }
+      var r = ev.target.closest('[data-demo-results]');
+      if (r) {
+        var id = r.getAttribute('data-demo-results');
+        mRes.querySelector('[data-res-sub]').textContent = r.getAttribute('data-title') || '';
+        var cuerpo = mRes.querySelector('[data-res-body]');
+        cuerpo.innerHTML = '<div class="text-muted small">Cargando…</div>';
+        fetch(URL_RESULTS.replace('DID', id), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+          .then(function (rr) { return rr.json(); })
+          .then(function (d) {
+            if (!d || !d.ok) { cuerpo.innerHTML = '<div class="alert alert-danger">' + esc((d && d.error) || 'No se pudo cargar.') + '</div>'; return; }
+            var s = d.summary || {}, qs = d.questions || [];
+            var cab = '<div class="demo-res-head">' +
+              '<div class="demo-res-avg" style="background:' + esc(s.avg_color || '#adb5bd') + '">' +
+                (s.avg === null || s.avg === undefined ? '—' : esc(s.avg)) + '</div>' +
+              '<div><div class="fw-semibold">Media de puntuación</div>' +
+              '<div class="small text-muted">' + esc(s.done || 0) + ' de ' + esc(s.asked || 0) + ' han valorado' +
+              (s.pending ? ' · falta ' + esc((s.missing || []).join(', ')) : '') + '</div></div>' +
+              '<div class="ms-auto d-flex gap-3 flex-wrap">' +
+              (s.questions || []).map(function (q) {
+                return '<div class="text-center"><div class="small text-muted">' + esc(q.label) + '</div>' +
+                  '<span class="badge ' + esc(q.winner_class) + '">' + esc(q.winner) + '</span>' +
+                  '<div class="small text-muted">Sí ' + esc(q.yes) + ' · No ' + esc(q.no) + '</div></div>';
+              }).join('') + '</div></div>';
+            var filas = (d.rows || []).map(function (x) {
+              return '<tr>' +
+                '<td><span class="d-inline-flex align-items-center gap-2">' +
+                  '<img class="inv-person-ava is-photo" src="' + esc(x.photo_url) + '" alt="" data-avatar="1">' +
+                  '<span>' + esc(x.name) + '</span></span></td>' +
+                '<td class="text-center">' + (x.score === null ? '<span class="text-muted">—</span>' :
+                  '<span class="demo-res-score" style="background:' + esc(x.score_color) + '">' + esc(x.score) + '</span>') + '</td>' +
+                qs.map(function (q) {
+                  var v = x[q.key];
+                  return '<td class="text-center">' + (v === null || v === undefined ? '<span class="text-muted">—</span>' :
+                    (v ? '<span class="badge text-bg-success">Sí</span>' : '<span class="badge text-bg-secondary">No</span>')) + '</td>';
+                }).join('') +
+                '<td class="small text-muted">' + (x.rated ? esc(x.rated_at_label) : 'Sin valorar') +
+                (x.comment ? '<div>' + esc(x.comment) + '</div>' : '') + '</td>' +
+                '</tr>';
+            }).join('');
+            cuerpo.innerHTML = cab +
+              '<div class="table-responsive mt-3"><table class="table table-sm align-middle mb-0">' +
+              '<thead class="table-light"><tr><th>Quién</th><th class="text-center">Nota</th>' +
+              qs.map(function (q) { return '<th class="text-center">' + esc(q.label) + '</th>'; }).join('') +
+              '<th></th></tr></thead><tbody>' + (filas || '<tr><td colspan="5" class="text-muted">Nadie todavía.</td></tr>') +
+              '</tbody></table></div>';
+          })
+          .catch(function () { cuerpo.innerHTML = '<div class="alert alert-danger">No se pudo cargar.</div>'; });
+        if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(mRes).show();
+        return;
+      }
+      if (ev.target.closest('[data-rate-all]') || ev.target.closest('[data-rate-none]')) {
+        var on = !!ev.target.closest('[data-rate-all]');
+        mRate.querySelectorAll('[data-rate-people] input[type="checkbox"]').forEach(function (c) { c.checked = on; });
+        return;
+      }
+      var send = ev.target.closest('[data-rate-send]');
+      if (send) {
+        var ids = Array.prototype.slice.call(mRate.querySelectorAll('[data-rate-people] input:checked'))
+          .map(function (c) { return c.value; });
+        var emails = mRate.querySelector('[data-rate-emails]').value || '';
+        if (!ids.length && !emails.trim()) { err(null, 'Elige al menos a una persona.'); return; }
+        send.disabled = true;
+        var previo = send.innerHTML;
+        send.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Enviando…';
+        fetch(URL_SEND.replace('DID', demoId), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+          body: JSON.stringify({ user_ids: ids, emails: emails, note: mRate.querySelector('[data-rate-note]').value || '' })
+        }).then(function (rr) { return rr.json(); }).then(function (d) {
+          if (!d || !d.ok) { send.disabled = false; send.innerHTML = previo; err(null, (d && (d.error || d.message)) || 'No se pudo enviar.'); return; }
+          window.location.reload();
+        }).catch(function () { send.disabled = false; send.innerHTML = previo; err(null, 'No se pudo enviar.'); });
+      }
+    });
+  })();
+  </script>
+
   <div class="modal fade" id="demoModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
       <form class="modal-content" method="post" id="demoForm" enctype="multipart/form-data"

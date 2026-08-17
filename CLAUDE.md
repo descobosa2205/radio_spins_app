@@ -583,6 +583,31 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ Una sección nueva hay que añadirla a la **lista blanca de `section`** de `discografica_view`: si
   no, cae en `canciones` y la pestaña sale marcada pero se pinta otra cosa (bug real de esta épica).
 
+- **DEMOS · VALORACIÓN del sello** (ago 2026, rediseño). ⚠️ Una demo **ya NO se aprueba ni se descarta**
+  (el endpoint `discografica_demo_status` se retiró y `status` queda como histórico): lo que se hace es
+  **mandarla a valorar**. Al repertorio pasa cualquier demo de un artista nuestro, sin exigir estado.
+  · **«Enviar a valoración»** (tres puntitos): pop-up con el personal del **SELLO** ya marcado
+  (`_demo_sello_people`; si nadie tiene ese departamento se ofrece a todo el personal), se puede quitar
+  y añadir otros correos, con **la vista previa del correo al lado**
+  (`discografica_demo_rating_preview` → `_demo_rating_email_html`, el MISMO HTML que se manda).
+  · **El correo**: logo de **PIES** arriba a la derecha, **«Valoración»** centrado, «X quiere que
+  valores este tema», la **cabecera de la maqueta** (con la foto del artista o del tercero) y el botón
+  **Valorar** a la derecha.
+  · **Cada persona tiene SU enlace** (`SongDemoRating.token`, página pública `public_demo_rating`,
+  `/valoracion-demo/<token>`): la fila se crea VACÍA al pedir la valoración, así se sabe **a quién se le
+  pidió** y por tanto si falta gente. Volver a pedirla **reutiliza** su fila (no se pierde lo que dijo).
+  · **La página** enseña lo mismo que el correo, el **audio** con la etiqueta de siempre
+  (`media_chip.js`), la nota de **1 a 10 con barra roja→verde** (`_demo_rating_color`, espejado en el JS
+  de la página), **¿la ves para radio?** y **¿la ves como focus single?** (`DEMO_RATING_QUESTIONS`) y un
+  comentario opcional. Se puede volver a entrar y cambiarla: vale la última.
+  · **El ICONO de la fila**: **verde** cuando han valorado todos, **amarillo** cuando falta gente, con
+  `hechas/pedidas` y la media. Al pincharlo,
+  `discografica_demo_rating_results` pinta la tabla: foto y nombre de cada uno, su nota con su color, sus
+  dos respuestas, la **media** y **qué ha ganado** en cada pregunta (`_demo_rating_summary`, que también
+  dice quién falta). El filtro de la pantalla pasa a ser por valoración (`DEMO_RATING_FILTERS`).
+  ⚠️ El resumen del listado sale de **UNA** consulta para todas las demos (con 400 filas, una por demo
+  sería inaceptable) y `public_demo_rating` está en las **tres** listas de endpoints públicos.
+
 - ⚠️⚠️ **ENTREGA DE MASTERS · el 502 al enviar el formulario** (bug real, ago 2026). Los masters son
   archivos GRANDES: si viajan dentro del formulario, la petición se pasa del tiempo (y de la memoria)
   que el servidor le da y **muere con un 502 sin guardar nada** — el mismo caso que ya se resolvió con

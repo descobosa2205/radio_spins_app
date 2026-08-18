@@ -50903,11 +50903,13 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "discografica.royalties", "label": "Royalties", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": True, "sort_order": 133, "description": "Pestaña «Royalties»: regalías discográficas (importes)."},
     {"key": "discografica.royalties.liquidaciones", "label": "Liquidaciones", "section_key": "discografica", "parent_key": "discografica.royalties", "level": "SUBTAB", "economic_capable": True, "sort_order": 134, "description": "Subpestaña «Liquidaciones» de royalties (importes)."},
     {"key": "discografica.royalties.resumen", "label": "Resumen", "section_key": "discografica", "parent_key": "discografica.royalties", "level": "SUBTAB", "economic_capable": True, "sort_order": 135, "description": "Subpestaña «Resumen» de royalties (importes)."},
-    {"key": "discografica.editorial", "label": "Editorial", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 136, "description": "Pestaña «Editorial»: reparto autoral y editoriales."},
-    {"key": "discografica.registros", "label": "Registros", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 137, "description": "Pestaña «Registros» del sello (declaración de fonogramas/obras del catálogo)."},
-    {"key": "discografica.ingresos", "label": "Ingresos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": True, "sort_order": 138, "description": "Pestaña «Ingresos»: ingresos del sello por explotación (importes)."},
-    {"key": "discografica.adelantos", "label": "Adelantos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": True, "sort_order": 138, "description": "Pestaña «Adelantos»: adelantos de distribuidoras, condiciones de recuperación y liquidación artista por artista (importes)."},
-    {"key": "discografica.isrc", "label": "ISRC", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 139, "description": "Pestaña «ISRC»: gestión de códigos ISRC."},
+    {"key": "discografica.editorial", "label": "Editorial", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 140, "description": "Pestaña «Editorial»: reparto autoral y editoriales."},
+    {"key": "discografica.registros", "label": "Registros", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 141, "description": "Pestaña «Registros» del sello (declaración de fonogramas/obras del catálogo)."},
+    {"key": "discografica.ingresos", "label": "Ingresos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": True, "sort_order": 136, "description": "Pestaña «Ingresos»: ingresos del sello por explotación (importes)."},
+    {"key": "discografica.adelantos", "label": "Adelantos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": True, "sort_order": 137, "description": "Pestaña «Adelantos»: adelantos de distribuidoras, condiciones de recuperación y liquidación artista por artista (importes)."},
+    {"key": "discografica.demos", "label": "Demos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 138, "description": "Pestaña «Demos» del sello: las maquetas que se están valorando (subirlas, escucharlas, pedir valoración al sello y pasarlas al repertorio). Incluye el enlace público para que nos manden demos."},
+    {"key": "discografica.playlists", "label": "Playlists", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 139, "description": "Pestaña «Playlists»: listas de temas (canciones del repertorio y maquetas) para mandarlas fuera, con su enlace público y sus interruptores (descarga, letra, autores…)."},
+    {"key": "discografica.isrc", "label": "ISRC", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 142, "description": "Códigos ISRC: el repertorio de códigos y su configurador. ⚠️ La pantalla vive en REGISTROS → pestaña «ISRC» (el permiso se sigue llamando así a propósito: renombrarlo se llevaría por delante los permisos ya concedidos)."},
 
     {"key": "vacaciones", "label": "Vacaciones y días libres", "section_key": "vacaciones", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 148, "description": "Vacaciones del personal de la oficina: calendario de toda la oficina, saldo de cada persona, peticiones por aprobar y calendario de festivos. Se concede solo a quien tenga la responsabilidad «Gestionar vacaciones» del reparto de administración."},
 
@@ -50921,16 +50923,16 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "actividades.todas", "label": "Todas las actividades", "section_key": "actividades", "parent_key": "actividades", "level": "TAB", "economic_capable": True, "sort_order": 166, "description": "Listado unificado de actividades de todos los artistas, filtrable por tipo/estado."},
 
     {"key": "contratacion", "label": "Contratación", "section_key": "contratacion", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 170, "description": "Contratación de actividades en vivo: conciertos, giras, festivales y otras."},
-    {"key": "contratacion.peticiones", "label": "Peticiones", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 170, "description": "Buzón de peticiones de contratación entrantes: se registran y se tramitan hasta convertirse en concierto o descartarse."},
-    {"key": "contratacion.conciertos", "label": "Conciertos", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 171, "description": "Pestaña «Conciertos»: listado y ficha de concierto (importes)."},
-    {"key": "contratacion.giras", "label": "Giras compradas", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 172, "description": "Pestaña «Giras compradas» (importes)."},
-    {"key": "contratacion.giras.onesheet", "label": "One-sheet de giras", "section_key": "contratacion", "parent_key": "contratacion.giras", "level": "SUBTAB", "economic_capable": False, "sort_order": 173, "description": "One-sheet de giras: dossier público de la gira."},
-    {"key": "contratacion.festivales", "label": "Festivales / Ciclos", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 174, "description": "Pestaña «Festivales / Ciclos» (importes)."},
-    {"key": "contratacion.eventos", "label": "Eventos", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 175, "description": "Pestaña «Eventos»: eventos propios (galas, ferias…) con sus fechas, como una gira comprada (importes)."},
-    {"key": "contratacion.otras", "label": "Otras actividades", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 175, "description": "Pestaña «Otras actividades» (importes)."},
-    {"key": "contratacion.cuadrantes", "label": "Cuadrantes", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": False, "sort_order": 176, "description": "Cuadrantes de planificación de la actividad/gira."},
-    {"key": "contratacion.facturacion", "label": "Facturación", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 177, "description": "Facturación de conciertos y actividades (importes)."},
-    {"key": "contratacion.simulaciones", "label": "Simulaciones", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 178, "description": "Simulaciones económicas de actividades (importes)."},
+    {"key": "contratacion.peticiones", "label": "Peticiones", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 171, "description": "Buzón de peticiones de contratación entrantes: se registran y se tramitan hasta convertirse en concierto o descartarse."},
+    {"key": "contratacion.conciertos", "label": "Conciertos", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 172, "description": "Pestaña «Conciertos»: listado y ficha de concierto (importes)."},
+    {"key": "contratacion.giras", "label": "Giras compradas", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 173, "description": "Pestaña «Giras compradas» (importes)."},
+    {"key": "contratacion.giras.onesheet", "label": "One-sheet de giras", "section_key": "contratacion", "parent_key": "contratacion.giras", "level": "SUBTAB", "economic_capable": False, "sort_order": 174, "description": "One-sheet de giras: dossier público de la gira."},
+    {"key": "contratacion.festivales", "label": "Festivales / Ciclos", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 175, "description": "Pestaña «Festivales / Ciclos» (importes)."},
+    {"key": "contratacion.eventos", "label": "Eventos", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 176, "description": "Pestaña «Eventos»: eventos propios (galas, ferias…) con sus fechas, como una gira comprada (importes)."},
+    {"key": "contratacion.otras", "label": "Otras actividades", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 177, "description": "Pestaña «Otras actividades» (importes)."},
+    {"key": "contratacion.cuadrantes", "label": "Cuadrantes", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": False, "sort_order": 178, "description": "Cuadrantes de planificación de la actividad/gira."},
+    {"key": "contratacion.facturacion", "label": "Facturación", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 179, "description": "Facturación de conciertos y actividades (importes)."},
+    {"key": "contratacion.simulaciones", "label": "Simulaciones", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 180, "description": "Simulaciones económicas de actividades (importes)."},
 
     {"key": "playlisting", "label": "Playlisting", "section_key": "playlisting", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 185, "description": "Playlisting: seguimiento de canciones en playlists y pitching (datos de streaming)."},
 
@@ -50961,7 +50963,10 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "administracion.embargos", "label": "Embargos", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": True, "sort_order": 235, "description": "Órdenes de embargo y su seguimiento (importes)."},
     {"key": "administracion.altas", "label": "Altas", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": False, "sort_order": 236, "description": "ITA de las empresas del grupo: subirlos, ver su vigencia y las personas vinculadas."},
 
-    {"key": "contabilidad", "label": "Contabilidad", "section_key": "contabilidad", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 240, "description": "Contabilidad del grupo: gastos e ingresos contables (importes)."},
+    {"key": "contabilidad", "label": "Contabilidad", "section_key": "contabilidad", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 240, "description": "Contabilidad del grupo: lo que administración ha validado y hay que contabilizar, lo ya contabilizado y las retenciones (importes)."},
+    {"key": "contabilidad.pendiente", "label": "Pendiente de contabilizar", "section_key": "contabilidad", "parent_key": "contabilidad", "level": "TAB", "economic_capable": True, "sort_order": 241, "description": "Pestaña «Pendiente de contabilizar» (Facturas · Bolsas · Tickets · Sin ticket): subir a Holded, marcar como contabilizado, omitir y corregir importes (importes)."},
+    {"key": "contabilidad.contabilizado", "label": "Contabilizado", "section_key": "contabilidad", "parent_key": "contabilidad", "level": "TAB", "economic_capable": True, "sort_order": 242, "description": "Pestaña «Contabilizado»: el archivo de lo ya contabilizado (u omitido), con las mismas subpestañas (importes)."},
+    {"key": "contabilidad.retenciones", "label": "Retenciones", "section_key": "contabilidad", "parent_key": "contabilidad", "level": "TAB", "economic_capable": True, "sort_order": 243, "description": "Pestaña «Retenciones»: todas las facturas recibidas con retención, con su trimestre y el total retenido para declararlo (importes)."},
 
     {"key": "personal", "label": "Personal de la Oficina", "section_key": "personal", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 250, "description": "Personal de la oficina y permisos de la aplicación."},
     {"key": "personal.usuarios", "label": "Usuarios", "section_key": "personal", "parent_key": "personal", "level": "TAB", "economic_capable": False, "sort_order": 251, "description": "Listado y ficha de usuarios del Back Office."},
@@ -51454,9 +51459,19 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return "produccion"
     if endpoint == "administracion_view":
         return "administracion"
-    if endpoint == "contabilidad_view" or endpoint.startswith("accounting_"):
+    if endpoint == "contabilidad_view":
         return "contabilidad"
-    if endpoint.startswith("holded_account_"):
+    if endpoint.startswith("accounting_") or endpoint == "royalty_liquidation_accounted":
+        return "contabilidad.pendiente"
+    # Demos y playlists del sello (sus endpoints cuelgan de /discografica).
+    if endpoint.startswith("discografica_demo"):
+        return "discografica.demos"
+    if endpoint.startswith("playlist_") and endpoint != "playlisting_view":
+        return "discografica.playlists"
+    # Integraciones: Pleo, Cabify, Holded y Chartmetric se configuran ahí (y sus endpoints exigen
+    # además dirección o la edición de su sección).
+    if (endpoint.startswith("holded_") or endpoint.startswith("pleo_")
+            or endpoint.startswith("cabify_") or endpoint.startswith("cm_")):
         return "integraciones"
     if endpoint == "personnel_view":
         return "personal.usuarios"
@@ -51504,6 +51519,25 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
     return _infer_group_key_from_path(path)
 
 
+def _access_exempt_endpoints() -> set:
+    """Endpoints que NO necesitan recurso de permisos porque los autoriza OTRA capa.
+
+    · **APOYO** (`SUPPORT_*`): herramientas transversales (alta rápida, vinculaciones, hoja de ruta,
+      búsquedas) — las autoriza `_support_endpoint_decision`.
+    · **PERSONALES** (`PERSONAL_ENDPOINTS`): datos propios (mis gastos, mis vacaciones, mis avisos,
+      el orden de mi menú). Los deja pasar cualquier sesión y la propiedad la comprueba el endpoint.
+    · **PEDIR algo** (`REQUEST_ANY_ENDPOINTS`): pedir lo puede hacer cualquiera.
+    · Los que son de **DIRECCIÓN por naturaleza**: el modo trabajo y el «Ver como».
+    Punto ÚNICO: lo usan el auto-descubrimiento del catálogo (para no inventar recursos fantasma que
+    en Accesos salen como «Función nueva sin clasificar» y no hacen nada) y la auditoría de cobertura
+    (para no dar por «sin permisos» algo que sí está autorizado). Si un día se separan, la pantalla de
+    Accesos y el chequeo se contradicen."""
+    return (SUPPORT_ACTION_ENDPOINTS | SUPPORT_READ_ENDPOINTS | set(SUPPORT_ECON_READ_ENDPOINTS)
+            | set(PERSONAL_ENDPOINTS) | set(REQUEST_ANY_ENDPOINTS)
+            | {"direccion_toggle_maintenance", "impersonate_start", "impersonate_stop",
+               "personnel_bulk_access"})
+
+
 def _build_access_resources_from_app() -> list[dict]:
     """Catálogo efectivo = recursos curados + auto-descubrimiento de funciones nuevas.
 
@@ -51518,9 +51552,11 @@ def _build_access_resources_from_app() -> list[dict]:
     """
     rows = [dict(item) for item in CURATED_ACCESS_RESOURCES]
     known = {row["key"] for row in rows}
-    support = SUPPORT_ACTION_ENDPOINTS | SUPPORT_READ_ENDPOINTS | set(SUPPORT_ECON_READ_ENDPOINTS)
-    framework = {"static", "landing", "admin_login", "admin_logout", "personnel_bulk_access",
-                 "impersonate_start", "impersonate_stop"}
+    # ⚠️ Lo que YA está autorizado por otra vía no genera recurso (ver `_access_exempt_endpoints`):
+    # si no, sale en Accesos como «Función nueva sin clasificar» y ensucia la pantalla con permisos
+    # que no hacen nada.
+    support = _access_exempt_endpoints()
+    framework = {"static", "landing", "admin_login", "admin_logout"}
     write_methods = {"POST", "PUT", "PATCH", "DELETE"}
     dynamic_sort = 901
     for rule in app.url_map.iter_rules():
@@ -51938,6 +51974,7 @@ def _infer_group_key_from_path(path: str) -> str | None:
         ("/produccion", "produccion"),
         ("/administracion", "administracion"),
         ("/contabilidad", "contabilidad"),
+        ("/integraciones", "integraciones"),
         ("/invitaciones", "invitaciones"),
     ]:
         if path.startswith(prefix):
@@ -52012,9 +52049,17 @@ def _resolve_request_resource_key() -> str | None:
             royalty_tab = (request.args.get("royalty_tab") or request.args.get("tab") or "liquidaciones").strip().lower()
             if royalty_tab in {"liquidaciones", "resumen"}:
                 return f"discografica.royalties.{royalty_tab}"
-        if section in {"lanzamientos", "canciones", "royalties", "editorial", "registros", "ingresos", "isrc", "adelantos"}:
+        if section in {"lanzamientos", "canciones", "royalties", "editorial", "registros", "ingresos",
+                       "isrc", "adelantos", "demos", "playlists"}:
             return f"discografica.{section}"
         return "discografica"
+    # Demos y playlists: sus endpoints cuelgan de /discografica, así que sin esto caerían en la
+    # SECCIÓN y no se podría dar (ni quitar) solo una de las dos.
+    # ⚠️ `playlist_` NO es `playlisting_` (esa es la sección de Playlisting, otra cosa).
+    if endpoint.startswith("discografica_demo"):
+        return "discografica.demos"
+    if endpoint.startswith("playlist_"):
+        return "discografica.playlists"
     if endpoint == "discografica_song_detail":
         tab = (request.args.get("tab") or "informacion").strip().lower()
         mapping = {
@@ -52151,6 +52196,12 @@ def _resolve_request_resource_key() -> str | None:
             if admin_tab in {"pendiente", "liquidaciones", "pagos", "cobros", "embargos", "altas"}:
                 return f"administracion.{admin_tab}"
             return "administracion"
+        # CONTABILIDAD, igual: cada pestaña tiene su permiso (se puede dar solo «Retenciones»).
+        if endpoint == "contabilidad_view":
+            acc_tab = (request.args.get("tab") or "pendiente").strip().lower()
+            if acc_tab in ACCOUNTING_TAB_KEYS:
+                return f"contabilidad.{acc_tab}"
+            return "contabilidad"
         mapping = {
             "promocion_view": "promocion",
             "marketing_view": "promocion",
@@ -52212,9 +52263,11 @@ def _resolve_request_resource_key() -> str | None:
             or endpoint.startswith("cabify_") or endpoint.startswith("cm_")
             or endpoint.startswith("holded_account_") or endpoint == "api_cm_search"):
         return "integraciones"
-    # Contabilidad: subir a Holded, cambiar el estado contable, omitir… todo cuelga de la sección.
-    if endpoint == "contabilidad_view" or endpoint.startswith("accounting_"):
-        return "contabilidad"
+    # TODO lo que se HACE en contabilidad (subir a Holded, marcar contabilizado, omitir, corregir
+    # importes) cuelga de «Pendiente de contabilizar», que es donde se trabaja. Quien tenga la sección
+    # entera pasa igual (los ancestros valen).
+    if endpoint.startswith("accounting_") or endpoint == "royalty_liquidation_accounted":
+        return "contabilidad.pendiente"
     auto_key = f"auto.{endpoint}"
     if auto_key in _ACCESS_RESOURCE_MAP:
         return auto_key
@@ -52488,6 +52541,8 @@ def _resource_default_url(key: str) -> str:
         "discografica.registros": url_for("discografica_view", section="registros"),
         "discografica.ingresos": url_for("discografica_view", section="ingresos"),
         "discografica.adelantos": url_for("discografica_view", section="adelantos"),
+        "discografica.demos": url_for("discografica_view", section="demos"),
+        "discografica.playlists": url_for("discografica_view", section="playlists"),
         "discografica.isrc": url_for("registros_view", tab="isrc", isrc_tab="repertorio"),
         "vacaciones": url_for("vacaciones_view"),
         "registros": url_for("registros_view", tab="pendiente"),
@@ -52532,6 +52587,9 @@ def _resource_default_url(key: str) -> str:
         "administracion.embargos": url_for("administracion_view", tab="embargos"),
         "administracion.altas": url_for("administracion_view", tab="altas"),
         "contabilidad": url_for("contabilidad_view"),
+        "contabilidad.pendiente": url_for("contabilidad_view", tab="pendiente"),
+        "contabilidad.contabilizado": url_for("contabilidad_view", tab="contabilizado"),
+        "contabilidad.retenciones": url_for("contabilidad_view", tab="retenciones"),
         "personal": url_for("personnel_view"),
         "personal.usuarios": url_for("personnel_view"),
         "personal.usuarios.accesos": url_for("personnel_view"),
@@ -53547,6 +53605,7 @@ SUPPORT_ACTION_ENDPOINTS = {
     "api_create_distributor",
     # Plantillas de gastos (se gestionan desde las fichas de artista/evento/recinto y el simulador)
     "expense_template_rename", "expense_template_delete",
+    "expense_template_create", "expense_template_save", "expense_template_update_items",
     "repertoire_template_create", "repertoire_template_update", "repertoire_template_delete",
     # Set list / repertorio por concierto o actividad (pestaña Repertorio)
     "setlist_save", "setlist_save_template",
@@ -53816,8 +53875,8 @@ def _audit_access_coverage() -> dict:
     Recorre TODAS las rutas y comprueba que ningún endpoint de ESCRITURA no público quede:
       · sin recurso (resolvería a None -> solo dirección podría ejecutarlo), o
       · mapeado a un recurso inexistente en el catálogo.
-    Los endpoints de apoyo (alta rápida, vinculaciones, hoja de ruta) están cubiertos por su
-    propia capa y se excluyen. Se ejecuta en el arranque (best-effort, solo registra) y desde
+    Los endpoints que autoriza OTRA capa (apoyo, datos propios, pedir algo, dirección) se excluyen:
+    la lista es `_access_exempt_endpoints`, la misma que usa el catálogo. Se ejecuta en el arranque (best-effort, solo registra) y desde
     `tools/check_access_coverage.py` (para CI). Devuelve {"count", "offenders"}.
     """
     write_methods = {"POST", "PUT", "PATCH", "DELETE"}
@@ -53826,7 +53885,8 @@ def _audit_access_coverage() -> dict:
     public = ({"static", "landing", "admin_login", "admin_logout",
                "concert_artwork_public_upload", "concert_contract_public_form"}
               | set(PUBLIC_ENDPOINTS_EXTRA))
-    support = SUPPORT_ACTION_ENDPOINTS | SUPPORT_READ_ENDPOINTS | set(SUPPORT_ECON_READ_ENDPOINTS)
+    # La MISMA lista que el catálogo: lo autorizado por otra capa no es un endpoint «sin permisos».
+    support = _access_exempt_endpoints()
     offenders = []
     for rule in app.url_map.iter_rules():
         endpoint = rule.endpoint or ""
@@ -63018,6 +63078,9 @@ ACCOUNTING_PENDING_TABS = [
 ]
 # Subpestaña → tipo de documento del gasto.
 ACCOUNTING_SUBTAB_DOC = {"facturas": "FACTURA", "tickets": "TICKET", "sin-ticket": "SIN_DOCUMENTO"}
+# Las pestañas que tienen permiso propio (`contabilidad.<clave>`): punto único para la vista y para
+# la resolución de permisos, que si no se desincronizan.
+ACCOUNTING_TAB_KEYS = {k for k, _l, _i in ACCOUNTING_TABS}
 ACCOUNTING_DOC_META = {
     "FACTURA": ("Factura", "fa-file-invoice", "text-bg-primary"),
     "TICKET": ("Ticket", "fa-receipt", "text-bg-info text-dark"),
@@ -63974,9 +64037,14 @@ def contabilidad_view():
     ⚠️ Ya no hay pestaña «Facturas»: el registro de facturas está en Bases de datos → Facturas y aquí
     solo repetía lo mismo. Un `?tab=facturas` de un enlace antiguo cae en «Pendiente».
     """
-    tab = (request.args.get("tab") or "pendiente").strip().lower()
+    # Cada pestaña tiene su PERMISO propio: solo se ofrecen (y se abren) las que se pueden ver, y sin
+    # pestaña pedida se entra en la primera que sí. Quien tenga la sección entera las tiene todas.
+    visibles = [k for k, _l, _i in ACCOUNTING_TABS if has_access_key("contabilidad.%s" % k)]
+    tab = (request.args.get("tab") or "").strip().lower()
     if tab not in dict((k, l) for k, l, _i in ACCOUNTING_TABS):
-        tab = "pendiente"
+        tab = visibles[0] if visibles else "pendiente"
+    if visibles and tab not in visibles:
+        return redirect(url_for("contabilidad_view", tab=visibles[0]))
     subtab = (request.args.get("subtab") or "facturas").strip().lower()
     if subtab not in dict((k, l) for k, l, _i in ACCOUNTING_PENDING_TABS):
         subtab = "facturas"
@@ -64037,7 +64105,7 @@ def contabilidad_view():
             title="Contabilidad",
             subtitle="Lo que administración ha validado y todavía no está contabilizado.",
             tab=tab, subtab=subtab, estado_filtro=estado_filtro,
-            accounting_tabs=ACCOUNTING_TABS,
+            accounting_tabs=[t for t in ACCOUNTING_TABS if t[0] in visibles] or ACCOUNTING_TABS,
             accounting_pending_tabs=ACCOUNTING_PENDING_TABS,
             accounting_states=HOLDED_ACCOUNTING_STATES,
             counts=counts,
@@ -65010,13 +65078,16 @@ def personnel_detail_view(user_id):
         # vacaciones llevan además su regla (administración/dirección, y las suyas siempre).
         propia = str(user.id) == str((_current_user_state() or {}).get("user_id") or "")
         puede_ver_vacaciones = propia or _can_manage_vacations()
+        # ⚠️ El ORDEN de este dict es el de las pestañas: **DATOS va primero** (es lo que se mira todos
+        # los días) y **ACCESOS al final** (los permisos se tocan de tarde en tarde). De aquí sale
+        # también la pestaña por defecto (`visibles[0]`).
         tab_access = {
-            "accesos": is_master(),
             "datos": _personnel_tab_grant("personal.usuarios.datos"),
             "documentos": _personnel_tab_grant("personal.usuarios.documentos"),
             "prl": _personnel_tab_grant("personal.usuarios.prl"),
             "contrato": _can_view_person_contract() and _personnel_tab_grant("personal.usuarios.contrato"),
             "vacaciones": puede_ver_vacaciones,
+            "accesos": is_master(),
         }
         visibles = [k for k, v in tab_access.items() if v]
         tab = (request.args.get("tab") or "").strip().lower()

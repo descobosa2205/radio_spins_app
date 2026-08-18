@@ -47,13 +47,15 @@
 
 {# Cada pestaña tiene su PERMISO propio (`tab_access`): solo se pinta la que se puede ver. #}
 <ul class="nav nav-tabs mb-3">
+  {# ORDEN: DATOS primero (es lo del día a día) y ACCESOS la ÚLTIMA (los permisos se tocan de tarde
+     en tarde). El mismo orden manda en `tab_access` de la vista, que decide la pestaña por defecto. #}
   {% for key, label, icon in [
-      ('accesos', 'Accesos', 'fa-shield-halved'),
       ('datos', 'Datos', 'fa-id-badge'),
       ('documentos', 'Documentos', 'fa-id-card'),
       ('prl', 'PRL', 'fa-helmet-safety'),
       ('contrato', 'Contrato', 'fa-file-contract'),
-      ('vacaciones', 'Vacaciones', 'fa-umbrella-beach')] %}
+      ('vacaciones', 'Vacaciones', 'fa-umbrella-beach'),
+      ('accesos', 'Accesos', 'fa-shield-halved')] %}
     {% if tab_access.get(key) %}
       <li class="nav-item"><a class="nav-link {% if tab == key %}active{% endif %}"
         href="{{ url_for('personnel_detail_view', user_id=user.id, tab=key) }}"><i class="fa {{ icon }} me-1"></i>{{ label }}</a></li>

@@ -128,6 +128,43 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `impersonate_stop` (`GET /salir-modo-vision`, **exento** del enforcement) — botón rojo en el navbar
   (`layout.html`, globales `IMPERSONATING`/`IMPERSONATOR_NICK`). No anidable, no a uno mismo, no a
   bloqueados/eliminados; `logout` limpia las claves.
+- **PERMISOS · repaso del catálogo (ago 2026)**: el catálogo (`CURATED_ACCESS_RESOURCES`, **96
+  recursos**) ya tiene TODAS las secciones y pestañas de la app, y **no queda ningún `auto.*` sin
+  clasificar**. Lo que se añadió en este repaso:
+  · **Discográfica → «Demos»** (`discografica.demos`) y **«Playlists»** (`discografica.playlists`),
+  que eran secciones de la pantalla sin recurso propio: ahora se pueden conceder (o quitar) sueltas.
+  Sus endpoints se mapean por prefijo (`discografica_demo*` → demos, `playlist_*` → playlists;
+  ⚠️ `playlist_` **no** es `playlisting_`, que es otra sección).
+  · **Contabilidad por pestañas**: `contabilidad.pendiente` · `contabilidad.contabilizado` ·
+  `contabilidad.retenciones` (se puede dar solo «Retenciones» a quien declara). **Todo lo que se HACE**
+  (subir a Holded, marcar contabilizado, omitir, corregir importes, `royalty_liquidation_accounted`)
+  cuelga de **«Pendiente de contabilizar»**, que es donde se trabaja.
+  ⚠️ La resolución por `tab` hay que ponerla **DONDE se resuelve `contabilidad_view`** (dentro del
+  bloque grande de `promocion_view`/`administracion_view`/…): una regla más abajo es **código muerto**,
+  porque gana el mapeo de la sección (bug real de este repaso).
+  ⚠️ El gate de LECTURA usa `include_descendants=True`, así que **tener una pestaña abre la URL de
+  cualquier otra de la misma sección**. Por eso `contabilidad_view` (como la ficha de personal) solo
+  pinta las pestañas que se pueden ver y **redirige a la primera** si se pide otra.
+  · **Sin números repetidos**: los `sort_order` de Discográfica y Contratación colisionaban (dos
+  recursos con el mismo número salían en la pantalla de Accesos en orden aleatorio) y ahora siguen el
+  orden real de sus pestañas.
+  · **`_access_exempt_endpoints()`** es el punto ÚNICO de lo que NO necesita recurso porque lo
+  autoriza otra capa: apoyo (`SUPPORT_*`), **datos propios** (`PERSONAL_ENDPOINTS`: mis gastos, mis
+  vacaciones, mis avisos, el orden de mi menú), **pedir algo** (`REQUEST_ANY_ENDPOINTS`) y lo que es de
+  dirección por naturaleza (modo trabajo, «Ver como»). Lo usan el auto-descubrimiento **y** la
+  auditoría: antes esos 14 endpoints salían en Accesos como «Función nueva sin clasificar» (permisos
+  que no hacían nada) y, al quitarlos, la auditoría los daba por «sin cobertura» — las dos cosas leen
+  ahora la misma lista. `expense_template_create/save/update_items` pasan a `SUPPORT_ACTION_ENDPOINTS`
+  con sus hermanas, y `/integraciones` se resuelve también por RUTA.
+  ⚠️ La **red de seguridad sigue puesta**: una función de escritura nueva que no se mapee sigue
+  entrando en el catálogo **desactivada** bajo «Otras funciones» (comprobado), así que nada queda
+  solo-dirección en silencio.
+- **FICHA DE PERSONAL · el orden de las pestañas** (ago 2026): **«Datos» es la PRIMERA** (es lo del día
+  a día y la pestaña por defecto al abrir la ficha) y **«Accesos» la ÚLTIMA** (los permisos se tocan de
+  tarde en tarde). ⚠️ El orden manda en DOS sitios que hay que dejar iguales: el dict `tab_access` de
+  `personnel_detail_view` (de ahí sale la pestaña por defecto, `visibles[0]`) y la lista del `{% for %}`
+  de `personnel_detail.html`.
+
 - ⚠️ **La ficha y los listados de ACTIVIDAD se abren desde muchas secciones**: producción monta la
   hoja de ruta, administración la bolsa, promoción su marketing… Por eso el acceso de LECTURA a
   `concert_detail_view` / `activities_view` / `concerts_view` no exige la pestaña «Conciertos» de

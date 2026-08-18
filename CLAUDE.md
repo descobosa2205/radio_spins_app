@@ -226,6 +226,26 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `_concert_wizard_modal.html`). Endpoints `agenda_block_create`/`agenda_note_create`/`agenda_item_delete`
   (en `SUPPORT_ACTION_ENDPOINTS`). Al crear artista se pregunta «¿es un grupo?»; la pestaña Datos edita
   `is_group`, fecha del artista y fecha por miembro.
+- **AGENDA · un «otro» puede tener HORA** (ago 2026): al añadir una nota (**«Otro»**) se pueden poner
+  **hora de inicio y hora de fin, las dos opcionales** (`ArtistAgendaItem.start_time`/`end_time`; sin
+  ellas es de todo el día, como antes). Punto único **`_agenda_clean_time`** (valida «HH:MM» y descarta
+  lo que no lo sea) + **`_agenda_time_label`** («10:00 – 13:30» · «desde las 10:00» · «hasta las
+  13:30»), que va **por delante en el `subtitle`** del ítem: así se ve igual en el tooltip del
+  calendario y en el listado lateral, en Inicio y en la ficha del artista. En un solo día, unas horas
+  del revés se ordenan solas (igual que las fechas).
+  · **Al iPhone también llega la hora**: `_ics_time_lines` es el punto único de DTSTART/DTEND del iCal
+  público y del CalDAV. ⚠️ Solo se emite evento **con hora cuando están LAS DOS** (hora local
+  flotante, sin TZID, que es lo que entienden bien iPhone y Google sin VTIMEZONE); con **una sola** se
+  emite el día completo de siempre y la hora se dice en el texto — mejor eso que inventarse una hora
+  de fin que nadie ha puesto.
+  · **El día de fin SIGUE al de comienzo** mientras no se toque a mano: lo que se añade es de UN día y
+  al mover el «Desde» se mueve el «Hasta» con él; en cuanto alguien escribe el «Hasta», ese manda
+  (`dataset.touched` en `_agenda_add_modal.html`) — salvo que quede ANTES del comienzo, que entonces se
+  arrastra. Vale para «Otro» y para «Bloqueo».
+  ⚠️ **`parse_date("")` REVIENTA** (`ValueError`, no devuelve None): con el «Hasta» vacío, crear una
+  nota o un bloqueo fallaba con «No se pudo añadir» (bug real). Las fechas de la agenda se leen con
+  **`parse_optional_date`**.
+
 - **CALENDARIO GENERAL DE OFICINA** (ago 2026): en el calendario de Inicio sale **como si fuera otro
   artista** («Calendario general», `OFFICE_CALENDAR_ID = "oficina"` — un CENTINELA, no un artista de la
   BD), y lo que lleva son las cosas de la casa: **todas las vacaciones y días libres APROBADOS de todo
@@ -2058,8 +2078,10 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   «Contabilizado» —con **la fecha al pasar el ratón**— se ve también en la **bolsa** (`_bag_panel.html`)
   y en pendiente de pago. **Omitir** = no se contabiliza y ahí acaba su proceso (se puede devolver a
   pendiente). La etiqueta se cambia **pinchándola** (avanza en su ciclo).
-  · ⚠️ **El BOTÓN de contabilizar va en VERDE SIN RELLENAR** (`btn-outline-success`): el verde relleno
-  es la **etiqueta** de «ya contabilizado», y con el botón del mismo color se confundían.
+  · ⚠️ **En «pendiente», los botones de contabilizar van en AMARILLO** (`btn-outline-warning`, ago
+  2026): el **VERDE está reservado a la ETIQUETA de «ya contabilizado»**, y en verde la ACCIÓN se
+  confundía con el ESTADO. Vale para los tres: la fila de una liquidación («Contabilizada»), la barra
+  de selección («Marcar como contabilizado») y la cabecera de una bolsa («Contabilizar todos»).
   · Arriba, **«Subir todo a Holded»** y «Comprobar en Holded»; **casilla por gasto** con barra de
   acciones en bloque (subir / marcar contabilizado); **filtros por estado** con su icono; tres
   puntitos por fila (subir, descargar, compartir por correo/WhatsApp/SMS, editar, omitir) y el icono
@@ -2308,6 +2330,17 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   viene —liquidación de royalties, bolsa o gasto de una persona—, base, IVA, retención con su %, total
   y estado), con **total retenido**, resumen **por trimestre** (que es como se declara) y filtro por
   año. ⚠️ En la cabecera se dice lo importante: **la retención no se descuenta del gasto**.
+
+- **CONTABILIDAD · RETENCIONES: los TRES estados en su orden** (ago 2026): validada → **pagada** →
+  contabilizada. El **pago es un EURO** (`fa-euro-sign`): **verde pagado, amarillo sin pagar**, y al
+  pasar el ratón dice **cuándo se pagó y en qué remesa** (o de qué forma: Pleo, transferencia…). Detrás
+  va la etiqueta **«Sin contabilizar» en amarillo / «Contabilizado» en verde** (con su fecha en el
+  tooltip). Motor **`_retention_status_map`**, que resuelve los dos estados según de qué cuelgue la
+  factura —liquidación de royalties (`paid_at`/`payment_batch_id`/`accounted_at`) o gasto de bolsa
+  (`payment_status`/`payment_batch_id`/`accounting_status`)— **en consultas en bloque**: son cientos de
+  filas y una consulta por factura sería inaceptable.
+  ⚠️ Un `BagExpense` **no tiene columna con la fecha de pago**: la buena es la de su REMESA
+  (`execution_date`/`paid_at`) y, si se pagó a mano, la última vez que se tocó el gasto.
 
 - **FICHAS DE PERSONA: las TRES se ven igual** (ago 2026). Personal, tercero e integrante de un
   artista comparten **`templates/_person_identity_summary.html`**: a la izquierda los datos, debajo las

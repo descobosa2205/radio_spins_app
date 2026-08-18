@@ -149,6 +149,10 @@ class ArtistAgendaItem(Base):
     note = Column(Text)
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
+    # HORA de comienzo y de fin (las DOS opcionales, «HH:MM»): un «otro» puede ser de todo el día o de
+    # 10:00 a 13:00. Vacías = todo el día, que es como se comportaba antes.
+    start_time = Column(Text)
+    end_time = Column(Text)
     created_by_user_id = Column(PGUUID(as_uuid=True))
     created_by_nick = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -6280,6 +6284,9 @@ def ensure_artist_feature_schema():
         # deja de ser obligatorio y se marcan con `is_office`.
         "ALTER TABLE IF EXISTS artist_agenda_items ADD COLUMN IF NOT EXISTS is_office boolean NOT NULL DEFAULT false;",
         "ALTER TABLE IF EXISTS artist_agenda_items ALTER COLUMN artist_id DROP NOT NULL;",
+        # Hora de comienzo y de fin de una nota («otro»): las dos opcionales.
+        "ALTER TABLE IF EXISTS artist_agenda_items ADD COLUMN IF NOT EXISTS start_time text;",
+        "ALTER TABLE IF EXISTS artist_agenda_items ADD COLUMN IF NOT EXISTS end_time text;",
         """
         CREATE TABLE IF NOT EXISTS artist_emails (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

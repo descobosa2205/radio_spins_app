@@ -86,6 +86,17 @@
             <div class="col"><label class="form-label">Desde</label><input type="date" class="form-control" name="start_date" data-agenda-start required></div>
             <div class="col"><label class="form-label">Hasta</label><input type="date" class="form-control" name="end_date" data-agenda-end></div>
           </div>
+          {# HORAS: las dos OPCIONALES (sin ellas, es de todo el día). #}
+          <div class="row g-2 mt-1">
+            <div class="col">
+              <label class="form-label">Hora de inicio <span class="text-muted">(opcional)</span></label>
+              <input type="time" class="form-control" name="start_time">
+            </div>
+            <div class="col">
+              <label class="form-label">Hora de fin <span class="text-muted">(opcional)</span></label>
+              <input type="time" class="form-control" name="end_time">
+            </div>
+          </div>
           <div class="alert alert-warning py-2 small mt-2 d-none" data-agenda-conflict></div>
           <div class="d-flex justify-content-between mt-3"><button type="button" class="btn btn-link px-0" data-agenda-back><i class="fa fa-arrow-left me-1"></i>Atrás</button><button class="btn btn-primary"><i class="fa fa-check me-1"></i>Añadir</button></div>
         </form>
@@ -132,8 +143,11 @@
   modalEl.addEventListener('show.bs.modal', function () {
     var pid = body.getAttribute('data-preset-artist-id') || '';
     var pname = body.getAttribute('data-preset-artist-name') || '';
-    // Fechas por defecto = hoy
+    // Fechas por defecto = hoy (el día de fin, el MISMO que el de comienzo) y las horas en blanco:
+    // el modal se reutiliza y lo de la vez anterior no puede quedarse puesto.
     modalEl.querySelectorAll('[data-agenda-start],[data-agenda-end]').forEach(function (i) { if (!i.value) i.value = today(); });
+    modalEl.querySelectorAll('[data-agenda-end]').forEach(function (i) { delete i.dataset.touched; });
+    modalEl.querySelectorAll('input[type="time"]').forEach(function (i) { i.value = ''; });
     soloOtros(false);
     if (pid) { setArtist(pid, pname); show('type'); }
     else { setArtist('', ''); show('artist'); }
@@ -241,6 +255,23 @@
 
   modalEl.querySelectorAll('[data-agenda-back]').forEach(function (b) {
     b.addEventListener('click', function () { show('type'); });
+  });
+
+  // EL DÍA DE FIN SIGUE AL DE COMIENZO mientras no se haya puesto a mano: por defecto lo que se
+  // añade es de UN día, y al mover el comienzo se mueve el final con él. En cuanto alguien escribe el
+  // «Hasta», ese día manda y no se vuelve a tocar (queda marcado con `dataset.touched`).
+  modalEl.querySelectorAll('[data-agenda-end]').forEach(function (inp) {
+    inp.addEventListener('input', function () { inp.dataset.touched = '1'; });
+  });
+  modalEl.querySelectorAll('[data-agenda-start]').forEach(function (inp) {
+    inp.addEventListener('input', function () {
+      var form = inp.closest('[data-agenda-step]');
+      var fin = form ? form.querySelector('[data-agenda-end]') : null;
+      if (!fin || !inp.value) return;
+      // Si el «Hasta» se puso a mano se respeta, salvo que se quede ANTES del comienzo (eso no es un
+      // rango: se arrastra con él).
+      if (!fin.dataset.touched || (fin.value && fin.value < inp.value)) fin.value = inp.value;
+    });
   });
 
   // Recalcular el aviso de solape al cambiar las fechas.

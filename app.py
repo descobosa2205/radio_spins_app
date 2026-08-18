@@ -63090,6 +63090,104 @@ def _accounting_counts(session_db) -> dict:
     return salida
 
 
+def _retention_status_map(session_db, invoices) -> dict:
+    """De cada factura con retención: si está PAGADA (cuándo y cómo) y si está CONTABILIZADA.
+
+    Una retención se declara cuando la factura está validada y pagada, así que en esa pantalla los
+    tres estados van juntos: validada → pagada → contabilizada. Todo en consultas EN BLOQUE (son
+    cientos de filas: nada de una consulta por factura).
+    """
+    salida = {}
+    if not invoices:
+        return salida
+    inv_ids = [i.id for i in invoices]
+    # --- de qué cuelga cada factura: liquidación de royalties o gasto de bolsa ---
+    liq_por_inv, exp_por_inv = {}, {}
+    for inv in invoices:
+        if getattr(inv, "royalty_liquidation_id", None):
+            liq_por_inv[str(inv.id)] = inv.royalty_liquidation_id
+        elif getattr(inv, "bag_expense_id", None):
+            exp_por_inv[str(inv.id)] = inv.bag_expense_id
+    try:
+        for r in (session_db.query(BagExpenseInvoice.invoice_id, BagExpenseInvoice.bag_expense_id)
+                  .filter(BagExpenseInvoice.invoice_id.in_(inv_ids)).all()):
+            exp_por_inv.setdefault(str(r[0]), r[1])
+    except Exception:
+        pass
+    # --- las liquidaciones y los gastos, de una vez ---
+    liqs, gastos, lotes = {}, {}, {}
+    if liq_por_inv:
+        for rec in (session_db.query(RoyaltyLiquidation)
+                    .filter(RoyaltyLiquidation.id.in_(list(liq_por_inv.values()))).all()):
+            liqs[str(rec.id)] = rec
+    if exp_por_inv:
+        for e in (session_db.query(BagExpense)
+                  .filter(BagExpense.id.in_(list(exp_por_inv.values()))).all()):
+            gastos[str(e.id)] = e
+    batch_ids = ([getattr(r, "payment_batch_id", None) for r in liqs.values()]
+                 + [getattr(e, "payment_batch_id", None) for e in gastos.values()])
+    batch_ids = [b for b in batch_ids if b]
+    if batch_ids:
+        for b in session_db.query(PaymentBatch).filter(PaymentBatch.id.in_(batch_ids)).all():
+            lotes[str(b.id)] = b
+
+    def _como(batch, metodo, fecha) -> str:
+        """«Pagado el 12/08/2026 · Remesa REM-2026-0004» o «… · Pleo». Es el tooltip del euro."""
+        partes = []
+        if fecha:
+            partes.append("Pagado el %s" % fecha.strftime("%d/%m/%Y"))
+        else:
+            partes.append("Pagado")
+        if batch is not None and (getattr(batch, "reference", None) or "").strip():
+            partes.append("Remesa %s" % batch.reference.strip())
+        elif (metodo or "").strip():
+            partes.append((metodo or "").strip())
+        return " · ".join(partes)
+
+    for inv in invoices:
+        clave = str(inv.id)
+        ficha = {"paid": False, "partial": False, "pay_title": "Sin pagar",
+                 "accounted": False, "accounted_label": ""}
+        rec = liqs.get(str(liq_por_inv.get(clave) or ""))
+        exp = gastos.get(str(exp_por_inv.get(clave) or ""))
+        if rec is not None:
+            lote = lotes.get(str(getattr(rec, "payment_batch_id", "") or ""))
+            pagada = bool(getattr(rec, "paid_at", None))
+            fecha = (rec.paid_at.date() if getattr(rec, "paid_at", None) else None)
+            ficha.update({
+                "paid": pagada,
+                "pay_title": (_como(lote, getattr(rec, "payment_method", None), fecha) if pagada
+                              else "Sin pagar"),
+                "accounted": bool(getattr(rec, "accounted_at", None)),
+                "accounted_label": (rec.accounted_at.strftime("%d/%m/%Y")
+                                    if getattr(rec, "accounted_at", None) else ""),
+            })
+        elif exp is not None:
+            estado = (getattr(exp, "payment_status", None) or "NO_PAGADO").upper()
+            lote = lotes.get(str(getattr(exp, "payment_batch_id", "") or ""))
+            # ⚠️ Un gasto no tiene columna con la fecha de pago: la mejor que hay es la de la remesa
+            # (la de verdad) y, si se pagó a mano, la última vez que se tocó el gasto.
+            fecha = (getattr(lote, "execution_date", None)
+                     or (lote.paid_at.date() if getattr(lote, "paid_at", None) else None)
+                     or (exp.updated_at.date() if getattr(exp, "updated_at", None) else None))
+            ficha.update({
+                "paid": estado == "PAGADO",
+                "partial": estado == "PARCIAL",
+                "pay_title": (_como(lote, getattr(exp, "payment_method", None), fecha)
+                              if estado == "PAGADO" else
+                              ("Pagado en parte: %s de %s"
+                               % (format_eur(getattr(exp, "paid_amount", 0)),
+                                  format_eur(getattr(exp, "amount_gross", 0)))
+                               if estado == "PARCIAL" else "Sin pagar")),
+                "accounted": (getattr(exp, "accounting_status", None) or "PENDIENTE").upper()
+                             in ACCOUNTING_DONE_STATUSES,
+                "accounted_label": (exp.accounting_at.strftime("%d/%m/%Y")
+                                    if getattr(exp, "accounting_at", None) else ""),
+            })
+        salida[clave] = ficha
+    return salida
+
+
 def _accounting_retention_rows(session_db, *, year: int | None = None, limit: int = 800) -> dict:
     """TODAS las facturas recibidas CON RETENCIÓN, con sus importes.
 
@@ -63121,6 +63219,7 @@ def _accounting_retention_rows(session_db, *, year: int | None = None, limit: in
     if bag_ids:
         for b in session_db.query(WorkflowBag).filter(WorkflowBag.id.in_(bag_ids)).all():
             bolsas[str(b.id)] = b
+    estados = _retention_status_map(session_db, invoices)
     filas, total_ret, total_base = [], Decimal("0"), Decimal("0")
     por_trimestre = {}
     for inv in invoices:
@@ -63157,6 +63256,10 @@ def _accounting_retention_rows(session_db, *, year: int | None = None, limit: in
             "net": base, "vat": iva, "gross": bruto,
             "retention": ret, "retention_pct": ret_pct,
             "status": (inv.status or "PENDIENTE").upper(),
+            # PAGADA (con su cuándo y su cómo, para el tooltip del euro) y CONTABILIZADA.
+            **(estados.get(str(inv.id)) or {"paid": False, "partial": False,
+                                            "pay_title": "Sin pagar", "accounted": False,
+                                            "accounted_label": ""}),
             "origin": origen, "origin_url": origen_url,
             "file_url": (inv.file_url or ""),
             "edit_url": url_for("supplier_invoice_edit", invoice_id=inv.id),
@@ -91834,6 +91937,56 @@ def _birthday_age_label(bdate, day) -> str:
     return f"Cumple {edad} año" + ("" if edad == 1 else "s")
 
 
+def _ics_time_lines(start_date, end_date, start_time, end_time) -> list[str]:
+    """Las líneas DTSTART/DTEND de un evento de agenda, con hora si la tiene.
+
+    ⚠️ Solo se emite un evento CON HORA cuando están LAS DOS (hora local flotante, sin TZID: es lo
+    que entienden bien iPhone y Google sin tener que meter un VTIMEZONE). Con una sola hora se emite
+    el día completo de siempre y la hora se dice en el texto: es mejor que inventarse una hora de fin
+    que nadie ha puesto."""
+    d0 = start_date
+    d1 = end_date or start_date
+    ini = _agenda_clean_time(start_time)
+    fin = _agenda_clean_time(end_time)
+    if ini and fin:
+        a = "%sT%s00" % (d0.isoformat().replace("-", ""), ini.replace(":", ""))
+        b = "%sT%s00" % (d1.isoformat().replace("-", ""), fin.replace(":", ""))
+        if b > a:
+            return ["DTSTART:%s" % a, "DTEND:%s" % b]
+    return ["DTSTART;VALUE=DATE:%s" % d0.isoformat().replace("-", ""),
+            "DTEND;VALUE=DATE:%s" % (d1 + timedelta(days=1)).isoformat().replace("-", "")]
+
+
+def _agenda_clean_time(value) -> str:
+    """«HH:MM» limpio, o cadena vacía. Las horas de la agenda son SIEMPRE opcionales."""
+    txt = str(value or "").strip()[:5]
+    if not re.match(r"^\d{1,2}:\d{2}$", txt):
+        return ""
+    try:
+        h, m = txt.split(":")
+        h, m = int(h), int(m)
+    except ValueError:
+        return ""
+    if not (0 <= h <= 23 and 0 <= m <= 59):
+        return ""
+    return "%02d:%02d" % (h, m)
+
+
+def _agenda_time_label(start_time, end_time) -> str:
+    """La hora tal como se lee: «10:00 – 13:00», «desde las 10:00» o «hasta las 13:00».
+
+    Las dos son opcionales, así que se dice lo que hay y nada más (sin hora, todo el día)."""
+    ini = _agenda_clean_time(start_time)
+    fin = _agenda_clean_time(end_time)
+    if ini and fin:
+        return "%s – %s" % (ini, fin)
+    if ini:
+        return "desde las %s" % ini
+    if fin:
+        return "hasta las %s" % fin
+    return ""
+
+
 def _agenda_office_items(session_db, start_date, end_date) -> list:
     """Lo que lleva el CALENDARIO GENERAL DE OFICINA en esa ventana.
 
@@ -91931,11 +92084,15 @@ def _agenda_office_items(session_db, start_date, end_date) -> list:
             d1 = _end if _end < end_date else end_date
             if d1 < d0:
                 d1 = d0
+            hora = _agenda_time_label(getattr(it, "start_time", None), getattr(it, "end_time", None))
             salida.append(([OFFICE_CALENDAR_ID], {
                 "kind": "otro", "date": d0.isoformat(), "end_date": d1.isoformat(),
-                "title": it.title or "Nota", "subtitle": (it.note or ""),
+                "title": it.title or "Nota",
+                "subtitle": " · ".join([x for x in [hora, (it.note or "")] if x]),
                 "artist_id": OFFICE_CALENDAR_ID,
                 "status_label": "", "status_class": "",
+                "start_time": _agenda_clean_time(getattr(it, "start_time", None)),
+                "end_time": _agenda_clean_time(getattr(it, "end_time", None)),
                 "cover_url": "", "item_id": str(it.id), "url": "",
             }))
     except Exception:
@@ -92274,12 +92431,17 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
         d1 = _end if _end < end_date else end_date
         if d1 < d0:
             d1 = d0
+        # La HORA (si la tiene) va por delante en el subtítulo: es lo que se ve en el tooltip y en el
+        # listado lateral de la agenda.
+        hora = _agenda_time_label(getattr(it, "start_time", None), getattr(it, "end_time", None))
         raw.append(([aid], {
             "kind": kind, "date": d0.isoformat(), "end_date": d1.isoformat(),
             "title": it.title or ("Bloqueado" if kind == "bloqueo" else "Nota"),
-            "subtitle": (it.note or "") if kind == "otro" else "",
+            "subtitle": (" · ".join([x for x in [hora, (it.note or "")] if x]) if kind == "otro" else ""),
             "artist_id": aid,
             "status_label": "", "status_class": "",
+            "start_time": (_agenda_clean_time(getattr(it, "start_time", None)) if kind == "otro" else ""),
+            "end_time": (_agenda_clean_time(getattr(it, "end_time", None)) if kind == "otro" else ""),
             "cover_url": "", "item_id": str(it.id), "url": "",
         }))
 
@@ -92597,8 +92759,10 @@ def agenda_block_create():
         if not artist:
             flash("Selecciona un artista para el bloqueo.", "warning")
             return _agenda_redirect_back()
-        start = parse_date(request.form.get("start_date") or "")
-        end = parse_date(request.form.get("end_date") or "") or start
+        # ⚠️ `parse_date("")` REVIENTA (ValueError): con el «Hasta» vacío la nota no se creaba y salía
+        # «No se pudo añadir» (bug real). Las dos fechas se leen con `parse_optional_date`.
+        start = parse_optional_date(request.form.get("start_date"))
+        end = parse_optional_date(request.form.get("end_date")) or start
         if not start:
             flash("Indica al menos la fecha de inicio del bloqueo.", "warning")
             return _agenda_redirect_back()
@@ -92640,18 +92804,27 @@ def agenda_note_create():
         if not name:
             flash("Ponle un nombre a la actividad.", "warning")
             return _agenda_redirect_back()
-        start = parse_date(request.form.get("start_date") or "")
-        end = parse_date(request.form.get("end_date") or "") or start
+        # ⚠️ `parse_date("")` REVIENTA (ValueError): con el «Hasta» vacío la nota no se creaba y salía
+        # «No se pudo añadir» (bug real). Las dos fechas se leen con `parse_optional_date`.
+        start = parse_optional_date(request.form.get("start_date"))
+        end = parse_optional_date(request.form.get("end_date")) or start
         if not start:
             flash("Indica al menos la fecha de inicio.", "warning")
             return _agenda_redirect_back()
         if end < start:
             start, end = end, start
+        # HORAS (las dos opcionales). En un solo día, si la de fin es anterior a la de inicio están
+        # cambiadas: se ponen en su orden, igual que con las fechas.
+        hora_ini = _agenda_clean_time(request.form.get("start_time"))
+        hora_fin = _agenda_clean_time(request.form.get("end_time"))
+        if hora_ini and hora_fin and start == end and hora_fin < hora_ini:
+            hora_ini, hora_fin = hora_fin, hora_ini
         state = _current_user_state()
         session_db.add(ArtistAgendaItem(
             artist_id=(artist.id if artist else None), is_office=bool(es_oficina), kind="NOTE", title=name,
             note=(request.form.get("note") or request.form.get("nota") or "").strip() or None,
             start_date=start, end_date=end,
+            start_time=(hora_ini or None), end_time=(hora_fin or None),
             created_by_user_id=_safe_uuid(session.get("user_id")),
             created_by_nick=state.get("nick") or _email_to_nick(state.get("email") or ""),
         ))
@@ -92797,14 +92970,15 @@ def _artist_calendar_ics(agenda_data: dict, artist) -> str:
         if it.get("artist_name"):
             desc_parts.append(it["artist_name"])
         uid = f"{it.get('kind', 'x')}-{it.get('item_id') or it.get('url') or idx}-{d}@33producciones"
-        lines += [
-            "BEGIN:VEVENT",
-            f"UID:{_ics_escape(uid)}",
-            f"DTSTAMP:{dtstamp}",
-            f"DTSTART;VALUE=DATE:{d}",
-            f"DTEND;VALUE=DATE:{dtend}",
-            f"SUMMARY:{_ics_escape(summary)}",
-        ]
+        lines += ["BEGIN:VEVENT", f"UID:{_ics_escape(uid)}", f"DTSTAMP:{dtstamp}"]
+        # Con hora de inicio Y de fin (las notas «otro» las pueden llevar) el evento va con su hora;
+        # si no, día completo, como siempre.
+        try:
+            lines += _ics_time_lines(date.fromisoformat(raw_date), date.fromisoformat(raw_end),
+                                     it.get("start_time"), it.get("end_time"))
+        except (ValueError, TypeError):
+            lines += [f"DTSTART;VALUE=DATE:{d}", f"DTEND;VALUE=DATE:{dtend}"]
+        lines.append(f"SUMMARY:{_ics_escape(summary)}")
         if subtitle:
             lines.append(f"LOCATION:{_ics_escape(subtitle)}")
         if desc_parts:
@@ -92997,16 +93171,22 @@ def _caldav_item_event(item, dtstamp):
         return None
     href = item.caldav_href or f"n-{item.id}.ics"
     uid = item.caldav_uid or f"note-{item.id}@33producciones"
-    d = item.start_date.isoformat().replace("-", "")
     end_d = item.end_date or item.start_date
-    dtend = (end_d + timedelta(days=1)).isoformat().replace("-", "")
     is_block = (item.kind or "").upper() == "BLOCK"
     title = (item.title or "").strip()
     summary = (f"Bloqueo · {title}" if title else "Bloqueo") if is_block else (title or "Nota")
-    block = ["BEGIN:VEVENT", f"UID:{_ics_escape(uid)}", f"DTSTAMP:{dtstamp}",
-             f"DTSTART;VALUE=DATE:{d}", f"DTEND;VALUE=DATE:{dtend}", f"SUMMARY:{_ics_escape(summary)}"]
-    if item.note:
-        block.append(f"DESCRIPTION:{_ics_escape(item.note)}")
+    block = ["BEGIN:VEVENT", f"UID:{_ics_escape(uid)}", f"DTSTAMP:{dtstamp}"]
+    block += _ics_time_lines(item.start_date, end_d,
+                             getattr(item, "start_time", None), getattr(item, "end_time", None))
+    block.append(f"SUMMARY:{_ics_escape(summary)}")
+    # Con una sola hora el evento es de día completo, así que la hora se dice en el texto (si no, se
+    # perdería).
+    hora = _agenda_time_label(getattr(item, "start_time", None), getattr(item, "end_time", None))
+    detalle = " · ".join([x for x in [(hora if not (_agenda_clean_time(getattr(item, "start_time", None))
+                                                   and _agenda_clean_time(getattr(item, "end_time", None))) else ""),
+                                      (item.note or "").strip()] if x])
+    if detalle:
+        block.append(f"DESCRIPTION:{_ics_escape(detalle)}")
     block.append("END:VEVENT")
     return _caldav_wrap_event(href, uid, block, writable=True, item_id=str(item.id))
 

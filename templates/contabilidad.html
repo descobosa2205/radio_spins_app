@@ -170,8 +170,9 @@
         <span class="badge text-bg-success" title="Contabilizada{% if r.accounted_label %} el {{ r.accounted_label }}{% endif %}{% if r.accounted_by %} · {{ r.accounted_by }}{% endif %}">
           <i class="fa fa-circle-check me-1"></i>Contabilizado</span>
       {% elif CAN_EDIT %}
-        {# Verde SIN RELLENAR: es un botón para contabilizar, no la etiqueta de «ya contabilizado». #}
-        <button class="btn btn-sm btn-outline-success" type="submit"
+        {# ⚠️ AMARILLO mientras NO está contabilizada: en verde se confundía con la etiqueta de «ya
+           contabilizado» (el verde está reservado para el estado, no para la acción). #}
+        <button class="btn btn-sm btn-outline-warning" type="submit"
                 formaction="{{ url_for('royalty_liquidation_accounted', liq_id=r.id) }}">
           <i class="fa fa-circle-check me-1"></i>Contabilizada</button>
       {% else %}
@@ -312,8 +313,9 @@
             <div class="d-flex align-items-center gap-2 flex-wrap">
               <span class="fw-semibold"><span data-acc-count>0</span> seleccionado(s)</span>
               <button class="btn btn-danger btn-sm" type="submit"><i class="fa fa-cloud-arrow-up me-1"></i>Subir a Holded</button>
-              {# Verde SIN RELLENAR: es la ACCIÓN, no la etiqueta de «ya contabilizado» (que va rellena). #}
-              <button class="btn btn-outline-success btn-sm" type="submit" name="status" value="CONTABILIZADO"
+              {# ⚠️ AMARILLO: en «pendiente» todo lo que se ve es la ACCIÓN de contabilizar; el VERDE está
+                 reservado a la etiqueta de «ya contabilizado» y en verde se confundían. #}
+              <button class="btn btn-outline-warning btn-sm" type="submit" name="status" value="CONTABILIZADO"
                       formaction="{{ url_for('accounting_bulk_status') }}"><i class="fa fa-circle-check me-1"></i>Marcar como contabilizado</button>
               <button class="btn btn-outline-secondary btn-sm" type="button" data-acc-clear>Quitar la selección</button>
             </div>
@@ -363,7 +365,7 @@
                             {% if not g.holded_ready %}disabled title="La empresa de esta bolsa no tiene Holded configurado"{% endif %}
                             data-confirm="¿Subir a Holded todos los gastos de esta bolsa?">
                       <i class="fa fa-cloud-arrow-up me-1"></i>Subir todos</button>
-                    <button class="btn btn-outline-success btn-sm" type="submit" name="bag_id" value="{{ g.bag_id }}"
+                    <button class="btn btn-outline-warning btn-sm" type="submit" name="bag_id" value="{{ g.bag_id }}"
                             formaction="{{ url_for('accounting_bulk_status') }}"
                             data-confirm="¿Marcar como contabilizados todos los gastos de esta bolsa?">
                       <i class="fa fa-circle-check me-1"></i>Contabilizar todos</button>
@@ -500,8 +502,17 @@
                 {% if r.retention_pct %}<span class="badge text-bg-light border ms-1">{{ pct(r.retention_pct) }}</span>{% endif %}
               </td>
               <td class="text-end text-nowrap">{{ r.gross|eur }}</td>
-              <td>
+              {# ESTADO de la retención, en el orden del proceso: validada → PAGADA → contabilizada.
+                 El pago es un EURO (verde pagado, amarillo sin pagar) y al pasar el ratón dice cuándo
+                 se pagó y en qué remesa o de qué forma. #}
+              <td class="text-nowrap">
                 <span class="badge {{ 'text-bg-success' if r.status == 'VALIDADA' else 'text-bg-warning text-dark' }}">{{ r.status|capitalize }}</span>
+                <i class="fa fa-euro-sign ms-1 {{ 'text-success' if r.paid else 'text-warning' }}"
+                   data-bs-toggle="tooltip" title="{{ r.pay_title }}"></i>
+                <span class="badge ms-1 {{ 'text-bg-success' if r.accounted else 'text-bg-warning text-dark' }}"
+                      {% if r.accounted and r.accounted_label %}data-bs-toggle="tooltip" title="Contabilizado el {{ r.accounted_label }}"{% endif %}>
+                  {{ 'Contabilizado' if r.accounted else 'Sin contabilizar' }}
+                </span>
                 {% if r.missing %}<div class="small text-danger"><i class="fa fa-triangle-exclamation me-1"></i>Faltan datos</div>{% endif %}
               </td>
               <td class="text-end text-nowrap">

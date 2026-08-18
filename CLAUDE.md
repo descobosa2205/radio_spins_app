@@ -2166,6 +2166,35 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · Los endpoints son `accounting_*` (mapeados a la sección `contabilidad`) y el permiso de edición es
   **`can_edit_accounting()`**.
 
+- **CONTABILIDAD · cada persona lleva SUS EMPRESAS del grupo** (ago 2026,
+  `UserProfile.accounting_company_ids`): a la gente de **Contabilidad** se le asignan las empresas del
+  grupo que le corresponden y **lo PENDIENTE de contabilizar es solo el de sus empresas** —los cuatro
+  tipos (Facturas · Bolsas · Tickets · Sin ticket), sus **contadores** y las **liquidaciones de
+  royalties**—. En los filtros de la pestaña hay **«Mis empresas» / «Todas las empresas»**
+  (`?empresas=todas`), así que puede ver el resto cuando le haga falta; **lo ya CONTABILIZADO y las
+  RETENCIONES se ven siempre completos** (son un archivo y hace falta poder buscar).
+  · Es un **reparto de TRABAJO, no un permiso** (como `admin_responsibilities`): no crea recurso en el
+  catálogo de accesos. **Sin empresas asignadas se ve TODO** y **dirección también**; y lo que **no es
+  de ninguna empresa** (una bolsa sin empresa puesta) lo ven todos — si se filtrara, desaparecería de
+  la pantalla de todo el mundo.
+  · Motor: **`_accounting_company_scope()`** (las empresas de quien mira; vacío = todas) +
+  `company_ids=` en `_accounting_base_query` / `_accounting_counts` / `_accounting_bag_groups` /
+  `_royalty_accounting_pending`. ⚠️ Las **liquidaciones se filtran en Python**
+  (`_royalty_holded_company`: la de la remesa con la que se pagó y, si no, PIES): no es una columna.
+  ⚠️ Los **contadores llevan el mismo filtro** que las filas o el número de la pestaña no cuadraría
+  con lo que se ve debajo.
+  ⚠️ **«Subir todo a Holded» se ciñe a lo que se está viendo**: el formulario lleva el ámbito
+  (`empresas`) y `_accounting_company_scope_from_form` lo aplica, así que nadie sube a Holded los
+  documentos de una empresa que no lleva.
+  · **AVISO** (`_accounting_company_user_ids`): cuando una bolsa se queda sin nada por pagar y pasa a
+  ser cosa de contabilidad (`_bag_close_if_fully_paid`) le llega el aviso a **quien lleva esa empresa**
+  (kind `CONTABILIDAD`, `ref_type='BAG_ACCOUNTING'`); si **nadie la lleva**, a todo el departamento. Al
+  contabilizarla, el aviso **se cierra solo** (`_accounting_bag_close_if_done`).
+  · Se asigna en la **ficha de personal → Datos** (selector múltiple de empresas del grupo), **solo
+  dirección** y solo si la persona está en el departamento Contabilidad. ⚠️ Con **centinela**
+  (`accounting_companies_present`): el formulario de la ficha es monolítico y un POST parcial borraría
+  el reparto. Y el panel **deshabilita** sus campos al ocultarse (ocultar no basta: se envían igual).
+
 - **CONTABILIDAD · una LIQUIDACIÓN DE ROYALTIES es una factura como las demás** (ago 2026,
   corrección). En la subpestaña **Facturas** salían con «—» en **IVA** y en **retención** y **sin
   casilla**, así que no se podían elegir para subirlas a Holded y «seleccionar todas» parecía no hacer

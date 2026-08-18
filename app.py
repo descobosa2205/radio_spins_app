@@ -25,7 +25,7 @@ from io import BytesIO
 from functools import wraps
 from contextlib import contextmanager
 from zoneinfo import ZoneInfo
-from sqlalchemy.orm import selectinload, joinedload
+from sqlalchemy.orm import selectinload, joinedload, aliased
 from flask import (
     Flask,
     render_template,
@@ -52293,6 +52293,7 @@ def _snapshot_user_profile(profile: UserProfile | None) -> SimpleNamespace | Non
         # ⚠️ Lo que no esté en este snapshot es INVISIBLE desde `_current_user_state()` y desde las
         # plantillas: es un SimpleNamespace, no el objeto del ORM.
         admin_responsibilities=list(getattr(profile, "admin_responsibilities", None) or []),
+        accounting_company_ids=[str(x) for x in (getattr(profile, "accounting_company_ids", None) or [])],
         menu_order=[str(x) for x in (getattr(profile, "menu_order", None) or [])],
         production_seen_at=getattr(profile, "production_seen_at", None),
         vacation_days_per_year=getattr(profile, "vacation_days_per_year", None),
@@ -58251,20 +58252,32 @@ def _royalty_mark_paid(rec, *, method: str = "", batch=None):
     _royalty_history_add(rec, "PAID", note=(method or ""))
 
 
-def _royalty_accounting_pending(session_db, *, limit: int = 300) -> list:
+def _royalty_accounting_pending(session_db, *, limit: int = 300, company_ids=None) -> list:
     """Liquidaciones PAGADAS y con su factura VALIDADA que todavía no están contabilizadas.
 
     Punto único: lo usan las filas de la pantalla y las acciones en bloque, así que lo que se ve es
-    exactamente lo que se sube o se marca."""
+    exactamente lo que se sube o se marca.
+    ⚠️ El reparto por EMPRESA se filtra en Python (`_royalty_holded_company`: la de la remesa con la
+    que se pagó y, si no, PIES): no es una columna, así que no se puede filtrar en la consulta."""
     try:
-        return (session_db.query(RoyaltyLiquidation)
-                .join(SupplierInvoice, SupplierInvoice.id == RoyaltyLiquidation.invoice_id)
-                .filter(func.upper(func.coalesce(RoyaltyLiquidation.status, "")) == "PAID")
-                .filter(func.upper(func.coalesce(SupplierInvoice.status, "")) == "VALIDADA")
-                .filter(RoyaltyLiquidation.accounted_at.is_(None))
-                .order_by(RoyaltyLiquidation.paid_at.asc().nullslast()).limit(limit).all())
+        filas = (session_db.query(RoyaltyLiquidation)
+                 .join(SupplierInvoice, SupplierInvoice.id == RoyaltyLiquidation.invoice_id)
+                 .filter(func.upper(func.coalesce(RoyaltyLiquidation.status, "")) == "PAID")
+                 .filter(func.upper(func.coalesce(SupplierInvoice.status, "")) == "VALIDADA")
+                 .filter(RoyaltyLiquidation.accounted_at.is_(None))
+                 .order_by(RoyaltyLiquidation.paid_at.asc().nullslast()).limit(limit).all())
     except Exception:
         return []
+    if not company_ids:
+        return filas
+    quiero = {str(x) for x in company_ids if x}
+    salida = []
+    for rec in filas:
+        co = _royalty_holded_company(session_db, rec)
+        # Sin empresa resoluble no es de nadie: se ve igual (nada se pierde).
+        if co is None or str(co.id) in quiero:
+            salida.append(rec)
+    return salida
 
 
 def _royalty_invoice_amounts(congelada: dict | None, invoice) -> dict:
@@ -58333,7 +58346,7 @@ def _royalty_holded_fields(session_db, rec) -> dict:
     }
 
 
-def _royalty_accounting_pending_rows(session_db, limit: int = 300) -> list[dict]:
+def _royalty_accounting_pending_rows(session_db, limit: int = 300, company_ids=None) -> list[dict]:
     """Liquidaciones PAGADAS que contabilidad todavía no ha contabilizado.
 
     ⚠️ Solo entra lo que ADMINISTRACIÓN HA VALIDADO: se cruza con su factura (`SupplierInvoice`
@@ -58342,7 +58355,7 @@ def _royalty_accounting_pending_rows(session_db, limit: int = 300) -> list[dict]
     trabajo que no existía. Nada se borra: simplemente no es pendiente de contabilizar lo que no ha
     pasado por administración.
     """
-    recs = _royalty_accounting_pending(session_db, limit=limit)
+    recs = _royalty_accounting_pending(session_db, limit=limit, company_ids=company_ids)
     filas = []
     for rec in recs:
         congelada = _royalty_frozen_beneficiary(rec) or {}
@@ -58937,6 +58950,16 @@ def _bag_close_if_fully_paid(session_db, bag) -> bool:
     bag.archived_at = _now_madrid()
     bag.updated_at = _now_madrid()
     _notify_resolve(session_db, "BAG", bag.id)
+    # A partir de aquí es cosa de CONTABILIDAD: se avisa a quien lleva esa empresa del grupo (y si
+    # nadie la lleva, a todo el departamento, para que no se quede sin contabilizar).
+    try:
+        _notify_users(session_db, _accounting_company_user_ids(session_db, getattr(bag, "company_id", None)),
+                      "CONTABILIDAD", "Bolsa lista para contabilizar",
+                      (getattr(bag, "title", None) or "Bolsa").strip(),
+                      url=url_for("contabilidad_view", tab="pendiente", subtab="bolsas"),
+                      ref_type="BAG_ACCOUNTING", ref_id=str(bag.id))
+    except Exception:
+        app.logger.exception("[contabilidad] no se pudo avisar de la bolsa lista para contabilizar")
     return True
 
 
@@ -63088,6 +63111,55 @@ ACCOUNTING_DOC_META = {
 }
 
 
+def _normalize_company_ids(values) -> list[str]:
+    """Ids de empresa del grupo, limpios y sin repetir (lo que llega de un formulario múltiple)."""
+    salida = []
+    for raw in (values or []):
+        cid = str(to_uuid(str(raw).strip()) or "")
+        if cid and cid not in salida:
+            salida.append(cid)
+    return salida
+
+
+def _accounting_company_scope(state: dict | None = None) -> list[str]:
+    """Las EMPRESAS DEL GRUPO que lleva quien mira, en contabilidad. Vacío = las ve todas.
+
+    Es un reparto de TRABAJO, no un permiso: quien no tenga empresas asignadas (y dirección) sigue
+    viendo todo, y lo que no es de ninguna empresa lo ven todos (nada se pierde en silencio)."""
+    try:
+        state = state or _current_user_state()
+        if int(state.get("role") or 0) == 10:
+            return []                      # dirección no tiene reparto: lo ve todo
+        prof = state.get("profile")
+        return [str(x) for x in (getattr(prof, "accounting_company_ids", None) or []) if x]
+    except Exception:
+        return []
+
+
+def _accounting_company_user_ids(session_db, company_id) -> list[str]:
+    """Quién de CONTABILIDAD lleva esa empresa del grupo (para avisarle de lo que le toca).
+
+    ⚠️ Si NADIE la tiene asignada se avisa a todo el departamento: mejor que se lo miren varios que
+    dejar una bolsa sin que nadie sepa que hay que contabilizarla (mismo criterio que el resto de la
+    app con los repartos sin dueño)."""
+    cid = str(company_id or "")
+    fuera = _inactive_user_ids(session_db)
+    del_dpto, suyas = [], []
+    try:
+        for prof in session_db.query(UserProfile).all():
+            uid = str(getattr(prof, "user_id", "") or "")
+            if not uid or to_uuid(uid) in fuera:
+                continue
+            if not _profile_in_department(prof, "Contabilidad"):
+                continue
+            del_dpto.append(uid)
+            if cid and cid in [str(x) for x in (getattr(prof, "accounting_company_ids", None) or [])]:
+                suyas.append(uid)
+    except Exception:
+        return []
+    return suyas or del_dpto
+
+
 def can_edit_accounting() -> bool:
     """¿Puede esta persona contabilizar (subir a Holded, cambiar el estado, omitir)?"""
     return is_master() or has_access_key("contabilidad", edit=True, include_descendants=True)
@@ -63099,13 +63171,23 @@ def _accounting_doc_meta(document_type: str | None) -> tuple[str, str, str]:
 
 
 def _accounting_base_query(session_db, *, doc_types=None, include_done: bool = False,
-                           only_done: bool = False):
-    """Gastos que le tocan a contabilidad: validados por administración y de un tipo de documento."""
+                           only_done: bool = False, company_ids=None):
+    """Gastos que le tocan a contabilidad: validados por administración y de un tipo de documento.
+
+    Con `company_ids` se limita a las EMPRESAS DEL GRUPO de quien mira (su reparto de trabajo).
+    ⚠️ Se incluyen SIEMPRE los gastos cuya bolsa no tiene empresa puesta: no son de nadie y si se
+    filtraran desaparecerían de la pantalla de todo el mundo."""
     q = (session_db.query(BagExpense)
          .options(joinedload(BagExpense.bag).joinedload(WorkflowBag.artist),
                   joinedload(BagExpense.provider),
                   joinedload(BagExpense.provider_company))
          .filter(BagExpense.status != "ELIMINADO"))
+    if company_ids:
+        ids = [to_uuid(str(x)) for x in company_ids if to_uuid(str(x))]
+        if ids:
+            _bag = aliased(WorkflowBag)
+            q = (q.join(_bag, _bag.id == BagExpense.bag_id)
+                 .filter(or_(_bag.company_id.in_(ids), _bag.company_id.is_(None))))
     # ⚠️ El cruce con «validado por administración» (`consolidation_status`) es para decidir qué está
     # PENDIENTE de contabilizar. En la pestaña de CONTABILIZADO no se aplica: lo que ya se marcó tiene
     # que aparecer ahí SIEMPRE, aunque su gasto haya cambiado de estado después — si no, desaparecía de
@@ -63122,13 +63204,16 @@ def _accounting_base_query(session_db, *, doc_types=None, include_done: bool = F
     return q
 
 
-def _accounting_counts(session_db) -> dict:
-    """Números de las pestañas: solo cuentas (`func.count`), sin cargar filas."""
+def _accounting_counts(session_db, company_ids=None) -> dict:
+    """Números de las pestañas: solo cuentas (`func.count`), sin cargar filas.
+
+    ⚠️ Se cuentan con el MISMO filtro de empresas que las filas: si no, el número de la pestaña no
+    cuadraría con lo que se ve debajo."""
     # ⚠️ No hay número de «Contabilizado»: es un archivo que solo crece y un contador ahí no dice
     # nada (los números son de lo que está PENDIENTE).
     salida = {"facturas": 0, "tickets": 0, "sin-ticket": 0, "bolsas": 0, "pendiente": 0}
     try:
-        filas = (_accounting_base_query(session_db)
+        filas = (_accounting_base_query(session_db, company_ids=company_ids)
                  .with_entities(func.upper(func.coalesce(BagExpense.document_type, "FACTURA")),
                                 func.count(BagExpense.id))
                  .group_by(func.upper(func.coalesce(BagExpense.document_type, "FACTURA"))).all())
@@ -63138,16 +63223,13 @@ def _accounting_counts(session_db) -> dict:
         # Las liquidaciones de ROYALTIES pendientes son facturas: cuentan en «Facturas» (y por tanto
         # en el total de pendiente), que es donde se listan.
         try:
-            salida["facturas"] += len(_royalty_accounting_pending_rows(session_db))
+            salida["facturas"] += len(_royalty_accounting_pending_rows(session_db, company_ids=company_ids))
         except Exception:
             app.logger.exception("[contabilidad] no se pudieron contar las liquidaciones pendientes")
         salida["pendiente"] = sum(salida[c] for c in ACCOUNTING_SUBTAB_DOC)
         # Bolsas: cuántas tienen algo pendiente (una bolsa con tres gastos cuenta UNA).
-        salida["bolsas"] = (session_db.query(func.count(func.distinct(BagExpense.bag_id)))
-                            .filter(BagExpense.status != "ELIMINADO",
-                                    BagExpense.consolidation_status.in_(list(BAG_CONSOLIDATED_STATUSES)),
-                                    ~func.upper(func.coalesce(BagExpense.accounting_status, "PENDIENTE"))
-                                    .in_(list(ACCOUNTING_DONE_STATUSES))).scalar()) or 0
+        salida["bolsas"] = (_accounting_base_query(session_db, company_ids=company_ids)
+                            .with_entities(func.count(func.distinct(BagExpense.bag_id))).scalar()) or 0
     except Exception:
         pass
     return salida
@@ -63569,7 +63651,8 @@ def _accounting_expense_rows(session_db, expenses) -> list[dict]:
     return [_accounting_expense_row(session_db, e, datos) for e in expenses]
 
 
-def _accounting_bag_groups(session_db, *, limit: int = 400, only_done: bool = False) -> list[dict]:
+def _accounting_bag_groups(session_db, *, limit: int = 400, only_done: bool = False,
+                           company_ids=None) -> list[dict]:
     """Bolsas agrupadas para la subpestaña «Bolsas».
 
     Por defecto, las que tienen gastos PENDIENTES de contabilizar: una bolsa con todos sus gastos
@@ -63577,7 +63660,7 @@ def _accounting_bag_groups(session_db, *, limit: int = 400, only_done: bool = Fa
     Con `only_done` es al revés — las bolsas de lo YA contabilizado, para que la pestaña
     «Contabilizado» se lea igual que «Pendiente».
     """
-    expenses = (_accounting_base_query(session_db, only_done=only_done)
+    expenses = (_accounting_base_query(session_db, only_done=only_done, company_ids=company_ids)
                 .order_by(BagExpense.created_at.desc()).limit(2000).all())
     if not expenses:
         return []
@@ -63657,10 +63740,14 @@ def _accounting_expenses_from_request(session_db, form) -> list:
     alguien tiene tres gastos marcados y pulsa «Subir todo», sube todo (que es lo que ha pedido).
     """
     ambito = (form.get("scope") or "").strip().lower()
+    # ⚠️ «Subir todo» se ceñe a lo que se está VIENDO: si la pantalla está filtrada por las empresas
+    # de esta persona, no se le suben a Holded los documentos de las demás.
+    empresas = _accounting_company_scope_from_form(form)
     if ambito in ACCOUNTING_SUBTAB_DOC:
-        return _accounting_base_query(session_db, doc_types=[ACCOUNTING_SUBTAB_DOC[ambito]]).all()
+        return _accounting_base_query(session_db, doc_types=[ACCOUNTING_SUBTAB_DOC[ambito]],
+                                      company_ids=empresas).all()
     if ambito == "todo":
-        return _accounting_base_query(session_db).all()
+        return _accounting_base_query(session_db, company_ids=empresas).all()
     bag_id = to_uuid(form.get("bag_id") or "")
     if bag_id:
         return _accounting_base_query(session_db).filter(BagExpense.bag_id == bag_id).all()
@@ -63671,6 +63758,19 @@ def _accounting_expenses_from_request(session_db, form) -> list:
     return []
 
 
+def _accounting_company_scope_from_form(form) -> list[str]:
+    """El reparto por empresas que tenía la pantalla desde la que se ha pulsado la acción.
+
+    El formulario lleva `empresas=todas` cuando se está viendo el de todas las empresas; si no, la
+    acción se limita a las de quien la pulsa (que es lo que tenía delante)."""
+    try:
+        if (form.get("empresas") or "").strip().lower() == "todas":
+            return []
+    except Exception:
+        return []
+    return _accounting_company_scope()
+
+
 def _accounting_royalties_from_request(session_db, form) -> list:
     """Las LIQUIDACIONES DE ROYALTIES sobre las que actúa una acción en bloque.
 
@@ -63679,7 +63779,8 @@ def _accounting_royalties_from_request(session_db, form) -> list:
     Una bolsa no tiene liquidaciones, así que con `bag_id` no entra ninguna."""
     ambito = (form.get("scope") or "").strip().lower()
     if ambito in ("facturas", "todo"):
-        return _royalty_accounting_pending(session_db)
+        return _royalty_accounting_pending(session_db,
+                                           company_ids=_accounting_company_scope_from_form(form))
     if (form.get("bag_id") or "").strip():
         return []
     ids = [to_uuid(x) for x in form.getlist("royalty_ids") if to_uuid(x)]
@@ -64049,24 +64150,41 @@ def contabilidad_view():
     if subtab not in dict((k, l) for k, l, _i in ACCOUNTING_PENDING_TABS):
         subtab = "facturas"
     estado_filtro = (request.args.get("estado") or "").strip().upper()
+    # REPARTO POR EMPRESAS: lo PENDIENTE es solo de las empresas del grupo que lleva esta persona, con
+    # la opción de ver el de TODAS (`?empresas=todas`). Lo ya contabilizado y las retenciones se ven
+    # siempre completos: ahí no hay trabajo que repartir y hace falta poder buscar.
+    mis_empresas = _accounting_company_scope()
+    ver_todas = (request.args.get("empresas") or "").strip().lower() == "todas"
+    scope = [] if (ver_todas or tab != "pendiente") else list(mis_empresas)
     session_db = db()
     try:
         # DETECCIÓN AUTOMÁTICA: si hay documentos subidos y hace rato que no se pregunta, se consulta
         # a Holded EN SEGUNDO PLANO y la etiqueta se pone al día sola (en la siguiente carga).
         if tab == "pendiente" and _holded_autodetect_due(session_db):
             threading.Thread(target=_holded_autodetect_bg, daemon=True).start()
-        counts = _accounting_counts(session_db)
+        counts = _accounting_counts(session_db, company_ids=scope)
+        # Los nombres de mis empresas (para decir en pantalla qué se está viendo).
+        empresas_label = ""
+        if mis_empresas:
+            try:
+                _ids = [to_uuid(str(x)) for x in mis_empresas if to_uuid(str(x))]
+                empresas_label = " · ".join(
+                    [c.name for c in session_db.query(GroupCompany)
+                     .filter(GroupCompany.id.in_(_ids)).order_by(GroupCompany.name.asc()).all()])
+            except Exception:
+                empresas_label = ""
         rows, bag_groups, done_rows, royalty_done = [], [], [], []
         retenciones, retention_year = None, None
         if tab == "pendiente":
             if subtab == "bolsas":
-                bag_groups = _accounting_bag_groups(session_db)
+                bag_groups = _accounting_bag_groups(session_db, company_ids=scope)
                 if estado_filtro in ACCOUNTING_STATUS_LABELS:
                     for g in bag_groups:
                         g["rows"] = [r for r in g["rows"] if r["accounting_status"] == estado_filtro]
                     bag_groups = [g for g in bag_groups if g["rows"]]
             else:
-                q = _accounting_base_query(session_db, doc_types=[ACCOUNTING_SUBTAB_DOC[subtab]])
+                q = _accounting_base_query(session_db, doc_types=[ACCOUNTING_SUBTAB_DOC[subtab]],
+                                           company_ids=scope)
                 if estado_filtro in ACCOUNTING_STATUS_LABELS:
                     q = q.filter(func.upper(func.coalesce(BagExpense.accounting_status, "PENDIENTE"))
                                  == estado_filtro)
@@ -64098,7 +64216,7 @@ def contabilidad_view():
         # Liquidaciones de royalties pagadas y validadas: son pendiente de contabilizar y una
         # liquidación ES una factura, así que van EN la subpestaña de FACTURAS (ya no tienen módulo
         # aparte al final de la pantalla).
-        royalty_pending = (_royalty_accounting_pending_rows(session_db)
+        royalty_pending = (_royalty_accounting_pending_rows(session_db, company_ids=scope)
                            if (tab == "pendiente" and subtab == "facturas") else [])
         return render_template(
             "contabilidad.html",
@@ -64114,6 +64232,11 @@ def contabilidad_view():
             royalty_pending=royalty_pending,
             royalty_done=royalty_done,
             holded_ready=_holded_configured_any(session_db),
+            # Reparto por empresas: si esta persona tiene empresas asignadas se le enseña el filtro
+            # («Mis empresas» / «Todas»). Sin reparto propio no se pinta nada: ya lo ve todo.
+            my_companies=mis_empresas,
+            my_companies_label=empresas_label,
+            showing_all_companies=bool(ver_todas or not mis_empresas),
             CAN_EDIT=can_edit_accounting(),
         )
     finally:
@@ -65133,6 +65256,11 @@ def personnel_detail_view(user_id):
                     # concede y se retira solo, sin tener que acordarse de darlo en Accesos.
                     _sync_vacation_access_grant(session_db, user.id,
                                                 VACATION_RESPONSIBILITY in profile.admin_responsibilities)
+                # EMPRESAS DEL GRUPO que lleva en CONTABILIDAD. Mismo patrón: centinela obligatorio
+                # (un POST parcial borraría el reparto) y solo dirección lo decide.
+                if request.form.get("accounting_companies_present") and is_master():
+                    profile.accounting_company_ids = _normalize_company_ids(
+                        request.form.getlist("accounting_company_ids"))
                 _prod_ids = _normalize_assigned_artist_ids(request.form.getlist("assigned_artist_ids_produccion"))
                 _sello_ids = _normalize_assigned_artist_ids(request.form.getlist("assigned_artist_ids_sello"))
                 _union_ids = []
@@ -65171,6 +65299,10 @@ def personnel_detail_view(user_id):
         grants = {g.resource_key: g for g in session_db.query(UserAccessGrant).filter(UserAccessGrant.user_id == user.id).all()}
         access_rows = _build_personnel_access_rows()
         artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
+        # Empresas del grupo: las usan «Datos» (reparto del trabajo contable) y «Contrato».
+        group_companies = (session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+                           if tab in {"datos", "contrato"} else [])
+        accounting_company_ids = [str(x) for x in (getattr(profile, "accounting_company_ids", None) or [])]
         assigned_artist_ids = [str(x) for x in (getattr(profile, "assigned_artist_ids", None) or [])]
         assigned_prod_ids = [str(x) for x in (getattr(profile, "assigned_artist_ids_produccion", None) or [])]
         assigned_sello_ids = [str(x) for x in (getattr(profile, "assigned_artist_ids_sello", None) or [])]
@@ -65200,6 +65332,8 @@ def personnel_detail_view(user_id):
             assigned_artist_ids=assigned_artist_ids,
             assigned_prod_ids=assigned_prod_ids,
             assigned_sello_ids=assigned_sello_ids,
+            group_companies=group_companies,
+            accounting_company_ids=accounting_company_ids,
             container_keys=set(_ACCESS_CHILDREN.keys()),
             target_is_master=(int(getattr(user, "role", 0) or 0) == 10),
             # ⚠️ El resumen de identidad de la pestaña «Datos» enseña el DNI y las etiquetas de
@@ -65250,8 +65384,6 @@ def personnel_detail_view(user_id):
             vacation_kinds=VACATION_KINDS,
             vacation_year=today_local().year,
             contracts=(_user_contract_rows(session_db, user.id) if tab == "contrato" else []),
-            group_companies=(session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
-                             if tab == "contrato" else []),
             contract_start=(_user_contract_start(session_db, user.id) if tab == "contrato" else None),
             vacation_balance=(_vacation_balance(session_db, user.id, today_local().year, profile=profile)
                               if tab in {"contrato", "vacaciones"} else None),
@@ -74150,6 +74282,8 @@ def _accounting_bag_close_if_done(session_db, bag) -> bool:
         return False
     bag.accounting_done_at = _now_madrid()
     bag.updated_at = _now_madrid()
+    # El aviso de «bolsa lista para contabilizar» ya no espera a nadie: se cierra solo.
+    _notify_resolve(session_db, "BAG_ACCOUNTING", str(bag.id))
     if not bag.is_archived:
         bag.status = "ARCHIVADA"
         bag.is_archived = True
@@ -79803,6 +79937,7 @@ NOTIFICATION_KIND_META = {
     "VACACIONES": ("Vacaciones", "fa-umbrella-beach"),
     "DEMO": ("Nos han enviado demos", "fa-compact-disc"),
     "VENTA": ("Hay que sacarla a la venta", "fa-ticket"),
+    "CONTABILIDAD": ("Hay algo nuevo que contabilizar", "fa-calculator"),
 }
 
 

@@ -3044,6 +3044,10 @@ class UserProfile(Base):
     # NO es un permiso: es un reparto de trabajo. Lista vacía = no tiene reparto propio y ve las
     # de todos; y una tarea de la que nadie es responsable la siguen viendo todos (nada se pierde).
     admin_responsibilities = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # QUÉ EMPRESAS DEL GRUPO lleva esta persona en CONTABILIDAD. Tampoco es un permiso: es el reparto
+    # del trabajo contable. Lista vacía = no tiene reparto propio y lo ve todo; y lo que no es de
+    # ninguna empresa (una bolsa sin empresa puesta) lo siguen viendo todos, para que no se pierda.
+    accounting_company_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     # Otros correos de empresa de la persona. NO sirven para entrar en la app (el acceso es siempre
     # `User.email`): existen solo para IDENTIFICARLA en las integraciones. En Pleo, por ejemplo, hay
     # una cuenta por empresa del grupo y cada una puede tener a la persona con un correo distinto.
@@ -7426,6 +7430,8 @@ def ensure_third_party_and_contract_sheet_schema():
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS expense_pause_log jsonb NOT NULL DEFAULT '[]'::jsonb;",
         # Reparto de las tareas de ADMINISTRACIÓN por persona (liquidar bolsas, pagos, ITAs…).
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS admin_responsibilities jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        # Empresas del grupo que lleva cada persona de CONTABILIDAD (reparto del trabajo contable).
+        "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS accounting_company_ids jsonb NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS menu_order jsonb NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS production_seen_at timestamptz;",
         # Tipo de trabajador a efectos de PRL (autónomo / alta puntual / empresa fija).

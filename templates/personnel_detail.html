@@ -85,6 +85,16 @@
     {% set identity_with_doc_modal = True %}
     {% include '_person_identity_summary.html' %}
       {% if profile.departments %}<div class="d-flex flex-wrap gap-1 mt-3">{% for dept in profile.departments %}<span class="badge text-bg-light border">{{ dept }}</span>{% endfor %}</div>{% endif %}
+      {% if accounting_company_ids and 'Contabilidad' in (profile.departments or []) %}
+        <div class="mt-2">
+          <div class="small text-muted">Empresas del grupo (contabilidad)</div>
+          <div class="d-flex flex-wrap gap-1">
+            {% for co in (group_companies or []) %}
+              {% if co.id|string in accounting_company_ids %}<span class="badge text-bg-secondary">{{ co.name }}</span>{% endif %}
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
       {% if profile.admin_responsibilities and 'Administración' in (profile.departments or []) %}
         <div class="small text-muted mt-3"><i class="fa fa-list-check me-1"></i>Se encarga de:</div>
         <div class="d-flex flex-wrap gap-1 mt-1">
@@ -147,6 +157,24 @@
             {% endfor %}
           </div>
           <div class="form-text">Le saldrán a esta persona sus tareas pendientes. Lo que no tenga responsable lo sigue viendo todo administración.</div>
+        </div>
+        {% endif %}
+        {# EMPRESAS DEL GRUPO que lleva en CONTABILIDAD: es el reparto del trabajo contable (lo
+           pendiente y los avisos son de sus empresas). Solo dirección lo edita y solo sale si la
+           persona está en ese departamento. Sin nada marcado lo ve TODO. #}
+        {% if IS_MASTER %}
+        <div class="col-12 col-md-6 js-accounting-companies-panel">
+          <label class="form-label">Empresas del grupo — Contabilidad</label>
+          <input type="hidden" name="accounting_companies_present" value="1">
+          <select name="accounting_company_ids" class="form-select" multiple size="6">
+            {% for co in (group_companies or []) %}
+              <option value="{{ co.id }}" {% if co.id|string in (accounting_company_ids or []) %}selected{% endif %}>{{ co.name }}</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">
+            Solo le saldrá como pendiente de contabilizar lo de estas empresas (y los avisos, igual).
+            Puede ver el de las demás con el filtro «Todas las empresas». Sin ninguna marcada lo ve todo.
+          </div>
         </div>
         {% endif %}
         <div class="col-12 col-md-6 js-assigned-artists-panel" data-dept="produccion">
@@ -706,6 +734,15 @@
         const v=(i.value||'').toLowerCase();
         if (want==='sello') return v==='sello';
         return v==='producción'||v==='produccion';
+      });
+      togglePanel(panel, active);
+    });
+    // Las empresas del grupo solo tienen sentido para quien está en Contabilidad.
+    document.querySelectorAll('.js-accounting-companies-panel').forEach(function(panel){
+      const form = panel.closest('form'); if (!form) return;
+      const active = Array.from(form.querySelectorAll('.personnel-department-check:checked')).some(function(i){
+        const v=(i.value||'').toLowerCase();
+        return v==='contabilidad';
       });
       togglePanel(panel, active);
     });

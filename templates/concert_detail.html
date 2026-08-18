@@ -132,6 +132,43 @@
       </a>
     {% endif %}
   {% endif %}
+  {# SALIDA A LA VENTA. Tres pasos y tres dueños, y NO tiene nada que ver con activar la producción:
+     contratación ACTIVA la venta → ticketing la saca a la venta (la etiqueta de la cabecera) →
+     ticketing la COMUNICA (obligatorio; hasta entonces le sigue saliendo como tarea). #}
+  {% if sale_state and sale_state.applies %}
+    {% if sale_state.needs_activation %}
+      {% if CAN_EDIT_CONCERTS %}
+        <form method="post" action="{{ url_for('concert_sale_activate', cid=concert.id) }}" class="d-inline">
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <button class="btn btn-outline-success btn-sm" type="submit"
+                  title="Avisa a Ticketing para que la saque a la venta">
+            <i class="fa fa-ticket me-1"></i>Activar la venta
+          </button>
+        </form>
+      {% endif %}
+    {% elif sale_state.needs_onsale %}
+      <span class="badge text-bg-info text-dark align-self-center" data-bs-toggle="tooltip"
+            title="Venta activada{% if sale_state.activated_at_label %} el {{ sale_state.activated_at_label }}{% endif %}{% if sale_state.activated_by %} por {{ sale_state.activated_by }}{% endif %} · Ticketing tiene que sacarla a la venta">
+        <i class="fa fa-ticket me-1"></i>Venta activada
+      </span>
+    {% endif %}
+    {% if sale_state.needs_notice and CAN_SET_ONSALE %}
+      <a class="btn btn-outline-warning btn-sm" href="{{ url_for('concert_sale_notice_view', cid=concert.id) }}">
+        <i class="fa fa-bullhorn me-1"></i>Notificar la salida a la venta
+        {# Si se reprograma la venta después de haberla comunicado, el aviso deja de valer. #}
+        {% if sale_state.notice_stale %}<span class="badge text-bg-danger ms-1">hay cambios</span>{% endif %}
+      </a>
+    {% elif sale_state.notified %}
+      <span class="badge text-bg-success align-self-center" data-bs-toggle="tooltip"
+            title="Salida a la venta comunicada{% if sale_state.notice_at_label %} el {{ sale_state.notice_at_label }}{% endif %}{% if sale_state.notice_to_label %} a {{ sale_state.notice_to_label }}{% endif %}{% if sale_state.notice_by %} · lo mandó {{ sale_state.notice_by }}{% endif %}">
+        <i class="fa fa-circle-check me-1"></i>Salida a la venta comunicada
+      </span>
+      {% if CAN_SET_ONSALE %}
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('concert_sale_notice_view', cid=concert.id) }}"
+           title="Volver a comunicar la salida a la venta"><i class="fa fa-rotate"></i></a>
+      {% endif %}
+    {% endif %}
+  {% endif %}
   <a class="btn btn-outline-danger btn-sm" href="{{ url_for('concert_detail_view', cid=concert.id, tab='invitations') }}"><i class="fa fa-envelope-open-text me-1"></i>Invitaciones</a>
 </div>
 

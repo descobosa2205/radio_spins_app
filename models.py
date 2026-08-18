@@ -302,6 +302,20 @@ def ensure_artist_notifications_schema():
             ADD COLUMN IF NOT EXISTS artist_notified_signature text,
             ADD COLUMN IF NOT EXISTS artist_notified_kind text;
         """,
+        # SALIDA A LA VENTA: activarla (contratación), sacarla a la venta con su hora (ticketing) y
+        # notificarla (ticketing, paso obligatorio).
+        """
+        ALTER TABLE IF EXISTS concerts
+            ADD COLUMN IF NOT EXISTS sale_activation_requested_at timestamptz,
+            ADD COLUMN IF NOT EXISTS sale_activation_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS sale_activation_by_nick text,
+            ADD COLUMN IF NOT EXISTS sale_start_time text,
+            ADD COLUMN IF NOT EXISTS sale_notice_at timestamptz,
+            ADD COLUMN IF NOT EXISTS sale_notice_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS sale_notice_by_nick text,
+            ADD COLUMN IF NOT EXISTS sale_notice_to jsonb NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS sale_notice_signature text;
+        """,
         """
         CREATE TABLE IF NOT EXISTS concert_artist_notifications (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -1693,6 +1707,16 @@ class RoyaltyLiquidation(Base):
     payment_method = Column(Text)
     accounted_at = Column(DateTime(timezone=True))
     accounted_by_nick = Column(Text)
+    # HOLDED: una liquidación ES una factura, así que se sube a Holded como cualquier otra compra.
+    # Lo que devuelve Holded se guarda aquí (y el motivo si no se ha podido), igual que en un gasto.
+    holded_company_id = Column(PGUUID(as_uuid=True))
+    holded_doc_id = Column(Text)
+    holded_doc_type = Column(Text)
+    holded_doc_number = Column(Text)
+    holded_contact_id = Column(Text)
+    holded_uploaded_at = Column(DateTime(timezone=True))
+    holded_error = Column(Text)
+    holded_warning = Column(Text)
 
     __table_args__ = (
         UniqueConstraint(
@@ -1805,6 +1829,25 @@ class Concert(Base):
     artist_notified_to = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     artist_notified_signature = Column(Text)
     artist_notified_kind = Column(Text)
+
+    # SALIDA A LA VENTA. Son TRES pasos y cada uno tiene su dueño:
+    #  1) CONTRATACIÓN pulsa «Activar la venta» (`sale_activation_requested_at`) → le llega a
+    #     Ticketing como tarea pendiente.
+    #  2) TICKETING la saca a la venta o la programa (`sale_start_date` + `sale_start_time`, la hora
+    #     que sale en el aviso).
+    #  3) TICKETING NOTIFICA la salida a la venta (`sale_notice_at`, a quién y quién lo mandó). Es
+    #     obligatorio: hasta entonces sigue como tarea suya.
+    sale_activation_requested_at = Column(DateTime(timezone=True))
+    sale_activation_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    sale_activation_by_nick = Column(Text)
+    sale_start_time = Column(Text)
+    sale_notice_at = Column(DateTime(timezone=True))
+    sale_notice_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    sale_notice_by_nick = Column(Text)
+    sale_notice_to = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # Huella de LO QUE SE COMUNICÓ (día y hora de salida a la venta): si Ticketing la reprograma, el
+    # aviso deja de valer y hay que volver a comunicarlo.
+    sale_notice_signature = Column(Text)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -6990,6 +7033,18 @@ def ensure_royalty_liquidations_schema():
             ADD COLUMN IF NOT EXISTS invoice_id uuid,
             ADD COLUMN IF NOT EXISTS invoice_uploaded_at timestamptz,
             ADD COLUMN IF NOT EXISTS paid_at timestamptz;
+        """,
+        # Subida a HOLDED de la liquidación (una liquidación es una factura como cualquier otra).
+        """
+        ALTER TABLE IF EXISTS royalty_liquidations
+            ADD COLUMN IF NOT EXISTS holded_company_id uuid,
+            ADD COLUMN IF NOT EXISTS holded_doc_id text,
+            ADD COLUMN IF NOT EXISTS holded_doc_type text,
+            ADD COLUMN IF NOT EXISTS holded_doc_number text,
+            ADD COLUMN IF NOT EXISTS holded_contact_id text,
+            ADD COLUMN IF NOT EXISTS holded_uploaded_at timestamptz,
+            ADD COLUMN IF NOT EXISTS holded_error text,
+            ADD COLUMN IF NOT EXISTS holded_warning text;
         """,
     ]
 

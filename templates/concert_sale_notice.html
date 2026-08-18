@@ -1,0 +1,231 @@
+{% extends "layout.html" %}
+{% block content %}
+{# SALIDA A LA VENTA · vista previa del aviso.
+   Se ve TAL COMO va a llegar (el mismo HTML que el correo). A la izquierda se elige a QUIÉN se le
+   manda —cada uno con su papel y se puede quitar o añadir—, la nota y qué módulos se ven; a la
+   derecha, la vista previa. Es el paso OBLIGATORIO del proceso: hasta que se manda, la actividad
+   sigue en las tareas pendientes de Ticketing. #}
+<div class="mb-2">
+  <a class="btn-volver" href="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}"
+     title="Volver a la actividad" aria-label="Volver a la actividad">←</a>
+</div>
+
+<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+  <div>
+    <h4 class="m-0">Comunicar la salida a la venta</h4>
+    <div class="text-muted small">
+      Asunto: <strong>{{ subject }}</strong>
+    </div>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    {% if sale_state.notified %}
+      <span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Ya comunicada el {{ sale_state.notice_at_label }}</span>
+    {% elif sale_state.on_sale %}
+      <span class="badge text-bg-success">A la venta{% if sale_state.date_label %} desde el {{ sale_state.date_label }}{% endif %}</span>
+    {% elif sale_state.scheduled %}
+      <span class="badge text-bg-warning text-dark">Sale el {{ sale_state.date_label }}{% if sale_state.time_label %} a las {{ sale_state.time_label }}{% endif %}</span>
+    {% endif %}
+  </div>
+</div>
+
+{% if sale_state.notice_stale %}
+  <div class="alert alert-danger">
+    <i class="fa fa-triangle-exclamation me-1"></i>La salida a la venta ha cambiado desde que se
+    comunicó: hay que volver a comunicarla.
+  </div>
+{% endif %}
+{% if not sale_state.has_date %}
+  <div class="alert alert-warning">
+    <i class="fa fa-triangle-exclamation me-1"></i>Todavía no hay fecha de salida a la venta.
+    Ponla (o prográmala) en la etiqueta <strong>Venta</strong> de la cabecera de la actividad y
+    después comunícala.
+  </div>
+{% endif %}
+
+<div class="row g-3" data-sale-notice
+     data-url-preview="{{ url_for('concert_sale_notice_preview', cid=concert.id) }}"
+     data-url-send="{{ url_for('concert_sale_notice_send', cid=concert.id) }}"
+     data-url-back="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}">
+
+  {# ---------- IZQUIERDA: a quién y qué se manda ---------- #}
+  <div class="col-12 col-lg-4">
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="fa fa-users me-1 text-muted"></i>A quién se lo mandamos</h6>
+        <div class="text-muted small mb-2">
+          Del artista van las cuentas configuradas para <strong>notificaciones de actividades</strong>.
+          Quita a quien no toque o añade otros correos.
+        </div>
+        {% if recipients %}
+          <div class="d-flex flex-column gap-1">
+            {% for r in recipients %}
+              <label class="an-mod-toggle">
+                <input class="form-check-input m-0" type="checkbox" checked
+                       data-sale-to value="{{ r.email }}">
+                <span>
+                  <span class="fw-semibold">{{ r.name or r.email }}</span>
+                  <span class="badge text-bg-light border ms-1">{{ r.role }}</span>
+                  <span class="d-block small text-muted">{{ r.email }}</span>
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="alert alert-warning py-2 px-3 small mb-2">
+            No hay nadie configurado para avisar. Escribe abajo a quién se lo mandamos.
+          </div>
+        {% endif %}
+        <label class="form-label small mb-1 mt-3">Otros correos <span class="text-muted">(opcional)</span></label>
+        <input class="form-control form-control-sm" data-sale-extra placeholder="correo@ejemplo.com, otro@ejemplo.com">
+
+        <div class="mt-3">
+          <label class="form-label small mb-1">Nota <span class="text-muted">(sale arriba, bajo el título)</span></label>
+          <textarea class="form-control form-control-sm" rows="3" data-sale-note
+                    placeholder="Lo que quieras añadir."></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="mb-2"><i class="fa fa-eye-slash me-1 text-muted"></i>Qué se ve</h6>
+        <div class="text-muted small mb-2">Pincha el ojo de cada módulo para dejarlo fuera del aviso.</div>
+        <div class="d-flex flex-column gap-1">
+          {% for key, label in notice_modules %}
+            <label class="an-mod-toggle">
+              <input class="form-check-input m-0" type="checkbox" checked data-sale-mod="{{ key }}">
+              <span>{{ label }}</span>
+            </label>
+          {% endfor %}
+        </div>
+        {% if not notice.channels %}
+          <div class="small text-warning-emphasis mt-2">
+            <i class="fa fa-circle-exclamation me-1"></i>Esta actividad no tiene canales de venta con
+            enlace: añádelos en la pestaña Ticketing si quieren salir en el aviso.
+          </div>
+        {% endif %}
+        {% if not notice.artwork.has %}
+          <div class="small text-muted mt-2">
+            <i class="fa fa-circle-info me-1"></i>No hay carteles aprobados, así que el aviso no lleva
+            el botón de descargarlos.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="d-grid gap-2">
+      <button class="btn btn-primary" type="button" data-sale-send
+              {% if not sale_state.has_date %}disabled{% endif %}>
+        <i class="fa fa-paper-plane me-1"></i>Comunicar la salida a la venta
+      </button>
+      <a class="btn btn-outline-secondary" href="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}">Cancelar</a>
+    </div>
+  </div>
+
+  {# ---------- DERECHA: la vista previa ---------- #}
+  <div class="col-12 col-lg-8">
+    <div class="card">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="m-0"><i class="fa fa-envelope-open-text me-1 text-muted"></i>Vista previa</h6>
+          <span class="text-muted small">Es exactamente lo que se manda</span>
+        </div>
+        <div class="an-preview" data-sale-preview>{{ preview_html|safe }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var root = document.querySelector('[data-sale-notice]');
+  if (!root) return;
+  var preview = root.querySelector('[data-sale-preview]');
+  var note = root.querySelector('[data-sale-note]');
+  var timer = null;
+
+  function hidden() {
+    return Array.prototype.slice.call(root.querySelectorAll('[data-sale-mod]'))
+      .filter(function (c) { return !c.checked; })
+      .map(function (c) { return c.getAttribute('data-sale-mod'); });
+  }
+  function destinos() {
+    return Array.prototype.slice.call(root.querySelectorAll('[data-sale-to]'))
+      .filter(function (c) { return c.checked; })
+      .map(function (c) { return c.value; });
+  }
+
+  function repaint() {
+    fetch(root.getAttribute('data-url-preview'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note: note ? note.value : '', hidden: hidden() })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d && d.ok && preview) preview.innerHTML = d.html;
+    }).catch(function () {});
+  }
+  function repaintSoon() { clearTimeout(timer); timer = setTimeout(repaint, 350); }
+
+  // El OJO de la vista previa y la casilla de la izquierda son lo mismo. Y el «Copiar enlace» de
+  // los canales de venta aquí copia DE VERDAD (en un correo no corre JavaScript y es un enlace).
+  root.addEventListener('click', function (ev) {
+    var eye = ev.target.closest('[data-notice-eye]');
+    if (eye) {
+      ev.preventDefault();
+      var key = eye.getAttribute('data-notice-eye');
+      var box = root.querySelector('[data-sale-mod="' + key + '"]');
+      if (box) { box.checked = !box.checked; repaint(); }
+      return;
+    }
+    var copiar = ev.target.closest('[data-sale-copy]');
+    if (copiar) {
+      ev.preventDefault();
+      var url = copiar.getAttribute('data-sale-copy') || '';
+      var previo = copiar.textContent;
+      var listo = function () {
+        copiar.textContent = 'Copiado';
+        setTimeout(function () { copiar.textContent = previo; }, 1500);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(listo).catch(function () { window.prompt('Copia el enlace:', url); });
+      } else {
+        window.prompt('Copia el enlace:', url);
+      }
+    }
+  });
+  root.addEventListener('change', function (ev) {
+    if (ev.target.matches('[data-sale-mod]')) repaint();
+  });
+  if (note) note.addEventListener('input', repaintSoon);
+
+  root.querySelector('[data-sale-send]').addEventListener('click', function () {
+    var btn = this;
+    var previo = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Enviando…';
+    fetch(root.getAttribute('data-url-send'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        note: note ? note.value : '',
+        hidden: hidden(),
+        emails: destinos(),
+        extra_emails: (root.querySelector('[data-sale-extra]') || {}).value || ''
+      })
+    }).then(function (r) { return r.json().catch(function () { return null; }); }).then(function (d) {
+      if (!d || !d.ok) {
+        btn.disabled = false; btn.innerHTML = previo;
+        alert((d && d.error) || 'No se pudo enviar el aviso.');
+        return;
+      }
+      window.location.href = d.url || root.getAttribute('data-url-back');
+    }).catch(function () {
+      btn.disabled = false; btn.innerHTML = previo;
+      alert('No se pudo enviar el aviso.');
+    });
+  });
+})();
+</script>
+{% endblock %}

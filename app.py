@@ -1366,6 +1366,8 @@ def inject_globals():
         CAN_EDIT_RADIO=can_edit_radio(),
         CAN_EDIT_SALES=can_edit_sales(),
         CAN_EDIT_CONCERTS=can_edit_concerts(),
+        # Sacar a la venta es de TICKETING: su propio permiso, no el de editar la actividad.
+        CAN_SET_ONSALE=can_set_concert_onsale(),
         CAN_VIEW_CONCERT_CONTRACTS=can_view_concert_contracts(),
         CAN_EDIT_CATALOGS=can_edit_catalogs(),
         CAN_EDIT_SONGS_PROMOTERS=(can_edit_catalogs() or can_edit_discografica()),
@@ -8511,6 +8513,7 @@ ROYALTY_EVENT_LABELS = {
     "PAYMENT_REOPENED": "Vuelta a pendiente de pago",
     "CONSIGNED": "Datos consignados",
     "ACCOUNTED": "Contabilizada",
+    "HOLDED_UPLOADED": "Subida a Holded",
     "BATCH_APPROVED": "Pago aprobado por dirección",
 }
 
@@ -34416,6 +34419,9 @@ def concert_detail_view(cid):
             # AVISO AL ARTISTA: si está avisado (y sigue valiendo), la barra enseña la etiqueta
             # «Notificado» con a quién y cuándo; si no, el botón para avisarle.
             artist_notice=_concert_notice_state(session, c),
+            # SALIDA A LA VENTA: activar la venta (contratación) y comunicarla (ticketing) son dos
+            # funciones distintas de la producción, cada una con su botón.
+            sale_state=_concert_sale_state(session, c),
             # ELIMINAR LA ACTIVIDAD (rueda de la cabecera): a quién se le había comunicado ya, para
             # poder avisar de la cancelación antes de borrarla.
             notified_parties=_notified,
@@ -36728,9 +36734,12 @@ def concert_announcement_set(cid):
 @app.post("/conciertos/<cid>/salida-venta", endpoint="concert_onsale_set")
 @admin_required
 def concert_onsale_set(cid):
-    """Salida a la venta: ya está a la venta (hoy), por confirmar, o el día en que sale."""
-    if not can_edit_concerts():
-        return forbid("No tienes permisos para editar actividades.")
+    """Salida a la venta: ya está a la venta (hoy), por confirmar, o el día (y la HORA) en que sale.
+
+    Lo hace TICKETING, así que el permiso es `can_set_concert_onsale` y no el de editar la
+    actividad. La HORA es la que sale en el aviso de la salida a la venta."""
+    if not can_set_concert_onsale():
+        return forbid("No tienes permisos para cambiar la salida a la venta.")
     next_url = safe_next_or(request.form.get("next") or url_for("concert_detail_view", cid=cid, tab="general"))
     session_db = db()
     try:
@@ -36739,6 +36748,8 @@ def concert_onsale_set(cid):
             flash("Actividad no encontrada.", "warning")
             return redirect(next_url)
         modo = (request.form.get("mode") or "").strip().upper()
+        # La HORA de salida a la venta (opcional): se guarda igual en «a la venta» y en «sale el día».
+        hora = (request.form.get("sale_start_time") or "").strip()[:5]
         if modo == "TBC":
             concert.sale_start_tbc = True
             concert.sale_start_date = None
@@ -36759,9 +36770,17 @@ def concert_onsale_set(cid):
         else:
             flash("No se ha entendido qué hacer con la salida a la venta.", "warning")
             return redirect(next_url)
+        if hora:
+            concert.sale_start_time = hora
         concert.updated_at = _now_madrid()
+        # Ya tiene fecha: el aviso de «sacar a la venta» está hecho y se cierra solo. Lo que queda es
+        # NOTIFICAR la salida, que es la otra tarea de Ticketing.
+        if concert.sale_start_date:
+            _notify_resolve(session_db, "CONCERT_SALE", str(concert.id))
         session_db.commit()
         flash(aviso, "success")
+        if concert.sale_start_date and not getattr(concert, "sale_notice_at", None):
+            flash("Falta comunicar la salida a la venta.", "warning")
     except Exception as exc:
         session_db.rollback()
         flash("No se pudo cambiar la salida a la venta: %s" % exc, "danger")
@@ -52361,6 +52380,14 @@ def can_edit_concerts() -> bool:
     return has_access_key("contratacion", edit=True, include_descendants=True) or current_role() in (5, 6, 10)
 
 
+def can_set_concert_onsale() -> bool:
+    """¿Puede esta persona sacar una actividad a la venta (o programarla) y notificarlo?
+
+    Es TRABAJO DE TICKETING, así que además de contratación y dirección pasan Ticketing y quien
+    pueda editar ventas: si no, quien tiene que sacarla a la venta no podría ni cambiar la fecha."""
+    return can_edit_concerts() or is_master() or can_edit_sales() or _user_is_ticketing()
+
+
 def can_view_concert_contracts() -> bool:
     """Los contratos de una actividad son confidenciales: solo DIRECCIÓN, CONTRATACIÓN y
     ADMINISTRACIÓN. El resto de la oficina ve la ficha entera menos esa sección (y tampoco puede
@@ -52980,6 +53007,8 @@ CONTRACTING_TASK_META = {
     "CONTRACT":   ("Sin contrato", "fa-file-signature", "text-bg-secondary", 2),
     "ANNOUNCE":   ("Pendiente de anunciar", "fa-bullhorn", "text-bg-info text-dark", 3),
     "PRODUCTION": ("Sin mandar a producción", "fa-people-carry-box", "text-bg-dark", 4),
+    # Activar la venta NO es activar la producción: son dos funciones separadas y dos tareas.
+    "SALE": ("Sin activar la venta", "fa-ticket", "text-bg-primary", 4),
     "INVOICE":    ("Pendiente de facturar", "fa-file-circle-plus", "text-bg-secondary", 5),
     "COLLECT":    ("Pendiente de cobrar", "fa-hourglass-half", "text-bg-warning text-dark", 6),
 }
@@ -53134,6 +53163,9 @@ def _contracting_tasks_data() -> dict:
                     kinds.append("ANNOUNCE")
                 if _concert_needs_production(c, session_db) and c.id not in con_bolsa:
                     kinds.append("PRODUCTION")
+                # Vende entradas nuestras y todavía nadie le ha dicho a Ticketing que la saque.
+                if _concert_sale_state(session_db, c)["needs_activation"]:
+                    kinds.append("SALE")
             if not kinds:
                 continue
             tabs = _contracting_activity_tabs(c)
@@ -53332,6 +53364,10 @@ def inject_personnel_globals():
         "HOME_PRODUCTION_ACTIVATION": (_home_production_activation_wrap()
                                        if request.endpoint == "home" and session.get("user_id")
                                        and "_home_production_activation_wrap" in globals() else []),
+        # TICKETING: lo que hay que sacar a la venta y las salidas a la venta por comunicar.
+        "HOME_TICKETING_SALES": (_home_ticketing_sales_wrap()
+                                 if request.endpoint == "home" and session.get("user_id")
+                                 and "_home_ticketing_sales_wrap" in globals() else []),
         # Carteles que subió esta persona y diseño ha rechazado (con la nota de qué cambiar).
         "HOME_ARTWORK_REJECTED": (_home_artwork_rejected()
                                   if request.endpoint == "home" and session.get("user_id")
@@ -53500,6 +53536,10 @@ SUPPORT_ACTION_ENDPOINTS = {
     # gestiona es promoción. Y dar por visto un aviso lo hace su destinatario (producción), que no
     # tiene por qué tener la sección: el propio endpoint comprueba que el aviso es suyo.
     "promo_peticion_create", "promo_alert_read",
+    # SALIDA A LA VENTA: la saca y la comunica TICKETING, que no tiene por qué poder editar
+    # contratación. El permiso fino lo comprueba cada endpoint (`can_set_concert_onsale`).
+    "concert_onsale_set", "concert_sale_activate", "concert_sale_notice_send",
+    "concert_sale_notice_preview",
     # Alta rápida de entidades (modales superpuestos: quick_create.js)
     "api_create_artist", "api_create_promoter", "api_create_venue", "api_create_ticketer",
     "api_create_publishing_company", "api_create_media_outlet", "api_media_contact_create",
@@ -53556,6 +53596,8 @@ SUPPORT_READ_ENDPOINTS = {
     "doc_scan_lookup",
     # Ficha de una petición: la abre quien lleva su departamento (lo comprueba el endpoint).
     "booking_request_detail_view",
+    # Vista previa del aviso de salida a la venta (la abre Ticketing; el endpoint comprueba quién).
+    "concert_sale_notice_view",
     "roadmap_templates_list",
     "api_media_artist_activities",
     "api_search_promoters", "api_search_publishing_companies", "api_search_ticketers",
@@ -58149,6 +58191,88 @@ def _royalty_mark_paid(rec, *, method: str = "", batch=None):
     _royalty_history_add(rec, "PAID", note=(method or ""))
 
 
+def _royalty_accounting_pending(session_db, *, limit: int = 300) -> list:
+    """Liquidaciones PAGADAS y con su factura VALIDADA que todavía no están contabilizadas.
+
+    Punto único: lo usan las filas de la pantalla y las acciones en bloque, así que lo que se ve es
+    exactamente lo que se sube o se marca."""
+    try:
+        return (session_db.query(RoyaltyLiquidation)
+                .join(SupplierInvoice, SupplierInvoice.id == RoyaltyLiquidation.invoice_id)
+                .filter(func.upper(func.coalesce(RoyaltyLiquidation.status, "")) == "PAID")
+                .filter(func.upper(func.coalesce(SupplierInvoice.status, "")) == "VALIDADA")
+                .filter(RoyaltyLiquidation.accounted_at.is_(None))
+                .order_by(RoyaltyLiquidation.paid_at.asc().nullslast()).limit(limit).all())
+    except Exception:
+        return []
+
+
+def _royalty_invoice_amounts(congelada: dict | None, invoice) -> dict:
+    """DESGLOSE de la factura de una liquidación de royalties: base, IVA, retención y total.
+
+    Manda lo que dice la FACTURA (se leyó de su documento) y lo que falte se despeja de la propia
+    liquidación: su importe es la BASE y lo que se factura es base + IVA (`_royalty_invoice_totals`).
+    ⚠️ Sin esto, en contabilidad una liquidación salía con «—» en IVA y en retención, que es
+    justo lo que hay que ver ahí. Un 0 no es «no lo sé»: el % se deja en None si no hay dato.
+    """
+    base = _money_or_zero((congelada or {}).get("total_amount"))
+    total = _money_or_zero(_royalty_invoice_totals(congelada or {}).get("gross"))
+    iva = (total - base) if total > base else Decimal("0")
+    ret = Decimal("0")
+    iva_pct = ret_pct = None
+    if invoice is not None:
+        if _money_or_zero(getattr(invoice, "amount_net", None)) > 0:
+            base = _money_or_zero(invoice.amount_net)
+        if getattr(invoice, "amount_vat", None) is not None:
+            iva = _money_or_zero(invoice.amount_vat)
+        if getattr(invoice, "retention_amount", None) is not None:
+            ret = _money_or_zero(invoice.retention_amount)
+        if _money_or_zero(getattr(invoice, "amount_gross", None)) > 0:
+            total = _money_or_zero(invoice.amount_gross)
+        if getattr(invoice, "vat_pct", None) is not None:
+            iva_pct = _money_or_zero(invoice.vat_pct)
+        if getattr(invoice, "retention_pct", None) is not None:
+            ret_pct = _money_or_zero(invoice.retention_pct)
+    if iva_pct is None and base > 0 and iva > 0:
+        iva_pct = (iva / base * Decimal("100")).quantize(Decimal("0.01"))
+    if ret_pct is None and base > 0 and ret > 0:
+        ret_pct = (ret / base * Decimal("100")).quantize(Decimal("0.01"))
+    return {"net": base, "vat": iva, "vat_pct": iva_pct, "retention": ret,
+            "retention_pct": ret_pct, "total": total}
+
+
+def _royalty_holded_fields(session_db, rec) -> dict:
+    """Lo de Holded de una liquidación (para su fila de contabilidad, igual que en un gasto).
+
+    ⚠️ Si hay Holded configurado se pregunta UNA vez por empresa y se cachea en `g`: son cientos de
+    filas y sin caché serían cientos de consultas para saber lo mismo."""
+    company = _royalty_holded_company(session_db, rec)
+    # ⚠️ `g` solo existe DENTRO de una petición: estas filas se calculan también desde un cron o un
+    # hilo en segundo plano, donde leerlo revienta con «Working outside of application context».
+    try:
+        cache = getattr(g, "_royalty_holded_ready", None)
+    except Exception:
+        cache = None
+    if cache is None:
+        cache = {}
+        try:
+            g._royalty_holded_ready = cache
+        except Exception:
+            pass
+    clave = str(getattr(company, "id", "") or "")
+    if clave not in cache:
+        cache[clave] = bool(company is not None
+                            and _holded_account_for_company(session_db, company.id) is not None)
+    return {
+        "holded_doc_id": (getattr(rec, "holded_doc_id", None) or ""),
+        "holded_doc_number": (getattr(rec, "holded_doc_number", None) or ""),
+        "holded_error": (getattr(rec, "holded_error", None) or ""),
+        "holded_warning": (getattr(rec, "holded_warning", None) or ""),
+        "company_name": (getattr(company, "name", None) or ""),
+        "holded_ready": cache[clave],
+    }
+
+
 def _royalty_accounting_pending_rows(session_db, limit: int = 300) -> list[dict]:
     """Liquidaciones PAGADAS que contabilidad todavía no ha contabilizado.
 
@@ -58158,26 +58282,22 @@ def _royalty_accounting_pending_rows(session_db, limit: int = 300) -> list[dict]
     trabajo que no existía. Nada se borra: simplemente no es pendiente de contabilizar lo que no ha
     pasado por administración.
     """
-    try:
-        recs = (session_db.query(RoyaltyLiquidation)
-                .join(SupplierInvoice, SupplierInvoice.id == RoyaltyLiquidation.invoice_id)
-                .filter(func.upper(func.coalesce(RoyaltyLiquidation.status, "")) == "PAID")
-                .filter(func.upper(func.coalesce(SupplierInvoice.status, "")) == "VALIDADA")
-                .filter(RoyaltyLiquidation.accounted_at.is_(None))
-                .order_by(RoyaltyLiquidation.paid_at.asc().nullslast()).limit(limit).all())
-    except Exception:
-        return []
+    recs = _royalty_accounting_pending(session_db, limit=limit)
     filas = []
     for rec in recs:
         congelada = _royalty_frozen_beneficiary(rec) or {}
         inv = session_db.get(SupplierInvoice, rec.invoice_id) if getattr(rec, "invoice_id", None) else None
+        importes = _royalty_invoice_amounts(congelada, inv)
         filas.append({
             "id": str(rec.id),
             "name": (congelada.get("name") or "Beneficiario"),
             "period_label": _royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end),
-            # El mismo número que se pagó: base + IVA.
-            "amount": _royalty_invoice_totals(congelada)["gross"],
-            "net": _money_or_zero(congelada.get("total_amount")),
+            # El mismo número que se pagó: base + IVA (menos la retención, si la factura la trae).
+            "amount": importes["total"],
+            "net": importes["net"],
+            "vat": importes["vat"], "vat_pct": importes["vat_pct"],
+            "retention": importes["retention"], "retention_pct": importes["retention_pct"],
+            **_royalty_holded_fields(session_db, rec),
             "paid_label": (rec.paid_at.strftime("%d/%m/%Y") if rec.paid_at else ""),
             # La fecha de EMISIÓN de su factura (la columna «Emisión» de la tabla de contabilidad).
             "issue_label": (getattr(inv, "issue_date", None).strftime("%d/%m/%Y")
@@ -58205,12 +58325,18 @@ def _royalty_accounting_done_rows(session_db, limit: int = 300) -> list[dict]:
     for rec in recs:
         congelada = _royalty_frozen_beneficiary(rec) or {}
         inv = session_db.get(SupplierInvoice, rec.invoice_id) if getattr(rec, "invoice_id", None) else None
+        importes = _royalty_invoice_amounts(congelada, inv)
         filas.append({
             "id": str(rec.id),
             "name": (congelada.get("name") or "Beneficiario"),
             "period_label": _royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end),
-            "amount": _royalty_invoice_totals(congelada)["gross"],
-            "net": _money_or_zero(congelada.get("total_amount")),
+            "amount": importes["total"],
+            "net": importes["net"],
+            "vat": importes["vat"], "vat_pct": importes["vat_pct"],
+            "retention": importes["retention"], "retention_pct": importes["retention_pct"],
+            **_royalty_holded_fields(session_db, rec),
+            "issue_label": (getattr(inv, "issue_date", None).strftime("%d/%m/%Y")
+                            if getattr(inv, "issue_date", None) else ""),
             "paid_label": (rec.paid_at.strftime("%d/%m/%Y") if rec.paid_at else ""),
             "accounted_label": (rec.accounted_at.strftime("%d/%m/%Y") if rec.accounted_at else ""),
             "accounted_by": (getattr(rec, "accounted_by_nick", None) or ""),
@@ -62875,13 +63001,15 @@ def administration_invoice_mark_paid(invoice_id):
 #  recargar (`#accZone`) va DENTRO, nunca es la pestaña (ver la nota de ajax_inline en CLAUDE.md).
 # ===========================================================================
 
+# ⚠️ NO hay pestaña «Facturas»: el registro de facturas vive en Bases de datos → Facturas y aquí
+# solo repetía la misma información (se retiró en ago 2026).
 ACCOUNTING_TABS = [
     ("pendiente", "Pendiente de contabilizar", "fa-hourglass-half"),
     ("contabilizado", "Contabilizado", "fa-circle-check"),
     ("retenciones", "Retenciones", "fa-percent"),
-    ("facturas", "Facturas", "fa-file-invoice"),
 ]
-# Subpestañas de «Pendiente de contabilizar». Cada una lleva su número de pendientes.
+# Subpestañas de «Pendiente de contabilizar» (y las MISMAS en «Contabilizado», donde no llevan
+# número: ahí no hay nada pendiente que contar).
 ACCOUNTING_PENDING_TABS = [
     ("facturas", "Facturas", "fa-file-invoice"),
     ("bolsas", "Bolsas", "fa-sack-dollar"),
@@ -62933,8 +63061,9 @@ def _accounting_base_query(session_db, *, doc_types=None, include_done: bool = F
 
 def _accounting_counts(session_db) -> dict:
     """Números de las pestañas: solo cuentas (`func.count`), sin cargar filas."""
-    salida = {"facturas": 0, "tickets": 0, "sin-ticket": 0, "bolsas": 0, "pendiente": 0,
-              "contabilizado": 0}
+    # ⚠️ No hay número de «Contabilizado»: es un archivo que solo crece y un contador ahí no dice
+    # nada (los números son de lo que está PENDIENTE).
+    salida = {"facturas": 0, "tickets": 0, "sin-ticket": 0, "bolsas": 0, "pendiente": 0}
     try:
         filas = (_accounting_base_query(session_db)
                  .with_entities(func.upper(func.coalesce(BagExpense.document_type, "FACTURA")),
@@ -62956,8 +63085,6 @@ def _accounting_counts(session_db) -> dict:
                                     BagExpense.consolidation_status.in_(list(BAG_CONSOLIDATED_STATUSES)),
                                     ~func.upper(func.coalesce(BagExpense.accounting_status, "PENDIENTE"))
                                     .in_(list(ACCOUNTING_DONE_STATUSES))).scalar()) or 0
-        salida["contabilizado"] = (_accounting_base_query(session_db, only_done=True)
-                                   .with_entities(func.count(BagExpense.id)).scalar()) or 0
     except Exception:
         pass
     return salida
@@ -63276,13 +63403,15 @@ def _accounting_expense_rows(session_db, expenses) -> list[dict]:
     return [_accounting_expense_row(session_db, e, datos) for e in expenses]
 
 
-def _accounting_bag_groups(session_db, *, limit: int = 400) -> list[dict]:
-    """Bolsas con gastos PENDIENTES de contabilizar (subpestaña «Bolsas»).
+def _accounting_bag_groups(session_db, *, limit: int = 400, only_done: bool = False) -> list[dict]:
+    """Bolsas agrupadas para la subpestaña «Bolsas».
 
-    Una bolsa con todos sus gastos contabilizados u omitidos no sale: se cierra para contabilidad
-    (`accounting_done_at`) y desaparece.
+    Por defecto, las que tienen gastos PENDIENTES de contabilizar: una bolsa con todos sus gastos
+    contabilizados u omitidos no sale (se cierra para contabilidad, `accounting_done_at`).
+    Con `only_done` es al revés — las bolsas de lo YA contabilizado, para que la pestaña
+    «Contabilizado» se lea igual que «Pendiente».
     """
-    expenses = (_accounting_base_query(session_db)
+    expenses = (_accounting_base_query(session_db, only_done=only_done)
                 .order_by(BagExpense.created_at.desc()).limit(2000).all())
     if not expenses:
         return []
@@ -63340,8 +63469,9 @@ def _accounting_bag_groups(session_db, *, limit: int = 400) -> list[dict]:
     # AUTOCURADO: una bolsa que estaba cerrada para contabilidad y a la que le ha entrado un gasto
     # nuevo vuelve a tener trabajo, así que su «cerrada el …» ya no es verdad. Se limpia aquí (es
     # donde se sabe) en vez de dejar una fecha que engaña.
-    reabiertas = [bolsas[g["bag_id"]] for g in grupos.values()
-                  if getattr(bolsas.get(g["bag_id"]), "accounting_done_at", None)]
+    reabiertas = ([] if only_done else
+                  [bolsas[g["bag_id"]] for g in grupos.values()
+                   if getattr(bolsas.get(g["bag_id"]), "accounting_done_at", None)])
     if reabiertas:
         try:
             for b in reabiertas:
@@ -63375,8 +63505,31 @@ def _accounting_expenses_from_request(session_db, form) -> list:
     return []
 
 
-def _accounting_upload_many(session_db, expenses, *, nick: str) -> dict:
-    """Sube varios gastos a Holded. Cada uno en su savepoint: si uno falla, los demás siguen."""
+def _accounting_royalties_from_request(session_db, form) -> list:
+    """Las LIQUIDACIONES DE ROYALTIES sobre las que actúa una acción en bloque.
+
+    Mismo criterio que con los gastos (el ÁMBITO manda sobre lo marcado): una liquidación es una
+    factura más de la subpestaña «Facturas», así que «Subir todo» desde ahí también las incluye.
+    Una bolsa no tiene liquidaciones, así que con `bag_id` no entra ninguna."""
+    ambito = (form.get("scope") or "").strip().lower()
+    if ambito in ("facturas", "todo"):
+        return _royalty_accounting_pending(session_db)
+    if (form.get("bag_id") or "").strip():
+        return []
+    ids = [to_uuid(x) for x in form.getlist("royalty_ids") if to_uuid(x)]
+    if not ids:
+        return []
+    try:
+        return (session_db.query(RoyaltyLiquidation)
+                .filter(RoyaltyLiquidation.id.in_(ids)).all())
+    except Exception:
+        return []
+
+
+def _accounting_upload_many(session_db, expenses, *, nick: str, royalties=None) -> dict:
+    """Sube varios gastos (y liquidaciones de royalties) a Holded.
+
+    Cada uno en su savepoint: si uno falla, los demás siguen."""
     salida = {"ok": 0, "fail": 0, "warnings": 0, "skipped": 0, "pending": 0, "errors": []}
     # ⚠️ Cada gasto son VARIAS llamadas a Holded (contacto, documento, adjunto, relectura). «Subir
     # todo» con cientos de gastos se pasa del tiempo que el servidor da a una petición y se corta a
@@ -63410,6 +63563,32 @@ def _accounting_upload_many(session_db, expenses, *, nick: str) -> dict:
         except Exception as exc:
             salida["fail"] += 1
             salida["errors"].append("%s: %s" % ((expense.concept or "Gasto")[:40], str(exc)[:200]))
+    # LIQUIDACIONES DE ROYALTIES: son facturas como las demás y comparten el mismo presupuesto de
+    # tiempo, así que si se agota se dice cuántas quedan (al volver a pulsar siguen las que faltan).
+    pendientes = list(royalties or [])
+    for _j, rec in enumerate(pendientes):
+        if time.monotonic() - _t0 > _presupuesto:
+            salida["pending"] += len(pendientes) - _j
+            break
+        if getattr(rec, "accounted_at", None) or (getattr(rec, "holded_doc_id", None) or "").strip():
+            salida["skipped"] += 1
+            continue
+        etiqueta = "Royalties %s" % _royalty_liquidation_period_label_from_dates(
+            rec.period_start, rec.period_end)
+        try:
+            with session_db.begin_nested():
+                res = _holded_upload_royalty(session_db, rec, nick=nick)
+            if res["ok"]:
+                salida["ok"] += 1
+                if res.get("warning"):
+                    salida["warnings"] += 1
+                    salida["errors"].append("%s: %s" % (etiqueta, res["warning"]))
+            else:
+                salida["fail"] += 1
+                salida["errors"].append("%s: %s" % (etiqueta, res["message"]))
+        except Exception as exc:
+            salida["fail"] += 1
+            salida["errors"].append("%s: %s" % (etiqueta, str(exc)[:200]))
     session_db.commit()
     return salida
 
@@ -63421,7 +63600,7 @@ def _accounting_flash_result(res: dict, *, total: int) -> None:
         flash("No había nada que subir.", "info")
         return
     if res["ok"] and not res["fail"]:
-        flash("%d gasto(s) subido(s) a Holded." % res["ok"], "success")
+        flash("%d documento(s) subido(s) a Holded." % res["ok"], "success")
     elif res["ok"]:
         flash("%d subido(s) y %d con problemas." % (res["ok"], res["fail"]), "warning")
     elif res["fail"]:
@@ -63429,11 +63608,11 @@ def _accounting_flash_result(res: dict, *, total: int) -> None:
     elif saltados:
         # ⚠️ Ni un fallo: estaban YA en Holded (o contabilizados). Decir «no se ha podido» sería
         # mentir y dar un susto.
-        flash("Ya estaba todo en Holded: %d gasto(s) sin cambios." % saltados, "info")
+        flash("Ya estaba todo en Holded: %d documento(s) sin cambios." % saltados, "info")
     else:
         flash("No había nada que subir.", "info")
     if saltados and (res["ok"] or res["fail"]):
-        flash("%d gasto(s) ya estaban en Holded y no se han vuelto a subir." % saltados, "info")
+        flash("%d documento(s) ya estaban en Holded y no se han vuelto a subir." % saltados, "info")
     if int(res.get("pending") or 0):
         flash("Quedan %d por subir: se ha parado para no agotar el tiempo del servidor. Vuelve a "
               "pulsar «Subir todo a Holded» para seguir con esos." % int(res["pending"]), "info")
@@ -63484,8 +63663,43 @@ def accounting_bulk_upload():
     session_db = db()
     try:
         expenses = _accounting_expenses_from_request(session_db, request.form)
-        res = _accounting_upload_many(session_db, expenses, nick=((_current_user_state() or {}).get("nick") or ""))
-        _accounting_flash_result(res, total=len(expenses))
+        royalties = _accounting_royalties_from_request(session_db, request.form)
+        res = _accounting_upload_many(session_db, expenses, royalties=royalties,
+                                      nick=((_current_user_state() or {}).get("nick") or ""))
+        _accounting_flash_result(res, total=len(expenses) + len(royalties))
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se ha podido subir a Holded: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("contabilidad_view")))
+
+
+@app.post("/contabilidad/royalties/<liq_id>/holded", endpoint="accounting_royalty_upload")
+@admin_required
+def accounting_royalty_upload(liq_id):
+    """Sube a Holded la factura de UNA liquidación de royalties."""
+    if not can_edit_accounting():
+        return forbid("No tienes permisos para contabilizar.")
+    session_db = db()
+    try:
+        rec = session_db.get(RoyaltyLiquidation, to_uuid(liq_id) or uuid.uuid4())
+        if rec is None:
+            flash("Liquidación no encontrada.", "warning")
+            return redirect(safe_next_or(url_for("contabilidad_view")))
+        if (getattr(rec, "holded_doc_id", None) or "").strip():
+            flash("Esta liquidación ya está en Holded (documento %s)."
+                  % (rec.holded_doc_number or rec.holded_doc_id), "info")
+            return redirect(safe_next_or(url_for("contabilidad_view")))
+        res = _holded_upload_royalty(session_db, rec,
+                                     nick=((_current_user_state() or {}).get("nick") or ""))
+        session_db.commit()
+        if res["ok"]:
+            flash(res["message"], "success")
+            if res.get("warning"):
+                flash(res["warning"], "warning")
+        else:
+            flash("No se ha subido a Holded: %s" % res["message"], "danger")
     except Exception as exc:
         session_db.rollback()
         flash("No se ha podido subir a Holded: %s" % exc, "danger")
@@ -63537,11 +63751,23 @@ def accounting_bulk_status():
     session_db = db()
     try:
         expenses = _accounting_expenses_from_request(session_db, request.form)
+        nick = ((_current_user_state() or {}).get("nick") or "")
         for expense in expenses:
-            _accounting_set_status(session_db, expense, nuevo, nick=((_current_user_state() or {}).get("nick") or ""))
+            _accounting_set_status(session_db, expense, nuevo, nick=nick)
+        # Una liquidación de royalties no tiene estados intermedios: o está contabilizada o no.
+        liquidaciones = (_accounting_royalties_from_request(session_db, request.form)
+                         if nuevo == "CONTABILIZADO" else [])
+        for rec in liquidaciones:
+            if getattr(rec, "accounted_at", None):
+                continue
+            rec.accounted_at = _now_madrid()
+            rec.accounted_by_nick = nick.strip() or None
+            rec.updated_at = _now_madrid()
+            _royalty_history_add(rec, "ACCOUNTED")
         session_db.commit()
-        flash("%d gasto(s) marcados como %s." % (len(expenses), ACCOUNTING_STATUS_LABELS[nuevo]),
-              "success" if expenses else "info")
+        total = len(expenses) + len(liquidaciones)
+        flash("%d documento(s) marcados como %s." % (total, ACCOUNTING_STATUS_LABELS[nuevo]),
+              "success" if total else "info")
     except Exception as exc:
         session_db.rollback()
         flash("No se pudo cambiar el estado: %s" % exc, "danger")
@@ -63639,8 +63865,11 @@ def accounting_holded_sync():
 def contabilidad_view():
     """CONTABILIDAD: lo que administración ha validado y todavía no está contabilizado.
 
-    Pestañas servidas (?tab=) con sus contadores; dentro de «Pendiente de contabilizar», las
-    subpestañas Facturas · Bolsas · Tickets · Sin ticket.
+    Pestañas servidas (?tab=): Pendiente de contabilizar · Contabilizado · Retenciones. Las dos
+    primeras se leen IGUAL, con las mismas subpestañas (Facturas · Bolsas · Tickets · Sin ticket);
+    solo la de pendiente lleva números.
+    ⚠️ Ya no hay pestaña «Facturas»: el registro de facturas está en Bases de datos → Facturas y aquí
+    solo repetía lo mismo. Un `?tab=facturas` de un enlace antiguo cae en «Pendiente».
     """
     tab = (request.args.get("tab") or "pendiente").strip().lower()
     if tab not in dict((k, l) for k, l, _i in ACCOUNTING_TABS):
@@ -63658,7 +63887,6 @@ def contabilidad_view():
         counts = _accounting_counts(session_db)
         rows, bag_groups, done_rows, royalty_done = [], [], [], []
         retenciones, retention_year = None, None
-        recent_invoices = issued_count = received_count = None
         if tab == "pendiente":
             if subtab == "bolsas":
                 bag_groups = _accounting_bag_groups(session_db)
@@ -63681,20 +63909,21 @@ def contabilidad_view():
                 _anyo = None
             retenciones = _accounting_retention_rows(session_db, year=_anyo)
             retention_year = _anyo
-        elif tab == "contabilizado":
-            done_rows = _accounting_expense_rows(
-                session_db, _accounting_base_query(session_db, only_done=True)
-                .order_by(BagExpense.accounting_at.desc().nullslast()).limit(400).all())
-            # Las liquidaciones de royalties contabilizadas van en su módulo, igual que en pendiente.
-            royalty_done = _royalty_accounting_done_rows(session_db)
         else:
-            recent_invoices = (session_db.query(InvoiceRecord)
-                               .order_by(InvoiceRecord.issue_date.desc(),
-                                         InvoiceRecord.created_at.desc()).limit(12).all())
-            issued_count = session_db.query(InvoiceRecord).filter(
-                InvoiceRecord.invoice_kind == "ISSUED").count()
-            received_count = session_db.query(InvoiceRecord).filter(
-                InvoiceRecord.invoice_kind == "RECEIVED").count()
+            # CONTABILIZADO se lee IGUAL que pendiente: las mismas subpestañas (facturas, bolsas,
+            # tickets y sin ticket) con sus iconos, pero sin contadores — ahí no hay trabajo que
+            # contar. Cada una enseña lo YA contabilizado (u omitido) de su tipo.
+            if subtab == "bolsas":
+                bag_groups = _accounting_bag_groups(session_db, only_done=True)
+            else:
+                done_rows = _accounting_expense_rows(
+                    session_db, _accounting_base_query(session_db, only_done=True,
+                                                       doc_types=[ACCOUNTING_SUBTAB_DOC[subtab]])
+                    .order_by(BagExpense.accounting_at.desc().nullslast()).limit(400).all())
+            # Las liquidaciones de royalties son facturas: van en la subpestaña de FACTURAS, en la
+            # misma tabla (igual que en pendiente).
+            if subtab == "facturas":
+                royalty_done = _royalty_accounting_done_rows(session_db)
         # Liquidaciones de royalties pagadas y validadas: son pendiente de contabilizar y una
         # liquidación ES una factura, así que van EN la subpestaña de FACTURAS (ya no tienen módulo
         # aparte al final de la pantalla).
@@ -63713,8 +63942,6 @@ def contabilidad_view():
             retenciones=retenciones, retention_year=retention_year,
             royalty_pending=royalty_pending,
             royalty_done=royalty_done,
-            recent_invoices=recent_invoices,
-            issued_count=issued_count, received_count=received_count,
             holded_ready=_holded_configured_any(session_db),
             CAN_EDIT=can_edit_accounting(),
         )
@@ -70292,6 +70519,714 @@ def public_activity_notice_og_image(token):
     return resp
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# SALIDA A LA VENTA
+#
+# Sacar una actividad a la venta son TRES pasos con TRES dueños, y cada uno es una tarea distinta
+# (activar la venta NO es activar la producción: son funciones separadas):
+#   1) CONTRATACIÓN pulsa «Activar la venta» → le llega el aviso a TICKETING.
+#   2) TICKETING la pone a la venta o la programa (con su HORA).
+#   3) TICKETING NOTIFICA la salida a la venta (correo al artista, a producción, a contratación y a
+#      quien del sello lleva ese artista). Es OBLIGATORIO: hasta que se manda sigue siendo su tarea.
+#      Al notificarla desaparece de sus tareas y la actividad pasa a estar en actualización de ventas
+#      (`/ventas`, que lista lo que ya tiene fecha de salida a la venta).
+#
+# Solo aplica donde tiene sentido: la actividad VENDE ENTRADAS, la promueve una EMPRESA DEL GRUPO y
+# la venta la sacamos NOSOTROS. Si vende un tercero, el recinto o el promotor, esto no es trabajo
+# nuestro.
+# ═════════════════════════════════════════════════════════════════════════════
+
+SALE_NOTICE_TITLE = "Salida a la venta"
+# ⚠️ Desde CUÁNDO se pide comunicar la salida a la venta. Lo que ya estaba a la venta antes de que
+# esto existiera NO genera tarea (nadie va a mandar hoy el aviso de una venta que abrió en junio);
+# mismo criterio que `PITCH_TASK_FROM` con los pitches. Lo que se active desde la app sí lo pide
+# siempre, aunque su fecha sea anterior.
+SALE_NOTICE_TASK_FROM = date(2026, 8, 18)
+# Los MÓDULOS del aviso (cada uno con su ojo en la vista previa, como en el aviso al artista).
+SALE_NOTICE_MODULES = [
+    ("canales", "Canales de venta"),
+    ("carteles", "Carteles"),
+]
+SALE_NOTICE_MODULE_LABELS = {k: l for k, l in SALE_NOTICE_MODULES}
+
+
+def _concert_sells_tickets(concert) -> bool:
+    """¿Esta actividad VENDE entradas? (es el `entry_mode` del asistente, no el tipo de venta)."""
+    pay = getattr(concert, "ticketing_payload", None) or {}
+    if not isinstance(pay, dict):
+        return False
+    return (pay.get("entry_mode") or "").strip().upper() == "SALE"
+
+
+def _concert_sale_is_ours(session_db, concert) -> bool:
+    """¿La saca a la venta LA CASA?
+
+    Dos condiciones: la promueve una empresa del GRUPO (`_concert_is_group_promoted`, el mismo
+    criterio que cartelería e invitaciones) y el vendedor somos NOSOTROS.
+    ⚠️ Una actividad anterior al selector de vendedor no trae `sale_seller`: si la promovemos
+    nosotros y nadie ha dicho lo contrario, se da por nuestra — así el trabajo se ve en vez de
+    perderse en silencio. Con vendedor apuntado manda lo que diga (recinto, promotor o tercero = no
+    es nuestro)."""
+    if concert is None or not _concert_is_group_promoted(session_db, concert):
+        return False
+    kind = (_concert_sale_seller(concert).get("kind") or "").strip().upper()
+    return kind in ("", "US")
+
+
+def _concert_sale_signature(concert) -> str:
+    """Huella de LO GORDO de la salida a la venta: el día y la hora en que sale.
+
+    Si cambia después de haberla comunicado, el aviso deja de valer (misma idea que
+    `_concert_notice_signature` con el aviso al artista)."""
+    if concert is None:
+        return ""
+    partes = [str(getattr(concert, "sale_start_date", None) or ""),
+              (getattr(concert, "sale_start_time", None) or "").strip()[:5]]
+    return hashlib.sha1("¬".join(partes).encode("utf-8")).hexdigest()[:16]
+
+
+def _concert_sale_state(session_db, concert) -> dict:
+    """Punto ÚNICO del estado de la salida a la venta (tareas, etiquetas y compuertas).
+
+    · needs_activation → tarea de CONTRATACIÓN: «Activar la venta».
+    · needs_onsale     → tarea de TICKETING: sacarla a la venta o programarla.
+    · needs_notice     → tarea de TICKETING: notificar la salida a la venta (obligatorio).
+    """
+    vacio = {"applies": False, "needs_activation": False, "needs_onsale": False,
+             "needs_notice": False, "activated": False, "on_sale": False, "scheduled": False,
+             "has_date": False, "notified": False, "notice_stale": False, "signature": "",
+             "date": None, "date_label": "", "time_label": "",
+             "activated_at_label": "", "activated_by": "", "notice_at_label": "",
+             "notice_by": "", "notice_to_label": ""}
+    if concert is None:
+        return vacio
+    if (getattr(concert, "status", None) or "").strip().upper() != "CONFIRMADO":
+        return vacio
+    if not _concert_sells_tickets(concert):
+        return vacio
+    # El HISTÓRICO no genera trabajo (misma regla que producción) y lo que ya pasó tampoco.
+    try:
+        if _concert_is_legacy(concert):
+            return vacio
+    except Exception:
+        pass
+    ultimo = _concert_last_day(concert)
+    if ultimo and ultimo < today_local():
+        return vacio
+    if not _concert_sale_is_ours(session_db, concert):
+        return vacio
+
+    fecha = getattr(concert, "sale_start_date", None)
+    hoy = today_local()
+    activado = bool(getattr(concert, "sale_activation_requested_at", None))
+    hora = (getattr(concert, "sale_start_time", None) or "").strip()
+    # ¿Sigue valiendo lo que se comunicó? Si la venta se reprograma (otro día u otra hora), el aviso
+    # que se mandó ya no dice la verdad y hay que volver a comunicarlo.
+    firma_ahora = _concert_sale_signature(concert)
+    firma_aviso = (getattr(concert, "sale_notice_signature", None) or "").strip()
+    avisado = bool(getattr(concert, "sale_notice_at", None))
+    obsoleto = bool(avisado and firma_aviso and firma_aviso != firma_ahora)
+    avisado_vale = bool(avisado and not obsoleto)
+    destinos = [d for d in (getattr(concert, "sale_notice_to", None) or []) if isinstance(d, dict)]
+    act_at = getattr(concert, "sale_activation_requested_at", None)
+    not_at = getattr(concert, "sale_notice_at", None)
+    return {
+        "applies": True,
+        "activated": activado,
+        "has_date": bool(fecha),
+        "on_sale": bool(fecha and fecha <= hoy),
+        "scheduled": bool(fecha and fecha > hoy),
+        "notified": avisado_vale,
+        "notice_stale": obsoleto,
+        "signature": firma_ahora,
+        # Activar la venta: mientras no se haya activado ni tenga ya fecha (si ya la tiene, activarla
+        # no aporta nada: la venta está en marcha).
+        "needs_activation": bool(not activado and not fecha),
+        "needs_onsale": bool(activado and not fecha),
+        # Comunicarla es OBLIGATORIO, pero solo de lo que sale a la venta a partir del corte (o de lo
+        # que se ha activado desde la app): no se reclama el aviso de ventas ya abiertas.
+        "needs_notice": bool(fecha and not avisado_vale
+                             and (activado or fecha >= SALE_NOTICE_TASK_FROM)),
+        "date": fecha,
+        "date_label": (fecha.strftime("%d/%m/%Y") if fecha else ""),
+        "time_label": hora[:5],
+        "activated_at_label": (act_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if act_at else ""),
+        "activated_by": (getattr(concert, "sale_activation_by_nick", None) or ""),
+        "notice_at_label": (not_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M") if not_at else ""),
+        "notice_by": (getattr(concert, "sale_notice_by_nick", None) or ""),
+        "notice_to_label": " · ".join([(d.get("name") or d.get("email") or "").strip()
+                                       for d in destinos if (d.get("name") or d.get("email"))]),
+    }
+
+
+def _sale_sello_user_ids(session_db, artist_id) -> list[str]:
+    """Quién del SELLO tiene asignado ese artista (faceta sello).
+
+    ⚠️ Sin fallback al departamento entero: el aviso de la salida a la venta va a la PERSONA que
+    lleva al artista; si no hay nadie apuntado, no se le escribe a todo el sello."""
+    aid = str(artist_id or "")
+    if not aid:
+        return []
+    fuera = _inactive_user_ids(session_db)
+    salida = []
+    try:
+        for prof in session_db.query(UserProfile).all():
+            uid = str(getattr(prof, "user_id", "") or "")
+            if not uid or to_uuid(uid) in fuera:
+                continue
+            if aid in [str(x) for x in (getattr(prof, "assigned_artist_ids_sello", None) or [])]:
+                salida.append(uid)
+    except Exception:
+        return []
+    return salida
+
+
+def _sale_notice_people(session_db, user_ids, role: str) -> list[dict]:
+    """Personal de la casa (nombre, correo y foto) para la lista de destinatarios del aviso."""
+    ids = [to_uuid(str(x)) for x in (user_ids or []) if to_uuid(str(x))]
+    if not ids:
+        return []
+    fuera = _inactive_user_ids(session_db)
+    filas = []
+    try:
+        for u, prof in (session_db.query(User, UserProfile)
+                        .outerjoin(UserProfile, UserProfile.user_id == User.id)
+                        .filter(User.id.in_(ids)).all()):
+            if u.id in fuera:
+                continue
+            correo = (getattr(u, "email", None) or "").strip()
+            if not correo:
+                continue
+            filas.append({"name": ((getattr(prof, "nick", None) or correo).strip()),
+                          "email": correo, "role": role,
+                          "photo": (getattr(prof, "photo_url", "") or ""), "is_person": True})
+    except Exception:
+        return []
+    return filas
+
+
+def _sale_notice_recipients(session_db, concert) -> list[dict]:
+    """A QUIÉN se le avisa de la salida a la venta, con su papel (para poder quitar a quien sobre).
+
+    · El ARTISTA, a las cuentas configuradas para NOTIFICACIONES DE ACTIVIDADES (el mismo canal que
+      el aviso de la actividad: con caché o sin caché).
+    · La persona responsable de PRODUCCIÓN de la actividad.
+    · CONTRATACIÓN (el departamento).
+    · La persona del SELLO que tenga ese artista asignado.
+    """
+    filas, vistos = [], set()
+
+    def anota(fila):
+        correo = (fila.get("email") or "").strip().lower()
+        if not correo or correo in vistos:
+            return
+        vistos.add(correo)
+        fila["key"] = correo
+        filas.append(fila)
+
+    # ARTISTA (en una actividad de EVENTO no hay artista al que avisar: su `artist_id` es el espejo).
+    if getattr(concert, "artist_id", None) and not getattr(concert, "event_id", None):
+        canal = _activity_notification_channel(session_db, concert)
+        for r in _artist_notification_recipients(session_db, concert.artist_id, canal):
+            if (r.get("email") or "").strip():
+                anota({"name": (r.get("name") or ""), "email": r["email"], "role": "Artista",
+                       "photo": "", "is_person": True})
+    # PRODUCCIÓN de esta actividad.
+    if getattr(concert, "production_owner_user_id", None):
+        for f in _sale_notice_people(session_db, [concert.production_owner_user_id], "Producción"):
+            anota(f)
+    # CONTRATACIÓN.
+    for f in _sale_notice_people(session_db, _department_user_ids(session_db, "Contratación"),
+                                 "Contratación"):
+        anota(f)
+    # SELLO: quien lleva a ese artista.
+    if getattr(concert, "artist_id", None) and not getattr(concert, "event_id", None):
+        for f in _sale_notice_people(session_db, _sale_sello_user_ids(session_db, concert.artist_id),
+                                     "Sello"):
+            anota(f)
+    return filas
+
+
+def _sale_notice_channels(session_db, concert) -> list[dict]:
+    """Los CANALES DE VENTA con su logo y su enlace (lo que va en la tabla del aviso)."""
+    filas = []
+    for r in _concert_sale_channel_rows(concert):
+        filas.append({"name": r["name"], "logo_url": (r.get("logo_url") or ""),
+                      "url": (r.get("sale_url") or "")})
+    # El vendedor puede tener su propio enlace aunque no sea una ticketera de la lista.
+    seller = _concert_sale_seller(concert)
+    url_seller = (seller.get("url") or "").strip()
+    if url_seller and not any((f["url"] or "").strip() == url_seller for f in filas):
+        filas.append({"name": (seller.get("label") or "Venta de entradas"), "logo_url": "",
+                      "url": url_seller})
+    return filas
+
+
+def _sale_notice_artwork(session_db, concert) -> dict:
+    """¿Hay carteles subidos y aprobados? (y el enlace a la cartelería de la actividad)."""
+    salida = {"has": False, "count": 0, "url": ""}
+    if concert is None:
+        return salida
+    try:
+        req = getattr(concert, "artwork_request", None)
+        activos = [a for a in ((getattr(req, "assets", None) or []) if req else [])
+                   if not bool(getattr(a, "is_archived", False))
+                   and (getattr(a, "validation_status", None) or "APPROVED") == "APPROVED"]
+        # Los de TODA la gira o el ciclo valen igual: son los carteles de esta fecha también.
+        if not activos:
+            for kind, gid in (("TOUR", getattr(concert, "purchased_tour_id", None)),
+                              ("CYCLE", getattr(concert, "cycle_festival_id", None))):
+                if not gid:
+                    continue
+                activos = list(_artwork_group_context(session_db, kind, gid).get("gk_assets") or [])
+                if activos:
+                    break
+        if activos:
+            salida = {"has": True, "count": len(activos),
+                      "url": _external_url_for("concert_detail_view", cid=concert.id,
+                                               tab="carteleria")}
+    except Exception:
+        app.logger.exception("[venta] no se pudieron mirar los carteles de la actividad")
+    return salida
+
+
+def _sale_notice_sentence(concert, state: dict) -> str:
+    """«El concierto saldrá a la venta el miércoles 23 de abril de 2026 a las 12:00.»
+
+    Si la fecha ya ha pasado no se dice en futuro (sería mentira): se dice desde cuándo está."""
+    try:
+        tipo = (_activity_kind_label(getattr(concert, "activity_type", None)) or "concierto")
+    except Exception:
+        tipo = "concierto"
+    tipo = tipo[:1].lower() + tipo[1:] if tipo else "concierto"
+    fecha = state.get("date")
+    largo = _vacation_long_date(fecha) if fecha else ""
+    hora = (state.get("time_label") or "").strip()
+    cola = (" a las %s" % hora) if hora else ""
+    if not fecha:
+        return "El %s sale a la venta próximamente." % tipo
+    # ⚠️ Si YA está a la venta se dice ESO (con su fecha y su hora); si todavía no, CUÁNDO sale. El
+    # texto es el mismo, lo que cambia es lo que afirma — decir «saldrá a la venta» de algo que ya
+    # está vendiendo sería mentira.
+    hoy = today_local()
+    if fecha > hoy:
+        return "El %s saldrá a la venta el %s%s." % (tipo, largo, cola)
+    if fecha == hoy:
+        return "El %s ya está a la venta desde hoy, %s%s." % (tipo, largo, cola)
+    return "El %s ya está a la venta desde el %s%s." % (tipo, largo, cola)
+
+
+def _sale_notice_context(session_db, concert) -> dict:
+    """Todo lo que necesitan el correo, la vista previa y el asunto."""
+    state = _concert_sale_state(session_db, concert)
+    company = getattr(concert, "billing_company", None) or getattr(concert, "group_company", None)
+    logo_url = (getattr(company, "logo_url", None) or "").strip()
+    if not logo_url:
+        try:
+            logo_url = url_for("static", filename="img/logo_33_producciones.png")
+        except Exception:
+            logo_url = ""
+    artist = getattr(concert, "artist", None)
+    evento = None
+    if getattr(concert, "event_id", None):
+        try:
+            evento = session_db.get(AppEvent, concert.event_id)
+        except Exception:
+            evento = None
+    nombre = ((getattr(evento, "name", None) or "").strip()
+              or (getattr(artist, "name", None) or "").strip() or "Actividad")
+    foto = ((getattr(evento, "logo_url", None) or "").strip()
+            or (getattr(artist, "photo_url", None) or "").strip())
+    try:
+        eyebrow = _activity_kind_label(getattr(concert, "activity_type", None)) or ""
+    except Exception:
+        eyebrow = ""
+    # El nombre con el que se identifica en el asunto: el festival y, si no tiene, el municipio.
+    lugar = ((getattr(concert, "festival_name", None) or "").strip()
+             or (_concert_city(concert) or "").strip())
+    return {
+        "concert_id": str(getattr(concert, "id", "") or ""),
+        "title": SALE_NOTICE_TITLE,
+        "company_name": (getattr(company, "name", None) or "").strip(),
+        "logo_url": logo_url,
+        "subject_name": nombre,
+        "subject_photo": foto,
+        "eyebrow": eyebrow,
+        "place_name": lugar,
+        "activity_date_label": (concert.date.strftime("%d/%m/%Y") if getattr(concert, "date", None) else ""),
+        "hero_rows": [{"icon": i, "label": l, "value": str(v)} for i, l, v in _contract_sheet_hero_rows(concert)],
+        "sentence": _sale_notice_sentence(concert, state),
+        "channels": _sale_notice_channels(session_db, concert),
+        "artwork": _sale_notice_artwork(session_db, concert),
+        "state": state,
+    }
+
+
+def _sale_notice_subject(ctx: dict) -> str:
+    """«Salida a la venta, <festival o municipio>, <fecha de la actividad>»."""
+    partes = [SALE_NOTICE_TITLE]
+    if (ctx.get("place_name") or "").strip():
+        partes.append(ctx["place_name"].strip())
+    if (ctx.get("activity_date_label") or "").strip():
+        partes.append(ctx["activity_date_label"].strip())
+    return ", ".join(partes)
+
+
+def _sale_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool = False) -> str:
+    """EL motor del aviso de salida a la venta: el mismo HTML para el correo y la vista previa.
+
+    Estilos EN LÍNEA (los clientes de correo se comen las hojas de estilo). Con `preview=True` cada
+    módulo lleva su ojo para dejarlo fuera antes de enviar.
+    ⚠️ `escape()` devuelve Markup y `'<div>' + Markup(...)` escaparía el trozo de la izquierda (bug
+    real del aviso al artista): aquí se escapa SIEMPRE a `str`."""
+    def esc(valor) -> str:
+        return str(escape("" if valor is None else valor))
+
+    ocultos = {str(x).strip().lower() for x in (hidden or [])}
+    logo = _absolute_media_url(ctx.get("logo_url") or "") if (ctx.get("logo_url") or "") else ""
+    foto = _absolute_media_url(ctx.get("subject_photo") or "") if (ctx.get("subject_photo") or "") else ""
+
+    def ojo(clave, etiqueta):
+        if not preview:
+            return ""
+        return (f'<button type="button" class="an-eye" data-notice-eye="{esc(clave)}" '
+                f'title="Ocultar «{esc(etiqueta)}» del aviso" '
+                'style="border:0;background:transparent;cursor:pointer;color:#8b95a1;font-size:14px;">'
+                '<i class="fa fa-eye"></i></button>')
+
+    partes = ['<div style="font-family:Arial,Helvetica,sans-serif;color:#212529;max-width:660px;margin:0 auto;">']
+    # ---- logo de la empresa del grupo a la DERECHA y el título CENTRADO ----
+    partes.append('<div style="text-align:right;margin-bottom:6px;">'
+                  + (f'<img src="{esc(logo)}" alt="{esc(ctx.get("company_name") or "")}" '
+                     'style="max-height:54px;max-width:190px;">' if logo else "")
+                  + '</div>')
+    partes.append(f'<h2 style="text-align:center;font-size:22px;margin:0 0 14px;">{esc(ctx.get("title") or "")}</h2>')
+
+    if (note or "").strip():
+        partes.append('<div style="margin:0 0 16px;padding:12px 14px;border-radius:12px;background:#f8fafc;'
+                      'border:1px solid #e6e8eb;font-size:14px;line-height:1.7;color:#374151;white-space:pre-line;">'
+                      + esc(note.strip()) + '</div>')
+
+    # ---- LA GALLETA: la cabecera de la actividad, igual que en la app ----
+    datos = "".join(
+        '<tr>'
+        f'<td style="padding:2px 10px 2px 0;color:#6b7683;font-size:12px;white-space:nowrap;">{esc(r["label"])}</td>'
+        f'<td style="padding:2px 0;color:#212529;font-size:13px;font-weight:700;">{esc(r["value"])}</td>'
+        '</tr>' for r in (ctx.get("hero_rows") or [])
+    )
+    partes.append(
+        '<div style="border:1px solid #e6e8eb;border-radius:14px;padding:14px;background:#fff;">'
+        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;"><tr>'
+        + (f'<td style="width:76px;vertical-align:top;"><img src="{esc(foto)}" alt="" '
+           'style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:1px solid #e6e8eb;"></td>' if foto else "")
+        + '<td style="vertical-align:top;">'
+        + (f'<div style="font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#8b95a1;">{esc(ctx.get("eyebrow") or "")}</div>' if (ctx.get("eyebrow") or "") else "")
+        + f'<div style="font-size:19px;font-weight:800;margin:1px 0 6px;">{esc(ctx.get("subject_name") or "")}</div>'
+        + f'<table role="presentation" style="border-collapse:collapse;">{datos}</table>'
+        + '</td></tr></table></div>'
+    )
+
+    # ---- CUÁNDO sale a la venta (y a qué hora) ----
+    partes.append('<p style="margin:16px 0 0;font-size:16px;line-height:1.6;text-align:center;">'
+                  + f'<strong>{esc(ctx.get("sentence") or "")}</strong></p>')
+
+    # ---- CANALES DE VENTA: logo + copiar el enlace + ir al enlace ----
+    canales = list(ctx.get("channels") or [])
+    if canales and ("canales" not in ocultos or preview):
+        oculto_ahora = ' data-notice-hidden="1"' if "canales" in ocultos else ""
+        estilo = "opacity:.35;" if (preview and "canales" in ocultos) else ""
+        filas = ""
+        for c in canales:
+            logo_c = _absolute_media_url(c.get("logo_url") or "") if (c.get("logo_url") or "") else ""
+            url = (c.get("url") or "").strip()
+            marca = (f'<img src="{esc(logo_c)}" alt="{esc(c.get("name") or "")}" '
+                     'style="max-height:34px;max-width:120px;vertical-align:middle;">' if logo_c
+                     else f'<span style="font-weight:700;font-size:14px;">{esc(c.get("name") or "")}</span>')
+            if url:
+                # ⚠️ En un correo no corre JavaScript: el botón de COPIAR es un enlace normal (y en
+                # la app lo convierte en «copiar de verdad» el JS de la vista previa). Debajo va la
+                # dirección en texto, que es lo que de verdad se puede copiar desde el correo.
+                botones = (
+                    f'<a href="{esc(url)}" data-sale-copy="{esc(url)}" '
+                    'style="display:inline-block;padding:8px 12px;border:1px solid #d7dbe0;border-radius:8px;'
+                    'color:#212529;text-decoration:none;font-size:13px;font-weight:700;margin-right:6px;">'
+                    'Copiar enlace</a>'
+                    f'<a href="{esc(url)}" style="display:inline-block;padding:8px 12px;background:#E33D48;'
+                    'color:#fff;text-decoration:none;border-radius:8px;font-size:13px;font-weight:700;">'
+                    'Ir al enlace de venta</a>'
+                    f'<div style="margin-top:4px;font-size:11px;color:#8b95a1;word-break:break-all;">{esc(url)}</div>'
+                )
+            else:
+                botones = '<span style="font-size:12px;color:#8b95a1;">Sin enlace de venta</span>'
+            filas += ('<tr>'
+                      f'<td style="padding:8px 12px 8px 0;vertical-align:middle;width:130px;">{marca}</td>'
+                      f'<td style="padding:8px 0;vertical-align:middle;">{botones}</td>'
+                      '</tr>')
+        partes.append(
+            f'<div data-notice-module="canales"{oculto_ahora} style="margin-top:18px;{estilo}">'
+            '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">'
+            '<tr><td style="font-size:16px;font-weight:800;">Canales de venta</td>'
+            f'<td align="right">{ojo("canales", "Canales de venta")}</td></tr></table>'
+            '<div style="border:1px solid #e6e8eb;border-radius:14px;padding:10px 14px;background:#fff;margin-top:8px;">'
+            '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+            f'style="border-collapse:collapse;">{filas}</table></div></div>'
+        )
+
+    # ---- CARTELES: solo si están subidos ----
+    art = ctx.get("artwork") or {}
+    if art.get("has") and ("carteles" not in ocultos or preview):
+        oculto_ahora = ' data-notice-hidden="1"' if "carteles" in ocultos else ""
+        estilo = "opacity:.35;" if (preview and "carteles" in ocultos) else ""
+        partes.append(
+            f'<div data-notice-module="carteles"{oculto_ahora} style="margin-top:18px;{estilo}">'
+            '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">'
+            '<tr><td style="font-size:14px;">Puedes descargar los carteles</td>'
+            f'<td align="right">{ojo("carteles", "Carteles")}</td></tr></table>'
+            f'<div style="margin-top:8px;"><a href="{esc(art.get("url") or "")}" '
+            'style="display:inline-block;padding:11px 16px;background:#212529;color:#fff;'
+            'text-decoration:none;border-radius:9px;font-weight:700;font-size:14px;">'
+            'Descargar Carteles</a></div></div>'
+        )
+
+    partes.append("</div>")
+    return "".join(partes)
+
+
+def _concert_for_sale_notice(session_db, cid):
+    return (session_db.query(Concert)
+            .options(joinedload(Concert.artist), joinedload(Concert.venue),
+                     joinedload(Concert.billing_company), joinedload(Concert.group_company),
+                     selectinload(Concert.ticketers).joinedload(ConcertTicketer.ticketer))
+            .filter(Concert.id == to_uuid(cid)).first())
+
+
+@app.post("/conciertos/<cid>/activar-venta", endpoint="concert_sale_activate")
+@admin_required
+def concert_sale_activate(cid):
+    """CONTRATACIÓN activa la venta: se lo pide a Ticketing, que la saca a la venta.
+
+    Activar la venta y activar la producción son DOS funciones distintas: esto no toca la
+    producción ni la fecha de salida a la venta, solo dice «hay que sacarla ya»."""
+    if not can_edit_concerts():
+        return forbid("No tienes permisos para activar la venta de una actividad.")
+    next_url = safe_next_or(request.form.get("next")
+                            or url_for("concert_detail_view", cid=cid, tab="general"))
+    session_db = db()
+    try:
+        concert = _concert_for_sale_notice(session_db, cid)
+        if concert is None:
+            flash("Actividad no encontrada.", "warning")
+            return redirect(next_url)
+        estado = _concert_sale_state(session_db, concert)
+        if not estado["applies"]:
+            flash("Esta actividad no vende entradas nuestras: no hay venta que activar.", "warning")
+            return redirect(next_url)
+        if estado["has_date"]:
+            flash("Esta actividad ya tiene fecha de salida a la venta.", "info")
+            return redirect(next_url)
+        yo = _current_user_state() or {}
+        if not estado["activated"]:
+            concert.sale_activation_requested_at = _now_madrid()
+            concert.sale_activation_by_user_id = to_uuid(str(yo.get("user_id") or "")) or None
+            concert.sale_activation_by_nick = (yo.get("nick") or None)
+            concert.updated_at = _now_madrid()
+        # AVISO a TICKETING: es su tarea sacarla a la venta.
+        titulo = "Sacar a la venta: %s" % ((getattr(concert.artist, "name", None) or "actividad")
+                                           if getattr(concert, "artist", None) else "actividad")
+        cuerpo = " · ".join([x for x in [
+            (concert.date.strftime("%d/%m/%Y") if concert.date else ""),
+            (_concert_venue_name(concert) or ""), (_concert_city(concert) or ""),
+        ] if x])
+        _notify_users(session_db, _department_user_ids(session_db, "Ticketing"), "VENTA",
+                      titulo, cuerpo,
+                      url=url_for("concert_detail_view", cid=concert.id, tab="ticketing"),
+                      ref_type="CONCERT_SALE", ref_id=str(concert.id))
+        session_db.commit()
+        flash("Venta activada: Ticketing tiene que sacarla a la venta.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo activar la venta: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.get("/conciertos/<cid>/notificar-venta", endpoint="concert_sale_notice_view")
+@admin_required
+def concert_sale_notice_view(cid):
+    """VISTA PREVIA del aviso de salida a la venta: se ve tal como va a llegar, se elige a quién se
+    le manda (se puede añadir y quitar), se le puede poner una nota y desde ahí se envía."""
+    if not can_set_concert_onsale():
+        return forbid("No tienes permisos para notificar la salida a la venta.")
+    session_db = db()
+    try:
+        concert = _concert_for_sale_notice(session_db, cid)
+        if not concert:
+            abort(404)
+        ctx = _sale_notice_context(session_db, concert)
+        return render_template(
+            "concert_sale_notice.html",
+            concert=concert,
+            notice=ctx,
+            notice_modules=SALE_NOTICE_MODULES,
+            sale_state=ctx["state"],
+            recipients=_sale_notice_recipients(session_db, concert),
+            subject=_sale_notice_subject(ctx),
+            preview_html=_sale_notice_html(ctx, preview=True),
+        )
+    finally:
+        session_db.close()
+
+
+@app.post("/conciertos/<cid>/notificar-venta/vista-previa", endpoint="concert_sale_notice_preview")
+@admin_required
+def concert_sale_notice_preview(cid):
+    """Recalcula la vista previa con la nota y los módulos ocultos."""
+    if not can_set_concert_onsale():
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    payload = request.get_json(silent=True) or {}
+    session_db = db()
+    try:
+        concert = _concert_for_sale_notice(session_db, cid)
+        if not concert:
+            return jsonify({"ok": False, "error": "Actividad no encontrada."}), 404
+        ctx = _sale_notice_context(session_db, concert)
+        return jsonify({"ok": True, "html": _sale_notice_html(
+            ctx, note=(payload.get("note") or ""), hidden=(payload.get("hidden") or []),
+            preview=True)})
+    finally:
+        session_db.close()
+
+
+@app.post("/conciertos/<cid>/notificar-venta", endpoint="concert_sale_notice_send")
+@admin_required
+def concert_sale_notice_send(cid):
+    """Manda el aviso de la salida a la venta y lo deja apuntado.
+
+    Es el paso OBLIGATORIO del proceso: hasta que sale el correo, la actividad sigue en las tareas
+    pendientes de Ticketing."""
+    if not can_set_concert_onsale():
+        return jsonify({"ok": False, "error": "Sin permisos."}), 403
+    datos = request.get_json(silent=True) if request.is_json else None
+    datos = datos if isinstance(datos, dict) else request.form
+    session_db = db()
+    try:
+        concert = _concert_for_sale_notice(session_db, cid)
+        if not concert:
+            return jsonify({"ok": False, "error": "Actividad no encontrada."}), 404
+        estado = _concert_sale_state(session_db, concert)
+        if not estado["has_date"]:
+            return jsonify({"ok": False, "error": "Todavía no hay fecha de salida a la venta: "
+                                                  "ponla o prográmala antes de notificarla."}), 400
+        ocultos = ([str(x).strip().lower() for x in datos.getlist("hidden")]
+                   if hasattr(datos, "getlist") else
+                   [str(x).strip().lower() for x in (datos.get("hidden") or [])])
+        ocultos = [x for x in ocultos if x in SALE_NOTICE_MODULE_LABELS]
+        nota = (datos.get("note") or "").strip()
+
+        configurados = _sale_notice_recipients(session_db, concert)
+        marcados = ([x for x in datos.getlist("emails")] if hasattr(datos, "getlist")
+                    else list(datos.get("emails") or []))
+        marcados = [str(x).strip() for x in marcados if str(x or "").strip()]
+        extras = [x.strip() for x in re.split(r"[;,\n]+", str(datos.get("extra_emails") or ""))
+                  if x.strip()]
+        destinos = _dedupe_valid_email_addresses((marcados or [r["email"] for r in configurados])
+                                                + extras)
+        if not destinos:
+            return jsonify({"ok": False, "error": "No hay ningún correo al que avisar. Marca a "
+                                                  "alguien o escribe un correo."}), 400
+
+        ctx = _sale_notice_context(session_db, concert)
+        cuerpo = _sale_notice_html(ctx, note=nota, hidden=ocultos)
+        ok, error = _send_optional_email(destinos, _sale_notice_subject(ctx), cuerpo)
+        if not ok:
+            return jsonify({"ok": False, "error": "No se pudo enviar el correo: %s"
+                                                  % (error or "error desconocido")}), 400
+
+        yo = _current_user_state() or {}
+        por_correo = {(r.get("email") or "").lower(): (r.get("name") or "") for r in configurados}
+        roles = {(r.get("email") or "").lower(): (r.get("role") or "") for r in configurados}
+        concert.sale_notice_at = _now_madrid()
+        concert.sale_notice_by_user_id = to_uuid(str(yo.get("user_id") or "")) or None
+        concert.sale_notice_by_nick = (yo.get("nick") or None)
+        concert.sale_notice_to = [{"email": d, "name": por_correo.get(d.lower(), ""),
+                                   "role": roles.get(d.lower(), "")} for d in destinos]
+        concert.sale_notice_signature = _concert_sale_signature(concert)
+        concert.updated_at = _now_madrid()
+        # El aviso de «sacar a la venta» ya está hecho: se cierra solo (un aviso es «esto te espera»).
+        _notify_resolve(session_db, "CONCERT_SALE", str(concert.id))
+        session_db.commit()
+        return jsonify({"ok": True, "recipients": destinos,
+                        "url": url_for("concert_detail_view", cid=concert.id, tab="general")})
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+def _home_ticketing_sales_tasks(session_db, *, limit: int = 40) -> list[dict]:
+    """Tareas de TICKETING: sacar a la venta lo que contratación ha activado y notificar la salida.
+
+    Las dos son de Ticketing y desaparecen solas: la primera al poner (o programar) la fecha y la
+    segunda al mandar el aviso — que es cuando la actividad pasa a estar en actualización de ventas.
+    ⚠️ NO se filtra por `sale_notice_at` en la consulta: si la venta se REPROGRAMA después de
+    haberla comunicado, el aviso deja de valer y vuelve a ser tarea suya (esa fila ya tiene fecha de
+    aviso, así que el filtro se la comía y la tarea no aparecía). Quien decide es
+    `_concert_sale_state`.
+    """
+    hoy = today_local()
+    filas = []
+    try:
+        candidatos = (session_db.query(Concert)
+                      .options(joinedload(Concert.artist), joinedload(Concert.venue))
+                      .filter(func.upper(func.coalesce(Concert.status, "")) == "CONFIRMADO")
+                      .filter(or_(Concert.date.is_(None), Concert.date >= hoy))
+                      .filter(or_(Concert.sale_activation_requested_at.isnot(None),
+                                  Concert.sale_start_date.isnot(None)))
+                      .order_by(Concert.date.asc().nullslast()).limit(300).all())
+    except Exception:
+        return []
+    for c in candidatos:
+        estado = _concert_sale_state(session_db, c)
+        if not (estado["needs_onsale"] or estado["needs_notice"]):
+            continue
+        kind = _activity_kind_key(c.activity_type) or "CONCIERTO"
+        avisar = estado["needs_notice"]
+        filas.append({
+            "id": str(c.id),
+            "url": (url_for("concert_sale_notice_view", cid=c.id) if avisar
+                    else url_for("concert_detail_view", cid=c.id, tab="ticketing")),
+            "icon": QUAD_ACTIVITY_ICONS.get(kind, "fa-guitar"),
+            "type_label": _activity_kind_label(kind),
+            "title": ((c.festival_name or "").strip()
+                      or (c.artist.name if c.artist else "") or _activity_kind_label(kind)),
+            "date_label": (c.date.strftime("%d/%m/%Y") if c.date else "Sin fecha"),
+            "venue": (_concert_venue_name(c) or ""),
+            "municipality": _concert_city(c),
+            "action_label": ("Notificar la salida a la venta" if avisar else "Sacar a la venta"),
+            "sale_label": (("Sale el %s" % estado["date_label"]) if estado["has_date"] else ""),
+            "needs_notice": avisar,
+        })
+        if len(filas) >= limit:
+            break
+    return filas
+
+
+def _home_ticketing_sales_wrap() -> list[dict]:
+    """Envoltorio para el contexto de plantillas: solo a Ticketing (y a dirección)."""
+    if not (_user_is_ticketing() or is_master()):
+        return []
+    session_db = db()
+    try:
+        return _home_ticketing_sales_tasks(session_db)
+    except Exception:
+        app.logger.exception("[venta] no se pudieron calcular las tareas de ticketing")
+        return []
+    finally:
+        session_db.close()
+
+
 @app.post('/conciertos/<cid>/ficha-contratacion/solicitar', endpoint='concert_contract_sheet_request')
 @admin_required
 def concert_contract_sheet_request(cid):
@@ -72639,6 +73574,10 @@ def _accounting_amounts(session_db, expense, *, invoice=None) -> dict:
         base = total - iva + ret
     if base <= 0 and total > 0:
         base = total
+    # Con la base y el total, el IVA se despeja (es la diferencia, devolviéndole la retención). Sin
+    # esto, un gasto del que solo se guardó base y total salía con «—» en IVA teniéndolo delante.
+    if iva <= 0 and base > 0 and total > base:
+        iva = total - base + ret
     if iva_pct is None and base > 0 and iva > 0:
         iva_pct = (iva / base * Decimal("100")).quantize(Decimal("0.01"))
     if ret_pct is None and base > 0 and ret > 0:
@@ -72809,6 +73748,174 @@ def _holded_upload_expense(session_db, expense, *, nick: str = "") -> dict:
     _holded_persist_client_state(acc, client)
     mensaje = "«%s» subido a Holded como %s." % (concepto, "compra" if es_factura else "gasto")
     return {"ok": True, "message": mensaje, "warning": " · ".join(avisos)}
+
+
+def _royalty_holded_company(session_db, rec):
+    """A qué empresa del grupo se contabiliza una liquidación de royalties.
+
+    La de la remesa con la que se pagó y, si no se pagó por remesa, PIES: las liquidaciones se
+    facturan a nombre del sello (mismo criterio que el enlace del beneficiario)."""
+    if rec is None:
+        return None
+    try:
+        if getattr(rec, "payment_batch_id", None):
+            batch = session_db.get(PaymentBatch, rec.payment_batch_id)
+            company = (session_db.get(GroupCompany, batch.company_id)
+                       if (batch is not None and getattr(batch, "company_id", None)) else None)
+            if company is not None:
+                return company
+    except Exception:
+        pass
+    # ⚠️ Se cachea el ID, no el objeto: un objeto de una sesión ya cerrada revienta al leerlo, y
+    # `session_db.get` con el id ya cargado no vuelve a la base de datos.
+    try:
+        try:
+            pid = getattr(g, "_royalty_pies_company_id", None)
+        except Exception:
+            pid = None          # fuera de una petición (cron, hilo): sin caché y a buscarla
+        if pid is None:
+            pies = _pies_group_company(session_db)
+            pid = str(getattr(pies, "id", "") or "")
+            try:
+                g._royalty_pies_company_id = pid
+            except Exception:
+                pass
+            return pies
+        return session_db.get(GroupCompany, to_uuid(pid)) if pid else None
+    except Exception:
+        return None
+
+
+def _holded_upload_royalty(session_db, rec, *, nick: str = "") -> dict:
+    """Sube a Holded la factura de UNA liquidación de royalties (una compra como cualquier otra).
+
+    Mismo camino que un gasto de bolsa (`_holded_upload_expense`): contacto → documento → comprobar
+    el total → adjuntar la factura. Lo que cambia es de dónde salen los datos: el beneficiario lo
+    resuelve `_royalty_beneficiary_promoter` (quién emite la factura) y los importes,
+    `_royalty_invoice_amounts` (los de SU factura).
+    """
+    from holded_utils import (HoldedError, build_contact_payload, build_purchase_payload,
+                              DOC_TYPE_INVOICE)
+    company = _royalty_holded_company(session_db, rec)
+    if company is None:
+        return _holded_royalty_fail(rec, "No hay empresa del grupo a la que contabilizar la "
+                                         "liquidación.")
+    acc = _holded_account_for_company(session_db, company.id)
+    try:
+        client = _holded_client_for_account(acc)
+    except HoldedError as exc:
+        return _holded_royalty_fail(rec, str(exc))
+
+    congelada = _royalty_frozen_beneficiary(rec) or {}
+    inv = (session_db.get(SupplierInvoice, rec.invoice_id)
+           if getattr(rec, "invoice_id", None) else None)
+    importes = _royalty_invoice_amounts(congelada, inv)
+    if importes["total"] <= 0:
+        return _holded_royalty_fail(rec, "La liquidación no tiene importe: en Holded no se puede "
+                                         "crear una compra de 0 €.")
+    periodo = _royalty_liquidation_period_label_from_dates(rec.period_start, rec.period_end)
+    concepto = "Royalties %s · %s" % (periodo, (congelada.get("name") or "Beneficiario"))
+    avisos = []
+
+    # 1) CONTACTO: quien EMITE la factura (el beneficiario o el tercero que le factura).
+    promoter, _cands = _royalty_beneficiary_promoter(session_db, rec)
+    nombre = (_promoter_display_name(promoter) if promoter is not None else "").strip()
+    cif = (getattr(promoter, "tax_id", None) or "").strip()
+    if not (nombre or cif):
+        return _holded_royalty_fail(rec, "No se sabe quién emite esta factura: vincula al "
+                                         "beneficiario con su tercero.")
+    piezas = _fiscal_address_parts(promoter) if promoter is not None else {}
+    contact_id = ""
+    try:
+        encontrado = client.find_contact(cif, name=nombre)
+        if encontrado:
+            contact_id = str(encontrado.get("id") or "").strip()
+        if not contact_id:
+            if not (piezas.get("postal_code") and piezas.get("city")):
+                avisos.append("El proveedor se ha creado en Holded sin código postal o sin "
+                              "municipio: complétalos en su ficha.")
+            contact_id = client.create_contact(build_contact_payload(
+                name=nombre or ("Proveedor " + cif), tax_id=cif,
+                email=(getattr(promoter, "contact_email", None) or ""),
+                phone=(getattr(promoter, "contact_phone", None) or ""),
+                address=(piezas.get("address") or ""), postal_code=(piezas.get("postal_code") or ""),
+                city=(piezas.get("city") or ""), province=(piezas.get("province") or ""),
+                country=(piezas.get("country") or "España"), is_person=True,
+            ))
+    except HoldedError as exc:
+        return _holded_royalty_fail(rec, "No se ha podido preparar el proveedor en Holded: %s" % exc)
+
+    # 2) DOCUMENTO (siempre una compra: una liquidación va con factura).
+    doc_type = (acc.invoice_doc_type or DOC_TYPE_INVOICE)
+    metodo_id = _accounting_holded_payment_method_id(acc, getattr(rec, "payment_method", None))
+    nota = " · ".join([x for x in [
+        ("Pagada el %s" % rec.paid_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y")) if rec.paid_at else "",
+        ("Forma de pago: %s" % (getattr(rec, "payment_method", None) or "")).strip(" :"),
+    ] if x and x.strip()])
+    payload = build_purchase_payload(
+        concept=concepto,
+        total=importes["total"], net=importes["net"],
+        vat_pct=importes["vat_pct"], retention_pct=importes["retention_pct"],
+        contact_id=(contact_id or None), contact_name=(nombre if not contact_id else None),
+        doc_number=((getattr(inv, "invoice_number", None) or "").strip() or None),
+        issue_date=getattr(inv, "issue_date", None),
+        tags=["Royalties %s" % periodo],
+        notes=(nota or None),
+        payment_method_id=(metodo_id or None),
+    )
+    try:
+        creado = client.create_document(doc_type, payload)
+    except HoldedError as exc:
+        return _holded_royalty_fail(rec, "Holded no ha creado el documento: %s" % exc)
+
+    # 3) COMPROBAR el total (red de seguridad del mapeo de impuestos).
+    try:
+        cuadra, total_holded = client.verify_document_total(doc_type, creado["id"], importes["total"])
+        if not cuadra:
+            avisos.append("En Holded ha quedado por %s y aquí son %s: revisa el IVA o la retención."
+                          % (format_eur(total_holded), format_eur(importes["total"])))
+    except HoldedError:
+        avisos.append("No se ha podido releer el documento en Holded para comprobar el total.")
+
+    # 4) ADJUNTAR la factura del beneficiario.
+    url = (getattr(inv, "file_url", None) or "").strip()
+    if url:
+        datos = _download_url_bytes(url, max_bytes=20 * 1024 * 1024)
+        if not datos:
+            avisos.append("No se ha podido descargar la factura para adjuntarla.")
+        else:
+            try:
+                client.attach_file(doc_type, creado["id"],
+                                   filename=((getattr(inv, "original_name", None) or "factura.pdf")),
+                                   content=datos)
+            except HoldedError as exc:
+                avisos.append("El documento se ha creado pero la factura NO se ha adjuntado: %s" % exc)
+    else:
+        avisos.append("Esta liquidación no tiene factura que adjuntar.")
+
+    rec.holded_company_id = to_uuid(str(company.id))
+    rec.holded_doc_id = creado["id"]
+    rec.holded_doc_type = doc_type
+    rec.holded_doc_number = creado.get("number") or None
+    rec.holded_contact_id = contact_id or None
+    rec.holded_uploaded_at = _now_madrid()
+    rec.holded_error = None
+    rec.holded_warning = (" · ".join(avisos)[:800] or None)
+    rec.updated_at = _now_madrid()
+    _royalty_history_add(rec, "HOLDED_UPLOADED", by=(nick or ""))
+    _holded_persist_client_state(acc, client)
+    return {"ok": True, "message": "«%s» subido a Holded." % concepto,
+            "warning": " · ".join(avisos)}
+
+
+def _holded_royalty_fail(rec, motivo: str) -> dict:
+    """Deja escrito en la liquidación por qué no se ha podido subir (y lo devuelve para enseñarlo)."""
+    try:
+        rec.holded_error = (motivo or "")[:800] or None
+        rec.updated_at = _now_madrid()
+    except Exception:
+        pass
+    return {"ok": False, "message": motivo, "warning": ""}
 
 
 def _holded_upload_fail(expense, motivo: str) -> dict:
@@ -78521,6 +79628,7 @@ NOTIFICATION_KIND_META = {
     "PITCH": ("Falta el pitch de un lanzamiento", "fa-bullhorn"),
     "VACACIONES": ("Vacaciones", "fa-umbrella-beach"),
     "DEMO": ("Nos han enviado demos", "fa-compact-disc"),
+    "VENTA": ("Hay que sacarla a la venta", "fa-ticket"),
 }
 
 

@@ -1619,6 +1619,60 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   siempre). Queda marcado en `artist_notified_to = [{"manual": true}]` → `_concert_notice_state`
   devuelve `manual` y la etiqueta dice «Notificado (a mano)».
 
+- **SALIDA A LA VENTA · activar la venta y COMUNICARLA** (ago 2026). Sacar una actividad a la venta
+  son **tres pasos con tres dueños**, y **activar la venta NO es activar la producción**: son
+  funciones separadas y tareas distintas.
+  · **1. CONTRATACIÓN «Activa la venta»** (`concert_sale_activate`, botón en la barra de la ficha y
+  tarea **«Sin activar la venta»** en el módulo de Contratación): no toca la fecha, solo dice «hay que
+  sacarla ya». Al pulsarlo le llega el **aviso a TICKETING** (kind `VENTA`, `ref_type='CONCERT_SALE'`).
+  · **2. TICKETING la saca a la venta o la programa** con la etiqueta **Venta** de la cabecera
+  (`concert_onsale_set`), que ahora guarda también la **HORA** (`Concert.sale_start_time`) — es la que
+  se dice en el aviso.
+  · **3. TICKETING la COMUNICA** (`concert_sale_notice_view` → `_send`): **es obligatorio**; hasta que
+  se manda, la actividad sigue en sus tareas. Al mandarlo desaparece de ellas y la actividad pasa a
+  estar en **actualización de ventas** (`/ventas`, que lista lo que ya tiene fecha de salida).
+  · **Cuándo aplica**: la actividad **vende entradas** (`entry_mode == 'SALE'`), la promueve una
+  **empresa del grupo** y la venta la sacamos **nosotros** (`_concert_sale_is_ours`). Si vende el
+  recinto, el promotor o un tercero, no es trabajo nuestro. Punto único **`_concert_sale_state`**
+  (`applies` · `needs_activation` · `needs_onsale` · `needs_notice` · `notified` · `notice_stale`),
+  que usan las tareas, los botones de la ficha y las compuertas.
+  · **A QUIÉN se le manda** (`_sale_notice_recipients`, con su papel y su casilla para quitarlo): el
+  **ARTISTA** a las cuentas configuradas para **notificaciones de actividades** (el mismo canal que el
+  aviso de la actividad, con caché o sin caché), la persona de **PRODUCCIÓN** de esa actividad,
+  **CONTRATACIÓN** (el departamento) y **la persona del SELLO que tenga ese artista asignado**
+  (`assigned_artist_ids_sello`, **sin caer** en todo el departamento: es un aviso para quien lo lleva).
+  Se pueden añadir otros correos a mano.
+  · **Asunto**: «**Salida a la venta, \<festival o municipio\>, \<fecha de la actividad\>**».
+  **Cuerpo** (`_sale_notice_html`, el MISMO HTML para el correo y la vista previa): logo de la empresa
+  del grupo arriba a la **derecha**, «Salida a la venta» centrado, la **galleta** de la actividad (la
+  misma cabecera que la ficha, `_contract_sheet_hero_rows`), la frase de **cuándo sale**, la tabla de
+  **Canales de venta** (logo + copiar el enlace + ir al enlace) y, **solo si hay carteles aprobados**,
+  «Puedes descargar los carteles» con el botón **Descargar Carteles** (lleva a la cartelería de la
+  actividad).
+  ⚠️ **Si YA está a la venta el texto lo DICE** (`_sale_notice_sentence`): «ya está a la venta desde
+  el \<día\>» (o «desde hoy»); si todavía no, «saldrá a la venta el \<día\> a las \<hora\>».
+  Decir «saldrá a la venta» de algo que ya se está vendiendo sería mentira.
+  ⚠️ En un correo **no corre JavaScript**: el botón «Copiar enlace» es un enlace normal (y debajo va
+  la dirección en texto, que es lo que de verdad se copia desde el correo); en la **vista previa** de
+  la app sí copia de verdad.
+  · **Vista previa** (`concert_sale_notice.html`): destinatarios con casillas, correos extra, nota y un
+  **ojo por módulo** (`canales`, `carteles`) para dejarlo fuera, igual que el aviso al artista.
+  · **Un cambio invalida el aviso**: `_concert_sale_signature` (día + hora) se guarda al comunicarlo;
+  si se reprograma, la etiqueta vuelve con «hay cambios» y hay que comunicarlo otra vez.
+  ⚠️ La lista de tareas de Ticketing **NO filtra por `sale_notice_at` en la consulta** (bug real de
+  esta épica): una venta reprogramada ya tiene fecha de aviso y ese filtro se la comía, así que la
+  tarea no volvía a aparecer. Decide `_concert_sale_state`.
+  ⚠️ **Corte `SALE_NOTICE_TASK_FROM` (18-ago-2026)**: lo que YA estaba a la venta antes de que esto
+  existiera no reclama aviso (nadie va a comunicar hoy una venta que abrió en junio); lo que se active
+  desde la app sí, siempre. Mismo criterio que `PITCH_TASK_FROM`.
+  ⚠️ **Permisos**: sacar a la venta es de TICKETING, que no tiene por qué poder editar contratación →
+  punto único **`can_set_concert_onsale()`** (contratación · ticketing · ventas · dirección), global de
+  plantilla `CAN_SET_ONSALE` (es el que manda en `_concert_onsale_badge.html`, antes
+  `CAN_EDIT_CONCERTS`), y los endpoints van en `SUPPORT_ACTION_ENDPOINTS` / `SUPPORT_READ_ENDPOINTS`
+  (si no, el gate de la sección los rebotaba con un 403 antes de llegar a su comprobación).
+  · Módulo de Inicio **`HOME_TICKETING_SALES`** (`_home_ticketing_sales_tasks`), solo para Ticketing y
+  dirección, con las dos tareas y su etiqueta.
+
 - **ELIMINAR UNA ACTIVIDAD · la RUEDA de la cabecera** (ago 2026). La ficha tiene arriba a la derecha
   un botón de **rueda** (`.ficha-hero__gear`) con lo que se hace de tarde en tarde: asignar/cambiar
   quién lleva la producción, avisar al artista y **Eliminar actividad**.
@@ -2052,6 +2106,36 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   endpoint del formulario).
   · Los endpoints son `accounting_*` (mapeados a la sección `contabilidad`) y el permiso de edición es
   **`can_edit_accounting()`**.
+
+- **CONTABILIDAD · una LIQUIDACIÓN DE ROYALTIES es una factura como las demás** (ago 2026,
+  corrección). En la subpestaña **Facturas** salían con «—» en **IVA** y en **retención** y **sin
+  casilla**, así que no se podían elegir para subirlas a Holded y «seleccionar todas» parecía no hacer
+  nada (si todo lo pendiente eran liquidaciones, no había ni una casilla que marcar).
+  · Su desglose sale de **SU factura** (punto único **`_royalty_invoice_amounts`**: base, IVA con su %,
+  retención con su % y total; lo que no diga la factura se despeja de la propia liquidación, cuya base
+  es `total_amount` y cuyo importe a facturar es base + IVA).
+  · Lleva su **casilla** (`name="royalty_ids"`), y las acciones en bloque la incluyen:
+  `_accounting_royalties_from_request` (con el mismo criterio que los gastos: el ÁMBITO manda sobre lo
+  marcado) + `_accounting_upload_many(..., royalties=…)` y `accounting_bulk_status`.
+  · **Se sube a Holded** (`_holded_upload_royalty` + `accounting_royalty_upload`): mismo camino que un
+  gasto (contacto → documento → comprobar el total → adjuntar la factura), con el **beneficiario** que
+  resuelve `_royalty_beneficiary_promoter` y la empresa que decide `_royalty_holded_company` (la de la
+  remesa con la que se pagó y, si no, **PIES**). Lo que devuelve Holded se guarda en la liquidación
+  (`holded_doc_id`/`_number`/`_error`/`_warning`, columnas nuevas) y se ve en su fila.
+  ⚠️ `_royalty_holded_fields` cachea en `g` para no preguntar una vez por fila, **con `try/except`**:
+  estas filas se calculan también desde un cron o un hilo en segundo plano, donde leer `g` revienta
+  con «Working outside of application context» (bug real encontrado al probarlo).
+  · Y en los gastos, **el IVA se despeja de la base y el total** (`_accounting_amounts`): un gasto del
+  que solo se guardó base y total salía con «—» en IVA teniéndolo delante.
+- **CONTABILIDAD · «Contabilizado» se lee IGUAL que «Pendiente»** (ago 2026): las **mismas
+  subpestañas** con sus iconos (Facturas · Bolsas · Tickets · Sin ticket) y las mismas columnas, pero
+  **SIN contadores** —ni en la subpestaña ni en la pestaña principal—: es un archivo que solo crece y
+  un número ahí no dice nada (los números son de lo que está PENDIENTE). Las bolsas ya contabilizadas
+  las agrupa `_accounting_bag_groups(..., only_done=True)` (con `only_done` **no** corre el autocurado
+  de «cerrada para contabilidad»: esa regla es de lo pendiente) y las liquidaciones contabilizadas van
+  en la tabla de **Facturas**, no en un módulo aparte.
+  ⚠️ **Fuera la pestaña «Facturas»** (la de después de Retenciones): repetía lo que ya está en Bases de
+  datos → Facturas. Un `?tab=facturas` de un enlace antiguo cae en «Pendiente».
 
 - **IMPORTAR TERCEROS DESDE UN FICHERO** (ago 2026). Botón **«Añadir desde fichero»** en
   Bases de datos → Terceros: se arrastra (o se elige) un **Excel (.xlsx) o un CSV** y se dan de alta

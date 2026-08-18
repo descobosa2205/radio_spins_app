@@ -10,16 +10,19 @@
 {% if _venta %}
   {% set _hoy = today_local_date() %}
   {% set _f = concert.sale_start_date %}
+  {% set _h = (concert.sale_start_time or '')[:5] %}
   {% if _f and _f <= _hoy %}
-    {% set _cls, _lab, _tip = 'text-bg-success', 'A la venta', 'Salió a la venta el ' ~ _f.strftime('%d/%m/%Y') %}
+    {% set _cls, _lab, _tip = 'text-bg-success', 'A la venta', 'Salió a la venta el ' ~ _f.strftime('%d/%m/%Y') ~ (' a las ' ~ _h if _h else '') %}
   {% elif _f %}
-    {% set _cls, _lab, _tip = 'text-bg-warning text-dark', 'Venta: ' ~ _f.strftime('%d/%m/%Y'), 'Sale a la venta el ' ~ _f.strftime('%d/%m/%Y') %}
+    {% set _cls, _lab, _tip = 'text-bg-warning text-dark', 'Venta: ' ~ _f.strftime('%d/%m/%Y') ~ (' ' ~ _h if _h else ''), 'Sale a la venta el ' ~ _f.strftime('%d/%m/%Y') ~ (' a las ' ~ _h if _h else '') %}
   {% elif concert.sale_start_tbc %}
     {% set _cls, _lab, _tip = 'text-bg-warning text-dark', 'Venta: por confirmar', 'La fecha de salida a la venta está por confirmar' %}
   {% else %}
     {% set _cls, _lab, _tip = 'text-bg-warning text-dark', 'Venta: sin fecha', 'Todavía no hay fecha de salida a la venta' %}
   {% endif %}
-  {% if CAN_EDIT_CONCERTS %}
+  {# ⚠️ Quien la saca a la venta es TICKETING, así que manda `CAN_SET_ONSALE` (contratación,
+     ticketing, ventas y dirección) y no el permiso de editar la actividad. #}
+  {% if CAN_SET_ONSALE %}
     <span class="dropdown" onclick="event.preventDefault(); event.stopPropagation();">
       <button type="button" class="badge border-0 dropdown-toggle {{ _cls }}" data-bs-toggle="dropdown" data-no-loader
               title="{{ _tip }} · pincha para cambiarlo">{{ _lab }}</button>
@@ -28,6 +31,7 @@
         <li>
           <form method="post" action="{{ url_for('concert_onsale_set', cid=concert.id) }}" class="px-1">
             <input type="hidden" name="next" value="{{ request.full_path }}">
+            <input type="hidden" name="sale_start_time" value="{{ _h }}">
             <button class="dropdown-item d-flex align-items-center gap-2 px-1 {% if _f and _f <= _hoy %}active{% endif %}"
                     name="mode" value="NOW" type="submit">
               <span class="badge text-bg-success">A la venta</span><span class="small text-muted">desde hoy</span>
@@ -51,6 +55,8 @@
             <label class="form-label small mb-1">Sale a la venta el día</label>
             <div class="input-group input-group-sm">
               <input type="date" class="form-control" name="sale_start_date" value="{{ _f.isoformat() if _f else '' }}" required>
+              {# La HORA es la que se dice en el aviso de la salida a la venta («a las 12:00»). #}
+              <input type="time" class="form-control" name="sale_start_time" value="{{ _h }}" title="Hora de salida a la venta (opcional)" style="max-width:6.5rem;">
               <button class="btn btn-primary" type="submit"><i class="fa fa-check"></i></button>
             </div>
           </form>

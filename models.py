@@ -1236,11 +1236,14 @@ class Promoter(Base):
         cascade="all, delete-orphan",
         order_by="PromoterCompany.created_at",
     )
+    # ⚠️ `foreign_keys` es obligatorio: `PromoterContact` tiene DOS caminos a `promoters` (de quién es
+    # el contacto y, si esa persona es otro tercero, `link_promoter_id`).
     contacts = relationship(
         "PromoterContact",
         back_populates="promoter",
         cascade="all, delete-orphan",
         order_by="PromoterContact.title",
+        foreign_keys="PromoterContact.promoter_id",
     )
 
 
@@ -1286,10 +1289,15 @@ class PromoterContact(Base):
     email = Column(Text)
     phone = Column(Text)
     mobile = Column(Text)
+    # La persona de contacto puede SER otro tercero (tener su propia ficha): así no se duplican sus
+    # datos y desde aquí se llega a ella. Vacío = es solo un contacto de esta ficha.
+    link_promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    promoter = relationship("Promoter", back_populates="contacts")
+    promoter = relationship("Promoter", back_populates="contacts", foreign_keys=[promoter_id])
+    # La ficha de tercero de esta persona de contacto (si es uno de los nuestros).
+    link_promoter = relationship("Promoter", foreign_keys=[link_promoter_id], viewonly=True)
 
 
 class PromoterEmail(Base):
@@ -1310,6 +1318,33 @@ class PromoterEmail(Base):
     email = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class PromoterPhone(Base):
+    """Teléfonos de un tercero, VARIOS y con su concepto («móvil», «oficina», «el del local»…).
+
+    Hermano de `PromoterEmail`: un tercero puede tener tantos como haga falta y en la pestaña de
+    datos de contacto se ven todos. El PRINCIPAL sigue viviendo en `Promoter.contact_phone` (lo lee
+    media app) y se mantiene cruzado con estas filas: si hay teléfono en la ficha, hay fila aquí."""
+
+    __tablename__ = "promoter_phones"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    promoter_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("promoters.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    concept = Column(Text, nullable=False)
+    phone = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    promoter = relationship("Promoter")
+
+    __table_args__ = (
+        Index("idx_promoter_phones_promoter_id", "promoter_id"),
+    )
 
 
 class PromoterAltValue(Base):
@@ -6990,6 +7025,23 @@ def ensure_song_royalties_schema():
         );
         """,
         'CREATE INDEX IF NOT EXISTS idx_promoter_emails_promoter_id ON promoter_emails(promoter_id);',
+        # TELÉFONOS del tercero (varios, con su concepto), hermanos de los correos.
+        """
+        CREATE TABLE IF NOT EXISTS promoter_phones (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            promoter_id uuid NOT NULL REFERENCES promoters(id) ON DELETE CASCADE,
+            concept text NOT NULL,
+            phone text NOT NULL,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_promoter_phones_promoter_id ON promoter_phones(promoter_id);',
+        # Una PERSONA DE CONTACTO puede ser otro tercero (con su propia ficha).
+        """
+        ALTER TABLE IF EXISTS promoter_contacts
+            ADD COLUMN IF NOT EXISTS link_promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL;
+        """,
 
         # Datos alternativos con nombre de un tercero (importador: «conservar los dos»).
         """

@@ -182,6 +182,7 @@ from models import (
     PromoterCompany,
     PromoterContact,
     PromoterEmail,
+    PromoterPhone,
     PromoterAltValue,
     SongRoyaltyBeneficiary,
     PublishingCompany,
@@ -27622,6 +27623,11 @@ def promoter_update(pid):
         session.close()
         return redirect(next_url)
     p.nick = request.form.get("nick", p.nick).strip()
+    # NOMBRE Y APELLIDOS (una persona los tiene además del nick: el nick es como la llamamos).
+    if "first_name" in request.form:
+        p.first_name = (request.form.get("first_name") or "").strip() or None
+    if "last_name" in request.form:
+        p.last_name = (request.form.get("last_name") or "").strip() or None
     p.tax_id = (request.form.get("tax_id") or p.tax_id or "").strip() or None
     p.contact_email = (request.form.get("contact_email") or p.contact_email or "").strip() or None
     p.contact_phone = (request.form.get("contact_phone") or p.contact_phone or "").strip() or None
@@ -27651,6 +27657,8 @@ def promoter_update(pid):
         if logo and logo.filename:
             p.logo_url = upload_image(logo, "promoters")
         linked_embargos = _auto_link_embargo_orders_for_promoter(session, p) if "_auto_link_embargo_orders_for_promoter" in globals() else 0
+        # El correo y el teléfono de la ficha son DATOS DE CONTACTO: se cruzan con su pestaña.
+        _promoter_sync_contact_rows(session, p)
         # Propaga el nuevo email/teléfono a sus invitaciones aún no enviadas (envío al último dato).
         _invitation_sync_contact_for_entity(session, promoter_id=p.id, email=p.contact_email, phone=p.contact_phone)
         session.commit()
@@ -42459,12 +42467,27 @@ def promoter_detail_view(pid):
         tab = (request.args.get('tab') or 'general').strip().lower()
         if tab not in {'general', 'contactos', 'vinculaciones', 'invitaciones', 'documentos', 'prl', 'adelantos'}:
             tab = 'general'
+        # ⚠️ CRUCE de los datos de contacto: si la ficha tiene correo o teléfono, tiene que verse en su
+        # pestaña (y al revés). Se hace al abrir la ficha, así que los terceros de antes quedan al día
+        # solos, sin migración.
+        try:
+            _promoter_sync_contact_rows(session, promoter)
+            session.commit()
+        except Exception:
+            session.rollback()
         promoter_email_addresses = (
             session.query(PromoterEmail)
             .filter(PromoterEmail.promoter_id == promoter.id)
             .order_by(PromoterEmail.created_at.asc(), PromoterEmail.concept.asc())
             .all()
         )
+        promoter_phone_numbers = _promoter_phone_rows(session, promoter.id)
+        # Las personas de contacto que SON otro tercero (para enseñar su foto y llevar a su ficha).
+        _link_ids = [c.link_promoter_id for c in (promoter.contacts or []) if c.link_promoter_id]
+        contact_links = {}
+        if _link_ids:
+            contact_links = {str(x.id): x for x in session.query(Promoter)
+                             .filter(Promoter.id.in_(_link_ids)).all()}
         grouped = defaultdict(list)
         for contact in promoter.contacts or []:
             key = (contact.title or 'Sin título').strip() or 'Sin título'
@@ -42551,6 +42574,9 @@ def promoter_detail_view(pid):
             travel_summary=_travel_summary(promoter),
             contacts_by_title=sorted(grouped.items(), key=lambda x: _norm_text_key(x[0])),
             promoter_email_addresses=promoter_email_addresses,
+            promoter_phone_numbers=promoter_phone_numbers,
+            contact_links=contact_links,
+            contact_main_concept=PROMOTER_CONTACT_MAIN_CONCEPT,
             # «Otros datos»: los valores con nombre que salen de conservar los dos al importar
             # (dos direcciones, dos teléfonos…) y las columnas del fichero que no eran un campo.
             promoter_alt_values=_promoter_alt_value_rows(session, promoter),
@@ -42600,6 +42626,158 @@ def promoter_detail_view(pid):
         )
     finally:
         session.close()
+
+
+# ---------------------------- DATOS DE CONTACTO de un tercero ----------------------------------
+# ⚠️ CRUZADOS: el email y el teléfono de la ficha (`Promoter.contact_email` / `contact_phone`, que lee
+# media app) tienen que verse SIEMPRE en la pestaña de datos de contacto. Y al revés: si alguien añade
+# ahí el primer correo o el primer teléfono y la ficha no tenía ninguno, ese pasa a ser el principal.
+# No puede haber un tercero con correo y la pestaña de contacto vacía.
+PROMOTER_CONTACT_MAIN_CONCEPT = "Principal"
+
+
+def _promoter_sync_contact_rows(session_db, promoter) -> None:
+    """Cruza el email y el teléfono de la ficha con las filas de datos de contacto (en los dos
+    sentidos). Idempotente: se puede llamar al guardar y al abrir la ficha."""
+    if promoter is None:
+        return
+    correo = (getattr(promoter, "contact_email", None) or "").strip()
+    telefono = (getattr(promoter, "contact_phone", None) or "").strip()
+    try:
+        correos = (session_db.query(PromoterEmail)
+                   .filter(PromoterEmail.promoter_id == promoter.id).all())
+        telefonos = (session_db.query(PromoterPhone)
+                     .filter(PromoterPhone.promoter_id == promoter.id).all())
+    except Exception:
+        return
+    # De la ficha a la pestaña.
+    if correo and not any((e.email or "").strip().lower() == correo.lower() for e in correos):
+        session_db.add(PromoterEmail(promoter_id=promoter.id,
+                                     concept=PROMOTER_CONTACT_MAIN_CONCEPT, email=correo))
+    if telefono and not any(_norm_phone_key(p.phone) == _norm_phone_key(telefono) for p in telefonos):
+        session_db.add(PromoterPhone(promoter_id=promoter.id,
+                                     concept=PROMOTER_CONTACT_MAIN_CONCEPT, phone=telefono))
+    # De la pestaña a la ficha (el primero que haya, si la ficha está vacía).
+    if not correo and correos:
+        promoter.contact_email = (correos[0].email or "").strip() or None
+    if not telefono and telefonos:
+        promoter.contact_phone = (telefonos[0].phone or "").strip() or None
+
+
+def _norm_phone_key(value) -> str:
+    """Un teléfono comparable: solo dígitos y el «+» (así «+34 600 00 00 00» y «600000000» son el
+    mismo número y no se duplica la fila)."""
+    txt = re.sub(r"[^0-9+]", "", str(value or ""))
+    return txt[-9:] if len(txt) >= 9 else txt
+
+
+def _promoter_phone_rows(session_db, promoter_id) -> list:
+    return (session_db.query(PromoterPhone)
+            .filter(PromoterPhone.promoter_id == to_uuid(str(promoter_id)))
+            .order_by(PromoterPhone.created_at.asc(), PromoterPhone.concept.asc()).all())
+
+
+def _promoter_phone_numbers(session_db, promoter_id) -> list[str]:
+    """Teléfonos de un tercero (el principal y los demás), sin repetir."""
+    salida, vistos = [], set()
+    try:
+        p = session_db.get(Promoter, to_uuid(str(promoter_id)))
+        for raw in ([getattr(p, "contact_phone", None)] if p else []) + \
+                   [x.phone for x in _promoter_phone_rows(session_db, promoter_id)]:
+            clave = _norm_phone_key(raw)
+            if clave and clave not in vistos:
+                vistos.add(clave)
+                salida.append((raw or "").strip())
+    except Exception:
+        pass
+    return salida
+
+
+@app.post('/promotores/<pid>/telefonos/crear', endpoint='promoter_phone_create')
+@admin_required
+def promoter_phone_create(pid):
+    """Añade un teléfono al tercero (con su concepto)."""
+    if not can_edit_catalogs():
+        return forbid("No tienes permisos para editar terceros.")
+    session_db = db()
+    try:
+        promoter = session_db.get(Promoter, to_uuid(pid))
+        if promoter is None:
+            flash("Tercero no encontrado.", "warning")
+            return redirect(url_for("promoters_view"))
+        concepto = (request.form.get("concept") or "").strip()
+        numero = (request.form.get("phone") or "").strip()
+        if not numero:
+            flash("Escribe el teléfono.", "warning")
+        else:
+            session_db.add(PromoterPhone(promoter_id=promoter.id,
+                                         concept=(concepto or PROMOTER_CONTACT_MAIN_CONCEPT),
+                                         phone=numero))
+            if not (promoter.contact_phone or "").strip():
+                promoter.contact_phone = numero        # el primero es el principal de la ficha
+            session_db.commit()
+            flash("Teléfono añadido.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo añadir el teléfono: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("promoter_detail_view", pid=pid, tab="contactos")))
+
+
+@app.post('/promotores/<pid>/telefonos/<phone_id>/actualizar', endpoint='promoter_phone_update')
+@admin_required
+def promoter_phone_update(pid, phone_id):
+    if not can_edit_catalogs():
+        return forbid("No tienes permisos para editar terceros.")
+    session_db = db()
+    try:
+        fila = session_db.get(PromoterPhone, to_uuid(phone_id) or uuid.uuid4())
+        if fila is not None and str(fila.promoter_id) == str(to_uuid(pid) or ""):
+            anterior = (fila.phone or "").strip()
+            fila.concept = (request.form.get("concept") or fila.concept or "").strip() or PROMOTER_CONTACT_MAIN_CONCEPT
+            fila.phone = (request.form.get("phone") or fila.phone or "").strip()
+            fila.updated_at = _now_madrid()
+            promoter = session_db.get(Promoter, fila.promoter_id)
+            # Si se estaba editando el principal de la ficha, se cambia también ahí (están cruzados).
+            if promoter is not None and _norm_phone_key(promoter.contact_phone) == _norm_phone_key(anterior):
+                promoter.contact_phone = fila.phone or None
+            session_db.commit()
+            flash("Teléfono actualizado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo actualizar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("promoter_detail_view", pid=pid, tab="contactos")))
+
+
+@app.post('/promotores/<pid>/telefonos/<phone_id>/eliminar', endpoint='promoter_phone_delete')
+@admin_required
+def promoter_phone_delete(pid, phone_id):
+    if not can_edit_catalogs():
+        return forbid("No tienes permisos para editar terceros.")
+    session_db = db()
+    try:
+        fila = session_db.get(PromoterPhone, to_uuid(phone_id) or uuid.uuid4())
+        if fila is not None and str(fila.promoter_id) == str(to_uuid(pid) or ""):
+            promoter = session_db.get(Promoter, fila.promoter_id)
+            era_principal = (promoter is not None
+                             and _norm_phone_key(promoter.contact_phone) == _norm_phone_key(fila.phone))
+            session_db.delete(fila)
+            session_db.flush()
+            if era_principal:
+                # El principal pasa a ser el siguiente que quede (o ninguno).
+                quedan = _promoter_phone_rows(session_db, promoter.id)
+                promoter.contact_phone = ((quedan[0].phone or "").strip() or None) if quedan else None
+            session_db.commit()
+            flash("Teléfono eliminado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo eliminar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("promoter_detail_view", pid=pid, tab="contactos")))
 
 
 @app.post('/promotores/<pid>/emails/create', endpoint='promoter_email_create')
@@ -42769,6 +42947,12 @@ def promoter_contact_create(pid):
             return redirect(url_for('promoters_view'))
         title = (request.form.get('title') or '').strip()
         first_name = (request.form.get('first_name') or '').strip()
+        # La persona de contacto puede SER otro TERCERO: si se elige uno, sus datos salen de su ficha
+        # (así no se duplican) y desde aquí se llega a ella.
+        link_id = _safe_uuid((request.form.get('link_promoter_id') or '').strip())
+        vinculado = session.get(Promoter, link_id) if link_id else None
+        if vinculado is not None:
+            first_name = first_name or (vinculado.first_name or _promoter_display_name(vinculado) or vinculado.nick)
         if not title or not first_name:
             flash('Título y nombre son obligatorios.', 'warning')
             return redirect(url_for('promoter_detail_view', pid=pid, tab='contactos'))
@@ -42776,10 +42960,14 @@ def promoter_contact_create(pid):
             promoter_id=promoter.id,
             title=title,
             first_name=first_name,
-            last_name=(request.form.get('last_name') or '').strip() or None,
-            email=(request.form.get('email') or '').strip() or None,
-            phone=(request.form.get('phone') or '').strip() or None,
+            last_name=((request.form.get('last_name') or '').strip()
+                       or (getattr(vinculado, 'last_name', None) or '')) or None,
+            email=((request.form.get('email') or '').strip()
+                   or (getattr(vinculado, 'contact_email', None) or '')) or None,
+            phone=((request.form.get('phone') or '').strip()
+                   or (getattr(vinculado, 'contact_phone', None) or '')) or None,
             mobile=(request.form.get('mobile') or '').strip() or None,
+            link_promoter_id=(vinculado.id if vinculado is not None else None),
         )
         session.add(contact)
         session.commit()
@@ -42807,6 +42995,9 @@ def promoter_contact_update(pid, contact_id):
         contact.email = (request.form.get('email') or '').strip() or None
         contact.phone = (request.form.get('phone') or '').strip() or None
         contact.mobile = (request.form.get('mobile') or '').strip() or None
+        # Vincular (o desvincular) la persona de contacto con su ficha de tercero.
+        if 'link_promoter_id' in request.form:
+            contact.link_promoter_id = _safe_uuid((request.form.get('link_promoter_id') or '').strip())
         contact.updated_at = datetime.now(ZoneInfo('Europe/Madrid'))
         session.commit()
         flash('Contacto actualizado.', 'success')

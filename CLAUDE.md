@@ -2901,6 +2901,34 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · **Eliminar un artista es SOLO de dirección** y vive en el **lápiz de la cabecera** (la «zona
   peligrosa» de Datos se ha retirado).
 
+- **FICHA DEL TERCERO · el formulario por VIÑETAS y los datos de contacto CRUZADOS** (ago 2026):
+  · **Editar la ficha va por bocadillos** (`.demo-card`, los mismos del formulario de una maqueta),
+  cada tipo de dato en el suyo: **¿Quién es?** · **Datos de contacto** · **Dirección** ·
+  **Sociedades vinculadas** · **Viaje y hoteles** · **Redes sociales**.
+  · **Toda PERSONA tiene NOMBRE y APELLIDOS además del NICK** (`first_name`/`last_name`, que antes
+  solo se rellenaban al escanear el DNI): el nick es como la llamamos nosotros. En una **empresa** o
+  una **institución** esos dos campos no se piden (su nombre es el nick / el nombre social) y el JS
+  los **deshabilita** al ocultarlos (ocultar no basta: se enviarían igual).
+  · ⚠️⚠️ **EL EMAIL Y EL TELÉFONO DE LA FICHA SON DATOS DE CONTACTO Y ESTÁN CRUZADOS** con su
+  pestaña: no puede haber un tercero con correo y la pestaña de contacto vacía. Punto único
+  **`_promoter_sync_contact_rows`** (en los DOS sentidos: de la ficha a la pestaña y, si la ficha no
+  tiene, el primero de la pestaña sube a principal), llamado al guardar **y al abrir la ficha** —así
+  los terceros de antes quedan al día solos, sin migración—.
+  · **Varios correos y varios teléfonos, cada uno con su concepto**: `PromoterEmail` y el nuevo
+  **`PromoterPhone`** (hermanos). El principal se ve con su etiqueta; al borrarlo, el que queda pasa a
+  ser el de la ficha. `_promoter_phone_numbers` es el punto único de «los teléfonos de este tercero»
+  (y `_norm_phone_key` compara números, así «+34 600…» y «600…» no se duplican).
+  · **«Emails adicionales» YA NO ESTÁ en Información general**: los correos viven en la pestaña de
+  datos de contacto, que es su sitio.
+  · **PERSONAS DE CONTACTO** (debajo, en esa misma pestaña): a quién se llama para hablar con ese
+  tercero. Pueden **SER otro tercero** (`PromoterContact.link_promoter_id`, buscador Select2 con foto):
+  entonces su nombre, correo y teléfono se cogen de su ficha y la tarjeta lleva a ella.
+  ⚠️ Con esa columna, `PromoterContact` tiene DOS caminos a `promoters`, así que
+  `Promoter.contacts` y `PromoterContact.promoter` necesitan **`foreign_keys`** (si no, la app no
+  arranca: `AmbiguousForeignKeysError`).
+  · **SOCIEDADES VINCULADAS solo si hay**: en la ficha esa función no se pinta cuando el tercero no
+  tiene ninguna; se añaden desde el formulario de editar (donde sale siempre, con el modal apilado).
+
 - **PERSONAS DEL ARTISTA = TERCEROS que forman parte de él** (`ArtistPerson.promoter_id`): un miembro
   de un grupo (o el solista) es un **tercero particular** con exactamente los mismos datos (DNI,
   pasaporte, carnet, tarjetas de fidelización, matrículas, necesidades de viaje, cuenta bancaria,

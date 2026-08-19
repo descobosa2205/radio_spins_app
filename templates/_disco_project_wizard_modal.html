@@ -1,0 +1,388 @@
+{# ============================================================================================
+   Asistente «+ Nuevo proyecto discográfico» (Discográfica → Proyectos).
+   Pasos: artista → tipo → (según el tipo) sus preguntas. Usa el asistente genérico
+   `step_wizard.js`: los pasos que no tocan se saltan con `data-sw-when` y sus campos se
+   deshabilitan solos (si no, el navegador se pararía a validar un required oculto).
+   Necesita `project_wizard` (artistas, repertorio por artista y proyectos en marcha).
+   ============================================================================================ #}
+{% set pw = project_wizard or {} %}
+<div class="modal fade" id="discoProjectModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <form class="modal-content" method="post" action="{{ url_for('disco_project_create') }}"
+          id="discoProjectForm" data-step-wizard data-sw-mode="ALBUM" data-disco-project>
+      <input type="hidden" name="artist_id" id="dpArtistId">
+      <input type="hidden" name="kind" id="dpKind" value="">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-diagram-project text-danger me-2"></i>Nuevo proyecto discográfico</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div data-sw-progress></div>
+
+        {# ---------- Paso 1 · ARTISTA ---------- #}
+        <section class="sw-step" data-step="1" data-title="Artista">
+          <div class="sw-step__q"><i class="fa fa-user-music me-2 text-danger"></i>¿De qué artista es el proyecto?</div>
+          <div class="sw-step__h">Al elegirlo se pasa solo al siguiente paso.</div>
+          <input type="search" class="form-control form-control-sm mb-2" id="dpArtistSearch" placeholder="Buscar artista…" autocomplete="off">
+          <div class="promo-pick-grid" id="dpArtistGrid">
+            {% for a in pw.artists or [] %}
+              <label class="promo-pick js-dp-artist{% if not a.active %} d-none{% endif %}"
+                     data-search="{{ a.name|lower }}" {% if not a.active %}data-dp-extra="1"{% endif %}>
+                <input type="radio" name="artist_pick" value="{{ a.id }}" class="js-dp-artist-radio" data-sw-advance>
+                <span class="promo-pick__box">
+                  {% if a.photo_url and 'placeholder_photo' not in a.photo_url %}
+                    <img src="{{ a.photo_url }}" alt="" data-avatar="1">
+                  {% else %}
+                    <span class="promo-pick__avatar"><i class="fa fa-user"></i></span>
+                  {% endif %}
+                  <span class="promo-pick__name">{{ a.name }}</span>
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+          <div class="text-center mt-2">
+            <button type="button" class="btn btn-sm btn-link text-decoration-none" id="dpMoreArtists">
+              <i class="fa fa-ellipsis me-1"></i>Ver más artistas</button>
+          </div>
+        </section>
+
+        {# ---------- Paso 2 · TIPO ---------- #}
+        <section class="sw-step" data-step="2" data-title="Tipo">
+          <div class="sw-step__q"><i class="fa fa-shapes me-2 text-danger"></i>¿Qué tipo de proyecto es?</div>
+          <div class="sw-step__h">Álbum y EP funcionan igual: se prepara su lista de temas.</div>
+          <div class="promo-pick-grid promo-pick-grid--wide">
+            {% for key, label, icon in pw.kinds or [] %}
+              <label class="promo-pick">
+                <input type="radio" name="kind_pick" value="{{ key }}" class="js-dp-kind" data-sw-advance>
+                <span class="promo-pick__box"><i class="fa {{ icon }}"></i><span class="promo-pick__name">{{ label }}</span></span>
+              </label>
+            {% endfor %}
+          </div>
+        </section>
+
+        {# ---------- Paso 3 · ÁLBUM / EP: nombre y temas ---------- #}
+        <section class="sw-step" data-step="3" data-title="Temas" data-sw-when="ALBUM,EP">
+          <div class="sw-step__q"><i class="fa fa-compact-disc me-2 text-danger"></i><span data-dp-kind-label>Álbum</span></div>
+          <div class="row g-2 align-items-end">
+            <div class="col-12 col-md-7">
+              <label class="form-label">Nombre</label>
+              <input class="form-control" name="title" data-dp-title required>
+            </div>
+            <div class="col-6 col-md-3">
+              <label class="form-label">Nº de temas</label>
+              <input type="number" class="form-control" id="dpTrackCount" min="1" max="{{ pw.max_tracks or 40 }}" value="1">
+            </div>
+            <div class="col-6 col-md-2 d-grid">
+              <button type="button" class="btn btn-outline-secondary" id="dpBuildTracks">
+                <i class="fa fa-table-list me-1"></i>Generar</button>
+            </div>
+          </div>
+          <div class="table-responsive mt-3">
+            <table class="table table-sm align-middle mb-0" id="dpTracksTable">
+              <thead class="table-light">
+                <tr>
+                  <th style="width:2.5rem;">#</th>
+                  <th>Tema</th>
+                  <th style="width:9rem;">Colaboración</th>
+                  <th style="width:12rem;">Ya existente</th>
+                </tr>
+              </thead>
+              <tbody id="dpTracksBody"></tbody>
+            </table>
+          </div>
+          <div class="form-text">
+            Marca «Ya existente» para coger un single del repertorio del artista: ese tema sale como
+            <strong>ya publicado</strong> y no lleva fecha propia.
+          </div>
+        </section>
+
+        {# ---------- Paso 4 · ÁLBUM / EP: formato del lanzamiento ---------- #}
+        <section class="sw-step" data-step="4" data-title="Formato" data-sw-when="ALBUM,EP">
+          <div class="sw-step__q"><i class="fa fa-boxes-stacked me-2 text-danger"></i>¿Cómo se lanza?</div>
+          <div class="promo-pick-grid promo-pick-grid--wide">
+            {% for key, label, icon in pw.release_modes or [] %}
+              <label class="promo-pick">
+                <input type="radio" name="release_mode" value="{{ key }}" class="js-dp-mode" {% if loop.first %}checked{% endif %}>
+                <span class="promo-pick__box"><i class="fa {{ icon }}"></i><span class="promo-pick__name">{{ label }}</span></span>
+              </label>
+            {% endfor %}
+          </div>
+          <div class="mt-3 d-none" id="dpPhysicalBox">
+            <div class="sw-step__q"><i class="fa fa-compact-disc me-2 text-danger"></i>¿En qué soporte?</div>
+            <div class="sw-step__h">Se pueden marcar varios.</div>
+            <div class="promo-pick-grid promo-pick-grid--wide">
+              {% for key, label, icon in pw.physical_formats or [] %}
+                <label class="promo-pick">
+                  <input type="checkbox" name="physical_formats" value="{{ key }}">
+                  <span class="promo-pick__box"><i class="fa {{ icon }}"></i><span class="promo-pick__name">{{ label }}</span></span>
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+        </section>
+
+        {# ---------- Paso 5 · ÁLBUM / EP: planteamiento de lanzamiento ---------- #}
+        <section class="sw-step" data-step="5" data-title="Lanzamiento" data-sw-when="ALBUM,EP">
+          <div class="sw-step__q"><i class="fa fa-calendar-day me-2 text-danger"></i>Planteamiento de lanzamiento</div>
+          <div class="row g-2">
+            <div class="col-12 col-md-5">
+              <label class="form-label">Fecha de lanzamiento</label>
+              <input type="date" class="form-control" name="release_date" data-dp-release-date>
+            </div>
+          </div>
+          <div class="form-text mt-2">Marca los temas que salgan en una fecha distinta (los ya publicados no llevan fecha).</div>
+          <div class="table-responsive mt-2">
+            <table class="table table-sm align-middle mb-0">
+              <thead class="table-light"><tr><th>Tema</th><th style="width:13rem;">Sale en otra fecha</th></tr></thead>
+              <tbody id="dpPlanBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        {# ---------- Paso 6 · SINGLE ---------- #}
+        <section class="sw-step" data-step="6" data-title="Single" data-sw-when="SINGLE">
+          <div class="sw-step__q"><i class="fa fa-music me-2 text-danger"></i>El single</div>
+          <div class="row g-2">
+            <div class="col-12 col-md-7">
+              <label class="form-label">Nombre</label>
+              <input class="form-control" name="single_title" data-dp-title required>
+            </div>
+            <div class="col-12 col-md-5">
+              <label class="form-label">Fecha prevista de lanzamiento</label>
+              <input type="date" class="form-control" name="single_release_date">
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="border rounded p-2 w-100 bg-light-subtle d-flex align-items-center gap-2">
+                <input class="form-check-input m-0" type="checkbox" name="is_collab" value="1">
+                <span><i class="fa fa-user-group text-danger me-1"></i>Es una colaboración</span>
+              </label>
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="border rounded p-2 w-100 bg-light-subtle d-flex align-items-center gap-2">
+                <input class="form-check-input m-0" type="checkbox" name="includes_videoclip" value="1">
+                <span><i class="fa fa-film text-danger me-1"></i>Incluye videoclip</span>
+              </label>
+            </div>
+          </div>
+        </section>
+
+        {# ---------- Paso 7 · VIDEOCLIP: de qué es ---------- #}
+        <section class="sw-step" data-step="7" data-title="De qué es" data-sw-when="VIDEOCLIP">
+          <div class="sw-step__q"><i class="fa fa-film me-2 text-danger"></i>¿De qué es el videoclip?</div>
+          <div class="promo-pick-grid promo-pick-grid--wide">
+            {% for key, label, icon in pw.video_sources or [] %}
+              <label class="promo-pick">
+                <input type="radio" name="video_source" value="{{ key }}" class="js-dp-vsource" {% if loop.first %}checked{% endif %}>
+                <span class="promo-pick__box"><i class="fa {{ icon }}"></i><span class="promo-pick__name">{{ label }}</span></span>
+              </label>
+            {% endfor %}
+          </div>
+          <div class="mt-3 d-none" data-dp-vbox="SONG">
+            <label class="form-label">Tema del repertorio</label>
+            <select class="form-select" name="song_id" id="dpVideoSong"></select>
+            <div class="form-text">Solo los temas de ese artista.</div>
+          </div>
+          <div class="mt-3 d-none" data-dp-vbox="PROJECT">
+            <label class="form-label">Proyecto en marcha</label>
+            <select class="form-select" name="parent_project_id" id="dpVideoProject"></select>
+          </div>
+          <div class="mt-3 d-none" data-dp-vbox="STANDALONE">
+            <label class="form-label">Nombre del videoclip</label>
+            <input class="form-control" name="video_title" data-dp-title>
+          </div>
+        </section>
+
+        {# ---------- Paso 8 · VIDEOCLIP: fecha ---------- #}
+        <section class="sw-step" data-step="8" data-title="Lanzamiento" data-sw-when="VIDEOCLIP">
+          <div class="sw-step__q"><i class="fa fa-calendar-day me-2 text-danger"></i>¿Cuándo se lanza?</div>
+          <div class="row g-2">
+            <div class="col-12 col-md-5">
+              <label class="form-label">Fecha de lanzamiento</label>
+              <input type="date" class="form-control" name="video_release_date">
+            </div>
+          </div>
+        </section>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-link px-0 me-auto" data-sw-prev>
+          <i class="fa fa-arrow-left me-1"></i>Atrás</button>
+        <button type="button" class="btn btn-outline-secondary" data-sw-next>
+          Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
+        <button class="btn btn-danger" data-sw-submit>
+          <i class="fa fa-check me-1"></i>Crear proyecto</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function () {
+  var root = document.getElementById('discoProjectForm');
+  if (!root || root.dataset.bound) return;
+  root.dataset.bound = '1';
+  var SONGS = {{ (pw.songs_by_artist or {})|tojson }};
+  var PROJECTS = {{ (pw.projects_by_artist or {})|tojson }};
+  var KINDS = {{ (pw.kind_labels or {})|tojson }};
+  var artistId = '', kind = '';
+
+  function $(sel) { return root.querySelector(sel); }
+  function $$(sel) { return Array.prototype.slice.call(root.querySelectorAll(sel)); }
+
+  // ---------- Paso 1 · artista (los inactivos, tras «Ver más artistas») ----------
+  var buscador = $('#dpArtistSearch'), masBtn = $('#dpMoreArtists');
+  var tarjetas = $$('.js-dp-artist');
+  var verTodos = !tarjetas.some(function (c) { return !c.hasAttribute('data-dp-extra'); });
+  function refiltra() {
+    var q = (buscador && buscador.value || '').toLowerCase().trim();
+    tarjetas.forEach(function (c) {
+      var extra = c.hasAttribute('data-dp-extra');
+      var casa = !q || (c.getAttribute('data-search') || '').indexOf(q) > -1;
+      c.classList.toggle('d-none', !(casa && (q ? true : (verTodos || !extra))));
+    });
+    if (masBtn) masBtn.classList.toggle('d-none', verTodos || !!q);
+  }
+  if (masBtn) masBtn.addEventListener('click', function () { verTodos = true; refiltra(); });
+  if (buscador) buscador.addEventListener('input', refiltra);
+  refiltra();
+
+  root.addEventListener('change', function (ev) {
+    if (ev.target.classList.contains('js-dp-artist-radio')) {
+      artistId = ev.target.value;
+      $('#dpArtistId').value = artistId;
+      pintaListas();
+      return;                              // el auto-avance lo hace data-sw-advance
+    }
+    if (ev.target.classList.contains('js-dp-kind')) {
+      kind = ev.target.value;
+      $('#dpKind').value = kind;
+      root.setAttribute('data-sw-mode', kind);
+      var etiqueta = $('[data-dp-kind-label]');
+      if (etiqueta) etiqueta.textContent = KINDS[kind] || 'Proyecto';
+      if (root.swRefresh) root.swRefresh();
+      if (kind === 'ALBUM' || kind === 'EP') construyeTemas();
+      return;
+    }
+    if (ev.target.classList.contains('js-dp-mode')) {
+      // Solo se pregunta el soporte si el lanzamiento incluye FÍSICO.
+      var fisico = ev.target.value !== 'DIGITAL';
+      $('#dpPhysicalBox').classList.toggle('d-none', !fisico);
+      return;
+    }
+    if (ev.target.classList.contains('js-dp-vsource')) {
+      var v = ev.target.value;
+      $$('[data-dp-vbox]').forEach(function (b) {
+        b.classList.toggle('d-none', b.getAttribute('data-dp-vbox') !== v);
+      });
+      return;
+    }
+    if (ev.target.matches('[data-dp-track-song]')) {
+      // Un tema YA EXISTENTE no se escribe ni lleva fecha propia.
+      var fila = ev.target.closest('tr');
+      var esExistente = !!ev.target.value;
+      var titulo = fila.querySelector('[data-dp-track-title]');
+      if (titulo) { titulo.readOnly = esExistente; if (esExistente) titulo.value = ev.target.options[ev.target.selectedIndex].textContent.trim(); }
+      pintaPlan();
+      return;
+    }
+    if (ev.target.matches('[data-dp-track-title]')) pintaPlan();
+  });
+
+  // ---------- Repertorio y proyectos del artista elegido ----------
+  function opcionesCanciones(conVacia) {
+    var lista = SONGS[artistId] || [];
+    var html = conVacia ? '<option value="">— Tema nuevo —</option>' : '';
+    lista.forEach(function (s) { html += '<option value="' + s.id + '">' + s.title + '</option>'; });
+    return html;
+  }
+  function pintaListas() {
+    var sel = $('#dpVideoSong');
+    if (sel) sel.innerHTML = opcionesCanciones(false) || '<option value="">Este artista no tiene temas</option>';
+    var selp = $('#dpVideoProject');
+    if (selp) {
+      var lista = PROJECTS[artistId] || [];
+      selp.innerHTML = lista.length
+        ? lista.map(function (p) { return '<option value="' + p.id + '">' + p.kind_label + ' · ' + p.title + '</option>'; }).join('')
+        : '<option value="">Este artista no tiene proyectos en marcha</option>';
+    }
+    $$('[data-dp-track-song]').forEach(function (s) { s.innerHTML = opcionesCanciones(true); });
+  }
+
+  // ---------- La tabla de temas se genera con el número que se diga ----------
+  function construyeTemas() {
+    var n = Math.max(1, Math.min(parseInt($('#dpTrackCount').value || '1', 10) || 1, {{ pw.max_tracks or 40 }}));
+    var body = $('#dpTracksBody');
+    var previos = {};
+    $$('#dpTracksBody tr').forEach(function (tr, i) {
+      previos[i + 1] = {
+        title: (tr.querySelector('[data-dp-track-title]') || {}).value || '',
+        collab: !!(tr.querySelector('[data-dp-track-collab]') || {}).checked,
+        song: (tr.querySelector('[data-dp-track-song]') || {}).value || ''
+      };
+    });
+    var html = '';
+    for (var i = 1; i <= n; i++) {
+      var p = previos[i] || {};
+      html += '<tr>' +
+        '<td class="text-muted">' + i + '</td>' +
+        '<td><input class="form-control form-control-sm" name="track_title_' + i + '" data-dp-track-title value="' + (p.title || '').replace(/"/g, '&quot;') + '" placeholder="Nombre del tema"></td>' +
+        '<td class="text-center"><input class="form-check-input" type="checkbox" name="track_collab_' + i + '" value="1" data-dp-track-collab' + (p.collab ? ' checked' : '') + '></td>' +
+        '<td><select class="form-select form-select-sm" name="track_song_' + i + '" data-dp-track-song></select></td>' +
+        '</tr>';
+    }
+    body.innerHTML = html;
+    pintaListas();
+    // Se restauran los temas ya existentes que estuvieran elegidos.
+    $$('#dpTracksBody tr').forEach(function (tr, i) {
+      var p = previos[i + 1];
+      var sel = tr.querySelector('[data-dp-track-song]');
+      if (p && p.song && sel) { sel.value = p.song; }
+    });
+    pintaPlan();
+  }
+  $('#dpBuildTracks').addEventListener('click', construyeTemas);
+  $('#dpTrackCount').addEventListener('change', construyeTemas);
+
+  // ---------- Planteamiento: los temas con su fecha propia (los ya publicados, no) ----------
+  function pintaPlan() {
+    var body = $('#dpPlanBody');
+    if (!body) return;
+    var html = '';
+    $$('#dpTracksBody tr').forEach(function (tr, idx) {
+      var i = idx + 1;
+      var titulo = ((tr.querySelector('[data-dp-track-title]') || {}).value || '').trim() || ('Tema ' + i);
+      var song = (tr.querySelector('[data-dp-track-song]') || {}).value || '';
+      html += '<tr><td>' + titulo +
+        (song ? ' <span class="badge text-bg-light border ms-1">Ya publicado</span>' : '') + '</td>' +
+        '<td>' + (song
+          ? '<span class="text-muted small">Sin fecha (ya publicado)</span>'
+          : '<input type="date" class="form-control form-control-sm" name="track_date_' + i + '">') +
+        '</td></tr>';
+    });
+    body.innerHTML = html || '<tr><td colspan="2" class="text-muted">Genera antes la lista de temas.</td></tr>';
+  }
+
+  // ---------- Al enviar: el nombre y la fecha del paso que toca ----------
+  root.addEventListener('submit', function () {
+    var titulo = '';
+    if (kind === 'SINGLE') titulo = (root.querySelector('input[name="single_title"]') || {}).value || '';
+    else if (kind === 'VIDEOCLIP') titulo = (root.querySelector('input[name="video_title"]') || {}).value || '';
+    else titulo = (root.querySelector('input[name="title"]') || {}).value || '';
+    var oculto = root.querySelector('input[name="title"]');
+    if (oculto && kind !== 'ALBUM' && kind !== 'EP') {
+      // El campo `title` del paso de álbum está deshabilitado (paso fuera de secuencia): se manda
+      // el nombre del paso que sí se ha rellenado en un oculto propio.
+      var extra = document.createElement('input');
+      extra.type = 'hidden'; extra.name = 'title'; extra.value = titulo;
+      root.appendChild(extra);
+    }
+    var fecha = '';
+    if (kind === 'SINGLE') fecha = (root.querySelector('input[name="single_release_date"]') || {}).value || '';
+    else if (kind === 'VIDEOCLIP') fecha = (root.querySelector('input[name="video_release_date"]') || {}).value || '';
+    if (fecha) {
+      var fx = document.createElement('input');
+      fx.type = 'hidden'; fx.name = 'release_date'; fx.value = fecha;
+      root.appendChild(fx);
+    }
+  });
+})();
+</script>

@@ -166,6 +166,9 @@ from models import (
     SongDemoRating,
     Playlist,
     PlaylistItem,
+    DiscoProject,
+    DiscoProjectTrack,
+    DiscoProjectMaterial,
     SongCertification,
     SongProductionContract,
     SongStatus,
@@ -298,6 +301,7 @@ from models import (
     ensure_vacations_schema,
     ensure_song_demos_schema,
     ensure_playlists_schema,
+    ensure_disco_projects_schema,
     PersonDocRequest,
     ThirdPartyIntakeLink,
     ensure_third_party_intake_schema,
@@ -12221,7 +12225,7 @@ def discografica_view():
     # ⚠️ Una sección NUEVA hay que añadirla a esta lista blanca: si no, cae en «canciones» y la
     #    pestaña sale marcada pero se pinta otra cosa (bug real de la épica de demos).
     if section not in ("lanzamientos", "canciones", "royalties", "editorial", "registros", "ingresos",
-                       "isrc", "adelantos", "demos", "playlists"):
+                       "isrc", "adelantos", "demos", "playlists", "proyectos"):
         section = "canciones"
     if section == "registros":
         legacy_tab = (request.args.get("registros_tab") or request.args.get("tab") or "pendiente").strip().lower()
@@ -12249,6 +12253,11 @@ def discografica_view():
 
     # PLAYLIST: igual, solo cuando se está mirando esa sección.
     playlist_rows = _playlist_rows(session_db) if section == "playlists" else None
+
+    # PROYECTOS discográficos: los artistas con proyectos activos y, al entrar, los suyos. El
+    # asistente necesita además el repertorio y los proyectos en marcha (para un videoclip).
+    projects_ctx = _disco_projects_context(session_db) if section == "proyectos" else None
+    project_wizard = _disco_project_wizard_context(session_db) if section == "proyectos" else None
 
     # Solo artistas con contrato Discográfico / Catálogo / Distribución (para alta de canciones)
     contract_artist_ids = _artist_ids_with_discography_contracts(session_db)
@@ -13268,6 +13277,8 @@ def discografica_view():
         section=section,
         # DEMOS: solo se calcula cuando se está mirando esa sección.
         demos_ctx=demos_ctx,
+        projects_ctx=projects_ctx,
+        project_wizard=project_wizard,
         # PLAYLIST: el listado (una debajo de otra), solo en su pestaña.
         playlist_rows=playlist_rows,
         demo_origins=DEMO_ORIGINS,
@@ -19109,6 +19120,413 @@ def _demo_row_payload(session_db, row) -> dict:
     }
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# PROYECTOS DISCOGRÁFICOS
+#
+# Donde se PREPARA el material discográfico: un álbum, un EP, un single o un videoclip. No es el
+# lanzamiento (eso son `Album`/`Song` cuando ya existen), es el trabajo previo, y cada proyecto tiene
+# sus TRES partes: **calendario**, **hoja de ruta** y **bolsa** de gastos.
+#
+# La pantalla enseña los ARTISTAS con proyectos activos y su número; al entrar en uno, sus proyectos.
+# Se crean con el asistente por pasos (`_disco_project_wizard_modal.html`).
+# ═════════════════════════════════════════════════════════════════════════════
+
+DISCO_PROJECT_KINDS = [
+    ("ALBUM", "Álbum", "fa-compact-disc"),
+    ("EP", "EP", "fa-record-vinyl"),
+    ("SINGLE", "Single", "fa-music"),
+    ("VIDEOCLIP", "Videoclip", "fa-film"),
+]
+DISCO_PROJECT_LABELS = {k: l for k, l, _i in DISCO_PROJECT_KINDS}
+DISCO_PROJECT_ICONS = {k: i for k, _l, i in DISCO_PROJECT_KINDS}
+# Álbum y EP funcionan IGUAL (lo único que cambia es cómo se llama).
+DISCO_TRACKLIST_KINDS = {"ALBUM", "EP"}
+DISCO_RELEASE_MODES = [
+    ("DIGITAL", "Digital", "fa-cloud"),
+    ("DIGITAL_FISICO", "Digital + Físico", "fa-boxes-stacked"),
+    ("FISICO", "Solo físico", "fa-compact-disc"),
+]
+DISCO_RELEASE_MODE_LABELS = {k: l for k, l, _i in DISCO_RELEASE_MODES}
+DISCO_PHYSICAL_FORMATS = [
+    ("CD", "CD", "fa-compact-disc"),
+    ("VINILO", "Vinilo", "fa-record-vinyl"),
+    ("CASETE", "Casete", "fa-cassette-tape"),
+]
+DISCO_PHYSICAL_LABELS = {k: l for k, l, _i in DISCO_PHYSICAL_FORMATS}
+DISCO_VIDEO_SOURCES = [
+    ("SONG", "De un tema ya existente", "fa-music"),
+    ("PROJECT", "De un proyecto en marcha", "fa-diagram-project"),
+    ("STANDALONE", "Un videoclip suelto", "fa-film"),
+]
+DISCO_VIDEO_SOURCE_LABELS = {k: l for k, l, _i in DISCO_VIDEO_SOURCES}
+DISCO_PROJECT_MAX_TRACKS = 40
+# Las partes de un proyecto (sus pestañas, EN ESTE ORDEN): el calendario es lo primero que se mira
+# (las fechas a la izquierda, el calendario a la derecha y debajo las tareas pendientes).
+DISCO_PROJECT_TABS = [
+    ("calendario", "Calendario", "fa-calendar-days"),
+    ("informacion", "Información", "fa-circle-info"),
+    ("materiales", "Materiales", "fa-folder-open"),
+    ("bolsa", "Bolsa", "fa-sack-dollar"),
+    ("hoja-ruta", "Hoja de ruta", "fa-route"),
+]
+# MATERIALES de un proyecto (lo que se prepara antes de que el lanzamiento exista en el catálogo).
+DISCO_MATERIAL_KINDS = [
+    ("PORTADA", "Portada", "fa-image"),
+    ("MASTER", "Máster", "fa-file-audio"),
+    ("INSTRUMENTAL", "Instrumental", "fa-sliders"),
+    ("VIDEO", "Vídeo", "fa-film"),
+    ("ARTE", "Arte y diseño", "fa-palette"),
+    ("LETRA", "Letra", "fa-align-left"),
+    ("OTRO", "Otros", "fa-paperclip"),
+]
+DISCO_MATERIAL_LABELS = {k: l for k, l, _i in DISCO_MATERIAL_KINDS}
+DISCO_MATERIAL_ICONS = {k: i for k, _l, i in DISCO_MATERIAL_KINDS}
+
+
+def _disco_project_kind_meta(kind: str) -> tuple[str, str]:
+    k = (kind or "SINGLE").strip().upper()
+    return DISCO_PROJECT_LABELS.get(k, "Proyecto"), DISCO_PROJECT_ICONS.get(k, "fa-compact-disc")
+
+
+def _disco_project_title(project) -> str:
+    """Cómo se llama el proyecto en pantalla (sin nombre, el tipo y de qué es)."""
+    titulo = (getattr(project, "title", None) or "").strip()
+    if titulo:
+        return titulo
+    etiqueta, _i = _disco_project_kind_meta(getattr(project, "kind", None))
+    cancion = getattr(project, "song", None)
+    if cancion is not None and (getattr(cancion, "title", None) or "").strip():
+        return "%s · %s" % (etiqueta, cancion.title.strip())
+    return etiqueta
+
+
+def _disco_project_row(session_db, project, *, bag=None) -> dict:
+    """Una línea del listado de proyectos."""
+    kind = (getattr(project, "kind", None) or "SINGLE").upper()
+    etiqueta, icono = _disco_project_kind_meta(kind)
+    temas = list(getattr(project, "tracks", None) or [])
+    formatos = [DISCO_PHYSICAL_LABELS.get(str(x).upper(), str(x))
+                for x in (getattr(project, "physical_formats", None) or [])]
+    return {
+        "id": str(project.id),
+        "kind": kind, "kind_label": etiqueta, "icon": icono,
+        "title": _disco_project_title(project),
+        "url": url_for("disco_project_detail", project_id=project.id),
+        "artist_id": (str(project.artist_id) if project.artist_id else ""),
+        "artist_name": (getattr(getattr(project, "artist", None), "name", None) or ""),
+        "artist_photo": (getattr(getattr(project, "artist", None), "photo_url", None) or ""),
+        "release_date": getattr(project, "release_date", None),
+        "release_label": (project.release_date.strftime("%d/%m/%Y")
+                          if getattr(project, "release_date", None) else "Sin fecha"),
+        "release_mode_label": DISCO_RELEASE_MODE_LABELS.get(
+            (getattr(project, "release_mode", None) or "").upper(), ""),
+        "physical_label": " · ".join(formatos),
+        "tracks_count": len(temas),
+        "is_collab": bool(getattr(project, "is_collab", False)),
+        "includes_videoclip": bool(getattr(project, "includes_videoclip", False)),
+        "video_source_label": DISCO_VIDEO_SOURCE_LABELS.get(
+            (getattr(project, "video_source", None) or "").upper(), ""),
+        "song_title": (getattr(getattr(project, "song", None), "title", None) or ""),
+        "status": (getattr(project, "status", None) or "ACTIVO").upper(),
+        "bag_id": (str(project.bag_id) if getattr(project, "bag_id", None) else ""),
+        "created_by": (getattr(project, "created_by_nick", None) or ""),
+    }
+
+
+def _disco_projects_context(session_db) -> dict:
+    """La pantalla de PROYECTOS: los artistas con proyectos activos y, al entrar en uno, los suyos.
+
+    Igual que en Demos y en el resto de la app: primero los sujetos con su número y luego el listado
+    (`?proj_artist=<id>`). Con `?proj_archivados=1` se ven los archivados."""
+    archivados = _truthy(request.args.get("proj_archivados"))
+    estado = "ARCHIVADO" if archivados else "ACTIVO"
+    artista_id = _safe_uuid(request.args.get("proj_artist") or "")
+    consulta = (session_db.query(DiscoProject)
+                .options(joinedload(DiscoProject.artist), joinedload(DiscoProject.song),
+                         selectinload(DiscoProject.tracks))
+                .filter(func.upper(func.coalesce(DiscoProject.status, "ACTIVO")) == estado))
+    if artista_id:
+        consulta = consulta.filter(DiscoProject.artist_id == artista_id)
+    filas = consulta.order_by(DiscoProject.release_date.asc().nullslast(),
+                              DiscoProject.created_at.desc()).all()
+    # Los ARTISTAS con proyectos (con su número), que es lo primero que se ve.
+    grupos, orden = {}, []
+    if not artista_id:
+        todas = (session_db.query(DiscoProject)
+                 .options(joinedload(DiscoProject.artist))
+                 .filter(func.upper(func.coalesce(DiscoProject.status, "ACTIVO")) == estado).all())
+    else:
+        todas = filas
+    for p in todas:
+        aid = str(p.artist_id or "")
+        if not aid:
+            continue
+        if aid not in grupos:
+            grupos[aid] = {"id": aid,
+                           "name": (getattr(getattr(p, "artist", None), "name", None) or "Artista"),
+                           "photo_url": (getattr(getattr(p, "artist", None), "photo_url", None) or ""),
+                           "count": 0}
+            orden.append(aid)
+        grupos[aid]["count"] += 1
+    artistas = sorted([grupos[a] for a in orden], key=lambda x: (x["name"] or "").casefold())
+    sujeto = None
+    if artista_id:
+        art = session_db.get(Artist, artista_id)
+        sujeto = {"id": str(artista_id),
+                  "name": (getattr(art, "name", None) or "Artista"),
+                  "photo_url": (getattr(art, "photo_url", None) or ""),
+                  "count": len(filas)}
+    return {
+        "archived": archivados,
+        "artists": artistas,
+        "subject": sujeto,
+        "rows": [_disco_project_row(session_db, p) for p in filas] if artista_id else [],
+        "total": len(todas),
+    }
+
+
+def _disco_project_artist_options(session_db) -> list[dict]:
+    """Los artistas del asistente: primero los ACTIVOS (con contrato discográfico, de catálogo o de
+    distribución) y el resto detrás, que salen con «Ver más artistas»."""
+    con_contrato = _artist_ids_with_discography_contracts(session_db)
+    filas = (session_db.query(Artist)
+             .filter(Artist.event_id.is_(None))     # los espejos de EVENTO no son artistas
+             .order_by(Artist.name.asc()).all())
+    salida = []
+    for a in filas:
+        salida.append({"id": str(a.id), "name": a.name, "photo_url": (a.photo_url or ""),
+                       "active": a.id in con_contrato})
+    # Los activos primero (y dentro, por nombre).
+    salida.sort(key=lambda x: (not x["active"], (x["name"] or "").casefold()))
+    return salida
+
+
+def _disco_project_wizard_context(session_db) -> dict:
+    """Lo que necesita el asistente: artistas, su repertorio (para «tema ya existente» y para el
+    videoclip) y los proyectos en marcha de cada uno (para un videoclip de un proyecto)."""
+    artistas = _disco_project_artist_options(session_db)
+    # Repertorio por artista, de una sola consulta (el asistente lo filtra en el navegador).
+    canciones = defaultdict(list)
+    try:
+        filas = (session_db.query(Song, SongArtist.artist_id)
+                 .join(SongArtist, SongArtist.song_id == Song.id)
+                 .order_by(Song.release_date.desc().nullslast(), Song.title.asc()).all())
+        for sg, aid in filas:
+            canciones[str(aid)].append({"id": str(sg.id), "title": (sg.title or "").strip(),
+                                        "cover_url": (getattr(sg, "cover_url", None) or "")})
+    except Exception:
+        app.logger.exception("[proyectos] no se pudo cargar el repertorio para el asistente")
+    proyectos = defaultdict(list)
+    try:
+        for p in (session_db.query(DiscoProject)
+                  .filter(func.upper(func.coalesce(DiscoProject.status, "ACTIVO")) == "ACTIVO")
+                  .order_by(DiscoProject.created_at.desc()).all()):
+            proyectos[str(p.artist_id)].append({"id": str(p.id), "title": _disco_project_title(p),
+                                                "kind_label": _disco_project_kind_meta(p.kind)[0]})
+    except Exception:
+        app.logger.exception("[proyectos] no se pudieron cargar los proyectos para el asistente")
+    return {"artists": artistas, "songs_by_artist": dict(canciones),
+            "projects_by_artist": dict(proyectos),
+            # ⚠️ El mapa clave→etiqueta se da HECHO: `dict()` sobre las tuplas de tres (clave,
+            # etiqueta, icono) revienta en la plantilla.
+            "kind_labels": DISCO_PROJECT_LABELS,
+            "kinds": DISCO_PROJECT_KINDS, "release_modes": DISCO_RELEASE_MODES,
+            "physical_formats": DISCO_PHYSICAL_FORMATS, "video_sources": DISCO_VIDEO_SOURCES,
+            "max_tracks": DISCO_PROJECT_MAX_TRACKS}
+
+
+def _ensure_project_bag(session_db, project):
+    """La BOLSA de gastos del proyecto (una por proyecto, como en una promoción)."""
+    if getattr(project, "bag_id", None):
+        return session_db.get(WorkflowBag, project.bag_id)
+    etiqueta, _i = _disco_project_kind_meta(getattr(project, "kind", None))
+    bag = WorkflowBag(
+        title=("%s · %s" % (etiqueta, _disco_project_title(project)))[:500],
+        artist_id=project.artist_id,
+        artist_ids=[str(project.artist_id)] if project.artist_id else [],
+        company_id=getattr(project, "company_id", None) or getattr(_pies_group_company(session_db), "id", None),
+        bag_type="PROYECTO",
+        linked_type="PROJECT",
+        linked_id=project.id,
+        linked_title=_disco_project_title(project),
+        start_date=getattr(project, "release_date", None),
+        status="ACTIVA",
+        is_archived=False,
+    )
+    session_db.add(bag)
+    session_db.flush()
+    project.bag_id = bag.id
+    project.updated_at = _now_madrid()
+    return bag
+
+
+def _disco_project_milestones(session_db, project) -> list[dict]:
+    """Los HITOS del proyecto para su calendario: el lanzamiento, los temas que salen en otra fecha,
+    el videoclip y los puntos de su hoja de ruta."""
+    hitos = []
+    etiqueta, icono = _disco_project_kind_meta(getattr(project, "kind", None))
+    if getattr(project, "release_date", None):
+        hitos.append({"date": project.release_date, "kind": "lanzamiento",
+                      "icon": icono, "title": "Lanzamiento · %s" % _disco_project_title(project),
+                      "note": DISCO_RELEASE_MODE_LABELS.get(
+                          (getattr(project, "release_mode", None) or "").upper(), "")})
+    for t in (getattr(project, "tracks", None) or []):
+        if getattr(t, "release_date", None) and t.release_date != getattr(project, "release_date", None):
+            hitos.append({"date": t.release_date, "kind": "tema", "icon": "fa-music",
+                          "title": "Sale «%s»" % ((t.title or "").strip() or "tema"),
+                          "note": "Tema del %s" % etiqueta.lower()})
+    # Los puntos de la HOJA DE RUTA del proyecto (grabaciones, sesiones de fotos, entregas…).
+    try:
+        payload = _roadmap_load(project)
+        for it in (payload.get("agenda") or []):
+            dia = _parse_iso_date_safe(str(it.get("day") or "")[:10])
+            if not dia:
+                continue
+            hitos.append({"date": dia, "kind": "hoja", "icon": "fa-route",
+                          "title": (it.get("title") or "Punto de la hoja de ruta"),
+                          "note": " · ".join([x for x in [(it.get("start") or ""),
+                                                          (it.get("place") or "")] if x])})
+    except Exception:
+        app.logger.exception("[proyectos] no se pudieron leer los puntos de la hoja de ruta")
+    hitos.sort(key=lambda h: h["date"])
+    hoy = today_local()
+    for h in hitos:
+        h["date_label"] = h["date"].strftime("%d/%m/%Y")
+        h["long_label"] = _vacation_long_date(h["date"])
+        h["past"] = h["date"] < hoy
+        h["days_left"] = (h["date"] - hoy).days
+    return hitos
+
+
+def _disco_project_agenda(session_db, project, milestones) -> dict:
+    """El payload del CALENDARIO del proyecto para el componente de agenda (`_agenda_calendar.html`).
+
+    Se usa en modo «artist» —fechas a la izquierda, calendario a la derecha— y **sin `artist_id`**: así
+    las flechas se mueven dentro de lo cargado y no piden nada al servidor (el calendario de un
+    proyecto son SUS fechas, no la agenda del artista)."""
+    hoy = today_local()
+    fechas = [m["date"] for m in milestones] or [hoy]
+    inicio = min(min(fechas), hoy) - timedelta(days=min(min(fechas), hoy).weekday())
+    fin = max(max(fechas), hoy) + timedelta(days=21)
+    aid = str(getattr(project, "artist_id", "") or "")
+    artista = getattr(project, "artist", None)
+    kinds, actividades = set(), []
+    # Cada hito del proyecto es un evento del calendario: el lanzamiento como «lanzamiento», los
+    # puntos de la hoja de ruta como «otro» (los mismos colores que en el resto de la app).
+    mapa = {"lanzamiento": "lanzamiento", "tema": "lanzamiento", "hoja": "otro"}
+    for m in milestones:
+        kind = mapa.get(m.get("kind"), "otro")
+        kinds.add(kind)
+        meta = AGENDA_KIND_META.get(kind, {})
+        actividades.append({
+            "kind": kind, "date": m["date"].isoformat(), "end_date": m["date"].isoformat(),
+            "title": m["title"], "subtitle": (m.get("note") or ""),
+            "artist_id": aid, "artist_ids": [aid] if aid else [],
+            "artist_name": (getattr(artista, "name", None) or ""),
+            "artist_photo": (getattr(artista, "photo_url", None) or ""),
+            "artist_photos": [], "artist_color": AGENDA_MINE_COLOR,
+            "icon": m.get("icon") or meta.get("icon", "fa-circle"),
+            "kind_color": meta.get("color", "#6c757d"),
+            "kind_label": meta.get("label", ""),
+            "status_label": "", "status_class": "", "cover_url": "", "url": "",
+        })
+    return {
+        "activities": actividades,
+        "artists": ([{"id": aid, "name": (getattr(artista, "name", None) or "Artista"),
+                      "photo_url": (getattr(artista, "photo_url", None) or ""),
+                      "color": AGENDA_MINE_COLOR, "special": False}] if aid else []),
+        "kinds": [{"key": k, "label": AGENDA_KIND_META[k]["label"],
+                   "icon": AGENDA_KIND_META[k]["icon"], "color": AGENDA_KIND_META[k]["color"]}
+                  for k in AGENDA_KIND_ORDER if k in kinds],
+        "holidays": [],
+        "today": hoy.isoformat(), "start": inicio.isoformat(), "end": fin.isoformat(),
+    }
+
+
+def _disco_project_tasks(session_db, project, *, bag=None) -> list[dict]:
+    """LAS TAREAS PENDIENTES del proyecto: lo que falta para poder lanzarlo.
+
+    Es lo que se ve debajo del calendario. Cada tarea dice qué falta y lleva a donde se arregla; una
+    tarea desaparece sola en cuanto eso está hecho (un aviso es «esto te está esperando»)."""
+    tareas = []
+    kind = (getattr(project, "kind", None) or "").upper()
+    etiqueta, _i = _disco_project_kind_meta(kind)
+    url_info = url_for("disco_project_detail", project_id=project.id, tab="informacion")
+    url_mat = url_for("disco_project_detail", project_id=project.id, tab="materiales")
+    url_hoja = url_for("disco_project_detail", project_id=project.id, tab="hoja-ruta")
+
+    def tarea(clave, texto, url, icono="fa-circle-exclamation", urgente=False):
+        tareas.append({"key": clave, "label": texto, "url": url, "icon": icono, "urgent": urgente})
+
+    if not getattr(project, "release_date", None):
+        tarea("fecha", "Falta la fecha de lanzamiento", url_info, "fa-calendar-day", True)
+    temas = list(getattr(project, "tracks", None) or [])
+    if kind in DISCO_TRACKLIST_KINDS:
+        if not temas:
+            tarea("temas", "Todavía no hay temas en el %s" % etiqueta.lower(), url_info, "fa-list-ol", True)
+        else:
+            sin_nombre = [t for t in temas if not (t.title or "").strip()]
+            if sin_nombre:
+                tarea("temas_nombre", "%d tema(s) sin nombre" % len(sin_nombre), url_info, "fa-pen")
+        if (getattr(project, "release_mode", None) or "") != "DIGITAL" and not (
+                getattr(project, "physical_formats", None) or []):
+            tarea("soporte", "Falta decir en qué soporte físico sale", url_info, "fa-compact-disc")
+    materiales = list(getattr(project, "materials", None) or [])
+    por_tipo = {(m.kind or "OTRO").upper() for m in materiales}
+    if "PORTADA" not in por_tipo:
+        tarea("portada", "Falta la portada", url_mat, "fa-image")
+    if kind != "VIDEOCLIP" and "MASTER" not in por_tipo:
+        tarea("master", "Falta el máster", url_mat, "fa-file-audio")
+    if kind == "VIDEOCLIP" and "VIDEO" not in por_tipo:
+        tarea("video", "Falta el vídeo", url_mat, "fa-film")
+    try:
+        if not (_roadmap_load(project).get("agenda") or []):
+            tarea("hoja", "La hoja de ruta está vacía", url_hoja, "fa-route")
+    except Exception:
+        pass
+    if bag is None:
+        tarea("bolsa", "Sin bolsa de gastos",
+              url_for("disco_project_detail", project_id=project.id, tab="bolsa"), "fa-sack-dollar")
+    return tareas
+
+
+def _disco_project_materials(session_db, project) -> list[dict]:
+    """Los materiales del proyecto agrupados por tipo (en el orden del catálogo)."""
+    filas = list(getattr(project, "materials", None) or [])
+    temas = {str(t.id): ((t.title or "").strip() or "Tema %d" % (t.position or 0))
+             for t in (getattr(project, "tracks", None) or [])}
+    grupos = []
+    for clave, etiqueta, icono in DISCO_MATERIAL_KINDS:
+        propios = [m for m in filas if (m.kind or "OTRO").upper() == clave]
+        if not propios:
+            continue
+        # ⚠️ La clave se llama «files», NO «items»: en Jinja `g.items` devuelve el MÉTODO del dict
+        # (bug real y recurrente en esta app), y así no hay forma de tropezar.
+        grupos.append({
+            "key": clave, "label": etiqueta, "icon": icono,
+            "files": [{
+                "id": str(m.id),
+                "name": (m.name or "").strip() or etiqueta,
+                "url": (m.file_url or ""),
+                "is_image": bool(re.search(r"\.(png|jpe?g|gif|webp|avif)(\?|$)", (m.file_url or ""), re.I)),
+                "is_audio": bool(re.search(r"\.(wav|mp3|m4a|aac|flac)(\?|$)", (m.file_url or ""), re.I)),
+                "track": temas.get(str(m.track_id or "")) or "",
+                "notes": (m.notes or ""),
+                "by": (m.uploaded_by_nick or ""),
+                "at": (m.created_at.strftime("%d/%m/%Y") if getattr(m, "created_at", None) else ""),
+            } for m in propios],
+        })
+    return grupos
+
+
+def _parse_iso_date_safe(value):
+    """Fecha ISO o None (sin reventar: `parse_date('')` lanza ValueError)."""
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except (ValueError, TypeError):
+        return None
+
+
 def _demos_context(session_db) -> dict:
     """Listado de demos con sus filtros (estado, origen, artista y búsqueda libre)."""
     f_estado = (request.args.get("demo_status") or "").strip().upper()
@@ -19620,6 +20038,375 @@ def _demo_apply_authors(session_db, row, form) -> None:
             position=len(nuevas),
         ))
     row.authors = nuevas
+
+
+# ---------------------------- PROYECTOS DISCOGRÁFICOS: endpoints -------------------------------
+def _disco_project_or_404(session_db, project_id):
+    return (session_db.query(DiscoProject)
+            .options(joinedload(DiscoProject.artist), joinedload(DiscoProject.song),
+                     selectinload(DiscoProject.tracks).joinedload(DiscoProjectTrack.song))
+            .filter(DiscoProject.id == to_uuid(project_id)).first())
+
+
+def _disco_project_tracks_from_form(session_db, form) -> list[dict]:
+    """Los temas que llegan del asistente: nombre, si es colaboración, si es un tema YA EXISTENTE del
+    repertorio y su fecha (solo si sale en una distinta a la del proyecto).
+
+    Las filas llegan indexadas (`track_title_1`, `track_song_1`…) porque la tabla se genera sobre la
+    marcha con el número de temas que se haya dicho."""
+    salida = []
+    for i in range(1, DISCO_PROJECT_MAX_TRACKS + 1):
+        if not any(k in form for k in ("track_title_%d" % i, "track_song_%d" % i)):
+            continue
+        song_id = _safe_uuid((form.get("track_song_%d" % i) or "").strip())
+        titulo = (form.get("track_title_%d" % i) or "").strip()
+        if song_id and not titulo:
+            cancion = session_db.get(Song, song_id)
+            titulo = (getattr(cancion, "title", None) or "").strip()
+        if not (titulo or song_id):
+            continue
+        salida.append({
+            "position": len(salida) + 1,
+            "title": titulo,
+            "is_collab": _truthy(form.get("track_collab_%d" % i)),
+            "song_id": song_id,
+            # ⚠️ Un tema YA PUBLICADO no lleva fecha: es de un lanzamiento anterior.
+            "release_date": (None if song_id else parse_optional_date(form.get("track_date_%d" % i))),
+        })
+    return salida
+
+
+@app.post("/discografica/proyectos/crear", endpoint="disco_project_create")
+@admin_required
+def disco_project_create():
+    """Crea un PROYECTO DISCOGRÁFICO con lo que dice el asistente (álbum/EP, single o videoclip)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para crear proyectos discográficos.")
+    session_db = db()
+    try:
+        artist_id = _safe_uuid((request.form.get("artist_id") or "").strip())
+        artist = session_db.get(Artist, artist_id) if artist_id else None
+        if artist is None:
+            flash("Elige el artista del proyecto.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        kind = (request.form.get("kind") or "").strip().upper()
+        if kind not in DISCO_PROJECT_LABELS:
+            flash("Elige qué tipo de proyecto es.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+
+        estado = _current_user_state() or {}
+        project = DiscoProject(
+            artist_id=artist.id, kind=kind, status="ACTIVO",
+            title=(request.form.get("title") or "").strip(),
+            notes=(request.form.get("notes") or "").strip() or None,
+            company_id=getattr(_pies_group_company(session_db), "id", None),
+            created_by_user_id=_safe_uuid(estado.get("user_id")),
+            created_by_nick=(estado.get("nick") or None),
+        )
+        if kind in DISCO_TRACKLIST_KINDS:
+            # ÁLBUM y EP funcionan igual: formato de lanzamiento, soportes físicos y su tracklist.
+            modo = (request.form.get("release_mode") or "DIGITAL").strip().upper()
+            project.release_mode = modo if modo in DISCO_RELEASE_MODE_LABELS else "DIGITAL"
+            project.physical_formats = ([f for f in request.form.getlist("physical_formats")
+                                         if f in DISCO_PHYSICAL_LABELS]
+                                        if project.release_mode != "DIGITAL" else [])
+            project.release_date = parse_optional_date(request.form.get("release_date"))
+            if not project.title:
+                flash("Ponle nombre al %s." % DISCO_PROJECT_LABELS[kind].lower(), "warning")
+                return redirect(url_for("discografica_view", section="proyectos"))
+        elif kind == "SINGLE":
+            project.is_collab = _truthy(request.form.get("is_collab"))
+            project.includes_videoclip = _truthy(request.form.get("includes_videoclip"))
+            project.release_date = parse_optional_date(request.form.get("release_date"))
+            if not project.title:
+                flash("Ponle nombre al single.", "warning")
+                return redirect(url_for("discografica_view", section="proyectos"))
+        else:   # VIDEOCLIP
+            fuente = (request.form.get("video_source") or "STANDALONE").strip().upper()
+            project.video_source = fuente if fuente in DISCO_VIDEO_SOURCE_LABELS else "STANDALONE"
+            project.release_date = parse_optional_date(request.form.get("release_date"))
+            if project.video_source == "SONG":
+                project.song_id = _safe_uuid((request.form.get("song_id") or "").strip())
+                if not project.song_id:
+                    flash("Elige de qué tema es el videoclip.", "warning")
+                    return redirect(url_for("discografica_view", section="proyectos"))
+                if not project.title:
+                    cancion = session_db.get(Song, project.song_id)
+                    project.title = (getattr(cancion, "title", None) or "").strip()
+            elif project.video_source == "PROJECT":
+                project.parent_project_id = _safe_uuid((request.form.get("parent_project_id") or "").strip())
+                if not project.parent_project_id:
+                    flash("Elige de qué proyecto es el videoclip.", "warning")
+                    return redirect(url_for("discografica_view", section="proyectos"))
+                if not project.title:
+                    padre = session_db.get(DiscoProject, project.parent_project_id)
+                    project.title = _disco_project_title(padre) if padre is not None else "Videoclip"
+            elif not project.title:
+                flash("Ponle nombre al videoclip.", "warning")
+                return redirect(url_for("discografica_view", section="proyectos"))
+
+        session_db.add(project)
+        session_db.flush()
+        if kind in DISCO_TRACKLIST_KINDS:
+            for fila in _disco_project_tracks_from_form(session_db, request.form):
+                session_db.add(DiscoProjectTrack(project_id=project.id, **fila))
+        # Sus TRES partes nacen con él: la bolsa de gastos (la hoja de ruta y el calendario se montan
+        # sobre el propio proyecto).
+        _ensure_project_bag(session_db, project)
+        session_db.commit()
+        flash("Proyecto creado.", "success")
+        return redirect(url_for("disco_project_detail", project_id=project.id))
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo crear el proyecto: %s" % exc, "danger")
+        return redirect(url_for("discografica_view", section="proyectos"))
+    finally:
+        session_db.close()
+
+
+@app.get("/discografica/proyectos/<project_id>", endpoint="disco_project_detail")
+@admin_required
+def disco_project_detail(project_id):
+    """La ficha del proyecto y sus tres partes: Calendario · Hoja de ruta · Bolsa."""
+    tab = (request.args.get("tab") or "calendario").strip().lower()
+    if tab not in dict((k, l) for k, l, _i in DISCO_PROJECT_TABS):
+        tab = "calendario"
+    session_db = db()
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        fila = _disco_project_row(session_db, project)
+        bag = (session_db.get(WorkflowBag, project.bag_id) if project.bag_id else None)
+        # La HOJA DE RUTA usa el mismo motor que las actividades (el tipo «project»).
+        roadmap_ctx = _roadmap_context(session_db, "project", project) if tab == "hoja-ruta" else None
+        # CALENDARIO: los hitos (fechas a la izquierda) y el calendario de verdad a la derecha; las
+        # tareas pendientes van debajo. Solo se calcula en su pestaña.
+        hitos = _disco_project_milestones(session_db, project) if tab == "calendario" else []
+        agenda_data = _disco_project_agenda(session_db, project, hitos) if tab == "calendario" else None
+        tareas = _disco_project_tasks(session_db, project, bag=bag) if tab == "calendario" else []
+        # La BOLSA se embebe con el MISMO panel que /bolsas/<id> (como la pestaña Producción de una
+        # actividad): su contexto se mezcla, quitando lo que choca con el de esta ficha.
+        bag_ctx = {}
+        if tab == "bolsa" and bag is not None:
+            bag_ctx = _bag_panel_context(session_db, bag)
+            # ⚠️ `bag` también lo pasa la ficha: sin quitarlo, `render_template` revienta con
+            # «got multiple values for keyword argument 'bag'».
+            for clave in ("today", "tab", "row", "project", "project_tabs", "milestones", "tracks",
+                          "physical_labels", "roadmap_ctx", "CAN_EDIT", "bag", "tasks",
+                          "agenda_data", "material_groups", "material_kinds"):
+                bag_ctx.pop(clave, None)
+        return render_template(
+            "disco_project_detail.html",
+            project=project, row=fila, tab=tab,
+            project_tabs=DISCO_PROJECT_TABS,
+            milestones=hitos,
+            agenda_data=agenda_data,
+            tasks=tareas,
+            tracks=list(project.tracks or []),
+            physical_labels=DISCO_PHYSICAL_LABELS,
+            release_modes=DISCO_RELEASE_MODES,
+            physical_formats=DISCO_PHYSICAL_FORMATS,
+            material_groups=(_disco_project_materials(session_db, project) if tab == "materiales" else []),
+            material_kinds=DISCO_MATERIAL_KINDS,
+            bag=bag,
+            roadmap_ctx=roadmap_ctx,
+            CAN_EDIT=can_edit_discografica(),
+            **bag_ctx,
+        )
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/proyectos/<project_id>/estado", endpoint="disco_project_status")
+@admin_required
+def disco_project_status(project_id):
+    """Archiva un proyecto (o lo devuelve a activo). Archivar NO es borrar."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar proyectos discográficos.")
+    session_db = db()
+    try:
+        project = session_db.get(DiscoProject, to_uuid(project_id) or uuid.uuid4())
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        nuevo = "ACTIVO" if (project.status or "ACTIVO").upper() == "ARCHIVADO" else "ARCHIVADO"
+        project.status = nuevo
+        project.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Proyecto archivado." if nuevo == "ARCHIVADO" else "Proyecto reactivado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo cambiar el estado: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("discografica_view", section="proyectos")))
+
+
+@app.post("/discografica/proyectos/<project_id>/eliminar", endpoint="disco_project_delete")
+@admin_required
+def disco_project_delete(project_id):
+    """Elimina el proyecto (sus temas se van con él; la bolsa se conserva por si tiene gastos)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para eliminar proyectos discográficos.")
+    session_db = db()
+    try:
+        project = session_db.get(DiscoProject, to_uuid(project_id) or uuid.uuid4())
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        artista = str(project.artist_id or "")
+        session_db.delete(project)
+        session_db.commit()
+        flash("Proyecto eliminado.", "success")
+        return redirect(url_for("discografica_view", section="proyectos", proj_artist=artista or None))
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo eliminar: %s" % exc, "danger")
+        return redirect(url_for("disco_project_detail", project_id=project_id))
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/proyectos/<project_id>/datos", endpoint="disco_project_update")
+@admin_required
+def disco_project_update(project_id):
+    """Guarda los DATOS del proyecto (pestaña Información): nombre, fechas, formato y sus temas."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar proyectos discográficos.")
+    session_db = db()
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        project.title = (request.form.get("title") or "").strip() or project.title
+        project.release_date = parse_optional_date(request.form.get("release_date"))
+        project.notes = (request.form.get("notes") or "").strip() or None
+        if (project.kind or "").upper() in DISCO_TRACKLIST_KINDS:
+            modo = (request.form.get("release_mode") or "").strip().upper()
+            if modo in DISCO_RELEASE_MODE_LABELS:
+                project.release_mode = modo
+            project.physical_formats = ([f for f in request.form.getlist("physical_formats")
+                                         if f in DISCO_PHYSICAL_LABELS]
+                                        if (project.release_mode or "") != "DIGITAL" else [])
+            # Los temas: se actualizan los que ya están (por su id) y no se pierde su vínculo con el
+            # repertorio; los que dejen de venir en el formulario se borran.
+            vistos = set()
+            for t in list(project.tracks or []):
+                clave = str(t.id)
+                if ("track_title_%s" % clave) not in request.form:
+                    continue
+                vistos.add(clave)
+                t.title = (request.form.get("track_title_%s" % clave) or "").strip()
+                t.is_collab = _truthy(request.form.get("track_collab_%s" % clave))
+                # ⚠️ Un tema YA PUBLICADO (vinculado al repertorio) no lleva fecha propia.
+                t.release_date = (None if t.song_id
+                                  else parse_optional_date(request.form.get("track_date_%s" % clave)))
+            for t in list(project.tracks or []):
+                if str(t.id) not in vistos and request.form.get("tracks_present"):
+                    session_db.delete(t)
+        elif (project.kind or "").upper() == "SINGLE":
+            project.is_collab = _truthy(request.form.get("is_collab"))
+            project.includes_videoclip = _truthy(request.form.get("includes_videoclip"))
+        project.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Proyecto actualizado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("disco_project_detail", project_id=project_id, tab="informacion"))
+
+
+@app.post("/discografica/proyectos/<project_id>/materiales", endpoint="disco_project_material_upload")
+@admin_required
+def disco_project_material_upload(project_id):
+    """Sube un material del proyecto (portada, máster, arte, vídeo…)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar proyectos discográficos.")
+    session_db = db()
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        kind = (request.form.get("kind") or "OTRO").strip().upper()
+        if kind not in DISCO_MATERIAL_LABELS:
+            kind = "OTRO"
+        archivo = request.files.get("file")
+        if not archivo or not getattr(archivo, "filename", ""):
+            flash("Elige el archivo que quieres subir.", "warning")
+            return redirect(url_for("disco_project_detail", project_id=project_id, tab="materiales"))
+        url = upload_file(archivo, "proyectos")
+        estado = _current_user_state() or {}
+        session_db.add(DiscoProjectMaterial(
+            project_id=project.id,
+            track_id=_safe_uuid((request.form.get("track_id") or "").strip()),
+            kind=kind,
+            name=((request.form.get("name") or "").strip()
+                  or (getattr(archivo, "filename", "") or "").strip()),
+            file_url=url,
+            mime_type=(getattr(archivo, "mimetype", None) or None),
+            notes=(request.form.get("notes") or "").strip() or None,
+            uploaded_by_user_id=_safe_uuid(estado.get("user_id")),
+            uploaded_by_nick=(estado.get("nick") or None),
+        ))
+        session_db.commit()
+        flash("Material subido.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo subir el material: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("disco_project_detail", project_id=project_id, tab="materiales"))
+
+
+@app.post("/discografica/proyectos/<project_id>/materiales/<material_id>/eliminar",
+          endpoint="disco_project_material_delete")
+@admin_required
+def disco_project_material_delete(project_id, material_id):
+    """Quita un material del proyecto."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar proyectos discográficos.")
+    session_db = db()
+    try:
+        fila = session_db.get(DiscoProjectMaterial, to_uuid(material_id) or uuid.uuid4())
+        if fila is not None and str(fila.project_id) == str(to_uuid(project_id) or ""):
+            session_db.delete(fila)
+            session_db.commit()
+            flash("Material eliminado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo eliminar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("disco_project_detail", project_id=project_id, tab="materiales"))
+
+
+@app.post("/discografica/proyectos/<project_id>/bolsa", endpoint="disco_project_bag")
+@admin_required
+def disco_project_bag(project_id):
+    """Crea (si hace falta) la bolsa del proyecto y lleva a ella."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar proyectos discográficos.")
+    session_db = db()
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        bag = _ensure_project_bag(session_db, project)
+        session_db.commit()
+        return redirect(url_for("bag_detail_view", bag_id=bag.id))
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo preparar la bolsa: %s" % exc, "danger")
+        return redirect(url_for("disco_project_detail", project_id=project_id, tab="bolsa"))
+    finally:
+        session_db.close()
 
 
 @app.post("/discografica/demos/crear", endpoint="discografica_demo_create")
@@ -45921,6 +46708,7 @@ def _bootstrap_schema_bg():
         (ensure_vacations_schema, "ensure_vacations_schema"),
         (ensure_song_demos_schema, "ensure_song_demos_schema"),
         (ensure_playlists_schema, "ensure_playlists_schema"),
+        (ensure_disco_projects_schema, "ensure_disco_projects_schema"),
         (ensure_third_party_intake_schema, "ensure_third_party_intake_schema"),
         (ensure_artist_templates_schema, "ensure_artist_templates_schema"),
         (ensure_push_schema, "ensure_push_schema"),
@@ -46002,7 +46790,7 @@ SOCIAL_PLATFORM_ORDER = {row["key"]: idx for idx, row in enumerate(SOCIAL_PLATFO
 # renderiza en cliente (static/js/roadmap.js) y el CRUD va por endpoints JSON.
 # Dueños de una hoja de ruta. «template» es una PLANTILLA de artista (ArtistTemplate): así el
 # editor de plantillas es literalmente la hoja de ruta, con sus mismas funciones (y las que vengan).
-ROADMAP_ENTITY_TYPES = {"concert", "action", "promotion", "template"}
+ROADMAP_ENTITY_TYPES = {"concert", "action", "promotion", "template", "project"}
 # Días de una plantilla: no tienen fecha real, se numeran «Día 1, Día 2…». Se ancla en un lunes
 # cualquiera para reutilizar toda la maquinaria de días (que trabaja con fechas ISO).
 TEMPLATE_DAY_ANCHOR = date(2000, 1, 3)   # lunes
@@ -46298,6 +47086,10 @@ def _roadmap_entity(session_db, entity_type: str, entity_id):
     if kind == "template":
         row = (session_db.query(ArtistTemplate).options(joinedload(ArtistTemplate.artist))
                .filter(ArtistTemplate.id == to_uuid(entity_id)).first())
+    elif kind == "project":
+        # PROYECTO DISCOGRÁFICO: su hoja de ruta es la de siempre (mismo motor, mismos endpoints).
+        row = (session_db.query(DiscoProject).options(joinedload(DiscoProject.artist))
+               .filter(DiscoProject.id == to_uuid(entity_id)).first())
     elif kind == "concert":
         row = session_db.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue)).filter(Concert.id == to_uuid(entity_id)).first()
     elif kind == "action":
@@ -46347,6 +47139,13 @@ def _roadmap_base_days(row) -> list[str]:
         for d in [getattr(row, "starts_on", None), getattr(row, "target_date", None), getattr(row, "ends_on", None)]:
             if d:
                 days.append(d.isoformat())
+    elif isinstance(row, DiscoProject):
+        # Los días «del propio proyecto»: su lanzamiento y los temas que salen en otra fecha.
+        if getattr(row, "release_date", None):
+            days.append(row.release_date.isoformat())
+        for t in (getattr(row, "tracks", None) or []):
+            if getattr(t, "release_date", None):
+                days.append(t.release_date.isoformat())
     return days
 
 
@@ -46397,7 +47196,7 @@ def _roadmap_days(row, payload: dict) -> list[dict]:
 
 # --- Canciones del artista (para el selector de entrevistas) -------------------
 def _roadmap_artist_ids(row) -> list[str]:
-    if isinstance(row, ArtistTemplate):
+    if isinstance(row, (ArtistTemplate, DiscoProject)):
         return [str(row.artist_id)] if row.artist_id else []
     if isinstance(row, Concert):
         return [str(x) for x in _concert_primary_artist_ids(row)]
@@ -46433,6 +47232,8 @@ def _roadmap_title(session_db, entity_type: str, row, artists) -> str:
     if isinstance(row, Promotion):
         snap = _json_loads_safe(getattr(row, "snapshot", None), {})
         return snap.get("title") or snap.get("artist_label") or _artist_label_from_rows(artists) or "Campaña"
+    if isinstance(row, DiscoProject):
+        return _disco_project_title(row)
     return "Hoja de ruta"
 
 
@@ -50903,13 +51704,14 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "discografica.royalties", "label": "Royalties", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": True, "sort_order": 133, "description": "Pestaña «Royalties»: regalías discográficas (importes)."},
     {"key": "discografica.royalties.liquidaciones", "label": "Liquidaciones", "section_key": "discografica", "parent_key": "discografica.royalties", "level": "SUBTAB", "economic_capable": True, "sort_order": 134, "description": "Subpestaña «Liquidaciones» de royalties (importes)."},
     {"key": "discografica.royalties.resumen", "label": "Resumen", "section_key": "discografica", "parent_key": "discografica.royalties", "level": "SUBTAB", "economic_capable": True, "sort_order": 135, "description": "Subpestaña «Resumen» de royalties (importes)."},
-    {"key": "discografica.editorial", "label": "Editorial", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 140, "description": "Pestaña «Editorial»: reparto autoral y editoriales."},
-    {"key": "discografica.registros", "label": "Registros", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 141, "description": "Pestaña «Registros» del sello (declaración de fonogramas/obras del catálogo)."},
+    {"key": "discografica.editorial", "label": "Editorial", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 141, "description": "Pestaña «Editorial»: reparto autoral y editoriales."},
+    {"key": "discografica.registros", "label": "Registros", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 142, "description": "Pestaña «Registros» del sello (declaración de fonogramas/obras del catálogo)."},
     {"key": "discografica.ingresos", "label": "Ingresos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": True, "sort_order": 136, "description": "Pestaña «Ingresos»: ingresos del sello por explotación (importes)."},
     {"key": "discografica.adelantos", "label": "Adelantos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": True, "sort_order": 137, "description": "Pestaña «Adelantos»: adelantos de distribuidoras, condiciones de recuperación y liquidación artista por artista (importes)."},
-    {"key": "discografica.demos", "label": "Demos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 138, "description": "Pestaña «Demos» del sello: las maquetas que se están valorando (subirlas, escucharlas, pedir valoración al sello y pasarlas al repertorio). Incluye el enlace público para que nos manden demos."},
-    {"key": "discografica.playlists", "label": "Playlists", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 139, "description": "Pestaña «Playlists»: listas de temas (canciones del repertorio y maquetas) para mandarlas fuera, con su enlace público y sus interruptores (descarga, letra, autores…)."},
-    {"key": "discografica.isrc", "label": "ISRC", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 142, "description": "Códigos ISRC: el repertorio de códigos y su configurador. ⚠️ La pantalla vive en REGISTROS → pestaña «ISRC» (el permiso se sigue llamando así a propósito: renombrarlo se llevaría por delante los permisos ya concedidos)."},
+    {"key": "discografica.proyectos", "label": "Proyectos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": True, "sort_order": 138, "description": "Pestaña «Proyectos»: donde se prepara el material discográfico (álbumes, EPs, singles y videoclips), con el calendario de cada proyecto, su información, sus materiales, su bolsa de gastos y su hoja de ruta (importes de la bolsa)."},
+    {"key": "discografica.demos", "label": "Demos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 139, "description": "Pestaña «Demos» del sello: las maquetas que se están valorando (subirlas, escucharlas, pedir valoración al sello y pasarlas al repertorio). Incluye el enlace público para que nos manden demos."},
+    {"key": "discografica.playlists", "label": "Playlists", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 140, "description": "Pestaña «Playlists»: listas de temas (canciones del repertorio y maquetas) para mandarlas fuera, con su enlace público y sus interruptores (descarga, letra, autores…)."},
+    {"key": "discografica.isrc", "label": "ISRC", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 143, "description": "Códigos ISRC: el repertorio de códigos y su configurador. ⚠️ La pantalla vive en REGISTROS → pestaña «ISRC» (el permiso se sigue llamando así a propósito: renombrarlo se llevaría por delante los permisos ya concedidos)."},
 
     {"key": "vacaciones", "label": "Vacaciones y días libres", "section_key": "vacaciones", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 148, "description": "Vacaciones del personal de la oficina: calendario de toda la oficina, saldo de cada persona, peticiones por aprobar y calendario de festivos. Se concede solo a quien tenga la responsabilidad «Gestionar vacaciones» del reparto de administración."},
 
@@ -51468,6 +52270,8 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return "discografica.demos"
     if endpoint.startswith("playlist_") and endpoint != "playlisting_view":
         return "discografica.playlists"
+    if endpoint.startswith("disco_project"):
+        return "discografica.proyectos"
     # Integraciones: Pleo, Cabify, Holded y Chartmetric se configuran ahí (y sus endpoints exigen
     # además dirección o la edición de su sección).
     if (endpoint.startswith("holded_") or endpoint.startswith("pleo_")
@@ -52050,7 +52854,7 @@ def _resolve_request_resource_key() -> str | None:
             if royalty_tab in {"liquidaciones", "resumen"}:
                 return f"discografica.royalties.{royalty_tab}"
         if section in {"lanzamientos", "canciones", "royalties", "editorial", "registros", "ingresos",
-                       "isrc", "adelantos", "demos", "playlists"}:
+                       "isrc", "adelantos", "demos", "playlists", "proyectos"}:
             return f"discografica.{section}"
         return "discografica"
     # Demos y playlists: sus endpoints cuelgan de /discografica, así que sin esto caerían en la
@@ -52060,6 +52864,10 @@ def _resolve_request_resource_key() -> str | None:
         return "discografica.demos"
     if endpoint.startswith("playlist_"):
         return "discografica.playlists"
+    # Proyectos discográficos (sus endpoints se llaman `disco_project_*`, fuera del prefijo
+    # `discografica_`: sin esto caerían en la sección y no se podrían conceder sueltos).
+    if endpoint.startswith("disco_project"):
+        return "discografica.proyectos"
     if endpoint == "discografica_song_detail":
         tab = (request.args.get("tab") or "informacion").strip().lower()
         mapping = {
@@ -52542,6 +53350,7 @@ def _resource_default_url(key: str) -> str:
         "discografica.registros": url_for("discografica_view", section="registros"),
         "discografica.ingresos": url_for("discografica_view", section="ingresos"),
         "discografica.adelantos": url_for("discografica_view", section="adelantos"),
+        "discografica.proyectos": url_for("discografica_view", section="proyectos"),
         "discografica.demos": url_for("discografica_view", section="demos"),
         "discografica.playlists": url_for("discografica_view", section="playlists"),
         "discografica.isrc": url_for("registros_view", tab="isrc", isrc_tab="repertorio"),

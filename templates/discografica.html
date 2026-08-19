@@ -59,6 +59,12 @@
       Playlist
     </a>
   </li>
+  <li class="nav-item">
+    <a class="nav-link {% if section=='proyectos' %}active{% endif %}"
+       href="{{ url_for('discografica_view', section='proyectos') }}">
+      Proyectos
+    </a>
+  </li>
 </ul>
 
 {% if section == 'lanzamientos' %}
@@ -1600,6 +1606,90 @@
       </div>
     </div>
   {% endif %}
+
+{% elif section == 'proyectos' %}
+  {# PROYECTOS DISCOGRÁFICOS · donde se prepara el material: álbumes, EPs, singles y videoclips.
+     Primero los ARTISTAS con proyectos activos y su número; al pinchar uno, sus proyectos. Cada
+     proyecto tiene sus tres partes: calendario, hoja de ruta y bolsa. #}
+  {% set pc = projects_ctx or {} %}
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <h5 class="m-0">Proyectos{% if pc.archived %} archivados{% endif %}</h5>
+      <span class="badge text-bg-light border">{{ pc.total or 0 }}</span>
+    </div>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <a class="btn btn-outline-secondary btn-sm"
+         href="{{ url_for('discografica_view', section='proyectos', proj_archivados=(none if pc.archived else 1), proj_artist=(pc.subject.id if pc.subject else none)) }}">
+        <i class="fa {{ 'fa-rotate-left' if pc.archived else 'fa-box-archive' }} me-1"></i>{{ 'Ver activos' if pc.archived else 'Ver archivados' }}
+      </a>
+      {% if CAN_EDIT_DISCOGRAFICA %}
+        <button class="btn btn-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#discoProjectModal">
+          <i class="fa fa-plus me-1"></i>Nuevo proyecto discográfico
+        </button>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if pc.subject %}
+    {# Dentro de un ARTISTA: su cabecera y sus proyectos. #}
+    <div class="mb-2">
+      <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('discografica_view', section='proyectos', proj_archivados=(1 if pc.archived else none)) }}"
+         title="Volver a los artistas" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
+    </div>
+    <div class="d-flex align-items-center gap-3 mb-3">
+      {{ artist_chip(pc.subject.name, pc.subject.photo_url, artist_id=pc.subject.id) }}
+      <span class="badge text-bg-secondary">{{ pc.subject.count }} proyecto(s)</span>
+    </div>
+    <div class="card">
+      <div class="list-group list-group-flush">
+        {% for r in pc.rows %}
+          <a class="oa-row text-decoration-none text-reset" href="{{ r.url }}">
+            <span class="oa-row__icon" title="{{ r.kind_label }}"><i class="fa {{ r.icon }}"></i></span>
+            <span class="oa-row__body">
+              <span class="oa-row__top">
+                <span class="oa-row__title">{{ r.title }}</span>
+                <span class="oa-row__sep">·</span><span class="oa-row__place">{{ r.kind_label }}</span>
+                {% if r.is_collab %}<span class="badge text-bg-light border ms-1">Colaboración</span>{% endif %}
+                {% if r.includes_videoclip %}<span class="badge text-bg-light border ms-1"><i class="fa fa-film me-1"></i>Con videoclip</span>{% endif %}
+              </span>
+              <span class="oa-row__sub">
+                {{ r.release_label }}
+                {% if r.tracks_count %} · {{ r.tracks_count }} tema(s){% endif %}
+                {% if r.release_mode_label %} · {{ r.release_mode_label }}{% endif %}
+                {% if r.physical_label %} · {{ r.physical_label }}{% endif %}
+                {% if r.video_source_label %} · {{ r.video_source_label }}{% endif %}
+              </span>
+            </span>
+            <span class="badge text-bg-light border">Ver proyecto</span>
+          </a>
+        {% else %}
+          <div class="list-group-item text-muted py-4 text-center">
+            No hay proyectos {{ 'archivados' if pc.archived else 'activos' }} de este artista.
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% else %}
+    {# Los ARTISTAS con proyectos y su número. #}
+    {% if pc.artists %}
+      <div class="demo-groups">
+        {% for a in pc.artists %}
+          <a class="demo-group" href="{{ url_for('discografica_view', section='proyectos', proj_artist=a.id, proj_archivados=(1 if pc.archived else none)) }}">
+            <img src="{{ a.photo_url or url_for('static', filename='img/avatar_placeholder.png') }}" alt="" data-avatar="1">
+            <span class="demo-group__name">{{ a.name }}</span>
+            <span class="badge text-bg-secondary">{{ a.count }}</span>
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="alert alert-light border">
+        <i class="fa fa-circle-info me-1"></i>No hay proyectos {{ 'archivados' if pc.archived else 'activos' }}.
+        {% if CAN_EDIT_DISCOGRAFICA and not pc.archived %}Empieza uno con «Nuevo proyecto discográfico».{% endif %}
+      </div>
+    {% endif %}
+  {% endif %}
+
+  {% if CAN_EDIT_DISCOGRAFICA %}{% include '_disco_project_wizard_modal.html' %}{% endif %}
 
 {% else %}
 

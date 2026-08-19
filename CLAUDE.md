@@ -621,6 +621,49 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   páginas públicas): **cero casos**. Si se toca el layout, ese detector es la forma de comprobarlo:
   busca elementos de menos de 60 px con 3+ líneas y ≤4 caracteres por línea.
 
+- **DISCOGRÁFICA · PROYECTOS** (ago 2026): donde se PREPARA el material discográfico —álbumes, EPs,
+  singles y videoclips—, en su propia pestaña (`/discografica?section=proyectos`). Modelos
+  **`DiscoProject`** + **`DiscoProjectTrack`** + **`DiscoProjectMaterial`**
+  (`ensure_disco_projects_schema`). ⚠️ Un proyecto NO es el lanzamiento (eso son `Album`/`Song`
+  cuando ya existen): es el trabajo previo.
+  · **La pantalla**: los ARTISTAS con proyectos activos y su número; al pinchar uno, los suyos
+  (`?proj_artist=<id>`, y los archivados con `?proj_archivados=1`).
+  · **Cada proyecto tiene CINCO pestañas, en este orden** (`DISCO_PROJECT_TABS`): **Calendario**
+  (las FECHAS a la izquierda, el CALENDARIO a la derecha y las TAREAS PENDIENTES debajo) ·
+  **Información** · **Materiales** · **Bolsa** · **Hoja de ruta**.
+  · **El calendario es el componente de la agenda de siempre** (`_agenda_calendar.html`, modo
+  «artist»), con un payload propio (`_disco_project_agenda`). ⚠️ **Sin `artist_id`**: así
+  `unlimited` sale false en `agenda_calendar.js` y las flechas se mueven dentro de lo cargado sin
+  pedirle nada al servidor (el calendario de un proyecto son SUS fechas, no la agenda del artista).
+  · **Las TAREAS PENDIENTES** (`_disco_project_tasks`) dicen lo que falta para poder lanzarlo (la
+  fecha, los temas, el soporte físico, la portada, el máster, el vídeo, la hoja de ruta, la bolsa) y
+  cada una **desaparece sola** en cuanto se hace.
+  · **La HOJA DE RUTA es la misma de las actividades**: basta con que «project» esté en
+  `ROADMAP_ENTITY_TYPES` y con las ramas del proyecto en `_roadmap_entity` / `_roadmap_base_days`
+  (su lanzamiento y los temas con fecha propia) / `_roadmap_artist_ids` / `_roadmap_title`. Lo que se
+  ponga ahí sale también en el calendario del proyecto.
+  · **La BOLSA** es un `WorkflowBag` con `bag_type='PROYECTO'` y `linked_type='PROJECT'`
+  (`_ensure_project_bag`, mismo patrón que una promoción) y se embebe con el MISMO panel que
+  `/bolsas/<id>`. ⚠️ Al mezclar su contexto hay que quitar las claves que chocan con las de la ficha
+  (`bag`, `tab`, `row`…) o `render_template` revienta con «got multiple values».
+  · **El ASISTENTE** (`_disco_project_wizard_modal.html`, con `step_wizard.js`): artista (los activos
+  primero y el resto tras «Ver más artistas») → tipo → y según el tipo: **álbum/EP** (nombre, nº de
+  temas → tabla que se genera sola con nombre, colaboración y «tema ya existente» del repertorio;
+  formato DIGITAL / DIGITAL+FÍSICO / SOLO FÍSICO y sus soportes CD/vinilo/casete; y el planteamiento
+  de lanzamiento con la fecha y los temas que salgan en otra) · **single** (nombre, colaboración,
+  fecha y si lleva videoclip) · **videoclip** (de un tema del repertorio, de otro proyecto o suelto).
+  ⚠️ **Un tema YA EXISTENTE no lleva fecha**: sale con la etiqueta «Ya publicado».
+  ⚠️ `step_wizard.js` NO expone `swNext`: el auto-avance se pide con **`data-sw-advance`** en el
+  propio control (y los pasos que no tocan se saltan con `data-sw-when`, que además DESHABILITA sus
+  campos: si no, el navegador se para a validar un `required` invisible).
+  ⚠️ **`dict()` sobre las tuplas de tres del catálogo revienta en la plantilla**: el mapa
+  clave→etiqueta se pasa hecho (`kind_labels`).
+  ⚠️ **La clave de los ficheros de un grupo de materiales se llama `files`, NO `items`**: en Jinja
+  `g.items` devuelve el MÉTODO del dict (bug real, y ya van varios en esta app).
+  ⚠️ La sección nueva hay que añadirla a la **lista blanca de `section`** de `discografica_view`, al
+  catálogo de permisos (`discografica.proyectos`) y a los DOS mapeos de endpoints (los suyos se
+  llaman `disco_project_*`, fuera del prefijo `discografica_`).
+
 - **DISCOGRÁFICA · DEMOS** (ago 2026): las maquetas que se están valorando, en su propia sección
   (`/discografica?section=demos`). Modelo **`SongDemo`** (`ensure_song_demos_schema`).
   · Una demo viene **de un artista NUESTRO** (`origin='ARTIST'` + `artist_id`) o **DE FUERA**

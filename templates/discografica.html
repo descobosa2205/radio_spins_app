@@ -266,7 +266,7 @@
                   <tbody>
                     {% for s in songs %}
                       {% set type_label = 'Colaboración externa' if s.is_external_collab else ('Distribución' if s.is_distribution else ('Catálogo' if s.is_catalog else 'Discográfica')) %}
-                      <tr class="clickable-row song-search-row"
+                      <tr class="clickable-row song-search-row{% if s.is_provisional %} is-provisional{% endif %}"
                           role="button"
                           tabindex="0"
                           data-song-artist="{{ artist.id }}"
@@ -287,6 +287,11 @@
                         <td>
                           <div class="fw-semibold">{{ s.title }}{% if s.is_explicit %} <span class="badge text-bg-dark" title="Contenido explícito">E</span>{% endif %}</div>
                           <div class="d-flex gap-1 flex-wrap mt-1">
+                            {# PROVISIONAL: la ha creado un PROYECTO y todavía se está preparando. #}
+                            {% if s.is_provisional %}
+                              <span class="badge text-bg-warning text-dark" title="La está preparando un proyecto discográfico: deja de ser provisional cuando se cierra">
+                                <i class="fa fa-hourglass-half me-1"></i>Provisional</span>
+                            {% endif %}
                             {% if s.is_external_collab %}
                               <span class="badge text-bg-warning text-dark"><i class="fa fa-handshake me-1"></i>Colaboración externa</span>
                             {% elif s.is_distribution %}
@@ -706,7 +711,7 @@
                     {% set type_label = 'EP' if al.album_type == 'EP' else 'Disco' %}
                     {% set ownership_label = 'Distribución' if al.is_distribution else ('Catálogo' if al.is_catalog else 'Propio') %}
                     {% set physical_label = 'CD / Vinilo' if al.physical_cd and al.physical_vinyl else ('CD' if al.physical_cd else ('Vinilo' if al.physical_vinyl else 'No hay físico')) %}
-                    <tr class="clickable-row album-search-row"
+                    <tr class="clickable-row album-search-row{% if al.is_provisional %} is-provisional{% endif %}"
                         role="button"
                         tabindex="0"
                         data-album-artist="{{ artist.id }}"
@@ -720,6 +725,10 @@
                       <td>
                         <div class="fw-semibold">{{ al.title }}</div>
                         <div class="d-flex gap-1 flex-wrap mt-1">
+                          {% if al.is_provisional %}
+                            <span class="badge text-bg-warning text-dark" title="Lo está preparando un proyecto discográfico: deja de ser provisional cuando se cierra">
+                              <i class="fa fa-hourglass-half me-1"></i>Provisional</span>
+                          {% endif %}
                           <span class="badge text-bg-light border">{{ type_label }}</span>
                           {% if al.is_distribution %}
                             <span class="badge text-bg-info">Distribución</span>

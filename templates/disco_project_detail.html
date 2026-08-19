@@ -18,6 +18,15 @@
     <div class="d-flex flex-wrap align-items-center gap-2">
       <h1 class="ficha-hero__title">{{ row.title }}</h1>
       {% if row.status == 'ARCHIVADO' %}<span class="badge text-bg-secondary">Archivado</span>{% endif %}
+      {% if project.closed_at %}
+        <span class="badge text-bg-success" data-bs-toggle="tooltip"
+              title="Cerrado el {{ project.closed_at.strftime('%d/%m/%Y') }}{% if project.closed_by_nick %} por {{ project.closed_by_nick }}{% endif %} · pasó a distribución y registro">
+          <i class="fa fa-flag-checkered me-1"></i>Cerrado</span>
+      {% elif release and release.provisional %}
+        <span class="badge text-bg-warning text-dark" data-bs-toggle="tooltip"
+              title="El lanzamiento está en el repertorio marcado como provisional hasta que se cierre el proyecto">
+          Provisional</span>
+      {% endif %}
       {% if row.is_collab %}<span class="badge text-bg-light border">Colaboración</span>{% endif %}
       {% if row.includes_videoclip %}<span class="badge text-bg-light border"><i class="fa fa-film me-1"></i>Con videoclip</span>{% endif %}
     </div>
@@ -45,6 +54,18 @@
               <button class="dropdown-item" type="submit">
                 <i class="fa {{ 'fa-rotate-left' if row.status == 'ARCHIVADO' else 'fa-box-archive' }} me-2 text-muted"></i>
                 {{ 'Reactivar el proyecto' if row.status == 'ARCHIVADO' else 'Archivar el proyecto' }}
+              </button>
+            </form>
+          </li>
+          <li>
+            {# CERRAR el proyecto: el lanzamiento deja de ser provisional y pasa a distribución y
+               registro (y le sale a Registros como tarea). #}
+            <form method="post" action="{{ url_for('disco_project_close', project_id=project.id) }}"
+                  {% if not project.closed_at %}data-confirm="El lanzamiento dejará de ser provisional y le llegará a Registros para cumplimentarlo. ¿Cerrar el proyecto?"{% endif %}>
+              {% if project.closed_at %}<input type="hidden" name="undo" value="1">{% endif %}
+              <button class="dropdown-item" type="submit">
+                <i class="fa {{ 'fa-rotate-left' if project.closed_at else 'fa-flag-checkered' }} me-2 text-muted"></i>
+                {{ 'Reabrir el proyecto' if project.closed_at else 'Cerrar (pasar a distribución y registro)' }}
               </button>
             </form>
           </li>
@@ -242,81 +263,77 @@
   </form>
 
 {% elif tab == 'materiales' %}
-  {# MATERIALES · lo que se prepara para el lanzamiento (portada, másters, arte, vídeo…). #}
-  {% if CAN_EDIT %}
+  {# MATERIALES · se suben DONDE SIEMPRE: en la ficha de la canción o del álbum. Aquí solo se ve qué
+     hay y se entra a su ficha. #}
+  {% if release %}
     <div class="card mb-3">
-      <div class="card-body">
-        <form method="post" action="{{ url_for('disco_project_material_upload', project_id=project.id) }}"
-              enctype="multipart/form-data" class="row g-2 align-items-end">
-          <div class="col-12 col-md-3">
-            <label class="form-label">Qué es</label>
-            <select class="form-select" name="kind">
-              {% for key, label, icon in material_kinds %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
-            </select>
+      <div class="card-body d-flex align-items-center gap-3 flex-wrap">
+        <img src="{{ release.cover_url or url_for('static', filename='img/cover_placeholder.svg') }}" alt=""
+             style="width:72px;height:72px;object-fit:cover;border-radius:.6rem;border:1px solid #e6e8eb;">
+        <div class="flex-grow-1">
+          <div class="small text-muted">{{ release.label }} en el repertorio</div>
+          <div class="fs-5 fw-semibold">
+            {{ release.title }}
+            {% if release.provisional %}<span class="badge text-bg-warning text-dark ms-1">Provisional</span>{% endif %}
           </div>
-          {% if tracks %}
-            <div class="col-12 col-md-3">
-              <label class="form-label">Tema <span class="text-muted">(opcional)</span></label>
-              <select class="form-select" name="track_id">
-                <option value="">Del proyecto entero</option>
-                {% for t in tracks %}<option value="{{ t.id }}">{{ t.title or 'Tema %d'|format(loop.index) }}</option>{% endfor %}
-              </select>
-            </div>
-          {% endif %}
-          <div class="col-12 col-md-3">
-            <label class="form-label">Nombre <span class="text-muted">(opcional)</span></label>
-            <input class="form-control" name="name" placeholder="Como se llama el archivo">
-          </div>
-          <div class="col-12 col-md-2">
-            <label class="form-label">Archivo</label>
-            <input type="file" class="form-control" name="file" required>
-          </div>
-          <div class="col-12 col-md-1 d-grid">
-            <button class="btn btn-danger"><i class="fa fa-upload"></i></button>
-          </div>
-        </form>
+          <div class="small text-muted">Los materiales se suben en su ficha, como siempre.</div>
+        </div>
+        <a class="btn btn-danger" href="{{ release.url }}">
+          <i class="fa fa-folder-open me-1"></i>Ir a sus materiales</a>
       </div>
+    </div>
+    {% if release_songs %}
+      <div class="card">
+        <div class="card-header bg-white"><strong><i class="fa fa-music me-2 text-muted"></i>Temas del lanzamiento</strong></div>
+        <div class="list-group list-group-flush">
+          {% for sg in release_songs %}
+            <a class="list-group-item list-group-item-action d-flex align-items-center gap-3"
+               href="{{ url_for('discografica_song_detail', song_id=sg.id, tab='materiales') }}">
+              <img src="{{ sg.cover_url or url_for('static', filename='img/cover_placeholder.svg') }}" alt=""
+                   style="width:44px;height:44px;object-fit:cover;border-radius:.4rem;">
+              <span class="flex-grow-1">
+                <span class="d-block fw-semibold">{{ sg.title }}</span>
+                <span class="d-block small text-muted">
+                  {% if sg.is_provisional %}Provisional{% else %}En el repertorio{% endif %}
+                  {% if sg.release_date %} · {{ sg.release_date.strftime('%d/%m/%Y') }}{% endif %}
+                </span>
+              </span>
+              <span class="badge text-bg-light border">Sus materiales</span>
+            </a>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+    {% if project.closed_at %}
+      <div class="card mt-3">
+        <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <div>
+            <div class="fw-semibold"><i class="fa fa-clipboard-list me-2 text-muted"></i>Distribución y registro</div>
+            <div class="small text-muted">
+              {% if project.registros_done_at %}
+                Datos y materiales dados por completos{% if project.registros_done_by_nick %} por {{ project.registros_done_by_nick }}{% endif %}.
+              {% else %}
+                Pendiente de cumplimentar los datos y subir los materiales que falten.
+              {% endif %}
+            </div>
+          </div>
+          <form method="post" action="{{ url_for('disco_project_registros_done', project_id=project.id) }}">
+            <input type="hidden" name="next" value="{{ request.full_path }}">
+            {% if project.registros_done_at %}
+              <input type="hidden" name="undo" value="1">
+              <button class="btn btn-outline-secondary btn-sm"><i class="fa fa-rotate-left me-1"></i>Volver a pendiente</button>
+            {% else %}
+              <button class="btn btn-outline-success btn-sm"><i class="fa fa-circle-check me-1"></i>Datos y materiales completos</button>
+            {% endif %}
+          </form>
+        </div>
+      </div>
+    {% endif %}
+  {% else %}
+    <div class="alert alert-warning">
+      <i class="fa fa-triangle-exclamation me-1"></i>Este proyecto no tiene lanzamiento en el repertorio.
     </div>
   {% endif %}
-  {% for g in material_groups %}
-    <div class="card mb-3">
-      <div class="card-header bg-white"><strong><i class="fa {{ g.icon }} me-2 text-muted"></i>{{ g.label }}</strong>
-        <span class="badge text-bg-light border ms-1">{{ g['files']|length }}</span></div>
-      <div class="list-group list-group-flush">
-        {% for m in g['files'] %}
-          <div class="list-group-item d-flex align-items-center gap-3">
-            {% if m.is_image %}
-              <img src="{{ m.url }}" alt="" style="width:56px;height:56px;object-fit:cover;border-radius:.5rem;">
-            {% else %}
-              <span class="oa-row__icon"><i class="fa {{ g.icon }}"></i></span>
-            {% endif %}
-            <span class="flex-grow-1">
-              <span class="d-block fw-semibold">{{ m.name }}</span>
-              <span class="d-block small text-muted">
-                {% if m.track %}{{ m.track }} · {% endif %}{{ m.at }}{% if m.by %} · {{ m.by }}{% endif %}
-                {% if m.notes %} · {{ m.notes }}{% endif %}
-              </span>
-            </span>
-            {% if m.is_audio %}
-              <span class="mat-chip mat-chip--bare" data-chip-src="{{ m.url }}" data-chip-icon="fa-file-audio"></span>
-            {% endif %}
-            <a class="btn btn-sm btn-outline-secondary" href="{{ m.url }}" target="_blank" rel="noopener" title="Abrir">
-              <i class="fa fa-up-right-from-square"></i></a>
-            {% if CAN_EDIT %}
-              <form method="post" action="{{ url_for('disco_project_material_delete', project_id=project.id, material_id=m.id) }}"
-                    data-confirm="¿Eliminar «{{ m.name }}»?">
-                <button class="btn btn-sm btn-outline-danger" type="submit"><i class="fa fa-trash"></i></button>
-              </form>
-            {% endif %}
-          </div>
-        {% endfor %}
-      </div>
-    </div>
-  {% else %}
-    <div class="alert alert-light border">
-      <i class="fa fa-circle-info me-1"></i>Todavía no hay materiales en este proyecto.
-    </div>
-  {% endfor %}
 
 {% elif tab == 'bolsa' %}
   {# BOLSA de gastos del proyecto (una por proyecto). #}

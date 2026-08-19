@@ -4,11 +4,13 @@
 <div class="mb-2">
   <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('discografica_view', section='canciones', rep_tab='canciones') }}" title="Volver a canciones" aria-label="Volver a canciones"><i class="fa fa-arrow-left"></i></a>
 </div>
-<div class="ficha-hero">
+{# PROVISIONAL: la ha creado un PROYECTO discográfico y todavía se está preparando (fondo rayado y
+   su etiqueta). Deja de serlo cuando se cierra el proyecto y pasa a distribución y registro. #}
+<div class="ficha-hero{% if song.is_provisional %} is-provisional{% endif %}">
   <img class="ficha-hero__media" src="{{ song.cover_url or DEFAULT_COVER_URL }}" alt="" data-cover>
   <div class="ficha-hero__body">
-    <div class="ficha-hero__eyebrow">{{ song_type_label }}</div>
-    <h1 class="ficha-hero__title">{{ song.title }}{% if song.is_explicit %} <span class="badge text-bg-dark align-middle" style="font-size:.5em;vertical-align:middle;" title="Contenido explícito">EXPLÍCITA</span>{% endif %}</h1>
+    <div class="ficha-hero__eyebrow">{{ song_type_label }}{% if song.is_provisional %} · <span class="text-warning-emphasis">En preparación</span>{% endif %}</div>
+    <h1 class="ficha-hero__title">{{ song.title }}{% if song.is_provisional %} <span class="badge text-bg-warning text-dark align-middle" style="font-size:.5em;vertical-align:middle;" title="La está preparando un proyecto discográfico">PROVISIONAL</span>{% endif %}{% if song.is_explicit %} <span class="badge text-bg-dark align-middle" style="font-size:.5em;vertical-align:middle;" title="Contenido explícito">EXPLÍCITA</span>{% endif %}</h1>
     <div class="ficha-hero__facts">
       <span>{% if primary_artist %}{{ artist_avatar(primary_artist.photo_url, primary_artist.name, artist_id=primary_artist.id) }}<span data-artist-link="{{ primary_artist.id }}">{{ primary_artist.name }}</span>{{ linked_mini('artist', primary_artist.id) }}{% else %}<i class="fa fa-user"></i>—{% endif %}</span>
       {% set song_collaborators = song.display_collaborator or song.collaborator %}

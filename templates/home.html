@@ -101,6 +101,40 @@ document.addEventListener('click', function (ev) {
 </div>
 {% endif %}
 
+{# REGISTROS · proyectos discográficos ya cerrados: hay que cumplimentar los datos y subir los
+   materiales que falten. Se van solos al marcarlos como completos. #}
+{% if HOME_PROJECT_REGISTROS %}
+<div class="card mb-4 border-danger">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <div>
+        <h5 class="mb-0"><i class="fa fa-clipboard-list text-danger me-2"></i>Lanzamientos por cumplimentar</h5>
+        <div class="text-muted small">Proyectos cerrados: faltan los datos y los materiales para distribución y registro.</div>
+      </div>
+      <span class="badge text-bg-danger">{{ HOME_PROJECT_REGISTROS|length }}</span>
+    </div>
+    <div class="list-group list-group-flush">
+      {% for p in HOME_PROJECT_REGISTROS %}
+        <a href="{{ p.url }}" class="oa-row text-decoration-none text-reset">
+          <span class="oa-row__icon" title="{{ p.kind_label }}"><i class="fa {{ p.icon }}"></i></span>
+          <span class="oa-row__body">
+            <span class="oa-row__top">
+              <span class="oa-row__title">{{ p.title }}</span>
+              {% if p.artist_name %}<span class="oa-row__sep">·</span><span class="oa-row__place">{{ p.artist_name }}</span>{% endif %}
+            </span>
+            <span class="oa-row__sub">
+              {{ p.kind_label }}{% if p.closed_label %} · cerrado el {{ p.closed_label }}{% endif %}
+              {% if p.missing %} · falta {{ p.missing }}{% endif %}
+            </span>
+          </span>
+          <span class="badge text-bg-danger">Cumplimentar</span>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {# TICKETING · SALIDA A LA VENTA. Dos tareas distintas y en este orden: primero sacarla a la venta
    (contratación ya la ha activado) y después COMUNICARLA, que es obligatorio — hasta que se manda el
    aviso la actividad sigue aquí; en cuanto se manda, pasa a estar en actualización de ventas. #}

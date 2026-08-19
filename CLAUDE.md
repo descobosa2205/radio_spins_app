@@ -631,6 +631,24 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · **Cada proyecto tiene CINCO pestañas, en este orden** (`DISCO_PROJECT_TABS`): **Calendario**
   (las FECHAS a la izquierda, el CALENDARIO a la derecha y las TAREAS PENDIENTES debajo) ·
   **Información** · **Materiales** · **Bolsa** · **Hoja de ruta**.
+  · ⚠️⚠️ **EL PROYECTO CREA EL LANZAMIENTO EN REPERTORIO, en PROVISIONAL** (ago 2026): al crear el
+  proyecto se da de alta lo que corresponda —un `Album` con sus `AlbumTrack` (los temas nuevos crean
+  su `Song`; los que venían del repertorio se enganchan tal cual), una `Song` en un single o en un
+  videoclip suelto, y nada en un videoclip de algo que ya existe— con **`is_provisional=True`**
+  (`_disco_project_create_release`). **Los MATERIALES se suben DONDE SIEMPRE**, en la ficha de la
+  canción o del álbum: la pestaña «Materiales» del proyecto solo enseña el estado y lleva allí.
+  · **Lo provisional se ve**: fondo rayado suave (`tr.is-provisional`, `.ficha-hero.is-provisional`)
+  y etiqueta «Provisional» en el repertorio y en las dos fichas.
+  · **Mientras es provisional, el lanzamiento SIGUE al proyecto** (`_disco_project_sync_release`:
+  nombre, fecha y soportes). En cuanto se cierra, deja de tocarse: manda su ficha.
+  · **CERRAR el proyecto** (`disco_project_close`, en la rueda) es lo que le da paso a **distribución
+  y registro**: el lanzamiento deja de ser provisional (`_disco_project_set_provisional`, que **solo
+  toca lo que creó el proyecto**: un tema que ya estaba publicado no era provisional y no se toca) y
+  le llega a **REGISTROS** como tarea —aviso `REGISTROS` + módulo de Inicio `HOME_PROJECT_REGISTROS`
+  (`_home_project_registros`)— para **cumplimentar los datos y subir los materiales**, con lo que
+  falta dicho (portada, másters). Se cierra con «Datos y materiales completos»
+  (`disco_project_registros_done`), y el aviso se cierra solo. Todo es reversible (reabrir / volver a
+  pendiente).
   · **El calendario es el componente de la agenda de siempre** (`_agenda_calendar.html`, modo
   «artist»), con un payload propio (`_disco_project_agenda`). ⚠️ **Sin `artist_id`**: así
   `unlimited` sale false en `agenda_calendar.js` y las flechas se mueven dentro de lo cargado sin
@@ -658,8 +676,8 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   campos: si no, el navegador se para a validar un `required` invisible).
   ⚠️ **`dict()` sobre las tuplas de tres del catálogo revienta en la plantilla**: el mapa
   clave→etiqueta se pasa hecho (`kind_labels`).
-  ⚠️ **La clave de los ficheros de un grupo de materiales se llama `files`, NO `items`**: en Jinja
-  `g.items` devuelve el MÉTODO del dict (bug real, y ya van varios en esta app).
+  ⚠️ **`DiscoProject.song` necesita `foreign_keys=[song_id]`**: hay DOS caminos a `songs` (el tema del
+  videoclip y `release_song_id`, el lanzamiento creado) y SQLAlchemy no arranca sin decírselo.
   ⚠️ La sección nueva hay que añadirla a la **lista blanca de `section`** de `discografica_view`, al
   catálogo de permisos (`discografica.proyectos`) y a los DOS mapeos de endpoints (los suyos se
   llaman `disco_project_*`, fuera del prefijo `discografica_`).

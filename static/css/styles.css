@@ -4522,3 +4522,16 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
   font-weight:800; font-size:1.2rem; flex:0 0 auto; }
 .demo-res-score { display:inline-grid; place-items:center; width:2rem; height:2rem; border-radius:50%;
   color:#fff; font-weight:800; font-size:.85rem; }
+
+/* ---------------------------------------------------------------------------
+   PROVISIONAL · lo que ha creado un PROYECTO discográfico y todavía se está
+   preparando. Se distingue con un FONDO rayado suave (no con un color plano:
+   así se ve que es lo mismo de siempre pero «en obras») y deja de estarlo en
+   cuanto se cierra el proyecto.
+   --------------------------------------------------------------------------- */
+tr.is-provisional > td,
+.is-provisional > .ficha-hero__body {
+  background-image: repeating-linear-gradient(45deg,
+      rgba(255, 193, 7, .10) 0 10px, rgba(255, 193, 7, 0) 10px 20px);
+}
+.ficha-hero.is-provisional { border-color: rgba(255, 193, 7, .55); }

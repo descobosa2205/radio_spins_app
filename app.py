@@ -168,7 +168,6 @@ from models import (
     PlaylistItem,
     DiscoProject,
     DiscoProjectTrack,
-    DiscoProjectMaterial,
     SongCertification,
     SongProductionContract,
     SongStatus,
@@ -19169,18 +19168,6 @@ DISCO_PROJECT_TABS = [
     ("bolsa", "Bolsa", "fa-sack-dollar"),
     ("hoja-ruta", "Hoja de ruta", "fa-route"),
 ]
-# MATERIALES de un proyecto (lo que se prepara antes de que el lanzamiento exista en el catálogo).
-DISCO_MATERIAL_KINDS = [
-    ("PORTADA", "Portada", "fa-image"),
-    ("MASTER", "Máster", "fa-file-audio"),
-    ("INSTRUMENTAL", "Instrumental", "fa-sliders"),
-    ("VIDEO", "Vídeo", "fa-film"),
-    ("ARTE", "Arte y diseño", "fa-palette"),
-    ("LETRA", "Letra", "fa-align-left"),
-    ("OTRO", "Otros", "fa-paperclip"),
-]
-DISCO_MATERIAL_LABELS = {k: l for k, l, _i in DISCO_MATERIAL_KINDS}
-DISCO_MATERIAL_ICONS = {k: i for k, _l, i in DISCO_MATERIAL_KINDS}
 
 
 def _disco_project_kind_meta(kind: str) -> tuple[str, str]:
@@ -19335,6 +19322,199 @@ def _disco_project_wizard_context(session_db) -> dict:
             "max_tracks": DISCO_PROJECT_MAX_TRACKS}
 
 
+def _disco_project_create_release(session_db, project, tracks_data) -> None:
+    """Da de alta en REPERTORIO lo que corresponda al proyecto, marcado como **PROVISIONAL**.
+
+    Los materiales se suben donde siempre —en la ficha de la canción o del álbum—, así que el
+    proyecto los crea desde el principio para que haya dónde subirlos. Mientras el proyecto no se
+    cierre, el lanzamiento se ve marcado como provisional en todo el repertorio.
+    · ÁLBUM/EP → un `Album` con sus `AlbumTrack`: los temas nuevos crean su `Song` (provisional) y
+      los que venían del repertorio se enganchan tal cual (esos NO son provisionales).
+    · SINGLE y VIDEOCLIP SUELTO → una `Song` provisional.
+    · VIDEOCLIP de un tema o de otro proyecto → no se crea nada: ya existe.
+    ⚠️ `Song.release_date` y `Album.release_date` son NOT NULL: sin fecha se usa la de hoy y ya se
+    corregirá (es lo mismo que hace «pasar una demo al repertorio»).
+    """
+    kind = (project.kind or "").upper()
+    fecha = project.release_date or today_local()
+    if kind in DISCO_TRACKLIST_KINDS:
+        album = Album(
+            artist_id=project.artist_id,
+            title=(project.title or "Sin título"),
+            album_type=("EP" if kind == "EP" else "ALBUM"),
+            release_date=fecha,
+            is_provisional=True,
+            physical_cd=("CD" in (project.physical_formats or [])),
+            physical_vinyl=("VINILO" in (project.physical_formats or [])),
+        )
+        session_db.add(album)
+        session_db.flush()
+        project.album_id = album.id
+        for i, fila in enumerate(tracks_data, start=1):
+            song_id = fila.get("song_id")
+            if not song_id:
+                cancion = Song(title=(fila.get("title") or "Tema %d" % i),
+                               release_date=(fila.get("release_date") or fecha),
+                               is_provisional=True)
+                session_db.add(cancion)
+                session_db.flush()
+                session_db.add(SongArtist(song_id=cancion.id, artist_id=project.artist_id))
+                song_id = cancion.id
+            session_db.add(AlbumTrack(album_id=album.id, song_id=song_id, track_number=i))
+            fila["created_song_id"] = song_id
+    elif kind == "SINGLE" or (kind == "VIDEOCLIP" and (project.video_source or "") == "STANDALONE"):
+        cancion = Song(title=(project.title or "Sin título"), release_date=fecha, is_provisional=True)
+        session_db.add(cancion)
+        session_db.flush()
+        session_db.add(SongArtist(song_id=cancion.id, artist_id=project.artist_id))
+        project.release_song_id = cancion.id
+    elif kind == "VIDEOCLIP" and (project.video_source or "") == "SONG":
+        project.release_song_id = project.song_id       # ya existe: no se crea nada
+    elif kind == "VIDEOCLIP" and (project.video_source or "") == "PROJECT":
+        padre = session_db.get(DiscoProject, project.parent_project_id) if project.parent_project_id else None
+        if padre is not None:
+            project.album_id = padre.album_id
+            project.release_song_id = padre.release_song_id
+
+
+def _disco_project_missing_masters(session_db, project) -> int:
+    """Cuántas canciones del lanzamiento NO tienen máster todavía (sus materiales están en su ficha)."""
+    canciones = _disco_project_release_songs(session_db, project)
+    if not canciones:
+        return 0
+    ids = [c.id for c in canciones]
+    try:
+        con_master = {r[0] for r in session_db.query(SongMaterial.song_id)
+                      .filter(SongMaterial.song_id.in_(ids))
+                      .filter(func.upper(func.coalesce(SongMaterial.category, "")) == "MASTER").all()}
+    except Exception:
+        return 0
+    return len([c for c in canciones if c.id not in con_master])
+
+
+def _disco_project_release(session_db, project) -> dict:
+    """El lanzamiento del proyecto en REPERTORIO (su álbum o su canción), con su enlace y su estado.
+
+    Es donde se suben los materiales: la ficha de siempre."""
+    album = (session_db.get(Album, project.album_id) if getattr(project, "album_id", None) else None)
+    song = (session_db.get(Song, project.release_song_id) if getattr(project, "release_song_id", None) else None)
+    if album is not None:
+        return {"kind": "ALBUM", "id": str(album.id), "title": (album.title or ""),
+                "cover_url": (album.cover_url or ""),
+                "provisional": bool(getattr(album, "is_provisional", False)),
+                "url": url_for("discografica_album_detail", album_id=album.id, tab="materiales"),
+                "label": ("EP" if (album.album_type or "").upper() == "EP" else "Álbum")}
+    if song is not None:
+        return {"kind": "SONG", "id": str(song.id), "title": (song.title or ""),
+                "cover_url": (song.cover_url or ""),
+                "provisional": bool(getattr(song, "is_provisional", False)),
+                "url": url_for("discografica_song_detail", song_id=song.id, tab="materiales"),
+                "label": "Canción"}
+    return {}
+
+
+def _disco_project_release_songs(session_db, project) -> list:
+    """Las canciones del lanzamiento (las del álbum o la del single), para marcarlas y contarlas."""
+    ids = []
+    if getattr(project, "album_id", None):
+        ids = [r[0] for r in session_db.query(AlbumTrack.song_id)
+               .filter(AlbumTrack.album_id == project.album_id).all()]
+    elif getattr(project, "release_song_id", None):
+        ids = [project.release_song_id]
+    if not ids:
+        return []
+    return session_db.query(Song).filter(Song.id.in_(ids)).all()
+
+
+def _disco_project_sync_release(session_db, project) -> None:
+    """Pone al día el lanzamiento PROVISIONAL con lo que dice el proyecto (nombre, fecha y soportes).
+
+    ⚠️ Solo mientras es provisional: lo que ya está cerrado (o lo que ya existía en el repertorio) no
+    se toca desde aquí — a partir del cierre manda su ficha."""
+    if getattr(project, "closed_at", None):
+        return
+    fecha = project.release_date or today_local()
+    if getattr(project, "album_id", None):
+        album = session_db.get(Album, project.album_id)
+        if album is not None and bool(getattr(album, "is_provisional", False)):
+            album.title = (project.title or album.title)
+            album.release_date = fecha
+            album.album_type = ("EP" if (project.kind or "").upper() == "EP" else "ALBUM")
+            album.physical_cd = ("CD" in (project.physical_formats or []))
+            album.physical_vinyl = ("VINILO" in (project.physical_formats or []))
+    for tema in (getattr(project, "tracks", None) or []):
+        if not tema.song_id or bool(getattr(tema, "is_existing", False)):
+            continue
+        cancion = session_db.get(Song, tema.song_id)
+        if cancion is not None and bool(getattr(cancion, "is_provisional", False)):
+            cancion.title = ((tema.title or "").strip() or cancion.title)
+            cancion.release_date = (tema.release_date or fecha)
+    if getattr(project, "release_song_id", None) and (project.video_source or "") != "SONG":
+        cancion = session_db.get(Song, project.release_song_id)
+        if cancion is not None and bool(getattr(cancion, "is_provisional", False)):
+            cancion.title = (project.title or cancion.title)
+            cancion.release_date = fecha
+
+
+def _disco_project_set_provisional(session_db, project, provisional: bool) -> None:
+    """Marca (o desmarca) como PROVISIONAL lo que el proyecto ha creado en repertorio.
+
+    ⚠️ Solo lo que ha creado ÉL: un tema que ya estaba publicado y se ha metido en el álbum no se
+    toca (no era provisional y no lo es ahora)."""
+    if getattr(project, "album_id", None):
+        album = session_db.get(Album, project.album_id)
+        if album is not None:
+            album.is_provisional = bool(provisional)
+    propios = {str(t.song_id) for t in (getattr(project, "tracks", None) or [])
+               if t.song_id and not bool(getattr(t, "is_existing", False))}
+    if getattr(project, "release_song_id", None) and (project.video_source or "") != "SONG":
+        propios.add(str(project.release_song_id))
+    for cancion in _disco_project_release_songs(session_db, project):
+        if str(cancion.id) in propios:
+            cancion.is_provisional = bool(provisional)
+
+
+def _home_project_registros(session_db=None) -> list[dict]:
+    """Proyectos CERRADOS que esperan a REGISTROS: cumplimentar los datos y subir los materiales."""
+    propia = session_db is None
+    session_db = session_db or db()
+    try:
+        filas = (session_db.query(DiscoProject)
+                 .options(joinedload(DiscoProject.artist))
+                 .filter(DiscoProject.closed_at.isnot(None))
+                 .filter(DiscoProject.registros_done_at.is_(None))
+                 .order_by(DiscoProject.closed_at.desc()).limit(40).all())
+        salida = []
+        for p in filas:
+            release = _disco_project_release(session_db, p)
+            etiqueta, icono = _disco_project_kind_meta(p.kind)
+            faltan = []
+            if release and not (release.get("cover_url") or "").strip():
+                faltan.append("portada")
+            n_master = _disco_project_missing_masters(session_db, p)
+            if n_master:
+                faltan.append("%d máster(es)" % n_master)
+            salida.append({
+                "id": str(p.id),
+                "url": url_for("disco_project_detail", project_id=p.id, tab="materiales"),
+                "title": _disco_project_title(p),
+                "kind_label": etiqueta, "icon": icono,
+                "artist_name": (getattr(getattr(p, "artist", None), "name", None) or ""),
+                "artist_photo": (getattr(getattr(p, "artist", None), "photo_url", None) or ""),
+                "closed_label": (p.closed_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y")
+                                 if p.closed_at else ""),
+                "release_url": (release.get("url") or ""),
+                "missing": " · ".join(faltan),
+            })
+        return salida
+    except Exception:
+        app.logger.exception("[proyectos] no se pudieron calcular las tareas de registros")
+        return []
+    finally:
+        if propia:
+            session_db.close()
+
+
 def _ensure_project_bag(session_db, project):
     """La BOLSA de gastos del proyecto (una por proyecto, como en una promoción)."""
     if getattr(project, "bag_id", None):
@@ -19443,17 +19623,17 @@ def _disco_project_agenda(session_db, project, milestones) -> dict:
     }
 
 
-def _disco_project_tasks(session_db, project, *, bag=None) -> list[dict]:
+def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list[dict]:
     """LAS TAREAS PENDIENTES del proyecto: lo que falta para poder lanzarlo.
 
     Es lo que se ve debajo del calendario. Cada tarea dice qué falta y lleva a donde se arregla; una
     tarea desaparece sola en cuanto eso está hecho (un aviso es «esto te está esperando»)."""
-    tareas = []
     kind = (getattr(project, "kind", None) or "").upper()
     etiqueta, _i = _disco_project_kind_meta(kind)
     url_info = url_for("disco_project_detail", project_id=project.id, tab="informacion")
     url_mat = url_for("disco_project_detail", project_id=project.id, tab="materiales")
     url_hoja = url_for("disco_project_detail", project_id=project.id, tab="hoja-ruta")
+    tareas = []
 
     def tarea(clave, texto, url, icono="fa-circle-exclamation", urgente=False):
         tareas.append({"key": clave, "label": texto, "url": url, "icon": icono, "urgent": urgente})
@@ -19471,14 +19651,23 @@ def _disco_project_tasks(session_db, project, *, bag=None) -> list[dict]:
         if (getattr(project, "release_mode", None) or "") != "DIGITAL" and not (
                 getattr(project, "physical_formats", None) or []):
             tarea("soporte", "Falta decir en qué soporte físico sale", url_info, "fa-compact-disc")
-    materiales = list(getattr(project, "materials", None) or [])
-    por_tipo = {(m.kind or "OTRO").upper() for m in materiales}
-    if "PORTADA" not in por_tipo:
-        tarea("portada", "Falta la portada", url_mat, "fa-image")
-    if kind != "VIDEOCLIP" and "MASTER" not in por_tipo:
-        tarea("master", "Falta el máster", url_mat, "fa-file-audio")
-    if kind == "VIDEOCLIP" and "VIDEO" not in por_tipo:
-        tarea("video", "Falta el vídeo", url_mat, "fa-film")
+    # MATERIALES: se suben en el REPERTORIO (la ficha de la canción o del álbum), no aquí. La tarea
+    # dice lo que falta y lleva a esa ficha.
+    release = release if release is not None else _disco_project_release(session_db, project)
+    if not release:
+        tarea("repertorio", "Este proyecto no tiene su lanzamiento en el repertorio", url_info,
+              "fa-compact-disc", True)
+    else:
+        destino = release.get("url") or url_mat
+        if not (release.get("cover_url") or "").strip():
+            tarea("portada", "Falta la portada del lanzamiento", destino, "fa-image")
+        if kind != "VIDEOCLIP":
+            faltan = _disco_project_missing_masters(session_db, project)
+            if faltan:
+                tarea("master", ("Falta el máster de %d tema(s)" % faltan), destino, "fa-file-audio")
+    if getattr(project, "closed_at", None) is None and not tareas:
+        tarea("cerrar", "Todo listo: cierra el proyecto para pasar a distribución y registro",
+              url_info, "fa-flag-checkered")
     try:
         if not (_roadmap_load(project).get("agenda") or []):
             tarea("hoja", "La hoja de ruta está vacía", url_hoja, "fa-route")
@@ -19488,35 +19677,6 @@ def _disco_project_tasks(session_db, project, *, bag=None) -> list[dict]:
         tarea("bolsa", "Sin bolsa de gastos",
               url_for("disco_project_detail", project_id=project.id, tab="bolsa"), "fa-sack-dollar")
     return tareas
-
-
-def _disco_project_materials(session_db, project) -> list[dict]:
-    """Los materiales del proyecto agrupados por tipo (en el orden del catálogo)."""
-    filas = list(getattr(project, "materials", None) or [])
-    temas = {str(t.id): ((t.title or "").strip() or "Tema %d" % (t.position or 0))
-             for t in (getattr(project, "tracks", None) or [])}
-    grupos = []
-    for clave, etiqueta, icono in DISCO_MATERIAL_KINDS:
-        propios = [m for m in filas if (m.kind or "OTRO").upper() == clave]
-        if not propios:
-            continue
-        # ⚠️ La clave se llama «files», NO «items»: en Jinja `g.items` devuelve el MÉTODO del dict
-        # (bug real y recurrente en esta app), y así no hay forma de tropezar.
-        grupos.append({
-            "key": clave, "label": etiqueta, "icon": icono,
-            "files": [{
-                "id": str(m.id),
-                "name": (m.name or "").strip() or etiqueta,
-                "url": (m.file_url or ""),
-                "is_image": bool(re.search(r"\.(png|jpe?g|gif|webp|avif)(\?|$)", (m.file_url or ""), re.I)),
-                "is_audio": bool(re.search(r"\.(wav|mp3|m4a|aac|flac)(\?|$)", (m.file_url or ""), re.I)),
-                "track": temas.get(str(m.track_id or "")) or "",
-                "notes": (m.notes or ""),
-                "by": (m.uploaded_by_nick or ""),
-                "at": (m.created_at.strftime("%d/%m/%Y") if getattr(m, "created_at", None) else ""),
-            } for m in propios],
-        })
-    return grupos
 
 
 def _parse_iso_date_safe(value):
@@ -20147,11 +20307,20 @@ def disco_project_create():
 
         session_db.add(project)
         session_db.flush()
-        if kind in DISCO_TRACKLIST_KINDS:
-            for fila in _disco_project_tracks_from_form(session_db, request.form):
-                session_db.add(DiscoProjectTrack(project_id=project.id, **fila))
-        # Sus TRES partes nacen con él: la bolsa de gastos (la hoja de ruta y el calendario se montan
-        # sobre el propio proyecto).
+        # LO QUE SE LANZA se da de alta en REPERTORIO desde el principio, en PROVISIONAL: los
+        # materiales se suben donde siempre (en su ficha), no en el proyecto.
+        temas = _disco_project_tracks_from_form(session_db, request.form) if kind in DISCO_TRACKLIST_KINDS else []
+        _disco_project_create_release(session_db, project, temas)
+        for fila in temas:
+            session_db.add(DiscoProjectTrack(
+                project_id=project.id, position=fila["position"], title=fila["title"],
+                is_collab=fila["is_collab"], release_date=fila["release_date"],
+                # ⚠️ `song_id` apunta SIEMPRE a la canción (la que ya existía o la recién creada);
+                # lo que dice si estaba ya publicada es `is_existing`.
+                song_id=(fila.get("created_song_id") or fila.get("song_id")),
+                is_existing=bool(fila.get("song_id")),
+            ))
+        # Y su bolsa de gastos (la hoja de ruta y el calendario se montan sobre el propio proyecto).
         _ensure_project_bag(session_db, project)
         session_db.commit()
         flash("Proyecto creado.", "success")
@@ -20183,9 +20352,11 @@ def disco_project_detail(project_id):
         roadmap_ctx = _roadmap_context(session_db, "project", project) if tab == "hoja-ruta" else None
         # CALENDARIO: los hitos (fechas a la izquierda) y el calendario de verdad a la derecha; las
         # tareas pendientes van debajo. Solo se calcula en su pestaña.
+        release = _disco_project_release(session_db, project)
         hitos = _disco_project_milestones(session_db, project) if tab == "calendario" else []
         agenda_data = _disco_project_agenda(session_db, project, hitos) if tab == "calendario" else None
-        tareas = _disco_project_tasks(session_db, project, bag=bag) if tab == "calendario" else []
+        tareas = (_disco_project_tasks(session_db, project, bag=bag, release=release)
+                  if tab == "calendario" else [])
         # La BOLSA se embebe con el MISMO panel que /bolsas/<id> (como la pestaña Producción de una
         # actividad): su contexto se mezcla, quitando lo que choca con el de esta ficha.
         bag_ctx = {}
@@ -20195,7 +20366,7 @@ def disco_project_detail(project_id):
             # «got multiple values for keyword argument 'bag'».
             for clave in ("today", "tab", "row", "project", "project_tabs", "milestones", "tracks",
                           "physical_labels", "roadmap_ctx", "CAN_EDIT", "bag", "tasks",
-                          "agenda_data", "material_groups", "material_kinds"):
+                          "agenda_data", "release", "release_songs"):
                 bag_ctx.pop(clave, None)
         return render_template(
             "disco_project_detail.html",
@@ -20208,8 +20379,8 @@ def disco_project_detail(project_id):
             physical_labels=DISCO_PHYSICAL_LABELS,
             release_modes=DISCO_RELEASE_MODES,
             physical_formats=DISCO_PHYSICAL_FORMATS,
-            material_groups=(_disco_project_materials(session_db, project) if tab == "materiales" else []),
-            material_kinds=DISCO_MATERIAL_KINDS,
+            release=release,
+            release_songs=(_disco_project_release_songs(session_db, project) if tab == "materiales" else []),
             bag=bag,
             roadmap_ctx=roadmap_ctx,
             CAN_EDIT=can_edit_discografica(),
@@ -20310,6 +20481,9 @@ def disco_project_update(project_id):
         elif (project.kind or "").upper() == "SINGLE":
             project.is_collab = _truthy(request.form.get("is_collab"))
             project.includes_videoclip = _truthy(request.form.get("includes_videoclip"))
+        # MIENTRAS SEA PROVISIONAL, el lanzamiento del repertorio sigue al proyecto: es él quien lo
+        # está preparando (nombre, fecha y soportes). En cuanto se cierra, deja de tocarse.
+        _disco_project_sync_release(session_db, project)
         project.updated_at = _now_madrid()
         session_db.commit()
         flash("Proyecto actualizado.", "success")
@@ -20321,69 +20495,89 @@ def disco_project_update(project_id):
     return redirect(url_for("disco_project_detail", project_id=project_id, tab="informacion"))
 
 
-@app.post("/discografica/proyectos/<project_id>/materiales", endpoint="disco_project_material_upload")
+@app.post("/discografica/proyectos/<project_id>/cerrar", endpoint="disco_project_close")
 @admin_required
-def disco_project_material_upload(project_id):
-    """Sube un material del proyecto (portada, máster, arte, vídeo…)."""
+def disco_project_close(project_id):
+    """CIERRA el proyecto: el lanzamiento deja de ser provisional y pasa a distribución y registro.
+
+    Lo hace quien ha llevado el proyecto. A partir de ahí, a REGISTROS le sale como tarea pendiente
+    cumplimentar los datos y subir los materiales que falten."""
     if not can_edit_discografica():
-        return forbid("No tienes permisos para editar proyectos discográficos.")
+        return forbid("No tienes permisos para cerrar proyectos discográficos.")
     session_db = db()
     try:
         project = _disco_project_or_404(session_db, project_id)
         if project is None:
             flash("Proyecto no encontrado.", "warning")
             return redirect(url_for("discografica_view", section="proyectos"))
-        kind = (request.form.get("kind") or "OTRO").strip().upper()
-        if kind not in DISCO_MATERIAL_LABELS:
-            kind = "OTRO"
-        archivo = request.files.get("file")
-        if not archivo or not getattr(archivo, "filename", ""):
-            flash("Elige el archivo que quieres subir.", "warning")
-            return redirect(url_for("disco_project_detail", project_id=project_id, tab="materiales"))
-        url = upload_file(archivo, "proyectos")
+        if _truthy(request.form.get("undo")):
+            # Volver a abrirlo: el lanzamiento vuelve a estar en preparación.
+            project.closed_at = None
+            project.closed_by_user_id = None
+            project.closed_by_nick = None
+            project.registros_done_at = None
+            _disco_project_set_provisional(session_db, project, True)
+            _notify_resolve(session_db, "DISCO_PROJECT", str(project.id))
+            session_db.commit()
+            flash("Proyecto reabierto: el lanzamiento vuelve a estar en preparación.", "success")
+            return redirect(url_for("disco_project_detail", project_id=project_id, tab="informacion"))
         estado = _current_user_state() or {}
-        session_db.add(DiscoProjectMaterial(
-            project_id=project.id,
-            track_id=_safe_uuid((request.form.get("track_id") or "").strip()),
-            kind=kind,
-            name=((request.form.get("name") or "").strip()
-                  or (getattr(archivo, "filename", "") or "").strip()),
-            file_url=url,
-            mime_type=(getattr(archivo, "mimetype", None) or None),
-            notes=(request.form.get("notes") or "").strip() or None,
-            uploaded_by_user_id=_safe_uuid(estado.get("user_id")),
-            uploaded_by_nick=(estado.get("nick") or None),
-        ))
+        project.closed_at = _now_madrid()
+        project.closed_by_user_id = _safe_uuid(estado.get("user_id"))
+        project.closed_by_nick = (estado.get("nick") or None)
+        project.updated_at = _now_madrid()
+        # Ya no es provisional: el lanzamiento se ve como uno más del repertorio.
+        _disco_project_set_provisional(session_db, project, False)
+        # Y le llega a REGISTROS, que es quien lo cumplimenta y sube lo que falte.
+        release = _disco_project_release(session_db, project)
+        _notify_users(session_db, _department_user_ids(session_db, "Registros"), "REGISTROS",
+                      "Cumplimentar y subir materiales: %s" % _disco_project_title(project),
+                      " · ".join([x for x in [(getattr(project.artist, "name", None) or ""),
+                                              (release.get("label") or "")] if x]),
+                      url=url_for("disco_project_detail", project_id=project.id, tab="materiales"),
+                      ref_type="DISCO_PROJECT", ref_id=str(project.id))
         session_db.commit()
-        flash("Material subido.", "success")
+        flash("Proyecto cerrado: pasa a distribución y registro.", "success")
     except Exception as exc:
         session_db.rollback()
-        flash("No se pudo subir el material: %s" % exc, "danger")
+        flash("No se pudo cerrar el proyecto: %s" % exc, "danger")
     finally:
         session_db.close()
-    return redirect(url_for("disco_project_detail", project_id=project_id, tab="materiales"))
+    return redirect(url_for("disco_project_detail", project_id=project_id, tab="informacion"))
 
 
-@app.post("/discografica/proyectos/<project_id>/materiales/<material_id>/eliminar",
-          endpoint="disco_project_material_delete")
+@app.post("/discografica/proyectos/<project_id>/registros", endpoint="disco_project_registros_done")
 @admin_required
-def disco_project_material_delete(project_id, material_id):
-    """Quita un material del proyecto."""
-    if not can_edit_discografica():
-        return forbid("No tienes permisos para editar proyectos discográficos.")
+def disco_project_registros_done(project_id):
+    """REGISTROS da por cumplimentado el lanzamiento (datos y materiales): la tarea desaparece."""
+    if not (has_access_key("registros", edit=True, include_descendants=True)
+            or can_edit_discografica() or is_master()):
+        return forbid("No tienes permisos para dar por completado el registro.")
     session_db = db()
     try:
-        fila = session_db.get(DiscoProjectMaterial, to_uuid(material_id) or uuid.uuid4())
-        if fila is not None and str(fila.project_id) == str(to_uuid(project_id) or ""):
-            session_db.delete(fila)
-            session_db.commit()
-            flash("Material eliminado.", "success")
+        project = session_db.get(DiscoProject, to_uuid(project_id) or uuid.uuid4())
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        estado = _current_user_state() or {}
+        if _truthy(request.form.get("undo")):
+            project.registros_done_at = None
+            project.registros_done_by_nick = None
+            flash("Vuelve a estar pendiente de cumplimentar.", "success")
+        else:
+            project.registros_done_at = _now_madrid()
+            project.registros_done_by_nick = (estado.get("nick") or None)
+            # La tarea ya está hecha: su aviso se cierra solo.
+            _notify_resolve(session_db, "DISCO_PROJECT", str(project.id))
+            flash("Datos y materiales dados por completos.", "success")
+        project.updated_at = _now_madrid()
+        session_db.commit()
     except Exception as exc:
         session_db.rollback()
-        flash("No se pudo eliminar: %s" % exc, "danger")
+        flash("No se pudo marcar: %s" % exc, "danger")
     finally:
         session_db.close()
-    return redirect(url_for("disco_project_detail", project_id=project_id, tab="materiales"))
+    return redirect(safe_next_or(url_for("disco_project_detail", project_id=project_id, tab="materiales")))
 
 
 @app.post("/discografica/proyectos/<project_id>/bolsa", endpoint="disco_project_bag")
@@ -54187,6 +54381,11 @@ def inject_personnel_globals():
         "HOME_INVITATIONS": _home_invitation_requests_for_current_user() if request.endpoint == "home" and session.get("user_id") and "_home_invitation_requests_for_current_user" in globals() else [],
         "HOME_INVITATIONS_TO_MANAGE": _home_invitations_to_manage() if request.endpoint == "home" and session.get("user_id") and "_home_invitations_to_manage" in globals() and has_access_key("invitaciones.gestionar", include_descendants=True) else [],
         "HOME_REGISTROS_PENDING": _home_registros_pending() if request.endpoint == "home" and session.get("user_id") and "_home_registros_pending" in globals() and has_access_key("registros") else [],
+        # PROYECTOS cerrados que esperan a REGISTROS: cumplimentar los datos y subir los materiales.
+        "HOME_PROJECT_REGISTROS": (_home_project_registros()
+                                   if request.endpoint == "home" and session.get("user_id")
+                                   and "_home_project_registros" in globals()
+                                   and has_access_key("registros") else []),
         # SELLO: lanzamientos nuevos a los que les falta el pitch.
         "HOME_PITCH_PENDING": (_home_pitch_pending()
                                if request.endpoint == "home" and session.get("user_id")
@@ -80747,6 +80946,7 @@ NOTIFICATION_KIND_META = {
     "DEMO": ("Nos han enviado demos", "fa-compact-disc"),
     "VENTA": ("Hay que sacarla a la venta", "fa-ticket"),
     "CONTABILIDAD": ("Hay algo nuevo que contabilizar", "fa-calculator"),
+    "REGISTROS": ("Hay un lanzamiento que cumplimentar", "fa-clipboard-list"),
 }
 
 

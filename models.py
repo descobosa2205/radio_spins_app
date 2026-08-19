@@ -427,6 +427,10 @@ class Song(Base):
     __tablename__ = "songs"
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     title = Column(Text, nullable=False)
+    # PROVISIONAL: la canción la ha creado un PROYECTO discográfico y todavía se está preparando.
+    # Se ve marcada en el repertorio y deja de serlo cuando se cierra el proyecto (y pasa a
+    # distribución y registro).
+    is_provisional = Column(Boolean, nullable=False, server_default=text("false"))
     collaborator = Column(Text)
     # Si la canción forma parte del catálogo (histórico)
     is_catalog = Column(Boolean, nullable=False, server_default=text("false"))
@@ -685,6 +689,17 @@ class DiscoProject(Base):
     parent_project_id = Column(PGUUID(as_uuid=True), ForeignKey("disco_projects.id", ondelete="SET NULL"))
     notes = Column(Text)
     company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
+    # LO QUE HA CREADO EN REPERTORIO: al crear el proyecto se da de alta el álbum o la canción, en
+    # PROVISIONAL, para que los materiales se suban donde siempre (su ficha del repertorio).
+    album_id = Column(PGUUID(as_uuid=True), ForeignKey("albums.id", ondelete="SET NULL"))
+    release_song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="SET NULL"))
+    # CIERRE: quien lleva el proyecto lo cierra para dar paso a DISTRIBUCIÓN y REGISTRO. Ahí deja de
+    # ser provisional y le sale a Registros como tarea (cumplimentar datos y subir materiales).
+    closed_at = Column(DateTime(timezone=True))
+    closed_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    closed_by_nick = Column(Text)
+    registros_done_at = Column(DateTime(timezone=True))
+    registros_done_by_nick = Column(Text)
     # Hoja de ruta (mismo motor que las actividades) y bolsa de gastos.
     roadmap_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     roadmap_public_token = Column(Text)
@@ -696,12 +711,11 @@ class DiscoProject(Base):
 
     artist = relationship("Artist")
     # La canción de la que es un VIDEOCLIP (cuando sale de un tema ya publicado).
-    song = relationship("Song")
+    # ⚠️ `foreign_keys` es obligatorio: hay DOS caminos a `songs` (esta y `release_song_id`, la del
+    # lanzamiento que ha creado el proyecto) y SQLAlchemy no sabe cuál es sin decírselo.
+    song = relationship("Song", foreign_keys=[song_id])
     tracks = relationship("DiscoProjectTrack", back_populates="project",
                           cascade="all, delete-orphan", order_by="DiscoProjectTrack.position")
-    materials = relationship("DiscoProjectMaterial", back_populates="project",
-                             cascade="all, delete-orphan",
-                             order_by="DiscoProjectMaterial.created_at")
 
     __table_args__ = (
         Index("idx_disco_projects_artist", "artist_id", "status"),
@@ -722,7 +736,10 @@ class DiscoProjectTrack(Base):
     position = Column(Integer, nullable=False, server_default=text("0"))
     title = Column(Text, nullable=False, server_default=text("''"))
     is_collab = Column(Boolean, nullable=False, server_default=text("false"))
+    # ⚠️ `song_id` apunta SIEMPRE a la canción del repertorio: la que ya existía (`is_existing`) o la
+    # que ha creado el proyecto en provisional. Lo que distingue «ya publicado» es `is_existing`.
     song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="SET NULL"))
+    is_existing = Column(Boolean, nullable=False, server_default=text("false"))
     release_date = Column(Date)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -731,34 +748,6 @@ class DiscoProjectTrack(Base):
 
     __table_args__ = (
         Index("idx_disco_project_tracks_project", "project_id", "position"),
-    )
-
-
-class DiscoProjectMaterial(Base):
-    """Un MATERIAL del proyecto: la portada, un máster, el arte, el vídeo, la letra…
-
-    Aquí se preparan los materiales ANTES de que el lanzamiento exista en el catálogo (una canción ya
-    publicada tiene los suyos en `SongMaterial`). Puede colgar de un TEMA concreto del proyecto
-    (`track_id`) o del proyecto entero."""
-
-    __tablename__ = "disco_project_materials"
-
-    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
-    project_id = Column(PGUUID(as_uuid=True), ForeignKey("disco_projects.id", ondelete="CASCADE"), nullable=False)
-    track_id = Column(PGUUID(as_uuid=True), ForeignKey("disco_project_tracks.id", ondelete="SET NULL"))
-    kind = Column(Text, nullable=False, server_default=text("'OTRO'"))
-    name = Column(Text)
-    file_url = Column(Text)
-    mime_type = Column(Text)
-    notes = Column(Text)
-    uploaded_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
-    uploaded_by_nick = Column(Text)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    project = relationship("DiscoProject", back_populates="materials")
-
-    __table_args__ = (
-        Index("idx_disco_project_materials_project", "project_id", "kind"),
     )
 
 
@@ -1599,6 +1588,8 @@ class Album(Base):
 
     title = Column(Text, nullable=False)
     album_type = Column(Text, nullable=False, server_default=text("'ALBUM'"))  # ALBUM | EP
+    # PROVISIONAL: lo ha creado un PROYECTO discográfico y todavía se está preparando.
+    is_provisional = Column(Boolean, nullable=False, server_default=text("false"))
     release_date = Column(Date, nullable=False)
     cover_url = Column(Text)
 
@@ -10715,22 +10706,21 @@ def ensure_disco_projects_schema():
         );
         """,
         "CREATE INDEX IF NOT EXISTS idx_disco_project_tracks_project ON disco_project_tracks(project_id, position);",
+        # Lo que el proyecto ha creado en REPERTORIO y su cierre (paso a distribución y registro).
         """
-        CREATE TABLE IF NOT EXISTS disco_project_materials (
-            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-            project_id uuid NOT NULL REFERENCES disco_projects(id) ON DELETE CASCADE,
-            track_id uuid REFERENCES disco_project_tracks(id) ON DELETE SET NULL,
-            kind text NOT NULL DEFAULT 'OTRO',
-            name text,
-            file_url text,
-            mime_type text,
-            notes text,
-            uploaded_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
-            uploaded_by_nick text,
-            created_at timestamptz DEFAULT now()
-        );
+        ALTER TABLE IF EXISTS disco_projects
+            ADD COLUMN IF NOT EXISTS album_id uuid REFERENCES albums(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS release_song_id uuid REFERENCES songs(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS closed_at timestamptz,
+            ADD COLUMN IF NOT EXISTS closed_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS closed_by_nick text,
+            ADD COLUMN IF NOT EXISTS registros_done_at timestamptz,
+            ADD COLUMN IF NOT EXISTS registros_done_by_nick text;
         """,
-        "CREATE INDEX IF NOT EXISTS idx_disco_project_materials_project ON disco_project_materials(project_id, kind);",
+        "ALTER TABLE IF EXISTS disco_project_tracks ADD COLUMN IF NOT EXISTS is_existing boolean NOT NULL DEFAULT false;",
+        # PROVISIONAL: lo que ha creado un proyecto y todavía se está preparando.
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS is_provisional boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS is_provisional boolean NOT NULL DEFAULT false;",
     ], label="ensure_disco_projects_schema")
 
 

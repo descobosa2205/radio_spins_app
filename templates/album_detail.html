@@ -4,11 +4,12 @@
 <div class="mb-2">
   <a class="btn btn-outline-secondary btn-sm btn-volver" href="{{ url_for('discografica_view', section='canciones', rep_tab='albumes') }}" title="Volver a álbumes" aria-label="Volver a álbumes"><i class="fa fa-arrow-left"></i></a>
 </div>
-<div class="ficha-hero">
+{# PROVISIONAL: lo ha creado un PROYECTO discográfico y todavía se está preparando. #}
+<div class="ficha-hero{% if album.is_provisional %} is-provisional{% endif %}">
   <img class="ficha-hero__media" src="{{ album.cover_url or DEFAULT_COVER_URL }}" alt="" data-cover>
   <div class="ficha-hero__body">
     <div class="ficha-hero__eyebrow">{{ album_kind_label }}</div>
-    <h1 class="ficha-hero__title">{{ album.title }}</h1>
+    <h1 class="ficha-hero__title">{{ album.title }}{% if album.is_provisional %} <span class="badge text-bg-warning text-dark align-middle" style="font-size:.5em;vertical-align:middle;" title="Lo está preparando un proyecto discográfico">PROVISIONAL</span>{% endif %}</h1>
     <div class="ficha-hero__facts">
       {% if artist %}<span>{{ artist_avatar(artist.photo_url, artist.name, artist_id=artist.id) }}<span data-artist-link="{{ artist.id }}">{{ artist.name }}</span>{{ linked_mini('artist', artist.id) }}</span>{% endif %}
       {% if album.release_date %}<span><i class="fa fa-calendar-day"></i>{{ album.release_date.strftime('%d/%m/%Y') }}</span>{% else %}<span><i class="fa fa-calendar-day"></i>Sin fecha</span>{% endif %}

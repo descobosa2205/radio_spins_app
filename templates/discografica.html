@@ -107,7 +107,7 @@
                                 <span class="small fw-semibold lh-1">{{ day.date.day }}</span>
                                 <div class="d-flex flex-wrap justify-content-end gap-1" style="min-width:0;">
                                   {% for item in day["items"] %}
-                                    <a href="{{ item.detail_url }}" class="text-decoration-none d-inline-flex" title="{{ item.title }} · {{ item.artist_label }}">
+                                    <a href="{{ item.detail_url }}" class="text-decoration-none d-inline-flex" title="{{ item.title }} · {{ item.artist_label }}{% if item.is_provisional %} · Provisional{% endif %}">
                                       <img src="{{ item.cover_url or DEFAULT_COVER_URL }}" alt="{{ item.title }}" style="width:24px;height:24px;object-fit:cover;border-radius:5px;border:1px solid #eee;background:#fff;">
                                     </a>
                                   {% endfor %}
@@ -135,14 +135,20 @@
           <div class="fw-semibold mb-3">Listado de lanzamientos</div>
           {% if launches_items and (launches_items|length) > 0 %}
             <div class="d-flex flex-column gap-3">
+              {# PROVISIONAL: lo está preparando un proyecto discográfico. Se marca igual que en su
+                 ficha: el mismo fondo rayado de la cabecera y su etiqueta. #}
               {% for item in launches_items %}
-                <a href="{{ item.detail_url }}" class="text-decoration-none text-reset border rounded p-3 bg-white d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                <a href="{{ item.detail_url }}" class="launch-row text-decoration-none text-reset border rounded p-3 bg-white d-flex justify-content-between align-items-center gap-3 flex-wrap{% if item.is_provisional %} is-provisional{% endif %}">
                   <div class="d-flex align-items-center gap-3">
                     <img src="{{ item.cover_url or DEFAULT_COVER_URL }}" alt="" style="width:68px;height:68px;object-fit:cover;border-radius:12px;border:1px solid #eee;background:#fff;">
                     <div>
                       <div class="d-flex align-items-center gap-2 flex-wrap">
                         <div class="fw-semibold">{{ item.title }}</div>
                         <span class="badge text-bg-light text-dark">{{ item.kind_label }}</span>
+                        {% if item.is_provisional %}
+                          <span class="badge text-bg-warning text-dark" title="Lo está preparando un proyecto discográfico: deja de ser provisional cuando se cierra">
+                            <i class="fa fa-hourglass-half me-1"></i>Provisional</span>
+                        {% endif %}
                         {% if item.is_new %}
                           <span class="badge text-bg-success">Nuevo</span>
                         {% endif %}

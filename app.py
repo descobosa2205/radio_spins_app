@@ -12356,6 +12356,9 @@ def discografica_view():
                 'release_date': release_date,
                 'days_remaining': days_remaining,
                 'is_new': is_new,
+                # PROVISIONAL: lo está preparando un proyecto discográfico (se ve igual que en su
+                # ficha: el fondo rayado y su etiqueta).
+                'is_provisional': bool(getattr(song, 'is_provisional', False)),
                 'detail_url': url_for('discografica_song_detail', song_id=song.id, tab='informacion'),
             })
 
@@ -12389,6 +12392,7 @@ def discografica_view():
                 'release_date': release_date,
                 'days_remaining': days_remaining,
                 'is_new': is_new,
+                'is_provisional': bool(getattr(album, 'is_provisional', False)),
                 'detail_url': url_for('discografica_album_detail', album_id=album.id, tab='informacion'),
             })
 

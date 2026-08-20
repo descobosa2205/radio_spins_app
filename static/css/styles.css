@@ -4561,8 +4561,12 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
    cuanto se cierra el proyecto.
    --------------------------------------------------------------------------- */
 tr.is-provisional > td,
-.is-provisional > .ficha-hero__body {
+.is-provisional > .ficha-hero__body,
+.launch-row.is-provisional {
   background-image: repeating-linear-gradient(45deg,
       rgba(255, 193, 7, .10) 0 10px, rgba(255, 193, 7, 0) 10px 20px);
 }
 .ficha-hero.is-provisional { border-color: rgba(255, 193, 7, .55); }
+/* La fila del listado de lanzamientos lleva la clase `border` de Bootstrap (con !important), así
+   que el color del marco se cambia por su VARIABLE, no repitiendo la propiedad. */
+.launch-row.is-provisional { --bs-border-color: rgba(255, 193, 7, .55); }

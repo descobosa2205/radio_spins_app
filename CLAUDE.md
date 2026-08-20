@@ -637,8 +637,13 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   videoclip suelto, y nada en un videoclip de algo que ya existe— con **`is_provisional=True`**
   (`_disco_project_create_release`). **Los MATERIALES se suben DONDE SIEMPRE**, en la ficha de la
   canción o del álbum: la pestaña «Materiales» del proyecto solo enseña el estado y lleva allí.
-  · **Lo provisional se ve**: fondo rayado suave (`tr.is-provisional`, `.ficha-hero.is-provisional`)
-  y etiqueta «Provisional» en el repertorio y en las dos fichas.
+  · **Lo provisional se ve**: fondo rayado suave y etiqueta «Provisional» **en el mismo sitio y con
+  el mismo aspecto en los tres**: el repertorio (`tr.is-provisional`), las dos fichas
+  (`.ficha-hero.is-provisional`) y el **listado de «Lanzamientos»** (`.launch-row.is-provisional`,
+  ago 2026), que comparten la MISMA regla del rayado — una sola declaración, así que no se pueden
+  desparejar. En el calendario de esa pantalla, donde solo hay portadas, se dice al pasar el ratón.
+  ⚠️ La fila del listado lleva la clase `border` de Bootstrap (con `!important`): el color del marco
+  se cambia por su **variable** (`--bs-border-color`), no repitiendo la propiedad.
   · **Mientras es provisional, el lanzamiento SIGUE al proyecto** (`_disco_project_sync_release`:
   nombre, fecha y soportes). En cuanto se cierra, deja de tocarse: manda su ficha.
   · **CERRAR el proyecto** (`disco_project_close`, en la rueda) es lo que le da paso a **distribución

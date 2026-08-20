@@ -133,14 +133,12 @@
   </div>
 
   {# TAREAS PENDIENTES del proyecto: lo que falta para poder lanzarlo. Cada una desaparece sola en
-     cuanto se hace. #}
-  <div class="card mt-3">
-    <div class="card-header bg-white d-flex justify-content-between align-items-center">
-      <strong><i class="fa fa-clipboard-check me-2 text-muted"></i>Tareas pendientes</strong>
-      {% if tasks %}<span class="badge text-bg-danger">{{ tasks|length }}</span>{% endif %}
-    </div>
+     cuanto se hace. En un SINGLE CON VIDEOCLIP se leen partidas —lo del single a la izquierda, lo
+     del videoclip a la derecha— y lo del LANZAMIENTO, que es de los dos, debajo y a todo el ancho
+     (el reparto lo hace `_disco_project_task_groups`). #}
+  {% macro lista_tareas(items, vacio) %}
     <div class="list-group list-group-flush">
-      {% for t in tasks %}
+      {% for t in items %}
         <a class="list-group-item list-group-item-action d-flex align-items-center gap-3" href="{{ t.url }}">
           <span class="oa-row__icon"><i class="fa {{ t.icon }}"></i></span>
           <span class="flex-grow-1">{{ t.label }}</span>
@@ -148,11 +146,46 @@
         </a>
       {% else %}
         <div class="list-group-item text-success py-4 text-center">
-          <i class="fa fa-circle-check me-1"></i>No queda nada pendiente en este proyecto.
+          <i class="fa fa-circle-check me-1"></i>{{ vacio }}
         </div>
       {% endfor %}
     </div>
-  </div>
+  {% endmacro %}
+  {% macro cabecera_tareas(titulo, icono_html, items, nota='') %}
+    <div class="card-header bg-white d-flex justify-content-between align-items-center gap-2">
+      <strong>{{ icono_html }}{{ titulo }}{% if nota %}
+        <span class="fw-normal text-muted small ms-1">{{ nota }}</span>{% endif %}</strong>
+      {% if items %}<span class="badge text-bg-danger">{{ items|length }}</span>{% endif %}
+    </div>
+  {% endmacro %}
+
+  {% if task_groups and task_groups.split %}
+    <div class="row g-3 mt-3">
+      <div class="col-12 col-lg-6">
+        <div class="card h-100">
+          {{ cabecera_tareas(task_groups.single_label, disco_kind_icon('SINGLE', 'me-2 text-muted'), task_groups.single) }}
+          {{ lista_tareas(task_groups.single, 'Nada pendiente del ' ~ task_groups.single_label|lower ~ '.') }}
+        </div>
+      </div>
+      <div class="col-12 col-lg-6">
+        <div class="card h-100">
+          {{ cabecera_tareas(task_groups.video_label, disco_kind_icon('VIDEOCLIP', 'me-2 text-muted'), task_groups.video) }}
+          {{ lista_tareas(task_groups.video, 'Nada pendiente del ' ~ task_groups.video_label|lower ~ '.') }}
+        </div>
+      </div>
+    </div>
+    <div class="card mt-3">
+      {{ cabecera_tareas('Lanzamiento', '<i class="fa fa-rocket me-2 text-muted"></i>'|safe,
+                         task_groups.lanzamiento,
+                         'del ' ~ task_groups.single_label|lower ~ ' y del ' ~ task_groups.video_label|lower) }}
+      {{ lista_tareas(task_groups.lanzamiento, 'Nada pendiente del lanzamiento.') }}
+    </div>
+  {% else %}
+    <div class="card mt-3">
+      {{ cabecera_tareas('Tareas pendientes', '<i class="fa fa-clipboard-check me-2 text-muted"></i>'|safe, tasks) }}
+      {{ lista_tareas(tasks, 'No queda nada pendiente en este proyecto.') }}
+    </div>
+  {% endif %}
 
 {% elif tab == 'informacion' %}
   {# INFORMACIÓN · los datos del proyecto y su lista de temas, editables aquí mismo. #}

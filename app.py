@@ -19709,22 +19709,28 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
     url_hoja = url_for("disco_project_detail", project_id=project.id, tab="hoja-ruta")
     tareas = []
 
-    def tarea(clave, texto, url, icono="fa-circle-exclamation", urgente=False):
-        tareas.append({"key": clave, "label": texto, "url": url, "icon": icono, "urgent": urgente})
+    def tarea(clave, texto, url, icono="fa-circle-exclamation", urgente=False, grupo="lanzamiento"):
+        # `grupo` = a QUÉ pertenece la tarea (la obra, el vídeo o el lanzamiento, que es de los dos).
+        # Solo se usa para partir la lista en un single CON videoclip (`_disco_project_task_groups`).
+        tareas.append({"key": clave, "label": texto, "url": url, "icon": icono, "urgent": urgente,
+                       "group": grupo})
 
     if not getattr(project, "release_date", None):
         tarea("fecha", "Falta la fecha de lanzamiento", url_info, "fa-calendar-day", True)
     temas = list(getattr(project, "tracks", None) or [])
     if kind in DISCO_TRACKLIST_KINDS:
         if not temas:
-            tarea("temas", "Todavía no hay temas en el %s" % etiqueta.lower(), url_info, "fa-list-ol", True)
+            tarea("temas", "Todavía no hay temas en el %s" % etiqueta.lower(), url_info, "fa-list-ol",
+                  True, "single")
         else:
             sin_nombre = [t for t in temas if not (t.title or "").strip()]
             if sin_nombre:
-                tarea("temas_nombre", "%d tema(s) sin nombre" % len(sin_nombre), url_info, "fa-pen")
+                tarea("temas_nombre", "%d tema(s) sin nombre" % len(sin_nombre), url_info, "fa-pen",
+                      grupo="single")
         if (getattr(project, "release_mode", None) or "") != "DIGITAL" and not (
                 getattr(project, "physical_formats", None) or []):
-            tarea("soporte", "Falta decir en qué soporte físico sale", url_info, "fa-compact-disc")
+            tarea("soporte", "Falta decir en qué soporte físico sale", url_info, "fa-compact-disc",
+                  grupo="single")
     # MATERIALES: se suben en el REPERTORIO (la ficha de la canción o del álbum), no aquí. La tarea
     # dice lo que falta y lleva a esa ficha.
     release = release if release is not None else _disco_project_release(session_db, project)
@@ -19734,13 +19740,14 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
     else:
         destino = release.get("url") or url_mat
         if not (release.get("cover_url") or "").strip():
-            tarea("portada", "Falta la portada del lanzamiento", destino, "fa-image")
+            tarea("portada", "Falta la portada del lanzamiento", destino, "fa-image", grupo="single")
         if kind != "VIDEOCLIP":
             faltan = _disco_project_missing_masters(session_db, project)
             if faltan:
-                tarea("master", ("Falta el máster de %d tema(s)" % faltan), destino, "fa-file-audio")
+                tarea("master", ("Falta el máster de %d tema(s)" % faltan), destino, "fa-file-audio",
+                      grupo="single")
         if _disco_project_missing_videoclip(session_db, project):
-            tarea("videoclip", "Falta el videoclip", destino, "fa-film")
+            tarea("videoclip", "Falta el videoclip", destino, "fa-film", grupo="video")
     if getattr(project, "closed_at", None) is None and not tareas:
         tarea("cerrar", "Todo listo: cierra el proyecto para pasar a distribución y registro",
               url_info, "fa-flag-checkered")
@@ -19753,6 +19760,27 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
         tarea("bolsa", "Sin bolsa de gastos",
               url_for("disco_project_detail", project_id=project.id, tab="bolsa"), "fa-sack-dollar")
     return tareas
+
+
+def _disco_project_task_groups(project, tasks) -> dict:
+    """Las tareas pendientes repartidas por A QUÉ pertenecen, para el proyecto que es DOS cosas.
+
+    En un **single con videoclip** lo que falta del single se lee a la izquierda y lo del videoclip a
+    la derecha; lo del **LANZAMIENTO** (la fecha, la hoja de ruta, la bolsa, cerrarlo) es de los dos,
+    así que va debajo y ocupa todo el ancho. En cualquier otro proyecto no se parte nada: una sola
+    lista, como siempre."""
+    kind = (getattr(project, "kind", None) or "").upper()
+    partir = kind in DISCO_SINGLE_KINDS and _disco_project_has_videoclip(project)
+    if not partir:
+        return {"split": False, "single": [], "video": [], "lanzamiento": list(tasks)}
+    reparto = {"single": [], "video": [], "lanzamiento": []}
+    for t in (tasks or []):
+        clave = (t.get("group") or "lanzamiento")
+        reparto[clave if clave in reparto else "lanzamiento"].append(t)
+    reparto["split"] = True
+    reparto["single_label"] = DISCO_PROJECT_LABELS.get("SINGLE", "Single")
+    reparto["video_label"] = DISCO_PROJECT_LABELS.get("VIDEOCLIP", "Videoclip")
+    return reparto
 
 
 def _parse_iso_date_safe(value):
@@ -20435,6 +20463,9 @@ def disco_project_detail(project_id):
         agenda_data = _disco_project_agenda(session_db, project, hitos) if tab == "calendario" else None
         tareas = (_disco_project_tasks(session_db, project, bag=bag, release=release)
                   if tab == "calendario" else [])
+        # En un single CON videoclip las tareas se leen partidas (single | videoclip) y lo del
+        # lanzamiento, que es de los dos, debajo.
+        grupos_tareas = _disco_project_task_groups(project, tareas)
         # La BOLSA se embebe con el MISMO panel que /bolsas/<id> (como la pestaña Producción de una
         # actividad): su contexto se mezcla, quitando lo que choca con el de esta ficha.
         bag_ctx = {}
@@ -20444,6 +20475,7 @@ def disco_project_detail(project_id):
             # «got multiple values for keyword argument 'bag'».
             for clave in ("today", "tab", "row", "project", "project_tabs", "milestones", "tracks",
                           "physical_labels", "roadmap_ctx", "CAN_EDIT", "bag", "tasks",
+                          "task_groups",
                           "agenda_data", "release", "release_songs"):
                 bag_ctx.pop(clave, None)
         return render_template(
@@ -20453,6 +20485,7 @@ def disco_project_detail(project_id):
             milestones=hitos,
             agenda_data=agenda_data,
             tasks=tareas,
+            task_groups=grupos_tareas,
             tracks=list(project.tracks or []),
             physical_labels=DISCO_PHYSICAL_LABELS,
             release_modes=DISCO_RELEASE_MODES,

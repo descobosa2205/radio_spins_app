@@ -656,6 +656,16 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · **Las TAREAS PENDIENTES** (`_disco_project_tasks`) dicen lo que falta para poder lanzarlo (la
   fecha, los temas, el soporte físico, la portada, el máster, el vídeo, la hoja de ruta, la bolsa) y
   cada una **desaparece sola** en cuanto se hace.
+  · **En un SINGLE CON VIDEOCLIP se leen PARTIDAS** (ago 2026): a la izquierda lo del **single**
+  (portada, máster) y a la derecha lo del **videoclip**; debajo, **a todo el ancho**, lo del
+  **LANZAMIENTO** (la fecha, la hoja de ruta, la bolsa, cerrarlo), que es de los dos y por eso no
+  cuelga de ninguna mitad. Cada tarea nace con su `group` (`single` · `video` · `lanzamiento`, en el
+  propio `tarea(...)`) y el reparto lo hace **`_disco_project_task_groups`**, que solo parte cuando el
+  proyecto ES un single (`DISCO_SINGLE_KINDS`) **y** lleva vídeo — así se parte igual con el tipo
+  «Single + Videoclip» y con un single al que le marcaron la casilla, que es la misma situación. En
+  cualquier otro proyecto devuelve `split: False` y se ve la lista de siempre.
+  ⚠️ `task_groups` hay que añadirlo a las claves que se QUITAN del contexto de la bolsa (`bag_ctx`):
+  si no, `render_template` revienta con «got multiple values».
   · **La HOJA DE RUTA es la misma de las actividades**: basta con que «project» esté en
   `ROADMAP_ENTITY_TYPES` y con las ramas del proyecto en `_roadmap_entity` / `_roadmap_base_days`
   (su lanzamiento y los temas con fecha propia) / `_roadmap_artist_ids` / `_roadmap_title`. Lo que se

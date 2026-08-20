@@ -179,7 +179,7 @@
                     <div class="flex-grow-1 small">{{ f.label }}</div>
                     <span class="sw3" data-sw3 data-state="{{ estado }}" role="button" tabindex="0"
                           aria-label="{{ f.label }}"
-                          title="Pincha para cambiar: no se pide · se pide · obligatorio"></span>
+                          title="Arrástralo o pincha la posición: no se pide · se pide · obligatorio"></span>
                     <input type="hidden" name="mode_{{ f.key }}" value="{{ estado }}">
                   </div>
                 {% endfor %}
@@ -187,35 +187,11 @@
             {% endfor %}
             <div class="text-end mt-3"><button class="btn btn-primary"><i class="fa fa-link me-1"></i>Generar enlace</button></div>
           </form>
-          <script>
-            // Interruptor de 3 posiciones: se pincha en la posición que se quiere (y con las flechas
-            // del teclado). El valor viaja en el input oculto que va justo detrás.
-            (function () {
-              function poner(sw, estado) {
-                estado = Math.max(0, Math.min(2, estado));
-                sw.setAttribute('data-state', String(estado));
-                var oculto = sw.nextElementSibling;
-                if (oculto && oculto.type === 'hidden') oculto.value = String(estado);
-              }
-              document.addEventListener('click', function (ev) {
-                var sw = ev.target.closest('[data-sw3]');
-                if (!sw) return;
-                var caja = sw.getBoundingClientRect();
-                var tercio = Math.floor(((ev.clientX - caja.left) / caja.width) * 3);
-                // Fuera de sitio (teclado, clic raro): avanza a la siguiente posición.
-                if (!isFinite(tercio) || tercio < 0 || tercio > 2) tercio = (parseInt(sw.getAttribute('data-state'), 10) + 1) % 3;
-                poner(sw, tercio);
-              });
-              document.addEventListener('keydown', function (ev) {
-                var sw = ev.target.closest && ev.target.closest('[data-sw3]');
-                if (!sw) return;
-                var actual = parseInt(sw.getAttribute('data-state'), 10) || 0;
-                if (ev.key === 'ArrowRight') { poner(sw, actual + 1); ev.preventDefault(); }
-                else if (ev.key === 'ArrowLeft') { poner(sw, actual - 1); ev.preventDefault(); }
-                else if (ev.key === ' ' || ev.key === 'Enter') { poner(sw, (actual + 1) % 3); ev.preventDefault(); }
-              });
-            })();
-          </script>
+          {# El interruptor de 3 posiciones lo mueve `static/js/sw3.js` (GLOBAL, cargado en
+             layout.html): se arrastra con el dedo o con el ratón, se pincha la posición y funciona
+             con el teclado. ⚠️ Antes este JS vivía aquí y solo escuchaba `click`: en el iPhone y el
+             iPad, arrastrar el pomo no hacía NADA (un arrastre no genera clic) — ver la nota en
+             CLAUDE.md. #}
         {% endif %}
       </div>
     </div>

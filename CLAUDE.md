@@ -910,9 +910,22 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (los seis de audio), no con el catálogo entero: si no, empezarían a pedir la portada retroactivamente.
   · Al generar el enlace, cada campo lleva un **interruptor de TRES posiciones** con el mismo
   lenguaje que los de permisos (`.sw3` en `styles.css`, leyenda arriba): **apagado** = no se pide ·
-  **ámbar en medio** = se pide · **verde a la derecha** = obligatorio. Se pincha en la posición que se
-  quiere (o con las flechas) y el valor viaja en un `mode_<clave>` (0/1/2) — el servidor sigue
-  aceptando las dos casillas antiguas por si queda una pantalla vieja abierta. De ahí salen también
+  **ámbar en medio** = se pide · **verde a la derecha** = obligatorio. Se **ARRASTRA** el pomo (dedo o
+  ratón), se pincha la posición o se usan las flechas, y el valor viaja en un `mode_<clave>` (0/1/2) —
+  el servidor sigue aceptando las dos casillas antiguas por si queda una pantalla vieja abierta.
+  ⚠️⚠️ **EN EL IPHONE Y EL IPAD NO SE PODÍAN MOVER** (bug real, ago 2026). El motor solo escuchaba
+  **`click`** y vivía dentro de `song_detail.html`. Con el dedo, lo natural en algo que parece un
+  slider es **arrastrarlo** — y un arrastre **NO genera `click`** (iOS lo toma por un scroll en cuanto
+  el dedo se mueve), así que no pasaba absolutamente nada. Y pinchar tampoco valía: el control medía
+  **64×23 px, 21 px por posición**. Ahora el motor es **`static/js/sw3.js`** (GLOBAL en `layout.html`,
+  no-op sin `[data-sw3]`), con **Pointer Events + `setPointerCapture`** (dedo, ratón y lápiz), y en
+  táctil el interruptor se agranda a **108×34 px** con `touch-action:pan-y` (un arrastre horizontal
+  mueve el pomo, uno vertical sigue haciendo scroll).
+  ⚠️ La zona de toque ampliada (`.sw3::after`) es de **4 px** arriba y abajo a propósito: entre fila y
+  fila hay 9 px, y con 10 px las zonas se SOLAPABAN y un toque junto al borde cambiaba el interruptor
+  de la fila de al lado (comprobado con `elementFromPoint`).
+  ⚠️ La geometría va en variables (`--sw3-w/-h/-knob/-pad`) y el recorrido del pomo se CALCULA: sin
+  eso, cambiar el tamaño deja el pomo corto o fuera. De ahí salen también
   `sections_json` y `materials_json`, para que todo cuadre. El formulario público pinta solo lo
   pedido y **valida exactamente eso**.
   · **PREVISUALIZACIÓN del enlace** (`_song_delivery_share_context` + `public_song_delivery_og_image`):

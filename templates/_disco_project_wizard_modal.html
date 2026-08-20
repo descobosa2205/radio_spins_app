@@ -24,10 +24,14 @@
           <div class="sw-step__q"><i class="fa fa-user-music me-2 text-danger"></i>¿De qué artista es el proyecto?</div>
           <div class="sw-step__h">Al elegirlo se pasa solo al siguiente paso.</div>
           <input type="search" class="form-control form-control-sm mb-2" id="dpArtistSearch" placeholder="Buscar artista…" autocomplete="off">
+          {# ⚠️ Si NINGÚN artista está «activo» (nadie tiene contrato discográfico), se enseñan TODOS
+             desde el principio: si no, la rejilla saldría vacía y no habría a quién elegir. #}
+          {% set _activos = (pw.artists or [])|selectattr('active')|list %}
           <div class="promo-pick-grid" id="dpArtistGrid">
             {% for a in pw.artists or [] %}
-              <label class="promo-pick js-dp-artist{% if not a.active %} d-none{% endif %}"
-                     data-search="{{ a.name|lower }}" {% if not a.active %}data-dp-extra="1"{% endif %}>
+              {% set _extra = (not a.active) and _activos %}
+              <label class="promo-pick js-dp-artist{% if _extra %} d-none{% endif %}"
+                     data-search="{{ a.name|lower }}" {% if _extra %}data-dp-extra="1"{% endif %}>
                 <input type="radio" name="artist_pick" value="{{ a.id }}" class="js-dp-artist-radio" data-sw-advance>
                 <span class="promo-pick__box">
                   {% if a.photo_url and 'placeholder_photo' not in a.photo_url %}
@@ -41,9 +45,14 @@
             {% endfor %}
           </div>
           <div class="text-center mt-2">
-            <button type="button" class="btn btn-sm btn-link text-decoration-none" id="dpMoreArtists">
+            <button type="button" class="btn btn-sm btn-link text-decoration-none{% if not _activos %} d-none{% endif %}" id="dpMoreArtists">
               <i class="fa fa-ellipsis me-1"></i>Ver más artistas</button>
           </div>
+          {% if not (pw.artists or []) %}
+            <div class="alert alert-warning mt-2 mb-0">
+              <i class="fa fa-triangle-exclamation me-1"></i>No hay artistas dados de alta todavía.
+            </div>
+          {% endif %}
         </section>
 
         {# ---------- Paso 2 · TIPO ---------- #}
@@ -215,6 +224,11 @@
   </div>
 </div>
 
+{# ⚠️ EL MOTOR DEL ASISTENTE. Sin esto el modal se abre EN BLANCO y no avanza: `.sw-step` está
+   oculto por CSS (`display:none`) y es `step_wizard.js` quien activa el primer paso, pinta la barra
+   de progreso y cablea «Siguiente» y el auto-avance (`data-sw-advance`). Cada asistente carga su
+   motor en su propio parcial (igual que los de promoción, giras y ciclos). #}
+<script src="{{ url_for('static', filename='js/step_wizard.js', v=ASSET_V) }}"></script>
 <script>
 (function () {
   var root = document.getElementById('discoProjectForm');

@@ -671,9 +671,16 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   de lanzamiento con la fecha y los temas que salgan en otra) · **single** (nombre, colaboración,
   fecha y si lleva videoclip) · **videoclip** (de un tema del repertorio, de otro proyecto o suelto).
   ⚠️ **Un tema YA EXISTENTE no lleva fecha**: sale con la etiqueta «Ya publicado».
+  ⚠️⚠️ **CADA ASISTENTE CARGA SU MOTOR**: el parcial tiene que traer su
+  `<script src=".../js/step_wizard.js">` (como los de promoción, giras y ciclos). Sin él el modal se
+  abre **EN BLANCO y no avanza** —`.sw-step` está oculto por CSS (`display:none`) y es ese JS quien
+  activa el primer paso, pinta el progreso y cablea «Siguiente»— y no salta ningún error: parece que
+  el botón «no hace nada» (bug real del asistente de proyectos).
   ⚠️ `step_wizard.js` NO expone `swNext`: el auto-avance se pide con **`data-sw-advance`** en el
   propio control (y los pasos que no tocan se saltan con `data-sw-when`, que además DESHABILITA sus
   campos: si no, el navegador se para a validar un `required` invisible).
+  ⚠️ Si NINGÚN artista sale como «activo» (nadie con contrato discográfico) se enseñan **todos** desde
+  el principio: la rejilla del primer paso no puede quedarse vacía.
   ⚠️ **`dict()` sobre las tuplas de tres del catálogo revienta en la plantilla**: el mapa
   clave→etiqueta se pasa hecho (`kind_labels`).
   ⚠️ **`DiscoProject.song` necesita `foreign_keys=[song_id]`**: hay DOS caminos a `songs` (el tema del
@@ -1200,6 +1207,14 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   de invitaciones (`invitaciones.html`, helpers `goStep`/`getStep`): pasos de artista, evento,
   "¿Para quién son?" y "Entrega". **No** aplicar en pasos **multicampo** (asistente de conciertos
   `_concert_wizard_modal.html`, alta de medios `media_outlets.html`), que conservan "Siguiente".
+- ⚠️⚠️ **«Maximum call stack size exceeded» en INICIO** (bug real, ago 2026): `updateSellerCards` del
+  asistente de actividad devolvía el vendedor a «Nosotros» cuando la tarjeta marcada estaba oculta,
+  pero lo miraba con **`closest('.d-none')`** — y el PASO del asistente está oculto mientras no toca,
+  así que SIEMPRE daba «oculta»: marcaba «Nosotros», su `change` volvía a llamar a la función… y el
+  navegador petaba, **dejando sin arrancar el resto del JS de la página** (se veía en la consola de
+  Inicio, donde el asistente va embebido). Ahora se mira **solo la tarjeta del vendedor**
+  (`.wz-seller-card`, que llevan las cuatro) y hay un cerrojo de re-entrada. Al tocar el asistente,
+  mirar la consola del navegador: un error así no se nota en la pantalla pero rompe todo lo demás.
 - **Asistente «+ Actividad» — rediseño jul 2026** (`_concert_wizard_modal.html`, reescrito): cada paso
   se compone de **viñetas** `.wizard-card` (una tarjeta por bloque de preguntas) con elecciones en
   tarjetas `.activity-choice-card` (selección visual vía `initVisualChoiceCards` de scripts.js); los

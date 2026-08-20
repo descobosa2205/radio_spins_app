@@ -828,7 +828,7 @@
               <div class="wizard-card">
                 <div class="wizard-card__title"><i class="fa fa-cash-register"></i>¿Quién saca las entradas a la venta?</div>
                 <div class="row g-2">
-                  <div class="col-6 col-md-3">
+                  <div class="col-6 col-md-3 wz-seller-card">
                     <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
                       <input class="form-check-input visually-hidden wizard-seller-radio" type="radio" name="sale_seller_kind" value="US" checked>
                       <i class="fa fa-building d-block fs-3 mb-2 text-dark"></i>
@@ -836,7 +836,7 @@
                       <span class="text-muted small d-block text-truncate" id="wzSellerUsName"></span>
                     </label>
                   </div>
-                  <div class="col-6 col-md-3 d-none" id="wzSellerPromoterCard">
+                  <div class="col-6 col-md-3 d-none wz-seller-card" id="wzSellerPromoterCard">
                     <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
                       <input class="form-check-input visually-hidden wizard-seller-radio" type="radio" name="sale_seller_kind" value="PROMOTER">
                       <i class="fa fa-user-tie d-block fs-3 mb-2 text-dark"></i>
@@ -844,7 +844,7 @@
                       <span class="text-muted small d-block text-truncate" id="wzSellerPromoterName"></span>
                     </label>
                   </div>
-                  <div class="col-6 col-md-3 d-none" id="wzSellerVenueCard">
+                  <div class="col-6 col-md-3 d-none wz-seller-card" id="wzSellerVenueCard">
                     <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
                       <input class="form-check-input visually-hidden wizard-seller-radio" type="radio" name="sale_seller_kind" value="VENUE">
                       <i class="fa fa-location-dot d-block fs-3 mb-2 text-dark"></i>
@@ -852,7 +852,7 @@
                       <span class="text-muted small d-block text-truncate" id="wzSellerVenueName"></span>
                     </label>
                   </div>
-                  <div class="col-6 col-md-3">
+                  <div class="col-6 col-md-3 wz-seller-card">
                     <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
                       <input class="form-check-input visually-hidden wizard-seller-radio" type="radio" name="sale_seller_kind" value="THIRD">
                       <i class="fa fa-user-plus d-block fs-3 mb-2 text-dark"></i>
@@ -2228,11 +2228,22 @@
       if(vName) vName.textContent = venueLabel;
       const vHidden = document.getElementById('wizard_seller_venue_label');
       if(vHidden) vHidden.value = venueLabel;
-      // Si la tarjeta marcada quedó oculta, vuelve a «Nosotros».
+      // Si la TARJETA marcada quedó oculta, vuelve a «Nosotros».
+      // ⚠️⚠️ Se mira SOLO la tarjeta del propio vendedor (`[id^="wzSeller"]`), NO cualquier ancestro
+      // con `.d-none`: el paso del asistente está oculto mientras no toca, así que con `closest('.d-none')`
+      // SIEMPRE salía «oculta» → se marcaba «Nosotros» → su `change` volvía a llamar aquí… y el
+      // navegador petaba con «Maximum call stack size exceeded», dejando el resto del JS de la página
+      // sin arrancar (bug real: se veía en la consola de Inicio). Y por si acaso, no se re-entra.
       const checked = document.querySelector('.wizard-seller-radio:checked');
-      if(checked && checked.closest('.d-none')){
+      const tarjeta = checked ? checked.closest('.wz-seller-card') : null;
+      if(!updateSellerCards.__busy && tarjeta && tarjeta.classList.contains('d-none')){
         const us = document.querySelector('.wizard-seller-radio[value="US"]');
-        if(us){ us.checked = true; us.dispatchEvent(new Event('change', { bubbles: true })); }
+        if(us && !us.checked){
+          updateSellerCards.__busy = true;
+          us.checked = true;
+          us.dispatchEvent(new Event('change', { bubbles: true }));
+          updateSellerCards.__busy = false;
+        }
       }
       const third = document.querySelector('.wizard-seller-radio:checked')?.value === 'THIRD';
       document.getElementById('wizardSellerThirdWrap')?.classList.toggle('d-none', !third);

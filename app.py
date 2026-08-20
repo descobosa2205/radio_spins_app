@@ -19587,7 +19587,12 @@ def _disco_project_agenda(session_db, project, milestones) -> dict:
     proyecto son SUS fechas, no la agenda del artista)."""
     hoy = today_local()
     fechas = [m["date"] for m in milestones] or [hoy]
-    inicio = min(min(fechas), hoy) - timedelta(days=min(min(fechas), hoy).weekday())
+    # ⚠️ La ventana ARRANCA en la primera fecha del proyecto: si todas están por venir, el calendario
+    # se abre DONDE ESTÁN (`agenda_calendar.js` encaja `winStart` dentro del rango cargado) y no en la
+    # semana de hoy diciendo «sin actividades en este periodo». Con fechas ya pasadas, arranca antes de
+    # hoy y se abre en hoy, que es lo que interesa entonces.
+    primera = min(fechas)
+    inicio = primera - timedelta(days=primera.weekday())
     fin = max(max(fechas), hoy) + timedelta(days=21)
     aid = str(getattr(project, "artist_id", "") or "")
     artista = getattr(project, "artist", None)

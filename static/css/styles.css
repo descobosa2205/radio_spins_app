@@ -3639,6 +3639,21 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 .oa-row__icon{ flex:0 0 42px; width:42px; height:42px; border-radius:12px; background:#f1f3f5;
   color:#495057; display:inline-flex; align-items:center; justify-content:center; font-size:1.05rem; }
 .oa-row__body{ flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:.1rem; }
+/* UN TIPO QUE SON DOS COSAS («Single + Videoclip»): sus dos iconos con un + en medio.
+   El + es un icono más, así que hereda el color y el estado (p. ej. el rojo de la tarjeta
+   elegida); solo se le baja el tamaño. ⚠️ `.kind-icons .kind-icons__plus` lleva DOS clases a
+   propósito: con una sola, la regla del contenedor (p. ej. `.promo-pick__box i`) le ganaría y
+   el + saldría igual de grande que los iconos. */
+.kind-icons{ display:inline-flex; align-items:center; gap:.22rem; }
+/* Los DOS iconos toman el tamaño del contenedor y el + es una fracción DE ELLOS: así la
+   proporción se mantiene igual en una tarjeta grande, en un badge pequeño o en una línea de
+   texto, sin tener que ajustarla en cada sitio. */
+.kind-icons i.fa{ font-size:inherit; }
+.kind-icons i.kind-icons__plus{ font-size:.6em; opacity:.75; }
+.promo-pick__box .kind-icons{ font-size:1.5rem; }   /* la tarjeta del asistente */
+/* El badge del listado son 42 px: los dos iconos entran justos, así que ahí van un poco más
+   pequeños y más juntos (medido: 38 px, sin desbordar). */
+.oa-row__icon .kind-icons{ font-size:.78rem; gap:.14rem; }
 .oa-row__top{ display:flex; align-items:baseline; gap:.4rem; flex-wrap:wrap; min-width:0; }
 .oa-row__title{ font-weight:600; }
 .oa-row__place{ color:#495057; font-size:.92rem; }

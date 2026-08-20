@@ -1653,7 +1653,7 @@
       <div class="list-group list-group-flush">
         {% for r in pc.rows %}
           <a class="oa-row text-decoration-none text-reset" href="{{ r.url }}">
-            <span class="oa-row__icon" title="{{ r.kind_label }}"><i class="fa {{ r.icon }}"></i></span>
+            <span class="oa-row__icon" title="{{ r.kind_label }}">{{ r.icon_html }}</span>
             <span class="oa-row__body">
               <span class="oa-row__top">
                 <span class="oa-row__title">{{ r.title }}</span>

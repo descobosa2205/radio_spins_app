@@ -116,7 +116,7 @@ document.addEventListener('click', function (ev) {
     <div class="list-group list-group-flush">
       {% for p in HOME_PROJECT_REGISTROS %}
         <a href="{{ p.url }}" class="oa-row text-decoration-none text-reset">
-          <span class="oa-row__icon" title="{{ p.kind_label }}"><i class="fa {{ p.icon }}"></i></span>
+          <span class="oa-row__icon" title="{{ p.kind_label }}">{{ p.icon_html }}</span>
           <span class="oa-row__body">
             <span class="oa-row__top">
               <span class="oa-row__title">{{ p.title }}</span>

@@ -673,7 +673,7 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ **Un tema YA EXISTENTE no lleva fecha**: sale con la etiqueta «Ya publicado».
   · **«SINGLE + VIDEOCLIP» es un TIPO, no una casilla** (ago 2026): la casilla «Incluye videoclip» del
   paso del single se **retiró** y en su lugar hay un tipo propio (`SINGLE_VIDEOCLIP`, «Single +
-  Videoclip», `fa-clapperboard`), que hace exactamente lo que hacía la casilla marcada
+  Videoclip»), que hace exactamente lo que hacía la casilla marcada
   (`includes_videoclip = true`). Se prepara **igual que un single** —punto único
   **`DISCO_SINGLE_KINDS`**, hermano de `DISCO_TRACKLIST_KINDS`— así que su paso del asistente es el
   mismo (`data-sw-when="SINGLE,SINGLE_VIDEOCLIP"`; ⚠️ el `data-sw-when` casa por token exacto: hay que
@@ -687,6 +687,19 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   tipo) y el guardado la fuerza a `true`; en un single a secas sigue estando, para poder decir más
   adelante que llevará vídeo. Y la etiqueta «Con videoclip» solo se pinta cuando el tipo NO lo dice ya
   (`row["video_badge"]`): al lado de «Single + Videoclip» sería repetirlo.
+  · **Un tipo que son DOS cosas se dibuja con SUS DOS ICONOS y un + en medio**: punto único
+  **`_disco_kind_icon_html`** (global de plantilla **`disco_kind_icon(kind, cls)`**) +
+  `DISCO_PROJECT_ICON_PARTS` (`SINGLE_VIDEOCLIP` → nota + película) y las clases `.kind-icons` de
+  `styles.css`. Se usa en la tarjeta del asistente, en la fila del listado, en la cabecera de la
+  ficha y en el hito del lanzamiento del calendario (esos dos últimos por `icon_html`, que va en el
+  propio diccionario). El **+ es un icono más** (`fa-plus`), así que hereda el color y el estado —el
+  rojo de la tarjeta elegida— y solo se le baja el tamaño.
+  ⚠️ Los iconos toman el tamaño **del sitio donde van** (`.kind-icons i.fa{font-size:inherit}`) y el
+  + es una fracción DE ELLOS: así la proporción se mantiene igual en la tarjeta grande, en el badge
+  de 42 px del listado y en una línea de texto, sin ajustarla en cada sitio. Con el `em` colgando del
+  contenedor (que es 1 rem) el + salía a 9 px al lado de iconos de 24 y parecía un punto.
+  ⚠️ En el **badge de 42 px** del listado los dos iconos entran justos: ahí van algo más pequeños y
+  más juntos (medido: 36 px, sin desbordar).
   ⚠️⚠️ **CADA ASISTENTE CARGA SU MOTOR**: el parcial tiene que traer su
   `<script src=".../js/step_wizard.js">` (como los de promoción, giras y ciclos). Sin él el modal se
   abre **EN BLANCO y no avanza** —`.sw-step` está oculto por CSS (`display:none`) y es ese JS quien

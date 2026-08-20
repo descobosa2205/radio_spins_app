@@ -61,10 +61,11 @@
           <div class="sw-step__h">Álbum y EP funcionan igual: se prepara su lista de temas. «Single +
             Videoclip» prepara las dos cosas de una vez.</div>
           <div class="promo-pick-grid promo-pick-grid--wide">
+            {# `disco_kind_icon` pinta los DOS iconos con un + en medio en «Single + Videoclip». #}
             {% for key, label, icon in pw.kinds or [] %}
               <label class="promo-pick">
                 <input type="radio" name="kind_pick" value="{{ key }}" class="js-dp-kind" data-sw-advance>
-                <span class="promo-pick__box"><i class="fa {{ icon }}"></i><span class="promo-pick__name">{{ label }}</span></span>
+                <span class="promo-pick__box">{{ disco_kind_icon(key) }}<span class="promo-pick__name">{{ label }}</span></span>
               </label>
             {% endfor %}
           </div>

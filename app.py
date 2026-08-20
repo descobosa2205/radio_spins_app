@@ -1353,6 +1353,8 @@ def inject_globals():
         ASSET_V=_ASSET_VERSION,
         artist_chip=artist_chip,
         artist_avatar=artist_avatar,
+        # El icono de un tipo de proyecto discográfico («Single + Videoclip» son dos iconos y un +).
+        disco_kind_icon=_disco_kind_icon_html,
         linked_mini=linked_mini,
         # DIRECCIÓN FISCAL: se pide en piezas (Holded las necesita separadas) y se muestra junta.
         fiscal_parts=_fiscal_parts_for_form,
@@ -19140,6 +19142,9 @@ DISCO_PROJECT_KINDS = [
 ]
 DISCO_PROJECT_LABELS = {k: l for k, l, _i in DISCO_PROJECT_KINDS}
 DISCO_PROJECT_ICONS = {k: i for k, _l, i in DISCO_PROJECT_KINDS}
+# Un tipo que son DOS cosas se dibuja con SUS DOS ICONOS y un «+» en medio (el clapperboard del
+# catálogo queda solo como respaldo de un sitio donde no cabe más que un glifo).
+DISCO_PROJECT_ICON_PARTS = {"SINGLE_VIDEOCLIP": ("fa-music", "fa-film")}
 # Álbum y EP funcionan IGUAL (lo único que cambia es cómo se llama).
 DISCO_TRACKLIST_KINDS = {"ALBUM", "EP"}
 # Un SINGLE y un «SINGLE + VIDEOCLIP» se preparan igual (lo mismo que se preguntaba antes con la
@@ -19180,6 +19185,23 @@ def _disco_project_kind_meta(kind: str) -> tuple[str, str]:
     return DISCO_PROJECT_LABELS.get(k, "Proyecto"), DISCO_PROJECT_ICONS.get(k, "fa-compact-disc")
 
 
+def _disco_kind_icon_html(kind: str, cls: str = "") -> Markup:
+    """El ICONO de un tipo de proyecto, listo para pintar.
+
+    «Single + Videoclip» son dos cosas, así que se dibujan **sus dos iconos con un + en medio**
+    (`.kind-icons`); el resto, su icono de siempre."""
+    k = (kind or "").strip().upper()
+    extra = (" " + cls) if cls else ""
+    partes = DISCO_PROJECT_ICON_PARTS.get(k)
+    if partes:
+        return Markup('<span class="kind-icons%s">'
+                      '<i class="fa %s"></i>'
+                      '<i class="fa fa-plus kind-icons__plus"></i>'
+                      '<i class="fa %s"></i></span>') % (extra, partes[0], partes[1])
+    return Markup('<i class="fa %s%s"></i>') % (
+        DISCO_PROJECT_ICONS.get(k, "fa-compact-disc"), extra)
+
+
 def _disco_project_has_videoclip(project) -> bool:
     """¿Este proyecto lleva videoclip? Punto único.
 
@@ -19213,6 +19235,7 @@ def _disco_project_row(session_db, project, *, bag=None) -> dict:
     return {
         "id": str(project.id),
         "kind": kind, "kind_label": etiqueta, "icon": icono,
+        "icon_html": _disco_kind_icon_html(kind),
         "title": _disco_project_title(project),
         "url": url_for("disco_project_detail", project_id=project.id),
         "artist_id": (str(project.artist_id) if project.artist_id else ""),
@@ -19540,7 +19563,8 @@ def _home_project_registros(session_db=None) -> list[dict]:
                 "id": str(p.id),
                 "url": url_for("disco_project_detail", project_id=p.id, tab="materiales"),
                 "title": _disco_project_title(p),
-                "kind_label": etiqueta, "icon": icono,
+                "kind": (p.kind or "").upper(), "kind_label": etiqueta, "icon": icono,
+                "icon_html": _disco_kind_icon_html(p.kind),
                 "artist_name": (getattr(getattr(p, "artist", None), "name", None) or ""),
                 "artist_photo": (getattr(getattr(p, "artist", None), "photo_url", None) or ""),
                 "closed_label": (p.closed_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y")
@@ -19589,7 +19613,10 @@ def _disco_project_milestones(session_db, project) -> list[dict]:
     etiqueta, icono = _disco_project_kind_meta(getattr(project, "kind", None))
     if getattr(project, "release_date", None):
         hitos.append({"date": project.release_date, "kind": "lanzamiento",
-                      "icon": icono, "title": "Lanzamiento · %s" % _disco_project_title(project),
+                      "icon": icono,
+                      # El lanzamiento lleva el icono de SU tipo (y «Single + Videoclip», los dos).
+                      "icon_html": _disco_kind_icon_html(getattr(project, "kind", None)),
+                      "title": "Lanzamiento · %s" % _disco_project_title(project),
                       "note": DISCO_RELEASE_MODE_LABELS.get(
                           (getattr(project, "release_mode", None) or "").upper(), "")})
     for t in (getattr(project, "tracks", None) or []):

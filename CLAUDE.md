@@ -668,9 +668,25 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   primero y el resto tras «Ver más artistas») → tipo → y según el tipo: **álbum/EP** (nombre, nº de
   temas → tabla que se genera sola con nombre, colaboración y «tema ya existente» del repertorio;
   formato DIGITAL / DIGITAL+FÍSICO / SOLO FÍSICO y sus soportes CD/vinilo/casete; y el planteamiento
-  de lanzamiento con la fecha y los temas que salgan en otra) · **single** (nombre, colaboración,
-  fecha y si lleva videoclip) · **videoclip** (de un tema del repertorio, de otro proyecto o suelto).
+  de lanzamiento con la fecha y los temas que salgan en otra) · **single** y **single + videoclip**
+  (nombre, colaboración y fecha) · **videoclip** (de un tema del repertorio, de otro proyecto o suelto).
   ⚠️ **Un tema YA EXISTENTE no lleva fecha**: sale con la etiqueta «Ya publicado».
+  · **«SINGLE + VIDEOCLIP» es un TIPO, no una casilla** (ago 2026): la casilla «Incluye videoclip» del
+  paso del single se **retiró** y en su lugar hay un tipo propio (`SINGLE_VIDEOCLIP`, «Single +
+  Videoclip», `fa-clapperboard`), que hace exactamente lo que hacía la casilla marcada
+  (`includes_videoclip = true`). Se prepara **igual que un single** —punto único
+  **`DISCO_SINGLE_KINDS`**, hermano de `DISCO_TRACKLIST_KINDS`— así que su paso del asistente es el
+  mismo (`data-sw-when="SINGLE,SINGLE_VIDEOCLIP"`; ⚠️ el `data-sw-when` casa por token exacto: hay que
+  nombrar los dos) y crea su `Song` provisional en repertorio.
+  · **¿Lleva vídeo?** lo dice el punto único **`_disco_project_has_videoclip`** (tipo VIDEOCLIP o
+  SINGLE_VIDEOCLIP, o la casilla marcada), y de ahí sale la tarea **«Falta el videoclip»**
+  (`_disco_project_missing_videoclip`): se mira en la canción del lanzamiento, que es donde se sube, y
+  **no reclama nada** si ya hay un material VIDEOCLIP o si la canción está marcada «Sin videoclip»
+  (`Song.no_videoclip`) — eso es una decisión tomada, no algo que falte.
+  ⚠️ En un «Single + Videoclip» la ficha **no ofrece la casilla** (no se puede quitar lo que dice el
+  tipo) y el guardado la fuerza a `true`; en un single a secas sigue estando, para poder decir más
+  adelante que llevará vídeo. Y la etiqueta «Con videoclip» solo se pinta cuando el tipo NO lo dice ya
+  (`row["video_badge"]`): al lado de «Single + Videoclip» sería repetirlo.
   ⚠️⚠️ **CADA ASISTENTE CARGA SU MOTOR**: el parcial tiene que traer su
   `<script src=".../js/step_wizard.js">` (como los de promoción, giras y ciclos). Sin él el modal se
   abre **EN BLANCO y no avanza** —`.sw-step` está oculto por CSS (`display:none`) y es ese JS quien

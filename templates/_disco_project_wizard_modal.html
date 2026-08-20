@@ -58,7 +58,8 @@
         {# ---------- Paso 2 · TIPO ---------- #}
         <section class="sw-step" data-step="2" data-title="Tipo">
           <div class="sw-step__q"><i class="fa fa-shapes me-2 text-danger"></i>¿Qué tipo de proyecto es?</div>
-          <div class="sw-step__h">Álbum y EP funcionan igual: se prepara su lista de temas.</div>
+          <div class="sw-step__h">Álbum y EP funcionan igual: se prepara su lista de temas. «Single +
+            Videoclip» prepara las dos cosas de una vez.</div>
           <div class="promo-pick-grid promo-pick-grid--wide">
             {% for key, label, icon in pw.kinds or [] %}
               <label class="promo-pick">
@@ -148,9 +149,13 @@
           </div>
         </section>
 
-        {# ---------- Paso 6 · SINGLE ---------- #}
-        <section class="sw-step" data-step="6" data-title="Single" data-sw-when="SINGLE">
-          <div class="sw-step__q"><i class="fa fa-music me-2 text-danger"></i>El single</div>
+        {# ---------- Paso 6 · SINGLE (y SINGLE + VIDEOCLIP: se preparan igual) ----------
+           ⚠️ La casilla «Incluye videoclip» que había aquí se retiró: ahora lo dice el TIPO
+           («Single + Videoclip»), que es donde se elige. #}
+        <section class="sw-step" data-step="6" data-title="Single" data-sw-when="SINGLE,SINGLE_VIDEOCLIP">
+          <div class="sw-step__q"><i class="fa fa-music me-2 text-danger"></i><span data-dp-single-title>El single</span></div>
+          <div class="sw-step__h d-none" data-dp-video-hint>
+            <i class="fa fa-clapperboard me-1"></i>Se prepara también su videoclip.</div>
           <div class="row g-2">
             <div class="col-12 col-md-7">
               <label class="form-label">Nombre</label>
@@ -164,12 +169,6 @@
               <label class="border rounded p-2 w-100 bg-light-subtle d-flex align-items-center gap-2">
                 <input class="form-check-input m-0" type="checkbox" name="is_collab" value="1">
                 <span><i class="fa fa-user-group text-danger me-1"></i>Es una colaboración</span>
-              </label>
-            </div>
-            <div class="col-12 col-md-6">
-              <label class="border rounded p-2 w-100 bg-light-subtle d-flex align-items-center gap-2">
-                <input class="form-check-input m-0" type="checkbox" name="includes_videoclip" value="1">
-                <span><i class="fa fa-film text-danger me-1"></i>Incluye videoclip</span>
               </label>
             </div>
           </div>
@@ -272,6 +271,12 @@
       root.setAttribute('data-sw-mode', kind);
       var etiqueta = $('[data-dp-kind-label]');
       if (etiqueta) etiqueta.textContent = KINDS[kind] || 'Proyecto';
+      // El paso del single vale para «Single» y para «Single + Videoclip»: se dice en qué se está.
+      var conVideo = (kind === 'SINGLE_VIDEOCLIP');
+      var rotulo = $('[data-dp-single-title]');
+      if (rotulo) rotulo.textContent = conVideo ? 'El single y su videoclip' : 'El single';
+      var pista = $('[data-dp-video-hint]');
+      if (pista) pista.classList.toggle('d-none', !conVideo);
       if (root.swRefresh) root.swRefresh();
       if (kind === 'ALBUM' || kind === 'EP') construyeTemas();
       return;
@@ -378,7 +383,8 @@
   // ---------- Al enviar: el nombre y la fecha del paso que toca ----------
   root.addEventListener('submit', function () {
     var titulo = '';
-    if (kind === 'SINGLE') titulo = (root.querySelector('input[name="single_title"]') || {}).value || '';
+    var esSingle = (kind === 'SINGLE' || kind === 'SINGLE_VIDEOCLIP');
+    if (esSingle) titulo = (root.querySelector('input[name="single_title"]') || {}).value || '';
     else if (kind === 'VIDEOCLIP') titulo = (root.querySelector('input[name="video_title"]') || {}).value || '';
     else titulo = (root.querySelector('input[name="title"]') || {}).value || '';
     var oculto = root.querySelector('input[name="title"]');
@@ -390,7 +396,7 @@
       root.appendChild(extra);
     }
     var fecha = '';
-    if (kind === 'SINGLE') fecha = (root.querySelector('input[name="single_release_date"]') || {}).value || '';
+    if (esSingle) fecha = (root.querySelector('input[name="single_release_date"]') || {}).value || '';
     else if (kind === 'VIDEOCLIP') fecha = (root.querySelector('input[name="video_release_date"]') || {}).value || '';
     if (fecha) {
       var fx = document.createElement('input');

@@ -19135,12 +19135,16 @@ DISCO_PROJECT_KINDS = [
     ("ALBUM", "Álbum", "fa-compact-disc"),
     ("EP", "EP", "fa-record-vinyl"),
     ("SINGLE", "Single", "fa-music"),
+    ("SINGLE_VIDEOCLIP", "Single + Videoclip", "fa-clapperboard"),
     ("VIDEOCLIP", "Videoclip", "fa-film"),
 ]
 DISCO_PROJECT_LABELS = {k: l for k, l, _i in DISCO_PROJECT_KINDS}
 DISCO_PROJECT_ICONS = {k: i for k, _l, i in DISCO_PROJECT_KINDS}
 # Álbum y EP funcionan IGUAL (lo único que cambia es cómo se llama).
 DISCO_TRACKLIST_KINDS = {"ALBUM", "EP"}
+# Un SINGLE y un «SINGLE + VIDEOCLIP» se preparan igual (lo mismo que se preguntaba antes con la
+# casilla «Incluye videoclip», que ya no existe: lo dice el TIPO).
+DISCO_SINGLE_KINDS = {"SINGLE", "SINGLE_VIDEOCLIP"}
 DISCO_RELEASE_MODES = [
     ("DIGITAL", "Digital", "fa-cloud"),
     ("DIGITAL_FISICO", "Digital + Físico", "fa-boxes-stacked"),
@@ -19174,6 +19178,17 @@ DISCO_PROJECT_TABS = [
 def _disco_project_kind_meta(kind: str) -> tuple[str, str]:
     k = (kind or "SINGLE").strip().upper()
     return DISCO_PROJECT_LABELS.get(k, "Proyecto"), DISCO_PROJECT_ICONS.get(k, "fa-compact-disc")
+
+
+def _disco_project_has_videoclip(project) -> bool:
+    """¿Este proyecto lleva videoclip? Punto único.
+
+    Lo lleva si es un proyecto de VIDEOCLIP, si es un «Single + Videoclip» (el tipo ya lo dice) o si
+    alguien marcó `includes_videoclip` en su ficha."""
+    kind = (getattr(project, "kind", None) or "").strip().upper()
+    if kind in ("VIDEOCLIP", "SINGLE_VIDEOCLIP"):
+        return True
+    return bool(getattr(project, "includes_videoclip", False))
 
 
 def _disco_project_title(project) -> str:
@@ -19212,6 +19227,10 @@ def _disco_project_row(session_db, project, *, bag=None) -> dict:
         "tracks_count": len(temas),
         "is_collab": bool(getattr(project, "is_collab", False)),
         "includes_videoclip": bool(getattr(project, "includes_videoclip", False)),
+        # La etiqueta «Con videoclip» solo cuando el TIPO no lo dice ya («Single + Videoclip»,
+        # «Videoclip»): repetirlo al lado del tipo no aporta nada.
+        "video_badge": (_disco_project_has_videoclip(project)
+                        and kind not in ("VIDEOCLIP", "SINGLE_VIDEOCLIP")),
         "video_source_label": DISCO_VIDEO_SOURCE_LABELS.get(
             (getattr(project, "video_source", None) or "").upper(), ""),
         "song_title": (getattr(getattr(project, "song", None), "title", None) or ""),
@@ -19363,7 +19382,7 @@ def _disco_project_create_release(session_db, project, tracks_data) -> None:
                 song_id = cancion.id
             session_db.add(AlbumTrack(album_id=album.id, song_id=song_id, track_number=i))
             fila["created_song_id"] = song_id
-    elif kind == "SINGLE" or (kind == "VIDEOCLIP" and (project.video_source or "") == "STANDALONE"):
+    elif kind in DISCO_SINGLE_KINDS or (kind == "VIDEOCLIP" and (project.video_source or "") == "STANDALONE"):
         cancion = Song(title=(project.title or "Sin título"), release_date=fecha, is_provisional=True)
         session_db.add(cancion)
         session_db.flush()
@@ -19391,6 +19410,28 @@ def _disco_project_missing_masters(session_db, project) -> int:
     except Exception:
         return 0
     return len([c for c in canciones if c.id not in con_master])
+
+
+def _disco_project_missing_videoclip(session_db, project) -> bool:
+    """¿Falta el VIDEOCLIP del lanzamiento? (solo si el proyecto lleva vídeo).
+
+    Se mira en la canción del lanzamiento, que es donde se sube (su pestaña Materiales). Si esa
+    canción está marcada como **«Sin videoclip»** no falta nada: es una decisión tomada."""
+    if not _disco_project_has_videoclip(project):
+        return False
+    song_id = getattr(project, "release_song_id", None)
+    if not song_id:
+        return False        # sin una canción concreta (p. ej. un álbum) no se sabe dónde mirarlo
+    cancion = session_db.get(Song, song_id)
+    if cancion is None or bool(getattr(cancion, "no_videoclip", False)):
+        return False
+    try:
+        return (session_db.query(SongMaterial.id)
+                .filter(SongMaterial.song_id == song_id)
+                .filter(func.upper(func.coalesce(SongMaterial.category, "")) == "VIDEOCLIP")
+                .first()) is None
+    except Exception:
+        return False
 
 
 def _disco_project_release(session_db, project) -> dict:
@@ -19671,6 +19712,8 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
             faltan = _disco_project_missing_masters(session_db, project)
             if faltan:
                 tarea("master", ("Falta el máster de %d tema(s)" % faltan), destino, "fa-file-audio")
+        if _disco_project_missing_videoclip(session_db, project):
+            tarea("videoclip", "Falta el videoclip", destino, "fa-film")
     if getattr(project, "closed_at", None) is None and not tareas:
         tarea("cerrar", "Todo listo: cierra el proyecto para pasar a distribución y registro",
               url_info, "fa-flag-checkered")
@@ -20280,9 +20323,11 @@ def disco_project_create():
             if not project.title:
                 flash("Ponle nombre al %s." % DISCO_PROJECT_LABELS[kind].lower(), "warning")
                 return redirect(url_for("discografica_view", section="proyectos"))
-        elif kind == "SINGLE":
+        elif kind in DISCO_SINGLE_KINDS:
             project.is_collab = _truthy(request.form.get("is_collab"))
-            project.includes_videoclip = _truthy(request.form.get("includes_videoclip"))
+            # El VIDEOCLIP lo dice el tipo («Single + Videoclip»); la casilla de antes se retiró.
+            project.includes_videoclip = (kind == "SINGLE_VIDEOCLIP"
+                                          or _truthy(request.form.get("includes_videoclip")))
             project.release_date = parse_optional_date(request.form.get("release_date"))
             if not project.title:
                 flash("Ponle nombre al single.", "warning")
@@ -20484,9 +20529,11 @@ def disco_project_update(project_id):
             for t in list(project.tracks or []):
                 if str(t.id) not in vistos and request.form.get("tracks_present"):
                     session_db.delete(t)
-        elif (project.kind or "").upper() == "SINGLE":
+        elif (project.kind or "").upper() in DISCO_SINGLE_KINDS:
             project.is_collab = _truthy(request.form.get("is_collab"))
-            project.includes_videoclip = _truthy(request.form.get("includes_videoclip"))
+            # En un «Single + Videoclip» el vídeo va con el tipo: no se puede quitar desde la ficha.
+            project.includes_videoclip = ((project.kind or "").upper() == "SINGLE_VIDEOCLIP"
+                                          or _truthy(request.form.get("includes_videoclip")))
         # MIENTRAS SEA PROVISIONAL, el lanzamiento del repertorio sigue al proyecto: es él quien lo
         # está preparando (nombre, fecha y soportes). En cuanto se cierra, deja de tocarse.
         _disco_project_sync_release(session_db, project)

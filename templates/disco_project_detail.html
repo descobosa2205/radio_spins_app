@@ -28,7 +28,8 @@
           Provisional</span>
       {% endif %}
       {% if row.is_collab %}<span class="badge text-bg-light border">Colaboración</span>{% endif %}
-      {% if row.includes_videoclip %}<span class="badge text-bg-light border"><i class="fa fa-film me-1"></i>Con videoclip</span>{% endif %}
+      {# La etiqueta solo si el TIPO no lo dice ya (en «Single + Videoclip» sería repetirlo). #}
+      {% if row.video_badge %}<span class="badge text-bg-light border"><i class="fa fa-film me-1"></i>Con videoclip</span>{% endif %}
     </div>
     <div class="ficha-hero__facts">
       {% if row.artist_name %}<span{% if row.artist_id %} data-artist-link="{{ row.artist_id }}"{% endif %}><i class="fa fa-user-music"></i>{{ row.artist_name }}</span>{% endif %}
@@ -194,7 +195,7 @@
                 {% endfor %}
               </div>
             </div>
-          {% elif row.kind == 'SINGLE' %}
+          {% elif row.kind in ('SINGLE', 'SINGLE_VIDEOCLIP') %}
             <div class="col-12 col-md-6">
               <label class="border rounded p-2 w-100 bg-light-subtle d-flex align-items-center gap-2">
                 <input class="form-check-input m-0" type="checkbox" name="is_collab" value="1"
@@ -202,13 +203,23 @@
                 <span><i class="fa fa-user-group text-danger me-1"></i>Es una colaboración</span>
               </label>
             </div>
-            <div class="col-12 col-md-6">
-              <label class="border rounded p-2 w-100 bg-light-subtle d-flex align-items-center gap-2">
-                <input class="form-check-input m-0" type="checkbox" name="includes_videoclip" value="1"
-                       {% if project.includes_videoclip %}checked{% endif %} {% if not CAN_EDIT %}disabled{% endif %}>
-                <span><i class="fa fa-film text-danger me-1"></i>Incluye videoclip</span>
-              </label>
-            </div>
+            {# En un «Single + Videoclip» el vídeo va con el tipo: no hay nada que marcar. #}
+            {% if row.kind == 'SINGLE' %}
+              <div class="col-12 col-md-6">
+                <label class="border rounded p-2 w-100 bg-light-subtle d-flex align-items-center gap-2">
+                  <input class="form-check-input m-0" type="checkbox" name="includes_videoclip" value="1"
+                         {% if project.includes_videoclip %}checked{% endif %} {% if not CAN_EDIT %}disabled{% endif %}>
+                  <span><i class="fa fa-film text-danger me-1"></i>Incluye videoclip</span>
+                </label>
+              </div>
+            {% else %}
+              <div class="col-12 col-md-6">
+                <div class="border rounded p-2 w-100 bg-light-subtle d-flex align-items-center gap-2">
+                  <i class="fa fa-clapperboard text-danger"></i>
+                  <span>Lleva videoclip <span class="text-muted small">(lo dice el tipo de proyecto)</span></span>
+                </div>
+              </div>
+            {% endif %}
           {% elif row.kind == 'VIDEOCLIP' %}
             <div class="col-12 col-md-6">
               <label class="form-label">De qué es</label>

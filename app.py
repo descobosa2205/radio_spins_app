@@ -801,7 +801,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
+    allowed = {"public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
     if request.endpoint in allowed:
         return
 
@@ -19543,8 +19543,53 @@ def _disco_project_set_provisional(session_db, project, provisional: bool) -> No
             cancion.is_provisional = bool(provisional)
 
 
+def _disco_project_registros_missing(session_db, project, *, release=None) -> list[str]:
+    """Qué le falta al lanzamiento para que REGISTROS lo dé por cumplimentado: la portada y los
+    másters. Punto único de la tarea, del módulo de Inicio y del cierre automático."""
+    release = release if release is not None else _disco_project_release(session_db, project)
+    faltan = []
+    if release and not (release.get("cover_url") or "").strip():
+        faltan.append("portada")
+    n_master = _disco_project_missing_masters(session_db, project)
+    if n_master:
+        faltan.append("%d máster(es)" % n_master)
+    return faltan
+
+
+def _disco_project_registros_autoclose(session_db, project, *, release=None, commit=False) -> bool:
+    """Si el lanzamiento YA tiene portada y másters, la tarea de Registros se cierra SOLA.
+
+    Una tarea es «esto te está esperando»: cuando deja de estarlo tiene que desaparecer sin que nadie
+    la pinche (la misma regla que `_notify_resolve`). Se queda apuntado que se dio por completo solo,
+    y sigue siendo reversible desde la ficha."""
+    if project is None or not getattr(project, "closed_at", None):
+        return False
+    if getattr(project, "registros_done_at", None):
+        return False
+    release = release if release is not None else _disco_project_release(session_db, project)
+    if not release:
+        return False        # sin lanzamiento no hay nada que dar por completo
+    if _disco_project_registros_missing(session_db, project, release=release):
+        return False
+    project.registros_done_at = _now_madrid()
+    project.registros_done_by_nick = "automático"
+    project.updated_at = _now_madrid()
+    _notify_resolve(session_db, "DISCO_PROJECT", str(project.id))
+    if commit:
+        try:
+            session_db.commit()
+        except Exception:
+            session_db.rollback()
+            app.logger.exception("[proyectos] no se pudo cerrar sola la tarea de registros")
+            return False
+    return True
+
+
 def _home_project_registros(session_db=None) -> list[dict]:
-    """Proyectos CERRADOS que esperan a REGISTROS: cumplimentar los datos y subir los materiales."""
+    """Proyectos CERRADOS que esperan a REGISTROS: cumplimentar los datos y subir los materiales.
+
+    ⚠️ Lo que ya está completo (portada y másters) se cierra SOLO aquí mismo: es la red de seguridad
+    para lo que se subió por otro camino, igual que con los avisos ya resueltos."""
     propia = session_db is None
     session_db = session_db or db()
     try:
@@ -19554,15 +19599,14 @@ def _home_project_registros(session_db=None) -> list[dict]:
                  .filter(DiscoProject.registros_done_at.is_(None))
                  .order_by(DiscoProject.closed_at.desc()).limit(40).all())
         salida = []
+        cerrados = 0
         for p in filas:
             release = _disco_project_release(session_db, p)
             etiqueta, icono = _disco_project_kind_meta(p.kind)
-            faltan = []
-            if release and not (release.get("cover_url") or "").strip():
-                faltan.append("portada")
-            n_master = _disco_project_missing_masters(session_db, p)
-            if n_master:
-                faltan.append("%d máster(es)" % n_master)
+            faltan = _disco_project_registros_missing(session_db, p, release=release)
+            if release and not faltan and _disco_project_registros_autoclose(session_db, p, release=release):
+                cerrados += 1
+                continue        # ya está: no es una tarea pendiente
             salida.append({
                 "id": str(p.id),
                 "url": url_for("disco_project_detail", project_id=p.id, tab="materiales"),
@@ -19576,6 +19620,13 @@ def _home_project_registros(session_db=None) -> list[dict]:
                 "release_url": (release.get("url") or ""),
                 "missing": " · ".join(faltan),
             })
+        if cerrados and propia:
+            # ⚠️ Solo se confirma si la sesión es NUESTRA: con una prestada manda quien la abrió.
+            try:
+                session_db.commit()
+            except Exception:
+                session_db.rollback()
+                app.logger.exception("[proyectos] no se pudo guardar el cierre automático")
         return salida
     except Exception:
         app.logger.exception("[proyectos] no se pudieron calcular las tareas de registros")
@@ -20463,6 +20514,9 @@ def disco_project_detail(project_id):
         # CALENDARIO: los hitos (fechas a la izquierda) y el calendario de verdad a la derecha; las
         # tareas pendientes van debajo. Solo se calcula en su pestaña.
         release = _disco_project_release(session_db, project)
+        # Red de seguridad: si ya están la portada y los másters, la tarea de Registros se cierra
+        # sola al mirar la ficha (nadie tiene que acordarse de pinchar «Datos y materiales completos»).
+        _disco_project_registros_autoclose(session_db, project, release=release, commit=True)
         hitos = _disco_project_milestones(session_db, project) if tab == "calendario" else []
         agenda_data = _disco_project_agenda(session_db, project, hitos) if tab == "calendario" else None
         tareas = (_disco_project_tasks(session_db, project, bag=bag, release=release)
@@ -35363,6 +35417,11 @@ def concert_detail_view(cid):
         artwork_companies = session.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
         artwork_ticketers = session.query(Ticketer).order_by(Ticketer.name.asc()).all()
         artwork_edit = _truthy(request.args.get('edit_artwork'))
+        # ENLACE PÚBLICO de la cartelería: es lo que se comparte con el artista y con el promotor
+        # (ellos no tienen usuario). Solo se crea el token si de verdad hay carteles aprobados.
+        artwork_share_url = ""
+        if tab == "carteleria" and _concert_artwork_share_assets(session, c):
+            artwork_share_url = _concert_artwork_share_url(session, c)
 
         promotion_requests_display = []
         promotion_entries_display = []
@@ -35507,6 +35566,7 @@ def concert_detail_view(cid):
             artwork_edit=artwork_edit,
             location_summary=_concert_location_summary(c),
             artwork_upload_url=_external_url_for('concert_artwork_public_upload', token=artwork_request.public_token) if artwork_request else None,
+            artwork_share_url=artwork_share_url,
             promotion_requests_display=promotion_requests_display,
             promotion_entries_display=promotion_entries_display,
             promo_entity_rows=promo_entity_rows,
@@ -36833,6 +36893,31 @@ def concert_artwork_asset_download(cid, asset_id):
         session.close()
 
 
+def _artwork_zip_response(assets, label: str):
+    """Un ZIP con los carteles que se le pasen. Punto único de la descarga interna y de la pública."""
+    buf = BytesIO()
+    usados = set()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for a in assets:
+            nombre = (getattr(a, "original_name", None) or getattr(a, "format_label", None) or "cartel").strip()
+            base, ext = os.path.splitext(nombre)
+            n = 1
+            while nombre.lower() in usados:              # dos ficheros con el mismo nombre
+                n += 1
+                nombre = f"{base} ({n}){ext}"
+            usados.add(nombre.lower())
+            try:
+                datos, _ctype = _download_remote_content(getattr(a, "file_url", None), timeout=25)
+                zf.writestr(nombre, datos)
+            except Exception:
+                app.logger.exception("[carteleria] no se pudo meter un cartel en el ZIP")
+                continue
+    buf.seek(0)
+    etiqueta = re.sub(r"[\\/:*?\"<>|]+", " ", (label or "")).strip() or "Carteleria"
+    return send_file(buf, mimetype="application/zip", as_attachment=True,
+                     download_name=f"Carteles {etiqueta}.zip")
+
+
 @app.get('/conciertos/<cid>/carteleria/descargar-todos', endpoint='concert_artwork_download_all')
 @admin_required
 def concert_artwork_download_all(cid):
@@ -36847,30 +36932,10 @@ def concert_artwork_download_all(cid):
         if not assets:
             flash('No hay carteles aprobados que descargar.', 'warning')
             return redirect(url_for('concert_detail_view', cid=cid, tab='carteleria'))
-        buf = BytesIO()
-        usados = set()
-        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-            for a in assets:
-                nombre = (a.original_name or a.format_label or 'cartel').strip()
-                base, ext = os.path.splitext(nombre)
-                n = 1
-                while nombre.lower() in usados:          # dos ficheros con el mismo nombre
-                    n += 1
-                    nombre = f"{base} ({n}){ext}"
-                usados.add(nombre.lower())
-                try:
-                    req = Request(a.file_url, headers={'User-Agent': 'Mozilla/5.0'})
-                    with urlopen(req, timeout=25) as resp:
-                        zf.writestr(nombre, resp.read())
-                except Exception:
-                    continue
-        buf.seek(0)
         etiqueta = " ".join([x for x in [
             (concert.artist.name if concert and concert.artist else "Carteleria"),
             (concert.date.strftime("%Y-%m-%d") if concert and concert.date else "")] if x])
-        etiqueta = re.sub(r"[\\/:*?\"<>|]+", " ", etiqueta).strip() or "Carteleria"
-        return send_file(buf, mimetype="application/zip", as_attachment=True,
-                         download_name=f"Carteles {etiqueta}.zip")
+        return _artwork_zip_response(assets, etiqueta)
     finally:
         session_db.close()
 
@@ -52347,7 +52412,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -54894,7 +54959,7 @@ def _require_login_v2():
         return
     if session.get("user_id"):
         return
-    allowed = {"public_activity_notice_view", "public_activity_notice_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -72447,11 +72512,13 @@ def _sale_notice_channels(session_db, concert) -> list[dict]:
     return filas
 
 
-def _sale_notice_artwork(session_db, concert) -> dict:
-    """¿Hay carteles subidos y aprobados? (y el enlace a la cartelería de la actividad)."""
-    salida = {"has": False, "count": 0, "url": ""}
+def _concert_artwork_share_assets(session_db, concert) -> list:
+    """Los carteles APROBADOS de la actividad: los suyos y, si no tiene, los de TODA su gira o ciclo.
+
+    Punto único: lo usan el aviso de salida a la venta, el enlace público y su descarga, así que las
+    tres cosas enseñan exactamente lo mismo."""
     if concert is None:
-        return salida
+        return []
     try:
         req = getattr(concert, "artwork_request", None)
         activos = [a for a in ((getattr(req, "assets", None) or []) if req else [])
@@ -72466,10 +72533,297 @@ def _sale_notice_artwork(session_db, concert) -> dict:
                 activos = list(_artwork_group_context(session_db, kind, gid).get("gk_assets") or [])
                 if activos:
                     break
+        return activos
+    except Exception:
+        app.logger.exception("[carteleria] no se pudieron leer los carteles de la actividad")
+        return []
+
+
+def _ensure_concert_artwork_share_token(session_db, concert) -> str:
+    """El token del enlace PÚBLICO de la cartelería (se crea la primera vez que se necesita).
+
+    ⚠️ Es OPACO y **distinto** del de la solicitud a diseño (`ConcertArtworkRequest.public_token`):
+    con ese se SUBEN carteles y con este solo se ven y se descargan. Mismo criterio que los dos
+    tokens de las autorizaciones de menores."""
+    token = (getattr(concert, "artwork_share_token", None) or "").strip()
+    if token:
+        return token
+    token = _uuid_token()
+    concert.artwork_share_token = token
+    try:
+        session_db.flush()
+    except Exception:
+        app.logger.exception("[carteleria] no se pudo guardar el token del enlace público")
+    return token
+
+
+def _concert_artwork_share_url(session_db, concert) -> str:
+    """El enlace PÚBLICO de la cartelería de la actividad (lo que se manda al artista)."""
+    if concert is None:
+        return ""
+    try:
+        return _external_url_for("public_artwork_view",
+                                 token=_ensure_concert_artwork_share_token(session_db, concert))
+    except Exception:
+        app.logger.exception("[carteleria] no se pudo construir el enlace público")
+        return ""
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# CARTELERÍA · ENLACE PÚBLICO (lo que se le manda al artista y al promotor)
+#
+# ⚠️ Antes se compartía la pestaña de la app (y, al compartir los carteles, la lista de URLs de
+# Storage): quien lo recibe NO tiene usuario, así que se comía la pantalla de acceso. Esta es una
+# página nuestra, con el juego de og: completo, donde se VE el formato (su proporción dibujada, el
+# tamaño en píxeles y la miniatura) y se descarga pinchándolo — siempre por nuestro dominio.
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Proporciones conocidas, para poder decir «9:16» en vez de un número raro.
+_ARTWORK_KNOWN_RATIOS = [("1:1", 1.0), ("4:5", 0.8), ("5:4", 1.25), ("9:16", 0.5625),
+                         ("16:9", 16 / 9), ("2:3", 2 / 3), ("3:2", 1.5), ("4:1", 4.0),
+                         ("1:1.414", 1 / 1.414), ("1.414:1", 1.414), ("3:4", 0.75), ("4:3", 4 / 3)]
+
+
+def _artwork_ratio_label(w, h) -> str:
+    """«9:16», «1:1»… a partir del tamaño real. Vacío si no se parece a ninguna proporción de las
+    que se usan y tampoco sale un número corto (mejor no decir nada que decir «620:877»)."""
+    try:
+        w, h = int(w or 0), int(h or 0)
+    except (TypeError, ValueError):
+        return ""
+    if w <= 0 or h <= 0:
+        return ""
+    r = w / h
+    mejor, dif = "", 1.0
+    for etiqueta, valor in _ARTWORK_KNOWN_RATIOS:
+        d = abs(r - valor) / valor
+        if d < dif:
+            mejor, dif = etiqueta, d
+    if dif <= 0.02:                     # un 2% de margen: 1080×1920 es 9:16 aunque no sea exacto
+        return mejor
+    from math import gcd
+    g = gcd(w, h) or 1
+    a, b = w // g, h // g
+    return f"{a}:{b}" if max(a, b) <= 20 else ""
+
+
+def _artwork_asset_public_row(session_db, concert, asset, token: str) -> dict:
+    """Un formato de la página pública: su proporción DIBUJADA, su tamaño y por dónde se descarga."""
+    w, h = getattr(asset, "width", None), getattr(asset, "height", None)
+    try:
+        aspect = (float(w) / float(h)) if (w and h) else 0.0
+    except (TypeError, ValueError, ZeroDivisionError):
+        aspect = 0.0
+    if aspect <= 0:
+        # Sin medidas (un cartel antiguo): se saca del propio formato pedido a diseño.
+        etiqueta = (getattr(asset, "format_label", None) or "").strip().casefold()
+        for _k, lab, asp in ARTWORK_FORMAT_CHOICES:
+            if lab.strip().casefold() == etiqueta:
+                try:
+                    izq, der = [float(x) for x in asp.split("/")]
+                    aspect = izq / der
+                except Exception:
+                    aspect = 0.0
+                break
+    nombre = (getattr(asset, "original_name", None) or "").strip()
+    _base, ext = os.path.splitext(nombre)
+    # La MINIATURA se dibuja con la proporción real dentro de un hueco fijo (todas las tarjetas del
+    # mismo alto). ⚠️ El tamaño se calcula AQUÍ, en píxeles: dejándolo a `aspect-ratio` + `max-width`
+    # en el CSS, un banner 4:1 se quedaba casi cuadrado (el navegador recortaba el ancho pero no
+    # bajaba el alto).
+    caja_w, caja_h = 180, 164
+    a = aspect if aspect > 0 else 1.0
+    if a >= (caja_w / caja_h):
+        marco_w, marco_h = caja_w, max(18, int(round(caja_w / a)))
+    else:
+        marco_h, marco_w = caja_h, max(18, int(round(caja_h * a)))
+    return {
+        "frame_w": marco_w,
+        "frame_h": marco_h,
+        "id": str(asset.id),
+        "format_label": (getattr(asset, "format_label", None) or "Cartel").strip(),
+        "ratio_label": _artwork_ratio_label(w, h),
+        "size_label": (f"{int(w)} × {int(h)} px" if (w and h) else ""),
+        "aspect": round(aspect, 4) if aspect > 0 else 1.0,
+        "ext": (ext or "").lstrip(".").upper(),
+        "is_primary": bool(getattr(asset, "is_primary", False)),
+        # ⚠️ RELATIVAS: son enlaces DENTRO de la propia página, así que valen con el host por el
+        # que se haya abierto. El absoluto (el host canónico) hace falta en lo que se comparte
+        # fuera: el enlace de la página y la miniatura de la previsualización.
+        "file_url": url_for("public_artwork_file", token=token, asset_id=asset.id),
+        "download_url": url_for("public_artwork_download", token=token, asset_id=asset.id),
+    }
+
+
+def _artwork_public_context(session_db, concert, token: str) -> dict:
+    """Lo que necesita la página pública de cartelería (y su miniatura de enlace)."""
+    company = getattr(concert, "billing_company", None) or getattr(concert, "group_company", None)
+    logo = (getattr(company, "logo_url", None) or "").strip()
+    if not logo:
+        try:
+            logo = url_for("static", filename="img/logo_33_producciones.png")
+        except Exception:
+            logo = ""
+    artist = getattr(concert, "artist", None)
+    evento = None
+    if getattr(concert, "event_id", None):
+        try:
+            evento = session_db.get(AppEvent, concert.event_id)
+        except Exception:
+            evento = None
+    nombre = ((getattr(evento, "name", None) or "").strip()
+              or (getattr(artist, "name", None) or "").strip() or "Actividad")
+    foto = ((getattr(evento, "logo_url", None) or "").strip()
+            or (getattr(artist, "photo_url", None) or "").strip())
+    try:
+        eyebrow = _activity_kind_label(getattr(concert, "activity_type", None)) or ""
+    except Exception:
+        eyebrow = ""
+    assets = _concert_artwork_share_assets(session_db, concert)
+    # El principal primero (es el que representa la actividad) y el resto detrás.
+    assets = sorted(assets, key=lambda a: (0 if bool(getattr(a, "is_primary", False)) else 1,
+                                           (getattr(a, "format_label", None) or "")))
+    return {
+        "token": token,
+        "company_name": (getattr(company, "name", None) or "").strip(),
+        "logo_url": _absolute_media_url(logo) if logo else "",
+        "subject_name": nombre,
+        "subject_photo": _absolute_media_url(foto) if foto else "",
+        "eyebrow": eyebrow,
+        "hero_rows": [{"icon": i, "label": l, "value": str(v)}
+                      for i, l, v in _contract_sheet_hero_rows(concert)],
+        "formats": [_artwork_asset_public_row(session_db, concert, a, token) for a in assets],
+        "zip_url": url_for("public_artwork_download_all", token=token),
+        "og_image_url": _external_url_for("public_artwork_og_image", token=token),
+        "date_label": (concert.date.strftime("%d/%m/%Y") if getattr(concert, "date", None) else ""),
+    }
+
+
+def _concert_by_artwork_token(session_db, token: str):
+    """La actividad de un token de cartelería (o None)."""
+    token = (token or "").strip()
+    if not token:
+        return None
+    return (session_db.query(Concert)
+            .options(joinedload(Concert.artist), joinedload(Concert.venue))
+            .filter(Concert.artwork_share_token == token).first())
+
+
+def _artwork_public_asset_or_404(session_db, token: str, asset_id: str):
+    """El cartel pedido, comprobando que de verdad es de ESTA actividad (si no, 404)."""
+    concert = _concert_by_artwork_token(session_db, token)
+    if concert is None:
+        abort(404)
+    aid = to_uuid(asset_id)
+    for a in _concert_artwork_share_assets(session_db, concert):
+        if aid and a.id == aid:
+            return concert, a
+    abort(404)
+
+
+def _artwork_download_name(concert, asset) -> str:
+    """«<Artista> <fecha> <formato>.<ext>», sin caracteres que rompan el nombre del archivo."""
+    original = (getattr(asset, "original_name", None) or "").strip()
+    _b, ext = os.path.splitext(original)
+    partes = [(getattr(getattr(concert, "artist", None), "name", None) or "Carteleria"),
+              (concert.date.strftime("%Y-%m-%d") if getattr(concert, "date", None) else ""),
+              (getattr(asset, "format_label", None) or "")]
+    base = " ".join([x for x in partes if str(x or "").strip()])
+    base = re.sub(r"[\\/:*?\"<>|]+", " ", base).strip() or "Cartel"
+    return base + (ext or ".jpg")
+
+
+# ⚠️ La ruta es `/carteles/…`, NO `/carteleria/<token>`: esa ya la tiene el formulario donde
+# DISEÑO (o el promotor) SUBE los carteles, y dos reglas iguales se pisan — gana la primera, así que
+# esta página no se habría podido abrir nunca (y sin dar ningún error).
+@app.get("/carteles/<token>", endpoint="public_artwork_view")
+def public_artwork_view(token):
+    """La CARTELERÍA de una actividad por enlace público: se ve el formato y se descarga."""
+    with get_db() as session_db:
+        concert = _concert_by_artwork_token(session_db, token)
+        if concert is None:
+            abort(404)
+        ctx = _artwork_public_context(session_db, concert, (token or "").strip())
+        return render_template("public_artwork.html", **ctx)
+
+
+@app.get("/carteles/<token>/formato/<asset_id>", endpoint="public_artwork_file")
+def public_artwork_file(token, asset_id):
+    """El cartel para VERLO en la página (la miniatura), servido por nuestro dominio."""
+    with get_db() as session_db:
+        _concert, asset = _artwork_public_asset_or_404(session_db, token, asset_id)
+        try:
+            datos, ctype = _download_remote_content(asset.file_url, timeout=25)
+        except Exception:
+            app.logger.exception("[carteleria] no se pudo leer el cartel")
+            abort(404)
+        return send_file(BytesIO(datos), mimetype=(ctype or asset.mime_type or "image/jpeg"))
+
+
+@app.get("/carteles/<token>/descargar/<asset_id>", endpoint="public_artwork_download")
+def public_artwork_download(token, asset_id):
+    """Descarga UN formato (por nuestro dominio, con un nombre de archivo que se entiende)."""
+    with get_db() as session_db:
+        concert, asset = _artwork_public_asset_or_404(session_db, token, asset_id)
+        try:
+            datos, ctype = _download_remote_content(asset.file_url, timeout=30)
+        except Exception:
+            app.logger.exception("[carteleria] no se pudo descargar el cartel")
+            abort(404)
+        return send_file(BytesIO(datos), mimetype=(ctype or asset.mime_type or "application/octet-stream"),
+                         as_attachment=True, download_name=_artwork_download_name(concert, asset))
+
+
+@app.get("/carteles/<token>/descargar-todo", endpoint="public_artwork_download_all")
+def public_artwork_download_all(token):
+    """Todos los formatos en un ZIP (el mismo que la descarga de dentro)."""
+    with get_db() as session_db:
+        concert = _concert_by_artwork_token(session_db, token)
+        if concert is None:
+            abort(404)
+        assets = _concert_artwork_share_assets(session_db, concert)
+        if not assets:
+            abort(404)
+        etiqueta = " ".join([x for x in [
+            (getattr(getattr(concert, "artist", None), "name", None) or "Carteleria"),
+            (concert.date.strftime("%Y-%m-%d") if getattr(concert, "date", None) else "")] if x])
+        return _artwork_zip_response(assets, etiqueta)
+
+
+@app.get("/carteles/<token>/og.jpg", endpoint="public_artwork_og_image")
+def public_artwork_og_image(token):
+    """La miniatura del enlace: el cartel principal (y si no hay, la foto del artista)."""
+    with get_db() as session_db:
+        concert = _concert_by_artwork_token(session_db, token)
+        if concert is None:
+            abort(404)
+        assets = _concert_artwork_share_assets(session_db, concert)
+        principal = next((a for a in assets if bool(getattr(a, "is_primary", False))), None) or (assets[0] if assets else None)
+        src = ((getattr(principal, "file_url", None) or "").strip() if principal is not None else "")
+        if not src:
+            src = ((getattr(getattr(concert, "artist", None), "photo_url", None) or "").strip()
+                   or url_for("static", filename="img/logo.png"))
+    datos = _og_image_jpeg_bytes(src if src.startswith("/static/") else _absolute_media_url(src))
+    if not datos:
+        abort(404)
+    resp = send_file(BytesIO(datos), mimetype="image/jpeg")
+    resp.headers["Cache-Control"] = "public, max-age=3600"
+    return resp
+
+
+def _sale_notice_artwork(session_db, concert) -> dict:
+    """¿Hay carteles subidos y aprobados? (y el ENLACE PÚBLICO para descargarlos).
+
+    ⚠️ El enlace NO puede ser la pestaña de la app: quien recibe el aviso es el ARTISTA, que no tiene
+    usuario, así que ahí se comía la pantalla de acceso (bug real)."""
+    salida = {"has": False, "count": 0, "url": ""}
+    if concert is None:
+        return salida
+    try:
+        activos = _concert_artwork_share_assets(session_db, concert)
         if activos:
             salida = {"has": True, "count": len(activos),
-                      "url": _external_url_for("concert_detail_view", cid=concert.id,
-                                               tab="carteleria")}
+                      "url": _concert_artwork_share_url(session_db, concert)}
     except Exception:
         app.logger.exception("[venta] no se pudieron mirar los carteles de la actividad")
     return salida

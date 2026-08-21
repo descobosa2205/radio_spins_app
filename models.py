@@ -318,8 +318,14 @@ def ensure_artist_notifications_schema():
             ADD COLUMN IF NOT EXISTS sale_notice_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
             ADD COLUMN IF NOT EXISTS sale_notice_by_nick text,
             ADD COLUMN IF NOT EXISTS sale_notice_to jsonb NOT NULL DEFAULT '[]'::jsonb,
-            ADD COLUMN IF NOT EXISTS sale_notice_signature text;
+            ADD COLUMN IF NOT EXISTS sale_notice_signature text,
+            -- Enlace PÚBLICO de la cartelería (para que el artista y el promotor la vean y la
+            -- descarguen sin entrar en la app). Es un token OPACO y distinto del de la solicitud a
+            -- diseño: con ese se SUBEN carteles, con este solo se descargan.
+            ADD COLUMN IF NOT EXISTS artwork_share_token text;
         """,
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_concerts_artwork_share_token "
+        "ON concerts(artwork_share_token) WHERE artwork_share_token IS NOT NULL;",
         """
         CREATE TABLE IF NOT EXISTS concert_artist_notifications (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -1990,6 +1996,9 @@ class Concert(Base):
     # Huella de LO QUE SE COMUNICÓ (día y hora de salida a la venta): si Ticketing la reprograma, el
     # aviso deja de valer y hay que volver a comunicarlo.
     sale_notice_signature = Column(Text)
+    # Enlace PÚBLICO de la cartelería (token opaco; ⚠️ NO es el de la solicitud a diseño, que sirve
+    # para SUBIR carteles: aquí solo se ven y se descargan).
+    artwork_share_token = Column(Text)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())

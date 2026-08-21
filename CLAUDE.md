@@ -654,6 +654,14 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   falta dicho (portada, másters). Se cierra con «Datos y materiales completos»
   (`disco_project_registros_done`), y el aviso se cierra solo. Todo es reversible (reabrir / volver a
   pendiente).
+  · **Y se cierra SOLA cuando ya está** (ago 2026): si el lanzamiento tiene portada y másters, nadie
+  tiene que acordarse de pinchar nada — `_disco_project_registros_autoclose` la marca (queda apuntado
+  «automático» en `registros_done_by_nick`) y resuelve el aviso, con `_disco_project_registros_missing`
+  como punto único de qué falta. Se comprueba al **mirar la ficha** del proyecto y al **montar el
+  módulo de Inicio**, que es la red de seguridad para lo que se subió por otro camino (la misma regla
+  que `_notify_resolve`: una tarea es «esto te está esperando» y cuando deja de estarlo desaparece).
+  ⚠️ El módulo de Inicio solo **confirma** el cierre si la sesión es SUYA (`propia`): con una sesión
+  prestada manda quien la abrió.
   · **El calendario es el componente de la agenda de siempre** (`_agenda_calendar.html`, modo
   «artist»), con un payload propio (`_disco_project_agenda`). ⚠️ **Sin `artist_id`**: así
   `unlimited` sale false en `agenda_calendar.js` y las flechas se mueven dentro de lo cargado sin
@@ -2082,6 +2090,35 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   formatos, vídeo, logos, ticketeras y notas — no hay módulo «Detalle de la solicitud» aparte) aparece
   únicamente si hay una petición de verdad (`requested_at` o estado REQUESTED/PROMOTER/CORRECTIONS);
   «Formatos subidos», solo si hay carteles (aprobados, rechazados o antiguos).
+
+- **CARTELERÍA · ENLACE PÚBLICO para verla y descargarla** (ago 2026): `/carteles/<token>`
+  (`public_artwork_view`, plantilla `public_artwork.html` standalone). Estilo de casa: el logo de la
+  empresa del grupo arriba a la **derecha**, **«Cartelería»** centrado, la **cabecera de la actividad**
+  igual que en la app (`_contract_sheet_hero_rows`), **«Descargar Cartelería»** centrado y debajo los
+  formatos: cada uno con su **proporción DIBUJADA**, su tamaño en píxeles, su extensión y la
+  miniatura, que se pincha para descargarlo (más «Descargar todos en un ZIP»).
+  ⚠️⚠️ Antes se compartía **la pestaña de la app** (y, al «compartir los carteles», la lista de URLs
+  de **Storage**): quien lo recibe —el artista, el promotor— **no tiene usuario**, así que el botón
+  «Descargar Carteles» del aviso de salida a la venta le llevaba a la pantalla de acceso (bug real).
+  Ahora ese botón y el menú «Compartir con el artista / con el promotor» mandan este enlace, y desde
+  la pestaña se puede **ver la página que van a recibir**.
+  · Puntos únicos: **`_concert_artwork_share_assets`** (los carteles APROBADOS de la actividad y, si
+  no tiene, los de TODA su gira o ciclo — lo mismo que enseña el aviso), **`_concert_artwork_share_url`**
+  y `_artwork_zip_response` (el ZIP, compartido con la descarga de dentro).
+  ⚠️ El token es **OPACO y DISTINTO** del de `ConcertArtworkRequest`: con ese se **suben** carteles y
+  con este solo se ven y se descargan (mismo criterio que los dos tokens de las autorizaciones de
+  menores). Vive en `Concert.artwork_share_token` y se crea la primera vez que hace falta.
+  ⚠️ **La ruta es `/carteles/…`, NO `/carteleria/<token>`**: esa ya la tiene el formulario donde diseño
+  o el promotor SUBEN los carteles, y dos reglas iguales se pisan — gana la primera, así que la página
+  no se habría podido abrir nunca y **sin dar ningún error**.
+  ⚠️ **Nunca sale la dirección de Storage**: la miniatura y la descarga van por
+  `public_artwork_file` / `public_artwork_download` (nuestro dominio), y un cartel que no sea de esa
+  actividad —o rechazado— da 404. Esos enlaces son **relativos** (son de la propia página); el
+  absoluto con host canónico se reserva para lo que se comparte fuera y para la miniatura `og:`.
+  ⚠️ El tamaño de cada miniatura se calcula **en píxeles en el servidor** (`frame_w`/`frame_h`, dentro
+  de un hueco fijo para que todas las tarjetas midan igual): dejándolo a `aspect-ratio` + `max-width`
+  en el CSS, un banner 4:1 se quedaba **casi cuadrado** (el navegador recortaba el ancho pero no
+  bajaba el alto).
 
 - **Flecha de VOLVER (toda la app)**: la flecha gris de arriba a la izquierda (`.btn-volver`) y
   cualquier enlace cuyo texto, `title` o `aria-label` empiece por «Volver»/«Atrás» llevan **a la

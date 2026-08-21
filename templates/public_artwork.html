@@ -1,0 +1,175 @@
+{# CARTELERÍA de una actividad · página pública (lo que se le manda al artista y al promotor).
+   Standalone a propósito: hace falta el juego de og: para que la miniatura del enlace sea el CARTEL
+   principal (layout.html no tiene bloque en el <head>).
+   Estilo de casa: el logo de la empresa del grupo arriba a la DERECHA, el título CENTRADO, la
+   cabecera de la actividad igual que en la app y debajo los formatos disponibles: cada uno con su
+   PROPORCIÓN DIBUJADA, su tamaño y su miniatura, que se pincha para descargarlo. #}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cartelería · {{ subject_name }}{% if date_label %} · {{ date_label }}{% endif %}</title>
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Cartelería · {{ subject_name }}">
+  <meta property="og:description" content="{{ formats|length }} formato(s) para descargar{% if date_label %} · {{ date_label }}{% endif %}">
+  <meta name="description" content="{{ formats|length }} formato(s) para descargar{% if date_label %} · {{ date_label }}{% endif %}">
+  {% if og_image_url %}
+    <meta property="og:image" content="{{ og_image_url }}">
+    <meta property="og:image:secure_url" content="{{ og_image_url }}">
+    <meta property="og:image:type" content="image/jpeg">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta name="twitter:image" content="{{ og_image_url }}">
+    <meta name="twitter:card" content="summary_large_image">
+  {% endif %}
+  <link href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" rel="stylesheet">
+  <style>
+    :root{ --brand:#E33D48; --line:#e5e7eb; --muted:#6b7280; }
+    *{ box-sizing:border-box; }
+    body{ margin:0; background:#f5f7fb; color:#111827; font-family:Arial,Helvetica,sans-serif; }
+    .page{ max-width:1000px; margin:28px auto; padding:0 16px; }
+    .sheet{ background:#fff; border:1px solid var(--line); border-radius:22px;
+            box-shadow:0 18px 42px rgba(15,23,42,.08); padding:26px 28px 34px; }
+    .brand-row{ display:flex; justify-content:flex-end; min-height:34px; }
+    .brand{ max-height:56px; max-width:190px; object-fit:contain; }
+    h1{ font-size:30px; margin:10px 0 22px; text-align:center; }
+    h2{ font-size:21px; margin:32px 0 4px; text-align:center; }
+    .sub{ text-align:center; color:var(--muted); font-size:14px; margin:0 0 18px; }
+
+    /* LA GALLETA: la misma cabecera de la actividad que se ve en la app. */
+    .galleta{ display:flex; gap:16px; align-items:center; flex-wrap:wrap;
+              border:1px solid var(--line); border-radius:18px; background:#fcfcfd; padding:16px 18px; }
+    .galleta__foto{ flex:0 0 auto; width:76px; height:76px; border-radius:50%; object-fit:cover;
+                    border:1px solid var(--line); background:#fff; }
+    .galleta__body{ flex:1 1 260px; min-width:0; }
+    .eyebrow{ font-size:11px; font-weight:700; letter-spacing:.4px; text-transform:uppercase; color:#8b95a1; }
+    .galleta__name{ font-size:22px; font-weight:800; margin:2px 0 8px; }
+    .facts{ display:flex; flex-wrap:wrap; gap:6px 18px; color:#4b5563; font-size:14px; }
+    .facts i{ color:#007CA2; width:16px; text-align:center; margin-right:6px; }
+
+    /* LOS FORMATOS: la proporción dibujada + la miniatura, y se pincha para descargar. */
+    .fmts{ display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:16px; margin-top:6px; }
+    .fmt{ border:1px solid var(--line); border-radius:16px; background:#fff; overflow:hidden;
+          display:flex; flex-direction:column; text-decoration:none; color:inherit;
+          transition:box-shadow .15s, transform .15s, border-color .15s; }
+    .fmt:hover{ box-shadow:0 10px 26px rgba(15,23,42,.12); transform:translateY(-2px); border-color:#d7dbe0; }
+    /* ⚠️ El hueco es SIEMPRE del mismo alto (si no, con un A3 al lado de un banner las tarjetas
+       salían de alturas dispares y la rejilla se veía descuadrada) y dentro se dibuja el cartel
+       CON LA PROPORCIÓN DE SU FORMATO: así se ve de un golpe si es un story, un cuadrado o un
+       banner, antes incluso de leer su nombre. */
+    .fmt__shot{ height:190px; flex:0 0 auto; background:
+        repeating-linear-gradient(45deg, #f6f7f9 0 8px, #fbfbfc 8px 16px);
+        display:flex; align-items:center; justify-content:center; padding:12px; }
+    .fmt__frame{ display:block; max-width:100%; border-radius:6px; overflow:hidden; background:#fff;
+                 box-shadow:0 2px 10px rgba(15,23,42,.14); }
+    .fmt__frame img{ width:100%; height:100%; object-fit:cover; display:block; }
+    .fmt__body{ padding:12px 14px 14px; display:flex; gap:10px; align-items:flex-start;
+                flex:1 1 auto; }
+    /* La INFOGRAFÍA del formato: la silueta con su misma proporción, para leerla de un vistazo. */
+    .fmt__ico{ flex:0 0 34px; height:34px; display:flex; align-items:center; justify-content:center; }
+    .fmt__ico span{ display:block; border:2px solid var(--brand); border-radius:3px; background:#fdeced; }
+    .fmt__t{ min-width:0; flex:1 1 auto; }
+    .fmt__name{ font-weight:700; font-size:14px; line-height:1.25; overflow-wrap:anywhere; }
+    .fmt__meta{ color:var(--muted); font-size:12px; margin-top:3px; }
+    .fmt__dl{ margin-top:8px; display:inline-flex; align-items:center; gap:6px; font-size:13px;
+              font-weight:700; color:var(--brand); }
+    .badge-main{ display:inline-block; font-size:10px; font-weight:800; letter-spacing:.04em;
+                 text-transform:uppercase; background:#111827; color:#fff; border-radius:999px;
+                 padding:2px 7px; margin-left:6px; vertical-align:2px; }
+    .allzip{ text-align:center; margin:0 0 20px; }
+    .btn{ display:inline-block; padding:12px 20px; border-radius:999px; background:var(--brand);
+          color:#fff; text-decoration:none; font-weight:700; font-size:15px; }
+    .btn--ghost{ background:#fff; color:#111827; border:1px solid var(--line); }
+    .empty{ text-align:center; color:var(--muted); padding:26px 0; }
+    .foot{ text-align:center; color:#9aa3ad; font-size:12px; margin-top:22px; }
+    @media (max-width:600px){
+      .sheet{ padding:18px 16px 26px; border-radius:18px; }
+      h1{ font-size:24px; }
+      .galleta__name{ font-size:19px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="sheet">
+      {# El logo de la empresa del grupo que corresponda, arriba a la derecha. #}
+      <div class="brand-row">
+        {% if logo_url %}<img class="brand" src="{{ logo_url }}" alt="{{ company_name }}">{% endif %}
+      </div>
+
+      <h1>Cartelería</h1>
+
+      <div class="galleta">
+        {% if subject_photo %}<img class="galleta__foto" src="{{ subject_photo }}" alt="">{% endif %}
+        <div class="galleta__body">
+          {% if eyebrow %}<div class="eyebrow">{{ eyebrow }}</div>{% endif %}
+          <div class="galleta__name">{{ subject_name }}</div>
+          <div class="facts">
+            {% for r in hero_rows %}
+              <span><i class="fa {{ r.icon }}"></i>{{ r.value }}</span>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <h2>Descargar Cartelería</h2>
+      <p class="sub">
+        {% if formats %}
+          {{ formats|length }} formato{{ 's' if formats|length != 1 }} disponible{{ 's' if formats|length != 1 }}.
+          Pincha el que necesites para descargarlo.
+        {% else %}
+          Todavía no hay carteles subidos.
+        {% endif %}
+      </p>
+
+      {% if formats %}
+        {% if formats|length > 1 %}
+          <div class="allzip">
+            <a class="btn btn--ghost" href="{{ zip_url }}">
+              <i class="fa fa-file-zipper" style="margin-right:6px;"></i>Descargar todos en un ZIP</a>
+          </div>
+        {% endif %}
+        <div class="fmts">
+          {% for f in formats %}
+            {# Toda la tarjeta es el enlace de descarga: se pincha donde sea. #}
+            <a class="fmt" href="{{ f.download_url }}" title="Descargar {{ f.format_label }}">
+              <span class="fmt__shot">
+                <span class="fmt__frame" style="width:{{ f.frame_w }}px;height:{{ f.frame_h }}px;">
+                  <img src="{{ f.file_url }}" alt="{{ f.format_label }}" loading="lazy">
+                </span>
+              </span>
+              <span class="fmt__body">
+                {# La silueta con la MISMA proporción del formato (la infografía). #}
+                <span class="fmt__ico">
+                  {% if f.aspect >= 1 %}
+                    <span style="width:30px;height:{{ (30 / f.aspect)|round(0, 'ceil')|int }}px;"></span>
+                  {% else %}
+                    <span style="height:30px;width:{{ (30 * f.aspect)|round(0, 'ceil')|int }}px;"></span>
+                  {% endif %}
+                </span>
+                <span class="fmt__t">
+                  <span class="fmt__name">{{ f.format_label }}{% if f.is_primary %}<span class="badge-main">Principal</span>{% endif %}</span>
+                  <span class="fmt__meta">
+                    {% set trozos = [] %}
+                    {% if f.ratio_label %}{% set _ = trozos.append(f.ratio_label) %}{% endif %}
+                    {% if f.size_label %}{% set _ = trozos.append(f.size_label) %}{% endif %}
+                    {% if f.ext %}{% set _ = trozos.append(f.ext) %}{% endif %}
+                    {{ trozos|join(' · ') }}
+                  </span>
+                  <span class="fmt__dl"><i class="fa fa-download"></i>Descargar</span>
+                </span>
+              </span>
+            </a>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty"><i class="fa fa-image" style="font-size:26px;opacity:.4;"></i>
+          <div style="margin-top:8px;">En cuanto estén subidos aparecerán aquí.</div></div>
+      {% endif %}
+
+      <div class="foot">{{ company_name }}</div>
+    </div>
+  </div>
+</body>
+</html>

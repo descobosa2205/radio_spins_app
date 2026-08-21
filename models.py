@@ -5556,6 +5556,106 @@ def ensure_notifications_schema():
 
 
 # ---------------------------------------------------------------------------
+# SMS (avisos por mensaje de texto)
+# ---------------------------------------------------------------------------
+# Una sola cuenta para toda la casa (a diferencia de Holded o Pleo, que van por empresa del grupo):
+# el SMS lo manda la pasarela con un remitente de texto y lo que identifica quién escribe es ese
+# remitente, no la cuenta. Se configura en Integraciones → SMS; sin credenciales no se manda nada.
+# ---------------------------------------------------------------------------
+class SmsAccount(Base):
+    """La cuenta de la pasarela de SMS (una fila, id=1) y qué avisos salen por SMS."""
+
+    __tablename__ = "sms_account"
+
+    id = Column(Integer, primary_key=True, default=1)
+    provider = Column(Text, nullable=False, server_default=text("'LABSMOBILE'"))
+    api_user = Column(Text)              # correo de la cuenta / Account SID
+    api_token = Column(Text)             # token de API / contraseña / Auth Token
+    account_ref = Column(Text)           # referencia de cuenta (Esendex) o Messaging Service (Twilio)
+    sender = Column(Text)                # lo que ve el destinatario: «33PROD» o un +34…
+    is_active = Column(Boolean, nullable=False, server_default=text("false"))
+    # ⚠️ Los acentos parten el SMS en trozos de 70 caracteres (y cada trozo se cobra), así que por
+    # defecto se quitan. `max_segments` es el tope de trozos por mensaje (0 = sin tope).
+    avoid_accents = Column(Boolean, nullable=False, server_default=text("true"))
+    max_segments = Column(Integer, nullable=False, server_default=text("2"))
+    # Freno de gasto: como máximo estos SMS al día (0 = sin límite). Es la red de seguridad para que
+    # un fallo no se lleve el saldo por delante.
+    daily_cap = Column(Integer, nullable=False, server_default=text("200"))
+    # Qué tipos de aviso salen también por SMS (claves de SMS_NOTICE_KINDS). Nacen TODOS apagados.
+    notice_kinds = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # Resultado de la última comprobación (lo que se enseña como estado).
+    last_check_at = Column(DateTime(timezone=True))
+    last_check_ok = Column(Boolean)
+    last_check_info = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class SmsMessage(Base):
+    """Cada SMS que se manda, con su resultado: un envío que falla NO puede ser invisible."""
+
+    __tablename__ = "sms_messages"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    phone = Column(Text, nullable=False)                 # ya normalizado (+34…)
+    body = Column(Text, nullable=False)
+    segments = Column(Integer, nullable=False, server_default=text("1"))
+    status = Column(Text, nullable=False, server_default=text("'ENVIADO'"))   # ENVIADO | ERROR
+    provider = Column(Text)
+    provider_ref = Column(Text)                          # la referencia que devuelve la pasarela
+    error = Column(Text)
+    kind = Column(Text)                                  # el tipo de aviso (o PRUEBA)
+    user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    nick = Column(Text)                                  # a quién se le mandó, para leerlo de un golpe
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+def ensure_sms_schema():
+    """Cuenta de SMS y registro de envíos (idempotente, sin Alembic)."""
+    stmts = [
+        """
+        CREATE TABLE IF NOT EXISTS sms_account (
+            id integer PRIMARY KEY,
+            provider text NOT NULL DEFAULT 'LABSMOBILE',
+            api_user text,
+            api_token text,
+            account_ref text,
+            sender text,
+            is_active boolean NOT NULL DEFAULT false,
+            avoid_accents boolean NOT NULL DEFAULT true,
+            max_segments integer NOT NULL DEFAULT 2,
+            daily_cap integer NOT NULL DEFAULT 200,
+            notice_kinds jsonb NOT NULL DEFAULT '[]'::jsonb,
+            last_check_at timestamptz,
+            last_check_ok boolean,
+            last_check_info text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS sms_messages (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            phone text NOT NULL,
+            body text NOT NULL,
+            segments integer NOT NULL DEFAULT 1,
+            status text NOT NULL DEFAULT 'ENVIADO',
+            provider text,
+            provider_ref text,
+            error text,
+            kind text,
+            user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            nick text,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_sms_messages_created ON sms_messages(created_at DESC);",
+        "CREATE INDEX IF NOT EXISTS idx_sms_messages_phone ON sms_messages(phone);",
+    ]
+    _exec_ddl_statements(stmts, "sms")
+
+
+# ---------------------------------------------------------------------------
 # Fotos / vídeos (galería transversal)
 # ---------------------------------------------------------------------------
 # Una foto/vídeo pertenece a un "owner" polimórfico (concierto o acción) y, de

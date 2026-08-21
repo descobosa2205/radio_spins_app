@@ -2222,6 +2222,43 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   facturas (además el tiempo por archivo baja de 25 s a 12 s) · «Subir todo a Holded» · «Enviar todas
   las liquidaciones» de royalties.
 
+- **AVISOS POR SMS** (ago 2026): la campanita y el correo llegan tarde si nadie mira; un SMS entra en
+  el móvil. Cliente en **`sms_utils.py`** (módulo aislado, sin BD ni Flask, como `holded_utils.py`),
+  con tres pasarelas: **LabsMobile** (España, la recomendada), **Esendex** y **Twilio**. Se configura
+  **desde la app** en Integraciones → **SMS** (`SmsAccount`, una sola cuenta para toda la casa: lo que
+  identifica quién escribe es el REMITENTE, no la cuenta). **Nada en el `.env`**.
+  · Punto único **`_send_optional_sms(session_db, to, text, ...)`** → `(ok, error)`, hermano de
+  `_send_optional_email`, así que cablear un aviso nuevo es una línea. Enganchado en **`_notify_user`**:
+  al lado de la campanita y del web push.
+  · ⚠️ **CADA SMS CUESTA DINERO**, así que **nace TODO apagado**: en la pestaña se elige qué tipos de
+  aviso salen también por SMS (`SMS_NOTICE_KINDS`, 12 tipos, guardados en `SmsAccount.notice_kinds`) y
+  hay un **tope diario** (`daily_cap`, 200 por defecto) como red de seguridad para que un fallo no se
+  lleve el saldo. El SMS de prueba se salta el tope (`force=True`).
+  · ⚠️ **LOS ACENTOS PARTEN EL MENSAJE**: 160 caracteres en GSM-7, pero **70** en cuanto aparece una
+  á/í/ó/ú (é, ñ y ü sí están), y **cada trozo se cobra**. `sms_utils.segments()` lo cuenta,
+  `strip_accents()` lo arregla sin cambiar lo que dice, y por defecto está puesto quitarlos
+  (`avoid_accents`). `max_segments` recorta para no gastar de más.
+  · **El patrón del texto es «frase corta + enlace»** a la página pública que ya tenemos de cada cosa
+  (`_notify_sms` compone título + cuerpo + el enlace del aviso con el host canónico). No hay adjuntos
+  ni formato: para eso está el correo.
+  · **Todo envío queda registrado** (`SmsMessage`: a quién, qué, trozos, estado y el motivo del error)
+  y se ve en la pestaña: un SMS que no sale **no puede ser invisible**. «Hoy: N» cuenta solo los que
+  salieron.
+  · **Teléfonos**: `sms_utils.normalize_phone` los deja en +34… (un móvil español de 9 dígitos que
+  empieza por 6 o 7 se completa solo). El del personal sale de `UserProfile.mobile_phones`
+  (`_user_sms_phone`); quien no tenga móvil puesto simplemente no recibe SMS. Esa normalización vale
+  igual para WhatsApp el día que se añada.
+  ⚠️ **iMessage (los mensajes azules) NO se puede mandar desde un servidor**: Apple no tiene API para
+  eso (lo que existe es para que el cliente escriba a la empresa). Todo sale como SMS.
+  ⚠️ **LabsMobile contesta los errores con un HTTP 200** y el motivo en el cuerpo
+  (`{"code":"401"}`) — el mismo caso que Holded: mirando solo el código HTTP, un SMS que no ha salido
+  parecería enviado. Comprobado contra su API real, igual que las rutas y el esquema de auth de las
+  tres pasarelas (con credenciales falsas todas contestan 401/403, no 404).
+  ⚠️ Un **remitente alfanumérico** («33PROD», hasta 11 caracteres) **no admite respuesta**: es lo
+  normal para avisos; si hace falta que contesten, la pasarela tiene que dar un número largo.
+  · Configurarla es de **dirección** (los endpoints `sms_*` van a la sección `integraciones` y
+  comprueban `is_master()`).
+
 - **AVISOS cuando te asignan algo** (`AppNotification` + `ensure_notifications_schema`, ago 2026):
   campanita en el navbar con lo no leído + **aviso emergente** abajo a la derecha que salta **una
   vez** por aviso (`shown_at`), y —si el servidor tiene claves VAPID— el MISMO aviso sale como

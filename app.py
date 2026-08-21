@@ -266,6 +266,9 @@ from models import (
     ensure_push_schema,
     ensure_notifications_schema,
     AppNotification,
+    SmsAccount,
+    SmsMessage,
+    ensure_sms_schema,
     Photo,
     PhotoAlbum,
     PhotoAlbumItem,
@@ -312,6 +315,7 @@ import sim_calc  # motor de cálculo puro de Simulaciones
 import seatmap_calc  # motor puro del mapa de butacas del recinto (conteos/plantillas)
 import invoice_read  # motor puro de LECTURA de facturas (nº, fechas e importes del PDF)
 import promoter_import  # motor puro de IMPORTACIÓN de terceros (columnas de un Excel/CSV)
+import sms_utils  # pasarela de SMS (avisos por mensaje de texto); sin credenciales no manda nada
 from mrz_utils import (
     extract_fields as mrz_extract_fields,
     parse_mrz as mrz_parse,
@@ -47279,6 +47283,7 @@ def _bootstrap_schema_bg():
         (ensure_artist_templates_schema, "ensure_artist_templates_schema"),
         (ensure_push_schema, "ensure_push_schema"),
         (ensure_notifications_schema, "ensure_notifications_schema"),
+        (ensure_sms_schema, "ensure_sms_schema"),
         (ensure_artist_notifications_schema, "ensure_artist_notifications_schema"),
         (ensure_app_settings_schema, "ensure_app_settings_schema"),
     ]:
@@ -52801,6 +52806,9 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         "cm_song_reresolve": "integraciones", "cm_album_reresolve": "integraciones",
         "cm_link_manual": "integraciones", "cm_link_clear": "integraciones",
         "api_cm_search": "integraciones",
+        # SMS: la pasarela de avisos al móvil (los endpoints exigen además dirección).
+        "sms_account_save": "integraciones", "sms_account_test": "integraciones",
+        "sms_kinds_save": "integraciones", "sms_send_test": "integraciones",
     }
     if endpoint in fixed:
         return fixed[endpoint]
@@ -53653,7 +53661,8 @@ def _resolve_request_resource_key() -> str | None:
         return "playlisting"
     if (endpoint == "integrations_view" or endpoint.startswith("pleo_")
             or endpoint.startswith("cabify_") or endpoint.startswith("cm_")
-            or endpoint.startswith("holded_account_") or endpoint == "api_cm_search"):
+            or endpoint.startswith("holded_account_") or endpoint == "api_cm_search"
+            or endpoint.startswith("sms_")):
         return "integraciones"
     # TODO lo que se HACE en contabilidad (subir a Holded, marcar contabilizado, omitir, corregir
     # importes) cuelga de «Pendiente de contabilizar», que es donde se trabaja. Quien tenga la sección
@@ -75316,6 +75325,189 @@ def _holded_configured_any(session_db) -> bool:
         return False
 
 
+# ---------------------------------------------------------------------------------------------
+# Integraciones · SMS (la pasarela de avisos por mensaje de texto)
+# ---------------------------------------------------------------------------------------------
+def _sms_admin_guard():
+    """Configurar integraciones es de DIRECCIÓN. Devuelve la respuesta si no toca, o None."""
+    if not is_master():
+        flash("Solo dirección puede configurar las integraciones.", "warning")
+        return redirect(url_for("integrations_view") + "#tab-sms")
+    return None
+
+
+@app.post("/integraciones/sms/guardar", endpoint="sms_account_save")
+@admin_required
+def sms_account_save():
+    """Guarda la cuenta de la pasarela de SMS (una sola para toda la casa)."""
+    fuera = _sms_admin_guard()
+    if fuera is not None:
+        return fuera
+    session_db = db()
+    try:
+        acc = _sms_account(session_db, create=True)
+        prov = (request.form.get("provider") or "").strip().upper()
+        acc.provider = prov if prov in sms_utils.PROVIDER_KEYS else "LABSMOBILE"
+        # ⚠️ La clave se limpia al guardarla: al copiarla se arrastran espacios, comillas o el propio
+        # «token:» delante, y la pasarela contesta «credencial no válida» (pasó con Holded).
+        usuario = sms_utils.clean_api_key(request.form.get("api_user"))
+        token = sms_utils.clean_api_key(request.form.get("api_token"))
+        if _truthy(request.form.get("clear_key")):
+            acc.api_user, acc.api_token, acc.is_active = None, None, False
+        else:
+            if usuario:
+                acc.api_user = usuario
+            if token and not token.startswith("•"):
+                acc.api_token = token
+        acc.account_ref = sms_utils.clean_api_key(request.form.get("account_ref")) or None
+        remitente = (request.form.get("sender") or "").strip()
+        if remitente:
+            vale, motivo = sms_utils.sender_is_valid(remitente)
+            if not vale:
+                flash(motivo, "warning")
+                return redirect(url_for("integrations_view") + "#tab-sms")
+            acc.sender = remitente
+        acc.avoid_accents = _truthy(request.form.get("avoid_accents"))
+        try:
+            acc.max_segments = max(0, min(6, int(request.form.get("max_segments") or 2)))
+        except (TypeError, ValueError):
+            acc.max_segments = 2
+        try:
+            acc.daily_cap = max(0, int(request.form.get("daily_cap") or 0))
+        except (TypeError, ValueError):
+            acc.daily_cap = 200
+        acc.is_active = (_truthy(request.form.get("is_active"))
+                         and bool((acc.api_user or "").strip()) and bool((acc.api_token or "").strip()))
+        # Si se cambia la credencial, lo comprobado antes ya no vale.
+        if token or usuario:
+            acc.last_check_at, acc.last_check_ok, acc.last_check_info = None, None, None
+        acc.updated_at = _now_madrid()
+        session_db.commit()
+        pista = ""
+        if (acc.api_token or "").strip():
+            pista = " Clave guardada: %d caracteres, termina en «%s»." % (
+                len(acc.api_token), acc.api_token[-4:])
+        flash("Cuenta de SMS guardada.%s" % pista, "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo guardar la cuenta de SMS: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("integrations_view") + "#tab-sms")
+
+
+@app.post("/integraciones/sms/avisos", endpoint="sms_kinds_save")
+@admin_required
+def sms_kinds_save():
+    """Qué tipos de aviso salen TAMBIÉN por SMS (todos nacen apagados: cada SMS cuesta dinero)."""
+    fuera = _sms_admin_guard()
+    if fuera is not None:
+        return fuera
+    session_db = db()
+    try:
+        acc = _sms_account(session_db, create=True)
+        elegidos = [k for k in request.form.getlist("notice_kinds") if k in SMS_NOTICE_LABELS]
+        acc.notice_kinds = elegidos
+        acc.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Guardado: %d tipo(s) de aviso saldrán también por SMS." % len(elegidos), "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("integrations_view") + "#tab-sms")
+
+
+@app.post("/integraciones/sms/probar", endpoint="sms_account_test")
+@admin_required
+def sms_account_test():
+    """Comprueba la credencial SIN mandar nada (y apunta el resultado, que es lo que se enseña)."""
+    fuera = _sms_admin_guard()
+    if fuera is not None:
+        return fuera
+    session_db = db()
+    try:
+        acc = _sms_account(session_db, create=True)
+        if not (acc.api_user or "").strip() or not (acc.api_token or "").strip():
+            flash("Primero pega la credencial de la pasarela y guarda.", "warning")
+            return redirect(url_for("integrations_view") + "#tab-sms")
+        try:
+            cliente = sms_utils.SmsClient(acc.provider, acc.api_user, acc.api_token,
+                                          sender=(acc.sender or ""), account_ref=(acc.account_ref or ""))
+            info = cliente.check()
+            acc.last_check_ok, acc.last_check_info = True, info
+            flash("%s %s" % (sms_utils.PROVIDER_LABELS.get(acc.provider, "La pasarela"), info), "success")
+        except sms_utils.SmsError as exc:
+            acc.last_check_ok, acc.last_check_info = False, str(exc)
+            flash(str(exc), "danger")
+        acc.last_check_at = _now_madrid()
+        acc.updated_at = _now_madrid()
+        session_db.commit()
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo comprobar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("integrations_view") + "#tab-sms")
+
+
+@app.post("/integraciones/sms/enviar-prueba", endpoint="sms_send_test")
+@admin_required
+def sms_send_test():
+    """Manda un SMS de prueba al móvil que se escriba (⚠️ este sí cuesta lo que cueste un SMS)."""
+    fuera = _sms_admin_guard()
+    if fuera is not None:
+        return fuera
+    session_db = db()
+    try:
+        destino = (request.form.get("phone") or "").strip()
+        texto = (request.form.get("text") or "").strip() or (
+            "Prueba de 33 Producciones. Si lees esto, los avisos por SMS funcionan.")
+        ok, err = _send_optional_sms(session_db, destino, texto, kind="PRUEBA", force=True)
+        session_db.commit()
+        if ok:
+            flash("SMS de prueba enviado a %s." % (sms_utils.normalize_phone(destino) or destino), "success")
+        else:
+            flash("No se pudo enviar: %s" % err, "danger")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo enviar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("integrations_view") + "#tab-sms")
+
+
+def _sms_panel_context(session_db) -> dict:
+    """Lo que necesita la pestaña de SMS: la cuenta, su estado, los avisos y los últimos envíos."""
+    acc = _sms_account(session_db)
+    enviados_hoy = _sms_sent_today(session_db)
+    filas = []
+    try:
+        for m in (session_db.query(SmsMessage)
+                  .order_by(SmsMessage.created_at.desc()).limit(30).all()):
+            filas.append({
+                "when": (m.created_at.astimezone(TZ_MADRID).strftime("%d/%m/%Y %H:%M")
+                         if m.created_at else ""),
+                "phone": m.phone, "body": (m.body or ""), "segments": int(m.segments or 1),
+                "status": (m.status or ""), "error": (m.error or ""),
+                "kind": SMS_NOTICE_LABELS.get((m.kind or "").upper(), (m.kind or "")),
+                "nick": (m.nick or ""),
+            })
+    except Exception:
+        app.logger.exception("[sms] no se pudo leer el registro de envíos")
+    return {
+        "sms_account": acc,
+        "sms_status": _sms_status(session_db),
+        "sms_configured": _sms_configured(session_db),
+        "sms_providers": sms_utils.PROVIDERS,
+        "sms_notice_kinds": SMS_NOTICE_KINDS,
+        "sms_selected_kinds": [str(x).strip().upper() for x in (getattr(acc, "notice_kinds", None) or [])],
+        "sms_sent_today": enviados_hoy,
+        "sms_rows": filas,
+    }
+
+
 @app.post("/integraciones/holded/<company_id>/guardar", endpoint="holded_account_save")
 @admin_required
 def holded_account_save(company_id):
@@ -81677,6 +81869,228 @@ NOTIFICATION_KIND_META = {
 }
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# AVISOS POR SMS
+#
+# El SMS es el hermano pequeño del correo: llega al móvil aunque no abran el email, pero son 160
+# caracteres (70 si lleva acentos), no admite adjuntos y CADA MENSAJE CUESTA DINERO. Por eso:
+#   · el patrón es **frase corta + enlace** a la página pública que ya tenemos de cada cosa;
+#   · **nace todo apagado**: se elige en Integraciones → SMS qué tipos de aviso salen también por SMS;
+#   · hay un **tope diario** de mensajes, para que un fallo no se lleve el saldo por delante;
+#   · y **todo envío queda registrado** (`SmsMessage`), porque un SMS que no sale no puede ser
+#     invisible (el mismo criterio que con los correos y las facturas rechazadas).
+#
+# El punto ÚNICO de envío es `_send_optional_sms(...)`, que devuelve `(ok, error)` igual que
+# `_send_optional_email`, así que cablear un aviso nuevo es una línea.
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Qué avisos se pueden mandar por SMS (los tipos de `NOTIFICATION_KIND_META` que tienen sentido en un
+# móvil: cosas que corren prisa). Cada uno se enciende a mano en Integraciones → SMS.
+SMS_NOTICE_KINDS = [
+    ("VENTA", "Salidas a la venta (Ticketing)"),
+    ("PRODUCCION", "Producción asignada"),
+    ("DISENO", "Solicitudes de diseño"),
+    ("REMESA", "Remesas pendientes de aprobar"),
+    ("ADMIN_BOLSA", "Bolsas para liquidar"),
+    ("ADMIN_PETICION", "Peticiones para administración"),
+    ("VACACIONES", "Vacaciones y días libres"),
+    ("CONTABILIDAD", "Cosas nuevas que contabilizar"),
+    ("REGISTROS", "Lanzamientos por cumplimentar"),
+    ("DEMO", "Nos han enviado demos"),
+    ("PITCH", "Falta el pitch de un lanzamiento"),
+    ("TAREA", "Tareas pendientes en general"),
+]
+SMS_NOTICE_LABELS = dict(SMS_NOTICE_KINDS)
+
+
+def _sms_account(session_db, *, create: bool = False):
+    """La cuenta de SMS (una sola para toda la casa). Con `create` la deja creada si no existe."""
+    try:
+        acc = session_db.get(SmsAccount, 1)
+    except Exception:
+        app.logger.exception("[sms] no se pudo leer la cuenta")
+        return None
+    if acc is None and create:
+        acc = SmsAccount(id=1, provider="LABSMOBILE")
+        session_db.add(acc)
+        session_db.flush()
+    return acc
+
+
+def _sms_client(session_db=None):
+    """El cliente de la pasarela, o None si no está configurada (entonces no se manda nada)."""
+    propia = session_db is None
+    session_db = session_db or db()
+    try:
+        acc = _sms_account(session_db)
+        if acc is None or not bool(getattr(acc, "is_active", False)):
+            return None
+        usuario = (acc.api_user or "").strip()
+        clave = (acc.api_token or "").strip()
+        if not usuario or not clave:
+            return None
+        try:
+            return sms_utils.SmsClient(acc.provider, usuario, clave,
+                                       sender=(acc.sender or ""), account_ref=(acc.account_ref or ""))
+        except sms_utils.SmsError:
+            app.logger.exception("[sms] la cuenta está mal configurada")
+            return None
+    finally:
+        if propia:
+            session_db.close()
+
+
+def _sms_configured(session_db=None) -> bool:
+    return _sms_client(session_db) is not None
+
+
+def _sms_status(session_db=None) -> dict:
+    """El estado que se enseña en Integraciones: desactivada · sin comprobar · conectada · con error."""
+    propia = session_db is None
+    session_db = session_db or db()
+    try:
+        acc = _sms_account(session_db)
+        if acc is None or not (acc.api_user or "").strip() or not (acc.api_token or "").strip():
+            return {"key": "off", "label": "Sin configurar", "css": "secondary", "detail": ""}
+        if not bool(acc.is_active):
+            return {"key": "paused", "label": "Desactivada", "css": "secondary",
+                    "detail": "Está configurada pero apagada: no se manda ningún SMS."}
+        if acc.last_check_ok is None:
+            return {"key": "unknown", "label": "Sin comprobar", "css": "warning",
+                    "detail": "Pulsa «Probar conexión» para saber si la clave vale."}
+        if acc.last_check_ok:
+            return {"key": "ok", "label": "Conectada", "css": "success",
+                    "detail": (acc.last_check_info or "")}
+        return {"key": "error", "label": "Con error", "css": "danger",
+                "detail": (acc.last_check_info or "")}
+    finally:
+        if propia:
+            session_db.close()
+
+
+def _sms_sent_today(session_db) -> int:
+    """Cuántos SMS se han mandado hoy (para el tope diario)."""
+    try:
+        desde = datetime(today_local().year, today_local().month, today_local().day, tzinfo=TZ_MADRID)
+        return int(session_db.query(func.count(SmsMessage.id))
+                   .filter(SmsMessage.created_at >= desde)
+                   .filter(func.upper(SmsMessage.status) == "ENVIADO").scalar() or 0)
+    except Exception:
+        app.logger.exception("[sms] no se pudo contar lo enviado hoy")
+        return 0
+
+
+def _sms_log(session_db, *, phone, body, status, provider="", provider_ref="", error="",
+             kind="", user_id=None, nick="") -> None:
+    """Deja constancia del envío (salga o no). En su propio SAVEPOINT: el registro no puede tumbar
+    lo que estaba haciendo quien manda el aviso."""
+    try:
+        with session_db.begin_nested():
+            session_db.add(SmsMessage(
+                phone=(phone or "")[:32], body=(body or "")[:1000],
+                segments=sms_utils.segments(body or ""),
+                status=(status or "ENVIADO"), provider=(provider or None),
+                provider_ref=(provider_ref or None), error=((error or "")[:500] or None),
+                kind=((kind or "")[:40] or None), user_id=_safe_uuid(user_id),
+                nick=((nick or "")[:80] or None)))
+    except Exception:
+        app.logger.exception("[sms] no se pudo registrar el envío")
+
+
+def _send_optional_sms(session_db, to, text, *, kind="", user_id=None, nick="",
+                       force: bool = False) -> tuple[bool, str]:
+    """Manda un SMS si la pasarela está configurada. Devuelve `(ok, error)`.
+
+    Es el punto ÚNICO de salida de SMS (el hermano de `_send_optional_email`): recorta el texto a los
+    trozos permitidos, quita los acentos si así está configurado, respeta el tope diario y lo apunta
+    todo en el registro. `force` se salta el tope (lo usa el SMS de prueba)."""
+    acc = _sms_account(session_db)
+    cliente = _sms_client(session_db)
+    if cliente is None:
+        return False, "La pasarela de SMS no está configurada."
+    numero = sms_utils.normalize_phone(to)
+    if not numero:
+        aviso = "El teléfono no es válido (hace falta el prefijo, +34…): %s" % (to or "—")
+        _sms_log(session_db, phone=str(to or ""), body=(text or ""), status="ERROR",
+                 provider=acc.provider, error=aviso, kind=kind, user_id=user_id, nick=nick)
+        return False, aviso
+    cuerpo = sms_utils.clean_text(text or "", avoid_accents=bool(getattr(acc, "avoid_accents", True)),
+                                  max_segments=int(getattr(acc, "max_segments", 0) or 0))
+    if not cuerpo:
+        return False, "No hay nada que mandar."
+    tope = int(getattr(acc, "daily_cap", 0) or 0)
+    if not force and tope > 0 and _sms_sent_today(session_db) >= tope:
+        aviso = ("Se ha llegado al tope de %d SMS al día (Integraciones → SMS). "
+                 "No se ha mandado para no seguir gastando." % tope)
+        _sms_log(session_db, phone=numero, body=cuerpo, status="ERROR", provider=acc.provider,
+                 error=aviso, kind=kind, user_id=user_id, nick=nick)
+        return False, aviso
+    try:
+        ref = cliente.send(numero, cuerpo)
+    except sms_utils.SmsError as exc:
+        _sms_log(session_db, phone=numero, body=cuerpo, status="ERROR", provider=acc.provider,
+                 error=str(exc), kind=kind, user_id=user_id, nick=nick)
+        return False, str(exc)
+    except Exception as exc:                       # nada de la pasarela puede tumbar el flujo
+        app.logger.exception("[sms] fallo inesperado al mandar")
+        _sms_log(session_db, phone=numero, body=cuerpo, status="ERROR", provider=acc.provider,
+                 error=str(exc), kind=kind, user_id=user_id, nick=nick)
+        return False, str(exc)
+    _sms_log(session_db, phone=numero, body=cuerpo, status="ENVIADO", provider=acc.provider,
+             provider_ref=ref, kind=kind, user_id=user_id, nick=nick)
+    return True, ""
+
+
+def _user_sms_phone(session_db, user_id) -> str:
+    """El móvil de una persona de la casa (el primero de su ficha que sea un número creíble)."""
+    uid = _safe_uuid(user_id)
+    if not uid:
+        return ""
+    try:
+        prof = session_db.query(UserProfile).filter(UserProfile.user_id == uid).first()
+    except Exception:
+        return ""
+    for valor in (getattr(prof, "mobile_phones", None) or []):
+        numero = sms_utils.normalize_phone(valor if isinstance(valor, str) else
+                                           (valor or {}).get("phone") if isinstance(valor, dict) else valor)
+        if numero:
+            return numero
+    return ""
+
+
+def _sms_notice_enabled(session_db, kind: str) -> bool:
+    """¿Este tipo de aviso sale también por SMS? (se elige en Integraciones → SMS; todos nacen
+    apagados, porque cada SMS cuesta dinero)."""
+    acc = _sms_account(session_db)
+    if acc is None or not bool(getattr(acc, "is_active", False)):
+        return False
+    claves = {str(x).strip().upper() for x in (getattr(acc, "notice_kinds", None) or [])}
+    return (kind or "").strip().upper() in claves
+
+
+def _notify_sms(session_db, user_id, kind, title, body="", url=None) -> None:
+    """El SMS de un aviso de la campanita, si ese tipo está encendido y la persona tiene móvil.
+
+    Best-effort y en el mismo formato de siempre: **frase corta + enlace**."""
+    try:
+        if not _sms_notice_enabled(session_db, kind):
+            return
+        numero = _user_sms_phone(session_db, user_id)
+        if not numero:
+            return
+        prof = session_db.query(UserProfile).filter(UserProfile.user_id == _safe_uuid(user_id)).first()
+        enlace = ""
+        if url:
+            enlace = url if str(url).startswith("http") else (_public_base_url().rstrip("/") + str(url))
+        texto = " ".join([x for x in [(title or "").strip(), (body or "").strip()] if x])
+        if enlace:
+            texto = (texto + " " + enlace).strip()
+        _send_optional_sms(session_db, numero, texto, kind=kind, user_id=user_id,
+                           nick=(getattr(prof, "nick", None) or ""))
+    except Exception:
+        app.logger.exception("[sms] no se pudo mandar el aviso por SMS")
+
+
 def _notify_user(session_db, user_id, kind, title, body="", url=None, *,
                  ref_type=None, ref_id=None, actor_user_id=None, commit=False) -> bool:
     """Avisa a UNA persona. Devuelve False si no hay a quién avisar (o es uno mismo).
@@ -81706,6 +82120,9 @@ def _notify_user(session_db, user_id, kind, title, body="", url=None, *,
         _send_web_push(str(uid), title, body or "", url=url)
     except Exception:
         pass
+    # Y por SMS, SOLO si ese tipo de aviso está encendido en Integraciones → SMS (todos nacen
+    # apagados: cada SMS cuesta dinero). Sin pasarela configurada no hace nada.
+    _notify_sms(session_db, uid, kind, title, body, url)
     return True
 
 
@@ -96625,6 +97042,16 @@ def integrations_view():
         holded_rows, holded_any = [], False
     finally:
         s3.close()
+    # SMS: una sola cuenta para toda la casa (su pestaña trae la guía, el estado y el registro).
+    sms_ctx = {}
+    s4 = db()
+    try:
+        sms_ctx = _sms_panel_context(s4)
+    except Exception:
+        app.logger.exception("[sms] no se pudo montar el panel")
+        sms_ctx = {}
+    finally:
+        s4.close()
     return render_template(
         "integraciones.html",
         title="Integraciones",
@@ -96659,6 +97086,7 @@ def integrations_view():
         cm_platform_labels=[("spotify", "Spotify"), ("apple_music", "Apple Music"), ("amazon_music", "Amazon Music"), ("tiktok", "TikTok"), ("youtube", "YouTube")],
         cm_last_refresh=cm_last_refresh,
         cm_credit_warning=cm_credit_warning,
+        **sms_ctx,
     )
 
 

@@ -12,6 +12,7 @@
   {'key': 'holded', 'name': 'Holded', 'subtitle': 'Contabilidad', 'icon': 'fa-calculator', 'configured': holded_configured},
   {'key': 'chartmetric', 'name': 'Chartmetric', 'subtitle': 'Métricas', 'icon': 'fa-chart-line', 'configured': chartmetric_configured},
   {'key': 'enterticket', 'name': 'Enterticket', 'subtitle': 'Ticketing', 'icon': 'fa-ticket', 'configured': enterticket_configured},
+  {'key': 'sms', 'name': 'SMS', 'subtitle': 'Avisos al móvil', 'icon': 'fa-comment-sms', 'configured': sms_configured},
 ] %}
 
 <ul class="nav nav-tabs mb-3" id="integrationsTabs" role="tablist">
@@ -1063,6 +1064,251 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>
 
 <div class="mt-4">
+  {# ============================ SMS ============================
+     Avisos por mensaje de texto. Una sola cuenta para toda la casa: lo que identifica quién escribe
+     es el REMITENTE, no la cuenta. Todo el panel vive en `#smsZone` para que cada acción refresque
+     solo este trozo (data-inline) y no se pierda la pestaña ni el scroll. #}
+  <div class="tab-pane fade" id="tab-sms" role="tabpanel" aria-labelledby="tab-sms-tab">
+    <div id="smsZone" data-inline-zone>
+      <div class="card mb-3">
+        <div class="card-body">
+          <div class="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
+            <h2 class="h5 mb-0">SMS <span class="text-muted small fw-normal">· avisos al móvil</span></h2>
+            <span class="badge text-bg-{{ sms_status.css }}">{{ sms_status.label }}</span>
+          </div>
+          {% if sms_status.detail %}<div class="small text-muted mb-2">{{ sms_status.detail }}</div>{% endif %}
+          <p class="text-muted small mb-3">
+            Un SMS llega al móvil aunque no abran el correo, pero son <strong>160 caracteres</strong>
+            (70 si lleva acentos), no admite adjuntos y <strong>cada mensaje cuesta dinero</strong>.
+            Por eso los avisos van como <em>frase corta + enlace</em> a la página de siempre, y aquí
+            se elige cuáles salen por SMS: <strong>nacen todos apagados</strong>.
+          </p>
+
+          {# ---------- LA GUÍA: lo único que hay que hacer fuera de la app ---------- #}
+          <div class="alert alert-light border">
+            <div class="fw-semibold mb-2"><i class="fa fa-list-ol me-1 text-danger"></i>Qué tienes que hacer tú (5 minutos)</div>
+            <ol class="mb-2 small">
+              <li><strong>Abre cuenta en una pasarela.</strong> Recomendación para España:
+                <a href="https://www.labsmobile.com/es/" target="_blank" rel="noopener">LabsMobile</a>
+                (barata, sin cuota) o <a href="https://www.esendex.es/" target="_blank" rel="noopener">Esendex</a>.
+                Se paga por SMS (unos 4–7 céntimos) y suelen dar unos gratis de prueba.</li>
+              <li><strong>Copia su clave de API.</strong> En LabsMobile: <em>Configuración → API → Token</em>
+                (⚠️ el token, no la contraseña del panel). El «usuario» es el correo de la cuenta.</li>
+              <li><strong>Pégala aquí abajo</strong>, escribe el remitente que quieres que se vea
+                (por ejemplo <code>33PROD</code>) y guarda.</li>
+              <li><strong>Pulsa «Probar conexión»</strong>: dice si la clave vale, sin gastar nada.</li>
+              <li><strong>Manda un SMS de prueba</strong> a tu móvil (ese sí cuesta uno) y, si llega,
+                enciende los avisos que quieras en la lista de abajo.</li>
+            </ol>
+            <div class="small text-muted">
+              <i class="fa fa-circle-info me-1"></i>Con un remitente de texto («33PROD») el que lo
+              recibe <strong>no puede contestar</strong>: es lo normal para avisos. Si algún día hace
+              falta que respondan, la pasarela tiene que darte un número largo.
+            </div>
+          </div>
+
+          {# ---------- La cuenta ---------- #}
+          <form method="post" action="{{ url_for('sms_account_save') }}" class="row g-3"
+                data-inline data-inline-target="#smsZone">
+            <div class="col-12 col-md-4">
+              <label class="form-label">Pasarela</label>
+              <select name="provider" class="form-select" id="smsProvider">
+                {% for key, name, u_lab, t_lab, needs_ref, help in sms_providers %}
+                  <option value="{{ key }}" data-user="{{ u_lab }}" data-token="{{ t_lab }}"
+                          data-ref="{{ '1' if needs_ref else '0' }}" data-help="{{ help }}"
+                          {% if (sms_account.provider if sms_account else 'LABSMOBILE') == key %}selected{% endif %}>{{ name }}</option>
+                {% endfor %}
+              </select>
+              <div class="form-text" id="smsProviderHelp"></div>
+            </div>
+            <div class="col-12 col-md-4">
+              <label class="form-label" id="smsUserLabel">Usuario</label>
+              <input class="form-control" name="api_user" value="{{ sms_account.api_user or '' if sms_account else '' }}"
+                     autocomplete="off" placeholder="correo@empresa.com">
+            </div>
+            <div class="col-12 col-md-4">
+              <label class="form-label" id="smsTokenLabel">Clave</label>
+              <input class="form-control" name="api_token" autocomplete="off"
+                     placeholder="{% if sms_account and sms_account.api_token %}•••••• (guardada, déjalo vacío para no cambiarla){% else %}Pega aquí el token{% endif %}">
+            </div>
+            <div class="col-12 col-md-4" id="smsRefBox">
+              <label class="form-label">Referencia de cuenta</label>
+              <input class="form-control" name="account_ref" value="{{ sms_account.account_ref or '' if sms_account else '' }}"
+                     placeholder="EX0123456 / MG…">
+              <div class="form-text">Solo Esendex (obligatoria) y Twilio con Messaging Service.</div>
+            </div>
+            <div class="col-12 col-md-4">
+              <label class="form-label">Remitente (lo que se ve)</label>
+              <input class="form-control" name="sender" maxlength="11"
+                     value="{{ sms_account.sender or '' if sms_account else '' }}" placeholder="33PROD">
+              <div class="form-text">Hasta 11 caracteres, o un número propio (+34…).</div>
+            </div>
+            <div class="col-6 col-md-2">
+              <label class="form-label">Máximo de trozos</label>
+              <input type="number" class="form-control" name="max_segments" min="0" max="6"
+                     value="{{ sms_account.max_segments if sms_account else 2 }}">
+              <div class="form-text">Cada trozo se cobra.</div>
+            </div>
+            <div class="col-6 col-md-2">
+              <label class="form-label">Tope al día</label>
+              <input type="number" class="form-control" name="daily_cap" min="0"
+                     value="{{ sms_account.daily_cap if sms_account else 200 }}">
+              <div class="form-text">0 = sin tope.</div>
+            </div>
+            <div class="col-12 d-flex flex-wrap gap-3 align-items-center">
+              <label class="border rounded p-2 bg-light-subtle d-flex align-items-center gap-2 mb-0">
+                <input class="form-check-input m-0" type="checkbox" name="is_active" value="1"
+                       {% if sms_account and sms_account.is_active %}checked{% endif %}>
+                <span><i class="fa fa-power-off text-danger me-1"></i>Activar los avisos por SMS</span>
+              </label>
+              <label class="border rounded p-2 bg-light-subtle d-flex align-items-center gap-2 mb-0">
+                <input class="form-check-input m-0" type="checkbox" name="avoid_accents" value="1"
+                       {% if (sms_account.avoid_accents if sms_account else True) %}checked{% endif %}>
+                <span><i class="fa fa-font text-danger me-1"></i>Quitar acentos (para que quepan 160)</span>
+              </label>
+              <div class="ms-auto d-flex gap-2">
+                <button class="btn btn-primary"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+              </div>
+            </div>
+          </form>
+
+          <div class="d-flex flex-wrap gap-2 mt-3">
+            <form method="post" action="{{ url_for('sms_account_test') }}" data-inline data-inline-target="#smsZone">
+              <button class="btn btn-outline-secondary btn-sm"><i class="fa fa-plug-circle-check me-1"></i>Probar conexión</button>
+            </form>
+            {% if sms_account and sms_account.api_token %}
+              <form method="post" action="{{ url_for('sms_account_save') }}" data-inline data-inline-target="#smsZone"
+                    data-confirm="¿Borrar la credencial guardada? Se dejarán de mandar SMS.">
+                <input type="hidden" name="clear_key" value="1">
+                <button class="btn btn-outline-danger btn-sm"><i class="fa fa-trash me-1"></i>Borrar la credencial</button>
+              </form>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      {# ---------- El SMS de prueba ---------- #}
+      <div class="card mb-3">
+        <div class="card-body">
+          <h3 class="h6">Mandar un SMS de prueba</h3>
+          <p class="text-muted small mb-3">⚠️ Este sí se envía de verdad y cuesta lo que cueste un SMS.</p>
+          <form method="post" action="{{ url_for('sms_send_test') }}" class="row g-2 align-items-end"
+                data-inline data-inline-target="#smsZone">
+            <div class="col-12 col-md-4">
+              <label class="form-label">Móvil</label>
+              <input class="form-control" name="phone" placeholder="600 111 222" required>
+              <div class="form-text">Si no pones prefijo, se entiende que es de España.</div>
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label">Texto</label>
+              <input class="form-control" name="text" placeholder="Prueba de 33 Producciones.">
+            </div>
+            <div class="col-12 col-md-2 d-grid">
+              <button class="btn btn-outline-primary"><i class="fa fa-paper-plane me-1"></i>Enviar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      {# ---------- Qué avisos salen por SMS ---------- #}
+      <div class="card mb-3">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
+            <h3 class="h6 mb-0">Qué avisos salen también por SMS</h3>
+            <span class="badge text-bg-light border">{{ sms_selected_kinds|length }} encendido(s)</span>
+          </div>
+          <p class="text-muted small mb-3">
+            El aviso sigue saliendo siempre en la campanita; esto solo añade el SMS, y solo a quien
+            tenga un móvil puesto en su ficha. Empieza por lo que corre prisa.
+          </p>
+          <form method="post" action="{{ url_for('sms_kinds_save') }}" data-inline data-inline-target="#smsZone">
+            <div class="row g-2">
+              {% for key, label in sms_notice_kinds %}
+                <div class="col-12 col-md-6 col-xl-4">
+                  <label class="border rounded p-2 w-100 bg-light-subtle d-flex align-items-center gap-2 mb-0">
+                    <input class="form-check-input m-0" type="checkbox" name="notice_kinds" value="{{ key }}"
+                           {% if key in sms_selected_kinds %}checked{% endif %}>
+                    <span>{{ label }}</span>
+                  </label>
+                </div>
+              {% endfor %}
+            </div>
+            <div class="d-flex justify-content-end mt-3">
+              <button class="btn btn-primary btn-sm"><i class="fa fa-floppy-disk me-1"></i>Guardar los avisos</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      {# ---------- El registro: un SMS que no sale no puede ser invisible ---------- #}
+      <div class="card">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+            <h3 class="h6 mb-0">Últimos envíos</h3>
+            <span class="badge text-bg-light border">Hoy: {{ sms_sent_today }}</span>
+          </div>
+          {% if sms_rows %}
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                  <tr><th>Cuándo</th><th>A</th><th>Aviso</th><th>Texto</th><th class="text-center">Trozos</th><th>Estado</th></tr>
+                </thead>
+                <tbody>
+                  {% for r in sms_rows %}
+                    <tr>
+                      <td class="text-nowrap small">{{ r.when }}</td>
+                      <td class="small">{{ r.phone }}{% if r.nick %}<div class="text-muted">{{ r.nick }}</div>{% endif %}</td>
+                      <td class="small">{{ r.kind }}</td>
+                      <td class="small">{{ r.body }}</td>
+                      <td class="text-center small">{{ r.segments }}</td>
+                      <td class="small">
+                        {% if r.status|upper == 'ENVIADO' %}
+                          <span class="badge text-bg-success">Enviado</span>
+                        {% else %}
+                          <span class="badge text-bg-danger" title="{{ r.error }}">Error</span>
+                          <div class="text-danger" style="max-width:260px;">{{ r.error }}</div>
+                        {% endif %}
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <div class="text-muted small">Todavía no se ha mandado ningún SMS.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <script>
+    /* La pasarela elegida decide cómo se llaman sus credenciales y si hace falta la referencia de
+       cuenta. Se cablea por delegación: el panel se reemplaza por AJAX y los nodos son nuevos. */
+    (function () {
+      function pinta() {
+        var sel = document.getElementById('smsProvider');
+        if (!sel) return;
+        var op = sel.options[sel.selectedIndex];
+        if (!op) return;
+        var lu = document.getElementById('smsUserLabel');
+        var lt = document.getElementById('smsTokenLabel');
+        var lh = document.getElementById('smsProviderHelp');
+        var caja = document.getElementById('smsRefBox');
+        if (lu) lu.textContent = op.getAttribute('data-user') || 'Usuario';
+        if (lt) lt.textContent = op.getAttribute('data-token') || 'Clave';
+        if (lh) lh.textContent = op.getAttribute('data-help') || '';
+        if (caja) caja.classList.toggle('d-none', op.getAttribute('data-ref') !== '1'
+                                        && (op.value !== 'TWILIO'));
+      }
+      document.addEventListener('change', function (ev) {
+        if (ev.target && ev.target.id === 'smsProvider') pinta();
+      });
+      document.addEventListener('inline:updated', pinta);
+      pinta();
+    })();
+    </script>
+  </div>
+
 <div class="alert alert-light border small mb-0">
   <i class="fa fa-shield-halved me-1"></i>
   Las credenciales de Chartmetric y Enterticket se configuran como variables de entorno en Render (nunca en el

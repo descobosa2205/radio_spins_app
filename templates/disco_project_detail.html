@@ -387,8 +387,9 @@
       <a class="btn btn-outline-primary btn-sm" href="{{ url_for('bag_detail_view', bag_id=bag.id) }}">
         <i class="fa fa-up-right-from-square me-1"></i>Abrir la bolsa</a>
     </div>
-    {# El MISMO panel que /bolsas/<id> (como la bolsa embebida en Producción de una actividad). #}
-    {% include '_bag_panel.html' %}
+    {# El MISMO panel que /bolsas/<id> (como la bolsa embebida en Producción de una actividad).
+       Sin la cabecera de la bolsa: de quién es, qué es y cuándo ya lo dice la cabecera del proyecto. #}
+    {% with bag_hide_hero = True %}{% include '_bag_panel.html' %}{% endwith %}
   {% else %}
     <div class="alert alert-light border">
       <i class="fa fa-circle-info me-1"></i>Este proyecto todavía no tiene bolsa de gastos.

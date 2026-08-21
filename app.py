@@ -52024,6 +52024,7 @@ BAG_TYPES = [
     ("SINGLE", "Single"),
     ("DISCO", "Disco / EP"),
     ("PROMOCION", "Promoción"),
+    ("PROYECTO", "Proyecto discográfico"),
     ("EVENTO_PROMOCIONAL", "Evento promocional"),
     ("PRORRATEO", "Bolsa de prorrateo"),
 ]
@@ -52058,12 +52059,29 @@ BAG_EXPENSE_CATEGORIES = [
     ("OTROS", "Otros gastos"),
     ("PRORRATEOS", "Prorrateos"),
 ]
-BAG_EXPENSE_CATEGORY_LABELS = dict(BAG_EXPENSE_CATEGORIES)
+# ⚠️ La bolsa de un PROYECTO DISCOGRÁFICO funciona EXACTAMENTE igual que las demás (mismo panel,
+# mismos gastos, misma liquidación: lo que se mejore en las bolsas vale también para estas), pero sus
+# CATEGORÍAS son otras — producir un disco no se parece a producir un concierto: no hay recinto, ni
+# rider, ni músicos de directo. Las de un concierto NO se ofrecen en este tipo de bolsa.
+DISCO_BAG_EXPENSE_CATEGORIES = [
+    ("PROD_AUDIO", "Producción audio"),          # solo si el proyecto lleva audio (single o disco)
+    ("PROD_VIDEO", "Producción vídeo"),           # solo si lleva videoclip
+    ("PROD_FISICO", "Producción álbum físico"),   # solo si el lanzamiento sale en soporte físico
+    ("LOGISTICA", "Logística"),
+    ("ALOJAMIENTO", "Alojamiento"),
+    ("MARKETING", "Marketing y promoción"),
+    ("OTROS", "Otros gastos"),
+]
+# El CATÁLOGO (etiquetas e iconos) es la UNIÓN de las dos listas: de él salen el nombre de la
+# categoría de un gasto en cualquier pantalla (pagos, contabilidad…) y la validación al guardarlo.
+# Lo que cambia por tipo de bolsa es qué categorías se OFRECEN (`_bag_visible_expense_categories`).
+BAG_EXPENSE_CATEGORY_LABELS = dict(BAG_EXPENSE_CATEGORIES) | dict(DISCO_BAG_EXPENSE_CATEGORIES)
 BAG_EXPENSE_CATEGORY_ICONS = {
     "RECINTO": "fa-building", "RIDER": "fa-list-check", "SONIDO_LUCES": "fa-sliders",
     "PERSONAL": "fa-users-gear", "MUSICOS": "fa-guitar", "LOGISTICA": "fa-truck",
     "ALOJAMIENTO": "fa-bed", "MARKETING": "fa-bullhorn", "PERMISOS": "fa-stamp",
     "OTROS": "fa-shapes", "PRORRATEOS": "fa-code-branch",
+    "PROD_AUDIO": "fa-microphone-lines", "PROD_VIDEO": "fa-video", "PROD_FISICO": "fa-compact-disc",
 }
 # Claves legacy de bolsa → categoría de simulación equivalente (solo para AGRUPAR/mostrar).
 _BAG_LEGACY_CATEGORY_MAP = {"TRANSPORTE": "LOGISTICA", "HOTELES": "ALOJAMIENTO"}
@@ -67412,16 +67430,57 @@ def _bag_totals(expenses: list[BagExpense]) -> dict:
 
 
 def _bag_group_expenses(expenses: list[BagExpense]) -> dict[str, list[BagExpense]]:
-    grouped = {key: [] for key, _label in BAG_EXPENSE_CATEGORIES}
+    # ⚠️ Se parte del CATÁLOGO entero (actividad + proyecto discográfico) y se añade con `setdefault`
+    # lo que no esté: una categoría de otro tipo de bolsa no puede reventar el agrupamiento.
+    grouped: dict[str, list] = {key: [] for key in BAG_EXPENSE_CATEGORY_LABELS}
     for expense in expenses:
         if (getattr(expense, "status", "") or "").upper() == "ELIMINADO":
             continue
         # Agrupa con las categorías de SIMULACIÓN (legacy TRANSPORTE/HOTELES incluidos).
         key = _bag_expense_display_cat(getattr(expense, "category", "OTROS"))
-        grouped[key].append(expense)
+        grouped.setdefault(key, []).append(expense)
     for key in grouped:
         grouped[key].sort(key=lambda e: (getattr(e, "sort_order", 0) or 0, getattr(e, "created_at", None) or datetime.min.replace(tzinfo=TZ_MADRID)))
     return grouped
+
+
+def _bag_visible_expense_categories(session_db, bag, expenses=None) -> list[tuple[str, str]]:
+    """Las categorías de gasto que se OFRECEN en esta bolsa.
+
+    Una bolsa de **PROYECTO DISCOGRÁFICO** lleva las suyas (`DISCO_BAG_EXPENSE_CATEGORIES`) y solo
+    las que le tocan: la producción de **audio** si el proyecto lleva audio, la de **vídeo** si lleva
+    videoclip y la del **físico** si el lanzamiento sale en soporte. Las de un concierto (recinto,
+    rider, músicos…) no se ofrecen ahí. Cualquier otra bolsa mantiene las de siempre.
+    ⚠️ Se conserva además cualquier categoría que YA tenga gastos apuntados: la regla vale para lo que
+    se va a apuntar, no para esconder lo ya apuntado (si no, un gasto quedaría invisible)."""
+    if (getattr(bag, "bag_type", None) or "").strip().upper() != "PROYECTO":
+        return list(BAG_EXPENSE_CATEGORIES)
+    project = None
+    try:
+        if (getattr(bag, "linked_type", None) or "").strip().upper() == "PROJECT" and getattr(bag, "linked_id", None):
+            project = session_db.get(DiscoProject, bag.linked_id)
+    except Exception:
+        app.logger.exception("[bolsas] no se pudo leer el proyecto de la bolsa")
+    fuera = set()
+    if project is not None:
+        # Sin proyecto no se descarta nada: no se puede juzgar y es mejor ofrecerlo todo.
+        kind = (getattr(project, "kind", None) or "").strip().upper()
+        modo = (getattr(project, "release_mode", None) or "").strip().upper()
+        if kind == "VIDEOCLIP":
+            fuera.add("PROD_AUDIO")        # el audio ya existe: aquí solo se produce el vídeo
+        if not _disco_project_has_videoclip(project):
+            fuera.add("PROD_VIDEO")
+        if not (modo in {"DIGITAL_FISICO", "FISICO"} or (getattr(project, "physical_formats", None) or [])):
+            fuera.add("PROD_FISICO")
+    visibles = [(k, l) for k, l in DISCO_BAG_EXPENSE_CATEGORIES if k not in fuera]
+    vistas = {k for k, _l in visibles}
+    con_gastos = {_bag_expense_display_cat(getattr(e, "category", None)) for e in (expenses or [])
+                  if (getattr(e, "status", "") or "").upper() != "ELIMINADO"}
+    for k, l in list(DISCO_BAG_EXPENSE_CATEGORIES) + list(BAG_EXPENSE_CATEGORIES):
+        if k in con_gastos and k not in vistas:
+            visibles.append((k, l))
+            vistas.add(k)
+    return visibles
 
 
 def _bag_normalize_category(value: str | None) -> str:
@@ -67841,7 +67900,12 @@ def _bag_panel_context(session_db, bag) -> dict:
         can_close_bag=can_close_bag,
         bag_status_options=BAG_STATUS_OPTIONS,
         bag_types=BAG_TYPES,
-        bag_expense_categories=BAG_EXPENSE_CATEGORIES,
+        # El mapa clave→etiqueta se pasa HECHO (en la plantilla, `dict()` sobre las tuplas es un
+        # sitio menos donde equivocarse).
+        bag_type_labels=dict(BAG_TYPES),
+        # Las categorías que se ofrecen dependen del TIPO de bolsa (un proyecto discográfico tiene
+        # las suyas). Con esto siguen tanto el listado por categorías como el selector «Módulo».
+        bag_expense_categories=_bag_visible_expense_categories(session_db, bag, expenses),
         bag_expense_category_icons=BAG_EXPENSE_CATEGORY_ICONS,
         bag_document_types=BAG_DOCUMENT_TYPES,
         bag_payment_methods=BAG_PAYMENT_METHODS,
@@ -76292,7 +76356,9 @@ def bag_imported_expense_assign(bag_id, expense_id):
         if not bag or not row:
             return jsonify({"ok": False, "error": "No encontrado"}), 404
         category = (request.form.get("category") or "").strip().upper()
-        if category not in dict(BAG_EXPENSE_CATEGORIES):
+        # ⚠️ Contra el CATÁLOGO (la unión), no contra las categorías de una actividad: si no, en una
+        # bolsa de proyecto discográfico no se podría tipificar nada en «Producción audio».
+        if category not in BAG_EXPENSE_CATEGORY_LABELS:
             return jsonify({"ok": False, "error": "Categoría no válida"}), 400
         gross = _money_or_zero(row.amount_gross)
         net = _money_or_zero(row.amount_net) or gross

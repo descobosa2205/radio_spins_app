@@ -679,6 +679,38 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (`_ensure_project_bag`, mismo patrón que una promoción) y se embebe con el MISMO panel que
   `/bolsas/<id>`. ⚠️ Al mezclar su contexto hay que quitar las claves que chocan con las de la ficha
   (`bag`, `tab`, `row`…) o `render_template` revienta con «got multiple values».
+  · **Funciona EXACTAMENTE igual que las demás bolsas** (mismo panel, mismos gastos, misma
+  liquidación: lo que se mejore en las bolsas vale también para estas), pero sus **CATEGORÍAS son
+  otras** (`DISCO_BAG_EXPENSE_CATEGORIES`, ago 2026) — producir un disco no se parece a producir un
+  concierto: **Producción audio · Producción vídeo · Producción álbum físico · Logística ·
+  Alojamiento · Marketing y promoción · Otros gastos**, y las de un concierto (recinto, rider,
+  músicos…) **no se ofrecen**. Las tres de producción salen **solo si tocan**: audio si el proyecto
+  lleva audio (cualquiera menos un videoclip suelto), vídeo si lleva videoclip
+  (`_disco_project_has_videoclip`) y físico si el lanzamiento sale en soporte.
+  · Punto único **`_bag_visible_expense_categories(session_db, bag, expenses)`**, que alimenta el
+  contexto del panel: con eso siguen **tanto el listado por categorías como el selector «Módulo»** de
+  cada gasto. ⚠️ Conserva además cualquier categoría que YA tenga gastos apuntados (si no, un gasto
+  quedaría invisible), y sin proyecto vinculado no descarta nada.
+  ⚠️ El **CATÁLOGO** (`BAG_EXPENSE_CATEGORY_LABELS`/`_ICONS`) es la **unión** de las dos listas: de él
+  salen el nombre de la categoría de un gasto en el resto de la app (pagos, contabilidad…) y la
+  validación al guardarlo. Si una clave nueva no está ahí, `_bag_expense_display_cat` la degrada a
+  «Otros» **sin dar ningún error** y el gasto aparece donde no es.
+  ⚠️ Y **`PROYECTO` tuvo que entrar en `BAG_TYPES`**: no estaba, así que el selector «Tipo» de la
+  bolsa no lo tenía y **guardar la bolsa desde su pantalla lo cambiaba a «General»** (bug real), con
+  lo que perdía sus categorías.
+  · **En la ficha del proyecto la bolsa NO repite su cabecera** (`bag_hide_hero`): de quién es, qué es
+  y cuándo ya lo dice la cabecera del proyecto. Los **datos y las notas de la bolsa sí se ven**: lo
+  que sobraba era la cabecera, no lo que se puede tocar.
+
+- **CABECERA DE UNA BOLSA · la misma de una actividad** (ago 2026): donde la bolsa sí lleva cabecera
+  (`/bolsas/<id>` y la pestaña Producción de una actividad) es ya un **`ficha-hero`** como el de la
+  ficha de una actividad: foto redonda, antetítulo con el tipo de bolsa, título con las etiquetas de
+  estado y de liquidación, la línea de datos **con iconos** (artistas, vínculo, fechas, total) y la
+  **empresa del grupo arriba a la derecha** (`.hero-company`, con su icono si no tiene logo).
+  ⚠️⚠️ **La foto del artista salía OVALADA** (bug real): era un `<img>` con un tamaño fijo suelto
+  dentro de un `d-flex`, y **cualquier hijo de un flex se puede encoger** — en cuanto la fila iba
+  justa se comprimía a lo ancho manteniendo el alto. Con `.ficha-hero__media` (que es `flex:0 0 auto`)
+  no puede pasar; comprobado a 375 px, donde sigue midiendo 96×96.
   · **El ASISTENTE** (`_disco_project_wizard_modal.html`, con `step_wizard.js`): artista (los activos
   primero y el resto tras «Ver más artistas») → tipo → y según el tipo: **álbum/EP** (nombre, nº de
   temas → tabla que se genera sola con nombre, colaboración y «tema ya existente» del repertorio;

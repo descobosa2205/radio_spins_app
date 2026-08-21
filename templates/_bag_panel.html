@@ -62,35 +62,64 @@
   </div>
 </div>
 {% endif %}
-{% if not bag_embed %}
-<div class="card shadow-sm mb-3 border-0" style="border-radius:18px;overflow:hidden;">
-  <div class="card-body p-4 bg-light-subtle">
-    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
-      <div class="d-flex gap-3 align-items-center flex-wrap">
-        <div class="d-flex" style="margin-right:6px;">
-          {% for artist in bag_artists[:5] %}
-            <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" alt="{{ artist.name }}" title="{{ artist.name }}" class="rounded-circle border bg-white" style="width:58px;height:58px;object-fit:cover;margin-right:-10px;">
-          {% else %}
-            <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Sin artista" class="rounded-circle border bg-white" style="width:58px;height:58px;object-fit:cover;">
-          {% endfor %}
-        </div>
-        <div>
-          <h3 class="m-0">{{ bag.title }}</h3>
-          <div class="text-muted">{% if bag_artists %}{{ bag_artists|map(attribute='name')|join(', ') }}{% else %}Sin artista vinculado{% endif %}</div>
-          <div class="small text-muted">
-            {{ bag.linked_title or 'Sin vínculo concreto' }} · {{ bag.company.name if bag.company else 'Sin empresa' }} · {{ bag.start_date.strftime('%d/%m/%Y') if bag.start_date else 'Sin fecha' }}{% if bag.end_date %} → {{ bag.end_date.strftime('%d/%m/%Y') }}{% endif %}
-          </div>
-        </div>
-      </div>
-      <div class="text-end">
-        <span class="badge text-bg-light border">{{ bag.status }}</span>
-        <span class="badge text-bg-light border">{{ bag.bag_type or 'GENERAL' }}</span>
-        <div class="small text-muted mt-2">Liquidación: {{ bag.liquidation_status or 'NO_INICIADA' }}</div>
-      </div>
+{# ---------- CABECERA de la bolsa: la MISMA de una actividad (`ficha-hero`) ----------
+   ⚠️ La foto del artista va con `ficha-hero__media` a propósito: es `flex:0 0 auto` con un tamaño
+   fijo, así que NO se estruja. Antes era un `<img>` sueltos dentro de un `d-flex` y, como cualquier
+   hijo de un flex se puede encoger, en cuanto la fila iba justa se comprimía a lo ancho pero
+   mantenía el alto: la foto salía OVALADA (bug real).
+   Con `bag_hide_hero` no se pinta: en la ficha del proyecto discográfico esa información ya está en
+   la cabecera del propio proyecto y repetirla solo estorba. #}
+{% if not bag_embed and not bag_hide_hero %}
+{% set bag_type_label = bag_type_labels.get(bag.bag_type, bag.bag_type or 'General') %}
+<div class="ficha-hero">
+  <img class="ficha-hero__media ficha-hero__media--round"
+       src="{{ (bag_artists[0].photo_url if bag_artists else None) or url_for('static', filename='img/logo.png') }}"
+       alt="" data-default-photo="1"
+       {% if bag_artists %}title="{{ bag_artists|map(attribute='name')|join(', ') }}" data-artist-link="{{ bag_artists[0].id }}"{% endif %}>
+  <div class="ficha-hero__body">
+    <div class="ficha-hero__eyebrow"><i class="fa fa-sack-dollar me-1"></i>Bolsa de gastos · {{ bag_type_label }}</div>
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <h1 class="ficha-hero__title">{{ bag.title }}</h1>
+      <span class="badge text-bg-light border"><i class="fa fa-circle-dot me-1 text-danger"></i>{{ bag.status }}</span>
+      <span class="badge text-bg-light border"><i class="fa fa-file-invoice-dollar me-1 text-danger"></i>{{ bag.liquidation_status or 'NO_INICIADA' }}</span>
+    </div>
+    <div class="ficha-hero__facts">
+      {% if bag_artists %}
+        <span><i class="fa fa-user-music"></i>{{ bag_artists|map(attribute='name')|join(', ') }}</span>
+      {% else %}
+        <span><i class="fa fa-user-music"></i>Sin artista vinculado</span>
+      {% endif %}
+      {% if bag.linked_title %}<span><i class="fa fa-link"></i>{{ bag.linked_title }}</span>{% endif %}
+      {% if bag.start_date %}
+        <span><i class="fa fa-calendar-day"></i>{{ bag.start_date.strftime('%d/%m/%Y') }}{% if bag.end_date %} → {{ bag.end_date.strftime('%d/%m/%Y') }}{% endif %}</span>
+      {% endif %}
+      <span title="Total de la bolsa"><i class="fa fa-euro-sign"></i>{{ totals.bag|eur }}</span>
     </div>
   </div>
+  {# LA EMPRESA DEL GRUPO que factura, arriba a la derecha, como en la ficha de una actividad. #}
+  {% if bag.company %}
+    <div class="ficha-hero__actions align-items-start">
+      <div class="hero-company" title="Empresa del grupo de la bolsa">
+        {# Como en la ficha de la actividad: el logo y, si la empresa no tiene, el icono (nunca el
+           logo de OTRA empresa del grupo). #}
+        {% if bag.company.logo_url %}
+          <img src="{{ bag.company.logo_url }}" alt="{{ bag.company.name }}">
+        {% else %}
+          <span class="hero-company__ph"><i class="fa fa-building"></i></span>
+        {% endif %}
+        <span class="hero-company__t">
+          <span class="hero-company__lab">Empresa</span>
+          <span class="hero-company__name">{{ bag.company.name }}</span>
+        </span>
+      </div>
+    </div>
+  {% endif %}
 </div>
+{% endif %}{# /cabecera de la bolsa #}
 
+{# Los DATOS y las NOTAS de la bolsa sí se enseñan siempre (en la ficha del proyecto también): lo
+   que sobraba ahí era la cabecera, no lo que se puede tocar. #}
+{% if not bag_embed %}
 <div class="row g-3 mb-4">
   <div class="col-12 col-xl-7">
     <div class="card h-100">

@@ -54,22 +54,15 @@
         <h6 class="mb-2"><i class="fa fa-users me-1 text-muted"></i>A quién se lo mandamos</h6>
         <div class="text-muted small mb-2">
           Del artista van las cuentas configuradas para <strong>notificaciones de actividades</strong>.
-          Quita a quien no toque o añade otros correos.
+          Quita a quien no toque o añade otros correos. <strong>Pincha el icono</strong> de cada uno
+          para cambiar si le llega por correo o por SMS (solo se puede elegir a quien tiene las dos
+          cosas; por defecto, el correo o lo que diga su ficha).
         </div>
         {% if recipients %}
-          <div class="d-flex flex-column gap-1">
-            {% for r in recipients %}
-              <label class="an-mod-toggle">
-                <input class="form-check-input m-0" type="checkbox" checked
-                       data-sale-to value="{{ r.email }}">
-                <span>
-                  <span class="fw-semibold">{{ r.name or r.email }}</span>
-                  <span class="badge text-bg-light border ms-1">{{ r.role }}</span>
-                  <span class="d-block small text-muted">{{ r.email }}</span>
-                </span>
-              </label>
-            {% endfor %}
-          </div>
+          {# El selector por persona es el de siempre (`_notify_channel_picker.html`). #}
+          {% with np_rows = recipients, np_checks = True %}
+            {% include '_notify_channel_picker.html' %}
+          {% endwith %}
         {% else %}
           <div class="alert alert-warning py-2 px-3 small mb-2">
             No hay nadie configurado para avisar. Escribe abajo a quién se lo mandamos.
@@ -151,10 +144,24 @@
       .filter(function (c) { return !c.checked; })
       .map(function (c) { return c.getAttribute('data-sale-mod'); });
   }
+  // A QUIÉN se le manda y POR DÓNDE: las dos cosas salen del selector por persona.
+  function filas() {
+    return Array.prototype.slice.call(root.querySelectorAll('.notify-row'));
+  }
   function destinos() {
-    return Array.prototype.slice.call(root.querySelectorAll('[data-sale-to]'))
-      .filter(function (c) { return c.checked; })
-      .map(function (c) { return c.value; });
+    return filas().filter(function (f) {
+      var c = f.querySelector('[data-notify-on]');
+      return !c || c.checked;
+    }).map(function (f) { return f.getAttribute('data-notify-key'); });
+  }
+  function canales() {
+    var mapa = {};
+    filas().forEach(function (f) {
+      var elegido = f.querySelector('[data-notify-channel]:checked')
+                 || f.querySelector('input[type="hidden"][name^="canal_"]');
+      mapa[f.getAttribute('data-notify-key')] = (elegido && elegido.value) || 'EMAIL';
+    });
+    return mapa;
   }
 
   function repaint() {
@@ -211,7 +218,8 @@
       body: JSON.stringify({
         note: note ? note.value : '',
         hidden: hidden(),
-        emails: destinos(),
+        to: destinos(),
+        channels: canales(),
         extra_emails: (root.querySelector('[data-sale-extra]') || {}).value || ''
       })
     }).then(function (r) { return r.json().catch(function () { return null; }); }).then(function (d) {

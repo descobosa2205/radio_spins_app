@@ -3874,6 +3874,29 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
 .an-channel.is-on { border-color: var(--brand-primary, #E33D48); background: rgba(227, 61, 72, .08); }
 .an-channel i { color: #6c757d; }
 .an-channel.is-on i { color: var(--brand-primary, #E33D48); }
+/* CÓMO SE AVISA A CADA UNO (correo o SMS). La preferencia de la ficha del tercero y el selector
+   por persona de las pantallas de aviso comparten el mismo aspecto: dos pastillas con su icono, la
+   elegida marcada en el rojo de la casa. Si solo hay una opción no es un botón: es un dato. */
+.notify-pref { display: inline-flex; gap: .4rem; flex-wrap: wrap; }
+.notify-pref__opt {
+  display: inline-flex; align-items: center; gap: .35rem; cursor: pointer; margin: 0;
+  padding: .35rem .65rem; border: 1px solid rgba(0, 0, 0, .12); border-radius: 999px;
+  background: #fff; font-size: .84rem; font-weight: 600;
+}
+.notify-pref__opt.is-on { border-color: var(--brand-primary, #E33D48); background: rgba(227, 61, 72, .08); }
+.notify-pref__opt i { color: #6c757d; }
+.notify-pref__opt.is-on i { color: var(--brand-primary, #E33D48); }
+/* Una sola opción: se enseña el canal, sin poder cambiarlo (no hay nada que elegir). */
+.notify-fixed { display: inline-flex; align-items: center; gap: .35rem; font-size: .82rem;
+  color: var(--muted-2, #6c757d); font-weight: 600; }
+.notify-row { display: flex; align-items: center; gap: .6rem; padding: .35rem 0;
+  border-bottom: 1px solid rgba(0, 0, 0, .05); flex-wrap: wrap; }
+.notify-row:last-child { border-bottom: 0; }
+.notify-row__who { flex: 1 1 180px; min-width: 0; }
+.notify-row__name { font-weight: 600; font-size: .9rem; }
+.notify-row__dest { font-size: .78rem; color: var(--muted-2, #6c757d); overflow-wrap: anywhere; }
+.notify-summary { font-size: .84rem; color: var(--muted-2, #6c757d); }
+
 .an-recipient { padding: .15rem 0; border-bottom: 1px solid rgba(0, 0, 0, .05); }
 .an-recipient:last-child { border-bottom: 0; }
 .an-mod-toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem; cursor: pointer; }

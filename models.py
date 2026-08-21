@@ -1193,6 +1193,9 @@ class Promoter(Base):
     tax_id = Column(Text)
     contact_email = Column(Text)
     contact_phone = Column(Text)
+    # PREFERENCIA de comunicación: EMAIL | SMS (o NULL = lo de siempre, el correo). Solo tiene sentido
+    # —y solo se pregunta en su ficha— cuando el tercero tiene LAS DOS COSAS: correo y teléfono.
+    notify_channel = Column(Text)
     address = Column(Text)            # domicilio (se autorrellena del DNI; editable)
     # Petición especial de HOTELES (aparece como nota junto a la persona en las rooming lists).
     hotel_notes = Column(Text)
@@ -7121,7 +7124,9 @@ def ensure_song_royalties_schema():
         ALTER TABLE IF EXISTS promoters
             ADD COLUMN IF NOT EXISTS tax_id text,
             ADD COLUMN IF NOT EXISTS contact_email text,
-            ADD COLUMN IF NOT EXISTS contact_phone text;
+            ADD COLUMN IF NOT EXISTS contact_phone text,
+            -- Cómo prefiere que le avisemos: EMAIL | SMS (NULL = el correo, que es el de siempre).
+            ADD COLUMN IF NOT EXISTS notify_channel text;
         """,
         """
         CREATE TABLE IF NOT EXISTS promoter_emails (

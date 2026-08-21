@@ -1,0 +1,53 @@
+{# CÓMO SE AVISA A CADA UNO · selector reutilizable (correo o SMS).
+   Se le pasa `np_rows` (los destinatarios ya pasados por `_notify_apply_prefs`: traen `channels`,
+   `channel` y `ask`) y, opcional, `np_name` (el prefijo del campo, por defecto `canal_`).
+
+   Reglas (Dani):
+   · Si esa persona solo tiene UNA opción, no se pregunta: se dice por dónde le va a llegar.
+   · Si tiene las dos, se ven los DOS ICONOS y se puede cambiar, una por una.
+   · Por defecto, el correo, salvo que su ficha diga que prefiere SMS.
+   Debajo, el resumen en vivo de quién por SMS y quién por correo. #}
+{% set np_prefix = np_name or 'canal_' %}
+<div data-notify-picker>
+  {% for r in np_rows %}
+    <div class="notify-row" data-notify-key="{{ r.key }}">
+      {% if np_checks %}
+        <input class="form-check-input mt-0" type="checkbox" name="{{ np_check_name or 'to' }}"
+               value="{{ r.key }}" checked data-notify-on
+               title="Quítale la marca para no avisarle">
+      {% endif %}
+      <span class="notify-row__who">
+        <span class="notify-row__name">{{ r.name or r.email or r.phone }}</span>
+        {% if r.role %}<span class="badge text-bg-light border ms-1">{{ r.role }}</span>{% endif %}
+        <span class="notify-row__dest d-block" data-notify-dest>
+          {% if r.channel == 'SMS' %}{{ r.phone }}{% else %}{{ r.email or r.phone }}{% endif %}
+        </span>
+      </span>
+      {% if r.ask %}
+        {# Las dos opciones: se pincha la que se quiera. #}
+        <span class="notify-pref" data-notify-opts>
+          {% for key, label, icon in notify_channels %}
+            {% if key in r.channels %}
+              <label class="notify-pref__opt{% if r.channel == key %} is-on{% endif %}"
+                     title="Avisarle por {{ label|lower }}">
+                <input class="visually-hidden" type="radio" name="{{ np_prefix }}{{ r.key }}"
+                       value="{{ key }}" {% if r.channel == key %}checked{% endif %}
+                       data-notify-channel data-notify-email="{{ r.email or '' }}"
+                       data-notify-phone="{{ r.phone or '' }}">
+                <i class="fa {{ icon }}"></i><span>{{ label }}</span>
+              </label>
+            {% endif %}
+          {% endfor %}
+        </span>
+      {% else %}
+        {# Una sola opción: no hay nada que elegir, así que se dice y punto. #}
+        <span class="notify-fixed" title="Es el único contacto que tiene">
+          <i class="fa {{ notify_channel_icons.get(r.channel, 'fa-circle-question') }}"></i>
+          {{ notify_channel_labels.get(r.channel, 'Sin contacto') }}
+        </span>
+        <input type="hidden" name="{{ np_prefix }}{{ r.key }}" value="{{ r.channel }}">
+      {% endif %}
+    </div>
+  {% endfor %}
+  <div class="notify-summary mt-2" data-notify-summary>{{ np_summary or '' }}</div>
+</div>

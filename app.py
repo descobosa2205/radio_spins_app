@@ -27823,6 +27823,13 @@ def promoter_update(pid):
     if "kind" in request.form:
         _kind = (request.form.get("kind") or "").strip().lower()
         p.kind = _kind if _kind in ("empresa", "institucion") else None
+    # PREFERENCIA de comunicación (correo o SMS). ⚠️ Solo tiene sentido con las DOS cosas puestas: si
+    # se queda con una sola, se borra (no hay nada que preferir y no se preguntará más).
+    if "notify_channel" in request.form:
+        _pref = _notify_pref_clean(request.form.get("notify_channel"))
+        p.notify_channel = _pref or None
+    if not ((p.contact_email or "").strip() and (p.contact_phone or "").strip()):
+        p.notify_channel = None
     # Redes sociales (para menciones): solo se tocan si el formulario incluye esos campos.
     if any(("social_" + _k) in request.form for _k, _l, _i in PROMOTER_SOCIAL_PLATFORMS):
         p.social_links = _promoter_social_links_from_form(request.form)
@@ -42762,6 +42769,8 @@ def promoter_detail_view(pid):
             promoter_phone_numbers=promoter_phone_numbers,
             contact_links=contact_links,
             contact_main_concept=PROMOTER_CONTACT_MAIN_CONCEPT,
+            # Cómo prefiere que le avisemos (solo se pregunta si tiene correo Y teléfono).
+            notify_channels=NOTIFY_CHANNELS,
             # «Otros datos»: los valores con nombre que salen de conservar los dos al importar
             # (dos direcciones, dos teléfonos…) y las columnas del fichero que no eran un campo.
             promoter_alt_values=_promoter_alt_value_rows(session, promoter),
@@ -72456,12 +72465,185 @@ def _sale_notice_people(session_db, user_ids, role: str) -> list[dict]:
             correo = (getattr(u, "email", None) or "").strip()
             if not correo:
                 continue
+            movil = ""
+            for valor in (getattr(prof, "mobile_phones", None) or []):
+                movil = sms_utils.normalize_phone(valor) or ""
+                if movil:
+                    break
             filas.append({"name": ((getattr(prof, "nick", None) or correo).strip()),
-                          "email": correo, "role": role,
+                          "email": correo, "phone": movil, "role": role,
                           "photo": (getattr(prof, "photo_url", "") or ""), "is_person": True})
     except Exception:
         return []
     return filas
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# CÓMO SE AVISA A CADA UNO: por CORREO o por SMS
+#
+# Regla (Dani, ago 2026):
+#   · Al mandar una NOTIFICACIÓN (no al «compartir» algo) se pregunta cómo se manda.
+#   · **Solo se pregunta si esa persona tiene MÁS DE UNA opción.** Con solo correo, va por correo;
+#     con solo teléfono, por SMS; sin preguntar nada.
+#   · Si en un envío hay varias personas, se ve **quién por SMS y quién por correo, con iconos**, y se
+#     puede cambiar una por una.
+#   · **El de por defecto es SIEMPRE el correo**, salvo que la persona haya dicho que prefiere SMS
+#     (`Promoter.notify_channel`, que solo se pregunta en su ficha si tiene las dos cosas).
+#   · En los envíos MASIVOS o AUTOMÁTICOS (las entradas, por ejemplo) no se pregunta: se usa el canal
+#     que tenga configurado cada uno.
+#
+# Punto único: `_notify_channel_options` decide, y `_notify_rows_with_channels` lo aplica a la lista
+# de destinatarios que ya monta cada pantalla. `_notify_send_row` es el que manda.
+# ═════════════════════════════════════════════════════════════════════════════
+
+NOTIFY_CHANNELS = [
+    ("EMAIL", "Correo", "fa-envelope"),
+    ("SMS", "SMS", "fa-comment-sms"),
+]
+NOTIFY_CHANNEL_LABELS = {k: l for k, l, _i in NOTIFY_CHANNELS}
+NOTIFY_CHANNEL_ICONS = {k: i for k, _l, i in NOTIFY_CHANNELS}
+
+
+def _notify_pref_clean(value) -> str:
+    """La preferencia guardada, normalizada («EMAIL» / «SMS» / '')."""
+    v = (str(value or "")).strip().upper()
+    return v if v in NOTIFY_CHANNEL_LABELS else ""
+
+
+def _notify_channel_options(email="", phone="", preference="") -> dict:
+    """Qué canales se pueden usar con este contacto y cuál va por defecto.
+
+    Devuelve `{channels, default, ask}`: `ask` es False cuando no hay nada que preguntar (una sola
+    opción o ninguna). ⚠️ El SMS solo cuenta si el teléfono es creíble (con prefijo o un móvil
+    español): un número a medias no es una opción."""
+    correo = (email or "").strip()
+    telefono = sms_utils.normalize_phone(phone) or ""
+    canales = []
+    if correo:
+        canales.append("EMAIL")
+    if telefono:
+        canales.append("SMS")
+    pref = _notify_pref_clean(preference)
+    if pref and pref in canales:
+        defecto = pref
+    elif "EMAIL" in canales:
+        defecto = "EMAIL"                       # el correo es SIEMPRE el de por defecto
+    else:
+        defecto = canales[0] if canales else ""
+    return {"channels": canales, "default": defecto, "ask": len(canales) > 1,
+            "email": correo, "phone": telefono, "preference": pref}
+
+
+def _notify_rows_with_channels(rows) -> list[dict]:
+    """Añade a cada destinatario su canal (`channel`), los que puede (`channels`) y si hay que
+    preguntarle (`ask`). Lo usan las pantallas de aviso para pintar los iconos."""
+    salida = []
+    for r in (rows or []):
+        fila = dict(r or {})
+        info = _notify_channel_options(fila.get("email"), fila.get("phone"),
+                                       fila.get("notify_pref") or fila.get("preference"))
+        fila.update({"channels": info["channels"], "channel": info["default"],
+                     "ask": info["ask"], "phone": info["phone"] or (fila.get("phone") or ""),
+                     "preference": info["preference"]})
+        salida.append(fila)
+    return salida
+
+
+def _notify_channels_from_form(rows, form, prefix="canal_") -> list[dict]:
+    """Aplica lo que se ha elegido en la pantalla (`canal_<key>`), sin fiarse: si alguien manda un
+    canal que esa persona no puede usar, se queda el que le corresponde."""
+    salida = []
+    for r in (rows or []):
+        fila = dict(r or {})
+        clave = str(fila.get("key") or fila.get("email") or fila.get("phone") or "")
+        pedido = _notify_pref_clean((form or {}).get(prefix + clave))
+        if pedido and pedido in (fila.get("channels") or []):
+            fila["channel"] = pedido
+        salida.append(fila)
+    return salida
+
+
+def _notify_summary(rows) -> str:
+    """«Por correo: A, B · Por SMS: C» (lo que se enseña antes de mandar)."""
+    por = {"EMAIL": [], "SMS": []}
+    for r in (rows or []):
+        canal = _notify_pref_clean(r.get("channel"))
+        if canal:
+            por[canal].append((r.get("name") or r.get("email") or r.get("phone") or "—"))
+    trozos = []
+    if por["EMAIL"]:
+        trozos.append("Por correo: " + ", ".join(por["EMAIL"]))
+    if por["SMS"]:
+        trozos.append("Por SMS: " + ", ".join(por["SMS"]))
+    return " · ".join(trozos)
+
+
+def _promoter_notify_pref_map(session_db, emails=(), phones=()) -> dict:
+    """La preferencia de los TERCEROS que se puedan identificar por su correo o su teléfono.
+
+    Los destinatarios de un aviso llegan como nombre + correo + teléfono (no como id), así que se
+    cruzan por ahí. Una sola consulta: en un envío puede haber decenas."""
+    salida = {}
+    correos = {str(x).strip().lower() for x in (emails or []) if str(x or "").strip()}
+    tels = {sms_utils.normalize_phone(x) for x in (phones or []) if x}
+    tels.discard(None)
+    if not correos and not tels:
+        return salida
+    try:
+        # Los que tienen preferencia PUESTA son pocos por definición (solo se pregunta a quien tiene
+        # correo Y teléfono), así que se leen esos y se cruzan en Python.
+        filas = (session_db.query(Promoter)
+                 .filter(Promoter.notify_channel.isnot(None))
+                 .filter(func.upper(Promoter.notify_channel) != "")
+                 .all())
+    except Exception:
+        app.logger.exception("[avisos] no se pudieron leer las preferencias de los terceros")
+        return salida
+    for p in filas:
+        pref = _notify_pref_clean(getattr(p, "notify_channel", None))
+        if not pref:
+            continue
+        correo = (getattr(p, "contact_email", None) or "").strip().lower()
+        if correo and correo in correos:
+            salida[correo] = pref
+        tel = sms_utils.normalize_phone(getattr(p, "contact_phone", None))
+        if tel and tel in tels:
+            salida[tel] = pref
+    return salida
+
+
+def _notify_apply_prefs(session_db, rows) -> list[dict]:
+    """Rellena la preferencia de cada destinatario (si es un tercero que la tiene puesta) y calcula
+    su canal. Es lo que llama cada pantalla de aviso."""
+    filas = [dict(r or {}) for r in (rows or [])]
+    mapa = _promoter_notify_pref_map(session_db,
+                                     emails=[f.get("email") for f in filas],
+                                     phones=[f.get("phone") for f in filas])
+    for f in filas:
+        if f.get("notify_pref"):
+            continue
+        correo = (f.get("email") or "").strip().lower()
+        tel = sms_utils.normalize_phone(f.get("phone")) or ""
+        f["notify_pref"] = mapa.get(correo) or mapa.get(tel) or ""
+    return _notify_rows_with_channels(filas)
+
+
+def _notify_send_row(session_db, row, *, subject="", html="", text_body="", sms_text="",
+                     reply_to=None, kind="") -> tuple[bool, str]:
+    """Manda UN aviso por el canal que le toque a esa persona. Devuelve `(ok, error)`.
+
+    ⚠️ Un SMS no lleva adjuntos ni formato: `sms_text` tiene que ser la frase corta con el enlace."""
+    canal = _notify_pref_clean(row.get("channel")) or "EMAIL"
+    if canal == "SMS":
+        telefono = row.get("phone") or ""
+        if not telefono:
+            return False, "No hay teléfono al que mandar el SMS."
+        return _send_optional_sms(session_db, telefono, (sms_text or subject or ""),
+                                  kind=(kind or "AVISO"), nick=(row.get("name") or ""))
+    correo = (row.get("email") or "").strip()
+    if not correo:
+        return False, "No hay correo al que escribir."
+    return _send_optional_email([correo], subject, html, text_body=text_body, reply_to=reply_to)
 
 
 def _sale_notice_recipients(session_db, concert) -> list[dict]:
@@ -72476,19 +72658,24 @@ def _sale_notice_recipients(session_db, concert) -> list[dict]:
     filas, vistos = [], set()
 
     def anota(fila):
+        # ⚠️ Vale también quien SOLO tiene teléfono: ahora el aviso puede salir por SMS, así que un
+        # contacto sin correo ya no es un contacto inútil.
         correo = (fila.get("email") or "").strip().lower()
-        if not correo or correo in vistos:
+        telefono = sms_utils.normalize_phone(fila.get("phone")) or ""
+        clave = correo or telefono
+        if not clave or clave in vistos:
             return
-        vistos.add(correo)
-        fila["key"] = correo
+        vistos.add(clave)
+        fila["key"] = clave
         filas.append(fila)
 
     # ARTISTA (en una actividad de EVENTO no hay artista al que avisar: su `artist_id` es el espejo).
     if getattr(concert, "artist_id", None) and not getattr(concert, "event_id", None):
         canal = _activity_notification_channel(session_db, concert)
         for r in _artist_notification_recipients(session_db, concert.artist_id, canal):
-            if (r.get("email") or "").strip():
-                anota({"name": (r.get("name") or ""), "email": r["email"], "role": "Artista",
+            if (r.get("email") or "").strip() or (r.get("phone") or "").strip():
+                anota({"name": (r.get("name") or ""), "email": (r.get("email") or ""),
+                       "phone": (r.get("phone") or ""), "role": "Artista",
                        "photo": "", "is_person": True})
     # PRODUCCIÓN de esta actividad.
     if getattr(concert, "production_owner_user_id", None):
@@ -72920,6 +73107,30 @@ def _sale_notice_subject(ctx: dict) -> str:
     return ", ".join(partes)
 
 
+def _sale_notice_sms_text(ctx: dict, *, note: str = "") -> str:
+    """El aviso de salida a la venta EN UN SMS: la frase de cuándo sale y el enlace de venta.
+
+    Un SMS no admite tablas ni carteles, así que se manda lo que de verdad sirve en el móvil: qué
+    actividad es, cuándo sale y por dónde se compra."""
+    partes = []
+    sujeto = (ctx.get("subject_name") or "").strip()
+    fecha = (ctx.get("activity_date_label") or "").strip()
+    sitio = (ctx.get("place_name") or "").strip()
+    cabeza = " ".join([x for x in [sujeto, ("· " + sitio) if sitio else "", fecha] if x]).strip()
+    if cabeza:
+        partes.append(cabeza + ".")
+    if (ctx.get("sentence") or "").strip():
+        partes.append(ctx["sentence"].strip())
+    if (note or "").strip():
+        partes.append(note.strip())
+    enlace = next((c.get("url") for c in (ctx.get("channels") or []) if (c.get("url") or "").strip()), "")
+    if not enlace:
+        enlace = ((ctx.get("artwork") or {}).get("url") or "")
+    if enlace:
+        partes.append(enlace)
+    return " ".join(partes).strip()
+
+
 def _sale_notice_html(ctx: dict, *, note: str = "", hidden=(), preview: bool = False) -> str:
     """EL motor del aviso de salida a la venta: el mismo HTML para el correo y la vista previa.
 
@@ -73118,7 +73329,12 @@ def concert_sale_notice_view(cid):
             notice=ctx,
             notice_modules=SALE_NOTICE_MODULES,
             sale_state=ctx["state"],
-            recipients=_sale_notice_recipients(session_db, concert),
+            # A cada uno por donde le toca: su canal por defecto es el correo, salvo que su ficha
+            # diga que prefiere SMS; y solo se puede elegir si tiene las dos cosas.
+            recipients=_notify_apply_prefs(session_db, _sale_notice_recipients(session_db, concert)),
+            notify_channels=NOTIFY_CHANNELS,
+            notify_channel_labels=NOTIFY_CHANNEL_LABELS,
+            notify_channel_icons=NOTIFY_CHANNEL_ICONS,
             subject=_sale_notice_subject(ctx),
             preview_html=_sale_notice_html(ctx, preview=True),
         )
@@ -73172,39 +73388,84 @@ def concert_sale_notice_send(cid):
         ocultos = [x for x in ocultos if x in SALE_NOTICE_MODULE_LABELS]
         nota = (datos.get("note") or "").strip()
 
-        configurados = _sale_notice_recipients(session_db, concert)
-        marcados = ([x for x in datos.getlist("emails")] if hasattr(datos, "getlist")
-                    else list(datos.get("emails") or []))
-        marcados = [str(x).strip() for x in marcados if str(x or "").strip()]
+        configurados = _notify_apply_prefs(session_db, _sale_notice_recipients(session_db, concert))
+        # A quién (las claves marcadas en la pantalla) y POR DÓNDE (el canal elegido de cada uno).
+        marcados = ([x for x in datos.getlist("to")] if hasattr(datos, "getlist")
+                    else list(datos.get("to") or datos.get("emails") or []))
+        marcados = {str(x).strip().lower() for x in marcados if str(x or "").strip()}
+        pedidos = datos.get("channels") if not hasattr(datos, "getlist") else {}
+        pedidos = pedidos if isinstance(pedidos, dict) else {}
+        elegidos = []
+        for fila in configurados:
+            if marcados and str(fila.get("key") or "").lower() not in marcados:
+                continue
+            pedido = _notify_pref_clean(pedidos.get(fila.get("key")))
+            if pedido and pedido in (fila.get("channels") or []):
+                fila["channel"] = pedido
+            elegidos.append(fila)
         extras = [x.strip() for x in re.split(r"[;,\n]+", str(datos.get("extra_emails") or ""))
                   if x.strip()]
-        destinos = _dedupe_valid_email_addresses((marcados or [r["email"] for r in configurados])
-                                                + extras)
-        if not destinos:
-            return jsonify({"ok": False, "error": "No hay ningún correo al que avisar. Marca a "
-                                                  "alguien o escribe un correo."}), 400
+        # ⚠️ Un destinatario marcado que NO está en la lista configurada (una pantalla antigua, un
+        # correo escrito a mano) no se tira: se trata como uno añadido. Perder un aviso por eso sería
+        # peor que mandarlo.
+        conocidos = {str(r.get("key") or "").lower() for r in configurados}
+        extras += [x for x in marcados if x not in conocidos and "@" in x]
+        correos = _dedupe_valid_email_addresses(
+            [r.get("email") for r in elegidos if r.get("channel") == "EMAIL" and r.get("email")] + extras)
+        moviles = [r for r in elegidos if r.get("channel") == "SMS" and r.get("phone")]
+        if not correos and not moviles:
+            return jsonify({"ok": False, "error": "No hay a quién avisar. Marca a alguien o escribe "
+                                                  "un correo."}), 400
 
         ctx = _sale_notice_context(session_db, concert)
         cuerpo = _sale_notice_html(ctx, note=nota, hidden=ocultos)
-        ok, error = _send_optional_email(destinos, _sale_notice_subject(ctx), cuerpo)
-        if not ok:
-            return jsonify({"ok": False, "error": "No se pudo enviar el correo: %s"
-                                                  % (error or "error desconocido")}), 400
+        fallos = []
+        if correos:
+            ok, error = _send_optional_email(correos, _sale_notice_subject(ctx), cuerpo)
+            if not ok:
+                return jsonify({"ok": False, "error": "No se pudo enviar el correo: %s"
+                                                      % (error or "error desconocido")}), 400
+        # Los SMS, uno a uno: frase corta + el enlace de venta (un SMS no lleva tablas ni carteles).
+        texto_sms = _sale_notice_sms_text(ctx, note=nota)
+        enviados_sms = []
+        for fila in moviles:
+            ok_sms, err_sms = _send_optional_sms(session_db, fila.get("phone"), texto_sms,
+                                                 kind="VENTA", nick=(fila.get("name") or ""))
+            (enviados_sms if ok_sms else fallos).append(
+                fila.get("phone") if ok_sms else "%s: %s" % (fila.get("name") or fila.get("phone"), err_sms))
+        if not correos and not enviados_sms:
+            return jsonify({"ok": False, "error": "No se pudo avisar a nadie. %s"
+                                                  % ("; ".join(fallos) or "")}), 400
+        destinos = correos + enviados_sms
 
         yo = _current_user_state() or {}
-        por_correo = {(r.get("email") or "").lower(): (r.get("name") or "") for r in configurados}
-        roles = {(r.get("email") or "").lower(): (r.get("role") or "") for r in configurados}
+        # Queda apuntado a quién y POR DÓNDE (el correo o el SMS), con su nombre y su papel.
+        apuntados = []
+        for fila in elegidos:
+            canal = _notify_pref_clean(fila.get("channel")) or "EMAIL"
+            destino = (fila.get("phone") if canal == "SMS" else fila.get("email")) or ""
+            if canal == "SMS" and destino not in enviados_sms:
+                continue                      # ese SMS no salió: no se apunta como avisado
+            if canal == "EMAIL" and destino.lower() not in {c.lower() for c in correos}:
+                continue
+            apuntados.append({"email": (fila.get("email") or ""), "phone": (fila.get("phone") or ""),
+                              "name": (fila.get("name") or ""), "role": (fila.get("role") or ""),
+                              "channel": canal})
+        for extra in extras:
+            if extra.lower() in {c.lower() for c in correos}:
+                apuntados.append({"email": extra, "phone": "", "name": "", "role": "Añadido",
+                                  "channel": "EMAIL"})
         concert.sale_notice_at = _now_madrid()
         concert.sale_notice_by_user_id = to_uuid(str(yo.get("user_id") or "")) or None
         concert.sale_notice_by_nick = (yo.get("nick") or None)
-        concert.sale_notice_to = [{"email": d, "name": por_correo.get(d.lower(), ""),
-                                   "role": roles.get(d.lower(), "")} for d in destinos]
+        concert.sale_notice_to = apuntados
         concert.sale_notice_signature = _concert_sale_signature(concert)
         concert.updated_at = _now_madrid()
         # El aviso de «sacar a la venta» ya está hecho: se cierra solo (un aviso es «esto te espera»).
         _notify_resolve(session_db, "CONCERT_SALE", str(concert.id))
         session_db.commit()
-        return jsonify({"ok": True, "recipients": destinos,
+        return jsonify({"ok": True, "recipients": destinos, "sms": enviados_sms,
+                        "failed": fallos,
                         "url": url_for("concert_detail_view", cid=concert.id, tab="general")})
     except Exception as exc:
         session_db.rollback()
@@ -91215,6 +91476,49 @@ def invitation_category_auto_assign(concert_id, category_id):
         session_db.close()
 
 
+def _invitation_mass_contact(session_db, row, recipients) -> dict:
+    """Por dónde le llega la invitación a este invitado en un envío MASIVO (sin preguntar nada).
+
+    Manda el canal que tenga configurado en su ficha (`Promoter.notify_channel`) y, si no ha dicho
+    nada, el correo. Quien solo tiene teléfono recibe el SMS con el enlace de descarga: antes se
+    quedaba «sin email» y no le llegaba nada."""
+    return _notify_apply_prefs(session_db, [{
+        "name": (getattr(row, "guest_name", None) or ""),
+        "email": ((recipients or [""])[0] or ""),
+        "phone": _invitation_guest_live_phone(session_db, row),
+    }])[0]
+
+
+def _invitation_mass_send_one(session_db, concert, row, recipients, contacto, *,
+                              uses_guest_list=False, link_kind="r",
+                              body=None, reply_to=None) -> tuple[bool, str, str, str]:
+    """Manda UNA invitación de un envío masivo por el canal de `contacto`.
+
+    Devuelve `(ok, error, via, destino)`. `link_kind` es «r» para una solicitud y «c» para un
+    compromiso (su enlace de descarga), y `body` el compositor del correo de ese tipo.
+    ⚠️ Si toca SMS y el SMS no sale (pasarela sin configurar, sin saldo…) **no se pierde el envío**:
+    se manda el correo, que es el canal de siempre."""
+    if (contacto or {}).get("channel") == "SMS" and (contacto or {}).get("phone"):
+        enlace = ("" if uses_guest_list else
+                  _external_url_for("public_invitation_delivery", kind=link_kind,
+                                    token=row.delivery_token))
+        ok, err = _send_optional_sms(
+            session_db, contacto["phone"],
+            _invitation_share_text(session_db, concert, getattr(row, "guest_name", ""), enlace),
+            kind="INVITACIONES", nick=(getattr(row, "guest_name", None) or ""))
+        if ok or not recipients:
+            return ok, err, "SMS", contacto["phone"]
+    if not recipients:
+        return False, "Sin correo ni teléfono al que enviar.", "Email", ""
+    subject, html_body, text_body = (body() if body else _invitation_email_body(session_db, row, None))
+    # ⚠️ El Reply-To de un COMPROMISO lo resuelve su propio helper: el de las solicitudes no vale.
+    destino_respuesta = (reply_to if reply_to is not None
+                         else _invitation_request_reply_to(session_db, row)) or _current_user_email()
+    ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body,
+                                   reply_to=destino_respuesta)
+    return ok, err, "Email", ", ".join(recipients or [])
+
+
 @app.post('/invitaciones/evento/<concert_id>/categoria/<category_id>/enviar-todas', endpoint='invitation_category_send_all')
 @admin_required
 def invitation_category_send_all(concert_id, category_id):
@@ -91261,27 +91565,30 @@ def invitation_category_send_all(concert_id, category_id):
                 not_complete += 1
                 continue
             recipients = _dedupe_valid_email_addresses(_invitation_delivery_recipients(session_db, row))
-            if not recipients:
+            # Mismo criterio que en el envío de todo el evento: el canal que tenga cada uno.
+            _canal = _invitation_mass_contact(session_db, row, recipients)
+            if not recipients and not (_canal.get('phone') or ''):
                 no_email += 1
                 continue
             row.delivery_token = row.delivery_token or _invitation_token()
             # Etiquetas «Nueva» + SENT ANTES de componer (el correo ya sale con las etiquetas).
-            # ⚠️ En un SAVEPOINT: si el correo no sale, se deshace SOLO esto. Con un rollback de
+            # ⚠️ En un SAVEPOINT: si el envío no sale, se deshace SOLO esto. Con un rollback de
             # toda la sesión, cualquier cambio pendiente de otra fila se iba por delante y —lo
             # grave— un fallo a medias podía dejar entradas marcadas como enviadas sin enviarse.
             punto = session_db.begin_nested()
+            _via, _destino = 'Email', ', '.join(recipients or [])
             try:
                 _invitation_mark_sent_tickets(session_db, row, 'all', now)
-                subject, html_body, text_body = _invitation_email_body(session_db, row, None)
-                reply_to = _invitation_request_reply_to(session_db, row) or _current_user_email()
-                ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=reply_to)
+                ok, err, _via, _destino = _invitation_mass_send_one(
+                    session_db, concert, row, recipients, _canal,
+                    uses_guest_list=bool(flags.get('uses_guest_list')))
             except Exception:
                 ok = False
             if ok:
                 row.status = 'ENVIADAS'
                 row.sent_at = now
-                row.sent_via = 'Email'
-                row.sent_to = ', '.join(recipients or [])
+                row.sent_via = _via
+                row.sent_to = _destino
                 punto.commit()
                 session_db.commit()
                 sent_n += 1
@@ -91307,7 +91614,8 @@ def invitation_category_send_all(concert_id, category_id):
                 not_complete += 1
                 continue
             recipients = _dedupe_valid_email_addresses(_invitation_guest_live_emails(session_db, row))
-            if not recipients:
+            _canal = _invitation_mass_contact(session_db, row, recipients)
+            if not recipients and not (_canal.get('phone') or ''):
                 no_email += 1
                 continue
             row.delivery_token = row.delivery_token or _invitation_token()
@@ -91321,9 +91629,12 @@ def invitation_category_send_all(concert_id, category_id):
                     t.status = 'SENT'
                     t.sent_at = now
                     t.updated_at = now
-                subject, html_body, text_body = _invitation_commitment_email_body(session_db, row, category_id=cat.id)
-                reply_to = _invitation_commitment_reply_to(session_db, row) or _current_user_email()
-                ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=reply_to)
+                # Mismo criterio que las solicitudes: el canal que tenga configurado cada uno. El
+                # correo de un COMPROMISO lo compone su propio constructor (y su enlace es «c»).
+                ok, err, _via, _destino = _invitation_mass_send_one(
+                    session_db, concert, row, recipients, _canal, link_kind='c',
+                    body=lambda: (_invitation_commitment_email_body(session_db, row, category_id=cat.id)),
+                    reply_to=_invitation_commitment_reply_to(session_db, row))
             except Exception:
                 ok = False
             if ok:
@@ -91339,7 +91650,7 @@ def invitation_category_send_all(concert_id, category_id):
         if not_complete:
             parts.append(f'{not_complete} sin el cupo completo (no se envían)')
         if no_email:
-            parts.append(f'{no_email} sin email')
+            parts.append(f'{no_email} sin correo ni teléfono')
         if failed:
             parts.append(f'{failed} fallidos')
         if _quedan:
@@ -91391,26 +91702,30 @@ def invitation_event_send_all(concert_id):
             if not flags.get('can_send'):
                 continue
             recipients = _dedupe_valid_email_addresses(_invitation_delivery_recipients(session_db, row))
-            if not recipients:
+            # ⚠️ ENVÍO MASIVO: aquí no se pregunta nada, se usa el canal que tenga configurado CADA
+            # UNO (punto único `_invitation_mass_contact` / `_invitation_mass_send_one`).
+            _canal = _invitation_mass_contact(session_db, row, recipients)
+            if not recipients and not (_canal.get('phone') or ''):
                 no_email += 1
                 continue
             row.delivery_token = row.delivery_token or _invitation_token()
             # Etiquetas «Nueva» + SENT ANTES de componer (el correo sale con las etiquetas), todo
-            # en un SAVEPOINT: si el correo no sale, se deshace solo esto y nada queda marcado.
+            # en un SAVEPOINT: si el envío no sale, se deshace solo esto y nada queda marcado.
             _sent_at_r = _now_madrid()
             punto = session_db.begin_nested()
+            _via, _destino = 'Email', ', '.join(recipients or [])
             try:
                 _invitation_mark_sent_tickets(session_db, row, 'all', _sent_at_r)
-                subject, html_body, text_body = _invitation_email_body(session_db, row, None)
-                reply_to = _invitation_request_reply_to(session_db, row) or _current_user_email()
-                ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=reply_to)
+                ok, err, _via, _destino = _invitation_mass_send_one(
+                    session_db, concert, row, recipients, _canal,
+                    uses_guest_list=bool(flags.get('uses_guest_list')))
             except Exception:
                 ok = False
             if ok:
                 row.status = 'ENVIADAS'
                 row.sent_at = _sent_at_r
-                row.sent_via = 'Email'
-                row.sent_to = ', '.join(recipients or [])
+                row.sent_via = _via
+                row.sent_to = _destino
                 # Commit por fila: un fallo posterior no revierte las que ya se enviaron de verdad.
                 try:
                     punto.commit()
@@ -91429,7 +91744,7 @@ def invitation_event_send_all(concert_id):
         if skipped_box:
             parts.append(f'{skipped_box} de taquilla (no se envían)')
         if no_email:
-            parts.append(f'{no_email} sin email')
+            parts.append(f'{no_email} sin correo ni teléfono')
         if failed:
             parts.append(f'{failed} con error de envío')
         if _quedan:

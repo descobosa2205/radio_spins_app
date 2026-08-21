@@ -2222,6 +2222,38 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   facturas (además el tiempo por archivo baja de 25 s a 12 s) · «Subir todo a Holded» · «Enviar todas
   las liquidaciones» de royalties.
 
+- **CÓMO SE AVISA A CADA UNO · correo o SMS** (ago 2026). Regla: al mandar una **NOTIFICACIÓN** (no
+  al «compartir» algo) se pregunta cómo se manda, **pero solo si esa persona tiene MÁS DE UNA
+  opción**: con solo correo va por correo y con solo teléfono por SMS, sin preguntar nada. Si en un
+  envío hay varias personas, se ve **quién por SMS y quién por correo con iconos** y se cambia una por
+  una. **El de por defecto es SIEMPRE el correo**, salvo que la persona haya dicho que prefiere SMS.
+  · **La preferencia vive en el TERCERO** (`Promoter.notify_channel`, EMAIL|SMS) y se pregunta en su
+  ficha —dentro del bocadillo «Datos de contacto», con los dos iconos— **solo si tiene correo Y
+  teléfono**: con una sola cosa no hay nada que elegir, así que el bloque no se pinta (y aparece o
+  desaparece en vivo según se rellenen los dos campos). ⚠️ Si se queda con un solo dato, la
+  preferencia **se borra** al guardar: `promoter_update` lo fuerza.
+  · **Punto único**: `_notify_channel_options(email, phone, preference)` → `{channels, default, ask}`
+  (⚠️ el SMS solo cuenta si el teléfono es creíble: `sms_utils.normalize_phone`), y
+  **`_notify_apply_prefs(session_db, rows)`**, que es lo que llama cada pantalla: rellena la
+  preferencia de los que sean terceros (`_promoter_notify_pref_map`, UNA consulta) y calcula el canal
+  de cada uno. `_notify_summary` da el «Por correo: … · Por SMS: …» y `_notify_send_row` manda.
+  · **La UI es un parcial reutilizable**: `templates/_notify_channel_picker.html` (`np_rows`, y
+  `np_checks` para las casillas de a quién) + **`static/js/notify_channel.js`** (global, por
+  delegación: estas listas se repintan por AJAX). Quien tiene una sola opción **no ve un botón**: ve
+  el dato. Debajo, el resumen en vivo.
+  · **Dónde está enganchado**: la pantalla de **comunicar la salida a la venta** (interactiva: los
+  iconos por persona) y los **envíos MASIVOS de invitaciones** —el del evento entero y el de una
+  categoría—, que **no preguntan nada**: cada uno por su canal (`_invitation_mass_contact` +
+  `_invitation_mass_send_one`, el punto único de las tres vueltas: solicitudes, categoría y
+  compromisos). ⚠️ Ahí, si toca SMS y el SMS no sale (pasarela sin configurar, sin saldo) **se manda
+  el correo**: un envío masivo no se puede perder. Y quien solo tiene teléfono ya no cuenta como «sin
+  email»: recibe el SMS con el enlace de descarga.
+  ⚠️ Un destinatario marcado que NO está en la lista configurada (una pantalla vieja, un correo
+  escrito a mano) se trata como añadido, no se tira.
+  · Lo que **falta por enganchar**: la pantalla de **avisar al artista** (tiene su propio selector
+  global correo/WhatsApp/SMS, donde WhatsApp abre el móvil: se rediseña aparte) y los correos
+  automáticos a terceros (liquidaciones, peticiones de factura…), que siguen saliendo por correo.
+
 - **AVISOS POR SMS** (ago 2026): la campanita y el correo llegan tarde si nadie mira; un SMS entra en
   el móvil. Cliente en **`sms_utils.py`** (módulo aislado, sin BD ni Flask, como `holded_utils.py`),
   con tres pasarelas: **LabsMobile** (España, la recomendada), **Esendex** y **Twilio**. Se configura

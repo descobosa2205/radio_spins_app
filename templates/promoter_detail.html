@@ -580,6 +580,26 @@
                   <a href="{{ url_for('promoter_detail_view', pid=promoter.id, tab='contactos') }}">Datos de contacto</a>,
                   donde se pueden añadir más correos y más teléfonos con su concepto.
                 </div>
+                {# PREFERENCIA de comunicación. ⚠️ Solo se pregunta cuando tiene LAS DOS COSAS: con
+                   una sola no hay nada que elegir. Aparece y desaparece en vivo según se rellenen
+                   los dos campos de arriba (`data-notify-pref-box`). #}
+                <div class="mt-3{% if not (promoter.contact_email and promoter.contact_phone) %} d-none{% endif %}"
+                     data-notify-pref-box>
+                  <label class="form-label mb-1">¿Cómo prefiere que le avisemos?</label>
+                  <div class="notify-pref">
+                    {% for key, label, icon in notify_channels %}
+                      <label class="notify-pref__opt{% if (promoter.notify_channel or 'EMAIL')|upper == key %} is-on{% endif %}">
+                        <input class="visually-hidden" type="radio" name="notify_channel" value="{{ key }}"
+                               {% if (promoter.notify_channel or 'EMAIL')|upper == key %}checked{% endif %}>
+                        <i class="fa {{ icon }}"></i><span>{{ label }}</span>
+                      </label>
+                    {% endfor %}
+                  </div>
+                  <div class="form-text">
+                    Es lo que se usa en los envíos masivos o automáticos (las entradas, por ejemplo).
+                    Cuando se avisa a mano se puede cambiar en ese momento. Por defecto, el correo.
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -781,6 +801,28 @@
     };
     if (tipo) tipo.addEventListener('change', pinta);
     pinta();
+
+    // PREFERENCIA de comunicación: la pregunta solo existe si tiene correo Y teléfono, y aparece o
+    // desaparece según se rellenen los dos campos (sin recargar).
+    var caja = form.querySelector('[data-notify-pref-box]');
+    var correo = form.querySelector('[name="contact_email"]');
+    var tel = form.querySelector('[name="contact_phone"]');
+    if (caja && correo && tel) {
+      var pintaPref = function () {
+        var dos = !!(correo.value || '').trim() && !!(tel.value || '').trim();
+        caja.classList.toggle('d-none', !dos);
+      };
+      correo.addEventListener('input', pintaPref);
+      tel.addEventListener('input', pintaPref);
+      pintaPref();
+      // La pastilla elegida se marca (el radio va oculto).
+      form.addEventListener('change', function (ev) {
+        if (!ev.target.matches('input[name="notify_channel"]')) return;
+        caja.querySelectorAll('.notify-pref__opt').forEach(function (o) {
+          o.classList.toggle('is-on', o.contains(ev.target));
+        });
+      });
+    }
   }
   // BUSCADOR de terceros de las personas de contacto (Select2 con foto, el de siempre).
   var selects = document.querySelectorAll('[data-contact-link]');

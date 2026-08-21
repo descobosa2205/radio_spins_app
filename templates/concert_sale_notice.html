@@ -58,6 +58,14 @@
           para cambiar si le llega por correo o por SMS (solo se puede elegir a quien tiene las dos
           cosas; por defecto, el correo o lo que diga su ficha).
         </div>
+        {% if not sms_available %}
+          {# Sin pasarela no se ofrece «SMS» (sería un botón que no manda nada), y se dice por qué. #}
+          <div class="alert alert-light border py-2 px-3 small mb-2">
+            <i class="fa fa-circle-info me-1"></i>Los avisos por <strong>SMS</strong> están sin
+            configurar, así que todo va por correo.
+            {% if IS_MASTER %}<a href="{{ url_for('integrations_view') }}#tab-sms" class="alert-link">Configurar la pasarela</a>.{% endif %}
+          </div>
+        {% endif %}
         {% if recipients %}
           {# El selector por persona es el de siempre (`_notify_channel_picker.html`). #}
           {% with np_rows = recipients, np_checks = True %}

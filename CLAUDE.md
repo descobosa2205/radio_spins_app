@@ -2233,7 +2233,10 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   desaparece en vivo según se rellenen los dos campos). ⚠️ Si se queda con un solo dato, la
   preferencia **se borra** al guardar: `promoter_update` lo fuerza.
   · **Punto único**: `_notify_channel_options(email, phone, preference)` → `{channels, default, ask}`
-  (⚠️ el SMS solo cuenta si el teléfono es creíble: `sms_utils.normalize_phone`), y
+  (⚠️ el SMS solo cuenta si el teléfono es creíble —`sms_utils.normalize_phone`— **y si la pasarela
+  está configurada y encendida**: `_sms_available()`, cacheado en `g`. Ofrecer «SMS» sin poder
+  mandarlo sería un botón que no funciona, y la pantalla lo dice: «los avisos por SMS están sin
+  configurar, así que todo va por correo»), y
   **`_notify_apply_prefs(session_db, rows)`**, que es lo que llama cada pantalla: rellena la
   preferencia de los que sean terceros (`_promoter_notify_pref_map`, UNA consulta) y calcula el canal
   de cada uno. `_notify_summary` da el «Por correo: … · Por SMS: …» y `_notify_send_row` manda.

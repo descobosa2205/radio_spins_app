@@ -72510,18 +72510,36 @@ def _notify_pref_clean(value) -> str:
     return v if v in NOTIFY_CHANNEL_LABELS else ""
 
 
-def _notify_channel_options(email="", phone="", preference="") -> dict:
+def _sms_available() -> bool:
+    """¿Se pueden mandar SMS ahora mismo? (la pasarela configurada y encendida).
+
+    Cacheado en `g`: se pregunta una vez por cada lista de destinatarios, no una por persona."""
+    try:
+        if not hasattr(g, "_sms_ready"):
+            g._sms_ready = _sms_configured()
+        return bool(g._sms_ready)
+    except Exception:
+        # Fuera de una petición (un cron, un hilo) no hay `g`: se mira directamente.
+        try:
+            return _sms_configured()
+        except Exception:
+            return False
+
+
+def _notify_channel_options(email="", phone="", preference="", *, sms_available=True) -> dict:
     """Qué canales se pueden usar con este contacto y cuál va por defecto.
 
     Devuelve `{channels, default, ask}`: `ask` es False cuando no hay nada que preguntar (una sola
     opción o ninguna). ⚠️ El SMS solo cuenta si el teléfono es creíble (con prefijo o un móvil
-    español): un número a medias no es una opción."""
+    español): un número a medias no es una opción.
+    ⚠️ Y solo cuenta si la PASARELA está configurada (`sms_available`): ofrecer «SMS» sin poder
+    mandarlo sería un botón que no funciona, que es justo lo que la app evita en todas partes."""
     correo = (email or "").strip()
     telefono = sms_utils.normalize_phone(phone) or ""
     canales = []
     if correo:
         canales.append("EMAIL")
-    if telefono:
+    if telefono and sms_available:
         canales.append("SMS")
     pref = _notify_pref_clean(preference)
     if pref and pref in canales:
@@ -72534,14 +72552,16 @@ def _notify_channel_options(email="", phone="", preference="") -> dict:
             "email": correo, "phone": telefono, "preference": pref}
 
 
-def _notify_rows_with_channels(rows) -> list[dict]:
+def _notify_rows_with_channels(rows, *, sms_available=None) -> list[dict]:
     """Añade a cada destinatario su canal (`channel`), los que puede (`channels`) y si hay que
     preguntarle (`ask`). Lo usan las pantallas de aviso para pintar los iconos."""
+    disponible = _sms_available() if sms_available is None else bool(sms_available)
     salida = []
     for r in (rows or []):
         fila = dict(r or {})
         info = _notify_channel_options(fila.get("email"), fila.get("phone"),
-                                       fila.get("notify_pref") or fila.get("preference"))
+                                       fila.get("notify_pref") or fila.get("preference"),
+                                       sms_available=disponible)
         fila.update({"channels": info["channels"], "channel": info["default"],
                      "ask": info["ask"], "phone": info["phone"] or (fila.get("phone") or ""),
                      "preference": info["preference"]})
@@ -73335,6 +73355,7 @@ def concert_sale_notice_view(cid):
             notify_channels=NOTIFY_CHANNELS,
             notify_channel_labels=NOTIFY_CHANNEL_LABELS,
             notify_channel_icons=NOTIFY_CHANNEL_ICONS,
+            sms_available=_sms_available(),
             subject=_sale_notice_subject(ctx),
             preview_html=_sale_notice_html(ctx, preview=True),
         )
@@ -91567,7 +91588,7 @@ def invitation_category_send_all(concert_id, category_id):
             recipients = _dedupe_valid_email_addresses(_invitation_delivery_recipients(session_db, row))
             # Mismo criterio que en el envío de todo el evento: el canal que tenga cada uno.
             _canal = _invitation_mass_contact(session_db, row, recipients)
-            if not recipients and not (_canal.get('phone') or ''):
+            if not _canal.get('channel'):
                 no_email += 1
                 continue
             row.delivery_token = row.delivery_token or _invitation_token()
@@ -91615,7 +91636,7 @@ def invitation_category_send_all(concert_id, category_id):
                 continue
             recipients = _dedupe_valid_email_addresses(_invitation_guest_live_emails(session_db, row))
             _canal = _invitation_mass_contact(session_db, row, recipients)
-            if not recipients and not (_canal.get('phone') or ''):
+            if not _canal.get('channel'):
                 no_email += 1
                 continue
             row.delivery_token = row.delivery_token or _invitation_token()
@@ -91705,7 +91726,7 @@ def invitation_event_send_all(concert_id):
             # ⚠️ ENVÍO MASIVO: aquí no se pregunta nada, se usa el canal que tenga configurado CADA
             # UNO (punto único `_invitation_mass_contact` / `_invitation_mass_send_one`).
             _canal = _invitation_mass_contact(session_db, row, recipients)
-            if not recipients and not (_canal.get('phone') or ''):
+            if not _canal.get('channel'):
                 no_email += 1
                 continue
             row.delivery_token = row.delivery_token or _invitation_token()

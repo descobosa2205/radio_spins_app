@@ -24,7 +24,9 @@
       campaign: null,
       total: 0,
       segments: 1,
-      timer: null
+      timer: null,
+      test: [],
+      testTimer: null
     };
     var urls = {
       preview: root.dataset.urlPreview,
@@ -32,7 +34,9 @@
       cont: root.dataset.urlContinue,
       status: root.dataset.urlStatus,
       attach: root.dataset.urlAttach,
-      sender: root.dataset.urlSender
+      sender: root.dataset.urlSender,
+      test: root.dataset.urlTest,
+      contacts: root.dataset.urlContacts
     };
     var smsReady = root.dataset.smsReady === '1';
     var errBox = q('[data-bc-error]');
@@ -64,6 +68,9 @@
       var aviso = q('[data-bc-sms-off]');
       if (aviso) aviso.classList.toggle('d-none', esMail || smsReady);
       pintaEmpresaNota();
+      // Lo puesto para la prueba no sirve al cambiar de canal (un correo no vale para un SMS).
+      st.test = [];
+      pintaTest();
       programaPreview();
     }
 
@@ -427,6 +434,130 @@
           })
           .catch(function () { clearInterval(vigilando); vigilando = null; });
       }, 4000);
+    }
+
+    /* ---------- LA PRUEBA: antes de mandarlo a miles de personas ---------- */
+    // Se manda EXACTAMENTE lo que está compuesto (el mismo payload que el envío), a los correos o
+    // teléfonos que se digan. No toca a ningún comprador.
+    function testEsMail() { return st.channel === 'EMAIL'; }
+
+    function pintaTest() {
+      var zona = document.querySelector('[data-bt-list]');
+      if (zona) {
+        zona.innerHTML = st.test.length ? st.test.map(function (t, i) {
+          return '<span class="bc-file"><i class="fa ' + (testEsMail() ? 'fa-at' : 'fa-mobile-screen-button') +
+            '"></i>' + esc(t) + '<button type="button" class="bc-file__x" data-bt-del="' + i +
+            '" title="Quitar"><i class="fa fa-xmark"></i></button></span>';
+        }).join('') : '<span class="text-muted small">Todavía no has puesto a nadie.</span>';
+      }
+      var btn = document.querySelector('[data-bt-send]');
+      if (btn) btn.disabled = !st.test.length;
+      var lbl = document.querySelector('[data-bt-lbl]');
+      if (lbl) lbl.textContent = testEsMail() ? 'Correo' : 'Teléfono';
+      var inp = document.querySelector('[data-bt-manual]');
+      if (inp) inp.placeholder = testEsMail() ? 'prueba@33producciones.es' : '+34600111222';
+    }
+
+    function testAñade(valor) {
+      var v = (valor || '').trim();
+      if (!v) return;
+      var errZ = document.querySelector('[data-bt-error]');
+      var vale = testEsMail() ? (v.indexOf('@') > 0) : /[0-9]{6,}/.test(v);
+      if (!vale) {
+        if (errZ) {
+          errZ.textContent = testEsMail() ? 'Eso no es un correo.' : 'Eso no es un teléfono.';
+          errZ.classList.remove('d-none');
+        }
+        return;
+      }
+      if (errZ) errZ.classList.add('d-none');
+      if (st.test.indexOf(v) < 0) st.test.push(v);
+      pintaTest();
+    }
+
+    document.addEventListener('click', function (ev) {
+      if (ev.target.closest('[data-bt-add]')) {
+        var inp = document.querySelector('[data-bt-manual]');
+        if (inp) { testAñade(inp.value); inp.value = ''; }
+        return;
+      }
+      var del = ev.target.closest('[data-bt-del]');
+      if (del) {
+        var i = parseInt(del.getAttribute('data-bt-del'), 10);
+        if (!isNaN(i)) { st.test.splice(i, 1); pintaTest(); }
+        return;
+      }
+      var fila = ev.target.closest('[data-bt-pick]');
+      if (fila) { testAñade(fila.getAttribute('data-bt-pick')); return; }
+      if (ev.target.closest('[data-bt-send]')) enviaPrueba();
+    });
+
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Enter') return;
+      if (ev.target && ev.target.matches('[data-bt-manual]')) {
+        ev.preventDefault();
+        testAñade(ev.target.value);
+        ev.target.value = '';
+      }
+    });
+
+    document.addEventListener('input', function (ev) {
+      if (!ev.target.matches('[data-bt-search]')) return;
+      var txt = (ev.target.value || '').trim();
+      if (st.testTimer) clearTimeout(st.testTimer);
+      var zona = document.querySelector('[data-bt-results]');
+      if (txt.length < 2) { if (zona) zona.innerHTML = ''; return; }
+      st.testTimer = setTimeout(function () {
+        fetch(urls.contacts + '?channel=' + encodeURIComponent(st.channel) + '&q=' + encodeURIComponent(txt))
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (!zona) return;
+            var filas = (data.rows || []);
+            if (!filas.length) { zona.innerHTML = '<div class="text-muted small py-2">Nadie con ese nombre tiene ' + (testEsMail() ? 'correo' : 'teléfono') + '.</div>'; return; }
+            zona.innerHTML = filas.map(function (r) {
+              var valor = testEsMail() ? (r.email || '') : (r.phone || '');
+              var foto = r.photo_url
+                ? '<img src="' + esc(r.photo_url) + '" alt="" data-avatar="1">'
+                : '<span class="bt-res__ico"><i class="fa fa-user"></i></span>';
+              return '<button type="button" class="bt-res"' + (valor ? ' data-bt-pick="' + esc(valor) + '"' : ' disabled') + '>' +
+                foto + '<span class="bt-res__t"><span class="bt-res__n">' + esc(r.name) +
+                (r.extra ? ' <span class="text-muted small">· ' + esc(r.extra) + '</span>' : '') + '</span>' +
+                '<span class="bt-res__s">' + esc(valor || (testEsMail() ? 'sin correo' : 'sin teléfono')) + '</span></span>' +
+                '<span class="bt-res__k">' + esc(r.kind_label) + '</span></button>';
+            }).join('');
+          })
+          .catch(function () { if (zona) zona.innerHTML = '<div class="text-danger small py-2">No se pudo buscar.</div>'; });
+      }, 280);
+    });
+
+    function enviaPrueba() {
+      var btn = document.querySelector('[data-bt-send]');
+      var errZ = document.querySelector('[data-bt-error]');
+      var okZ = document.querySelector('[data-bt-result]');
+      if (!st.test.length) return;
+      if (errZ) errZ.classList.add('d-none');
+      if (okZ) okZ.classList.add('d-none');
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Enviando…'; }
+      var cuerpo = payload();
+      cuerpo.targets = st.test.slice();
+      fetch(urls.test, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cuerpo)
+      }).then(function (r) { return r.json(); }).then(function (data) {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa fa-paper-plane me-1"></i>Enviar la prueba'; }
+        if (!data.ok) {
+          if (errZ) { errZ.textContent = data.error || 'No se pudo mandar la prueba.'; errZ.classList.remove('d-none'); }
+          return;
+        }
+        if (okZ) {
+          okZ.innerHTML = '<i class="fa fa-check me-1"></i>Prueba enviada a <strong>' + (data.enviados || 0) + '</strong>' +
+            (data.fallos ? '. No salió para: ' + esc((data.errores || []).join(' · ')) : '.');
+          okZ.classList.remove('d-none');
+        }
+      }).catch(function () {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa fa-paper-plane me-1"></i>Enviar la prueba'; }
+        if (errZ) { errZ.textContent = 'No se pudo mandar la prueba.'; errZ.classList.remove('d-none'); }
+      });
     }
 
     /* ---------- de dónde se abre (SMS o correo) ---------- */

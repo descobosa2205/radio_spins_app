@@ -4715,3 +4715,42 @@ tr.is-provisional > td,
   color:#fff; }
 .btn-accent:hover,.btn-accent:focus{ background-color:#00688a; border-color:#00688a; color:#fff;
   box-shadow:0 8px 18px rgba(0,124,162,.22); transform:translateY(-1px); }
+
+/* ── Fila de arriba del listado de compradores: a la izquierda LO QUE HAY (con los filtros
+   puestos) y a la derecha «Ordenar» y los filtros. Aquí NO se enseña recaudación: esta pantalla
+   es de personas, no de dinero. ── */
+.bl-bar{ display:flex; align-items:center; justify-content:space-between; gap:.6rem; flex-wrap:wrap; }
+.bl-counts{ display:flex; align-items:center; gap:.9rem; flex-wrap:wrap; }
+.bl-count{ display:inline-flex; align-items:center; gap:.35rem; font-size:.9rem; color:#42505f;
+  white-space:nowrap; }
+/* ⚠️ El «verde» de la casa es en realidad el AZUL de la marca (`--brand-accent`, #007CA2): no hay
+   ningún verde corporativo, y el verde de Bootstrap es el de «aprobado» y las etiquetas de estado. */
+.bl-count i{ color:var(--brand-accent,#007CA2); font-size:.95rem; }
+.bl-count strong{ font-size:1.05rem; font-weight:800; color:#1f2937; }
+.bl-tools{ display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; }
+.bl-tools__sep{ width:1px; height:1.6rem; background:rgba(0,0,0,.12); margin:0 .25rem; }
+/* Lo elegido, dentro del propio botón de «Ordenar». */
+.bl-drop__cur{ font-weight:600; color:var(--brand-primary,#E33D48); }
+.filter-chip:not(.is-on) .bl-drop__cur{ color:#8a909a; }
+/* Una opción del panel que es un ENLACE (el orden se elige y ya): se lee como una fila más. */
+a.bl-drop__row{ text-decoration:none; color:inherit; }
+a.bl-drop__row.is-on{ background:rgba(227,61,72,.08); font-weight:600; }
+@media (max-width: 767.98px){
+  .bl-bar{ align-items:flex-start; }
+  .bl-counts{ gap:.7rem; }
+}
+
+/* Resultados de la búsqueda de contactos para la PRUEBA de un envío (terceros, personal, artistas). */
+.bt-results{ max-height:38vh; overflow:auto; display:flex; flex-direction:column; gap:.25rem; }
+.bt-res{ display:flex; align-items:center; gap:.55rem; width:100%; text-align:left;
+  border:1px solid rgba(0,0,0,.08); border-radius:10px; background:#fff; padding:.35rem .55rem;
+  font:inherit; transition:.15s ease; }
+.bt-res:hover:not(:disabled){ border-color:var(--brand-primary,#E33D48); background:rgba(227,61,72,.05); }
+.bt-res:disabled{ opacity:.5; }
+.bt-res img, .bt-res__ico{ width:30px; height:30px; border-radius:50%; object-fit:cover; flex:0 0 auto;
+  background:#eef2f6; color:#6b7683; display:inline-flex; align-items:center; justify-content:center; }
+.bt-res__t{ min-width:0; flex:1 1 auto; }
+.bt-res__n{ display:block; font-size:.9rem; font-weight:600; }
+.bt-res__s{ display:block; font-size:.78rem; color:#6b7280; }
+.bt-res__k{ font-size:.7rem; text-transform:uppercase; letter-spacing:.03em; color:#8a909a;
+  flex:0 0 auto; }

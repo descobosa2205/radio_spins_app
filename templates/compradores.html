@@ -166,8 +166,40 @@
     {% endif %}
   </div>
 
-  <div class="bl-filters mb-3">
-    <div class="bl-filters__row">
+  {# ---- Una sola fila: a la IZQUIERDA lo que hay (con los filtros puestos) y a la DERECHA
+         «Ordenar» y los filtros. Aquí NO se enseña recaudación: esta pantalla es de personas.
+         Los números son de lo que se está viendo, así que dicen a cuántos se les puede mandar. ---- #}
+  <div class="bl-bar mb-3">
+    <div class="bl-counts">
+      <span class="bl-count"><i class="fa fa-users"></i><strong>{{ totals.buyers|k }}</strong> compradores</span>
+      <span class="bl-count"><i class="fa fa-ticket"></i><strong>{{ totals.tickets|k }}</strong> entradas</span>
+      <span class="bl-count"><i class="fa fa-at"></i><strong>{{ totals.emails|k }}</strong> emails</span>
+      <span class="bl-count"><i class="fa fa-comment-sms"></i><strong>{{ totals.sms|k }}</strong> SMS</span>
+    </div>
+
+    <div class="bl-tools">
+      {# ---- ORDENAR: un solo control; al pincharlo salen las opciones y se elige una ---- #}
+      <div class="bl-drop" data-bl-drop>
+        <button type="button" class="filter-chip {{ 'is-on' if filtros.orden and filtros.orden != 'entradas' else '' }}" data-bl-drop-btn>
+          <i class="fa fa-arrow-down-short-wide"></i>Ordenar
+          <span class="bl-drop__cur">{{ (chips.orders | selectattr('on') | map(attribute='label') | first) or '' }}</span>
+          <i class="fa fa-chevron-down small"></i>
+        </button>
+        <div class="bl-drop__panel" data-bl-drop-panel hidden>
+          <div class="bl-drop__head">Ordenar por</div>
+          {% for o in chips.orders %}
+            {% if vista != 'todos' or o.key != 'categoria' %}
+            <a class="bl-drop__row {{ 'is-on' if o.on else '' }}" href="{{ o.url }}">
+              <i class="fa {{ o.icon }}"></i><span class="flex-grow-1">{{ o.label }}</span>
+              {% if o.on %}<i class="fa fa-check text-success"></i>{% endif %}
+            </a>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+
+      <span class="bl-tools__sep" aria-hidden="true"></span>
+
       <span class="bl-filters__lbl"><i class="fa fa-filter me-1"></i>Filtros</span>
 
       {# ---- Las CATEGORÍAS son UN filtro más: se abre y se DESMARCA lo que no se quiera ver ----
@@ -206,20 +238,6 @@
         {% endif %}
       {% endfor %}
     </div>
-    <div class="bl-filters__row">
-      <span class="bl-filters__lbl"><i class="fa fa-arrow-down-short-wide me-1"></i>Orden</span>
-      {% for o in chips.orders %}
-        {% if vista != 'todos' or o.key != 'categoria' %}
-        <a class="filter-chip {{ 'is-on' if o.on else '' }}" href="{{ o.url }}"><i class="fa {{ o.icon }}"></i>{{ o.label }}</a>
-        {% endif %}
-      {% endfor %}
-    </div>
-  </div>
-
-  <div class="d-flex flex-wrap gap-2 mb-3">
-    <div class="sim-stat"><div class="sim-stat__n">{{ totals.buyers|k }}</div><div class="sim-stat__l">Compradores</div></div>
-    <div class="sim-stat"><div class="sim-stat__n">{{ totals.tickets|k }}</div><div class="sim-stat__l">Entradas</div></div>
-    <div class="sim-stat"><div class="sim-stat__n">{{ totals.amount|eur }}</div><div class="sim-stat__l">Importe</div></div>
   </div>
 
   <div class="card"><div class="card-body p-0">
@@ -228,7 +246,7 @@
         <thead class="table-light"><tr>
           <th>Nombre</th><th>Email</th><th>Teléfono</th>
           {% if vista != 'todos' %}<th>Categorías</th>{% endif %}
-          <th class="text-end">Entradas</th><th class="text-end">Importe</th>
+          <th class="text-end">Entradas</th>
           <th class="text-end">Eventos</th><th>Última compra</th>
           <th class="text-center" title="Acepta publicidad"><i class="fa fa-envelope-open-text"></i></th>
         </tr></thead>
@@ -245,13 +263,12 @@
             </td>
             {% endif %}
             <td class="text-end">{{ b.tickets|k }}</td>
-            <td class="text-end small">{{ b.amount|eur }}</td>
             <td class="text-end">{{ b.events|k }}</td>
             <td class="small text-nowrap">{{ b.last.strftime('%d/%m/%Y %H:%M') if b.last else '—' }}</td>
             <td class="text-center">{% if b.marketing %}<i class="fa fa-check text-success"></i>{% else %}<i class="fa fa-xmark text-muted"></i>{% endif %}</td>
           </tr>
         {% else %}
-          <tr><td colspan="{{ 9 if vista != 'todos' else 8 }}" class="text-muted small p-3">No hay compradores{% if chips.any %} con esos filtros{% endif %}.</td></tr>
+          <tr><td colspan="{{ 8 if vista != 'todos' else 7 }}" class="text-muted small p-3">No hay compradores{% if chips.any %} con esos filtros{% endif %}.</td></tr>
         {% endfor %}
         </tbody>
       </table>
@@ -268,25 +285,34 @@
    carga después de este script), así que va por delegación sobre el documento. #}
 <script>
 (function () {
+  // Hay VARIOS desplegables en la fila (Ordenar y Categorías): cada uno abre el SUYO y al abrir
+  // uno se cierran los demás.
+  function panelDe(caja) { return caja ? caja.querySelector('[data-bl-drop-panel]') : null; }
+  function cierraTodos(menos) {
+    document.querySelectorAll('[data-bl-drop]').forEach(function (c) {
+      if (c !== menos) { var p = panelDe(c); if (p) p.hidden = true; }
+    });
+  }
   document.addEventListener('click', function (ev) {
     var btn = ev.target.closest('[data-bl-drop-btn]');
-    var caja = document.querySelector('[data-bl-drop]');
-    if (!caja) return;
-    var panel = caja.querySelector('[data-bl-drop-panel]');
-    if (!panel) return;
-    if (btn) { panel.hidden = !panel.hidden; return; }
+    if (btn) {
+      var caja = btn.closest('[data-bl-drop]');
+      var panel = panelDe(caja);
+      cierraTodos(caja);
+      if (panel) panel.hidden = !panel.hidden;
+      return;
+    }
     if (ev.target.closest('[data-bl-drop-all]')) {
-      caja.querySelectorAll('input[name="cat"]').forEach(function (i) { i.checked = true; });
+      var suyo = ev.target.closest('[data-bl-drop]');
+      if (suyo) suyo.querySelectorAll('input[name="cat"]').forEach(function (i) { i.checked = true; });
       var form = document.getElementById('buyersFilterForm');   // las casillas van fuera del form
       if (form) form.submit();
       return;
     }
-    if (!ev.target.closest('[data-bl-drop]')) panel.hidden = true;   // clic fuera: se cierra
+    if (!ev.target.closest('[data-bl-drop]')) cierraTodos(null);   // clic fuera: se cierran
   });
   document.addEventListener('keydown', function (ev) {
-    if (ev.key !== 'Escape') return;
-    var panel = document.querySelector('[data-bl-drop-panel]');
-    if (panel) panel.hidden = true;
+    if (ev.key === 'Escape') cierraTodos(null);
   });
 })();
 </script>

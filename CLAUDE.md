@@ -1480,7 +1480,17 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   filtrado es un punto único, **`_buyers_apply_filters`**, que usan la pantalla, el contador del
   envío y el propio envío: **el número que se ve antes de mandar es exactamente a quién se le
   manda**.
-  · **Las CATEGORÍAS son UN SOLO filtro** (`.bl-drop`, al lado del buscador): se abre y se
+  · **Una sola fila arriba** (`.bl-bar`): a la **izquierda lo que hay** —compradores · entradas ·
+  **cuántos tienen email** · **cuántos tienen teléfono**, con el icono en el **AZUL de la marca**
+  (`--brand-accent`; ⚠️ el «verde de la casa» **es ese azul**: no hay ningún verde corporativo, y el
+  verde de Bootstrap es el de «aprobado»)— y a la **derecha «Ordenar» y los filtros**.
+  ⚠️ **Aquí NO se enseña recaudación** (ni el total, ni el importe por comprador, ni el orden por
+  importe): esta pantalla es de personas. El dinero se ve en Ventas y en el Resultado.
+  · Los números son **de lo que se está viendo** (con los filtros puestos) y los de email/SMS dicen
+  **a cuántos se les puede mandar**: mismo criterio (`_buyer_has_email_cond` /
+  `_buyer_has_phone_cond`) que el total del envío y que el envío, así que no pueden discrepar.
+  · **«Ordenar» es UN control** (`.bl-drop` con las opciones dentro, cada una un enlace).
+  · **Las CATEGORÍAS son UN SOLO filtro** (`.bl-drop`, en la fila de filtros): se abre y se
   **desmarca lo que no se quiera ver** (marcada = se ve), no una fila de chips.
   ⚠️ **Tenerlas TODAS marcadas es no filtrar**, y así se normaliza en la vista: si no, un comprador
   **sin ninguna categoría** desaparecería del listado por estar «todas» seleccionadas.
@@ -1558,6 +1568,16 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · UI: `compradores.html` + `_buyer_import_modal.html` + `_buyer_campaign_modal.html` +
   `static/js/buyer_import.js` + `static/js/buyer_campaign.js`, estilos `.bl-*` / `.bi-*` / `.bc-*`
   (la zona de arrastrar y la tabla de columnas reutilizan las `.pi-*` de la importación de terceros).
+  · **ANTES DE MANDAR SE PRUEBA**: botón «Enviar una prueba» en el pie del pop-up, que abre el suyo
+  encima (`buyers_campaign_test`): se ponen uno o varios correos o teléfonos a mano **o se cogen de
+  la base** —terceros, personal de la oficina y artistas— con **`buyers_campaign_contacts`**, que
+  devuelve con qué se puede contactar a cada uno. Se manda **exactamente lo compuesto** (el mismo
+  payload que el envío, con «[PRUEBA]» en el asunto).
+  ⚠️ La prueba **no toca la campaña de verdad**: no crea destinatarios ni marca a nadie. Se guarda
+  como envío con `status='PRUEBA'` porque hace falta una fila para la página de los adjuntos y porque
+  lo que sale de la casa no puede ser invisible.
+  ⚠️ Un **artista no tiene correo propio**: se abre en las personas que reciben sus avisos
+  (`ArtistNotificationContact`) y en sus integrantes, que es a quien de verdad se le puede mandar.
   ⚠️ De qué listado se abre cada pop-up y con qué canal se decide **EN EL CLIC** (`data-bi-scope`,
   `data-bc-channel`), no en `shown.bs.modal`: con `modal_stack.js` por medio ese evento no siempre
   llega (bug real ya apuntado en esta guía).

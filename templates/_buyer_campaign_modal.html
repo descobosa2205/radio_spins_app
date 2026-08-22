@@ -14,6 +14,8 @@
          data-url-status="{{ url_for('buyers_campaign_status', cid='__CID__') }}"
          data-url-attach="{{ url_for('buyers_campaign_attach') }}"
          data-url-sender="{{ url_for('buyers_campaign_sender_save') }}"
+         data-url-test="{{ url_for('buyers_campaign_test') }}"
+         data-url-contacts="{{ url_for('buyers_campaign_contacts') }}"
          data-event="{{ source.pk if source.kind == 'ET' else '' }}"
          data-lista="{{ source.pk if source.kind == 'MANUAL' else '' }}"
          data-sms-ready="{{ '1' if sms_ready else '0' }}">
@@ -234,7 +236,12 @@
 
       <div class="modal-footer justify-content-between">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 flex-wrap">
+          {# Antes de mandarlo a miles de personas: probarlo con uno mismo. #}
+          <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal"
+                  data-bs-target="#buyerCampaignTestModal">
+            <i class="fa fa-vial me-1"></i>Enviar una prueba
+          </button>
           <button type="button" class="btn btn-outline-primary d-none" data-bc-continue>
             <i class="fa fa-forward me-1"></i>Seguir enviando
           </button>
@@ -267,6 +274,48 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-primary" data-bs-dismiss="modal"><i class="fa fa-check me-1"></i>Listo</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Pop-up de la PRUEBA: se abre encima del de envío (lo apila modal_stack.js) #}
+<div class="modal fade" id="buyerCampaignTestModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-vial me-2 text-danger"></i>Enviar una prueba</h5>
+          <div class="text-muted small">
+            Se manda <strong>tal como va a salir</strong> a quien digas. No se le manda a ningún comprador.
+          </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        {# A mano: un correo o un teléfono #}
+        <label class="form-label small mb-1" data-bt-lbl>Correo o teléfono</label>
+        <div class="input-group input-group-sm mb-2" style="max-width:26rem">
+          <input class="form-control" data-bt-manual placeholder="prueba@33producciones.es">
+          <button class="btn btn-outline-primary" type="button" data-bt-add><i class="fa fa-plus"></i></button>
+        </div>
+
+        {# De la base de datos: terceros, personal de la oficina y artistas #}
+        <label class="form-label small mb-1">…o de la base de datos</label>
+        <input class="form-control form-control-sm mb-2" data-bt-search
+               placeholder="Buscar en terceros, personal de la oficina y artistas…">
+        <div class="bt-results mb-2" data-bt-results></div>
+
+        <div class="bl-drop__head">A quién se le manda la prueba</div>
+        <div class="bc-files mb-2" data-bt-list></div>
+        <div class="alert alert-danger d-none py-2 px-3 small" data-bt-error></div>
+        <div class="alert alert-success d-none py-2 px-3 small" data-bt-result></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
+        <button type="button" class="btn btn-primary" data-bt-send disabled>
+          <i class="fa fa-paper-plane me-1"></i>Enviar la prueba
+        </button>
       </div>
     </div>
   </div>

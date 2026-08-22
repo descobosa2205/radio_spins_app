@@ -42,7 +42,7 @@ from flask import (
     send_file,
     Response,
 )
-from sqlalchemy import func, text, or_, and_, bindparam, event as sa_event
+from sqlalchemy import func, text, or_, and_, case, bindparam, event as sa_event
 
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.exceptions import RequestEntityTooLarge
@@ -100498,9 +100498,9 @@ BUYER_FILTER_DEFS = [
     ("rec", "Repiten (más de un evento)", "fa-repeat"),
     ("multi", "Más de una entrada", "fa-users"),
 ]
+# ⚠️ NO hay orden por importe: esta pantalla es de personas y aquí no se enseñan recaudaciones.
 BUYER_ORDER_DEFS = [
     ("entradas", "Más entradas", "fa-arrow-down-wide-short"),
-    ("importe", "Más importe", "fa-euro-sign"),
     ("reciente", "Compra más reciente", "fa-clock"),
     ("nombre", "Nombre (A-Z)", "fa-arrow-down-a-z"),
     ("categoria", "Categoría", "fa-tags"),
@@ -100667,6 +100667,18 @@ def _buyers_base_query(session_db, source: dict):
     return q.filter(BuyerEvent.list_id == to_uuid(source["pk"]))
 
 
+def _buyer_has_email_cond():
+    """¿Se le puede mandar un correo? (el MISMO criterio en el contador, en el total del envío y en
+    el envío: si no, el número de la pantalla no cuadraría con lo que sale)."""
+    return and_(Buyer.email.isnot(None), Buyer.email != "")
+
+
+def _buyer_has_phone_cond():
+    """¿Se le puede mandar un SMS? Hace falta el número en formato internacional: desde que el
+    prefijo se pone al guardar, lo que no empieza por «+» es que no es un teléfono."""
+    return and_(Buyer.phone.isnot(None), Buyer.phone != "", Buyer.phone.like("+%"))
+
+
 def _buyers_apply_filters(q, filtros: dict, *, channel: str = ""):
     """Aplica al listado los filtros elegidos (texto, categorías e interruptores).
 
@@ -100688,9 +100700,9 @@ def _buyers_apply_filters(q, filtros: dict, *, channel: str = ""):
     if channel == "SMS":
         flags.add("tel")
     if "mail" in flags:
-        q = q.filter(Buyer.email.isnot(None), Buyer.email != "")
+        q = q.filter(_buyer_has_email_cond())
     if "tel" in flags:
-        q = q.filter(Buyer.phone.isnot(None), Buyer.phone != "")
+        q = q.filter(_buyer_has_phone_cond())
     if "pub" in flags:
         q = q.filter(Buyer.accepts_marketing.is_(True))
     if "rec" in flags:
@@ -100701,8 +100713,6 @@ def _buyers_apply_filters(q, filtros: dict, *, channel: str = ""):
 
 
 def _buyers_order(q, orden: str):
-    if orden == "importe":
-        return q.order_by(BuyerEvent.amount_total.desc().nullslast(), Buyer.name.asc())
     if orden == "reciente":
         return q.order_by(BuyerEvent.last_purchase_at.desc().nullslast(), Buyer.name.asc())
     if orden == "nombre":
@@ -100787,7 +100797,7 @@ def _buyer_filter_chips(source: dict | None, filtros: dict, categorias: list[dic
 def _buyer_row_payload(be: BuyerEvent, b: Buyer) -> dict:
     return {
         "id": str(b.id), "name": b.name or "", "email": b.email or "", "phone": b.phone or "",
-        "tickets": int(be.tickets_count or 0), "amount": be.amount_total,
+        "tickets": int(be.tickets_count or 0),
         "events": int(b.events_count or 0), "marketing": bool(b.accepts_marketing),
         "last": be.last_purchase_at,
         "cats": [{"name": c, "icon": _buyer_category_icon(c)} for c in (be.categories or [])],
@@ -101132,7 +101142,7 @@ def buyers_view():
             vista = "listados"
         sources = _buyer_sources_list(s) if vista == "listados" else []
         buyers, categorias = [], []
-        totals = {"buyers": 0, "tickets": 0, "amount": Decimal("0")}
+        totals = {"buyers": 0, "tickets": 0, "emails": 0, "sms": 0}
         company = None
         if vista == "listado" and source:
             categorias = _buyer_categories_for_source(s, source)
@@ -101144,13 +101154,16 @@ def buyers_view():
                 filtros["cat"] = []
             company = _buyer_source_company(s, source)
             q = _buyers_apply_filters(_buyers_base_query(s, source), filtros)
-            # Totales sobre TODO lo filtrado (no solo lo que se pinta).
-            t_count, t_tickets, t_amount = (
-                q.with_entities(func.count(BuyerEvent.id),
-                                func.sum(BuyerEvent.tickets_count),
-                                func.sum(BuyerEvent.amount_total)).one())
+            # Totales sobre TODO lo filtrado (no solo lo que se pinta), y **a cuántos se les puede
+            # mandar** cada cosa: es lo que se va a poder enviar con esos filtros puestos.
+            t_count, t_tickets, t_mail, t_sms = (
+                q.with_entities(
+                    func.count(BuyerEvent.id),
+                    func.sum(BuyerEvent.tickets_count),
+                    func.count(case((_buyer_has_email_cond(), 1))),
+                    func.count(case((_buyer_has_phone_cond(), 1)))).one())
             totals = {"buyers": int(t_count or 0), "tickets": int(t_tickets or 0),
-                      "amount": _et_money(t_amount)}
+                      "emails": int(t_mail or 0), "sms": int(t_sms or 0)}
             for be, b in _buyers_order(q, filtros["orden"]).limit(BUYER_ROWS_LIMIT).all():
                 buyers.append(_buyer_row_payload(be, b))
         elif vista == "todos":
@@ -101161,22 +101174,21 @@ def buyers_view():
                                  _sa_contains_text(Buyer.phone, filtros["q"])))
             flags = set(filtros["flags"])
             if "mail" in flags:
-                q = q.filter(Buyer.email.isnot(None), Buyer.email != "")
+                q = q.filter(_buyer_has_email_cond())
             if "tel" in flags:
-                q = q.filter(Buyer.phone.isnot(None), Buyer.phone != "")
+                q = q.filter(_buyer_has_phone_cond())
             if "pub" in flags:
                 q = q.filter(Buyer.accepts_marketing.is_(True))
             if "rec" in flags:
                 q = q.filter(Buyer.events_count > 1)
-            t_count, t_tickets, t_amount = q.with_entities(
+            t_count, t_tickets, t_mail, t_sms = q.with_entities(
                 func.count(Buyer.id), func.sum(Buyer.tickets_count),
-                func.sum(Buyer.amount_total)).one()
+                func.count(case((_buyer_has_email_cond(), 1))),
+                func.count(case((_buyer_has_phone_cond(), 1)))).one()
             totals = {"buyers": int(t_count or 0), "tickets": int(t_tickets or 0),
-                      "amount": _et_money(t_amount)}
+                      "emails": int(t_mail or 0), "sms": int(t_sms or 0)}
             orden = filtros["orden"]
-            if orden == "importe":
-                q = q.order_by(Buyer.amount_total.desc().nullslast())
-            elif orden == "reciente":
+            if orden == "reciente":
                 q = q.order_by(Buyer.last_purchase_at.desc().nullslast())
             elif orden == "nombre":
                 q = q.order_by(Buyer.name.asc().nullslast())
@@ -101185,7 +101197,7 @@ def buyers_view():
             for b in q.limit(BUYER_ROWS_LIMIT).all():
                 buyers.append({"id": str(b.id), "name": b.name or "", "email": b.email or "",
                                "phone": b.phone or "", "tickets": int(b.tickets_count or 0),
-                               "amount": b.amount_total, "events": int(b.events_count or 0),
+                               "events": int(b.events_count or 0),
                                "marketing": bool(b.accepts_marketing),
                                "last": b.last_purchase_at, "cats": []})
         return render_template(
@@ -101889,6 +101901,175 @@ def buyers_campaign_preview():
             salida["sender"] = _campaign_sms_sender(s, borrador)
             salida["sms_ready"] = _sms_available()
         return jsonify(salida)
+    finally:
+        s.close()
+
+
+@app.get("/compradores/envio/contactos", endpoint="buyers_campaign_contacts")
+@admin_required
+def buyers_campaign_contacts():
+    """A quién mandar la PRUEBA: busca en TODA la base —terceros, personal de la oficina y artistas—
+    y devuelve **con qué se le puede contactar** (correo y teléfono), que es lo que hace falta aquí.
+
+    Un artista no tiene correo propio, así que se abre en las personas que reciben sus avisos y en
+    sus integrantes: es a quien de verdad se le puede mandar."""
+    q = (request.args.get("q") or "").strip()
+    canal = (request.args.get("channel") or "EMAIL").strip().upper()
+    if len(q) < 2:
+        return jsonify({"ok": True, "rows": []})
+    s = db()
+    try:
+        filas, vistos = [], set()
+
+        def añade(kind, kind_label, nombre, email, telefono, foto="", extra=""):
+            email = (email or "").strip().lower()
+            telefono = _normalize_phone_value(telefono) or ""
+            if not email and not telefono:
+                return
+            clave = (email or "") + "|" + (telefono or "")
+            if clave in vistos:
+                return
+            vistos.add(clave)
+            filas.append({"kind": kind, "kind_label": kind_label, "name": (nombre or "—"),
+                          "email": email, "phone": telefono, "photo_url": foto, "extra": extra})
+
+        # TERCEROS (con el mismo criterio de búsqueda que el resto de la app).
+        consulta = s.query(Promoter)
+        clausula = _promoter_search_clause(s, q)
+        if clausula is not None:
+            consulta = consulta.filter(clausula)
+        for p in consulta.order_by(Promoter.nick.asc()).limit(12).all():
+            añade("promoter", "Tercero", _promoter_display_name(p) or (p.nick or "—"),
+                  p.contact_email, p.contact_phone, (p.logo_url or ""))
+        # PERSONAL de la oficina (sin bloqueados ni eliminados).
+        fuera = _inactive_user_ids(s)
+        for u, prof in (s.query(User, UserProfile)
+                        .outerjoin(UserProfile, UserProfile.user_id == User.id)
+                        .filter(or_(_sa_contains_text(UserProfile.nick, q),
+                                    _sa_contains_text(UserProfile.first_name, q),
+                                    _sa_contains_text(UserProfile.last_name, q),
+                                    _sa_contains_text(User.email, q)))
+                        .order_by(func.lower(func.coalesce(UserProfile.nick, User.email)).asc())
+                        .limit(12).all()):
+            if u.id in fuera:
+                continue
+            añade("user", "Personal", ((getattr(prof, "nick", None) or u.email or "—").strip()),
+                  u.email, _user_sms_phone(s, u.id), (getattr(prof, "photo_url", "") or ""))
+        # ARTISTAS: sus contactos de avisos y sus integrantes (el artista en sí no tiene correo).
+        for a in (s.query(Artist).filter(Artist.event_id.is_(None))
+                  .filter(_sa_contains_text(Artist.name, q))
+                  .order_by(Artist.name.asc()).limit(6).all()):
+            for c in (s.query(ArtistNotificationContact)
+                      .filter(ArtistNotificationContact.artist_id == a.id).all()):
+                nombre = (getattr(c, "name", "") or "").strip()
+                correo = (getattr(c, "email", "") or "")
+                tel = (getattr(c, "phone", "") or "")
+                tercero = (s.get(Promoter, c.promoter_id) if getattr(c, "promoter_id", None) else None)
+                if tercero is not None:
+                    nombre = nombre or (_promoter_display_name(tercero) or tercero.nick or "")
+                    correo = correo or (tercero.contact_email or "")
+                    tel = tel or (tercero.contact_phone or "")
+                añade("artist", "Artista", nombre or a.name, correo, tel,
+                      (a.photo_url or ""), extra=a.name)
+            for per in (s.query(ArtistPerson)
+                        .filter(ArtistPerson.artist_id == a.id).all()):
+                tercero = (s.get(Promoter, per.promoter_id) if getattr(per, "promoter_id", None) else None)
+                if tercero is None:
+                    continue
+                añade("artist", "Artista", _artist_person_full_name(per) or tercero.nick or a.name,
+                      tercero.contact_email, tercero.contact_phone,
+                      (getattr(tercero, "logo_url", "") or (a.photo_url or "")), extra=a.name)
+        # Para el canal que toca, primero los que se pueden usar.
+        clave_canal = "email" if canal == "EMAIL" else "phone"
+        filas.sort(key=lambda r: (not bool(r.get(clave_canal)),))
+        return jsonify({"ok": True, "rows": filas[:30]})
+    finally:
+        s.close()
+
+
+@app.post("/compradores/envio/prueba", endpoint="buyers_campaign_test")
+@admin_required
+def buyers_campaign_test():
+    """Manda una PRUEBA del envío a los correos o teléfonos que se digan.
+
+    ⚠️ No toca la campaña de verdad: no crea destinatarios ni marca a nadie. Se guarda como envío de
+    **PRUEBA** (`status='PRUEBA'`) porque hace falta una fila para la página de los adjuntos… y
+    porque un envío que sale de la casa no puede ser invisible."""
+    if not can_edit_buyers():
+        return jsonify({"ok": False, "error": "No tienes permiso para mandar envíos."}), 403
+    datos = request.get_json(silent=True) or {}
+    canal = (datos.get("channel") or "EMAIL").strip().upper()
+    destinos = [str(x or "").strip() for x in (datos.get("targets") or []) if str(x or "").strip()]
+    if not destinos:
+        return jsonify({"ok": False, "error": "Dime a quién le mando la prueba."}), 400
+    if not (datos.get("body") or "").strip():
+        return jsonify({"ok": False, "error": "Escribe el mensaje antes de probarlo."}), 400
+    if canal == "SMS" and not _sms_available():
+        return jsonify({"ok": False, "error": ("La pasarela de SMS está sin configurar o apagada "
+                                               "(Integraciones → SMS).")}), 400
+    s = db()
+    try:
+        source = _campaign_source_from_payload(s, datos)
+        if source is None:
+            return jsonify({"ok": False, "error": "Falta el listado de compradores."}), 400
+        estado = _current_user_state() or {}
+        company_id, cycle_id, sender_kind = _campaign_sender_from_payload(s, source, datos)
+        camp = BuyerCampaign(
+            channel=canal,
+            event_id=(to_uuid(source["pk"]) if source["kind"] == "ET" else None),
+            list_id=(to_uuid(source["pk"]) if source["kind"] == "MANUAL" else None),
+            company_id=company_id, cycle_id=cycle_id, sender_kind=sender_kind,
+            subject=(datos.get("subject") or "").strip()[:300],
+            title=(datos.get("title") or "").strip()[:300],
+            body=(datos.get("body") or ""),
+            button_label=(datos.get("button_label") or "").strip()[:80],
+            button_url=(datos.get("button_url") or "").strip()[:900],
+            link_url=(datos.get("link_url") or "").strip()[:900],
+            files_json=_campaign_files_clean(datos.get("files")),
+            created_by_user_id=_safe_uuid(estado.get("user_id")),
+            created_by_nick=(estado.get("nick") or ""),
+            status="PRUEBA")
+        s.add(camp)
+        s.flush()
+        files_url = _campaign_files_url(s, camp)
+        ok_n, fallos = 0, []
+        if canal == "EMAIL":
+            cuerpo = _campaign_email_html(s, camp, files_url=files_url)
+            asunto = "[PRUEBA] " + ((camp.subject or camp.title or "").strip() or "Envío de prueba")
+            for destino in destinos[:20]:
+                if "@" not in destino:
+                    fallos.append("%s: no es un correo" % destino)
+                    continue
+                ok, error = _send_optional_email([destino], asunto, cuerpo)
+                if ok:
+                    ok_n += 1
+                else:
+                    fallos.append("%s: %s" % (destino, error or "no salió"))
+        else:
+            texto = _campaign_sms_text(s, camp, files_url=files_url)
+            remitente = _campaign_sms_sender(s, camp)
+            for destino in destinos[:20]:
+                numero = _normalize_phone_value(destino)
+                if not numero or not numero.startswith("+"):
+                    fallos.append("%s: no es un teléfono" % destino)
+                    continue
+                ok, error = _send_optional_sms(s, numero, texto, kind="CAMPAIGN_TEST",
+                                               sender=remitente, max_segments=0, force=True)
+                if ok:
+                    ok_n += 1
+                else:
+                    fallos.append("%s: %s" % (numero, error or "no salió"))
+        camp.sent_ok, camp.sent_fail = ok_n, len(fallos)
+        camp.sent_at = datetime.now(TZ_MADRID)
+        if fallos:
+            camp.last_error = "; ".join(fallos)[:500]
+        s.commit()
+        return jsonify({"ok": True, "enviados": ok_n, "fallos": len(fallos),
+                        "errores": fallos[:10]})
+    except Exception as exc:
+        s.rollback()
+        app.logger.exception("[envios] la prueba ha fallado")
+        return jsonify({"ok": False, "error": "No se pudo mandar la prueba: %s" % exc}), 500
     finally:
         s.close()
 

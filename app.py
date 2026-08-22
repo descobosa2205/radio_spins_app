@@ -54443,12 +54443,24 @@ def _home_quick_action_defs() -> dict:
             "hint": "Base de facturas de proveedores", "access": "databases.invoices",
             "url": url_for("invoices_view"),
         },
+        # --- Ticketing: lo que abre a diario ---
+        "compradores": {
+            "key": "compradores", "label": "Compradores", "plus": False, "icon": "fa-users",
+            "hint": "Base de compradores y envíos", "access": "databases.buyers",
+            "url": url_for("buyers_view"),
+        },
+        "recintos": {
+            "key": "recintos", "label": "Recintos", "plus": False, "icon": "fa-location-dot",
+            "hint": "Recintos y sus mapas de butacas", "access": "databases.venues",
+            "url": url_for("venues_view"),
+        },
     }
 
 
 # Orden canónico (así cada departamento sale en el orden pedido).
 _HOME_QUICK_ORDER = ["actividad", "peticion", "simulacion", "cuadrantes", "single",
-                     "pagos", "liquidar", "facturas", "gastos_mios", "invitaciones"]
+                     "pagos", "liquidar", "facturas", "gastos_mios", "compradores", "recintos",
+                     "invitaciones"]
 
 # Acciones por DEPARTAMENTO (nombres tal cual en PERSONNEL_DEPARTMENTS).
 _HOME_QUICK_BY_DEPARTMENT = {
@@ -54456,6 +54468,7 @@ _HOME_QUICK_BY_DEPARTMENT = {
     "Sello": ["actividad", "peticion", "invitaciones"],
     "Registros": ["peticion", "single", "invitaciones"],
     "Administración": ["peticion", "pagos", "liquidar", "facturas", "gastos_mios"],
+    "Ticketing": ["peticion", "compradores", "recintos", "invitaciones"],
 }
 # Quien no está en ninguno de los departamentos de arriba ve lo transversal.
 _HOME_QUICK_DEFAULT = ["peticion", "invitaciones"]
@@ -54485,6 +54498,18 @@ def _build_home_quick_actions() -> list[dict]:
             continue
         out.append(row)
     return out
+
+
+def _home_ticketing_only() -> bool:
+    """¿El Inicio de esta persona es el de TICKETING (solo el calendario y sus tareas)?
+
+    Lo es quien está en el departamento **Ticketing y en ninguno más**. Dirección y quien esté
+    además en otro departamento siguen viendo todos los módulos."""
+    if is_master():
+        return False
+    estado = _current_user_state() or {}
+    depts = {_norm_text_key(d) for d in (estado.get("departments") or []) if str(d or "").strip()}
+    return depts == {_norm_text_key("Ticketing")}
 
 
 def _build_personnel_access_rows() -> list[dict]:
@@ -54926,6 +54951,10 @@ def inject_personnel_globals():
                                        if request.endpoint == "home" and session.get("user_id")
                                        and "_home_production_activation_wrap" in globals() else []),
         # TICKETING: lo que hay que sacar a la venta y las salidas a la venta por comunicar.
+        # ⚠️ EL INICIO DE TICKETING es solo el calendario y sus tareas: quien está SOLO en ese
+        # departamento no tiene por qué mirar los módulos de los demás. Quien además esté en otro
+        # (o sea dirección) los sigue viendo todos.
+        "HOME_TICKETING_ONLY": _home_ticketing_only(),
         "HOME_TICKETING_SALES": (_home_ticketing_sales_wrap()
                                  if request.endpoint == "home" and session.get("user_id")
                                  and "_home_ticketing_sales_wrap" in globals() else []),

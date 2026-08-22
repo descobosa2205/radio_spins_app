@@ -219,7 +219,8 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (el catálogo las crea así): lo que manda es `can_view_basic`/`can_view_econ`.
 - **Inicio · acciones rápidas por departamento**: botones bajo la cabecera del personal
   (`HOME_QUICK_ACTIONS` ← `_build_home_quick_actions`, catálogo `_home_quick_action_defs`, reparto
-  `_HOME_QUICK_BY_DEPARTMENT` por `UserProfile.departments`: Contratación/Sello/Registros; el resto
+  `_HOME_QUICK_BY_DEPARTMENT` por `UserProfile.departments`: Contratación/Sello/Registros/
+  Administración/**Ticketing** —a este, «Compradores» y «Recintos»—; el resto
   ve `_HOME_QUICK_DEFAULT`, dirección lo ve todo). Cada acción se filtra por su `access` (nunca sale
   un botón que daría 403). Estilos `.dash-quick*` en `styles.css`. Sustituyen al botón «Añadir
   petición» y al módulo «Tus áreas» (eliminados). Las que viven en un modal de OTRA pantalla se
@@ -2054,7 +2055,14 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `CAN_EDIT_CONCERTS`), y los endpoints van en `SUPPORT_ACTION_ENDPOINTS` / `SUPPORT_READ_ENDPOINTS`
   (si no, el gate de la sección los rebotaba con un 403 antes de llegar a su comprobación).
   · Módulo de Inicio **`HOME_TICKETING_SALES`** (`_home_ticketing_sales_tasks`), solo para Ticketing y
-  dirección, con las dos tareas y su etiqueta.
+  dirección, con las dos tareas y su etiqueta. Va **justo debajo del calendario**, que es con lo que
+  trabaja ticketing.
+  ⚠️ **EL INICIO DE TICKETING ES SOLO EL CALENDARIO Y ESO**: a quien está en el departamento
+  Ticketing **y en ninguno más** (`_home_ticketing_only` → `HOME_TICKETING_ONLY`) no se le pintan los
+  módulos de los demás departamentos — en `home.html` todo lo que va después cuelga de
+  `{% if not HOME_TICKETING_ONLY %}`. Quien además esté en otro departamento, y dirección, los siguen
+  viendo todos. Un módulo nuevo que se añada al final queda dentro de esa compuerta: si tiene que
+  verlo ticketing, va ARRIBA (con el suyo).
 
 - **ELIMINAR UNA ACTIVIDAD · la RUEDA de la cabecera** (ago 2026). La ficha tiene arriba a la derecha
   un botón de **rueda** (`.ficha-hero__gear`) con lo que se hace de tarde en tarde: asignar/cambiar

@@ -13,6 +13,7 @@
   {'key': 'chartmetric', 'name': 'Chartmetric', 'subtitle': 'Métricas', 'icon': 'fa-chart-line', 'configured': chartmetric_configured},
   {'key': 'enterticket', 'name': 'Enterticket', 'subtitle': 'Ticketing', 'icon': 'fa-ticket', 'configured': enterticket_configured},
   {'key': 'sms', 'name': 'SMS', 'subtitle': 'Avisos al móvil', 'icon': 'fa-comment-sms', 'configured': sms_configured},
+  {'key': 'correo', 'name': 'Correo', 'subtitle': 'Envío de avisos', 'icon': 'fa-envelope', 'configured': smtp.configured},
 ] %}
 
 <ul class="nav nav-tabs mb-3" id="integrationsTabs" role="tablist">
@@ -1344,6 +1345,161 @@ document.addEventListener('DOMContentLoaded', function () {
       pinta();
     })();
     </script>
+  </div>
+
+  {# ============================ CORREO ============================
+     No hay nada que «configurar» aquí (el servidor de salida va en las variables de Render): esta
+     pestaña está para VER con qué se está mandando, probar si llega, y tener escrito lo único que de
+     verdad decide que un aviso no acabe en spam: los tres registros DNS del dominio. #}
+  <div class="tab-pane fade" id="tab-correo" role="tabpanel" aria-labelledby="tab-correo-tab">
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
+          <h2 class="h5 mb-0">Correo <span class="text-muted small fw-normal">· con qué se mandan los avisos</span></h2>
+          {% if smtp.configured %}<span class="badge text-bg-success">Configurado</span>{% else %}<span class="badge text-bg-danger">Sin servidor de salida</span>{% endif %}
+        </div>
+        {% if smtp.configured %}
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <tbody>
+                <tr><th style="width:12rem;">Servidor de salida</th><td>{{ smtp.host }}:{{ smtp.port }} <span class="text-muted">({{ smtp.security }})</span></td></tr>
+                <tr><th>Se autentica como</th><td>{{ smtp.user or '—' }}{% if not smtp.has_password %} <span class="badge text-bg-warning text-dark">sin contraseña</span>{% endif %}</td></tr>
+                <tr><th>Remitente</th><td><strong>{{ smtp.from_name }}</strong> &lt;{{ smtp.from_email or '—' }}&gt;</td></tr>
+                <tr>
+                  <th>Dominio del remitente</th>
+                  <td>
+                    {{ smtp.from_domain or '—' }}
+                    {% if smtp.from_domain and not smtp.aligned %}
+                      <span class="badge text-bg-warning text-dark ms-1">no coincide con la cuenta</span>
+                    {% elif smtp.aligned %}
+                      <span class="badge text-bg-success ms-1">coincide</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          {% if smtp.from_domain and not smtp.aligned %}
+            <div class="alert alert-warning small mt-3 mb-0">
+              <i class="fa fa-triangle-exclamation me-1"></i>
+              El remitente es de <code>{{ smtp.from_domain }}</code> pero se autentica con
+              <code>{{ smtp.user }}</code>. Si ese dominio no autoriza a este servidor, para Gmail y
+              Outlook el correo es <strong>falsificado</strong> y va a spam. Es lo primero que hay que
+              arreglar (los registros de abajo).
+            </div>
+          {% endif %}
+        {% else %}
+          <div class="alert alert-danger small mb-0">
+            <i class="fa fa-circle-exclamation me-1"></i>No hay servidor de salida configurado
+            (<code>SMTP_HOST</code> en Render): la app no manda ningún correo.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    {# ---------- La prueba ---------- #}
+    <div class="card mb-3">
+      <div class="card-body">
+        <h3 class="h6">Mandar un correo de prueba</h3>
+        <p class="text-muted small mb-3">
+          Míralo en <strong>Gmail</strong> y en <strong>Outlook/Hotmail</strong>, que son los que más
+          filtran. Si llega a spam, abre el mensaje → «Mostrar original» y busca
+          <code>spf=</code>, <code>dkim=</code> y <code>dmarc=</code>: los tres tienen que decir
+          <code>pass</code>.
+        </p>
+        <form method="post" action="{{ url_for('smtp_send_test') }}" class="row g-2 align-items-end"
+              data-inline data-inline-target="#tab-correo">
+          <div class="col-12 col-md-6">
+            <label class="form-label">Correo</label>
+            <input class="form-control" name="email" type="email" placeholder="tu@gmail.com" required>
+          </div>
+          <div class="col-12 col-md-3 d-grid">
+            <button class="btn btn-outline-primary"><i class="fa fa-paper-plane me-1"></i>Enviar prueba</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    {# ---------- Lo que de verdad lo arregla ---------- #}
+    <div class="card mb-3">
+      <div class="card-body">
+        <h3 class="h6">Por qué acaban en spam (y cómo se arregla)</h3>
+        <p class="text-muted small">
+          Que un correo llegue no lo decide la app: lo deciden <strong>tres registros DNS</strong> del
+          dominio del remitente. Si faltan, un correo que dice venir de
+          <code>{{ smtp.from_domain or '33producciones.es' }}</code> es indistinguible de uno
+          falsificado, y por eso va a spam «a mucha gente» y a otros no (cada proveedor es más o menos
+          estricto). Se ponen <strong>una vez</strong> donde estén contratados los DNS del dominio.
+        </p>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead class="table-light"><tr><th style="width:6rem;">Registro</th><th>Qué es</th><th>Qué hay que poner</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><strong>SPF</strong></td>
+                <td class="small">Qué servidores pueden mandar en nombre del dominio.</td>
+                <td class="small">
+                  Un TXT en <code>{{ smtp.from_domain or 'el dominio' }}</code> que incluya el
+                  servidor de salida. <strong>Uno solo</strong>: si ya hay un SPF, se añade dentro, no
+                  se crea otro.<br>
+                  <code>v=spf1 include:&lt;el que diga tu proveedor&gt; ~all</code>
+                </td>
+              </tr>
+              <tr>
+                <td><strong>DKIM</strong></td>
+                <td class="small">La firma que demuestra que el correo es de verdad del dominio.</td>
+                <td class="small">
+                  Lo genera el proveedor de correo (te da un par de CNAME o un TXT tipo
+                  <code>selector._domainkey</code>). Sin DKIM, Gmail no se fía aunque el SPF pase.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>DMARC</strong></td>
+                <td class="small">Qué hacer con lo que no cuadre, y a dónde mandar los informes.</td>
+                <td class="small">
+                  Un TXT en <code>_dmarc.{{ smtp.from_domain or 'dominio' }}</code>. Se empieza suave y
+                  se aprieta después:<br>
+                  <code>v=DMARC1; p=none; rua=mailto:dmarc@{{ smtp.from_domain or 'dominio' }}</code>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="alert alert-light border small mb-0">
+          <div class="fw-semibold mb-1">Además, y por este orden</div>
+          <ol class="mb-0">
+            <li><strong>Manda por un servicio de correo, no por el servidor de la app.</strong> Desde
+              una IP de Render sin reputación, la mitad acaba en spam por muy bien que esté todo lo
+              demás. Con Brevo, Postmark, SendGrid o Amazon SES (todos con plan gratuito para este
+              volumen) se cambian tres variables y ellos ponen SPF y DKIM.</li>
+            <li><strong>El remitente tiene que ser del dominio con el que se firma.</strong> Nada de
+              mandar como <code>@gmail.com</code> ni con un dominio que no autorice al servidor.</li>
+            <li><strong>Una dirección que exista y reciba</strong> (por ejemplo
+              <code>avisos@{{ smtp.from_domain or 'tudominio.es' }}</code>): un remitente que rebota
+              puntúa muy mal.</li>
+            <li>Dile a la gente que <strong>marque «no es spam»</strong> los que ya tengan ahí: eso
+              enseña al filtro más rápido que cualquier otra cosa.</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <h3 class="h6">Lo que ya hace la app</h3>
+        <ul class="small mb-0">
+          <li><strong>Un correo por persona</strong>, no uno con veinte direcciones en el «Para» (eso
+            parecía un envío masivo, y además le enseñaba a cada uno el correo de los demás).</li>
+          <li><strong>Versión en texto de verdad</strong>, sacada del propio mensaje: un correo solo en
+            HTML —o con un texto que no dice lo mismo— puntúa como spam.</li>
+          <li><strong>Fecha y Message-ID</strong> en cada mensaje, y marcado como aviso automático
+            para que nadie le conteste con una autorespuesta.</li>
+          <li><strong>Remitente con nombre</strong> («33 Producciones»), no una marca que el que lo
+            recibe no conoce.</li>
+          <li><strong>Responder va al que lo manda</strong> (Reply-To), no a un buzón que nadie lee.</li>
+        </ul>
+      </div>
+    </div>
   </div>
 
 <div class="alert alert-light border small mb-0">

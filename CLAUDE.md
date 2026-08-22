@@ -2257,6 +2257,31 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   global correo/WhatsApp/SMS, donde WhatsApp abre el móvil: se rediseña aparte) y los correos
   automáticos a terceros (liquidaciones, peticiones de factura…), que siguen saliendo por correo.
 
+- **CORREO · por qué los avisos acababan en SPAM** (ago 2026). Lo que decide que un correo llegue NO
+  es el código: son **tres registros DNS** del dominio del remitente (**SPF** — qué servidores pueden
+  mandar en su nombre; **DKIM** — la firma; **DMARC** — qué hacer con lo que no cuadre). Un correo que
+  dice venir de `@33producciones.es` desde un servidor que ese dominio no autoriza es, para Gmail y
+  Outlook, **falsificado**. Eso se arregla en el DNS y con un servicio de correo de verdad (desde una
+  IP de Render sin reputación, la mitad va a spam), no aquí.
+  · Lo que sí era de la app y ya está hecho, todo en el punto único `_send_optional_email`:
+  ⚠️ **UN correo por persona**, no uno con veinte direcciones en el «Para»: eso parecía un envío
+  masivo, le enseñaba a cada uno el correo de los demás y una dirección que rebota castigaba a todo
+  el envío. Se manda por **UNA sola conexión** SMTP, así que no es más lento.
+  ⚠️ **Versión en TEXTO de verdad** (`_html_to_text`, saca el texto y deja los enlaces entre
+  paréntesis): antes, sin `text_body`, la parte de texto era «Este mensaje contiene una versión
+  HTML…», que es una señal clásica de spam.
+  ⚠️ **`Date` y `Message-ID`** en cada mensaje (`smtplib.send_message` NO los añade) y el Message-ID
+  **del mismo dominio que el From**, para que DKIM/DMARC cuadren. Más `Auto-Submitted` y
+  `X-Auto-Response-Suppress`, que es lo que corresponde a un aviso de una máquina.
+  ⚠️ El nombre del remitente por defecto era **«Radio Spins App»**, una marca que el que lo recibe no
+  conoce (ayuda a que parezca phishing): ahora «33 Producciones».
+  · **Si sale para unos y no para otros, se dice**: `_send_optional_email` devuelve `(True, "No salió
+  para: …")` en vez de dar el envío por bueno.
+  · **Pestaña «Correo» en Integraciones** (`_smtp_settings`, `smtp_send_test`): enseña con qué se está
+  mandando (servidor, puerto, cifrado, remitente — **la contraseña nunca**), avisa si el **dominio del
+  remitente NO coincide** con la cuenta con la que se autentica (que es la causa típica), deja mandar
+  una prueba y tiene escritos los tres registros DNS y el orden en que hay que atacarlo.
+
 - **ENLACES CORTOS · en los SMS se acortan solos** (ago 2026): una URL nuestra se come 90 de los 160
   caracteres de un SMS, así que `_send_optional_sms` los cambia por
   `https://app.33producciones.es/l/aB3xY9` (38) — punto único **`_shorten_links_in_text`** +

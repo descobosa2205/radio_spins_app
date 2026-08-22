@@ -53,7 +53,8 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from decimal import Decimal, InvalidOperation
 from email.message import EmailMessage
-from email.utils import formataddr
+from email.utils import formataddr, formatdate, make_msgid
+from html import unescape
 from difflib import SequenceMatcher
 from collections import defaultdict, deque
 from types import SimpleNamespace
@@ -2861,6 +2862,30 @@ def _smtp_enabled() -> bool:
     return bool((os.getenv('SMTP_HOST') or '').strip())
 
 
+def _html_to_text(html: str) -> str:
+    """La versión en TEXTO de un correo HTML: lo que dice, con los enlaces a la vista.
+
+    Un correo cuya parte de texto no dice lo mismo que el HTML (o es un «este mensaje contiene una
+    versión HTML») puntúa como spam en Gmail y en Outlook. Esto no pretende ser un navegador: quita
+    el marcado, saca los `href` entre paréntesis y deja los saltos donde tocan."""
+    txt = (html or "")
+    txt = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", txt)
+    # Un enlace se convierte en «texto (url)», que es lo que se puede leer y pinchar en texto plano.
+    txt = re.sub(r'(?is)<a\b[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',
+                 lambda m: "%s (%s)" % (re.sub(r"(?s)<[^>]+>", "", m.group(2)).strip(), m.group(1).strip()),
+                 txt)
+    txt = re.sub(r"(?i)<br\s*/?>", "\n", txt)
+    txt = re.sub(r"(?i)</(p|div|tr|h[1-6]|li|table)>", "\n", txt)
+    txt = re.sub(r"(?i)<li[^>]*>", "· ", txt)
+    txt = re.sub(r"(?s)<[^>]+>", " ", txt)
+    txt = unescape(txt)
+    txt = re.sub(r"[ \t\xa0]+", " ", txt)
+    txt = re.sub(r" +([.,;:!?)])", r"\1", txt)      # «el lunes .» → «el lunes.» (el hueco de la etiqueta)
+    txt = re.sub(r"\n\s*\n\s*\n+", "\n\n", txt)
+    lineas = [l.strip() for l in txt.split("\n")]
+    return "\n".join(lineas).strip() or "Abre este mensaje en un cliente que muestre HTML."
+
+
 def _send_optional_email(
     to_email: str | list[str] | tuple[str, ...] | set[str],
     subject: str,
@@ -2900,7 +2925,9 @@ def _send_optional_email(
     username = (os.getenv('SMTP_USERNAME') or '').strip()
     password = (os.getenv('SMTP_PASSWORD') or '').strip()
     sender = (os.getenv('SMTP_FROM_EMAIL') or username or '').strip()
-    sender_name = (os.getenv('SMTP_FROM_NAME') or 'Radio Spins App').strip()
+    # ⚠️ El nombre que se ve. Sin variable puesta era «Radio Spins App», una marca que el que lo
+    # recibe no conoce: eso solo puede ayudar a que parezca phishing.
+    sender_name = (os.getenv('SMTP_FROM_NAME') or '33 Producciones').strip()
     use_ssl = _truthy(os.getenv('SMTP_SSL'))
     use_tls = not use_ssl if os.getenv('SMTP_TLS') is None else _truthy(os.getenv('SMTP_TLS'))
 
@@ -2910,41 +2937,69 @@ def _send_optional_email(
         reply_name = effective_reply_to.split('@', 1)[0].strip() if '@' in effective_reply_to else effective_reply_to
         reply_to_header = formataddr((reply_name, effective_reply_to)) if reply_name else effective_reply_to
 
-    msg = EmailMessage()
-    msg['Subject'] = subject
-    msg['From'] = f'{sender_name} <{sender}>' if sender else sender_name
-    msg['To'] = ', '.join(recipients)
-    if reply_to_header:
-        msg['Reply-To'] = reply_to_header
-    msg.set_content(text_body or 'Este mensaje contiene una versión HTML del contenido.')
-    msg.add_alternative(html_body, subtype='html')
+    # ⚠️ El DOMINIO del Message-ID y del From tienen que ser el mismo para que DKIM/DMARC cuadren.
+    dominio_from = (sender.split('@', 1)[1].strip() if '@' in (sender or '') else '') or None
 
-    for attachment in attachments or []:
-        if not isinstance(attachment, dict):
-            continue
-        data = attachment.get('data')
-        if not data:
-            continue
-        filename = (attachment.get('filename') or 'adjunto').strip() or 'adjunto'
-        mimetype = (attachment.get('mimetype') or 'application/octet-stream').strip()
-        maintype, _sep, subtype = mimetype.partition('/')
-        maintype = maintype or 'application'
-        subtype = subtype or 'octet-stream'
-        msg.add_attachment(data, maintype=maintype, subtype=subtype, filename=filename)
+    def _compone(destinatario: str) -> EmailMessage:
+        """UN correo para UNA persona (ver arriba por qué no se manda uno para todos)."""
+        msg = EmailMessage()
+        msg['Subject'] = subject
+        msg['From'] = formataddr((sender_name, sender)) if sender else sender_name
+        msg['To'] = destinatario
+        if reply_to_header:
+            msg['Reply-To'] = reply_to_header
+        # Cabeceras que los filtros ESPERAN encontrar: sin Date y sin Message-ID el correo puntúa
+        # como sospechoso (muchos relés los añaden, pero no todos).
+        msg['Date'] = formatdate(localtime=True)
+        msg['Message-ID'] = make_msgid(domain=dominio_from)
+        # Es un aviso de una máquina: así los servidores no le contestan con autorespuestas ni lo
+        # tratan como correo escrito a mano.
+        msg['Auto-Submitted'] = 'auto-generated'
+        msg['X-Auto-Response-Suppress'] = 'All'
+        # La versión de TEXTO se saca del propio HTML: un correo cuya parte de texto no dice lo mismo
+        # (o es un «este mensaje contiene una versión HTML») es una señal clásica de spam.
+        msg.set_content(text_body or _html_to_text(html_body))
+        msg.add_alternative(html_body, subtype='html')
+        for attachment in attachments or []:
+            if not isinstance(attachment, dict):
+                continue
+            data = attachment.get('data')
+            if not data:
+                continue
+            filename = (attachment.get('filename') or 'adjunto').strip() or 'adjunto'
+            mimetype = (attachment.get('mimetype') or 'application/octet-stream').strip()
+            maintype, _sep, subtype = mimetype.partition('/')
+            maintype = maintype or 'application'
+            subtype = subtype or 'octet-stream'
+            msg.add_attachment(data, maintype=maintype, subtype=subtype, filename=filename)
+        return msg
 
+    # ⚠️ UN CORREO POR PERSONA, no uno con veinte direcciones en el «Para». Meterlas todas juntas
+    # (a) parece un envío masivo y va derecho a spam, (b) le enseña a cada uno la dirección de los
+    # demás y (c) si una rebota, castiga a todo el envío. Se manda por UNA sola conexión SMTP, así
+    # que no es más lento en la práctica.
     try:
         if use_ssl:
-            with smtplib.SMTP_SSL(host, port, timeout=20) as smtp:
-                if username:
-                    smtp.login(username, password)
-                smtp.send_message(msg, to_addrs=recipients)
+            smtp = smtplib.SMTP_SSL(host, port, timeout=30)
         else:
-            with smtplib.SMTP(host, port, timeout=20) as smtp:
-                if use_tls:
-                    smtp.starttls()
-                if username:
-                    smtp.login(username, password)
-                smtp.send_message(msg, to_addrs=recipients)
+            smtp = smtplib.SMTP(host, port, timeout=30)
+        with smtp:
+            if not use_ssl and use_tls:
+                smtp.starttls()
+            if username:
+                smtp.login(username, password)
+            fallos = []
+            for destinatario in recipients:
+                try:
+                    smtp.send_message(_compone(destinatario), to_addrs=[destinatario])
+                except Exception as exc:
+                    fallos.append('%s: %s' % (destinatario, exc))
+        if fallos and len(fallos) == len(recipients):
+            return False, '; '.join(fallos)[:500]
+        if fallos:
+            # Salió para unos y no para otros: se dice, no se da por bueno del todo.
+            app.logger.warning('[correo] no salió para %s', '; '.join(fallos)[:300])
+            return True, 'No salió para: ' + '; '.join(fallos)[:300]
         return True, None
     except Exception as exc:
         return False, str(exc)
@@ -28669,7 +28724,7 @@ def api_create_ticketer():
 
 from decimal import Decimal, InvalidOperation
 from email.message import EmailMessage
-from email.utils import formataddr
+from email.utils import formataddr, formatdate, make_msgid
 from difflib import SequenceMatcher
 from collections import defaultdict
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
@@ -52824,6 +52879,7 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         # SMS: la pasarela de avisos al móvil (los endpoints exigen además dirección).
         "sms_account_save": "integraciones", "sms_account_test": "integraciones",
         "sms_kinds_save": "integraciones", "sms_send_test": "integraciones",
+        "smtp_send_test": "integraciones",
     }
     if endpoint in fixed:
         return fixed[endpoint]
@@ -53677,7 +53733,7 @@ def _resolve_request_resource_key() -> str | None:
     if (endpoint == "integrations_view" or endpoint.startswith("pleo_")
             or endpoint.startswith("cabify_") or endpoint.startswith("cm_")
             or endpoint.startswith("holded_account_") or endpoint == "api_cm_search"
-            or endpoint.startswith("sms_")):
+            or endpoint.startswith("sms_") or endpoint.startswith("smtp_")):
         return "integraciones"
     # TODO lo que se HACE en contabilidad (subir a Holded, marcar contabilizado, omitir, corregir
     # importes) cuelga de «Pendiente de contabilizar», que es donde se trabaja. Quien tenga la sección
@@ -75808,6 +75864,72 @@ def _holded_configured_any(session_db) -> bool:
 # ---------------------------------------------------------------------------------------------
 # Integraciones · SMS (la pasarela de avisos por mensaje de texto)
 # ---------------------------------------------------------------------------------------------
+# ═════════════════════════════════════════════════════════════════════════════
+# CORREO · por qué los avisos acaban en spam y cómo comprobarlo
+#
+# Un correo con el remitente «@33producciones.es» que sale por un servidor que ese dominio NO
+# autoriza es, para Gmail y para Outlook, un correo falsificado: va a spam por definición. Lo que
+# decide que llegue son TRES registros DNS del dominio, no el código:
+#   · SPF    — «estos servidores pueden mandar en mi nombre».
+#   · DKIM   — firma con una clave del dominio (la pone el proveedor de correo).
+#   · DMARC  — qué hacer con lo que no cuadre, y a dónde mandar los informes.
+# Esta pestaña enseña con qué está configurado, deja mandar una prueba y dice exactamente qué
+# registros hay que añadir: lo único que la app puede hacer por su cuenta ya está hecho (un correo
+# por persona, versión de texto de verdad, Date y Message-ID, y el nombre del remitente).
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _smtp_settings() -> dict:
+    """Lo que hay configurado para mandar correo (SIN la contraseña, que no se enseña nunca)."""
+    host = (os.getenv("SMTP_HOST") or "").strip()
+    usuario = (os.getenv("SMTP_USERNAME") or "").strip()
+    remitente = (os.getenv("SMTP_FROM_EMAIL") or usuario or "").strip()
+    dominio = remitente.split("@", 1)[1].strip().lower() if "@" in remitente else ""
+    ssl = _truthy(os.getenv("SMTP_SSL"))
+    return {
+        "configured": bool(host),
+        "host": host,
+        "port": (os.getenv("SMTP_PORT") or "587").strip(),
+        "user": usuario,
+        "from_email": remitente,
+        "from_name": (os.getenv("SMTP_FROM_NAME") or "33 Producciones").strip(),
+        "from_domain": dominio,
+        "security": ("SSL" if ssl else ("STARTTLS" if (os.getenv("SMTP_TLS") is None or _truthy(os.getenv("SMTP_TLS"))) else "sin cifrar")),
+        "has_password": bool((os.getenv("SMTP_PASSWORD") or "").strip()),
+        # ⚠️ La pista más útil: ¿el remitente es del MISMO dominio que la cuenta con la que se
+        # autentica? Si no, SPF/DKIM no pueden cuadrar y el correo va a spam.
+        "aligned": bool(dominio and "@" in usuario and usuario.split("@", 1)[1].strip().lower() == dominio),
+    }
+
+
+@app.post("/integraciones/correo/probar", endpoint="smtp_send_test")
+@admin_required
+def smtp_send_test():
+    """Manda un correo de prueba (para ver si llega y, sobre todo, si llega a la bandeja o a spam)."""
+    if not is_master():
+        flash("Solo dirección puede configurar las integraciones.", "warning")
+        return redirect(url_for("integrations_view") + "#tab-correo")
+    destino = (request.form.get("email") or "").strip()
+    if not destino or "@" not in destino:
+        flash("Escribe el correo al que mandar la prueba.", "warning")
+        return redirect(url_for("integrations_view") + "#tab-correo")
+    cfg = _smtp_settings()
+    html = (
+        '<div style="font-family:Arial,Helvetica,sans-serif;color:#212529;max-width:560px;">'
+        '<h2 style="text-align:center;">Correo de prueba</h2>'
+        '<p>Si estás leyendo esto, los avisos de la app salen bien desde <strong>%s</strong>.</p>'
+        '<p>Comprueba dos cosas: que ha llegado a la <strong>bandeja de entrada</strong> (no a spam) '
+        'y que el remitente se ve como «%s».</p>'
+        '<p style="color:#6b7280;font-size:13px;">Enviado desde %s.</p></div>'
+    ) % (escape(cfg["from_email"] or "—"), escape(cfg["from_name"]), escape(cfg["host"] or "—"))
+    ok, error = _send_optional_email([destino], "Correo de prueba · 33 Producciones", html)
+    if ok:
+        flash("Correo de prueba enviado a %s. Mira si ha llegado a la bandeja o a spam.%s"
+              % (destino, (" ⚠️ " + error) if error else ""), "success")
+    else:
+        flash("No se pudo enviar: %s" % (error or "sin detalle"), "danger")
+    return redirect(url_for("integrations_view") + "#tab-correo")
+
+
 def _sms_admin_guard():
     """Configurar integraciones es de DIRECCIÓN. Devuelve la respuesta si no toca, o None."""
     if not is_master():
@@ -97615,6 +97737,7 @@ def integrations_view():
     return render_template(
         "integraciones.html",
         title="Integraciones",
+        smtp=_smtp_settings(),
         pleo_configured=pleo_any,
         pleo_rows=pleo_rows,
         pleo_people=pleo_people,

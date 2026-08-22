@@ -1141,7 +1141,12 @@ document.addEventListener('DOMContentLoaded', function () {
               <label class="form-label">Remitente (lo que se ve)</label>
               <input class="form-control" name="sender" maxlength="11"
                      value="{{ sms_account.sender or '' if sms_account else '' }}" placeholder="33PROD">
-              <div class="form-text">Hasta 11 caracteres, o un número propio (+34…).</div>
+              <div class="form-text">
+                Hasta 11 caracteres, o un número propio (+34…).
+                <strong>Déjalo vacío</strong> para que la pasarela use su número: en España los
+                remitentes con letras hay que <strong>registrarlos</strong>, y hasta entonces las
+                operadoras bloquean el mensaje (llega a la pasarela y sale como error).
+              </div>
             </div>
             <div class="col-6 col-md-2">
               <label class="form-label">Máximo de trozos</label>
@@ -1251,7 +1256,7 @@ document.addEventListener('DOMContentLoaded', function () {
             <div class="table-responsive">
               <table class="table table-sm align-middle mb-0">
                 <thead class="table-light">
-                  <tr><th>Cuándo</th><th>A</th><th>Aviso</th><th>Texto</th><th class="text-center">Trozos</th><th>Estado</th></tr>
+                  <tr><th>Cuándo</th><th>A</th><th>Aviso</th><th>Texto</th><th class="text-center">Trozos</th><th>Estado</th><th>Ref.</th></tr>
                 </thead>
                 <tbody>
                   {% for r in sms_rows %}
@@ -1269,6 +1274,7 @@ document.addEventListener('DOMContentLoaded', function () {
                           <div class="text-danger" style="max-width:260px;">{{ r.error }}</div>
                         {% endif %}
                       </td>
+                      <td class="small text-muted text-nowrap">{{ r.ref }}</td>
                     </tr>
                   {% endfor %}
                 </tbody>
@@ -1277,6 +1283,21 @@ document.addEventListener('DOMContentLoaded', function () {
           {% else %}
             <div class="text-muted small">Todavía no se ha mandado ningún SMS.</div>
           {% endif %}
+          {# Qué mirar cuando aquí dice «Enviado» pero el mensaje no llega. #}
+          <div class="alert alert-light border small mt-3 mb-0">
+            <div class="fw-semibold mb-1"><i class="fa fa-triangle-exclamation me-1 text-warning"></i>Aquí dice «Enviado» pero no llega</div>
+            Entonces la pasarela lo aceptó y el problema está en su lado. Míralo en su panel, por este
+            orden:
+            <ol class="mb-0 mt-1">
+              <li><strong>Saldo</strong>: sin créditos no sale (los de prueba a veces hay que activarlos).</li>
+              <li><strong>Cuenta validada</strong>: hasta que la aprueban, muchas pasarelas solo dejan
+                enviar a tu propio número.</li>
+              <li><strong>Remitente</strong>: si es con letras y no está registrado, la operadora lo
+                bloquea. <strong>Vacíalo y prueba otra vez</strong> (arriba): si así llega, era eso.</li>
+              <li><strong>Modo de prueba</strong>: si está activado, los envíos se registran pero no
+                se entregan.</li>
+            </ol>
+          </div>
         </div>
       </div>
     </div>

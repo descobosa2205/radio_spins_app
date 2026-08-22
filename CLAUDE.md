@@ -2291,6 +2291,13 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   tres pasarelas (con credenciales falsas todas contestan 401/403, no 404).
   ⚠️ Un **remitente alfanumérico** («33PROD», hasta 11 caracteres) **no admite respuesta**: es lo
   normal para avisos; si hace falta que contesten, la pasarela tiene que dar un número largo.
+  ⚠️⚠️ **EN ESPAÑA EL REMITENTE CON LETRAS HAY QUE REGISTRARLO** y, mientras no lo esté, las
+  operadoras **bloquean el mensaje**: llega a la pasarela y sale ahí como error (el registro de la app
+  dice «Enviado» porque la pasarela lo aceptó). Por eso el campo **se puede dejar VACÍO** —
+  `sms_account_save` lo borra si llega vacío y el cliente entonces no manda `tpoa`, así que sale con
+  el número de la pasarela— y es la forma de comprobar si el problema era ese. La pestaña lo explica
+  y lleva una lista de qué mirar cuando el registro dice «Enviado» y el SMS no llega: saldo, cuenta
+  sin validar, remitente sin registrar y modo de prueba.
   · Configurarla es de **dirección** (los endpoints `sms_*` van a la sección `integraciones` y
   comprueban `is_master()`).
 

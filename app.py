@@ -75642,13 +75642,20 @@ def sms_account_save():
             if token and not token.startswith("•"):
                 acc.api_token = token
         acc.account_ref = sms_utils.clean_api_key(request.form.get("account_ref")) or None
-        remitente = (request.form.get("sender") or "").strip()
-        if remitente:
-            vale, motivo = sms_utils.sender_is_valid(remitente)
-            if not vale:
-                flash(motivo, "warning")
-                return redirect(url_for("integrations_view") + "#tab-sms")
-            acc.sender = remitente
+        # ⚠️ EL REMITENTE SE PUEDE DEJAR VACÍO a propósito: en España los remitentes alfanuméricos
+        # («33PROD») hay que registrarlos, y mientras no lo estén las operadoras BLOQUEAN el mensaje
+        # (llega a la pasarela y sale como error). Sin remitente, la pasarela usa su número
+        # compartido y el SMS sale: es la forma de comprobar si el problema era ese.
+        if "sender" in request.form:
+            remitente = (request.form.get("sender") or "").strip()
+            if not remitente:
+                acc.sender = None
+            else:
+                vale, motivo = sms_utils.sender_is_valid(remitente)
+                if not vale:
+                    flash(motivo, "warning")
+                    return redirect(url_for("integrations_view") + "#tab-sms")
+                acc.sender = remitente
         acc.avoid_accents = _truthy(request.form.get("avoid_accents"))
         try:
             acc.max_segments = max(0, min(6, int(request.form.get("max_segments") or 2)))
@@ -75773,6 +75780,7 @@ def _sms_panel_context(session_db) -> dict:
                          if m.created_at else ""),
                 "phone": m.phone, "body": (m.body or ""), "segments": int(m.segments or 1),
                 "status": (m.status or ""), "error": (m.error or ""),
+                "ref": (m.provider_ref or ""),
                 "kind": SMS_NOTICE_LABELS.get((m.kind or "").upper(), (m.kind or "")),
                 "nick": (m.nick or ""),
             })

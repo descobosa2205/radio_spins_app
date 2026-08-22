@@ -54422,6 +54422,13 @@ def _home_quick_action_defs() -> dict:
             "hint": "Solicitar invitaciones para un evento", "access": "invitaciones.pedir",
             "url": url_for("invitations_view", tab="pedir", open="request"),
         },
+        "invitaciones_gestionar": {
+            "key": "invitaciones_gestionar", "label": "Gestionar invitaciones", "plus": False,
+            "icon": "fa-ticket-simple",
+            "hint": "Asignar y enviar las invitaciones de cada evento",
+            "access": "invitaciones.gestionar",
+            "url": url_for("invitations_view", tab="gestionar"),
+        },
         # --- Administración: lo que se abre veinte veces al día ---
         "pagos": {
             "key": "pagos", "label": "Pagos", "plus": False, "icon": "fa-money-bill-transfer",
@@ -54460,7 +54467,7 @@ def _home_quick_action_defs() -> dict:
 # Orden canónico (así cada departamento sale en el orden pedido).
 _HOME_QUICK_ORDER = ["actividad", "peticion", "simulacion", "cuadrantes", "single",
                      "pagos", "liquidar", "facturas", "gastos_mios", "compradores", "recintos",
-                     "invitaciones"]
+                     "invitaciones_gestionar", "invitaciones"]
 
 # Acciones por DEPARTAMENTO (nombres tal cual en PERSONNEL_DEPARTMENTS).
 _HOME_QUICK_BY_DEPARTMENT = {
@@ -54468,7 +54475,7 @@ _HOME_QUICK_BY_DEPARTMENT = {
     "Sello": ["actividad", "peticion", "invitaciones"],
     "Registros": ["peticion", "single", "invitaciones"],
     "Administración": ["peticion", "pagos", "liquidar", "facturas", "gastos_mios"],
-    "Ticketing": ["peticion", "compradores", "recintos", "invitaciones"],
+    "Ticketing": ["compradores", "recintos", "invitaciones_gestionar", "invitaciones"],
 }
 # Quien no está en ninguno de los departamentos de arriba ve lo transversal.
 _HOME_QUICK_DEFAULT = ["peticion", "invitaciones"]

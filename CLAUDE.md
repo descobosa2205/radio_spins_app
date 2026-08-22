@@ -220,7 +220,8 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
 - **Inicio · acciones rápidas por departamento**: botones bajo la cabecera del personal
   (`HOME_QUICK_ACTIONS` ← `_build_home_quick_actions`, catálogo `_home_quick_action_defs`, reparto
   `_HOME_QUICK_BY_DEPARTMENT` por `UserProfile.departments`: Contratación/Sello/Registros/
-  Administración/**Ticketing** —a este, «Compradores» y «Recintos»—; el resto
+  Administración/**Ticketing** —a este, «Compradores», «Recintos» y «Gestionar invitaciones», sin el
+  de «Petición»—; el resto
   ve `_HOME_QUICK_DEFAULT`, dirección lo ve todo). Cada acción se filtra por su `access` (nunca sale
   un botón que daría 403). Estilos `.dash-quick*` en `styles.css`. Sustituyen al botón «Añadir
   petición» y al módulo «Tus áreas» (eliminados). Las que viven en un modal de OTRA pantalla se

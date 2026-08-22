@@ -13,6 +13,7 @@
          data-url-continue="{{ url_for('buyers_campaign_continue', cid='__CID__') }}"
          data-url-status="{{ url_for('buyers_campaign_status', cid='__CID__') }}"
          data-url-attach="{{ url_for('buyers_campaign_attach') }}"
+         data-url-sender="{{ url_for('buyers_campaign_sender_save') }}"
          data-event="{{ source.pk if source.kind == 'ET' else '' }}"
          data-lista="{{ source.pk if source.kind == 'MANUAL' else '' }}"
          data-sms-ready="{{ '1' if sms_ready else '0' }}">
@@ -85,22 +86,67 @@
         <div class="bc-card">
           <div class="bc-card__t"><i class="fa fa-pen-to-square me-2 text-danger"></i>El mensaje</div>
 
-          <div class="row g-2">
-            <div class="col-12 col-md-6">
-              <label class="form-label small mb-1">Empresa del grupo que lo manda</label>
-              <select class="form-select select-with-thumbs" data-bc-company>
-                {% for co in companies %}
-                  <option value="{{ co.id }}" data-logo="{{ co.logo_url or '' }}"
-                          data-sms="{{ co.sms_sender or '' }}"
-                          {% if company and co.id == company.id %}selected{% endif %}>{{ co.name }}</option>
-                {% endfor %}
-              </select>
-              <div class="form-text" data-bc-company-note></div>
+          {# ── ¿EN NOMBRE DE QUIÉN? ──────────────────────────────────────────────────
+             Tarjetas con el logo de cada uno, no un desplegable: si la base es de un ciclo o un
+             festival propio, lo normal es mandarlo **en nombre del ciclo** (es el nombre que la
+             gente reconoce) y no en el de la empresa que lo promueve.
+             ⚠️ Antes era un `select` con Select2 y dentro de este pop-up **no se podía abrir**
+             (Select2 en un modal apilado deja el desplegable detrás): se veía el logo y no había
+             forma de cambiar la empresa. #}
+          <label class="form-label small mb-1">¿En nombre de quién se manda?</label>
+          <div class="bc-senders mb-2">
+            {% if cycle %}
+            <label class="bc-sender">
+              <input type="radio" name="bc_sender" value="CYCLE" data-kind="CYCLE"
+                     data-id="{{ cycle.id }}" data-name="{{ cycle.name }}"
+                     data-sms="{{ cycle.sms_sender or '' }}" checked>
+              <span class="bc-sender__box">
+                {% if cycle.logo_url %}<img src="{{ cycle.logo_url }}" alt="">
+                {% else %}<span class="bc-sender__ico"><i class="fa fa-star"></i></span>{% endif %}
+                <span class="bc-sender__t">
+                  <span class="bc-sender__n">{{ cycle.name }}</span>
+                  <span class="bc-sender__k">{{ cycle_kind_labels.get(cycle.kind|upper, 'Ciclo') }}</span>
+                </span>
+              </span>
+            </label>
+            {% endif %}
+            {% for co in companies %}
+            <label class="bc-sender">
+              <input type="radio" name="bc_sender" value="COMPANY" data-kind="COMPANY"
+                     data-id="{{ co.id }}" data-name="{{ co.name }}" data-sms="{{ co.sms_sender or '' }}"
+                     {% if (not cycle) and company and co.id == company.id %}checked{% endif %}>
+              <span class="bc-sender__box">
+                {% if co.logo_url %}<img src="{{ co.logo_url }}" alt="">
+                {% else %}<span class="bc-sender__ico"><i class="fa fa-building"></i></span>{% endif %}
+                <span class="bc-sender__t">
+                  <span class="bc-sender__n">{{ co.name }}</span>
+                  <span class="bc-sender__k">{% if company and co.id == company.id %}Promotor{% else %}Empresa del grupo{% endif %}</span>
+                </span>
+              </span>
+            </label>
+            {% endfor %}
+          </div>
+          <div class="form-text mb-2" data-bc-company-note></div>
+
+          {# Si quien manda no tiene nombre abreviado para el SMS, se pone aquí mismo. #}
+          <div class="bc-shortname d-none mb-2" data-bc-shortname>
+            <div class="small mb-1">
+              <i class="fa fa-triangle-exclamation text-warning me-1"></i>
+              <strong data-bc-shortname-who></strong> no tiene <strong>nombre abreviado para SMS</strong>.
+              Ponlo aquí y se guarda en su ficha (máximo 11 caracteres, sin acentos ni símbolos).
             </div>
-            <div class="col-12 col-md-6 d-none" data-bc-only="EMAIL">
-              <label class="form-label small mb-1">Asunto del correo</label>
-              <input class="form-control" data-bc-subject maxlength="200" placeholder="Tu entrada para…">
+            <div class="input-group input-group-sm" style="max-width:22rem">
+              <input class="form-control" data-bc-shortname-in maxlength="11" placeholder="33PROD">
+              <button class="btn btn-outline-primary" type="button" data-bc-shortname-save>
+                <i class="fa fa-save me-1"></i>Guardar
+              </button>
             </div>
+            <div class="small text-danger mt-1 d-none" data-bc-shortname-err></div>
+          </div>
+
+          <div class="d-none" data-bc-only="EMAIL">
+            <label class="form-label small mb-1">Asunto del correo</label>
+            <input class="form-control" data-bc-subject maxlength="200" placeholder="Tu entrada para…">
           </div>
 
           <div class="mt-2 d-none" data-bc-only="EMAIL">

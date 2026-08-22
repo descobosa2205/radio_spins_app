@@ -31,7 +31,8 @@
       send: root.dataset.urlSend,
       cont: root.dataset.urlContinue,
       status: root.dataset.urlStatus,
-      attach: root.dataset.urlAttach
+      attach: root.dataset.urlAttach,
+      sender: root.dataset.urlSender
     };
     var smsReady = root.dataset.smsReady === '1';
     var errBox = q('[data-bc-error]');
@@ -75,7 +76,7 @@
         return;
       }
       if (ev.target.matches('[data-bc-cat], [data-bc-flag]')) { programaPreview(); return; }
-      if (ev.target.matches('[data-bc-company]')) { pintaEmpresaNota(); programaPreview(); return; }
+      if (ev.target.name === 'bc_sender') { pintaEmpresaNota(); programaPreview(); return; }
       if (ev.target.matches('[data-bc-accept]')) { pintaBotonEnviar(); }
     });
 
@@ -85,19 +86,68 @@
       }
     });
 
+    function quienManda() {
+      var r = root.querySelector('input[name="bc_sender"]:checked');
+      if (!r) return null;
+      return { kind: r.getAttribute('data-kind') || 'COMPANY', id: r.getAttribute('data-id') || '',
+               name: r.getAttribute('data-name') || '', sms: r.getAttribute('data-sms') || '' };
+    }
+
     function pintaEmpresaNota() {
-      var sel = q('[data-bc-company]');
       var nota = q('[data-bc-company-note]');
-      if (!sel || !nota) return;
-      var op = sel.options[sel.selectedIndex];
-      var sms = op ? (op.getAttribute('data-sms') || '') : '';
-      if (st.channel === 'SMS') {
-        nota.innerHTML = sms
-          ? 'El SMS saldrá como <strong>' + esc(sms) + '</strong>.'
-          : '<span class="text-warning-emphasis">Esta empresa no tiene <strong>nombre abreviado para SMS</strong>: se pone en su ficha. Sin él sale el remitente general.</span>';
-      } else {
-        nota.textContent = 'Su logo va arriba a la derecha del correo.';
+      var quien = quienManda();
+      var caja = q('[data-bc-shortname]');
+      if (!quien) { if (caja) caja.classList.add('d-none'); return; }
+      if (nota) {
+        if (st.channel === 'SMS') {
+          nota.innerHTML = quien.sms
+            ? 'El SMS saldrá como <strong>' + esc(quien.sms) + '</strong>.'
+            : 'Sin nombre abreviado, el SMS sale con el remitente general de la casa.';
+        } else {
+          nota.innerHTML = 'En el correo va su logo arriba a la derecha.';
+        }
       }
+      // El nombre abreviado solo hace falta para el SMS.
+      if (caja) {
+        var falta = (st.channel === 'SMS' && !quien.sms);
+        caja.classList.toggle('d-none', !falta);
+        var who = q('[data-bc-shortname-who]');
+        if (who) who.textContent = quien.name;
+        var inp = q('[data-bc-shortname-in]');
+        if (inp && !inp.value) {
+          inp.value = (quien.name || '').replace(/[^A-Za-z0-9 .\-]/g, '').slice(0, 11).toUpperCase();
+        }
+      }
+    }
+
+    var btnShort = q('[data-bc-shortname-save]');
+    if (btnShort) {
+      btnShort.addEventListener('click', function () {
+        var quien = quienManda();
+        var inp = q('[data-bc-shortname-in]');
+        var errZ = q('[data-bc-shortname-err]');
+        if (!quien || !inp) return;
+        if (errZ) errZ.classList.add('d-none');
+        btnShort.disabled = true;
+        fetch(urls.sender, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kind: quien.kind, id: quien.id, sender: inp.value })
+        }).then(function (r) { return r.json(); }).then(function (data) {
+          btnShort.disabled = false;
+          if (!data.ok) {
+            if (errZ) { errZ.textContent = data.error || 'No se pudo guardar.'; errZ.classList.remove('d-none'); }
+            return;
+          }
+          // Se queda guardado en su ficha, así que la tarjeta ya lo lleva.
+          var marcada = root.querySelector('input[name="bc_sender"]:checked');
+          if (marcada) marcada.setAttribute('data-sms', data.sender);
+          pintaEmpresaNota();
+          programaPreview();
+        }).catch(function () {
+          btnShort.disabled = false;
+          if (errZ) { errZ.textContent = 'No se pudo guardar.'; errZ.classList.remove('d-none'); }
+        });
+      });
     }
 
     /* ---------- botón y enlace ---------- */
@@ -198,7 +248,7 @@
     function payload() {
       var who = root.querySelector('input[name="bc_who"]:checked');
       var todos = !who || who.value === 'todos';
-      var sel = q('[data-bc-company]');
+      var quien = quienManda() || {};
       return {
         channel: st.channel,
         event: root.dataset.event || '',
@@ -206,7 +256,8 @@
         todos: todos ? '1' : '',
         cat: todos ? [] : qa('[data-bc-cat]:checked').map(function (i) { return i.value; }),
         flags: todos ? [] : qa('[data-bc-flag]:checked').map(function (i) { return i.value; }),
-        company_id: sel ? sel.value : '',
+        sender_kind: quien.kind || 'COMPANY',
+        company_id: (quien.kind === 'COMPANY' ? (quien.id || '') : ''),
         subject: (q('[data-bc-subject]') || {}).value || '',
         title: (q('[data-bc-title-in]') || {}).value || '',
         body: (q('[data-bc-body]') || {}).value || '',

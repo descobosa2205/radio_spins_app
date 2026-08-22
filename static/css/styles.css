@@ -4686,3 +4686,32 @@ tr.is-provisional > td,
 .bl-drop__row:hover{ background:rgba(227,61,72,.06); }
 .bl-drop__row i{ color:var(--brand-primary,#E33D48); width:1.1rem; text-align:center; font-size:.85rem; }
 @media (max-width: 575.98px){ .bl-drop__panel{ left:auto; right:0; } }
+
+/* ¿EN NOMBRE DE QUIÉN sale el envío?: tarjetas con el logo de cada uno (el ciclo o festival propio
+   y las empresas del grupo). No es un desplegable a propósito: dentro de un modal apilado, el
+   Select2 deja el desplegable detrás y no había forma de cambiar la empresa. */
+.bc-senders{ display:flex; flex-wrap:wrap; gap:.5rem; }
+.bc-sender{ position:relative; cursor:pointer; flex:1 1 15rem; max-width:22rem; margin:0; }
+.bc-sender input{ position:absolute; opacity:0; pointer-events:none; }
+.bc-sender__box{ display:flex; align-items:center; gap:.65rem; height:100%;
+  border:1px solid rgba(0,0,0,.1); border-radius:12px; padding:.55rem .7rem; background:#fcfcfd;
+  transition:.15s ease; }
+.bc-sender input:checked + .bc-sender__box{ border-color:var(--brand-primary,#E33D48);
+  background:rgba(227,61,72,.06); box-shadow:0 0 0 .16rem rgba(227,61,72,.12); }
+.bc-sender__box img{ width:64px; height:40px; object-fit:contain; flex:0 0 auto; }
+.bc-sender__ico{ width:64px; height:40px; display:inline-flex; align-items:center; justify-content:center;
+  border-radius:8px; background:#eef2f6; color:#6b7683; flex:0 0 auto; }
+.bc-sender__t{ min-width:0; }
+.bc-sender__n{ display:block; font-weight:700; font-size:.92rem; line-height:1.2;
+  overflow:hidden; text-overflow:ellipsis; }
+.bc-sender__k{ display:block; font-size:.72rem; text-transform:uppercase; letter-spacing:.03em;
+  color:#8a909a; }
+.bc-shortname{ border:1px dashed rgba(0,0,0,.18); border-radius:12px; padding:.55rem .7rem;
+  background:#fffdf5; }
+
+/* Botón con el AZUL de la marca (`--brand-accent`): el rojo es `btn-primary`, y hacía falta un
+   segundo color de casa para acciones hermanas (p. ej. «Envío de Email» al lado de «Envío de SMS»). */
+.btn-accent{ background-color:var(--brand-accent,#007CA2); border-color:var(--brand-accent,#007CA2);
+  color:#fff; }
+.btn-accent:hover,.btn-accent:focus{ background-color:#00688a; border-color:#00688a; color:#fff;
+  box-shadow:0 8px 18px rgba(0,124,162,.22); transform:translateY(-1px); }

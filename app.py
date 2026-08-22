@@ -101192,6 +101192,8 @@ def buyers_view():
             "compradores.html", title="Compradores",
             sources=sources, buyers=buyers, totals=totals, vista=vista,
             source=source, company=company, categorias=categorias, filtros=filtros,
+            cycle=(_buyer_source_cycle(s, source) if (vista == "listado" and source) else None),
+            cycle_kind_labels=CYCLE_FESTIVAL_KIND_LABELS,
             chips=_buyer_filter_chips(source, filtros, categorias, vista),
             # Los filtros puestos, para que «exportar» baje EXACTAMENTE lo que se está viendo.
             filtros_url={**({"q": filtros["q"]} if filtros["q"] else {}),
@@ -101458,16 +101460,17 @@ def _campaign_sms_preview(session_db, body: str, link_url: str, files: list[dict
 
 def _campaign_email_html(session_db, camp, *, files_url: str = "") -> str:
     """El correo del envío. Es el MISMO HTML que se enseña en la previsualización y el que sale."""
-    company = session_db.get(GroupCompany, camp.company_id) if camp.company_id else None
-    # ⚠️ Este correo SALE DE CASA, así que si la empresa todavía no tiene logo se cae al de la casa
-    # (en las pantallas de dentro se enseña el icono de empresa, pero aquí hay que enseñar una marca).
-    logo_url = _absolute_media_url((getattr(company, "logo_url", "") or "").strip()) or \
+    marca = _campaign_brand(session_db, camp)
+    # ⚠️ Este correo SALE DE CASA, así que si quien lo manda todavía no tiene logo se cae al de la
+    # casa (en las pantallas de dentro se enseña el icono de empresa, pero aquí hay que enseñar una
+    # marca).
+    logo_url = _absolute_media_url(marca["logo_url"]) or \
         _external_url_for("static", filename="img/logo_33_producciones.png")
     logo_html = (
         '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
         'style="border-collapse:collapse;"><tr><td align="right">'
         f'<img src="{html.escape(logo_url)}" '
-        f'alt="{html.escape((getattr(company, "name", "") or "33 Producciones"))}" '
+        f'alt="{html.escape(marca["name"] or "33 Producciones")}" '
         'style="display:inline-block;max-width:180px;max-height:64px;object-fit:contain;">'
         '</td></tr></table>')
     titulo_html = ""
@@ -101523,16 +101526,54 @@ def _campaign_email_html(session_db, camp, *, files_url: str = "") -> str:
     </div>'''
 
 
-def _campaign_sms_sender(session_db, camp) -> str:
-    """El remitente del SMS: el nombre abreviado de la empresa del grupo que promueve.
+def _buyer_source_cycle(session_db, source: dict | None):
+    """El CICLO o FESTIVAL propio del que es la actividad de este listado (o None).
 
-    Si esa empresa no lo tiene puesto se usa el general de Integraciones → SMS (y si tampoco hay,
-    sale el número de la pasarela: en España un remitente con letras hay que registrarlo)."""
+    Si la base de compradores es de un ciclo, lo normal es que el envío salga **en nombre del
+    ciclo** y no en el de la empresa que lo promueve: es el nombre que la gente reconoce."""
+    if not source or not source.get("concert_id"):
+        return None
+    try:
+        c = session_db.get(Concert, to_uuid(source["concert_id"]))
+    except Exception:
+        return None
+    if c is None or not getattr(c, "cycle_festival_id", None):
+        return None
+    return session_db.get(CycleFestival, c.cycle_festival_id)
+
+
+def _campaign_brand(session_db, camp) -> dict:
+    """EN NOMBRE DE QUIÉN sale el envío: el logo del correo, el nombre y el remitente del SMS.
+
+    Punto único de las dos cosas (el correo y el SMS), para que no puedan decir cosas distintas.
+    `sender_kind`: COMPANY (la empresa del grupo que promueve) o CYCLE (el ciclo o festival propio).
+    """
+    company = session_db.get(GroupCompany, camp.company_id) if camp.company_id else None
+    cycle = session_db.get(CycleFestival, camp.cycle_id) if camp.cycle_id else None
+    es_ciclo = (camp.sender_kind or "COMPANY").upper() == "CYCLE" and cycle is not None
+    if es_ciclo:
+        nombre = (cycle.name or "").strip()
+        # Si el ciclo no tiene logo se cae al de la empresa que lo promueve antes que al de la casa.
+        logo = ((cycle.logo_url or "").strip()
+                or (getattr(company, "logo_url", "") or "").strip())
+        remitente = (cycle.sms_sender or "").strip()
+    else:
+        nombre = (getattr(company, "name", "") or "").strip()
+        logo = (getattr(company, "logo_url", "") or "").strip()
+        remitente = (getattr(company, "sms_sender", "") or "").strip()
+    return {"kind": ("CYCLE" if es_ciclo else "COMPANY"), "name": nombre, "logo_url": logo,
+            "sms_sender": remitente, "company": company, "cycle": cycle}
+
+
+def _campaign_sms_sender(session_db, camp) -> str:
+    """El remitente del SMS: el nombre abreviado de quien manda el envío (la empresa del grupo que
+    promueve o el ciclo, según lo que se haya marcado).
+
+    Si no lo tiene puesto se usa el general de Integraciones → SMS (y si tampoco hay, sale el número
+    de la pasarela: en España un remitente con letras hay que registrarlo)."""
     if (camp.sms_sender or "").strip():
         return camp.sms_sender.strip()
-    company = session_db.get(GroupCompany, camp.company_id) if camp.company_id else None
-    remitente = ((getattr(company, "sms_sender", "") or "").strip()
-                 if company is not None else "")
+    remitente = (_campaign_brand(session_db, camp).get("sms_sender") or "").strip()
     if remitente:
         return remitente
     acc = _sms_account(session_db)
@@ -101709,6 +101750,60 @@ def buyers_campaign_status(cid):
         s.close()
 
 
+def _campaign_sender_from_payload(session_db, source: dict, datos: dict):
+    """En nombre de quién sale el envío, tal como lo manda la pantalla: (company_id, cycle_id, kind).
+
+    ⚠️ El CICLO se comprueba contra el de la actividad del listado, no se acepta a ciegas: el
+    formulario no puede firmar un envío en nombre de un ciclo que no es el suyo."""
+    company_id = None
+    if (datos.get("company_id") or "").strip():
+        try:
+            company_id = to_uuid(datos["company_id"].strip())
+        except Exception:
+            company_id = None
+    if company_id is None:
+        company = _buyer_source_company(session_db, source)
+        company_id = getattr(company, "id", None)
+    kind = (datos.get("sender_kind") or "COMPANY").strip().upper()
+    ciclo = _buyer_source_cycle(session_db, source)
+    if kind != "CYCLE" or ciclo is None:
+        return company_id, (ciclo.id if ciclo is not None else None), "COMPANY"
+    return company_id, ciclo.id, "CYCLE"
+
+
+@app.post("/compradores/envio/remitente", endpoint="buyers_campaign_sender_save")
+@admin_required
+def buyers_campaign_sender_save():
+    """Guarda el NOMBRE ABREVIADO PARA SMS de quien va a mandar el envío (la empresa del grupo o el
+    ciclo), sin salir del pop-up. Se valida con el mismo límite que el remitente general."""
+    if not can_edit_buyers():
+        return jsonify({"ok": False, "error": "No tienes permiso."}), 403
+    datos = request.get_json(silent=True) or {}
+    kind = (datos.get("kind") or "").strip().upper()
+    remitente = (datos.get("sender") or "").strip()
+    valido, motivo = sms_utils.sender_is_valid(remitente)
+    if not valido:
+        return jsonify({"ok": False, "error": motivo}), 400
+    s = db()
+    try:
+        try:
+            pk = to_uuid((datos.get("id") or "").strip())
+        except Exception:
+            return jsonify({"ok": False, "error": "Falta a quién se le pone."}), 400
+        fila = s.get(CycleFestival, pk) if kind == "CYCLE" else s.get(GroupCompany, pk)
+        if fila is None:
+            return jsonify({"ok": False, "error": "Eso ya no existe."}), 404
+        fila.sms_sender = remitente
+        s.commit()
+        return jsonify({"ok": True, "sender": remitente,
+                        "name": (getattr(fila, "name", "") or "")})
+    except Exception as exc:
+        s.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        s.close()
+
+
 def _campaign_source_from_payload(session_db, datos: dict):
     return _buyer_source(session_db, event_pk=(datos.get("event") or ""),
                          list_pk=(datos.get("lista") or ""))
@@ -101769,15 +101864,10 @@ def buyers_campaign_preview():
         sin_dato = ((_buyers_apply_filters(_buyers_base_query(s, source), filtros)
                      .with_entities(func.count(BuyerEvent.id)).scalar() or 0) - total)
         ficheros = _campaign_files_clean(datos.get("files"))
-        company_id = None
-        if (datos.get("company_id") or "").strip():
-            try:
-                company_id = to_uuid(datos["company_id"].strip())
-            except Exception:
-                company_id = None
+        company_id, cycle_id, sender_kind = _campaign_sender_from_payload(s, source, datos)
         # Campaña de PEGA (no se guarda): solo para componer con el mismo código que el envío.
         borrador = BuyerCampaign(
-            channel=canal, company_id=company_id,
+            channel=canal, company_id=company_id, cycle_id=cycle_id, sender_kind=sender_kind,
             subject=(datos.get("subject") or "").strip(),
             title=(datos.get("title") or "").strip(),
             body=(datos.get("body") or ""),
@@ -101786,6 +101876,10 @@ def buyers_campaign_preview():
             link_url=(datos.get("link_url") or "").strip(),
             files_json=ficheros)
         salida = {"ok": True, "total": int(total), "sin_dato": max(0, int(sin_dato))}
+        marca = _campaign_brand(s, borrador)
+        salida["sender_kind"] = marca["kind"]
+        salida["sender_name"] = marca["name"]
+        salida["sender_short"] = marca["sms_sender"]
         if canal == "EMAIL":
             salida["html"] = _campaign_email_html(s, borrador)
             salida["subject"] = (borrador.subject or borrador.title or "").strip()
@@ -101825,17 +101919,12 @@ def buyers_campaign_send():
             return jsonify({"ok": False, "error": "Falta el listado de compradores."}), 400
         filtros = _campaign_filters_from_payload(datos)
         estado = _current_user_state() or {}
-        company_id = None
-        if (datos.get("company_id") or "").strip():
-            try:
-                company_id = to_uuid(datos["company_id"].strip())
-            except Exception:
-                company_id = None
+        company_id, cycle_id, sender_kind = _campaign_sender_from_payload(s, source, datos)
         camp = BuyerCampaign(
             channel=canal,
             event_id=(to_uuid(source["pk"]) if source["kind"] == "ET" else None),
             list_id=(to_uuid(source["pk"]) if source["kind"] == "MANUAL" else None),
-            company_id=company_id,
+            company_id=company_id, cycle_id=cycle_id, sender_kind=sender_kind,
             subject=(datos.get("subject") or "").strip()[:300],
             title=(datos.get("title") or "").strip()[:300],
             body=cuerpo,

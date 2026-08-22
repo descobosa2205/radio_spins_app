@@ -4758,6 +4758,9 @@ class CycleFestival(Base):
     event_id = Column(PGUUID(as_uuid=True), ForeignKey("app_events.id", ondelete="SET NULL"), index=True)
     managing_company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
     logo_url = Column(Text)
+    # NOMBRE ABREVIADO PARA EL SMS: un envío «en nombre del ciclo» sale con esto (máximo 11
+    # caracteres, `sms_utils.sender_is_valid`, igual que el de una empresa del grupo).
+    sms_sender = Column(Text)
     edition = Column(Text)  # edición / año
     venue_id = Column(PGUUID(as_uuid=True), ForeignKey("venues.id", ondelete="SET NULL"))
     municipality = Column(Text)
@@ -10069,8 +10072,13 @@ class BuyerCampaign(Base):
     # De qué listado sale (uno de los dos): un evento de Enterticket o un listado manual.
     event_id = Column(PGUUID(as_uuid=True), ForeignKey("enterticket_events.id", ondelete="SET NULL"))
     list_id = Column(PGUUID(as_uuid=True), ForeignKey("buyer_lists.id", ondelete="SET NULL"))
-    # Quién firma: la empresa del grupo que promueve (su logo en el correo, su nombre en el SMS).
+    # Quién firma: la empresa del grupo que promueve (su logo en el correo, su nombre en el SMS)…
     company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
+    # …o el CICLO / FESTIVAL propio del que es la actividad: si la base es de un ciclo, lo normal es
+    # que el envío salga en nombre del ciclo (su nombre en el SMS, su logo en el correo) y no en el
+    # de la empresa que lo promueve. COMPANY | CYCLE.
+    sender_kind = Column(Text, nullable=False, server_default=text("'COMPANY'"))
+    cycle_id = Column(PGUUID(as_uuid=True), ForeignKey("cycle_festivals.id", ondelete="SET NULL"))
     sms_sender = Column(Text)                         # el remitente con el que salió el SMS
     subject = Column(Text)                            # correo: asunto
     title = Column(Text)                              # correo: título
@@ -10289,6 +10297,8 @@ def ensure_enterticket_schema():
             event_id uuid REFERENCES enterticket_events(id) ON DELETE SET NULL,
             list_id uuid REFERENCES buyer_lists(id) ON DELETE SET NULL,
             company_id uuid REFERENCES group_companies(id) ON DELETE SET NULL,
+            sender_kind text NOT NULL DEFAULT 'COMPANY',
+            cycle_id uuid REFERENCES cycle_festivals(id) ON DELETE SET NULL,
             sms_sender text,
             subject text,
             title text,
@@ -10311,6 +10321,10 @@ def ensure_enterticket_schema():
             sent_at timestamptz
         );
         """,
+        "ALTER TABLE buyer_campaigns ADD COLUMN IF NOT EXISTS sender_kind text NOT NULL DEFAULT 'COMPANY';",
+        "ALTER TABLE buyer_campaigns ADD COLUMN IF NOT EXISTS cycle_id uuid REFERENCES cycle_festivals(id) ON DELETE SET NULL;",
+        # Nombre abreviado con el que sale un SMS «en nombre del ciclo o festival».
+        "ALTER TABLE cycle_festivals ADD COLUMN IF NOT EXISTS sms_sender text;",
         "CREATE INDEX IF NOT EXISTS idx_buyer_campaigns_event ON buyer_campaigns(event_id);",
         "CREATE INDEX IF NOT EXISTS idx_buyer_campaigns_list ON buyer_campaigns(list_id);",
         """

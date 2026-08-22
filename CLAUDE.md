@@ -1487,10 +1487,26 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ⚠️ No es un desplegable de Bootstrap a propósito: el ayudante global de desplegables los crea con
   `autoClose` y les teleporta el menú al `<body>`, así que cualquier clic dentro —y aquí hay
   casillas— lo cerraría (el mismo motivo por el que «Compartir» de una playlist es un pop-up).
-  · **Los botones van TODOS en una fila** (`.ficha-quick.ficha-quick--end`, misma estética que la
-  ficha de canción) y se llena de **derecha a izquierda**: Envío de SMS · Envío de Email · Añadir
-  desde fichero · Exportar. La **flecha de volver** va en su propia barra arriba a la izquierda
-  (`.btn-volver`), como en el resto de la app, no dentro de la cabecera del listado. `channel=` añade lo que ese canal necesita (un SMS sin teléfono no se puede mandar) y se
+  · **Los botones van TODOS en la misma fila que el buscador** (el buscador a la izquierda, ellos a
+  la derecha con `flex-row-reverse`, así que el primero del HTML es el de más a la derecha): Envío de
+  SMS (`btn-primary`, el rojo de la casa) · Envío de Email (**`btn-accent`**, el azul de la marca,
+  clase nueva) · Añadir desde fichero (`btn-success`) · Exportar (`btn-secondary`). **Sin viñeta
+  propia**: integrados, para que quede compacto. La **flecha de volver** va en su propia barra arriba
+  a la izquierda (`.btn-volver`), como en el resto de la app.
+  · **EN NOMBRE DE QUIÉN sale el envío** (`BuyerCampaign.sender_kind` COMPANY|CYCLE + `cycle_id`):
+  punto único **`_campaign_brand`**, que decide **a la vez** el logo del correo y el remitente del
+  SMS (para que no puedan decir cosas distintas). Si la actividad del listado es de un **ciclo o
+  festival propio** (`Concert.cycle_festival_id`, lo resuelve `_buyer_source_cycle`), se ofrecen las
+  **dos** opciones —en nombre del **ciclo** (marcada por defecto: es el nombre que la gente reconoce)
+  o del **promotor**— y el correo lleva el logo de lo que se marque. El nombre abreviado del ciclo es
+  **`CycleFestival.sms_sender`** y, si no lo tiene, **se pone desde el propio pop-up**
+  (`buyers_campaign_sender_save`, mismo límite de 11 caracteres) y queda guardado en su ficha.
+  ⚠️ El ciclo se comprueba **contra el de la actividad del listado**: el formulario no puede firmar
+  un envío en nombre de un ciclo que no es el suyo.
+  ⚠️⚠️ Quien manda se elige con **TARJETAS con su logo**, no con un `select`: dentro de este pop-up
+  el Select2 **no se podía abrir** (en un modal apilado el desplegable se queda detrás), así que se
+  veía el logo de la empresa y **no había forma de cambiarla** — bug real. Para elegir algo dentro de
+  un modal de esta app, tarjetas. `channel=` añade lo que ese canal necesita (un SMS sin teléfono no se puede mandar) y se
   dice cuántos se quedan fuera por eso.
   · **IMPORTAR UN FICHERO** (`buyer_import.py`, motor puro): el **mismo lector** que la importación
   de terceros (`promoter_import.read_rows` / `parse_columns`, refactorizados para compartirlo), que

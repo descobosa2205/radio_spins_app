@@ -2,8 +2,9 @@
  *
  * Cuando a alguien se le asigna algo (una producción, una solicitud de diseño, una petición, una
  * bolsa para liquidar, unas vacaciones…) el servidor le guarda un aviso. Aquí se pinta:
- *   · una FRANJA justo debajo del menú, que **se queda hasta que se pincha** (te lleva a la
- *     gestión que toca y el aviso queda leído) o se cierra con la ✕ (sigue pendiente en la campana);
+ *   · una FRANJA justo debajo del menú, que **se queda EN TODAS LAS PÁGINAS hasta que se pincha**
+ *     (te lleva a la gestión que toca y el aviso queda leído) o se cierra con la ✕ —y entonces deja
+ *     de salir, pero el aviso sigue pendiente en la campana—;
  *   · la CAMPANA, la primera del menú, que **solo se ve si hay avisos pendientes** y lleva el
  *     número; al pincharla salen TODOS en un pop-up para irlos resolviendo uno a uno.
  * Si el servidor tiene claves VAPID, ese mismo aviso llega además como notificación del sistema
@@ -16,6 +17,7 @@
 
   var URL_LIST = '/avisos';
   var URL_READ = '/avisos/leidos';
+  var URL_HIDE = '/avisos/ocultar-franja';
   var contador = document.querySelector('[data-notif-count]');
   var lista = document.querySelector('#notifModal [data-notif-list]');
   var vistos = {};                          // id -> true (franjas ya pintadas en esta página)
@@ -64,8 +66,18 @@
     }).join('');
   }
 
-  /* FRANJA bajo el menú. No se va sola: o se pincha (lleva a su gestión y queda leída) o se
-     cierra con la ✕ (y entonces sigue pendiente en la campana, para no perderla). */
+  function ocultarFranja(id) {
+    var fd = new FormData();
+    fd.append('id', id);
+    return fetch(URL_HIDE, {
+      method: 'POST', body: fd,
+      headers: {'X-CSRFToken': csrf(), 'X-Requested-With': 'XMLHttpRequest'}
+    }).catch(function () {});
+  }
+
+  /* FRANJA bajo el menú. No se va sola: sale en TODAS las páginas hasta que se pincha (lleva a su
+     gestión y queda leída) o se cierra con la ✕ (y entonces deja de salir, pero sigue pendiente en
+     la campana, para no perderla). */
   function franja(av) {
     if (!barra || !av || vistos[av.id]) return;
     vistos[av.id] = true;
@@ -84,6 +96,8 @@
       marcarLeido(av.id);
     });
     el.querySelector('.notif-strip__x').addEventListener('click', function () {
+      // La ✕ se APUNTA en el servidor: si no, la franja volvería a salir en la página siguiente.
+      ocultarFranja(av.id);
       el.classList.remove('is-in');
       setTimeout(function () { el.remove(); }, 250);
     });
@@ -126,8 +140,8 @@
     });
   }
 
-  // Al entrar en cualquier página: el contador y lo que no haya salido todavía como franja. Y cada
-  // 60 s, por si llega algo con la pestaña abierta.
+  // Al entrar en CUALQUIER página: el contador y las franjas de lo que sigue pendiente sin cerrar.
+  // Y cada 60 s, por si llega algo con la pestaña abierta.
   mirar(true);
   setInterval(function () { if (!document.hidden) mirar(true); }, 60000);
 })();

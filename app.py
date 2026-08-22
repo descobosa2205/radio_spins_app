@@ -54461,13 +54461,18 @@ def _home_quick_action_defs() -> dict:
             "hint": "Recintos y sus mapas de butacas", "access": "databases.venues",
             "url": url_for("venues_view"),
         },
+        "ventas": {
+            "key": "ventas", "label": "Actualizar ventas", "plus": False, "icon": "fa-chart-line",
+            "hint": "Meter la venta de entradas de cada actividad", "access": "ventas",
+            "url": url_for("sales_update_view"),
+        },
     }
 
 
 # Orden canónico (así cada departamento sale en el orden pedido).
 _HOME_QUICK_ORDER = ["actividad", "peticion", "simulacion", "cuadrantes", "single",
                      "pagos", "liquidar", "facturas", "gastos_mios", "compradores", "recintos",
-                     "invitaciones_gestionar", "invitaciones"]
+                     "ventas", "invitaciones_gestionar", "invitaciones"]
 
 # Acciones por DEPARTAMENTO (nombres tal cual en PERSONNEL_DEPARTMENTS).
 _HOME_QUICK_BY_DEPARTMENT = {
@@ -54475,7 +54480,7 @@ _HOME_QUICK_BY_DEPARTMENT = {
     "Sello": ["actividad", "peticion", "invitaciones"],
     "Registros": ["peticion", "single", "invitaciones"],
     "Administración": ["peticion", "pagos", "liquidar", "facturas", "gastos_mios"],
-    "Ticketing": ["compradores", "recintos", "invitaciones_gestionar", "invitaciones"],
+    "Ticketing": ["compradores", "recintos", "ventas", "invitaciones_gestionar", "invitaciones"],
 }
 # Quien no está en ninguno de los departamentos de arriba ve lo transversal.
 _HOME_QUICK_DEFAULT = ["peticion", "invitaciones"]
@@ -55266,6 +55271,7 @@ PERSONAL_ENDPOINTS = {"my_expenses_view", "my_expenses_assign", "my_expense_assi
                       "nav_menu_order_save",
                       # Los AVISOS son de cada persona (solo ve los suyos: se filtra por su user_id).
                       "notifications_list", "notifications_mark_read",
+                      "notifications_dismiss_strip",
                       # MIS VACACIONES son datos propios: cualquiera con sesión entra en las suyas.
                       "mis_vacaciones_view", "mis_vacaciones_request", "mis_vacaciones_cancel",
                       "mis_vacaciones_check",
@@ -82411,10 +82417,12 @@ def push_enabled():
 @app.get("/avisos", endpoint="notifications_list")
 @admin_required
 def notifications_list():
-    """Los AVISOS de esta persona (para la campanita y el aviso emergente).
+    """Los AVISOS de esta persona (para la campanita y para las FRANJAS de debajo del menú).
 
-    Con `?nuevos=1` devuelve solo los que todavía no han saltado y los marca como saltados: así el
-    aviso emergente sale UNA vez y no molesta en cada página."""
+    ⚠️ Con `?nuevos=1` devuelve las franjas que hay que pintar: **todo lo que está pendiente y no se
+    ha cerrado con la ✕**, en TODAS las páginas y hasta que se pinche (queda leído) o se cierre. Antes
+    devolvía solo lo que no hubiera «saltado» ya (`shown_at`), así que una franja salía UNA vez y, si
+    no te daba tiempo a verla, no volvía a aparecer."""
     uid = session.get("user_id")
     if not uid:
         return jsonify({"ok": False, "rows": [], "unread": 0})
@@ -82425,15 +82433,20 @@ def notifications_list():
         if solo_nuevos:
             filas = (session_db.query(AppNotification)
                      .filter(AppNotification.user_id == to_uuid(str(uid)),
-                             AppNotification.shown_at.is_(None))
-                     .order_by(AppNotification.created_at.asc()).limit(5).all())
+                             AppNotification.read_at.is_(None),
+                             AppNotification.strip_dismissed_at.is_(None))
+                     # El `id` como segundo criterio: varios avisos creados en la misma operación
+                     # comparten `created_at` y sin él las franjas se reordenaban en cada página.
+                     .order_by(AppNotification.created_at.asc(),
+                               AppNotification.id.asc()).limit(5).all())
             for n in filas:
                 pendientes.append({
                     "id": str(n.id), "title": (n.title or ""), "body": (n.body or ""),
                     "url": (n.url or ""),
                     "icon": (n.icon or NOTIFICATION_KIND_META.get((n.kind or "").upper(), ("", "fa-bell"))[1]),
                 })
-                n.shown_at = _now_madrid()
+                if n.shown_at is None:
+                    n.shown_at = _now_madrid()      # la primera vez que sale (informativo)
             session_db.commit()
         sin_leer = (session_db.query(func.count(AppNotification.id))
                     .filter(AppNotification.user_id == to_uuid(str(uid)),
@@ -82468,6 +82481,33 @@ def notifications_mark_read():
         for n in consulta.all():
             n.read_at = _now_madrid()
         session_db.commit()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post("/avisos/ocultar-franja", endpoint="notifications_dismiss_strip")
+@admin_required
+def notifications_dismiss_strip():
+    """Cierra la FRANJA de un aviso (la ✕): deja de salir debajo del menú, pero **el aviso sigue
+    pendiente en la campana** — cerrar la franja no es haberlo resuelto."""
+    uid = to_uuid(str(session.get("user_id") or ""))
+    if not uid:
+        abort(403)
+    uno = (request.form.get("id") or "").strip()
+    if not uno:
+        return jsonify({"ok": False, "error": "Falta el aviso."}), 400
+    session_db = db()
+    try:
+        fila = (session_db.query(AppNotification)
+                .filter(AppNotification.user_id == uid,
+                        AppNotification.id == to_uuid(uno)).first())
+        if fila is not None and fila.strip_dismissed_at is None:
+            fila.strip_dismissed_at = _now_madrid()
+            session_db.commit()
         return jsonify({"ok": True})
     except Exception as exc:
         session_db.rollback()

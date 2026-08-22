@@ -220,8 +220,8 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
 - **Inicio · acciones rápidas por departamento**: botones bajo la cabecera del personal
   (`HOME_QUICK_ACTIONS` ← `_build_home_quick_actions`, catálogo `_home_quick_action_defs`, reparto
   `_HOME_QUICK_BY_DEPARTMENT` por `UserProfile.departments`: Contratación/Sello/Registros/
-  Administración/**Ticketing** —a este, «Compradores», «Recintos» y «Gestionar invitaciones», sin el
-  de «Petición»—; el resto
+  Administración/**Ticketing** —a este, «Compradores», «Recintos», «Actualizar ventas» y «Gestionar
+  invitaciones», sin el de «Petición»—; el resto
   ve `_HOME_QUICK_DEFAULT`, dirección lo ve todo). Cada acción se filtra por su `access` (nunca sale
   un botón que daría 403). Estilos `.dash-quick*` en `styles.css`. Sustituyen al botón «Añadir
   petición» y al módulo «Tus áreas» (eliminados). Las que viven en un modal de OTRA pantalla se
@@ -576,7 +576,15 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
 
 - **AVISOS · franjas bajo el menú y campana al principio** (ago 2026, rediseño): la FRANJA
   (`.notif-strip`, en `#notifBar` justo debajo del menú) **no se va sola**: o se pincha —lleva a su
-  gestión y el aviso queda leído— o se cierra con la ✕ (y sigue pendiente en la campana). La
+  gestión y el aviso queda leído— o se cierra con la ✕ (y sigue pendiente en la campana).
+  ⚠️ **Y SALE EN TODAS LAS PÁGINAS hasta entonces**, para TODO el mundo (corregido ago 2026): antes
+  `/avisos?nuevos=1` devolvía solo lo que no hubiera «saltado» (`shown_at`) y lo marcaba, así que una
+  franja salía UNA vez y, si no te daba tiempo a verla, no volvía. Ahora devuelve **lo pendiente que
+  no se ha cerrado** (`read_at IS NULL AND strip_dismissed_at IS NULL`), y la ✕ se apunta en el
+  servidor (`notifications_dismiss_strip`, columna `AppNotification.strip_dismissed_at`): si no, la
+  franja volvería a salir en la página siguiente. `shown_at` se conserva como dato informativo.
+  ⚠️ El orden lleva el **`id` como segundo criterio**: varios avisos creados en la misma operación
+  comparten `created_at` y las franjas se reordenaban en cada página. La
   **campana** es lo PRIMERO del menú, **solo se ve si hay pendientes** (el JS le quita el `d-none`)
   y al pincharla salen todos en un **pop-up** para resolverlos uno a uno.
   ⚠️ La campana se excluye de `topItems()` en `initUsageOrderedOverflowNav`: si no, el menú de

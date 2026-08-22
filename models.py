@@ -5528,9 +5528,13 @@ class AppNotification(Base):
     actor_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     ref_type = Column(Text)
     ref_id = Column(Text)
-    # `shown_at` = ya ha saltado el aviso emergente; `read_at` = la persona lo ha leído.
+    # `shown_at` = ya ha saltado alguna vez; `read_at` = la persona lo ha leído.
     shown_at = Column(DateTime(timezone=True))
     read_at = Column(DateTime(timezone=True))
+    # La FRANJA de debajo del menú se queda ahí (en TODAS las páginas) hasta que se pincha —y
+    # entonces queda leída— o se cierra con la ✕, que es lo que apunta esto: el aviso sigue
+    # pendiente en la campana, pero su franja ya no vuelve a salir.
+    strip_dismissed_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
@@ -5555,9 +5559,11 @@ def ensure_notifications_schema():
             ref_id text,
             shown_at timestamptz,
             read_at timestamptz,
+            strip_dismissed_at timestamptz,
             created_at timestamptz DEFAULT now()
         );
         """,
+        "ALTER TABLE app_notifications ADD COLUMN IF NOT EXISTS strip_dismissed_at timestamptz;",
         "CREATE INDEX IF NOT EXISTS idx_app_notifications_user ON app_notifications(user_id);",
         "CREATE INDEX IF NOT EXISTS idx_app_notifications_user_created ON app_notifications(user_id, created_at);",
         "CREATE INDEX IF NOT EXISTS idx_app_notifications_unread ON app_notifications(user_id) WHERE read_at IS NULL;",

@@ -23,7 +23,7 @@
         <div>
           <h5 class="modal-title">
             <i class="fa fa-comment-sms me-2 text-danger" data-bc-icon-sms></i>
-            <i class="fa fa-envelope me-2 text-primary d-none" data-bc-icon-mail></i>
+            <i class="fa fa-envelope me-2 text-danger d-none" data-bc-icon-mail></i>
             <span data-bc-title>Envío de SMS</span>
           </h5>
           <div class="text-muted small">{{ source.label }}{% if source.date and source.date != '—' %} · {{ source.date }}{% endif %}</div>
@@ -89,45 +89,84 @@
           <div class="bc-card__t"><i class="fa fa-pen-to-square me-2 text-danger"></i>El mensaje</div>
 
           {# ── ¿EN NOMBRE DE QUIÉN? ──────────────────────────────────────────────────
-             Tarjetas con el logo de cada uno, no un desplegable: si la base es de un ciclo o un
-             festival propio, lo normal es mandarlo **en nombre del ciclo** (es el nombre que la
-             gente reconoce) y no en el de la empresa que lo promueve.
-             ⚠️ Antes era un `select` con Select2 y dentro de este pop-up **no se podía abrir**
-             (Select2 en un modal apilado deja el desplegable detrás): se veía el logo y no había
-             forma de cambiar la empresa. #}
-          <label class="form-label small mb-1">¿En nombre de quién se manda?</label>
-          <div class="bc-senders mb-2">
-            {% if cycle %}
-            <label class="bc-sender">
-              <input type="radio" name="bc_sender" value="CYCLE" data-kind="CYCLE"
-                     data-id="{{ cycle.id }}" data-name="{{ cycle.name }}"
-                     data-sms="{{ cycle.sms_sender or '' }}" checked>
-              <span class="bc-sender__box">
-                {% if cycle.logo_url %}<img src="{{ cycle.logo_url }}" alt="">
-                {% else %}<span class="bc-sender__ico"><i class="fa fa-star"></i></span>{% endif %}
-                <span class="bc-sender__t">
-                  <span class="bc-sender__n">{{ cycle.name }}</span>
-                  <span class="bc-sender__k">{{ cycle_kind_labels.get(cycle.kind|upper, 'Ciclo') }}</span>
+             ⚠️ Si la actividad ya tiene su empresa del grupo, **no se pregunta nada**: sale la que
+             corresponde. La pregunta solo tiene sentido cuando la actividad es de un CICLO o
+             FESTIVAL propio, y entonces son dos: el ciclo (lo normal, es el nombre que la gente
+             reconoce) o la empresa del grupo que lo organiza.
+             ⚠️ Se elige con TARJETAS, no con un desplegable: en este pop-up (modal apilado) el
+             Select2 deja su desplegable detrás y no se podía ni abrir. #}
+          {% if cycle %}
+            <label class="form-label small mb-1">¿En nombre de quién se manda?</label>
+            <div class="bc-senders mb-2">
+              <label class="bc-sender">
+                <input type="radio" name="bc_sender" value="CYCLE" data-kind="CYCLE"
+                       data-id="{{ cycle.id }}" data-name="{{ cycle.name }}"
+                       data-sms="{{ cycle.sms_sender or '' }}" checked>
+                <span class="bc-sender__box">
+                  {% if cycle.logo_url %}<img src="{{ cycle.logo_url }}" alt="">
+                  {% else %}<span class="bc-sender__ico"><i class="fa fa-star"></i></span>{% endif %}
+                  <span class="bc-sender__t">
+                    <span class="bc-sender__n">{{ cycle.name }}</span>
+                    <span class="bc-sender__k">{{ cycle_kind_labels.get(cycle.kind|upper, 'Ciclo') }}</span>
+                  </span>
                 </span>
-              </span>
-            </label>
-            {% endif %}
-            {% for co in companies %}
-            <label class="bc-sender">
-              <input type="radio" name="bc_sender" value="COMPANY" data-kind="COMPANY"
-                     data-id="{{ co.id }}" data-name="{{ co.name }}" data-sms="{{ co.sms_sender or '' }}"
-                     {% if (not cycle) and company and co.id == company.id %}checked{% endif %}>
-              <span class="bc-sender__box">
-                {% if co.logo_url %}<img src="{{ co.logo_url }}" alt="">
-                {% else %}<span class="bc-sender__ico"><i class="fa fa-building"></i></span>{% endif %}
-                <span class="bc-sender__t">
-                  <span class="bc-sender__n">{{ co.name }}</span>
-                  <span class="bc-sender__k">{% if company and co.id == company.id %}Promotor{% else %}Empresa del grupo{% endif %}</span>
+              </label>
+              {% if sender_company %}
+              <label class="bc-sender">
+                <input type="radio" name="bc_sender" value="COMPANY" data-kind="COMPANY"
+                       data-id="{{ sender_company.id }}" data-name="{{ sender_company.name }}"
+                       data-sms="{{ sender_company.sms_sender or '' }}">
+                <span class="bc-sender__box">
+                  {% if sender_company.logo_url %}<img src="{{ sender_company.logo_url }}" alt="">
+                  {% else %}<span class="bc-sender__ico"><i class="fa fa-building"></i></span>{% endif %}
+                  <span class="bc-sender__t">
+                    <span class="bc-sender__n">{{ sender_company.name }}</span>
+                    <span class="bc-sender__k">Quien lo organiza</span>
+                  </span>
                 </span>
-              </span>
-            </label>
-            {% endfor %}
-          </div>
+              </label>
+              {% endif %}
+            </div>
+          {% elif sender_company %}
+            {# La actividad ya tiene su empresa: no hay nada que preguntar. #}
+            <label class="form-label small mb-1">Lo manda</label>
+            <div class="bc-senders mb-2">
+              <label class="bc-sender is-fixed">
+                <input type="radio" name="bc_sender" value="COMPANY" data-kind="COMPANY"
+                       data-id="{{ sender_company.id }}" data-name="{{ sender_company.name }}"
+                       data-sms="{{ sender_company.sms_sender or '' }}" checked>
+                <span class="bc-sender__box">
+                  {% if sender_company.logo_url %}<img src="{{ sender_company.logo_url }}" alt="">
+                  {% else %}<span class="bc-sender__ico"><i class="fa fa-building"></i></span>{% endif %}
+                  <span class="bc-sender__t">
+                    <span class="bc-sender__n">{{ sender_company.name }}</span>
+                    <span class="bc-sender__k">Empresa del grupo de la actividad</span>
+                  </span>
+                </span>
+              </label>
+            </div>
+          {% else %}
+            {# La actividad no tiene empresa puesta: entonces sí hay que elegirla. #}
+            <label class="form-label small mb-1">¿En nombre de quién se manda?
+              <span class="text-muted">(esta actividad no tiene empresa del grupo configurada)</span></label>
+            <div class="bc-senders mb-2">
+              {% for co in companies %}
+              <label class="bc-sender">
+                <input type="radio" name="bc_sender" value="COMPANY" data-kind="COMPANY"
+                       data-id="{{ co.id }}" data-name="{{ co.name }}" data-sms="{{ co.sms_sender or '' }}"
+                       {% if loop.first %}checked{% endif %}>
+                <span class="bc-sender__box">
+                  {% if co.logo_url %}<img src="{{ co.logo_url }}" alt="">
+                  {% else %}<span class="bc-sender__ico"><i class="fa fa-building"></i></span>{% endif %}
+                  <span class="bc-sender__t">
+                    <span class="bc-sender__n">{{ co.name }}</span>
+                    <span class="bc-sender__k">Empresa del grupo</span>
+                  </span>
+                </span>
+              </label>
+              {% endfor %}
+            </div>
+          {% endif %}
           <div class="form-text mb-2" data-bc-company-note></div>
 
           {# Si quien manda no tiene nombre abreviado para el SMS, se pone aquí mismo. #}

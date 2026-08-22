@@ -1480,6 +1480,9 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   filtrado es un punto único, **`_buyers_apply_filters`**, que usan la pantalla, el contador del
   envío y el propio envío: **el número que se ve antes de mandar es exactamente a quién se le
   manda**.
+  · En la **rejilla de listados** cada uno enseña sus compradores y **cuántos tienen email y cuántos
+  teléfono** (nada de recaudación ni de entradas: lo que hace falta saber ahí es a cuántos se les
+  puede mandar algo).
   · **Una sola fila arriba** (`.bl-bar`): a la **izquierda lo que hay** —compradores · entradas ·
   **cuántos tienen email** · **cuántos tienen teléfono**, con el icono en el **AZUL de la marca**
   (`--brand-accent`; ⚠️ el «verde de la casa» **es ese azul**: no hay ningún verde corporativo, y el
@@ -1505,10 +1508,14 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   a la izquierda (`.btn-volver`), como en el resto de la app.
   · **EN NOMBRE DE QUIÉN sale el envío** (`BuyerCampaign.sender_kind` COMPANY|CYCLE + `cycle_id`):
   punto único **`_campaign_brand`**, que decide **a la vez** el logo del correo y el remitente del
-  SMS (para que no puedan decir cosas distintas). Si la actividad del listado es de un **ciclo o
-  festival propio** (`Concert.cycle_festival_id`, lo resuelve `_buyer_source_cycle`), se ofrecen las
-  **dos** opciones —en nombre del **ciclo** (marcada por defecto: es el nombre que la gente reconoce)
-  o del **promotor**— y el correo lleva el logo de lo que se marque. El nombre abreviado del ciclo es
+  SMS (para que no puedan decir cosas distintas).
+  ⚠️ **No se pregunta si no hay nada que elegir**: si la actividad ya tiene su empresa del grupo, sale
+  esa y ya. La pregunta aparece **solo cuando la actividad es de un CICLO o FESTIVAL propio**
+  (`Concert.cycle_festival_id`, lo resuelve `_buyer_source_cycle`), y entonces son **dos**: el
+  **ciclo** (marcada por defecto: es el nombre que la gente reconoce) o la **empresa del grupo que lo
+  organiza** (`CycleFestival.managing_company_id`, y si no la tiene, la que promueve la actividad).
+  Si la actividad **no tiene empresa puesta** sí se ofrecen todas, que si no no habría con qué firmar.
+  El correo lleva el logo de lo que se marque. El nombre abreviado del ciclo es
   **`CycleFestival.sms_sender`** y, si no lo tiene, **se pone desde el propio pop-up**
   (`buyers_campaign_sender_save`, mismo límite de 11 caracteres) y queda guardado en su ficha.
   ⚠️ El ciclo se comprueba **contra el de la actividad del listado**: el formulario no puede firmar

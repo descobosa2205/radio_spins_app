@@ -100596,18 +100596,22 @@ def _buyer_sources_list(session_db) -> list[dict]:
 
     Los agregados van aparte del `joinedload` a propósito: mezclar `group_by` con un eager-load
     rompe el GROUP BY en Postgres."""
+    # ⚠️ En la rejilla NO se enseña recaudación ni entradas: lo que interesa aquí es **a cuántos se
+    # les puede mandar** algo (email y SMS), con el mismo criterio que los envíos.
     agg_ev = {r.event_id: r for r in
               (session_db.query(BuyerEvent.event_id,
                                 func.count(BuyerEvent.id).label("buyers"),
-                                func.sum(BuyerEvent.tickets_count).label("tickets"),
-                                func.sum(BuyerEvent.amount_total).label("amount"))
+                                func.count(case((_buyer_has_email_cond(), 1))).label("emails"),
+                                func.count(case((_buyer_has_phone_cond(), 1))).label("sms"))
+               .join(Buyer, Buyer.id == BuyerEvent.buyer_id)
                .filter(BuyerEvent.event_id.isnot(None))
                .group_by(BuyerEvent.event_id).all())}
     agg_li = {r.list_id: r for r in
               (session_db.query(BuyerEvent.list_id,
                                 func.count(BuyerEvent.id).label("buyers"),
-                                func.sum(BuyerEvent.tickets_count).label("tickets"),
-                                func.sum(BuyerEvent.amount_total).label("amount"))
+                                func.count(case((_buyer_has_email_cond(), 1))).label("emails"),
+                                func.count(case((_buyer_has_phone_cond(), 1))).label("sms"))
+               .join(Buyer, Buyer.id == BuyerEvent.buyer_id)
                .filter(BuyerEvent.list_id.isnot(None))
                .group_by(BuyerEvent.list_id).all())}
     salida = []
@@ -100626,8 +100630,8 @@ def _buyer_sources_list(session_db) -> list[dict]:
                 "venue": ev.venue_name or "", "town": ev.venue_town or "",
                 "image": ev.artist_image or ev.image_url or "",
                 "concert_id": (str(ev.concert_id) if ev.concert_id else ""),
-                "buyers": int(r.buyers or 0), "tickets": int(r.tickets or 0),
-                "amount": _et_money(r.amount),
+                "buyers": int(r.buyers or 0), "emails": int(r.emails or 0),
+                "sms": int(r.sms or 0),
             })
     # Los listados a mano salen SIEMPRE, aunque estén vacíos: se crean antes de subir el fichero y
     # tienen que poder verse para completarlos.
@@ -100652,8 +100656,8 @@ def _buyer_sources_list(session_db) -> list[dict]:
             "image": ((c.artist.photo_url or "") if (c is not None and c.artist) else ""),
             "concert_id": (str(bl.concert_id) if bl.concert_id else ""),
             "buyers": int(getattr(r, "buyers", 0) or 0),
-            "tickets": int(getattr(r, "tickets", 0) or 0),
-            "amount": _et_money(getattr(r, "amount", 0) or 0),
+            "emails": int(getattr(r, "emails", 0) or 0),
+            "sms": int(getattr(r, "sms", 0) or 0),
         })
     salida.sort(key=lambda x: x["sort"], reverse=True)
     return salida
@@ -101200,11 +101204,18 @@ def buyers_view():
                                "events": int(b.events_count or 0),
                                "marketing": bool(b.accepts_marketing),
                                "last": b.last_purchase_at, "cats": []})
+        ciclo = _buyer_source_cycle(s, source) if (vista == "listado" and source) else None
         return render_template(
             "compradores.html", title="Compradores",
             sources=sources, buyers=buyers, totals=totals, vista=vista,
             source=source, company=company, categorias=categorias, filtros=filtros,
-            cycle=(_buyer_source_cycle(s, source) if (vista == "listado" and source) else None),
+            cycle=ciclo,
+            # ⚠️ La empresa que firma NO se pregunta si la actividad ya la tiene configurada: se pone
+            # la que corresponde. Solo se pregunta cuando la actividad es de un CICLO o FESTIVAL
+            # propio (ahí sí hay dos respuestas posibles: el ciclo o la empresa que lo organiza).
+            sender_company=((s.get(GroupCompany, ciclo.managing_company_id)
+                             if (ciclo is not None and ciclo.managing_company_id) else None)
+                            or company),
             cycle_kind_labels=CYCLE_FESTIVAL_KIND_LABELS,
             chips=_buyer_filter_chips(source, filtros, categorias, vista),
             # Los filtros puestos, para que «exportar» baje EXACTAMENTE lo que se está viendo.
@@ -101773,11 +101784,15 @@ def _campaign_sender_from_payload(session_db, source: dict, datos: dict):
             company_id = to_uuid(datos["company_id"].strip())
         except Exception:
             company_id = None
-    if company_id is None:
-        company = _buyer_source_company(session_db, source)
-        company_id = getattr(company, "id", None)
     kind = (datos.get("sender_kind") or "COMPANY").strip().upper()
     ciclo = _buyer_source_cycle(session_db, source)
+    if company_id is None:
+        # Sin empresa dicha: la que ORGANIZA el ciclo si lo hay, y si no la que promueve la
+        # actividad (es el respaldo del logo cuando el ciclo no tiene el suyo).
+        if kind == "CYCLE" and ciclo is not None and ciclo.managing_company_id:
+            company_id = ciclo.managing_company_id
+        else:
+            company_id = getattr(_buyer_source_company(session_db, source), "id", None)
     if kind != "CYCLE" or ciclo is None:
         return company_id, (ciclo.id if ciclo is not None else None), "COMPANY"
     return company_id, ciclo.id, "CYCLE"

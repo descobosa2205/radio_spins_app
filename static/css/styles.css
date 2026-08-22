@@ -4754,3 +4754,12 @@ a.bl-drop__row.is-on{ background:rgba(227,61,72,.08); font-weight:600; }
 .bt-res__s{ display:block; font-size:.78rem; color:#6b7280; }
 .bt-res__k{ font-size:.7rem; text-transform:uppercase; letter-spacing:.03em; color:#8a909a;
   flex:0 0 auto; }
+
+/* Los números de un listado en su tarjeta de la rejilla (email y SMS, en el azul de la marca). */
+.bl-counts--card{ gap:.5rem; }
+.bl-counts--card .bl-count{ font-size:.8rem; gap:.25rem; }
+.bl-counts--card .bl-count i{ font-size:.85rem; }
+/* Quien manda cuando NO hay nada que elegir (la actividad ya tiene su empresa): se enseña, no se
+   ofrece — sin el marco de «elígeme» y sin cursor de mano. */
+.bc-sender.is-fixed{ cursor:default; }
+.bc-sender.is-fixed input:checked + .bc-sender__box{ box-shadow:none; }

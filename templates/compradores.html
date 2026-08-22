@@ -64,10 +64,15 @@
               </div>
               <div class="small text-muted">{{ ev.date }}{% if ev.venue %} · {{ ev.venue }}{% endif %}{% if ev.town %} ({{ ev.town }}){% endif %}</div>
             </div>
+            {# Aquí NO se enseña recaudación ni entradas: lo que hace falta saber es a cuántos se
+               les puede mandar algo. #}
             <div class="text-end">
               <div class="fw-bold">{{ ev.buyers|k }}</div>
               <div class="small text-muted">compradores</div>
-              <div class="small text-muted">{{ ev.tickets|k }} entr. · {{ ev.amount|eur }}</div>
+              <div class="bl-counts bl-counts--card justify-content-end">
+                <span class="bl-count"><i class="fa fa-at"></i>{{ ev.emails|k }}</span>
+                <span class="bl-count"><i class="fa fa-comment-sms"></i>{{ ev.sms|k }}</span>
+              </div>
             </div>
           </div>
         </div>

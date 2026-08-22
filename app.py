@@ -808,7 +808,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"short_link_go", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
+    allowed = {"short_link_go", "og_default_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
     if request.endpoint in allowed:
         return
 
@@ -1360,6 +1360,8 @@ def inject_globals():
         ASSET_V=_ASSET_VERSION,
         artist_chip=artist_chip,
         artist_avatar=artist_avatar,
+        # La imagen de la previsualización de un enlace interno (el icono de la casa a 1200×630).
+        OG_DEFAULT_IMAGE=_external_url_for("og_default_image"),
         # El icono de un tipo de proyecto discográfico («Single + Videoclip» son dos iconos y un +).
         disco_kind_icon=_disco_kind_icon_html,
         linked_mini=linked_mini,
@@ -52430,7 +52432,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"short_link_go", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"short_link_go", "og_default_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -54981,7 +54983,7 @@ def _require_login_v2():
         return
     if session.get("user_id"):
         return
-    allowed = {"short_link_go", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"short_link_go", "og_default_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -72524,8 +72526,43 @@ _SHORT_LINK_LEN = 6
 _URL_IN_TEXT_RE = re.compile(r"https?://[^\s<>\"']+", re.I)
 
 
+def _short_domain_clean(value) -> str:
+    """Un dominio corto tal como se guarda: «33p.es» (sin esquema, sin barra, sin ruta).
+
+    Se admite pegarlo como sea («https://33p.es/», «33p.es/l») y se queda solo el host."""
+    txt = (str(value or "")).strip().lower()
+    if not txt:
+        return ""
+    if "//" in txt:
+        txt = txt.split("//", 1)[1]
+    txt = txt.split("/", 1)[0].split("?", 1)[0].strip().strip(".")
+    if not re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", txt or ""):
+        return ""
+    return txt
+
+
 def _short_link_base() -> str:
-    """El dominio de los enlaces cortos: el de la app o, si se compra uno corto, `SHORT_LINK_BASE`."""
+    """El dominio de los enlaces cortos.
+
+    Manda el que se ponga en **Integraciones → SMS** (`SmsAccount.short_domain`), que funciona en
+    cuanto se guarda; si no hay, la variable `SHORT_LINK_BASE` y, en último caso, el dominio de la
+    app. Cacheado en `g`: se acortan varios enlaces por petición y no hace falta preguntarlo cada vez.
+    """
+    try:
+        if not hasattr(g, "_short_domain"):
+            with get_db() as _s:
+                acc = _sms_account(_s)
+                g._short_domain = _short_domain_clean(getattr(acc, "short_domain", None))
+        propio = g._short_domain
+    except Exception:
+        propio = ""                       # fuera de una petición (cron, hilo): no se cachea
+        try:
+            with get_db() as _s:
+                propio = _short_domain_clean(getattr(_sms_account(_s), "short_domain", None))
+        except Exception:
+            propio = ""
+    if propio:
+        return "https://" + propio
     base = (os.getenv("SHORT_LINK_BASE", "") or "").strip().rstrip("/")
     if base:
         if not base.lower().startswith(("http://", "https://")):
@@ -72607,6 +72644,34 @@ def _shorten_links_in_text(session_db, text: str, *, kind: str = "") -> str:
         return _short_link_for(session_db, crudo, kind=kind) + cola
 
     return _URL_IN_TEXT_RE.sub(cambia, texto)
+
+
+# ── La imagen de la previsualización de un enlace INTERNO ─────────────────────────────────────
+# Un aviso al personal lleva a una pantalla de la app, y una pantalla de la app pide entrar: lo único
+# que se puede enseñar en la tarjeta del SMS (o de WhatsApp) es la MARCA. Así que se sirve el icono de
+# la casa —el favicon, el «33»— normalizado a 1200×630 sobre blanco, que es lo que aceptan los
+# previsualizadores. ⚠️ Sin `og:image:width/height` y sin el tipo, los móviles descartan la foto.
+_OG_DEFAULT_CACHE: dict[str, bytes] = {}
+
+
+@app.get("/og-default.jpg", endpoint="og_default_image")
+def og_default_image():
+    """El icono de la casa a 1200×630, para la previsualización de los enlaces de la app."""
+    datos = _OG_DEFAULT_CACHE.get("img")
+    if not datos:
+        for candidato in ("img/android-chrome-512x512.png", "android-chrome-512x512.png",
+                          "android-chrome-192x192.png", "img/logo_33_producciones.png"):
+            ruta = os.path.join(app.static_folder or "static", candidato)
+            if os.path.exists(ruta):
+                datos = _og_image_jpeg_bytes("/static/" + candidato)
+                if datos:
+                    _OG_DEFAULT_CACHE["img"] = datos
+                    break
+    if not datos:
+        abort(404)
+    resp = send_file(BytesIO(datos), mimetype="image/jpeg")
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
 
 
 @app.get("/l/<code>", endpoint="short_link_go")
@@ -75789,6 +75854,15 @@ def sms_account_save():
                     flash(motivo, "warning")
                     return redirect(url_for("integrations_view") + "#tab-sms")
                 acc.sender = remitente
+        # DOMINIO CORTO de los enlaces: funciona en cuanto se guarda (nada de tocar Render). Se
+        # admite pegarlo como sea y se queda el host; si lo pegado no es un dominio, se avisa.
+        if "short_domain" in request.form:
+            crudo = (request.form.get("short_domain") or "").strip()
+            limpio = _short_domain_clean(crudo)
+            if crudo and not limpio:
+                flash("«%s» no parece un dominio (algo como «33p.es»)." % crudo[:40], "warning")
+                return redirect(url_for("integrations_view") + "#tab-sms")
+            acc.short_domain = limpio or None
         acc.avoid_accents = _truthy(request.form.get("avoid_accents"))
         try:
             acc.max_segments = max(0, min(6, int(request.form.get("max_segments") or 2)))
@@ -75919,8 +75993,14 @@ def _sms_panel_context(session_db) -> dict:
             })
     except Exception:
         app.logger.exception("[sms] no se pudo leer el registro de envíos")
+    ejemplo = ""
+    try:
+        ejemplo = "%s/l/aB3xY9" % _short_link_base().rstrip("/")
+    except Exception:
+        ejemplo = ""
     return {
         "sms_account": acc,
+        "sms_short_example": ejemplo,
         "sms_status": _sms_status(session_db),
         "sms_configured": _sms_configured(session_db),
         "sms_providers": sms_utils.PROVIDERS,

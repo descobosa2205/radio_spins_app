@@ -2277,8 +2277,25 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   «adjuntar»): nuestra parte es que la página sea pública, tenga `og:` con imagen **1200×630 y su
   `og:image:type`/`width`/`height`** (sin eso, WhatsApp y los móviles descartan la foto) y que el
   enlace vaya AL FINAL del mensaje.
-  · Con **`SHORT_LINK_BASE`** (variable de entorno, opcional) se puede usar un dominio corto propio el
-  día que se compre (`https://33p.es` → 23 caracteres en vez de 38).
+  · **EL DOMINIO CORTO SE PONE DESDE LA APP** (`SmsAccount.short_domain`, Integraciones → SMS): se
+  pega como sea («https://33p.es/», «33p.es/l») y `_short_domain_clean` se queda con el host; funciona
+  **en cuanto se guarda**, sin tocar Render, y la pantalla enseña cómo van a salir los enlaces
+  (`https://33p.es/l/aB3xY9` → 23 caracteres en vez de 38). `_short_link_base()` va en ese orden: lo
+  de la app → la variable `SHORT_LINK_BASE` → el dominio de siempre (cacheado en `g`).
+  ⚠️ El dominio hay que **apuntarlo al mismo servidor** (un CNAME al host de la app y añadirlo en
+  Render como dominio del servicio): la app responde en él sin más porque `/l/<code>` no depende del
+  host, pero si el DNS no apunta, el enlace no abre. La pantalla lo dice.
+
+- **PREVISUALIZACIÓN de un enlace INTERNO · el icono de la casa** (ago 2026): un aviso al personal
+  lleva a una pantalla de la app, que pide entrar, así que lo único que se puede enseñar en la tarjeta
+  (del SMS o de WhatsApp) es la MARCA. `layout.html` emite unas `og:` **fijas** —«33 Producciones ·
+  Back office», «Entra en la app para verlo»— con la imagen de **`og_default_image`**
+  (`/og-default.jpg`): el favicon de la casa a **1200×630 sobre blanco** (`_og_image_jpeg_bytes`,
+  cacheado en memoria). Como cualquier enlace interno acaba en la pantalla de acceso, y esa se pinta
+  con `layout.html`, la tarjeta sale sola.
+  ⚠️ El texto es **fijo a propósito**: nada del contenido de la pantalla sale en la previsualización.
+  ⚠️ Las páginas PÚBLICAS no usan esto: son standalone y traen su propio `og:` (su portada, su cartel,
+  su foto del artista).
 
 - **AVISOS POR SMS** (ago 2026): la campanita y el correo llegan tarde si nadie mira; un SMS entra en
   el móvil. Cliente en **`sms_utils.py`** (módulo aislado, sin BD ni Flask, como `holded_utils.py`),

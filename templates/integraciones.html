@@ -1105,6 +1105,12 @@ document.addEventListener('DOMContentLoaded', function () {
               recibe <strong>no puede contestar</strong>: es lo normal para avisos. Si algún día hace
               falta que respondan, la pasarela tiene que darte un número largo.
             </div>
+            <div class="small text-muted mt-1">
+              <i class="fa fa-link me-1"></i>Si compras un <strong>dominio corto</strong> (tipo
+              <code>33p.es</code>), ponlo abajo y los enlaces de los SMS lo usan al momento. Solo hay
+              que apuntarlo al mismo servidor que la app (en tu proveedor de dominios, un CNAME a
+              <code>{{ request.host }}</code>) y añadirlo en Render como dominio del servicio.
+            </div>
           </div>
 
           {# ---------- La cuenta ---------- #}
@@ -1153,6 +1159,16 @@ document.addEventListener('DOMContentLoaded', function () {
               <input type="number" class="form-control" name="max_segments" min="0" max="6"
                      value="{{ sms_account.max_segments if sms_account else 2 }}">
               <div class="form-text">Cada trozo se cobra.</div>
+            </div>
+            <div class="col-12 col-md-4">
+              <label class="form-label">Dominio corto de los enlaces <span class="text-muted">(opcional)</span></label>
+              <input class="form-control" name="short_domain" placeholder="33p.es"
+                     value="{{ sms_account.short_domain or '' if sms_account else '' }}">
+              <div class="form-text">
+                En un SMS cada carácter cuenta: con un dominio propio corto el enlace pasa de 38 a 23
+                caracteres. Funciona <strong>en cuanto lo guardas</strong>. Ahora mismo salen así:
+                <code>{{ sms_short_example }}</code>
+              </div>
             </div>
             <div class="col-6 col-md-2">
               <label class="form-label">Tope al día</label>

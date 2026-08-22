@@ -5619,6 +5619,10 @@ class SmsAccount(Base):
     api_token = Column(Text)             # token de API / contraseña / Auth Token
     account_ref = Column(Text)           # referencia de cuenta (Esendex) o Messaging Service (Twilio)
     sender = Column(Text)                # lo que ve el destinatario: «33PROD» o un +34…
+    # DOMINIO CORTO de los enlaces (opcional, p. ej. «33p.es»): en un SMS cada carácter cuenta, así
+    # que con un dominio propio corto el enlace pasa de 38 a 23 caracteres. Se pone aquí y funciona
+    # en cuanto se guarda; vacío = el dominio de la app.
+    short_domain = Column(Text)
     is_active = Column(Boolean, nullable=False, server_default=text("false"))
     # ⚠️ Los acentos parten el SMS en trozos de 70 caracteres (y cada trozo se cobra), así que por
     # defecto se quitan. `max_segments` es el tope de trozos por mensaje (0 = sin tope).
@@ -5667,6 +5671,7 @@ def ensure_sms_schema():
             api_token text,
             account_ref text,
             sender text,
+            short_domain text,
             is_active boolean NOT NULL DEFAULT false,
             avoid_accents boolean NOT NULL DEFAULT true,
             max_segments integer NOT NULL DEFAULT 2,
@@ -5695,6 +5700,8 @@ def ensure_sms_schema():
             created_at timestamptz DEFAULT now()
         );
         """,
+        # La columna del dominio corto llegó después de la tabla.
+        "ALTER TABLE IF EXISTS sms_account ADD COLUMN IF NOT EXISTS short_domain text;",
         "CREATE INDEX IF NOT EXISTS idx_sms_messages_created ON sms_messages(created_at DESC);",
         "CREATE INDEX IF NOT EXISTS idx_sms_messages_phone ON sms_messages(phone);",
     ]

@@ -11,6 +11,21 @@
   <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
   <link rel="manifest" href="{{ url_for('push_manifest') }}">
   <meta name="theme-color" content="#ffffff">
+  {# PREVISUALIZACIÓN de un enlace INTERNO (el que va en un aviso al personal). Un enlace a una
+     pantalla de la app lleva a la de acceso, así que lo único que se puede enseñar es la MARCA: el
+     icono de la casa a 1200×630. ⚠️ El texto es FIJO a propósito: nada del contenido de la pantalla
+     sale en la tarjeta. Las páginas PÚBLICAS no usan esto (son standalone y traen su propio og:). #}
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="33 Producciones">
+  <meta property="og:title" content="33 Producciones · Back office">
+  <meta property="og:description" content="Entra en la app para verlo.">
+  <meta property="og:image" content="{{ OG_DEFAULT_IMAGE }}">
+  <meta property="og:image:secure_url" content="{{ OG_DEFAULT_IMAGE }}">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="{{ OG_DEFAULT_IMAGE }}">
   <meta name="csrf-token" content="{{ csrf_token() }}">
   <link href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='vendor/select2/css/select2.min.css') }}" rel="stylesheet" />

@@ -100756,12 +100756,12 @@ def _buyer_filter_chips(source: dict | None, filtros: dict, categorias: list[dic
     base_flags = {k: "1" for k in activos}
     cats = list(filtros.get("cat") or [])
 
+    # Las categorías NO son chips-enlace: van en un único filtro con una casilla por categoría, y
+    # **marcada = se ve**. Sin filtro puesto están todas marcadas.
     chips_cat = []
     for c in categorias:
-        encendida = c["name"] in cats
-        otras = [x for x in cats if x != c["name"]] if encendida else cats + [c["name"]]
-        chips_cat.append({**c, "on": encendida,
-                          "url": _buyer_chip_url({**base, **base_flags}, cat=otras)})
+        chips_cat.append({**c, "on": (c["name"] in cats),
+                          "checked": (not cats) or (c["name"] in cats)})
     chips_flag = []
     for clave, etiqueta, icono in BUYER_FILTER_DEFS:
         encendido = clave in activos
@@ -101136,6 +101136,12 @@ def buyers_view():
         company = None
         if vista == "listado" and source:
             categorias = _buyer_categories_for_source(s, source)
+            # ⚠️ El filtro de categorías se maneja QUITANDO las que no se quieren ver, así que
+            # tenerlas TODAS marcadas es no filtrar. Si no se hiciera esto, un comprador sin
+            # ninguna categoría desaparecería del listado por estar «todas» seleccionadas.
+            nombres = {c["name"] for c in categorias}
+            if filtros["cat"] and nombres and set(filtros["cat"]) >= nombres:
+                filtros["cat"] = []
             company = _buyer_source_company(s, source)
             q = _buyers_apply_filters(_buyers_base_query(s, source), filtros)
             # Totales sobre TODO lo filtrado (no solo lo que se pinta).

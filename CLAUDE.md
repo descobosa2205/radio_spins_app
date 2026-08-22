@@ -1479,7 +1479,18 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · **Filtros** (`BUYER_FILTER_DEFS`) y **orden** (`BUYER_ORDER_DEFS`) como chips con icono; el
   filtrado es un punto único, **`_buyers_apply_filters`**, que usan la pantalla, el contador del
   envío y el propio envío: **el número que se ve antes de mandar es exactamente a quién se le
-  manda**. `channel=` añade lo que ese canal necesita (un SMS sin teléfono no se puede mandar) y se
+  manda**.
+  · **Las CATEGORÍAS son UN SOLO filtro** (`.bl-drop`, al lado del buscador): se abre y se
+  **desmarca lo que no se quiera ver** (marcada = se ve), no una fila de chips.
+  ⚠️ **Tenerlas TODAS marcadas es no filtrar**, y así se normaliza en la vista: si no, un comprador
+  **sin ninguna categoría** desaparecería del listado por estar «todas» seleccionadas.
+  ⚠️ No es un desplegable de Bootstrap a propósito: el ayudante global de desplegables los crea con
+  `autoClose` y les teleporta el menú al `<body>`, así que cualquier clic dentro —y aquí hay
+  casillas— lo cerraría (el mismo motivo por el que «Compartir» de una playlist es un pop-up).
+  · **Los botones van TODOS en una fila** (`.ficha-quick.ficha-quick--end`, misma estética que la
+  ficha de canción) y se llena de **derecha a izquierda**: Envío de SMS · Envío de Email · Añadir
+  desde fichero · Exportar. La **flecha de volver** va en su propia barra arriba a la izquierda
+  (`.btn-volver`), como en el resto de la app, no dentro de la cabecera del listado. `channel=` añade lo que ese canal necesita (un SMS sin teléfono no se puede mandar) y se
   dice cuántos se quedan fuera por eso.
   · **IMPORTAR UN FICHERO** (`buyer_import.py`, motor puro): el **mismo lector** que la importación
   de terceros (`promoter_import.read_rows` / `parse_columns`, refactorizados para compartirlo), que

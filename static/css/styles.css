@@ -3056,6 +3056,9 @@ input.is-need{ border-color:#e0b400; box-shadow:0 0 0 .15rem rgba(255,214,0,.18)
   border:1px solid var(--line-2,#e3e6eb); border-radius:999px; padding:.42rem .8rem; background:#fff;
   cursor:pointer; font-size:.85rem; font-weight:600; color:#42505f; transition:.15s ease; user-select:none; margin:0; }
 .filter-chip i{ color:#9aa4b0; transition:.15s ease; font-size:.9rem; }
+/* ⚠️ Un chip que es <button> (no <label>) hereda la tipografía del NAVEGADOR si no se le dice: en la
+   misma fila se veía con otra letra que sus hermanos. */
+button.filter-chip{ font-family:inherit; }
 .filter-chip .filter-dot{ width:9px; height:9px; border-radius:50%; flex:0 0 auto; }
 .filter-chip input{ position:absolute; opacity:0; pointer-events:none; }
 .filter-chip:hover{ border-color:var(--brand-primary,#E33D48); }
@@ -4668,3 +4671,18 @@ tr.is-provisional > td,
   .bl-filters__lbl{ min-width:100%; }
   .bc-preview-mail{ height:300px; }
 }
+
+/* Filtro de categorías: UN solo botón que despliega sus casillas (marcada = se ve). No es un
+   dropdown de Bootstrap a propósito: el ayudante global de desplegables cierra el menú a cada clic
+   y aquí hay casillas que marcar. */
+.bl-drop{ position:relative; }
+.bl-drop__panel{ position:absolute; z-index:1050; top:calc(100% + .35rem); left:0; min-width:16rem;
+  max-height:60vh; overflow:auto; background:#fff; border:1px solid rgba(0,0,0,.12);
+  border-radius:12px; box-shadow:0 8px 24px rgba(15,23,42,.14); padding:.55rem; }
+.bl-drop__head{ font-size:.75rem; text-transform:uppercase; letter-spacing:.03em; color:#6b7280;
+  padding:0 .2rem .35rem; }
+.bl-drop__row{ display:flex; align-items:center; gap:.45rem; padding:.3rem .25rem; border-radius:8px;
+  cursor:pointer; font-size:.9rem; }
+.bl-drop__row:hover{ background:rgba(227,61,72,.06); }
+.bl-drop__row i{ color:var(--brand-primary,#E33D48); width:1.1rem; text-align:center; font-size:.85rem; }
+@media (max-width: 575.98px){ .bl-drop__panel{ left:auto; right:0; } }

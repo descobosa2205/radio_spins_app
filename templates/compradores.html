@@ -5,20 +5,14 @@
    · Dentro de un listado: filtros por CATEGORÍA de entrada (y los interruptores), y los botones de
      ENVIAR SMS / ENVIAR EMAIL, que mandan a los que quedan filtrados.
    Los envíos y la importación viven en sus dos pop-ups (`_buyer_campaign_modal` / `_buyer_import_modal`). #}
-<div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
-  <h1 class="h4 mb-0"><i class="fa fa-users me-2"></i>Compradores</h1>
-  <div class="d-flex gap-2 flex-wrap">
-    {% if can_edit %}
-    <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#buyerImportModal"
-            data-bi-scope="{{ ('event:' ~ source.pk) if (source and source.kind == 'ET') else (('lista:' ~ source.pk) if source else '') }}">
-      <i class="fa fa-file-import me-1"></i>Añadir desde fichero
-    </button>
-    {% endif %}
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('buyers_export_csv', event=(source.pk if (source and source.kind=='ET') else None), lista=(source.pk if (source and source.kind=='MANUAL') else None), **filtros_url) }}">
-      <i class="fa fa-file-csv me-1"></i>{% if source %}Exportar lo que se ve{% else %}Exportar todo{% endif %}
-    </a>
-  </div>
+{# La flecha de volver va en su propia barra, arriba a la izquierda: el mismo sitio que en toda la app. #}
+{% if vista == 'listado' and source %}
+<div class="mb-2">
+  <a class="btn btn-sm btn-outline-secondary btn-volver" href="{{ url_for('buyers_view') }}"
+     title="Volver a los listados" aria-label="Volver"><i class="fa fa-arrow-left"></i></a>
 </div>
+{% endif %}
+<h1 class="h4 mb-3"><i class="fa fa-users me-2"></i>Compradores</h1>
 
 {% if not et_configured %}
 <div class="alert alert-light border py-2 px-3 small">
@@ -31,6 +25,20 @@
   <li class="nav-item"><a class="nav-link {{ 'active' if vista in ('listados','listado') else '' }}" href="{{ url_for('buyers_view') }}"><i class="fa fa-layer-group me-1"></i>Por listado</a></li>
   <li class="nav-item"><a class="nav-link {{ 'active' if vista == 'todos' else '' }}" href="{{ url_for('buyers_view', vista='todos') }}"><i class="fa fa-list me-1"></i>Todos los compradores</a></li>
 </ul>
+
+{% if vista != 'listado' %}
+  <div class="ficha-quick ficha-quick--end mb-3">
+    {% if can_edit %}
+    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal"
+            data-bs-target="#buyerImportModal" data-bi-scope="new">
+      <i class="fa fa-file-import me-1"></i>Añadir desde fichero
+    </button>
+    {% endif %}
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('buyers_export_csv') }}">
+      <i class="fa fa-file-csv me-1"></i>Exportar todo
+    </a>
+  </div>
+{% endif %}
 
 {% if vista == 'listados' %}
   {# ---- Listados: eventos de Enterticket y los subidos a mano ---- #}
@@ -81,7 +89,6 @@
   {# ---- Dentro de un listado (o el global) ---- #}
   {% if source %}
   <div class="card mb-3"><div class="card-body py-2 d-flex align-items-center gap-2 flex-wrap">
-    <a class="btn-volver" href="{{ url_for('buyers_view') }}" title="Volver a los listados"><i class="fa fa-arrow-left"></i></a>
     {% if source.image %}<img src="{{ source.image }}" alt="" data-avatar="1" style="width:44px;height:44px;border-radius:10px;object-fit:cover">{% endif %}
     <div class="flex-grow-1 min-w-0">
       <div class="fw-semibold d-flex align-items-center gap-2">
@@ -104,21 +111,29 @@
     {% endif %}
   </div></div>
 
-  {# ---- Los dos envíos ---- #}
-  {% if can_edit %}
-  <div class="ficha-quick mb-3">
-    <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#buyerCampaignModal" data-bc-channel="SMS">
+  {# ---- Los botones, TODOS en la misma fila y con el mismo estilo. Se llena de DERECHA a
+         IZQUIERDA (`ficha-quick--end`): el primero de aquí es el de más a la derecha. ---- #}
+  <div class="ficha-quick ficha-quick--end mb-3">
+    {% if can_edit %}
+    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#buyerCampaignModal" data-bc-channel="SMS">
       <i class="fa fa-comment-sms me-1"></i>Envío de SMS
     </button>
-    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#buyerCampaignModal" data-bc-channel="EMAIL">
+    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#buyerCampaignModal" data-bc-channel="EMAIL">
       <i class="fa fa-envelope me-1"></i>Envío de Email
     </button>
+    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#buyerImportModal"
+            data-bi-scope="{{ ('event:' ~ source.pk) if source.kind == 'ET' else ('lista:' ~ source.pk) }}">
+      <i class="fa fa-file-import me-1"></i>Añadir desde fichero
+    </button>
+    {% endif %}
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('buyers_export_csv', event=(source.pk if source.kind=='ET' else None), lista=(source.pk if source.kind=='MANUAL' else None), **filtros_url) }}">
+      <i class="fa fa-file-csv me-1"></i>Exportar lo que se ve
+    </a>
   </div>
-  {% if not sms_ready %}
+  {% if can_edit and not sms_ready %}
   <div class="alert alert-warning py-2 px-3 small">
     <i class="fa fa-triangle-exclamation me-1"></i>Los <strong>SMS</strong> están sin configurar (Integraciones → SMS): de momento solo se puede mandar el correo.
   </div>
-  {% endif %}
   {% endif %}
   {% endif %}
 
@@ -126,25 +141,43 @@
   <form method="get" class="d-flex gap-2 mb-2 flex-wrap" action="{{ url_for('buyers_view') }}">
     <input type="hidden" name="vista" value="{{ vista }}">
     {% if source %}<input type="hidden" name="{{ 'event' if source.kind == 'ET' else 'lista' }}" value="{{ source.pk }}">{% endif %}
-    {% for c in chips.cats if c.on %}<input type="hidden" name="cat" value="{{ c.name }}">{% endfor %}
     {% for f in chips.flags if f.on %}<input type="hidden" name="{{ f.key }}" value="1">{% endfor %}
     {% if filtros.orden and filtros.orden != 'entradas' %}<input type="hidden" name="orden" value="{{ filtros.orden }}">{% endif %}
     <input type="search" name="q" value="{{ q }}" class="form-control" style="max-width:340px" placeholder="Buscar por nombre, email o teléfono…">
     <button class="btn btn-outline-secondary" title="Buscar"><i class="fa fa-magnifying-glass"></i></button>
+
+    {# ---- UN solo filtro de categorías: se abre y se DESMARCA lo que no se quiera ver ----
+       No es un dropdown de Bootstrap a propósito: el ayudante global de desplegables los crea
+       todos con autoClose y les teleporta el menú al <body>, así que cualquier clic dentro (aquí
+       hay casillas) lo cerraría. #}
+    {% if chips.cats %}
+    <div class="bl-drop" data-bl-drop>
+      <button type="button" class="filter-chip {{ 'is-on' if filtros.cat else '' }}" data-bl-drop-btn>
+        <i class="fa fa-tags"></i>Categorías
+        <span class="filter-chip__n">{{ (filtros.cat|length) if filtros.cat else (chips.cats|length) }}/{{ chips.cats|length }}</span>
+        <i class="fa fa-chevron-down small"></i>
+      </button>
+      <div class="bl-drop__panel" data-bl-drop-panel hidden>
+        <div class="bl-drop__head">Quita las que no quieras ver</div>
+        {% for c in chips.cats %}
+        <label class="bl-drop__row">
+          <input class="form-check-input" type="checkbox" name="cat" value="{{ c.name }}" {{ 'checked' if c.checked else '' }}>
+          <i class="fa {{ c.icon }}"></i><span class="flex-grow-1">{{ c.name }}</span>
+          <span class="text-muted small">{{ c.n|k }}</span>
+        </label>
+        {% endfor %}
+        <div class="d-flex gap-2 mt-2">
+          <button class="btn btn-sm btn-primary flex-grow-1" type="submit"><i class="fa fa-check me-1"></i>Aplicar</button>
+          <button class="btn btn-sm btn-outline-secondary" type="button" data-bl-drop-all title="Volver a verlas todas">Todas</button>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
     {% if chips.any %}<a class="btn btn-outline-secondary" href="{{ chips.clear_url }}" title="Quitar los filtros"><i class="fa fa-filter-circle-xmark"></i></a>{% endif %}
   </form>
 
   <div class="bl-filters mb-3">
-    {% if chips.cats %}
-    <div class="bl-filters__row">
-      <span class="bl-filters__lbl"><i class="fa fa-tags me-1"></i>Categorías</span>
-      {% for c in chips.cats %}
-        <a class="filter-chip {{ 'is-on' if c.on else '' }}" href="{{ c.url }}">
-          <i class="fa {{ c.icon }}"></i>{{ c.name }}<span class="filter-chip__n">{{ c.n|k }}</span>
-        </a>
-      {% endfor %}
-    </div>
-    {% endif %}
     <div class="bl-filters__row">
       <span class="bl-filters__lbl"><i class="fa fa-filter me-1"></i>Filtros</span>
       {% for f in chips.flags %}
@@ -210,6 +243,33 @@
   </div>
   {% endif %}
 {% endif %}
+
+{# El filtro de categorías se abre y se cierra aquí mismo: no necesita Bootstrap (que además se
+   carga después de este script), así que va por delegación sobre el documento. #}
+<script>
+(function () {
+  document.addEventListener('click', function (ev) {
+    var btn = ev.target.closest('[data-bl-drop-btn]');
+    var caja = document.querySelector('[data-bl-drop]');
+    if (!caja) return;
+    var panel = caja.querySelector('[data-bl-drop-panel]');
+    if (!panel) return;
+    if (btn) { panel.hidden = !panel.hidden; return; }
+    if (ev.target.closest('[data-bl-drop-all]')) {
+      caja.querySelectorAll('input[name="cat"]').forEach(function (i) { i.checked = true; });
+      var form = caja.closest('form');
+      if (form) form.submit();
+      return;
+    }
+    if (!ev.target.closest('[data-bl-drop]')) panel.hidden = true;   // clic fuera: se cierra
+  });
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Escape') return;
+    var panel = document.querySelector('[data-bl-drop-panel]');
+    if (panel) panel.hidden = true;
+  });
+})();
+</script>
 
 {% if can_edit %}
   {% include '_buyer_import_modal.html' %}

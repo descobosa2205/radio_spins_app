@@ -5559,6 +5559,49 @@ def ensure_notifications_schema():
 
 
 # ---------------------------------------------------------------------------
+# ENLACES CORTOS (para los SMS)
+# ---------------------------------------------------------------------------
+# Un SMS son 160 caracteres, y una URL nuestra se come 90. El acortador es NUESTRO (no un servicio
+# de fuera): así el enlace lleva nuestro dominio —en un SMS, un dominio desconocido huele a estafa—,
+# no depende de nadie y no se le cuenta a un tercero quién abre qué.
+# ⚠️ Solo acorta enlaces DE CASA: un acortador que admita cualquier URL es una herramienta de
+# phishing (`_short_link_for` lo comprueba).
+# ---------------------------------------------------------------------------
+class ShortLink(Base):
+    """Un enlace corto: `code` → `url`. Un destino tiene SIEMPRE el mismo código (no se crea uno
+    nuevo en cada envío)."""
+
+    __tablename__ = "short_links"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    code = Column(Text, nullable=False, unique=True)
+    url = Column(Text, nullable=False)
+    kind = Column(Text)                  # de dónde salió (SMS, …), solo informativo
+    hits = Column(Integer, nullable=False, server_default=text("0"))
+    last_hit_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+def ensure_short_links_schema():
+    """Enlaces cortos (idempotente, sin Alembic)."""
+    _exec_ddl_statements([
+        """
+        CREATE TABLE IF NOT EXISTS short_links (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            code text NOT NULL UNIQUE,
+            url text NOT NULL,
+            kind text,
+            hits integer NOT NULL DEFAULT 0,
+            last_hit_at timestamptz,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        # Un destino, un código: el índice es lo que hace que se reutilice.
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_short_links_url ON short_links(url);",
+    ], "short_links")
+
+
+# ---------------------------------------------------------------------------
 # SMS (avisos por mensaje de texto)
 # ---------------------------------------------------------------------------
 # Una sola cuenta para toda la casa (a diferencia de Holded o Pleo, que van por empresa del grupo):

@@ -2257,6 +2257,29 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   global correo/WhatsApp/SMS, donde WhatsApp abre el móvil: se rediseña aparte) y los correos
   automáticos a terceros (liquidaciones, peticiones de factura…), que siguen saliendo por correo.
 
+- **ENLACES CORTOS · en los SMS se acortan solos** (ago 2026): una URL nuestra se come 90 de los 160
+  caracteres de un SMS, así que `_send_optional_sms` los cambia por
+  `https://app.33producciones.es/l/aB3xY9` (38) — punto único **`_shorten_links_in_text`** +
+  **`_short_link_for`** (modelo `ShortLink`, `ensure_short_links_schema`).
+  · El acortador es **NUESTRO** a propósito: en un SMS un dominio desconocido huele a estafa, no
+  depende de nadie y no se le cuenta a un tercero quién abre qué. Un destino tiene SIEMPRE el mismo
+  código (índice UNIQUE por URL), así que no se crea uno nuevo en cada envío.
+  ⚠️ **Solo acorta enlaces DE CASA** (`_is_own_url`): un acortador que admita cualquier URL es una
+  herramienta de phishing con nuestro dominio delante. Lo de fuera (una ticketera, por ejemplo) se
+  queda tal cual.
+  ⚠️ **El salto es un 301 a la URL de verdad**, no una página intermedia: así el móvil que pinta la
+  **PREVISUALIZACIÓN** del SMS sigue la redirección y lee las `og:` del destino. Comprobado de verdad:
+  `curl -L` sobre `/l/<code>` devuelve el `og:title`, la `og:description` y la `og:image` de la página
+  de destino, y la imagen sale 1200×630 JPEG.
+  ⚠️ El acortado va **ANTES de recortar** el texto: si no, el recorte contaría los 90 caracteres de la
+  URL larga y se comería el mensaje.
+  ⚠️ **La previsualización de un SMS la pinta el MÓVIL que lo recibe** leyendo la página (no se puede
+  «adjuntar»): nuestra parte es que la página sea pública, tenga `og:` con imagen **1200×630 y su
+  `og:image:type`/`width`/`height`** (sin eso, WhatsApp y los móviles descartan la foto) y que el
+  enlace vaya AL FINAL del mensaje.
+  · Con **`SHORT_LINK_BASE`** (variable de entorno, opcional) se puede usar un dominio corto propio el
+  día que se compre (`https://33p.es` → 23 caracteres en vez de 38).
+
 - **AVISOS POR SMS** (ago 2026): la campanita y el correo llegan tarde si nadie mira; un SMS entra en
   el móvil. Cliente en **`sms_utils.py`** (módulo aislado, sin BD ni Flask, como `holded_utils.py`),
   con tres pasarelas: **LabsMobile** (España, la recomendada), **Esendex** y **Twilio**. Se configura

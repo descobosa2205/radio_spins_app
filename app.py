@@ -1,5 +1,6 @@
 from datetime import date, timedelta, datetime
 import os
+import secrets
 import math
 import colorsys
 import io
@@ -269,6 +270,8 @@ from models import (
     SmsAccount,
     SmsMessage,
     ensure_sms_schema,
+    ShortLink,
+    ensure_short_links_schema,
     Photo,
     PhotoAlbum,
     PhotoAlbumItem,
@@ -805,7 +808,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
+    allowed = {"short_link_go", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
     if request.endpoint in allowed:
         return
 
@@ -47293,6 +47296,7 @@ def _bootstrap_schema_bg():
         (ensure_push_schema, "ensure_push_schema"),
         (ensure_notifications_schema, "ensure_notifications_schema"),
         (ensure_sms_schema, "ensure_sms_schema"),
+        (ensure_short_links_schema, "ensure_short_links_schema"),
         (ensure_artist_notifications_schema, "ensure_artist_notifications_schema"),
         (ensure_app_settings_schema, "ensure_app_settings_schema"),
     ]:
@@ -52426,7 +52430,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"short_link_go", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -54977,7 +54981,7 @@ def _require_login_v2():
         return
     if session.get("user_id"):
         return
-    allowed = {"public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"short_link_go", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -72496,6 +72500,135 @@ def _sale_notice_people(session_db, user_ids, role: str) -> list[dict]:
 # de destinatarios que ya monta cada pantalla. `_notify_send_row` es el que manda.
 # ═════════════════════════════════════════════════════════════════════════════
 
+# ═════════════════════════════════════════════════════════════════════════════
+# ENLACES CORTOS · para que en un SMS quepa el mensaje
+#
+# Una URL nuestra se come 90 de los 160 caracteres de un SMS, así que en los SMS se acortan solas:
+# `https://app.33producciones.es/l/aB3xY9`. El acortador es NUESTRO a propósito —en un SMS un dominio
+# desconocido huele a estafa, y así no depende de nadie ni se le cuenta a un tercero quién abre qué—.
+#
+# ⚠️ SOLO ACORTA ENLACES DE CASA. Un acortador que admita cualquier URL es una herramienta de
+# phishing: con nuestro dominio delante se podría mandar a cualquier sitio. Se comprueba el host.
+#
+# ⚠️ EL SALTO ES UN 301 A LA URL DE VERDAD, y por eso la PREVISUALIZACIÓN sigue funcionando: el móvil
+# sigue la redirección y lee las etiquetas `og:` de la página de destino (las que ya tienen todas las
+# páginas públicas). Si el acortador pintara una página intermedia, la previsualización sería la del
+# acortador y no la del contenido.
+#
+# Con `SHORT_LINK_BASE` (variable de entorno, opcional) se puede usar un dominio más corto el día que
+# se compre (p. ej. `https://33p.es`): el enlace pasaría de 38 a 21 caracteres.
+# ═════════════════════════════════════════════════════════════════════════════
+
+_SHORT_LINK_ALPHABET = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # sin l/I/0/O/1
+_SHORT_LINK_LEN = 6
+_URL_IN_TEXT_RE = re.compile(r"https?://[^\s<>\"']+", re.I)
+
+
+def _short_link_base() -> str:
+    """El dominio de los enlaces cortos: el de la app o, si se compra uno corto, `SHORT_LINK_BASE`."""
+    base = (os.getenv("SHORT_LINK_BASE", "") or "").strip().rstrip("/")
+    if base:
+        if not base.lower().startswith(("http://", "https://")):
+            base = "https://" + base
+        return base
+    return _public_base_url().rstrip("/")
+
+
+def _is_own_url(url: str) -> bool:
+    """¿Es un enlace NUESTRO? (lo único que se acorta: si no, sería un redirector abierto)."""
+    try:
+        destino = urlsplit((url or "").strip())
+    except ValueError:
+        return False
+    if destino.scheme.lower() not in ("http", "https") or not destino.netloc:
+        return False
+    propios = {(_CANONICAL_HOST or "").lower()}
+    for candidato in (_public_base_url(), (os.getenv("EXTERNAL_BASE_URL", "") or "")):
+        try:
+            propios.add(urlsplit(candidato).netloc.lower())
+        except ValueError:
+            pass
+    try:
+        propios.add(urlsplit(_short_link_base()).netloc.lower())
+    except ValueError:
+        pass
+    propios.discard("")
+    return destino.netloc.lower() in propios
+
+
+def _short_link_code(session_db) -> str:
+    """Un código libre. Con 6 caracteres de ese alfabeto hay 5·10^10 combinaciones: los choques son
+    anecdóticos, pero se comprueba igual."""
+    for _ in range(12):
+        codigo = "".join(secrets.choice(_SHORT_LINK_ALPHABET) for _ in range(_SHORT_LINK_LEN))
+        if not session_db.query(ShortLink.id).filter(ShortLink.code == codigo).first():
+            return codigo
+    return "".join(secrets.choice(_SHORT_LINK_ALPHABET) for _ in range(_SHORT_LINK_LEN + 2))
+
+
+def _short_link_for(session_db, url: str, *, kind: str = "") -> str:
+    """El enlace corto de una URL NUESTRA (creándolo la primera vez). Si no se puede acortar —o no
+    ahorraría nada— devuelve la URL tal cual: mejor un enlace largo que uno roto."""
+    destino = (url or "").strip()
+    if not destino or not _is_own_url(destino):
+        return destino
+    try:
+        fila = session_db.query(ShortLink).filter(ShortLink.url == destino).first()
+        if fila is None:
+            fila = ShortLink(code=_short_link_code(session_db), url=destino, kind=(kind or None))
+            session_db.add(fila)
+            session_db.flush()
+        corto = "%s/l/%s" % (_short_link_base().rstrip("/"), fila.code)
+        return corto if len(corto) < len(destino) else destino
+    except Exception:
+        app.logger.exception("[enlaces] no se pudo acortar %s", destino[:120])
+        try:
+            session_db.rollback()
+        except Exception:
+            pass
+        return destino
+
+
+def _shorten_links_in_text(session_db, text: str, *, kind: str = "") -> str:
+    """Cambia por su versión corta todas las URLs NUESTRAS que haya en un texto (para los SMS).
+
+    ⚠️ La puntuación de después no forma parte del enlace: un punto final pegado a la URL se separa
+    antes de acortarla y se vuelve a poner."""
+    texto = text or ""
+    if "http" not in texto:
+        return texto
+
+    def cambia(m):
+        crudo = m.group(0)
+        cola = ""
+        while crudo and crudo[-1] in ").,;:!?»\"'":
+            cola = crudo[-1] + cola
+            crudo = crudo[:-1]
+        return _short_link_for(session_db, crudo, kind=kind) + cola
+
+    return _URL_IN_TEXT_RE.sub(cambia, texto)
+
+
+@app.get("/l/<code>", endpoint="short_link_go")
+def short_link_go(code):
+    """Salta al destino de un enlace corto.
+
+    ⚠️ Es un **301 a la URL de verdad** (no una página intermedia): así el móvil que genera la
+    previsualización del SMS sigue la redirección y lee las `og:` del destino."""
+    with get_db() as session_db:
+        fila = (session_db.query(ShortLink)
+                .filter(ShortLink.code == (code or "").strip()).first())
+        if fila is None:
+            abort(404)
+        try:
+            fila.hits = int(fila.hits or 0) + 1
+            fila.last_hit_at = _now_madrid()
+            session_db.commit()
+        except Exception:
+            session_db.rollback()          # contar visitas no puede impedir el salto
+        return redirect(fila.url, code=301)
+
+
 NOTIFY_CHANNELS = [
     ("EMAIL", "Correo", "fa-envelope"),
     ("SMS", "SMS", "fa-comment-sms"),
@@ -82304,7 +82437,10 @@ def _send_optional_sms(session_db, to, text, *, kind="", user_id=None, nick="",
         _sms_log(session_db, phone=str(to or ""), body=(text or ""), status="ERROR",
                  provider=acc.provider, error=aviso, kind=kind, user_id=user_id, nick=nick)
         return False, aviso
-    cuerpo = sms_utils.clean_text(text or "", avoid_accents=bool(getattr(acc, "avoid_accents", True)),
+    # ⚠️ Los enlaces se ACORTAN antes de recortar el texto: si no, el recorte contaría los 90
+    # caracteres de la URL larga y se comería el mensaje.
+    texto = _shorten_links_in_text(session_db, (text or ""), kind="SMS")
+    cuerpo = sms_utils.clean_text(texto, avoid_accents=bool(getattr(acc, "avoid_accents", True)),
                                   max_segments=int(getattr(acc, "max_segments", 0) or 0))
     if not cuerpo:
         return False, "No hay nada que mandar."

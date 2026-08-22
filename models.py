@@ -1439,6 +1439,10 @@ class GroupCompany(Base):
     name = Column(Text, nullable=False, unique=True)
     logo_url = Column(Text)
     tax_info = Column(Text)
+    # NOMBRE ABREVIADO PARA EL SMS: es lo que ve en el móvil quien recibe un envío de esta empresa.
+    # Máximo 11 caracteres y solo letras, números, espacios, puntos y guiones (lo valida
+    # `sms_utils.sender_is_valid`, el mismo límite que el remitente de Integraciones → SMS).
+    sms_sender = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -9978,7 +9982,9 @@ class Buyer(Base):
 
     __tablename__ = "buyers"
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
-    email = Column(Text, nullable=False, unique=True)  # minúsculas
+    # ⚠️ Puede ser NULL: un listado subido a mano puede traer a alguien solo con su teléfono.
+    # El dedupe es por email cuando lo hay y, si no, por teléfono (índice único parcial).
+    email = Column(Text, unique=True)  # minúsculas
     name = Column(Text)
     phone = Column(Text)
     accepts_marketing = Column(Boolean, nullable=False, server_default=text("false"))
@@ -9999,8 +10005,13 @@ class BuyerEvent(Base):
     __tablename__ = "buyer_events"
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     buyer_id = Column(PGUUID(as_uuid=True), ForeignKey("buyers.id", ondelete="CASCADE"), nullable=False)
-    event_id = Column(PGUUID(as_uuid=True), ForeignKey("enterticket_events.id", ondelete="CASCADE"), nullable=False)
+    # El origen es UNO de los dos: un evento de Enterticket o un listado subido a mano.
+    event_id = Column(PGUUID(as_uuid=True), ForeignKey("enterticket_events.id", ondelete="CASCADE"))
+    list_id = Column(PGUUID(as_uuid=True), ForeignKey("buyer_lists.id", ondelete="CASCADE"))
     concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="SET NULL"))  # denormalizado
+    # CATEGORÍAS de entrada que ha comprado en este evento («Pista», «Grada»…): con esto se filtra
+    # y se ordena el listado y se elige a quién va un envío.
+    categories = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     tickets_count = Column(Integer, nullable=False, server_default=text("0"))
     amount_total = Column(Numeric, nullable=False, server_default=text("0"))
     first_purchase_at = Column(DateTime)
@@ -10012,6 +10023,103 @@ class BuyerEvent(Base):
     __table_args__ = (
         UniqueConstraint("buyer_id", "event_id", name="uq_buyer_event"),
         Index("idx_buyer_events_event", "event_id"),
+        Index("idx_buyer_events_list", "list_id"),
+    )
+
+
+class BuyerList(Base):
+    """LISTADO de compradores que NO viene de Enterticket: se sube a mano desde un fichero (Excel o
+    CSV) y se vincula a una ACTIVIDAD nuestra.
+
+    ⚠️ A propósito NO se reutiliza `enterticket_events` para esto: ese espejo es el que alimenta la
+    pestaña Ticketing y el Resultado de la actividad, y meterle filas que no son de ET haría que la
+    app creyera que hay una venta real que no existe.
+    """
+
+    __tablename__ = "buyer_lists"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    name = Column(Text, nullable=False)
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"))
+    source = Column(Text, nullable=False, server_default=text("'MANUAL'"))
+    notes = Column(Text)
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    concert = relationship("Concert")
+
+    __table_args__ = (
+        Index("idx_buyer_lists_concert", "concert_id"),
+    )
+
+
+class BuyerCampaign(Base):
+    """UN ENVÍO a compradores (SMS o correo): a quién se manda, qué se manda y cómo fue.
+
+    ⚠️ Un envío a miles de personas NO cabe en una petición (el servidor la corta por tiempo mucho
+    antes), así que se guarda la campaña con SUS destinatarios (`BuyerCampaignRecipient`) y se manda
+    por tandas con presupuesto de tiempo: al acabar se dice cuántos quedan y se sigue. Es el mismo
+    patrón que «enviar todas las invitaciones» o «subir todo a Holded».
+    """
+
+    __tablename__ = "buyer_campaigns"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    channel = Column(Text, nullable=False)            # SMS | EMAIL
+    # De qué listado sale (uno de los dos): un evento de Enterticket o un listado manual.
+    event_id = Column(PGUUID(as_uuid=True), ForeignKey("enterticket_events.id", ondelete="SET NULL"))
+    list_id = Column(PGUUID(as_uuid=True), ForeignKey("buyer_lists.id", ondelete="SET NULL"))
+    # Quién firma: la empresa del grupo que promueve (su logo en el correo, su nombre en el SMS).
+    company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
+    sms_sender = Column(Text)                         # el remitente con el que salió el SMS
+    subject = Column(Text)                            # correo: asunto
+    title = Column(Text)                              # correo: título
+    body = Column(Text)                               # correo: texto · SMS: el mensaje
+    button_label = Column(Text)
+    button_url = Column(Text)
+    link_url = Column(Text)                           # SMS: el enlace que se añade al final
+    files_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    files_token = Column(Text, unique=True)           # página pública con los adjuntos (para el SMS)
+    filters_json = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    total = Column(Integer, nullable=False, server_default=text("0"))
+    sent_ok = Column(Integer, nullable=False, server_default=text("0"))
+    sent_fail = Column(Integer, nullable=False, server_default=text("0"))
+    segments = Column(Integer, nullable=False, server_default=text("1"))   # SMS: trozos por mensaje
+    status = Column(Text, nullable=False, server_default=text("'DRAFT'"))  # DRAFT|SENDING|SENT
+    last_error = Column(Text)
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    sent_at = Column(DateTime(timezone=True))
+
+    event = relationship("EnterticketEvent")
+    buyer_list = relationship("BuyerList")
+    company = relationship("GroupCompany")
+
+    __table_args__ = (
+        Index("idx_buyer_campaigns_event", "event_id"),
+        Index("idx_buyer_campaigns_list", "list_id"),
+    )
+
+
+class BuyerCampaignRecipient(Base):
+    """Cada destinatario de un envío, con su resultado. Es lo que permite mandar por tandas sin
+    repetir a nadie y decir después a quién no le llegó y por qué."""
+
+    __tablename__ = "buyer_campaign_recipients"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    campaign_id = Column(PGUUID(as_uuid=True), ForeignKey("buyer_campaigns.id", ondelete="CASCADE"),
+                         nullable=False)
+    buyer_id = Column(PGUUID(as_uuid=True), ForeignKey("buyers.id", ondelete="SET NULL"))
+    name = Column(Text)
+    target = Column(Text, nullable=False)             # el correo o el teléfono (ya normalizado)
+    status = Column(Text, nullable=False, server_default=text("'PENDIENTE'"))  # PENDIENTE|ENVIADO|ERROR
+    error = Column(Text)
+    sent_at = Column(DateTime(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint("campaign_id", "target", name="uq_buyer_campaign_target"),
+        Index("idx_buyer_campaign_rec", "campaign_id", "status"),
     )
 
 
@@ -10146,6 +10254,79 @@ def ensure_enterticket_schema():
         "ALTER TABLE IF EXISTS concert_ticketers ADD COLUMN IF NOT EXISTS sale_url text;",
         # Tipos de entrada CREADOS por el espejo de Enterticket (solo esos se sobrescriben/borran).
         "ALTER TABLE IF EXISTS concert_ticket_types ADD COLUMN IF NOT EXISTS et_managed boolean NOT NULL DEFAULT false;",
+
+        # ── COMPRADORES: listados a mano, categorías de entrada y envíos ─────────────────────────
+        # Un comprador puede venir de un fichero con solo su teléfono: el email deja de ser
+        # obligatorio y el dedupe cae al teléfono cuando no hay correo.
+        "ALTER TABLE buyers ALTER COLUMN email DROP NOT NULL;",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_buyers_phone_no_email ON buyers (phone) WHERE email IS NULL;",
+        """
+        CREATE TABLE IF NOT EXISTS buyer_lists (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            name text NOT NULL,
+            concert_id uuid REFERENCES concerts(id) ON DELETE CASCADE,
+            source text NOT NULL DEFAULT 'MANUAL',
+            notes text,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_buyer_lists_concert ON buyer_lists(concert_id);",
+        # El origen de una fila de comprador×listado es UNO de los dos (evento de ET o listado).
+        "ALTER TABLE buyer_events ALTER COLUMN event_id DROP NOT NULL;",
+        "ALTER TABLE buyer_events ADD COLUMN IF NOT EXISTS list_id uuid REFERENCES buyer_lists(id) ON DELETE CASCADE;",
+        "ALTER TABLE buyer_events ADD COLUMN IF NOT EXISTS categories jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        "CREATE INDEX IF NOT EXISTS idx_buyer_events_list ON buyer_events(list_id);",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_buyer_list_row ON buyer_events (buyer_id, list_id) WHERE list_id IS NOT NULL;",
+        # Nombre abreviado con el que sale un SMS de cada empresa del grupo (máximo 11 caracteres).
+        "ALTER TABLE group_companies ADD COLUMN IF NOT EXISTS sms_sender text;",
+        """
+        CREATE TABLE IF NOT EXISTS buyer_campaigns (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            channel text NOT NULL,
+            event_id uuid REFERENCES enterticket_events(id) ON DELETE SET NULL,
+            list_id uuid REFERENCES buyer_lists(id) ON DELETE SET NULL,
+            company_id uuid REFERENCES group_companies(id) ON DELETE SET NULL,
+            sms_sender text,
+            subject text,
+            title text,
+            body text,
+            button_label text,
+            button_url text,
+            link_url text,
+            files_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+            files_token text UNIQUE,
+            filters_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+            total integer NOT NULL DEFAULT 0,
+            sent_ok integer NOT NULL DEFAULT 0,
+            sent_fail integer NOT NULL DEFAULT 0,
+            segments integer NOT NULL DEFAULT 1,
+            status text NOT NULL DEFAULT 'DRAFT',
+            last_error text,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            sent_at timestamptz
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_buyer_campaigns_event ON buyer_campaigns(event_id);",
+        "CREATE INDEX IF NOT EXISTS idx_buyer_campaigns_list ON buyer_campaigns(list_id);",
+        """
+        CREATE TABLE IF NOT EXISTS buyer_campaign_recipients (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            campaign_id uuid NOT NULL REFERENCES buyer_campaigns(id) ON DELETE CASCADE,
+            buyer_id uuid REFERENCES buyers(id) ON DELETE SET NULL,
+            name text,
+            target text NOT NULL,
+            status text NOT NULL DEFAULT 'PENDIENTE',
+            error text,
+            sent_at timestamptz,
+            CONSTRAINT uq_buyer_campaign_target UNIQUE (campaign_id, target)
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_buyer_campaign_rec ON buyer_campaign_recipients(campaign_id, status);",
     ], "enterticket")
 
 

@@ -1436,6 +1436,105 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   vinculados se descartan del selector «vincular con otro concierto» mirando **todos** los eventos,
   no solo los futuros: si no, una actividad enlazada a uno pasado se ofrecería otra vez.
 
+- **TELÉFONOS · EL PREFIJO DEL PAÍS SE PONE AL GUARDAR** (ago 2026). Un teléfono escrito
+  «600111222» no vale para mandar nada (a una pasarela de SMS —o a WhatsApp— hay que darle el
+  número internacional), y uno que llega «34600111222» —así los manda **Enterticket**— tampoco,
+  porque le falta el «+». Pedirle a cada pantalla que se acuerde no funciona (hay veinte
+  formularios con un campo de teléfono), así que se hace en UN sitio: **al guardar**.
+  · **`_phones_before_flush`** (listener `before_flush` de `SessionLocal`) recorre lo que se está
+  escribiendo y deja los campos de teléfono en formato internacional con
+  **`sms_utils.normalize_phone`**, el punto único de «cómo se escribe un teléfono». Los campos de
+  cada modelo están en **`_PHONE_TEXT_FIELDS`** (y `_PHONE_LIST_FIELDS` para los móviles del
+  personal, que son una lista JSONB): **un campo de teléfono nuevo hay que añadirlo ahí**.
+  ⚠️ **Nunca se pierde lo que escribió una persona**: si el valor no es un teléfono creíble (dos
+  números en el mismo campo, una extensión, «pendiente»…) se queda TAL CUAL. Normalizar es para
+  poder usarlo, no para borrar información.
+  ⚠️ **Los INSERT «a pelo» (Core) NO pasan por el listener**: el único que hay es el alta de
+  compradores de Enterticket (`_et_recompute_buyers_for_event`), que normaliza el teléfono él mismo.
+  Si se añade otro `insert()` de Core con un teléfono, hay que llamar a `_normalize_phone_value`.
+  ⚠️ `normalize_phone` reconoce ahora también los **fijos** (9 dígitos que empiezan por 8 o 9):
+  antes un «912345678» salía como «+912345678», un prefijo de otro país. Y quita los decimales que
+  deja Excel («638123456.0»).
+  · **Relleno puntual** `_phones_normalize_backfill` (marca `phones_e164_backfill_v1`, corre una vez
+  en el arranque): pone el prefijo a lo que ya estaba guardado, tabla por tabla y con un CURSOR por
+  `id` —no con LIMIT a secas, porque los números que no se pueden normalizar volverían a salir en la
+  misma tanda eternamente—.
+
+- **COMPRADORES · listados, categorías, importación a mano y ENVÍOS** (ago 2026). La base de
+  compradores tiene ya dos orígenes y los dos se ven y se trabajan igual («listados»):
+  · un **evento de Enterticket** (se alimenta solo de sus ventas), y
+  · un **listado subido a mano** (`BuyerList`), vinculado a una actividad nuestra.
+  Punto único **`_buyer_source`** (resuelve cualquiera de los dos a la misma forma) +
+  `_buyer_sources_list` (la rejilla, con el icono que dice de dónde sale cada uno).
+  ⚠️⚠️ **Un listado a mano NO se guarda como un evento de Enterticket**, a propósito: ese espejo es
+  el que alimenta la pestaña Ticketing y el Resultado de la actividad, y meterle filas que no son de
+  ET haría que la app diera por REAL una venta que no existe. Por eso `buyer_events.event_id` pasa a
+  ser NULL-able y hay `buyer_events.list_id` (el origen es UNO de los dos).
+  · **CATEGORÍAS de entrada** (`BuyerEvent.categories`, JSONB): en ET las calcula
+  `_et_recompute_buyers_for_event` con **una** consulta agrupada; en un fichero salen de su columna.
+  Con eso se **filtra y se ordena** el listado y se elige a quién va un envío. Solo se ofrecen las
+  categorías que de verdad hay (un filtro que no puede devolver nada solo hace ruido, la misma regla
+  que los tipos del calendario de agenda) y cada una lleva **su icono** (`_buyer_category_icon`:
+  pista, grada, palco, abono, invitación…).
+  · **Filtros** (`BUYER_FILTER_DEFS`) y **orden** (`BUYER_ORDER_DEFS`) como chips con icono; el
+  filtrado es un punto único, **`_buyers_apply_filters`**, que usan la pantalla, el contador del
+  envío y el propio envío: **el número que se ve antes de mandar es exactamente a quién se le
+  manda**. `channel=` añade lo que ese canal necesita (un SMS sin teléfono no se puede mandar) y se
+  dice cuántos se quedan fuera por eso.
+  · **IMPORTAR UN FICHERO** (`buyer_import.py`, motor puro): el **mismo lector** que la importación
+  de terceros (`promoter_import.read_rows` / `parse_columns`, refactorizados para compartirlo), que
+  ya sabe de cabeceras desplazadas, rótulos como «N.º de teléfono» y números que Excel escribe con
+  decimales. Lo único propio es a qué campos de un comprador se puede volcar una columna. Pasos:
+  fichero → columnas (con un EJEMPLO de cada una, las que no se reconocen en ámbar, y «Omitir esta
+  columna» para lo que no haga falta) → resumen → importar.
+  ⚠️ **NO SE DUPLICAN COMPRADORES**: se identifican por su **email** y, si no lo traen, por su
+  **teléfono** (`buyers.email` deja de ser obligatorio y hay índice único parcial por teléfono
+  cuando no hay correo). A quien ya está **solo se le COMPLETA lo que tiene vacío**; lo que ya está
+  escrito no se pisa nunca.
+  ⚠️ Un fichero de ticketera trae **UNA FILA POR ENTRADA**: `_buyer_import_group` agrupa por
+  comprador sumando entradas e importe y juntando categorías. Y las entradas de un comprador en un
+  listado se **ESCRIBEN**, no se suman a lo que había: **reimportar el mismo fichero deja lo mismo**
+  (comprobado) en vez de inflar los números.
+  ⚠️ Una fila **sin email y sin teléfono** no se importa (no hay a quién escribirle ni con quién no
+  duplicarla) y **se dice cuántas** se han descartado, no desaparecen sin más.
+  · **Un listado NUEVO** para una actividad que no sale: artista o evento (con su foto, los activos
+  primero y el resto tras «Ver más») → sus actividades (`buyers_subject_activities`) → el fichero.
+  Un listado por actividad: si ya lo tiene, se reutiliza.
+  · **ENVÍOS (SMS y correo)**: `BuyerCampaign` + `BuyerCampaignRecipient`. El **correo** lo firma la
+  empresa del grupo que **promueve** (`_buyer_source_company`: `group_company_id` → la que factura →
+  su participación): logo arriba a la **derecha**, el **título** centrado debajo, el **texto**, el
+  **botón** (nombre + enlace) justo debajo a la derecha y los **adjuntos** al final. En el **SMS** el
+  remitente ES esa empresa (**`GroupCompany.sms_sender`**, «nombre abreviado para SMS», que se pone
+  en su ficha con el MISMO límite que el remitente general —11 caracteres, `sms_utils.sender_is_valid`—
+  y se puede dejar vacío, porque en España un remitente con letras hay que registrarlo).
+  ⚠️ La **previsualización y el contador los compone el SERVIDOR** con el mismo código que el envío
+  (`_campaign_email_html` / `_campaign_sms_preview`), así que lo que se ve es lo que sale y **no hay
+  una segunda versión en JS** del GSM-7, los acentos y los trozos (eso es de `sms_utils`).
+  ⚠️ El **enlace que se escribe** se cuenta **acortado si es nuestro** y con su longitud REAL si es
+  de fuera (el acortador solo acorta lo de casa): contar siempre 38 caracteres haría que el contador
+  mintiera justo con el enlace de una ticketera. El de los **adjuntos** sí es siempre nuestro, así
+  que se cuenta con la longitud exacta de un enlace corto aunque todavía no exista (se crea al
+  enviar). Si el mensaje ocupa **más de un SMS** se avisa, se dice cuántos son en total y hay que
+  **aceptarlo** para poder mandar (`max_segments=0` en el envío: ahí ya no se recorta).
+  ⚠️ En un SMS **no se puede adjuntar nada**: los adjuntos van a una página nuestra
+  (`public_campaign_files`, `/envio/<token>`, con sus `og:` para la previsualización del móvil) y su
+  enlace se acorta. En el **correo** van como imágenes y enlaces DENTRO del mensaje, no como ficheros
+  pegados: mandar el mismo PDF a miles de direcciones es la forma más rápida de acabar en spam.
+  ⚠️ **Un envío a miles de personas no cabe en una petición**: se guardan los destinatarios y se
+  manda por tandas de ~45 s. La primera va en la petición (para ver al momento los errores de
+  verdad) y el resto en un **hilo en segundo plano** (`_campaign_send_bg`), con la pantalla
+  preguntando cómo va (`buyers_campaign_status`). Cada destinatario queda marcado en cuanto se le
+  manda, así que si el hilo muere (un despliegue) se sigue con «Seguir enviando» y **nadie recibe dos
+  veces**.
+  ⚠️ El **tope diario de SMS** (Integraciones → SMS) se respeta: al llegar, el envío **se para y lo
+  dice** con cuántos quedan, en vez de marcar a nadie como «no le llegó».
+  · UI: `compradores.html` + `_buyer_import_modal.html` + `_buyer_campaign_modal.html` +
+  `static/js/buyer_import.js` + `static/js/buyer_campaign.js`, estilos `.bl-*` / `.bi-*` / `.bc-*`
+  (la zona de arrastrar y la tabla de columnas reutilizan las `.pi-*` de la importación de terceros).
+  ⚠️ De qué listado se abre cada pop-up y con qué canal se decide **EN EL CLIC** (`data-bi-scope`,
+  `data-bc-channel`), no en `shown.bs.modal`: con `modal_stack.js` por medio ese evento no siempre
+  llega (bug real ya apuntado en esta guía).
+
 - **Contratación · pestañas, tareas y contadores** (rediseño ago 2026): la barra de pestañas es un
   parcial único (`templates/_contracting_tabs.html`) que va **POR ENCIMA del título** de cada
   pantalla, con la estética sobria de Discográfica (`nav-tabs`, subrayado de marca, clase

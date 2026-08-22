@@ -1,0 +1,53 @@
+<!doctype html>
+{# Página pública con los ADJUNTOS de un envío: es lo que se manda por SMS, donde no se puede
+   adjuntar nada. Standalone a propósito (necesita sus `og:` para la previsualización del móvil). #}
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ camp.title or 'Documentos' }}</title>
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="{{ camp.title or 'Documentos' }}">
+  <meta property="og:description" content="{{ (camp.body or '')[:140] }}">
+  <meta property="og:image" content="{{ og_image }}">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css', v=ASSET_V) }}">
+</head>
+<body class="bg-light">
+<div class="container py-4" style="max-width:760px">
+  <div class="card shadow-sm">
+    <div class="card-body p-4">
+      {% if company and company.logo_url %}
+        <div class="text-end mb-2">
+          <img src="{{ company.logo_url }}" alt="{{ company.name }}" style="max-height:56px;max-width:170px;object-fit:contain">
+        </div>
+      {% endif %}
+      <h1 class="h4 text-center mb-3">{{ camp.title or 'Documentos' }}</h1>
+      {% if camp.body %}<p class="text-muted" style="white-space:pre-line">{{ camp.body }}</p>{% endif %}
+
+      <div class="row g-3 mt-2">
+        {% for f in files %}
+        <div class="col-12 {% if f.image %}col-md-6{% endif %}">
+          {% if f.image %}
+            <a href="{{ f.url }}" target="_blank" rel="noopener" class="d-block">
+              <img src="{{ f.url }}" alt="{{ f.name }}" class="img-fluid rounded-3 border">
+            </a>
+          {% else %}
+            <a class="btn btn-outline-secondary w-100 text-start" href="{{ f.url }}" target="_blank" rel="noopener">
+              <i class="fa fa-file-lines me-2"></i>{{ f.name }}
+            </a>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

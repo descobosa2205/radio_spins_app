@@ -72,6 +72,13 @@
           <div class="text-muted fst-italic small">Sin datos de facturación. Son los que ve el proveedor al hacer la factura.</div>
         {% endif %}
       </div>
+      {% if company.sms_sender %}
+        <div class="border rounded-3 p-3 mt-2">
+          <div class="text-muted small text-uppercase mb-1" style="letter-spacing:.03em;">Nombre abreviado para SMS</div>
+          <div><i class="fa fa-comment-sms me-2 text-danger"></i><span class="fw-semibold">{{ company.sms_sender }}</span></div>
+          <div class="text-muted small">Es el remitente que ve quien recibe un SMS de esta empresa.</div>
+        </div>
+      {% endif %}
     </div>
 
     {% if can_edit_company %}
@@ -84,6 +91,18 @@
           <div class="col-12 col-md-6">
             <label class="form-label">Logo</label>
             <input type="file" class="form-control" name="logo" accept="image/*">
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label"><i class="fa fa-comment-sms me-1 text-danger"></i>Nombre abreviado para SMS</label>
+            <input class="form-control" name="sms_sender" value="{{ company.sms_sender or '' }}"
+                   maxlength="11" pattern="[A-Za-z0-9 .\-]*"
+                   placeholder="33PROD">
+            <div class="form-text">
+              Es lo que ve en el móvil quien recibe un SMS de esta empresa (los envíos a compradores
+              salen con este nombre). Máximo 11 caracteres, sin acentos ni símbolos.
+              <strong>En España hay que registrarlo en la pasarela</strong>; si se deja vacío, el SMS
+              sale con el número de la pasarela.
+            </div>
           </div>
           <div class="col-12">
             <label class="form-label">Datos de facturación</label>

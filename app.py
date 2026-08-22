@@ -42,7 +42,7 @@ from flask import (
     send_file,
     Response,
 )
-from sqlalchemy import func, text, or_, and_, bindparam
+from sqlalchemy import func, text, or_, and_, bindparam, event as sa_event
 
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.exceptions import RequestEntityTooLarge
@@ -319,6 +319,7 @@ import sim_calc  # motor de cálculo puro de Simulaciones
 import seatmap_calc  # motor puro del mapa de butacas del recinto (conteos/plantillas)
 import invoice_read  # motor puro de LECTURA de facturas (nº, fechas e importes del PDF)
 import promoter_import  # motor puro de IMPORTACIÓN de terceros (columnas de un Excel/CSV)
+import buyer_import  # importar compradores desde un fichero (motor puro)
 import sms_utils  # pasarela de SMS (avisos por mensaje de texto); sin credenciales no manda nada
 from mrz_utils import (
     extract_fields as mrz_extract_fields,
@@ -809,7 +810,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"short_link_go", "og_default_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
+    allowed = {"short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
     if request.endpoint in allowed:
         return
 
@@ -38226,6 +38227,21 @@ def company_update(cid):
         session.close(); return redirect(url_for("companies_view"))
     co.name = request.form.get("name", co.name).strip()
     co.tax_info = request.form.get("tax_info", co.tax_info or "").strip()
+    # NOMBRE ABREVIADO PARA EL SMS: es lo que ve en el móvil quien recibe un envío de esta empresa.
+    # ⚠️ Se valida con `sms_utils.sender_is_valid`, el MISMO límite que el remitente de
+    # Integraciones → SMS (11 caracteres y sin símbolos raros): si no, la pasarela lo rechaza.
+    # ⚠️ Y se puede dejar VACÍO a propósito (en España un remitente con letras hay que registrarlo;
+    # sin él, el SMS sale con el número de la pasarela).
+    if "sms_sender" in request.form:
+        remitente = (request.form.get("sms_sender") or "").strip()
+        if not remitente:
+            co.sms_sender = None
+        else:
+            valido, motivo = sms_utils.sender_is_valid(remitente)
+            if valido:
+                co.sms_sender = remitente
+            else:
+                flash("El nombre abreviado para SMS no vale: %s" % motivo, "warning")
     logo = request.files.get("logo")
     try:
         if logo and logo.filename:
@@ -47242,6 +47258,9 @@ from models import (
     EnterticketSale,
     Buyer,
     BuyerEvent,
+    BuyerList,
+    BuyerCampaign,
+    BuyerCampaignRecipient,
     ensure_enterticket_schema,
     AppSetting,
     ensure_app_settings_schema,
@@ -47376,6 +47395,11 @@ def _bootstrap_schema_bg():
     # puntual, no la norma: lo normal es que se congele al registrar. Ver `_editorial_split_backfill`.
     _safe_ensure(lambda: globals()["_editorial_split_backfill_once"](),
                  "_editorial_split_backfill_once")
+    # Una sola vez: poner el PREFIJO DEL PAÍS a los teléfonos que ya estaban guardados sin él (los
+    # de Enterticket llegaban «34600…», sin el «+», y así no se les puede mandar ni un SMS ni un
+    # WhatsApp). De aquí en adelante lo hace el guardado. Ver `_phones_normalize_backfill`.
+    _safe_ensure(lambda: globals()["_phones_normalize_backfill_once"](),
+                 "_phones_normalize_backfill_once")
     # Una sola vez: devolverles su tipo a los contenedores de EVENTO que el modal de editar degradó
     # a ciclo. Va aquí (con marca) y NO como sentencia del esquema: si corriera en cada arranque
     # convertiría en EVENTO las giras y ciclos legítimos de un evento creados después.
@@ -52487,7 +52511,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"short_link_go", "og_default_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -55039,7 +55063,7 @@ def _require_login_v2():
         return
     if session.get("user_id"):
         return
-    allowed = {"short_link_go", "og_default_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -82528,6 +82552,211 @@ SMS_NOTICE_KINDS = [
 SMS_NOTICE_LABELS = dict(SMS_NOTICE_KINDS)
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# TELÉFONOS · EL PREFIJO DEL PAÍS SE PONE AL GUARDAR (en TODA la app)
+#
+# Un teléfono escrito «600111222» no vale para mandar nada: a una pasarela de SMS (o a WhatsApp)
+# hay que darle el número internacional. Y uno que llega «34600111222» —así los manda
+# Enterticket— tampoco, porque le falta el «+».
+#
+# Pedirle a cada pantalla que se acuerde de normalizarlo no funciona (hay veinte formularios con
+# un campo de teléfono y cada uno lo guarda a su manera), así que se hace en UN solo sitio: **al
+# guardar**. `_phones_before_flush` mira los campos de teléfono de las fichas que se están
+# escribiendo y los deja en formato internacional con `sms_utils.normalize_phone`, que es el punto
+# único de «cómo se escribe un teléfono» (lo comparten el SMS, el registro de envíos y esto).
+#
+# ⚠️ NUNCA se pierde lo que escribió una persona: si el valor no es un teléfono creíble (dos
+#    números en el mismo campo, una extensión, «pendiente»…) se queda TAL CUAL. Normalizar es
+#    para poder usarlo, no para borrar información.
+# ⚠️ Vale también para las fichas que ya estaban guardadas en cuanto alguien las toca, así que la
+#    base se limpia sola; para lo que nadie vuelve a abrir está el relleno puntual
+#    `_phones_normalize_backfill` (una vez, en el arranque).
+# ⚠️ Los INSERT «a pelo» (Core, sin ORM) NO pasan por aquí: el único que hay es el alta de
+#    compradores de Enterticket, que normaliza el teléfono él mismo.
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Campos de teléfono de cada modelo. Si se añade un campo de teléfono nuevo, va aquí.
+_PHONE_TEXT_FIELDS = {
+    ArtistNotificationContact: ("phone",),
+    BookingRequest: ("contact_phone",),
+    Buyer: ("phone",),
+    EnterticketSale: ("buyer_phone",),
+    InvitationCommitment: ("guest_phone",),
+    InvitationPublicLink: ("target_phone",),
+    InvitationRequest: ("guest_phone",),
+    MediaContact: ("phone",),
+    MinorAuthorization: ("guardian_phone", "escort_phone"),
+    Promoter: ("contact_phone",),
+    PromoterContact: ("phone", "mobile"),
+    PromoterPhone: ("phone",),
+    SmsMessage: ("phone",),
+    SongDemo: ("sender_phone",),
+}
+# Campos que son una LISTA de teléfonos (JSONB).
+_PHONE_LIST_FIELDS = {
+    UserProfile: ("mobile_phones",),
+}
+
+
+def _normalize_phone_value(value):
+    """El teléfono tal como se guarda («+34600111222»). Si no es creíble, lo que se escribió."""
+    if value is None:
+        return None
+    txt = str(value).strip()
+    if not txt:
+        return value
+    return sms_utils.normalize_phone(txt) or txt
+
+
+def _normalize_phone_list(value):
+    """Una lista de teléfonos (la de la ficha de personal): cada uno normalizado, sin tocar el
+    resto de lo que traiga cada entrada (pueden ser textos o diccionarios)."""
+    if not isinstance(value, list):
+        return value, False
+    salida, cambiado = [], False
+    for item in value:
+        if isinstance(item, str):
+            nuevo = _normalize_phone_value(item)
+            cambiado = cambiado or (nuevo != item)
+            salida.append(nuevo)
+        elif isinstance(item, dict) and item.get("phone"):
+            nuevo = _normalize_phone_value(item.get("phone"))
+            if nuevo != item.get("phone"):
+                item = dict(item, phone=nuevo)
+                cambiado = True
+            salida.append(item)
+        else:
+            salida.append(item)
+    return salida, cambiado
+
+
+def _phones_normalize_instance(obj) -> None:
+    """Deja en formato internacional los teléfonos de UNA ficha que se está guardando."""
+    for campo in _PHONE_TEXT_FIELDS.get(type(obj), ()):
+        actual = getattr(obj, campo, None)
+        if actual is None or not str(actual).strip():
+            continue
+        nuevo = _normalize_phone_value(actual)
+        if nuevo != actual:                      # solo si cambia (si no, un UPDATE de más)
+            setattr(obj, campo, nuevo)
+    for campo in _PHONE_LIST_FIELDS.get(type(obj), ()):
+        actual = getattr(obj, campo, None)
+        nuevo, cambiado = _normalize_phone_list(actual)
+        if cambiado:
+            setattr(obj, campo, nuevo)           # reasignar: tocar la lista dentro no se guarda
+
+
+@sa_event.listens_for(SessionLocal, "before_flush")
+def _phones_before_flush(session_db, flush_context, instances):
+    """Antes de cada guardado: los teléfonos, con su prefijo."""
+    try:
+        for obj in list(session_db.new) + list(session_db.dirty):
+            _phones_normalize_instance(obj)
+    except Exception:
+        # Un fallo aquí no puede tumbar un guardado: el teléfono se queda como estaba.
+        app.logger.exception("[telefonos] no se pudieron normalizar al guardar")
+
+
+# ── Relleno puntual: los teléfonos que YA estaban guardados sin prefijo ──────────────────────────
+# Lo de arriba arregla lo que se guarda de ahora en adelante y, de rebote, cualquier ficha que se
+# vuelva a tocar. Pero lo que nadie abra se quedaría como está —y justo eso es lo que hay que poder
+# usar para mandar un SMS—, así que se pasa UNA vez por todas las columnas de teléfono.
+PHONES_BACKFILL_KEY = "phones_e164_backfill_v1"
+_PHONES_BACKFILL_TABLES = [
+    ("buyers", "phone"),
+    ("enterticket_sales", "buyer_phone"),
+    ("promoters", "contact_phone"),
+    ("promoter_phones", "phone"),
+    ("promoter_contacts", "phone"),
+    ("promoter_contacts", "mobile"),
+    ("media_contacts", "phone"),
+    ("artist_notification_contacts", "phone"),
+    ("song_demos", "sender_phone"),
+    ("booking_requests", "contact_phone"),
+    ("invitation_requests", "guest_phone"),
+    ("invitation_commitments", "guest_phone"),
+    ("invitation_public_links", "target_phone"),
+    ("minor_authorizations", "guardian_phone"),
+    ("minor_authorizations", "escort_phone"),
+]
+
+
+def _phones_normalize_backfill() -> dict:
+    """Pone el prefijo a los teléfonos ya guardados. Devuelve el recuento por tabla.
+
+    ⚠️ Solo toca los que NO empiezan por «+» (los demás ya están bien) y **solo si el número es
+    creíble**: lo que no lo sea se queda tal cual, como en el guardado.
+    ⚠️ Se recorre con un CURSOR por `id` (no con LIMIT a secas): `enterticket_sales` puede tener
+    cientos de miles de filas, y los números que no se pueden normalizar seguirían saliendo en la
+    misma tanda una y otra vez.
+    """
+    resumen: dict[str, int] = {}
+    s = db()
+    try:
+        for tabla, columna in _PHONES_BACKFILL_TABLES:
+            arreglados, ultimo = 0, None
+            try:
+                while True:
+                    sql = ("SELECT id, {c} AS valor FROM {t} "
+                           "WHERE {c} IS NOT NULL AND {c} <> '' AND {c} NOT LIKE '+%'"
+                           .format(c=columna, t=tabla))
+                    if ultimo is not None:
+                        sql += " AND id > :ultimo"
+                    sql += " ORDER BY id LIMIT :lim"
+                    params = {"lim": 500}
+                    if ultimo is not None:
+                        params["ultimo"] = ultimo
+                    filas = s.execute(text(sql), params).fetchall()
+                    if not filas:
+                        break
+                    ultimo = filas[-1].id
+                    cambios = []
+                    for fila in filas:
+                        nuevo = sms_utils.normalize_phone(fila.valor)
+                        if nuevo and nuevo != fila.valor:
+                            cambios.append({"pk": fila.id, "v": nuevo})
+                    if cambios:
+                        s.execute(text("UPDATE %s SET %s = :v WHERE id = :pk" % (tabla, columna)),
+                                  cambios)
+                        s.commit()
+                        arreglados += len(cambios)
+                    if len(filas) < 500:
+                        break
+            except Exception:
+                s.rollback()
+                app.logger.exception("[telefonos] relleno: fallo en %s.%s", tabla, columna)
+                continue
+            if arreglados:
+                resumen[tabla + "." + columna] = arreglados
+        # La ficha de personal guarda una LISTA de móviles (JSONB): esa va por el ORM.
+        try:
+            tocados = 0
+            for prof in s.query(UserProfile).all():
+                nuevo, cambiado = _normalize_phone_list(prof.mobile_phones)
+                if cambiado:
+                    prof.mobile_phones = nuevo
+                    tocados += 1
+            if tocados:
+                s.commit()
+                resumen["user_profiles.mobile_phones"] = tocados
+        except Exception:
+            s.rollback()
+            app.logger.exception("[telefonos] relleno: fallo en los móviles del personal")
+        return resumen
+    finally:
+        s.close()
+
+
+def _phones_normalize_backfill_once():
+    """El relleno de arriba, UNA SOLA VEZ (marca en `AppSetting`)."""
+    if (_get_app_setting(PHONES_BACKFILL_KEY) or "").strip() == "done":
+        return
+    resumen = _phones_normalize_backfill()
+    _set_app_setting(PHONES_BACKFILL_KEY, "done")
+    if resumen:
+        app.logger.info("Teléfonos puestos en formato internacional: %s", resumen)
+
+
 def _sms_account(session_db, *, create: bool = False):
     """La cuenta de SMS (una sola para toda la casa). Con `create` la deja creada si no existe."""
     try:
@@ -82623,12 +82852,17 @@ def _sms_log(session_db, *, phone, body, status, provider="", provider_ref="", e
 
 
 def _send_optional_sms(session_db, to, text, *, kind="", user_id=None, nick="",
-                       force: bool = False) -> tuple[bool, str]:
+                       force: bool = False, sender: str = "",
+                       max_segments: int | None = None) -> tuple[bool, str]:
     """Manda un SMS si la pasarela está configurada. Devuelve `(ok, error)`.
 
     Es el punto ÚNICO de salida de SMS (el hermano de `_send_optional_email`): recorta el texto a los
     trozos permitidos, quita los acentos si así está configurado, respeta el tope diario y lo apunta
-    todo en el registro. `force` se salta el tope (lo usa el SMS de prueba)."""
+    todo en el registro. `force` se salta el tope (lo usa el SMS de prueba).
+
+    `sender` pisa el remitente de la cuenta (un envío a compradores sale con el nombre abreviado de
+    la EMPRESA DEL GRUPO que promueve, no con el general de la casa) y `max_segments` pisa el tope de
+    trozos (0 = no recortar: en un envío los trozos de más ya se han avisado y aceptado)."""
     acc = _sms_account(session_db)
     cliente = _sms_client(session_db)
     if cliente is None:
@@ -82642,8 +82876,10 @@ def _send_optional_sms(session_db, to, text, *, kind="", user_id=None, nick="",
     # ⚠️ Los enlaces se ACORTAN antes de recortar el texto: si no, el recorte contaría los 90
     # caracteres de la URL larga y se comería el mensaje.
     texto = _shorten_links_in_text(session_db, (text or ""), kind="SMS")
+    tope_trozos = (int(getattr(acc, "max_segments", 0) or 0) if max_segments is None
+                   else int(max_segments or 0))
     cuerpo = sms_utils.clean_text(texto, avoid_accents=bool(getattr(acc, "avoid_accents", True)),
-                                  max_segments=int(getattr(acc, "max_segments", 0) or 0))
+                                  max_segments=tope_trozos)
     if not cuerpo:
         return False, "No hay nada que mandar."
     tope = int(getattr(acc, "daily_cap", 0) or 0)
@@ -82654,7 +82890,7 @@ def _send_optional_sms(session_db, to, text, *, kind="", user_id=None, nick="",
                  error=aviso, kind=kind, user_id=user_id, nick=nick)
         return False, aviso
     try:
-        ref = cliente.send(numero, cuerpo)
+        ref = cliente.send(numero, cuerpo, sender=(sender or ""))
     except sms_utils.SmsError as exc:
         _sms_log(session_db, phone=numero, body=cuerpo, status="ERROR", provider=acc.provider,
                  error=str(exc), kind=kind, user_id=user_id, nick=nick)
@@ -99093,6 +99329,23 @@ def _et_recompute_buyers_for_event(s, ev: EnterticketEvent) -> None:
                 EnterticketSale.buyer_email.isnot(None),
                 EnterticketSale.buyer_email != "")
         .group_by(func.lower(EnterticketSale.buyer_email)).all())
+    # CATEGORÍAS de entrada compradas por cada uno («Pista», «Grada»…): con esto se filtra y se
+    # ordena el listado de compradores y se elige a quién va un envío. Una sola consulta agrupada.
+    cats: dict[str, list[str]] = {}
+    for fila in (s.query(func.lower(EnterticketSale.buyer_email).label("email"),
+                         EnterticketSale.entrada_name.label("cat"))
+                 .filter(EnterticketSale.event_id == ev.id,
+                         EnterticketSale.cancelled.is_(False),
+                         EnterticketSale.refunded.is_(False),
+                         EnterticketSale.buyer_email.isnot(None),
+                         EnterticketSale.buyer_email != "",
+                         EnterticketSale.entrada_name.isnot(None),
+                         EnterticketSale.entrada_name != "")
+                 .group_by(func.lower(EnterticketSale.buyer_email),
+                           EnterticketSale.entrada_name).all()):
+        cats.setdefault(fila.email, []).append(fila.cat)
+    for clave in cats:
+        cats[clave] = sorted(set(cats[clave]))
     emails = [r.email for r in q]
     buyers = {}
     if emails:
@@ -99101,8 +99354,12 @@ def _et_recompute_buyers_for_event(s, ev: EnterticketEvent) -> None:
     # sincronizarse a la vez en workers distintos) y relectura de los que faltaban.
     missing = [r for r in q if r.email not in buyers]
     if missing:
+        # ⚠️ Este INSERT es «a pelo» (Core), así que NO pasa por el normalizador de teléfonos del
+        # guardado: hay que ponerle el prefijo aquí. Enterticket manda «34600111222» (sin el «+»),
+        # que no vale para mandar un SMS ni un WhatsApp.
         s.execute(_et_pg_insert(Buyer.__table__).values([
-            {"email": r.email, "name": r.name or None, "phone": r.phone or None,
+            {"email": r.email, "name": r.name or None,
+             "phone": _normalize_phone_value(r.phone) or None,
              "accepts_marketing": bool(r.mkt)} for r in missing
         ]).on_conflict_do_nothing(index_elements=["email"]))
         for b in s.query(Buyer).filter(Buyer.email.in_([r.email for r in missing])).all():
@@ -99116,8 +99373,9 @@ def _et_recompute_buyers_for_event(s, ev: EnterticketEvent) -> None:
             continue
         if r.name and b.name != r.name:
             b.name = r.name
-        if r.phone and b.phone != r.phone:
-            b.phone = r.phone
+        telefono = _normalize_phone_value(r.phone)
+        if telefono and b.phone != telefono:
+            b.phone = telefono
         if r.mkt and not b.accepts_marketing:
             b.accepts_marketing = True
         valid_buyer_ids.add(b.id)
@@ -99129,7 +99387,8 @@ def _et_recompute_buyers_for_event(s, ev: EnterticketEvent) -> None:
         # Solo tocar la fila si algo cambió de verdad (evita miles de UPDATEs por sync).
         for field, value in (("concert_id", ev.concert_id), ("tickets_count", int(r.n or 0)),
                              ("amount_total", _et_money(r.amt)), ("first_purchase_at", r.first_at),
-                             ("last_purchase_at", r.last_at)):
+                             ("last_purchase_at", r.last_at),
+                             ("categories", cats.get(r.email) or [])):
             if getattr(be, field) != value:
                 setattr(be, field, value)
                 dirty = True
@@ -100192,97 +100451,1489 @@ def _et_event_display_label(ev: EnterticketEvent) -> str:
     return ev.name
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# COMPRADORES · listados, filtros, importación a mano y envíos
+#
+# La base de compradores nació de Enterticket (deduplicada por email). Ahora tiene dos orígenes:
+#   · un EVENTO de Enterticket (se alimenta solo de sus ventas), y
+#   · un LISTADO subido a mano (`BuyerList`), vinculado a una actividad nuestra, para lo que se
+#     vende por otro sitio o para una base que llega en un Excel.
+# Los dos se ven y se trabajan IGUAL: la pantalla habla de «listados» y `_buyer_source` resuelve
+# cualquiera de los dos a la misma forma.
+#
+# ⚠️ A propósito un listado a mano NO se guarda como un evento de Enterticket: ese espejo es el que
+# alimenta la pestaña Ticketing y el Resultado de la actividad, y meterle filas que no son de ET
+# haría que la app diera por real una venta que no existe.
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Icono de una categoría de entrada, por lo que dice su nombre (pista, grada, palco…). Es solo
+# estética, pero es lo que hace que un listado con seis categorías se lea de un vistazo.
+BUYER_CATEGORY_ICONS = [
+    (("pista", "general", "campo"), "fa-people-group"),
+    (("grada", "asiento", "silla", "butaca", "numerad"), "fa-chair"),
+    (("palco", "vip", "premium", "golden", "oro"), "fa-crown"),
+    (("abono", "bono", "pase", "pass"), "fa-id-card"),
+    (("invitacion", "invitación", "cortesia", "cortesía"), "fa-gift"),
+    (("anticipada", "early", "promo", "descuento", "reducid"), "fa-tags"),
+    (("mesa", "reservado", "zona"), "fa-champagne-glasses"),
+    (("parking", "aparcamiento"), "fa-car"),
+    (("camping", "acampada"), "fa-campground"),
+]
+
+
+def _buyer_category_icon(name: str) -> str:
+    clave = _norm_text_key(name or "")
+    for palabras, icono in BUYER_CATEGORY_ICONS:
+        if any(p in clave for p in palabras):
+            return icono
+    return "fa-ticket"
+
+
+# Filtros del listado (y de los envíos). Cada uno es un interruptor: se acumulan.
+# (clave, etiqueta, icono, qué hace)
+BUYER_FILTER_DEFS = [
+    ("mail", "Con email", "fa-at"),
+    ("tel", "Con teléfono", "fa-mobile-screen-button"),
+    ("pub", "Aceptan publicidad", "fa-envelope-open-text"),
+    ("rec", "Repiten (más de un evento)", "fa-repeat"),
+    ("multi", "Más de una entrada", "fa-users"),
+]
+BUYER_ORDER_DEFS = [
+    ("entradas", "Más entradas", "fa-arrow-down-wide-short"),
+    ("importe", "Más importe", "fa-euro-sign"),
+    ("reciente", "Compra más reciente", "fa-clock"),
+    ("nombre", "Nombre (A-Z)", "fa-arrow-down-a-z"),
+    ("categoria", "Categoría", "fa-tags"),
+]
+BUYER_ROWS_LIMIT = 1000          # lo que se pinta; los totales y los envíos van sobre TODO
+
+
+def _buyer_filters_from_request(args=None) -> dict:
+    """Los filtros tal como vienen de la URL o de un formulario de envío."""
+    args = args if args is not None else request.args
+    getlist = getattr(args, "getlist", None)
+    cats = [c.strip() for c in (getlist("cat") if getlist else []) if (c or "").strip()]
+    return {
+        "q": (args.get("q") or "").strip(),
+        "cat": cats,
+        "flags": [k for k, _l, _i in BUYER_FILTER_DEFS if (args.get(k) or "") in ("1", "on", "true")],
+        "orden": (args.get("orden") or "entradas").strip(),
+    }
+
+
+def _buyer_source(session_db, *, event_pk: str = "", list_pk: str = "") -> dict | None:
+    """Un LISTADO de compradores (un evento de Enterticket o uno subido a mano), en la misma forma.
+
+    {"kind": ET|MANUAL, "pk", "key" (para la URL), "label", "date", "venue", "town", "image",
+     "concert_id", "company", "manual"}
+    """
+    if event_pk:
+        try:
+            ev = session_db.get(EnterticketEvent, to_uuid(event_pk))
+        except Exception:
+            ev = None
+        if ev is None:
+            return None
+        return {
+            "kind": "ET", "pk": str(ev.id), "manual": False,
+            "label": _et_event_display_label(ev), "name": ev.name,
+            "date": (ev.event_date.strftime("%d/%m/%Y") if ev.event_date else "—"),
+            "venue": ev.venue_name or "", "town": ev.venue_town or "",
+            "image": ev.artist_image or ev.image_url or "",
+            "concert_id": (str(ev.concert_id) if ev.concert_id else ""),
+            "row": ev,
+        }
+    if list_pk:
+        try:
+            bl = session_db.get(BuyerList, to_uuid(list_pk))
+        except Exception:
+            bl = None
+        if bl is None:
+            return None
+        c = bl.concert
+        artista = (c.artist.name if (c is not None and c.artist) else "")
+        recinto = ""
+        if c is not None:
+            recinto = ((c.venue.name if c.venue else "") or (c.manual_venue_name or "")
+                       or (c.manual_municipality or ""))
+        return {
+            "kind": "MANUAL", "pk": str(bl.id), "manual": True,
+            "label": bl.name or (artista or "Listado de compradores"), "name": bl.name or "",
+            "date": (c.date.strftime("%d/%m/%Y") if (c is not None and c.date) else "—"),
+            "venue": recinto, "town": (getattr(c, "manual_municipality", "") or "") if c is not None else "",
+            "image": ((c.artist.photo_url or "") if (c is not None and c.artist) else ""),
+            "concert_id": (str(bl.concert_id) if bl.concert_id else ""),
+            "row": bl,
+        }
+    return None
+
+
+def _buyer_source_company(session_db, source: dict | None):
+    """La EMPRESA DEL GRUPO que promueve la actividad de este listado: su logo firma el correo y su
+    nombre abreviado sale como remitente del SMS. Si no se puede resolver, None (se elige a mano)."""
+    if not source or not source.get("concert_id"):
+        return None
+    try:
+        c = session_db.get(Concert, to_uuid(source["concert_id"]))
+    except Exception:
+        return None
+    if c is None:
+        return None
+    for cid in (c.group_company_id, c.billing_company_id):
+        if cid:
+            co = session_db.get(GroupCompany, cid)
+            if co is not None:
+                return co
+    fila = (session_db.query(ConcertCompanyShare)
+            .filter(ConcertCompanyShare.concert_id == c.id).first())
+    if fila is not None and fila.company_id:
+        return session_db.get(GroupCompany, fila.company_id)
+    return None
+
+
+def _buyer_sources_list(session_db) -> list[dict]:
+    """Todos los listados con compradores (eventos de ET + listados a mano) y sus contadores.
+
+    Los agregados van aparte del `joinedload` a propósito: mezclar `group_by` con un eager-load
+    rompe el GROUP BY en Postgres."""
+    agg_ev = {r.event_id: r for r in
+              (session_db.query(BuyerEvent.event_id,
+                                func.count(BuyerEvent.id).label("buyers"),
+                                func.sum(BuyerEvent.tickets_count).label("tickets"),
+                                func.sum(BuyerEvent.amount_total).label("amount"))
+               .filter(BuyerEvent.event_id.isnot(None))
+               .group_by(BuyerEvent.event_id).all())}
+    agg_li = {r.list_id: r for r in
+              (session_db.query(BuyerEvent.list_id,
+                                func.count(BuyerEvent.id).label("buyers"),
+                                func.sum(BuyerEvent.tickets_count).label("tickets"),
+                                func.sum(BuyerEvent.amount_total).label("amount"))
+               .filter(BuyerEvent.list_id.isnot(None))
+               .group_by(BuyerEvent.list_id).all())}
+    salida = []
+    if agg_ev:
+        for ev in (session_db.query(EnterticketEvent)
+                   .options(joinedload(EnterticketEvent.concert).joinedload(Concert.artist),
+                            joinedload(EnterticketEvent.concert).joinedload(Concert.venue))
+                   .filter(EnterticketEvent.id.in_(list(agg_ev.keys())))
+                   .order_by(EnterticketEvent.event_date.desc().nullslast()).all()):
+            r = agg_ev[ev.id]
+            salida.append({
+                "kind": "ET", "pk": str(ev.id), "manual": False,
+                "label": _et_event_display_label(ev),
+                "date": (ev.event_date.strftime("%d/%m/%Y") if ev.event_date else "—"),
+                "sort": ev.event_date or date(1900, 1, 1),
+                "venue": ev.venue_name or "", "town": ev.venue_town or "",
+                "image": ev.artist_image or ev.image_url or "",
+                "concert_id": (str(ev.concert_id) if ev.concert_id else ""),
+                "buyers": int(r.buyers or 0), "tickets": int(r.tickets or 0),
+                "amount": _et_money(r.amount),
+            })
+    # Los listados a mano salen SIEMPRE, aunque estén vacíos: se crean antes de subir el fichero y
+    # tienen que poder verse para completarlos.
+    for bl in (session_db.query(BuyerList)
+               .options(joinedload(BuyerList.concert).joinedload(Concert.artist),
+                        joinedload(BuyerList.concert).joinedload(Concert.venue))
+               .order_by(BuyerList.created_at.desc()).all()):
+        r = agg_li.get(bl.id)
+        c = bl.concert
+        recinto = ""
+        if c is not None:
+            recinto = ((c.venue.name if c.venue else "") or (c.manual_venue_name or "")
+                       or (c.manual_municipality or ""))
+        salida.append({
+            "kind": "MANUAL", "pk": str(bl.id), "manual": True,
+            "label": bl.name or ((c.artist.name if (c is not None and c.artist) else "")
+                                 or "Listado de compradores"),
+            "date": (c.date.strftime("%d/%m/%Y") if (c is not None and c.date) else "—"),
+            "sort": (c.date if (c is not None and c.date) else date(1900, 1, 1)),
+            "venue": recinto,
+            "town": (getattr(c, "manual_municipality", "") or "") if c is not None else "",
+            "image": ((c.artist.photo_url or "") if (c is not None and c.artist) else ""),
+            "concert_id": (str(bl.concert_id) if bl.concert_id else ""),
+            "buyers": int(getattr(r, "buyers", 0) or 0),
+            "tickets": int(getattr(r, "tickets", 0) or 0),
+            "amount": _et_money(getattr(r, "amount", 0) or 0),
+        })
+    salida.sort(key=lambda x: x["sort"], reverse=True)
+    return salida
+
+
+def _buyers_base_query(session_db, source: dict):
+    """Los compradores de un listado: (BuyerEvent, Buyer)."""
+    q = (session_db.query(BuyerEvent, Buyer).join(Buyer, Buyer.id == BuyerEvent.buyer_id))
+    if source["kind"] == "ET":
+        return q.filter(BuyerEvent.event_id == to_uuid(source["pk"]))
+    return q.filter(BuyerEvent.list_id == to_uuid(source["pk"]))
+
+
+def _buyers_apply_filters(q, filtros: dict, *, channel: str = ""):
+    """Aplica al listado los filtros elegidos (texto, categorías e interruptores).
+
+    Es el punto ÚNICO: lo usan la pantalla, el contador de un envío y el propio envío, así que el
+    número que se ve antes de mandar es exactamente a quién se le manda. `channel` añade lo que ese
+    canal necesita (un SMS sin teléfono no se puede mandar)."""
+    texto = (filtros.get("q") or "").strip()
+    if texto:
+        q = q.filter(or_(_sa_contains_text(Buyer.name, texto),
+                         _sa_contains_text(Buyer.email, texto),
+                         _sa_contains_text(Buyer.phone, texto)))
+    cats = [c for c in (filtros.get("cat") or []) if c]
+    if cats:
+        # `categories` es un JSONB con los nombres: se pide que tenga ALGUNA de las elegidas.
+        q = q.filter(or_(*[BuyerEvent.categories.contains([c]) for c in cats]))
+    flags = set(filtros.get("flags") or [])
+    if channel == "EMAIL":
+        flags.add("mail")
+    if channel == "SMS":
+        flags.add("tel")
+    if "mail" in flags:
+        q = q.filter(Buyer.email.isnot(None), Buyer.email != "")
+    if "tel" in flags:
+        q = q.filter(Buyer.phone.isnot(None), Buyer.phone != "")
+    if "pub" in flags:
+        q = q.filter(Buyer.accepts_marketing.is_(True))
+    if "rec" in flags:
+        q = q.filter(Buyer.events_count > 1)
+    if "multi" in flags:
+        q = q.filter(BuyerEvent.tickets_count > 1)
+    return q
+
+
+def _buyers_order(q, orden: str):
+    if orden == "importe":
+        return q.order_by(BuyerEvent.amount_total.desc().nullslast(), Buyer.name.asc())
+    if orden == "reciente":
+        return q.order_by(BuyerEvent.last_purchase_at.desc().nullslast(), Buyer.name.asc())
+    if orden == "nombre":
+        return q.order_by(Buyer.name.asc().nullslast(), Buyer.email.asc())
+    if orden == "categoria":
+        return q.order_by(BuyerEvent.categories.asc(), BuyerEvent.tickets_count.desc())
+    return q.order_by(BuyerEvent.tickets_count.desc(), Buyer.email.asc().nullslast())
+
+
+def _buyer_categories_for_source(session_db, source: dict) -> list[dict]:
+    """Las categorías de entrada que hay EN ESTE LISTADO, con cuántos compradores tiene cada una.
+
+    Solo se ofrecen las que existen: un filtro que no puede devolver nada solo hace ruido (la misma
+    regla que los tipos del calendario de agenda)."""
+    filas = _buyers_base_query(session_db, source).with_entities(BuyerEvent.categories).all()
+    cuenta: dict[str, int] = {}
+    for (cats,) in filas:
+        for c in (cats or []):
+            nombre = (c or "").strip()
+            if nombre:
+                cuenta[nombre] = cuenta.get(nombre, 0) + 1
+    return [{"name": n, "n": cuenta[n], "icon": _buyer_category_icon(n)}
+            for n in sorted(cuenta, key=lambda x: (-cuenta[x], x.casefold()))]
+
+
+def _buyer_chip_url(base_args: dict, **cambios) -> str:
+    """La URL de la pantalla con un filtro puesto o quitado (los chips son enlaces normales)."""
+    args = {k: v for k, v in base_args.items() if v not in (None, "", [])}
+    for k, v in cambios.items():
+        if v in (None, "", []):
+            args.pop(k, None)
+        else:
+            args[k] = v
+    return url_for("buyers_view", **args)
+
+
+def _buyer_filter_chips(source: dict | None, filtros: dict, categorias: list[dict],
+                        vista: str) -> dict:
+    """Los filtros como CHIPS con su icono: categorías de entrada, interruptores y orden.
+
+    Solo se ofrecen las categorías que de verdad hay en el listado (un filtro que no puede devolver
+    nada solo hace ruido) y cada chip es un enlace que se enciende o se apaga."""
+    base = {"vista": vista}
+    if source:
+        base["event" if source["kind"] == "ET" else "lista"] = source["pk"]
+    if filtros.get("q"):
+        base["q"] = filtros["q"]
+    if (filtros.get("orden") or "entradas") != "entradas":
+        base["orden"] = filtros["orden"]
+    activos = set(filtros.get("flags") or [])
+    base_flags = {k: "1" for k in activos}
+    cats = list(filtros.get("cat") or [])
+
+    chips_cat = []
+    for c in categorias:
+        encendida = c["name"] in cats
+        otras = [x for x in cats if x != c["name"]] if encendida else cats + [c["name"]]
+        chips_cat.append({**c, "on": encendida,
+                          "url": _buyer_chip_url({**base, **base_flags}, cat=otras)})
+    chips_flag = []
+    for clave, etiqueta, icono in BUYER_FILTER_DEFS:
+        encendido = clave in activos
+        flags = {k: "1" for k in activos if k != clave} if encendido else             {**base_flags, clave: "1"}
+        chips_flag.append({"key": clave, "label": etiqueta, "icon": icono, "on": encendido,
+                           "url": _buyer_chip_url({**base, **flags}, cat=cats)})
+    ordenes = []
+    for clave, etiqueta, icono in BUYER_ORDER_DEFS:
+        ordenes.append({"key": clave, "label": etiqueta, "icon": icono,
+                        "on": (filtros.get("orden") or "entradas") == clave,
+                        "url": _buyer_chip_url({**base, **base_flags},
+                                               cat=cats, orden=(None if clave == "entradas" else clave))})
+    limpio = bool(cats or activos or filtros.get("q") or
+                  (filtros.get("orden") or "entradas") != "entradas")
+    return {"cats": chips_cat, "flags": chips_flag, "orders": ordenes,
+            "any": limpio,
+            "clear_url": _buyer_chip_url({"vista": vista, **({"event": source["pk"]}
+                                                             if (source and source["kind"] == "ET")
+                                                             else ({"lista": source["pk"]}
+                                                                   if source else {}))})}
+
+
+def _buyer_row_payload(be: BuyerEvent, b: Buyer) -> dict:
+    return {
+        "id": str(b.id), "name": b.name or "", "email": b.email or "", "phone": b.phone or "",
+        "tickets": int(be.tickets_count or 0), "amount": be.amount_total,
+        "events": int(b.events_count or 0), "marketing": bool(b.accepts_marketing),
+        "last": be.last_purchase_at,
+        "cats": [{"name": c, "icon": _buyer_category_icon(c)} for c in (be.categories or [])],
+    }
+
+
+def _buyers_recompute_aggregates(session_db, buyer_ids) -> None:
+    """Agregados globales (eventos, entradas, importe) de unos compradores, en UNA sentencia, y
+    limpieza de los que se han quedado sin ningún listado.
+
+    Con miles de compradores, un SELECT por comprador saturaba la base en cada sincronización."""
+    ids = [i for i in (buyer_ids or []) if i]
+    if not ids:
+        return
+    session_db.execute(text("""
+        UPDATE buyers b SET
+            events_count = COALESCE(agg.n, 0),
+            tickets_count = COALESCE(agg.t, 0),
+            amount_total = COALESCE(agg.a, 0),
+            first_purchase_at = agg.f,
+            last_purchase_at = agg.l,
+            updated_at = now()
+        FROM (
+            SELECT b2.id AS bid, count(be.id) AS n, sum(be.tickets_count) AS t,
+                   sum(be.amount_total) AS a, min(be.first_purchase_at) AS f,
+                   max(be.last_purchase_at) AS l
+            FROM buyers b2 LEFT JOIN buyer_events be ON be.buyer_id = b2.id
+            WHERE b2.id IN :ids GROUP BY b2.id
+        ) agg
+        WHERE b.id = agg.bid
+    """).bindparams(bindparam("ids", expanding=True)), {"ids": ids})
+
+
+# ── AÑADIR COMPRADORES A MANO (desde un fichero) ─────────────────────────────────────────────────
+# El fichero se lee con el MISMO motor que la importación de terceros (`buyer_import.py`), que
+# reconoce las columnas solo y enseña un ejemplo de cada una para confirmar a qué corresponde.
+#
+# ⚠️ NO SE DUPLICAN COMPRADORES: se identifican por su email y, si no lo traen, por su teléfono.
+#    A quien ya está solo se le COMPLETA lo que le falte (si no tenía teléfono, se le pone; lo que
+#    ya tiene escrito no se pisa).
+# ⚠️ Un fichero de ticketera trae **una fila por entrada**: las filas del mismo comprador se agrupan
+#    sumando entradas e importe y juntando sus categorías.
+# ⚠️ Reimportar el mismo fichero deja lo mismo (las entradas de un comprador en un listado se
+#    ESCRIBEN, no se suman a lo que ya había), así que no infla los números.
+
+def _buyer_import_dt(value: str):
+    """La fecha de compra del fichero («21/08/2026 19:30») como datetime, o None."""
+    txt = (value or "").strip()
+    if not txt:
+        return None
+    for formato in ("%d/%m/%Y %H:%M", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(txt, formato)
+        except Exception:
+            continue
+    return None
+
+
+def _buyer_import_group(rows: list[dict]) -> tuple[list[dict], int]:
+    """Agrupa las filas del fichero por comprador. Devuelve (grupos, filas sin contacto)."""
+    grupos: dict[str, dict] = {}
+    orden: list[str] = []
+    sin_contacto = 0
+    for r in (rows or []):
+        if (r.get("_sin_contacto") or "") == "1":
+            sin_contacto += 1
+            continue
+        email = (r.get("email") or "").strip().lower()
+        telefono = _normalize_phone_value((r.get("phone") or "").strip()) or ""
+        if not email and not telefono:
+            sin_contacto += 1
+            continue
+        clave = ("e:" + email) if email else ("t:" + telefono)
+        g = grupos.get(clave)
+        if g is None:
+            g = {"key": clave, "email": email, "phone": telefono, "name": "",
+                 "tickets": 0, "amount": Decimal("0"), "cats": [], "marketing": False,
+                 "first": None, "last": None, "rows": 0}
+            grupos[clave] = g
+            orden.append(clave)
+        g["rows"] += 1
+        if not g["name"] and (r.get("name") or "").strip():
+            g["name"] = (r.get("name") or "").strip()
+        if not g["phone"] and telefono:
+            g["phone"] = telefono
+        if not g["email"] and email:
+            g["email"] = email
+        try:
+            g["tickets"] += int(r.get("tickets") or 1)
+        except Exception:
+            g["tickets"] += 1
+        try:
+            g["amount"] += Decimal(str(r.get("amount") or "0") or "0")
+        except Exception:
+            pass
+        cat = (r.get("category") or "").strip()
+        if cat and cat not in g["cats"]:
+            g["cats"].append(cat)
+        if (r.get("marketing") or "") == "1":
+            g["marketing"] = True
+        cuando = _buyer_import_dt(r.get("purchase_at") or "")
+        if cuando:
+            g["first"] = cuando if (g["first"] is None or cuando < g["first"]) else g["first"]
+            g["last"] = cuando if (g["last"] is None or cuando > g["last"]) else g["last"]
+    return [grupos[k] for k in orden], sin_contacto
+
+
+def _buyer_import_match(session_db, grupos: list[dict]) -> dict:
+    """A qué comprador ya existente corresponde cada grupo (por email y, si no, por teléfono)."""
+    emails = [g["email"] for g in grupos if g["email"]]
+    telefonos = [g["phone"] for g in grupos if g["phone"]]
+    por_email, por_telefono = {}, {}
+    if emails:
+        for b in session_db.query(Buyer).filter(func.lower(Buyer.email).in_(emails)).all():
+            por_email[(b.email or "").lower()] = b
+    if telefonos:
+        for b in session_db.query(Buyer).filter(Buyer.phone.in_(telefonos)).all():
+            if b.phone:
+                por_telefono[b.phone] = b
+    salida = {}
+    for g in grupos:
+        b = por_email.get(g["email"]) if g["email"] else None
+        if b is None and g["phone"]:
+            b = por_telefono.get(g["phone"])
+        if b is not None:
+            salida[g["key"]] = b
+    return salida
+
+
+def _buyer_import_missing_labels(b: Buyer, g: dict) -> list[str]:
+    """Qué dato se le va a COMPLETAR a alguien que ya está (solo lo que tiene vacío)."""
+    falta = []
+    if g["email"] and not (b.email or "").strip():
+        falta.append("email")
+    if g["phone"] and not (b.phone or "").strip():
+        falta.append("teléfono")
+    if g["name"] and not (b.name or "").strip():
+        falta.append("nombre")
+    return falta
+
+
+def _buyer_import_summary(session_db, grupos: list[dict], sin_contacto: int, source: dict) -> dict:
+    """Lo que va a pasar al importar, para enseñarlo ANTES de tocar nada."""
+    existentes = _buyer_import_match(session_db, grupos)
+    ya_en_listado = set()
+    if existentes and source.get("pk"):
+        q = session_db.query(BuyerEvent.buyer_id)
+        if source["kind"] == "ET":
+            q = q.filter(BuyerEvent.event_id == to_uuid(source["pk"]))
+        else:
+            q = q.filter(BuyerEvent.list_id == to_uuid(source["pk"]))
+        ya_en_listado = {r[0] for r in q.filter(
+            BuyerEvent.buyer_id.in_([b.id for b in existentes.values()])).all()}
+    nuevos, completar, iguales = [], [], 0
+    for g in grupos:
+        b = existentes.get(g["key"])
+        if b is None:
+            nuevos.append({"name": g["name"], "email": g["email"], "phone": g["phone"],
+                           "tickets": g["tickets"], "cats": g["cats"]})
+            continue
+        falta = _buyer_import_missing_labels(b, g)
+        if falta or b.id not in ya_en_listado:
+            completar.append({"name": (b.name or g["name"]), "email": (b.email or g["email"]),
+                              "phone": (b.phone or g["phone"]), "falta": falta,
+                              "nuevo_en_listado": b.id not in ya_en_listado,
+                              "tickets": g["tickets"], "cats": g["cats"]})
+        else:
+            iguales += 1
+    return {
+        "total": len(grupos), "nuevos": len(nuevos), "existentes": len(completar) + iguales,
+        "sin_contacto": sin_contacto, "iguales": iguales,
+        "nuevos_muestra": nuevos[:25], "existentes_muestra": completar[:25],
+        "completar": len([c for c in completar if c["falta"]]),
+    }
+
+
+def _buyer_import_apply(session_db, grupos: list[dict], source: dict) -> dict:
+    """Da de alta / completa los compradores y los mete en el listado. Devuelve el recuento."""
+    existentes = _buyer_import_match(session_db, grupos)
+    creados, completados, actualizados = 0, 0, 0
+    afectados = set()
+    es_et = source["kind"] == "ET"
+    origen_pk = to_uuid(source["pk"])
+    concert_id = to_uuid(source["concert_id"]) if source.get("concert_id") else None
+    # Las filas que ya tiene el listado, de una vez (nada de una consulta por comprador).
+    q_be = session_db.query(BuyerEvent)
+    q_be = q_be.filter(BuyerEvent.event_id == origen_pk) if es_et else \
+        q_be.filter(BuyerEvent.list_id == origen_pk)
+    por_comprador = {be.buyer_id: be for be in q_be.all()}
+    for g in grupos:
+        b = existentes.get(g["key"])
+        if b is None:
+            b = Buyer(email=(g["email"] or None), name=(g["name"] or None),
+                      phone=(g["phone"] or None), accepts_marketing=bool(g["marketing"]))
+            session_db.add(b)
+            try:
+                session_db.flush()
+            except Exception:
+                # Choque con el índice único (alguien lo ha dado de alta a la vez): se relee.
+                session_db.rollback()
+                b = (session_db.query(Buyer)
+                     .filter(func.lower(Buyer.email) == (g["email"] or "").lower()).first()
+                     if g["email"] else
+                     session_db.query(Buyer).filter(Buyer.phone == g["phone"]).first())
+                if b is None:
+                    continue
+                por_comprador = {be.buyer_id: be for be in q_be.all()}
+            else:
+                creados += 1
+        else:
+            # ⚠️ Solo se COMPLETA lo que está vacío: lo que ya está escrito no se pisa.
+            toco = False
+            if g["email"] and not (b.email or "").strip():
+                # El email es único: si ya lo tiene otro, no se toca (son dos fichas distintas).
+                otro = session_db.query(Buyer.id).filter(
+                    func.lower(Buyer.email) == g["email"]).first()
+                if not otro:
+                    b.email = g["email"]
+                    toco = True
+            if g["phone"] and not (b.phone or "").strip():
+                b.phone = g["phone"]
+                toco = True
+            if g["name"] and not (b.name or "").strip():
+                b.name = g["name"]
+                toco = True
+            if g["marketing"] and not b.accepts_marketing:
+                b.accepts_marketing = True
+                toco = True
+            if toco:
+                completados += 1
+        afectados.add(b.id)
+        be = por_comprador.get(b.id)
+        if be is None:
+            be = BuyerEvent(buyer_id=b.id,
+                            event_id=(origen_pk if es_et else None),
+                            list_id=(None if es_et else origen_pk))
+            session_db.add(be)
+            por_comprador[b.id] = be
+        else:
+            actualizados += 1
+        be.concert_id = concert_id
+        be.tickets_count = int(g["tickets"] or 0)
+        be.amount_total = g["amount"]
+        be.categories = list(g["cats"])
+        if g["first"]:
+            be.first_purchase_at = g["first"]
+        if g["last"]:
+            be.last_purchase_at = g["last"]
+    session_db.flush()
+    _buyers_recompute_aggregates(session_db, list(afectados))
+    session_db.commit()
+    return {"creados": creados, "completados": completados, "actualizados": actualizados,
+            "total": len(grupos)}
+
+
+def _buyer_subject_options(session_db) -> list[dict]:
+    """Artistas y EVENTOS para decir de quién es la actividad de un listado nuevo.
+
+    «Activo» = tiene alguna actividad del último año o por venir; los demás salen tras «Ver más»."""
+    desde = date.today() - timedelta(days=365)
+    activos_art, activos_ev = set(), set()
+    try:
+        for aid, eid in (session_db.query(Concert.artist_id, Concert.event_id)
+                         .filter(or_(Concert.date.is_(None), Concert.date >= desde)).all()):
+            if eid:
+                activos_ev.add(eid)
+            elif aid:
+                activos_art.add(aid)
+    except Exception:
+        app.logger.exception("[compradores] no se pudo calcular qué artistas están activos")
+    salida = []
+    for a in (session_db.query(Artist).filter(Artist.event_id.is_(None))
+              .order_by(Artist.name.asc()).all()):
+        salida.append({"kind": "ARTIST", "id": str(a.id), "name": a.name or "",
+                       "photo_url": (a.photo_url or ""), "active": a.id in activos_art})
+    for e in session_db.query(AppEvent).order_by(AppEvent.name.asc()).all():
+        salida.append({"kind": "EVENT", "id": str(e.id), "name": e.name or "",
+                       "photo_url": (e.logo_url or ""), "active": e.id in activos_ev})
+    salida.sort(key=lambda x: (not x["active"], (x["name"] or "").casefold()))
+    return salida
+
+
+@app.get("/compradores/actividades", endpoint="buyers_subject_activities")
+@admin_required
+def buyers_subject_activities():
+    """Las actividades de un artista o de un evento, para elegir a cuál se vincula el listado."""
+    kind = (request.args.get("kind") or "ARTIST").strip().upper()
+    try:
+        pk = to_uuid((request.args.get("id") or "").strip())
+    except Exception:
+        return jsonify({"ok": False, "error": "Falta el artista o el evento."}), 400
+    s = db()
+    try:
+        q = (s.query(Concert)
+             .options(joinedload(Concert.artist), joinedload(Concert.venue))
+             .order_by(Concert.date.desc().nullslast()))
+        q = q.filter(Concert.event_id == pk) if kind == "EVENT" else \
+            q.filter(Concert.artist_id == pk, Concert.event_id.is_(None))
+        filas = q.limit(300).all()
+        con_listado = {r[0] for r in s.query(BuyerList.concert_id)
+                       .filter(BuyerList.concert_id.in_([c.id for c in filas] or [None])).all()}
+        con_et = {r[0] for r in s.query(EnterticketEvent.concert_id)
+                  .filter(EnterticketEvent.concert_id.in_([c.id for c in filas] or [None])).all()}
+        salida = []
+        for c in filas:
+            recinto = ((c.venue.name if c.venue else "") or (c.manual_venue_name or "")
+                       or (c.manual_municipality or ""))
+            salida.append({
+                "id": str(c.id),
+                "label": ((c.festival_name or "").strip()
+                          or _activity_kind_label(c.activity_type) or "Actividad"),
+                "date": (c.date.strftime("%d/%m/%Y") if c.date else "Sin fecha"),
+                "venue": recinto, "town": (c.manual_municipality or ""),
+                "icon": QUAD_ACTIVITY_ICONS.get(_activity_kind_key(c.activity_type), "fa-calendar-day"),
+                "has_list": c.id in con_listado, "has_et": c.id in con_et,
+            })
+        return jsonify({"ok": True, "activities": salida})
+    finally:
+        s.close()
+
+
+def can_edit_buyers() -> bool:
+    """¿Puede esta persona TOCAR la base de compradores (importar listados, mandar envíos)?"""
+    return is_master() or has_access_key("databases.buyers", edit=True, include_descendants=True)
+
+
 @app.get("/compradores", endpoint="buyers_view")
 @admin_required
 def buyers_view():
-    """Base de datos de COMPRADORES (Enterticket): deduplicados por email y agrupados por los
-    eventos para los que han comprado. Vistas: por evento (por defecto) o listado global."""
-    q_text = (request.args.get("q") or "").strip()
+    """Base de datos de COMPRADORES: por listados (un evento de Enterticket o uno subido a mano) o
+    el listado global de todos. Dentro de un listado se filtra por categoría de entrada y se manda
+    un SMS o un correo a los que queden."""
+    filtros = _buyer_filters_from_request()
     event_pk = (request.args.get("event") or "").strip()
-    try:
-        event_uuid = to_uuid(event_pk)
-    except Exception:
-        event_pk, event_uuid = "", None
-    vista = (request.args.get("vista") or ("evento" if event_uuid else "eventos")).strip()
+    list_pk = (request.args.get("lista") or "").strip()
+    vista = (request.args.get("vista") or
+             ("listado" if (event_pk or list_pk) else "listados")).strip()
     s = db()
     try:
-        # Eventos con compradores (para la agrupación y el selector): agregados aparte del
-        # joinedload (mezclar group_by con eager-load rompería el GROUP BY en Postgres).
-        agg_rows = (s.query(BuyerEvent.event_id,
-                            func.count(BuyerEvent.id).label("buyers"),
-                            func.sum(BuyerEvent.tickets_count).label("tickets"),
-                            func.sum(BuyerEvent.amount_total).label("amount"))
-                    .group_by(BuyerEvent.event_id).all())
-        agg = {r.event_id: r for r in agg_rows}
-        events = []
-        if agg:
-            ev_rows = (s.query(EnterticketEvent)
-                       .options(joinedload(EnterticketEvent.concert).joinedload(Concert.artist),
-                                joinedload(EnterticketEvent.concert).joinedload(Concert.venue))
-                       .filter(EnterticketEvent.id.in_(list(agg.keys())))
-                       .order_by(EnterticketEvent.event_date.desc().nullslast()).all())
-            events = [{
-                "pk": str(ev.id), "label": _et_event_display_label(ev), "name": ev.name,
-                "date": (ev.event_date.strftime("%d/%m/%Y") if ev.event_date else "—"),
-                "venue": ev.venue_name or "", "town": ev.venue_town or "",
-                "image": ev.artist_image or ev.image_url or "",
-                "linked": bool(ev.concert_id),
-                "concert_id": (str(ev.concert_id) if ev.concert_id else ""),
-                "buyers": int(agg[ev.id].buyers or 0), "tickets": int(agg[ev.id].tickets or 0),
-                "amount": _et_money(agg[ev.id].amount),
-            } for ev in ev_rows]
-        current_event = next((e for e in events if e["pk"] == event_pk), None)
-
-        buyers = []
+        source = _buyer_source(s, event_pk=event_pk, list_pk=list_pk) if (event_pk or list_pk) else None
+        if source is None and vista == "listado":
+            vista = "listados"
+        sources = _buyer_sources_list(s) if vista == "listados" else []
+        buyers, categorias = [], []
         totals = {"buyers": 0, "tickets": 0, "amount": Decimal("0")}
-        if vista == "evento" and current_event:
-            q = (s.query(BuyerEvent, Buyer)
-                 .join(Buyer, Buyer.id == BuyerEvent.buyer_id)
-                 .filter(BuyerEvent.event_id == event_uuid))
-            if q_text:
-                q = q.filter(or_(_sa_contains_text(Buyer.name, q_text),
-                                 _sa_contains_text(Buyer.email, q_text),
-                                 _sa_contains_text(Buyer.phone, q_text)))
-            rows = q.order_by(BuyerEvent.tickets_count.desc(), Buyer.email.asc()).limit(1000).all()
-            for be, b in rows:
-                buyers.append({
-                    "name": b.name or "", "email": b.email, "phone": b.phone or "",
-                    "tickets": int(be.tickets_count or 0), "amount": be.amount_total,
-                    "events": int(b.events_count or 0), "marketing": bool(b.accepts_marketing),
-                    "last": be.last_purchase_at,
-                })
-                totals["tickets"] += int(be.tickets_count or 0)
-                totals["amount"] += _et_money(be.amount_total)
-            totals["buyers"] = len(buyers)
+        company = None
+        if vista == "listado" and source:
+            categorias = _buyer_categories_for_source(s, source)
+            company = _buyer_source_company(s, source)
+            q = _buyers_apply_filters(_buyers_base_query(s, source), filtros)
+            # Totales sobre TODO lo filtrado (no solo lo que se pinta).
+            t_count, t_tickets, t_amount = (
+                q.with_entities(func.count(BuyerEvent.id),
+                                func.sum(BuyerEvent.tickets_count),
+                                func.sum(BuyerEvent.amount_total)).one())
+            totals = {"buyers": int(t_count or 0), "tickets": int(t_tickets or 0),
+                      "amount": _et_money(t_amount)}
+            for be, b in _buyers_order(q, filtros["orden"]).limit(BUYER_ROWS_LIMIT).all():
+                buyers.append(_buyer_row_payload(be, b))
         elif vista == "todos":
             q = s.query(Buyer)
-            if q_text:
-                search = or_(_sa_contains_text(Buyer.name, q_text),
-                             _sa_contains_text(Buyer.email, q_text),
-                             _sa_contains_text(Buyer.phone, q_text))
-                q = q.filter(search)
-            rows = q.order_by(Buyer.tickets_count.desc(), Buyer.email.asc()).limit(1000).all()
-            for b in rows:
-                buyers.append({
-                    "name": b.name or "", "email": b.email, "phone": b.phone or "",
-                    "tickets": int(b.tickets_count or 0), "amount": b.amount_total,
-                    "events": int(b.events_count or 0), "marketing": bool(b.accepts_marketing),
-                    "last": b.last_purchase_at,
-                })
-            # Totales sobre TODO el conjunto filtrado (no solo las 1.000 filas mostradas).
-            tq = s.query(func.count(Buyer.id), func.sum(Buyer.tickets_count), func.sum(Buyer.amount_total))
-            if q_text:
-                tq = tq.filter(search)
-            t_count, t_tickets, t_amount = tq.one()
-            totals["buyers"] = int(t_count or 0)
-            totals["tickets"] = int(t_tickets or 0)
-            totals["amount"] = _et_money(t_amount)
+            if filtros["q"]:
+                q = q.filter(or_(_sa_contains_text(Buyer.name, filtros["q"]),
+                                 _sa_contains_text(Buyer.email, filtros["q"]),
+                                 _sa_contains_text(Buyer.phone, filtros["q"])))
+            flags = set(filtros["flags"])
+            if "mail" in flags:
+                q = q.filter(Buyer.email.isnot(None), Buyer.email != "")
+            if "tel" in flags:
+                q = q.filter(Buyer.phone.isnot(None), Buyer.phone != "")
+            if "pub" in flags:
+                q = q.filter(Buyer.accepts_marketing.is_(True))
+            if "rec" in flags:
+                q = q.filter(Buyer.events_count > 1)
+            t_count, t_tickets, t_amount = q.with_entities(
+                func.count(Buyer.id), func.sum(Buyer.tickets_count),
+                func.sum(Buyer.amount_total)).one()
+            totals = {"buyers": int(t_count or 0), "tickets": int(t_tickets or 0),
+                      "amount": _et_money(t_amount)}
+            orden = filtros["orden"]
+            if orden == "importe":
+                q = q.order_by(Buyer.amount_total.desc().nullslast())
+            elif orden == "reciente":
+                q = q.order_by(Buyer.last_purchase_at.desc().nullslast())
+            elif orden == "nombre":
+                q = q.order_by(Buyer.name.asc().nullslast())
+            else:
+                q = q.order_by(Buyer.tickets_count.desc(), Buyer.email.asc().nullslast())
+            for b in q.limit(BUYER_ROWS_LIMIT).all():
+                buyers.append({"id": str(b.id), "name": b.name or "", "email": b.email or "",
+                               "phone": b.phone or "", "tickets": int(b.tickets_count or 0),
+                               "amount": b.amount_total, "events": int(b.events_count or 0),
+                               "marketing": bool(b.accepts_marketing),
+                               "last": b.last_purchase_at, "cats": []})
         return render_template(
             "compradores.html", title="Compradores",
-            events=events, buyers=buyers, totals=totals, vista=vista,
-            current_event=current_event, q=q_text,
+            sources=sources, buyers=buyers, totals=totals, vista=vista,
+            source=source, company=company, categorias=categorias, filtros=filtros,
+            chips=_buyer_filter_chips(source, filtros, categorias, vista),
+            # Los filtros puestos, para que «exportar» baje EXACTAMENTE lo que se está viendo.
+            filtros_url={**({"q": filtros["q"]} if filtros["q"] else {}),
+                         **({"cat": filtros["cat"]} if filtros["cat"] else {}),
+                         **{k: "1" for k in filtros["flags"]},
+                         **({"orden": filtros["orden"]} if filtros["orden"] != "entradas" else {})},
+            filter_defs=BUYER_FILTER_DEFS, order_defs=BUYER_ORDER_DEFS,
+            can_edit=can_edit_buyers(), rows_limit=BUYER_ROWS_LIMIT,
+            subjects=(_buyer_subject_options(s) if can_edit_buyers() else []),
+            companies=s.query(GroupCompany).order_by(GroupCompany.name.asc()).all(),
+            sms_ready=_sms_available(),
             et_configured=et_api.enterticket_configured(),
+            q=filtros["q"],
         )
+    finally:
+        s.close()
+
+
+# ── Importar un fichero de compradores ───────────────────────────────────────────────────────────
+@app.post("/compradores/importar/analizar", endpoint="buyers_import_analyze")
+@admin_required
+def buyers_import_analyze():
+    """Lee el fichero y devuelve sus columnas con el campo reconocido y un ejemplo de cada una."""
+    if not can_edit_buyers():
+        return jsonify({"ok": False, "error": "No tienes permiso para importar compradores."}), 403
+    fichero = request.files.get("file")
+    if not fichero or not (fichero.filename or "").strip():
+        return jsonify({"ok": False, "error": "Elige un fichero (Excel o CSV)."}), 400
+    try:
+        datos = fichero.read()
+        analisis = buyer_import.parse_file(datos, fichero.filename or "")
+    except Exception as exc:
+        app.logger.exception("[compradores] no se pudo leer el fichero")
+        return jsonify({"ok": False, "error": "No se pudo leer el fichero: %s" % exc}), 400
+    if not analisis.get("rows"):
+        return jsonify({"ok": False, "error": "El fichero no tiene ninguna fila con datos."}), 400
+    return jsonify({
+        "ok": True,
+        "columns": analisis["columns"],
+        "rows": analisis["rows"],
+        "sheet_rows": analisis["sheet_rows"],
+        "fields": [{"key": k, "label": buyer_import.FIELD_LABELS[k]} for k in buyer_import.FIELD_KEYS],
+        "ignore": buyer_import.TARGET_IGNORE,
+        "filename": (fichero.filename or ""),
+    })
+
+
+def _buyers_import_payload():
+    """Filas y mapeo tal como los manda la pantalla (van por JSON: el fichero se lee UNA vez)."""
+    datos = request.get_json(silent=True) or {}
+    filas = datos.get("rows") or []
+    mapeo = datos.get("mapping") or {}
+    return datos, filas, mapeo
+
+
+@app.post("/compradores/importar/preparar", endpoint="buyers_import_prepare")
+@admin_required
+def buyers_import_prepare():
+    """Qué va a pasar al importar: cuántos son nuevos, a cuántos se les completa un dato y cuántas
+    filas se descartan por no traer ni email ni teléfono."""
+    if not can_edit_buyers():
+        return jsonify({"ok": False, "error": "No tienes permiso para importar compradores."}), 403
+    datos, filas, mapeo = _buyers_import_payload()
+    s = db()
+    try:
+        source = _buyer_source(s, event_pk=(datos.get("event") or ""),
+                               list_pk=(datos.get("lista") or ""))
+        if source is None:
+            concert_pk = (datos.get("concert_id") or "").strip()
+            if not concert_pk:
+                return jsonify({"ok": False, "error": "Falta el listado o la actividad."}), 400
+            # Todavía NO se crea nada: el resumen se hace contra un listado que no existe
+            # (sin `pk`, así que nadie está «ya en el listado»).
+            source = {"kind": "MANUAL", "pk": "", "concert_id": concert_pk, "manual": True,
+                      "label": ""}
+        grupos, sin_contacto = _buyer_import_group(buyer_import.apply_mapping(filas, mapeo))
+        if not grupos:
+            return jsonify({"ok": False,
+                            "error": ("Ninguna fila trae email ni teléfono: sin uno de los dos no se "
+                                      "puede dar de alta a un comprador.")}), 400
+        resumen = _buyer_import_summary(s, grupos, sin_contacto, source)
+        return jsonify({"ok": True, "resumen": resumen})
+    finally:
+        s.close()
+
+
+@app.post("/compradores/importar/crear", endpoint="buyers_import_create")
+@admin_required
+def buyers_import_create():
+    """Importa de verdad: da de alta a los nuevos, completa lo que falte y los mete en el listado."""
+    if not can_edit_buyers():
+        return jsonify({"ok": False, "error": "No tienes permiso para importar compradores."}), 403
+    datos, filas, mapeo = _buyers_import_payload()
+    s = db()
+    try:
+        source = _buyer_source(s, event_pk=(datos.get("event") or ""),
+                              list_pk=(datos.get("lista") or ""))
+        if source is None:
+            concert_pk = (datos.get("concert_id") or "").strip()
+            if not concert_pk:
+                return jsonify({"ok": False, "error": "Falta el listado o la actividad."}), 400
+            try:
+                c = s.get(Concert, to_uuid(concert_pk))
+            except Exception:
+                c = None
+            if c is None:
+                return jsonify({"ok": False, "error": "Esa actividad no existe."}), 404
+            bl = (s.query(BuyerList).filter(BuyerList.concert_id == c.id)
+                  .order_by(BuyerList.created_at.asc()).first())
+            if bl is None:
+                estado = _current_user_state() or {}
+                nombre = (datos.get("nombre") or "").strip()
+                if not nombre:
+                    artista = (c.artist.name if c.artist else "") or "Actividad"
+                    nombre = "%s%s" % (artista, (" · " + c.date.strftime("%d/%m/%Y")) if c.date else "")
+                bl = BuyerList(name=nombre[:200], concert_id=c.id, source="MANUAL",
+                               created_by_user_id=_safe_uuid(estado.get("user_id")),
+                               created_by_nick=(estado.get("nick") or ""))
+                s.add(bl)
+                s.commit()
+            source = _buyer_source(s, list_pk=str(bl.id))
+        grupos, _sin = _buyer_import_group(buyer_import.apply_mapping(filas, mapeo))
+        if not grupos:
+            return jsonify({"ok": False, "error": "No hay ninguna fila que se pueda importar."}), 400
+        resultado = _buyer_import_apply(s, grupos, source)
+        url = url_for("buyers_view", **({"event": source["pk"]} if source["kind"] == "ET"
+                                        else {"lista": source["pk"]}), vista="listado")
+        return jsonify({"ok": True, "resultado": resultado, "url": url,
+                        "label": source.get("label") or ""})
+    except Exception as exc:
+        s.rollback()
+        app.logger.exception("[compradores] la importación ha fallado")
+        return jsonify({"ok": False, "error": "No se pudo importar: %s" % exc}), 500
+    finally:
+        s.close()
+
+
+@app.post("/compradores/listas/<lid>/eliminar", endpoint="buyers_list_delete")
+@admin_required
+def buyers_list_delete(lid):
+    """Borra un listado subido a mano (y sus filas de comprador×listado; los compradores en sí se
+    conservan si están en otro listado)."""
+    if not can_edit_buyers():
+        flash("No tienes permiso para eliminar listados de compradores.", "danger")
+        return redirect(url_for("buyers_view"))
+    s = db()
+    try:
+        bl = s.get(BuyerList, to_uuid(lid))
+        if bl is None:
+            flash("Ese listado ya no existe.", "warning")
+            return redirect(url_for("buyers_view"))
+        afectados = [r[0] for r in s.query(BuyerEvent.buyer_id)
+                     .filter(BuyerEvent.list_id == bl.id).all()]
+        nombre = bl.name or "listado"
+        s.delete(bl)
+        s.flush()
+        _buyers_recompute_aggregates(s, afectados)
+        # Los compradores que se queden sin ningún listado dejan de existir (igual que en ET).
+        if afectados:
+            s.execute(text("DELETE FROM buyers WHERE id IN :ids AND events_count = 0")
+                      .bindparams(bindparam("ids", expanding=True)), {"ids": afectados})
+        s.commit()
+        flash("Listado «%s» eliminado." % nombre, "success")
+    except Exception as exc:
+        s.rollback()
+        flash("No se pudo eliminar: %s" % exc, "danger")
+    finally:
+        s.close()
+    return redirect(url_for("buyers_view"))
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# ENVÍOS A COMPRADORES (SMS y correo)
+#
+# Desde el listado de compradores de un evento se manda un SMS o un correo a los que se elijan (los
+# del listado entero o los que dejen los filtros: categoría de entrada, publicidad, con teléfono…).
+# La pantalla enseña **el total de envíos** y **cómo va a quedar el mensaje** antes de mandar nada.
+#
+# Reglas de la casa que se aplican aquí:
+# · El correo lo firma la EMPRESA DEL GRUPO que promueve: su logo arriba a la derecha, el título
+#   centrado debajo y el texto debajo. El botón, si se pone, va justo debajo del texto a la derecha,
+#   y los adjuntos al final.
+# · En el SMS el remitente ES esa empresa (su «nombre abreviado para SMS», que se pone en su ficha).
+# · Los enlaces de un SMS se ACORTAN solos (`_shorten_links_in_text`), y los adjuntos se suben a una
+#   página nuestra cuyo enlace también se acorta: en un SMS no se puede adjuntar nada.
+# · UN envío a miles de personas NO cabe en una petición: se guarda la campaña con sus
+#   destinatarios y se manda por tandas con presupuesto de tiempo, diciendo cuántos quedan.
+# ═════════════════════════════════════════════════════════════════════════════
+
+CAMPAIGN_BUDGET_SECONDS = 45.0          # lo mismo que el resto de acciones «para todos»
+CAMPAIGN_FILE_FOLDER = "campaigns"
+CAMPAIGN_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif"}
+
+
+def _campaign_file_is_image(nombre: str, mimetype: str = "") -> bool:
+    if (mimetype or "").lower().startswith("image/"):
+        return True
+    return Path((nombre or "").lower()).suffix in CAMPAIGN_IMAGE_EXTS
+
+
+def _campaign_files_clean(files) -> list[dict]:
+    """Los adjuntos tal como los manda la pantalla, quedándose solo con lo que hace falta."""
+    salida = []
+    for f in (files or [])[:12]:
+        if not isinstance(f, dict):
+            continue
+        url = (f.get("url") or "").strip()
+        if not url:
+            continue
+        nombre = (f.get("name") or "adjunto").strip()[:180]
+        salida.append({"url": url, "name": nombre,
+                       "mimetype": (f.get("mimetype") or "").strip()[:120],
+                       "image": _campaign_file_is_image(nombre, f.get("mimetype") or "")})
+    return salida
+
+
+def _campaign_files_url(session_db, camp) -> str:
+    """La página pública con los adjuntos de un envío (la que se manda en el SMS)."""
+    if not (camp.files_json or []):
+        return ""
+    if not camp.files_token:
+        camp.files_token = _uuid_token()
+        session_db.flush()
+    return _external_url_for("public_campaign_files", token=camp.files_token)
+
+
+def _campaign_sms_text(session_db, camp, *, files_url: str = "") -> str:
+    """El SMS tal como va a salir: el texto y, al final, los enlaces (ya acortados).
+
+    ⚠️ El enlace va AL FINAL a propósito: es donde los móviles pintan la previsualización."""
+    partes = [(camp.body or "").strip()]
+    if (camp.link_url or "").strip():
+        partes.append((camp.link_url or "").strip())
+    if files_url:
+        partes.append(files_url)
+    texto = "\n".join([p for p in partes if p])
+    return _shorten_links_in_text(session_db, texto, kind="CAMPAIGN")
+
+
+def _campaign_sms_preview(session_db, body: str, link_url: str, files: list[dict]) -> dict:
+    """Lo que se enseña mientras se escribe un SMS: el texto final, los caracteres y los trozos.
+
+    ⚠️ El enlace que se escribe se cuenta **ya acortado si es nuestro** y con su longitud REAL si es
+    de fuera (el acortador solo acorta lo de casa): contar siempre 38 caracteres haría que el
+    contador mintiera justo con el enlace de una ticketera. El de los adjuntos sí es siempre nuestro,
+    así que se cuenta con la longitud exacta de un enlace corto (todos miden igual) aunque todavía no
+    exista: se crea al enviar."""
+    partes = [(body or "").strip()]
+    if (link_url or "").strip():
+        partes.append((link_url or "").strip())
+    crudo = "\n".join([p for p in partes if p])
+    texto = _shorten_links_in_text(session_db, crudo, kind="CAMPAIGN")
+    if files:
+        texto = (texto + "\n" + "%s/l/%s" % (_short_link_base().rstrip("/"), "-" * 6)).strip()
+    acc = _sms_account(session_db)
+    limpio = sms_utils.clean_text(texto, avoid_accents=bool(getattr(acc, "avoid_accents", True)))
+    trozos = sms_utils.segments(limpio)
+    return {"chars": len(limpio), "segments": trozos,
+            "limit": (160 if sms_utils.is_gsm7(limpio) else 70),
+            "gsm7": sms_utils.is_gsm7(limpio),
+            "files_link": bool(files),
+            "text": limpio}
+
+
+def _campaign_email_html(session_db, camp, *, files_url: str = "") -> str:
+    """El correo del envío. Es el MISMO HTML que se enseña en la previsualización y el que sale."""
+    company = session_db.get(GroupCompany, camp.company_id) if camp.company_id else None
+    # ⚠️ Este correo SALE DE CASA, así que si la empresa todavía no tiene logo se cae al de la casa
+    # (en las pantallas de dentro se enseña el icono de empresa, pero aquí hay que enseñar una marca).
+    logo_url = _absolute_media_url((getattr(company, "logo_url", "") or "").strip()) or \
+        _external_url_for("static", filename="img/logo_33_producciones.png")
+    logo_html = (
+        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+        'style="border-collapse:collapse;"><tr><td align="right">'
+        f'<img src="{html.escape(logo_url)}" '
+        f'alt="{html.escape((getattr(company, "name", "") or "33 Producciones"))}" '
+        'style="display:inline-block;max-width:180px;max-height:64px;object-fit:contain;">'
+        '</td></tr></table>')
+    titulo_html = ""
+    if (camp.title or "").strip():
+        titulo_html = ('<div style="margin-top:14px;font-size:28px;line-height:1.2;font-weight:700;'
+                       f'color:#111827;text-align:center;">{html.escape(camp.title.strip())}</div>')
+    cuerpo_html = ""
+    for parrafo in re.split(r"\n\s*\n", (camp.body or "").strip()):
+        if not parrafo.strip():
+            continue
+        cuerpo_html += ('<p style="margin:0 0 14px;font-size:15px;line-height:1.75;color:#111827;">'
+                        + html.escape(parrafo.strip()).replace("\n", "<br/>") + "</p>")
+    boton_html = ""
+    if (camp.button_label or "").strip() and (camp.button_url or "").strip():
+        boton_html = (
+            '<div style="text-align:right;margin:18px 0 0;">'
+            f'<a href="{html.escape(camp.button_url.strip())}" '
+            'style="display:inline-block;padding:12px 22px;border-radius:999px;background:#E33D48;'
+            'color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;">'
+            f'{html.escape(camp.button_label.strip())}</a></div>')
+    adjuntos_html = ""
+    ficheros = camp.files_json or []
+    if ficheros:
+        piezas = []
+        for f in ficheros:
+            url = html.escape(_absolute_media_url(f.get("url") or ""))
+            nombre = html.escape(f.get("name") or "Adjunto")
+            if f.get("image"):
+                piezas.append(f'<div style="margin:0 0 12px;"><img src="{url}" alt="{nombre}" '
+                              'style="display:block;max-width:100%;border-radius:14px;'
+                              'border:1px solid #e5e7eb;"></div>')
+            else:
+                piezas.append(
+                    f'<div style="margin:0 0 10px;"><a href="{url}" '
+                    'style="display:inline-block;padding:10px 16px;border-radius:12px;'
+                    'background:#f3f4f6;border:1px solid #e5e7eb;color:#111827;font-size:14px;'
+                    f'text-decoration:none;">&#128206; {nombre}</a></div>')
+        adjuntos_html = ('<div style="margin-top:22px;padding-top:18px;border-top:1px solid #e5e7eb;">'
+                         + "".join(piezas) + "</div>")
+    return f'''
+    <div style="margin:0;padding:24px;background:#f5f7fb;font-family:Arial,Helvetica,sans-serif;color:#111827;">
+      <div style="max-width:760px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:20px;overflow:hidden;">
+        <div style="padding:24px 30px 8px;">
+          {logo_html}
+          {titulo_html}
+        </div>
+        <div style="padding:18px 30px 28px;">
+          {cuerpo_html}
+          {boton_html}
+          {adjuntos_html}
+        </div>
+      </div>
+    </div>'''
+
+
+def _campaign_sms_sender(session_db, camp) -> str:
+    """El remitente del SMS: el nombre abreviado de la empresa del grupo que promueve.
+
+    Si esa empresa no lo tiene puesto se usa el general de Integraciones → SMS (y si tampoco hay,
+    sale el número de la pasarela: en España un remitente con letras hay que registrarlo)."""
+    if (camp.sms_sender or "").strip():
+        return camp.sms_sender.strip()
+    company = session_db.get(GroupCompany, camp.company_id) if camp.company_id else None
+    remitente = ((getattr(company, "sms_sender", "") or "").strip()
+                 if company is not None else "")
+    if remitente:
+        return remitente
+    acc = _sms_account(session_db)
+    return (getattr(acc, "sender", "") or "").strip()
+
+
+def _campaign_build_recipients(session_db, camp, source: dict, filtros: dict) -> int:
+    """Crea los destinatarios de la campaña a partir de los filtros. Devuelve cuántos son.
+
+    Es el MISMO filtrado que la pantalla (`_buyers_apply_filters`), con lo que el canal exige (un
+    SMS necesita teléfono y un correo necesita email), así que el total que se ve antes de mandar es
+    exactamente a quién se le manda."""
+    q = _buyers_apply_filters(_buyers_base_query(session_db, source), filtros,
+                              channel=camp.channel)
+    vistos, filas = set(), []
+    for be, b in q.all():
+        destino = (b.email or "") if camp.channel == "EMAIL" else (b.phone or "")
+        destino = destino.strip()
+        if not destino or destino.lower() in vistos:
+            continue
+        vistos.add(destino.lower())
+        filas.append(BuyerCampaignRecipient(campaign_id=camp.id, buyer_id=b.id,
+                                            name=(b.name or ""), target=destino))
+    for fila in filas:
+        session_db.add(fila)
+    camp.total = len(filas)
+    session_db.flush()
+    return len(filas)
+
+
+def _campaign_send_pending(session_db, camp) -> dict:
+    """Manda la campaña a los que quedan, durante ~45 s. Devuelve lo hecho y lo que queda.
+
+    ⚠️ Cada envío se guarda AL MOMENTO: si el servidor corta la petición, lo mandado está mandado y
+    al volver a pulsar salen solo los que faltan (nadie recibe dos veces)."""
+    pendientes = (session_db.query(BuyerCampaignRecipient)
+                  .filter(BuyerCampaignRecipient.campaign_id == camp.id,
+                          BuyerCampaignRecipient.status == "PENDIENTE")
+                  .order_by(BuyerCampaignRecipient.id.asc()).all())
+    if not pendientes:
+        camp.status = "SENT"
+        camp.sent_at = camp.sent_at or datetime.now(TZ_MADRID)
+        session_db.commit()
+        return {"enviados": 0, "fallos": 0, "quedan": 0, "terminado": True}
+    camp.status = "SENDING"
+    files_url = _campaign_files_url(session_db, camp)
+    enviados, fallos = 0, 0
+    tope_alcanzado = False
+    hoy, tope = 0, 0
+    if camp.channel == "EMAIL":
+        cuerpo_html = _campaign_email_html(session_db, camp, files_url=files_url)
+        asunto = (camp.subject or camp.title or "").strip() or "Información importante"
+    else:
+        texto = _campaign_sms_text(session_db, camp, files_url=files_url)
+        remitente = _campaign_sms_sender(session_db, camp)
+        # ⚠️ El TOPE DIARIO de SMS se respeta (es la red de seguridad del saldo), pero no se puede
+        # marcar a nadie como «no le llegó» por eso: se para y se dice cuántos quedan.
+        acc = _sms_account(session_db)
+        tope = int(getattr(acc, "daily_cap", 0) or 0)
+        hoy = _sms_sent_today(session_db) if tope > 0 else 0
+    t0 = time.monotonic()
+    for r in pendientes:
+        if time.monotonic() - t0 > CAMPAIGN_BUDGET_SECONDS:
+            break
+        if camp.channel == "SMS" and tope > 0 and hoy >= tope:
+            tope_alcanzado = True
+            break
+        try:
+            if camp.channel == "EMAIL":
+                # ⚠️ Los adjuntos van como IMÁGENES y ENLACES dentro del correo, no como
+                # ficheros pegados: mandar el mismo PDF a miles de direcciones es la forma más
+                # rápida de acabar en spam (y de que el envío tarde una eternidad).
+                ok, error = _send_optional_email([r.target], asunto, cuerpo_html)
+            else:
+                # `max_segments=0` = no se recorta: los trozos de más ya se han avisado y aceptado.
+                ok, error = _send_optional_sms(session_db, r.target, texto, kind="CAMPAIGN",
+                                               sender=remitente, max_segments=0, force=True)
+                hoy += 1
+        except Exception as exc:
+            ok, error = False, str(exc)
+            app.logger.exception("[envios] fallo inesperado mandando a %s", (r.target or "")[:80])
+        if ok:
+            r.status, r.error, r.sent_at = "ENVIADO", None, datetime.now(TZ_MADRID)
+            enviados += 1
+        else:
+            r.status, r.error = "ERROR", (error or "no se pudo enviar")[:400]
+            fallos += 1
+        session_db.commit()
+    camp.sent_ok = int(camp.sent_ok or 0) + enviados
+    camp.sent_fail = int(camp.sent_fail or 0) + fallos
+    quedan = (session_db.query(func.count(BuyerCampaignRecipient.id))
+              .filter(BuyerCampaignRecipient.campaign_id == camp.id,
+                      BuyerCampaignRecipient.status == "PENDIENTE").scalar() or 0)
+    if not quedan:
+        camp.status = "SENT"
+        camp.sent_at = camp.sent_at or datetime.now(TZ_MADRID)
+    if tope_alcanzado:
+        camp.last_error = ("Se ha llegado al tope de %d SMS al día (Integraciones → SMS): quedan %d "
+                           "por mandar." % (tope, int(quedan)))
+    session_db.commit()
+    return {"enviados": enviados, "fallos": fallos, "quedan": int(quedan),
+            "terminado": not quedan, "tope": tope_alcanzado,
+            "aviso": (camp.last_error or "") if tope_alcanzado else ""}
+
+
+# Envíos que ya están mandándose en ESTE proceso (para no ponerse a mandar dos veces lo mismo).
+_CAMPAIGN_BG_ACTIVE: set = set()
+_CAMPAIGN_BG_GUARD = threading.Lock()
+
+
+def _campaign_send_bg(campaign_pk: str) -> None:
+    """Sigue mandando la campaña en un HILO hasta que no queden.
+
+    ⚠️ Con dos mil destinatarios, mandar «por tandas de 45 s» a base de clics sería inaceptable: la
+    primera tanda va en la petición (para que se vean al momento los errores de verdad) y el resto
+    en segundo plano. Es seguro porque cada destinatario queda marcado en cuanto se le manda: si el
+    hilo muere (un despliegue, por ejemplo), se sigue con el botón «Seguir enviando» y nadie recibe
+    dos veces."""
+    clave = str(campaign_pk)
+    with _CAMPAIGN_BG_GUARD:
+        if clave in _CAMPAIGN_BG_ACTIVE:
+            return
+        _CAMPAIGN_BG_ACTIVE.add(clave)
+    try:
+        for _ronda in range(400):                     # tope de seguridad (400 × 45 s)
+            s = db()
+            try:
+                camp = s.get(BuyerCampaign, to_uuid(campaign_pk))
+                if camp is None:
+                    return
+                datos = _campaign_send_pending(s, camp)
+            except Exception:
+                app.logger.exception("[envios] fallo mandando en segundo plano")
+                return
+            finally:
+                s.close()
+            if datos.get("terminado") or datos.get("tope"):
+                return
+    finally:
+        with _CAMPAIGN_BG_GUARD:
+            _CAMPAIGN_BG_ACTIVE.discard(clave)
+
+
+def _campaign_send_bg_start(campaign_pk: str) -> None:
+    threading.Thread(target=_campaign_send_bg, args=(str(campaign_pk),), daemon=True).start()
+
+
+def _campaign_status(session_db, camp) -> dict:
+    """Cómo va un envío (lo que consulta la pantalla mientras se manda)."""
+    filas = dict(session_db.query(BuyerCampaignRecipient.status,
+                                  func.count(BuyerCampaignRecipient.id))
+                 .filter(BuyerCampaignRecipient.campaign_id == camp.id)
+                 .group_by(BuyerCampaignRecipient.status).all())
+    quedan = int(filas.get("PENDIENTE", 0) or 0)
+    return {"ok": True, "campaign_id": str(camp.id), "total": int(camp.total or 0),
+            "enviados": int(filas.get("ENVIADO", 0) or 0),
+            "fallos": int(filas.get("ERROR", 0) or 0),
+            "quedan": quedan, "terminado": not quedan,
+            "enviando": str(camp.id) in _CAMPAIGN_BG_ACTIVE,
+            "aviso": (camp.last_error or "")}
+
+
+@app.get("/compradores/envio/<cid>/estado", endpoint="buyers_campaign_status")
+@admin_required
+def buyers_campaign_status(cid):
+    """Cómo va el envío (la pantalla lo pregunta mientras se manda en segundo plano)."""
+    s = db()
+    try:
+        camp = s.get(BuyerCampaign, to_uuid(cid))
+        if camp is None:
+            return jsonify({"ok": False, "error": "Ese envío ya no existe."}), 404
+        return jsonify(_campaign_status(s, camp))
+    finally:
+        s.close()
+
+
+def _campaign_source_from_payload(session_db, datos: dict):
+    return _buyer_source(session_db, event_pk=(datos.get("event") or ""),
+                         list_pk=(datos.get("lista") or ""))
+
+
+def _campaign_filters_from_payload(datos: dict) -> dict:
+    """Los filtros que manda el pop-up de envío (mismo formato que los de la pantalla)."""
+    if (datos.get("todos") or "") in ("1", True, "true"):
+        return {"q": "", "cat": [], "flags": [], "orden": "entradas"}
+    return {"q": (datos.get("q") or "").strip(),
+            "cat": [c for c in (datos.get("cat") or []) if (c or "").strip()],
+            "flags": [k for k, _l, _i in BUYER_FILTER_DEFS if k in (datos.get("flags") or [])],
+            "orden": "entradas"}
+
+
+@app.post("/compradores/envio/adjuntar", endpoint="buyers_campaign_attach")
+@admin_required
+def buyers_campaign_attach():
+    """Sube un adjunto de un envío y devuelve su enlace (imagen o documento)."""
+    if not can_edit_buyers():
+        return jsonify({"ok": False, "error": "No tienes permiso para mandar envíos."}), 403
+    fichero = request.files.get("file")
+    if not fichero or not (fichero.filename or "").strip():
+        return jsonify({"ok": False, "error": "No ha llegado ningún archivo."}), 400
+    try:
+        url = upload_file(fichero, CAMPAIGN_FILE_FOLDER)
+    except Exception as exc:
+        app.logger.exception("[envios] no se pudo subir el adjunto")
+        return jsonify({"ok": False, "error": "No se pudo subir: %s" % exc}), 400
+    if not url:
+        return jsonify({"ok": False, "error": "No se pudo subir el archivo."}), 400
+    nombre = (fichero.filename or "adjunto").strip()
+    return jsonify({"ok": True, "file": {
+        "url": url, "name": nombre, "mimetype": (fichero.mimetype or ""),
+        "image": _campaign_file_is_image(nombre, fichero.mimetype or ""),
+    }})
+
+
+@app.post("/compradores/envio/previsualizar", endpoint="buyers_campaign_preview")
+@admin_required
+def buyers_campaign_preview():
+    """Cuántos envíos van a salir y cómo queda el mensaje (el MISMO HTML que se manda)."""
+    if not can_edit_buyers():
+        return jsonify({"ok": False, "error": "No tienes permiso para mandar envíos."}), 403
+    datos = request.get_json(silent=True) or {}
+    canal = (datos.get("channel") or "EMAIL").strip().upper()
+    if canal not in ("EMAIL", "SMS"):
+        return jsonify({"ok": False, "error": "Canal desconocido."}), 400
+    s = db()
+    try:
+        source = _campaign_source_from_payload(s, datos)
+        if source is None:
+            return jsonify({"ok": False, "error": "Falta el listado de compradores."}), 400
+        filtros = _campaign_filters_from_payload(datos)
+        q = _buyers_apply_filters(_buyers_base_query(s, source), filtros, channel=canal)
+        total = q.with_entities(func.count(BuyerEvent.id)).scalar() or 0
+        # Los que se quedan fuera por no tener el dato de ese canal (se dice, no se esconde).
+        sin_dato = ((_buyers_apply_filters(_buyers_base_query(s, source), filtros)
+                     .with_entities(func.count(BuyerEvent.id)).scalar() or 0) - total)
+        ficheros = _campaign_files_clean(datos.get("files"))
+        company_id = None
+        if (datos.get("company_id") or "").strip():
+            try:
+                company_id = to_uuid(datos["company_id"].strip())
+            except Exception:
+                company_id = None
+        # Campaña de PEGA (no se guarda): solo para componer con el mismo código que el envío.
+        borrador = BuyerCampaign(
+            channel=canal, company_id=company_id,
+            subject=(datos.get("subject") or "").strip(),
+            title=(datos.get("title") or "").strip(),
+            body=(datos.get("body") or ""),
+            button_label=(datos.get("button_label") or "").strip(),
+            button_url=(datos.get("button_url") or "").strip(),
+            link_url=(datos.get("link_url") or "").strip(),
+            files_json=ficheros)
+        salida = {"ok": True, "total": int(total), "sin_dato": max(0, int(sin_dato))}
+        if canal == "EMAIL":
+            salida["html"] = _campaign_email_html(s, borrador)
+            salida["subject"] = (borrador.subject or borrador.title or "").strip()
+        else:
+            sms = _campaign_sms_preview(s, borrador.body, borrador.link_url, ficheros)
+            salida.update(sms)
+            salida["sender"] = _campaign_sms_sender(s, borrador)
+            salida["sms_ready"] = _sms_available()
+        return jsonify(salida)
+    finally:
+        s.close()
+
+
+@app.post("/compradores/envio/enviar", endpoint="buyers_campaign_send")
+@admin_required
+def buyers_campaign_send():
+    """Crea el envío con sus destinatarios y manda la primera tanda."""
+    if not can_edit_buyers():
+        return jsonify({"ok": False, "error": "No tienes permiso para mandar envíos."}), 403
+    datos = request.get_json(silent=True) or {}
+    canal = (datos.get("channel") or "EMAIL").strip().upper()
+    if canal not in ("EMAIL", "SMS"):
+        return jsonify({"ok": False, "error": "Canal desconocido."}), 400
+    cuerpo = (datos.get("body") or "").strip()
+    if not cuerpo:
+        return jsonify({"ok": False, "error": "Escribe el mensaje."}), 400
+    if canal == "EMAIL" and not (datos.get("subject") or "").strip():
+        return jsonify({"ok": False, "error": "Pon el asunto del correo."}), 400
+    if canal == "SMS" and not _sms_available():
+        return jsonify({"ok": False,
+                        "error": ("La pasarela de SMS está sin configurar o apagada "
+                                  "(Integraciones → SMS).")}), 400
+    s = db()
+    try:
+        source = _campaign_source_from_payload(s, datos)
+        if source is None:
+            return jsonify({"ok": False, "error": "Falta el listado de compradores."}), 400
+        filtros = _campaign_filters_from_payload(datos)
+        estado = _current_user_state() or {}
+        company_id = None
+        if (datos.get("company_id") or "").strip():
+            try:
+                company_id = to_uuid(datos["company_id"].strip())
+            except Exception:
+                company_id = None
+        camp = BuyerCampaign(
+            channel=canal,
+            event_id=(to_uuid(source["pk"]) if source["kind"] == "ET" else None),
+            list_id=(to_uuid(source["pk"]) if source["kind"] == "MANUAL" else None),
+            company_id=company_id,
+            subject=(datos.get("subject") or "").strip()[:300],
+            title=(datos.get("title") or "").strip()[:300],
+            body=cuerpo,
+            button_label=(datos.get("button_label") or "").strip()[:80],
+            button_url=(datos.get("button_url") or "").strip()[:900],
+            link_url=(datos.get("link_url") or "").strip()[:900],
+            files_json=_campaign_files_clean(datos.get("files")),
+            filters_json=filtros,
+            created_by_user_id=_safe_uuid(estado.get("user_id")),
+            created_by_nick=(estado.get("nick") or ""),
+            status="DRAFT")
+        if canal == "SMS":
+            camp.sms_sender = _campaign_sms_sender(s, camp)[:11] or None
+        s.add(camp)
+        s.flush()
+        total = _campaign_build_recipients(s, camp, source, filtros)
+        if not total:
+            s.rollback()
+            return jsonify({"ok": False, "error": (
+                "No hay nadie a quien mandarlo: de los compradores elegidos, ninguno tiene %s."
+                % ("email" if canal == "EMAIL" else "teléfono"))}), 400
+        if canal == "SMS":
+            files_url = _campaign_files_url(s, camp)
+            camp.segments = sms_utils.segments(_campaign_sms_text(s, camp, files_url=files_url))
+        s.commit()
+        resultado = _campaign_send_pending(s, camp)
+        if resultado.get("quedan") and not resultado.get("tope"):
+            _campaign_send_bg_start(str(camp.id))
+            resultado["enviando"] = True
+        resultado.update({"ok": True, "campaign_id": str(camp.id), "total": total})
+        return jsonify(resultado)
+    except Exception as exc:
+        s.rollback()
+        app.logger.exception("[envios] no se pudo mandar el envío a compradores")
+        return jsonify({"ok": False, "error": "No se pudo mandar: %s" % exc}), 500
+    finally:
+        s.close()
+
+
+@app.post("/compradores/envio/<cid>/continuar", endpoint="buyers_campaign_continue")
+@admin_required
+def buyers_campaign_continue(cid):
+    """Sigue mandando los que quedaron (el servidor corta la petición a los ~45 s)."""
+    if not can_edit_buyers():
+        return jsonify({"ok": False, "error": "No tienes permiso para mandar envíos."}), 403
+    s = db()
+    try:
+        camp = s.get(BuyerCampaign, to_uuid(cid))
+        if camp is None:
+            return jsonify({"ok": False, "error": "Ese envío ya no existe."}), 404
+        resultado = _campaign_send_pending(s, camp)
+        if resultado.get("quedan") and not resultado.get("tope"):
+            _campaign_send_bg_start(str(camp.id))
+            resultado["enviando"] = True
+        resultado.update({"ok": True, "campaign_id": str(camp.id), "total": int(camp.total or 0)})
+        return jsonify(resultado)
+    except Exception as exc:
+        s.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        s.close()
+
+
+@app.get("/envio/<token>", endpoint="public_campaign_files")
+def public_campaign_files(token):
+    """Página pública con los adjuntos de un envío: es lo que se manda por SMS, donde no se puede
+    adjuntar nada. Solo enseña los archivos de ESE envío."""
+    s = db()
+    try:
+        camp = (s.query(BuyerCampaign)
+                .filter(BuyerCampaign.files_token == (token or "").strip()).first())
+        if camp is None or not (camp.files_json or []):
+            abort(404)
+        company = s.get(GroupCompany, camp.company_id) if camp.company_id else None
+        return render_template("public_campaign_files.html",
+                               camp=camp, files=(camp.files_json or []), company=company,
+                               og_image=_external_url_for("public_campaign_og_image", token=token))
+    finally:
+        s.close()
+
+
+@app.get("/envio/<token>/imagen.jpg", endpoint="public_campaign_og_image")
+def public_campaign_og_image(token):
+    """La miniatura de la previsualización del enlace: la primera imagen adjunta y, si no hay, el
+    logo de la empresa que lo manda."""
+    s = db()
+    try:
+        camp = (s.query(BuyerCampaign)
+                .filter(BuyerCampaign.files_token == (token or "").strip()).first())
+        if camp is None:
+            abort(404)
+        origen = ""
+        for f in (camp.files_json or []):
+            if f.get("image") and (f.get("url") or ""):
+                origen = f["url"]
+                break
+        if not origen and camp.company_id:
+            company = s.get(GroupCompany, camp.company_id)
+            origen = (getattr(company, "logo_url", "") or "")
+        datos = _og_image_jpeg_bytes(origen)
+        if not datos:
+            abort(404)
+        return Response(datos, mimetype="image/jpeg",
+                        headers={"Cache-Control": "public, max-age=86400"})
     finally:
         s.close()
 
@@ -100299,38 +101950,33 @@ def _csv_guard(v) -> str:
 @app.get("/compradores/export.csv", endpoint="buyers_export_csv")
 @admin_required
 def buyers_export_csv():
-    """Exporta compradores a CSV (todos o de un evento): email, nombre, teléfono, entradas,
-    importe, publicidad. Pensado para campañas y cruces externos."""
-    event_pk = (request.args.get("event") or "").strip()
-    try:
-        event_uuid = to_uuid(event_pk)
-    except Exception:
-        abort(404)
+    """Exporta a CSV **lo que se está viendo**: el listado (evento de ET o subido a mano) con sus
+    filtros aplicados, o todos los compradores. Pensado para campañas y cruces externos."""
+    filtros = _buyer_filters_from_request()
     s = db()
     try:
+        source = _buyer_source(s, event_pk=(request.args.get("event") or "").strip(),
+                               list_pk=(request.args.get("lista") or "").strip())
         out = io.StringIO()
         w = csv.writer(out, delimiter=";")
-        w.writerow(["email", "nombre", "telefono", "entradas", "importe", "acepta_publicidad", "eventos"])
+        w.writerow(["email", "nombre", "telefono", "entradas", "importe", "categorias",
+                    "acepta_publicidad", "eventos"])
         fname = "compradores"
-        if event_uuid:
-            ev = s.get(EnterticketEvent, event_uuid)
-            if not ev:
-                abort(404)
-            fname = "compradores_" + re.sub(r"[^\w\-]+", "_", (ev.name or "evento"))[:60]
-            rows = (s.query(BuyerEvent, Buyer).join(Buyer, Buyer.id == BuyerEvent.buyer_id)
-                    .filter(BuyerEvent.event_id == ev.id)
-                    .order_by(Buyer.email.asc()).all())
-            for be, b in rows:
+        if source:
+            fname = "compradores_" + re.sub(r"[^\w\-]+", "_", (source.get("label") or "listado"))[:60]
+            q = _buyers_apply_filters(_buyers_base_query(s, source), filtros)
+            for be, b in _buyers_order(q, filtros["orden"]).all():
                 w.writerow([_csv_guard(b.email), _csv_guard(b.name), _csv_guard(b.phone),
                             int(be.tickets_count or 0),
-                            str(be.amount_total or 0).replace(".", ","), "si" if b.accepts_marketing else "no",
-                            int(b.events_count or 0)])
+                            str(be.amount_total or 0).replace(".", ","),
+                            _csv_guard(", ".join(be.categories or [])),
+                            "si" if b.accepts_marketing else "no", int(b.events_count or 0)])
         else:
-            for b in s.query(Buyer).order_by(Buyer.email.asc()).all():
+            for b in s.query(Buyer).order_by(Buyer.email.asc().nullslast()).all():
                 w.writerow([_csv_guard(b.email), _csv_guard(b.name), _csv_guard(b.phone),
                             int(b.tickets_count or 0),
-                            str(b.amount_total or 0).replace(".", ","), "si" if b.accepts_marketing else "no",
-                            int(b.events_count or 0)])
+                            str(b.amount_total or 0).replace(".", ","), "",
+                            "si" if b.accepts_marketing else "no", int(b.events_count or 0)])
         data = "\ufeff" + out.getvalue()  # BOM para que Excel abra bien los acentos
         resp = Response(data, mimetype="text/csv; charset=utf-8")
         resp.headers["Content-Disposition"] = f"attachment; filename={fname}.csv"

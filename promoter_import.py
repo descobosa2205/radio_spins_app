@@ -225,9 +225,10 @@ def _rows_from_csv(data: bytes) -> list[list]:
     return [list(r) for r in csv.reader(io.StringIO(text), dialect)]
 
 
-def _header_index(rows: list[list]) -> int:
+def _header_index(rows: list[list], guesser=None) -> int:
     """Qué fila es la cabecera. Manda la primera que reconozca algún campo; si ninguna lo hace, la
     primera con dos o más celdas con texto (el fichero se podrá mapear a mano)."""
+    guesser = guesser or guess_field
     respaldo = None
     for i, row in enumerate(rows[:30]):
         textos = [_cell_text(c) for c in (row or [])]
@@ -236,18 +237,14 @@ def _header_index(rows: list[list]) -> int:
             continue
         if respaldo is None:
             respaldo = i
-        if any(guess_field(t) for t in con_texto):
+        if any(guesser(t) for t in con_texto):
             return i
     return respaldo if respaldo is not None else 0
 
 
-def parse_file(data: bytes, filename: str = "") -> dict:
-    """Lee el fichero y devuelve sus columnas (con el campo que se les ha reconocido) y sus filas.
-
-    {"columns": [{"index", "header", "field", "auto", "samples": [...]}],
-     "rows": [[texto, …], …],          # ya sin la cabecera y sin filas vacías
-     "sheet_rows": nº de filas leídas}
-    """
+def read_rows(data: bytes, filename: str = "") -> list[list]:
+    """Las filas CRUDAS de un Excel o un CSV. Es el lector que comparten los importadores de la
+    casa (terceros y compradores): un solo sitio que sabe leer un fichero."""
     name = (filename or "").lower()
     if name.endswith((".csv", ".txt")):
         rows = _rows_from_csv(data)
@@ -261,8 +258,21 @@ def parse_file(data: bytes, filename: str = "") -> dict:
             rows = _rows_from_csv(data)
     if not rows:
         raise ValueError("El fichero está vacío.")
+    return rows
 
-    h = _header_index(rows)
+
+def header_index(rows: list[list], guesser=None) -> int:
+    """Qué fila es la cabecera (ver `_header_index`), con el reconocedor que se le pase."""
+    return _header_index(rows, guesser)
+
+
+def parse_columns(rows: list[list], guesser=None) -> dict:
+    """De las filas crudas a {columns, rows, sheet_rows}, reconociendo cada columna con `guesser`.
+
+    Lo comparten los importadores: lo único que cambia entre uno y otro es a QUÉ campos se puede
+    volcar una columna, o sea el reconocedor."""
+    guesser = guesser or guess_field
+    h = header_index(rows, guesser)
     header = [_cell_text(c) for c in (rows[h] or [])]
     cuerpo = []
     for row in rows[h + 1:]:
@@ -281,7 +291,7 @@ def parse_file(data: bytes, filename: str = "") -> dict:
         muestras = [r[idx] for r in cuerpo[:8] if r[idx]][:3]
         if not rotulo and not muestras:
             continue  # columna completamente vacía: no se enseña
-        campo = guess_field(rotulo)
+        campo = guesser(rotulo)
         # Un campo no se puede rellenar desde dos columnas a la vez: la segunda se pregunta.
         if campo and campo in usados:
             campo = None
@@ -295,6 +305,16 @@ def parse_file(data: bytes, filename: str = "") -> dict:
             "samples": muestras,
         })
     return {"columns": columns, "rows": cuerpo, "sheet_rows": len(cuerpo)}
+
+
+def parse_file(data: bytes, filename: str = "") -> dict:
+    """Lee el fichero y devuelve sus columnas (con el campo que se les ha reconocido) y sus filas.
+
+    {"columns": [{"index", "header", "field", "auto", "samples": [...]}],
+     "rows": [[texto, …], …],          # ya sin la cabecera y sin filas vacías
+     "sheet_rows": nº de filas leídas}
+    """
+    return parse_columns(read_rows(data, filename), guess_field)
 
 
 def apply_mapping(rows: list[list], mapping: dict) -> list[dict]:

@@ -1,38 +1,59 @@
 {% extends "layout.html" %}
 {% block content %}
+{# BASE DE DATOS DE COMPRADORES
+   · «Por listado»: cada evento de Enterticket y cada listado subido a mano, con sus contadores.
+   · Dentro de un listado: filtros por CATEGORÍA de entrada (y los interruptores), y los botones de
+     ENVIAR SMS / ENVIAR EMAIL, que mandan a los que quedan filtrados.
+   Los envíos y la importación viven en sus dos pop-ups (`_buyer_campaign_modal` / `_buyer_import_modal`). #}
 <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
   <h1 class="h4 mb-0"><i class="fa fa-users me-2"></i>Compradores</h1>
-  <div class="d-flex gap-2">
-    {% if vista == 'evento' and current_event %}
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('buyers_export_csv', event=current_event.pk) }}"><i class="fa fa-file-csv me-1"></i>Exportar este evento</a>
+  <div class="d-flex gap-2 flex-wrap">
+    {% if can_edit %}
+    <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#buyerImportModal"
+            data-bi-scope="{{ ('event:' ~ source.pk) if (source and source.kind == 'ET') else (('lista:' ~ source.pk) if source else '') }}">
+      <i class="fa fa-file-import me-1"></i>Añadir desde fichero
+    </button>
     {% endif %}
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('buyers_export_csv') }}"><i class="fa fa-file-csv me-1"></i>Exportar todo</a>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('buyers_export_csv', event=(source.pk if (source and source.kind=='ET') else None), lista=(source.pk if (source and source.kind=='MANUAL') else None), **filtros_url) }}">
+      <i class="fa fa-file-csv me-1"></i>{% if source %}Exportar lo que se ve{% else %}Exportar todo{% endif %}
+    </a>
   </div>
 </div>
 
 {% if not et_configured %}
-<div class="alert alert-light border">La integración con Enterticket está desactivada; esta base de datos se alimenta de sus ventas. Actívala en Integraciones.</div>
+<div class="alert alert-light border py-2 px-3 small">
+  <i class="fa fa-plug-circle-xmark me-1"></i>La integración con Enterticket está desactivada; los listados de sus eventos no se actualizan.
+  Los listados subidos a mano funcionan igual.
+</div>
 {% endif %}
 
-<ul class="nav nav-pills mb-3">
-  <li class="nav-item"><a class="nav-link {{ 'active' if vista in ('eventos','evento') else '' }}" href="{{ url_for('buyers_view') }}"><i class="fa fa-layer-group me-1"></i>Por evento</a></li>
+<ul class="nav nav-tabs contract-tabs mb-3">
+  <li class="nav-item"><a class="nav-link {{ 'active' if vista in ('listados','listado') else '' }}" href="{{ url_for('buyers_view') }}"><i class="fa fa-layer-group me-1"></i>Por listado</a></li>
   <li class="nav-item"><a class="nav-link {{ 'active' if vista == 'todos' else '' }}" href="{{ url_for('buyers_view', vista='todos') }}"><i class="fa fa-list me-1"></i>Todos los compradores</a></li>
 </ul>
 
-{% if vista == 'eventos' %}
-  {# ---- Agrupados por evento: tarjetas con contadores; clic = ver sus compradores ---- #}
-  {% if not events %}
-    <div class="alert alert-light border">Aún no hay compradores sincronizados desde Enterticket.</div>
-  {% else %}
+{% if vista == 'listados' %}
+  {# ---- Listados: eventos de Enterticket y los subidos a mano ---- #}
+  {% if not sources %}
+    <div class="alert alert-light border">
+      Todavía no hay ningún listado de compradores.
+      {% if can_edit %}Puedes <strong>añadir uno desde un fichero</strong> con el botón de arriba.{% endif %}
+    </div>
+  {% endif %}
   <div class="row g-2">
-    {% for ev in events %}
+    {% for ev in sources %}
     <div class="col-12 col-md-6 col-xl-4">
-      <a href="{{ url_for('buyers_view', event=ev.pk, vista='evento') }}" class="text-decoration-none text-reset">
+      <a href="{{ url_for('buyers_view', event=(ev.pk if ev.kind=='ET' else None), lista=(ev.pk if ev.kind=='MANUAL' else None), vista='listado') }}" class="text-decoration-none text-reset">
         <div class="card h-100 entity-row">
           <div class="card-body d-flex align-items-center gap-2 py-2">
-            {% if ev.image %}<img src="{{ ev.image }}" alt="" style="width:44px;height:44px;border-radius:10px;object-fit:cover">{% else %}<span class="d-inline-flex align-items-center justify-content-center bg-light rounded" style="width:44px;height:44px"><i class="fa fa-ticket text-muted"></i></span>{% endif %}
-            <div class="flex-grow-1">
-              <div class="fw-semibold small">{{ ev.label }}</div>
+            {% if ev.image %}<img src="{{ ev.image }}" alt="" data-avatar="1" style="width:44px;height:44px;border-radius:10px;object-fit:cover">
+            {% else %}<span class="d-inline-flex align-items-center justify-content-center bg-light rounded" style="width:44px;height:44px"><i class="fa fa-ticket text-muted"></i></span>{% endif %}
+            <div class="flex-grow-1 min-w-0">
+              <div class="fw-semibold small d-flex align-items-center gap-1">
+                <span class="text-truncate">{{ ev.label }}</span>
+                {% if ev.manual %}<i class="fa fa-file-import text-muted" title="Listado subido a mano"></i>
+                {% else %}<i class="fa fa-plug text-muted" title="Se alimenta de Enterticket"></i>{% endif %}
+              </div>
               <div class="small text-muted">{{ ev.date }}{% if ev.venue %} · {{ ev.venue }}{% endif %}{% if ev.town %} ({{ ev.town }}){% endif %}</div>
             </div>
             <div class="text-end">
@@ -45,31 +66,102 @@
       </a>
     </div>
     {% endfor %}
+    {% if can_edit %}
+    <div class="col-12 col-md-6 col-xl-4">
+      <button type="button" class="bl-add w-100" data-bs-toggle="modal" data-bs-target="#buyerImportModal" data-bi-scope="new">
+        <i class="fa fa-circle-plus"></i>
+        <span><span class="fw-semibold d-block">Añadir un listado</span>
+        <span class="small text-muted">De una actividad que no sale aquí: se elige el artista o el evento y se sube el fichero.</span></span>
+      </button>
+    </div>
+    {% endif %}
   </div>
-  {% endif %}
 
 {% else %}
-  {# ---- Tabla de compradores (de un evento o global) ---- #}
-  {% if vista == 'evento' and current_event %}
+  {# ---- Dentro de un listado (o el global) ---- #}
+  {% if source %}
   <div class="card mb-3"><div class="card-body py-2 d-flex align-items-center gap-2 flex-wrap">
-    {% if current_event.image %}<img src="{{ current_event.image }}" alt="" style="width:40px;height:40px;border-radius:10px;object-fit:cover">{% endif %}
-    <div class="flex-grow-1">
-      <div class="fw-semibold">{{ current_event.label }}</div>
-      <div class="small text-muted">{{ current_event.date }}{% if current_event.venue %} · {{ current_event.venue }}{% endif %}</div>
+    <a class="btn-volver" href="{{ url_for('buyers_view') }}" title="Volver a los listados"><i class="fa fa-arrow-left"></i></a>
+    {% if source.image %}<img src="{{ source.image }}" alt="" data-avatar="1" style="width:44px;height:44px;border-radius:10px;object-fit:cover">{% endif %}
+    <div class="flex-grow-1 min-w-0">
+      <div class="fw-semibold d-flex align-items-center gap-2">
+        <span class="text-truncate">{{ source.label }}</span>
+        {% if source.manual %}<span class="badge text-bg-light border"><i class="fa fa-file-import me-1"></i>A mano</span>{% endif %}
+      </div>
+      <div class="small text-muted">{{ source.date }}{% if source.venue %} · {{ source.venue }}{% endif %}</div>
     </div>
-    {% if current_event.concert_id %}
-    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('concert_detail_view', cid=current_event.concert_id, tab='ticketing') }}"><i class="fa fa-ticket me-1"></i>Ver ticketing</a>
+    {% if company %}
+      <div class="hero-company">{{ company_chip(company=company, size=34) }}</div>
+    {% endif %}
+    {% if source.concert_id %}
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_detail_view', cid=source.concert_id, tab='ticketing') }}"><i class="fa fa-ticket me-1"></i>Ver ticketing</a>
+    {% endif %}
+    {% if can_edit and source.manual %}
+    <form method="post" action="{{ url_for('buyers_list_delete', lid=source.pk) }}"
+          data-confirm="¿Eliminar el listado «{{ source.label|e }}» y sus compradores?">
+      <button class="btn btn-sm btn-outline-danger" title="Eliminar el listado"><i class="fa fa-trash"></i></button>
+    </form>
     {% endif %}
   </div></div>
+
+  {# ---- Los dos envíos ---- #}
+  {% if can_edit %}
+  <div class="ficha-quick mb-3">
+    <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#buyerCampaignModal" data-bc-channel="SMS">
+      <i class="fa fa-comment-sms me-1"></i>Envío de SMS
+    </button>
+    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#buyerCampaignModal" data-bc-channel="EMAIL">
+      <i class="fa fa-envelope me-1"></i>Envío de Email
+    </button>
+  </div>
+  {% if not sms_ready %}
+  <div class="alert alert-warning py-2 px-3 small">
+    <i class="fa fa-triangle-exclamation me-1"></i>Los <strong>SMS</strong> están sin configurar (Integraciones → SMS): de momento solo se puede mandar el correo.
+  </div>
+  {% endif %}
+  {% endif %}
   {% endif %}
 
-  <form method="get" class="d-flex gap-2 mb-3" action="{{ url_for('buyers_view') }}">
+  {# ---- Buscador + filtros con iconos ---- #}
+  <form method="get" class="d-flex gap-2 mb-2 flex-wrap" action="{{ url_for('buyers_view') }}">
     <input type="hidden" name="vista" value="{{ vista }}">
-    {% if vista == 'evento' and current_event %}<input type="hidden" name="event" value="{{ current_event.pk }}">{% endif %}
-    <input type="search" name="q" value="{{ q }}" class="form-control" style="max-width:360px" placeholder="Buscar por nombre, email o teléfono…">
-    <button class="btn btn-outline-secondary"><i class="fa fa-magnifying-glass"></i></button>
-    {% if q %}<a class="btn btn-outline-secondary" href="{{ url_for('buyers_view', vista=vista, event=(current_event.pk if current_event else None)) }}">Limpiar</a>{% endif %}
+    {% if source %}<input type="hidden" name="{{ 'event' if source.kind == 'ET' else 'lista' }}" value="{{ source.pk }}">{% endif %}
+    {% for c in chips.cats if c.on %}<input type="hidden" name="cat" value="{{ c.name }}">{% endfor %}
+    {% for f in chips.flags if f.on %}<input type="hidden" name="{{ f.key }}" value="1">{% endfor %}
+    {% if filtros.orden and filtros.orden != 'entradas' %}<input type="hidden" name="orden" value="{{ filtros.orden }}">{% endif %}
+    <input type="search" name="q" value="{{ q }}" class="form-control" style="max-width:340px" placeholder="Buscar por nombre, email o teléfono…">
+    <button class="btn btn-outline-secondary" title="Buscar"><i class="fa fa-magnifying-glass"></i></button>
+    {% if chips.any %}<a class="btn btn-outline-secondary" href="{{ chips.clear_url }}" title="Quitar los filtros"><i class="fa fa-filter-circle-xmark"></i></a>{% endif %}
   </form>
+
+  <div class="bl-filters mb-3">
+    {% if chips.cats %}
+    <div class="bl-filters__row">
+      <span class="bl-filters__lbl"><i class="fa fa-tags me-1"></i>Categorías</span>
+      {% for c in chips.cats %}
+        <a class="filter-chip {{ 'is-on' if c.on else '' }}" href="{{ c.url }}">
+          <i class="fa {{ c.icon }}"></i>{{ c.name }}<span class="filter-chip__n">{{ c.n|k }}</span>
+        </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div class="bl-filters__row">
+      <span class="bl-filters__lbl"><i class="fa fa-filter me-1"></i>Filtros</span>
+      {% for f in chips.flags %}
+        {% if vista != 'todos' or f.key != 'multi' %}
+        <a class="filter-chip {{ 'is-on' if f.on else '' }}" href="{{ f.url }}"><i class="fa {{ f.icon }}"></i>{{ f.label }}</a>
+        {% endif %}
+      {% endfor %}
+    </div>
+    <div class="bl-filters__row">
+      <span class="bl-filters__lbl"><i class="fa fa-arrow-down-short-wide me-1"></i>Orden</span>
+      {% for o in chips.orders %}
+        {% if vista != 'todos' or o.key != 'categoria' %}
+        <a class="filter-chip {{ 'is-on' if o.on else '' }}" href="{{ o.url }}"><i class="fa {{ o.icon }}"></i>{{ o.label }}</a>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
 
   <div class="d-flex flex-wrap gap-2 mb-3">
     <div class="sim-stat"><div class="sim-stat__n">{{ totals.buyers|k }}</div><div class="sim-stat__l">Compradores</div></div>
@@ -82,6 +174,7 @@
       <table class="table table-sm align-middle mb-0">
         <thead class="table-light"><tr>
           <th>Nombre</th><th>Email</th><th>Teléfono</th>
+          {% if vista != 'todos' %}<th>Categorías</th>{% endif %}
           <th class="text-end">Entradas</th><th class="text-end">Importe</th>
           <th class="text-end">Eventos</th><th>Última compra</th>
           <th class="text-center" title="Acepta publicidad"><i class="fa fa-envelope-open-text"></i></th>
@@ -90,23 +183,36 @@
         {% for b in buyers %}
           <tr>
             <td class="small">{{ b.name or '—' }}</td>
-            <td class="small">{{ b.email }}</td>
-            <td class="small">{{ b.phone or '—' }}</td>
+            <td class="small">{{ b.email or '—' }}</td>
+            <td class="small text-nowrap">{{ b.phone or '—' }}</td>
+            {% if vista != 'todos' %}
+            <td class="small">
+              {% for c in b.cats %}<span class="bl-cat"><i class="fa {{ c.icon }}"></i>{{ c.name }}</span>{% endfor %}
+              {% if not b.cats %}<span class="text-muted">—</span>{% endif %}
+            </td>
+            {% endif %}
             <td class="text-end">{{ b.tickets|k }}</td>
             <td class="text-end small">{{ b.amount|eur }}</td>
             <td class="text-end">{{ b.events|k }}</td>
-            <td class="small">{{ b.last.strftime('%d/%m/%Y %H:%M') if b.last else '—' }}</td>
+            <td class="small text-nowrap">{{ b.last.strftime('%d/%m/%Y %H:%M') if b.last else '—' }}</td>
             <td class="text-center">{% if b.marketing %}<i class="fa fa-check text-success"></i>{% else %}<i class="fa fa-xmark text-muted"></i>{% endif %}</td>
           </tr>
         {% else %}
-          <tr><td colspan="8" class="text-muted small p-3">No hay compradores{% if q %} que coincidan con «{{ q }}»{% endif %}.</td></tr>
+          <tr><td colspan="{{ 9 if vista != 'todos' else 8 }}" class="text-muted small p-3">No hay compradores{% if chips.any %} con esos filtros{% endif %}.</td></tr>
         {% endfor %}
         </tbody>
       </table>
     </div>
   </div></div>
-  {% if buyers|length >= 1000 %}
-  <div class="small text-muted mt-2">Se muestran los primeros 1.000. Usa el buscador o exporta a CSV para el listado completo.</div>
+  {% if buyers|length >= rows_limit %}
+  <div class="small text-muted mt-2">
+    Se muestran los primeros {{ rows_limit|k }} (los totales de arriba y los envíos van sobre <strong>todos</strong> los filtrados).
+  </div>
   {% endif %}
+{% endif %}
+
+{% if can_edit %}
+  {% include '_buyer_import_modal.html' %}
+  {% if vista == 'listado' and source %}{% include '_buyer_campaign_modal.html' %}{% endif %}
 {% endif %}
 {% endblock %}

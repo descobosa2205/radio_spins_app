@@ -1,0 +1,229 @@
+{# ENVÍO A COMPRADORES (SMS o correo).
+   1 ¿A quién? (todo el listado o los filtros, con su icono) → el TOTAL de envíos.
+   2 El mensaje (correo: asunto, título, texto, botón y adjuntos · SMS: texto, enlace y adjuntos,
+     con el contador de caracteres y los trozos que va a costar).
+   3 Cómo va a quedar: la previsualización la compone el SERVIDOR con el MISMO código que el envío,
+     así que lo que se ve es exactamente lo que sale.
+   El JS vive en static/js/buyer_campaign.js. #}
+<div class="modal fade" id="buyerCampaignModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content" data-buyer-campaign
+         data-url-preview="{{ url_for('buyers_campaign_preview') }}"
+         data-url-send="{{ url_for('buyers_campaign_send') }}"
+         data-url-continue="{{ url_for('buyers_campaign_continue', cid='__CID__') }}"
+         data-url-status="{{ url_for('buyers_campaign_status', cid='__CID__') }}"
+         data-url-attach="{{ url_for('buyers_campaign_attach') }}"
+         data-event="{{ source.pk if source.kind == 'ET' else '' }}"
+         data-lista="{{ source.pk if source.kind == 'MANUAL' else '' }}"
+         data-sms-ready="{{ '1' if sms_ready else '0' }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title">
+            <i class="fa fa-comment-sms me-2 text-danger" data-bc-icon-sms></i>
+            <i class="fa fa-envelope me-2 text-primary d-none" data-bc-icon-mail></i>
+            <span data-bc-title>Envío de SMS</span>
+          </h5>
+          <div class="text-muted small">{{ source.label }}{% if source.date and source.date != '—' %} · {{ source.date }}{% endif %}</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+
+      <div class="modal-body">
+        <div class="alert alert-danger d-none" data-bc-error></div>
+        <div class="alert alert-warning d-none py-2 px-3 small" data-bc-sms-off>
+          <i class="fa fa-triangle-exclamation me-1"></i>La pasarela de SMS está sin configurar o apagada
+          (Integraciones → SMS): ahora mismo no se puede mandar un SMS.
+        </div>
+
+        {# ── 1 · ¿A quién? ─────────────────────────────────────────────────────────── #}
+        <div class="bc-card">
+          <div class="bc-card__t"><i class="fa fa-users me-2 text-danger"></i>¿A quién se le manda?</div>
+          <div class="bc-who">
+            <label class="bc-who__opt">
+              <input type="radio" name="bc_who" value="todos" checked>
+              <span><i class="fa fa-user-group"></i><span class="fw-semibold">Todos los compradores de este listado</span></span>
+            </label>
+            <label class="bc-who__opt">
+              <input type="radio" name="bc_who" value="filtros">
+              <span><i class="fa fa-filter"></i><span class="fw-semibold">Solo los que cumplan…</span></span>
+            </label>
+          </div>
+
+          <div class="d-none mt-2" data-bc-filters>
+            {% if categorias %}
+            <div class="bl-filters__row">
+              <span class="bl-filters__lbl"><i class="fa fa-tags me-1"></i>Categorías</span>
+              {% for c in categorias %}
+                <label class="filter-chip">
+                  <input type="checkbox" data-bc-cat value="{{ c.name }}">
+                  <i class="fa {{ c.icon }}"></i>{{ c.name }}<span class="filter-chip__n">{{ c.n|k }}</span>
+                </label>
+              {% endfor %}
+            </div>
+            {% endif %}
+            <div class="bl-filters__row">
+              <span class="bl-filters__lbl"><i class="fa fa-filter me-1"></i>Filtros</span>
+              {% for f in filter_defs %}
+                <label class="filter-chip">
+                  <input type="checkbox" data-bc-flag value="{{ f[0] }}">
+                  <i class="fa {{ f[2] }}"></i>{{ f[1] }}
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="bc-total mt-3">
+            <div>
+              <div class="bc-total__n" data-bc-total>—</div>
+              <div class="bc-total__l" data-bc-total-l>envíos</div>
+            </div>
+            <div class="small text-muted" data-bc-total-note></div>
+          </div>
+        </div>
+
+        {# ── 2 · El mensaje ────────────────────────────────────────────────────────── #}
+        <div class="bc-card">
+          <div class="bc-card__t"><i class="fa fa-pen-to-square me-2 text-danger"></i>El mensaje</div>
+
+          <div class="row g-2">
+            <div class="col-12 col-md-6">
+              <label class="form-label small mb-1">Empresa del grupo que lo manda</label>
+              <select class="form-select select-with-thumbs" data-bc-company>
+                {% for co in companies %}
+                  <option value="{{ co.id }}" data-logo="{{ co.logo_url or '' }}"
+                          data-sms="{{ co.sms_sender or '' }}"
+                          {% if company and co.id == company.id %}selected{% endif %}>{{ co.name }}</option>
+                {% endfor %}
+              </select>
+              <div class="form-text" data-bc-company-note></div>
+            </div>
+            <div class="col-12 col-md-6 d-none" data-bc-only="EMAIL">
+              <label class="form-label small mb-1">Asunto del correo</label>
+              <input class="form-control" data-bc-subject maxlength="200" placeholder="Tu entrada para…">
+            </div>
+          </div>
+
+          <div class="mt-2 d-none" data-bc-only="EMAIL">
+            <label class="form-label small mb-1">Título</label>
+            <input class="form-control" data-bc-title-in maxlength="200" placeholder="Lo que va en grande debajo del logo">
+          </div>
+
+          <div class="mt-2">
+            <label class="form-label small mb-1">Texto</label>
+            <textarea class="form-control" rows="5" data-bc-body placeholder="Lo que quieres decirles…"></textarea>
+            <div class="d-flex justify-content-between align-items-center mt-1 flex-wrap gap-2">
+              <div class="small text-muted d-none" data-bc-only="SMS" data-bc-counter></div>
+              <div class="small text-muted d-none" data-bc-only="EMAIL">Una línea en blanco separa párrafos.</div>
+            </div>
+          </div>
+
+          {# El botón del correo: va justo debajo del texto, a la derecha #}
+          <div class="mt-2 d-none" data-bc-only="EMAIL">
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bc-add-button>
+              <i class="fa fa-hand-pointer me-1"></i>Añadir un botón
+            </button>
+            <div class="row g-2 mt-2 d-none" data-bc-button-fields>
+              <div class="col-12 col-md-5">
+                <input class="form-control form-control-sm" data-bc-button-label maxlength="60" placeholder="Nombre del botón">
+              </div>
+              <div class="col-12 col-md-6">
+                <input class="form-control form-control-sm" data-bc-button-url type="url" placeholder="https://…">
+              </div>
+              <div class="col-12 col-md-1 d-flex">
+                <button class="btn btn-sm btn-outline-danger w-100" type="button" data-bc-button-del title="Quitar el botón"><i class="fa fa-trash"></i></button>
+              </div>
+            </div>
+          </div>
+
+          {# El enlace del SMS: se acorta solo #}
+          <div class="mt-2 d-none" data-bc-only="SMS">
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bc-add-link>
+              <i class="fa fa-link me-1"></i>Añadir un enlace
+            </button>
+            <div class="mt-2 d-none" data-bc-link-fields>
+              <div class="input-group input-group-sm">
+                <input class="form-control" data-bc-link type="url" placeholder="https://…">
+                <button class="btn btn-outline-danger" type="button" data-bc-link-del title="Quitar el enlace"><i class="fa fa-trash"></i></button>
+              </div>
+              <div class="form-text">Se acorta solo y va al final del mensaje, que es donde el móvil pinta la previsualización.</div>
+            </div>
+          </div>
+
+          {# Adjuntos: el pop-up de arrastrar o elegir #}
+          <div class="mt-3">
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#buyerCampaignFilesModal">
+              <i class="fa fa-paperclip me-1"></i>Adjuntar documentos o fotos
+            </button>
+            <span class="small text-muted ms-2 d-none" data-bc-only="SMS">En un SMS se manda como un enlace corto para verlos.</span>
+            <div class="bc-files mt-2" data-bc-files></div>
+          </div>
+        </div>
+
+        {# ── 3 · Cómo va a quedar ──────────────────────────────────────────────────── #}
+        <div class="bc-card">
+          <div class="bc-card__t"><i class="fa fa-eye me-2 text-danger"></i>Cómo va a quedar</div>
+          <div class="d-none" data-bc-only="EMAIL">
+            <iframe class="bc-preview-mail" data-bc-preview-mail title="Previsualización del correo"></iframe>
+          </div>
+          <div class="d-none" data-bc-only="SMS">
+            <div class="bc-phone">
+              <div class="bc-phone__from" data-bc-sms-from></div>
+              <div class="bc-phone__bubble" data-bc-preview-sms></div>
+            </div>
+          </div>
+        </div>
+
+        {# El aviso de los trozos: se acepta y se manda #}
+        <div class="alert alert-warning d-none" data-bc-segments>
+          <label class="d-flex align-items-start gap-2 mb-0">
+            <input type="checkbox" class="form-check-input mt-1" data-bc-accept>
+            <span><strong data-bc-segments-text></strong><br>
+              <span class="small">Cada trozo se cobra como un SMS. Puedes acortar el texto o aceptarlo y mandarlo así.</span></span>
+          </label>
+        </div>
+
+        {# Resultado del envío #}
+        <div class="alert alert-success d-none" data-bc-result></div>
+      </div>
+
+      <div class="modal-footer justify-content-between">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-outline-primary d-none" data-bc-continue>
+            <i class="fa fa-forward me-1"></i>Seguir enviando
+          </button>
+          <button type="button" class="btn btn-primary" data-bc-send disabled>
+            <i class="fa fa-paper-plane me-1"></i><span data-bc-send-label>Enviar</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Pop-up de adjuntos (se abre encima del de envío: lo apila modal_stack.js) #}
+<div class="modal fade" id="buyerCampaignFilesModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-paperclip me-2 text-danger"></i>Adjuntar documentos o fotos</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <label class="pi-drop" for="buyerCampaignFileInput" role="button" tabindex="0" data-file-drop-for="#buyerCampaignFileInput">
+          <i class="fa fa-cloud-arrow-up pi-drop__icon"></i>
+          <div class="fw-semibold">Arrastra aquí los archivos</div>
+          <div class="small text-muted">o pincha para elegirlos (fotos, PDF…)</div>
+        </label>
+        <input class="form-control mt-2" type="file" id="buyerCampaignFileInput" multiple>
+        <div class="bc-files mt-3" data-bc-files-modal></div>
+        <div class="alert alert-danger d-none mt-2" data-bc-files-error></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" data-bs-dismiss="modal"><i class="fa fa-check me-1"></i>Listo</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/buyer_campaign.js', v=ASSET_V) }}"></script>

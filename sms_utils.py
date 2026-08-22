@@ -65,23 +65,43 @@ class SmsError(RuntimeError):
 # ---------------------------------------------------------------------------------------------
 # Teléfonos
 # ---------------------------------------------------------------------------------------------
-def normalize_phone(value, default_cc: str = "34") -> str | None:
+# Prefijo del país por defecto. Un número escrito SIN prefijo se guarda con él (la casa es española).
+DEFAULT_COUNTRY_CODE = "34"
+
+
+def normalize_phone(value, default_cc: str = DEFAULT_COUNTRY_CODE) -> str | None:
     """Deja un teléfono en formato internacional («+34600111222») o None si no es creíble.
 
-    Sirve para el SMS de hoy y para WhatsApp el día que se añada: el número es el mismo.
-    ⚠️ Un número sin prefijo NO se puede mandar: se le pone el del país por defecto (España)."""
-    txt = re.sub(r"[^\d+]", "", str(value or ""))
+    Es el punto ÚNICO de «cómo se escribe un teléfono» en toda la app: lo usan el SMS de hoy,
+    WhatsApp el día que se añada y el normalizador que se aplica al GUARDAR cualquier ficha.
+
+    ⚠️ Un número sin prefijo NO se puede mandar: se le pone el del país por defecto.
+    ⚠️ Un número que llega con el prefijo pero SIN el «+» (lo que manda Enterticket: «34600…»)
+       tampoco vale para una pasarela: aquí se le pone.
+    """
+    crudo = str(value or "").strip()
+    # ⚠️ Un teléfono que ha pasado por Excel llega como número: «638123456.0». Sin quitar los
+    # decimales, el «0» se pega al número y sale otro teléfono (mismo caso que ya arreglamos en
+    # la importación de terceros).
+    crudo = re.sub(r"[.,]0+$", "", crudo)
+    txt = re.sub(r"[^\d+]", "", crudo)
     if not txt:
         return None
+    # Un «+» que no esté al principio no es un prefijo (una extensión, dos números pegados…).
+    if "+" in txt[1:]:
+        txt = txt[:1] + txt[1:].replace("+", "")
     if txt.startswith("00"):
-        txt = "+" + txt[2:]
+        txt = "+" + txt[2:]                                  # «00» es la forma antigua del «+»
     if not txt.startswith("+"):
-        # Un móvil español son 9 dígitos y empieza por 6 o 7; si ya trae el 34 delante, no se dobla.
         digits = txt
-        if len(digits) == 9 and digits[0] in "67":
-            txt = "+" + default_cc + digits
-        elif digits.startswith(default_cc) and len(digits) == len(default_cc) + 9:
-            txt = "+" + digits
+        cc = str(default_cc or DEFAULT_COUNTRY_CODE)
+        # ⚠️ En España un número son 9 dígitos: móvil (6 o 7) o FIJO (8 o 9). Antes solo se
+        # reconocían los móviles, así que un fijo «912345678» salía como «+912345678» — un
+        # prefijo de otro país y un número que no existe.
+        if len(digits) == 9 and digits[0] in "6789":
+            txt = "+" + cc + digits
+        elif digits.startswith(cc) and len(digits) == len(cc) + 9:
+            txt = "+" + digits                               # ya traía el prefijo, sin el «+»
         else:
             txt = "+" + digits
     cuerpo = txt[1:]
@@ -218,24 +238,29 @@ class SmsClient:
             raise SmsError("No se pudo hablar con la pasarela de SMS: %s" % exc) from exc
 
     # -- envío --------------------------------------------------------------------------------
-    def send(self, to: str, text: str) -> str:
-        """Manda UN SMS y devuelve la referencia que dé la pasarela (o '' si no da ninguna)."""
+    def send(self, to: str, text: str, *, sender: str = "") -> str:
+        """Manda UN SMS y devuelve la referencia que dé la pasarela (o '' si no da ninguna).
+
+        `sender` pisa el remitente de la cuenta para ESTE mensaje: un envío a los compradores de un
+        concierto tiene que salir con el nombre de la empresa que lo promueve."""
         numero = normalize_phone(to)
         if not numero:
             raise SmsError("El teléfono «%s» no es válido (hace falta el prefijo, +34…)." % to)
         cuerpo = (text or "").strip()
         if not cuerpo:
             raise SmsError("No hay nada que mandar.")
+        remitente = (sender or "").strip() or self.sender
         if self.provider == "LABSMOBILE":
-            return self._send_labsmobile(numero, cuerpo)
+            return self._send_labsmobile(numero, cuerpo, remitente)
         if self.provider == "ESENDEX":
-            return self._send_esendex(numero, cuerpo)
-        return self._send_twilio(numero, cuerpo)
+            return self._send_esendex(numero, cuerpo, remitente)
+        return self._send_twilio(numero, cuerpo, remitente)
 
-    def _send_labsmobile(self, numero: str, texto: str) -> str:
+    def _send_labsmobile(self, numero: str, texto: str, remitente: str = "") -> str:
         payload = {"message": texto, "recipient": [{"msisdn": numero.lstrip("+")}]}
-        if self.sender:
-            payload["tpoa"] = self.sender
+        remitente = (remitente or self.sender or "").strip()
+        if remitente:
+            payload["tpoa"] = remitente
         r = self._post("https://api.labsmobile.com/json/send", json=payload,
                        headers={"Content-Type": "application/json", "Cache-Control": "no-cache"})
         # ⚠️ LabsMobile contesta SIEMPRE 200 y pone el resultado en el cuerpo: `code` «0» es OK.
@@ -256,13 +281,14 @@ class SmsClient:
             raise SmsError("LabsMobile: HTTP %s %s" % (r.status_code, (r.text or "")[:180]))
         return str(datos.get("subid") or "")
 
-    def _send_esendex(self, numero: str, texto: str) -> str:
+    def _send_esendex(self, numero: str, texto: str, remitente: str = "") -> str:
         if not self.account_ref:
             raise SmsError("Esendex necesita la referencia de cuenta (algo como EX0123456).")
         payload = {"accountreference": self.account_ref,
                    "messages": [{"to": numero.lstrip("+"), "body": texto}]}
-        if self.sender:
-            payload["from"] = self.sender
+        remitente = (remitente or self.sender or "").strip()
+        if remitente:
+            payload["from"] = remitente
         r = self._post("https://api.esendex.com/v1.0/messagedispatcher", json=payload,
                        headers={"Content-Type": "application/json"})
         if r.status_code in (401, 403):
@@ -275,14 +301,15 @@ class SmsClient:
         except Exception:
             return ""
 
-    def _send_twilio(self, numero: str, texto: str) -> str:
+    def _send_twilio(self, numero: str, texto: str, remitente: str = "") -> str:
         if not self.user.startswith("AC"):
             raise SmsError("El Account SID de Twilio empieza por «AC»; revisa lo que has pegado.")
         datos = {"To": numero, "Body": texto}
+        remitente = (remitente or self.sender or "").strip()
         if self.account_ref.startswith("MG"):
             datos["MessagingServiceSid"] = self.account_ref
-        elif self.sender:
-            datos["From"] = self.sender
+        elif remitente:
+            datos["From"] = remitente
         else:
             raise SmsError("Twilio necesita un remitente: un número propio (+34…) o el SID del "
                            "Messaging Service (MG…).")

@@ -4593,3 +4593,78 @@ tr.is-provisional > td,
 /* La fila del listado de lanzamientos lleva la clase `border` de Bootstrap (con !important), así
    que el color del marco se cambia por su VARIABLE, no repitiendo la propiedad. */
 .launch-row.is-provisional { --bs-border-color: rgba(255, 193, 7, .55); }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   COMPRADORES · listados, filtros y envíos (SMS / correo)
+   ═══════════════════════════════════════════════════════════════════════════ */
+/* Tarjeta «Añadir un listado» de la rejilla de listados. */
+.bl-add{ display:flex; align-items:center; gap:.7rem; text-align:left; width:100%;
+  border:1px dashed rgba(0,0,0,.18); border-radius:14px; background:#fff; padding:.85rem 1rem;
+  min-height:72px; transition:.15s ease; }
+.bl-add:hover{ border-color:var(--brand-primary,#E33D48); background:rgba(227,61,72,.04); }
+.bl-add > i{ font-size:1.5rem; color:var(--brand-primary,#E33D48); }
+
+/* Filas de filtros (categorías, interruptores y orden). */
+.bl-filters{ display:flex; flex-direction:column; gap:.45rem; }
+.bl-filters__row{ display:flex; flex-wrap:wrap; align-items:center; gap:.4rem; }
+.bl-filters__lbl{ font-size:.78rem; text-transform:uppercase; letter-spacing:.03em; color:#6b7280;
+  min-width:6.5rem; }
+.filter-chip__n{ display:inline-flex; align-items:center; justify-content:center; min-width:1.4rem;
+  height:1.4rem; padding:0 .3rem; border-radius:999px; background:rgba(0,0,0,.06);
+  font-size:.72rem; font-weight:700; }
+.filter-chip.is-on .filter-chip__n{ background:rgba(227,61,72,.16); }
+
+/* Categoría de entrada dentro de la tabla. */
+.bl-cat{ display:inline-flex; align-items:center; gap:.3rem; margin:0 .25rem .2rem 0;
+  padding:.1rem .45rem; border:1px solid rgba(0,0,0,.08); border-radius:999px; background:#f8fafc;
+  font-size:.78rem; white-space:nowrap; }
+.bl-cat i{ color:var(--brand-primary,#E33D48); font-size:.75rem; }
+
+/* Actividades del asistente de listado nuevo. */
+.bi-acts{ display:flex; flex-direction:column; gap:.4rem; max-height:52vh; overflow:auto; }
+.bi-act{ display:flex; align-items:center; gap:.7rem; text-align:left; width:100%;
+  border:1px solid rgba(0,0,0,.08); border-radius:12px; background:#fff; padding:.55rem .75rem;
+  transition:.15s ease; }
+.bi-act:hover{ border-color:var(--brand-primary,#E33D48); background:rgba(227,61,72,.04); }
+.bi-act__ico{ color:var(--brand-primary,#E33D48); width:1.4rem; text-align:center; }
+.bi-act__body{ flex:1 1 auto; min-width:0; }
+.bi-act__t{ display:block; font-weight:600; font-size:.92rem; }
+.bi-act__s{ display:block; font-size:.8rem; color:#6b7280; }
+.bi-done{ font-size:2.6rem; color:#16a34a; }
+
+/* ── El pop-up de envío ── */
+.bc-card{ border:1px solid rgba(0,0,0,.08); border-radius:16px; padding:.9rem 1rem; background:#fff;
+  margin-bottom:.85rem; }
+.bc-card__t{ font-weight:700; font-size:.98rem; margin-bottom:.6rem; }
+.bc-who{ display:flex; flex-wrap:wrap; gap:.5rem; }
+.bc-who__opt{ flex:1 1 220px; position:relative; cursor:pointer; }
+.bc-who__opt input{ position:absolute; opacity:0; pointer-events:none; }
+.bc-who__opt > span{ display:flex; align-items:center; gap:.6rem; border:1px solid rgba(0,0,0,.1);
+  border-radius:12px; padding:.6rem .8rem; background:#fcfcfd; transition:.15s ease; }
+.bc-who__opt > span i{ color:#9aa4b0; }
+.bc-who__opt input:checked + span{ border-color:var(--brand-primary,#E33D48);
+  background:rgba(227,61,72,.06); }
+.bc-who__opt input:checked + span i{ color:var(--brand-primary,#E33D48); }
+.bc-total{ display:flex; align-items:center; justify-content:space-between; gap:.8rem;
+  border:1px solid rgba(0,0,0,.08); border-radius:12px; padding:.6rem .8rem; background:#f8fafc; }
+.bc-total__n{ font-size:1.7rem; font-weight:800; line-height:1; color:var(--brand-primary,#E33D48); }
+.bc-total__l{ font-size:.78rem; text-transform:uppercase; letter-spacing:.04em; color:#6b7280; }
+.bc-preview-mail{ width:100%; height:380px; border:1px solid rgba(0,0,0,.08); border-radius:12px;
+  background:#f5f7fb; }
+/* La burbuja del SMS: se lee como en el móvil. */
+.bc-phone{ max-width:340px; }
+.bc-phone__from{ font-size:.78rem; color:#6b7280; margin-bottom:.25rem; }
+.bc-phone__bubble{ background:#e9f2ff; border:1px solid #cfe2ff; border-radius:16px 16px 16px 4px;
+  padding:.6rem .8rem; font-size:.92rem; white-space:pre-wrap; word-break:break-word;
+  min-height:2.6rem; }
+.bc-files{ display:flex; flex-wrap:wrap; gap:.35rem; }
+.bc-file{ display:inline-flex; align-items:center; gap:.35rem; border:1px solid rgba(0,0,0,.1);
+  border-radius:999px; padding:.15rem .55rem; background:#f8fafc; font-size:.82rem; }
+.bc-file i{ color:var(--brand-primary,#E33D48); }
+.bc-file__x{ border:0; background:transparent; color:#9aa4b0; padding:0 0 0 .15rem; line-height:1; }
+.bc-file__x:hover{ color:#dc3545; }
+@media (max-width: 575.98px){
+  .bl-filters__lbl{ min-width:100%; }
+  .bc-preview-mail{ height:300px; }
+}

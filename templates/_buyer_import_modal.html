@@ -1,0 +1,160 @@
+{# AÑADIR COMPRADORES DESDE UN FICHERO (Excel o CSV).
+   Dos formas de entrar:
+     · «Añadir desde fichero» dentro de un listado → va derecho al fichero (paso 3).
+     · «Añadir un listado» → primero el ARTISTA o EVENTO (con su foto), luego su ACTIVIDAD, y el
+       listado se crea vinculado a ella.
+   Después: las columnas (con un ejemplo de cada una para confirmar a qué corresponden, y las que no
+   se reconocen se preguntan o se marcan para omitir) → el resumen de lo que va a pasar → importar.
+   El JS vive en static/js/buyer_import.js. #}
+<div class="modal fade" id="buyerImportModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content" data-buyer-import
+         data-url-analyze="{{ url_for('buyers_import_analyze') }}"
+         data-url-prepare="{{ url_for('buyers_import_prepare') }}"
+         data-url-create="{{ url_for('buyers_import_create') }}"
+         data-url-activities="{{ url_for('buyers_subject_activities') }}"
+         data-scope-event="{{ source.pk if (source and source.kind == 'ET') else '' }}"
+         data-scope-list="{{ source.pk if (source and source.kind == 'MANUAL') else '' }}"
+         data-scope-label="{{ source.label if source else '' }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-file-import me-2 text-danger"></i>Añadir compradores</h5>
+          <div class="text-muted small" data-bi-subtitle>Excel (.xlsx) o CSV. Las columnas se reconocen solas.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+
+      <div class="modal-body">
+        <div class="alert alert-danger d-none" data-bi-error></div>
+
+        {# ── Paso A · ¿de quién es la actividad? ───────────────────────────────────── #}
+        <div class="d-none" data-bi-step="subject">
+          <div class="sw-step__q mb-2"><i class="fa fa-user-music me-2 text-danger"></i>¿De quién es la actividad?</div>
+          <input class="form-control mb-2" type="search" placeholder="Buscar artista o evento…" data-bi-subject-search>
+          <div class="promo-pick-grid" data-bi-subject-grid>
+            {% for sj in subjects %}
+              <label class="promo-pick js-bi-subject{% if not sj.active %} d-none{% endif %}"
+                     data-search="{{ sj.name|lower }}"{% if not sj.active %} data-bi-extra="1"{% endif %}>
+                <input type="radio" name="bi_subject" value="{{ sj.id }}" data-kind="{{ sj.kind }}" data-name="{{ sj.name }}">
+                <span class="promo-pick__box">
+                  {% if sj.photo_url and 'placeholder_photo' not in sj.photo_url %}
+                    <img src="{{ sj.photo_url }}" alt="" data-avatar="1">
+                  {% else %}
+                    <span class="promo-pick__avatar"><i class="fa {{ 'fa-calendar-star' if sj.kind == 'EVENT' else 'fa-user' }}"></i></span>
+                  {% endif %}
+                  <span class="promo-pick__name">{{ sj.name }}{% if sj.kind == 'EVENT' %} <i class="fa fa-calendar-star text-muted small"></i>{% endif %}</span>
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+          <div class="text-center mt-2">
+            <button type="button" class="btn btn-sm btn-link text-decoration-none" data-bi-more-subjects>
+              <i class="fa fa-ellipsis me-1"></i>Ver más artistas y eventos</button>
+          </div>
+          {% if not subjects %}
+            <div class="alert alert-warning mt-2 mb-0"><i class="fa fa-triangle-exclamation me-1"></i>No hay artistas ni eventos dados de alta.</div>
+          {% endif %}
+        </div>
+
+        {# ── Paso B · ¿a qué actividad? ────────────────────────────────────────────── #}
+        <div class="d-none" data-bi-step="activity">
+          <div class="sw-step__q mb-2"><i class="fa fa-calendar-day me-2 text-danger"></i>¿A qué actividad corresponde?</div>
+          <div class="text-muted small mb-2" data-bi-activity-of></div>
+          <div class="bi-acts" data-bi-activities></div>
+          <div class="d-flex justify-content-between mt-3">
+            <button class="btn btn-outline-secondary" type="button" data-bi-back="subject">Atrás</button>
+          </div>
+        </div>
+
+        {# ── Paso 1 · el fichero ───────────────────────────────────────────────────── #}
+        <div class="d-none" data-bi-step="file">
+          <div class="pi-total mb-2 d-none" data-bi-target></div>
+          <label class="pi-drop" for="buyerImportFile" role="button" tabindex="0" data-file-drop-for="#buyerImportFile">
+            <i class="fa fa-file-import pi-drop__icon"></i>
+            <div class="fw-semibold">Arrastra aquí el fichero</div>
+            <div class="small text-muted">o pincha para seleccionarlo (.xlsx o .csv)</div>
+            <div class="small mt-1 fw-semibold text-success" data-bi-filename></div>
+          </label>
+          <input class="form-control mt-2" type="file" id="buyerImportFile" accept=".xlsx,.xlsm,.csv,.txt">
+          <div class="d-flex justify-content-between mt-3">
+            <button class="btn btn-outline-secondary d-none" type="button" data-bi-back="activity">Atrás</button>
+            <button class="btn btn-primary ms-auto" type="button" data-bi-analyze disabled>
+              <i class="fa fa-magnifying-glass me-1"></i>Leer el fichero
+            </button>
+          </div>
+        </div>
+
+        {# ── Paso 2 · las columnas ─────────────────────────────────────────────────── #}
+        <div class="d-none" data-bi-step="columns">
+          <div class="alert alert-warning py-2 px-3 small d-none" data-bi-unknown></div>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle pi-cols">
+              <thead class="table-light">
+                <tr>
+                  <th>Columna del fichero</th>
+                  <th>Ejemplo</th>
+                  <th style="width:34%">¿Qué es?</th>
+                </tr>
+              </thead>
+              <tbody data-bi-cols></tbody>
+            </table>
+          </div>
+          <div class="small text-muted">
+            Lo que no haga falta se deja en <strong>«Omitir esta columna»</strong>: no se sube.
+          </div>
+          <div class="d-flex justify-content-between mt-3">
+            <button class="btn btn-outline-secondary" type="button" data-bi-back="file">Atrás</button>
+            <button class="btn btn-primary" type="button" data-bi-prepare>Continuar <i class="fa fa-arrow-right ms-1"></i></button>
+          </div>
+        </div>
+
+        {# ── Paso 3 · el resumen ───────────────────────────────────────────────────── #}
+        <div class="d-none" data-bi-step="summary">
+          <div class="pi-total mb-3" data-bi-total></div>
+          <div class="row g-3">
+            <div class="col-12 col-md-6">
+              <div class="card h-100 border-success"><div class="card-body">
+                <div class="d-flex align-items-center justify-content-between">
+                  <h6 class="m-0"><i class="fa fa-user-plus text-success me-1"></i>Nuevos</h6>
+                  <span class="badge text-bg-success" data-bi-count-new>0</span>
+                </div>
+                <div class="small text-muted mt-1">No los tenemos: se dan de alta.</div>
+                <div class="pi-list mt-2" data-bi-list-new></div>
+              </div></div>
+            </div>
+            <div class="col-12 col-md-6">
+              <div class="card h-100 border-warning"><div class="card-body">
+                <div class="d-flex align-items-center justify-content-between">
+                  <h6 class="m-0"><i class="fa fa-user-check text-warning me-1"></i>Ya los tenemos</h6>
+                  <span class="badge text-bg-warning text-dark" data-bi-count-existing>0</span>
+                </div>
+                <div class="small text-muted mt-1">
+                  No se duplican: solo se les <strong>completa lo que les falte</strong> y se les añade a este listado.
+                </div>
+                <div class="pi-list mt-2" data-bi-list-existing></div>
+              </div></div>
+            </div>
+          </div>
+          <div class="small text-muted mt-3 d-none" data-bi-skipped></div>
+          <div class="d-flex justify-content-between mt-3">
+            <button class="btn btn-outline-secondary" type="button" data-bi-back="columns">Atrás</button>
+            <button class="btn btn-success" type="button" data-bi-create>
+              <i class="fa fa-cloud-arrow-up me-1"></i>Importar
+            </button>
+          </div>
+        </div>
+
+        {# ── Paso 4 · hecho ────────────────────────────────────────────────────────── #}
+        <div class="d-none text-center py-3" data-bi-step="done">
+          <div class="bi-done"><i class="fa fa-circle-check"></i></div>
+          <div class="h5 mt-2 mb-1">Compradores importados</div>
+          <div class="text-muted" data-bi-done-text></div>
+          <a class="btn btn-primary mt-3" href="#" data-bi-done-link><i class="fa fa-users me-1"></i>Ver el listado</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="application/json" id="buyerImportFields">{{ [] | tojson }}</script>
+<script src="{{ url_for('static', filename='js/buyer_import.js', v=ASSET_V) }}"></script>

@@ -393,85 +393,76 @@ document.addEventListener('click', function (ev) {
 </div>
 {% endif %}
 
-{# TAREA: peticiones RECHAZADAS que pidió esta persona y todavía no ha comunicado. Hasta que diga
-   que ya lo ha dicho, la petición no está terminada. #}
-{% if HOME_PETICION_REJECTIONS %}
-<div class="card mb-4 border-warning">
-  <div class="card-body">
-    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-      <div>
-        <h5 class="mb-0"><i class="fa fa-comment-slash text-warning me-2"></i>Notificar el rechazo de una petición</h5>
-        <div class="text-muted small">Se han cerrado y hay que decírselo a quien las pidió.</div>
-      </div>
-      <span class="badge text-bg-warning text-dark">{{ HOME_PETICION_REJECTIONS|length }}</span>
-    </div>
-    <div class="list-group list-group-flush">
-      {% for p in HOME_PETICION_REJECTIONS %}
-        <div class="ctask">
-          <div class="ctask__top">
-            <span class="oa-row__icon"><i class="fa {{ p.icon }}"></i></span>
-            <a class="fw-semibold text-reset text-decoration-none" href="{{ p.url }}">{{ p.subject }}</a>
-            {% if p.artist %}<span class="oa-row__sep">·</span><span>{{ p.artist }}</span>{% endif %}
-            <span class="ms-auto d-flex align-items-center gap-2 ctask__actions">
-              <form method="post" action="{{ p.done_url }}">
-                <input type="hidden" name="next" value="{{ request.full_path }}">
-                <button class="btn btn-sm btn-warning"><i class="fa fa-check me-1"></i>Ya se lo he comunicado</button>
-              </form>
-            </span>
-          </div>
-          <div class="ctask__tasks small">
-            {% if p.who %}
-              <span class="pw-picked" style="max-width:22rem">
-                {% if p.who_logo %}<img src="{{ p.who_logo }}" alt="" data-avatar="1">
-                {% else %}<span class="pw-picked__ico"><i class="fa {{ p.who_icon }}"></i></span>{% endif %}
-                <span class="pw-picked__t"><strong>{{ p.who }}</strong>
-                  {% if p.contact %}<span>{{ p.contact }}</span>{% endif %}</span>
-              </span>
-            {% endif %}
-            {% if p.reason %}<span class="badge text-bg-light border text-truncate" style="max-width:420px" title="{{ p.reason }}"><i class="fa fa-ban me-1"></i>{{ p.reason }}</span>{% endif %}
-          </div>
-        </div>
-      {% endfor %}
-    </div>
-  </div>
-</div>
-{% endif %}
-
-{# MIS PETICIONES: las que ha hecho esta persona, para seguir cómo evolucionan. Cada una se puede
-   EDITAR con el mismo asistente con el que se creó. #}
+{# MIS PETICIONES: las que ha hecho esta persona, para seguir cómo evolucionan. Se lee como el
+   módulo de TAREAS PENDIENTES (foto del artista, datos con iconos y etiquetas debajo).
+   ⚠️ Una petición RECHAZADA sale aquí mismo como «pendiente de comunicar», con sus dos botones: NO
+   hay otro módulo. Al comunicarla se archiva y desaparece de la lista. #}
 {% if HOME_MY_PETICIONES %}
-<div class="card mb-4">
-  <div class="card-body">
-    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-      <div>
-        <h5 class="mb-0"><i class="fa fa-paper-plane text-danger me-2"></i>Mis peticiones</h5>
-        <div class="text-muted small">Las que has hecho tú y cómo van.</div>
-      </div>
-      <span class="badge text-bg-secondary">{{ HOME_MY_PETICIONES|length }}</span>
-    </div>
-    <div class="list-group list-group-flush">
-      {% for p in HOME_MY_PETICIONES %}
-        <div class="ctask">
-          <div class="ctask__top">
-            <span class="oa-row__icon" title="{{ p.kind_label }}"><i class="fa {{ p.icon }}"></i></span>
-            <span class="fw-semibold">{{ p.subject }}</span>
-            {% if p.artist %}<span class="oa-row__sep">·</span><span>{{ p.artist }}</span>{% endif %}
-            {% if p.place %}<span class="oa-row__sep">·</span><span>{{ p.place }}</span>{% endif %}
-            <span class="ms-auto d-flex align-items-center gap-2 ctask__actions">
-              <span class="badge {{ p.status_class }}">{{ p.status_label }}</span>
-              <button class="btn btn-sm btn-outline-secondary" type="button"
-                      data-peticion-edit data-peticion-payload="{{ p.edit|tojson|forceescape }}"
-                      title="Editar la petición"><i class="fa fa-edit"></i></button>
-              <a class="btn btn-sm btn-outline-secondary" href="{{ p.url }}" title="Ver la bandeja"><i class="fa fa-arrow-right"></i></a>
-            </span>
-          </div>
-          <div class="ctask__tasks small text-muted">
-            {{ p.date_label }}{% if p.kind_label %} · {{ p.kind_label }}{% endif %}
-            {% for d in p.departments %}<span class="badge text-bg-light border ms-1">{{ d }}</span>{% endfor %}
-          </div>
+{% set _pend = HOME_MY_PETICIONES|selectattr('rejection_pending')|list %}
+<div class="card mb-4{% if _pend %} border-warning{% endif %}">
+  <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <span class="fw-semibold">
+      <i class="fa fa-paper-plane text-danger me-2"></i>Mis peticiones
+      <span class="badge text-bg-secondary ms-1">{{ HOME_MY_PETICIONES|length }}</span>
+      {% if _pend %}<span class="badge text-bg-warning text-dark ms-1">
+        <i class="fa fa-comment-slash me-1"></i>{{ _pend|length }} por comunicar</span>{% endif %}
+    </span>
+    <span class="text-muted small">Las que has hecho tú y cómo van.</span>
+  </div>
+  <div class="list-group list-group-flush">
+    {% for p in HOME_MY_PETICIONES %}
+      <div class="ctask{% if p.rejection_pending %} border-warning{% endif %}">
+        <div class="ctask__head">
+          {% if p.artist_photo or p.artist %}
+            {{ artist_avatar(p.artist_photo, p.artist) }}
+          {% else %}
+            <span class="ctask__noart"><i class="fa {{ p.icon }} text-muted"></i></span>
+          {% endif %}
+          <span class="ctask__subject text-truncate">{{ p.artist or p.subject }}</span>
+          <span class="ctask__facts">
+            <span class="ctask__fact"><i class="fa {{ p.icon }}"></i>{{ p.kind_label or p.subject }}</span>
+            {% if p.date_label %}<span class="ctask__fact"><i class="fa fa-calendar-day"></i>{{ p.date_label }}</span>{% endif %}
+            {% if p.place %}<span class="ctask__fact"><i class="fa fa-location-dot"></i>{{ p.place }}</span>{% endif %}
+            {% if p.who %}<span class="ctask__fact"><i class="fa {{ p.who_icon }}"></i>{{ p.who }}</span>{% endif %}
+          </span>
+          <span class="ms-auto d-flex align-items-center gap-2 ctask__actions">
+            <span class="badge {{ p.status_class }}">{{ p.status_label }}</span>
+            <button class="btn btn-sm btn-outline-secondary" type="button"
+                    data-peticion-edit data-peticion-payload="{{ p.edit|tojson|forceescape }}"
+                    title="Editar la petición"><i class="fa fa-edit"></i></button>
+            {% if p.url %}<a class="btn btn-sm btn-outline-secondary" href="{{ p.url }}" title="Ver la bandeja"><i class="fa fa-arrow-right"></i></a>{% endif %}
+          </span>
         </div>
-      {% endfor %}
-    </div>
+        <div class="ctask__tasks">
+          {% if p.rejection_pending %}
+            <span class="badge text-bg-warning text-dark">
+              <i class="fa fa-comment-slash me-1"></i>Pendiente de comunicar el rechazo</span>
+            {% if p.reason %}<span class="badge text-bg-light border text-truncate" style="max-width:420px"
+              title="{{ p.reason }}"><i class="fa fa-ban me-1"></i>{{ p.reason }}</span>{% endif %}
+            {% if p.contact %}<span class="badge text-bg-light border"><i class="fa fa-at me-1"></i>{{ p.contact }}</span>{% endif %}
+            <span class="ctask__actions d-inline-flex gap-2 ms-1">
+              {% if p.send_url %}
+              <form method="post" action="{{ p.send_url }}" class="d-inline">
+                <input type="hidden" name="next" value="{{ request.full_path }}">
+                <button class="btn btn-sm btn-warning"
+                        data-confirm="Se le va a escribir a {{ p.who or 'quien la pidió' }} con el motivo del rechazo. ¿Seguir?">
+                  <i class="fa fa-paper-plane me-1"></i>Comunicar
+                </button>
+              </form>
+              {% endif %}
+              {% if p.done_url %}
+              <form method="post" action="{{ p.done_url }}" class="d-inline">
+                <input type="hidden" name="next" value="{{ request.full_path }}">
+                <button class="btn btn-sm btn-outline-warning"><i class="fa fa-check me-1"></i>Ya se lo he comunicado</button>
+              </form>
+              {% endif %}
+            </span>
+          {% else %}
+            {% for d in p.departments %}<span class="badge text-bg-light border">{{ d }}</span>{% endfor %}
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
   </div>
 </div>
 {% endif %}

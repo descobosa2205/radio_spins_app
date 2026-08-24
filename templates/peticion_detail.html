@@ -45,9 +45,16 @@
     Esta petición se ha cerrado y <strong>falta comunicárselo a quien la pidió</strong>.
     {% if requester and requester.contact %}<span class="text-muted">({{ requester.contact }})</span>{% endif %}
   </span>
+  <form method="post" action="{{ url_for('booking_request_rejection_send', rid=row.id) }}">
+    <input type="hidden" name="next" value="{{ request.full_path }}">
+    <button class="btn btn-sm btn-warning"
+            data-confirm="Se le va a escribir a {{ (requester.name if requester else 'quien la pidió') }} con el motivo del rechazo. ¿Seguir?">
+      <i class="fa fa-paper-plane me-1"></i>Comunicar
+    </button>
+  </form>
   <form method="post" action="{{ url_for('booking_request_rejection_notified', rid=row.id) }}">
     <input type="hidden" name="next" value="{{ request.full_path }}">
-    <button class="btn btn-sm btn-warning"><i class="fa fa-check me-1"></i>Ya se lo he comunicado</button>
+    <button class="btn btn-sm btn-outline-warning"><i class="fa fa-check me-1"></i>Ya se lo he comunicado</button>
   </form>
 </div>
 {% endif %}

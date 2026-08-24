@@ -285,6 +285,27 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   nota o un bloqueo fallaba con «No se pudo añadir» (bug real). Las fechas de la agenda se leen con
   **`parse_optional_date`**.
 
+- **AGENDA · un bloqueo o un «otro» se EDITA, se ARRASTRA y el cambio de fecha SE AVISA** (ago 2026):
+  · **Doble clic** sobre un bloqueo o una nota del calendario abre su pop-up (`#agendaEditModal`, en
+  `_agenda_calendar.html`, así que vale en Inicio, en la ficha del artista y en un proyecto): título,
+  fechas, las horas y la nota si es un «otro», con **Eliminar** dentro (es donde se va a buscar).
+  · **Arrastrarlo a otro día** le cambia la fecha **conservando la duración** (un bloqueo de tres días
+  sigue siendo de tres días): `agenda_item_update` con `mover=1`. Lo demás (conciertos, promociones,
+  cumpleaños) **no se arrastra ni se edita ahí**: eso se cambia en su ficha — lo decide
+  `esEditable(a)` en `agenda_calendar.js` (`item_id` + kind `otro`/`bloqueo`).
+  · **Si la FECHA cambia se pregunta si se avisa** (`#agendaNotifyModal`, «No avisar» / «Avisar del
+  cambio»): cambiar una fecha y comunicarlo son dos cosas distintas y la segunda se decide. El aviso
+  lo manda `agenda_item_notify` → **`_agenda_item_notify_change`**, que llega a los **IMPLICADOS de la
+  casa** (`_agenda_item_involved`: quien lo apuntó y **quien lleva a ese artista**, excluyendo
+  inactivos) por la campanita (kind **`AGENDA`**) y al **ARTISTA** por correo, a las cuentas de su
+  canal **PRODUCCION** (`_artist_notification_emails`). A uno mismo no se avisa nunca.
+  ⚠️ Los ítems del payload llevan las fechas **RECORTADAS a la ventana** que se está mirando: para
+  editar hacen falta las de verdad, y por eso van también `item_start`/`item_end` (+ `note`). Usar
+  `date`/`end_date` en el pop-up recortaba un bloqueo al mirar el mes por el que pasa.
+  ⚠️ `_agenda_change_label` es el punto único del texto del cambio («03/09 → 05/09 pasa a 13/09 →
+  15/09»): lo compone el servidor al guardar y la pantalla lo devuelve tal cual al avisar, así que el
+  aviso dice exactamente lo que se vio.
+
 - **CALENDARIO GENERAL DE OFICINA** (ago 2026): en el calendario de Inicio sale **como si fuera otro
   artista** («Calendario general», `OFFICE_CALENDAR_ID = "oficina"` — un CENTINELA, no un artista de la
   BD), y lo que lleva son las cosas de la casa: **todas las vacaciones y días libres APROBADOS de todo
@@ -1374,6 +1395,28 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · **Módulo de Inicio «Mis peticiones»** (`_home_my_peticiones` → `HOME_MY_PETICIONES`): las que ha
   hecho esa persona, con su estado, para seguirlas sin buscarlas — y con el botón de editarlas. No
   depende de ningún permiso de sección (son suyas); las resueltas hace más de 120 días no se listan.
+
+- **MIS PETICIONES · el rechazo se comunica EN LA PROPIA FILA** (ago 2026): el módulo de Inicio
+  `HOME_MY_PETICIONES` (`_home_my_peticiones`) se lee como el de **Tareas pendientes** (foto del
+  artista con `artist_avatar`, `.ctask__head`/`.ctask__facts`/`.ctask__tasks`) y una petición
+  **RECHAZADA sale ahí mismo como «pendiente de comunicar»**, con sus dos botones: **Comunicar**
+  (`booking_request_rejection_send`, que le escribe a quien la pidió por su canal —correo o SMS—
+  con `_peticion_rejection_email_html`, y **solo si el aviso sale** marca la tarea) y **«Ya se lo he
+  comunicado»** (`booking_request_rejection_notified`). Al comunicarla **se archiva y desaparece** de
+  la lista (`rejection_notified_at`). El módulo aparte de rechazos (`HOME_PETICION_REJECTIONS`) se
+  **retiró**: era la misma petición en otro momento de su vida.
+  ⚠️ Los dos endpoints van en **`REQUEST_ANY_ENDPOINTS`**: la tarea es de **quien pidió**, que no
+  tiene por qué llevar contratación (sin eso se comía un 403 al resolver su propia tarea), y cada uno
+  comprueba dentro que la petición es suya. Por lo mismo, el enlace a la bandeja solo se ofrece a
+  quien puede entrar en ella.
+  ⚠️ Lo que hay que HACER va primero en el módulo: comunicar un rechazo es una tarea, no seguimiento.
+
+- ⚠️ **AL EDITAR, una cosa NO se solapa consigo misma** (bug real, ago 2026): el aviso «ese día el
+  artista ya tiene…» del asistente de peticiones saltaba con **la propia petición** que se estaba
+  editando. `api_concert_artist_conflicts` aplicaba `exclude_id` **solo a los conciertos**; ahora hay
+  punto único **`_conflict_exclude`** y se excluye también en acciones, bloqueos/notas de agenda y
+  peticiones. El asistente manda `exclude_id` con el id de `#pwRequestId` (y va en la clave de caché
+  de la comprobación, que si no se quedaría la del alta).
 
 - **Asistentes por pasos (UX)**: cuando se pincha una opción de un paso que **no requiere más datos**,
   **auto-avanzar** al siguiente paso sin pulsar "Siguiente" (menos clics). Implementado en el asistente

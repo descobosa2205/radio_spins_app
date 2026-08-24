@@ -218,6 +218,7 @@
     var winCache = {};
     if (!isArtist) winCache[iso(winStart)] = { activities: acts, artists: artists.slice(), kinds: kinds.slice() };
     var fetching = false;
+    var arrastrando = null;      // el bloqueo/nota que se está arrastrando por el calendario
 
     function mergeLists(d) {
       // Artistas/tipos nuevos de la ventana entran ACTIVOS y con color estable del cliente.
@@ -295,6 +296,36 @@
     }
     function goToday() { winStart = mondayOf(today); loadWindow(); }
 
+    /* ---- Notas («otro») y BLOQUEOS: se editan con doble clic y se arrastran para cambiar de fecha.
+       Lo demás (conciertos, promociones, cumpleaños…) no: eso se cambia en su ficha. ---- */
+    function esEditable(a) {
+      return !!(a && a.item_id && (a.kind === 'otro' || a.kind === 'bloqueo'));
+    }
+
+    function preparaEditable(elem, a) {
+      if (!esEditable(a)) return elem;
+      elem.classList.add('agenda-event--editable');
+      elem.setAttribute('data-agenda-item', a.item_id);
+      elem.setAttribute('title', 'Doble clic para editarlo · arrástralo para cambiar la fecha');
+      elem.draggable = true;
+      elem.addEventListener('dragstart', function (ev) {
+        arrastrando = a;
+        try { ev.dataTransfer.setData('text/plain', a.item_id); } catch (e) {}
+        if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move';
+        elem.classList.add('is-dragging');
+      });
+      elem.addEventListener('dragend', function () {
+        arrastrando = null;
+        elem.classList.remove('is-dragging');
+        root.querySelectorAll('.agenda-cal__day.is-drop').forEach(function (c) { c.classList.remove('is-drop'); });
+      });
+      elem.addEventListener('dblclick', function (ev) {
+        ev.preventDefault();
+        abrirEdicion(a);
+      });
+      return elem;
+    }
+
     function makeChip(a) {
       // Bloqueos y notas no navegan: se pintan como <span>; el resto (eventos, cumpleaños) enlazan.
       var hasUrl = !!a.url;
@@ -329,7 +360,7 @@
       chip.addEventListener('mouseenter', function (ev) { showTip(a, ev.clientX, ev.clientY); });
       chip.addEventListener('mousemove', function (ev) { showTip(a, ev.clientX, ev.clientY); });
       chip.addEventListener('mouseleave', hideTip);
-      return chip;
+      return preparaEditable(chip, a);
     }
 
     // Barra CONTINUA de un evento multi-día dentro de una semana (bloqueo/nota). `seg` lleva
@@ -361,7 +392,7 @@
       bar.addEventListener('mouseenter', function (ev) { showTip(a, ev.clientX, ev.clientY); });
       bar.addEventListener('mousemove', function (ev) { showTip(a, ev.clientX, ev.clientY); });
       bar.addEventListener('mouseleave', hideTip);
-      return bar;
+      return preparaEditable(bar, a);
     }
 
     function buildNav() {
@@ -467,6 +498,21 @@
           var list = el('div', 'agenda-cal__events');
           (byDate[key] || []).forEach(function (a) { list.appendChild(makeChip(a)); });
           cell.appendChild(list);
+          // Soltar aquí un bloqueo o una nota = cambiarle la fecha (conservando su duración).
+          cell.setAttribute('data-day', key);
+          cell.addEventListener('dragover', function (ev) {
+            if (!arrastrando) return;
+            ev.preventDefault();
+            if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
+            this.classList.add('is-drop');
+          });
+          cell.addEventListener('dragleave', function () { this.classList.remove('is-drop'); });
+          cell.addEventListener('drop', function (ev) {
+            ev.preventDefault();
+            this.classList.remove('is-drop');
+            if (!arrastrando) return;
+            mueveItem(arrastrando, this.getAttribute('data-day'));
+          });
           daysRow.appendChild(cell);
           cur.setDate(cur.getDate() + 1);
         }
@@ -555,6 +601,146 @@
           side.appendChild(row);
         });
       }
+    }
+
+    /* ================= EDITAR, MOVER Y AVISAR (notas «otro» y bloqueos) =================
+       · Doble clic → el pop-up de editar (con su botón de eliminar).
+       · Arrastrar a otro día → cambia la fecha conservando la duración.
+       En los dos casos, si la FECHA cambia se pregunta si se avisa al artista y a los implicados:
+       cambiar una fecha y comunicarlo son dos cosas distintas, y la segunda se decide. */
+    function cuerpoForm(obj) {
+      var fd = new FormData();
+      Object.keys(obj || {}).forEach(function (k) { fd.append(k, obj[k] == null ? '' : obj[k]); });
+      fd.append('next', location.pathname + location.search);
+      return fd;
+    }
+
+    function guardaItem(id, datos) {
+      return fetch('/agenda/' + id + '/editar', {
+        method: 'POST', body: cuerpoForm(datos),
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      }).then(function (r) { return r.json(); });
+    }
+
+    // Se refleja en el calendario sin recargar: se cambian las fechas del ítem y se repinta.
+    function aplicaEnPantalla(itemId, item) {
+      acts.forEach(function (a) {
+        if (a.item_id !== itemId) return;
+        a.date = item.start_date;
+        a.end_date = item.end_date;
+        a.item_start = item.start_date;
+        a.item_end = item.end_date;
+        if (item.title) a.title = item.title;
+      });
+      renderCal(); renderSide();
+    }
+
+    function mueveItem(a, nuevoDia) {
+      if (!a || !nuevoDia || nuevoDia === (a.item_start || a.date)) return;
+      guardaItem(a.item_id, { mover: '1', start_date: nuevoDia }).then(function (d) {
+        if (!d || !d.ok) { alert((d && d.error) || 'No se pudo cambiar la fecha.'); return; }
+        aplicaEnPantalla(a.item_id, d.item);
+        if (d.date_changed) preguntaAviso(a, d);
+      }).catch(function () { alert('No se pudo cambiar la fecha.'); });
+    }
+
+    function modal(id) { return document.getElementById(id); }
+    function abre(el2) {
+      if (!el2) return;
+      if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(el2).show();
+    }
+    function cierra(el2) {
+      if (!el2 || !window.bootstrap) return;
+      var m = bootstrap.Modal.getInstance(el2);
+      if (m) m.hide();
+    }
+
+    function abrirEdicion(a) {
+      var box = modal('agendaEditModal');
+      if (!box) return;
+      box.querySelector('[data-ae-id]').value = a.item_id;
+      box.querySelector('[data-ae-kind]').textContent = (a.kind === 'bloqueo' ? 'Bloqueo' : 'Otro');
+      box.querySelector('[data-ae-title]').value = a.title || '';
+      box.querySelector('[data-ae-note]').value = (a.kind === 'otro' ? (a.note || a.subtitle || '') : '');
+      box.querySelector('[data-ae-start]').value = a.item_start || a.date || '';
+      box.querySelector('[data-ae-end]').value = a.item_end || a.end_date || a.date || '';
+      var horas = box.querySelector('[data-ae-times]');
+      if (horas) horas.classList.toggle('d-none', a.kind !== 'otro');
+      var notaZona = box.querySelector('[data-ae-note-zone]');
+      if (notaZona) notaZona.classList.toggle('d-none', a.kind !== 'otro');
+      box.querySelector('[data-ae-start-time]').value = a.start_time || '';
+      box.querySelector('[data-ae-end-time]').value = a.end_time || '';
+      box._item = a;
+      abre(box);
+    }
+
+    function preguntaAviso(a, respuesta) {
+      var box = modal('agendaNotifyModal');
+      if (!box) return;
+      box.querySelector('[data-an-what]').textContent =
+        (a.artist_name ? a.artist_name + ' · ' : '') + (a.title || '');
+      box.querySelector('[data-an-change]').textContent = respuesta.change_label || '';
+      box._url = respuesta.notify_url;
+      box._label = respuesta.change_label || '';
+      var res = box.querySelector('[data-an-result]');
+      if (res) { res.classList.add('d-none'); res.textContent = ''; }
+      abre(box);
+    }
+
+    // Los botones de los dos pop-ups (una sola vez por página).
+    if (!document.body.dataset.agendaEditWired) {
+      document.body.dataset.agendaEditWired = '1';
+      document.addEventListener('click', function (ev) {
+        var guardar = ev.target.closest('[data-ae-save]');
+        if (guardar) {
+          var box = modal('agendaEditModal');
+          var a = box && box._item;
+          if (!a) return;
+          guardaItem(box.querySelector('[data-ae-id]').value, {
+            title: box.querySelector('[data-ae-title]').value,
+            note: box.querySelector('[data-ae-note]').value,
+            start_date: box.querySelector('[data-ae-start]').value,
+            end_date: box.querySelector('[data-ae-end]').value,
+            start_time: box.querySelector('[data-ae-start-time]').value,
+            end_time: box.querySelector('[data-ae-end-time]').value
+          }).then(function (d) {
+            if (!d || !d.ok) { alert((d && d.error) || 'No se pudo guardar.'); return; }
+            cierra(box);
+            aplicaEnPantalla(a.item_id, d.item);
+            if (d.date_changed) preguntaAviso(a, d);
+          }).catch(function () { alert('No se pudo guardar.'); });
+          return;
+        }
+        var borrar = ev.target.closest('[data-ae-delete]');
+        if (borrar) {
+          var box2 = modal('agendaEditModal');
+          var id = box2 && box2.querySelector('[data-ae-id]').value;
+          if (!id) return;
+          if (!window.confirm('¿Eliminar esto de la agenda?')) return;
+          fetch('/agenda/' + id + '/eliminar', {
+            method: 'POST', body: cuerpoForm({}), headers: { 'X-Requested-With': 'XMLHttpRequest' }
+          }).then(function () { location.reload(); });
+          return;
+        }
+        var avisar = ev.target.closest('[data-an-send]');
+        if (avisar) {
+          var box3 = modal('agendaNotifyModal');
+          if (!box3 || !box3._url) return;
+          avisar.disabled = true;
+          fetch(box3._url, {
+            method: 'POST', body: cuerpoForm({ label: box3._label }),
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+          }).then(function (r) { return r.json(); }).then(function (d) {
+            avisar.disabled = false;
+            var res = box3.querySelector('[data-an-result]');
+            if (res) {
+              res.className = 'alert ' + (d && d.ok ? 'alert-success' : 'alert-danger') + ' py-2 px-3 small mt-2';
+              res.textContent = (d && d.ok) ? ('Avisado: ' + (d.detalle || '')) : ((d && d.error) || 'No se pudo avisar.');
+              res.classList.remove('d-none');
+            }
+          }).catch(function () { avisar.disabled = false; });
+        }
+      });
     }
 
     function render() { renderTop(); renderSide(); renderCal(); }

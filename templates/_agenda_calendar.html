@@ -6,4 +6,86 @@
   <div class="agenda-cal-root__loading text-muted small">Cargando agenda…</div>
   <script type="application/json" data-agenda-json>{{ (data or {})|tojson }}</script>
 </div>
+
+{# ---------- Editar un BLOQUEO o un «OTRO» (doble clic en el calendario) ----------
+   Se abre con los datos del ítem que se ha pinchado (los rellena agenda_calendar.js) y guarda sin
+   recargar. Eliminar vive aquí, que es donde se va a buscar. #}
+<div class="modal fade" id="agendaEditModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-pen me-2"></i>Editar en la agenda</h5>
+          <div class="text-muted small"><span data-ae-kind>Otro</span> · al cambiar la fecha se preguntará si se avisa.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" data-ae-id value="">
+        <div class="mb-3">
+          <label class="form-label">Título</label>
+          <input class="form-control" data-ae-title placeholder="Ensayo, viaje, no disponible…">
+        </div>
+        <div class="row g-2">
+          <div class="col-6">
+            <label class="form-label">Desde</label>
+            <input type="date" class="form-control" data-ae-start>
+          </div>
+          <div class="col-6">
+            <label class="form-label">Hasta</label>
+            <input type="date" class="form-control" data-ae-end>
+          </div>
+        </div>
+        <div class="row g-2 mt-1 d-none" data-ae-times>
+          <div class="col-6">
+            <label class="form-label">Hora de inicio <span class="text-muted small">(opcional)</span></label>
+            <input type="time" class="form-control" data-ae-start-time>
+          </div>
+          <div class="col-6">
+            <label class="form-label">Hora de fin <span class="text-muted small">(opcional)</span></label>
+            <input type="time" class="form-control" data-ae-end-time>
+          </div>
+        </div>
+        <div class="mt-3 d-none" data-ae-note-zone>
+          <label class="form-label">Nota</label>
+          <textarea class="form-control" data-ae-note rows="2" placeholder="Lo que haya que saber"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <button type="button" class="btn btn-outline-danger" data-ae-delete>
+          <i class="fa fa-trash me-1"></i>Eliminar
+        </button>
+        <span>
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-primary" data-ae-save><i class="fa fa-check me-1"></i>Guardar</button>
+        </span>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ---------- ¿Se avisa del cambio de fecha? ----------
+   Cambiar la fecha y comunicarlo son dos cosas distintas: la segunda se decide. #}
+<div class="modal fade" id="agendaNotifyModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-calendar-day me-2"></i>Ha cambiado de fecha</h5>
+          <div class="text-muted small">¿Se avisa al artista y a los implicados?</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="fw-semibold" data-an-what></div>
+        <div class="text-muted" data-an-change></div>
+        <div class="d-none" data-an-result></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">No avisar</button>
+        <button type="button" class="btn btn-primary" data-an-send><i class="fa fa-paper-plane me-1"></i>Avisar del cambio</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endmacro %}

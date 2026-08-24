@@ -4789,3 +4789,9 @@ button.promo-pick{ border:0; background:transparent; padding:0; font:inherit; te
 
 /* La tarjeta que ya venía marcada en la petición (lo que se pidió). */
 .promo-pick__box.is-suggested{ border-color:var(--brand-primary,#E33D48); }
+
+/* ---- AGENDA · lo que se puede editar y arrastrar (bloqueos y notas «otro») ----
+   Se avisa con el cursor de agarre; lo demás (conciertos, promociones…) se cambia en su ficha. */
+.agenda-event--editable { cursor: grab; }
+.agenda-event--editable.is-dragging { opacity: .45; cursor: grabbing; }
+.agenda-cal__day.is-drop { outline: 2px dashed var(--brand-primary, #E33D48); outline-offset: -2px; }

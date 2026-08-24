@@ -504,14 +504,18 @@
   function miraConflictos(){
     var artista = (modal.querySelector('#pwArtist')||{}).value || '';
     var f = fechaElegida();
-    var clave = artista + '|' + f.start + '|' + f.end;
+    var clave = artista + '|' + f.start + '|' + f.end + '|'
+      + ((modal.querySelector('#pwRequestId') || {}).value || '');
     if(!artista || !f.start){ conflictos = []; conflictoClave = clave; pintaConflictos(); return Promise.resolve([]); }
     if(clave === conflictoClave) return Promise.resolve(conflictos);   // ya preguntado
     conflictoClave = clave;
     conflictoAceptado = false;
+    // ⚠️ EDITANDO, la propia petición NO es un solape: se excluye por su id.
+    var propia = (modal.querySelector('#pwRequestId') || {}).value || '';
     var url = '/api/concerts/check-artist-conflict?artist_id=' + encodeURIComponent(artista)
       + (f.end ? ('&start=' + encodeURIComponent(f.start) + '&end=' + encodeURIComponent(f.end))
-               : ('&date=' + encodeURIComponent(f.start)));
+               : ('&date=' + encodeURIComponent(f.start)))
+      + (propia ? ('&exclude_id=' + encodeURIComponent(propia)) : '');
     return fetch(url).then(function(r){ return r.ok ? r.json() : []; }).then(function(filas){
       conflictos = Array.isArray(filas) ? filas : [];
       pintaConflictos();
@@ -551,7 +555,8 @@
       return;
     }
     // Todavía no se ha comprobado (o cambió algo): se comprueba y, si hay, se para.
-    if(conflictoClave !== (artista + '|' + f.start + '|' + f.end)){
+    if(conflictoClave !== (artista + '|' + f.start + '|' + f.end + '|'
+        + ((modal.querySelector('#pwRequestId') || {}).value || ''))){
       ev.preventDefault();
       miraConflictos().then(function(filas){
         if(!filas.length){ conflictoAceptado = true; form.requestSubmit ? form.requestSubmit() : form.submit(); }

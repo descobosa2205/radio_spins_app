@@ -30060,48 +30060,112 @@ def booking_request_rejection_notified(rid):
     return redirect(next_url)
 
 
-def _home_peticion_rejections(limit: int = 10) -> list[dict]:
-    """TAREA: peticiones RECHAZADAS que esta persona pidió y todavía no ha comunicado.
+def _peticion_rejection_email_html(session_db, r, chip: dict | None = None) -> str:
+    """El correo con el que se le dice a quien pidió algo que NO se puede hacer.
 
-    Hasta que diga que ya lo ha dicho, la petición no está terminada."""
-    estado = _current_user_state() or {}
-    uid = estado.get("user_id")
-    if not uid:
-        return []
-    s = db()
+    Estilo de la casa: el logo arriba a la DERECHA, el título centrado, la cabecera de lo que se pidió
+    y el motivo tal cual lo escribió contratación (es lo que hay que contarle, no un resumen).
+    ⚠️ Estilos EN LÍNEA: los clientes de correo se comen las hojas de estilo."""
+    def esc(v) -> str:
+        return str(escape("" if v is None else v))
+
+    pay = r.payload if isinstance(r.payload, dict) else {}
+    logo = (_treinta_y_tres_logo_url(session_db)
+            or _external_url_for("static", filename="img/logo_33_producciones.png"))
+    art = session_db.get(Artist, r.artist_id) if r.artist_id else None
+    venue = session_db.get(Venue, r.venue_id) if r.venue_id else None
+    lugar = _place_label(r.municipality or "", r.province or "", (pay.get("country") or ""),
+                         venue=(venue.name if venue else ""))
+    fecha = (r.requested_date.strftime("%d/%m/%Y") if r.requested_date
+             else ((r.date_text or "").strip()))
+    act = (pay.get("activity_type") or "CONCIERTO").strip().upper()
+    filas = [(k, v) for k, v in [
+        ("Qué se pidió", QUAD_ACTIVITY_LABELS.get(act, "Actividad")),
+        ("Artista", (getattr(art, "name", "") or "")),
+        ("Fecha", fecha),
+        ("Lugar", lugar),
+    ] if (v or "").strip()]
+    datos = "".join(
+        '<tr><td style="padding:3px 10px 3px 0;color:#6b7280;font-size:13px;white-space:nowrap;">%s</td>'
+        '<td style="padding:3px 0;font-size:14px;">%s</td></tr>' % (esc(k), esc(v))
+        for k, v in filas)
+    quien = ((chip or {}).get("name") or (r.contact_name or "")).strip()
+    partes = ['<div style="font-family:Arial,Helvetica,sans-serif;color:#212529;max-width:660px;margin:0 auto;">']
+    partes.append('<div style="text-align:right;margin-bottom:6px;">'
+                  '<img src="%s" alt="33 Producciones" style="max-height:54px;max-width:190px;"></div>' % esc(logo))
+    partes.append('<h2 style="text-align:center;font-size:22px;margin:0 0 14px;">Sobre tu petición</h2>')
+    partes.append('<div style="font-size:15px;line-height:1.7;margin:0 0 14px;">'
+                  + ("Hola %s:<br>" % esc(quien) if quien else "")
+                  + 'Gracias por contar con nosotros. Hemos estudiado tu petición y '
+                    '<strong>esta vez no vamos a poder llevarla a cabo</strong>.</div>')
+    if datos:
+        partes.append('<table style="border-collapse:collapse;margin:0 0 14px;">%s</table>' % datos)
+    if (r.rejection_reason or "").strip():
+        partes.append('<div style="margin:0 0 14px;padding:12px 14px;border-radius:12px;background:#f8fafc;'
+                      'border:1px solid #e6e8eb;font-size:14px;line-height:1.7;color:#374151;'
+                      'white-space:pre-line;">' + esc((r.rejection_reason or "").strip()) + '</div>')
+    partes.append('<div style="font-size:15px;line-height:1.7;margin:0 0 14px;">'
+                  'Seguimos a tu disposición para lo que venga.</div>')
+    partes.append('<div style="color:#6b7280;font-size:13px;">33 Producciones</div></div>')
+    return "".join(partes)
+
+
+@app.post("/peticiones/<rid>/comunicar-rechazo", endpoint="booking_request_rejection_send")
+@admin_required
+def booking_request_rejection_send(rid):
+    """COMUNICA el rechazo a quien pidió algo (correo o SMS, por su canal) y da la tarea por hecha.
+
+    Es el atajo de «Mis peticiones»: comunicar y marcar son la misma cosa vista de dos formas, así
+    que si el aviso sale, la petición queda terminada y desaparece del módulo."""
+    session_db = db()
+    next_url = safe_next_or(url_for("home"))
     try:
-        filas = (s.query(BookingRequest)
-                 .options(joinedload(BookingRequest.artist))
-                 .filter(BookingRequest.created_by_user_id == to_uuid(str(uid)))
-                 .filter(func.upper(func.coalesce(BookingRequest.status, "")) == "DESCARTADA")
-                 .filter(BookingRequest.rejection_notified_at.is_(None))
-                 .order_by(BookingRequest.updated_at.desc().nullslast(),
-                           BookingRequest.created_at.desc())
-                 .limit(limit).all())
-        salida = []
-        for r in filas:
-            pay = r.payload or {}
-            chip = _peticion_requester_chip(s, r) or {}
-            salida.append({
-                "id": str(r.id),
-                "subject": (r.subject or "Petición"),
-                "artist": (r.artist.name if r.artist else ""),
-                "reason": (r.rejection_reason or ""),
-                "who": (chip.get("name") or ""),
-                "who_logo": (chip.get("logo_url") or ""),
-                "who_icon": (chip.get("icon") or "fa-user"),
-                "contact": (chip.get("contact") or ""),
-                "icon": QUAD_ACTIVITY_ICONS.get(_activity_kind_key(pay.get("activity_type")),
-                                                "fa-calendar-day"),
-                "url": url_for("booking_request_detail_view", rid=str(r.id)),
-                "done_url": url_for("booking_request_rejection_notified", rid=str(r.id)),
-            })
-        return salida
-    except Exception:
-        app.logger.exception("[inicio] no se pudieron cargar los rechazos por comunicar")
-        return []
+        r = session_db.get(BookingRequest, to_uuid(rid))
+        if not r:
+            abort(404)
+        estado = _current_user_state() or {}
+        propia = str(r.created_by_user_id or "") == str(estado.get("user_id") or "")
+        if not (propia or is_master()):
+            flash("Esa petición no la has hecho tú.", "danger")
+            return redirect(url_for("home"))
+        chip = _peticion_requester_chip(session_db, r) or {}
+        correo = (r.contact_email or "").strip()
+        telefono = (r.contact_phone or "").strip()
+        if not correo and r.promoter_id:
+            p = session_db.get(Promoter, r.promoter_id)
+            correo = (getattr(p, "email", "") or "").strip()
+            telefono = telefono or (getattr(p, "phone", "") or "").strip()
+        if not correo and not telefono:
+            flash("No hay correo ni teléfono de quien la pidió: comunícaselo tú y marca la tarea.",
+                  "warning")
+            return redirect(next_url)
+        fila = (_notify_apply_prefs(session_db, [{
+            "name": (chip.get("name") or r.contact_name or ""),
+            "email": correo, "phone": telefono,
+        }]) or [{}])[0]
+        asunto = "Sobre tu petición · %s" % (r.subject or "Petición")
+        html_cuerpo = _peticion_rejection_email_html(session_db, r, chip)
+        sms = "%s: no vamos a poder llevarla a cabo. %s" % (
+            (r.subject or "Tu petición"), ((r.rejection_reason or "").strip()[:110]))
+        ok, err = _notify_send_row(session_db, fila, subject=asunto, html=html_cuerpo,
+                                   sms_text=sms, kind="PETICION")
+        if not ok:
+            flash("No se pudo comunicar: %s" % (err or "el aviso no salió"), "danger")
+            return redirect(next_url)
+        # Ha salido: la tarea está hecha y la petición se archiva.
+        r.rejection_notified_at = _now_madrid()
+        r.rejection_notified_by_nick = estado.get("nick") or estado.get("email") or ""
+        _notify_resolve(session_db, "peticion_rechazo", str(r.id))
+        session_db.commit()
+        flash("Comunicado por %s. La petición queda terminada." % (
+            "SMS" if (fila.get("channel") or "EMAIL") == "SMS" else "correo"), "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[peticiones] no se pudo comunicar el rechazo")
+        flash(f"No se pudo comunicar: {exc}", "danger")
     finally:
-        s.close()
+        session_db.close()
+    return redirect(next_url)
 
 
 @app.post("/peticiones/<rid>/aprobar", endpoint="booking_request_approve")
@@ -30441,7 +30505,11 @@ def peticion_wizard_update(rid):
 def _home_my_peticiones(limit: int = 12) -> list[dict]:
     """MIS PETICIONES: las que ha hecho esta persona, para ver cómo van sin buscarlas.
 
-    Solo las VIVAS y las resueltas hace poco: una petición de hace un año no es seguimiento."""
+    Solo las VIVAS y las resueltas hace poco: una petición de hace un año no es seguimiento.
+
+    ⚠️ Una petición RECHAZADA sale aquí mismo como **pendiente de comunicar** (con sus dos botones:
+    comunicarlo desde la app o decir que ya se ha dicho), no en otro módulo: es la misma petición en
+    otro momento de su vida. Cuando se comunica, se archiva y desaparece."""
     estado = _current_user_state() or {}
     uid = estado.get("user_id")
     if not uid:
@@ -30457,6 +30525,9 @@ def _home_my_peticiones(limit: int = 12) -> list[dict]:
         salida = []
         for r in filas:
             est = (r.status or "NUEVA").upper()
+            # RECHAZADA y ya comunicada = archivada: la tarea está hecha y deja de estar aquí.
+            if est == "DESCARTADA" and r.rejection_notified_at:
+                continue
             if est in ("CONVERTIDA", "DESCARTADA"):
                 creada = r.created_at
                 if creada is not None and creada.tzinfo is None:
@@ -30466,11 +30537,25 @@ def _home_my_peticiones(limit: int = 12) -> list[dict]:
             pay = r.payload or {}
             etiqueta, clase = _booking_status_meta(est)
             lugar = ((r.venue.name if r.venue else "") or (r.municipality or ""))
+            chip = _peticion_requester_chip(s, r) or {}
+            pendiente = bool(est == "DESCARTADA" and not r.rejection_notified_at)
             salida.append({
                 "id": str(r.id),
                 "subject": (r.subject or "Petición"),
                 "artist": (r.artist.name if r.artist else ""),
+                "artist_photo": ((r.artist.photo_url or "") if r.artist else ""),
                 "place": lugar,
+                # Pendiente de COMUNICAR el rechazo: se resuelve en esta misma fila.
+                "rejection_pending": pendiente,
+                "reason": (r.rejection_reason or ""),
+                "send_url": (url_for("booking_request_rejection_send", rid=str(r.id))
+                             if pendiente else ""),
+                "done_url": (url_for("booking_request_rejection_notified", rid=str(r.id))
+                             if pendiente else ""),
+                "who": (chip.get("name") or ""),
+                "who_logo": (chip.get("logo_url") or ""),
+                "who_icon": (chip.get("icon") or "fa-user"),
+                "contact": (chip.get("contact") or ""),
                 "date_label": (r.requested_date.strftime("%d/%m/%Y") if r.requested_date
                                else (r.date_text or "Sin fecha")),
                 "status": est, "status_label": etiqueta, "status_class": clase,
@@ -30478,11 +30563,16 @@ def _home_my_peticiones(limit: int = 12) -> list[dict]:
                 "icon": QUAD_ACTIVITY_ICONS.get(_activity_kind_key(pay.get("activity_type")),
                                                 "fa-calendar-day"),
                 "departments": [str(d).title() for d in (pay.get("departments") or [])],
-                "url": url_for("contracting_view", section="peticiones"),
+                # ⚠️ La bandeja es de Contratación: a quien no la tenga no se le ofrece el enlace
+                # (sería un 403). Su tarea se resuelve en la propia fila.
+                "url": (url_for("contracting_view", section="peticiones")
+                        if has_access_key("contratacion", include_descendants=True) else ""),
                 "edit": _peticion_edit_payload(s, r),
             })
             if len(salida) >= limit:
                 break
+        # Lo que hay que HACER va primero: comunicar un rechazo es una tarea, no un seguimiento.
+        salida.sort(key=lambda f: 0 if f.get("rejection_pending") else 1)
         return salida
     except Exception:
         app.logger.exception("[inicio] no se pudieron cargar mis peticiones")
@@ -43731,6 +43821,16 @@ def promoter_contact_share(contact_id, channel):
         session.close()
 
 
+def _conflict_exclude(query, columna, exclude_id_raw):
+    """Quita del aviso de solapes lo que se está EDITANDO: una cosa no se solapa consigo misma."""
+    if not exclude_id_raw:
+        return query
+    try:
+        return query.filter(columna != to_uuid(exclude_id_raw))
+    except Exception:
+        return query
+
+
 @app.get('/api/concerts/check-artist-conflict', endpoint='api_concert_artist_conflicts')
 @admin_required
 def api_concert_artist_conflicts():
@@ -43783,6 +43883,7 @@ def api_concert_artist_conflicts():
                 .filter(func.coalesce(CompanyAction.end_date, CompanyAction.start_date) >= start)
                 .filter(func.upper(func.coalesce(CompanyAction.status, '')).in_(['RESERVA', 'CONFIRMADO', 'CERRADA']))
             )
+            aq = _conflict_exclude(aq, CompanyAction.id, exclude_id_raw)
             for a in aq.order_by(CompanyAction.start_date.asc()).all():
                 out.append({
                     'id': str(a.id), 'kind': 'Acción', 'date': (a.start_date.isoformat() if a.start_date else ''),
@@ -43798,6 +43899,7 @@ def api_concert_artist_conflicts():
                 .filter(ArtistAgendaItem.start_date <= end)
                 .filter(ArtistAgendaItem.end_date >= start)
             )
+            iq = _conflict_exclude(iq, ArtistAgendaItem.id, exclude_id_raw)
             for it in iq.order_by(ArtistAgendaItem.start_date.asc()).all():
                 k = 'Bloqueo' if (it.kind or '').upper() == 'BLOCK' else 'Nota'
                 out.append({
@@ -43815,6 +43917,9 @@ def api_concert_artist_conflicts():
                 .filter(BookingRequest.requested_date >= start, BookingRequest.requested_date <= end)
                 .filter(func.upper(func.coalesce(BookingRequest.status, 'NUEVA')).in_(['NUEVA', 'EN_TRAMITE']))
             )
+            # ⚠️ Al EDITAR una petición, ella misma no es un solape: se excluye (si no, el asistente
+            # avisaba de que el artista ya tiene algo ese día… que era esta misma petición).
+            bq = _conflict_exclude(bq, BookingRequest.id, exclude_id_raw)
             for b in bq.order_by(BookingRequest.requested_date.asc()).all():
                 out.append({
                     'id': str(b.id), 'kind': 'Petición', 'date': (b.requested_date.isoformat() if b.requested_date else ''),
@@ -55343,9 +55448,6 @@ def inject_personnel_globals():
         "HOME_PENDING_PETICIONES": _home_pending_peticiones() if request.endpoint == "home" and session.get("user_id") and "_home_pending_peticiones" in globals() else [],
         # MIS PETICIONES: las que ha hecho esta persona, para ver cómo van. Es de cada uno, así que
         # no depende de ningún permiso de sección.
-        "HOME_PETICION_REJECTIONS": (_home_peticion_rejections()
-                                     if request.endpoint == "home" and session.get("user_id")
-                                     and "_home_peticion_rejections" in globals() else []),
         "HOME_MY_PETICIONES": (_home_my_peticiones()
                                if request.endpoint == "home" and session.get("user_id")
                                and "_home_my_peticiones" in globals() else []),
@@ -55603,6 +55705,7 @@ SUPPORT_ACTION_ENDPOINTS = {
     "fotos_approval_create", "fotos_zip", "fotos_share_create", "fotos_share_email", "fotos_share_email_preview",
     # Agenda: bloqueos y notas libres (botón + del calendario, Inicio y ficha de artista)
     "agenda_block_create", "agenda_note_create", "agenda_item_delete",
+    "agenda_item_update", "agenda_item_notify",
     # Activar la producción (decir quién se encarga): se usa desde la ficha —por quien creó la
     # actividad—, desde su módulo de Inicio y desde los «pendientes de asignar» de Producción. El
     # propio endpoint comprueba que sea contratación, producción o el creador.
@@ -55718,6 +55821,11 @@ REQUEST_ANY_ENDPOINTS = {
     # Editar la petición que has hecho: la comprobación fina (que sea TUYA, o que gestiones esa
     # bandeja) la hace el propio endpoint.
     "peticion_wizard_update",
+    # ⚠️ COMUNICAR el rechazo de una petición (o decir que ya se ha comunicado) es la TAREA de quien
+    # la pidió, que no tiene por qué llevar contratación: sin esto se comía un 403 al resolver su
+    # propia tarea desde Inicio. Los dos endpoints comprueban dentro que la petición es suya.
+    "booking_request_rejection_send",
+    "booking_request_rejection_notified",
 }
 
 
@@ -83006,6 +83114,7 @@ NOTIFICATION_KIND_META = {
     "VENTA": ("Hay que sacarla a la venta", "fa-ticket"),
     "CONTABILIDAD": ("Hay algo nuevo que contabilizar", "fa-calculator"),
     "REGISTROS": ("Hay un lanzamiento que cumplimentar", "fa-clipboard-list"),
+    "AGENDA": ("Cambio en la agenda", "fa-calendar-day"),
 }
 
 
@@ -96024,6 +96133,11 @@ def _agenda_office_items(session_db, start_date, end_date) -> list:
                 "start_time": _agenda_clean_time(getattr(it, "start_time", None)),
                 "end_time": _agenda_clean_time(getattr(it, "end_time", None)),
                 "cover_url": "", "item_id": str(it.id), "url": "",
+                # Las fechas DE VERDAD (las de arriba van recortadas a la ventana que se está
+                # mirando): son las que tiene que enseñar el pop-up de editar.
+                "note": (it.note or ""),
+                "item_start": (it.start_date.isoformat() if it.start_date else ""),
+                "item_end": ((it.end_date or it.start_date).isoformat() if it.start_date else ""),
             }))
     except Exception:
         app.logger.exception("[agenda] no se pudieron cargar las notas del calendario de oficina")
@@ -96373,6 +96487,10 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value, ful
             "start_time": (_agenda_clean_time(getattr(it, "start_time", None)) if kind == "otro" else ""),
             "end_time": (_agenda_clean_time(getattr(it, "end_time", None)) if kind == "otro" else ""),
             "cover_url": "", "item_id": str(it.id), "url": "",
+            # Las fechas DE VERDAD (las de arriba van recortadas a la ventana que se mira).
+            "note": (it.note or ""),
+            "item_start": (it.start_date.isoformat() if it.start_date else ""),
+            "item_end": ((it.end_date or it.start_date).isoformat() if it.start_date else ""),
         }))
 
     # ---- Cumpleaños (artista individual -> Artist.birth_date; grupo -> cada miembro) ----
@@ -96765,6 +96883,213 @@ def agenda_note_create():
         session_db.rollback()
         flash(f"No se pudo añadir: {exc}", "danger")
         return _agenda_redirect_back()
+    finally:
+        session_db.close()
+
+
+def _agenda_item_payload(it) -> dict:
+    """Un bloqueo o una nota de la agenda, tal como los espera el pop-up de editar."""
+    kind = "bloqueo" if (getattr(it, "kind", "") or "").upper() == "BLOCK" else "otro"
+    return {
+        "id": str(it.id),
+        "kind": kind,
+        "title": (it.title or ""),
+        "note": (it.note or ""),
+        "start_date": (it.start_date.isoformat() if it.start_date else ""),
+        "end_date": ((it.end_date or it.start_date).isoformat() if it.start_date else ""),
+        "start_time": (_agenda_clean_time(getattr(it, "start_time", None)) or ""),
+        "end_time": (_agenda_clean_time(getattr(it, "end_time", None)) or ""),
+        "artist_id": (str(it.artist_id) if it.artist_id else OFFICE_CALENDAR_ID),
+    }
+
+
+def _agenda_item_involved(session_db, it) -> list:
+    """LOS IMPLICADOS en un bloqueo o una nota: quien lleva a ese artista (y quien lo apuntó).
+
+    Son los que tienen que enterarse de que ha cambiado de fecha."""
+    ids = set()
+    try:
+        if getattr(it, "created_by_user_id", None):
+            ids.add(str(it.created_by_user_id))
+    except Exception:
+        pass
+    if not it.artist_id:
+        return [x for x in ids if x]
+    aid = str(it.artist_id)
+    fuera = _inactive_user_ids(session_db)
+    try:
+        for prof in session_db.query(UserProfile).all():
+            asignados = [str(x) for x in (getattr(prof, "assigned_artist_ids", None) or [])]
+            if aid in asignados and prof.user_id not in fuera:
+                ids.add(str(prof.user_id))
+    except Exception:
+        app.logger.exception("[agenda] no se pudo saber quién lleva a ese artista")
+    return [x for x in ids if x]
+
+
+def _agenda_change_label(antes: dict, ahora: dict) -> str:
+    """«del 5 al 7 de diciembre» → cómo se dice el cambio de fecha, en una línea."""
+    def dia(iso):
+        try:
+            return date.fromisoformat(iso).strftime("%d/%m/%Y")
+        except Exception:
+            return iso or "—"
+    a1, a2 = dia(antes.get("start_date")), dia(antes.get("end_date"))
+    b1, b2 = dia(ahora.get("start_date")), dia(ahora.get("end_date"))
+    antes_txt = a1 if a1 == a2 else "%s → %s" % (a1, a2)
+    ahora_txt = b1 if b1 == b2 else "%s → %s" % (b1, b2)
+    return "%s pasa a %s" % (antes_txt, ahora_txt)
+
+
+def _agenda_item_notify_change(session_db, it, cambio: str = "") -> dict:
+    """Avisa del CAMBIO DE FECHA de un bloqueo o una nota: al ARTISTA (a quien reciba sus avisos de
+    producción) y a los IMPLICADOS de la casa (quien lleva a ese artista y quien lo apuntó).
+
+    Devuelve {"ok", "detalle"}: lo que se ha hecho, para decirlo en pantalla."""
+    kind = "bloqueo" if (getattr(it, "kind", "") or "").upper() == "BLOCK" else "otro"
+    que = (it.title or ("Bloqueo" if kind == "bloqueo" else "Nota")).strip()
+    artista = session_db.get(Artist, it.artist_id) if it.artist_id else None
+    nombre_art = (getattr(artista, "name", "") or "").strip()
+    titulo = "Cambio de fecha en la agenda"
+    cuerpo = " · ".join([x for x in [nombre_art, que, cambio] if x])
+    hechos = []
+    # 1 · Los de la casa, por la campanita (y su franja).
+    try:
+        destinos = _agenda_item_involved(session_db, it)
+        n = _notify_users(session_db, destinos, "AGENDA", titulo, cuerpo,
+                          (url_for("artist_detail_view", artist_id=it.artist_id, tab="agenda")
+                           if it.artist_id else url_for("home")),
+                          ref_type="agenda_item", ref_id=str(it.id))
+        if n:
+            hechos.append("%d aviso%s en la app" % (n, "s" if n != 1 else ""))
+    except Exception:
+        app.logger.exception("[agenda] no se pudo avisar a los implicados")
+    # 2 · El ARTISTA, por correo (a quien tenga puesto para los avisos de producción).
+    if it.artist_id:
+        try:
+            correos = _artist_notification_emails(session_db, it.artist_id, "PRODUCCION")
+            if correos:
+                html_cuerpo = (
+                    '<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;color:#111827;">'
+                    '<p style="margin:0 0 12px;"><strong>%s</strong></p><p style="margin:0 0 12px;">%s</p>'
+                    '<p style="margin:0;color:#6b7280;font-size:13px;">Aviso automático del back office'
+                    ' de 33 Producciones.</p></div>'
+                ) % (html.escape(titulo), html.escape(cuerpo))
+                ok, err = _send_optional_email(correos, "%s · %s" % (titulo, que), html_cuerpo)
+                if ok:
+                    hechos.append("correo a %d dirección%s" % (len(correos),
+                                                               "es" if len(correos) != 1 else ""))
+                elif err:
+                    hechos.append("el correo no salió (%s)" % err)
+        except Exception:
+            app.logger.exception("[agenda] no se pudo avisar al artista del cambio de fecha")
+    session_db.commit()
+    return {"ok": True, "detalle": (" · ".join(hechos) or "no había a quién avisar")}
+
+
+@app.post("/agenda/<item_id>/editar", endpoint="agenda_item_update")
+@admin_required
+def agenda_item_update(item_id):
+    """Edita un bloqueo o una nota de la agenda (el pop-up de doble clic) o solo **le cambia la
+    fecha** (al arrastrarlo en el calendario).
+
+    Con `mover=1` se mueve conservando la duración: es lo que hace el arrastre.
+    Responde JSON si lo pide un fetch; si no, redirige como el resto de la agenda."""
+    session_db = db()
+    try:
+        it = session_db.get(ArtistAgendaItem, to_uuid(item_id))
+        if it is None:
+            if _is_xhr_request():
+                return jsonify({"ok": False, "error": "Eso ya no está en la agenda."}), 404
+            flash("Eso ya no está en la agenda.", "warning")
+            return _agenda_redirect_back()
+        antes = _agenda_item_payload(it)
+        f = request.form if request.form else (request.get_json(silent=True) or {})
+
+        def campo(nombre, defecto=""):
+            valor = f.get(nombre) if hasattr(f, "get") else None
+            return (valor if valor is not None else defecto)
+
+        if _truthy(campo("mover")):
+            # ARRASTRE: se mueve al día que se suelta y se conserva la DURACIÓN (un bloqueo de tres
+            # días sigue siendo de tres días).
+            nueva = parse_optional_date(campo("start_date"))
+            if not nueva:
+                if _is_xhr_request():
+                    return jsonify({"ok": False, "error": "Falta la fecha nueva."}), 400
+                return _agenda_redirect_back()
+            dias = ((it.end_date or it.start_date) - it.start_date).days if it.start_date else 0
+            it.start_date = nueva
+            it.end_date = nueva + timedelta(days=max(0, dias))
+        else:
+            titulo = " ".join(str(campo("title") or "").split())
+            if titulo:
+                it.title = titulo
+            it.note = (str(campo("note") or "").strip() or None)
+            inicio = parse_optional_date(campo("start_date"))
+            fin = parse_optional_date(campo("end_date")) or inicio
+            if inicio:
+                if fin < inicio:
+                    inicio, fin = fin, inicio
+                it.start_date = inicio
+                it.end_date = fin
+            # Las HORAS solo tienen sentido en un «otro» (un bloqueo es del día entero).
+            if (it.kind or "").upper() != "BLOCK":
+                hora_ini = _agenda_clean_time(campo("start_time"))
+                hora_fin = _agenda_clean_time(campo("end_time"))
+                if hora_ini and hora_fin and it.start_date == it.end_date and hora_fin < hora_ini:
+                    hora_ini, hora_fin = hora_fin, hora_ini
+                it.start_time = hora_ini or None
+                it.end_time = hora_fin or None
+        session_db.commit()
+        ahora = _agenda_item_payload(it)
+        cambio_fecha = (antes["start_date"] != ahora["start_date"]
+                        or antes["end_date"] != ahora["end_date"])
+        if _is_xhr_request():
+            return jsonify({
+                "ok": True, "item": ahora,
+                # Si ha cambiado de fecha, la pantalla pregunta si se avisa.
+                "date_changed": bool(cambio_fecha),
+                "change_label": (_agenda_change_label(antes, ahora) if cambio_fecha else ""),
+                "notify_url": (url_for("agenda_item_notify", item_id=str(it.id))
+                               if cambio_fecha else ""),
+            })
+        flash("Agenda actualizada." + (" Ha cambiado de fecha." if cambio_fecha else ""), "success")
+        return _agenda_redirect_back()
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[agenda] no se pudo editar el ítem")
+        if _is_xhr_request():
+            return jsonify({"ok": False, "error": str(exc)}), 500
+        flash(f"No se pudo guardar: {exc}", "danger")
+        return _agenda_redirect_back()
+    finally:
+        session_db.close()
+
+
+@app.post("/agenda/<item_id>/avisar-cambio", endpoint="agenda_item_notify")
+@admin_required
+def agenda_item_notify(item_id):
+    """Avisa del CAMBIO DE FECHA al artista y a los implicados. Se llama SOLO si se dice que sí:
+    cambiar una fecha y avisar son dos cosas distintas y la segunda se decide."""
+    session_db = db()
+    try:
+        it = session_db.get(ArtistAgendaItem, to_uuid(item_id))
+        if it is None:
+            return jsonify({"ok": False, "error": "Eso ya no está en la agenda."}), 404
+        datos = request.form if request.form else (request.get_json(silent=True) or {})
+        # El texto del cambio lo trae la pantalla (lo acaba de recibir del servidor al guardar); si
+        # no llega, se dice al menos en qué fechas está ahora.
+        cambio = " ".join(str((datos.get("label") if hasattr(datos, "get") else "") or "").split())
+        if not cambio:
+            ahora = _agenda_item_payload(it)
+            cambio = _agenda_change_label(ahora, ahora)
+        salida = _agenda_item_notify_change(session_db, it, cambio)
+        return jsonify(salida)
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[agenda] no se pudo avisar del cambio de fecha")
+        return jsonify({"ok": False, "error": str(exc)}), 500
     finally:
         session_db.close()
 

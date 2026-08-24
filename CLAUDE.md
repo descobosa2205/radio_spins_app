@@ -1310,10 +1310,15 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   creado y avisa si ya no existe. **Si no se pudo crear NINGUNA fecha** (todas por confirmar o sin
   artista) se hace rollback: ni se archiva ni queda un contenedor vacío.
 - **ASISTENTE DE PETICIÓN · tarjetas, «¿se sabe dónde?» y editarla** (ago 2026):
-  · Las opciones se eligen con **TARJETAS** (`.promo-pick`, las mismas del resto de asistentes), no
-  con la rejilla apretada de antes. ⚠️ Una tarjeta puede ser `<button>` (las que saltan al asistente
-  de promoción o de marketing): sin `button.promo-pick{font:inherit}` el navegador les pone su propia
-  tipografía y se ven distintas en la misma fila.
+  · Las opciones se eligen con **TARJETAS** (`.promo-pick`, las mismas del resto de asistentes) en
+  **los tres pasos que preguntan algo**: qué se pide, si se sabe dónde y **qué es quien lo pide**.
+  ⚠️ Las de «quién hace la petición» eran **`.quad-chip`**… una clase que **solo existe dentro de un
+  `<style>` de `cuadrantes.html`**, así que en este modal no tenía ningún estilo y se veían los radios
+  en crudo, pegados unos a otros (bug real). Al reutilizar una clase, comprobar que está en
+  `styles.css` y no en el `<style>` de otra pantalla.
+  ⚠️ Una tarjeta puede ser `<button>` (las que saltan al asistente de promoción o de marketing): sin
+  `button.promo-pick{font:inherit}` el navegador les pone su propia tipografía y se ven distintas en
+  la misma fila.
   · **Lo elegido se queda a la vista con su FOTO o su LOGO** (`.pw-picked`): al elegir un recinto o
   quién pide, antes solo quedaba un «✓ seleccionado» y se perdía la imagen.
   · **Lo que se busca se crea con el «+» de al lado de la barra**, como en el resto de la app (antes

@@ -164,7 +164,11 @@
           <input type="hidden" name="requester_type" id="pwReqType">
           <input type="hidden" name="requester_id" id="pwReqId">
           <input type="hidden" name="requester_name" id="pwReqName">
-          <div class="quad-chips mb-2" id="pwReqTypes"></div>
+          {# Las opciones, en TARJETAS como en los pasos anteriores.
+             ⚠️ Antes eran `.quad-chip`… una clase que NO EXISTE en el CSS, así que se veían los
+             radios en crudo, pegados unos a otros (bug real). #}
+          <label class="form-label small mb-1">¿Qué es?</label>
+          <div class="promo-pick-grid promo-pick-grid--wide mb-3" id="pwReqTypes"></div>
           <div class="input-group">
             <input class="form-control" id="pwReqSearch" placeholder="Busca por nombre…" autocomplete="off" data-no-loader>
             <button class="btn btn-outline-secondary" type="button" id="pwReqCreateToggle" title="Crear y seleccionar"><i class="fa fa-plus"></i></button>
@@ -363,7 +367,12 @@
   var CREATE_EP = {promoter:'/api/promoters/create', empresa:'/api/promoters/create', institucion:'/api/promoters/create', artist:'/api/artists/create', media:'/api/media/create', venue:'/api/venues/create'};
   var reqTypesBox = modal.querySelector('#pwReqTypes'), reqType = modal.querySelector('#pwReqType'), reqId = modal.querySelector('#pwReqId'), reqName = modal.querySelector('#pwReqName');
   var reqSearch = modal.querySelector('#pwReqSearch'), reqResults = modal.querySelector('#pwReqResults'), reqPicked = modal.querySelector('#pwReqPicked');
-  reqTypesBox.innerHTML = REQ_TYPES.map(function(t){ return '<label class="quad-chip"><input type="radio" name="__reqtype" value="'+t[0]+'"'+(t[0]==='promoter'?' checked':'')+'><i class="fa '+t[2]+'"></i>'+t[1]+'</label>'; }).join('');
+  reqTypesBox.innerHTML = REQ_TYPES.map(function(t){
+    return '<label class="promo-pick"><input type="radio" name="__reqtype" value="'+t[0]+'"'
+      + (t[0]==='promoter'?' checked':'') + '>'
+      + '<span class="promo-pick__box"><i class="fa '+t[2]+'"></i>'
+      + '<span class="promo-pick__name">'+t[1]+'</span></span></label>';
+  }).join('');
   reqType.value = 'promoter';
   function pintaReq(it){
     if(!it){ reqPicked.classList.add('d-none'); reqPicked.innerHTML=''; return; }

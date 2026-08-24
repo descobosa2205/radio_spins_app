@@ -2543,3 +2543,24 @@ document.addEventListener('click', function (ev) {
       window.prompt((j && j.error ? j.error + '\n\n' : '') + 'Cópiale este enlace:', (j && j.url) || '');
     }).catch(function () { b.disabled = false; alert('No se pudo reenviar.'); });
 });
+
+/* ============================ «¿Cubren gastos?» (módulo reutilizable) ============================
+   Motor de `_promoter_costs_module.html`, por DELEGACIÓN y acotado a cada `[data-pc-module]`: así
+   puede haber varios en la misma página (en Inicio conviven el asistente de actividad —que trae su
+   propio JS— y el de peticiones) sin que uno mueva los paneles del otro. */
+document.addEventListener('change', function (ev) {
+  var t = ev.target;
+  if (!t || !t.closest) return;
+  var mod = t.closest('[data-pc-module]');
+  if (!mod) return;
+  if (t.hasAttribute('data-pc-toggle')) {
+    var panel = mod.querySelector('[data-pc-panel]');
+    if (panel) panel.classList.toggle('d-none', t.value !== '1' || !t.checked);
+    return;
+  }
+  var key = t.getAttribute('data-pc-item');
+  if (key) {
+    var det = mod.querySelector('[data-pc-detail="' + key + '"]');
+    if (det) det.classList.toggle('d-none', !t.checked);
+  }
+});

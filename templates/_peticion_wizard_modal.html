@@ -1,3 +1,4 @@
+{% import '_promoter_costs_module.html' as pcm with context %}
 {# Asistente multipaso de «Nueva petición». Autocontenido (buscadores de recinto, de ciudad y de
    «quién pide» inline). Requiere `artists` en el contexto. La página que lo incluya debe incluir
    también `_quick_create_modals.html` para el botón «+ artista».
@@ -196,13 +197,34 @@
         {# ── 5 · Economía y descripción ────────────────────────────────────────────── #}
         <div class="pw-step d-none" data-pstep="5">
           <h6 class="mb-3">5. Propuesta económica y descripción</h6>
-          <div class="form-check form-switch mb-2">
-            <input class="form-check-input" type="checkbox" name="no_cache" id="pwNoCache" value="1">
-            <label class="form-check-label" for="pwNoCache">Sin caché</label>
+          {# ¿CON CACHÉ O SIN CACHÉ? Con tarjetas e iconos, como el resto de la app. `no_cache` es
+             lo que sigue guardando el servidor: aquí solo se elige con la tarjeta. #}
+          <input type="hidden" name="no_cache" id="pwNoCache" value="">
+          <div class="row g-3 mb-3">
+            <div class="col-6 col-md-4">
+              <label class="promo-pick w-100">
+                <input class="form-check-input visually-hidden" type="radio" name="__cache" value="1" checked data-pw-cache>
+                <span class="promo-pick__box">
+                  <i class="fa fa-euro-sign"></i>
+                  <span class="promo-pick__name">Con caché</span>
+                </span>
+              </label>
+            </div>
+            <div class="col-6 col-md-4">
+              <label class="promo-pick w-100">
+                <input class="form-check-input visually-hidden" type="radio" name="__cache" value="0" data-pw-cache>
+                <span class="promo-pick__box">
+                  <i class="fa fa-gift"></i>
+                  <span class="promo-pick__name">Sin caché</span>
+                </span>
+              </label>
+            </div>
           </div>
           <div data-pw-fee>
             <label class="form-label">Importe orientativo</label>
             <input class="form-control" name="fee_text" id="pwFee" placeholder="Ej.: 8.000 € + IVA">
+            {# Y debajo, si hay caché: ¿cubren gastos? (el MISMO módulo del asistente de actividad). #}
+            <div class="mt-3">{{ pcm.promoter_costs() }}</div>
           </div>
           <label class="form-label mt-3">Descripción de la actividad</label>
           <textarea class="form-control" name="description" id="pwDescription" rows="3" placeholder="Detalles de lo que se pide…"></textarea>
@@ -566,8 +588,17 @@
   });
 
   // Sin caché → oculta importe.
+  // Con caché / sin caché: la tarjeta escribe `no_cache` (lo que guarda el servidor) y enseña u
+  // oculta el importe y el módulo de «¿cubren gastos?».
   var noCache = modal.querySelector('#pwNoCache');
-  noCache.addEventListener('change', function(){ modal.querySelector('[data-pw-fee]').classList.toggle('d-none', noCache.checked); if(noCache.checked) modal.querySelector('#pwFee').value=''; });
+  function syncCache(){
+    var sin = (modal.querySelector('[data-pw-cache]:checked') || {}).value === '0';
+    noCache.value = sin ? '1' : '';
+    modal.querySelector('[data-pw-fee]').classList.toggle('d-none', sin);
+    if (sin) modal.querySelector('#pwFee').value = '';
+  }
+  modal.querySelectorAll('[data-pw-cache]').forEach(function(r){ r.addEventListener('change', syncCache); });
+  syncCache();
 
   function reset(dept){
     form.reset();
@@ -583,7 +614,12 @@
     var sinLugar = modal.querySelector('[name="place_kind"][value="NONE"]'); if(sinLugar) sinLugar.checked = true;
     syncPlace();
     modal.querySelectorAll('[data-pw-date]').forEach(function(el){ el.classList.toggle('d-none', el.getAttribute('data-pw-date') !== 'EXACT'); });
-    modal.querySelector('[data-pw-fee]').classList.remove('d-none');
+    // `form.reset()` devuelve las tarjetas a su valor por defecto (con caché) y cierra el módulo de
+    // gastos; hay que sincronizar los paneles con eso.
+    var conCache = modal.querySelector('[data-pw-cache][value="1"]'); if (conCache) conCache.checked = true;
+    syncCache();
+    modal.querySelectorAll('[data-pc-module] [data-pc-panel], [data-pc-module] [data-pc-detail]')
+      .forEach(function(el){ el.classList.add('d-none'); });
     conflictos = []; conflictoAceptado = false; conflictoClave = '';
     modal.querySelectorAll('[data-pw-conflict], [data-pw-conflict-final]').forEach(function(c){ c.classList.add('d-none'); });
     if(window.jQuery){ try { jQuery('#pwArtist').val('').trigger('change'); } catch(e){} }
@@ -629,8 +665,35 @@
     if(d.requester_name) pintaReq({name: d.requester_name, sub: d.requester_sub || '', logo_url: d.requester_logo || ''});
     modal.querySelector('#pwReqEmail').value = d.requester_email || '';
     modal.querySelector('#pwReqPhone').value = d.requester_phone || '';
-    modal.querySelector('#pwNoCache').checked = !!d.no_cache;
-    modal.querySelector('[data-pw-fee]').classList.toggle('d-none', !!d.no_cache);
+    var tarjeta = modal.querySelector('[data-pw-cache][value="' + (d.no_cache ? '0' : '1') + '"]');
+    if (tarjeta) { tarjeta.checked = true; }
+    syncCache();
+    // ¿Cubren gastos? Se restaura lo que se guardó (lo que cubren, la nota, quién lo gestiona y el
+    // importe máximo), para que editar una petición no se lleve por delante ese detalle.
+    var pc = modal.querySelector('[data-pc-module]');
+    var gastos = (d.promoter_costs || {});
+    if (pc) {
+      var enc = pc.querySelector('[data-pc-toggle][value="' + (gastos.enabled ? '1' : '0') + '"]');
+      if (enc) enc.checked = true;
+      var panel = pc.querySelector('[data-pc-panel]');
+      if (panel) panel.classList.toggle('d-none', !gastos.enabled);
+      pc.querySelectorAll('[data-pc-item]').forEach(function (chk) {
+        var it = (gastos.items || []).filter(function (x) { return x.key === chk.getAttribute('data-pc-item'); })[0];
+        chk.checked = !!it;
+        var det = pc.querySelector('[data-pc-detail="' + chk.getAttribute('data-pc-item') + '"]');
+        if (det) {
+          det.classList.toggle('d-none', !it);
+          if (it) {
+            var nota = det.querySelector('input[name^="promoter_cost_note_"]');
+            if (nota) nota.value = it.note || '';
+            var quien = det.querySelector('input[name^="promoter_cost_managed_"][value="' + (it.managed_by || 'PROMOTER') + '"]');
+            if (quien) quien.checked = true;
+            var max = det.querySelector('input[name^="promoter_cost_max_"]');
+            if (max) max.value = (it.max_amount == null ? '' : it.max_amount);
+          }
+        }
+      });
+    }
     modal.querySelector('#pwFee').value = d.fee_text || '';
     modal.querySelector('#pwDescription').value = d.description || '';
     show(1);

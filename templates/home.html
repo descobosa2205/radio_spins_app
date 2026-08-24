@@ -499,10 +499,33 @@ document.addEventListener('click', function (ev) {
           </span>
           <span class="ms-auto d-flex align-items-center gap-2 ctask__actions">
             <span class="badge {{ p.status_class }}">{{ p.status_label }}</span>
-            <button class="btn btn-sm btn-outline-secondary" type="button"
-                    data-peticion-edit data-peticion-payload="{{ p.edit|tojson|forceescape }}"
-                    title="Editar la petición"><i class="fa fa-edit"></i></button>
-            {% if p.url %}<a class="btn btn-sm btn-outline-secondary" href="{{ p.url }}" title="Ver la bandeja"><i class="fa fa-arrow-right"></i></a>{% endif %}
+            {# LOS TRES PUNTITOS: editar (el mismo asistente con el que se creó) y eliminar. #}
+            <div class="dropdown">
+              <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" title="Más">
+                <i class="fa fa-ellipsis"></i>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li>
+                  <button class="dropdown-item" type="button" data-peticion-edit
+                          data-peticion-payload="{{ p.edit|tojson|forceescape }}">
+                    <i class="fa fa-edit fa-fw me-1"></i>Editar la petición
+                  </button>
+                </li>
+                {% if p.url %}
+                <li><a class="dropdown-item" href="{{ p.url }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Ver la bandeja</a></li>
+                {% endif %}
+                <li><hr class="dropdown-divider"></li>
+                <li>
+                  <form method="post" action="{{ url_for('booking_request_delete', rid=p.id) }}">
+                    <input type="hidden" name="next" value="{{ request.full_path }}">
+                    <button class="dropdown-item text-danger"
+                            data-confirm="¿Eliminar esta petición? No se puede deshacer.">
+                      <i class="fa fa-trash fa-fw me-1"></i>Eliminar
+                    </button>
+                  </form>
+                </li>
+              </ul>
+            </div>
           </span>
         </div>
         <div class="ctask__tasks">

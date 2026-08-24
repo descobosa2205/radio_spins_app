@@ -1396,6 +1396,23 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   hecho esa persona, con su estado, para seguirlas sin buscarlas — y con el botón de editarlas. No
   depende de ningún permiso de sección (son suyas); las resueltas hace más de 120 días no se listan.
 
+- **PETICIONES · tres puntitos, con caché y quién cubre los gastos** (ago 2026):
+  · **Tres puntitos** (editar con el MISMO asistente con el que se creó · eliminar) en la **ficha** de
+  la petición —a la derecha de su barra de botones— y en el módulo **«Mis peticiones»** de Inicio. La
+  ficha incluye ya el asistente (`_peticion_wizard_modal.html`), así que se edita sin salir; por eso
+  la vista le pasa también `artists`. Borrar es de **quien la hizo**, de quien gestiona su bandeja o
+  de dirección (lo comprueba `booking_request_delete`).
+  · **«Con caché» / «Sin caché» son TARJETAS con icono** (no un interruptor). Con caché salen el
+  importe y, debajo, **«¿Cubren gastos?»**: el MISMO módulo que en el asistente de actividad, ahora en
+  un parcial reutilizable **`templates/_promoter_costs_module.html`** (mismos nombres de campo, así
+  que lo lee el mismo `_parse_promoter_costs_form`). Se guarda en `payload['promoter_costs']`, se ve
+  en la ficha («Cubren gastos: Hoteles (3 dobles) · Viáticos») y se **restaura al editar**.
+  ⚠️ El módulo va marcado con **`data-pc-module`** y **sin ids**: su motor (en `scripts.js`) trabaja
+  por delegación dentro de su propio módulo, porque en **Inicio conviven** el asistente de actividad
+  —que trae su propia copia con ids— y el de peticiones, y con ids se pisarían.
+  ⚠️ Sin caché no se pregunta y **se limpia** lo que hubiera: una petición sin caché no puede
+  arrastrar unos gastos cubiertos de antes.
+
 - **MIS PETICIONES · el rechazo se comunica EN LA PROPIA FILA** (ago 2026): el módulo de Inicio
   `HOME_MY_PETICIONES` (`_home_my_peticiones`) se lee como el de **Tareas pendientes** (foto del
   artista con `artist_avatar`, `.ctask__head`/`.ctask__facts`/`.ctask__tasks`) y una petición

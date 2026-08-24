@@ -26,16 +26,40 @@
 </div>
 
 {# ---------- Los botones, justo debajo de la cabecera ---------- #}
-{% if is_open %}
 <div class="ficha-quick mb-3">
-  <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#peticionAcceptModal">
-    <i class="fa fa-circle-check me-1"></i>Aceptar petición
-  </button>
-  <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#peticionCloseModal">
-    <i class="fa fa-circle-xmark me-1"></i>Cerrar petición
-  </button>
+  {% if is_open %}
+    <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#peticionAcceptModal">
+      <i class="fa fa-circle-check me-1"></i>Aceptar petición
+    </button>
+    <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#peticionCloseModal">
+      <i class="fa fa-circle-xmark me-1"></i>Cerrar petición
+    </button>
+  {% endif %}
+  {# LOS TRES PUNTITOS: editar (el MISMO asistente con el que se creó) y eliminar. #}
+  <div class="dropdown ms-auto">
+    <button class="btn btn-outline-secondary" type="button" data-bs-toggle="dropdown" title="Más">
+      <i class="fa fa-ellipsis"></i>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-end">
+      <li>
+        <button class="dropdown-item" type="button" data-peticion-edit
+                data-peticion-payload="{{ edit_payload|tojson|forceescape }}">
+          <i class="fa fa-edit fa-fw me-1"></i>Editar la petición
+        </button>
+      </li>
+      <li><hr class="dropdown-divider"></li>
+      <li>
+        <form method="post" action="{{ url_for('booking_request_delete', rid=row.id) }}">
+          <input type="hidden" name="next" value="{{ back_url }}">
+          <button class="dropdown-item text-danger"
+                  data-confirm="¿Eliminar esta petición? No se puede deshacer.">
+            <i class="fa fa-trash fa-fw me-1"></i>Eliminar
+          </button>
+        </form>
+      </li>
+    </ul>
+  </div>
 </div>
-{% endif %}
 
 {# Cerrada y sin comunicar: la petición NO está terminada hasta que quien la hizo lo diga. #}
 {% if rejection_pending %}
@@ -178,5 +202,7 @@
   </div>
 </div>
 {% endif %}
+
+{% include '_peticion_wizard_modal.html' %}
 
 {% endblock %}

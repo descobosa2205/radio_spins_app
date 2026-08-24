@@ -29833,6 +29833,13 @@ def booking_request_delete(rid):
     try:
         r = s.get(BookingRequest, to_uuid(rid))
         if r:
+            # La borra QUIEN LA HIZO (desde «Mis peticiones»), quien gestiona su bandeja o dirección.
+            estado = _current_user_state() or {}
+            propia = str(r.created_by_user_id or "") == str(estado.get("user_id") or "")
+            gestiona = any(_booking_in_department(r, d) for d in _current_user_peticion_departments())
+            if not (propia or gestiona or is_master()):
+                flash("Esa petición no es tuya ni de tu departamento.", "warning")
+                return redirect(request.form.get("next") or url_for("home"))
             s.delete(r)
             s.commit()
             flash("Petición eliminada.", "success")
@@ -29943,6 +29950,13 @@ def _booking_request_detail(session_db, r) -> dict:
         ("Importe orientativo", (r.fee_text or "").strip(), "fa-euro-sign"),
         ("¿Cómo llegó?", dict(BOOKING_SOURCE_CHOICES).get((r.source or "").upper(), (r.source or "")), "fa-inbox"),
     ]
+    # Lo que cubre quien lo pide (si se dijo al pedirlo).
+    _gastos = (pay.get("promoter_costs") or {})
+    if _gastos.get("items"):
+        campos.append(("Cubren gastos", " · ".join(
+            "%s%s" % (it.get("label") or it.get("key"),
+                      (" (%s)" % it.get("note")) if (it.get("note") or "").strip() else "")
+            for it in _gastos["items"]), "fa-hand-holding-heart"))
     return {
         "row": r,
         "status_label": label,
@@ -29958,6 +29972,8 @@ def _booking_request_detail(session_db, r) -> dict:
         # Cerrada y todavía sin comunicar a quien la pidió: la petición no está terminada.
         "rejection_pending": bool((r.status or "").upper() == "DESCARTADA"
                                   and not r.rejection_notified_at),
+        # Lo que necesita el asistente para EDITARLA desde los tres puntitos de la ficha.
+        "edit_payload": _peticion_edit_payload(session_db, r),
         "artist": r.artist,
         "venue": venue,
         "promoter": promoter,
@@ -29989,6 +30005,10 @@ def booking_request_detail_view(rid):
             "peticion_detail.html",
             **_booking_request_detail(session_db, r),
             activity_choices=QUAD_ACTIVITY_CHOICES,
+            # El asistente de peticiones se incluye aquí (los tres puntitos la EDITAN con el mismo
+            # con el que se creó) y necesita la lista de artistas.
+            artists=(session_db.query(Artist).filter(Artist.event_id.is_(None))
+                     .order_by(Artist.name.asc()).all()),
             back_url=safe_next_or(url_for("contracting_view", section="peticiones")),
         )
     finally:
@@ -30393,6 +30413,7 @@ def _peticion_edit_payload(session_db, r) -> dict:
         "requester_email": (r.contact_email or ""),
         "requester_phone": (r.contact_phone or ""),
         "no_cache": bool(pay.get("no_cache")),
+        "promoter_costs": (pay.get("promoter_costs") or {"enabled": False, "items": []}),
         "fee_text": (r.fee_text or ""),
         "description": (pay.get("description") or r.notes or ""),
     }
@@ -30468,10 +30489,16 @@ def _peticion_apply_form(session_db, r, f, *, editing: bool = False) -> str:
         subject = " · ".join([p for p in parts if p])
     r.subject = subject or "Petición"
 
+    # ¿CUBREN GASTOS? El mismo módulo que en el asistente de actividad (mismos nombres de campo, así
+    # que lo lee el mismo parser). Sin caché no se pregunta, y por tanto no se guarda.
+    gastos = ({"enabled": False, "items": []} if no_cache
+              else _parse_promoter_costs_form(f) if hasattr(f, "getlist")
+              else {"enabled": False, "items": []})
     pay.update({
         "activity_type": activity_type,
         "country": country,
         "no_cache": no_cache,
+        "promoter_costs": gastos,
         "departments": _peticion_departments(activity_type, no_cache, explicit_dept),
         "place_kind": place_kind,
         "requester_type": req_type,

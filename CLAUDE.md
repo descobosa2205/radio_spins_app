@@ -2194,9 +2194,14 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   trabaja ticketing.
   ⚠️ **TODAS LAS PANTALLAS DE INICIO SE LEEN IGUAL** (ago 2026), dirección aparte: **cabecera** ·
   **avisos** (la franja global) · **botones rápidos** · **calendario** · **sus tareas pendientes** (las
-  de su departamento o las que le han asignado) y, al final y fuera de cualquier compuerta, **lo
-  SUYO**: «Mis peticiones» y «Mis invitaciones solicitadas», que son de la persona y no de una
-  función. Quien tiene dos departamentos ve los módulos de los dos.
+  de su departamento o las que le han asignado) y, al final y **FUERA de cualquier compuerta**, **lo
+  SUYO**, que es de la PERSONA y no de una función y **se ve siempre que haya algo pendiente**:
+  «Activar la producción» (lo que ha creado y no tiene a nadie) · «Mis gastos» · los carteles que le
+  han rechazado · «Mis vacaciones» · «Mis peticiones» · «Mis invitaciones solicitadas».
+  Quien tiene dos departamentos ve los módulos de los dos.
+  ⚠️ Un módulo NUEVO que sea **de la persona** va en ese bloque final (fuera de la compuerta); si es
+  de un departamento, dentro. Lo que quede dentro no lo ve quien es solo de ticketing o de
+  contratación.
   ⚠️ **En PRODUCCIÓN son las ASIGNADAS, no las del departamento** (`_home_produccion_pending`,
   corregido): las actividades donde es el **responsable de producción** más las de **sus artistas**.
   Antes, quien no tenía artistas asignados veía **TODAS**, así que el módulo era el trabajo de otros.

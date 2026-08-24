@@ -214,37 +214,6 @@ document.addEventListener('click', function (ev) {
    contratación, va ARRIBA (con el suyo). #}
 {% if not HOME_TICKETING_ONLY and not HOME_CONTRATACION_ONLY %}
 
-{# ACTIVAR LA PRODUCCIÓN de las actividades que ha creado esta persona: mientras no digan quién de
-   producción se encarga, nadie las está produciendo. #}
-{% if HOME_PRODUCTION_ACTIVATION %}
-<div class="card mb-4 border-danger">
-  <div class="card-body">
-    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-      <div>
-        <h5 class="mb-0"><i class="fa fa-user-gear text-danger me-2"></i>Activar la producción</h5>
-        <div class="text-muted small">Actividades tuyas que todavía no tienen a nadie de producción.</div>
-      </div>
-      <span class="badge text-bg-danger">{{ HOME_PRODUCTION_ACTIVATION|length }}</span>
-    </div>
-    <div class="list-group list-group-flush">
-      {% for a in HOME_PRODUCTION_ACTIVATION %}
-        <a href="{{ a.url }}" class="oa-row text-decoration-none text-reset">
-          <span class="oa-row__icon" title="{{ a.type_label }}"><i class="fa {{ a.icon }}"></i></span>
-          <span class="oa-row__body">
-            <span class="oa-row__top">
-              <span class="oa-row__title">{{ a.title }}</span>
-              {% if a.municipality %}<span class="oa-row__sep">·</span><span class="oa-row__place">{{ a.municipality }}</span>{% endif %}
-            </span>
-            <span class="oa-row__sub">{{ a.date_label }}{% if a.venue %} · {{ a.venue }}{% endif %}</span>
-          </span>
-          <span class="badge text-bg-danger">{{ a.action_label }}</span>
-        </a>
-      {% endfor %}
-    </div>
-  </div>
-</div>
-{% endif %}
-
 {# REGISTROS · proyectos discográficos ya cerrados: hay que cumplimentar los datos y subir los
    materiales que falten. Se van solos al marcarlos como completos. #}
 {% if HOME_PROJECT_REGISTROS %}
@@ -333,32 +302,6 @@ document.addEventListener('click', function (ev) {
             <div class="small text-muted">{{ r.range_label }} · {{ r.days_count }} día{{ '' if r.days_count == 1 else 's' }}</div>
           </div>
         </a>
-      {% endfor %}
-    </div>
-  </div>
-</div>
-{% endif %}
-
-{# MIS VACACIONES: solo cuando hay algo que decir (días pedidos o vacaciones a la vuelta de la esquina). #}
-{% if HOME_MY_VACATIONS and HOME_MY_VACATIONS.balance and (HOME_MY_VACATIONS.pending or HOME_MY_VACATIONS.next) %}
-<div class="card mb-4">
-  <div class="card-body">
-    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-      <h5 class="mb-0"><i class="fa fa-umbrella-beach text-danger me-2"></i>Mis vacaciones</h5>
-      <a href="{{ HOME_MY_VACATIONS.url }}" class="btn btn-sm btn-outline-secondary">Ver mis días</a>
-    </div>
-    <div class="d-flex flex-wrap gap-4 align-items-center">
-      <div>
-        <div class="fs-3 fw-bold lh-1">{{ HOME_MY_VACATIONS.balance.remaining }}</div>
-        <div class="small text-muted">Días disponibles</div>
-      </div>
-      {% for r in HOME_MY_VACATIONS.pending %}
-        <div><span class="badge text-bg-warning text-dark"><i class="fa fa-hourglass-half me-1"></i>Pendiente de aprobar</span>
-          <div class="small text-muted mt-1">{{ r.range_label }}</div></div>
-      {% endfor %}
-      {% for r in HOME_MY_VACATIONS.next %}
-        <div><span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Aprobadas</span>
-          <div class="small text-muted mt-1">{{ r.range_label }}</div></div>
       {% endfor %}
     </div>
   </div>
@@ -609,81 +552,6 @@ document.addEventListener('click', function (ev) {
 </div>
 {% endif %}
 
-{# Carteles subidos a mano que diseño ha RECHAZADO: hay que volver a subirlos con los cambios. #}
-{% if HOME_ARTWORK_REJECTED %}
-<div class="card mb-4 border-danger">
-  <div class="card-body">
-    <h5 class="mb-3"><i class="fa fa-palette text-danger me-2"></i>Carteles rechazados por diseño
-      <span class="badge text-bg-danger ms-1">{{ HOME_ARTWORK_REJECTED|length }}</span></h5>
-    <div class="list-group list-group-flush">
-      {% for r in HOME_ARTWORK_REJECTED %}
-        <a class="list-group-item list-group-item-action d-flex gap-3 align-items-start" href="{{ r.url }}">
-          <i class="fa fa-triangle-exclamation text-danger mt-1"></i>
-          <div class="min-w-0">
-            <div class="fw-semibold text-truncate">{{ r.label }}{% if r.event %} <span class="text-muted fw-normal">· {{ r.event }}</span>{% endif %}</div>
-            {% if r.note %}<div class="small text-danger">{{ r.note }}</div>{% endif %}
-          </div>
-        </a>
-      {% endfor %}
-    </div>
-  </div>
-</div>
-{% endif %}
-
-{# El módulo se ve SIEMPRE (aunque no haya nada pendiente), para saber que existe la sección. #}
-{% if HOME_MY_EXPENSES and HOME_MY_EXPENSES.visible %}
-<div class="card mb-4 {{ 'border-danger' if HOME_MY_EXPENSES.overdue else ('border-warning' if HOME_MY_EXPENSES.total else '') }}">
-  <div class="card-body">
-    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 {{ 'mb-3' if HOME_MY_EXPENSES.total else 'mb-0' }}">
-      <div>
-        <h5 class="mb-0"><i class="fa fa-receipt {{ 'text-danger' if HOME_MY_EXPENSES.overdue else ('text-warning' if HOME_MY_EXPENSES.total else 'text-success') }} me-2"></i>Mis gastos{% if HOME_MY_EXPENSES.total %} sin asignar{% endif %}</h5>
-        <div class="small text-muted">Facturas que te han enviado y gastos de Pleo que todavía no están en una bolsa.</div>
-      </div>
-      <div class="d-flex align-items-center gap-2">
-        {% if HOME_MY_EXPENSES.total %}
-          <span class="badge {{ 'text-bg-danger' if HOME_MY_EXPENSES.overdue else 'text-bg-warning text-dark' }}">{{ HOME_MY_EXPENSES.total }}</span>
-          <a class="btn btn-sm btn-danger" href="{{ url_for('my_expenses_assign') }}"><i class="fa fa-arrows-turn-right me-1"></i>Asignar</a>
-        {% else %}
-          <span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Sin gastos pendientes de asignar</span>
-          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('my_expenses_view') }}"><i class="fa fa-receipt me-1"></i>Ver mis gastos</a>
-        {% endif %}
-      </div>
-    </div>
-    {% if HOME_MY_EXPENSES.deadline_paused %}
-      <div class="alert alert-secondary small py-2"><i class="fa fa-circle-pause me-1"></i>{{ HOME_MY_EXPENSES.deadline_paused_label }}: no corre la cuenta atrás para asignarlos.</div>
-    {% elif HOME_MY_EXPENSES.overdue %}
-      <div class="alert alert-danger small py-2"><i class="fa fa-triangle-exclamation me-1"></i>Tienes <strong>{{ HOME_MY_EXPENSES.overdue }}</strong> gasto{{ '' if HOME_MY_EXPENSES.overdue == 1 else 's' }} fuera de plazo. Asígnalos a su bolsa cuanto antes.</div>
-    {% endif %}
-    <div class="d-grid gap-2 {{ 'd-none' if not HOME_MY_EXPENSES.total }}">
-      {% for e in HOME_MY_EXPENSES.rows %}
-        <a href="{{ url_for('my_expenses_assign') }}" class="text-decoration-none text-reset">
-          <div class="d-flex align-items-center gap-2 border rounded p-2 flex-wrap">
-            <span class="d-inline-flex align-items-center justify-content-center flex-shrink-0" style="width:34px;height:34px;border-radius:9px;background:rgba(227,61,72,.10);color:#E33D48;"><i class="fa {{ e.source_icon }} small"></i></span>
-            <div class="flex-grow-1 min-w-0">
-              <div class="fw-semibold small text-truncate">{{ e.concept }}</div>
-              <div class="small text-muted text-truncate">{{ e.source_label }}{% if e.provider_name %} · {{ e.provider_name }}{% endif %}{% if e.date_label %} · {{ e.date_label }}{% endif %}</div>
-            </div>
-            <span class="fw-semibold small">{{ e.amount_gross|eur }}</span>
-            {% if e.status == 'IN_BAG' %}
-              <span class="badge text-bg-info">En la bolsa, sin tipificar</span>
-            {% elif e.deadline_paused %}
-              <span class="badge text-bg-secondary" title="Mientras esté parado no corre el plazo"><i class="fa fa-circle-pause me-1"></i>Plazo parado</span>
-            {% elif e.overdue %}
-              <span class="badge text-bg-danger">Fuera de plazo</span>
-            {% else %}
-              <span class="badge text-bg-warning text-dark">{{ e.days_left }} día{{ '' if e.days_left == 1 else 's' }}</span>
-            {% endif %}
-          </div>
-        </a>
-      {% endfor %}
-    </div>
-    {% if HOME_MY_EXPENSES.total > HOME_MY_EXPENSES.rows|length %}
-      <div class="text-end mt-2"><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('my_expenses_view') }}">Ver todos</a></div>
-    {% endif %}
-  </div>
-</div>
-{% endif %}
-
 {% if HOME_REGISTROS_PENDING %}
 <div class="card mb-4 border-warning">
   <div class="card-body">
@@ -749,7 +617,141 @@ document.addEventListener('click', function (ev) {
 {% endif %}{# /compuerta de departamento #}
 
 {# ---------- LO SUYO (fuera de la compuerta): lo ve TODO EL MUNDO, sea del departamento que sea ----------
-   Sus peticiones y sus invitaciones pedidas son de la persona, no de una función. #}
+   Lo que es de la PERSONA y no de una función: sus gastos, sus vacaciones, lo que ha creado y está
+   sin producción, los carteles que le han rechazado, sus peticiones y sus invitaciones pedidas.
+   Cada uno solo sale CUANDO HAY ALGO pendiente. #}
+{# ACTIVAR LA PRODUCCIÓN de las actividades que ha creado esta persona: mientras no digan quién de
+   producción se encarga, nadie las está produciendo. #}
+{% if HOME_PRODUCTION_ACTIVATION %}
+<div class="card mb-4 border-danger">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <div>
+        <h5 class="mb-0"><i class="fa fa-user-gear text-danger me-2"></i>Activar la producción</h5>
+        <div class="text-muted small">Actividades tuyas que todavía no tienen a nadie de producción.</div>
+      </div>
+      <span class="badge text-bg-danger">{{ HOME_PRODUCTION_ACTIVATION|length }}</span>
+    </div>
+    <div class="list-group list-group-flush">
+      {% for a in HOME_PRODUCTION_ACTIVATION %}
+        <a href="{{ a.url }}" class="oa-row text-decoration-none text-reset">
+          <span class="oa-row__icon" title="{{ a.type_label }}"><i class="fa {{ a.icon }}"></i></span>
+          <span class="oa-row__body">
+            <span class="oa-row__top">
+              <span class="oa-row__title">{{ a.title }}</span>
+              {% if a.municipality %}<span class="oa-row__sep">·</span><span class="oa-row__place">{{ a.municipality }}</span>{% endif %}
+            </span>
+            <span class="oa-row__sub">{{ a.date_label }}{% if a.venue %} · {{ a.venue }}{% endif %}</span>
+          </span>
+          <span class="badge text-bg-danger">{{ a.action_label }}</span>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# El módulo se ve SIEMPRE (aunque no haya nada pendiente), para saber que existe la sección. #}
+{% if HOME_MY_EXPENSES and HOME_MY_EXPENSES.visible %}
+<div class="card mb-4 {{ 'border-danger' if HOME_MY_EXPENSES.overdue else ('border-warning' if HOME_MY_EXPENSES.total else '') }}">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 {{ 'mb-3' if HOME_MY_EXPENSES.total else 'mb-0' }}">
+      <div>
+        <h5 class="mb-0"><i class="fa fa-receipt {{ 'text-danger' if HOME_MY_EXPENSES.overdue else ('text-warning' if HOME_MY_EXPENSES.total else 'text-success') }} me-2"></i>Mis gastos{% if HOME_MY_EXPENSES.total %} sin asignar{% endif %}</h5>
+        <div class="small text-muted">Facturas que te han enviado y gastos de Pleo que todavía no están en una bolsa.</div>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        {% if HOME_MY_EXPENSES.total %}
+          <span class="badge {{ 'text-bg-danger' if HOME_MY_EXPENSES.overdue else 'text-bg-warning text-dark' }}">{{ HOME_MY_EXPENSES.total }}</span>
+          <a class="btn btn-sm btn-danger" href="{{ url_for('my_expenses_assign') }}"><i class="fa fa-arrows-turn-right me-1"></i>Asignar</a>
+        {% else %}
+          <span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Sin gastos pendientes de asignar</span>
+          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('my_expenses_view') }}"><i class="fa fa-receipt me-1"></i>Ver mis gastos</a>
+        {% endif %}
+      </div>
+    </div>
+    {% if HOME_MY_EXPENSES.deadline_paused %}
+      <div class="alert alert-secondary small py-2"><i class="fa fa-circle-pause me-1"></i>{{ HOME_MY_EXPENSES.deadline_paused_label }}: no corre la cuenta atrás para asignarlos.</div>
+    {% elif HOME_MY_EXPENSES.overdue %}
+      <div class="alert alert-danger small py-2"><i class="fa fa-triangle-exclamation me-1"></i>Tienes <strong>{{ HOME_MY_EXPENSES.overdue }}</strong> gasto{{ '' if HOME_MY_EXPENSES.overdue == 1 else 's' }} fuera de plazo. Asígnalos a su bolsa cuanto antes.</div>
+    {% endif %}
+    <div class="d-grid gap-2 {{ 'd-none' if not HOME_MY_EXPENSES.total }}">
+      {% for e in HOME_MY_EXPENSES.rows %}
+        <a href="{{ url_for('my_expenses_assign') }}" class="text-decoration-none text-reset">
+          <div class="d-flex align-items-center gap-2 border rounded p-2 flex-wrap">
+            <span class="d-inline-flex align-items-center justify-content-center flex-shrink-0" style="width:34px;height:34px;border-radius:9px;background:rgba(227,61,72,.10);color:#E33D48;"><i class="fa {{ e.source_icon }} small"></i></span>
+            <div class="flex-grow-1 min-w-0">
+              <div class="fw-semibold small text-truncate">{{ e.concept }}</div>
+              <div class="small text-muted text-truncate">{{ e.source_label }}{% if e.provider_name %} · {{ e.provider_name }}{% endif %}{% if e.date_label %} · {{ e.date_label }}{% endif %}</div>
+            </div>
+            <span class="fw-semibold small">{{ e.amount_gross|eur }}</span>
+            {% if e.status == 'IN_BAG' %}
+              <span class="badge text-bg-info">En la bolsa, sin tipificar</span>
+            {% elif e.deadline_paused %}
+              <span class="badge text-bg-secondary" title="Mientras esté parado no corre el plazo"><i class="fa fa-circle-pause me-1"></i>Plazo parado</span>
+            {% elif e.overdue %}
+              <span class="badge text-bg-danger">Fuera de plazo</span>
+            {% else %}
+              <span class="badge text-bg-warning text-dark">{{ e.days_left }} día{{ '' if e.days_left == 1 else 's' }}</span>
+            {% endif %}
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+    {% if HOME_MY_EXPENSES.total > HOME_MY_EXPENSES.rows|length %}
+      <div class="text-end mt-2"><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('my_expenses_view') }}">Ver todos</a></div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{# Carteles subidos a mano que diseño ha RECHAZADO: hay que volver a subirlos con los cambios. #}
+{% if HOME_ARTWORK_REJECTED %}
+<div class="card mb-4 border-danger">
+  <div class="card-body">
+    <h5 class="mb-3"><i class="fa fa-palette text-danger me-2"></i>Carteles rechazados por diseño
+      <span class="badge text-bg-danger ms-1">{{ HOME_ARTWORK_REJECTED|length }}</span></h5>
+    <div class="list-group list-group-flush">
+      {% for r in HOME_ARTWORK_REJECTED %}
+        <a class="list-group-item list-group-item-action d-flex gap-3 align-items-start" href="{{ r.url }}">
+          <i class="fa fa-triangle-exclamation text-danger mt-1"></i>
+          <div class="min-w-0">
+            <div class="fw-semibold text-truncate">{{ r.label }}{% if r.event %} <span class="text-muted fw-normal">· {{ r.event }}</span>{% endif %}</div>
+            {% if r.note %}<div class="small text-danger">{{ r.note }}</div>{% endif %}
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# MIS VACACIONES: solo cuando hay algo que decir (días pedidos o vacaciones a la vuelta de la esquina). #}
+{% if HOME_MY_VACATIONS and HOME_MY_VACATIONS.balance and (HOME_MY_VACATIONS.pending or HOME_MY_VACATIONS.next) %}
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <h5 class="mb-0"><i class="fa fa-umbrella-beach text-danger me-2"></i>Mis vacaciones</h5>
+      <a href="{{ HOME_MY_VACATIONS.url }}" class="btn btn-sm btn-outline-secondary">Ver mis días</a>
+    </div>
+    <div class="d-flex flex-wrap gap-4 align-items-center">
+      <div>
+        <div class="fs-3 fw-bold lh-1">{{ HOME_MY_VACATIONS.balance.remaining }}</div>
+        <div class="small text-muted">Días disponibles</div>
+      </div>
+      {% for r in HOME_MY_VACATIONS.pending %}
+        <div><span class="badge text-bg-warning text-dark"><i class="fa fa-hourglass-half me-1"></i>Pendiente de aprobar</span>
+          <div class="small text-muted mt-1">{{ r.range_label }}</div></div>
+      {% endfor %}
+      {% for r in HOME_MY_VACATIONS.next %}
+        <div><span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Aprobadas</span>
+          <div class="small text-muted mt-1">{{ r.range_label }}</div></div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {# MIS PETICIONES: las que ha hecho esta persona, para seguir cómo evolucionan. Se lee como el
    módulo de TAREAS PENDIENTES (foto del artista, datos con iconos y etiquetas debajo).
    ⚠️ Una petición RECHAZADA sale aquí mismo como «pendiente de comunicar», con sus dos botones: NO

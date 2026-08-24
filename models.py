@@ -4821,6 +4821,10 @@ class BookingRequest(Base):
     # Concierto creado al convertir la petición (si la aceptamos).
     concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="SET NULL"))
     rejection_reason = Column(Text)
+    # Cerrar una petición no la termina: hay que DECÍRSELO a quien la hizo. Mientras esto esté vacío,
+    # a esa persona le sale la tarea «notificar el rechazo»; al marcarlo, la petición se acaba.
+    rejection_notified_at = Column(DateTime(timezone=True))
+    rejection_notified_by_nick = Column(Text)
     payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     received_at = Column(DateTime(timezone=True), server_default=func.now())
     created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
@@ -9250,6 +9254,10 @@ def ensure_activities_grouping_schema():
         "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS cycle_festival_id uuid REFERENCES cycle_festivals(id) ON DELETE SET NULL;",
         "CREATE INDEX IF NOT EXISTS idx_concerts_purchased_tour ON concerts(purchased_tour_id);",
         "CREATE INDEX IF NOT EXISTS idx_concerts_cycle_festival ON concerts(cycle_festival_id);",
+        # Cerrar una petición no la termina: hay que DECÍRSELO a quien la hizo (ver
+        # `BookingRequest.rejection_notified_at`): mientras no se marque, le queda la tarea.
+        "ALTER TABLE booking_requests ADD COLUMN IF NOT EXISTS rejection_notified_at timestamptz;",
+        "ALTER TABLE booking_requests ADD COLUMN IF NOT EXISTS rejection_notified_by_nick text;",
     ]
     _exec_ddl_statements(stmts, "activities_grouping")
 

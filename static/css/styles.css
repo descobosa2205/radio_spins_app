@@ -4786,3 +4786,6 @@ button.promo-pick{ border:0; background:transparent; padding:0; font:inherit; te
 .pw-picked__x{ margin-left:auto; border:0; background:transparent; color:#9aa2ad; font-size:1.1rem;
   line-height:1; }
 .pw-picked__x:hover{ color:#dc3545; }
+
+/* La tarjeta que ya venía marcada en la petición (lo que se pidió). */
+.promo-pick__box.is-suggested{ border-color:var(--brand-primary,#E33D48); }

@@ -29826,6 +29826,62 @@ def booking_request_delete(rid):
     return redirect(request.form.get("next") or url_for("contracting_view", section="peticiones"))
 
 
+def _peticion_requester_chip(session_db, r) -> dict | None:
+    """QUIÉN HACE LA PETICIÓN, con su FOTO o su LOGO: en la ficha se ve como en el asistente.
+
+    El que pide puede ser de varios tipos (`payload['requester_type']`): un tercero, una empresa, una
+    institución, un artista, un medio, un recinto o alguien de la oficina. Cada uno tiene su imagen en
+    su sitio, así que se resuelve aquí y no en la plantilla."""
+    pay = r.payload if isinstance(r.payload, dict) else {}
+    tipo = (pay.get("requester_type") or "").strip().lower()
+    rid = (pay.get("requester_id") or "").strip()
+    nombre = (pay.get("requester_name") or r.contact_name or "").strip()
+    etiquetas = {"promoter": "Tercero", "empresa": "Empresa", "institucion": "Institución",
+                 "artist": "Artista", "media": "Medio", "venue": "Recinto", "personal": "Oficina"}
+    logo, icono = "", "fa-user"
+    fila = None
+    try:
+        pk = to_uuid(rid) if rid else None
+    except Exception:
+        pk = None
+    try:
+        if tipo in ("promoter", "empresa", "institucion"):
+            fila = (session_db.get(Promoter, pk) if pk else None) or \
+                (session_db.get(Promoter, r.promoter_id) if r.promoter_id else None)
+            logo = (getattr(fila, "logo_url", "") or "")
+            icono = "fa-building" if tipo in ("empresa", "institucion") else "fa-user"
+        elif tipo == "artist" and pk:
+            fila = session_db.get(Artist, pk)
+            logo = (getattr(fila, "photo_url", "") or "")
+            icono = "fa-guitar"
+        elif tipo == "media" and pk:
+            fila = session_db.get(MediaOutlet, pk)
+            logo = (getattr(fila, "logo_url", "") or "")
+            icono = "fa-newspaper"
+        elif tipo == "venue" and pk:
+            fila = session_db.get(Venue, pk)
+            logo = (getattr(fila, "photo_url", "") or "")
+            icono = "fa-location-dot"
+        elif tipo == "personal" and pk:
+            fila = (session_db.query(UserProfile)
+                    .filter(UserProfile.user_id == pk).first())
+            logo = (getattr(fila, "photo_url", "") or "")
+            icono = "fa-user-tie"
+        elif r.promoter_id:                     # peticiones antiguas: solo quedó el tercero
+            fila = session_db.get(Promoter, r.promoter_id)
+            logo = (getattr(fila, "logo_url", "") or "")
+            tipo = tipo or "promoter"
+    except Exception:
+        app.logger.exception("[peticiones] no se pudo resolver quién la pide")
+    if fila is not None and not nombre:
+        nombre = (getattr(fila, "name", None) or getattr(fila, "nick", None) or "").strip()
+    if not nombre:
+        return None
+    contacto = " · ".join([x for x in [(r.contact_email or ""), (r.contact_phone or "")] if x])
+    return {"name": nombre, "logo_url": logo, "icon": icono,
+            "kind_label": etiquetas.get(tipo, "Quién lo pide"), "contact": contacto}
+
+
 def _booking_request_detail(session_db, r) -> dict:
     """Todo lo que se sabe de una petición, para su ficha: datos, quién la pide, contexto y
     los departamentos a los que va."""
@@ -29853,8 +29909,6 @@ def _booking_request_detail(session_db, r) -> dict:
         ("Lugar", lugar, "fa-location-dot"),
         ("Importe orientativo", (r.fee_text or "").strip(), "fa-euro-sign"),
         ("¿Cómo llegó?", dict(BOOKING_SOURCE_CHOICES).get((r.source or "").upper(), (r.source or "")), "fa-inbox"),
-        ("Quién lo pide", " · ".join([x for x in [(r.contact_name or ""), (r.contact_email or ""), (r.contact_phone or "")] if x]), "fa-user"),
-        ("Tercero", (promoter.nick if promoter else ""), "fa-user-tie"),
     ]
     return {
         "row": r,
@@ -29866,6 +29920,11 @@ def _booking_request_detail(session_db, r) -> dict:
         "activity_label": QUAD_ACTIVITY_LABELS.get(act_type, "Actividad"),
         "no_cache": bool(pay.get("no_cache")),
         "fields": [{"label": l, "value": v, "icon": i} for l, v, i in campos if (v or "").strip()],
+        # QUIÉN LO PIDE va aparte: se enseña con su foto o su logo, no como una línea de texto.
+        "requester": _peticion_requester_chip(session_db, r),
+        # Cerrada y todavía sin comunicar a quien la pidió: la petición no está terminada.
+        "rejection_pending": bool((r.status or "").upper() == "DESCARTADA"
+                                  and not r.rejection_notified_at),
         "artist": r.artist,
         "venue": venue,
         "promoter": promoter,
@@ -29926,8 +29985,18 @@ def booking_request_close(rid):
         r.rejection_reason = note
         r.reviewed_by_user_id = to_uuid(st.get("user_id")) if st.get("user_id") else None
         r.reviewed_by_nick = st.get("nick") or st.get("email") or ""
+        r.rejection_notified_at = None
+        r.rejection_notified_by_nick = None
+        # ⚠️ Cerrarla NO la termina: hay que DECÍRSELO a quien la hizo. Se le avisa y le queda la
+        # tarea «notificar el rechazo» hasta que marque que ya lo ha hecho.
+        if r.created_by_user_id:
+            _notify_user(session_db, r.created_by_user_id, "TAREA",
+                         "Notifica el rechazo de una petición",
+                         "«%s» se ha cerrado: %s" % ((r.subject or "Petición"), note[:160]),
+                         url_for("booking_request_detail_view", rid=str(r.id)),
+                         ref_type="peticion_rechazo", ref_id=str(r.id))
         session_db.commit()
-        flash("Petición cerrada.", "success")
+        flash("Petición cerrada. Se ha avisado a quien la hizo para que se lo comunique.", "success")
         return redirect(next_url)
     except Exception as exc:
         session_db.rollback()
@@ -29935,6 +30004,81 @@ def booking_request_close(rid):
         return redirect(next_url)
     finally:
         session_db.close()
+
+
+@app.post("/peticiones/<rid>/rechazo-notificado", endpoint="booking_request_rejection_notified")
+@admin_required
+def booking_request_rejection_notified(rid):
+    """«Ya se lo he dicho»: la petición rechazada queda terminada y el aviso se cierra solo.
+
+    Lo marca QUIEN LA HIZO (es su tarea) o dirección."""
+    session_db = db()
+    next_url = safe_next_or(url_for("booking_request_detail_view", rid=rid))
+    try:
+        r = session_db.get(BookingRequest, to_uuid(rid))
+        if not r:
+            abort(404)
+        estado = _current_user_state() or {}
+        propia = str(r.created_by_user_id or "") == str(estado.get("user_id") or "")
+        if not (propia or is_master()):
+            flash("Esa petición no la has hecho tú.", "danger")
+            return redirect(url_for("home"))
+        r.rejection_notified_at = _now_madrid()
+        r.rejection_notified_by_nick = estado.get("nick") or estado.get("email") or ""
+        # La tarea ya está hecha: el aviso deja de esperar a nadie.
+        _notify_resolve(session_db, "peticion_rechazo", str(r.id))
+        session_db.commit()
+        flash("Anotado: ya está comunicado y la petición queda terminada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo marcar: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+def _home_peticion_rejections(limit: int = 10) -> list[dict]:
+    """TAREA: peticiones RECHAZADAS que esta persona pidió y todavía no ha comunicado.
+
+    Hasta que diga que ya lo ha dicho, la petición no está terminada."""
+    estado = _current_user_state() or {}
+    uid = estado.get("user_id")
+    if not uid:
+        return []
+    s = db()
+    try:
+        filas = (s.query(BookingRequest)
+                 .options(joinedload(BookingRequest.artist))
+                 .filter(BookingRequest.created_by_user_id == to_uuid(str(uid)))
+                 .filter(func.upper(func.coalesce(BookingRequest.status, "")) == "DESCARTADA")
+                 .filter(BookingRequest.rejection_notified_at.is_(None))
+                 .order_by(BookingRequest.updated_at.desc().nullslast(),
+                           BookingRequest.created_at.desc())
+                 .limit(limit).all())
+        salida = []
+        for r in filas:
+            pay = r.payload or {}
+            chip = _peticion_requester_chip(s, r) or {}
+            salida.append({
+                "id": str(r.id),
+                "subject": (r.subject or "Petición"),
+                "artist": (r.artist.name if r.artist else ""),
+                "reason": (r.rejection_reason or ""),
+                "who": (chip.get("name") or ""),
+                "who_logo": (chip.get("logo_url") or ""),
+                "who_icon": (chip.get("icon") or "fa-user"),
+                "contact": (chip.get("contact") or ""),
+                "icon": QUAD_ACTIVITY_ICONS.get(_activity_kind_key(pay.get("activity_type")),
+                                                "fa-calendar-day"),
+                "url": url_for("booking_request_detail_view", rid=str(r.id)),
+                "done_url": url_for("booking_request_rejection_notified", rid=str(r.id)),
+            })
+        return salida
+    except Exception:
+        app.logger.exception("[inicio] no se pudieron cargar los rechazos por comunicar")
+        return []
+    finally:
+        s.close()
 
 
 @app.post("/peticiones/<rid>/aprobar", endpoint="booking_request_approve")
@@ -55153,6 +55297,9 @@ def inject_personnel_globals():
         "HOME_PENDING_PETICIONES": _home_pending_peticiones() if request.endpoint == "home" and session.get("user_id") and "_home_pending_peticiones" in globals() else [],
         # MIS PETICIONES: las que ha hecho esta persona, para ver cómo van. Es de cada uno, así que
         # no depende de ningún permiso de sección.
+        "HOME_PETICION_REJECTIONS": (_home_peticion_rejections()
+                                     if request.endpoint == "home" and session.get("user_id")
+                                     and "_home_peticion_rejections" in globals() else []),
         "HOME_MY_PETICIONES": (_home_my_peticiones()
                                if request.endpoint == "home" and session.get("user_id")
                                and "_home_my_peticiones" in globals() else []),

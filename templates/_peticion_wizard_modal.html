@@ -156,6 +156,13 @@
           <div data-pw-date="RANGE" class="d-none row g-2"><div class="col"><label class="form-label mb-0 small">Desde</label><input type="date" class="form-control" name="range_start"></div><div class="col"><label class="form-label mb-0 small">Hasta</label><input type="date" class="form-control" name="range_end"></div></div>
           <div data-pw-date="MONTH" class="d-none"><input type="month" class="form-control" name="month"></div>
           <div data-pw-date="UNKNOWN" class="d-none"><div class="small text-muted">Se registrará como «fecha sin definir».</div></div>
+
+          {# ⚠️ Si el artista YA TIENE algo ese día se dice aquí mismo (y otra vez antes de crearla):
+             una petición para un día que el artista tiene pillado se hace a sabiendas o no se hace. #}
+          <div class="alert alert-warning mt-3 d-none" data-pw-conflict>
+            <div class="fw-semibold mb-1"><i class="fa fa-triangle-exclamation me-1"></i><span data-pw-conflict-title></span></div>
+            <div class="small" data-pw-conflict-list></div>
+          </div>
         </div>
 
         {# ── 4 · Quién pide ────────────────────────────────────────────────────────── #}
@@ -199,6 +206,20 @@
           </div>
           <label class="form-label mt-3">Descripción de la actividad</label>
           <textarea class="form-control" name="description" id="pwDescription" rows="3" placeholder="Detalles de lo que se pide…"></textarea>
+
+          {# El aviso, con las DOS opciones: hacerla igualmente o no hacerla. #}
+          <div class="alert alert-warning mt-3 d-none" data-pw-conflict-final>
+            <div class="fw-semibold mb-1"><i class="fa fa-triangle-exclamation me-1"></i><span data-pw-conflict-title></span></div>
+            <div class="small mb-2" data-pw-conflict-list></div>
+            <div class="d-flex gap-2 flex-wrap">
+              <button type="button" class="btn btn-sm btn-warning" data-pw-conflict-go>
+                <i class="fa fa-check me-1"></i>Hacer la petición igualmente
+              </button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-pw-conflict-stop>
+                <i class="fa fa-xmark me-1"></i>No hacerla
+              </button>
+            </div>
+          </div>
         </div>
 
       </div>
@@ -243,7 +264,12 @@
     }
     return true;
   }
-  nextBtn.addEventListener('click', function(){ if(validate(cur)) show(cur + 1); });
+  nextBtn.addEventListener('click', function(){
+    if(!validate(cur)) return;
+    // Al salir del paso de la fecha se comprueba si el artista tiene algo ese día.
+    if(cur === 3 && typeof miraConflictos === 'function') miraConflictos();
+    show(cur + 1);
+  });
   prevBtn.addEventListener('click', function(){ show(cur - 1); });
 
   // Paso 1: al elegir el tipo, avanzar solo.
@@ -434,6 +460,102 @@
       .catch(function(){ alert('No se pudo crear.'); });
   });
 
+  /* ---- ¿El artista tiene algo ese día? ----
+     Se pregunta al MISMO sitio que el asistente de actividad (`/api/concerts/check-artist-conflict`,
+     que mira conciertos, acciones, bloqueos y notas de agenda y otras peticiones), así que las dos
+     pantallas avisan de lo mismo. Se avisa al elegir la fecha y otra vez antes de crearla, y ahí se
+     decide: hacerla igualmente o no hacerla. */
+  var conflictos = [], conflictoAceptado = false, conflictoClave = '';
+
+  function fechaElegida(){
+    var k = (modal.querySelector('[name="date_kind"]:checked')||{}).value || 'EXACT';
+    if(k === 'EXACT') return {start: (form.querySelector('[name="requested_date"]')||{}).value || '', end: ''};
+    if(k === 'RANGE') return {start: (form.querySelector('[name="range_start"]')||{}).value || '',
+                              end: (form.querySelector('[name="range_end"]')||{}).value || ''};
+    if(k === 'MONTH'){
+      var ym = (form.querySelector('[name="month"]')||{}).value || '';
+      if(!ym) return {start:'', end:''};
+      var y = parseInt(ym.slice(0,4),10), m = parseInt(ym.slice(5,7),10);
+      var ultimo = new Date(y, m, 0).getDate();
+      return {start: ym + '-01', end: ym + '-' + String(ultimo).padStart(2,'0')};
+    }
+    return {start:'', end:''};
+  }
+
+  function pintaConflictos(){
+    var artista = (modal.querySelector('#pwArtist')||{}).value || '';
+    var hay = conflictos.length > 0;
+    var titulo = hay
+      ? ('Ese día el artista ya tiene ' + conflictos.length + (conflictos.length === 1 ? ' cosa:' : ' cosas:'))
+      : '';
+    var lista = conflictos.map(function(c){ return esc(c.summary || c.kind || 'Evento'); }).join('<br>');
+    modal.querySelectorAll('[data-pw-conflict], [data-pw-conflict-final]').forEach(function(caja){
+      caja.classList.toggle('d-none', !hay);
+      var t = caja.querySelector('[data-pw-conflict-title]'); if(t) t.textContent = titulo;
+      var l = caja.querySelector('[data-pw-conflict-list]'); if(l) l.innerHTML = lista;
+    });
+    if(!artista) modal.querySelectorAll('[data-pw-conflict], [data-pw-conflict-final]').forEach(function(c){ c.classList.add('d-none'); });
+  }
+
+  function miraConflictos(){
+    var artista = (modal.querySelector('#pwArtist')||{}).value || '';
+    var f = fechaElegida();
+    var clave = artista + '|' + f.start + '|' + f.end;
+    if(!artista || !f.start){ conflictos = []; conflictoClave = clave; pintaConflictos(); return Promise.resolve([]); }
+    if(clave === conflictoClave) return Promise.resolve(conflictos);   // ya preguntado
+    conflictoClave = clave;
+    conflictoAceptado = false;
+    var url = '/api/concerts/check-artist-conflict?artist_id=' + encodeURIComponent(artista)
+      + (f.end ? ('&start=' + encodeURIComponent(f.start) + '&end=' + encodeURIComponent(f.end))
+               : ('&date=' + encodeURIComponent(f.start)));
+    return fetch(url).then(function(r){ return r.ok ? r.json() : []; }).then(function(filas){
+      conflictos = Array.isArray(filas) ? filas : [];
+      pintaConflictos();
+      return conflictos;
+    }).catch(function(){ conflictos = []; pintaConflictos(); return []; });
+  }
+
+  ['requested_date','range_start','range_end','month'].forEach(function(nombre){
+    var el = form.querySelector('[name="'+nombre+'"]');
+    if(el) el.addEventListener('change', miraConflictos);
+  });
+
+  modal.addEventListener('click', function(ev){
+    if(ev.target.closest('[data-pw-conflict-go]')){
+      conflictoAceptado = true;
+      modal.querySelectorAll('[data-pw-conflict-final]').forEach(function(c){ c.classList.add('d-none'); });
+      form.requestSubmit ? form.requestSubmit() : form.submit();
+      return;
+    }
+    if(ev.target.closest('[data-pw-conflict-stop]')){
+      // No se hace: se cierra el asistente y no se crea nada.
+      if(window.bootstrap){ var m = bootstrap.Modal.getInstance(modal); if(m) m.hide(); }
+    }
+  });
+
+  // Antes de crearla: si el artista tiene algo ese día y no se ha aceptado, se para y se pregunta.
+  form.addEventListener('submit', function(ev){
+    if(conflictoAceptado) return;
+    var artista = (modal.querySelector('#pwArtist')||{}).value || '';
+    var f = fechaElegida();
+    if(!artista || !f.start) return;
+    if(conflictos.length){
+      ev.preventDefault();
+      pintaConflictos();
+      var caja = modal.querySelector('[data-pw-conflict-final]');
+      if(caja) caja.scrollIntoView({block:'nearest'});
+      return;
+    }
+    // Todavía no se ha comprobado (o cambió algo): se comprueba y, si hay, se para.
+    if(conflictoClave !== (artista + '|' + f.start + '|' + f.end)){
+      ev.preventDefault();
+      miraConflictos().then(function(filas){
+        if(!filas.length){ conflictoAceptado = true; form.requestSubmit ? form.requestSubmit() : form.submit(); }
+        else { var c = modal.querySelector('[data-pw-conflict-final]'); if(c) c.scrollIntoView({block:'nearest'}); }
+      });
+    }
+  });
+
   // Sin caché → oculta importe.
   var noCache = modal.querySelector('#pwNoCache');
   noCache.addEventListener('change', function(){ modal.querySelector('[data-pw-fee]').classList.toggle('d-none', noCache.checked); if(noCache.checked) modal.querySelector('#pwFee').value=''; });
@@ -453,6 +575,8 @@
     syncPlace();
     modal.querySelectorAll('[data-pw-date]').forEach(function(el){ el.classList.toggle('d-none', el.getAttribute('data-pw-date') !== 'EXACT'); });
     modal.querySelector('[data-pw-fee]').classList.remove('d-none');
+    conflictos = []; conflictoAceptado = false; conflictoClave = '';
+    modal.querySelectorAll('[data-pw-conflict], [data-pw-conflict-final]').forEach(function(c){ c.classList.add('d-none'); });
     if(window.jQuery){ try { jQuery('#pwArtist').val('').trigger('change'); } catch(e){} }
     show(1);
   }

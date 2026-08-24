@@ -1339,6 +1339,25 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   comilla doble corta el atributo y el botón deja de hacer nada.
   ⚠️ `_peticion_edit_payload` construye su URL con `url_for` dentro de un `try`: la fila de una
   petición se monta también fuera de una petición HTTP (un cron, un hilo) y ahí `url_for` revienta.
+  · **QUIÉN LO PIDE se ve con su FOTO o su LOGO** en la ficha (`_peticion_requester_chip`, punto
+  único): el que pide puede ser un tercero, una empresa, una institución, un artista, un medio, un
+  recinto o alguien de la oficina, y cada uno tiene su imagen en otro sitio — antes era una línea de
+  texto.
+  · **El artista ya tiene algo ese día**: al elegir la fecha (y otra vez antes de crearla) se
+  pregunta a **`/api/concerts/check-artist-conflict`**, el MISMO endpoint que usa el asistente de
+  actividad (mira conciertos, acciones, bloqueos y notas de agenda y otras peticiones), y se dice qué
+  tiene. Con las **dos opciones**: «Hacer la petición igualmente» o «No hacerla».
+  · **La FICHA se gestiona desde la barra de debajo de la cabecera** (`.ficha-quick`): **Aceptar
+  petición** (pop-up con las tarjetas de en qué se convierte → sigue el flujo de siempre) y **Cerrar
+  petición** (pop-up que pide el motivo). Los dos módulos que había abajo se retiraron.
+  · ⚠️ **CERRAR UNA PETICIÓN NO LA TERMINA**: hay que **decírselo a quien la hizo**. Al cerrarla se le
+  manda un aviso (kind TAREA, `ref_type='peticion_rechazo'`) y le queda la tarea **«Notificar el
+  rechazo de una petición»** en Inicio (`_home_peticion_rejections`) y en la propia ficha, con quién
+  la pidió y su contacto a la vista. Al marcar «Ya se lo he comunicado»
+  (`booking_request_rejection_notified` → `BookingRequest.rejection_notified_at`) la petición queda
+  terminada y el aviso **se cierra solo** (`_notify_resolve`).
+  ⚠️ Si la cierra la MISMA persona que la pidió no se crea aviso (no se avisa a uno mismo), pero la
+  tarea y el aviso de la ficha siguen saliendo: lo que hay que hacer es lo mismo.
   · **Módulo de Inicio «Mis peticiones»** (`_home_my_peticiones` → `HOME_MY_PETICIONES`): las que ha
   hecho esa persona, con su estado, para seguirlas sin buscarlas — y con el botón de editarlas. No
   depende de ningún permiso de sección (son suyas); las resueltas hace más de 120 días no se listan.

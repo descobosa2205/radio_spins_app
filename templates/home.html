@@ -112,31 +112,49 @@ document.addEventListener('click', function (ev) {
 {% if not HOME_TICKETING_ONLY %}
 {% if HOME_PENDING_PETICIONES %}
 <div class="card mb-4">
-  <div class="card-header d-flex align-items-center gap-2">
-    <span class="fw-semibold"><i class="fa fa-inbox text-danger me-2"></i>Peticiones pendientes</span>
-    <span class="badge text-bg-danger">{{ HOME_PENDING_PETICIONES|length }}</span>
-    <span class="text-muted small ms-auto">Según tus funciones</span>
+  <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <span class="fw-semibold">
+      <i class="fa fa-inbox text-danger me-2"></i>Peticiones pendientes
+      <span class="badge text-bg-danger ms-1">{{ HOME_PENDING_PETICIONES|length }}</span>
+    </span>
+    <span class="d-flex align-items-center gap-2">
+      <span class="text-muted small">Según tus funciones</span>
+      <a class="btn btn-sm btn-outline-danger" href="{{ url_for('contracting_view', section='peticiones') }}">
+        <i class="fa fa-list-check me-1"></i>Ver todas
+      </a>
+    </span>
   </div>
   <div class="list-group list-group-flush">
     {% for p in HOME_PENDING_PETICIONES %}
-    {# Pinchar la petición lleva a GESTIONARLA: su bandeja de departamento, con ancla a la fila. #}
-    <{{ 'a' if p.manage_url else 'div' }} {% if p.manage_url %}href="{{ p.manage_url }}" title="Gestionar esta petición"{% endif %} class="list-group-item {{ 'list-group-item-action text-reset text-decoration-none' if p.manage_url }} d-flex align-items-center gap-3 flex-wrap">
-      <span class="badge {{ p.status_badge }}">{{ p.status_label }}</span>
-      <span class="d-flex align-items-center gap-2 fw-semibold" style="min-width:0;">
-        {% if p.artist_photo %}<img src="{{ p.artist_photo }}" alt="" style="width:30px;height:30px;border-radius:50%;object-fit:cover;border:1px solid #eee;flex:0 0 auto;">{% endif %}
-        <span class="text-truncate">{{ p.artist_name or p.subject or 'Petición' }}</span>
-      </span>
-      {% for d in (p.dept_labels or []) %}<span class="badge text-bg-light border">{{ d }}</span>{% endfor %}
-      <span class="ms-auto d-flex align-items-center gap-3 text-muted small flex-wrap">
-        {% if p.date_label %}<span><i class="fa fa-calendar-day me-1"></i>{{ p.date_label }}</span>{% endif %}
-        {% if p.municipality %}<span><i class="fa fa-location-dot me-1"></i>{{ p.municipality }}{% if p.province %} ({{ p.province }}){% endif %}</span>{% endif %}
-        {% if p.days_since is not none %}<span title="Días desde que se solicitó"><i class="fa fa-clock me-1"></i>{{ p.days_since }} día{{ '' if p.days_since == 1 else 's' }}</span>{% endif %}
-      </span>
-    </{{ 'a' if p.manage_url else 'div' }}>
+      {# La MISMA forma que el módulo de tareas pendientes: foto arriba, datos con iconos y las
+         etiquetas debajo. #}
+      <{{ 'a' if p.manage_url else 'div' }} class="list-group-item{{ ' list-group-item-action' if p.manage_url }} ctask"
+        {% if p.manage_url %}href="{{ p.manage_url }}" title="Abrir la ficha de la petición"{% endif %}>
+        <div class="ctask__head">
+          {% if p.artist_id %}
+            {{ artist_avatar(p.artist_photo, p.artist_name) }}
+          {% else %}
+            <span class="ctask__noart"><i class="fa fa-inbox text-muted"></i></span>
+          {% endif %}
+          <span class="ctask__subject text-truncate">{{ p.artist_name or p.subject or 'Petición sin título' }}</span>
+          <span class="ctask__facts">
+            <span class="ctask__fact"><i class="fa {{ p.icon }}"></i>{{ p.kind_label or 'Petición' }}</span>
+            {% if p.date_label %}<span class="ctask__fact"><i class="fa fa-calendar-day"></i>{{ p.date_label }}</span>{% endif %}
+            {% if p.subject and p.artist_name %}<span class="ctask__fact"><i class="fa fa-signature"></i>{{ p.subject }}</span>{% endif %}
+            {% if p.place_label %}<span class="ctask__fact"><i class="fa fa-location-dot"></i>{{ p.place_label }}</span>{% endif %}
+            {% if p.fee_text %}<span class="ctask__fact"><i class="fa fa-euro-sign"></i>{{ p.fee_text }}</span>{% endif %}
+            {% if p.contact_name %}<span class="ctask__fact d-none d-xl-inline-flex"><i class="fa fa-user"></i>{{ p.contact_name }}</span>{% endif %}
+            {% if p.days_since is not none %}<span class="ctask__fact" title="Días desde que se solicitó"><i class="fa fa-clock"></i>{{ p.days_since }} día{{ '' if p.days_since == 1 else 's' }}</span>{% endif %}
+          </span>
+          {% if p.manage_url %}<i class="fa fa-chevron-right ctask__go"></i>{% endif %}
+        </div>
+        <div class="ctask__tasks">
+          <span class="badge {{ p.status_badge }}">{{ p.status_label }}</span>
+          {% for d in (p.dept_labels or []) %}<span class="badge text-bg-light border">{{ d }}</span>{% endfor %}
+          {% if p.notes %}<span class="badge text-bg-light border text-truncate" style="max-width:340px;" title="{{ p.notes }}"><i class="fa fa-note-sticky me-1"></i>{{ p.notes }}</span>{% endif %}
+        </div>
+      </{{ 'a' if p.manage_url else 'div' }}>
     {% endfor %}
-  </div>
-  <div class="card-footer bg-transparent text-end">
-    <a class="btn btn-sm btn-outline-danger" href="{{ url_for('contracting_view', section='peticiones') }}"><i class="fa fa-list-check me-1"></i>Ver todas</a>
   </div>
 </div>
 {% endif %}
@@ -169,8 +187,8 @@ document.addEventListener('click', function (ev) {
             <span class="ctask__fact"><i class="fa {{ t.activity_icon or 'fa-guitar' }}"></i>{{ t.activity_label }}</span>
             {% if t.date_label %}<span class="ctask__fact"><i class="fa fa-calendar-day"></i>{{ t.date_label }}</span>{% endif %}
             {% if t.festival_name %}<span class="ctask__fact"><i class="fa fa-signature"></i>{{ t.festival_name }}</span>{% endif %}
-            {% if t.municipality %}<span class="ctask__fact"><i class="fa fa-location-dot"></i>{{ t.municipality }}</span>{% endif %}
-            {% if t.province %}<span class="ctask__fact"><i class="fa fa-map"></i>{{ t.province }}</span>{% endif %}
+            {# El lugar, de una pieza: «Municipio, Provincia» (la provincia NO es un campo aparte). #}
+            {% if t.place_label or t.municipality %}<span class="ctask__fact"><i class="fa fa-location-dot"></i>{{ t.place_label or t.municipality }}</span>{% endif %}
             {% if t.venue_name %}<span class="ctask__fact"><i class="fa fa-location-pin"></i>{{ t.venue_name }}</span>{% endif %}
             {% if t.extra %}<span class="ctask__fact"><i class="fa fa-euro-sign"></i>{{ t.extra }}</span>{% endif %}
           </span>

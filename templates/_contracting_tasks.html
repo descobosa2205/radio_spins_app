@@ -36,8 +36,8 @@
         <span class="ctask__fact"><i class="fa {{ t.activity_icon or 'fa-guitar' }}"></i>{{ t.activity_label }}</span>
         {% if t.date_label %}<span class="ctask__fact"><i class="fa fa-calendar-day"></i>{{ t.date_label }}</span>{% endif %}
         {% if t.festival_name %}<span class="ctask__fact"><i class="fa fa-signature"></i>{{ t.festival_name }}</span>{% endif %}
-        {% if t.municipality %}<span class="ctask__fact"><i class="fa fa-location-dot"></i>{{ t.municipality }}</span>{% endif %}
-        {% if t.province %}<span class="ctask__fact"><i class="fa fa-map"></i>{{ t.province }}</span>{% endif %}
+        {# El lugar, de una pieza: «Municipio, Provincia» (la provincia NO es un campo aparte). #}
+        {% if t.place_label or t.municipality %}<span class="ctask__fact"><i class="fa fa-location-dot"></i>{{ t.place_label or t.municipality }}</span>{% endif %}
         {% if t.venue_name %}<span class="ctask__fact"><i class="fa fa-location-pin"></i>{{ t.venue_name }}</span>{% endif %}
         {% if t.extra %}<span class="ctask__fact"><i class="fa fa-euro-sign"></i>{{ t.extra }}</span>{% endif %}
       </span>

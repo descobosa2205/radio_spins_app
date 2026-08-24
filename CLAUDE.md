@@ -2192,7 +2192,12 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   a quien tenga contratación.
   ⚠️ El módulo de **peticiones subió** a debajo del calendario (antes estaba dentro de la compuerta de
   ticketing, así que contratación lo tenía enterrado entre los módulos de los demás); sigue oculto
-  para quien es SOLO de ticketing.
+  para quien es SOLO de ticketing, **se lee IGUAL que el de tareas** (fila `.ctask`: foto del artista,
+  datos con iconos y las etiquetas debajo) y las PETICIONES **no se repiten** en el módulo de tareas
+  (su pestaña se salta en `_home_contracting_tasks`).
+  · **LA PROVINCIA NO ES UN CAMPO APARTE** en ninguno de los dos: el lugar va de una pieza
+  («Municipio, Provincia», punto único `_place_label`) — `_contracting_task_row` devuelve ya
+  `place_label` y las plantillas pintan eso, no `municipality` + `province` en dos etiquetas.
   ⚠️ **EL INICIO DE TICKETING ES SOLO EL CALENDARIO Y ESO**: a quien está en el departamento
   Ticketing **y en ninguno más** (`_home_ticketing_only` → `HOME_TICKETING_ONLY`) no se le pintan los
   módulos de los demás departamentos — en `home.html` todo lo que va después cuelga de

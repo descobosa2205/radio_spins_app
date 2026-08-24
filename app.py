@@ -29649,6 +29649,10 @@ def _booking_request_row(r):
         "edit": _peticion_edit_payload(object_session(r) or db(), r),
         "created_by": (r.created_by_nick or ""),
         "received_label": (r.received_at.strftime("%d/%m/%Y") if r.received_at else (r.created_at.strftime("%d/%m/%Y") if r.created_at else "")),
+        # QUÉ se pide, con su icono: se lee igual que el tipo de una actividad.
+        "kind_label": _activity_kind_label((r.payload or {}).get("activity_type")),
+        "icon": QUAD_ACTIVITY_ICONS.get(_activity_kind_key((r.payload or {}).get("activity_type")),
+                                        "fa-calendar-day"),
     }
 
 
@@ -55070,7 +55074,8 @@ def _home_contracting_tasks(limit: int = 20) -> list[dict]:
     quita el duplicado; lo de FACTURACIÓN es por pago, y por eso el `extra` entra en la clave."""
     tareas = (_contracting_tasks_data() or {}).get("tasks") or {}
     vistos, salida = set(), []
-    for tab in CONTRACTING_COUNT_TABS:
+    # ⚠️ Las PETICIONES tienen su propio módulo justo encima: repetirlas aquí sería verlas dos veces.
+    for tab in [t for t in CONTRACTING_COUNT_TABS if t != "peticiones"]:
         for t in (tareas.get(tab) or []):
             clave = (t.get("id") or "", t.get("extra") or "",
                      tuple(sorted((k or {}).get("label", "") for k in (t.get("tasks") or []))))
@@ -55256,6 +55261,14 @@ def _contracting_task_row(c, kind: str, payment: dict | None = None, event=None)
                          or (getattr(c, "manual_municipality", None) or "")).strip(),
         "province": ((getattr(venue, "province", None) or "")
                      or (getattr(c, "manual_province", None) or "")).strip(),
+        # El LUGAR de una pieza: «Municipio, Provincia» (y el país solo si no es España). La
+        # provincia NO es un dato aparte: es cómo se escribe un lugar (punto único `_place_label`).
+        "place_label": _place_label(
+            ((getattr(venue, "municipality", None) or "")
+             or (getattr(c, "manual_municipality", None) or "")).strip(),
+            ((getattr(venue, "province", None) or "")
+             or (getattr(c, "manual_province", None) or "")).strip(),
+            (getattr(venue, "country", None) or "")),
         "venue_name": ((getattr(venue, "name", None) or "")
                        or (getattr(c, "manual_venue_name", None) or "")).strip(),
         "extra": extra,

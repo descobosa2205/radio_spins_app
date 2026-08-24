@@ -77,7 +77,11 @@
     </a>
 
     {% if IMPERSONATING %}
-    <a href="{{ url_for('impersonate_stop') }}" class="btn btn-sm btn-danger fw-semibold me-2 no-loader d-flex align-items-center" title="Volver a tu sesión de dirección"><i class="fa fa-arrow-left-long me-1"></i><span class="d-none d-sm-inline">Salir del modo visión</span><span class="d-sm-none">Salir</span></a>
+    {# ⚠️ `data-no-smart-back` es OBLIGATORIO aquí: el «volver inteligente» de scripts.js intercepta
+       cualquier enlace cuyo title empiece por «Volver» y hace history.back(), así que este botón
+       retrocedía en el historial y NO se salía del modo visión (bug real). El title tampoco empieza
+       ya por «Volver». #}
+    <a href="{{ url_for('impersonate_stop') }}" data-no-smart-back class="btn btn-sm btn-danger fw-semibold me-2 no-loader d-flex align-items-center" title="Salir y volver a tu sesión de dirección"><i class="fa fa-arrow-left-long me-1"></i><span class="d-none d-sm-inline">Salir del modo visión</span><span class="d-sm-none">Salir</span></a>
     <span class="navbar-text small text-danger d-none d-md-inline me-2"><i class="fa fa-user-secret me-1"></i>Viendo como <strong>{{ CURRENT_USER.nick if CURRENT_USER else 'usuario' }}</strong></span>
     {% endif %}
 

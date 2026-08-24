@@ -2196,6 +2196,9 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
     // title o aria-label sea «Volver…»/«Atrás»: en TODA la app deben llevar a la página de la que
     // venías, no a un destino fijo (ese queda como respaldo en el href).
     if (a.classList && a.classList.contains('btn-volver')) return true;
+    // ⚠️ Un enlace que EJECUTA algo (salir del modo visión, cerrar sesión…) nunca es un «volver»,
+    // aunque su title lo diga: retroceder en el historial dejaría la acción sin hacer.
+    if (/\/(salir|logout|login|cerrar-sesion)/i.test(a.getAttribute('href') || '')) return false;
     var etiqueta = ((a.getAttribute('aria-label') || a.getAttribute('title') || '')).trim().toLowerCase();
     if (etiqueta.indexOf('volver') === 0 || etiqueta.indexOf('atrás') === 0 || etiqueta.indexOf('atras') === 0) return true;
     var txt = (a.textContent || '').trim().toLowerCase();

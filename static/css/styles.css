@@ -4795,3 +4795,7 @@ button.promo-pick{ border:0; background:transparent; padding:0; font:inherit; te
 .agenda-event--editable { cursor: grab; }
 .agenda-event--editable.is-dragging { opacity: .45; cursor: grabbing; }
 .agenda-cal__day.is-drop { outline: 2px dashed var(--brand-primary, #E33D48); outline-offset: -2px; }
+
+/* La RUEDA de la ficha de una actividad vive en la fila de botones, a la derecha del todo. */
+.ficha-quick__gear { margin-left: auto; }
+@media (max-width: 575.98px) { .ficha-quick__gear { margin-left: 0; } }

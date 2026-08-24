@@ -276,6 +276,76 @@ class ConcertArtistNotification(Base):
     )
 
 
+class ExternalProductionAccess(Base):
+    """ACCESO EXTERNO a la producción de UNA actividad.
+
+    Cuando el responsable de producción es un TERCERO (un productor de fuera), se le da un enlace
+    propio: entra con su CORREO y un NÚMERO DE VERIFICACIÓN que le llega por email, y desde ahí
+    gestiona esa producción igual que alguien de la casa (personal, hoja de ruta, bolsa, gastos…),
+    pero **solo esa actividad**.
+
+    ⚠️ Su acceso TERMINA cuando cierra la bolsa y pasa a administración; si la bolsa se reabre
+    (porque se rechaza o hay algo que modificar) vuelve a poder entrar. Eso NO se guarda aquí: se
+    calcula del estado de la bolsa (`_external_prod_open`), así se corrige solo.
+    """
+
+    __tablename__ = "external_production_access"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"),
+                        nullable=False)
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="CASCADE"),
+                         nullable=False)
+    # Usuario ESPEJO con el que trabaja dentro de la app (UserProfile.is_external).
+    user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    email = Column(Text)
+    token = Column(Text, unique=True, nullable=False)
+    # ACTIVO | REVOCADO (revocado = se le ha quitado a mano; lo demás lo decide la bolsa).
+    status = Column(Text, nullable=False, server_default=text("'ACTIVO'"))
+    # Número de verificación en curso.
+    code = Column(Text)
+    code_expires_at = Column(DateTime(timezone=True))
+    code_sent_at = Column(DateTime(timezone=True))
+    code_attempts = Column(Integer, nullable=False, server_default=text("0"))
+    last_login_at = Column(DateTime(timezone=True))
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    concert = relationship("Concert", foreign_keys=[concert_id])
+    promoter = relationship("Promoter", foreign_keys=[promoter_id])
+
+
+def ensure_external_production_schema():
+    """Acceso externo a la producción de una actividad (idempotente)."""
+    stmts = [
+        """
+        CREATE TABLE IF NOT EXISTS external_production_access (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            concert_id uuid NOT NULL REFERENCES concerts(id) ON DELETE CASCADE,
+            promoter_id uuid NOT NULL REFERENCES promoters(id) ON DELETE CASCADE,
+            user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            email text,
+            token text UNIQUE NOT NULL,
+            status text NOT NULL DEFAULT 'ACTIVO',
+            code text,
+            code_expires_at timestamptz,
+            code_sent_at timestamptz,
+            code_attempts integer NOT NULL DEFAULT 0,
+            last_login_at timestamptz,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS ix_ext_prod_concert ON external_production_access(concert_id);",
+        "CREATE INDEX IF NOT EXISTS ix_ext_prod_promoter ON external_production_access(promoter_id);",
+        # El TERCERO que lleva la producción de la actividad.
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS production_owner_promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL;",
+        # Usuario ESPEJO de un tercero externo: no es personal de la casa.
+        "ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS is_external boolean NOT NULL DEFAULT false;",
+    ]
+    _exec_ddl_statements(stmts, "external_production")
+
+
 def ensure_artist_notifications_schema():
     """Tabla de contactos de comunicaciones de un artista (idempotente)."""
     stmts = [
@@ -1899,6 +1969,11 @@ class Concert(Base):
     # comprada promovida por una empresa del grupo hay que decir A QUIÉN de producción le toca, para
     # que le aparezca. Se pregunta al confirmar la actividad.
     production_owner_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    # Y si la lleva un TERCERO (un producto externo), cuál. ⚠️ `production_owner_user_id` apunta
+    # igualmente a su USUARIO ESPEJO (`UserProfile.is_external`), para que TODA la app siga
+    # funcionando igual (tareas, listados, avisos, quién cierra la bolsa) sin casos especiales.
+    production_owner_promoter_id = Column(PGUUID(as_uuid=True),
+                                          ForeignKey("promoters.id", ondelete="SET NULL"))
     # Cuándo se ACTIVÓ la producción (se asignó a alguien). Sin responsable, la actividad le sale
     # como tarea pendiente a quien la creó: nadie está produciéndola.
     production_activated_at = Column(DateTime(timezone=True))
@@ -2114,7 +2189,10 @@ class Concert(Base):
     )
 
     artist = relationship("Artist")
-    promoter = relationship("Promoter")
+    # ⚠️ `foreign_keys` OBLIGATORIO: hay DOS caminos de `concerts` a `promoters` (el promotor de la
+    # actividad y el TERCERO que lleva su producción), y sin decirlo SQLAlchemy no arranca.
+    promoter = relationship("Promoter", foreign_keys=[promoter_id])
+    production_owner_promoter = relationship("Promoter", foreign_keys=[production_owner_promoter_id])
     venue = relationship("Venue")
 
     sales = relationship("TicketSale", cascade="all, delete-orphan", order_by="TicketSale.day")
@@ -3187,6 +3265,10 @@ class UserProfile(Base):
     )
     nick = Column(Text, nullable=False)
     photo_url = Column(Text)
+    # ⚠️ USUARIO ESPEJO de un TERCERO que lleva la producción de UNA actividad (acceso externo):
+    # no es personal de la casa. No sale en los listados ni en los selectores de personal
+    # (`_inactive_user_ids` lo excluye) y no puede entrar por el login normal.
+    is_external = Column(Boolean, nullable=False, server_default=text("false"))
     first_name = Column(Text)
     last_name = Column(Text)
     dni = Column(Text)

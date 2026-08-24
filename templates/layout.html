@@ -76,6 +76,21 @@
       <img src="{{ url_for('static', filename='img/Banner.png') }}" alt="Logo" style="height:32px;">
     </a>
 
+    {# PRODUCCIÓN EXTERNA: un tercero que produce UNA actividad. Se le dice que solo tiene eso y se
+       le da el botón de salir; el menú de secciones no le sirve (no puede entrar en nada más). #}
+    {% if EXTERNAL_PROD %}
+    <span class="navbar-text small text-danger me-auto d-flex align-items-center gap-2">
+      <i class="fa fa-user-gear"></i>
+      <span><strong>{{ EXTERNAL_PROD.name or 'Producción externa' }}</strong>
+        <span class="d-none d-md-inline">· estás gestionando solo esta actividad</span></span>
+    </span>
+    <a class="btn btn-sm btn-outline-secondary me-2 no-loader" data-no-smart-back
+       href="{{ EXTERNAL_PROD.url }}" title="Ir a la actividad"><i class="fa fa-list-check"></i></a>
+    <a class="btn btn-sm btn-danger no-loader" data-no-smart-back
+       href="{{ url_for('external_production_exit') }}" title="Salir">
+      <i class="fa fa-right-from-bracket me-1"></i>Salir</a>
+    {% else %}
+
     {% if IMPERSONATING %}
     {# ⚠️ `data-no-smart-back` es OBLIGATORIO aquí: el «volver inteligente» de scripts.js intercepta
        cualquier enlace cuyo title empiece por «Volver» y hace history.back(), así que este botón
@@ -196,6 +211,7 @@
         {% endif %}
       </ul>
     </div>
+    {% endif %}{# /EXTERNAL_PROD #}
   </div>
 </nav>
 

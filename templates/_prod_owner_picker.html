@@ -1,0 +1,68 @@
+{# ============================================================================
+   ¿QUIÉN LLEVA LA PRODUCCIÓN? — selector ÚNICO (la ficha de la actividad y el listado de Producción
+   usan este mismo, así que se ve y funciona igual en los dos sitios).
+
+   Dos opciones:
+     · PERSONAL DE LA OFICINA (las personas de Producción, con su foto).
+     · UN TERCERO: se busca con su foto o su logo, o se crea sobre la marcha; será el responsable y
+       se le manda por correo su enlace para gestionar SOLO esa actividad.
+
+   Uso:  {{ prod_owner_picker(url_guardar, production_people, actual_user_id, actual_promoter_id) }}
+   El JS de la pantalla engancha `[data-prod-owner]` (persona) y `[data-prod-owner-promoter]`.
+   ============================================================================ #}
+{% macro prod_owner_picker(save_url, people, current_user_id='', current_promoter_id='') %}
+<div data-prod-owner-picker data-save-url="{{ save_url }}">
+  <ul class="nav nav-tabs contract-tabs mb-3" role="tablist">
+    <li class="nav-item">
+      <button class="nav-link active" type="button" data-bs-toggle="tab" data-bs-target="#pop-oficina">
+        <i class="fa fa-user-tie me-1"></i>Personal de la oficina
+      </button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link" type="button" data-bs-toggle="tab" data-bs-target="#pop-tercero">
+        <i class="fa fa-user-gear me-1"></i>Un tercero
+      </button>
+    </li>
+  </ul>
+  <div class="tab-content">
+    <div class="tab-pane fade show active" id="pop-oficina">
+      <div class="agenda-artist-picker">
+        {% for p in people %}
+          <button type="button" class="agenda-artist-card{% if current_user_id and p.id == current_user_id|string %} is-on{% endif %}"
+                  data-prod-owner="{{ p.id }}" data-name="{{ p.name }}">
+            <img src="{{ p.photo_url or DEFAULT_AVATAR_URL }}" alt="" loading="lazy" data-avatar="1">
+            <span>{{ p.name }}</span>
+          </button>
+        {% else %}
+          <div class="text-muted small">No hay nadie con el departamento de Producción.</div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="tab-pane fade" id="pop-tercero">
+      <p class="small text-muted">
+        Lo produce alguien de fuera. Se le manda un correo con su enlace: entra con su correo y un
+        número de verificación, y gestiona <strong>solo esta actividad</strong> (personal, hoja de
+        ruta y bolsa de gastos). Cuando cierre la bolsa y pase a administración, su acceso termina.
+      </p>
+      <label class="form-label">¿Quién lo produce?</label>
+      {# Buscador de terceros con su foto o su logo (el patrón de la casa: barra + resultados, que
+         funciona dentro de un modal apilado, donde Select2 no se puede abrir). El «+» es el alta
+         rápida global sobre un <select> oculto. #}
+      <div class="input-group">
+        <input class="form-control" data-prod-promoter-search autocomplete="off"
+               placeholder="Nombre, empresa, CIF…">
+        <button class="btn btn-outline-secondary" type="button" data-quick-create="promoter"
+                data-target="prodOwnerPromoterSel" title="Crear el tercero"><i class="fa fa-plus"></i></button>
+      </div>
+      <select id="prodOwnerPromoterSel" class="d-none" data-prod-promoter-select></select>
+      <div class="invitation-search-results" data-prod-promoter-results></div>
+      <div class="pw-picked d-none mt-2" data-prod-promoter-picked style="max-width:26rem"></div>
+      <input type="hidden" data-prod-promoter-id value="">
+      <button class="btn btn-primary mt-3" type="button" data-prod-owner-promoter disabled>
+        <i class="fa fa-paper-plane me-1"></i>Asignar y mandarle el acceso
+      </button>
+      <div class="mt-3 d-none" data-prod-owner-result></div>
+    </div>
+  </div>
+</div>
+{% endmacro %}

@@ -1,4 +1,5 @@
 {% extends "layout.html" %}
+{% import '_prod_owner_picker.html' as prod_owner with context %}
 {% block content %}
 <div class="mb-2">
   {% set _from_media = request.args.get('back') == 'media' %}
@@ -45,37 +46,6 @@
   {% set _hero_co = concert.billing_company or concert.group_company %}
   {% if _hero_co or CAN_EDIT_CONCERTS %}
     <div class="ficha-hero__actions align-items-start">
-      {# LA RUEDA: lo que se hace de tarde en tarde y no es del día a día (y lo que no se puede
-         deshacer). Arriba a la derecha, encima de la empresa. #}
-      {% if CAN_EDIT_CONCERTS %}
-        <div class="dropdown ficha-hero__gear">
-          <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown"
-                  data-bs-display="static" title="Configuración de la actividad" aria-label="Configuración">
-            <i class="fa fa-gear"></i>
-          </button>
-          <ul class="dropdown-menu dropdown-menu-end">
-            <li><h6 class="dropdown-header">Configuración de la actividad</h6></li>
-            <li>
-              <button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#prodOwnerModal">
-                <i class="fa fa-user-gear me-2 text-muted"></i>
-                {{ 'Cambiar quién lleva la producción' if concert.production_owner_user_id else 'Asignar quién lleva la producción' }}
-              </button>
-            </li>
-            <li>
-              <a class="dropdown-item" href="{{ url_for('concert_artist_notice_view', cid=concert.id) }}">
-                <i class="fa fa-bell me-2 text-muted"></i>Avisar al artista
-              </a>
-            </li>
-            <li><hr class="dropdown-divider"></li>
-            <li>
-              <button class="dropdown-item text-danger" type="button"
-                      data-bs-toggle="modal" data-bs-target="#concertDeleteModal">
-                <i class="fa fa-trash me-2"></i>Eliminar actividad
-              </button>
-            </li>
-          </ul>
-        </div>
-      {% endif %}
       {% if _hero_co %}
       <div class="hero-company" title="{{ 'Empresa del grupo que factura' if concert.billing_company else 'Empresa del grupo' }}">
         {% if _hero_co.logo_url %}
@@ -170,6 +140,46 @@
     {% endif %}
   {% endif %}
   <a class="btn btn-outline-danger btn-sm" href="{{ url_for('concert_detail_view', cid=concert.id, tab='invitations') }}"><i class="fa fa-envelope-open-text me-1"></i>Invitaciones</a>
+  {# LA RUEDA va a la DERECHA DEL TODO de esta fila de botones (no en la cabecera):
+     es lo que se hace de tarde en tarde y lo que no se puede deshacer. #}
+      {% if CAN_EDIT_CONCERTS %}
+        <div class="dropdown ficha-quick__gear ms-auto">
+          <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown"
+                  data-bs-display="static" title="Configuración de la actividad" aria-label="Configuración">
+            <i class="fa fa-gear"></i>
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><h6 class="dropdown-header">Configuración de la actividad</h6></li>
+            <li>
+              <button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#prodOwnerModal">
+                <i class="fa fa-user-gear me-2 text-muted"></i>
+                {{ 'Cambiar quién lleva la producción' if concert.production_owner_user_id else 'Asignar quién lleva la producción' }}
+              </button>
+            </li>
+            {% if concert.production_owner_promoter_id %}
+            <li>
+              <button class="dropdown-item" type="button" data-prod-resend
+                      data-url="{{ url_for('concert_production_external_resend', cid=concert.id) }}">
+                <i class="fa fa-paper-plane me-2 text-muted"></i>Reenviar el acceso al productor externo
+              </button>
+            </li>
+            {% endif %}
+            <li>
+              <a class="dropdown-item" href="{{ url_for('concert_artist_notice_view', cid=concert.id) }}">
+                <i class="fa fa-bell me-2 text-muted"></i>Avisar al artista
+              </a>
+            </li>
+            <li><hr class="dropdown-divider"></li>
+            <li>
+              <button class="dropdown-item text-danger" type="button"
+                      data-bs-toggle="modal" data-bs-target="#concertDeleteModal">
+                <i class="fa fa-trash me-2"></i>Eliminar actividad
+              </button>
+            </li>
+          </ul>
+        </div>
+      {% endif %}
+
 </div>
 
 <ul class="nav nav-tabs ficha-tabs mb-0">
@@ -2829,20 +2839,14 @@ document.addEventListener('DOMContentLoaded', function(){
       </div>
       <div class="modal-body">
         <p class="small text-muted">
-          Elige a quién de <strong>producción</strong> le toca: le aparecerá como suya y se le avisa.
-          {% if production_owner_name %}<br>Ahora la lleva <strong>{{ production_owner_name }}</strong>.{% endif %}
+          Elige a quién le toca: alguien de <strong>producción</strong> de la casa o un
+          <strong>tercero</strong> (que gestionará solo esta actividad con su propio acceso).
+          {% if production_owner_name %}<br>Ahora la lleva <strong>{{ production_owner_name }}</strong>{% if concert.production_owner_promoter_id %} (externo){% endif %}.{% endif %}
         </p>
-        <div class="agenda-artist-picker">
-          {% for p in production_people %}
-            <button type="button" class="agenda-artist-card{% if concert.production_owner_user_id and p.id == concert.production_owner_user_id|string %} is-on{% endif %}"
-                    data-prod-owner="{{ p.id }}" data-name="{{ p.name }}">
-              <img src="{{ p.photo_url or DEFAULT_AVATAR_URL }}" alt="" loading="lazy" data-avatar="1">
-              <span>{{ p.name }}</span>
-            </button>
-          {% else %}
-            <div class="text-muted small">No hay nadie con el departamento de Producción.</div>
-          {% endfor %}
-        </div>
+        {{ prod_owner.prod_owner_picker(url_for('concert_production_owner_save', cid=concert.id),
+                                        production_people,
+                                        concert.production_owner_user_id,
+                                        concert.production_owner_promoter_id) }}
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Ahora no</button>
@@ -2852,23 +2856,14 @@ document.addEventListener('DOMContentLoaded', function(){
 </div>
 <script>
 (function () {
-  var URL_RESP = {{ url_for('concert_production_owner_save', cid=concert.id)|tojson }};
   var SIN_RESP = {{ (not concert.production_owner_user_id)|tojson }};
   var CONFIRMADO = {{ ((concert.status or '')|upper == 'CONFIRMADO')|tojson }};
-  function csrf() { var m = document.querySelector('meta[name="csrf-token"]'); return m ? m.getAttribute('content') : ''; }
   function abrir() {
     var m = document.getElementById('prodOwnerModal');
     if (m && window.bootstrap) bootstrap.Modal.getOrCreateInstance(m).show();
   }
-  document.querySelectorAll('[data-prod-owner]').forEach(function (b) {
-    b.addEventListener('click', function () {
-      var fd = new FormData(); fd.append('user_id', b.getAttribute('data-prod-owner'));
-      b.disabled = true;
-      fetch(URL_RESP, { method: 'POST', headers: { 'X-CSRFToken': csrf(), 'X-Requested-With': 'XMLHttpRequest' }, body: fd })
-        .then(function (r) { return r.json().catch(function () { return {}; }); })
-        .then(function (j) { if (j && j.ok) window.location.reload(); else { b.disabled = false; alert((j && j.error) || 'No se pudo guardar.'); } });
-    });
-  });
+  // ⚠️ Guardar lo hace el motor GLOBAL del selector (`[data-prod-owner-picker]` en scripts.js):
+  // aquí solo queda cuándo se abre el pop-up. Un handler local duplicaría el guardado.
   // Ya está confirmada y nadie la lleva: se pregunta al entrar (solo donde antes ya se hacía; en el
   // resto está el botón «Activar producción» de la cabecera).
   var PREGUNTAR = {{ (ask_production_owner or False)|tojson }};

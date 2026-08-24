@@ -273,6 +273,8 @@ from models import (
     ensure_sms_schema,
     ShortLink,
     ensure_short_links_schema,
+    ExternalProductionAccess,
+    ensure_external_production_schema,
     Photo,
     PhotoAlbum,
     PhotoAlbumItem,
@@ -811,7 +813,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
+    allowed = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check"}
     if request.endpoint in allowed:
         return
 
@@ -1452,6 +1454,10 @@ def admin_login():
         session_db = db()
         try:
             user = session_db.query(User).filter(func.lower(User.email) == email).first()
+
+            # ⚠️ EL LOGIN VIVO es `_admin_login_extended` (más abajo:
+            # `app.view_functions["admin_login"] = _admin_login_extended`). Este de aquí es CÓDIGO
+            # MUERTO: lo que se toque del login va en el otro.
 
             # 1) Intentar login contra BD
             if user and check_password_hash(user.password_hash, password):
@@ -36657,6 +36663,39 @@ def concert_production_owner_save(cid):
                 or _soy_creador):
             return jsonify({"ok": False, "error": "Sin permiso."}), 403
         uid = to_uuid((request.form.get("user_id") or "").strip() or "")
+        pid = to_uuid((request.form.get("promoter_id") or "").strip() or "")
+        extra = {}
+        if pid:
+            # LA PRODUCE UN TERCERO. Se le crea (o reutiliza) su usuario ESPEJO y su acceso externo,
+            # y se le manda el enlace: entra con su correo y un número de verificación, y gestiona
+            # SOLO esta actividad. Ver el bloque de «producción externa».
+            promoter = session_db.get(Promoter, pid)
+            if promoter is None:
+                return jsonify({"ok": False, "error": "Ese tercero no existe."}), 404
+            espejo = _external_prod_shadow_user(session_db, promoter)
+            acceso = _external_prod_access(session_db, c, promoter,
+                                           created_by=to_uuid(_yo) if _yo else None)
+            c.production_owner_promoter_id = promoter.id
+            c.production_owner_user_id = espejo.id
+            c.production_activated_at = _now_madrid()
+            session_db.commit()
+            ok_mail, err_mail = _external_prod_notify(session_db, acceso, concert=c)
+            extra = {"external": True, "url": _external_prod_url(acceso),
+                     "email": (acceso.email or ""), "mail_ok": bool(ok_mail),
+                     "mail_error": ("" if ok_mail else (err_mail or "El correo no salió."))}
+            nombre = _promoter_display_name(promoter)
+            if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                return jsonify({"ok": True, "name": nombre, **extra})
+            flash(("Producción asignada a %s." % nombre)
+                  + (" Se le ha mandado su enlace de acceso." if ok_mail
+                     else " ⚠️ El correo no salió: cópiale el enlace desde la ficha."), "success")
+            return redirect(request.form.get("next") or url_for("concert_detail_view", cid=cid))
+        # Personal de la casa: si antes lo llevaba un tercero, su enlace deja de valer.
+        if c.production_owner_promoter_id:
+            for a in (session_db.query(ExternalProductionAccess)
+                      .filter(ExternalProductionAccess.concert_id == c.id).all()):
+                a.status = "REVOCADO"
+            c.production_owner_promoter_id = None
         c.production_owner_user_id = uid
         # Se apunta CUÁNDO se activó la producción: con responsable, ya hay alguien produciéndola.
         c.production_activated_at = (_now_madrid() if uid else None)
@@ -47896,6 +47935,7 @@ def _bootstrap_schema_bg():
         (ensure_sms_schema, "ensure_sms_schema"),
         (ensure_short_links_schema, "ensure_short_links_schema"),
         (ensure_artist_notifications_schema, "ensure_artist_notifications_schema"),
+        (ensure_external_production_schema, "ensure_external_production_schema"),
         (ensure_app_settings_schema, "ensure_app_settings_schema"),
     ]:
         _safe_ensure(_fn, _name)
@@ -53038,7 +53078,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -53312,6 +53352,16 @@ def _inactive_user_ids(session_db) -> set:
                 out.add(uid)
     except Exception:
         return set()
+    # ⚠️ Y los usuarios ESPEJO de un tercero con acceso externo a una producción: no son personal de
+    # la casa, así que no salen en ningún listado ni selector de personal. Aquí se excluyen de golpe
+    # en todos los sitios que ya usan este punto único.
+    try:
+        for (uid,) in (session_db.query(UserProfile.user_id)
+                       .filter(UserProfile.is_external.is_(True)).all()):
+            if uid:
+                out.add(uid)
+    except Exception:
+        app.logger.exception("[personal] no se pudieron excluir los usuarios externos")
     return out
 
 
@@ -54319,6 +54369,8 @@ def _snapshot_user_profile(profile: UserProfile | None) -> SimpleNamespace | Non
         accounting_company_ids=[str(x) for x in (getattr(profile, "accounting_company_ids", None) or [])],
         menu_order=[str(x) for x in (getattr(profile, "menu_order", None) or [])],
         production_seen_at=getattr(profile, "production_seen_at", None),
+        # Usuario ESPEJO de un tercero con acceso externo a UNA producción.
+        is_external=bool(getattr(profile, "is_external", False)),
         vacation_days_per_year=getattr(profile, "vacation_days_per_year", None),
         vacation_adjustments=dict(getattr(profile, "vacation_adjustments", None) or {}),
         # ⚠️ Lo que no esté aquí es INVISIBLE desde `_current_user_state()` y desde las plantillas.
@@ -55327,7 +55379,13 @@ def _contracting_tasks_data() -> dict:
                     kinds.append("CONTRACT")
                 if not getattr(c, "announcement_date", None) and not getattr(c, "do_not_announce", False):
                     kinds.append("ANNOUNCE")
-                if _concert_needs_production(c, session_db) and c.id not in con_bolsa:
+                # ⚠️ MANDARLA A PRODUCCIÓN = decir QUIÉN se encarga. Con responsable ya está
+                # mandada (y le sale a esa persona como tarea suya), aunque todavía no haya bolsa:
+                # las actividades de antes de que existiera «activar producción» tienen responsable
+                # y no tienen bolsa, y esta tarea se quedaba puesta para siempre.
+                if (_concert_needs_production(c, session_db)
+                        and not getattr(c, "production_owner_user_id", None)
+                        and c.id not in con_bolsa):
                     kinds.append("PRODUCTION")
                 # Vende entradas nuestras y todavía nadie le ha dicho a Ticketing que la saque.
                 if _concert_sale_state(session_db, c)["needs_activation"]:
@@ -55597,6 +55655,8 @@ def inject_personnel_globals():
             "PALCO": url_for("static", filename="img/zone/palco.svg"),
         },
         "IMPERSONATING": bool(session.get("impersonator_id")),
+        # Sesión de PRODUCCIÓN EXTERNA (un tercero que produce UNA actividad): la franja del menú.
+        "EXTERNAL_PROD": _external_prod_info(),
         "IMPERSONATOR_NICK": _impersonator_nick() if session.get("impersonator_id") else "",
         "MAINTENANCE_ACTIVE": _maintenance_active(),
     }
@@ -55692,7 +55752,7 @@ def _require_login_v2():
         return
     if session.get("user_id"):
         return
-    allowed = {"short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -56064,6 +56124,11 @@ def _enforce_role_permissions_v2():
     # no tenga permisos en ninguna sección.
     if request.endpoint == "impersonate_stop":
         return
+    # PRODUCCIÓN EXTERNA: un tercero que produce UNA actividad. Manda sobre cualquier otra
+    # resolución de permisos (ver `_external_prod_gate`).
+    _ext = _external_prod_gate()
+    if _ext is not None:
+        return _ext
     state = _current_user_state()
     security = state.get("security")
     if security and getattr(security, "is_deleted", False):
@@ -56118,6 +56183,16 @@ def _admin_login_extended():
         session_db = db()
         try:
             user = session_db.query(User).filter(func.lower(User.email) == email).first()
+            # ⚠️ Los usuarios ESPEJO de un tercero con acceso externo a una producción NO entran por
+            # aquí: entran por su enlace, con su correo y un número de verificación, y solo a su
+            # actividad. (Su contraseña es imposible, pero se dice claro por si alguien lo intenta.)
+            if user is not None:
+                _prof_ext = (session_db.query(UserProfile)
+                             .filter(UserProfile.user_id == user.id).first())
+                if _prof_ext is not None and getattr(_prof_ext, "is_external", False):
+                    flash("Ese acceso es solo para la producción que te encargamos: entra por el "
+                          "enlace que te mandamos por correo.", "warning")
+                    return render_template("login.html", next_url=request.form.get("next") or "")
             security = session_db.get(UserSecurity, user.id) if user else None
             if user and security and getattr(security, "is_deleted", False):
                 flash("El usuario no existe.", "danger")
@@ -71104,6 +71179,452 @@ def _production_people(session_db) -> list:
     # ⚠️ Si NADIE tiene el departamento «Producción», se ofrece todo el personal: es mejor que un
     # panel donde no se puede elegir a nadie (y así no hay que tocar departamentos para asignar).
     return salida or todos
+
+
+# ================= PRODUCCIÓN EXTERNA (el responsable es un TERCERO) =================
+# El responsable de producción de una actividad puede ser un TERCERO (un productor de fuera). Se le
+# da un enlace propio: entra con su CORREO y un NÚMERO DE VERIFICACIÓN que le llega por email, y
+# desde ahí gestiona esa producción igual que alguien de la casa (personal, hoja de ruta, bolsa,
+# gastos…) pero **SOLO esa actividad**.
+#
+# ⚠️ CÓMO FUNCIONA POR DENTRO: no hay un modo especial repartido por la app. Al tercero se le crea un
+# USUARIO ESPEJO (`UserProfile.is_external`) y `Concert.production_owner_user_id` apunta a él, así
+# que TODO lo que ya existía (tareas, listados de producción, avisos, quién cierra la bolsa) sigue
+# funcionando sin casos particulares — el mismo patrón que el modo «Ver como». Lo único propio es la
+# COMPUERTA (`_external_prod_gate`), que en una sesión externa deja pasar solo lo de su actividad.
+EXTERNAL_PROD_ACCESS_KEYS = ("produccion", "databases.bags")
+EXTERNAL_PROD_CODE_MINUTES = 20          # lo que vale el número de verificación
+EXTERNAL_PROD_CODE_MAX_TRIES = 6
+# Con la bolsa en estos estados el trabajo ya está entregado a administración: se acabó el acceso.
+EXTERNAL_PROD_CLOSED_BAG = {"CERRADA", "LIQUIDADA", "ARCHIVADA"}
+
+
+def _external_prod_shadow_email(promoter) -> str:
+    """El correo del usuario ESPEJO. Es SINTÉTICO a propósito: si se usara el del tercero podría
+    chocar con el de alguien de la casa (`users.email` es único) y, peor, se podría intentar entrar
+    por el login normal con ese correo. El de verdad vive en el acceso, para el número de
+    verificación."""
+    return "produccion-externa+%s@33producciones.es" % str(getattr(promoter, "id", "") or "")
+
+
+def _external_prod_shadow_user(session_db, promoter):
+    """El USUARIO ESPEJO del tercero (se crea la primera vez), con lo justo para producir:
+    producción y bolsas. No es personal de la casa y no sale en ningún listado."""
+    correo = _external_prod_shadow_email(promoter)
+    u = session_db.query(User).filter(func.lower(User.email) == correo.lower()).first()
+    if u is None:
+        u = User(email=correo,
+                 # Contraseña IMPOSIBLE: no entra por el login normal, entra por su enlace.
+                 password_hash=generate_password_hash(_uuid_token() + _uuid_token()),
+                 role=1)
+        session_db.add(u)
+        session_db.flush()
+    prof = session_db.query(UserProfile).filter(UserProfile.user_id == u.id).first()
+    if prof is None:
+        prof = UserProfile(user_id=u.id)
+        session_db.add(prof)
+    prof.nick = (_promoter_display_name(promoter) or "Productor externo").strip()
+    prof.photo_url = (getattr(promoter, "logo_url", None) or getattr(promoter, "photo_url", None) or "")
+    prof.departments = ["Producción"]
+    prof.is_external = True
+    session_db.flush()
+    # Permisos: solo lo que hace falta para producir esa actividad. La compuerta hace el resto.
+    for clave in EXTERNAL_PROD_ACCESS_KEYS:
+        g = (session_db.query(UserAccessGrant)
+             .filter(UserAccessGrant.user_id == u.id,
+                     UserAccessGrant.resource_key == clave).first())
+        if g is None:
+            g = UserAccessGrant(user_id=u.id, resource_key=clave)
+            session_db.add(g)
+        g.can_view_basic = True
+        g.can_edit = True
+        # La bolsa ES dinero: sin económico no podría ni ver ni apuntar los gastos que gestiona.
+        g.can_view_econ = (clave == "databases.bags")
+    session_db.flush()
+    return u
+
+
+def _external_prod_contact_email(session_db, promoter) -> str:
+    """El correo del tercero al que se le manda el enlace y el número de verificación."""
+    correo = (getattr(promoter, "contact_email", None) or "").strip()
+    if correo:
+        return correo
+    try:
+        fila = (session_db.query(PromoterEmail)
+                .filter(PromoterEmail.promoter_id == promoter.id)
+                .order_by(PromoterEmail.created_at.asc().nullslast()).first())
+        return (getattr(fila, "email", "") or "").strip()
+    except Exception:
+        return ""
+
+
+def _external_prod_access(session_db, concert, promoter, *, created_by=None):
+    """El acceso externo de ESE tercero a ESA actividad (se reutiliza si ya existía)."""
+    fila = (session_db.query(ExternalProductionAccess)
+            .filter(ExternalProductionAccess.concert_id == concert.id,
+                    ExternalProductionAccess.promoter_id == promoter.id).first())
+    if fila is None:
+        fila = ExternalProductionAccess(concert_id=concert.id, promoter_id=promoter.id,
+                                        token=_uuid_token(), status="ACTIVO",
+                                        created_by_user_id=created_by)
+        session_db.add(fila)
+    fila.status = "ACTIVO"
+    fila.email = _external_prod_contact_email(session_db, promoter) or fila.email
+    session_db.flush()
+    return fila
+
+
+def _external_prod_url(access) -> str:
+    return _external_url_for("public_external_production", token=access.token)
+
+
+def _external_prod_bag(session_db, concert_id):
+    """La bolsa de esa actividad (la que dice si el trabajo ya está entregado)."""
+    try:
+        return (session_db.query(WorkflowBag)
+                .filter(WorkflowBag.linked_type.in_(("CONCERT", "concert")),
+                        WorkflowBag.linked_id == to_uuid(str(concert_id))).first())
+    except Exception:
+        return None
+
+
+def _external_prod_open(session_db, access) -> tuple[bool, str]:
+    """¿Sigue teniendo acceso? Devuelve (sí/no, por qué no).
+
+    ⚠️ No se guarda un estado que haya que sincronizar: se MIRA LA BOLSA. Al cerrarla y pasar a
+    administración se acaba; si la bolsa vuelve a estar activa (se rechaza o hay algo que modificar),
+    vuelve a poder entrar. Así no hay forma de que quede desincronizado (misma regla que
+    `_notify_resolve`)."""
+    if access is None:
+        return False, "Ese enlace ya no vale."
+    if (access.status or "").upper() != "ACTIVO":
+        return False, "Este acceso se ha retirado."
+    bolsa = _external_prod_bag(session_db, access.concert_id)
+    if bolsa is not None and (bolsa.status or "").upper() in EXTERNAL_PROD_CLOSED_BAG:
+        return False, ("La bolsa ya está cerrada y en administración, así que este acceso ha "
+                       "terminado. Si hubiera algo que modificar se te volverá a abrir.")
+    return True, ""
+
+
+def _external_prod_notify(session_db, access, *, concert=None, code: str = "") -> tuple[bool, str]:
+    """Le manda al tercero su enlace (y, si toca, el número de verificación).
+
+    Estilo de la casa: el logo arriba a la DERECHA, el título centrado y la cabecera de la actividad,
+    la misma que se ve en su ficha."""
+    correo = (access.email or "").strip()
+    if not correo:
+        return False, "Ese tercero no tiene correo: ponlo en su ficha para poder darle acceso."
+    c = concert or session_db.get(Concert, access.concert_id)
+    logo = ""
+    try:
+        empresa = (session_db.get(GroupCompany, c.group_company_id)
+                   if getattr(c, "group_company_id", None) else None)
+        logo = (getattr(empresa, "logo_url", None) or "").strip()
+    except Exception:
+        logo = ""
+    logo = logo or _treinta_y_tres_logo_url(session_db) or _external_url_for(
+        "static", filename="img/logo_33_producciones.png")
+    filas = ""
+    try:
+        filas = "".join(
+            '<tr><td style="padding:3px 10px 3px 0;color:#6b7280;font-size:13px;white-space:nowrap;">%s</td>'
+            '<td style="padding:3px 0;font-size:14px;">%s</td></tr>'
+            % (str(escape(k)), str(escape(v)))
+            for _ico, k, v in (_contract_sheet_hero_rows(c) or []) if (v or "")) if c is not None else ""
+    except Exception:
+        filas = ""
+    enlace = _external_prod_url(access)
+    partes = ['<div style="font-family:Arial,Helvetica,sans-serif;color:#212529;max-width:660px;margin:0 auto;">']
+    partes.append('<div style="text-align:right;margin-bottom:6px;">'
+                  '<img src="%s" alt="" style="max-height:54px;max-width:190px;"></div>' % str(escape(logo)))
+    titulo = "Número de verificación" if code else "Producción de una actividad"
+    partes.append('<h2 style="text-align:center;font-size:22px;margin:0 0 14px;">%s</h2>' % titulo)
+    if code:
+        partes.append('<div style="font-size:15px;line-height:1.7;margin:0 0 10px;">'
+                      'Tu número para entrar:</div>')
+        partes.append('<div style="text-align:center;font-size:34px;letter-spacing:6px;'
+                      'font-weight:bold;margin:0 0 14px;">%s</div>' % str(escape(code)))
+        partes.append('<div style="color:#6b7280;font-size:13px;margin:0 0 14px;">'
+                      'Vale durante %d minutos. Si no lo has pedido tú, ignora este correo.</div>'
+                      % EXTERNAL_PROD_CODE_MINUTES)
+    else:
+        partes.append('<div style="font-size:15px;line-height:1.7;margin:0 0 14px;">'
+                      'Te encargamos la <strong>producción</strong> de esta actividad. Desde el botón '
+                      'de abajo puedes gestionarla: el personal, la hoja de ruta y la bolsa de gastos.'
+                      '</div>')
+    if filas:
+        partes.append('<table style="border-collapse:collapse;margin:0 0 16px;">%s</table>' % filas)
+    partes.append('<div style="text-align:right;margin:0 0 16px;">'
+                  '<a href="%s" style="background:#E33D48;color:#fff;text-decoration:none;'
+                  'padding:11px 18px;border-radius:10px;font-weight:bold;display:inline-block;">'
+                  'Gestionar la producción</a></div>' % str(escape(enlace)))
+    partes.append('<div style="color:#6b7280;font-size:13px;">Se entra con tu correo y un número de '
+                  'verificación que te llega por email. El acceso es solo para esta actividad.</div>')
+    partes.append('<div style="color:#6b7280;font-size:13px;margin-top:10px;">33 Producciones</div></div>')
+    asunto = ("Tu número de verificación" if code
+              else "Producción · %s" % ((getattr(c, "festival_name", None) or "").strip()
+                                        or _activity_kind_label(_activity_kind_key(
+                                            getattr(c, "activity_type", None)))))
+    return _send_optional_email([correo], asunto, "".join(partes))
+
+
+def _external_prod_code_new(access) -> str:
+    """Un número de verificación nuevo (6 cifras) con su caducidad."""
+    code = "".join(secrets.choice("0123456789") for _ in range(6))
+    access.code = generate_password_hash(code)
+    access.code_expires_at = _now_madrid() + timedelta(minutes=EXTERNAL_PROD_CODE_MINUTES)
+    access.code_sent_at = _now_madrid()
+    access.code_attempts = 0
+    return code
+
+
+def _external_prod_session_access(session_db):
+    """El acceso externo de ESTA sesión (o None si no es una sesión externa)."""
+    aid = session.get("ext_prod_access")
+    if not aid:
+        return None
+    try:
+        return session_db.get(ExternalProductionAccess, to_uuid(str(aid)))
+    except Exception:
+        return None
+
+
+def _external_prod_info() -> dict:
+    """Lo que necesita la plantilla para pintar la franja de «estás gestionando solo esta actividad»."""
+    cid = session.get("ext_prod_concert")
+    if not cid:
+        return {}
+    return {"concert_id": str(cid), "name": (session.get("ext_prod_name") or ""),
+            "url": url_for("concert_detail_view", cid=str(cid), tab="produccion")}
+
+
+# ---------- La COMPUERTA: en una sesión externa, solo SU actividad ----------
+# Lo que puede tocar un productor externo: la ficha de SU actividad, su hoja de ruta, su bolsa y sus
+# gastos, más las búsquedas y las altas rápidas que necesitan esos formularios. Nada más.
+EXTERNAL_PROD_FREE_ENDPOINTS = {
+    "external_production_exit", "public_external_production", "public_external_production_code",
+    "public_external_production_login", "healthz", "static", "notifications_list",
+    "notifications_mark_read", "notifications_dismiss_strip",
+    # Poder entrar como personal de la casa en el mismo navegador (y salir).
+    "admin_login", "admin_logout",
+}
+# Prefijos de endpoint que sí puede usar (el objetivo se comprueba aparte).
+EXTERNAL_PROD_PREFIXES = ("roadmap_", "bag_", "prl_", "person_doc_", "photo_", "fotos_",
+                          "api_", "concert_")
+
+
+def _external_prod_target_ok(session_db, endpoint: str, cid: str) -> bool:
+    """¿Lo que se está tocando es SU actividad?
+
+    ⚠️ Sin esta comprobación, el permiso de sección le dejaría abrir la bolsa o la hoja de ruta de
+    CUALQUIER actividad: es lo único que separa «producir esto» de «entrar en todo»."""
+    args = dict(request.view_args or {})
+    # 1 · Por la actividad, que es lo más común (`cid`).
+    for clave in ("cid", "concert_id"):
+        if args.get(clave):
+            return str(args.get(clave)) == str(cid)
+    # 2 · Por la BOLSA: tiene que ser la de su actividad.
+    if args.get("bag_id"):
+        try:
+            bolsa = session_db.get(WorkflowBag, to_uuid(str(args["bag_id"])))
+        except Exception:
+            bolsa = None
+        if bolsa is None:
+            return False
+        return ((bolsa.linked_type or "").upper() == "CONCERT"
+                and str(bolsa.linked_id or "") == str(cid))
+    # 3 · Por la HOJA DE RUTA (entidad + id).
+    if args.get("entity_type") or args.get("etype"):
+        tipo = str(args.get("entity_type") or args.get("etype") or "").lower()
+        eid = str(args.get("entity_id") or args.get("eid") or "")
+        if tipo in ("concert", "concierto"):
+            return eid == str(cid)
+        return False
+    # 4 · Sin objetivo en la URL (búsquedas, altas rápidas, listados de apoyo): pasa.
+    return True
+
+
+def _external_prod_gate():
+    """En una sesión EXTERNA (un tercero que produce una actividad) deja pasar solo lo suyo.
+
+    Devuelve una respuesta cuando hay que cortar, o None para seguir. Se llama al principio del
+    enforcement: manda sobre cualquier otra resolución de permisos."""
+    cid = session.get("ext_prod_concert")
+    if not cid:
+        return None
+    endpoint = (request.endpoint or "")
+    if endpoint in EXTERNAL_PROD_FREE_ENDPOINTS:
+        return None
+    session_db = db()
+    try:
+        acceso = _external_prod_session_access(session_db)
+        abierto, motivo = _external_prod_open(session_db, acceso)
+        if not abierto:
+            # Se ha terminado su trabajo (o se le ha retirado el acceso): se cierra la sesión y se
+            # le dice por qué, en su propia pantalla.
+            token = (getattr(acceso, "token", "") or "")
+            session.clear()
+            flash(motivo or "Este acceso ha terminado.", "warning")
+            if token:
+                return redirect(url_for("public_external_production", token=token))
+            return redirect(url_for("landing"))
+        if endpoint in ("home", "landing"):
+            return redirect(url_for("concert_detail_view", cid=str(cid), tab="produccion"))
+        permitido = (endpoint in SUPPORT_READ_ENDPOINTS or endpoint in SUPPORT_ACTION_ENDPOINTS
+                     or endpoint.startswith(EXTERNAL_PROD_PREFIXES))
+        if not permitido or not _external_prod_target_ok(session_db, endpoint, str(cid)):
+            flash("Con este acceso solo se puede gestionar la producción de esa actividad.", "warning")
+            return redirect(url_for("concert_detail_view", cid=str(cid), tab="produccion"))
+        return None
+    finally:
+        session_db.close()
+
+
+@app.get("/produccion-externa/<token>", endpoint="public_external_production")
+def public_external_production(token):
+    """Entrada del productor EXTERNO: su correo y el número de verificación que le llega por email."""
+    session_db = db()
+    try:
+        acceso = (session_db.query(ExternalProductionAccess)
+                  .filter(ExternalProductionAccess.token == token).first())
+        if acceso is None:
+            return render_template("public_external_production.html", acceso=None, cerrado="",
+                                   concierto=None, paso="no")
+        abierto, motivo = _external_prod_open(session_db, acceso)
+        c = session_db.get(Concert, acceso.concert_id)
+        # Si ya está dentro con esta misma actividad, se le lleva a su producción.
+        if abierto and str(session.get("ext_prod_concert") or "") == str(acceso.concert_id):
+            return redirect(url_for("concert_detail_view", cid=str(acceso.concert_id), tab="produccion"))
+        paso = "codigo" if (request.args.get("paso") == "codigo" and abierto) else "correo"
+        return render_template("public_external_production.html", acceso=acceso,
+                               cerrado=("" if abierto else (motivo or "Este acceso ha terminado.")),
+                               concierto=c, paso=paso,
+                               hero_rows=(_contract_sheet_hero_rows(c) if c is not None else []))
+    finally:
+        session_db.close()
+
+
+@app.post("/produccion-externa/<token>/codigo", endpoint="public_external_production_code")
+def public_external_production_code(token):
+    """Manda el NÚMERO DE VERIFICACIÓN al correo del tercero (solo si es el suyo)."""
+    session_db = db()
+    try:
+        acceso = (session_db.query(ExternalProductionAccess)
+                  .filter(ExternalProductionAccess.token == token).first())
+        if acceso is None:
+            abort(404)
+        abierto, motivo = _external_prod_open(session_db, acceso)
+        if not abierto:
+            flash(motivo, "warning")
+            return redirect(url_for("public_external_production", token=token))
+        escrito = (request.form.get("email") or "").strip().lower()
+        # ⚠️ Tiene que ser SU correo: si no, cualquiera con el enlace pediría un código a otra
+        # dirección. Y no se dice cuál es el bueno (no se filtra el correo de nadie).
+        if not escrito or escrito != (acceso.email or "").strip().lower():
+            flash("Ese correo no es el que tenemos para este acceso.", "danger")
+            return redirect(url_for("public_external_production", token=token))
+        code = _external_prod_code_new(acceso)
+        session_db.commit()
+        ok, err = _external_prod_notify(session_db, acceso, code=code)
+        if not ok:
+            flash("No se pudo mandar el número: %s" % (err or "el correo no salió"), "danger")
+            return redirect(url_for("public_external_production", token=token))
+        flash("Te hemos mandado un número de verificación al correo.", "success")
+        return redirect(url_for("public_external_production", token=token, paso="codigo"))
+    finally:
+        session_db.close()
+
+
+@app.post("/produccion-externa/<token>/entrar", endpoint="public_external_production_login")
+def public_external_production_login(token):
+    """Comprueba el número y abre la sesión EXTERNA (solo para esa actividad)."""
+    session_db = db()
+    try:
+        acceso = (session_db.query(ExternalProductionAccess)
+                  .filter(ExternalProductionAccess.token == token).first())
+        if acceso is None:
+            abort(404)
+        abierto, motivo = _external_prod_open(session_db, acceso)
+        if not abierto:
+            flash(motivo, "warning")
+            return redirect(url_for("public_external_production", token=token))
+        code = "".join((request.form.get("code") or "").split())
+        caducado = (not acceso.code or not acceso.code_expires_at
+                    or _now_madrid() > acceso.code_expires_at)
+        if caducado:
+            flash("Ese número ya ha caducado: pide otro.", "warning")
+            return redirect(url_for("public_external_production", token=token))
+        if (acceso.code_attempts or 0) >= EXTERNAL_PROD_CODE_MAX_TRIES:
+            acceso.code = None
+            session_db.commit()
+            flash("Demasiados intentos: pide un número nuevo.", "danger")
+            return redirect(url_for("public_external_production", token=token))
+        if not check_password_hash(acceso.code, code):
+            acceso.code_attempts = (acceso.code_attempts or 0) + 1
+            session_db.commit()
+            flash("Ese número no es.", "danger")
+            return redirect(url_for("public_external_production", token=token, paso="codigo"))
+        promoter = session_db.get(Promoter, acceso.promoter_id)
+        usuario = _external_prod_shadow_user(session_db, promoter)
+        acceso.user_id = usuario.id
+        acceso.code = None
+        acceso.code_attempts = 0
+        acceso.last_login_at = _now_madrid()
+        session_db.commit()
+        # Se entra con el usuario ESPEJO (así toda la app funciona igual) y se marca la sesión como
+        # EXTERNA: la compuerta la deja solo en su actividad.
+        session.clear()
+        session["user_id"] = str(usuario.id)
+        session["role"] = 1
+        session["ext_prod_access"] = str(acceso.id)
+        session["ext_prod_concert"] = str(acceso.concert_id)
+        session["ext_prod_name"] = _promoter_display_name(promoter)
+        return redirect(url_for("concert_detail_view", cid=str(acceso.concert_id), tab="produccion"))
+    finally:
+        session_db.close()
+
+
+@app.get("/salir-produccion-externa", endpoint="external_production_exit")
+def external_production_exit():
+    """Cierra la sesión del productor externo."""
+    token = ""
+    session_db = db()
+    try:
+        acceso = _external_prod_session_access(session_db)
+        token = (getattr(acceso, "token", "") or "")
+    finally:
+        session_db.close()
+    session.clear()
+    flash("Has salido.", "success")
+    if token:
+        return redirect(url_for("public_external_production", token=token))
+    return redirect(url_for("landing"))
+
+
+@app.post("/conciertos/<cid>/produccion-externa/reenviar", endpoint="concert_production_external_resend")
+@admin_required
+def concert_production_external_resend(cid):
+    """Le vuelve a mandar al tercero su enlace de acceso (o lo devuelve para copiarlo)."""
+    session_db = db()
+    try:
+        c = session_db.get(Concert, to_uuid(cid))
+        if c is None or not c.production_owner_promoter_id:
+            return jsonify({"ok": False, "error": "Esta actividad no la produce un tercero."}), 404
+        if not (can_edit_concerts() or has_access_key("produccion", edit=True, include_descendants=True)):
+            return jsonify({"ok": False, "error": "Sin permiso."}), 403
+        promoter = session_db.get(Promoter, c.production_owner_promoter_id)
+        acceso = _external_prod_access(session_db, c, promoter,
+                                       created_by=to_uuid(str((_current_user_state() or {}).get("user_id") or "") or ""))
+        session_db.commit()
+        ok, err = _external_prod_notify(session_db, acceso, concert=c)
+        return jsonify({"ok": bool(ok), "error": ("" if ok else (err or "El correo no salió.")),
+                        "url": _external_prod_url(acceso)})
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[produccion externa] no se pudo reenviar el acceso")
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        session_db.close()
 
 
 def _concert_production_pending(concert) -> bool:

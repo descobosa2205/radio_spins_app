@@ -2410,3 +2410,136 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
     } catch (e) {}
   });
 })();
+
+/* ============================ ¿QUIÉN LLEVA LA PRODUCCIÓN? ============================
+   Motor del selector único `_prod_owner_picker.html` (la ficha de la actividad y el listado de
+   Producción usan el MISMO, así que se comporta igual en los dos sitios):
+     · personal de la oficina → se guarda al pinchar su tarjeta;
+     · un TERCERO → se busca con su foto o su logo (o se crea con el «+», el alta rápida global) y al
+       asignarlo se le manda por correo su enlace para gestionar SOLO esa actividad.
+   Va por DELEGACIÓN: estos paneles viven dentro de modales que se pintan y se repintan. */
+(function () {
+  function csrf() { var m = document.querySelector('meta[name="csrf-token"]'); return m ? m.getAttribute('content') : ''; }
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
+    return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
+
+  function guarda(root, datos, boton) {
+    var url = root.getAttribute('data-save-url') || '';
+    if (!url) return;
+    var fd = new FormData();
+    Object.keys(datos).forEach(function (k) { fd.append(k, datos[k]); });
+    if (boton) boton.disabled = true;
+    fetch(url, { method: 'POST', headers: { 'X-CSRFToken': csrf(), 'X-Requested-With': 'XMLHttpRequest' }, body: fd })
+      .then(function (r) { return r.json().catch(function () { return {}; }); })
+      .then(function (j) {
+        if (!j || !j.ok) { if (boton) boton.disabled = false; alert((j && j.error) || 'No se pudo guardar.'); return; }
+        if (!j.external) { window.location.reload(); return; }
+        // Un TERCERO: se dice si le ha salido el correo y se deja el enlace para copiarlo.
+        var caja = root.querySelector('[data-prod-owner-result]');
+        if (!caja) { window.location.reload(); return; }
+        caja.className = 'alert ' + (j.mail_ok ? 'alert-success' : 'alert-warning') + ' mt-3';
+        caja.innerHTML = (j.mail_ok
+          ? '<i class="fa fa-check me-1"></i>Asignado a <strong>' + esc(j.name) + '</strong>. Le hemos mandado su acceso a ' + esc(j.email || 'su correo') + '.'
+          : '<i class="fa fa-triangle-exclamation me-1"></i>Asignado a <strong>' + esc(j.name) + '</strong>, pero el correo no salió (' + esc(j.mail_error || '') + '). Cópiale este enlace:')
+          + '<div class="input-group input-group-sm mt-2"><input class="form-control" readonly value="' + esc(j.url || '') + '">'
+          + '<button class="btn btn-outline-secondary" type="button" data-prod-copy><i class="fa fa-copy"></i></button></div>'
+          + '<button class="btn btn-sm btn-primary mt-2" type="button" onclick="window.location.reload()">Recargar</button>';
+        caja.classList.remove('d-none');
+        if (boton) boton.disabled = false;
+      })
+      .catch(function () { if (boton) boton.disabled = false; alert('No se pudo guardar.'); });
+  }
+
+  document.addEventListener('click', function (ev) {
+    var root = ev.target.closest ? ev.target.closest('[data-prod-owner-picker]') : null;
+    if (!root) return;
+    var persona = ev.target.closest('[data-prod-owner]');
+    if (persona) { guarda(root, { user_id: persona.getAttribute('data-prod-owner') }, persona); return; }
+    var hit = ev.target.closest('[data-prod-promoter-hit]');
+    if (hit) {
+      var d = {};
+      try { d = JSON.parse(hit.getAttribute('data-prod-promoter-hit')); } catch (e) { d = {}; }
+      root.querySelector('[data-prod-promoter-id]').value = d.id || '';
+      var pick = root.querySelector('[data-prod-promoter-picked]');
+      pick.innerHTML = (d.logo_url ? '<img src="' + esc(d.logo_url) + '" alt="" data-avatar="1">'
+                                   : '<span class="pw-picked__ico"><i class="fa fa-user"></i></span>')
+        + '<span class="pw-picked__t"><strong>' + esc(d.label || '') + '</strong><span>'
+        + esc(d.contact_email || d.contact_phone || 'sin correo en su ficha') + '</span></span>';
+      pick.classList.remove('d-none');
+      root.querySelector('[data-prod-promoter-results]').innerHTML = '';
+      var bs = root.querySelector('[data-prod-promoter-search]'); if (bs) bs.value = d.label || '';
+      root.querySelector('[data-prod-owner-promoter]').disabled = !d.id;
+      return;
+    }
+    var asignar = ev.target.closest('[data-prod-owner-promoter]');
+    if (asignar) {
+      var pid = (root.querySelector('[data-prod-promoter-id]') || {}).value || '';
+      if (!pid) { alert('Elige el tercero que lo produce.'); return; }
+      guarda(root, { promoter_id: pid }, asignar);
+      return;
+    }
+    var copiar = ev.target.closest('[data-prod-copy]');
+    if (copiar) {
+      var inp = copiar.parentNode.querySelector('input');
+      if (inp) { inp.select(); try { document.execCommand('copy'); } catch (e) {} }
+    }
+  });
+
+  var timer = null;
+  document.addEventListener('input', function (ev) {
+    var input = ev.target.closest ? ev.target.closest('[data-prod-promoter-search]') : null;
+    if (!input) return;
+    var root = input.closest('[data-prod-owner-picker]');
+    var res = root ? root.querySelector('[data-prod-promoter-results]') : null;
+    if (!res) return;
+    clearTimeout(timer);
+    timer = setTimeout(function () {
+      var q = input.value.trim();
+      if (!q) { res.innerHTML = ''; return; }
+      fetch('/api/search/promoters?q=' + encodeURIComponent(q), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function (r) { return r.json(); })
+        .then(function (filas) {
+          res.innerHTML = (filas || []).map(function (it) {
+            return '<button type="button" class="invitation-search-result" data-prod-promoter-hit=\''
+              + JSON.stringify(it).replace(/'/g, '&#39;') + '\'>'
+              + (it.logo_url ? '<img src="' + esc(it.logo_url) + '" alt="">' : '')
+              + '<span><strong>' + esc(it.label || 'Sin nombre') + '</strong><small>'
+              + esc(it.contact_email || '') + ' ' + esc(it.contact_phone || '') + '</small></span></button>';
+          }).join('') || '<div class="text-muted small p-2">Sin coincidencias. Créalo con el +.</div>';
+        }).catch(function () {});
+    }, 200);
+  });
+
+  // Tercero recién creado con el alta rápida global: queda elegido aquí mismo.
+  document.addEventListener('change', function (ev) {
+    var sel = ev.target.closest ? ev.target.closest('[data-prod-promoter-select]') : null;
+    if (!sel) return;
+    var root = sel.closest('[data-prod-owner-picker]');
+    if (!root || !sel.value) return;
+    var texto = (sel.options[sel.selectedIndex] || {}).text || '';
+    root.querySelector('[data-prod-promoter-id]').value = sel.value;
+    var pick = root.querySelector('[data-prod-promoter-picked]');
+    pick.innerHTML = '<span class="pw-picked__ico"><i class="fa fa-user"></i></span>'
+      + '<span class="pw-picked__t"><strong>' + esc(texto) + '</strong><span>creado ahora</span></span>';
+    pick.classList.remove('d-none');
+    root.querySelector('[data-prod-owner-promoter]').disabled = false;
+  });
+})();
+
+/* Reenviar al productor EXTERNO su enlace de acceso (rueda de la ficha de la actividad). */
+document.addEventListener('click', function (ev) {
+  var b = ev.target.closest ? ev.target.closest('[data-prod-resend]') : null;
+  if (!b) return;
+  var m = document.querySelector('meta[name="csrf-token"]');
+  b.disabled = true;
+  fetch(b.getAttribute('data-url'), {
+    method: 'POST',
+    headers: { 'X-CSRFToken': m ? m.getAttribute('content') : '', 'X-Requested-With': 'XMLHttpRequest' }
+  }).then(function (r) { return r.json().catch(function () { return {}; }); })
+    .then(function (j) {
+      b.disabled = false;
+      if (j && j.ok) { alert('Se le ha vuelto a mandar su acceso.'); return; }
+      // Si el correo no sale, al menos se le puede copiar el enlace.
+      window.prompt((j && j.error ? j.error + '\n\n' : '') + 'Cópiale este enlace:', (j && j.url) || '');
+    }).catch(function () { b.disabled = false; alert('No se pudo reenviar.'); });
+});

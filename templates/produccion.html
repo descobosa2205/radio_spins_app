@@ -1,4 +1,5 @@
 {% extends "layout.html" %}
+{% import '_prod_owner_picker.html' as prod_owner with context %}
 {% block content %}
 <style>
   .production-row-card{transition:box-shadow .15s ease, transform .15s ease;}
@@ -209,45 +210,37 @@
 
       <div class="modal fade" id="assignProdModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
-          <form class="modal-content" method="post" id="assignProdForm">
+          <div class="modal-content">
             <div class="modal-header">
-              <h5 class="modal-title">Persona de producción</h5>
+              <div>
+                <h5 class="modal-title"><i class="fa fa-user-gear me-2"></i>¿Quién lleva la producción?</h5>
+                <div class="text-muted small" id="assignProdWhat"></div>
+              </div>
               <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body">
-              <div class="text-muted small mb-2" id="assignProdWhat"></div>
-              <input type="hidden" name="next" value="{{ url_for('produccion_view', tab='activas') }}">
-              {% if production_people %}
-                <div class="list-group">
-                  {% for p in production_people %}
-                    <label class="list-group-item d-flex align-items-center gap-2">
-                      <input class="form-check-input m-0" type="radio" name="user_id" value="{{ p.id }}" required>
-                      <img src="{{ p.photo_url or DEFAULT_AVATAR_URL }}" alt=""
-                           data-avatar="1" style="width:30px;height:30px;border-radius:50%;object-fit:cover;">
-                      <span>{{ p.name }}</span>
-                    </label>
-                  {% endfor %}
-                </div>
-              {% else %}
-                <div class="alert alert-light border mb-0">No hay nadie con el departamento de Producción.</div>
-              {% endif %}
+              {# El MISMO selector que la ficha de la actividad: personal de la oficina o un tercero
+                 (con su acceso propio). La URL de guardado se pone al abrirlo, que cambia por fila. #}
+              {{ prod_owner.prod_owner_picker('', production_people) }}
             </div>
             <div class="modal-footer">
               <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-              <button class="btn btn-primary" {% if not production_people %}disabled{% endif %}><i class="fa fa-check me-1"></i>Asignar</button>
             </div>
-          </form>
+          </div>
         </div>
       </div>
       <script>
         (function(){
-          var form = document.getElementById('assignProdForm');
           var what = document.getElementById('assignProdWhat');
           document.querySelectorAll('[data-assign-prod]').forEach(function(btn){
             btn.addEventListener('click', function(){
-              form.setAttribute('action', btn.getAttribute('data-assign-url') || '');
+              var modal = document.getElementById('assignProdModal');
+              var picker = modal.querySelector('[data-prod-owner-picker]');
+              // ⚠️ La URL se pone EN EL CLIC (cada fila es otra actividad); el guardado lo hace el
+              // motor global del selector.
+              if (picker) picker.setAttribute('data-save-url', btn.getAttribute('data-assign-url') || '');
               what.textContent = btn.getAttribute('data-assign-label') || '';
-              new bootstrap.Modal(document.getElementById('assignProdModal')).show();
+              if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(modal).show();
             });
           });
         })();

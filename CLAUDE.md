@@ -2467,6 +2467,47 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   la actividad calcula la lista **SIEMPRE** (antes solo cuando faltaba responsable, así que al cambiarlo
   desde la rueda no salía nadie) y el modal `#prodOwnerModal` se pinta con solo poder editar.
 
+- **PRODUCCIÓN EXTERNA · la lleva un TERCERO, con su propio acceso** (ago 2026). El responsable de
+  producción de una actividad puede ser alguien **de fuera**. El selector «¿Quién lleva la
+  producción?» es ya **uno solo** (`templates/_prod_owner_picker.html`, usado por la ficha de la
+  actividad y por el listado de Producción) con dos pestañas: **personal de la oficina** (las
+  tarjetas de siempre) y **un tercero** (buscador con su foto o su logo + el «+» del alta rápida).
+  · **Cómo funciona por dentro**: al tercero se le crea un **USUARIO ESPEJO**
+  (`UserProfile.is_external`, correo sintético `produccion-externa+<id>@…`) y
+  `Concert.production_owner_user_id` apunta a él, así que TODO lo que ya existía (tareas, listados de
+  producción, avisos, quién cierra la bolsa) funciona **sin casos particulares** — el mismo patrón que
+  el modo «Ver como». Lo único propio es la **compuerta** `_external_prod_gate`, lo PRIMERO del
+  enforcement, que en una sesión externa deja pasar solo lo de SU actividad
+  (`_external_prod_target_ok`: por `cid`, por la bolsa vinculada o por la entidad de la hoja de ruta).
+  Sus permisos son solo `produccion` (ver+editar) y `databases.bags` (con económico: la bolsa ES
+  dinero). `Concert.production_owner_promoter_id` guarda de quién se trata.
+  · **Cómo entra**: enlace propio `/produccion-externa/<token>` → escribe **su correo** (tiene que ser
+  el de su ficha; no se dice cuál es el bueno) → le llega un **número de verificación** de 6 cifras
+  (20 min, 6 intentos) → entra y se le lleva a la pestaña Producción de su actividad. En el menú sale
+  una franja roja con su nombre y el botón **Salir**; el menú de secciones no se le pinta.
+  · **Su acceso TERMINA al cerrar la bolsa** y pasar a administración, y **vuelve** si la bolsa se
+  reabre (rechazo o algo que modificar). ⚠️ Eso **no se sincroniza**: se MIRA la bolsa
+  (`_external_prod_open`), así no puede quedar desparejado — la misma regla que `_notify_resolve`.
+  · **Los usuarios espejo no son personal de la casa**: `_inactive_user_ids` los excluye (y con eso
+  desaparecen de golpe de todos los selectores y listados que ya usan ese punto único, incluido
+  `_production_people`), y **no pueden entrar por el login normal** (se les dice que usen su enlace).
+  ⚠️⚠️ **EL LOGIN VIVO es `_admin_login_extended`**, no la función `admin_login`: al final del bloque
+  hay `app.view_functions["admin_login"] = _admin_login_extended`, así que la primera es **código
+  muerto**. Un cambio en el login que se haga ahí no se ejecuta (bug real de esta épica).
+  ⚠️ `Concert.promoter` necesita **`foreign_keys`**: con el tercero de producción hay DOS caminos de
+  `concerts` a `promoters` y SQLAlchemy no arranca sin decírselo.
+  ⚠️ Los cuatro endpoints van en las **listas de públicos** (`allowed` × 2 y `PUBLIC_ENDPOINTS_EXTRA`)
+  y conservan CSRF (el formulario es nuestro).
+
+- ⚠️ **MANDAR A PRODUCCIÓN = decir QUIÉN se encarga** (corregido ago 2026): la tarea de Contratación
+  «Sin mandar a producción» miraba solo si había BOLSA, así que las actividades de antes de que
+  existiera «activar producción» —que tienen responsable y no tienen bolsa— la arrastraban para
+  siempre. Con responsable ya está mandada (y le sale a esa persona como tarea suya).
+
+- **La RUEDA de la ficha de una actividad va en la FILA DE BOTONES**, a la derecha del todo
+  (`.ficha-quick__gear`), no en la cabecera. Dentro: quién lleva la producción, reenviar el acceso al
+  productor externo (solo si lo produce un tercero), avisar al artista y eliminar la actividad.
+
 - **Producción → ACTIVAS por sujeto** (ago 2026, `_production_active_rows` + `_production_active_context`):
   igual que la sección Actividades — rejilla de **artistas y eventos** con su nº y, al entrar, sus
   actividades con la fila `.oa-row` y el **icono de su tipo**. **Cada persona de producción ve SOLO lo

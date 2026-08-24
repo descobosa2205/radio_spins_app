@@ -57,8 +57,8 @@
             <span class="ctask__fact"><i class="fa fa-inbox"></i>Petición</span>
             {% if r.date_label %}<span class="ctask__fact"><i class="fa fa-calendar-day"></i>{{ r.date_label }}</span>{% endif %}
             {% if r.subject and r.artist_name %}<span class="ctask__fact"><i class="fa fa-signature"></i>{{ r.subject }}</span>{% endif %}
-            {% if r.municipality %}<span class="ctask__fact"><i class="fa fa-location-dot"></i>{{ r.municipality }}</span>{% endif %}
-            {% if r.province %}<span class="ctask__fact"><i class="fa fa-map"></i>{{ r.province }}</span>{% endif %}
+            {# El lugar, de una pieza: «Municipio, Provincia» (con el país si no es España). #}
+            {% if r.place_label %}<span class="ctask__fact"><i class="fa fa-location-dot"></i>{{ r.place_label }}</span>{% endif %}
             {% if r.fee_text %}<span class="ctask__fact"><i class="fa fa-euro-sign"></i>{{ r.fee_text }}</span>{% endif %}
             {% if r.contact_name %}<span class="ctask__fact d-none d-xl-inline-flex"><i class="fa fa-user"></i>{{ r.contact_name }}</span>{% endif %}
           </span>

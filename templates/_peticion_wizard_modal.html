@@ -365,10 +365,12 @@
       fetch('/api/municipios?q=' + encodeURIComponent(q)).then(function(r){ return r.json(); }).then(function(d){
         var filas = (d && d.rows) || [];
         cityResults.innerHTML = filas.slice(0,10).map(function(it){
+          // «Municipio, Provincia» (y el país solo si no es España): lo compone el servidor.
+          var resto = (it.label || it.city || '').slice((it.city || '').length);
           return '<button type="button" class="list-group-item list-group-item-action d-flex align-items-center gap-2"'
-            + ' data-city="'+esc(it.city)+'" data-prov="'+esc(it.province||'')+'">'
+            + ' data-city="'+esc(it.city)+'" data-prov="'+esc(it.province||'')+'" data-country="'+esc(it.country||'')+'">'
             + '<i class="fa fa-city text-muted"></i><span><strong>'+esc(it.city)+'</strong>'
-            + (it.province?(' <span class="text-muted small">'+esc(it.province)+'</span>'):'')+'</span></button>';
+            + (resto?('<span class="text-muted small">'+esc(resto)+'</span>'):'')+'</span></button>';
         }).join('') || '<div class="list-group-item text-muted small">Sin coincidencias: escríbela a mano.</div>';
         cityResults.classList.remove('d-none');
       }).catch(function(){ cityResults.classList.add('d-none'); });
@@ -378,6 +380,8 @@
     var b = ev.target.closest('[data-city]'); if(!b) return;
     muni.value = b.getAttribute('data-city');
     if(b.getAttribute('data-prov')) prov.value = b.getAttribute('data-prov');
+    var pais = b.getAttribute('data-country') || '';
+    if(pais) modal.querySelector('#pwCountry').value = pais;   // fuera de España, su país
     cityResults.classList.add('d-none');
   });
   document.addEventListener('click', function(ev){ if(!modal.contains(ev.target)) return; if(!ev.target.closest('#pwMuni') && !ev.target.closest('#pwCityResults')) cityResults.classList.add('d-none'); });

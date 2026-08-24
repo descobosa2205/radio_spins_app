@@ -1327,10 +1327,23 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   y «+» para crearlo) · **Conozco la ciudad** (al escribirla salen las opciones y la **provincia se
   rellena sola**). Se guarda en `payload['place_kind']` (NONE|VENUE|CITY) y **lo que no se elige se
   limpia**: una petición no puede quedarse con un recinto de antes y una ciudad nueva.
+  · **CÓMO SE ESCRIBE UN LUGAR** (punto único **`_place_label`**): **«Municipio, Provincia»** —con
+  una coma, que es como se escribe una dirección, no con «·» ni otro carácter— y el **PAÍS solo si NO
+  es España** («Toulouse, Occitanie (France)»): dentro no aporta nada y fuera es justo lo que hace
+  falta saber. Un municipio que se llama igual que su provincia (Sevilla, Madrid) no se repite. Con
+  un recinto delante queda «Recinto · Municipio, Provincia», que el recinto sí es otra cosa. Se usa
+  en la ficha de la petición, en su listado (un solo dato, no dos chips) y en las sugerencias de
+  ciudad.
   · **Las ciudades las da `api_city_search`** (`/api/municipios`, en `SUPPORT_READ_ENDPOINTS`): busca
   primero en NUESTROS datos (municipios de recintos y de actividades, que son pares ciudad+provincia
   ya curados y salen al instante) y solo si hay pocos pregunta a `geo_utils`, de donde la provincia
   sale del **código postal**, nunca de la comunidad autónoma que devuelve el proveedor.
+  ⚠️ Se pregunta **dos veces**: sesgado a España (el 99% de lo que se pide) y, si eso no ha traído
+  nada que case, el término A SECAS — así también salen las ciudades de fuera con su país. Y se
+  **descarta lo que no casa con lo escrito**: el buscador de direcciones devuelve lo que tiene cerca
+  aunque no se parezca («Toulouse» → Zaragoza), y en un selector de ciudades eso es ruido. Una ciudad
+  muy lejana puede no aparecer (el proveedor se consulta con sesgo a España): el campo es libre y se
+  escribe a mano.
   · **EDITAR una petición ya creada** con el MISMO asistente: `peticion_wizard_update`
   (`/peticiones/<id>/editar`) + `_peticion_edit_payload` (los datos que el asistente necesita) y
   punto único **`_peticion_apply_form`**, que usan crear y editar — así una petición editada queda

@@ -29629,6 +29629,9 @@ def _booking_request_row(r):
         "contact_phone": (r.contact_phone or ""),
         "municipality": (r.municipality or ""),
         "province": (r.province or ""),
+        # Cómo se lee el lugar: «Municipio, Provincia» (y el país solo si no es España).
+        "place_label": _place_label(r.municipality or "", r.province or "",
+                                    ((r.payload or {}).get("country") or "")),
         "fee_text": (r.fee_text or ""),
         "source": (r.source or ""),
         "notes": (r.notes or ""),
@@ -29826,6 +29829,30 @@ def booking_request_delete(rid):
     return redirect(request.form.get("next") or url_for("contracting_view", section="peticiones"))
 
 
+def _place_label(municipality: str = "", province: str = "", country: str = "",
+                 *, venue: str = "") -> str:
+    """Cómo se escribe un lugar: **«Municipio, Provincia»** — con una coma, que es como se escribe
+    una dirección, no con «·» ni otro carácter. El PAÍS solo se pone cuando NO es España (dentro no
+    aporta nada; fuera es justo lo que hace falta saber).
+
+    Con `venue` delante queda «Recinto · Municipio, Provincia»: el recinto es otra cosa, así que ahí
+    sí se separa."""
+    ciudad = " ".join((municipality or "").split())
+    provincia = " ".join((province or "").split())
+    pais = " ".join((country or "").split())
+    partes = [x for x in [ciudad, provincia] if x]
+    # Un municipio que se llama igual que su provincia (Sevilla, Madrid…) no se repite.
+    if len(partes) == 2 and _norm_text_key(partes[0]) == _norm_text_key(partes[1]):
+        partes = [partes[0]]
+    texto = ", ".join(partes)
+    if pais and _norm_text_key(pais) not in ("espana", "spain", "es"):
+        texto = (texto + " (" + pais + ")") if texto else pais
+    recinto = " ".join((venue or "").split())
+    if recinto:
+        return " · ".join([x for x in [recinto, texto] if x])
+    return texto
+
+
 def _peticion_requester_chip(session_db, r) -> dict | None:
     """QUIÉN HACE LA PETICIÓN, con su FOTO o su LOGO: en la ficha se ve como en el asistente.
 
@@ -29900,7 +29927,8 @@ def _booking_request_detail(session_db, r) -> dict:
         fecha = f"Durante {pay.get('month')}"
     venue = session_db.get(Venue, r.venue_id) if r.venue_id else None
     promoter = session_db.get(Promoter, r.promoter_id) if r.promoter_id else None
-    lugar = " · ".join([x for x in [(venue.name if venue else ""), (r.municipality or ""), (r.province or "")] if x])
+    lugar = _place_label(r.municipality or "", r.province or "", (pay.get("country") or ""),
+                         venue=(venue.name if venue else ""))
     act_type = (pay.get("activity_type") or "CONCIERTO").strip().upper()
     # Solo se muestran los campos con contenido: la ficha enseña lo que hay, no huecos.
     campos = [
@@ -30194,7 +30222,7 @@ def api_city_search():
     clave = _norm_text_key(q)
     filas, vistos = [], set()
 
-    def añade(ciudad, provincia):
+    def añade(ciudad, provincia, pais=""):
         ciudad = (ciudad or "").strip()
         if not ciudad:
             return
@@ -30202,7 +30230,11 @@ def api_city_search():
         if k in vistos:
             return
         vistos.add(k)
-        filas.append({"city": ciudad, "province": (provincia or "").strip()})
+        provincia = (provincia or "").strip()
+        pais = (pais or "").strip()
+        filas.append({"city": ciudad, "province": provincia, "country": pais,
+                      # Cómo se lee: «Municipio, Provincia» y el país solo si no es España.
+                      "label": _place_label(ciudad, provincia, pais)})
 
     s = db()
     try:
@@ -30224,12 +30256,26 @@ def api_city_search():
     filas.sort(key=lambda f: (0 if _norm_text_key(f["city"]).startswith(clave) else 1,
                               _norm_text_key(f["city"])))
     if len(filas) < 6:
+        # Primero sesgado a España (que es el 99% de lo que se pide) y, si sigue habiendo poco, el
+        # término a secas: así también salen las ciudades de FUERA, con su país.
         try:
             import geo_utils
-            for f in geo_utils.search_addresses("%s España" % q, limit=8):
-                añade(f.get("city"), f.get("province"))
+            for termino in ("%s España" % q, q):
+                for f in geo_utils.search_addresses(termino, limit=8):
+                    añade(f.get("city"), f.get("province"), f.get("country"))
+                # ⚠️ Se cuentan solo las que CASAN con lo escrito: la vuelta sesgada a España
+                # devuelve seis ciudades de aquí que no tienen nada que ver, y contándolas no se
+                # llegaba a preguntar por el término a secas (así «Lisboa» no salía).
+                if sum(1 for f in filas if clave in _norm_text_key(f["city"])) >= 6:
+                    break
         except Exception:
             pass          # el buscador es una AYUDA: si falla, se escribe a mano
+    # ⚠️ El buscador de direcciones devuelve lo que tiene CERCA aunque no se parezca a lo escrito
+    # («Toulouse» → Zaragoza): en un selector de ciudades eso es ruido, así que solo se queda lo que
+    # de verdad casa con lo que se ha escrito, y lo que EMPIEZA por ello va primero.
+    filas = [f for f in filas if clave in _norm_text_key(f["city"])]
+    filas.sort(key=lambda f: (0 if _norm_text_key(f["city"]).startswith(clave) else 1,
+                              _norm_text_key(f["city"])))
     return jsonify({"ok": True, "rows": filas[:12]})
 
 

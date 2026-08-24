@@ -55047,6 +55047,43 @@ def _home_ticketing_only() -> bool:
     return depts == {_norm_text_key("Ticketing")}
 
 
+def _home_contratacion_only() -> bool:
+    """¿El Inicio de esta persona es el de CONTRATACIÓN?
+
+    Lo es quien está en el departamento **Contratación y en ninguno más**: ve su cabecera, los avisos,
+    los botones rápidos, el calendario, las peticiones (cuando hay) y SUS tareas de contratación, y
+    nada más. Dirección y quien esté además en otro departamento siguen viéndolo todo.
+    ⚠️ Mismo criterio que `_home_ticketing_only`: si se toca uno, se toca el otro."""
+    if is_master():
+        return False
+    estado = _current_user_state() or {}
+    depts = {_norm_text_key(d) for d in (estado.get("departments") or []) if str(d or "").strip()}
+    return depts == {_norm_text_key("Contratación")}
+
+
+def _home_contracting_tasks(limit: int = 20) -> list[dict]:
+    """LAS TAREAS DE CONTRATACIÓN de esta persona, todas juntas, para el módulo de Inicio.
+
+    Son las MISMAS que abren cada pestaña de Contratación (`_contracting_tasks_data`, ya filtradas
+    por sus artistas asignados), aquí sin repartir por pestañas: una fila por actividad.
+    ⚠️ Una actividad sale en varias pestañas (un concierto de un ciclo está en las dos), así que se
+    quita el duplicado; lo de FACTURACIÓN es por pago, y por eso el `extra` entra en la clave."""
+    tareas = (_contracting_tasks_data() or {}).get("tasks") or {}
+    vistos, salida = set(), []
+    for tab in CONTRACTING_COUNT_TABS:
+        for t in (tareas.get(tab) or []):
+            clave = (t.get("id") or "", t.get("extra") or "",
+                     tuple(sorted((k or {}).get("label", "") for k in (t.get("tasks") or []))))
+            if clave in vistos:
+                continue
+            vistos.add(clave)
+            salida.append(t)
+    # Lo más urgente primero (el orden del catálogo de tareas) y, dentro, lo más cercano en el tiempo.
+    salida.sort(key=lambda t: (min([(k or {}).get("order", 9) for k in (t.get("tasks") or [])] or [9]),
+                               t.get("date") or date.max))
+    return salida[:limit]
+
+
 def _build_personnel_access_rows() -> list[dict]:
     session_db = db()
     try:
@@ -55524,6 +55561,16 @@ def inject_personnel_globals():
         "CONTRACTING_TASKS": (_contracting_tasks_data().get("tasks") or {}
                               if request.endpoint in CONTRACTING_TAB_ENDPOINTS
                               and session.get("user_id") else {}),
+        # Inicio de CONTRATACIÓN: sus tareas y la compuerta que esconde los módulos de los demás
+        # departamentos. ⚠️ Las tareas son CARAS (recorren las actividades vivas): solo en Inicio y
+        # solo a quien tenga contratación.
+        "HOME_CONTRATACION_TASKS": (_home_contracting_tasks()
+                                    if request.endpoint == "home" and session.get("user_id")
+                                    and has_access_key("contratacion", include_descendants=True)
+                                    else []),
+        "HOME_CONTRATACION_ONLY": (_home_contratacion_only()
+                                   if request.endpoint == "home" and session.get("user_id")
+                                   else False),
         "has_access_key": has_access_key,
         # Placeholder de PORTADA (canción/álbum) cuando no hay portada: disco gris sobre fondo gris
         # claro, para cubrir el hueco sin fingir que es la portada real.

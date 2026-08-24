@@ -106,10 +106,95 @@ document.addEventListener('click', function (ev) {
 {% endif %}
 
 
+{# PETICIONES PENDIENTES · va JUSTO DEBAJO DEL CALENDARIO porque es lo primero que mira quien
+   lleva contratación (y solo se ve cuando hay alguna). A quien es SOLO de ticketing no se le pinta:
+   su Inicio es el calendario y sus tareas. #}
+{% if not HOME_TICKETING_ONLY %}
+{% if HOME_PENDING_PETICIONES %}
+<div class="card mb-4">
+  <div class="card-header d-flex align-items-center gap-2">
+    <span class="fw-semibold"><i class="fa fa-inbox text-danger me-2"></i>Peticiones pendientes</span>
+    <span class="badge text-bg-danger">{{ HOME_PENDING_PETICIONES|length }}</span>
+    <span class="text-muted small ms-auto">Según tus funciones</span>
+  </div>
+  <div class="list-group list-group-flush">
+    {% for p in HOME_PENDING_PETICIONES %}
+    {# Pinchar la petición lleva a GESTIONARLA: su bandeja de departamento, con ancla a la fila. #}
+    <{{ 'a' if p.manage_url else 'div' }} {% if p.manage_url %}href="{{ p.manage_url }}" title="Gestionar esta petición"{% endif %} class="list-group-item {{ 'list-group-item-action text-reset text-decoration-none' if p.manage_url }} d-flex align-items-center gap-3 flex-wrap">
+      <span class="badge {{ p.status_badge }}">{{ p.status_label }}</span>
+      <span class="d-flex align-items-center gap-2 fw-semibold" style="min-width:0;">
+        {% if p.artist_photo %}<img src="{{ p.artist_photo }}" alt="" style="width:30px;height:30px;border-radius:50%;object-fit:cover;border:1px solid #eee;flex:0 0 auto;">{% endif %}
+        <span class="text-truncate">{{ p.artist_name or p.subject or 'Petición' }}</span>
+      </span>
+      {% for d in (p.dept_labels or []) %}<span class="badge text-bg-light border">{{ d }}</span>{% endfor %}
+      <span class="ms-auto d-flex align-items-center gap-3 text-muted small flex-wrap">
+        {% if p.date_label %}<span><i class="fa fa-calendar-day me-1"></i>{{ p.date_label }}</span>{% endif %}
+        {% if p.municipality %}<span><i class="fa fa-location-dot me-1"></i>{{ p.municipality }}{% if p.province %} ({{ p.province }}){% endif %}</span>{% endif %}
+        {% if p.days_since is not none %}<span title="Días desde que se solicitó"><i class="fa fa-clock me-1"></i>{{ p.days_since }} día{{ '' if p.days_since == 1 else 's' }}</span>{% endif %}
+      </span>
+    </{{ 'a' if p.manage_url else 'div' }}>
+    {% endfor %}
+  </div>
+  <div class="card-footer bg-transparent text-end">
+    <a class="btn btn-sm btn-outline-danger" href="{{ url_for('contracting_view', section='peticiones') }}"><i class="fa fa-list-check me-1"></i>Ver todas</a>
+  </div>
+</div>
+{% endif %}
+{% endif %}
+
+{# TAREAS PENDIENTES DE CONTRATACIÓN de esta persona (las mismas que abren cada pestaña de
+   Contratación, ya filtradas por sus artistas asignados, aquí todas juntas). Solo se ve si hay. #}
+{% if HOME_CONTRATACION_TASKS %}
+<div class="card mb-4">
+  <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <span class="fw-semibold">
+      <i class="fa fa-list-check text-danger me-2"></i>Tareas pendientes de contratación
+      <span class="badge text-bg-danger ms-1">{{ HOME_CONTRATACION_TASKS|length }}</span>
+    </span>
+    <a class="btn btn-sm btn-outline-danger" href="{{ url_for('contracting_view', section='conciertos') }}">
+      <i class="fa fa-arrow-right me-1"></i>Ir a contratación
+    </a>
+  </div>
+  <div class="list-group list-group-flush">
+    {% for t in HOME_CONTRATACION_TASKS %}
+      <a class="list-group-item list-group-item-action ctask" href="{{ t.url }}">
+        <div class="ctask__head">
+          {% if t.subject_photo or t.subject_name %}
+            {{ artist_avatar(t.subject_photo, t.subject_name) }}
+          {% else %}
+            <span class="ctask__noart"><i class="fa fa-inbox text-muted"></i></span>
+          {% endif %}
+          <span class="ctask__subject text-truncate">{{ t.subject_name or t.activity_label }}</span>
+          <span class="ctask__facts">
+            <span class="ctask__fact"><i class="fa {{ t.activity_icon or 'fa-guitar' }}"></i>{{ t.activity_label }}</span>
+            {% if t.date_label %}<span class="ctask__fact"><i class="fa fa-calendar-day"></i>{{ t.date_label }}</span>{% endif %}
+            {% if t.festival_name %}<span class="ctask__fact"><i class="fa fa-signature"></i>{{ t.festival_name }}</span>{% endif %}
+            {% if t.municipality %}<span class="ctask__fact"><i class="fa fa-location-dot"></i>{{ t.municipality }}</span>{% endif %}
+            {% if t.province %}<span class="ctask__fact"><i class="fa fa-map"></i>{{ t.province }}</span>{% endif %}
+            {% if t.venue_name %}<span class="ctask__fact"><i class="fa fa-location-pin"></i>{{ t.venue_name }}</span>{% endif %}
+            {% if t.extra %}<span class="ctask__fact"><i class="fa fa-euro-sign"></i>{{ t.extra }}</span>{% endif %}
+          </span>
+          <i class="fa fa-chevron-right ctask__go"></i>
+        </div>
+        <div class="ctask__tasks">
+          {% for k in (t.tasks or [{'badge': t.badge, 'icon': t.icon, 'label': t.label}]) %}
+            <span class="badge {{ k.badge }}"><i class="fa {{ k.icon }} me-1"></i>{{ k.label }}</span>
+          {% endfor %}
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {# ⚠️ EL INICIO DE TICKETING ES SOLO EL CALENDARIO Y SUS TAREAS: quien es SOLO de ticketing no
    tiene por qué mirar los módulos de los demás departamentos, así que de aquí en adelante no se le
-   pinta nada (`HOME_TICKETING_ONLY`). Quien además está en otro departamento los sigue viendo. #}
-{% if not HOME_TICKETING_ONLY %}
+   pinta nada (`HOME_TICKETING_ONLY`). Quien además está en otro departamento los sigue viendo.
+   ⚠️ Lo mismo con CONTRATACIÓN (`HOME_CONTRATACION_ONLY`): su Inicio es la cabecera, los avisos, los
+   botones rápidos, el calendario, las peticiones cuando hay y sus tareas de contratación. Un módulo
+   nuevo que se añada AQUÍ ABAJO queda dentro de la compuerta: si tiene que verlo ticketing o
+   contratación, va ARRIBA (con el suyo). #}
+{% if not HOME_TICKETING_ONLY and not HOME_CONTRATACION_ONLY %}
 
 {# ACTIVAR LA PRODUCCIÓN de las actividades que ha creado esta persona: mientras no digan quién de
    producción se encarga, nadie las está produciendo. #}
@@ -358,37 +443,6 @@ document.addEventListener('click', function (ev) {
         </span>
       </a>
     {% endfor %}
-  </div>
-</div>
-{% endif %}
-
-{% if HOME_PENDING_PETICIONES %}
-<div class="card mb-4">
-  <div class="card-header d-flex align-items-center gap-2">
-    <span class="fw-semibold"><i class="fa fa-inbox text-danger me-2"></i>Peticiones pendientes</span>
-    <span class="badge text-bg-danger">{{ HOME_PENDING_PETICIONES|length }}</span>
-    <span class="text-muted small ms-auto">Según tus funciones</span>
-  </div>
-  <div class="list-group list-group-flush">
-    {% for p in HOME_PENDING_PETICIONES %}
-    {# Pinchar la petición lleva a GESTIONARLA: su bandeja de departamento, con ancla a la fila. #}
-    <{{ 'a' if p.manage_url else 'div' }} {% if p.manage_url %}href="{{ p.manage_url }}" title="Gestionar esta petición"{% endif %} class="list-group-item {{ 'list-group-item-action text-reset text-decoration-none' if p.manage_url }} d-flex align-items-center gap-3 flex-wrap">
-      <span class="badge {{ p.status_badge }}">{{ p.status_label }}</span>
-      <span class="d-flex align-items-center gap-2 fw-semibold" style="min-width:0;">
-        {% if p.artist_photo %}<img src="{{ p.artist_photo }}" alt="" style="width:30px;height:30px;border-radius:50%;object-fit:cover;border:1px solid #eee;flex:0 0 auto;">{% endif %}
-        <span class="text-truncate">{{ p.artist_name or p.subject or 'Petición' }}</span>
-      </span>
-      {% for d in (p.dept_labels or []) %}<span class="badge text-bg-light border">{{ d }}</span>{% endfor %}
-      <span class="ms-auto d-flex align-items-center gap-3 text-muted small flex-wrap">
-        {% if p.date_label %}<span><i class="fa fa-calendar-day me-1"></i>{{ p.date_label }}</span>{% endif %}
-        {% if p.municipality %}<span><i class="fa fa-location-dot me-1"></i>{{ p.municipality }}{% if p.province %} ({{ p.province }}){% endif %}</span>{% endif %}
-        {% if p.days_since is not none %}<span title="Días desde que se solicitó"><i class="fa fa-clock me-1"></i>{{ p.days_since }} día{{ '' if p.days_since == 1 else 's' }}</span>{% endif %}
-      </span>
-    </{{ 'a' if p.manage_url else 'div' }}>
-    {% endfor %}
-  </div>
-  <div class="card-footer bg-transparent text-end">
-    <a class="btn btn-sm btn-outline-danger" href="{{ url_for('contracting_view', section='peticiones') }}"><i class="fa fa-list-check me-1"></i>Ver todas</a>
   </div>
 </div>
 {% endif %}

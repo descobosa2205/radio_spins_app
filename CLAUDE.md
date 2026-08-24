@@ -2175,10 +2175,28 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · Módulo de Inicio **`HOME_TICKETING_SALES`** (`_home_ticketing_sales_tasks`), solo para Ticketing y
   dirección, con las dos tareas y su etiqueta. Va **justo debajo del calendario**, que es con lo que
   trabaja ticketing.
+  ⚠️ **EL INICIO DE CONTRATACIÓN** (ago 2026) es, en este orden: la **cabecera** · los **avisos**
+  (la franja global, que va debajo del menú) · los **botones rápidos** · el **calendario** · las
+  **peticiones pendientes** (`HOME_PENDING_PETICIONES`, **solo cuando hay**) · y sus **tareas
+  pendientes de contratación** (`HOME_CONTRATACION_TASKS` ← `_home_contracting_tasks`). **Nada más**:
+  a quien está en el departamento Contratación **y en ninguno más** (`_home_contratacion_only` →
+  `HOME_CONTRATACION_ONLY`, hermano de `_home_ticketing_only`) se le esconden los módulos de los
+  demás departamentos.
+  · El módulo de tareas son las MISMAS que abren cada pestaña de Contratación
+  (`_contracting_tasks_data`, ya filtradas por **sus artistas asignados**), aquí **sin repartir por
+  pestañas**: una fila por actividad, lo más urgente primero. Se ve para **cualquiera que tenga la
+  función** de contratación (dirección incluida), no solo para los de ese departamento.
+  ⚠️ Una actividad sale en VARIAS pestañas (un concierto de un ciclo, en las dos): se quita el
+  duplicado; lo de **facturación es por pago**, así que el `extra` entra en la clave del dedupe.
+  ⚠️ Las tareas son **CARAS** (recorren las actividades vivas): se calculan **solo en Inicio** y solo
+  a quien tenga contratación.
+  ⚠️ El módulo de **peticiones subió** a debajo del calendario (antes estaba dentro de la compuerta de
+  ticketing, así que contratación lo tenía enterrado entre los módulos de los demás); sigue oculto
+  para quien es SOLO de ticketing.
   ⚠️ **EL INICIO DE TICKETING ES SOLO EL CALENDARIO Y ESO**: a quien está en el departamento
   Ticketing **y en ninguno más** (`_home_ticketing_only` → `HOME_TICKETING_ONLY`) no se le pintan los
   módulos de los demás departamentos — en `home.html` todo lo que va después cuelga de
-  `{% if not HOME_TICKETING_ONLY %}`. Quien además esté en otro departamento, y dirección, los siguen
+  `{% if not HOME_TICKETING_ONLY and not HOME_CONTRATACION_ONLY %}`. Quien además esté en otro departamento, y dirección, los siguen
   viendo todos. Un módulo nuevo que se añada al final queda dentro de esa compuerta: si tiene que
   verlo ticketing, va ARRIBA (con el suyo).
 

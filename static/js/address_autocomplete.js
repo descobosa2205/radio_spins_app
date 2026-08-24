@@ -1,7 +1,13 @@
-/* address_autocomplete.js — AUTOCOMPLETAR LA DIRECCIÓN FISCAL (global).
+/* address_autocomplete.js — AUTOCOMPLETAR UNA DIRECCIÓN (global, en TODA la app).
  *
- * Se escribe la calle y se rellenan solos el código postal, el municipio, la provincia y el país,
- * que es lo que la contabilidad necesita separado para dar de alta al proveedor.
+ * Dos formas de usarlo, las dos con `[data-address-autocomplete]` en el bloque:
+ *   · **UN SOLO campo** (`data-addr="full"`): un domicilio, la dirección de un recinto, de un
+ *     medio… Al elegir una sugerencia se escribe la dirección ENTERA en el formato de la casa
+ *     («Calle, CP Municipio, Provincia, País»), que lo compone el SERVIDOR (`address_utils`), no
+ *     este fichero: así se guarda igual que si se hubiera rellenado por piezas.
+ *   · **EN PIEZAS** (`data-addr="address|postal_code|city|province|country"`): la dirección FISCAL,
+ *     que Holded exige suelta para dar de alta al proveedor. Se escribe la calle y se rellenan
+ *     solos el código postal, el municipio, la provincia y el país.
  *
  * Cómo funciona:
  *   · En el campo de la CALLE, a partir de 4 letras y con 350 ms de calma, se piden sugerencias a
@@ -46,6 +52,10 @@
 
   function campos(zona) {
     return {
+      // `full` = la dirección en UN SOLO campo (un domicilio, la de un recinto, la de un medio…).
+      // Los demás son el bloque de la dirección fiscal, que va en piezas porque Holded las exige
+      // sueltas para dar de alta al proveedor.
+      completa: zona.querySelector('[data-addr="full"]'),
       calle: zona.querySelector('[data-addr="address"]'),
       cp: zona.querySelector('[data-addr="postal_code"]'),
       municipio: zona.querySelector('[data-addr="city"]'),
@@ -68,7 +78,8 @@
       caja = document.createElement('div');
       caja.className = 'addr-suggest d-none';
       caja.setAttribute('data-addr-list', '');
-      var padre = (campos(zona).calle || zona).parentElement || zona;
+      var c0 = campos(zona);
+      var padre = (c0.completa || c0.calle || zona).parentElement || zona;
       padre.style.position = padre.style.position || 'relative';
       padre.appendChild(caja);
     }
@@ -97,6 +108,13 @@
   function elegir(zona, fila) {
     if (!fila) return;
     var c = campos(zona);
+    if (c.completa) {
+      // Un solo campo: se escribe la dirección ENTERA tal como la compone el servidor («Calle, CP
+      // Municipio, Provincia, País»), que es el mismo formato con el que se guarda.
+      poner(c.completa, fila.full || [fila.address, fila.postal_code, fila.city].filter(Boolean).join(', '), false);
+      cerrar(zona);
+      return;
+    }
     poner(c.calle, fila.address, false);
     poner(c.cp, fila.postal_code, false);
     poner(c.municipio, fila.city, false);
@@ -111,8 +129,9 @@
 
   function buscar(zona) {
     var c = campos(zona);
-    if (!c.calle) return;
-    var q = (c.calle.value || '').trim();
+    var entrada = c.completa || c.calle;
+    if (!entrada) return;
+    var q = (entrada.value || '').trim();
     // Con el municipio ya escrito, la búsqueda acierta mucho más.
     var muni = c.municipio && c.municipio.value ? (' ' + c.municipio.value.trim()) : '';
     if (q.length < 4) { cerrar(zona); return; }
@@ -154,7 +173,7 @@
     if (!input || !input.matches) return;
     var zona = input.closest('[data-address-autocomplete]');
     if (!zona) return;
-    if (input.matches('[data-addr="address"]')) programar(zona);
+    if (input.matches('[data-addr="address"], [data-addr="full"]')) programar(zona);
     if (input.matches('[data-addr="postal_code"]')) alEscribirCp(zona, input);
   });
 
@@ -190,7 +209,7 @@
       items[Math.min(actual + 1, items.length - 1)].focus();
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      if (actual <= 0) { (campos(zona).calle || items[0]).focus(); } else { items[actual - 1].focus(); }
+      if (actual <= 0) { (campos(zona).completa || campos(zona).calle || items[0]).focus(); } else { items[actual - 1].focus(); }
     } else if (e.key === 'Enter' && actual >= 0) {
       e.preventDefault();
       items[actual].click();

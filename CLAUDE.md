@@ -2844,6 +2844,35 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · **«ES OTRO DIFERENTE»** (mismo nombre, o un DNI mal escrito): en la pantalla partida hay siempre
   esa salida, que **no fusiona nada** y da de alta un tercero NUEVO con lo que trae el fichero
   (reutiliza `promoters_import_create` con esa única fila); el que ya estaba se queda como está.
+- **CÓMO SE ESCRIBE UNA DIRECCIÓN · un solo formato en TODA la app** (ago 2026). Motor puro
+  **`address_utils.py`**, que es el ÚNICO sitio que lo sabe:
+
+      Calle y número, CP Municipio, Provincia, País
+
+  · La **coma** separa las piezas (es como se escribe una dirección), el **país solo si NO es
+  España** y un municipio que se llama igual que su provincia **no se repite**.
+  · **`parse()`** hace el camino de vuelta (de un texto de un tirón a sus piezas) y **`format_parts()`**
+  las vuelve a juntar; **`place_label()`** es lo mismo sin la calle («Municipio, Provincia, País»), y
+  de ahí tira `_place_label` de las peticiones. Globales de plantilla **`address_text(v)`** (junta) y
+  **`address_parts(v)`** (las piezas, para enseñarlas por separado donde toca).
+  · **AUTOCOMPLETADO en todos los campos de dirección** (`static/js/address_autocomplete.js`,
+  global): al escribir salen coincidencias y, al elegir una, se rellenan el CP, el municipio, la
+  provincia y el país. Dos formas, las dos con `[data-address-autocomplete]` en el bloque:
+  **`data-addr="full"`** (UN campo: domicilios, recintos, medios, el lugar de una promoción, la
+  dirección manual del recinto de una actividad…) y **en piezas** (`data-addr="address|postal_code|
+  city|province|country"`, la dirección FISCAL, que Holded exige suelta).
+  ⚠️ En el campo único, la dirección que se escribe la compone el **SERVIDOR** (`full` de
+  `api_address_search`, hecho con `format_parts`): así el JS no tiene una segunda versión del formato.
+  ⚠️ Se guarda normalizada **AL GUARDAR**, como los teléfonos: `_addresses_normalize_instance` en el
+  mismo `before_flush`, con los campos de cada modelo en **`_ADDRESS_FIELDS`** (un campo de dirección
+  nuevo va ahí). Lo que no se puede repartir **se respeta tal cual**.
+  · **Relleno puntual** `_addresses_normalize_backfill` (marca `addresses_format_backfill_v1`): pone
+  las ya guardadas en la forma de la casa y **reparte las piezas** de las fiscales que las tuvieran
+  vacías. ⚠️ `user_profiles` **no tiene `id`** (su clave es `user_id`): la tabla de tablas del relleno
+  lleva la clave primaria de cada una.
+  ⚠️ El CP se rellena a 5 dígitos **solo en España** (el 1200 de Lisboa no es el 01200 de nadie) y
+  fuera se reconoce su forma (4-5 dígitos, «1200-195»).
+
 - **DIRECCIÓN FISCAL EN PIEZAS** (ago 2026): calle · **código postal** · **municipio** · **provincia**
   · país, en `Promoter` y `PromoterCompany` (`fiscal_postal_code`/`fiscal_city`/`fiscal_province`/
   `fiscal_country`). ⚠️ **Holded exige el CP, el municipio y la provincia separados** para dar de alta

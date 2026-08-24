@@ -610,7 +610,7 @@
                 <div class="row g-2">
                   <div class="col-12">
                     <label class="form-label">Domicilio</label>
-                    <input class="form-control" name="address" value="{{ promoter.address or '' }}">
+                    <span data-address-autocomplete class="d-block position-relative"><input class="form-control" name="address" data-addr="full" autocomplete="off" placeholder="Empieza a escribir la calle…" value="{{ promoter.address or '' }}"></span>
                   </div>
                   {# DIRECCIÓN FISCAL en piezas: es la que se vuelca a Holded al crear el proveedor. #}
                   {{ fiscal.fields(fiscal_parts(promoter)) }}

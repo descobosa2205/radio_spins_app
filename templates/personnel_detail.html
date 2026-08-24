@@ -115,7 +115,7 @@
         <div class="col-md-4"><label class="form-label">DNI</label><input type="text" name="dni" class="form-control" value="{{ profile.dni or '' }}"></div>
         <div class="col-md-4"><label class="form-label">Fecha de nacimiento</label><input type="date" name="birth_date" class="form-control" value="{{ profile.birth_date.isoformat() if profile.birth_date else '' }}"></div>
         <div class="col-md-4"><label class="form-label">Foto</label><input type="file" name="photo" class="form-control" accept="image/*"></div>
-        <div class="col-12"><label class="form-label">Domicilio</label><input type="text" name="address" class="form-control" value="{{ profile.address or '' }}"></div>
+        <div class="col-12"><label class="form-label">Domicilio</label><span data-address-autocomplete class="d-block position-relative"><input type="text" name="address" class="form-control" data-addr="full" autocomplete="off" placeholder="Empieza a escribir la calle…" value="{{ profile.address or '' }}"></span></div>
         <div class="col-12">
           <hr class="my-2">
           <input type="hidden" name="travel_prefs_present" value="1">

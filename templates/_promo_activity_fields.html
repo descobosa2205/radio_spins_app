@@ -81,7 +81,7 @@
       </div>
       <div class="col-md-7">
         <label class="form-label small">Dirección</label>
-        <input class="form-control" name="location_address" data-promo-location-address value="{{ act.location_address if act else '' }}" placeholder="Calle, número, ciudad">
+        <span data-address-autocomplete class="d-block position-relative"><input class="form-control" name="location_address" data-promo-location-address data-addr="full" autocomplete="off" value="{{ act.location_address if act else '' }}" placeholder="Empieza a escribir la calle…"></span>
       </div>
       <div class="col-md-6">
         <label class="form-label small">Municipio</label>

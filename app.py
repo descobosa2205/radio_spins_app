@@ -319,6 +319,7 @@ import sim_calc  # motor de cálculo puro de Simulaciones
 import seatmap_calc  # motor puro del mapa de butacas del recinto (conteos/plantillas)
 import invoice_read  # motor puro de LECTURA de facturas (nº, fechas e importes del PDF)
 import promoter_import  # motor puro de IMPORTACIÓN de terceros (columnas de un Excel/CSV)
+import address_utils  # cómo se escribe una dirección (motor puro, único formato)
 import buyer_import  # importar compradores desde un fichero (motor puro)
 import sms_utils  # pasarela de SMS (avisos por mensaje de texto); sin credenciales no manda nada
 from mrz_utils import (
@@ -1370,6 +1371,10 @@ def inject_globals():
         # DIRECCIÓN FISCAL: se pide en piezas (Holded las necesita separadas) y se muestra junta.
         fiscal_parts=_fiscal_parts_for_form,
         fiscal_address_text=_fiscal_address_text,
+        # Una dirección cualquiera: junta para mostrarla y en piezas cuando hace falta el municipio,
+        # la provincia o el país por separado.
+        address_text=_address_text,
+        address_parts=_address_parts,
         CONCERT_CONTACT_ROLES=CONCERT_CONTACT_ROLES,
         AGENDA_KIND_ORDER=AGENDA_KIND_ORDER,
         AGENDA_KIND_META=AGENDA_KIND_META,
@@ -29831,22 +29836,12 @@ def booking_request_delete(rid):
 
 def _place_label(municipality: str = "", province: str = "", country: str = "",
                  *, venue: str = "") -> str:
-    """Cómo se escribe un lugar: **«Municipio, Provincia»** — con una coma, que es como se escribe
-    una dirección, no con «·» ni otro carácter. El PAÍS solo se pone cuando NO es España (dentro no
-    aporta nada; fuera es justo lo que hace falta saber).
+    """Cómo se escribe un lugar: **«Municipio, Provincia»** —con una coma, que es como se escribe una
+    dirección— y el PAÍS solo cuando NO es España. Lo compone `address_utils`, el mismo motor que las
+    direcciones enteras, así que el formato es UNO en toda la app.
 
-    Con `venue` delante queda «Recinto · Municipio, Provincia»: el recinto es otra cosa, así que ahí
-    sí se separa."""
-    ciudad = " ".join((municipality or "").split())
-    provincia = " ".join((province or "").split())
-    pais = " ".join((country or "").split())
-    partes = [x for x in [ciudad, provincia] if x]
-    # Un municipio que se llama igual que su provincia (Sevilla, Madrid…) no se repite.
-    if len(partes) == 2 and _norm_text_key(partes[0]) == _norm_text_key(partes[1]):
-        partes = [partes[0]]
-    texto = ", ".join(partes)
-    if pais and _norm_text_key(pais) not in ("espana", "spain", "es"):
-        texto = (texto + " (" + pais + ")") if texto else pais
+    Con `venue` delante queda «Recinto · Municipio, Provincia»: el recinto es otra cosa."""
+    texto = address_utils.place_label(municipality or "", province or "", country or "")
     recinto = " ".join((venue or "").split())
     if recinto:
         return " · ".join([x for x in [recinto, texto] if x])
@@ -47818,6 +47813,11 @@ def _bootstrap_schema_bg():
     # WhatsApp). De aquí en adelante lo hace el guardado. Ver `_phones_normalize_backfill`.
     _safe_ensure(lambda: globals()["_phones_normalize_backfill_once"](),
                  "_phones_normalize_backfill_once")
+    # Una sola vez: poner las DIRECCIONES ya guardadas en la forma de la casa («Calle, CP Municipio,
+    # Provincia, País») y repartir las piezas de las fiscales que las tuvieran vacías. De aquí en
+    # adelante lo hace el guardado. Ver `_addresses_normalize_backfill`.
+    _safe_ensure(lambda: globals()["_addresses_normalize_backfill_once"](),
+                 "_addresses_normalize_backfill_once")
     # Una sola vez: devolverles su tipo a los contenedores de EVENTO que el modal de editar degradó
     # a ciclo. Va aquí (con marca) y NO como sentencia del esquema: si corriera en cada arranque
     # convertiría en EVENTO las giras y ciclos legítimos de un evento creados después.
@@ -76137,49 +76137,28 @@ def _fiscal_address_parts(obj) -> dict:
 
 
 def _fiscal_address_text(obj) -> str:
-    """La dirección fiscal JUNTA, para mostrarla como un solo campo (que es como se lee mejor)."""
-    p = _fiscal_address_parts(obj)
-    linea2 = " ".join([x for x in [p["postal_code"], p["city"]] if x]).strip()
-    trozos = [p["address"], linea2]
-    if p["province"] and p["province"].casefold() != (p["city"] or "").casefold():
-        trozos.append(p["province"])
-    if p["country"] and p["country"].casefold() not in {"españa", "espana", "spain"}:
-        trozos.append(p["country"])
-    return ", ".join([x for x in trozos if x])
+    """La dirección fiscal JUNTA, para mostrarla como un solo campo (que es como se lee mejor).
+
+    La compone `address_utils`, el único sitio que sabe cómo se escribe una dirección aquí."""
+    return address_utils.format_parts(_fiscal_address_parts(obj))
 
 
-_FISCAL_CP_RE = re.compile(r"\b(\d{5})\b")
+def _address_text(value) -> str:
+    """Una dirección cualquiera (un domicilio, la de un recinto, la de un medio…) en la forma de la
+    casa: «Calle, CP Municipio, Provincia, País». Global de plantilla `address_text`."""
+    return address_utils.normalize(value)
+
+
+def _address_parts(value) -> dict:
+    """Las PIEZAS de una dirección escrita de un tirón (calle, CP, municipio, provincia, país), para
+    enseñarlas por separado donde haga falta. Global de plantilla `address_parts`."""
+    return address_utils.parse(value)
 
 
 def _split_fiscal_address(texto: str | None) -> dict:
-    """Reparte en piezas una dirección fiscal escrita de un tirón (lo que hay guardado de antes).
-
-    Es un apaño de LECTURA, no la norma: a partir de ahora se piden en campos separados. Se busca el
-    código postal (5 dígitos), lo de antes se toma como calle y lo de después como municipio; si
-    detrás hay una coma o un paréntesis, eso es la provincia. Lo que no se pueda repartir se deja
-    entero en la calle: nunca se inventa un municipio.
-    """
-    bruto = " ".join((texto or "").split())
-    if not bruto:
-        return {"address": "", "postal_code": "", "city": "", "province": "", "country": ""}
-    m = _FISCAL_CP_RE.search(bruto)
-    if not m:
-        return {"address": bruto, "postal_code": "", "city": "", "province": "", "country": ""}
-    calle = bruto[:m.start()].strip(" ,.-·")
-    resto = bruto[m.end():].strip(" ,.-·")
-    provincia = ""
-    if resto:
-        entre = re.search(r"\(([^)]+)\)\s*$", resto)
-        if entre:
-            provincia = entre.group(1).strip()
-            resto = resto[:entre.start()].strip(" ,.-·")
-        elif "," in resto:
-            partes = [x.strip() for x in resto.split(",") if x.strip()]
-            if len(partes) >= 2:
-                provincia = partes[-1]
-                resto = ", ".join(partes[:-1])
-    return {"address": calle, "postal_code": m.group(1), "city": resto,
-            "province": provincia, "country": ""}
+    """Reparte en piezas una dirección escrita de un tirón. Lo hace `address_utils`, que es el ÚNICO
+    sitio que sabe cómo se escribe una dirección en la casa (y el que la vuelve a juntar)."""
+    return address_utils.parse(texto)
 
 
 def _intake_fiscal_parts(promoter, company=None, *, masked: bool = False) -> dict:
@@ -77519,7 +77498,13 @@ def api_address_search():
         return jsonify({"ok": True, "results": []})
     session_db = db()
     try:
-        return jsonify({"ok": True, "results": _address_search_cached(session_db, q)})
+        filas = _address_search_cached(session_db, q)
+        # Cada sugerencia lleva también la dirección ENTERA en el formato de la casa: así el campo
+        # único (`data-addr="full"`) escribe exactamente lo mismo que se guardaría por piezas, y el
+        # formato lo decide UN solo sitio (`address_utils`), no el JS.
+        for f in filas:
+            f["full"] = address_utils.format_parts(f)
+        return jsonify({"ok": True, "results": filas})
     except geo_utils.GeoError as exc:
         return jsonify({"ok": False, "error": str(exc), "results": []})
     finally:
@@ -83081,6 +83066,20 @@ SMS_NOTICE_LABELS = dict(SMS_NOTICE_KINDS)
 #    compradores de Enterticket, que normaliza el teléfono él mismo.
 # ═════════════════════════════════════════════════════════════════════════════
 
+# Campos de DIRECCIÓN de cada modelo: se guardan en la forma de la casa («Calle, CP Municipio,
+# Provincia, País»), la misma en toda la app. Si se añade un campo de dirección nuevo, va aquí.
+_ADDRESS_FIELDS = {
+    Concert: ("manual_venue_address",),
+    MediaLocation: ("address",),
+    MediaOutlet: ("address",),
+    PersonDocument: ("address",),
+    Promoter: ("address", "fiscal_address"),
+    PromoterCompany: ("fiscal_address",),
+    PromotionActivity: ("location_address",),
+    UserProfile: ("address",),
+    Venue: ("address",),
+}
+
 # Campos de teléfono de cada modelo. Si se añade un campo de teléfono nuevo, va aquí.
 _PHONE_TEXT_FIELDS = {
     ArtistNotificationContact: ("phone",),
@@ -83136,6 +83135,28 @@ def _normalize_phone_list(value):
     return salida, cambiado
 
 
+def _normalize_address_value(value):
+    """La dirección tal como se guarda. Si no se puede repartir, lo que se escribió (sin dobles
+    espacios): igual que con los teléfonos, normalizar es para poder usarla, no para perderla."""
+    if value is None:
+        return None
+    txt = str(value).strip()
+    if not txt:
+        return value
+    return address_utils.normalize(txt) or txt
+
+
+def _addresses_normalize_instance(obj) -> None:
+    """Deja en la forma de la casa las direcciones de UNA ficha que se está guardando."""
+    for campo in _ADDRESS_FIELDS.get(type(obj), ()):
+        actual = getattr(obj, campo, None)
+        if actual is None or not str(actual).strip():
+            continue
+        nuevo = _normalize_address_value(actual)
+        if nuevo != actual:
+            setattr(obj, campo, nuevo)
+
+
 def _phones_normalize_instance(obj) -> None:
     """Deja en formato internacional los teléfonos de UNA ficha que se está guardando."""
     for campo in _PHONE_TEXT_FIELDS.get(type(obj), ()):
@@ -83158,9 +83179,10 @@ def _phones_before_flush(session_db, flush_context, instances):
     try:
         for obj in list(session_db.new) + list(session_db.dirty):
             _phones_normalize_instance(obj)
+            _addresses_normalize_instance(obj)
     except Exception:
-        # Un fallo aquí no puede tumbar un guardado: el teléfono se queda como estaba.
-        app.logger.exception("[telefonos] no se pudieron normalizar al guardar")
+        # Un fallo aquí no puede tumbar un guardado: se queda como estaba.
+        app.logger.exception("[telefonos/direcciones] no se pudieron normalizar al guardar")
 
 
 # ── Relleno puntual: los teléfonos que YA estaban guardados sin prefijo ──────────────────────────
@@ -83185,6 +83207,131 @@ _PHONES_BACKFILL_TABLES = [
     ("minor_authorizations", "guardian_phone"),
     ("minor_authorizations", "escort_phone"),
 ]
+
+
+# ── Relleno puntual: las direcciones que YA estaban guardadas ───────────────────────────────────
+ADDRESSES_BACKFILL_KEY = "addresses_format_backfill_v1"
+# (tabla, columna, clave primaria). ⚠️ `user_profiles` no tiene `id`: su clave es `user_id`.
+_ADDRESS_BACKFILL_TABLES = [
+    ("promoters", "fiscal_address", "id"),
+    ("promoters", "address", "id"),
+    ("promoter_companies", "fiscal_address", "id"),
+    ("venues", "address", "id"),
+    ("media_outlets", "address", "id"),
+    ("media_locations", "address", "id"),
+    ("user_profiles", "address", "user_id"),
+    ("person_documents", "address", "id"),
+    ("concerts", "manual_venue_address", "id"),
+    ("promotion_activities", "location_address", "id"),
+]
+
+
+def _addresses_normalize_backfill() -> dict:
+    """Pone en la forma de la casa las direcciones que ya estaban guardadas, y **rellena las piezas**
+    (CP, municipio, provincia, país) de las fiscales que las tengan vacías.
+
+    De aquí en adelante lo hace el guardado; esto es para lo que nadie vuelva a abrir. Cursor por
+    `id`, como el de los teléfonos: lo que no se pueda repartir se queda igual y no se vuelve a leer
+    en la misma tanda."""
+    resumen: dict[str, int] = {}
+    s = db()
+    try:
+        for tabla, columna, clave in _ADDRESS_BACKFILL_TABLES:
+            arreglados, ultimo = 0, None
+            try:
+                while True:
+                    sql = ("SELECT {k} AS id, {c} AS valor FROM {t} "
+                           "WHERE {c} IS NOT NULL AND btrim({c}) <> ''"
+                           .format(c=columna, t=tabla, k=clave))
+                    if ultimo is not None:
+                        sql += " AND %s > :ultimo" % clave
+                    sql += " ORDER BY %s LIMIT :lim" % clave
+                    params = {"lim": 400}
+                    if ultimo is not None:
+                        params["ultimo"] = ultimo
+                    filas = s.execute(text(sql), params).fetchall()
+                    if not filas:
+                        break
+                    ultimo = filas[-1].id
+                    cambios = []
+                    for fila in filas:
+                        nuevo = address_utils.normalize(fila.valor)
+                        if nuevo and nuevo != fila.valor:
+                            cambios.append({"pk": fila.id, "v": nuevo})
+                    if cambios:
+                        s.execute(text("UPDATE %s SET %s = :v WHERE %s = :pk"
+                                       % (tabla, columna, clave)), cambios)
+                        s.commit()
+                        arreglados += len(cambios)
+                    if len(filas) < 400:
+                        break
+            except Exception:
+                s.rollback()
+                app.logger.exception("[direcciones] relleno: fallo en %s.%s", tabla, columna)
+                continue
+            if arreglados:
+                resumen[tabla + "." + columna] = arreglados
+        # Las PIEZAS de la dirección fiscal (las que Holded necesita sueltas): solo lo que esté vacío.
+        for tabla in ("promoters", "promoter_companies"):
+            try:
+                tocados, ultimo = 0, None
+                while True:
+                    sql = ("SELECT id, fiscal_address, fiscal_postal_code, fiscal_city, "
+                           "fiscal_province, fiscal_country FROM {t} "
+                           "WHERE fiscal_address IS NOT NULL AND btrim(fiscal_address) <> '' "
+                           "AND (fiscal_city IS NULL OR btrim(fiscal_city) = '' "
+                           "     OR fiscal_postal_code IS NULL OR btrim(fiscal_postal_code) = '')"
+                           .format(t=tabla))
+                    if ultimo is not None:
+                        sql += " AND id > :ultimo"
+                    sql += " ORDER BY id LIMIT :lim"
+                    params = {"lim": 400}
+                    if ultimo is not None:
+                        params["ultimo"] = ultimo
+                    filas = s.execute(text(sql), params).fetchall()
+                    if not filas:
+                        break
+                    ultimo = filas[-1].id
+                    cambios = []
+                    for fila in filas:
+                        p = address_utils.parse(fila.fiscal_address)
+                        if not (p.get("city") or p.get("postal_code")):
+                            continue
+                        cambios.append({
+                            "pk": fila.id,
+                            "cp": (fila.fiscal_postal_code or "").strip() or p["postal_code"] or None,
+                            "ciudad": (fila.fiscal_city or "").strip() or p["city"] or None,
+                            "prov": (fila.fiscal_province or "").strip() or p["province"] or None,
+                            "pais": ((fila.fiscal_country or "").strip() or p["country"]
+                                     or address_utils.DEFAULT_COUNTRY),
+                        })
+                    if cambios:
+                        s.execute(text(
+                            "UPDATE %s SET fiscal_postal_code = :cp, fiscal_city = :ciudad, "
+                            "fiscal_province = :prov, fiscal_country = :pais WHERE id = :pk" % tabla
+                        ), cambios)
+                        s.commit()
+                        tocados += len(cambios)
+                    if len(filas) < 400:
+                        break
+                if tocados:
+                    resumen[tabla + " (piezas)"] = tocados
+            except Exception:
+                s.rollback()
+                app.logger.exception("[direcciones] relleno: fallo repartiendo las piezas de %s", tabla)
+        return resumen
+    finally:
+        s.close()
+
+
+def _addresses_normalize_backfill_once():
+    """El relleno de arriba, UNA SOLA VEZ (marca en `AppSetting`)."""
+    if (_get_app_setting(ADDRESSES_BACKFILL_KEY) or "").strip() == "done":
+        return
+    resumen = _addresses_normalize_backfill()
+    _set_app_setting(ADDRESSES_BACKFILL_KEY, "done")
+    if resumen:
+        app.logger.info("Direcciones puestas en el formato de la casa: %s", resumen)
 
 
 def _phones_normalize_backfill() -> dict:

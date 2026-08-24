@@ -283,7 +283,7 @@
               </div>
               <div class="col-md-6">
                 <label class="form-label">Domicilio</label>
-                <input class="form-control" name="address" value="{{ c.promoter.address if c.promoter else '' }}">
+                <span data-address-autocomplete class="d-block position-relative"><input class="form-control" name="address" data-addr="full" autocomplete="off" placeholder="Empieza a escribir la calle…" value="{{ c.promoter.address if c.promoter else '' }}"></span>
               </div>
               {# Dirección fiscal EN PIEZAS: es la que se vuelca a Holded al facturar. #}
               {{ fiscal.fields(fiscal_parts(c.promoter) if c.promoter else None, hint=False) }}

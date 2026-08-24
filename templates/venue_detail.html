@@ -55,7 +55,7 @@
       </div>
       <div class="col-md-4">
         <label class="form-label">Dirección</label>
-        <input class="form-control" name="address" value="{{ venue.address or '' }}">
+        <span data-address-autocomplete class="d-block position-relative"><input class="form-control" name="address" data-addr="full" autocomplete="off" placeholder="Empieza a escribir la calle…" value="{{ venue.address or '' }}"></span>
       </div>
       <div class="col-md-2">
         <label class="form-label">Municipio</label>

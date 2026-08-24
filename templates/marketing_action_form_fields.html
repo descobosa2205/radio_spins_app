@@ -33,7 +33,7 @@
         <div class="col-md-6"><select class="form-select" name="new_media_type">{% for type in media_types|default(['TV','Radio','Prensa','Digital','Agencia','Podcast']) %}<option value="{{ type }}">{{ type }}</option>{% endfor %}</select></div>
         <div class="col-md-6"><select class="form-select select-country" name="country_code">{% for country in country_options_es() %}<option value="{{ country.code }}" data-flag="{{ country.flag }}" {% if country.code == 'ES' %}selected{% endif %}>{{ country.name }}</option>{% endfor %}</select></div>
         <div class="col-md-6"><input type="file" class="form-control" name="new_media_logo" accept="image/png"></div>
-        <div class="col-12"><input class="form-control" name="new_media_address" placeholder="Dirección / ciudad"></div>
+        <div class="col-12"><span data-address-autocomplete class="d-block position-relative"><input class="form-control" name="new_media_address" data-addr="full" autocomplete="off" placeholder="Dirección: empieza a escribir la calle…"></span></div>
       </div>
     </div>
   </div>

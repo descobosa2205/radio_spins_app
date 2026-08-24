@@ -393,6 +393,45 @@ document.addEventListener('click', function (ev) {
 </div>
 {% endif %}
 
+{# MIS PETICIONES: las que ha hecho esta persona, para seguir cómo evolucionan. Cada una se puede
+   EDITAR con el mismo asistente con el que se creó. #}
+{% if HOME_MY_PETICIONES %}
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <div>
+        <h5 class="mb-0"><i class="fa fa-paper-plane text-danger me-2"></i>Mis peticiones</h5>
+        <div class="text-muted small">Las que has hecho tú y cómo van.</div>
+      </div>
+      <span class="badge text-bg-secondary">{{ HOME_MY_PETICIONES|length }}</span>
+    </div>
+    <div class="list-group list-group-flush">
+      {% for p in HOME_MY_PETICIONES %}
+        <div class="ctask">
+          <div class="ctask__top">
+            <span class="oa-row__icon" title="{{ p.kind_label }}"><i class="fa {{ p.icon }}"></i></span>
+            <span class="fw-semibold">{{ p.subject }}</span>
+            {% if p.artist %}<span class="oa-row__sep">·</span><span>{{ p.artist }}</span>{% endif %}
+            {% if p.place %}<span class="oa-row__sep">·</span><span>{{ p.place }}</span>{% endif %}
+            <span class="ms-auto d-flex align-items-center gap-2 ctask__actions">
+              <span class="badge {{ p.status_class }}">{{ p.status_label }}</span>
+              <button class="btn btn-sm btn-outline-secondary" type="button"
+                      data-peticion-edit data-peticion-payload="{{ p.edit|tojson|forceescape }}"
+                      title="Editar la petición"><i class="fa fa-edit"></i></button>
+              <a class="btn btn-sm btn-outline-secondary" href="{{ p.url }}" title="Ver la bandeja"><i class="fa fa-arrow-right"></i></a>
+            </span>
+          </div>
+          <div class="ctask__tasks small text-muted">
+            {{ p.date_label }}{% if p.kind_label %} · {{ p.kind_label }}{% endif %}
+            {% for d in p.departments %}<span class="badge text-bg-light border ms-1">{{ d }}</span>{% endfor %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% if HOME_INVITATIONS_TO_MANAGE %}
 <div class="card mb-4 border-danger">
   <div class="card-body">

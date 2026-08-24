@@ -4768,3 +4768,21 @@ a.bl-drop__row.is-on{ background:rgba(227,61,72,.08); font-weight:600; }
    ofrece — sin el marco de «elígeme» y sin cursor de mano. */
 .bc-sender.is-fixed{ cursor:default; }
 .bc-sender.is-fixed input:checked + .bc-sender__box{ box-shadow:none; }
+
+/* ── Asistente de PETICIÓN ─────────────────────────────────────────────────────────────────────
+   Las opciones son TARJETAS (`.promo-pick`, las del resto de asistentes). Una tarjeta puede ser
+   <button> (las que saltan a otro asistente): sin `font:inherit` el navegador les pone su propia
+   tipografía y se ven distintas dentro de la misma rejilla. */
+button.promo-pick{ border:0; background:transparent; padding:0; font:inherit; text-align:center; }
+/* Lo ELEGIDO se queda a la vista con su foto o su logo (recinto, quién pide). */
+.pw-picked{ display:flex; align-items:center; gap:.6rem; border:1px solid rgba(0,0,0,.1);
+  border-radius:12px; padding:.4rem .6rem; background:#f8fafc; }
+.pw-picked img{ width:38px; height:38px; border-radius:10px; object-fit:cover; flex:0 0 auto;
+  background:#fff; }
+.pw-picked__ico{ width:38px; height:38px; border-radius:10px; display:inline-flex; align-items:center;
+  justify-content:center; background:#eef2f6; color:#6b7683; flex:0 0 auto; }
+.pw-picked__t{ min-width:0; display:flex; flex-direction:column; line-height:1.2; }
+.pw-picked__t span{ font-size:.8rem; color:#6b7280; }
+.pw-picked__x{ margin-left:auto; border:0; background:transparent; color:#9aa2ad; font-size:1.1rem;
+  line-height:1; }
+.pw-picked__x:hover{ color:#dc3545; }

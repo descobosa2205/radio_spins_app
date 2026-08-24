@@ -26,7 +26,7 @@ from io import BytesIO
 from functools import wraps
 from contextlib import contextmanager
 from zoneinfo import ZoneInfo
-from sqlalchemy.orm import selectinload, joinedload, aliased
+from sqlalchemy.orm import selectinload, joinedload, aliased, object_session
 from flask import (
     Flask,
     render_template,
@@ -29637,6 +29637,8 @@ def _booking_request_row(r):
         "status_badge": badge,
         "rejection_reason": (r.rejection_reason or ""),
         "concert_id": (str(r.concert_id) if r.concert_id else ""),
+        # Todo lo que hace falta para EDITARLA con el mismo asistente con el que se creó.
+        "edit": _peticion_edit_payload(object_session(r) or db(), r),
         "created_by": (r.created_by_nick or ""),
         "received_label": (r.received_at.strftime("%d/%m/%Y") if r.received_at else (r.created_at.strftime("%d/%m/%Y") if r.created_at else "")),
     }
@@ -30031,86 +30033,291 @@ def _peticion_month_label(ym):
         return ym or ""
 
 
+@app.get("/api/municipios", endpoint="api_city_search")
+@admin_required
+def api_city_search():
+    """CIUDADES para rellenar un formulario, con SU PROVINCIA: al escribirla salen las opciones y la
+    provincia se pone sola.
+
+    ⚠️ Se busca primero en NUESTROS datos (los municipios de los recintos y de las actividades): son
+    pares ciudad+provincia ya curados por la casa, salen al instante y no dependen de nadie. Solo si
+    hay pocos se pregunta al buscador de direcciones, y de ahí la provincia sale del CÓDIGO POSTAL
+    (la tabla de `geo_utils`), nunca de la comunidad autónoma que devuelve el proveedor.
+    """
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify({"ok": True, "rows": []})
+    clave = _norm_text_key(q)
+    filas, vistos = [], set()
+
+    def añade(ciudad, provincia):
+        ciudad = (ciudad or "").strip()
+        if not ciudad:
+            return
+        k = _norm_text_key(ciudad)
+        if k in vistos:
+            return
+        vistos.add(k)
+        filas.append({"city": ciudad, "province": (provincia or "").strip()})
+
+    s = db()
+    try:
+        # Recintos y actividades: lo que la casa ya escribe todos los días.
+        for ciudad, provincia in (s.query(Venue.municipality, Venue.province)
+                                  .filter(_sa_contains_text(Venue.municipality, q))
+                                  .order_by(Venue.municipality.asc()).limit(40).all()):
+            añade(ciudad, provincia)
+        if len(filas) < 8:
+            for ciudad, provincia in (s.query(Concert.manual_municipality, Concert.manual_province)
+                                      .filter(_sa_contains_text(Concert.manual_municipality, q))
+                                      .order_by(Concert.manual_municipality.asc()).limit(40).all()):
+                añade(ciudad, provincia)
+    except Exception:
+        app.logger.exception("[municipios] no se pudo buscar en nuestros datos")
+    finally:
+        s.close()
+    # Lo que empieza por lo escrito, primero.
+    filas.sort(key=lambda f: (0 if _norm_text_key(f["city"]).startswith(clave) else 1,
+                              _norm_text_key(f["city"])))
+    if len(filas) < 6:
+        try:
+            import geo_utils
+            for f in geo_utils.search_addresses("%s España" % q, limit=8):
+                añade(f.get("city"), f.get("province"))
+        except Exception:
+            pass          # el buscador es una AYUDA: si falla, se escribe a mano
+    return jsonify({"ok": True, "rows": filas[:12]})
+
+
+def _peticion_edit_payload(session_db, r) -> dict:
+    """Los datos de una petición tal como los espera el asistente para EDITARLA."""
+    pay = r.payload or {}
+    venue = session_db.get(Venue, r.venue_id) if r.venue_id else None
+    sub = ""
+    if venue is not None:
+        sub = ", ".join([x for x in [(venue.municipality or ""), (venue.province or "")] if x])
+    requester_logo, requester_sub = "", ""
+    if r.promoter_id:
+        p = session_db.get(Promoter, r.promoter_id)
+        if p is not None:
+            requester_logo = (getattr(p, "logo_url", "") or "")
+            requester_sub = (getattr(p, "tax_id", "") or "")
+    # ⚠️ `url_for` necesita contexto de aplicación y esta fila se monta también desde sitios que no
+    # son una petición (un cron, un hilo en 2º plano): si no lo hay, se pone la ruta a mano.
+    try:
+        edit_url = url_for("peticion_wizard_update", rid=str(r.id))
+    except Exception:
+        edit_url = "/peticiones/%s/editar" % r.id
+    return {
+        "id": str(r.id),
+        "edit_url": edit_url,
+        "department": ((pay.get("departments") or [None]) or [None])[0] or "",
+        "activity_type": (pay.get("activity_type") or "CONCIERTO"),
+        "artist_id": (str(r.artist_id) if r.artist_id else ""),
+        "venue_id": (str(r.venue_id) if r.venue_id else ""),
+        "venue_name": (getattr(venue, "name", "") or ""),
+        "venue_sub": sub,
+        "venue_photo": (getattr(venue, "photo_url", "") or ""),
+        "municipality": (r.municipality or ""),
+        "province": (r.province or ""),
+        "country": (pay.get("country") or "España"),
+        "date_kind": (pay.get("date_kind") or ("EXACT" if r.requested_date else "UNKNOWN")),
+        "requested_date": (r.requested_date.strftime("%Y-%m-%d") if r.requested_date else ""),
+        "range_start": (pay.get("range_start") or ""),
+        "range_end": (pay.get("range_end") or ""),
+        "month": (pay.get("month") or ""),
+        "requester_type": (pay.get("requester_type") or "promoter"),
+        "requester_id": (pay.get("requester_id") or ""),
+        "requester_name": (pay.get("requester_name") or (r.contact_name or "")),
+        "requester_sub": requester_sub,
+        "requester_logo": requester_logo,
+        "requester_email": (r.contact_email or ""),
+        "requester_phone": (r.contact_phone or ""),
+        "no_cache": bool(pay.get("no_cache")),
+        "fee_text": (r.fee_text or ""),
+        "description": (pay.get("description") or r.notes or ""),
+    }
+
+
+def _peticion_apply_form(session_db, r, f, *, editing: bool = False) -> str:
+    """Vuelca el formulario del asistente en la petición. Devuelve el asunto calculado.
+
+    Es el punto ÚNICO: lo usan crear y editar, así que una petición editada queda EXACTAMENTE como si
+    se hubiera creado así (nada de dos sitios que se desincronizan)."""
+    activity_type = (f.get("activity_type") or "CONCIERTO").strip().upper()
+    no_cache = _truthy(f.get("no_cache"))
+    explicit_dept = (f.get("department") or "").strip().upper() or None
+
+    aid = (f.get("artist_id") or "").strip()
+    r.artist_id = to_uuid(aid) if aid else None
+    r.artist_ids = [aid] if aid else []
+
+    # ¿Se sabe dónde? NO TODAVÍA / el recinto / la ciudad. Lo que no se elige se limpia: una petición
+    # no puede quedarse con un recinto de antes y una ciudad nueva a la vez.
+    place_kind = (f.get("place_kind") or "").strip().upper()
+    vid = (f.get("venue_id") or "").strip()
+    muni = (f.get("municipality") or "").strip()
+    if not place_kind:                    # formularios antiguos: se deduce de lo que llega
+        place_kind = "VENUE" if vid else ("CITY" if muni else "NONE")
+    r.venue_id = to_uuid(vid) if (place_kind == "VENUE" and vid) else None
+    r.municipality = muni or None if place_kind == "CITY" else None
+    r.province = ((f.get("province") or "").strip() or None) if place_kind == "CITY" else None
+    country = (f.get("country") or "").strip() or "España"
+
+    kind = (f.get("date_kind") or "EXACT").strip().upper()
+    pay = dict(r.payload or {}) if editing else {}
+    r.requested_date = None
+    r.date_text = None
+    if kind == "EXACT":
+        r.requested_date = parse_optional_date(f.get("requested_date"))
+        if not r.requested_date:
+            kind = "UNKNOWN"
+    if kind == "RANGE":
+        rs = (f.get("range_start") or "").strip()
+        re_ = (f.get("range_end") or "").strip()
+        pay["range_start"] = rs
+        pay["range_end"] = re_
+        r.date_text = f"Franja: {rs or '?'} → {re_ or '?'}"
+    elif kind == "MONTH":
+        ym = (f.get("month") or "").strip()
+        pay["month"] = ym
+        r.date_text = f"Mes: {_peticion_month_label(ym)}"
+    elif kind == "UNKNOWN":
+        r.date_text = "Fecha sin definir"
+    pay["date_kind"] = kind
+
+    req_type = (f.get("requester_type") or "").strip().lower()
+    req_id = (f.get("requester_id") or "").strip()
+    req_name = (f.get("requester_name") or "").strip()
+    r.contact_name = req_name or None
+    r.contact_email = (f.get("requester_email") or "").strip() or None
+    r.contact_phone = (f.get("requester_phone") or "").strip() or None
+    r.promoter_id = (to_uuid(req_id) if (req_type in ("promoter", "empresa", "institucion") and req_id)
+                     else None)
+
+    r.fee_text = None if no_cache else ((f.get("fee_text") or "").strip() or None)
+    r.notes = (f.get("description") or "").strip() or None
+
+    subject = (f.get("subject") or "").strip()
+    if not subject:
+        art = session_db.get(Artist, r.artist_id) if r.artist_id else None
+        parts = [QUAD_ACTIVITY_LABELS.get(activity_type, activity_type.title())]
+        if art:
+            parts.append(art.name)
+        if r.municipality:
+            parts.append(r.municipality)
+        subject = " · ".join([p for p in parts if p])
+    r.subject = subject or "Petición"
+
+    pay.update({
+        "activity_type": activity_type,
+        "country": country,
+        "no_cache": no_cache,
+        "departments": _peticion_departments(activity_type, no_cache, explicit_dept),
+        "place_kind": place_kind,
+        "requester_type": req_type,
+        "requester_id": req_id,
+        "requester_name": req_name,
+        "description": r.notes or "",
+    })
+    r.payload = pay
+    return r.subject
+
+
+@app.post("/peticiones/<rid>/editar", endpoint="peticion_wizard_update")
+@admin_required
+def peticion_wizard_update(rid):
+    """Edita una petición ya creada con el MISMO asistente con el que se creó."""
+    s = db()
+    try:
+        r = s.get(BookingRequest, to_uuid(rid))
+        if r is None:
+            flash("Esa petición ya no existe.", "warning")
+            return redirect(request.form.get("next") or url_for("contracting_view", section="peticiones"))
+        # ⚠️ La edita QUIEN LA HIZO (para eso está en «Mis peticiones») o quien gestiona su bandeja.
+        estado = _current_user_state() or {}
+        propia = str(r.created_by_user_id or "") == str(estado.get("user_id") or "")
+        if not (propia or is_master() or has_access_key("contratacion.peticiones", edit=True,
+                                                        include_descendants=True)):
+            flash("Esa petición no la has hecho tú.", "danger")
+            return redirect(request.form.get("next") or url_for("home"))
+        _peticion_apply_form(s, r, request.form, editing=True)
+        r.updated_at = func.now()
+        s.commit()
+        flash("Petición actualizada.", "success")
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo guardar la petición: {exc}", "danger")
+    finally:
+        s.close()
+    return redirect(request.form.get("next") or url_for("contracting_view", section="peticiones"))
+
+
+def _home_my_peticiones(limit: int = 12) -> list[dict]:
+    """MIS PETICIONES: las que ha hecho esta persona, para ver cómo van sin buscarlas.
+
+    Solo las VIVAS y las resueltas hace poco: una petición de hace un año no es seguimiento."""
+    estado = _current_user_state() or {}
+    uid = estado.get("user_id")
+    if not uid:
+        return []
+    s = db()
+    try:
+        desde = datetime.now(TZ_MADRID) - timedelta(days=120)
+        filas = (s.query(BookingRequest)
+                 .options(joinedload(BookingRequest.artist), joinedload(BookingRequest.venue))
+                 .filter(BookingRequest.created_by_user_id == to_uuid(str(uid)))
+                 .order_by(BookingRequest.created_at.desc())
+                 .limit(60).all())
+        salida = []
+        for r in filas:
+            est = (r.status or "NUEVA").upper()
+            if est in ("CONVERTIDA", "DESCARTADA"):
+                creada = r.created_at
+                if creada is not None and creada.tzinfo is None:
+                    creada = creada.replace(tzinfo=TZ_MADRID)
+                if creada is not None and creada < desde:
+                    continue
+            pay = r.payload or {}
+            etiqueta, clase = _booking_status_meta(est)
+            lugar = ((r.venue.name if r.venue else "") or (r.municipality or ""))
+            salida.append({
+                "id": str(r.id),
+                "subject": (r.subject or "Petición"),
+                "artist": (r.artist.name if r.artist else ""),
+                "place": lugar,
+                "date_label": (r.requested_date.strftime("%d/%m/%Y") if r.requested_date
+                               else (r.date_text or "Sin fecha")),
+                "status": est, "status_label": etiqueta, "status_class": clase,
+                "kind_label": _activity_kind_label(pay.get("activity_type")),
+                "icon": QUAD_ACTIVITY_ICONS.get(_activity_kind_key(pay.get("activity_type")),
+                                                "fa-calendar-day"),
+                "departments": [str(d).title() for d in (pay.get("departments") or [])],
+                "url": url_for("contracting_view", section="peticiones"),
+                "edit": _peticion_edit_payload(s, r),
+            })
+            if len(salida) >= limit:
+                break
+        return salida
+    except Exception:
+        app.logger.exception("[inicio] no se pudieron cargar mis peticiones")
+        return []
+    finally:
+        s.close()
+
+
 @app.post("/peticiones/crear", endpoint="peticion_wizard_create")
 @admin_required
 def peticion_wizard_create():
-    """Crea una petición desde el asistente multipaso. Los campos que no tiene el
-    modelo (tipo de actividad, país, franja/mes, sin caché, departamentos, quién pide)
-    se guardan en ``payload`` (JSONB) para no tocar el esquema."""
+    """Crea una petición desde el asistente multipaso. Los campos que no tiene el modelo (tipo de
+    actividad, país, franja/mes, sin caché, departamentos, quién pide) se guardan en ``payload``
+    (JSONB) para no tocar el esquema. El volcado del formulario es el MISMO que al editarla
+    (`_peticion_apply_form`)."""
     s = db()
     try:
-        f = request.form
-        activity_type = (f.get("activity_type") or "CONCIERTO").strip().upper()
-        no_cache = _truthy(f.get("no_cache"))
-        explicit_dept = (f.get("department") or "").strip().upper() or None
-
         r = BookingRequest(status="NUEVA")
-        aid = (f.get("artist_id") or "").strip()
-        r.artist_id = to_uuid(aid) if aid else None
-        r.artist_ids = [aid] if aid else []
-
-        vid = (f.get("venue_id") or "").strip()
-        r.venue_id = to_uuid(vid) if vid else None
-        r.municipality = (f.get("municipality") or "").strip() or None
-        r.province = (f.get("province") or "").strip() or None
-        country = (f.get("country") or "").strip() or "España"
-
-        kind = (f.get("date_kind") or "EXACT").strip().upper()
-        pay = {}
-        if kind == "EXACT":
-            r.requested_date = parse_optional_date(f.get("requested_date"))
-            if not r.requested_date:
-                kind = "UNKNOWN"
-        if kind == "RANGE":
-            rs = (f.get("range_start") or "").strip()
-            re_ = (f.get("range_end") or "").strip()
-            pay["range_start"] = rs
-            pay["range_end"] = re_
-            r.date_text = f"Franja: {rs or '?'} → {re_ or '?'}"
-        elif kind == "MONTH":
-            ym = (f.get("month") or "").strip()
-            pay["month"] = ym
-            r.date_text = f"Mes: {_peticion_month_label(ym)}"
-        elif kind == "UNKNOWN":
-            r.date_text = "Fecha sin definir"
-        pay["date_kind"] = kind
-
-        req_type = (f.get("requester_type") or "").strip().lower()
-        req_id = (f.get("requester_id") or "").strip()
-        req_name = (f.get("requester_name") or "").strip()
-        r.contact_name = req_name or None
-        r.contact_email = (f.get("requester_email") or "").strip() or None
-        r.contact_phone = (f.get("requester_phone") or "").strip() or None
-        if req_type in ("promoter", "empresa", "institucion") and req_id:
-            r.promoter_id = to_uuid(req_id)
-
-        r.fee_text = None if no_cache else ((f.get("fee_text") or "").strip() or None)
-        r.notes = (f.get("description") or "").strip() or None
+        _peticion_apply_form(s, r, request.form)
         r.source = "OTRO"
-
-        subject = (f.get("subject") or "").strip()
-        if not subject:
-            art = s.get(Artist, r.artist_id) if r.artist_id else None
-            parts = [QUAD_ACTIVITY_LABELS.get(activity_type, activity_type.title())]
-            if art:
-                parts.append(art.name)
-            if r.municipality:
-                parts.append(r.municipality)
-            subject = " · ".join([p for p in parts if p])
-        r.subject = subject or "Petición"
-
-        pay.update({
-            "activity_type": activity_type,
-            "country": country,
-            "no_cache": no_cache,
-            "departments": _peticion_departments(activity_type, no_cache, explicit_dept),
-            "requester_type": req_type,
-            "requester_id": req_id,
-            "requester_name": req_name,
-            "description": r.notes or "",
-        })
-        r.payload = pay
-
         st = _current_user_state()
         r.created_by_user_id = to_uuid(st.get("user_id")) if st.get("user_id") else None
         r.created_by_nick = st.get("nick") or st.get("email") or ""
@@ -54944,6 +55151,11 @@ def inject_personnel_globals():
                                and "_home_pitch_pending" in globals()
                                and has_access_key("discografica", include_descendants=True) else []),
         "HOME_PENDING_PETICIONES": _home_pending_peticiones() if request.endpoint == "home" and session.get("user_id") and "_home_pending_peticiones" in globals() else [],
+        # MIS PETICIONES: las que ha hecho esta persona, para ver cómo van. Es de cada uno, así que
+        # no depende de ningún permiso de sección.
+        "HOME_MY_PETICIONES": (_home_my_peticiones()
+                               if request.endpoint == "home" and session.get("user_id")
+                               and "_home_my_peticiones" in globals() else []),
         "HOME_PRODUCCION_PENDING": _home_produccion_pending() if request.endpoint == "home" and session.get("user_id") and "_home_produccion_pending" in globals() and has_access_key("produccion", include_descendants=True) else [],
         "HOME_ADMIN_ALTAS_PENDING": _home_admin_altas_pending() if request.endpoint == "home" and session.get("user_id") and "_home_admin_altas_pending" in globals() and has_access_key("administracion", include_descendants=True) else [],
         # Tareas de administración repartidas: a cada uno las suyas (y las que no tienen dueño).
@@ -55228,6 +55440,7 @@ SUPPORT_READ_ENDPOINTS = {
     "api_search_venues", "api_search_events", "api_entity_link_search", "api_search_commission_entities",
     # Quién manda una maqueta: busca en terceros, personal y artistas de una sola vez.
     "api_demo_sender_search",
+    "api_city_search",
     # Asistente de actividad: repertorio + # del artista (para eventos promocionales y sugerencias).
     "api_artist_wizard_meta",
     # Hoja de ruta: exportaciones de rooming y listado de personal (PDF/Excel).
@@ -55309,6 +55522,9 @@ PERSONAL_ENDPOINTS = {"my_expenses_view", "my_expenses_assign", "my_expense_assi
 REQUEST_ANY_ENDPOINTS = {
     "promo_peticion_create",
     "marketing_peticion_create",
+    # Editar la petición que has hecho: la comprobación fina (que sea TUYA, o que gestiones esa
+    # bandeja) la hace el propio endpoint.
+    "peticion_wizard_update",
 }
 
 

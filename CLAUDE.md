@@ -1309,6 +1309,35 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (`simulation_archive`, archivar ≠ borrar). `_simulation_converted_info` resuelve el enlace a lo
   creado y avisa si ya no existe. **Si no se pudo crear NINGUNA fecha** (todas por confirmar o sin
   artista) se hace rollback: ni se archiva ni queda un contenedor vacío.
+- **ASISTENTE DE PETICIÓN · tarjetas, «¿se sabe dónde?» y editarla** (ago 2026):
+  · Las opciones se eligen con **TARJETAS** (`.promo-pick`, las mismas del resto de asistentes), no
+  con la rejilla apretada de antes. ⚠️ Una tarjeta puede ser `<button>` (las que saltan al asistente
+  de promoción o de marketing): sin `button.promo-pick{font:inherit}` el navegador les pone su propia
+  tipografía y se ven distintas en la misma fila.
+  · **Lo elegido se queda a la vista con su FOTO o su LOGO** (`.pw-picked`): al elegir un recinto o
+  quién pide, antes solo quedaba un «✓ seleccionado» y se perdía la imagen.
+  · **Lo que se busca se crea con el «+» de al lado de la barra**, como en el resto de la app (antes
+  el de «quién pide» era un enlace «No existe: crear nuevo» debajo).
+  · **«¿Se sabe dónde?»**: tres tarjetas — **No todavía** · **Conozco el recinto** (buscador con foto
+  y «+» para crearlo) · **Conozco la ciudad** (al escribirla salen las opciones y la **provincia se
+  rellena sola**). Se guarda en `payload['place_kind']` (NONE|VENUE|CITY) y **lo que no se elige se
+  limpia**: una petición no puede quedarse con un recinto de antes y una ciudad nueva.
+  · **Las ciudades las da `api_city_search`** (`/api/municipios`, en `SUPPORT_READ_ENDPOINTS`): busca
+  primero en NUESTROS datos (municipios de recintos y de actividades, que son pares ciudad+provincia
+  ya curados y salen al instante) y solo si hay pocos pregunta a `geo_utils`, de donde la provincia
+  sale del **código postal**, nunca de la comunidad autónoma que devuelve el proveedor.
+  · **EDITAR una petición ya creada** con el MISMO asistente: `peticion_wizard_update`
+  (`/peticiones/<id>/editar`) + `_peticion_edit_payload` (los datos que el asistente necesita) y
+  punto único **`_peticion_apply_form`**, que usan crear y editar — así una petición editada queda
+  exactamente como si se hubiera creado así. La edita **quien la hizo** o quien gestiona su bandeja.
+  ⚠️ El payload viaja en `data-peticion-payload` con **`|tojson|forceescape`**: sin `forceescape`, la
+  comilla doble corta el atributo y el botón deja de hacer nada.
+  ⚠️ `_peticion_edit_payload` construye su URL con `url_for` dentro de un `try`: la fila de una
+  petición se monta también fuera de una petición HTTP (un cron, un hilo) y ahí `url_for` revienta.
+  · **Módulo de Inicio «Mis peticiones»** (`_home_my_peticiones` → `HOME_MY_PETICIONES`): las que ha
+  hecho esa persona, con su estado, para seguirlas sin buscarlas — y con el botón de editarlas. No
+  depende de ningún permiso de sección (son suyas); las resueltas hace más de 120 días no se listan.
+
 - **Asistentes por pasos (UX)**: cuando se pincha una opción de un paso que **no requiere más datos**,
   **auto-avanzar** al siguiente paso sin pulsar "Siguiente" (menos clics). Implementado en el asistente
   de invitaciones (`invitaciones.html`, helpers `goStep`/`getStep`): pasos de artista, evento,

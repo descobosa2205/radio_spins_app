@@ -66,12 +66,17 @@
           <span class="dropdown ctask__actions ms-auto">
             <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
             <ul class="dropdown-menu dropdown-menu-end">
+              {# EDITAR: se abre el MISMO asistente con el que se creó, con todo puesto (tipo de
+                 actividad, dónde, quién pide…). El formulario corto de antes se queda como
+                 «Editar solo los datos básicos» para lo que llega por otras vías. #}
+              <li><button type="button" class="dropdown-item" data-peticion-edit
+                  data-peticion-payload="{{ r.edit|tojson|forceescape }}"><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
               <li><button type="button" class="dropdown-item" data-booking-edit
                   data-id="{{ r.id }}" data-action="{{ url_for('booking_request_update', rid=r.id) }}" data-subject="{{ r.subject|e }}" data-artist-id="{{ r.artist_id }}"
                   data-requested-date="{{ r.requested_date }}" data-date-text="{{ r.date_text|e }}"
                   data-contact-name="{{ r.contact_name|e }}" data-contact-email="{{ r.contact_email|e }}" data-contact-phone="{{ r.contact_phone|e }}"
                   data-municipality="{{ r.municipality|e }}" data-province="{{ r.province|e }}" data-fee-text="{{ r.fee_text|e }}"
-                  data-source="{{ r.source }}" data-notes="{{ r.notes|e }}"><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
+                  data-source="{{ r.source }}" data-notes="{{ r.notes|e }}"><i class="fa fa-list fa-fw me-1"></i>Editar solo los datos básicos</button></li>
               {% if r.concert_id %}
               <li><a class="dropdown-item" href="{{ url_for('concert_detail_view', cid=r.concert_id) }}"><i class="fa fa-guitar fa-fw me-1"></i>Ver actividad</a></li>
               {% endif %}

@@ -3817,6 +3817,11 @@ body.ra-full .ra-item__links{ display:none; }        /* en pantalla completa la 
   line-height: 1.75;
   color: #212529;
 }
+/* El mismo texto en un hueco pequeño (el pitch que llega en una entrega de masters). */
+.pitch-text--sm { font-size: .88rem; line-height: 1.6; }
+/* ⚠️ El pitch se escribe YA JUSTIFICADO: es como va a salir en la ficha, en el PDF, en el correo y
+   en el enlace público, así que el cuadro donde se teclea lo enseña igual. */
+.pitch-input { text-align: justify; }
 .dash-pitch__cover {
   width: 44px; height: 44px; border-radius: 10px; object-fit: cover;
   border: 1px solid rgba(0, 0, 0, .08); background: #fff; flex: 0 0 auto;

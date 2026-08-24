@@ -3314,6 +3314,20 @@ def _send_promoter_artwork_email(concert: Concert, row: ConcertArtworkRequest, k
     return _send_optional_email(recipients, subject, html_body, text_body=upload_url)
 
 
+def _artwork_notify_resolve_if_done(session_db, row) -> None:
+    """El aviso de «nueva solicitud de diseño» se cierra solo en cuanto la solicitud ya tiene
+    cartelería APROBADA: a partir de ahí no espera a nadie."""
+    try:
+        if row is None:
+            return
+        hay = any((not a.is_archived) and (a.validation_status or "APPROVED") == "APPROVED"
+                  for a in (row.assets or []))
+        if hay:
+            _notify_resolve(session_db, "ARTWORK", str(row.id))
+    except Exception:
+        app.logger.exception("[avisos] no se pudo cerrar el aviso de la solicitud de diseño")
+
+
 def _artwork_pick_primary_by_squareness(row: ConcertArtworkRequest) -> None:
     """Si ningún cartel vigente es principal, marca el MÁS CUADRADO (por dimensiones medidas
     en el navegador al subir; sin dimensiones cuenta como poco cuadrado)."""
@@ -23665,6 +23679,9 @@ def discografica_song_delivery_consolidate(song_id, link_id):
             # El texto para el pitch va al mismo sitio que si se escribiera a mano en la ficha.
             song.pitch_text = (data.get("pitch") or "").strip()
             song.pitch_updated_at = datetime.now(TZ_MADRID)
+            # …y el aviso de «falta el pitch» deja de esperar a nadie: se cierra solo.
+            if song.pitch_text:
+                _notify_resolve(session_db, "SONG", str(song.id))
             flash("Texto del pitch consolidado.", "success")
         elif section == "authoral" and data.get("authoral"):
             for a in data["authoral"]:
@@ -36418,6 +36435,7 @@ def concert_artwork_upload_direct(cid):
             row.status = 'UPLOADED'
             _artwork_pick_primary_by_squareness(row)
         row.updated_at = datetime.now(ZoneInfo('Europe/Madrid'))
+        _artwork_notify_resolve_if_done(session_db, row)
         session_db.commit()
         return jsonify({"ok": True, "assets": subidos, "count": len(subidos)})
     except Exception as exc:
@@ -36472,6 +36490,7 @@ def concert_artwork_asset_review(cid, asset_id):
         row.updated_at = ahora
         if aprobados:
             _artwork_pick_primary_by_squareness(row)
+        _artwork_notify_resolve_if_done(session_db, row)
         session_db.commit()
         return jsonify({"ok": True, "status": asset.validation_status,
                         "pending": len(pendientes), "approved": len(aprobados)})
@@ -44729,6 +44748,8 @@ def concert_contract_sheet_review(cid):
             sheet.accepted_at = now
             sheet.reviewed_at = now
             sheet.promoter_reviewed_at = now       # revisado: el aviso amarillo desaparece
+            # Y el AVISO de «el promotor ha cumplimentado la ficha» tampoco espera ya a nadie.
+            _notify_resolve(session, "concert", str(concert.id))
             sheet.updated_at = now
             sheet.merge_log = list(sheet.merge_log or []) + [{
                 'at': now.isoformat(),

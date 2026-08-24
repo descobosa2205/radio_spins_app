@@ -132,7 +132,7 @@
             <h6 class="mb-1"><i class="fa fa-bullhorn me-2 text-muted"></i>{{ section_labels['PITCH'] }}</h6>
             <div class="small text-muted mb-3">Un texto de presentación del lanzamiento: de qué va la
               canción, qué se quiere contar de ella.</div>
-            <textarea class="form-control" name="pitch" rows="6"
+            <textarea class="form-control pitch-input" name="pitch" rows="6"
                       placeholder="Escribe aquí el texto con el que presentar el lanzamiento"{% if pitch_required %} required{% endif %}>{{ form.get('pitch', '') }}</textarea>
           </div></div>
         {% endif %}

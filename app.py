@@ -30810,10 +30810,15 @@ def _home_produccion_pending(limit=12):
              .options(joinedload(Concert.artist), joinedload(Concert.venue))
              .filter(func.upper(func.coalesce(Concert.status, '')) == 'CONFIRMADO')
              .filter(Concert.date >= today_local()))
-        if assigned:
-            assigned_uuids = [to_uuid(a) for a in assigned if to_uuid(a)]
+        if not is_master():
+            # ⚠️ LO SUYO, no lo de todo el departamento: las actividades que le han ASIGNADO
+            # (`production_owner_user_id`) y las de SUS artistas. Antes, quien no tenía artistas
+            # asignados veía TODAS, así que el módulo era el trabajo de otros.
+            assigned_uuids = [x for x in (to_uuid(a) for a in assigned) if x]
+            condiciones = [Concert.production_owner_user_id == to_uuid(uid)]
             if assigned_uuids:
-                q = q.filter(Concert.artist_id.in_(assigned_uuids))
+                condiciones.append(Concert.artist_id.in_(assigned_uuids))
+            q = q.filter(or_(*condiciones))
         rows = q.order_by(Concert.date.asc()).limit(60).all()
         # Solo las que NO tienen bolsa abierta (producción sin arrancar).
         out = []

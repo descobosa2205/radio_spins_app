@@ -465,103 +465,6 @@ document.addEventListener('click', function (ev) {
 </div>
 {% endif %}
 
-{# MIS PETICIONES: las que ha hecho esta persona, para seguir cómo evolucionan. Se lee como el
-   módulo de TAREAS PENDIENTES (foto del artista, datos con iconos y etiquetas debajo).
-   ⚠️ Una petición RECHAZADA sale aquí mismo como «pendiente de comunicar», con sus dos botones: NO
-   hay otro módulo. Al comunicarla se archiva y desaparece de la lista. #}
-{% if HOME_MY_PETICIONES %}
-{% set _pend = HOME_MY_PETICIONES|selectattr('rejection_pending')|list %}
-<div class="card mb-4{% if _pend %} border-warning{% endif %}">
-  <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
-    <span class="fw-semibold">
-      <i class="fa fa-paper-plane text-danger me-2"></i>Mis peticiones
-      <span class="badge text-bg-secondary ms-1">{{ HOME_MY_PETICIONES|length }}</span>
-      {% if _pend %}<span class="badge text-bg-warning text-dark ms-1">
-        <i class="fa fa-comment-slash me-1"></i>{{ _pend|length }} por comunicar</span>{% endif %}
-    </span>
-    <span class="text-muted small">Las que has hecho tú y cómo van.</span>
-  </div>
-  <div class="list-group list-group-flush">
-    {% for p in HOME_MY_PETICIONES %}
-      <div class="ctask{% if p.rejection_pending %} border-warning{% endif %}">
-        <div class="ctask__head">
-          {% if p.artist_photo or p.artist %}
-            {{ artist_avatar(p.artist_photo, p.artist) }}
-          {% else %}
-            <span class="ctask__noart"><i class="fa {{ p.icon }} text-muted"></i></span>
-          {% endif %}
-          <span class="ctask__subject text-truncate">{{ p.artist or p.subject }}</span>
-          <span class="ctask__facts">
-            <span class="ctask__fact"><i class="fa {{ p.icon }}"></i>{{ p.kind_label or p.subject }}</span>
-            {% if p.date_label %}<span class="ctask__fact"><i class="fa fa-calendar-day"></i>{{ p.date_label }}</span>{% endif %}
-            {% if p.place %}<span class="ctask__fact"><i class="fa fa-location-dot"></i>{{ p.place }}</span>{% endif %}
-            {% if p.who %}<span class="ctask__fact"><i class="fa {{ p.who_icon }}"></i>{{ p.who }}</span>{% endif %}
-          </span>
-          <span class="ms-auto d-flex align-items-center gap-2 ctask__actions">
-            <span class="badge {{ p.status_class }}">{{ p.status_label }}</span>
-            {# LOS TRES PUNTITOS: editar (el mismo asistente con el que se creó) y eliminar. #}
-            <div class="dropdown">
-              <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" title="Más">
-                <i class="fa fa-ellipsis"></i>
-              </button>
-              <ul class="dropdown-menu dropdown-menu-end">
-                <li>
-                  <button class="dropdown-item" type="button" data-peticion-edit
-                          data-peticion-payload="{{ p.edit|tojson|forceescape }}">
-                    <i class="fa fa-edit fa-fw me-1"></i>Editar la petición
-                  </button>
-                </li>
-                {% if p.url %}
-                <li><a class="dropdown-item" href="{{ p.url }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Ver la bandeja</a></li>
-                {% endif %}
-                <li><hr class="dropdown-divider"></li>
-                <li>
-                  <form method="post" action="{{ url_for('booking_request_delete', rid=p.id) }}">
-                    <input type="hidden" name="next" value="{{ request.full_path }}">
-                    <button class="dropdown-item text-danger"
-                            data-confirm="¿Eliminar esta petición? No se puede deshacer.">
-                      <i class="fa fa-trash fa-fw me-1"></i>Eliminar
-                    </button>
-                  </form>
-                </li>
-              </ul>
-            </div>
-          </span>
-        </div>
-        <div class="ctask__tasks">
-          {% if p.rejection_pending %}
-            <span class="badge text-bg-warning text-dark">
-              <i class="fa fa-comment-slash me-1"></i>Pendiente de comunicar el rechazo</span>
-            {% if p.reason %}<span class="badge text-bg-light border text-truncate" style="max-width:420px"
-              title="{{ p.reason }}"><i class="fa fa-ban me-1"></i>{{ p.reason }}</span>{% endif %}
-            {% if p.contact %}<span class="badge text-bg-light border"><i class="fa fa-at me-1"></i>{{ p.contact }}</span>{% endif %}
-            <span class="ctask__actions d-inline-flex gap-2 ms-1">
-              {% if p.send_url %}
-              <form method="post" action="{{ p.send_url }}" class="d-inline">
-                <input type="hidden" name="next" value="{{ request.full_path }}">
-                <button class="btn btn-sm btn-warning"
-                        data-confirm="Se le va a escribir a {{ p.who or 'quien la pidió' }} con el motivo del rechazo. ¿Seguir?">
-                  <i class="fa fa-paper-plane me-1"></i>Comunicar
-                </button>
-              </form>
-              {% endif %}
-              {% if p.done_url %}
-              <form method="post" action="{{ p.done_url }}" class="d-inline">
-                <input type="hidden" name="next" value="{{ request.full_path }}">
-                <button class="btn btn-sm btn-outline-warning"><i class="fa fa-check me-1"></i>Ya se lo he comunicado</button>
-              </form>
-              {% endif %}
-            </span>
-          {% else %}
-            {% for d in p.departments %}<span class="badge text-bg-light border">{{ d }}</span>{% endfor %}
-          {% endif %}
-        </div>
-      </div>
-    {% endfor %}
-  </div>
-</div>
-{% endif %}
-
 {% if HOME_INVITATIONS_TO_MANAGE %}
 <div class="card mb-4 border-danger">
   <div class="card-body">
@@ -599,46 +502,6 @@ document.addEventListener('click', function (ev) {
     </div>
   </div>
 </div>
-{% endif %}
-
-{% if HOME_INVITATIONS %}
-<div class="card mb-4">
-  <div class="card-body">
-    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-      <div>
-        <h5 class="mb-0">Mis invitaciones solicitadas</h5>
-      </div>
-      <div class="d-flex gap-2 flex-wrap">
-        {# Abre directamente el asistente de pedir (auto-apertura con ?open_wizard=1, como el de conciertos). #}
-        <a href="{{ url_for('invitations_view', tab='pedir', open_wizard=1) }}" class="btn btn-sm btn-danger"><i class="fa fa-plus me-1"></i>Pedir invitaciones</a>
-        <a href="{{ url_for('invitations_view', tab='mis') }}" class="btn btn-sm btn-outline-danger">Ver todas</a>
-      </div>
-    </div>
-    <div class="row g-3">
-      {% for row in HOME_INVITATIONS[:6] %}
-        <div class="col-12 col-lg-6">
-          <div class="invitation-home-card h-100">
-            <div class="d-flex justify-content-between gap-3">
-              <div>
-                {% for a in (row.event.artists or []) %}{{ artist_chip(a.name, a.photo_url, artist_id=a.id) }}{% if a.id %}{{ linked_mini('artist', a.id) }}{% endif %}{% else %}<strong>{{ row.event.artist_names }}</strong>{% endfor %}
-                <div class="small text-muted mt-1">{% if row.event.type_label %}<span class="badge text-bg-secondary">{{ row.event.type_label }}</span> {% endif %}{{ [row.event.name, row.event.city, row.event.date_label]|select|join(' · ') }}</div>
-                {% set sub = [row.event.venue, row.event.city, row.event.province]|select|list %}
-                {% if sub %}<div class="small text-muted">{{ sub|join(' · ') }}</div>{% endif %}
-                <div class="small mt-1"><span class="inv-person">{% if row.guest_photo %}<img loading="lazy" decoding="async" class="inv-person-ava {{ 'is-logo' if row.guest_promoter_id else 'is-photo' }}" src="{{ row.guest_photo }}" alt="">{% endif %}{{ row.guest_name }}</span> · {{ row.quantities_label }}{% if row.downloaded_at_label %} <i class="fa fa-circle-down inv-dl-done" title="Descargadas · {{ row.downloaded_at_label }}"></i>{% endif %}</div>
-              </div>
-              <div class="d-flex align-items-center gap-2 align-self-start">
-                <span class="badge text-bg-{{ row.requester_status_badge }}">{{ row.requester_status_label }}</span>
-                {{ inv_menu.request_kebab(row) }}
-              </div>
-            </div>
-          </div>
-        </div>
-      {% endfor %}
-    </div>
-  </div>
-</div>
-{{ inv_menu.full_edit_modal() }}
-{{ inv_menu.delete_modal() }}
 {% endif %}
 
 {% if HOME_AFAVOR_ALERT %}
@@ -882,6 +745,148 @@ document.addEventListener('click', function (ev) {
   </div>
 </div>
 {% endif %}
+
+{% endif %}{# /compuerta de departamento #}
+
+{# ---------- LO SUYO (fuera de la compuerta): lo ve TODO EL MUNDO, sea del departamento que sea ----------
+   Sus peticiones y sus invitaciones pedidas son de la persona, no de una función. #}
+{# MIS PETICIONES: las que ha hecho esta persona, para seguir cómo evolucionan. Se lee como el
+   módulo de TAREAS PENDIENTES (foto del artista, datos con iconos y etiquetas debajo).
+   ⚠️ Una petición RECHAZADA sale aquí mismo como «pendiente de comunicar», con sus dos botones: NO
+   hay otro módulo. Al comunicarla se archiva y desaparece de la lista. #}
+{% if HOME_MY_PETICIONES %}
+{% set _pend = HOME_MY_PETICIONES|selectattr('rejection_pending')|list %}
+<div class="card mb-4{% if _pend %} border-warning{% endif %}">
+  <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <span class="fw-semibold">
+      <i class="fa fa-paper-plane text-danger me-2"></i>Mis peticiones
+      <span class="badge text-bg-secondary ms-1">{{ HOME_MY_PETICIONES|length }}</span>
+      {% if _pend %}<span class="badge text-bg-warning text-dark ms-1">
+        <i class="fa fa-comment-slash me-1"></i>{{ _pend|length }} por comunicar</span>{% endif %}
+    </span>
+    <span class="text-muted small">Las que has hecho tú y cómo van.</span>
+  </div>
+  <div class="list-group list-group-flush">
+    {% for p in HOME_MY_PETICIONES %}
+      <div class="ctask{% if p.rejection_pending %} border-warning{% endif %}">
+        <div class="ctask__head">
+          {% if p.artist_photo or p.artist %}
+            {{ artist_avatar(p.artist_photo, p.artist) }}
+          {% else %}
+            <span class="ctask__noart"><i class="fa {{ p.icon }} text-muted"></i></span>
+          {% endif %}
+          <span class="ctask__subject text-truncate">{{ p.artist or p.subject }}</span>
+          <span class="ctask__facts">
+            <span class="ctask__fact"><i class="fa {{ p.icon }}"></i>{{ p.kind_label or p.subject }}</span>
+            {% if p.date_label %}<span class="ctask__fact"><i class="fa fa-calendar-day"></i>{{ p.date_label }}</span>{% endif %}
+            {% if p.place %}<span class="ctask__fact"><i class="fa fa-location-dot"></i>{{ p.place }}</span>{% endif %}
+            {% if p.who %}<span class="ctask__fact"><i class="fa {{ p.who_icon }}"></i>{{ p.who }}</span>{% endif %}
+          </span>
+          <span class="ms-auto d-flex align-items-center gap-2 ctask__actions">
+            <span class="badge {{ p.status_class }}">{{ p.status_label }}</span>
+            {# LOS TRES PUNTITOS: editar (el mismo asistente con el que se creó) y eliminar. #}
+            <div class="dropdown">
+              <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" title="Más">
+                <i class="fa fa-ellipsis"></i>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li>
+                  <button class="dropdown-item" type="button" data-peticion-edit
+                          data-peticion-payload="{{ p.edit|tojson|forceescape }}">
+                    <i class="fa fa-edit fa-fw me-1"></i>Editar la petición
+                  </button>
+                </li>
+                {% if p.url %}
+                <li><a class="dropdown-item" href="{{ p.url }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Ver la bandeja</a></li>
+                {% endif %}
+                <li><hr class="dropdown-divider"></li>
+                <li>
+                  <form method="post" action="{{ url_for('booking_request_delete', rid=p.id) }}">
+                    <input type="hidden" name="next" value="{{ request.full_path }}">
+                    <button class="dropdown-item text-danger"
+                            data-confirm="¿Eliminar esta petición? No se puede deshacer.">
+                      <i class="fa fa-trash fa-fw me-1"></i>Eliminar
+                    </button>
+                  </form>
+                </li>
+              </ul>
+            </div>
+          </span>
+        </div>
+        <div class="ctask__tasks">
+          {% if p.rejection_pending %}
+            <span class="badge text-bg-warning text-dark">
+              <i class="fa fa-comment-slash me-1"></i>Pendiente de comunicar el rechazo</span>
+            {% if p.reason %}<span class="badge text-bg-light border text-truncate" style="max-width:420px"
+              title="{{ p.reason }}"><i class="fa fa-ban me-1"></i>{{ p.reason }}</span>{% endif %}
+            {% if p.contact %}<span class="badge text-bg-light border"><i class="fa fa-at me-1"></i>{{ p.contact }}</span>{% endif %}
+            <span class="ctask__actions d-inline-flex gap-2 ms-1">
+              {% if p.send_url %}
+              <form method="post" action="{{ p.send_url }}" class="d-inline">
+                <input type="hidden" name="next" value="{{ request.full_path }}">
+                <button class="btn btn-sm btn-warning"
+                        data-confirm="Se le va a escribir a {{ p.who or 'quien la pidió' }} con el motivo del rechazo. ¿Seguir?">
+                  <i class="fa fa-paper-plane me-1"></i>Comunicar
+                </button>
+              </form>
+              {% endif %}
+              {% if p.done_url %}
+              <form method="post" action="{{ p.done_url }}" class="d-inline">
+                <input type="hidden" name="next" value="{{ request.full_path }}">
+                <button class="btn btn-sm btn-outline-warning"><i class="fa fa-check me-1"></i>Ya se lo he comunicado</button>
+              </form>
+              {% endif %}
+            </span>
+          {% else %}
+            {% for d in p.departments %}<span class="badge text-bg-light border">{{ d }}</span>{% endfor %}
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# LAS PETICIONES DE INVITACIONES QUE HA HECHO CADA UNO, al final del todo (y solo si hay alguna):
+   no es una tarea, es el seguimiento de lo suyo. #}
+{% if HOME_INVITATIONS %}
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <div>
+        <h5 class="mb-0">Mis invitaciones solicitadas</h5>
+      </div>
+      <div class="d-flex gap-2 flex-wrap">
+        {# Abre directamente el asistente de pedir (auto-apertura con ?open_wizard=1, como el de conciertos). #}
+        <a href="{{ url_for('invitations_view', tab='pedir', open_wizard=1) }}" class="btn btn-sm btn-danger"><i class="fa fa-plus me-1"></i>Pedir invitaciones</a>
+        <a href="{{ url_for('invitations_view', tab='mis') }}" class="btn btn-sm btn-outline-danger">Ver todas</a>
+      </div>
+    </div>
+    <div class="row g-3">
+      {% for row in HOME_INVITATIONS[:6] %}
+        <div class="col-12 col-lg-6">
+          <div class="invitation-home-card h-100">
+            <div class="d-flex justify-content-between gap-3">
+              <div>
+                {% for a in (row.event.artists or []) %}{{ artist_chip(a.name, a.photo_url, artist_id=a.id) }}{% if a.id %}{{ linked_mini('artist', a.id) }}{% endif %}{% else %}<strong>{{ row.event.artist_names }}</strong>{% endfor %}
+                <div class="small text-muted mt-1">{% if row.event.type_label %}<span class="badge text-bg-secondary">{{ row.event.type_label }}</span> {% endif %}{{ [row.event.name, row.event.city, row.event.date_label]|select|join(' · ') }}</div>
+                {% set sub = [row.event.venue, row.event.city, row.event.province]|select|list %}
+                {% if sub %}<div class="small text-muted">{{ sub|join(' · ') }}</div>{% endif %}
+                <div class="small mt-1"><span class="inv-person">{% if row.guest_photo %}<img loading="lazy" decoding="async" class="inv-person-ava {{ 'is-logo' if row.guest_promoter_id else 'is-photo' }}" src="{{ row.guest_photo }}" alt="">{% endif %}{{ row.guest_name }}</span> · {{ row.quantities_label }}{% if row.downloaded_at_label %} <i class="fa fa-circle-down inv-dl-done" title="Descargadas · {{ row.downloaded_at_label }}"></i>{% endif %}</div>
+              </div>
+              <div class="d-flex align-items-center gap-2 align-self-start">
+                <span class="badge text-bg-{{ row.requester_status_badge }}">{{ row.requester_status_label }}</span>
+                {{ inv_menu.request_kebab(row) }}
+              </div>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{{ inv_menu.full_edit_modal() }}
+{{ inv_menu.delete_modal() }}
 {% endif %}
 
 {% include "_quick_create_modals.html" %}

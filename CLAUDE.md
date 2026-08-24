@@ -2192,6 +2192,14 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   · Módulo de Inicio **`HOME_TICKETING_SALES`** (`_home_ticketing_sales_tasks`), solo para Ticketing y
   dirección, con las dos tareas y su etiqueta. Va **justo debajo del calendario**, que es con lo que
   trabaja ticketing.
+  ⚠️ **TODAS LAS PANTALLAS DE INICIO SE LEEN IGUAL** (ago 2026), dirección aparte: **cabecera** ·
+  **avisos** (la franja global) · **botones rápidos** · **calendario** · **sus tareas pendientes** (las
+  de su departamento o las que le han asignado) y, al final y fuera de cualquier compuerta, **lo
+  SUYO**: «Mis peticiones» y «Mis invitaciones solicitadas», que son de la persona y no de una
+  función. Quien tiene dos departamentos ve los módulos de los dos.
+  ⚠️ **En PRODUCCIÓN son las ASIGNADAS, no las del departamento** (`_home_produccion_pending`,
+  corregido): las actividades donde es el **responsable de producción** más las de **sus artistas**.
+  Antes, quien no tenía artistas asignados veía **TODAS**, así que el módulo era el trabajo de otros.
   ⚠️ **EL INICIO DE CONTRATACIÓN** (ago 2026) es, en este orden: la **cabecera** · los **avisos**
   (la franja global, que va debajo del menú) · los **botones rápidos** · el **calendario** · las
   **peticiones pendientes** (`HOME_PENDING_PETICIONES`, **solo cuando hay**) · y sus **tareas

@@ -60,7 +60,10 @@
         <div class="d-grid gap-3">
           {% for r in rows %}
             <div class="border rounded-3 p-3 d-flex align-items-center gap-3 flex-wrap">
-              <span class="idplat" style="background:{{ r.color }};"><i class="fa-brands {{ r.icon }} fa-lg"></i></span>
+              {# ⚠️ `fa-brands` solo vale para los iconos de MARCA: `fa-globe` («todas») y el
+                 `fa-link` de una añadida a mano se quedaban en blanco. #}
+              <span class="idplat" style="background:{{ r.color }};">
+                <i class="{{ 'fa-brands' if not r.custom and r.platform != 'ALL' else 'fa' }} {{ r.icon }} fa-lg"></i></span>
               <span class="flex-grow-1 min-w-0">
                 <span class="fw-semibold d-block">{{ r.label }}</span>
                 <span class="small text-muted d-block">Formato vertical (9:16)</span>

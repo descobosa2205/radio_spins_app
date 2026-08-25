@@ -21328,6 +21328,7 @@ def disco_project_detail(project_id):
                           "promoters", "production_people", "has_audio", "artwork",
                           "artwork_candidates", "artist_photos", "demo_artists", "project_demo",
                           "creatives", "creative_catalog", "creative_formats", "creative_media",
+                          "creative_icon_class",
                           "project_ids", "plan", "plan_sections", "plan_agenda",
                           "plan_action_kinds", "content_networks", "plan_candidates",
                           "agenda_data", "release", "release_songs"):
@@ -21359,6 +21360,7 @@ def disco_project_detail(project_id):
             artwork_photo_modes=DISCO_ARTWORK_PHOTO_MODES,
             creatives=(_disco_creatives_state(session_db, project) if tab == "calendario" else None),
             creative_catalog=DISCO_CREATIVE_CATALOG,
+            creative_icon_class=_disco_creative_icon_class,
             creative_formats=DISCO_CREATIVE_FORMATS,
             creative_media=DISCO_CREATIVE_MEDIA,
             project_ids=(_disco_project_ids_state(session_db, project) if tab == "calendario" else None),
@@ -21588,6 +21590,29 @@ def disco_project_registros_done(project_id):
 # ---------------------------------------------------------
 # ENLACE PARA SUBIR MATERIALES · el de siempre (entrega de masters), uno por tema
 # ---------------------------------------------------------
+def _disco_project_owner_ids(session_db, project) -> list[str]:
+    """A QUIÉN se le avisa de lo que llega de un proyecto (la portada entregada, las creatividades,
+    los IDs…): a **quien lo lleva**.
+
+    ⚠️ NO a Registros: su aviso enlaza a la ficha del proyecto, que es de `discografica.proyectos`, y
+    quien está en Registros sin ese permiso se comía un **403 al pinchar su propio aviso**. Se avisa a
+    quien creó el proyecto y a quien del **SELLO** lleva a ese artista; si no consta nadie, a Registros
+    como red de seguridad (mejor que se entere alguien de más que nadie)."""
+    ids = []
+    creador = str(getattr(project, "created_by_user_id", "") or "")
+    if creador:
+        ids.append(creador)
+    try:
+        for uid in _pitch_sello_user_ids(session_db, getattr(project, "artist_id", None)):
+            if uid not in ids:
+                ids.append(uid)
+    except Exception:
+        app.logger.exception("[proyectos] no se pudo resolver quién lleva el proyecto")
+    if not ids:
+        ids = _registros_user_ids(session_db)
+    return ids
+
+
 def _disco_project_delivery_links(session_db, project, *, create: bool = False) -> list[dict]:
     """Los enlaces de ENTREGA DE MASTERS de los temas del lanzamiento, para el botón «Subir
     materiales» del aviso del plazo.
@@ -22820,7 +22845,7 @@ def public_disco_artwork_upload(token):
             fila.delivered_by = (request.form.get("who") or "").strip() or None
             fila.status = "DELIVERED"
             # Y se avisa a quien la pidió (le toca pedir la aprobación).
-            _notify_users(session_db, _registros_user_ids(session_db), "DISCOGRAFICA",
+            _notify_users(session_db, _disco_project_owner_ids(session_db, project), "DISCOGRAFICA",
                           "Portada entregada: %s" % _disco_project_title(project),
                           "Ya se puede pedir la aprobación al artista.",
                           url=url_for("disco_project_detail", project_id=project.id, tab="calendario"),
@@ -22856,7 +22881,7 @@ def public_disco_artwork_idea(token):
                         app.logger.exception("[portada] ejemplo del artista")
             fila.artist_idea_files = ejemplos
             fila.artist_idea_at = _now_madrid()
-            _notify_users(session_db, _registros_user_ids(session_db), "DISCOGRAFICA",
+            _notify_users(session_db, _disco_project_owner_ids(session_db, project), "DISCOGRAFICA",
                           "El artista ha contado su idea de portada: %s" % _disco_project_title(project),
                           (fila.artist_idea_text or "")[:160],
                           url=url_for("disco_project_detail", project_id=project.id, tab="calendario"),
@@ -22905,14 +22930,14 @@ def public_disco_artwork_approval(token):
                 fila.approved_at = _now_madrid()
                 fila.status = "APPROVED"
                 _disco_artwork_apply_to_release(session_db, project, fila)
-                _notify_users(session_db, _registros_user_ids(session_db), "DISCOGRAFICA",
+                _notify_users(session_db, _disco_project_owner_ids(session_db, project), "DISCOGRAFICA",
                               "Portada aprobada: %s" % _disco_project_title(project),
                               "Ya está en los materiales del lanzamiento.",
                               url=url_for("disco_project_detail", project_id=project.id, tab="calendario"),
                               ref_type="DISCO_ARTWORK_OK", ref_id=str(project.id))
             elif rechazos:
                 fila.approved_at = None
-                _notify_users(session_db, _registros_user_ids(session_db), "DISCOGRAFICA",
+                _notify_users(session_db, _disco_project_owner_ids(session_db, project), "DISCOGRAFICA",
                               "Portada RECHAZADA: %s" % _disco_project_title(project),
                               "%s: %s" % ((ap.name or ap.email or "—"), (ap.note or "")[:140]),
                               url=url_for("disco_project_detail", project_id=project.id, tab="calendario"),
@@ -22941,6 +22966,17 @@ DISCO_CREATIVE_FORMATS = (
 )
 DISCO_CREATIVE_FORMAT_LABELS = {k: l for k, l, _i, _s in DISCO_CREATIVE_FORMATS}
 # clave · etiqueta · icono · medio · tamaño · ¿se eligen formatos?
+# ⚠️ Los iconos de MARCA (fa-youtube…) viven en otra familia: hay que pintarlos con `fa-brands`, no
+# con `fa` (que es la SOLID), o salen vacíos. `_disco_creative_icon_class` es el punto único.
+DISCO_CREATIVE_BRAND_ICONS = {"fa-youtube", "fa-instagram", "fa-tiktok", "fa-spotify", "fa-apple",
+                              "fa-amazon", "fa-facebook", "fa-x-twitter"}
+
+
+def _disco_creative_icon_class(icon: str) -> str:
+    """La familia con la que se pinta un icono: `fa-brands` si es de marca, `fa` si no."""
+    return "fa-brands" if (icon or "").strip() in DISCO_CREATIVE_BRAND_ICONS else "fa"
+
+
 DISCO_CREATIVE_CATALOG = (
     ("YT_HEADER", "Cabecera de YouTube", "fa-youtube", "IMAGE", "2560 × 1440", False),
     ("ARTIST_PIC", "Imagen de perfil del artista", "fa-circle-user", "IMAGE", "1000 × 1000", False),
@@ -23232,7 +23268,7 @@ def public_disco_creatives(token):
                 peticion.status = "ENTREGADA"
                 peticion.submitted_at = _now_madrid()
             if subidas:
-                _notify_users(session_db, _registros_user_ids(session_db), "DISCOGRAFICA",
+                _notify_users(session_db, _disco_project_owner_ids(session_db, project), "DISCOGRAFICA",
                               "Creatividades entregadas: %s" % _disco_project_title(project),
                               "%d pieza(s) subidas." % subidas,
                               url=url_for("disco_project_detail", project_id=project.id,
@@ -23531,7 +23567,14 @@ def public_song_platform_ids(token):
                 if all(f["done"] for f in nuevo["rows"] if f["platform"] in pedidas):
                     peticion.status = "ENTREGADA"
                     peticion.submitted_at = _now_madrid()
-                _notify_users(session_db, _registros_user_ids(session_db), "DISCOGRAFICA",
+                # Aquí no hay proyecto a mano (la petición es de la CANCIÓN): se avisa a quien del
+                # sello lleva a su artista y, si no consta nadie, a Registros.
+                _proyecto = (session_db.get(DiscoProject, peticion.project_id)
+                             if peticion.project_id else None)
+                _destino = (_disco_project_owner_ids(session_db, _proyecto) if _proyecto is not None
+                            else (_pitch_sello_user_ids(session_db, getattr(artista, "id", None))
+                                  or _registros_user_ids(session_db)))
+                _notify_users(session_db, _destino, "DISCOGRAFICA",
                               "IDs subidos: %s" % (cancion.title or "canción"),
                               "%d ID(s) de plataforma." % subidas,
                               url=url_for("discografica_song_detail", song_id=cancion.id,
@@ -58956,6 +58999,12 @@ def _resolve_request_resource_key() -> str | None:
         }
         return mapping.get(tab, "discografica.canciones")
     if endpoint in {"registros_release_dates_view", "registros_release_date_confirm"}:
+        # ⚠️ Se acepta la PRIMERA clave que tenga el usuario (como la pestaña ISRC o la lectura de una
+        # actividad): cuando nadie tiene «Registros», el aviso cae en el SELLO o en dirección, y con
+        # un recurso único se comían un 403 al pinchar su propio aviso.
+        for clave in ("registros.pendiente", "registros", "discografica.proyectos", "discografica"):
+            if has_access_key(clave, include_descendants=True):
+                return clave
         return "registros.pendiente"
     if endpoint in {"registros_view", "registros_concert_declare", "registros_promo_declare",
                     "registros_repertoire_link", "registros_song_pack", "registros_song_declaration_signed",

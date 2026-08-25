@@ -687,7 +687,8 @@
                          {% if ya %}checked{% endif %}>
                   <span class="d-inline-flex align-items-center justify-content-center flex-shrink-0"
                         style="width:38px;height:38px;border-radius:10px;background:rgba(227,61,72,.10);color:#E33D48;">
-                    <i class="fa {{ icon }}"></i></span>
+                    {# ⚠️ Un icono de MARCA (fa-youtube) sale VACÍO pintado con `fa`. #}
+                    <i class="{{ creative_icon_class(icon) }} {{ icon }}"></i></span>
                   <span class="min-w-0">
                     <span class="fw-semibold d-block">{{ label }}</span>
                     <span class="small text-muted d-block">{{ size }} · {{ {'VIDEO':'Vídeo','AUDIO':'Audio'}.get(media,'Imagen') }}</span>
@@ -741,7 +742,7 @@
           <div class="d-grid gap-2">
             {% for c in creatives.rows %}
               <div class="d-flex align-items-center gap-2 border rounded p-2 flex-wrap">
-                <i class="fa {{ c.icon }} text-muted"></i>
+                <i class="{{ creative_icon_class(c.icon) }} {{ c.icon }} text-muted"></i>
                 <span class="flex-grow-1 min-w-0">
                   <span class="fw-semibold">{{ c.label }}</span>
                   <span class="small text-muted d-block">

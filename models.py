@@ -4907,6 +4907,12 @@ class BookingRequest(Base):
     # a esa persona le sale la tarea «notificar el rechazo»; al marcarlo, la petición se acaba.
     rejection_notified_at = Column(DateTime(timezone=True))
     rejection_notified_by_nick = Column(Text)
+    # ⚠️ ACEPTARLA TAMPOCO LA TERMINA: a partir de que se acepta (`accepted_at`), a quien la pidió le
+    # quedan tres cosas por hacer —confirmar al promotor, informar al artista y activar la
+    # producción—. Las dos últimas se miran en la propia actividad; la primera se apunta aquí.
+    accepted_at = Column(DateTime(timezone=True))
+    acceptance_notified_at = Column(DateTime(timezone=True))
+    acceptance_notified_by_nick = Column(Text)
     payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     received_at = Column(DateTime(timezone=True), server_default=func.now())
     created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
@@ -9340,6 +9346,11 @@ def ensure_activities_grouping_schema():
         # `BookingRequest.rejection_notified_at`): mientras no se marque, le queda la tarea.
         "ALTER TABLE booking_requests ADD COLUMN IF NOT EXISTS rejection_notified_at timestamptz;",
         "ALTER TABLE booking_requests ADD COLUMN IF NOT EXISTS rejection_notified_by_nick text;",
+        # Aceptarla tampoco la termina: desde `accepted_at`, a quien la pidió le quedan las tareas de
+        # confirmar al promotor, informar al artista y activar la producción.
+        "ALTER TABLE booking_requests ADD COLUMN IF NOT EXISTS accepted_at timestamptz;",
+        "ALTER TABLE booking_requests ADD COLUMN IF NOT EXISTS acceptance_notified_at timestamptz;",
+        "ALTER TABLE booking_requests ADD COLUMN IF NOT EXISTS acceptance_notified_by_nick text;",
     ]
     _exec_ddl_statements(stmts, "activities_grouping")
 

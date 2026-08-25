@@ -1428,6 +1428,42 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   quien puede entrar en ella.
   ⚠️ Lo que hay que HACER va primero en el módulo: comunicar un rechazo es una tarea, no seguimiento.
 
+- ⚠️⚠️ **ACEPTAR UNA PETICIÓN TAMPOCO LA TERMINA: vuelve como TAREA a quien la pidió** (ago 2026).
+  Cuando el departamento la acepta (p. ej. contratación acepta un **evento promocional**), a **quien
+  la pidió** le quedan **tres subtareas** y la petición le vuelve a su Inicio como tarea hasta que
+  estén las tres —misma regla que el rechazo: es la misma petición en otro momento de su vida, no
+  otro módulo—. Punto único **`_peticion_accept_tasks`**, que lo usan el módulo «Mis peticiones» y la
+  ficha de la petición, así que dicen exactamente lo mismo:
+  · **Confirmar al promotor** → `BookingRequest.acceptance_notified_at`, con sus dos botones:
+  **Confirmar** (`booking_request_acceptance_send`, que le escribe por su canal —correo o SMS— con
+  `_peticion_acceptance_email_html` y **solo si el aviso sale** marca la subtarea) y **«Ya se lo he
+  confirmado»** (`booking_request_acceptance_notified`). A quién: `_peticion_accept_contact` (quien
+  la pidió y, si su ficha no tiene contacto, el promotor de la actividad); sin correo ni teléfono
+  solo se ofrece marcarla.
+  · **Informar al artista** → el MISMO aviso de la actividad (`_concert_notice_state` +
+  `concert_artist_notice_view`), con sus mismas excepciones (un **EVENTO** no es de ningún artista y
+  el **histórico** no genera trabajo). No hay un segundo camino.
+  · **Activar producción** → que la actividad tenga responsable (`_concert_production_pending`, que
+  ya sabe a qué actividades les toca producción).
+  ⚠️ Cada subtarea se decide mirando el **estado de verdad**, no una marca aparte, así que
+  **desaparece sola** en cuanto se hace (la regla de `_notify_resolve`), y con la última la fila deja
+  de ser una tarea.
+  ⚠️ **`booking_request_approve` pone la actividad a nombre de QUIEN PIDIÓ**
+  (`Concert.created_by_user_id` = `r.created_by_user_id`), no de quien la aprueba: activar la
+  producción es tarea de quien crea la actividad, así que con eso le sale también en su módulo
+  «Activar la producción» de Inicio **sin ningún caso especial**.
+  ⚠️ **Corte automático con `BookingRequest.accepted_at`** (se sella al aceptar): las peticiones
+  aceptadas ANTES de que esto existiera no tienen esa fecha y **no reclaman nada** —el mismo criterio
+  que `PITCH_TASK_FROM`/`SALE_NOTICE_TASK_FROM`, pero sin fecha a mano—.
+  ⚠️ Una petición aceptada con tareas pendientes **NO se archiva por antigüedad**: se salta la
+  ventana de 120 días de «Mis peticiones» (una tarea no puede desaparecer en silencio).
+  ⚠️ Los dos endpoints nuevos van en **`REQUEST_ANY_ENDPOINTS`** (como los del rechazo): la tarea es
+  de quien pidió, que no tiene por qué llevar contratación, y cada uno comprueba dentro que la
+  petición es suya.
+  ⚠️ De momento vale para **cualquier** petición aceptada (el evento promocional es el caso que lo
+  motivó): las tres subtareas se calculan solas y las que no tocan no salen. Si algún día hay que
+  limitarlo a unos tipos, el sitio es `_peticion_accept_tasks`.
+
 - ⚠️ **AL EDITAR, una cosa NO se solapa consigo misma** (bug real, ago 2026): el aviso «ese día el
   artista ya tiene…» del asistente de peticiones saltaba con **la propia petición** que se estaba
   editando. `api_concert_artist_conflicts` aplicaba `exclude_id` **solo a los conciertos**; ahora hay

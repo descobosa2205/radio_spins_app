@@ -91,6 +91,42 @@
       <i class="fa fa-arrow-up-right-from-square me-1"></i>Ir a la actividad
     </a>
   </div>
+  {# ACEPTARLA NO LA TERMINA: lo que le queda por hacer a quien la pidió. Las MISMAS subtareas que
+     salen en su Inicio (punto único `_peticion_accept_tasks`); cada una desaparece al hacerse. #}
+  {% if accept_tasks %}
+  <div class="alert alert-warning">
+    <div class="d-flex align-items-center gap-2 mb-2">
+      <i class="fa fa-list-check"></i>
+      <strong>Falta por hacer</strong>
+      {% if row.created_by_nick %}<span class="text-muted small">· lo lleva {{ row.created_by_nick }}</span>{% endif %}
+    </div>
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      {% for t in accept_tasks %}
+        {% if t.key == 'promotor' %}
+          <span class="badge text-bg-warning text-dark"><i class="fa {{ t.icon }} me-1"></i>{{ t.label }}</span>
+          {% if t.contact %}<span class="badge text-bg-light border"><i class="fa fa-at me-1"></i>{{ t.contact }}</span>{% endif %}
+          {% if t.send_url %}
+          <form method="post" action="{{ t.send_url }}" class="d-inline">
+            <input type="hidden" name="next" value="{{ request.full_path }}">
+            <button class="btn btn-sm btn-warning"
+                    data-confirm="Se le va a confirmar a {{ t.who or 'quien la pidió' }} que la actividad sale adelante. ¿Seguir?">
+              <i class="fa fa-paper-plane me-1"></i>Confirmar
+            </button>
+          </form>
+          {% endif %}
+          <form method="post" action="{{ t.done_url }}" class="d-inline">
+            <input type="hidden" name="next" value="{{ request.full_path }}">
+            <button class="btn btn-sm btn-outline-warning"><i class="fa fa-check me-1"></i>Ya se lo he confirmado</button>
+          </form>
+        {% else %}
+          <a class="btn btn-sm btn-outline-warning" href="{{ t.url }}">
+            <i class="fa {{ t.icon }} me-1"></i>{{ t.label }}{% if t.note %} · {{ t.note }}{% endif %}
+          </a>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
 {% elif not is_open %}
   <div class="alert alert-secondary">
     <strong>Petición cerrada.</strong>

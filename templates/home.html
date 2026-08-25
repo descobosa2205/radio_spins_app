@@ -758,13 +758,16 @@ document.addEventListener('click', function (ev) {
    hay otro módulo. Al comunicarla se archiva y desaparece de la lista. #}
 {% if HOME_MY_PETICIONES %}
 {% set _pend = HOME_MY_PETICIONES|selectattr('rejection_pending')|list %}
-<div class="card mb-4{% if _pend %} border-warning{% endif %}">
+{% set _acc = HOME_MY_PETICIONES|selectattr('accept_pending')|list %}
+<div class="card mb-4{% if _pend or _acc %} border-warning{% endif %}">
   <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
     <span class="fw-semibold">
       <i class="fa fa-paper-plane text-danger me-2"></i>Mis peticiones
       <span class="badge text-bg-secondary ms-1">{{ HOME_MY_PETICIONES|length }}</span>
       {% if _pend %}<span class="badge text-bg-warning text-dark ms-1">
         <i class="fa fa-comment-slash me-1"></i>{{ _pend|length }} por comunicar</span>{% endif %}
+      {% if _acc %}<span class="badge text-bg-warning text-dark ms-1">
+        <i class="fa fa-list-check me-1"></i>{{ _acc|length }} aceptada{{ '' if _acc|length == 1 else 's' }} con tareas</span>{% endif %}
     </span>
     <span class="text-muted small">Las que has hecho tú y cómo van.</span>
   </div>
@@ -816,7 +819,40 @@ document.addEventListener('click', function (ev) {
           </span>
         </div>
         <div class="ctask__tasks">
-          {% if p.rejection_pending %}
+          {% if p.accept_pending %}
+            {# ACEPTADA: lo que le queda por hacer a quien la pidió. Cada subtarea desaparece sola
+               en cuanto se hace, y con ella la fila deja de ser una tarea. #}
+            <span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Aceptada</span>
+            {% for t in p.accept_tasks %}
+              {% if t.key == 'promotor' %}
+                <span class="badge text-bg-warning text-dark"><i class="fa {{ t.icon }} me-1"></i>{{ t.label }}</span>
+                {% if t.contact %}<span class="badge text-bg-light border"><i class="fa fa-at me-1"></i>{{ t.contact }}</span>{% endif %}
+                <span class="ctask__actions d-inline-flex gap-2 ms-1">
+                  {% if t.send_url %}
+                  <form method="post" action="{{ t.send_url }}" class="d-inline">
+                    <input type="hidden" name="next" value="{{ request.full_path }}">
+                    <button class="btn btn-sm btn-warning"
+                            data-confirm="Se le va a confirmar a {{ t.who or 'quien la pidió' }} que la actividad sale adelante. ¿Seguir?">
+                      <i class="fa fa-paper-plane me-1"></i>Confirmar
+                    </button>
+                  </form>
+                  {% endif %}
+                  <form method="post" action="{{ t.done_url }}" class="d-inline">
+                    <input type="hidden" name="next" value="{{ request.full_path }}">
+                    <button class="btn btn-sm btn-outline-warning"><i class="fa fa-check me-1"></i>Ya se lo he confirmado</button>
+                  </form>
+                </span>
+              {% else %}
+                <a class="badge text-bg-warning text-dark text-decoration-none ctask__actions" href="{{ t.url }}">
+                  <i class="fa {{ t.icon }} me-1"></i>{{ t.label }}{% if t.note %} · {{ t.note }}{% endif %}
+                </a>
+              {% endif %}
+            {% endfor %}
+            {% if p.activity_url %}
+              <a class="badge text-bg-light border text-decoration-none ctask__actions" href="{{ p.activity_url }}">
+                <i class="fa fa-arrow-up-right-from-square me-1"></i>Ir a la actividad</a>
+            {% endif %}
+          {% elif p.rejection_pending %}
             <span class="badge text-bg-warning text-dark">
               <i class="fa fa-comment-slash me-1"></i>Pendiente de comunicar el rechazo</span>
             {% if p.reason %}<span class="badge text-bg-light border text-truncate" style="max-width:420px"

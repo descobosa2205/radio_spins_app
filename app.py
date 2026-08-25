@@ -29972,6 +29972,8 @@ def _booking_request_detail(session_db, r) -> dict:
         # Cerrada y todavía sin comunicar a quien la pidió: la petición no está terminada.
         "rejection_pending": bool((r.status or "").upper() == "DESCARTADA"
                                   and not r.rejection_notified_at),
+        # Aceptada y con cosas por hacer: las MISMAS subtareas que en Inicio (punto único).
+        "accept_tasks": _peticion_accept_tasks(session_db, r),
         # Lo que necesita el asistente para EDITARLA desde los tres puntitos de la ficha.
         "edit_payload": _peticion_edit_payload(session_db, r),
         "artist": r.artist,
@@ -30198,6 +30200,245 @@ def booking_request_rejection_send(rid):
     return redirect(next_url)
 
 
+# ================= ACEPTAR UNA PETICIÓN TAMPOCO LA TERMINA =========================================
+# ⚠️ Cuando el departamento ACEPTA una petición (p. ej. contratación acepta un evento promocional),
+# a QUIEN LA PIDIÓ le quedan tres cosas por hacer, así que la petición vuelve a su Inicio como TAREA
+# PENDIENTE con esas tres subtareas hasta que estén las tres. Es la misma regla del rechazo: es la
+# misma petición en otro momento de su vida, no otro módulo.
+PETICION_ACCEPT_TASKS = (
+    ("promotor", "Confirmar al promotor", "fa-handshake"),
+    ("artista", "Informar al artista", "fa-comment-dots"),
+    ("produccion", "Activar producción", "fa-user-gear"),
+)
+
+
+def _peticion_accept_contact(session_db, r, concert=None) -> dict:
+    """A QUIÉN se le confirma que la actividad sale adelante: quien la pidió (que en un evento
+    promocional es el propio promotor), con su correo o su teléfono; si su ficha no los tiene, los
+    del promotor de la actividad."""
+    chip = _peticion_requester_chip(session_db, r) or {}
+    nombre = (chip.get("name") or r.contact_name or "").strip()
+    correo = (r.contact_email or "").strip()
+    telefono = (r.contact_phone or "").strip()
+    for pk in (r.promoter_id, getattr(concert, "promoter_id", None)):
+        if correo and telefono:
+            break
+        if not pk:
+            continue
+        p = session_db.get(Promoter, pk)
+        if p is None:
+            continue
+        correo = correo or (getattr(p, "email", "") or "").strip()
+        telefono = telefono or (getattr(p, "phone", "") or "").strip()
+        nombre = nombre or (getattr(p, "name", "") or getattr(p, "nick", "") or "").strip()
+    return {"name": nombre, "email": correo, "phone": telefono,
+            "logo_url": (chip.get("logo_url") or ""), "icon": (chip.get("icon") or "fa-user"),
+            "contact": " · ".join([x for x in [correo, telefono] if x])}
+
+
+def _peticion_accept_tasks(session_db, r, concert=None) -> list[dict]:
+    """LO QUE FALTA por hacer en una petición ya aceptada, para quien la pidió. Punto ÚNICO: lo usan
+    el módulo «Mis peticiones» de Inicio y la ficha de la petición, así que dicen lo mismo.
+
+    Cada subtarea se decide mirando el estado DE VERDAD, no una marca aparte, así que **desaparece
+    sola** en cuanto se hace:
+      · Confirmar al promotor → `acceptance_notified_at` (se apunta al comunicárselo).
+      · Informar al artista   → el aviso de la actividad (`_concert_notice_state`), con sus mismas
+        excepciones: un EVENTO no es de ningún artista y el histórico no genera trabajo.
+      · Activar producción    → que la actividad tenga responsable (`_concert_production_pending`,
+        que ya sabe a qué actividades les toca producción).
+
+    ⚠️ Solo las peticiones aceptadas DESDE que esto existe (`accepted_at`) generan tarea: las de
+    antes no van a reclamar hoy un trabajo que se hizo en su día."""
+    if r is None or not getattr(r, "accepted_at", None):
+        return []
+    if (r.status or "").upper() != "CONVERTIDA":
+        return []
+    if concert is None and r.concert_id:
+        concert = session_db.get(Concert, r.concert_id)
+    etiquetas = {k: (lbl, ico) for k, lbl, ico in PETICION_ACCEPT_TASKS}
+    filas = []
+
+    def añade(key, **extra):
+        lbl, ico = etiquetas[key]
+        filas.append(dict({"key": key, "label": lbl, "icon": ico}, **extra))
+
+    # 1) CONFIRMAR AL PROMOTOR: quien lo pidió tiene que saber que sale adelante.
+    if not getattr(r, "acceptance_notified_at", None):
+        quien = _peticion_accept_contact(session_db, r, concert)
+        añade("promotor", who=quien.get("name") or "", contact=quien.get("contact") or "",
+              send_url=(url_for("booking_request_acceptance_send", rid=str(r.id))
+                        if (quien.get("email") or quien.get("phone")) else ""),
+              done_url=url_for("booking_request_acceptance_notified", rid=str(r.id)))
+    if concert is None:
+        return filas
+    # 2) INFORMAR AL ARTISTA: el MISMO aviso de la actividad (no hay un segundo camino).
+    try:
+        toca_artista = bool(getattr(concert, "artist_id", None)
+                            and not getattr(concert, "event_id", None)
+                            and not _concert_is_legacy(concert))
+    except Exception:
+        toca_artista = False
+    if toca_artista:
+        try:
+            avisado = _concert_notice_state(session_db, concert)
+        except Exception:
+            app.logger.exception("[peticiones] no se pudo mirar el aviso al artista")
+            avisado = {"notified": True}
+        if not avisado.get("notified"):
+            añade("artista", url=url_for("concert_artist_notice_view", cid=concert.id),
+                  note=("hay cambios desde el último aviso" if avisado.get("stale") else ""))
+    # 3) ACTIVAR LA PRODUCCIÓN: decir QUIÉN de producción se encarga.
+    try:
+        falta_produccion = _concert_production_pending(concert)
+    except Exception:
+        app.logger.exception("[peticiones] no se pudo mirar la producción")
+        falta_produccion = False
+    if falta_produccion:
+        añade("produccion", url=url_for("concert_detail_view", cid=concert.id))
+    return filas
+
+
+def _peticion_acceptance_email_html(session_db, r, chip: dict | None = None, concert=None) -> str:
+    """El correo con el que se le CONFIRMA a quien pidió algo que sale adelante.
+
+    Estilo de la casa: el logo arriba a la DERECHA, el título centrado y la cabecera de la actividad
+    tal como se ve en su ficha (`_contract_sheet_hero_rows`), que es lo que hay que confirmarle.
+    ⚠️ Estilos EN LÍNEA: los clientes de correo se comen las hojas de estilo."""
+    def esc(v) -> str:
+        return str(escape("" if v is None else v))
+
+    pay = r.payload if isinstance(r.payload, dict) else {}
+    company = (getattr(concert, "billing_company", None) or getattr(concert, "group_company", None)) if concert is not None else None
+    logo = ((getattr(company, "logo_url", "") or "").strip()
+            or _treinta_y_tres_logo_url(session_db)
+            or _external_url_for("static", filename="img/logo_33_producciones.png"))
+    art = (getattr(concert, "artist", None) if concert is not None else None) or \
+          (session_db.get(Artist, r.artist_id) if r.artist_id else None)
+    act = ((getattr(concert, "activity_type", None) or pay.get("activity_type") or "CONCIERTO")).strip().upper()
+    filas = [("Qué es", QUAD_ACTIVITY_LABELS.get(act, "Actividad")),
+             ("Artista", (getattr(art, "name", "") or ""))]
+    if concert is not None:
+        filas += [(lbl, val) for _ico, lbl, val in _contract_sheet_hero_rows(concert)]
+    else:
+        venue = session_db.get(Venue, r.venue_id) if r.venue_id else None
+        filas += [("Fecha", (r.requested_date.strftime("%d/%m/%Y") if r.requested_date else (r.date_text or ""))),
+                  ("Lugar", _place_label(r.municipality or "", r.province or "",
+                                         (pay.get("country") or ""), venue=(venue.name if venue else "")))]
+    datos = "".join(
+        '<tr><td style="padding:3px 10px 3px 0;color:#6b7280;font-size:13px;white-space:nowrap;">%s</td>'
+        '<td style="padding:3px 0;font-size:14px;">%s</td></tr>' % (esc(k), esc(v))
+        for k, v in filas if str(v or "").strip())
+    quien = ((chip or {}).get("name") or (r.contact_name or "")).strip()
+    partes = ['<div style="font-family:Arial,Helvetica,sans-serif;color:#212529;max-width:660px;margin:0 auto;">']
+    partes.append('<div style="text-align:right;margin-bottom:6px;">'
+                  '<img src="%s" alt="33 Producciones" style="max-height:54px;max-width:190px;"></div>' % esc(logo))
+    partes.append('<h2 style="text-align:center;font-size:22px;margin:0 0 14px;">Confirmación de la actividad</h2>')
+    partes.append('<div style="font-size:15px;line-height:1.7;margin:0 0 14px;">'
+                  + ("Hola %s:<br>" % esc(quien) if quien else "")
+                  + 'Gracias por contar con nosotros. Te confirmamos que '
+                    '<strong>la actividad sale adelante</strong>.</div>')
+    if datos:
+        partes.append('<table style="border-collapse:collapse;margin:0 0 14px;">%s</table>' % datos)
+    if (r.notes or "").strip():
+        partes.append('<div style="margin:0 0 14px;padding:12px 14px;border-radius:12px;background:#f8fafc;'
+                      'border:1px solid #e6e8eb;font-size:14px;line-height:1.7;color:#374151;'
+                      'white-space:pre-line;">' + esc((r.notes or "").strip()) + '</div>')
+    partes.append('<div style="font-size:15px;line-height:1.7;margin:0 0 14px;">'
+                  'Te iremos contando los detalles. Cualquier cosa, nos dices.</div>')
+    partes.append('<div style="color:#6b7280;font-size:13px;">33 Producciones</div></div>')
+    return "".join(partes)
+
+
+def _peticion_accept_owner_or_403(session_db, r):
+    """La tarea es de QUIEN PIDIÓ la petición (o de dirección). Devuelve el estado si puede."""
+    estado = _current_user_state() or {}
+    propia = str(r.created_by_user_id or "") == str(estado.get("user_id") or "")
+    if not (propia or is_master()):
+        return None
+    return estado
+
+
+@app.post("/peticiones/<rid>/confirmar-promotor", endpoint="booking_request_acceptance_send")
+@admin_required
+def booking_request_acceptance_send(rid):
+    """CONFIRMA al promotor (por su canal: correo o SMS) que la actividad sale adelante, y da la
+    subtarea por hecha. Comunicar y marcar son la misma cosa vista de dos formas: si el aviso sale,
+    la subtarea desaparece."""
+    session_db = db()
+    next_url = safe_next_or(url_for("home"))
+    try:
+        r = session_db.get(BookingRequest, to_uuid(rid))
+        if not r:
+            abort(404)
+        estado = _peticion_accept_owner_or_403(session_db, r)
+        if estado is None:
+            flash("Esa petición no la has hecho tú.", "danger")
+            return redirect(url_for("home"))
+        concert = session_db.get(Concert, r.concert_id) if r.concert_id else None
+        quien = _peticion_accept_contact(session_db, r, concert)
+        if not quien.get("email") and not quien.get("phone"):
+            flash("No hay correo ni teléfono de quien la pidió: confírmaselo tú y marca la tarea.",
+                  "warning")
+            return redirect(next_url)
+        fila = (_notify_apply_prefs(session_db, [{
+            "name": quien.get("name") or "", "email": quien.get("email") or "",
+            "phone": quien.get("phone") or "",
+        }]) or [{}])[0]
+        asunto = "Confirmada · %s" % (r.subject or "Tu petición")
+        html_cuerpo = _peticion_acceptance_email_html(session_db, r, quien, concert)
+        fecha = ((concert.date.strftime("%d/%m/%Y") if getattr(concert, "date", None) else "")
+                 or (r.requested_date.strftime("%d/%m/%Y") if r.requested_date else ""))
+        sms = "%s: confirmado, sale adelante%s." % ((r.subject or "Tu petición"),
+                                                    (" (%s)" % fecha if fecha else ""))
+        ok, err = _notify_send_row(session_db, fila, subject=asunto, html=html_cuerpo,
+                                   sms_text=sms, kind="PETICION")
+        if not ok:
+            flash("No se pudo confirmar: %s" % (err or "el aviso no salió"), "danger")
+            return redirect(next_url)
+        r.acceptance_notified_at = _now_madrid()
+        r.acceptance_notified_by_nick = estado.get("nick") or estado.get("email") or ""
+        _notify_resolve(session_db, "peticion_aceptada", str(r.id))
+        session_db.commit()
+        flash("Confirmado por %s." % (
+            "SMS" if (fila.get("channel") or "EMAIL") == "SMS" else "correo"), "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[peticiones] no se pudo confirmar al promotor")
+        flash(f"No se pudo confirmar: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.post("/peticiones/<rid>/promotor-confirmado", endpoint="booking_request_acceptance_notified")
+@admin_required
+def booking_request_acceptance_notified(rid):
+    """«Ya se lo he confirmado»: la subtarea de avisar al promotor queda hecha (se le habrá dicho por
+    teléfono). Lo marca QUIEN LA PIDIÓ o dirección."""
+    session_db = db()
+    next_url = safe_next_or(url_for("home"))
+    try:
+        r = session_db.get(BookingRequest, to_uuid(rid))
+        if not r:
+            abort(404)
+        estado = _peticion_accept_owner_or_403(session_db, r)
+        if estado is None:
+            flash("Esa petición no la has hecho tú.", "danger")
+            return redirect(url_for("home"))
+        r.acceptance_notified_at = _now_madrid()
+        r.acceptance_notified_by_nick = estado.get("nick") or estado.get("email") or ""
+        _notify_resolve(session_db, "peticion_aceptada", str(r.id))
+        session_db.commit()
+        flash("Anotado: el promotor ya está confirmado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo marcar: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
 @app.post("/peticiones/<rid>/aprobar", endpoint="booking_request_approve")
 @admin_required
 def booking_request_approve(rid):
@@ -30243,13 +30484,30 @@ def booking_request_approve(rid):
             status="BORRADOR",
             festival_name=(r.subject if activity_type == "FESTIVAL" else None),
         )
+        # ⚠️ La actividad queda a nombre de QUIEN PIDIÓ la petición, no de quien la aprueba: activar
+        # la producción es tarea de quien la crea, y aquí quien la ha traído es el peticionario (así
+        # le sale también en su módulo «Activar la producción» de Inicio, sin ningún caso especial).
+        st = _current_user_state()
+        c.created_by_user_id = (r.created_by_user_id
+                                or (to_uuid(st.get("user_id")) if st.get("user_id") else None))
+        c.created_by_nick = (r.created_by_nick or st.get("nick") or st.get("email") or "")
         s.add(c)
         s.flush()
         r.concert_id = c.id
         r.status = "CONVERTIDA"
-        st = _current_user_state()
+        r.accepted_at = _now_madrid()
         r.reviewed_by_user_id = to_uuid(st.get("user_id")) if st.get("user_id") else None
         r.reviewed_by_nick = st.get("nick") or st.get("email") or ""
+        # ⚠️ Aceptarla NO la termina: a quien la pidió le quedan tres cosas (confirmar al promotor,
+        # informar al artista y activar la producción), así que se le avisa y la petición le vuelve
+        # como TAREA a su Inicio hasta que estén las tres.
+        if r.created_by_user_id:
+            _notify_user(s, r.created_by_user_id, "TAREA",
+                         "Tu petición sale adelante",
+                         "«%s» se ha aceptado: confirma al promotor, informa al artista y activa la "
+                         "producción." % (r.subject or "Petición"),
+                         url_for("booking_request_detail_view", rid=str(r.id)),
+                         ref_type="peticion_aceptada", ref_id=str(r.id))
         s.commit()
         flash("Petición aprobada: se ha creado el borrador de la actividad. Complétalo aquí.", "success")
         return redirect(url_for("concert_detail_view", cid=c.id))
@@ -30565,7 +30823,10 @@ def _home_my_peticiones(limit: int = 12) -> list[dict]:
             # RECHAZADA y ya comunicada = archivada: la tarea está hecha y deja de estar aquí.
             if est == "DESCARTADA" and r.rejection_notified_at:
                 continue
-            if est in ("CONVERTIDA", "DESCARTADA"):
+            # ACEPTADA: lo que le queda por hacer a quien la pidió (confirmar al promotor,
+            # informar al artista, activar la producción). Mientras quede algo, es una TAREA.
+            tareas = _peticion_accept_tasks(s, r) if est == "CONVERTIDA" else []
+            if est in ("CONVERTIDA", "DESCARTADA") and not tareas:
                 creada = r.created_at
                 if creada is not None and creada.tzinfo is None:
                     creada = creada.replace(tzinfo=TZ_MADRID)
@@ -30584,6 +30845,11 @@ def _home_my_peticiones(limit: int = 12) -> list[dict]:
                 "place": lugar,
                 # Pendiente de COMUNICAR el rechazo: se resuelve en esta misma fila.
                 "rejection_pending": pendiente,
+                # Subtareas de una petición ACEPTADA: se resuelven en esta misma fila.
+                "accept_tasks": tareas,
+                "accept_pending": bool(tareas),
+                "activity_url": (url_for("concert_detail_view", cid=str(r.concert_id))
+                                 if r.concert_id else ""),
                 "reason": (r.rejection_reason or ""),
                 "send_url": (url_for("booking_request_rejection_send", rid=str(r.id))
                              if pendiente else ""),
@@ -30608,8 +30874,10 @@ def _home_my_peticiones(limit: int = 12) -> list[dict]:
             })
             if len(salida) >= limit:
                 break
-        # Lo que hay que HACER va primero: comunicar un rechazo es una tarea, no un seguimiento.
-        salida.sort(key=lambda f: 0 if f.get("rejection_pending") else 1)
+        # Lo que hay que HACER va primero: comunicar un rechazo —o cerrar lo que falta de una
+        # petición ya aceptada— es una tarea, no un seguimiento.
+        salida.sort(key=lambda f: 0 if f.get("rejection_pending")
+                    else (1 if f.get("accept_pending") else 2))
         return salida
     except Exception:
         app.logger.exception("[inicio] no se pudieron cargar mis peticiones")
@@ -55978,6 +56246,10 @@ REQUEST_ANY_ENDPOINTS = {
     # propia tarea desde Inicio. Los dos endpoints comprueban dentro que la petición es suya.
     "booking_request_rejection_send",
     "booking_request_rejection_notified",
+    # ⚠️ Y lo mismo con las subtareas de una petición ACEPTADA: confirmar al promotor es tarea de
+    # quien la pidió (los dos endpoints comprueban dentro que la petición es suya).
+    "booking_request_acceptance_send",
+    "booking_request_acceptance_notified",
 }
 
 

@@ -373,7 +373,8 @@
             <span class="small text-muted d-block text-truncate">
               {{ [m.kind_label, m.subtitle, m.date_label]|select|join(' · ') }}</span>
           </span>
-          {% if m.status %}<span class="badge {{ m.status_badge or 'text-bg-light border' }}">{{ m.status }}</span>{% endif %}
+          {# ⚠️ `status` de una campaña es el código en crudo (ACTIVE/ARCHIVED): se pinta legible. #}
+          {% if m.status %}<span class="badge {{ m.status_badge or 'text-bg-light border' }}">{{ 'Archivada' if m.status == 'ARCHIVED' else 'Activa' }}</span>{% endif %}
           {% if m.detail_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ m.detail_url }}"><i class="fa fa-arrow-right"></i></a>{% endif %}
         </div>
       {% else %}
@@ -392,7 +393,9 @@
           <span class="flex-grow-1 min-w-0">
             <span class="fw-semibold d-block text-truncate">{{ pr.title or 'Promoción' }}</span>
             <span class="small text-muted d-block text-truncate">
-              {{ [pr.kind_label, pr.subtitle, (pr.date.strftime('%d/%m/%Y') if pr.date else '')]|select|join(' · ') }}</span>
+              {# `period_label` dice la franja entera de un plan («12/09/2026 – 20/09/2026»); la
+                 fecha suelta se quedaba con el primer día. #}
+              {{ [pr.kind_label, pr.subtitle, pr.period_label]|select|join(' · ') }}</span>
           </span>
           {% if pr.status_label %}<span class="badge {{ pr.status_badge or 'text-bg-light border' }}">{{ pr.status_label }}</span>{% endif %}
           {% if pr.detail_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ pr.detail_url }}"><i class="fa fa-arrow-right"></i></a>{% endif %}

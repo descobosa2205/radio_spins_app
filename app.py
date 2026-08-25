@@ -88593,6 +88593,9 @@ NOTIFICATION_KIND_META = {
     # REGISTROS para que la campanita diga de qué es: son dos trabajos distintos.
     "FECHA_LANZAMIENTO": ("Fecha de lanzamiento por confirmar", "fa-calendar-check"),
     "AGENDA": ("Cambio en la agenda", "fa-calendar-day"),
+    # Lo que llega de un PROYECTO discográfico por sus enlaces públicos (la portada entregada, la idea
+    # del artista, su visto bueno, las creatividades, los IDs de plataforma).
+    "DISCOGRAFICA": ("Novedad en un proyecto discográfico", "fa-compact-disc"),
 }
 
 

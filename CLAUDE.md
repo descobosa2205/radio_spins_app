@@ -957,6 +957,37 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   **copian con un clic**— y a la derecha el calendario; cada contenido se abre a tamaño y se descarga.
   Siempre **al día**: se pinta con lo que hay en ese momento.
 
+- ⚠️⚠️ **PROYECTOS · las siete trampas que sacó la revisión** (ago 2026). Ninguna daba error: todas
+  hacían que algo **no llegara** o **no se viera**, que es peor.
+  · **`Promoter` NO tiene `.email` ni `.phone`**: son **`contact_email`** y **`contact_phone`**. Con
+  los nombres de más («email», «phone») `getattr` devuelve vacío y el correo **no sale y no falla**
+  — al productor y al tercero de la portada no les llegaba nada. Punto único
+  **`_promoter_email_phone(promoter)`**, que hay que usar SIEMPRE que se saque el contacto de un
+  tercero.
+  · **`_song_interpreter_rows_map` devuelve OBJETOS del ORM, no diccionarios**: un `.get("...")`
+  sobre ellos revienta (y dentro de un `try` se traga la lista entera), así que los **colaboradores**
+  no entraban ni en la aprobación de la portada ni en los recordatorios.
+  · **Un calendario con `kinds: []` no pinta NADA**: `agenda_calendar.js` filtra por esa lista, así
+  que el cronograma salía vacío. Los tipos que se usen van en el payload **y** en
+  `AGENDA_KIND_META`/`AGENDA_KIND_ORDER` (de ahí salió el tipo **`contenido`**).
+  · **Una página pública standalone tiene que cargar su JS**: sin
+  `<script src=".../js/agenda_calendar.js">` el cronograma se queda en «Cargando agenda…» (el parcial
+  solo deja el JSON en el HTML).
+  · **`move_url` fuera de la app**: en la página pública se quita, o el contenido sale arrastrable y
+  el arrastre siempre falla (ahí no hay sesión).
+  · **Los avisos van a QUIEN PUEDE ABRIRLOS**: los de las entregas públicas enlazan a la ficha del
+  proyecto (`discografica.proyectos`), así que van a **`_disco_project_owner_ids`** (quien lo creó +
+  quien del sello lleva a ese artista) y no a Registros a secas, que se comía un 403 en su propio
+  aviso. Por lo mismo, `registros_release_dates_view`/`_confirm` aceptan **la primera clave** que
+  tenga el usuario.
+  · **Los iconos de MARCA no se pintan con `fa`**: `fa-youtube`, `fa-spotify`… viven en `fa-brands` y
+  con la familia SOLID salen **vacíos** (punto único `_disco_creative_icon_class`); al revés también
+  pasa —`fa-globe` y `fa-link` no son de marca—.
+  · Y lo de siempre: una fila que se edita o se borra **por id** tiene que comprobar que es **de ese
+  proyecto** (`_disco_plan_row_or_none`), un `%` dentro de un `style=` de un correo compuesto con `%`
+  se escribe `%%` **solo si la cadena se formatea**, y desmarcar TODAS las publicaciones tiene que
+  poder dejarlas todas apagadas (una lista vacía no es «no me han dicho nada»).
+
 - **DISCOGRÁFICA · DEMOS** (ago 2026): las maquetas que se están valorando, en su propia sección
   (`/discografica?section=demos`). Modelo **`SongDemo`** (`ensure_song_demos_schema`).
   · Una demo viene **de un artista NUESTRO** (`origin='ARTIST'` + `artist_id`) o **DE FUERA**

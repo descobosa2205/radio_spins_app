@@ -468,6 +468,8 @@ _CSRF_EXEMPT_ENDPOINTS = {
     # Las páginas públicas de la PORTADA de un proyecto (subirla, la idea del artista y su
     # aprobación): las abre gente de fuera con su token, sin sesión.
     "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval",
+    # Subir las creatividades (diseño) y los IDs de plataforma (el artista).
+    "public_disco_creatives", "public_song_platform_ids",
     "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash",
     "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource",
     "public_caldav_rootdiscovery",
@@ -826,7 +828,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval"}
+    allowed = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "landing", "admin_login", "cron_unassigned_expenses", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "concert_contract_public_form", "public_contract_sheet_company", "concert_artwork_public_upload", "concert_artwork_public_submit", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_album_material_download", "public_material_view", "public_material_og_image", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_creatives", "public_song_platform_ids"}
     if request.endpoint in allowed:
         return
 
@@ -17574,6 +17576,10 @@ def discografica_song_detail(song_id):
         # La MAQUETA del proyecto que creó esta canción: se ve aquí **mientras no haya másters** y en
         # cuanto se suben desaparece de los materiales y se queda en Demos.
         project_demos=[_demo_row_payload(session_db, d) for d in _song_project_demos(session_db, s.id)],
+        # IDs de plataforma (módulo nuevo de los materiales): lo subido, lo que no hace falta y lo
+        # que se le ha pedido al artista.
+        platform_ids=_song_platform_ids(session_db, s.id),
+        platform_id_catalog=SONG_PLATFORM_ID_CATALOG,
         isrc_audio=isrc_audio,
         isrc_video=isrc_video,
         videoclip_director=videoclip_director,
@@ -20217,6 +20223,10 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
         fila.update(extra)
         tareas.append(fila)
 
+    # El LANZAMIENTO en repertorio (su ficha es donde se suben los materiales): lo usan ya las
+    # tareas de audio, así que se resuelve aquí arriba.
+    release = release if release is not None else _disco_project_release(session_db, project)
+
     # ================= AUDIO · paso 1: la FECHA la confirma REGISTROS =================
     lleva_audio = _disco_project_has_audio(project)
     fechas = _disco_date_state(session_db, project) if lleva_audio else {}
@@ -20396,6 +20406,48 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                                   menu=[{"label": "Volver a pedirla", "icon": "fa-rotate",
                                          "modal": "#dpArtworkApprovalModal"}])
 
+    # ================= AUDIO · paso 5: OTRAS CREATIVIDADES =================
+    if lleva_audio:
+        cre = _disco_creatives_state(session_db, project)
+        if cre["all_delivered"]:
+            tarea("creatividades", "Otras creatividades", "", "fa-shapes", state="done",
+                  value="%d pieza(s) entregadas" % cre["delivered"],
+                  menu=[{"label": "Pedir más", "icon": "fa-plus", "modal": "#dpCreativesModal"}])
+        elif cre["requested"]:
+            tarea("creatividades", "Otras creatividades", "", "fa-hourglass-half", grupo="single",
+                  state="wait",
+                  hint="Pedidas %d · entregadas %d%s" % (cre["requested"], cre["delivered"],
+                                                         (" · entrega antes del %s" % cre["due_label"])
+                                                         if cre["due_label"] else ""),
+                  menu=[{"label": "Añadir o cambiar piezas", "icon": "fa-pen",
+                         "modal": "#dpCreativesModal"},
+                        {"label": "Volver a solicitarlas", "icon": "fa-rotate",
+                         "modal": "#dpCreativesRequestModal"}])
+        elif cre["count"]:
+            tarea("creatividades", "Otras creatividades", "", "fa-shapes", grupo="single",
+                  hint="%d pieza(s) elegidas · falta mandarlas a diseño" % cre["count"],
+                  action_label="Solicitar a diseño", modal="#dpCreativesRequestModal",
+                  menu=[{"label": "Cambiar las piezas", "icon": "fa-pen", "modal": "#dpCreativesModal"}])
+        else:
+            tarea("creatividades", "Otras creatividades", "", "fa-shapes", grupo="single",
+                  hint="Cabecera de YouTube, canvas, «ya disponible», anuncios…",
+                  action_label="Elegir creatividades", modal="#dpCreativesModal")
+
+    # ================= AUDIO · paso 6: los IDs de plataforma =================
+    if lleva_audio:
+        ids = _disco_project_ids_state(session_db, project)
+        if ids["has_songs"]:
+            if ids["all_done"]:
+                tarea("ids", "IDs", "", "fa-fingerprint", state="done",
+                      value="Todos los IDs resueltos")
+            else:
+                destino_ids = (ids["songs"][0]["url"] if len(ids["songs"]) == 1
+                               else (release.get("url") if release else url_mat))
+                tarea("ids", "IDs", destino_ids, "fa-fingerprint", grupo="single",
+                      action_label="Gestionar IDs",
+                      hint=("Faltan en %d tema(s) · se suben o se le piden al artista"
+                            % ids["missing"]))
+
     # ================= AUDIO · la MAQUETA del proyecto =================
     if lleva_audio:
         demo = _disco_project_demo(session_db, project)
@@ -20432,7 +20484,6 @@ def _disco_project_tasks(session_db, project, *, bag=None, release=None) -> list
                   grupo="single")
     # MATERIALES: se suben en el REPERTORIO (la ficha de la canción o del álbum), no aquí. La tarea
     # dice lo que falta y lleva a esa ficha.
-    release = release if release is not None else _disco_project_release(session_db, project)
     if not release:
         tarea("repertorio", "Este proyecto no tiene su lanzamiento en el repertorio", url_info,
               "fa-compact-disc", True)
@@ -21204,6 +21255,8 @@ def disco_project_detail(project_id):
                           "task_groups", "date_state", "production", "materials_recipients",
                           "promoters", "production_people", "has_audio", "artwork",
                           "artwork_candidates", "artist_photos", "demo_artists", "project_demo",
+                          "creatives", "creative_catalog", "creative_formats", "creative_media",
+                          "project_ids",
                           "agenda_data", "release", "release_songs"):
                 bag_ctx.pop(clave, None)
         return render_template(
@@ -21231,6 +21284,11 @@ def disco_project_detail(project_id):
             artist_photos=fotos_artista,
             artwork_who=DISCO_ARTWORK_WHO,
             artwork_photo_modes=DISCO_ARTWORK_PHOTO_MODES,
+            creatives=(_disco_creatives_state(session_db, project) if tab == "calendario" else None),
+            creative_catalog=DISCO_CREATIVE_CATALOG,
+            creative_formats=DISCO_CREATIVE_FORMATS,
+            creative_media=DISCO_CREATIVE_MEDIA,
+            project_ids=(_disco_project_ids_state(session_db, project) if tab == "calendario" else None),
             artwork_cost_modes=DISCO_ARTWORK_COST_MODES,
             # El pop-up de «Subir demo» usa el MISMO formulario que la sección Demos.
             demo_artists=(session_db.query(Artist).filter(Artist.event_id.is_(None))
@@ -22754,6 +22812,622 @@ def public_disco_artwork_approval(token):
                                    project=project, approver=ap, saved=True)
         return render_template("public_disco_artwork.html", mode="approval", ctx=ctx, row=fila,
                                project=project, approver=ap, saved=False)
+    finally:
+        session_db.close()
+
+
+# =========================================================
+# OTRAS CREATIVIDADES de un proyecto (el encargo a DISEÑO)
+# ---------------------------------------------------------
+# Se marcan las que hacen falta (con su icono y su tamaño, para que se entienda de un vistazo) y se
+# pueden añadir otras a mano. Después se manda el encargo a diseño con su FECHA MÁXIMA, que
+# ⚠️ **nunca** puede ser posterior a dos días antes del lanzamiento.
+# =========================================================
+DISCO_CREATIVE_FORMATS = (
+    ("POST", "Post", "fa-square", "1080 × 1080"),
+    ("HISTORIA", "Historia", "fa-mobile-screen", "1080 × 1920"),
+    ("HORIZONTAL", "Publicación horizontal", "fa-image", "1920 × 1080"),
+    ("BANNER", "Banner", "fa-panorama", "1500 × 500"),
+)
+DISCO_CREATIVE_FORMAT_LABELS = {k: l for k, l, _i, _s in DISCO_CREATIVE_FORMATS}
+# clave · etiqueta · icono · medio · tamaño · ¿se eligen formatos?
+DISCO_CREATIVE_CATALOG = (
+    ("YT_HEADER", "Cabecera de YouTube", "fa-youtube", "IMAGE", "2560 × 1440", False),
+    ("ARTIST_PIC", "Imagen de perfil del artista", "fa-circle-user", "IMAGE", "1000 × 1000", False),
+    ("CANVAS", "Canvas", "fa-mobile-screen-button", "VIDEO", "1080 × 1920 · 3-8 s", False),
+    ("YA_DISPONIBLE", "Ya disponible", "fa-bullhorn", "IMAGE", "según formato", True),
+    ("ANUNCIO_FECHA", "Anuncio con fecha", "fa-calendar-day", "IMAGE", "según formato", True),
+    ("ANUNCIO_PROX", "Anuncio Próximamente", "fa-hourglass-half", "IMAGE", "según formato", True),
+)
+DISCO_CREATIVE_LABELS = {k: l for k, l, _i, _m, _s, _f in DISCO_CREATIVE_CATALOG}
+DISCO_CREATIVE_MEDIA = (("IMAGE", "Imagen", "fa-image"), ("VIDEO", "Vídeo", "fa-film"),
+                        ("AUDIO", "Audio", "fa-music"))
+# ⚠️ La fecha máxima de entrega de las creatividades no puede ser más tarde de DOS DÍAS antes del
+# lanzamiento (si no, no hay margen para publicar nada).
+DISCO_CREATIVE_DEADLINE_MARGIN_DAYS = 2
+
+
+def _disco_creatives(session_db, project) -> list:
+    """Las creatividades pedidas de este proyecto, en orden."""
+    if project is None:
+        return []
+    return (session_db.query(DiscoProjectCreative)
+            .filter(DiscoProjectCreative.project_id == project.id)
+            .order_by(DiscoProjectCreative.position.asc(),
+                      DiscoProjectCreative.created_at.asc()).all())
+
+
+def _disco_creatives_state(session_db, project) -> dict:
+    """En qué punto están las creatividades: elegidas, pedidas y entregadas."""
+    filas = _disco_creatives(session_db, project)
+    pedidas = [f for f in filas if (f.status or "").upper() in ("SOLICITADA", "ENTREGADA")]
+    entregadas = [f for f in filas if (f.status or "").upper() == "ENTREGADA"]
+    peticion = (session_db.query(DiscoProjectDesignRequest)
+                .filter(DiscoProjectDesignRequest.project_id == project.id)
+                .order_by(DiscoProjectDesignRequest.requested_at.desc()).first()
+                if project is not None else None)
+    tope = None
+    if getattr(project, "release_date", None):
+        tope = project.release_date - timedelta(days=DISCO_CREATIVE_DEADLINE_MARGIN_DAYS)
+    return {
+        "rows": [{"id": str(f.id), "kind": (f.kind or ""), "label": (f.label or DISCO_CREATIVE_LABELS.get(f.kind or "", "Creatividad")),
+                  "formats": list(f.formats or []),
+                  "formats_label": " · ".join([DISCO_CREATIVE_FORMAT_LABELS.get(x, x)
+                                               for x in (f.formats or [])]),
+                  "media": (f.media or "IMAGE"), "size_text": (f.size_text or ""),
+                  "note": (f.note or ""), "custom": bool(f.custom),
+                  "status": (f.status or "PENDIENTE").upper(),
+                  "file_url": (f.file_url or ""), "file_name": (f.file_name or ""),
+                  "icon": dict((k, i) for k, _l, i, _m, _s, _f in DISCO_CREATIVE_CATALOG).get(f.kind or "", "fa-shapes")}
+                 for f in filas],
+        "count": len(filas),
+        "requested": len(pedidas),
+        "delivered": len(entregadas),
+        "all_delivered": bool(filas) and len(entregadas) == len(filas),
+        "request": peticion,
+        "due_date": (getattr(peticion, "due_date", None) if peticion is not None else None),
+        "due_label": (peticion.due_date.strftime("%d/%m/%Y")
+                      if (peticion is not None and peticion.due_date) else ""),
+        "upload_url": (_external_url_for("public_disco_creatives", token=peticion.token)
+                       if peticion is not None else ""),
+        "max_due": tope,
+        "max_due_label": (tope.strftime("%d/%m/%Y") if tope else ""),
+    }
+
+
+@app.post("/discografica/proyectos/<project_id>/creatividades", endpoint="disco_project_creatives_save")
+@admin_required
+def disco_project_creatives_save(project_id):
+    """Marca QUÉ creatividades hacen falta (las del catálogo y las de «Otra», a mano)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        f = request.form
+        elegidas = {x.strip().upper() for x in f.getlist("creative[]") if (x or "").strip()}
+        existentes = {(c.kind or ""): c for c in _disco_creatives(session_db, project) if not c.custom}
+        pos = 0
+        for clave, etiqueta, _icono, medio, tamaño, tiene_formatos in DISCO_CREATIVE_CATALOG:
+            fila = existentes.get(clave)
+            if clave not in elegidas:
+                # Se desmarca: solo se quita si NO se había pedido ya (lo pedido no se borra).
+                if fila is not None and (fila.status or "PENDIENTE").upper() == "PENDIENTE":
+                    session_db.delete(fila)
+                continue
+            formatos = [x.strip().upper() for x in f.getlist("formats_%s[]" % clave)
+                        if (x or "").strip().upper() in DISCO_CREATIVE_FORMAT_LABELS] if tiene_formatos else []
+            if fila is None:
+                fila = DiscoProjectCreative(project_id=project.id, kind=clave, label=etiqueta,
+                                            media=medio, size_text=tamaño, custom=False,
+                                            status="PENDIENTE")
+                session_db.add(fila)
+            fila.formats = formatos
+            fila.note = (f.get("note_%s" % clave) or "").strip() or None
+            fila.position = pos
+            pos += 1
+        # Las de «Otra»: se añaden tal cual (pueden ser varias).
+        for i, nombre in enumerate(f.getlist("other_label[]")):
+            nombre = (nombre or "").strip()
+            if not nombre:
+                continue
+            medio = (f.getlist("other_media[]")[i] if i < len(f.getlist("other_media[]")) else "IMAGE")
+            tamaño = (f.getlist("other_size[]")[i] if i < len(f.getlist("other_size[]")) else "")
+            nota = (f.getlist("other_note[]")[i] if i < len(f.getlist("other_note[]")) else "")
+            session_db.add(DiscoProjectCreative(
+                project_id=project.id, kind="OTRA", label=nombre[:200], custom=True,
+                media=(medio if medio in dict((k, 1) for k, _l, _i in DISCO_CREATIVE_MEDIA) else "IMAGE"),
+                size_text=(tamaño or "").strip() or None, note=(nota or "").strip() or None,
+                status="PENDIENTE", position=pos + i))
+        session_db.commit()
+        flash("Creatividades guardadas.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[creatividades] no se pudo guardar")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/proyectos/<project_id>/creatividades/eliminar/<creative_id>",
+          endpoint="disco_project_creative_delete")
+@admin_required
+def disco_project_creative_delete(project_id, creative_id):
+    """Quitar una creatividad de la lista."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    try:
+        fila = session_db.get(DiscoProjectCreative, to_uuid(creative_id))
+        if fila is not None and str(fila.project_id) == str(to_uuid(project_id)):
+            session_db.delete(fila)
+            session_db.commit()
+            flash("Creatividad quitada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash("No se pudo quitar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("disco_project_detail", project_id=project_id,
+                                         tab="calendario")))
+
+
+@app.post("/discografica/proyectos/<project_id>/creatividades/solicitar",
+          endpoint="disco_project_creatives_request")
+@admin_required
+def disco_project_creatives_request(project_id):
+    """Manda el ENCARGO de las creatividades a DISEÑO, con su fecha máxima de entrega.
+
+    ⚠️ La fecha máxima **no puede ser posterior a dos días antes del lanzamiento**: lo comprueba el
+    servidor (no solo la pantalla)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("disco_project_detail", project_id=project_id, tab="calendario")
+    try:
+        project = _disco_project_or_404(session_db, project_id)
+        if project is None:
+            flash("Proyecto no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="proyectos"))
+        filas = [c for c in _disco_creatives(session_db, project)
+                 if (c.status or "PENDIENTE").upper() == "PENDIENTE"]
+        if not filas:
+            flash("No hay creatividades nuevas que pedir.", "info")
+            return redirect(destino)
+        vence = parse_optional_date(request.form.get("due_date"))
+        if not vence:
+            flash("Pon la fecha máxima de entrega.", "warning")
+            return redirect(destino)
+        if getattr(project, "release_date", None):
+            tope = project.release_date - timedelta(days=DISCO_CREATIVE_DEADLINE_MARGIN_DAYS)
+            if vence > tope:
+                flash("La fecha máxima no puede ser posterior al %s (dos días antes del lanzamiento)."
+                      % tope.strftime("%d/%m/%Y"), "warning")
+                return redirect(destino)
+        estado = _current_user_state() or {}
+        peticion = DiscoProjectDesignRequest(
+            project_id=project.id, due_date=vence,
+            note=((request.form.get("note") or "").strip() or None),
+            token=_uuid_token(), status="SOLICITADA",
+            requested_by_user_id=_safe_uuid(estado.get("user_id")),
+            requested_by_nick=(estado.get("nick") or None))
+        session_db.add(peticion)
+        session_db.flush()
+        for c in filas:
+            c.request_id = peticion.id
+            c.status = "SOLICITADA"
+        enlace = _external_url_for("public_disco_creatives", token=peticion.token)
+        # A DISEÑO: por la campanita y, si hay correos, también por correo.
+        _notify_users(session_db, _department_user_ids(session_db, "Diseño"), "DISENO",
+                      "Creatividades por hacer: %s" % _disco_project_title(project),
+                      "%d pieza(s) · entrega antes del %s" % (len(filas), vence.strftime("%d/%m/%Y")),
+                      url=url_for("disco_project_detail", project_id=project.id, tab="calendario"),
+                      ref_type="DISCO_CREATIVES", ref_id=str(project.id))
+        cuerpo = _disco_creatives_email_html(session_db, project, peticion, filas, enlace)
+        asunto = "Creatividades · %s" % _disco_project_title(project)
+        for correo in [x.strip() for x in (request.form.get("extra_emails") or "").replace(";", ",").split(",")
+                       if x.strip()]:
+            _send_optional_email([correo], asunto, cuerpo)
+        session_db.commit()
+        flash(Markup("Creatividades solicitadas a diseño. Enlace para subirlas: "
+                     "<a href='%s'>%s</a>" % (escape(enlace), escape(enlace))), "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[creatividades] no se pudo solicitar")
+        flash("No se pudo solicitar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+def _disco_creatives_email_html(session_db, project, peticion, filas, enlace) -> str:
+    """El correo del encargo de creatividades (estilo de la casa, con la lista de piezas)."""
+    ctx = _disco_project_email_ctx(session_db, project)
+    esc = lambda v: html.escape("" if v is None else str(v))
+    marca = ctx.get("brand") or {}
+    logo = _absolute_media_url(marca.get("logo_url") or "")
+    logo_html = ("" if not logo else
+                 '<div style="text-align:right;"><img src="%s" alt="" '
+                 'style="max-height:56px;max-width:180px;object-fit:contain;"></div>' % esc(logo))
+    piezas = "".join(
+        '<tr><td style="padding:6px 10px 6px 0;font-size:14px;">%s</td>'
+        '<td style="padding:6px 0;font-size:13px;color:#6b7280;">%s</td></tr>'
+        % (esc(c.label or DISCO_CREATIVE_LABELS.get(c.kind or "", "Creatividad")),
+           esc(" · ".join([x for x in [
+               (c.size_text or ""),
+               " · ".join([DISCO_CREATIVE_FORMAT_LABELS.get(x, x) for x in (c.formats or [])]),
+               (c.note or "")] if x])))
+        for c in filas)
+    return """
+    <div style="margin:0;padding:24px;background:#f5f7fb;font-family:Arial,Helvetica,sans-serif;color:#111827;">
+      <div style="max-width:720px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:24px 30px;">
+        %s
+        <div style="margin-top:10px;font-size:24px;font-weight:700;text-align:center;">Creatividades</div>
+        <div style="margin:16px 0;border:1px solid #e5e7eb;border-radius:16px;padding:16px;background:#fcfcfd;">
+          <div style="font-size:20px;font-weight:700;">%s</div>
+          <div style="font-size:14px;color:#4b5563;margin-top:6px;">%s · Lanzamiento: %s</div>
+        </div>
+        <p style="font-size:15px;line-height:1.7;">Estas son las piezas que hacen falta%s:</p>
+        <table style="border-collapse:collapse;width:100%%;">%s</table>
+        <div style="margin-top:22px;text-align:right;">
+          <a href="%s" style="display:inline-block;padding:13px 22px;border-radius:999px;background:#E33D48;color:#fff;font-weight:700;text-decoration:none;">Subir las creatividades</a>
+        </div>
+      </div>
+    </div>
+    """ % (logo_html, esc(ctx.get("title")), esc(ctx.get("artist_name")), esc(ctx.get("release_label")),
+           (" (entrega antes del %s)" % esc(peticion.due_date.strftime("%d/%m/%Y"))
+            if peticion.due_date else ""), piezas, esc(enlace))
+
+
+@app.route("/creatividades/<token>", methods=["GET", "POST"], endpoint="public_disco_creatives")
+def public_disco_creatives(token):
+    """Página pública donde diseño SUBE las creatividades pedidas (una por una)."""
+    session_db = db()
+    try:
+        peticion = (session_db.query(DiscoProjectDesignRequest)
+                    .filter(DiscoProjectDesignRequest.token == (token or "").strip()).first())
+        if peticion is None:
+            abort(404)
+        project = session_db.get(DiscoProject, peticion.project_id)
+        if project is None:
+            abort(404)
+        ctx = _disco_project_email_ctx(session_db, project)
+        filas = (session_db.query(DiscoProjectCreative)
+                 .filter(DiscoProjectCreative.request_id == peticion.id)
+                 .order_by(DiscoProjectCreative.position.asc()).all())
+        if request.method == "POST":
+            subidas = 0
+            for c in filas:
+                fs = request.files.get("file_%s" % c.id)
+                if fs and getattr(fs, "filename", ""):
+                    try:
+                        c.file_url = upload_file(fs, "disco_creatives")
+                        c.file_name = fs.filename
+                        c.status = "ENTREGADA"
+                        c.delivered_at = _now_madrid()
+                        subidas += 1
+                    except Exception as exc:
+                        app.logger.exception("[creatividades] fallo al subir")
+                        flash("No se pudo subir «%s»: %s" % (c.label or "pieza", exc), "warning")
+            if subidas and all((c.status or "").upper() == "ENTREGADA" for c in filas):
+                peticion.status = "ENTREGADA"
+                peticion.submitted_at = _now_madrid()
+            if subidas:
+                _notify_users(session_db, _registros_user_ids(session_db), "DISCOGRAFICA",
+                              "Creatividades entregadas: %s" % _disco_project_title(project),
+                              "%d pieza(s) subidas." % subidas,
+                              url=url_for("disco_project_detail", project_id=project.id,
+                                          tab="calendario"),
+                              ref_type="DISCO_CREATIVES_OK", ref_id=str(project.id))
+            session_db.commit()
+            flash("Subidas %d pieza(s). ¡Gracias!" % subidas, "success")
+            return redirect(url_for("public_disco_creatives", token=token))
+        return render_template("public_disco_creatives.html", ctx=ctx, project=project,
+                               req=peticion, rows=filas,
+                               format_labels=DISCO_CREATIVE_FORMAT_LABELS)
+    finally:
+        session_db.close()
+
+
+# =========================================================
+# IDs DE PLATAFORMA de una canción (Spotify, Apple, Amazon, YouTube…)
+# ---------------------------------------------------------
+# Son los gráficos VERTICALES (tipo historia de Instagram) que da cada plataforma. Se suben aquí o se
+# le piden al ARTISTA con su propio enlace; lo que no haga falta se marca como **no necesario** y
+# deja de pedirse. Viven en los MATERIALES de la canción.
+# =========================================================
+SONG_PLATFORM_ID_CATALOG = (
+    ("SPOTIFY", "Spotify", "fa-spotify", "#1DB954"),
+    ("APPLE", "Apple Music", "fa-apple", "#FA243C"),
+    ("AMAZON", "Amazon Music", "fa-amazon", "#25D1DA"),
+    ("YOUTUBE", "YouTube", "fa-youtube", "#FF0000"),
+    ("ALL", "Todas las plataformas", "fa-globe", "#111827"),
+)
+SONG_PLATFORM_ID_LABELS = {k: l for k, l, _i, _c in SONG_PLATFORM_ID_CATALOG}
+
+
+def _song_platform_ids(session_db, song_id) -> dict:
+    """Los IDs de plataforma de una canción: lo subido, lo marcado «no necesario» y lo que falta."""
+    if not song_id:
+        return {"rows": [], "pending": [], "done": 0, "total": 0, "all_done": True, "request": None}
+    filas = {}
+    try:
+        for f in (session_db.query(SongPlatformId)
+                  .filter(SongPlatformId.song_id == song_id).all()):
+            filas[(f.platform or "").upper()] = f
+    except Exception:
+        app.logger.exception("[ids] no se pudieron leer los IDs de plataforma")
+    peticion = (session_db.query(SongPlatformIdRequest)
+                .filter(SongPlatformIdRequest.song_id == song_id,
+                        func.upper(func.coalesce(SongPlatformIdRequest.status, "")) == "PENDIENTE")
+                .order_by(SongPlatformIdRequest.requested_at.desc()).first())
+    salida, pendientes, hechos = [], [], 0
+    for clave, etiqueta, icono, color in SONG_PLATFORM_ID_CATALOG:
+        f = filas.pop(clave, None)
+        subido = bool(f is not None and (f.file_url or ""))
+        no_hace = bool(f is not None and f.not_needed)
+        if subido or no_hace:
+            hechos += 1
+        else:
+            pendientes.append(clave)
+        salida.append({"platform": clave, "label": etiqueta, "icon": icono, "color": color,
+                       "file_url": ((f.file_url or "") if f else ""),
+                       "file_name": ((f.file_name or "") if f else ""),
+                       "not_needed": no_hace, "done": (subido or no_hace), "custom": False,
+                       "id": (str(f.id) if f else "")})
+    # Los añadidos a mano (otra plataforma con su nombre).
+    for clave, f in filas.items():
+        subido = bool(f.file_url or "")
+        if subido or f.not_needed:
+            hechos += 1
+        else:
+            pendientes.append(clave)
+        salida.append({"platform": clave, "label": (f.label or clave.title()), "icon": "fa-link",
+                       "color": "#6b7280", "file_url": (f.file_url or ""),
+                       "file_name": (f.file_name or ""), "not_needed": bool(f.not_needed),
+                       "done": (subido or bool(f.not_needed)), "custom": True, "id": str(f.id)})
+    return {"rows": salida, "pending": pendientes, "done": hechos, "total": len(salida),
+            "all_done": not pendientes, "request": peticion,
+            "request_url": (_external_url_for("public_song_platform_ids", token=peticion.token)
+                            if peticion is not None else "")}
+
+
+def _disco_project_ids_state(session_db, project) -> dict:
+    """Los IDs de plataforma de las canciones del lanzamiento (para la tarea del proyecto)."""
+    canciones = _disco_project_release_songs(session_db, project)
+    filas, faltan = [], 0
+    for c in canciones:
+        est = _song_platform_ids(session_db, c.id)
+        if not est["all_done"]:
+            faltan += 1
+        filas.append({"song_id": str(c.id), "title": (c.title or ""),
+                      "url": url_for("discografica_song_detail", song_id=c.id, tab="materiales"),
+                      "done": est["done"], "total": est["total"], "all_done": est["all_done"],
+                      "pending": est["pending"], "asked": bool(est["request"])})
+    return {"songs": filas, "missing": faltan, "all_done": bool(canciones) and faltan == 0,
+            "has_songs": bool(canciones)}
+
+
+@app.post("/discografica/canciones/<song_id>/ids", endpoint="song_platform_id_save")
+@admin_required
+def song_platform_id_save(song_id):
+    """Sube (o marca como NO NECESARIO) el ID de una plataforma; también añade otra a mano."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("discografica_song_detail", song_id=song_id, tab="materiales")
+    try:
+        cancion = session_db.get(Song, to_uuid(song_id))
+        if cancion is None:
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+        estado = _current_user_state() or {}
+        plataforma = (request.form.get("platform") or "").strip().upper()
+        nombre_nuevo = (request.form.get("new_platform") or "").strip()
+        if nombre_nuevo:
+            plataforma = _norm_text_key(nombre_nuevo).upper().replace(" ", "_")[:40] or "OTRA"
+        if not plataforma:
+            flash("Dime de qué plataforma es.", "warning")
+            return redirect(destino)
+        fila = (session_db.query(SongPlatformId)
+                .filter(SongPlatformId.song_id == cancion.id,
+                        SongPlatformId.platform == plataforma).first())
+        if fila is None:
+            fila = SongPlatformId(song_id=cancion.id, platform=plataforma,
+                                  label=(nombre_nuevo or SONG_PLATFORM_ID_LABELS.get(plataforma, plataforma)),
+                                  project_id=_safe_uuid((request.form.get("project_id") or "").strip()))
+            session_db.add(fila)
+            session_db.flush()
+        if _truthy(request.form.get("not_needed")):
+            fila.not_needed = True
+            fila.file_url, fila.file_name = None, None
+        else:
+            fs = request.files.get("file")
+            if fs and getattr(fs, "filename", ""):
+                fila.file_url = upload_file(fs, "song_platform_ids")
+                fila.file_name = fs.filename
+                fila.not_needed = False
+                fila.uploaded_at = _now_madrid()
+                fila.uploaded_by_nick = (estado.get("nick") or None)
+            elif _truthy(request.form.get("undo_not_needed")):
+                fila.not_needed = False
+        session_db.commit()
+        flash("ID de plataforma guardado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[ids] no se pudo guardar")
+        flash("No se pudo guardar: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+@app.post("/discografica/canciones/<song_id>/ids/solicitar", endpoint="song_platform_ids_request")
+@admin_required
+def song_platform_ids_request(song_id):
+    """Le PIDE al artista los IDs de plataforma que se marquen (su propio enlace público)."""
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    destino = url_for("discografica_song_detail", song_id=song_id, tab="materiales")
+    try:
+        cancion = session_db.get(Song, to_uuid(song_id))
+        if cancion is None:
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+        marcadas = [x.strip().upper() for x in request.form.getlist("platform[]") if (x or "").strip()]
+        if not marcadas:
+            flash("Marca qué IDs se piden.", "warning")
+            return redirect(destino)
+        estado = _current_user_state() or {}
+        peticion = SongPlatformIdRequest(
+            song_id=cancion.id, platforms=marcadas, token=_uuid_token(), status="PENDIENTE",
+            note=((request.form.get("note") or "").strip() or None),
+            project_id=_safe_uuid((request.form.get("project_id") or "").strip()),
+            requested_by_nick=(estado.get("nick") or None))
+        session_db.add(peticion)
+        session_db.flush()
+        enlace = _external_url_for("public_song_platform_ids", token=peticion.token)
+        artista = _song_primary_artist(session_db, cancion)
+        cuerpo = _song_platform_ids_email_html(session_db, cancion, artista, marcadas, enlace,
+                                               note=(peticion.note or ""))
+        asunto = "IDs de plataforma · %s" % (cancion.title or "canción")
+        filas = _notify_apply_prefs(session_db,
+                                   _artist_notification_recipients(session_db,
+                                                                   getattr(artista, "id", None),
+                                                                   "DISCOGRAFICA") or [])
+        salieron = []
+        for f in filas:
+            ok, _err = _notify_send_row(session_db, f, subject=asunto, html=cuerpo,
+                                        sms_text="Nos hacen falta los IDs de %s: %s"
+                                                 % ((cancion.title or "la canción"), enlace),
+                                        kind="DISCOGRAFICA")
+            if ok:
+                salieron.append(f.get("name") or f.get("email"))
+        session_db.commit()
+        if salieron:
+            flash("IDs pedidos a %s." % ", ".join([str(x) for x in salieron]), "success")
+        else:
+            flash(Markup("Pedidos. Mándale este enlace: <a href='%s'>%s</a>"
+                         % (escape(enlace), escape(enlace))), "warning")
+    except Exception as exc:
+        session_db.rollback()
+        app.logger.exception("[ids] no se pudo pedir")
+        flash("No se pudo pedir: %s" % exc, "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(destino))
+
+
+def _song_platform_ids_email_html(session_db, song, artist, plataformas, enlace, *, note="") -> str:
+    """El correo con el que se le piden los IDs al artista (estilo de la casa)."""
+    esc = lambda v: html.escape("" if v is None else str(v))
+    marca = _pies_brand_assets(session_db)
+    logo = _absolute_media_url((marca or {}).get("logo_url") or "")
+    portada = _absolute_media_url((getattr(song, "cover_url", "") or "")
+                                  or (getattr(artist, "photo_url", "") or ""))
+    lista = "".join('<li style="margin:4px 0;font-size:15px;">%s</li>'
+                    % esc(SONG_PLATFORM_ID_LABELS.get(p, p.title())) for p in plataformas)
+    return """
+    <div style="margin:0;padding:24px;background:#f5f7fb;font-family:Arial,Helvetica,sans-serif;color:#111827;">
+      <div style="max-width:720px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:24px 30px;">
+        %s
+        <div style="margin-top:10px;font-size:24px;font-weight:700;text-align:center;">IDs de plataforma</div>
+        <div style="margin:16px 0;border:1px solid #e5e7eb;border-radius:16px;padding:16px;background:#fcfcfd;">
+          <table role="presentation" cellspacing="0" cellpadding="0"><tr>
+            %s
+            <td valign="top" style="%s">
+              <div style="font-size:20px;font-weight:700;">%s</div>
+              <div style="font-size:14px;color:#4b5563;margin-top:6px;">%s</div>
+            </td>
+          </tr></table>
+        </div>
+        <p style="font-size:15px;line-height:1.7;">Necesitamos los <strong>IDs</strong> de estas
+        plataformas. Son los gráficos <strong>verticales</strong> que dan ellas mismas (como una
+        historia de Instagram):</p>
+        <ul style="margin:0 0 14px;padding-left:20px;">%s</ul>
+        %s
+        <div style="margin-top:22px;text-align:right;">
+          <a href="%s" style="display:inline-block;padding:13px 22px;border-radius:999px;background:#E33D48;color:#fff;font-weight:700;text-decoration:none;">Subir los IDs</a>
+        </div>
+      </div>
+    </div>
+    """ % (("" if not logo else '<div style="text-align:right;"><img src="%s" alt="" '
+                               'style="max-height:56px;max-width:180px;object-fit:contain;"></div>' % esc(logo)),
+           ("" if not portada else '<td width="110" valign="top"><img src="%s" alt="" '
+                                   'style="width:92px;height:92px;object-fit:cover;border-radius:12px;'
+                                   'border:1px solid #e5e7eb;"></td>' % esc(portada)),
+           ("padding-left:14px;" if portada else ""), esc(getattr(song, "title", "") or "—"),
+           esc(getattr(artist, "name", "") or ""), lista,
+           ("" if not (note or "").strip() else
+            '<div style="margin:0 0 14px;padding:12px 14px;border-radius:12px;background:#f8fafc;'
+            'border:1px solid #e5e7eb;font-size:14px;">%s</div>' % esc(note)),
+           esc(enlace))
+
+
+@app.route("/ids-plataforma/<token>", methods=["GET", "POST"], endpoint="public_song_platform_ids")
+def public_song_platform_ids(token):
+    """Página pública donde el ARTISTA sube los IDs de plataforma que se le han pedido."""
+    session_db = db()
+    try:
+        peticion = (session_db.query(SongPlatformIdRequest)
+                    .filter(SongPlatformIdRequest.token == (token or "").strip()).first())
+        if peticion is None:
+            abort(404)
+        cancion = session_db.get(Song, peticion.song_id)
+        if cancion is None:
+            abort(404)
+        artista = _song_primary_artist(session_db, cancion)
+        estado = _song_platform_ids(session_db, cancion.id)
+        pedidas = [p for p in (peticion.platforms or [])]
+        filas = [f for f in estado["rows"] if f["platform"] in pedidas] or estado["rows"]
+        if request.method == "POST":
+            subidas = 0
+            for clave in pedidas:
+                fs = request.files.get("file_%s" % clave)
+                if not (fs and getattr(fs, "filename", "")):
+                    continue
+                fila = (session_db.query(SongPlatformId)
+                        .filter(SongPlatformId.song_id == cancion.id,
+                                SongPlatformId.platform == clave).first())
+                if fila is None:
+                    fila = SongPlatformId(song_id=cancion.id, platform=clave,
+                                          label=SONG_PLATFORM_ID_LABELS.get(clave, clave),
+                                          project_id=peticion.project_id)
+                    session_db.add(fila)
+                    session_db.flush()
+                try:
+                    fila.file_url = upload_file(fs, "song_platform_ids")
+                    fila.file_name = fs.filename
+                    fila.not_needed = False
+                    fila.uploaded_at = _now_madrid()
+                    fila.uploaded_by_nick = "artista"
+                    subidas += 1
+                except Exception as exc:
+                    app.logger.exception("[ids] fallo al subir")
+                    flash("No se pudo subir el de %s: %s"
+                          % (SONG_PLATFORM_ID_LABELS.get(clave, clave), exc), "warning")
+            if subidas:
+                nuevo = _song_platform_ids(session_db, cancion.id)
+                if all(f["done"] for f in nuevo["rows"] if f["platform"] in pedidas):
+                    peticion.status = "ENTREGADA"
+                    peticion.submitted_at = _now_madrid()
+                _notify_users(session_db, _registros_user_ids(session_db), "DISCOGRAFICA",
+                              "IDs subidos: %s" % (cancion.title or "canción"),
+                              "%d ID(s) de plataforma." % subidas,
+                              url=url_for("discografica_song_detail", song_id=cancion.id,
+                                          tab="materiales"),
+                              ref_type="SONG_IDS", ref_id=str(cancion.id))
+            session_db.commit()
+            flash("Subidos %d ID(s). ¡Gracias!" % subidas, "success")
+            return redirect(url_for("public_song_platform_ids", token=token))
+        return render_template("public_song_platform_ids.html", song=cancion, artist=artista,
+                               rows=filas, req=peticion, brand=_pies_brand_assets(session_db))
     finally:
         session_db.close()
 
@@ -56123,7 +56797,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"public_external_production", "public_external_production_code", "public_external_production_login", "external_production_exit", "short_link_go", "og_default_image", "public_campaign_files", "public_campaign_og_image", "public_activity_notice_view", "public_activity_notice_og_image", "public_artwork_view", "public_artwork_file", "public_artwork_download", "public_artwork_download_all", "public_artwork_og_image", "public_pitch_view", "public_pitch_pdf", "public_pitch_og_image", "public_material_view", "public_material_og_image", "public_album_material_download", "healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "public_concert_og_image", "api_invitation_request_duplicates", "public_demo_submit", "public_demo_submit_og_image", "public_demo_submit_identify", "public_demo_submit_sign", "public_demo_submit_check", "public_demo_submit_add", "public_demo_submit_remove", "public_demo_submit_send", "public_playlist_view", "public_playlist_audio", "public_playlist_download", "public_playlist_og_image", "public_demo_rating", "public_song_master_delivery", "public_song_delivery_og_image", "public_song_delivery_sign", "public_photo_approval", "public_photo_approval_decide", "public_photo_share", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_creatives", "public_song_platform_ids", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "cron_pleo_refresh", "cron_cabify_refresh", "cron_holded_refresh", "cron_promoter_requests", "cron_unassigned_expenses", "cron_expired_documents", "cron_song_delivery_reminders", "cron_disco_materials_reminders", "public_sale_channels", "public_prl_upload", "public_prl_upload_post", "public_bag_invoice_upload", "public_bag_invoice_upload_post", "api_address_search", "public_invoice_landing", "public_invoice_identify", "public_invoice_register", "public_invoice_docs_state", "public_invoice_supplements_save", "public_invoice_upload", "public_invoice_detect", "public_third_party_intake", "public_intake_identify", "public_intake_upload", "public_intake_submit", "public_intake_og_image", "public_document_renew", "public_royalty_liquidation_view", "concert_artwork_public_submit", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "public_minor_auth_form", "public_minor_auth_upload", "public_minor_auth_submit", "public_minor_auth_pass", "public_minor_auth_qr_png", "public_minor_auth_wallet", "public_minor_auth_validate", "public_minor_auth_check", "public_disco_artwork_upload", "public_disco_artwork_idea", "public_disco_artwork_approval", "public_disco_creatives", "public_song_platform_ids", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:

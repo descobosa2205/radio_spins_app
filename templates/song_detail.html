@@ -1400,6 +1400,129 @@
       </div>
     {% endif %}
 
+    {# ---------- IDs DE PLATAFORMA (Spotify, Apple, Amazon, YouTube…) ----------
+       Son los gráficos VERTICALES que da cada plataforma. Se suben aquí, se marcan como «no
+       necesario» o se le piden al artista (le llega su enlace). #}
+    {% if platform_ids %}
+      <div class="ficha-section mb-3">
+        <div class="ficha-section__head">
+          <h6 class="ficha-section__title"><i class="fa fa-fingerprint"></i>IDs de plataforma</h6>
+          <span class="d-flex align-items-center gap-2">
+            <span class="badge {{ 'text-bg-success' if platform_ids.all_done else 'text-bg-warning text-dark' }}">
+              {{ platform_ids.done }} / {{ platform_ids.total }}</span>
+            {% if CAN_EDIT_DISCOGRAFICA %}
+              <button class="btn btn-sm btn-outline-danger" type="button"
+                      data-bs-toggle="modal" data-bs-target="#songIdsAskModal">
+                <i class="fa fa-paper-plane me-1"></i>Solicitar al artista</button>
+            {% endif %}
+          </span>
+        </div>
+        <div class="ficha-section__body">
+          {% if platform_ids.request %}
+            <div class="alert alert-light border small">
+              <i class="fa fa-hourglass-half me-1"></i>Pedidos al artista.
+              <span class="text-break">{{ platform_ids.request_url }}</span>
+            </div>
+          {% endif %}
+          <div class="d-flex flex-wrap gap-3">
+            {% for r in platform_ids.rows %}
+              <div class="border rounded-3 p-2 text-center" style="width:150px;">
+                <span class="d-inline-flex align-items-center justify-content-center mb-1"
+                      style="width:38px;height:38px;border-radius:10px;background:{{ r.color }};color:#fff;">
+                  <i class="{{ 'fa-brands' if not r.custom and r.platform != 'ALL' else 'fa' }} {{ r.icon }}"></i>
+                </span>
+                <div class="small fw-semibold text-truncate" title="{{ r.label }}">{{ r.label }}</div>
+                <div class="my-2 mx-auto d-flex align-items-center justify-content-center"
+                     style="width:72px;aspect-ratio:9/16;border-radius:10px;overflow:hidden;
+                            border:2px dashed {{ '#cbd5e1' if not r.file_url else 'transparent' }};
+                            background:#fafbfc;">
+                  {% if r.file_url %}
+                    <a href="{{ r.file_url }}" target="_blank" rel="noopener" class="w-100 h-100">
+                      <img src="{{ r.file_url }}" alt="" style="width:100%;height:100%;object-fit:cover;"></a>
+                  {% elif r.not_needed %}
+                    <i class="fa fa-ban text-muted"></i>
+                  {% else %}
+                    <i class="fa fa-mobile-screen text-muted"></i>
+                  {% endif %}
+                </div>
+                {% if CAN_EDIT_DISCOGRAFICA %}
+                  <form method="post" action="{{ url_for('song_platform_id_save', song_id=song.id) }}"
+                        enctype="multipart/form-data" class="d-grid gap-1">
+                    <input type="hidden" name="next" value="{{ request.full_path }}">
+                    <input type="hidden" name="platform" value="{{ r.platform }}">
+                    <input type="file" name="file" class="form-control form-control-sm d-none"
+                           id="idfile-{{ r.platform }}" accept="image/*,video/*"
+                           onchange="this.form.submit()">
+                    <label class="btn btn-sm btn-outline-secondary mb-0" for="idfile-{{ r.platform }}">
+                      <i class="fa fa-upload me-1"></i>{{ 'Cambiar' if r.file_url else 'Subir' }}</label>
+                  </form>
+                  <form method="post" action="{{ url_for('song_platform_id_save', song_id=song.id) }}">
+                    <input type="hidden" name="next" value="{{ request.full_path }}">
+                    <input type="hidden" name="platform" value="{{ r.platform }}">
+                    {% if r.not_needed %}
+                      <input type="hidden" name="undo_not_needed" value="1">
+                      <button class="btn btn-sm btn-link text-decoration-none p-0">No necesario ✕</button>
+                    {% else %}
+                      <input type="hidden" name="not_needed" value="1">
+                      <button class="btn btn-sm btn-link text-muted text-decoration-none p-0">No necesario</button>
+                    {% endif %}
+                  </form>
+                {% endif %}
+              </div>
+            {% endfor %}
+            {% if CAN_EDIT_DISCOGRAFICA %}
+              <form method="post" action="{{ url_for('song_platform_id_save', song_id=song.id) }}"
+                    class="border rounded-3 p-2" style="width:170px;">
+                <input type="hidden" name="next" value="{{ request.full_path }}">
+                <div class="small fw-semibold mb-1">Otra plataforma</div>
+                <input class="form-control form-control-sm mb-1" name="new_platform" placeholder="Nombre" required>
+                <button class="btn btn-sm btn-outline-secondary w-100"><i class="fa fa-plus me-1"></i>Añadir</button>
+              </form>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      {# Pedirle al artista los IDs que se marquen. #}
+      <div class="modal fade" id="songIdsAskModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+          <form class="modal-content" method="post"
+                action="{{ url_for('song_platform_ids_request', song_id=song.id) }}">
+            <input type="hidden" name="next" value="{{ request.full_path }}">
+            <div class="modal-header">
+              <div>
+                <h5 class="modal-title"><i class="fa fa-paper-plane me-2 text-danger"></i>Solicitar IDs al artista</h5>
+                <div class="text-muted small">Le llega su enlace para subir cada uno.</div>
+              </div>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <label class="form-label">¿Cuáles se piden?</label>
+              <div class="d-grid gap-2">
+                {% for r in platform_ids.rows %}
+                  <label class="d-flex align-items-center gap-2 border rounded p-2">
+                    <input class="form-check-input m-0" type="checkbox" name="platform[]"
+                           value="{{ r.platform }}" {% if not r.done %}checked{% endif %}>
+                    <span class="d-inline-flex align-items-center justify-content-center"
+                          style="width:28px;height:28px;border-radius:8px;background:{{ r.color }};color:#fff;">
+                      <i class="{{ 'fa-brands' if not r.custom and r.platform != 'ALL' else 'fa' }} {{ r.icon }} small"></i></span>
+                    <span class="flex-grow-1">{{ r.label }}</span>
+                    {% if r.done %}<span class="badge text-bg-light border">ya está</span>{% endif %}
+                  </label>
+                {% endfor %}
+              </div>
+              <label class="form-label mt-3">Nota <span class="text-muted">(opcional)</span></label>
+              <textarea class="form-control" name="note" rows="2"></textarea>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button class="btn btn-danger"><i class="fa fa-paper-plane me-1"></i>Enviar solicitud</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    {% endif %}
+
     {# Menú de compartir + descargar reutilizable (audio o portada). #}
     {% macro mat_share_dl(concept, item, is_cover=False) %}
       <li><h6 class="dropdown-header">Compartir</h6></li>

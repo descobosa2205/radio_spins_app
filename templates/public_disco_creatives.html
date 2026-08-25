@@ -1,0 +1,101 @@
+{# Página pública donde DISEÑO sube las creatividades pedidas. Standalone (la abre gente de fuera
+   con su token), con el estilo de la casa: logo arriba a la derecha y título centrado. #}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Creatividades · {{ ctx.title }}</title>
+  <meta property="og:title" content="Creatividades · {{ ctx.title }}">
+  <meta property="og:description" content="Sube las creatividades del lanzamiento">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/styles.css') }}" rel="stylesheet">
+</head>
+<body class="bg-light">
+<div class="container py-4" style="max-width:900px;">
+  <div class="card shadow-sm">
+    <div class="card-body p-4">
+      <div class="d-flex justify-content-end">
+        {% if ctx.brand and ctx.brand.logo_url %}
+          <img src="{{ ctx.brand.logo_url }}" alt="" style="max-height:56px;max-width:180px;object-fit:contain;">
+        {% endif %}
+      </div>
+      <h1 class="h3 text-center mt-2 mb-4">Creatividades</h1>
+
+      <div class="d-flex align-items-center gap-3 border rounded-3 p-3 mb-3 bg-white">
+        {% if ctx.cover_url %}
+          <img src="{{ ctx.cover_url }}" alt="" style="width:88px;height:88px;object-fit:cover;border-radius:14px;border:1px solid #e5e7eb;">
+        {% endif %}
+        <div class="min-w-0">
+          <div class="fs-5 fw-bold text-truncate">{{ ctx.title }}</div>
+          <div class="text-muted small">{{ ctx.artist_name }}</div>
+          <div class="mt-1">
+            <span class="badge text-bg-light border">Lanzamiento: {{ ctx.release_label }}</span>
+            <span class="badge text-bg-dark">{{ ctx.badge_label }}</span>
+          </div>
+        </div>
+      </div>
+
+      {% if req.due_date %}
+        <div class="alert alert-warning">
+          <i class="fa fa-calendar-day me-1"></i>Fecha máxima de entrega:
+          <strong>{{ req.due_date.strftime('%d/%m/%Y') }}</strong>
+        </div>
+      {% endif %}
+      {% if req.note %}
+        <div class="alert alert-light border"><i class="fa fa-note-sticky me-1"></i>{{ req.note }}</div>
+      {% endif %}
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ 'danger' if category == 'danger' else ('warning' if category == 'warning' else 'success') }}">{{ message }}</div>
+        {% endfor %}
+      {% endwith %}
+
+      <form method="post" enctype="multipart/form-data">
+        <div class="d-grid gap-2">
+          {% for c in rows %}
+            <div class="border rounded-3 p-3">
+              <div class="d-flex align-items-center gap-3 flex-wrap">
+                <span class="d-inline-flex align-items-center justify-content-center flex-shrink-0"
+                      style="width:44px;height:44px;border-radius:12px;background:rgba(227,61,72,.10);color:#E33D48;">
+                  <i class="fa {{ {'VIDEO': 'fa-film', 'AUDIO': 'fa-music'}.get(c.media, 'fa-image') }}"></i>
+                </span>
+                <span class="flex-grow-1 min-w-0">
+                  <span class="fw-semibold d-block">{{ c.label }}</span>
+                  <span class="small text-muted d-block">
+                    {{ c.size_text or '' }}
+                    {%- if c.formats %} · {% for f in c.formats %}{{ format_labels.get(f, f) }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+                    {%- if c.note %} · {{ c.note }}{% endif %}
+                  </span>
+                </span>
+                {% if c.status == 'ENTREGADA' %}
+                  <span class="badge text-bg-success"><i class="fa fa-circle-check me-1"></i>Entregada</span>
+                {% else %}
+                  <span class="badge text-bg-warning text-dark">Pendiente</span>
+                {% endif %}
+              </div>
+              <div class="mt-2">
+                <input class="form-control" type="file" name="file_{{ c.id }}">
+                {% if c.file_url %}
+                  <div class="small mt-1">
+                    <a href="{{ c.file_url }}" target="_blank" rel="noopener">
+                      <i class="fa fa-paperclip me-1"></i>{{ c.file_name or 'archivo subido' }}</a>
+                    <span class="text-muted"> · si subes otro, lo sustituye</span>
+                  </div>
+                {% endif %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+        <div class="text-end mt-3">
+          <button class="btn btn-danger btn-lg"><i class="fa fa-paper-plane me-1"></i>Enviar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <div class="text-center text-muted small mt-3">{{ ctx.brand.company_name or 'PIES' }}</div>
+</div>
+</body>
+</html>

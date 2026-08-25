@@ -646,6 +646,154 @@
   </div>
 </div>
 
+
+{# ------------------------------------------------- 13 · OTRAS CREATIVIDADES · elegir las piezas #}
+<div class="modal fade" id="dpCreativesModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_project_creatives_save', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-shapes me-2 text-danger"></i>Otras creatividades</h5>
+          <div class="text-muted small">Marca las que hacen falta. Cada una lleva su tamaño.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        {% set elegidas = {} %}
+        {% for c in (creatives.rows if creatives else []) %}{% if elegidas.update({c.kind: c}) %}{% endif %}{% endfor %}
+        <div class="row g-3">
+          {% for key, label, icon, media, size, has_formats in creative_catalog %}
+            {% set ya = elegidas.get(key) %}
+            <div class="col-12 col-md-6">
+              <div class="border rounded-3 p-3 h-100">
+                <label class="d-flex align-items-center gap-2 mb-1">
+                  <input class="form-check-input m-0" type="checkbox" name="creative[]" value="{{ key }}"
+                         {% if ya %}checked{% endif %}>
+                  <span class="d-inline-flex align-items-center justify-content-center flex-shrink-0"
+                        style="width:38px;height:38px;border-radius:10px;background:rgba(227,61,72,.10);color:#E33D48;">
+                    <i class="fa {{ icon }}"></i></span>
+                  <span class="min-w-0">
+                    <span class="fw-semibold d-block">{{ label }}</span>
+                    <span class="small text-muted d-block">{{ size }} · {{ {'VIDEO':'Vídeo','AUDIO':'Audio'}.get(media,'Imagen') }}</span>
+                  </span>
+                  {% if ya and ya.status != 'PENDIENTE' %}
+                    <span class="badge {{ 'text-bg-success' if ya.status == 'ENTREGADA' else 'text-bg-warning text-dark' }} ms-auto">
+                      {{ 'Entregada' if ya.status == 'ENTREGADA' else 'Pedida' }}</span>
+                  {% endif %}
+                </label>
+                {% if has_formats %}
+                  <div class="d-flex flex-wrap gap-2 mt-2 ps-4">
+                    {% for fk, fl, fi, fs_ in creative_formats %}
+                      <label class="badge text-bg-light border d-inline-flex align-items-center gap-1" style="cursor:pointer;">
+                        <input class="form-check-input m-0" type="checkbox" name="formats_{{ key }}[]" value="{{ fk }}"
+                               {% if ya and fk in (ya.formats or []) %}checked{% endif %}>
+                        <i class="fa {{ fi }}"></i>{{ fl }}
+                      </label>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+                <input class="form-control form-control-sm mt-2" name="note_{{ key }}"
+                       placeholder="Nota aclaratoria (opcional)" value="{{ (ya.note if ya else '') or '' }}">
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+
+        <hr class="my-4">
+        <div class="fw-semibold mb-2"><i class="fa fa-plus me-1"></i>Otra (a mano)</div>
+        <div class="small text-muted mb-2">Se pueden añadir varias: nombre, tamaño, si es imagen,
+          vídeo o audio, y una nota.</div>
+        <div data-dp-others>
+          <div class="row g-2 align-items-end mb-2">
+            <div class="col-12 col-md-4"><input class="form-control" name="other_label[]" placeholder="Nombre"></div>
+            <div class="col-6 col-md-2"><input class="form-control" name="other_size[]" placeholder="Tamaño"></div>
+            <div class="col-6 col-md-2">
+              <select class="form-select" name="other_media[]">
+                {% for mk, ml, mi in creative_media %}<option value="{{ mk }}">{{ ml }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-12 col-md-4"><input class="form-control" name="other_note[]" placeholder="Nota"></div>
+          </div>
+        </div>
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-dp-add-other>
+          <i class="fa fa-plus me-1"></i>Añadir otra</button>
+
+        {% if creatives and creatives.rows %}
+          <hr class="my-4">
+          <div class="fw-semibold mb-2">Ya en la lista</div>
+          <div class="d-grid gap-2">
+            {% for c in creatives.rows %}
+              <div class="d-flex align-items-center gap-2 border rounded p-2 flex-wrap">
+                <i class="fa {{ c.icon }} text-muted"></i>
+                <span class="flex-grow-1 min-w-0">
+                  <span class="fw-semibold">{{ c.label }}</span>
+                  <span class="small text-muted d-block">
+                    {{ c.size_text }}{% if c.formats_label %} · {{ c.formats_label }}{% endif %}
+                    {%- if c.note %} · {{ c.note }}{% endif %}</span>
+                </span>
+                <span class="badge {{ 'text-bg-success' if c.status == 'ENTREGADA' else ('text-bg-warning text-dark' if c.status == 'SOLICITADA' else 'text-bg-light border') }}">
+                  {{ c.status|title }}</span>
+                {% if c.file_url %}
+                  <a class="btn btn-sm btn-outline-secondary" href="{{ c.file_url }}" target="_blank" rel="noopener">
+                    <i class="fa fa-download"></i></a>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-floppy-disk me-1"></i>Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ------------------------------------------------- 14 · OTRAS CREATIVIDADES · encargo a diseño #}
+<div class="modal fade" id="dpCreativesRequestModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post"
+          action="{{ url_for('disco_project_creatives_request', project_id=project.id) }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title"><i class="fa fa-paper-plane me-2 text-danger"></i>Solicitar las creatividades</h5>
+          <div class="text-muted small">Le llega a diseño con un enlace para subirlas.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-12 col-md-4">
+            <label class="form-label">Fecha máxima de entrega</label>
+            <input type="date" class="form-control" name="due_date" required
+                   {% if creatives and creatives.max_due %}max="{{ creatives.max_due.isoformat() }}"{% endif %}>
+            {% if creatives and creatives.max_due_label %}
+              <div class="form-text">Como muy tarde el <strong>{{ creatives.max_due_label }}</strong>
+                (dos días antes del lanzamiento).</div>
+            {% endif %}
+          </div>
+          <div class="col-12 col-md-8">
+            <label class="form-label">Otros correos <span class="text-muted">(opcional)</span></label>
+            <input class="form-control" name="extra_emails" placeholder="diseno@correo.com">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Nota</label>
+            <textarea class="form-control" name="note" rows="3"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-danger"><i class="fa fa-paper-plane me-1"></i>Solicitar a diseño</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 {# ---------------------------------------------------------------- 12 · SUBIR UNA DEMO
    El MISMO formulario que la sección Demos (parcial `_demo_form_fields.html` + `demo_form.js`), con
    el proyecto ya puesto: la maqueta queda vinculada a él. #}
@@ -713,6 +861,16 @@
   }
   document.addEventListener('change', function (ev) {
     if (ev.target && ev.target.matches('input[type="radio"]')) sincroniza(document);
+  });
+  // «Añadir otra» creatividad: clona la fila vacía (se pueden añadir varias).
+  document.addEventListener('click', function (ev) {
+    var btn = ev.target && ev.target.closest('[data-dp-add-other]');
+    if (!btn) return;
+    var zona = document.querySelector('[data-dp-others]');
+    if (!zona || !zona.firstElementChild) return;
+    var fila = zona.firstElementChild.cloneNode(true);
+    fila.querySelectorAll('input').forEach(function (i) { i.value = ''; });
+    zona.appendChild(fila);
   });
   document.addEventListener('DOMContentLoaded', function () { sincroniza(document); });
   if (document.readyState !== 'loading') sincroniza(document);
